@@ -36,11 +36,19 @@ function verificationPurpose(token: string): string | undefined {
   return payload.requestType;
 }
 
+// What the Host does when a user is deleted, injected so this package never depends on the Chat SDK
+// (ADR 0005). It runs before the user's rows go: if it throws, the account delete is aborted and
+// the user can ask again, so it must be idempotent.
+export type AuthHooks = {
+  deleteChatData(userId: string): Promise<void>;
+};
+
 export function createAuth(
   env: AuthConfig,
   database: Database,
   sender: EmailSender,
   logger: AuthLogger,
+  hooks: AuthHooks,
 ) {
   // Sends run without being awaited, so a slow or failing provider never holds the request up
   // (a timing signal, per Better Auth's guidance). A failure is logged, never thrown.
@@ -112,6 +120,27 @@ export function createAuth(
           sendInBackground(
             renderTemplate("change-email-confirm", user.email, { appName: env.APP_NAME, url }),
             "change email confirmation",
+          );
+        },
+      },
+      deleteUser: {
+        enabled: true,
+        // Everyone gets the link, OAuth-only users included: they have no password to prove who they are.
+        sendDeleteAccountVerification: async ({ user, url }) => {
+          sendInBackground(
+            renderTemplate("delete-account-confirm", user.email, { appName: env.APP_NAME, url }),
+            "account deletion confirmation",
+          );
+        },
+        // Runs before the user's rows are deleted: a throw aborts the delete, so no chat rows are
+        // left behind without their owner.
+        beforeDelete: async (user) => {
+          await hooks.deleteChatData(user.id);
+        },
+        afterDelete: async ({ email }) => {
+          sendInBackground(
+            renderTemplate("account-deleted", email, { appName: env.APP_NAME }),
+            "account deleted",
           );
         },
       },

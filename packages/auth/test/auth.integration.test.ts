@@ -1,5 +1,5 @@
 import { createDb } from "@ai-chat/db";
-import { account, user } from "@ai-chat/db/schema/auth";
+import { account, session, user } from "@ai-chat/db/schema/auth";
 import { createMemorySender, type EmailSender } from "@ai-chat/email";
 import { randomUUID } from "node:crypto";
 
@@ -19,6 +19,7 @@ const env: AuthConfig = {
   GOOGLE_CLIENT_SECRET: "test-google-client-secret",
 };
 const database = createDb({ DATABASE_URL: process.env.TEST_DATABASE_URL ?? "" });
+const noChatData = { deleteChatData: async () => {} };
 
 afterAll(async () => {
   await database.$client.end();
@@ -61,7 +62,7 @@ async function passwordHashOf(userId: string) {
 describe("sign-up and email verification", () => {
   it("answers a new and an existing email the same, and leaves the existing account alone", async () => {
     const sender = createMemorySender();
-    const auth = createAuth(env, database, sender, makeLogger());
+    const auth = createAuth(env, database, sender, makeLogger(), noChatData);
 
     const fresh = await signUp(auth, "owner@example.com", "owner-password-1");
     const [owner] = await userRow("owner@example.com");
@@ -88,7 +89,7 @@ describe("sign-up and email verification", () => {
 
   it("refuses sign-in before verification with 403, and sends a fresh link", async () => {
     const sender = createMemorySender();
-    const auth = createAuth(env, database, sender, makeLogger());
+    const auth = createAuth(env, database, sender, makeLogger(), noChatData);
     await signUp(auth, "waiting@example.com", "waiting-password-1");
 
     const response = await post(auth, "/sign-in/email", {
@@ -110,7 +111,7 @@ describe("sign-up and email verification", () => {
       }),
     };
     const logger = makeLogger();
-    const auth = createAuth(env, database, failing, logger);
+    const auth = createAuth(env, database, failing, logger, noChatData);
 
     const response = await signUp(auth, "unlucky@example.com", "unlucky-password-1");
 
@@ -153,7 +154,7 @@ describe("forgotten password", () => {
 
   it("answers an existing and a missing email the same, and mails only the existing one", async () => {
     const sender = createMemorySender();
-    const auth = createAuth(env, database, sender, makeLogger());
+    const auth = createAuth(env, database, sender, makeLogger(), noChatData);
     await verifiedUser(auth, "reset-me@example.com", "reset-password-1");
 
     const existing = await requestReset(auth, "reset-me@example.com");
@@ -171,7 +172,7 @@ describe("forgotten password", () => {
 
   it("a reset token works once; the second use is refused", async () => {
     const sender = createMemorySender();
-    const auth = createAuth(env, database, sender, makeLogger());
+    const auth = createAuth(env, database, sender, makeLogger(), noChatData);
     await verifiedUser(auth, "once@example.com", "old-password-1");
     await requestReset(auth, "once@example.com");
     await vi.waitFor(() => expect(resetMails(sender)).toHaveLength(1));
@@ -191,7 +192,7 @@ describe("forgotten password", () => {
 
   it("signs out every other session after a reset, and mails the password-changed notice", async () => {
     const sender = createMemorySender();
-    const auth = createAuth(env, database, sender, makeLogger());
+    const auth = createAuth(env, database, sender, makeLogger(), noChatData);
     await verifiedUser(auth, "sessions@example.com", "old-password-1");
     const other = await post(auth, "/sign-in/email", {
       email: "sessions@example.com",
@@ -251,7 +252,7 @@ describe("change password", () => {
 
   it("mails the password-changed notice once the password is changed", async () => {
     const sender = createMemorySender();
-    const auth = createAuth(env, database, sender, makeLogger());
+    const auth = createAuth(env, database, sender, makeLogger(), noChatData);
     const cookie = await signedInCookie(auth, "changer@example.com", "old-password-1");
 
     const changed = await changePassword(auth, cookie, "old-password-1", "new-password-1");
@@ -266,7 +267,7 @@ describe("change password", () => {
 
   it("refuses a wrong current password and mails no notice", async () => {
     const sender = createMemorySender();
-    const auth = createAuth(env, database, sender, makeLogger());
+    const auth = createAuth(env, database, sender, makeLogger(), noChatData);
     const cookie = await signedInCookie(auth, "guesser@example.com", "old-password-1");
 
     const refused = await changePassword(auth, cookie, "not-the-password-1", "new-password-1");
@@ -321,7 +322,7 @@ describe("change email", () => {
 
   it("sends the confirmation to the current address, and changes nothing until the new one is verified", async () => {
     const sender = createMemorySender();
-    const auth = createAuth(env, database, sender, makeLogger());
+    const auth = createAuth(env, database, sender, makeLogger(), noChatData);
     const cookie = await signedIn(auth, OLD);
 
     const response = await requestChange(auth, cookie, NEW);
@@ -347,7 +348,7 @@ describe("change email", () => {
 
   it("answers an address that already has an account the same as a free one, and changes no account", async () => {
     const sender = createMemorySender();
-    const auth = createAuth(env, database, sender, makeLogger());
+    const auth = createAuth(env, database, sender, makeLogger(), noChatData);
     await signUp(auth, TAKEN, "taken-password-1");
     const cookie = await signedIn(auth, REQUESTER);
 
@@ -374,7 +375,7 @@ describe("social sign-in", () => {
   ])(
     "starts %s at its authorize URL with the configured client and callback",
     async (provider, authorize, clientId) => {
-      const auth = createAuth(env, database, createMemorySender(), makeLogger());
+      const auth = createAuth(env, database, createMemorySender(), makeLogger(), noChatData);
       const response = await post(auth, "/sign-in/social", { provider, callbackURL: "/c" });
       const { url } = (await response.json()) as { url: string };
 
@@ -384,6 +385,101 @@ describe("social sign-in", () => {
       expect(start.searchParams.get("redirect_uri")).toBe(`${BASE}/api/auth/callback/${provider}`);
     },
   );
+});
+
+describe("account deletion", () => {
+  const run = randomUUID().slice(0, 8);
+  const LEAVER = `leaver-${run}@example.com`;
+  const RETRIED = `retried-${run}@example.com`;
+  const CALLBACK = `${BASE}/login`;
+
+  async function signedInCookie(auth: ReturnType<typeof createAuth>, email: string) {
+    await signUp(auth, email, "leaver-password-1");
+    await database.update(user).set({ emailVerified: true }).where(eq(user.email, email));
+    const response = await post(auth, "/sign-in/email", { email, password: "leaver-password-1" });
+    return response.headers
+      .getSetCookie()
+      .map((value) => value.split(";")[0])
+      .join("; ");
+  }
+
+  function requestDeletion(auth: ReturnType<typeof createAuth>, cookie: string) {
+    return auth.handler(
+      new Request(`${BASE}/api/auth/delete-user`, {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: BASE, cookie },
+        body: JSON.stringify({ callbackURL: CALLBACK }),
+      }),
+    );
+  }
+
+  // The link of the newest deletion confirmation the sender received.
+  async function confirmationLink(sender: ReturnType<typeof createMemorySender>, count: number) {
+    await vi.waitFor(() =>
+      expect(sender.messages.filter((m) => m.template === "delete-account-confirm")).toHaveLength(
+        count,
+      ),
+    );
+    return (
+      sender.messages.filter((m) => m.template === "delete-account-confirm").at(-1)?.link ?? ""
+    );
+  }
+
+  function follow(auth: ReturnType<typeof createAuth>, link: string, cookie: string) {
+    return auth.handler(new Request(link, { headers: { cookie } }));
+  }
+
+  async function rowsFor(email: string) {
+    const [row] = await database.select({ id: user.id }).from(user).where(eq(user.email, email));
+    if (!row) return { user: 0, sessions: 0, accounts: 0 };
+    const sessions = await database.select().from(session).where(eq(session.userId, row.id));
+    const accounts = await database.select().from(account).where(eq(account.userId, row.id));
+    return { user: 1, sessions: sessions.length, accounts: accounts.length, id: row.id };
+  }
+
+  it("the emailed link calls the hook with the user's id, then removes the user, sessions and accounts", async () => {
+    const sender = createMemorySender();
+    const deleteChatData = vi.fn(async (_userId: string) => {});
+    const auth = createAuth(env, database, sender, makeLogger(), { deleteChatData });
+    const cookie = await signedInCookie(auth, LEAVER);
+    const before = await rowsFor(LEAVER);
+    expect(before).toMatchObject({ user: 1, sessions: 1, accounts: 1 });
+
+    const request = await requestDeletion(auth, cookie);
+    expect(request.status).toBe(200);
+    const link = await confirmationLink(sender, 1);
+    expect(link).toContain("/api/auth/delete-user/callback?token=");
+
+    const confirmed = await follow(auth, link, cookie);
+    expect(confirmed.status).toBeLessThan(400);
+    expect(deleteChatData).toHaveBeenCalledTimes(1);
+    expect(deleteChatData).toHaveBeenCalledWith(before.id);
+    expect(await rowsFor(LEAVER)).toEqual({ user: 0, sessions: 0, accounts: 0 });
+    await vi.waitFor(() =>
+      expect(sender.messages.map((m) => m.template)).toContain("account-deleted"),
+    );
+  });
+
+  it("a hook that throws aborts the delete with the user still there, and a new request retries it", async () => {
+    const sender = createMemorySender();
+    const deleteChatData = vi
+      .fn<(userId: string) => Promise<void>>()
+      .mockRejectedValueOnce(new Error("chat store is down"))
+      .mockResolvedValue(undefined);
+    const auth = createAuth(env, database, sender, makeLogger(), { deleteChatData });
+    const cookie = await signedInCookie(auth, RETRIED);
+
+    await requestDeletion(auth, cookie);
+    const failed = await follow(auth, await confirmationLink(sender, 1), cookie);
+    expect(failed.status).toBeGreaterThanOrEqual(500);
+    expect(await rowsFor(RETRIED)).toMatchObject({ user: 1, sessions: 1, accounts: 1 });
+    expect(sender.messages.map((m) => m.template)).not.toContain("account-deleted");
+
+    await requestDeletion(auth, cookie);
+    await follow(auth, await confirmationLink(sender, 2), cookie);
+    expect(deleteChatData).toHaveBeenCalledTimes(2);
+    expect(await rowsFor(RETRIED)).toEqual({ user: 0, sessions: 0, accounts: 0 });
+  });
 });
 
 describe("connected accounts", () => {
@@ -433,7 +529,7 @@ describe("connected accounts", () => {
   }
 
   it("refuses to unlink the only sign-in method", async () => {
-    const auth = createAuth(env, database, createMemorySender(), makeLogger());
+    const auth = createAuth(env, database, createMemorySender(), makeLogger(), noChatData);
     const { cookie, userId } = await signedInWith(auth, `only-${randomUUID()}@example.com`, false);
     const [credential] = await accountsOf(userId);
 
@@ -445,7 +541,7 @@ describe("connected accounts", () => {
   });
 
   it("unlinks one of two sign-in methods and keeps the other", async () => {
-    const auth = createAuth(env, database, createMemorySender(), makeLogger());
+    const auth = createAuth(env, database, createMemorySender(), makeLogger(), noChatData);
     const { cookie, userId } = await signedInWith(auth, `two-${randomUUID()}@example.com`, true);
     const accounts = await accountsOf(userId);
     const github = accounts.find((row) => row.providerId === "github");

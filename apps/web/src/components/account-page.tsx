@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { authClient } from "@/lib/auth-client";
 import { describeUserAgent } from "@/lib/user-agent";
 
-/** Account: the Profile, Email, Password, Connected accounts and Active sessions sections of settings. */
+/** Account: the Profile, Email, Password, Connected accounts, Active sessions and Danger zone sections of settings. */
 export function AccountPage() {
   const { data: current } = authClient.useSession();
   if (!current) return null;
@@ -22,7 +22,40 @@ export function AccountPage() {
       <PasswordSection email={current.user.email} />
       <ConnectedAccountsSection />
       <SessionsSection currentSessionId={current.session.id} />
+      <DangerSection email={current.user.email} />
     </main>
+  );
+}
+
+/** Danger zone: deleting the account is confirmed by a link to the account's email, and says so. */
+function DangerSection({ email }: { email: string }) {
+  const request = useMutation({
+    mutationFn: async () => {
+      const { error } = await authClient.deleteUser({
+        callbackURL: `${window.location.origin}/login`,
+      });
+      if (error) throw new Error(error.message);
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  return (
+    <section className="space-y-3 rounded-md border border-destructive/50 p-4">
+      <h2 className="text-sm font-medium text-destructive">Danger zone</h2>
+      <p className="text-sm text-muted-foreground">
+        Deleting your account removes your Conversations, Messages, Attachments, Shared links,
+        Provider credentials, Tool credentials and settings at once. This cannot be undone.
+      </p>
+      {request.isSuccess ? (
+        <p className="text-sm">
+          We sent a confirmation link to <strong>{email}</strong>. Open it to delete your account.
+        </p>
+      ) : (
+        <Button variant="destructive" disabled={request.isPending} onClick={() => request.mutate()}>
+          Delete account
+        </Button>
+      )}
+    </section>
   );
 }
 

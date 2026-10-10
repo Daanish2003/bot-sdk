@@ -22,6 +22,10 @@ export const auth = createAuth(
   db,
   sender,
   log,
+  {
+    // Runs before the user is deleted: a failure aborts the account delete, so the user can retry.
+    deleteChatData: (userId) => chat.deleteUser(userId),
+  },
 );
 export const chat = createChat({
   databaseUrl: ENV.DATABASE_URL,
