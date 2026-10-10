@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { authClient } from "@/lib/auth-client";
 import { describeUserAgent } from "@/lib/user-agent";
 
-/** Account: the Profile, Email, Password and Active sessions sections of settings. */
+/** Account: the Profile, Email, Password, Connected accounts and Active sessions sections of settings. */
 export function AccountPage() {
   const { data: current } = authClient.useSession();
   if (!current) return null;
@@ -19,7 +19,8 @@ export function AccountPage() {
       <h1 className="text-xl font-semibold">Account</h1>
       <ProfileSection name={current.user.name} />
       <EmailSection email={current.user.email} />
-      <PasswordSection />
+      <PasswordSection email={current.user.email} />
+      <ConnectedAccountsSection />
       <SessionsSection currentSessionId={current.session.id} />
     </main>
   );
@@ -115,16 +116,22 @@ function EmailSection({ email }: { email: string }) {
   );
 }
 
-/** Password: a change form for a user with a password. OAuth-only users get no form. */
-function PasswordSection() {
-  const accounts = useQuery({
-    queryKey: ["account", "accounts"],
+const accountsKey = ["account", "accounts"];
+
+function useLinkedAccounts() {
+  return useQuery({
+    queryKey: accountsKey,
     queryFn: async () => {
       const { data, error } = await authClient.listAccounts();
       if (error) throw new Error(error.message);
       return data;
     },
   });
+}
+
+/** Password: a change form for a user with a password. OAuth-only users get a link to set one. */
+function PasswordSection({ email }: { email: string }) {
+  const accounts = useLinkedAccounts();
   const hasPassword = accounts.data?.some((account) => account.providerId === "credential");
 
   return (
@@ -133,9 +140,126 @@ function PasswordSection() {
       {hasPassword ? (
         <ChangePasswordForm />
       ) : hasPassword === false ? (
-        <p className="text-sm text-muted-foreground">
-          You sign in with GitHub or Google, so there is no password to change.
-        </p>
+        <SetPasswordByEmail email={email} />
+      ) : null}
+    </section>
+  );
+}
+
+/**
+ * A user who only signs in with GitHub or Google sets a first password through the reset link, so
+ * this sends that link. Using it signs out every session, this one included.
+ */
+function SetPasswordByEmail({ email }: { email: string }) {
+  const request = useMutation({
+    mutationFn: async () => {
+      const { error } = await authClient.requestPasswordReset({
+        email,
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: () => toast.success("We sent a link to set a password. Open it to continue."),
+    onError: (error) => toast.error(error.message),
+  });
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-muted-foreground">
+        You sign in with GitHub or Google. To sign in with email too, we'll send a link to set a
+        password. Using it signs out all your sessions, so you'll sign in again with the new
+        password.
+      </p>
+      <Button variant="outline" onClick={() => request.mutate()} disabled={request.isPending}>
+        Email me a link to set a password
+      </Button>
+    </div>
+  );
+}
+
+const socialProviders = [
+  { id: "github", label: "GitHub" },
+  { id: "google", label: "Google" },
+] as const;
+
+const lastSignInMessage =
+  "This is your only way to sign in, so it can't be unlinked. Set a password or link another account first.";
+
+/** Connected accounts: link or unlink GitHub and Google. Better Auth refuses to unlink the last sign-in method. */
+function ConnectedAccountsSection() {
+  const queryClient = useQueryClient();
+  const accounts = useLinkedAccounts();
+  const rows = accounts.data ?? [];
+
+  const link = useMutation({
+    mutationFn: async (provider: (typeof socialProviders)[number]["id"]) => {
+      // Better Auth answers with the provider's authorize URL and the browser follows it.
+      const { error } = await authClient.linkSocial({
+        provider,
+        callbackURL: "/settings/account",
+      });
+      if (error) throw new Error(error.message);
+    },
+    onError: (error) => toast.error(error.message || "Could not start linking"),
+  });
+
+  const unlink = useMutation({
+    mutationFn: async (accountId: string) => {
+      const { error } = await authClient.unlinkAccount({ accountId });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Account unlinked");
+      queryClient.invalidateQueries({ queryKey: accountsKey });
+    },
+    onError: (failure: { code?: string; message?: string }) =>
+      toast.error(
+        failure.code === "FAILED_TO_UNLINK_LAST_ACCOUNT"
+          ? lastSignInMessage
+          : (failure.message ?? "Could not unlink the account"),
+      ),
+  });
+
+  return (
+    <section className="space-y-3">
+      <h2 className="text-sm font-medium">Connected accounts</h2>
+      <ul aria-label="Connected accounts" className="divide-y overflow-hidden rounded-xl border">
+        {socialProviders.map((provider) => {
+          const linked = rows.find((row) => row.providerId === provider.id);
+          return (
+            <li
+              key={provider.id}
+              className="flex flex-col gap-2 p-4 text-sm sm:flex-row sm:items-center sm:justify-between"
+            >
+              <span>
+                {provider.label}:{" "}
+                <span className="text-muted-foreground">{linked ? "Linked" : "Not linked"}</span>
+              </span>
+              {linked ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={rows.length === 1 || unlink.isPending}
+                  onClick={() => unlink.mutate(linked.id)}
+                >
+                  Unlink {provider.label}
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={link.isPending}
+                  onClick={() => link.mutate(provider.id)}
+                >
+                  Link {provider.label}
+                </Button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {rows.length === 1 ? (
+        <p className="text-sm text-muted-foreground">{lastSignInMessage}</p>
       ) : null}
     </section>
   );
