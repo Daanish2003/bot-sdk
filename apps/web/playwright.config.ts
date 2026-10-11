@@ -39,11 +39,15 @@ export default defineConfig({
     },
     { name: "phone", testMatch: /\.phone\.spec\.ts$/, use: { ...devices["Pixel 7"] } },
   ],
-  webServer: {
-    command: "pnpm build && node e2e/start-server.ts",
-    url: `${baseURL}/login`,
-    env: serverEnv,
-    timeout: 300_000,
-    reuseExistingServer: !process.env.CI,
-  },
+  // E2E_EXTERNAL_SERVER=1: CI runs the suite against the image's containers already listening on
+  // `baseURL` and `mcpBaseURL` (ci.yml), so Playwright starts none.
+  webServer: process.env.E2E_EXTERNAL_SERVER
+    ? undefined
+    : {
+        command: "pnpm build && node e2e/start-server.ts",
+        url: `${baseURL}/login`,
+        env: serverEnv,
+        timeout: 300_000,
+        reuseExistingServer: !process.env.CI,
+      },
 });
