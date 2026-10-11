@@ -13,5 +13,6 @@ export const appWebHost: HostFixture = {
     keys: "/settings/keys",
     sharedLink: /\/share\//,
     shared: (token) => `/share/${token}`,
+    chatApi: "/api/chat",
   },
 };
