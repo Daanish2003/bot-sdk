@@ -25,7 +25,7 @@ export function chatPage(expect: Expect, host: HostFixture) {
     await page.goto(host.paths.keys);
     const row = page.getByRole("listitem").filter({ hasText: "Ollama" });
     await row.getByRole("button", { name: "Add" }).click();
-    await page.getByLabel("Host").fill(host.fakeOllamaHost);
+    await page.getByLabel("Host", { exact: true }).fill(host.fakeOllamaHost);
     await page.getByRole("button", { name: "Check & save" }).click();
     await expect(row.getByText("Verified")).toBeVisible();
   }

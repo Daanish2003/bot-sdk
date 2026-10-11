@@ -177,7 +177,7 @@ export function registerSharedScenarios(
 
       // In the Project, not in the main list.
       await page.goto(projectPath);
-      await expect(page.locator(`a[href="${conversationPath}"]`)).toHaveCount(2);
+      await expect(page.locator(`a[href="${conversationPath}"]`)).toBeVisible();
       await expect(panel.locator(`a[href="${conversationPath}"]`)).toHaveCount(0);
 
       await page.getByRole("button", { name: /^Actions for / }).click();
@@ -186,7 +186,7 @@ export function registerSharedScenarios(
       // Pinned lists it, and the Project still holds it.
       const pinned = panel.getByRole("region", { name: "Pinned" });
       await expect(pinned.locator(`a[href="${conversationPath}"]`)).toBeVisible();
-      await expect(page.locator(`a[href="${conversationPath}"]`)).toBeVisible();
+      await expect(page.locator(`a[href="${conversationPath}"]`)).toHaveCount(2);
 
       // More than one page of Conversations outside Projects, seeded through the chat's RPC.
       const mainCount = 55;
