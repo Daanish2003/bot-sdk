@@ -5,6 +5,7 @@ import { log } from "evlog";
 
 import { appName, sender } from "./email";
 import { ENV, ssrfAllowHosts } from "./env.server";
+import { hostProvidersOf, quotaOf } from "./host-models";
 import { mcpServersOf } from "./mcp-server";
 
 export const db = createDb(ENV);
@@ -37,6 +38,9 @@ export const chat = createChat({
   basePath: "/api/chat",
   fetchAllowHosts: ssrfAllowHosts,
   mcpServers: mcpServersOf(ENV),
+  // The Host's Models and their Quota (ADR 0007); unset, users chat only on their own keys.
+  hostProviders: hostProvidersOf(ENV),
+  getQuota: quotaOf(ENV),
   getUser: async (request) => {
     const session = await auth.api.getSession({ headers: request.headers });
     return session?.user ? { id: session.user.id } : null;

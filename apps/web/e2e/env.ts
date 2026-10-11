@@ -1,3 +1,5 @@
+import { fakeModel } from "../../../packages/chat-sdk/test/e2e/fake-ollama";
+
 /** Where the end-to-end run's server, fake Ollama and fake MCP server live. */
 
 export const port = 3100;
@@ -38,6 +40,21 @@ export const serverEnv = {
   GOOGLE_CLIENT_SECRET: "e2e-google-client-secret-not-for-production",
   // The fake page `fetch_url` reads is served by the fake Ollama host, on localhost (see fake-ollama.ts).
   SSRF_ALLOW_HOSTS: `localhost:${fakeOllamaPort}`,
+  // The Host's own Models (ADR 0007): the fake Ollama host is the Host's Provider, so a user with no
+  // key of their own can chat on it. The fake Model reports one input and one output token, which
+  // these prices cost $2 in all: over the $1 daily Quota after one Run.
+  HOST_PROVIDER: "ollama",
+  HOST_CREDENTIALS: JSON.stringify({ host: fakeOllamaHost }),
+  HOST_MODELS: JSON.stringify([
+    {
+      modelId: fakeModel,
+      maxOutputTokens: 1024,
+      inputUsdPerMillion: 1_000_000,
+      outputUsdPerMillion: 1_000_000,
+    },
+  ]),
+  HOST_QUOTA_BUDGET_USD: "1",
+  HOST_QUOTA_WINDOW: "day",
   // Set only by a run with Redis (`redis.spec.ts`); otherwise the server runs on memory.
   ...(process.env.REDIS_URL ? { REDIS_URL: process.env.REDIS_URL } : {}),
 };
