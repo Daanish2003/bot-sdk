@@ -2,7 +2,9 @@ export {
   CAPTURE_TTL_MS,
   type CapturedMessage,
   type CaptureMailbox,
+  type CaptureStore,
   createCaptureMailbox,
+  createMemoryCaptureStore,
 } from "./capture";
 export { createConsoleSender } from "./console";
 export { createMemorySender, type MemorySender } from "./memory";

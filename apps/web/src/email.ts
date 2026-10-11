@@ -8,6 +8,8 @@ import {
   type EmailSender,
 } from "@ai-chat/email";
 
+import { redisStore } from "@ai-chat/chat-sdk/server";
+
 import { ENV } from "./env.server";
 
 const transport = ENV.EMAIL_TRANSPORT ?? (ENV.NODE_ENV === "production" ? "resend" : "console");
@@ -15,8 +17,12 @@ const transport = ENV.EMAIL_TRANSPORT ?? (ENV.NODE_ENV === "production" ? "resen
 export const appName = ENV.APP_NAME ?? "AI Chat";
 const from = ENV.EMAIL_FROM ?? "AI Chat <no-reply@example.com>";
 
-// Kept in memory; only the test-only mailbox route reads it, and only when the transport is capture.
-export const mailbox = createCaptureMailbox({ from });
+// Kept in memory, or in Redis when REDIS_URL is set so every process reads the same mailbox. Only the
+// test-only mailbox route reads it, and only when the transport is capture.
+export const mailbox = createCaptureMailbox({
+  from,
+  store: ENV.REDIS_URL ? redisStore({ url: ENV.REDIS_URL, prefix: "mail:" }) : undefined,
+});
 
 export const sender: EmailSender = (() => {
   if (transport === "capture") return mailbox.sender;

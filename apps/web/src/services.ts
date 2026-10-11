@@ -1,6 +1,6 @@
 import { createAuth } from "@ai-chat/auth";
 import { createDb } from "@ai-chat/db";
-import { createChat, memoryRuntime, redisRuntime } from "@ai-chat/chat-sdk/server";
+import { createChat, memoryRuntime, redisRuntime, redisStore } from "@ai-chat/chat-sdk/server";
 import { log } from "evlog";
 
 import { appName, sender } from "./email";
@@ -26,6 +26,13 @@ export const auth = createAuth(
   {
     // Runs before the user is deleted: a failure aborts the account delete, so the user can retry.
     deleteChatData: (userId) => chat.deleteUser(userId),
+  },
+  {
+    // Limits are on, as in production; counted in Redis when REDIS_URL is set, so both processes share them.
+    rateLimit: true,
+    secondaryStorage: ENV.REDIS_URL
+      ? redisStore({ url: ENV.REDIS_URL, prefix: "auth:" })
+      : undefined,
   },
 );
 export const chat = createChat({

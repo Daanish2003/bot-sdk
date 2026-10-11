@@ -1,6 +1,7 @@
 import type { Database } from "@ai-chat/db";
 import * as schema from "@ai-chat/db/schema/auth";
 import { type EmailMessage, type EmailSender, renderTemplate } from "@ai-chat/email";
+import type { SecondaryStorage } from "@better-auth/core/db";
 import { drizzleAdapter } from "@better-auth/drizzle-adapter/relations-v2";
 import { betterAuth } from "better-auth";
 import { createAuthMiddleware, isAPIError } from "better-auth/api";
@@ -43,12 +44,21 @@ export type AuthHooks = {
   deleteChatData(userId: string): Promise<void>;
 };
 
+// Set by the caller, never defaulted: Better Auth enables rate limits in production only.
+export type AuthOptions = {
+  rateLimit: boolean;
+  // Redis, when the Host has one: the rate-limit counters are shared across processes, and so are
+  // the other things Better Auth keeps in it. Unset, limits are counted in memory per process.
+  secondaryStorage?: SecondaryStorage;
+};
+
 export function createAuth(
   env: AuthConfig,
   database: Database,
   sender: EmailSender,
   logger: AuthLogger,
   hooks: AuthHooks,
+  options: AuthOptions,
 ) {
   // Sends run without being awaited, so a slow or failing provider never holds the request up
   // (a timing signal, per Better Auth's guidance). A failure is logged, never thrown.
@@ -174,6 +184,15 @@ export function createAuth(
           "password changed",
         );
       }),
+    },
+    // With secondary storage, Better Auth keeps sessions and verifications there unless told
+    // otherwise; the Active sessions list and the schema read Postgres, so they stay there.
+    session: { storeSessionInDatabase: true },
+    verification: { storeInDatabase: true },
+    secondaryStorage: options.secondaryStorage,
+    rateLimit: {
+      enabled: options.rateLimit,
+      storage: options.secondaryStorage ? "secondary-storage" : "memory",
     },
     secret: env.BETTER_AUTH_SECRET,
     baseURL: env.BETTER_AUTH_URL,

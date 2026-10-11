@@ -10,7 +10,7 @@ export const Route = createFileRoute("/api/test-mailbox")({
       GET: async ({ request }) => {
         if (!captureEnabled) return new Response("Not Found", { status: 404 });
         const email = new URL(request.url).searchParams.get("email") ?? "";
-        const messages = mailbox.read(email).map(({ template, subject, text }) => ({
+        const messages = (await mailbox.read(email)).map(({ template, subject, text }) => ({
           template,
           subject,
           text,
