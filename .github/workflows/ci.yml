@@ -78,13 +78,128 @@ jobs:
       - name: Test
         run: pnpm test
 
-  docker:
+  # What's tested is what's deployed: the suite runs against the containers of the image built here,
+  # with Redis as the runtime (REDIS_URL), so `redisRuntime()` and the migrate script are exercised.
+  web-e2e:
+    name: apps/web image and end-to-end
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: ai-chat_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:8
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    # The containers run with host networking, so their localhost is this runner's: the service
+    # containers, and the fake Ollama and MCP servers that Playwright's globalSetup starts here.
+    # Values mirror apps/web/e2e/env.ts (`serverEnv`, `mcpServerEnv`), which are fixed and not secrets.
+    env:
+      E2E_EXTERNAL_SERVER: "1"
+      E2E_DATABASE_URL: postgresql://postgres:password@127.0.0.1:5432/ai-chat_e2e
+      DATABASE_URL: postgresql://postgres:password@127.0.0.1:5432/ai-chat_e2e
+      REDIS_URL: redis://127.0.0.1:6379/0
+      BETTER_AUTH_SECRET: e2e-better-auth-secret-not-for-production
+      KEY_ENCRYPTION_SECRET: e2e-key-encryption-secret-not-for-production
+      EMAIL_TRANSPORT: capture
+      EMAIL_FROM: AI Chat <no-reply@example.com>
+      APP_NAME: AI Chat
+      RESEND_API_KEY: re_e2e_not_sent
+      GITHUB_CLIENT_ID: e2e-github-client-id
+      GITHUB_CLIENT_SECRET: e2e-github-client-secret-not-for-production
+      GOOGLE_CLIENT_ID: e2e-google-client-id.apps.googleusercontent.com
+      GOOGLE_CLIENT_SECRET: e2e-google-client-secret-not-for-production
 
     steps:
       - uses: actions/checkout@v4
 
-      # The image carries its own build-time placeholders (apps/web/Dockerfile), so nothing is passed here.
+      # The image carries its own build-time placeholders (apps/web/Dockerfile); runtime values come
+      # from the environment of the containers below.
       - name: Build the apps/web image
         run: docker build -f apps/web/Dockerfile -t ai-chat-web:ci .
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Migrate the e2e database (the image's migrate script)
+        run: |
+          docker run --rm --network host --workdir /app/apps/web \
+            -e DATABASE_URL ai-chat-web:ci node scripts/migrate.ts
+
+      # The shared variables (the names are passed through from this job's env) for both servers.
+      - name: Start the server (no MCP server) on 3100 and the server offering one MCP server on 3101
+        run: |
+          shared=(-e BETTER_AUTH_SECRET -e KEY_ENCRYPTION_SECRET -e DATABASE_URL
+            -e REDIS_URL -e EMAIL_TRANSPORT -e EMAIL_FROM -e APP_NAME -e RESEND_API_KEY
+            -e GITHUB_CLIENT_ID -e GITHUB_CLIENT_SECRET -e GOOGLE_CLIENT_ID -e GOOGLE_CLIENT_SECRET)
+          docker run -d --name web-e2e --network host "${shared[@]}" \
+            -e PORT=3100 -e BETTER_AUTH_URL=http://localhost:3100 -e SSRF_ALLOW_HOSTS=localhost:11534 \
+            ai-chat-web:ci
+          docker run -d --name web-e2e-mcp --network host "${shared[@]}" \
+            -e PORT=3101 -e BETTER_AUTH_URL=http://localhost:3101 -e SSRF_ALLOW_HOSTS=localhost:11600 \
+            -e "MCP_SERVER_KEY=tracker" -e "MCP_SERVER_NAME=E2E Tracker" \
+            -e MCP_SERVER_URL=http://localhost:11600/mcp \
+            -e MCP_SERVER_OAUTH_CLIENT_ID=ai-chat-e2e \
+            -e MCP_SERVER_OAUTH_CLIENT_SECRET=e2e-mcp-client-secret-not-for-production \
+            ai-chat-web:ci
+
+      - name: Wait for both servers
+        run: |
+          for port in 3100 3101; do
+            for _ in $(seq 1 90); do
+              curl -fsS -o /dev/null "http://localhost:$port/login" && break
+              sleep 2
+            done
+            curl -fsS -o /dev/null "http://localhost:$port/login"
+          done
+
+      - name: Install Chromium for Playwright
+        run: pnpm -F web exec playwright install --with-deps chromium
+
+      # The suite's own fake Ollama and fake MCP servers start in its globalSetup. Its `desktop`,
+      # `phone` and `mcp` projects, and the Redis spec (REDIS_URL is set), run here.
+      - name: End-to-end tests
+        run: pnpm -F web test:e2e
+
+      - name: Upload the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+          if-no-files-found: ignore
+
+      - name: Container logs
+        if: failure()
+        run: docker logs web-e2e; docker logs web-e2e-mcp
+
+      - name: Stop the containers
+        if: always()
+        run: docker rm -f web-e2e web-e2e-mcp || true
