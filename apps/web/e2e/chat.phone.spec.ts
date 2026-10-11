@@ -57,6 +57,6 @@ test("the login, Keys, Account and new Conversation pages fit the screen", async
   await expect(page.getByRole("heading", { name: "Keys & settings" })).toBeVisible();
   await expectNoSidewaysScroll(page);
   await page.goto("/settings/account");
-  await expect(page.getByRole("heading", { name: "Account" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Account", exact: true })).toBeVisible();
   await expectNoSidewaysScroll(page);
 });

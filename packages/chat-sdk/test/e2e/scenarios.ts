@@ -177,7 +177,7 @@ export function registerSharedScenarios(
 
       // In the Project, not in the main list.
       await page.goto(projectPath);
-      await expect(page.locator(`a[href="${conversationPath}"]`)).toBeVisible();
+      await expect(page.locator(`a[href="${conversationPath}"]`)).toHaveCount(2);
       await expect(panel.locator(`a[href="${conversationPath}"]`)).toHaveCount(0);
 
       await page.getByRole("button", { name: /^Actions for / }).click();

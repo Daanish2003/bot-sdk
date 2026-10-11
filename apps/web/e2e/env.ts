@@ -1,4 +1,4 @@
-import { fakeModel } from "../../../packages/chat-sdk/test/e2e/fake-ollama";
+import { fakeModel } from "../../../packages/chat-sdk/test/e2e/fake-ollama.ts";
 
 /** Where the end-to-end run's server, fake Ollama and fake MCP server live. */
 
@@ -48,6 +48,7 @@ export const serverEnv = {
   HOST_MODELS: JSON.stringify([
     {
       modelId: fakeModel,
+      tools: true,
       maxOutputTokens: 1024,
       inputUsdPerMillion: 1_000_000,
       outputUsdPerMillion: 1_000_000,

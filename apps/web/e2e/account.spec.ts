@@ -9,7 +9,7 @@ test("the user menu links to the Account page", async ({ page }) => {
   await page.getByRole("menuitem", { name: "Account" }).click();
 
   await expect(page).toHaveURL(/\/settings\/account$/);
-  await expect(page.getByRole("heading", { name: "Account" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Account", exact: true })).toBeVisible();
 });
 
 test("a changed name shows in the user menu after reload", async ({ page }) => {

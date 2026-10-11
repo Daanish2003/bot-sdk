@@ -70,7 +70,7 @@ test("the server refuses a Host Run past the Quota, even from a tab that hasn't 
   await refused;
 
   // No reply was written for the refused Run, and the stale tab learns the Quota is spent.
-  await expect(stale.getByText("That's all.")).toHaveCount(0);
+  await expect(messageRows(stale).filter({ hasText: "That's all." })).toHaveCount(0);
   await expect(quotaBanner(stale)).toBeVisible();
   await stale.close();
 });
