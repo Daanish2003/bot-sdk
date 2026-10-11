@@ -30,7 +30,7 @@ export const auth = createAuth(
   {
     // Limits are on, as in production; counted in Redis when REDIS_URL is set, so both processes share them.
     rateLimit: true,
-    secondaryStorage: ENV.REDIS_URL
+    rateLimitCounter: ENV.REDIS_URL
       ? redisStore({ url: ENV.REDIS_URL, prefix: "auth:" })
       : undefined,
   },

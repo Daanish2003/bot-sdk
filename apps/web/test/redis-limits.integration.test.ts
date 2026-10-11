@@ -101,11 +101,11 @@ describe.skipIf(!redisUrl)("rate limits and mailbox on Redis", () => {
     const shared = `${prefix}auth:`;
     const first = createAuth(env, database, createMemorySender(), log, noChatData, {
       rateLimit: true,
-      secondaryStorage: openStore(shared),
+      rateLimitCounter: openStore(shared),
     });
     const second = createAuth(env, database, createMemorySender(), log, noChatData, {
       rateLimit: true,
-      secondaryStorage: openStore(shared),
+      rateLimitCounter: openStore(shared),
     });
     const ip = fromAddress();
 
@@ -119,36 +119,49 @@ describe.skipIf(!redisUrl)("rate limits and mailbox on Redis", () => {
     expect(statuses).toEqual([200, 200, 200, 429]);
   });
 
-  it("with Redis, sessions and verifications stay in Postgres", async () => {
+  it("with Redis, sessions stay in Postgres: one signed in before Redis is listed, and signed out", async () => {
+    const withoutRedis = createAuth(env, database, createMemorySender(), log, noChatData, {
+      rateLimit: true,
+    });
     const auth = createAuth(env, database, createMemorySender(), log, noChatData, {
       rateLimit: true,
-      secondaryStorage: openStore(`${prefix}db:`),
+      rateLimitCounter: openStore(`${prefix}sessions:`),
     });
     const email = `stays-${randomUUID()}@example.com`;
-    const ip = fromAddress();
-    await auth.handler(
-      new Request(`${BASE}/api/auth/sign-up/email`, {
-        method: "POST",
-        headers: { "content-type": "application/json", origin: BASE, "x-forwarded-for": ip },
-        body: JSON.stringify({ name: "Stays", email, password: "stays-password-1" }),
-      }),
-    );
-    await database.$client.query(`update "user" set email_verified = true where email = $1`, [
-      email,
-    ]);
-    const signIn = await auth.handler(
-      new Request(`${BASE}/api/auth/sign-in/email`, {
+    const post = (path: string, body: object, cookie?: string) =>
+      new Request(`${BASE}/api/auth/${path}`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
           origin: BASE,
           "x-forwarded-for": fromAddress(),
+          ...(cookie && { cookie }),
         },
-        body: JSON.stringify({ email, password: "stays-password-1" }),
-      }),
+        body: JSON.stringify(body),
+      });
+    await withoutRedis.handler(
+      post("sign-up/email", { name: "Stays", email, password: "stays-password-1" }),
     );
-    expect(signIn.status).toBe(200);
+    await database.$client.query(`update "user" set email_verified = true where email = $1`, [
+      email,
+    ]);
+    const signIn = async () => {
+      const response = await withoutRedis.handler(
+        post("sign-in/email", { email, password: "stays-password-1" }),
+      );
+      expect(response.status).toBe(200);
+      return response.headers
+        .getSetCookie()
+        .map((cookie) => cookie.split(";")[0])
+        .join("; ");
+    };
+    const current = await signIn();
+    await signIn();
 
+    const listed = await auth.api.listSessions({ headers: new Headers({ cookie: current }) });
+    expect(listed).toHaveLength(2);
+
+    await auth.handler(post("revoke-other-sessions", {}, current));
     const { rows } = await database.$client.query(
       `select s.id from "session" s join "user" u on u.id = s.user_id where u.email = $1`,
       [email],

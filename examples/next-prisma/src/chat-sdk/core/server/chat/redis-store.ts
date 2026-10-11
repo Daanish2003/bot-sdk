@@ -2,8 +2,8 @@ import { createRedisConnection } from "./redis-connection";
 
 /**
  * A string key-value store over Redis, shared by every process that uses the same URL. It serves
- * the Host's own state that must survive a deploy overlap: Better Auth's rate-limit counters and
- * sessions, and the capture mailbox. Every key is prefixed, so the Host can share a Redis.
+ * the Host's own state that must survive a deploy overlap: Better Auth's rate-limit counters
+ * and the capture mailbox. Every key is prefixed, so the Host can share a Redis.
  */
 export type RedisStore = {
   get(key: string): Promise<string | null>;

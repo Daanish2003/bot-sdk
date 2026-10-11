@@ -12,14 +12,6 @@ function resetLink(mail: CapturedMail): string {
   return match[0];
 }
 
-// Known failure with REDIS_URL set: the reset link answers INVALID_TOKEN (not root-caused; Better
-// Auth in packages/auth doesn't read REDIS_URL). Skipped in the Redis run only, so the memory run
-// still covers it.
-test.fixme(
-  !!process.env.REDIS_URL,
-  "reset link answers INVALID_TOKEN when REDIS_URL is set (not root-caused)",
-);
-
 test("a reset link sets a new password, signs out the other device, and a used link is refused", async ({
   page,
   browser,
