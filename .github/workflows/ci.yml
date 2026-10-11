@@ -112,22 +112,11 @@ jobs:
 
     # The containers run with host networking, so their localhost is this runner's: the service
     # containers, and the fake Ollama and MCP servers that Playwright's globalSetup starts here.
-    # Values mirror apps/web/e2e/env.ts (`serverEnv`, `mcpServerEnv`), which are fixed and not secrets.
     env:
       E2E_EXTERNAL_SERVER: "1"
       E2E_DATABASE_URL: postgresql://postgres:password@127.0.0.1:5432/ai-chat_e2e
       DATABASE_URL: postgresql://postgres:password@127.0.0.1:5432/ai-chat_e2e
       REDIS_URL: redis://127.0.0.1:6379/0
-      BETTER_AUTH_SECRET: e2e-better-auth-secret-not-for-production
-      KEY_ENCRYPTION_SECRET: e2e-key-encryption-secret-not-for-production
-      EMAIL_TRANSPORT: capture
-      EMAIL_FROM: AI Chat <no-reply@example.com>
-      APP_NAME: AI Chat
-      RESEND_API_KEY: re_e2e_not_sent
-      GITHUB_CLIENT_ID: e2e-github-client-id
-      GITHUB_CLIENT_SECRET: e2e-github-client-secret-not-for-production
-      GOOGLE_CLIENT_ID: e2e-google-client-id.apps.googleusercontent.com
-      GOOGLE_CLIENT_SECRET: e2e-google-client-secret-not-for-production
 
     steps:
       - uses: actions/checkout@v4
@@ -151,22 +140,24 @@ jobs:
           docker run --rm --network host --workdir /app/apps/web \
             -e DATABASE_URL ai-chat-web:ci node scripts/migrate.ts
 
-      # The shared variables (the names are passed through from this job's env) for both servers.
+      # Each server's environment is apps/web/e2e/env.ts's (`serverEnv`, `mcpServerEnv`, with REDIS_URL
+      # from this job), so the containers run exactly as the local suite's servers do.
+      - name: Write the two servers' environments from apps/web/e2e/env.ts
+        working-directory: apps/web
+        run: |
+          node --input-type=module -e "
+            import { writeFileSync } from 'node:fs';
+            import { serverEnv, mcpServerEnv } from './e2e/env.ts';
+            const file = (env) => Object.entries({ ...env, DATABASE_URL: process.env.DATABASE_URL })
+              .map(([name, value]) => name + '=' + value).join('\n') + '\n';
+            writeFileSync('${{ runner.temp }}/web.env', file(serverEnv));
+            writeFileSync('${{ runner.temp }}/web-mcp.env', file(mcpServerEnv));
+          "
+
       - name: Start the server (no MCP server) on 3100 and the server offering one MCP server on 3101
         run: |
-          shared=(-e BETTER_AUTH_SECRET -e KEY_ENCRYPTION_SECRET -e DATABASE_URL
-            -e REDIS_URL -e EMAIL_TRANSPORT -e EMAIL_FROM -e APP_NAME -e RESEND_API_KEY
-            -e GITHUB_CLIENT_ID -e GITHUB_CLIENT_SECRET -e GOOGLE_CLIENT_ID -e GOOGLE_CLIENT_SECRET)
-          docker run -d --name web-e2e --network host "${shared[@]}" \
-            -e PORT=3100 -e BETTER_AUTH_URL=http://localhost:3100 -e SSRF_ALLOW_HOSTS=localhost:11534 \
-            ai-chat-web:ci
-          docker run -d --name web-e2e-mcp --network host "${shared[@]}" \
-            -e PORT=3101 -e BETTER_AUTH_URL=http://localhost:3101 -e SSRF_ALLOW_HOSTS=localhost:11600 \
-            -e "MCP_SERVER_KEY=tracker" -e "MCP_SERVER_NAME=E2E Tracker" \
-            -e MCP_SERVER_URL=http://localhost:11600/mcp \
-            -e MCP_SERVER_OAUTH_CLIENT_ID=ai-chat-e2e \
-            -e MCP_SERVER_OAUTH_CLIENT_SECRET=e2e-mcp-client-secret-not-for-production \
-            ai-chat-web:ci
+          docker run -d --name web-e2e --network host --env-file "${{ runner.temp }}/web.env" ai-chat-web:ci
+          docker run -d --name web-e2e-mcp --network host --env-file "${{ runner.temp }}/web-mcp.env" ai-chat-web:ci
 
       - name: Wait for both servers
         run: |
