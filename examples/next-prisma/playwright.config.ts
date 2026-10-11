@@ -12,7 +12,8 @@ export default defineConfig({
   timeout: 90_000,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
-  reporter: process.env.CI ? "github" : "list",
+  // In CI, "list" too: a run cancelled at its timeout still shows which tests ran and how.
+  reporter: process.env.CI ? [["github"], ["list"]] : "list",
   globalSetup: "./e2e/global-setup.ts",
   use: { baseURL, trace: "retain-on-failure" },
   projects: [

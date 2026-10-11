@@ -2,58 +2,34 @@
   "version": "8",
   "dialect": "postgres",
   "id": "5001bf57-ec26-4dbb-8d1f-3db14065f088",
-  "prevIds": [
-    "3c5dfe25-9964-437d-a47f-d826db8c53b4"
-  ],
+  "prevIds": ["3c5dfe25-9964-437d-a47f-d826db8c53b4"],
   "ddl": [
     {
-      "values": [
-        "invalid_key",
-        "rate_limited",
-        "provider_error"
-      ],
+      "values": ["invalid_key", "rate_limited", "provider_error"],
       "name": "message_error_reason",
       "entityType": "enums",
       "schema": "chat"
     },
     {
-      "values": [
-        "user",
-        "assistant"
-      ],
+      "values": ["user", "assistant"],
       "name": "message_role",
       "entityType": "enums",
       "schema": "chat"
     },
     {
-      "values": [
-        "streaming",
-        "complete",
-        "stopped",
-        "error",
-        "awaiting_approval"
-      ],
+      "values": ["streaming", "complete", "stopped", "error", "awaiting_approval"],
       "name": "message_status",
       "entityType": "enums",
       "schema": "chat"
     },
     {
-      "values": [
-        "off",
-        "low",
-        "medium",
-        "high"
-      ],
+      "values": ["off", "low", "medium", "high"],
       "name": "reasoning_effort",
       "entityType": "enums",
       "schema": "chat"
     },
     {
-      "values": [
-        "run",
-        "title",
-        "web_search"
-      ],
+      "values": ["run", "title", "web_search"],
       "name": "usage_kind",
       "entityType": "enums",
       "schema": "chat"
@@ -1355,14 +1331,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "attachment_id"
-      ],
+      "columns": ["attachment_id"],
       "schemaTo": "chat",
       "tableTo": "attachment",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "attachment_blob_attachment_id_attachment_id_fkey",
@@ -1372,14 +1344,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "message_id"
-      ],
+      "columns": ["message_id"],
       "schemaTo": "chat",
       "tableTo": "message",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "message_attachment_message_id_message_id_fkey",
@@ -1389,14 +1357,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "attachment_id"
-      ],
+      "columns": ["attachment_id"],
       "schemaTo": "chat",
       "tableTo": "attachment",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "NO ACTION",
       "name": "message_attachment_attachment_id_attachment_id_fkey",
@@ -1406,14 +1370,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "active_leaf_id"
-      ],
+      "columns": ["active_leaf_id"],
       "schemaTo": "chat",
       "tableTo": "message",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "SET NULL",
       "name": "conversation_active_leaf_id_message_id_fkey",
@@ -1423,14 +1383,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "project_id"
-      ],
+      "columns": ["project_id"],
       "schemaTo": "chat",
       "tableTo": "project",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "conversation_project_id_project_id_fkey",
@@ -1440,14 +1396,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "conversation_id"
-      ],
+      "columns": ["conversation_id"],
       "schemaTo": "chat",
       "tableTo": "conversation",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "message_conversation_id_conversation_id_fkey",
@@ -1457,14 +1409,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "parent_id"
-      ],
+      "columns": ["parent_id"],
       "schemaTo": "chat",
       "tableTo": "message",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "message_parent_id_message_id_fkey",
@@ -1474,14 +1422,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "context_start_id"
-      ],
+      "columns": ["context_start_id"],
       "schemaTo": "chat",
       "tableTo": "message",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "SET NULL",
       "name": "message_context_start_id_message_id_fkey",
@@ -1491,14 +1435,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "conversation_id"
-      ],
+      "columns": ["conversation_id"],
       "schemaTo": "chat",
       "tableTo": "conversation",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "shared_link_conversation_id_conversation_id_fkey",
@@ -1508,14 +1448,10 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "leaf_message_id"
-      ],
+      "columns": ["leaf_message_id"],
       "schemaTo": "chat",
       "tableTo": "message",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "name": "shared_link_leaf_message_id_message_id_fkey",
@@ -1524,10 +1460,7 @@
       "table": "shared_link"
     },
     {
-      "columns": [
-        "message_id",
-        "attachment_id"
-      ],
+      "columns": ["message_id", "attachment_id"],
       "nameExplicit": false,
       "name": "message_attachment_pkey",
       "entityType": "pks",
@@ -1535,10 +1468,7 @@
       "table": "message_attachment"
     },
     {
-      "columns": [
-        "user_id",
-        "service"
-      ],
+      "columns": ["user_id", "service"],
       "nameExplicit": false,
       "name": "user_credentials_pkey",
       "entityType": "pks",
@@ -1546,9 +1476,7 @@
       "table": "user_credentials"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "attachment_pkey",
       "schema": "chat",
@@ -1556,9 +1484,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "attachment_id"
-      ],
+      "columns": ["attachment_id"],
       "nameExplicit": false,
       "name": "attachment_blob_pkey",
       "schema": "chat",
@@ -1566,9 +1492,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "conversation_pkey",
       "schema": "chat",
@@ -1576,9 +1500,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "message_pkey",
       "schema": "chat",
@@ -1586,9 +1508,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "project_pkey",
       "schema": "chat",
@@ -1596,9 +1516,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "user_id"
-      ],
+      "columns": ["user_id"],
       "nameExplicit": false,
       "name": "user_settings_pkey",
       "schema": "chat",
@@ -1606,9 +1524,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "token"
-      ],
+      "columns": ["token"],
       "nameExplicit": false,
       "name": "shared_link_pkey",
       "schema": "chat",
@@ -1616,9 +1532,7 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "usage_pkey",
       "schema": "chat",
@@ -1627,9 +1541,7 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "conversation_id"
-      ],
+      "columns": ["conversation_id"],
       "nullsNotDistinct": false,
       "name": "shared_link_conversation_id_key",
       "schema": "chat",
