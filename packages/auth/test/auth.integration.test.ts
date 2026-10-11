@@ -20,6 +20,8 @@ const env: AuthConfig = {
 };
 const database = createDb({ DATABASE_URL: process.env.TEST_DATABASE_URL ?? "" });
 const noChatData = { deleteChatData: async () => {} };
+// The rate limits would refuse the many sign-ups these tests make from one address; see rate-limits.
+const noLimits = { rateLimit: false };
 
 afterAll(async () => {
   await database.$client.end();
@@ -62,7 +64,7 @@ async function passwordHashOf(userId: string) {
 describe("sign-up and email verification", () => {
   it("answers a new and an existing email the same, and leaves the existing account alone", async () => {
     const sender = createMemorySender();
-    const auth = createAuth(env, database, sender, makeLogger(), noChatData);
+    const auth = createAuth(env, database, sender, makeLogger(), noChatData, noLimits);
 
     const fresh = await signUp(auth, "owner@example.com", "owner-password-1");
     const [owner] = await userRow("owner@example.com");
@@ -89,7 +91,7 @@ describe("sign-up and email verification", () => {
 
   it("refuses sign-in before verification with 403, and sends a fresh link", async () => {
     const sender = createMemorySender();
-    const auth = createAuth(env, database, sender, makeLogger(), noChatData);
+    const auth = createAuth(env, database, sender, makeLogger(), noChatData, noLimits);
     await signUp(auth, "waiting@example.com", "waiting-password-1");
 
     const response = await post(auth, "/sign-in/email", {
@@ -111,7 +113,7 @@ describe("sign-up and email verification", () => {
       }),
     };
     const logger = makeLogger();
-    const auth = createAuth(env, database, failing, logger, noChatData);
+    const auth = createAuth(env, database, failing, logger, noChatData, noLimits);
 
     const response = await signUp(auth, "unlucky@example.com", "unlucky-password-1");
 
@@ -154,7 +156,7 @@ describe("forgotten password", () => {
 
   it("answers an existing and a missing email the same, and mails only the existing one", async () => {
     const sender = createMemorySender();
-    const auth = createAuth(env, database, sender, makeLogger(), noChatData);
+    const auth = createAuth(env, database, sender, makeLogger(), noChatData, noLimits);
     await verifiedUser(auth, "reset-me@example.com", "reset-password-1");
 
     const existing = await requestReset(auth, "reset-me@example.com");
@@ -172,7 +174,7 @@ describe("forgotten password", () => {
 
   it("a reset token works once; the second use is refused", async () => {
     const sender = createMemorySender();
-    const auth = createAuth(env, database, sender, makeLogger(), noChatData);
+    const auth = createAuth(env, database, sender, makeLogger(), noChatData, noLimits);
     await verifiedUser(auth, "once@example.com", "old-password-1");
     await requestReset(auth, "once@example.com");
     await vi.waitFor(() => expect(resetMails(sender)).toHaveLength(1));
@@ -192,7 +194,7 @@ describe("forgotten password", () => {
 
   it("signs out every other session after a reset, and mails the password-changed notice", async () => {
     const sender = createMemorySender();
-    const auth = createAuth(env, database, sender, makeLogger(), noChatData);
+    const auth = createAuth(env, database, sender, makeLogger(), noChatData, noLimits);
     await verifiedUser(auth, "sessions@example.com", "old-password-1");
     const other = await post(auth, "/sign-in/email", {
       email: "sessions@example.com",
@@ -252,7 +254,7 @@ describe("change password", () => {
 
   it("mails the password-changed notice once the password is changed", async () => {
     const sender = createMemorySender();
-    const auth = createAuth(env, database, sender, makeLogger(), noChatData);
+    const auth = createAuth(env, database, sender, makeLogger(), noChatData, noLimits);
     const cookie = await signedInCookie(auth, "changer@example.com", "old-password-1");
 
     const changed = await changePassword(auth, cookie, "old-password-1", "new-password-1");
@@ -267,7 +269,7 @@ describe("change password", () => {
 
   it("refuses a wrong current password and mails no notice", async () => {
     const sender = createMemorySender();
-    const auth = createAuth(env, database, sender, makeLogger(), noChatData);
+    const auth = createAuth(env, database, sender, makeLogger(), noChatData, noLimits);
     const cookie = await signedInCookie(auth, "guesser@example.com", "old-password-1");
 
     const refused = await changePassword(auth, cookie, "not-the-password-1", "new-password-1");
@@ -322,7 +324,7 @@ describe("change email", () => {
 
   it("sends the confirmation to the current address, and changes nothing until the new one is verified", async () => {
     const sender = createMemorySender();
-    const auth = createAuth(env, database, sender, makeLogger(), noChatData);
+    const auth = createAuth(env, database, sender, makeLogger(), noChatData, noLimits);
     const cookie = await signedIn(auth, OLD);
 
     const response = await requestChange(auth, cookie, NEW);
@@ -348,7 +350,7 @@ describe("change email", () => {
 
   it("answers an address that already has an account the same as a free one, and changes no account", async () => {
     const sender = createMemorySender();
-    const auth = createAuth(env, database, sender, makeLogger(), noChatData);
+    const auth = createAuth(env, database, sender, makeLogger(), noChatData, noLimits);
     await signUp(auth, TAKEN, "taken-password-1");
     const cookie = await signedIn(auth, REQUESTER);
 
@@ -375,7 +377,14 @@ describe("social sign-in", () => {
   ])(
     "starts %s at its authorize URL with the configured client and callback",
     async (provider, authorize, clientId) => {
-      const auth = createAuth(env, database, createMemorySender(), makeLogger(), noChatData);
+      const auth = createAuth(
+        env,
+        database,
+        createMemorySender(),
+        makeLogger(),
+        noChatData,
+        noLimits,
+      );
       const response = await post(auth, "/sign-in/social", { provider, callbackURL: "/c" });
       const { url } = (await response.json()) as { url: string };
 
@@ -440,7 +449,7 @@ describe("account deletion", () => {
   it("the emailed link calls the hook with the user's id, then removes the user, sessions and accounts", async () => {
     const sender = createMemorySender();
     const deleteChatData = vi.fn(async (_userId: string) => {});
-    const auth = createAuth(env, database, sender, makeLogger(), { deleteChatData });
+    const auth = createAuth(env, database, sender, makeLogger(), { deleteChatData }, noLimits);
     const cookie = await signedInCookie(auth, LEAVER);
     const before = await rowsFor(LEAVER);
     expect(before).toMatchObject({ user: 1, sessions: 1, accounts: 1 });
@@ -466,7 +475,7 @@ describe("account deletion", () => {
       .fn<(userId: string) => Promise<void>>()
       .mockRejectedValueOnce(new Error("chat store is down"))
       .mockResolvedValue(undefined);
-    const auth = createAuth(env, database, sender, makeLogger(), { deleteChatData });
+    const auth = createAuth(env, database, sender, makeLogger(), { deleteChatData }, noLimits);
     const cookie = await signedInCookie(auth, RETRIED);
 
     await requestDeletion(auth, cookie);
@@ -529,7 +538,14 @@ describe("connected accounts", () => {
   }
 
   it("refuses to unlink the only sign-in method", async () => {
-    const auth = createAuth(env, database, createMemorySender(), makeLogger(), noChatData);
+    const auth = createAuth(
+      env,
+      database,
+      createMemorySender(),
+      makeLogger(),
+      noChatData,
+      noLimits,
+    );
     const { cookie, userId } = await signedInWith(auth, `only-${randomUUID()}@example.com`, false);
     const [credential] = await accountsOf(userId);
 
@@ -541,7 +557,14 @@ describe("connected accounts", () => {
   });
 
   it("unlinks one of two sign-in methods and keeps the other", async () => {
-    const auth = createAuth(env, database, createMemorySender(), makeLogger(), noChatData);
+    const auth = createAuth(
+      env,
+      database,
+      createMemorySender(),
+      makeLogger(),
+      noChatData,
+      noLimits,
+    );
     const { cookie, userId } = await signedInWith(auth, `two-${randomUUID()}@example.com`, true);
     const accounts = await accountsOf(userId);
     const github = accounts.find((row) => row.providerId === "github");
