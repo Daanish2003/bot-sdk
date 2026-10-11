@@ -19,10 +19,11 @@ export type SeededUser = { id: string; name: string; email: string; password: st
  * then sets the session cookie on `page` the way Better Auth signs it. Every call is a new user,
  * so no test waits on email or on the sign-up rate limit. With `password: false` the user has no
  * credential account (as if they signed up with GitHub or Google); `password` is then unusable.
+ * `linked` adds a provider account row for each named provider (a linked GitHub or Google).
  */
 export async function seedUser(
   page: Page,
-  options: { password?: boolean } = {},
+  options: { password?: boolean; linked?: ("github" | "google")[] } = {},
 ): Promise<SeededUser> {
   const seeded: SeededUser = {
     id: randomUUID(),
@@ -48,6 +49,16 @@ export async function seedUser(
         providerId: "credential",
         userId: seeded.id,
         password: await hashPassword(seeded.password),
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+    for (const providerId of options.linked ?? []) {
+      await db.insert(account).values({
+        id: randomUUID(),
+        accountId: `${providerId}-${seeded.id}`,
+        providerId,
+        userId: seeded.id,
         createdAt: now,
         updatedAt: now,
       });

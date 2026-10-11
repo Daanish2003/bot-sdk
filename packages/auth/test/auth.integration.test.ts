@@ -481,3 +481,76 @@ describe("account deletion", () => {
     expect(await rowsFor(RETRIED)).toEqual({ user: 0, sessions: 0, accounts: 0 });
   });
 });
+
+describe("connected accounts", () => {
+  // The sign-in cookie for a verified user, with a credential account and optionally a GitHub one.
+  async function signedInWith(
+    auth: ReturnType<typeof createAuth>,
+    email: string,
+    withGitHub: boolean,
+  ) {
+    await signUp(auth, email, "linker-password-1");
+    await database.update(user).set({ emailVerified: true }).where(eq(user.email, email));
+    const [owner] = await userRow(email);
+    if (withGitHub) {
+      const now = new Date();
+      await database.insert(account).values({
+        id: randomUUID(),
+        accountId: `github-${randomUUID()}`,
+        providerId: "github",
+        userId: owner.id,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+    const response = await post(auth, "/sign-in/email", { email, password: "linker-password-1" });
+    const cookie = response.headers
+      .getSetCookie()
+      .map((value) => value.split(";")[0])
+      .join("; ");
+    return { cookie, userId: owner.id };
+  }
+
+  async function accountsOf(userId: string) {
+    return database
+      .select({ id: account.id, providerId: account.providerId })
+      .from(account)
+      .where(eq(account.userId, userId));
+  }
+
+  function unlink(auth: ReturnType<typeof createAuth>, cookie: string, accountId: string) {
+    return auth.handler(
+      new Request(`${BASE}/api/auth/unlink-account`, {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: BASE, cookie },
+        body: JSON.stringify({ accountId }),
+      }),
+    );
+  }
+
+  it("refuses to unlink the only sign-in method", async () => {
+    const auth = createAuth(env, database, createMemorySender(), makeLogger(), noChatData);
+    const { cookie, userId } = await signedInWith(auth, `only-${randomUUID()}@example.com`, false);
+    const [credential] = await accountsOf(userId);
+
+    const refused = await unlink(auth, cookie, credential.id);
+
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toMatchObject({ code: "FAILED_TO_UNLINK_LAST_ACCOUNT" });
+    expect(await accountsOf(userId)).toHaveLength(1);
+  });
+
+  it("unlinks one of two sign-in methods and keeps the other", async () => {
+    const auth = createAuth(env, database, createMemorySender(), makeLogger(), noChatData);
+    const { cookie, userId } = await signedInWith(auth, `two-${randomUUID()}@example.com`, true);
+    const accounts = await accountsOf(userId);
+    const github = accounts.find((row) => row.providerId === "github");
+
+    const unlinked = await unlink(auth, cookie, github?.id ?? "");
+
+    expect(unlinked.status).toBe(200);
+    expect(await accountsOf(userId)).toEqual([
+      expect.objectContaining({ providerId: "credential" }),
+    ]);
+  });
+});
