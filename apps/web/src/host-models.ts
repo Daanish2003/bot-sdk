@@ -33,9 +33,9 @@ const hostModel = z.object({
 
 /** The Host's Provider credentials and Models, or none when the variables are unset. */
 export function hostProvidersOf(env: HostEnv): HostProviders {
-  const set = [env.HOST_PROVIDER, env.HOST_CREDENTIALS, env.HOST_MODELS].filter(isSet);
-  if (set.length === 0) return [];
-  if (set.length < 3) {
+  const given = [env.HOST_PROVIDER, env.HOST_CREDENTIALS, env.HOST_MODELS].filter(isSet);
+  if (given.length === 0) return [];
+  if (given.length < 3) {
     throw new Error(
       "HOST_PROVIDER, HOST_CREDENTIALS and HOST_MODELS are set together or not at all",
     );
