@@ -149,5 +149,67 @@ export function registerSharedScenarios(
       await expect(panel.getByRole("link")).toHaveCount(0);
       await expect(page).not.toHaveURL(host.paths.conversation);
     });
+
+    test("a Project holds its chats, Pinned lists the pinned ones, and the main list pages on scroll", async ({
+      page,
+    }) => {
+      await signInWithModel(page);
+      const panel = page.getByRole("complementary", { name: "Conversations" });
+
+      await panel.getByRole("button", { name: "New Project" }).click();
+      await panel.getByLabel("Project name").fill("E2E Project");
+      await panel.getByRole("button", { name: "Create" }).click();
+      await expect(page).toHaveURL(/\/p\/[\w-]+$/);
+      const projectPath = new URL(page.url()).pathname;
+
+      // The Project's default Model, which its new chats start on.
+      await page.getByRole("button", { name: "Edit" }).click();
+      await page.getByLabel("Default Model").click();
+      await page.getByRole("option", { name: "e2e-model" }).click();
+      await page.getByRole("button", { name: "Save", exact: true }).click();
+      await expect(page.getByText("Project saved")).toBeVisible();
+
+      await page.getByRole("link", { name: "New chat in this Project" }).click();
+      await expect(page.getByRole("button", { name: "Model" })).toContainText("e2e-model");
+      await send(page, "A question for the Project");
+      await expect(page).toHaveURL(host.paths.conversation);
+      const conversationPath = new URL(page.url()).pathname;
+
+      // In the Project, not in the main list.
+      await page.goto(projectPath);
+      await expect(page.locator(`a[href="${conversationPath}"]`)).toBeVisible();
+      await expect(panel.locator(`a[href="${conversationPath}"]`)).toHaveCount(0);
+
+      await page.getByRole("button", { name: /^Actions for / }).click();
+      await page.getByRole("menuitem", { name: "Pin", exact: true }).click();
+
+      // Pinned lists it, and the Project still holds it.
+      const pinned = panel.getByRole("region", { name: "Pinned" });
+      await expect(pinned.locator(`a[href="${conversationPath}"]`)).toBeVisible();
+      await expect(page.locator(`a[href="${conversationPath}"]`)).toBeVisible();
+
+      // More than one page of Conversations outside Projects, seeded through the chat's RPC.
+      const mainCount = 55;
+      for (let i = 0; i < mainCount; i++) {
+        const response = await page.request.post(`${host.paths.chatApi}/rpc/conversation/create`, {
+          data: { json: { model: "ollama:e2e-model" } },
+        });
+        expect(response.ok()).toBe(true);
+      }
+
+      await page.goto(host.paths.newConversation);
+      // The Pinned one, then the first page of 50 outside Projects.
+      const rows = panel.locator('a[href^="/c/"]');
+      await expect(rows).toHaveCount(51);
+      await expect(pinned.locator(`a[href="${conversationPath}"]`)).toBeVisible();
+
+      // Scrolling to the end of the list loads the second page.
+      await expect
+        .poll(async () => {
+          await rows.last().scrollIntoViewIfNeeded();
+          return rows.count();
+        })
+        .toBe(1 + mainCount);
+    });
   });
 }

@@ -13,5 +13,6 @@ export const exampleHost: HostFixture = {
     keys: "/settings/keys",
     sharedLink: /\/share\//,
     shared: (token) => `/share/${token}`,
+    chatApi: "/api/chat",
   },
 };

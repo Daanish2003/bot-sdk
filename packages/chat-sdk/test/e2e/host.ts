@@ -24,5 +24,7 @@ export type HostFixture = {
     sharedLink: RegExp;
     /** The public page for a Shared link token. */
     shared(token: string): string;
+    /** Where the chat handler is mounted, so a scenario can call its RPC (`<chatApi>/rpc/...`). */
+    chatApi: string;
   };
 };
