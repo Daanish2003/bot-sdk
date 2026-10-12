@@ -1,4 +1,5 @@
 import type { ProviderId } from "../credentials/services";
+import type { I18n } from "../i18n";
 import { modelsDevSnapshot } from "./models-snapshot";
 
 /**
@@ -30,16 +31,20 @@ export function unknownReasoning(): ReasoningSupport {
 /** A reasoning choice a Conversation stores: `off` or an effort. `null` is the Model's default. */
 export type ReasoningChoice = ReasoningEffort | "off";
 
-const choiceLabels: Record<ReasoningChoice, string> = {
-  off: "Off",
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-};
-
 /** How a reasoning choice reads in the UI; `null` is the Model's default. */
-export function reasoningChoiceLabel(choice: ReasoningChoice | null): string {
-  return choice === null ? "Model default" : choiceLabels[choice];
+export function reasoningChoiceLabel({ t }: I18n, choice: ReasoningChoice | null): string {
+  switch (choice) {
+    case null:
+      return t("shell.modelDefault");
+    case "off":
+      return t("shell.effortOff");
+    case "low":
+      return t("shell.effortLow");
+    case "medium":
+      return t("shell.effortMedium");
+    case "high":
+      return t("shell.effortHigh");
+  }
 }
 
 /** Providers whose adapters take no reasoning setting here, so their Models offer no choice. */

@@ -22,7 +22,8 @@ export function TitleModelSelect() {
   const settings = useQuery(orpc.settings.get.queryOptions());
   const models = useQuery(orpc.models.list.queryOptions());
   const byok = useByok();
-  const { t } = useI18n();
+  const i18n = useI18n();
+  const { t } = i18n;
   const settingsKey = orpc.settings.get.queryKey();
   const setTitleModel = useMutation(
     orpc.settings.setTitleModel.mutationOptions({
@@ -45,7 +46,7 @@ export function TitleModelSelect() {
   const available = models.data?.models ?? [];
   const saved = settings.data?.titleModel ?? null;
   // A saved Title Model whose Provider lost its credentials stays selectable, and says so.
-  const missingKey = saved ? missingCredentialsMessage(saved, available, byok) : null;
+  const missingKey = saved ? missingCredentialsMessage(i18n, saved, available, byok) : null;
   const groups = modelGroups(available, "");
   // `null` is "Same as first reply".
   const first: Array<{ value: string | null; label: string }> = [

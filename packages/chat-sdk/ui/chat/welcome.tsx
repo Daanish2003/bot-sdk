@@ -1,8 +1,10 @@
-const suggestions = [
-  "Explain recursive CTEs like I'm five",
-  "Write a regex that matches ISO dates",
-  "Review this Docker Compose file",
-];
+import { useI18n } from "../../core/client/react/provider";
+
+const suggestionKeys = [
+  "chat.suggestionCtes",
+  "chat.suggestionRegex",
+  "chat.suggestionCompose",
+] as const;
 
 /** The New Conversation welcome: a heading and three suggestion chips that send right away. */
 export function Welcome({
@@ -12,9 +14,11 @@ export function Welcome({
   onSuggest: (text: string) => void;
   disabled?: boolean;
 }) {
+  const { t } = useI18n();
+  const suggestions = suggestionKeys.map((key) => t(key));
   return (
     <div className="flex flex-col items-center gap-5 text-center">
-      <h1 className="text-2xl font-medium tracking-tight">What's on your mind?</h1>
+      <h1 className="text-2xl font-medium tracking-tight">{t("chat.whatsOnYourMind")}</h1>
       <div className="flex flex-wrap justify-center gap-2">
         {suggestions.map((text) => (
           <button

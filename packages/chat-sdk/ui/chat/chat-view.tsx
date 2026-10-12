@@ -20,7 +20,7 @@ import { toast } from "sonner";
 
 import { invalidateConversationList } from "../../core/client/react/conversation-list";
 import { useByok } from "../../core/client/react/byok";
-import { useChatAdapter } from "../../core/client/react/provider";
+import { useChatAdapter, useI18n } from "../../core/client/react/provider";
 import { useQuota } from "../../core/client/react/quota";
 import { readSearchPreference } from "../../core/client/react/search-preference";
 import { quotaBlocksModel } from "../../core/client/quota";
@@ -94,6 +94,8 @@ function ChatThread({
 }) {
   const queryClient = useQueryClient();
   const { orpc, chatUrl } = useChatAdapter();
+  const i18n = useI18n();
+  const { t } = i18n;
   // The server writes the new Messages before it streams, so the first chunk means "sent".
   const awaitingFirstChunk = useRef(false);
   // The command for the next request. `reload` (regenerate) takes no body, so every command
@@ -167,7 +169,7 @@ function ChatThread({
     try {
       await decideCall.mutateAsync({ messageId, approved, allowForConversation });
     } catch (caught) {
-      toast.error(`Deciding failed: ${(caught as Error).message}`);
+      toast.error(t("chat.decideFailed", { message: (caught as Error).message }));
       return;
     }
     onDecided(await fetchConversation());
@@ -177,7 +179,7 @@ function ChatThread({
   const models = useQuery(orpc.models.list.queryOptions());
   const byok = useByok();
   const blocked = models.data
-    ? missingCredentialsMessage(conversation.model, models.data.models, byok)
+    ? missingCredentialsMessage(i18n, conversation.model, models.data.models, byok)
     : null;
   // A spent Quota blocks the selected Model only when it's a Host Model; the user's own still runs.
   const quota = useQuota().data;
@@ -199,7 +201,7 @@ function ChatThread({
   const setConnections = useMutation(
     orpc.conversation.setConnections.mutationOptions({
       onSuccess: () => fetchConversation(),
-      onError: (caught) => toast.error(`Switching a tool failed: ${caught.message}`),
+      onError: (caught) => toast.error(t("chat.toolSwitchFailed", { message: caught.message })),
     }),
   );
   const toolItems = mcpToolsMenu(servers.data?.servers ?? [], connections);
@@ -269,7 +271,7 @@ function ChatThread({
   const switchBranch = useMutation(
     orpc.conversation.switchBranch.mutationOptions({
       onSuccess: () => fetchConversation(),
-      onError: (caught) => toast.error(`Switching Branch failed: ${caught.message}`),
+      onError: (caught) => toast.error(t("chat.branchSwitchFailed", { message: caught.message })),
     }),
   );
 
@@ -326,9 +328,7 @@ function ChatThread({
           {/* A refused Run is explained by the Quota banner below, not by its error. */}
           {error && !sending && !quotaBlocked && (
             <p role="alert" className="text-xs text-destructive">
-              {rateLimitedErrorOf(error)
-                ? "Too many messages. Try again in a moment."
-                : error.message}
+              {rateLimitedErrorOf(error) ? t("chat.tooManyMessages") : error.message}
             </p>
           )}
           <QuotaMeter />
@@ -347,13 +347,13 @@ function ChatThread({
                 ? undefined
                 : () =>
                     stop().catch((caught: Error) =>
-                      toast.error(`Stopping failed: ${caught.message}`),
+                      toast.error(t("chat.stopFailed", { message: caught.message })),
                     )
             }
             streaming={streaming}
             // The next Message continues the Branch being switched to, so wait for it.
             disabled={!!blocked || quotaBlocked || switchBranch.isPending || waiting}
-            placeholder={waiting ? "Approve or deny the tool call first" : undefined}
+            placeholder={waiting ? t("chat.approveFirst") : undefined}
           >
             <AttachButton draft={draft} disabled={!!blocked || quotaBlocked} />
             <SearchToggle search={search} />

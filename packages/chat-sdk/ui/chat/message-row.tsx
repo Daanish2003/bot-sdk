@@ -92,7 +92,7 @@ type MessageActions = {
  */
 export function MessageRow({
   message,
-  userLabel = "You",
+  userLabel,
   actions,
   highlighted = false,
   contextCut = false,
@@ -105,7 +105,7 @@ export function MessageRow({
   /** The Model's context starts at this Message on the Branch: a marker sits above it. */
   contextCut?: boolean;
 }) {
-  const { locale } = useI18n();
+  const { locale, t } = useI18n();
   const info = messageInfo(message);
   const text = plainText(message);
   const thinking = thinkingText(message);
@@ -126,7 +126,7 @@ export function MessageRow({
       {contextCut && (
         <p className="mx-auto mb-3 flex w-full max-w-4xl items-center gap-3 text-[11px] text-muted-foreground">
           <span className="h-px flex-1 bg-border" aria-hidden />
-          Earlier messages are no longer in the model's context
+          {t("chat.contextCut")}
           <span className="h-px flex-1 bg-border" aria-hidden />
         </p>
       )}
@@ -141,7 +141,9 @@ export function MessageRow({
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-2">
           <div className="flex min-h-6 items-center gap-2 text-xs">
-            <span className="font-medium">{isUser ? userLabel : "Assistant"}</span>
+            <span className="font-medium">
+              {isUser ? (userLabel ?? t("chat.you")) : t("chat.assistant")}
+            </span>
             {!isUser && model && (
               <span className="rounded-md border px-1.5 py-0.5 text-[10px] text-muted-foreground">
                 {model}
@@ -177,8 +179,8 @@ export function MessageRow({
                     size="icon-xs"
                     disabled={actions.streaming}
                     onClick={() => setEditing(true)}
-                    title="Edit (new Branch)"
-                    aria-label="Edit"
+                    title={t("chat.editNewBranch")}
+                    aria-label={t("chat.edit")}
                   >
                     <PencilIcon />
                   </Button>
@@ -188,8 +190,8 @@ export function MessageRow({
                     size="icon-xs"
                     disabled={actions.streaming}
                     onClick={actions.onRegenerate}
-                    title="Regenerate (new Branch)"
-                    aria-label="Regenerate"
+                    title={t("chat.regenerateNewBranch")}
+                    aria-label={t("chat.regenerate")}
                   >
                     <RefreshCwIcon />
                   </Button>
@@ -226,7 +228,7 @@ export function MessageRow({
                 <Loader variant="typing" size="sm" />
               )}
               {info.status === "stopped" && (
-                <span className="text-xs text-muted-foreground italic">Stopped</span>
+                <span className="text-xs text-muted-foreground italic">{t("chat.stopped")}</span>
               )}
               {info.status === "error" && <ErrorMessage info={info} />}
             </>
@@ -242,11 +244,12 @@ export function MessageRow({
  * the model is still thinking and folds away once the answer starts.
  */
 function Thinking({ text, inProgress }: { text: string; inProgress: boolean }) {
+  const { t } = useI18n();
   // No duration is stored, so the label stays approximate (as in the prototype).
   return (
     <Reasoning isStreaming={inProgress} className="max-w-[80ch]">
       <ReasoningTrigger className="text-xs text-muted-foreground">
-        {inProgress ? "Thinking…" : "Thought for a few seconds"}
+        {inProgress ? t("chat.thinking") : t("chat.thoughtAFewSeconds")}
       </ReasoningTrigger>
       <ReasoningContent markdown className="mt-2 border-l-2 pl-3 text-xs">
         {text}
@@ -265,6 +268,7 @@ function BranchArrows({
   disabled: boolean;
   onSwitch: (messageId: string) => void;
 }) {
+  const { t } = useI18n();
   const { index, count, previousId, nextId } = messageSiblings(message);
   if (count < 2) return null;
   return (
@@ -274,7 +278,7 @@ function BranchArrows({
         size="icon-xs"
         disabled={disabled || !previousId}
         onClick={() => previousId && onSwitch(previousId)}
-        aria-label="Previous Branch"
+        aria-label={t("chat.previousBranch")}
       >
         <ChevronLeftIcon />
       </Button>
@@ -284,7 +288,7 @@ function BranchArrows({
         size="icon-xs"
         disabled={disabled || !nextId}
         onClick={() => nextId && onSwitch(nextId)}
-        aria-label="Next Branch"
+        aria-label={t("chat.nextBranch")}
       >
         <ChevronRightIcon />
       </Button>
@@ -293,6 +297,7 @@ function BranchArrows({
 }
 
 function CopyButton({ text, disabled }: { text: string; disabled: boolean }) {
+  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   return (
     <Button
@@ -305,8 +310,8 @@ function CopyButton({ text, disabled }: { text: string; disabled: boolean }) {
           setTimeout(() => setCopied(false), 1200);
         });
       }}
-      title="Copy"
-      aria-label="Copy"
+      title={t("chat.copy")}
+      aria-label={t("chat.copy")}
     >
       {copied ? <CheckIcon /> : <CopyIcon />}
     </Button>
@@ -332,6 +337,7 @@ function EditBox({
   onCancel: () => void;
   saveDisabled: boolean;
 }) {
+  const { t } = useI18n();
   const [value, setValue] = useState(initial);
   const draft = useAttachmentDraft(model, initialAttachments);
   const canSave = !saveDisabled && !draft.pending && value.trim().length > 0;
@@ -341,7 +347,7 @@ function EditBox({
       <DraftAttachmentChips draft={draft} />
       <Textarea
         autoFocus
-        aria-label="Edit Message"
+        aria-label={t("chat.editMessage")}
         className="min-h-12 border-none bg-transparent text-sm md:text-sm dark:bg-transparent"
         value={value}
         onChange={(event) => setValue(event.target.value)}
@@ -358,15 +364,13 @@ function EditBox({
           <AttachButton draft={draft} />
         </span>
         <Button variant="ghost" size="sm" onClick={onCancel}>
-          Cancel
+          {t("chat.cancel")}
         </Button>
         <Button size="sm" disabled={!canSave} onClick={save}>
-          Save & submit
+          {t("chat.saveAndSubmit")}
         </Button>
       </div>
-      <p className="text-[10px] text-muted-foreground">
-        Saving creates a new Branch. The old one stays reachable with the arrows.
-      </p>
+      <p className="text-[10px] text-muted-foreground">{t("chat.saveCreatesBranch")}</p>
     </div>
   );
 }
@@ -428,7 +432,8 @@ function waitingForText(parts: UIMessage["parts"]) {
 function ErrorMessage({ info }: { info: MessageInfo }) {
   const { Link } = useChatAdapter();
   const byok = useByok();
-  const { text, keySettings } = describeError(info);
+  const i18n = useI18n();
+  const { text, keySettings } = describeError(i18n, info);
   return (
     <SystemMessage variant="error" fill role="alert" className="max-w-[80ch]">
       {text}
@@ -436,7 +441,7 @@ function ErrorMessage({ info }: { info: MessageInfo }) {
         <>
           {" "}
           <Link page={{ to: "keys" }} className="font-medium underline underline-offset-2">
-            Key settings
+            {i18n.t("chat.keySettings")}
           </Link>
         </>
       )}

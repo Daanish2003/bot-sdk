@@ -1,10 +1,10 @@
+import { renderInChat } from "../../support/chat-provider";
 import type { MessagePart } from "@tanstack/ai";
 import { createElement, Fragment } from "react";
 import type { Source } from "../../../core/shared/chat/sources";
 import { pageSourcesOf, sourcesOf } from "../../../core/shared/chat/sources";
 import { toolCallOf } from "../../../core/shared/chat/tool-call";
 import { Markdown } from "@/components/ui/prompt-kit/markdown";
-import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { replyComponents, ReplySources, SourceChips } from "../../../ui/chat/source-chips";
@@ -16,7 +16,7 @@ const sources: Source[] = [
 ];
 
 const render = (markdown: string) =>
-  renderToStaticMarkup(
+  renderInChat(
     createElement(
       ReplySources.Provider,
       { value: sources },
@@ -66,7 +66,7 @@ describe("a fetched page", () => {
     const found = sourcesOf(parts);
     const call = toolCallOf(parts[0]!)!;
 
-    const html = renderToStaticMarkup(
+    const html = renderInChat(
       createElement(
         ReplySources.Provider,
         { value: found },

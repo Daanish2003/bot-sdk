@@ -1,5 +1,5 @@
+import { renderInChat } from "../../support/chat-provider";
 import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { mcpToolsMenu, switchConnection } from "../../../core/client/mcp-tools";
@@ -26,13 +26,11 @@ describe("the tools menu", () => {
 
   it("lists nothing when the Host lists no servers", () => {
     expect(mcpToolsMenu([], [])).toEqual([]);
-    expect(renderToStaticMarkup(createElement(ToolsMenu, { items: [], onToggle: () => {} }))).toBe(
-      "",
-    );
+    expect(renderInChat(createElement(ToolsMenu, { items: [], onToggle: () => {} }))).toBe("");
   });
 
   it("renders one switch per connected server, off by default", () => {
-    const markup = renderToStaticMarkup(
+    const markup = renderInChat(
       createElement(ToolsMenuList, {
         items: mcpToolsMenu(servers, []),
         onToggle: () => {},

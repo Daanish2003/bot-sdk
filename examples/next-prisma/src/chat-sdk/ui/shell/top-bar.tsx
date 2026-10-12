@@ -115,6 +115,7 @@ function useModKey() {
 
 /** Switches the open Conversation's Model; the next Message and regenerate use it. */
 function ConversationModelPicker({ id }: { id: string }) {
+  const i18n = useI18n();
   const queryClient = useQueryClient();
   const orpc = useOrpc();
   const conversation = useQuery(orpc.conversation.get.queryOptions({ input: { id } }));
@@ -147,7 +148,7 @@ function ConversationModelPicker({ id }: { id: string }) {
       <ModelPicker
         value={value}
         models={models.data.models}
-        invalid={missingCredentialsMessage(value, models.data.models, byok) !== null}
+        invalid={missingCredentialsMessage(i18n, value, models.data.models, byok) !== null}
         onSelect={(model) => setModel.mutate({ id, model })}
       />
       <ConversationReasoningEffort id={id} />
@@ -157,6 +158,7 @@ function ConversationModelPicker({ id }: { id: string }) {
 
 /** Picks the Model a new Conversation will be created with. */
 function NewConversationModelPicker() {
+  const i18n = useI18n();
   const orpc = useOrpc();
   const models = useQuery(orpc.models.list.queryOptions());
   const byok = useByok();
@@ -169,7 +171,8 @@ function NewConversationModelPicker() {
         value={model}
         models={models.data.models}
         invalid={
-          model !== undefined && missingCredentialsMessage(model, models.data.models, byok) !== null
+          model !== undefined &&
+          missingCredentialsMessage(i18n, model, models.data.models, byok) !== null
         }
         onSelect={(next) => void setModel(next)}
       />

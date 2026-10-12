@@ -15,14 +15,18 @@ const levelColor = {
  * tokens and the window.
  */
 export function ContextRing({ fill }: { fill: ContextFill | null }) {
-  const { locale } = useI18n();
+  const { t, locale } = useI18n();
   if (!fill) return null;
   const { tokens, window, percent, fraction, level } = fill;
-  const summary = `${tokens.toLocaleString(locale)} of ${window.toLocaleString(locale)} tokens (${percent}%)`;
+  const summary = t("chat.contextSummary", {
+    tokens: tokens.toLocaleString(locale),
+    window: window.toLocaleString(locale),
+    percent,
+  });
   return (
     <Tooltip>
       <TooltipTrigger
-        aria-label={`Context: ${summary}`}
+        aria-label={t("chat.context", { summary })}
         className={cn(
           "inline-flex size-7 items-center justify-center rounded-full",
           levelColor[level],
@@ -59,10 +63,11 @@ export function ContextRing({ fill }: { fill: ContextFill | null }) {
 
 /** Above the composer once the Conversation is over the selected Model's window. */
 export function ContextOverflowNotice({ fill }: { fill: ContextFill | null }) {
+  const { t } = useI18n();
   if (!fill?.over) return null;
   return (
     <p role="status" className="text-xs text-muted-foreground">
-      Earlier Messages will be dropped from the next reply: they don't fit this Model's window.
+      {t("chat.contextOverflow")}
     </p>
   );
 }

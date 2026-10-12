@@ -1,5 +1,4 @@
 import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { contextFill } from "../../../core/client/context-ring";
@@ -38,11 +37,9 @@ describe("ContextRing", () => {
 describe("ContextOverflowNotice", () => {
   it("warns only when the Conversation is over the window", () => {
     expect(
-      renderToStaticMarkup(
-        createElement(ContextOverflowNotice, { fill: contextFill(9000, 10000) }),
-      ),
+      renderInChat(createElement(ContextOverflowNotice, { fill: contextFill(9000, 10000) })),
     ).toBe("");
-    const html = renderToStaticMarkup(
+    const html = renderInChat(
       createElement(ContextOverflowNotice, { fill: contextFill(12000, 10000) }),
     );
     expect(html).toContain("Earlier Messages will be dropped");
