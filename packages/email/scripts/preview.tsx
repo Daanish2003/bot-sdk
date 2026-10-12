@@ -13,8 +13,13 @@ const url = "https://chat.example.com/verify?token=preview";
 
 await mkdir(outDir, { recursive: true });
 for (const name of TEMPLATE_NAMES) {
-  const props =
-    name === "password-changed" || name === "account-deleted" ? { appName } : { appName, url };
+  const notice = [
+    "password-changed",
+    "account-deleted",
+    "two-factor-enabled",
+    "two-factor-disabled",
+  ].includes(name);
+  const props = notice ? { appName } : { appName, url };
   const message = await renderTemplate(name as TemplateName, "preview@example.com", props as never);
   await writeFile(join(outDir, `${name}.html`), await render(message.react), "utf8");
   await writeFile(join(outDir, `${name}.txt`), message.text, "utf8");
