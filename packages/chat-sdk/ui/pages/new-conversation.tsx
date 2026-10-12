@@ -26,7 +26,8 @@ import { useChatAdapter, useChatLocation, useI18n } from "../../core/client/reac
  */
 export function NewConversationPage() {
   const { orpc, navigate } = useChatAdapter();
-  const { t } = useI18n();
+  const i18n = useI18n();
+  const { t } = i18n;
   const queryClient = useQueryClient();
   const models = useQuery(orpc.models.list.queryOptions());
   const byok = useByok();
@@ -37,7 +38,7 @@ export function NewConversationPage() {
   useEffect(() => () => setNewConversationEffort(null), []);
   const create = useMutation(orpc.conversation.create.mutationOptions());
   const blocked =
-    models.data && model ? missingCredentialsMessage(model, models.data.models, byok) : null;
+    models.data && model ? missingCredentialsMessage(i18n, model, models.data.models, byok) : null;
   const disabled = !model || !!blocked || create.isPending;
   const draft = useAttachmentDraft(model);
   const search = useWebSearch(model);

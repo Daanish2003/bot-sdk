@@ -1,5 +1,7 @@
+import { chatMessages } from "./chat";
 import { pagesMessages } from "./pages";
 import { settingsMessages } from "./settings";
+import { shareMessages } from "./share";
 import { shellMessages } from "./shell";
 import { timeMessages } from "./time";
 
@@ -10,6 +12,8 @@ import { timeMessages } from "./time";
 export const en = {
   ...timeMessages,
   ...shellMessages,
+  ...chatMessages,
+  ...shareMessages,
   ...pagesMessages,
   ...settingsMessages,
 };

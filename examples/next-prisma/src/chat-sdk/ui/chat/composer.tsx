@@ -7,6 +7,8 @@ import {
 import { ArrowUpIcon, SquareIcon } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
+import { useI18n } from "../../core/client/react/provider";
+
 /**
  * The docked composer: Enter sends, Shift+Enter starts a new line. While a reply streams, sending
  * is disabled and Send becomes Stop.
@@ -19,7 +21,7 @@ export function Composer({
   children,
   attachments,
   attachmentsPending = false,
-  placeholder = "Message (Shift+Enter for a new line)",
+  placeholder,
 }: {
   onSend: (text: string) => void;
   onStop?: () => void;
@@ -36,6 +38,7 @@ export function Composer({
   /** Shown instead of the default hint, for example while a call waits for Approval. */
   placeholder?: string;
 }) {
+  const { t } = useI18n();
   const [value, setValue] = useState("");
   const canSend = !disabled && !streaming && !attachmentsPending && value.trim().length > 0;
 
@@ -55,9 +58,9 @@ export function Composer({
     >
       {attachments}
       <PromptInputTextarea
-        placeholder={placeholder}
+        placeholder={placeholder ?? t("chat.composerPlaceholder")}
         className="text-sm text-foreground"
-        aria-label="Message"
+        aria-label={t("chat.messageLabel")}
       />
       <PromptInputActions className="justify-between px-1 pt-1">
         <div className="flex items-center gap-1">{children}</div>
@@ -66,7 +69,7 @@ export function Composer({
           className="rounded-full"
           disabled={streaming ? !onStop : !canSend}
           onClick={streaming ? onStop : submit}
-          aria-label={streaming ? "Stop" : "Send"}
+          aria-label={streaming ? t("chat.stop") : t("chat.send")}
         >
           {streaming ? <SquareIcon className="fill-current" /> : <ArrowUpIcon />}
         </Button>

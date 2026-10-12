@@ -9,7 +9,7 @@ import { useQuotaSlot } from "../shell/quota-slot";
  */
 export function QuotaBanner({ resetsAt }: { resetsAt: Date | string }) {
   const { Link } = useChatAdapter();
-  const { locale } = useI18n();
+  const { t, locale } = useI18n();
   const byok = useByok();
   const slot = useQuotaSlot();
   return (
@@ -17,12 +17,10 @@ export function QuotaBanner({ resetsAt }: { resetsAt: Date | string }) {
       role="alert"
       className="flex flex-col gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive"
     >
-      <p>
-        You&apos;ve used your Quota. Host Models are off until {quotaResetsAt(resetsAt, locale)}.
-      </p>
+      <p>{t("chat.quotaSpent", { resetsAt: quotaResetsAt(resetsAt, locale) })}</p>
       {byok && (
         <Link page={{ to: "keys" }} className="w-fit underline">
-          Add your own key
+          {t("chat.addYourOwnKey")}
         </Link>
       )}
       {slot}

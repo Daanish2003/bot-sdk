@@ -18,11 +18,12 @@ export function UsageInfo({
   usage: MessageUsage | null;
   reasoningEffort: ReasoningChoice | null;
 }) {
+  const { t } = useI18n();
   return (
     <Popover>
       <PopoverTrigger
-        aria-label="Token usage"
-        title="Token usage"
+        aria-label={t("chat.tokenUsage")}
+        title={t("chat.tokenUsage")}
         className={cn(
           buttonVariants({ variant: "ghost", size: "icon-xs" }),
           "text-muted-foreground",
@@ -42,22 +43,23 @@ export function UsageInfo({
 
 /** The reasoning effort a reply ran with; `null` reads as the Model's default. */
 export function EffortLine({ reasoningEffort }: { reasoningEffort: ReasoningChoice | null }) {
+  const i18n = useI18n();
   return (
     <p>
-      <span className="text-muted-foreground">Reasoning effort: </span>
-      {reasoningChoiceLabel(reasoningEffort)}
+      <span className="text-muted-foreground">{i18n.t("chat.reasoningEffort")}: </span>
+      {reasoningChoiceLabel(i18n, reasoningEffort)}
     </p>
   );
 }
 
 /** The tokens a reply's Run used, and a note when they are an estimate. */
 export function UsageBreakdown({ usage }: { usage: MessageUsage }) {
-  const { locale } = useI18n();
+  const { t, locale } = useI18n();
   const rows = [
-    ["Input", usage.input],
-    ["Output", usage.output],
-    ["Reasoning", usage.reasoning],
-    ["Cached", usage.cached],
+    [t("chat.usageInput"), usage.input],
+    [t("chat.usageOutput"), usage.output],
+    [t("chat.usageReasoning"), usage.reasoning],
+    [t("chat.usageCached"), usage.cached],
   ] as const;
   return (
     <div className="flex flex-col gap-2 text-xs">
@@ -69,11 +71,7 @@ export function UsageBreakdown({ usage }: { usage: MessageUsage }) {
           </Fragment>
         ))}
       </dl>
-      {usage.estimated && (
-        <p className="text-muted-foreground">
-          Estimate: the Provider reported no usage for this reply.
-        </p>
-      )}
+      {usage.estimated && <p className="text-muted-foreground">{t("chat.usageEstimate")}</p>}
     </div>
   );
 }
