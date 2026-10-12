@@ -5,7 +5,7 @@ Researched: 2026-10-12, from Render, Railway and Fly official docs only.
 
 ## Question
 
-What does attaching a persistent disk do to a Render web service? Does it turn off zero-downtime deploys, limit the service to one instance, how long does a deploy go down for, and does it affect the shutdown delay and `SIGTERM` drain that [ADR 0009](../adr/0009-production-on-render.md) relies on? Do Railway and Fly volumes have the same limits? ADR 0009 assumes two processes overlap for up to 300 s during a deploy; [ADR 0012](../adr/0012-synced-sources-on-a-disk.md) needs a disk for Synced sources.
+What does attaching a persistent disk do to a Render web service? Does it turn off zero-downtime deploys, limit the service to one instance, how long does a deploy go down for, and does it affect the shutdown delay and `SIGTERM` drain that [ADR 0009](../adr/0009-production-on-render.md) relies on? Do Railway and Fly volumes have the same limits? ADR 0009 assumes two processes overlap for up to 300 s during a deploy; [ADR 0012](../adr/0012-synced-sources-cached-locally.md) needs a disk for Synced sources.
 
 ## Answer
 
