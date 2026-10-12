@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Client } from "pg";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { createChat } from "../../../core/server/create-chat";
 import { LATEST_MIGRATION } from "../../../core/server/migrate";
@@ -44,9 +44,11 @@ async function scratchDatabase(suffix: string) {
   return url;
 }
 
-afterAll(async () => {
-  for (const url of scratch) await dropScratchDatabase(url);
-}, 60_000);
+// Each DROP DATABASE forces a checkpoint, which is slow when other suites write at the same time.
+// Dropping after every test spreads them out; dropping all of them in one afterAll timed out under load.
+afterEach(async () => {
+  for (const url of scratch.splice(0)) await dropScratchDatabase(url);
+}, 120_000);
 
 const sdkTables = [
   "__migrations",
