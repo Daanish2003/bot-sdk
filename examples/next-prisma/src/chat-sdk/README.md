@@ -137,6 +137,29 @@ const data = await chat.getSharedConversation(token);
 - `start()` refuses to run while the `chat` schema is behind the bundled migrations.
 - `stop()` refuses new Runs with 503 while it drains, then closes the runtime's connections.
 
+## Host hooks
+
+`createChat({ hooks })` takes the Host's callbacks into the SDK. Every hook is optional.
+
+```ts
+const chat = createChat({
+  // ...
+  logger, // where the SDK's own failures go; defaults to console
+  hooks: {
+    // every usage row written on Host credentials: a Run, a title, a web search
+    onUsage: (usage) => {
+      // usage: { id, userId, kind: "run" | "title" | "web_search", model, inputTokens,
+      //   outputTokens, costMicros, estimated, createdAt }
+    },
+  },
+});
+```
+
+- **Delivery.** A hook runs after its change is written. It is never awaited, so a slow hook never delays a Run or a response. It runs at most once, with no retries: design your own delivery if you need one.
+- **Failures.** A hook that throws or rejects is logged through the Host's `logger` (`logger.error`). The Run completes as normal.
+- **Credentials.** `onUsage` fires only for usage on Host credentials (ADR 0007), never for a Run on the user's own credentials.
+- **The SDK's failures.** Failed snapshot writes, Run Log appends, usage rows, title generation, the reaper and the database pool all go to the Host's `logger`, not to `console`.
+
 ## Several processes: `redisRuntime()`
 
 A Run is shared between the processes of your app through its `runtime`. The default, `memoryRuntime()`, keeps Runs in one process's memory, which is fine for local development and for a Host that runs as a single process.
