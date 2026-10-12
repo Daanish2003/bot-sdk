@@ -17,7 +17,7 @@ One chat thread owned by a single user, listed in the sidebar. A user can pin it
 _Avoid_: Chat, thread, session
 
 **Project**:
-A named group of a user's Conversations that share context: instructions and a default Model. A Conversation is in at most one Project; deleting the Project deletes its Conversations.
+A named group of a user's Conversations that share context: instructions, a default Model, Knowledge and their own Memories. A Conversation is in at most one Project; deleting the Project deletes its Conversations.
 _Avoid_: Folder, workspace, collection
 
 **Instructions**:
@@ -83,3 +83,43 @@ _Avoid_: Share, public chat, permalink
 **Attachment**:
 A file (image, PDF or text file) a user uploads and attaches to their Message. It is never copied: editing a Message carries its Attachments over to the new Branch, where the user can remove some or add more; regenerating a reply leaves them as they were. A Shared link shows only each Attachment's file name and type.
 _Avoid_: Upload, file part, document
+
+**Generated image**:
+An image the assistant made with an image Model during an assistant Message, shown in the reply. It is not an Attachment: the user didn't upload it.
+_Avoid_: Image attachment, picture, output image
+
+**Artifact**:
+A standalone piece of content the assistant creates in a Conversation and then revises (code, an HTML page, a document, a diagram), opened beside the chat with a preview. Each revision is a numbered version of the same Artifact.
+_Avoid_: Canvas, code block, file, document
+
+**Knowledge**:
+The material a Project gives the assistant to look things up in while replying in its Conversations: its Knowledge files and Synced sources.
+_Avoid_: Knowledge base, RAG, documents, library
+
+**Knowledge file**:
+A file a user adds to a Project's Knowledge, which the assistant searches by meaning. It is not an Attachment: it belongs to the Project, not to a Message.
+_Avoid_: Document, upload, attachment
+
+**Synced source**:
+An outside collection of text files, such as a GitHub repository, kept in step with a Project's Knowledge and read by the assistant file by file.
+_Avoid_: Connector, repo, integration, Source (that is a web page)
+
+**Excerpt**:
+A passage of Knowledge the assistant read during an assistant Message, shown as a chip wherever the reply cites it.
+_Avoid_: Source (that is a web page), chunk, snippet, Knowledge source
+
+**Memory**:
+One fact about a user that the assistant learned in a Conversation and reuses in later ones. Memories made in a Project stay in that Project; the rest are general. Each remembers the Message it came from and goes when that Conversation is deleted.
+_Avoid_: Fact, profile, saved memory, Instructions (those the user writes)
+
+**Temporary Conversation**:
+A Conversation that neither uses nor makes Memories, stays out of the sidebar and search, can't be shared, and is deleted 30 days after its last Message.
+_Avoid_: Incognito chat, private chat
+
+**Background Model**:
+The cheap Model a user picks for work done around their Messages rather than in them: titles and making Memories.
+_Avoid_: Title Model, Memory Model, utility model
+
+**Image Model**:
+The Model a user picks for Generated images.
+_Avoid_: Image generator, image Provider
