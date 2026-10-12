@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
 import { deleteOrphanAttachments, saveAttachment } from "../../../../core/server/attachments/store";
+import { s3BlobStore } from "../../../../core/server/blob/s3";
 import { attachmentBlobKey, type BlobStore } from "../../../../core/server/blob/store";
 import { attachment } from "../../../../core/server/db/schema/attachment";
 import { blob } from "../../../../core/server/db/schema/blob";
@@ -10,6 +11,7 @@ import { insertAttachment } from "../../../support/attachments";
 import { createTestDeps } from "../../../support/deps";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
+import { fakeS3 } from "./fake-s3";
 
 const longAgo = () => new Date(Date.now() - 25 * 60 * 60 * 1000);
 const upload = (text: string) => ({
@@ -123,6 +125,35 @@ describe("deleteOrphanAttachments", () => {
       .from(attachment)
       .where(eq(attachment.id, orphan.id));
     expect(rows).toEqual([]);
+  });
+});
+
+describe("an S3 blob store", () => {
+  it("holds an Attachment's bytes until the orphan cleanup removes them", async () => {
+    const config = { bucket: "ai-chat-test", region: "auto", accessKeyId: "key" };
+    const s3 = fakeS3(config);
+    vi.stubGlobal("fetch", s3.fetch);
+    try {
+      const store = s3BlobStore({
+        endpoint: "http://127.0.0.1:9000",
+        ...config,
+        secretAccessKey: "secret",
+      });
+      const user = await insertUser();
+      const deps = createTestDeps({ blobStore: store });
+      const saved = await saveAttachment(deps, user.id, upload("hello s3"));
+      expect(s3.objects.has(attachmentBlobKey(saved.id))).toBe(true);
+      await getTestDb()
+        .update(attachment)
+        .set({ createdAt: longAgo() })
+        .where(eq(attachment.id, saved.id));
+
+      await deleteOrphanAttachments(deps, new Date());
+
+      expect(s3.objects.has(attachmentBlobKey(saved.id))).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 

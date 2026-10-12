@@ -5,6 +5,7 @@ import { log } from "evlog";
 
 import { appName, sender } from "./email";
 import { ENV, ssrfAllowHosts } from "./env.server";
+import { blobStoreOf } from "./blob-store";
 import { hostProvidersOf, quotaOf } from "./host-models";
 import { mcpServersOf } from "./mcp-server";
 
@@ -48,6 +49,8 @@ export const chat = createChat({
   // The Host's Models and their Quota (ADR 0007); unset, users chat only on their own keys.
   hostProviders: hostProvidersOf(ENV),
   getQuota: quotaOf(ENV),
+  // File bytes go to the S3 store when S3_* is set, and to Postgres otherwise (ADR 0015).
+  blobStore: blobStoreOf(ENV),
   getUser: async (request) => {
     const session = await auth.api.getSession({ headers: request.headers });
     return session?.user ? { id: session.user.id } : null;
