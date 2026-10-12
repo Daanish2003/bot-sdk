@@ -8,7 +8,7 @@ import type { MessagePart } from "@tanstack/ai";
 /** The longest utterance handed to the browser, so a long sentence isn't cut off mid-speech. */
 export const maxUtteranceLength = 200;
 
-/** A reply's text parts as plain prose, one block per text part. No reasoning, no tool calls. */
+/** An assistant Message's text parts as plain prose, one block per text part. No reasoning, no tool calls. */
 export function readableText(parts: MessagePart[]): string {
   return parts
     .flatMap((part) => (part.type === "text" ? [markdownToProse(part.content)] : []))
@@ -22,6 +22,8 @@ export function markdownToProse(markdown: string): string {
     .replace(/```[\s\S]*?(```|$)/g, " ")
     .replace(/~~~[\s\S]*?(~~~|$)/g, " ")
     .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
+    .replace(/^\s*\[[^\]]+\]:\s*\S+.*$/gm, " ")
+    .replace(/\[([^\]]*)\]\[[^\]]*\]/g, "$1")
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/<https?:\/\/[^>]*>/g, " ")
     .replace(/https?:\/\/\S+/g, " ")

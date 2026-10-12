@@ -29,6 +29,12 @@ describe("markdownToProse", () => {
     );
   });
 
+  it("keeps a reference-style link's text and drops its label and definition", () => {
+    expect(markdownToProse("See [the spec][spec] now.\n\n[spec]: https://example.com/spec")).toBe(
+      "See the spec now.",
+    );
+  });
+
   it("drops bare URLs and autolinks", () => {
     expect(markdownToProse("Visit https://example.com/a or <https://example.com/b>.")).toBe(
       "Visit or .",

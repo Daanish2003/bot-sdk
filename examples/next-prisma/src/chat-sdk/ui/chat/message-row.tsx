@@ -42,9 +42,9 @@ import {
   useAttachmentDraft,
 } from "./attachments";
 
+import { ReadAloud } from "./read-aloud";
 import { SearchRow } from "./search-row";
 import { replyComponents, ReplySources, SourceChips } from "./source-chips";
-import { ReadAloud } from "./read-aloud";
 import { ToolCallRow } from "./tool-call-row";
 import { UsageInfo } from "./usage-info";
 

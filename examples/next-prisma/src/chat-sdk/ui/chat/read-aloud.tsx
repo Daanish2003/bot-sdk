@@ -6,11 +6,11 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { pickOnDeviceVoice, readAloudUtterances } from "../../core/shared/chat/read-aloud";
 
 /**
- * Read-aloud (#257) with the browser's on-device voices. One reply reads at a time: the module
+ * Read-aloud (#257) with the browser's on-device voices. One Message reads at a time: the module
  * state below is the only one, so a row never needs to know about another.
  */
 
-/** Which reply is being read, if any. */
+/** Which Message is being read, if any. */
 let speakingId: string | null = null;
 /** Bumped at each start and stop, so callbacks of a finished reading do nothing. */
 let session = 0;
@@ -36,16 +36,16 @@ function synth(): SpeechSynthesis | null {
     : null;
 }
 
-/** Stops the reply being read, if any. */
-export function stopReading() {
+/** Stops the Message being read, if any. */
+function stopReading() {
   session += 1;
   queued = [];
   synth()?.cancel();
   setSpeaking(null);
 }
 
-/** Reads a reply aloud, stopping any other reply first. */
-export function readAloud(messageId: string, utterances: string[]) {
+/** Reads a Message aloud, stopping any other Message first. */
+function readAloud(messageId: string, utterances: string[]) {
   const speech = synth();
   if (!speech || utterances.length === 0) return;
   stopReading();
@@ -87,7 +87,7 @@ function useHasOnDeviceVoice() {
   return has;
 }
 
-/** The read-aloud control beside Copy on a finished reply. Absent without an on-device voice. */
+/** The read-aloud control beside Copy on a finished assistant Message. Absent without an on-device voice. */
 export function ReadAloud({ messageId, parts }: { messageId: string; parts: MessagePart[] }) {
   const available = useHasOnDeviceVoice();
   const speaking = useSyncExternalStore(
