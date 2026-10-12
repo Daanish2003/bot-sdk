@@ -1,6 +1,7 @@
 import { getTestDb } from "./test-database";
 
 import { createMemoryCounters } from "../../core/server/chat/counters";
+import { createHookEmitter } from "../../core/server/chat/hooks";
 import { createMemoryPubSub } from "../../core/server/chat/pubsub";
 import { createMemoryRunStreams } from "../../core/server/chat/run-streams";
 import type { AppDeps, Limits } from "../../core/server/deps";
@@ -53,6 +54,9 @@ export function createTestDeps({
     byok: true,
     getQuota: async () => null,
     lifecycle: { stopping: false, runs: new Map() },
+    // Silent, like the handler's logger in `support/sdk.ts`: the tests assert on rows, not logs.
+    logger: { error: () => {} },
+    hooks: createHookEmitter(undefined, { error: () => {} }),
     ...overrides,
     fetch,
     ollamaFetch: overrides.ollamaFetch ?? fetch,

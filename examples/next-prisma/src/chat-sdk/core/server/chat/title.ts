@@ -54,7 +54,7 @@ export async function titleConversation(deps: AppDeps, replyId: string): Promise
       .set({ title })
       .where(and(eq(conversation.id, row.conversationId), isNull(conversation.title)));
   } catch (error) {
-    console.error(`Titling the Conversation of Message ${replyId} failed`, error);
+    deps.logger.error(`Titling the Conversation of Message ${replyId} failed`, error);
   }
 }
 
@@ -97,11 +97,11 @@ async function generateTitle(
         { userId, model, price: call.hostModel },
         usage,
         reported.cost,
-      ).catch((caught: unknown) => console.error(`Recording the title usage failed`, caught));
+      ).catch((caught: unknown) => deps.logger.error(`Recording the title usage failed`, caught));
     }
     return cleanTitle(result.text);
   } catch (error) {
-    console.error(`Generating a title with ${model} failed`, error);
+    deps.logger.error(`Generating a title with ${model} failed`, error);
     return "";
   }
 }

@@ -5,6 +5,7 @@ import { adapterFor } from "./chat/adapters";
 import type { CounterStore } from "./chat/counters";
 import type { PubSub } from "./chat/pubsub";
 import type { HostServerTool } from "./chat/host-tools";
+import { createHookEmitter, type ChatHooks, type HookEmitter } from "./chat/hooks";
 import type { RunStreams } from "./chat/run-streams";
 import { createTavilyClient } from "./chat/tavily";
 import { createGuardedFetch } from "./lib/guarded-fetch";
@@ -146,6 +147,10 @@ export type AppDeps = {
   keyEncryptionSecrets: string[];
   /** The remote MCP servers the Host offers (`createChat({ mcpServers })`, spec #91). */
   mcpServers: McpServerConfig[];
+  /** Where the SDK's own failures go: the Host's `logger` (`createChat({ logger })`). */
+  logger: Pick<Console, "error">;
+  /** Fires the Host's `hooks` after each change the SDK writes (`createChat({ hooks })`). */
+  hooks: HookEmitter;
 };
 
 export const defaultLimits: Limits = {
@@ -170,6 +175,8 @@ export function createAppDeps({
   tools,
   fetchAllowHosts,
   mcpServers,
+  logger = console,
+  hooks,
 }: {
   db: Database;
   keyEncryptionSecrets: string[];
@@ -182,8 +189,12 @@ export function createAppDeps({
   tools: HostServerTool[];
   fetchAllowHosts?: string[];
   mcpServers: McpServerConfig[];
+  logger?: AppDeps["logger"];
+  hooks?: ChatHooks;
 }): AppDeps {
   return {
+    logger,
+    hooks: createHookEmitter(hooks, logger),
     db,
     adapterFor,
     hostProviders,

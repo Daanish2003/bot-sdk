@@ -140,7 +140,7 @@ export async function startRun(
       .then(async () => {
         await deps.db.update(message).set(fields).where(eq(message.id, messageId));
       })
-      .catch((error: unknown) => console.error(`Saving Message ${messageId} failed`, error));
+      .catch((error: unknown) => deps.logger.error(`Saving Message ${messageId} failed`, error));
     return writes;
   };
   const withParts = (fields: MessageUpdate = {}): MessageUpdate => {
@@ -159,7 +159,7 @@ export async function startRun(
       .then((requested) => {
         if (requested) abortController.abort();
       })
-      .catch((error: unknown) => console.error(`Reading Stop of ${messageId} failed`, error));
+      .catch((error: unknown) => deps.logger.error(`Reading Stop of ${messageId} failed`, error));
   }, deps.limits.snapshotIntervalMs);
 
   /** Whether the log already holds its own RUN_FINISHED or RUN_ERROR. */
@@ -188,7 +188,7 @@ export async function startRun(
                 recordSearch: searchMeter
                   ? () =>
                       recordSearchUsage(deps, searchMeter).catch((caught: unknown) =>
-                        console.error(`Recording a search of ${messageId} failed`, caught),
+                        deps.logger.error(`Recording a search of ${messageId} failed`, caught),
                       )
                   : undefined,
               }),
@@ -267,7 +267,9 @@ export async function startRun(
         ids ??= runIdsOf(chunk);
         void deps.runStreams
           .append(logId, chunk)
-          .catch((error: unknown) => console.error(`Logging Message ${messageId} failed`, error));
+          .catch((error: unknown) =>
+            deps.logger.error(`Logging Message ${messageId} failed`, error),
+          );
       }
     } catch (caught) {
       error = thrownError(caught);
@@ -321,11 +323,11 @@ export async function startRun(
           usage,
           costComplete ? reportedCost : undefined,
         ).catch((caught: unknown) =>
-          console.error(`Recording usage of ${messageId} failed`, caught),
+          deps.logger.error(`Recording usage of ${messageId} failed`, caught),
         );
       }
       void unsubscribeStop().catch((error: unknown) =>
-        console.error(`Unsubscribing Stop of ${messageId} failed`, error),
+        deps.logger.error(`Unsubscribing Stop of ${messageId} failed`, error),
       );
       // A Run that was stopped, timed out or threw has no terminal chunk of its own. A reader that
       // sees its log end without one takes the stream as cut off and reconnects, which starts the
@@ -339,7 +341,9 @@ export async function startRun(
               timedOut ? "timed out" : interrupted ? "interrupted" : error?.message,
             ),
           )
-          .catch((caught: unknown) => console.error(`Logging Message ${messageId} failed`, caught));
+          .catch((caught: unknown) =>
+            deps.logger.error(`Logging Message ${messageId} failed`, caught),
+          );
       }
       await deps.runStreams.close(logId);
       deps.lifecycle.runs.delete(messageId);
