@@ -12,7 +12,7 @@ import {
   createChatHandler,
   type CreateChatOptions,
 } from "../../../../core/server/create-chat";
-import { deleteUserData } from "../../../../core/server/delete-user";
+import { deleteAllConversations, deleteUserData } from "../../../../core/server/delete-user";
 import { saveCredentials } from "../../../../core/server/credentials/store";
 import { conversation, message, project } from "../../../../core/server/db/schema/chat";
 import { usage } from "../../../../core/server/db/schema/usage";
@@ -258,8 +258,11 @@ function sendMail(runs: Array<{ to: string; body: string }>) {
   });
 }
 
-/** The database, with the usage delete of `deleteUserData` failing, so its transaction rolls back. */
-function failingUsageDelete(db: ReturnType<typeof getTestDb>): ReturnType<typeof getTestDb> {
+/** The database, with the delete of `failing` table failing, so its transaction rolls back. */
+function failingDeleteOf(
+  db: ReturnType<typeof getTestDb>,
+  failing: unknown,
+): ReturnType<typeof getTestDb> {
   return new Proxy(db, {
     get: (target, key) => {
       if (key !== "transaction") return Reflect.get(target, key, target);
@@ -270,8 +273,8 @@ function failingUsageDelete(db: ReturnType<typeof getTestDb>): ReturnType<typeof
               get: (txTarget, txKey) => {
                 if (txKey !== "delete") return Reflect.get(txTarget, txKey, txTarget);
                 return (table: unknown) =>
-                  table === usage
-                    ? { where: () => Promise.reject(new Error("usage delete failed")) }
+                  table === failing
+                    ? { where: () => Promise.reject(new Error("delete failed")) }
                     : (txTarget as typeof db).delete(table as never);
               },
             }),
@@ -461,37 +464,44 @@ describe("the onRunEnd hook", () => {
     expect(onRunEnd.mock.calls[0]?.[0]).not.toHaveProperty("reason");
   });
 
-  it("fires an orphaned Run's stop only after a user delete's transaction commits", async () => {
+  it("fires nothing when deleteUser stops an orphaned Run", async () => {
     const user = await insertUser();
-    const conv = await insertConversation(user, { title: "Deleted" });
-    const reply = await orphanedReply(conv.id);
-    const rowsAtHook: number[] = [];
-    const onRunEnd = vi.fn<(run: RunEndEvent) => Promise<void>>(async () => {
-      const rows = await getTestDb()
-        .select()
-        .from(conversation)
-        .where(eq(conversation.id, conv.id));
-      rowsAtHook.push(rows.length);
-    });
+    const conv = await insertConversation(user, { title: "Host delete" });
+    await orphanedReply(conv.id);
+    const onRunEnd = vi.fn<(run: RunEndEvent) => void>();
 
     await deleteUserData(depsWithRunEnd(onRunEnd), user.id);
 
-    await vi.waitFor(() => expect(rowsAtHook).toHaveLength(1));
+    expect((await getTestDb().select().from(conversation)).some((row) => row.id === conv.id)).toBe(
+      false,
+    );
+    expect(onRunEnd).not.toHaveBeenCalled();
+  });
+
+  it("fires an orphaned Run's stop when the user deletes all their Conversations, after the commit", async () => {
+    const user = await insertUser();
+    const conv = await insertConversation(user, { title: "Deleted all" });
+    const reply = await orphanedReply(conv.id);
+    const onRunEnd = vi.fn<(run: RunEndEvent) => void>();
+
+    await deleteAllConversations(depsWithRunEnd(onRunEnd), user.id);
+
+    await vi.waitFor(() => expect(onRunEnd).toHaveBeenCalledTimes(1));
     expect(onRunEnd).toHaveBeenCalledWith(
       expect.objectContaining({ runId: reply.id, ending: "stopped" }),
     );
-    // Read after the commit, so the Conversation the delete removed is already gone.
-    expect(rowsAtHook).toEqual([0]);
   });
 
-  it("fires nothing for an orphaned Run whose user delete rolls back", async () => {
+  it("fires nothing for an orphaned Run whose delete of all Conversations rolls back", async () => {
     const user = await insertUser();
     const conv = await insertConversation(user, { title: "Rolled back" });
     const reply = await orphanedReply(conv.id);
     const onRunEnd = vi.fn<(run: RunEndEvent) => void>();
-    const deps = depsWithRunEnd(onRunEnd, { db: failingUsageDelete(getTestDb()) });
+    const deps = depsWithRunEnd(onRunEnd, {
+      db: failingDeleteOf(getTestDb(), conversation),
+    });
 
-    await expect(deleteUserData(deps, user.id)).rejects.toThrow("usage delete failed");
+    await expect(deleteAllConversations(deps, user.id)).rejects.toThrow("delete failed");
 
     expect(onRunEnd).not.toHaveBeenCalled();
     expect((await replyOf(conv.id)).id).toBe(reply.id);

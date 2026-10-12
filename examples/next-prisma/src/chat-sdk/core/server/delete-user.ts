@@ -17,10 +17,10 @@ import type { AppDeps } from "./deps";
  * Attachments, because a Message's link to an Attachment does not cascade.
  */
 export async function deleteUserData(deps: AppDeps, userId: string): Promise<void> {
-  const stopped = await deps.db.transaction(async (tx) => {
+  await deps.db.transaction(async (tx) => {
     // 1. Stop the user's live Runs through the Stop path. The Run's owner aborts and, its row gone,
-    // its later writes match nothing.
-    const ended = await stopUserRuns(deps, userId, tx);
+    // its later writes match nothing. No `onRunEnd` fires for them: a Host's user delete emits nothing (#265).
+    await stopUserRuns(deps, userId, tx);
 
     // 2. Conversations, which cascade to their Messages, Shared links and Message–Attachment links.
     await tx.delete(conversation).where(eq(conversation.userId, userId));
@@ -44,10 +44,7 @@ export async function deleteUserData(deps: AppDeps, userId: string): Promise<voi
     await tx.delete(userSettings).where(eq(userSettings.userId, userId));
     // 5. Usage rows, which no Conversation cascades to: a deleted account keeps no Quota history.
     await tx.delete(usage).where(eq(usage.userId, userId));
-    return ended;
   });
-  // After the commit: a rolled-back delete fires nothing (#265).
-  for (const run of stopped) deps.hooks.fire("onRunEnd", run);
 }
 
 /**
