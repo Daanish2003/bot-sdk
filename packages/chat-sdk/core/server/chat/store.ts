@@ -230,6 +230,7 @@ export async function listConversations(
     .where(
       and(
         eq(conversation.userId, userId),
+        eq(conversation.temporary, false),
         projectId
           ? eq(conversation.projectId, projectId)
           : and(isNull(conversation.projectId), isNull(conversation.pinnedAt)),
@@ -262,7 +263,13 @@ export async function listPinnedConversations(deps: Deps, userId: string) {
     .leftJoin(leaf, eq(leaf.id, conversation.activeLeafId))
     .leftJoin(leafParent, eq(leafParent.id, leaf.parentId))
     .leftJoin(sharedLink, eq(sharedLink.conversationId, conversation.id))
-    .where(and(eq(conversation.userId, userId), isNotNull(conversation.pinnedAt)))
+    .where(
+      and(
+        eq(conversation.userId, userId),
+        isNotNull(conversation.pinnedAt),
+        eq(conversation.temporary, false),
+      ),
+    )
     .orderBy(desc(conversation.pinnedAt), desc(conversation.id));
   return rows.map(summarize);
 }

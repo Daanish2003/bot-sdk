@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
+  boolean,
   index,
   integer,
   jsonb,
@@ -72,6 +73,8 @@ export const conversation = chatSchema.table(
       .notNull(),
     /** When the Conversation was pinned; null when it is not pinned. */
     pinnedAt: timestamp("pinned_at"),
+    /** A Temporary Conversation: kept out of the lists, search and titles. Set at creation only. */
+    temporary: boolean("temporary").default(false).notNull(),
     /** Bumped only by new Messages, never by renames or Branch switches. */
     lastMessageAt: timestamp("last_message_at").defaultNow().notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),

@@ -182,12 +182,12 @@ describe("automatic titles", () => {
 
 describe("titleConversation", () => {
   /** A Conversation with a first exchange, as the end of its first run leaves it. */
-  async function seeded({ manual = false, title = null as string | null } = {}) {
+  async function seeded({ manual = false, title = null as string | null, temporary = false } = {}) {
     const user = await insertUser();
     const titleAdapter = createFakeAdapter({ rounds: [round(text("Generated title"))], manual });
     const deps = createTestDeps({ adapterFor: () => titleAdapter.adapter });
     await addAnthropicKey(user.id);
-    const conv = await insertConversation(user, { model: replyModel, title });
+    const conv = await insertConversation(user, { model: replyModel, title, temporary });
     const question = await insertMessage({
       conversationId: conv.id,
       role: "user",
@@ -203,6 +203,15 @@ describe("titleConversation", () => {
     const titleOf = () => titleOfConversation(conv.id);
     return { user, deps, conv, reply, titleAdapter, titleOf };
   }
+
+  it("makes no title and no title call for a Temporary Conversation", async () => {
+    const { deps, reply, titleAdapter, titleOf } = await seeded({ temporary: true });
+
+    await titleConversation(deps, reply.id);
+
+    expect(await titleOf()).toBeNull();
+    expect(titleAdapter.calls).toHaveLength(0);
+  });
 
   it("leaves a renamed Conversation alone and makes no title call", async () => {
     const { deps, reply, titleAdapter, titleOf } = await seeded({ title: "My name" });
