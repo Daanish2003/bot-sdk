@@ -107,4 +107,36 @@ describe("impersonation", () => {
       code: "YOU_ARE_NOT_ALLOWED_TO_IMPERSONATE_USERS",
     });
   });
+
+  it("refuses an Admin's role change, user deletion and password set, which the Admin role leaves out", async () => {
+    const auth = makeAuth();
+    const admin = await verifiedUser(auth, "limited-admin");
+    const target = await verifiedUser(auth, "limited-target");
+    await setUserRole(database, admin.email, "admin");
+    const cookie = await signedInCookie(auth, admin.email);
+
+    const attempts = [
+      { path: "set-role", body: { userId: target.id, role: "admin" } },
+      { path: "remove-user", body: { userId: target.id } },
+      {
+        path: "set-user-password",
+        body: { userId: target.id, newPassword: "takeover-password-1" },
+      },
+    ];
+    for (const attempt of attempts) {
+      const response = await auth.handler(
+        new Request(`${BASE}/api/auth/admin/${attempt.path}`, {
+          method: "POST",
+          headers: { "content-type": "application/json", origin: BASE, cookie },
+          body: JSON.stringify(attempt.body),
+        }),
+      );
+      expect(response.status, attempt.path).toBe(403);
+    }
+    const [stillThere] = await database
+      .select({ role: user.role })
+      .from(user)
+      .where(eq(user.id, target.id));
+    expect(stillThere?.role).toBe("user");
+  });
 });

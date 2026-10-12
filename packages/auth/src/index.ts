@@ -9,22 +9,13 @@ import { createAccessControl } from "better-auth/plugins/access";
 import { defaultStatements } from "better-auth/plugins/admin/access";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
 
-// The Admin role is the plugin's own admin role without impersonation (spec #277): impersonating a
-// user is refused for every role, Admins included. `user` gets no admin permissions at all.
+// The Admin role holds only what the Admin view needs (spec #277). Impersonation, role changes
+// (`admin:grant` is the only way), password and email changes and user deletion are left out, so the
+// plugin's endpoints for them refuse every role, Admins included. `user` gets no admin permissions.
 const accessControl = createAccessControl(defaultStatements);
 const adminRole = accessControl.newRole({
-  user: [
-    "create",
-    "list",
-    "set-role",
-    "ban",
-    "delete",
-    "set-password",
-    "set-email",
-    "get",
-    "update",
-  ],
-  session: ["list", "revoke", "delete"],
+  user: ["list", "get", "ban"],
+  session: ["list", "revoke"],
 });
 const userRole = accessControl.newRole({ user: [], session: [] });
 

@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 export type Role = "admin" | "user";
 
 /**
- * Sets a user's role by email (spec #277): the operator's grant and revoke, run from a repo
+ * Sets a user's role by email (spec #277): the grant and revoke of the Admin role, run from a repo
  * script, never through the UI. Returns the user it changed, or `null` when no user has the email.
  */
 export async function setUserRole(

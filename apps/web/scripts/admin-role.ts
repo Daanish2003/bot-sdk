@@ -9,6 +9,8 @@
  */
 import { registerHooks } from "node:module";
 
+import { log } from "evlog";
+
 registerHooks({
   resolve(specifier, context, nextResolve) {
     try {
@@ -46,5 +48,12 @@ if (!changed) {
   process.exit(1);
 }
 console.log(JSON.stringify(changed));
+// One structured event per Admin action (spec #277): the actor is the operator running this script.
+log.info({
+  action: `admin.role.${action}`,
+  message: `Admin role ${action === "grant" ? "granted" : "revoked"} by the operator script`,
+  actor: "operator-script",
+  target: changed.id,
+});
 // The database pool has no public close; a one-off command exits once it has printed.
 process.exit(0);

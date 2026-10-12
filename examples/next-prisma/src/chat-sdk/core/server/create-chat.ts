@@ -194,7 +194,7 @@ export function createChat(options: CreateChatOptions): {
    */
   rotateKeys: () => Promise<{ reencrypted: number; unreadable: number }>;
   /**
-   * Server-only reads for the Host's operator views (spec #277). No HTTP route: the Host decides
+   * Server-only reads for the Host's Admin views (spec #277). No HTTP route: the Host decides
    * who may call them. They never return Conversation content.
    */
   admin: {
