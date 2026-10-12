@@ -28,7 +28,12 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
           password: value.password,
         },
         {
-          onSuccess: () => {
+          onSuccess: (context) => {
+            // A user with two-factor sign-in gets the code screen, which finishes the sign-in.
+            if (context.data?.twoFactorRedirect) {
+              navigate({ to: "/two-factor" });
+              return;
+            }
             navigate({
               to: "/c",
             });

@@ -4,7 +4,7 @@ import { type EmailMessage, type EmailSender, renderTemplate } from "@ai-chat/em
 import { drizzleAdapter } from "@better-auth/drizzle-adapter/relations-v2";
 import { betterAuth } from "better-auth";
 import { createAuthMiddleware, isAPIError } from "better-auth/api";
-import { admin } from "better-auth/plugins";
+import { admin, twoFactor } from "better-auth/plugins";
 import { createAccessControl } from "better-auth/plugins/access";
 import { defaultStatements } from "better-auth/plugins/admin/access";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
@@ -99,6 +99,8 @@ export function createAuth(
       schema,
     }),
     trustedOrigins: [env.BETTER_AUTH_URL],
+    // The TOTP issuer an authenticator app shows (spec #277).
+    appName: env.APP_NAME,
     socialProviders: {
       github: {
         clientId: env.GITHUB_CLIENT_ID,
@@ -204,15 +206,45 @@ export function createAuth(
     hooks: {
       // Changing a password while signed in (`/change-password`) doesn't run `onPasswordReset`,
       // so its notice is sent from here. Only a successful change has a `user` in its response.
+      // The two-factor steps below send their notices, and turning 2FA on signs out the other sessions.
       after: createAuthMiddleware(async (ctx) => {
         const returned = ctx.context.returned;
-        if (ctx.path !== "/change-password" || isAPIError(returned)) return;
-        const user = (returned as { user?: { email: string } } | undefined)?.user;
-        if (!user) return;
-        sendInBackground(
-          renderTemplate("password-changed", user.email, { appName: env.APP_NAME }),
-          "password changed",
-        );
+        if (isAPIError(returned)) return;
+        if (ctx.path === "/change-password") {
+          const user = (returned as { user?: { email: string } } | undefined)?.user;
+          if (!user) return;
+          sendInBackground(
+            renderTemplate("password-changed", user.email, { appName: env.APP_NAME }),
+            "password changed",
+          );
+          return;
+        }
+        // The first code confirms a new 2FA setup: a signed-in user's verify call, which rotates
+        // the session. A sign-in verifies with the challenge cookie and has no session here.
+        if (ctx.path === "/two-factor/verify-totp") {
+          const session = ctx.context.session;
+          const rotatedSession = ctx.context.newSession;
+          if (!session || !rotatedSession) return;
+          const others = (await ctx.context.internalAdapter.listSessions(session.user.id)).filter(
+            (other) => other.token !== rotatedSession.session.token,
+          );
+          await Promise.all(
+            others.map((other) => ctx.context.internalAdapter.deleteSession(other.token)),
+          );
+          sendInBackground(
+            renderTemplate("two-factor-enabled", session.user.email, { appName: env.APP_NAME }),
+            "two-factor enabled",
+          );
+          return;
+        }
+        if (ctx.path === "/two-factor/disable" && ctx.context.session) {
+          sendInBackground(
+            renderTemplate("two-factor-disabled", ctx.context.session.user.email, {
+              appName: env.APP_NAME,
+            }),
+            "two-factor disabled",
+          );
+        }
       }),
     },
     rateLimit: {
@@ -232,6 +264,8 @@ export function createAuth(
     baseURL: env.BETTER_AUTH_URL,
     plugins: [
       admin({ ac: accessControl, roles: { admin: adminRole, user: userRole } }),
+      // TOTP with backup codes (spec #277): optional, for password accounts only, no email OTP.
+      twoFactor({ allowPasswordless: false }),
       tanstackStartCookies(),
     ],
   });

@@ -15,7 +15,7 @@ const LINK_TEMPLATES: TemplateName[] = [
 const NOTICE_TEMPLATES = TEMPLATE_NAMES.filter((name) => !LINK_TEMPLATES.includes(name));
 
 describe("email templates", () => {
-  it("has the seven templates from the ticket", () => {
+  it("has the nine templates from the ticket", () => {
     expect([...TEMPLATE_NAMES].sort()).toEqual(
       [
         "account-deleted",
@@ -23,11 +23,29 @@ describe("email templates", () => {
         "delete-account-confirm",
         "password-changed",
         "reset-password",
+        "two-factor-disabled",
+        "two-factor-enabled",
         "verify-email",
         "verify-new-email",
       ].sort(),
     );
   });
+
+  it.each(["two-factor-enabled", "two-factor-disabled"] as const)(
+    "%s tells the user to reset the password when it wasn't them, and is not a link",
+    async (name) => {
+      const message = await renderTemplate(name, "person@example.com", { appName: APP });
+      const html = await render(message.react);
+      const text = await render(message.react, { plainText: true });
+
+      expect(message.link).toBeUndefined();
+      expect(message.subject).toContain(APP);
+      expect(text).toMatch(/If this wasn't you, reset your password now\./);
+      expect(html).toContain("reset your password now");
+      expect(text).not.toMatch(/you can ignore it/);
+      expect(text).toContain("You received this email");
+    },
+  );
 
   it.each(LINK_TEMPLATES)(
     "%s renders its link, expiry note and footer in HTML and text",
