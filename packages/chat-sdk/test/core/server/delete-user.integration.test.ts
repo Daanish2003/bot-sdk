@@ -280,3 +280,20 @@ describe("createChat().deleteUser", () => {
     ).toHaveLength(1);
   });
 });
+
+describe("deleteUserData, Temporary Conversations", () => {
+  it("removes the user's Temporary Conversations with their Messages", async () => {
+    const owner = await insertUser();
+    const temporary = await insertConversation(owner, { temporary: true });
+    await insertMessage({ conversationId: temporary.id, role: "user", text: "Private" });
+
+    await deleteUserData(createTestDeps(), owner.id);
+
+    expect(
+      await getTestDb().select().from(conversation).where(eq(conversation.id, temporary.id)),
+    ).toEqual([]);
+    expect(
+      await getTestDb().select().from(message).where(eq(message.conversationId, temporary.id)),
+    ).toEqual([]);
+  });
+});

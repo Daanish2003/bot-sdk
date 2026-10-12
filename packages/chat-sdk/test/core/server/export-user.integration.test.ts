@@ -162,3 +162,18 @@ describe("createChat().exportUser", () => {
     });
   });
 });
+
+describe("createChat().exportUser, Temporary Conversations", () => {
+  it("includes an existing Temporary Conversation, marked temporary", async () => {
+    const owner = await insertUser();
+    const temporary = await insertConversation(owner, { temporary: true, title: null });
+    await insertMessage({ conversationId: temporary.id, role: "user", text: "Private" });
+    const ordinary = await insertConversation(owner, { title: "Ordinary" });
+
+    const exported = await chatFor().exportUser(owner.id);
+
+    const byId = new Map(exported.conversations.map((row) => [row.id, row]));
+    expect(byId.get(temporary.id)).toMatchObject({ temporary: true, messages: [{ role: "user" }] });
+    expect(byId.get(ordinary.id)).toMatchObject({ temporary: false });
+  });
+});
