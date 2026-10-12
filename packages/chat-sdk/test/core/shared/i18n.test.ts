@@ -19,6 +19,8 @@ describe("createI18n", () => {
     const i18n = createI18n({ "time.minutesAgo": ({ count }) => `vor ${count} Min.` });
 
     expect(i18n.t("time.minutesAgo", { count: 5 })).toBe("vor 5 Min.");
+    // @ts-expect-error a function key needs its params (and throws without them at runtime)
+    expect(() => i18n.t("time.minutesAgo")).toThrow(TypeError);
   });
 
   it("picks the plural form inside a function with Intl.PluralRules", () => {

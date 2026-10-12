@@ -11,8 +11,11 @@ export type MessageParams<K extends MessageKey> = Messages[K] extends (params: i
   ? P
   : never;
 
-/** The text for a key, with its params. */
-export type Translate = <K extends MessageKey>(key: K, params?: MessageParams<K>) => string;
+/** The text for a key. A key whose value is a function requires its params; a string key takes none. */
+export type Translate = <K extends MessageKey>(
+  key: K,
+  ...params: [MessageParams<K>] extends [never] ? [] : [params: MessageParams<K>]
+) => string;
 
 /** What the UI and the client core read: the text for a key, and the locale to format with. */
 export type I18n = { locale: string; t: Translate };
@@ -22,10 +25,10 @@ export type I18n = { locale: string; t: Translate };
  * falls back to English; an unknown key shows as itself.
  */
 export function createI18n(messages: Partial<Messages> = {}, locale = "en"): I18n {
-  const t: Translate = (key, params) => {
+  const t = ((key: MessageKey, params?: unknown) => {
     const entry = (messages[key] ?? en[key]) as string | ((params: unknown) => string) | undefined;
     if (entry === undefined) return key;
     return typeof entry === "string" ? entry : entry(params);
-  };
+  }) as Translate;
   return { locale, t };
 }

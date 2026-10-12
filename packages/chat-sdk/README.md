@@ -296,7 +296,7 @@ The `router` adapter maps the chat pages (`new`, `conversation`, `keys`) to your
 
 ### Text and locale
 
-The chat UI's text comes from a dictionary, `messages`, and dates, times and numbers are formatted in `locale`. Both are optional and English (`"en"`) is the default.
+The dictionary, `messages`, covers the words the SDK shows for relative times, the Conversation list's date groups and the labels that are listed in the SDK's dictionary (`core/shared/i18n`). Other text is still English and moves into the dictionary over time. Dates, times and numbers are formatted in `locale`. Both are optional and English (`"en"`) is the default.
 
 ```tsx
 import { type Messages } from "@ai-chat/chat-sdk/client";
@@ -315,4 +315,6 @@ const messages: Partial<Messages> = {
 - A value is a string, or a function of its params. Use `Intl.PluralRules` inside the function for plural forms; there is no i18n library.
 - A key you leave out falls back to English, so a partial dictionary works.
 - The dictionary lives in the SDK, so it survives copying a new version of the SDK in: translate once, pass it in.
+- Build `messages` once, outside render (a module-level constant). A new object on every render gives the provider a new value and re-renders the chat UI.
+- An unknown key shows as itself.
 - `useI18n()` gives a component `{ t, locale }`, the same translator the SDK uses.

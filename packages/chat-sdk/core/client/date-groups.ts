@@ -1,4 +1,5 @@
 import type { I18n } from "../shared/i18n";
+import { dateFormat } from "./intl";
 
 const msPerDay = 86_400_000;
 
@@ -17,7 +18,7 @@ export function dateGroupLabel({ t, locale }: I18n, at: Date, now = new Date()) 
   if (days === 1) return t("time.yesterday");
   if (days <= 7) return t("time.previous7Days");
   if (days <= 30) return t("time.previous30Days");
-  return new Intl.DateTimeFormat(locale, { month: "long", year: "numeric" }).format(at);
+  return dateFormat(locale, { month: "long", year: "numeric" }).format(at);
 }
 
 /**
