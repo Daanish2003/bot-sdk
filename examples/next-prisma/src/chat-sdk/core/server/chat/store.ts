@@ -9,12 +9,20 @@ import type { AppDeps } from "../deps";
 import { newestLeaf, pathTo, siblingPosition } from "../../shared/chat/branches";
 import { type ActiveBranchMessage, toClientMessage } from "../../shared/chat/client-message";
 import type { ReasoningChoice } from "../../shared/chat/models";
+import { liveConversation } from "./temporary";
 
 type Deps = Pick<AppDeps, "db">;
 
-/** Matches the Conversation `id` only when `userId` owns it. */
+/**
+ * Matches the Conversation `id` only when `userId` owns it and it is live: an expired Temporary
+ * Conversation is gone to every read and write until the sweep deletes it (spec #262).
+ */
 function ownConversation(userId: string, id: string) {
-  return and(eq(conversation.id, id), eq(conversation.userId, userId));
+  return and(
+    eq(conversation.id, id),
+    eq(conversation.userId, userId),
+    liveConversation(new Date()),
+  );
 }
 
 /** The user's Conversation, or `undefined` when it doesn't exist or belongs to someone else. */
@@ -280,7 +288,7 @@ export async function findMessage(deps: Deps, userId: string, id: string) {
     .select({ message })
     .from(message)
     .innerJoin(conversation, eq(conversation.id, message.conversationId))
-    .where(and(eq(message.id, id), eq(conversation.userId, userId)));
+    .where(and(eq(message.id, id), eq(conversation.userId, userId), liveConversation(new Date())));
   return row?.message;
 }
 
