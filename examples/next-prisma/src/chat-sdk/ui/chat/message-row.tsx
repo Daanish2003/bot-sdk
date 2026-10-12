@@ -44,6 +44,7 @@ import {
 
 import { SearchRow } from "./search-row";
 import { replyComponents, ReplySources, SourceChips } from "./source-chips";
+import { ReadAloud } from "./read-aloud";
 import { ToolCallRow } from "./tool-call-row";
 import { UsageInfo } from "./usage-info";
 
@@ -170,6 +171,9 @@ export function MessageRow({
             {!editing && actions && (
               <div className="ml-auto flex overflow-hidden rounded-md border bg-background opacity-0 shadow-sm group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100">
                 <CopyButton text={text} disabled={actions.streaming} />
+                {!isUser && info.status === "complete" && (
+                  <ReadAloud messageId={message.id} parts={message.parts} />
+                )}
                 {isUser ? (
                   <Button
                     variant="ghost"
