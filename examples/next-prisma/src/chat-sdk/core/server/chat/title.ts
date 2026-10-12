@@ -35,11 +35,12 @@ export async function titleConversation(deps: AppDeps, replyId: string): Promise
         userId: conversation.userId,
         title: conversation.title,
         replyModel: message.model,
+        temporary: conversation.temporary,
       })
       .from(message)
       .innerJoin(conversation, eq(conversation.id, message.conversationId))
       .where(eq(message.id, replyId));
-    if (!row || row.title !== null) return;
+    if (!row || row.title !== null || row.temporary) return;
 
     const path = await loadPath(deps, row.conversationId, replyId);
     const first = path.find((m) => m.role === "user")?.searchText.trim() ?? "";
