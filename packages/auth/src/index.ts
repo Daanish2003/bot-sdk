@@ -4,7 +4,29 @@ import { type EmailMessage, type EmailSender, renderTemplate } from "@ai-chat/em
 import { drizzleAdapter } from "@better-auth/drizzle-adapter/relations-v2";
 import { betterAuth } from "better-auth";
 import { createAuthMiddleware, isAPIError } from "better-auth/api";
+import { admin } from "better-auth/plugins";
+import { createAccessControl } from "better-auth/plugins/access";
+import { defaultStatements } from "better-auth/plugins/admin/access";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
+
+// The Admin role is the plugin's own admin role without impersonation (spec #277): impersonating a
+// user is refused for every role, Admins included. `user` gets no admin permissions at all.
+const accessControl = createAccessControl(defaultStatements);
+const adminRole = accessControl.newRole({
+  user: [
+    "create",
+    "list",
+    "set-role",
+    "ban",
+    "delete",
+    "set-password",
+    "set-email",
+    "get",
+    "update",
+  ],
+  session: ["list", "revoke", "delete"],
+});
+const userRole = accessControl.newRole({ user: [], session: [] });
 
 export type AuthConfig = {
   BETTER_AUTH_URL: string;
@@ -113,6 +135,17 @@ export function createAuth(
       enabled: true,
       requireEmailVerification: true,
       revokeSessionsOnPasswordReset: true,
+      // The user object a sign-up answers with, whether or not the email is new (the answer must not
+      // reveal which). It carries the admin plugin's fields the same as a stored user.
+      customSyntheticUser: ({ coreFields, additionalFields, id }) => ({
+        ...coreFields,
+        role: "user",
+        banned: false,
+        banReason: null,
+        banExpires: null,
+        ...additionalFields,
+        id,
+      }),
       sendResetPassword: async ({ user, url }) => {
         sendInBackground(
           renderTemplate("reset-password", user.email, { appName: env.APP_NAME, url }),
@@ -206,7 +239,10 @@ export function createAuth(
     },
     secret: env.BETTER_AUTH_SECRET,
     baseURL: env.BETTER_AUTH_URL,
-    plugins: [tanstackStartCookies()],
+    plugins: [
+      admin({ ac: accessControl, roles: { admin: adminRole, user: userRole } }),
+      tanstackStartCookies(),
+    ],
   });
 }
 
