@@ -50,6 +50,7 @@ export function createTestDeps({
     hostTools: [],
     mcpServers: [],
     fetchAllowHosts: [],
+    artifacts: false,
     byok: true,
     getQuota: async () => null,
     lifecycle: { stopping: false, runs: new Map() },

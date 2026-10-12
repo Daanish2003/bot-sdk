@@ -146,6 +146,8 @@ export type AppDeps = {
   keyEncryptionSecrets: string[];
   /** The remote MCP servers the Host offers (`createChat({ mcpServers })`, spec #91). */
   mcpServers: McpServerConfig[];
+  /** Whether Artifacts are on: the `create_artifact` tool, the panel and the version route (`createChat({ artifacts })`). */
+  artifacts: boolean;
 };
 
 export const defaultLimits: Limits = {
@@ -170,6 +172,7 @@ export function createAppDeps({
   tools,
   fetchAllowHosts,
   mcpServers,
+  artifacts,
 }: {
   db: Database;
   keyEncryptionSecrets: string[];
@@ -182,6 +185,7 @@ export function createAppDeps({
   tools: HostServerTool[];
   fetchAllowHosts?: string[];
   mcpServers: McpServerConfig[];
+  artifacts?: boolean;
 }): AppDeps {
   return {
     db,
@@ -203,5 +207,6 @@ export function createAppDeps({
     ollamaFetch: globalThis.fetch,
     keyEncryptionSecrets,
     mcpServers,
+    artifacts: artifacts ?? false,
   };
 }

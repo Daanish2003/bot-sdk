@@ -1,4 +1,5 @@
 import {
+  type ArtifactPart,
   type StoredPart,
   type StoredParts,
   storedParts,
@@ -16,6 +17,7 @@ import {
 } from "@tanstack/ai";
 
 import { attachmentKind, kindLabel, kindLabelPlural } from "../attachments/kinds";
+import { createArtifactToolName } from "./artifact";
 import { fetchUrlToolName } from "./fetch-url";
 import { providerOf } from "./models";
 import {
@@ -169,6 +171,10 @@ export function createPartsBuilder(initial: StoredPart[] = []) {
         args,
         state: "awaiting_approval",
       });
+    },
+    /** Records a version a `create_artifact` call saved (ADR 0016). Only saved versions are parts. */
+    addArtifact({ artifactId, version, title, kind }: Omit<ArtifactPart, "type" | "state">) {
+      parts.push({ type: "artifact", artifactId, version, title, kind, state: "done" });
     },
     /** Ends a running tool call with its result. A call cancelled meanwhile stays cancelled. */
     finishToolCall(toolCallId: string, { state, result }: FinishToolCall) {
@@ -445,6 +451,7 @@ export function toUIParts(parts: StoredParts): MessagePart[] {
     // The signature is only for the Provider; the client never needs it.
     if (part.type === "thinking") return { type: "thinking", content: part.text };
     if (part.type === "tool_call") return toolCallUIPart(part);
+    if (part.type === "artifact") return artifactUIPart(part);
     const input = { query: part.query };
     return {
       type: "tool-call",
@@ -483,6 +490,24 @@ function toolCallUIPart(part: ToolCallPart): MessagePart {
           : "error",
     ...(finished(part) && { output: part.result }),
     metadata: { source: part.source, status: part.state },
+  };
+}
+
+/**
+ * A saved Artifact version as `useChat` shows it: a `create_artifact` call with its title and kind
+ * (as the call's input) and the version it saved (as its output). The content is never in it.
+ */
+function artifactUIPart(part: ArtifactPart): MessagePart {
+  const input = { kind: part.kind, title: part.title };
+  return {
+    type: "tool-call",
+    id: `artifact-${part.artifactId}-${part.version}`,
+    name: createArtifactToolName,
+    arguments: JSON.stringify(input),
+    input,
+    state: "complete",
+    output: { artifactId: part.artifactId, version: part.version },
+    metadata: { source: "builtin", status: "done" },
   };
 }
 

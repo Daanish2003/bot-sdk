@@ -28,6 +28,8 @@ import { quotaBlocksModel } from "../../core/client/quota";
 import { AttachButton, DraftAttachmentChips, useAttachmentDraft } from "./attachments";
 import { Composer } from "./composer";
 import { ContextOverflowNotice, ContextRing } from "./context-ring";
+import { ArtifactPanel } from "./artifact-panel";
+import type { ArtifactRef } from "./artifact-card";
 import { MessageRow } from "./message-row";
 import { MissingCredentialsBanner } from "./missing-credentials-banner";
 import { QuotaBanner } from "./quota-banner";
@@ -94,6 +96,8 @@ function ChatThread({
 }) {
   const queryClient = useQueryClient();
   const { orpc, chatUrl } = useChatAdapter();
+  // The Artifact version the side panel shows, or none while the panel is closed (spec #304).
+  const [openArtifact, setOpenArtifact] = useState<ArtifactRef | null>(null);
   // The server writes the new Messages before it streams, so the first chunk means "sent".
   const awaitingFirstChunk = useRef(false);
   // The command for the next request. `reload` (regenerate) takes no body, so every command
@@ -296,72 +300,82 @@ function ChatThread({
   }, [conversation.id]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <ChatContainerRoot className="relative min-h-0 flex-1">
-        <ChatContainerContent className="py-2">
-          {messages.map((message) => (
-            <MessageRow
-              key={message.id}
-              message={message}
-              highlighted={message.id === highlighted}
-              contextCut={contextCuts.has(message.id)}
-              actions={{
-                streaming: streaming || switchBranch.isPending,
-                model: conversation.model,
-                onEdit: (text, attachments) => startBranch(message.id, text, attachments),
-                onRegenerate: () => startBranch(message.id),
-                onSwitchBranch: (messageId) => switchBranch.mutate({ messageId }),
-                onDecide: (approved, allowForConversation) =>
-                  void decide(message.id, approved, allowForConversation),
+    <div className="flex h-full min-h-0">
+      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
+        <ChatContainerRoot className="relative min-h-0 flex-1">
+          <ChatContainerContent className="py-2">
+            {messages.map((message) => (
+              <MessageRow
+                key={message.id}
+                message={message}
+                highlighted={message.id === highlighted}
+                contextCut={contextCuts.has(message.id)}
+                onOpenArtifact={(ref) => setOpenArtifact(ref)}
+                actions={{
+                  streaming: streaming || switchBranch.isPending,
+                  model: conversation.model,
+                  onEdit: (text, attachments) => startBranch(message.id, text, attachments),
+                  onRegenerate: () => startBranch(message.id),
+                  onSwitchBranch: (messageId) => switchBranch.mutate({ messageId }),
+                  onDecide: (approved, allowForConversation) =>
+                    void decide(message.id, approved, allowForConversation),
+                }}
+              />
+            ))}
+          </ChatContainerContent>
+          <div className="absolute right-6 bottom-3">
+            <ScrollButton />
+          </div>
+        </ChatContainerRoot>
+        <div className="border-t bg-background px-3 py-3 sm:px-6">
+          <div className="mx-auto flex w-full max-w-4xl flex-col gap-2">
+            {/* A refused Run is explained by the Quota banner below, not by its error. */}
+            {error && !sending && !quotaBlocked && (
+              <p role="alert" className="text-xs text-destructive">
+                {rateLimitedErrorOf(error)
+                  ? "Too many messages. Try again in a moment."
+                  : error.message}
+              </p>
+            )}
+            <QuotaMeter />
+            {blocked && <MissingCredentialsBanner message={blocked} />}
+            {quotaBlocked && quota && <QuotaBanner resetsAt={quota.resetsAt} />}
+            <ContextOverflowNotice fill={context} />
+            <Composer
+              onSend={(text) => {
+                void send(text, draft.uploaded);
+                draft.clear();
               }}
-            />
-          ))}
-        </ChatContainerContent>
-        <div className="absolute right-6 bottom-3">
-          <ScrollButton />
-        </div>
-      </ChatContainerRoot>
-      <div className="border-t bg-background px-3 py-3 sm:px-6">
-        <div className="mx-auto flex w-full max-w-4xl flex-col gap-2">
-          {/* A refused Run is explained by the Quota banner below, not by its error. */}
-          {error && !sending && !quotaBlocked && (
-            <p role="alert" className="text-xs text-destructive">
-              {rateLimitedErrorOf(error)
-                ? "Too many messages. Try again in a moment."
-                : error.message}
-            </p>
-          )}
-          <QuotaMeter />
-          {blocked && <MissingCredentialsBanner message={blocked} />}
-          {quotaBlocked && quota && <QuotaBanner resetsAt={quota.resetsAt} />}
-          <ContextOverflowNotice fill={context} />
-          <Composer
-            onSend={(text) => {
-              void send(text, draft.uploaded);
-              draft.clear();
-            }}
-            attachments={<DraftAttachmentChips draft={draft} />}
-            attachmentsPending={draft.pending}
-            onStop={
-              stopRun.isPending
-                ? undefined
-                : () =>
-                    stop().catch((caught: Error) =>
-                      toast.error(`Stopping failed: ${caught.message}`),
-                    )
-            }
-            streaming={streaming}
-            // The next Message continues the Branch being switched to, so wait for it.
-            disabled={!!blocked || quotaBlocked || switchBranch.isPending || waiting}
-            placeholder={waiting ? "Approve or deny the tool call first" : undefined}
-          >
-            <AttachButton draft={draft} disabled={!!blocked || quotaBlocked} />
-            <SearchToggle search={search} />
-            <ToolsMenu items={toolItems} onToggle={toggleTool} />
-            <ContextRing fill={context} />
-          </Composer>
+              attachments={<DraftAttachmentChips draft={draft} />}
+              attachmentsPending={draft.pending}
+              onStop={
+                stopRun.isPending
+                  ? undefined
+                  : () =>
+                      stop().catch((caught: Error) =>
+                        toast.error(`Stopping failed: ${caught.message}`),
+                      )
+              }
+              streaming={streaming}
+              // The next Message continues the Branch being switched to, so wait for it.
+              disabled={!!blocked || quotaBlocked || switchBranch.isPending || waiting}
+              placeholder={waiting ? "Approve or deny the tool call first" : undefined}
+            >
+              <AttachButton draft={draft} disabled={!!blocked || quotaBlocked} />
+              <SearchToggle search={search} />
+              <ToolsMenu items={toolItems} onToggle={toggleTool} />
+              <ContextRing fill={context} />
+            </Composer>
+          </div>
         </div>
       </div>
+      {openArtifact && (
+        <ArtifactPanel
+          key={`${openArtifact.artifactId}:${openArtifact.version}`}
+          artifact={openArtifact}
+          onClose={() => setOpenArtifact(null)}
+        />
+      )}
     </div>
   );
 }
