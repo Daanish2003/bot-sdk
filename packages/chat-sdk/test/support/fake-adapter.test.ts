@@ -2,7 +2,15 @@ import { chat, EventType, type StreamChunk, toolDefinition } from "@tanstack/ai"
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { createFakeAdapter, round, runError, text, thinking, toolCall } from "./fake-adapter";
+import {
+  createFakeAdapter,
+  round,
+  runError,
+  text,
+  thinking,
+  toolCall,
+  withUsage,
+} from "./fake-adapter";
 
 const hello = [{ role: "user" as const, content: "Hello" }];
 
@@ -120,5 +128,39 @@ describe("createFakeAdapter", () => {
     const chunks = await done;
 
     expect(deltas(chunks, EventType.TEXT_MESSAGE_CONTENT)).toEqual([]);
+  });
+
+  it("emits the usage a round is scripted with on its RUN_FINISHED", async () => {
+    const usage = { promptTokens: 12, completionTokens: 5, totalTokens: 17 };
+    const fake = createFakeAdapter({ rounds: [withUsage(round(text("Hi")), usage)] });
+
+    const chunks = await collect(chat({ adapter: fake.adapter, messages: hello }));
+
+    expect(chunks.find((chunk) => chunk.type === "RUN_FINISHED")).toMatchObject({ usage });
+  });
+
+  it("emits no usage on RUN_FINISHED for a round scripted without it", async () => {
+    const lookup = toolDefinition({
+      name: "lookup",
+      description: "Looks something up",
+      inputSchema: z.object({ query: z.string() }),
+    }).server(async () => ({ answer: 42 }));
+    const fake = createFakeAdapter({
+      rounds: [
+        withUsage(round(toolCall({ id: "call-1", name: "lookup", input: { query: "x" } })), {
+          promptTokens: 1,
+          completionTokens: 1,
+          totalTokens: 2,
+        }),
+        round(text("No usage here")),
+      ],
+    });
+
+    const chunks = await collect(chat({ adapter: fake.adapter, messages: hello, tools: [lookup] }));
+    const finishes = chunks.filter((chunk) => chunk.type === "RUN_FINISHED");
+
+    expect(finishes).toHaveLength(2);
+    expect(finishes[0]).toHaveProperty("usage");
+    expect(finishes[1]?.usage).toBeUndefined();
   });
 });

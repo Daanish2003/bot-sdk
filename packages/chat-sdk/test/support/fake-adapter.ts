@@ -3,6 +3,7 @@ import {
   type AnyTextAdapter,
   EventType,
   type TextOptions,
+  type TokenUsage,
 } from "@tanstack/ai";
 
 /**
@@ -116,6 +117,13 @@ export function round(...parts: Chunks[]): Chunks {
     timestamp: Date.now(),
   };
   return [started, ...chunks, ...(failed ? [] : [finished])];
+}
+
+/** The same round, with the usage it reports on its `RUN_FINISHED`. A round without it reports none. */
+export function withUsage(played: Chunks, usage: TokenUsage): Chunks {
+  return played.map((chunk) =>
+    chunk.type === EventType.RUN_FINISHED ? { ...chunk, usage } : chunk,
+  );
 }
 
 export type FakeAdapter = {

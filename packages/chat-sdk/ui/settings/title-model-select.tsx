@@ -12,6 +12,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
+import { useByok } from "../../core/client/react/byok";
 import { useOrpc } from "../../core/client/react/provider";
 
 /** The Title Model select: which Model writes automatic titles ("Same as first reply" by default). */
@@ -20,12 +21,16 @@ export function TitleModelSelect() {
   const orpc = useOrpc();
   const settings = useQuery(orpc.settings.get.queryOptions());
   const models = useQuery(orpc.models.list.queryOptions());
+  const byok = useByok();
   const settingsKey = orpc.settings.get.queryKey();
   const setTitleModel = useMutation(
     orpc.settings.setTitleModel.mutationOptions({
       onMutate: ({ titleModel }) => {
         const previous = settings.data;
-        queryClient.setQueryData(settingsKey, { titleModel });
+        queryClient.setQueryData(settingsKey, {
+          titleModel,
+          instructions: settings.data?.instructions ?? null,
+        });
         return { previous };
       },
       onError: (error, _, context) => {
@@ -39,7 +44,7 @@ export function TitleModelSelect() {
   const available = models.data?.models ?? [];
   const saved = settings.data?.titleModel ?? null;
   // A saved Title Model whose Provider lost its credentials stays selectable, and says so.
-  const missingKey = saved ? missingCredentialsMessage(saved, available) : null;
+  const missingKey = saved ? missingCredentialsMessage(saved, available, byok) : null;
   const groups = modelGroups(available, "");
   // `null` is "Same as first reply".
   const first: Array<{ value: string | null; label: string }> = [

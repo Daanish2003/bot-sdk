@@ -20,6 +20,7 @@ import {
   findModel,
   isLiveListProvider,
 } from "../../../../core/shared/chat/models";
+import { modelsDevSnapshot } from "../../../../core/shared/chat/models-snapshot";
 
 /**
  * `@tanstack/ai-cloudflare` exports no runtime model list: its `CloudflareTextModel` accepts any
@@ -103,6 +104,47 @@ describe("curated Model list", () => {
     expect(findModel("anthropic:claude-2")).toBeUndefined();
     expect(findModel("claude-sonnet-5-5")).toBeUndefined();
     expect(findModel("gemini:claude-sonnet-5-5")).toBeUndefined();
+  });
+});
+
+describe("curated Model metadata", () => {
+  it.each(curatedModels)(
+    "$id has a models.dev snapshot entry, or is explicitly marked unknown",
+    (model) => {
+      expect(Object.hasOwn(modelsDevSnapshot, model.id)).toBe(true);
+    },
+  );
+
+  it("keeps no snapshot entry for a Model that isn't curated", () => {
+    expect(Object.keys(modelsDevSnapshot).filter((id) => !findModel(id))).toEqual([]);
+  });
+
+  it.each(curatedModels)("exposes $id's snapshot limits, or unknown", (model) => {
+    const entry = modelsDevSnapshot[model.id];
+    if (entry === null || entry === undefined) {
+      expect(model.contextWindow).toBeNull();
+      expect(model.maxOutputTokens).toBeNull();
+      expect(model.reasoning).toEqual({ efforts: [], off: false, defaultEffort: null });
+      return;
+    }
+    expect(model.contextWindow).toBe(entry.contextWindow);
+    expect(model.maxOutputTokens).toBe(entry.maxOutputTokens);
+    expect(model.reasoning.efforts).toEqual(entry.efforts);
+    expect(model.reasoning.off).toBe(entry.off);
+  });
+
+  it("lists no reasoning efforts for Bedrock, whose Converse API has no reasoning setting", () => {
+    const bedrock = curatedModels.filter((model) => model.provider === "bedrock");
+    expect(bedrock.length).toBeGreaterThan(0);
+    expect(bedrock.every((model) => model.reasoning.efforts.length === 0)).toBe(true);
+  });
+
+  it("reads OpenAI's window, output cap and reasoning efforts from the snapshot", () => {
+    expect(findModel("openai:gpt-5.6")).toMatchObject({
+      contextWindow: 1050000,
+      maxOutputTokens: 128000,
+      reasoning: { efforts: ["low", "medium", "high"], off: true, defaultEffort: null },
+    });
   });
 });
 

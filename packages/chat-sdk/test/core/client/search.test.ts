@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { focusStep, recentConversations, splitSnippet } from "../../../core/client/search";
+import {
+  focusStep,
+  localDayRange,
+  recentConversations,
+  splitSnippet,
+} from "../../../core/client/search";
 
 describe("splitSnippet", () => {
   it("splits a snippet around its match", () => {
@@ -47,6 +52,35 @@ describe("recentConversations", () => {
 
   it("matches an untitled Conversation as Untitled", () => {
     expect(recentConversations(conversations, "untitled").map((c) => c.id)).toEqual(["3"]);
+  });
+});
+
+describe("localDayRange", () => {
+  it("is empty when no day is picked", () => {
+    expect(localDayRange(undefined, undefined)).toEqual({});
+  });
+
+  it("starts at local midnight of the first day and ends at local midnight after the last", () => {
+    expect(localDayRange("2026-10-01", "2026-10-03")).toEqual({
+      from: new Date(2026, 9, 1).toISOString(),
+      to: new Date(2026, 9, 4).toISOString(),
+    });
+  });
+
+  it("covers a single day when both ends are the same day", () => {
+    expect(localDayRange("2026-10-01", "2026-10-01")).toEqual({
+      from: new Date(2026, 9, 1).toISOString(),
+      to: new Date(2026, 9, 2).toISOString(),
+    });
+  });
+
+  it("leaves a missing end open", () => {
+    expect(localDayRange("2026-10-01", undefined)).toEqual({
+      from: new Date(2026, 9, 1).toISOString(),
+    });
+    expect(localDayRange(undefined, "2026-10-01")).toEqual({
+      to: new Date(2026, 9, 2).toISOString(),
+    });
   });
 });
 

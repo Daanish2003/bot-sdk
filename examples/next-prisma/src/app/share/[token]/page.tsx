@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { cache } from "react";
 
+import { auth } from "@/auth";
 import { SharedConversation } from "@/components/chat-pages";
 import { chat } from "@/lib/chat";
 
@@ -25,5 +26,11 @@ export default async function SharePage({ params }: { params: Promise<{ token: s
   const { token } = await params;
   const data = await loadShared(token);
   if (!data) notFound();
-  return <SharedConversation data={data} />;
+  const session = await auth();
+  return (
+    <SharedConversation
+      data={data}
+      viewer={{ signedIn: Boolean(session), signInUrl: "/sign-in" }}
+    />
+  );
 }

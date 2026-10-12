@@ -37,6 +37,7 @@ describe("share.upsert", () => {
     expect(link.token).toMatch(/^[\w-]{22}$/);
     const shared = await chatRpc().share.get({ token: link.token });
     expect(shared).toEqual({
+      token: link.token,
       title: "Recursive CTEs",
       sharedAt: link.updatedAt,
       messages: [
@@ -174,6 +175,41 @@ describe("share.upsert", () => {
   });
 });
 
+describe("share.list", () => {
+  it("lists only the caller's links, with token, Conversation, current title and share date", async () => {
+    const { client, conv } = await answeredConversation();
+    const link = await client.share.upsert({ conversationId: conv.id });
+    await client.conversation.rename({ id: conv.id, title: "Renamed after sharing" });
+
+    await expect(client.share.list()).resolves.toEqual([
+      {
+        token: link.token,
+        conversationId: conv.id,
+        title: "Renamed after sharing",
+        sharedAt: link.updatedAt,
+      },
+    ]);
+  });
+
+  it("never lists another user's links", async () => {
+    const { client, conv } = await answeredConversation();
+    await client.share.upsert({ conversationId: conv.id });
+    const other = await signedIn();
+
+    await expect(other.client.share.list()).resolves.toEqual([]);
+  });
+
+  it("is empty for a user with no links", async () => {
+    const { client } = await signedIn();
+
+    await expect(client.share.list()).resolves.toEqual([]);
+  });
+
+  it("is refused to signed-out callers", async () => {
+    await expect(chatRpc().share.list()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  });
+});
+
 describe("share.forConversation", () => {
   it("has no link before the Conversation is shared", async () => {
     const { client, conv } = await answeredConversation();
@@ -252,6 +288,18 @@ describe("share.delete", () => {
     });
     await expect(client.share.forConversation({ conversationId: conv.id })).resolves.toMatchObject({
       link: null,
+    });
+  });
+
+  it("drops the link from the caller's list, and its token stops answering", async () => {
+    const { client, conv } = await answeredConversation();
+    const link = await client.share.upsert({ conversationId: conv.id });
+
+    await client.share.delete({ conversationId: conv.id });
+
+    await expect(client.share.list()).resolves.toEqual([]);
+    await expect(chatRpc().share.get({ token: link.token })).rejects.toMatchObject({
+      code: "NOT_FOUND",
     });
   });
 

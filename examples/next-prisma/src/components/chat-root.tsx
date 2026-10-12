@@ -27,10 +27,17 @@ const pageTitles: Record<string, string> = { "/settings/keys": "Keys & settings"
 /** The app's route for each chat page. */
 function hrefOf(page: ChatPage): string {
   switch (page.to) {
-    case "new":
-      return page.model ? `/c?model=${encodeURIComponent(page.model)}` : "/c";
+    case "new": {
+      const params = new URLSearchParams();
+      if (page.model) params.set("model", page.model);
+      if (page.projectId) params.set("project", page.projectId);
+      const query = params.toString();
+      return query ? `/c?${query}` : "/c";
+    }
     case "conversation":
       return `/c/${encodeURIComponent(page.id)}${page.message ? `?message=${encodeURIComponent(page.message)}` : ""}`;
+    case "project":
+      return `/p/${encodeURIComponent(page.id)}`;
     case "keys":
       return "/settings/keys";
   }
@@ -45,12 +52,16 @@ function ChatLink({ page, className, activeClassName, ...props }: ChatLinkProps)
 
 function useChatLocation(): ChatLocation {
   const pathname = usePathname();
-  const model = useSearchParams().get("model");
+  const searchParams = useSearchParams();
   const conversationId = /^\/c\/([^/]+)$/.exec(pathname)?.[1];
+  const openProject = /^\/p\/([^/]+)$/.exec(pathname)?.[1];
   return {
     conversationId: conversationId ? decodeURIComponent(conversationId) : undefined,
     newConversation: pathname === "/c",
-    newConversationModel: model ?? undefined,
+    newConversationModel: searchParams.get("model") ?? undefined,
+    projectId: openProject
+      ? decodeURIComponent(openProject)
+      : (searchParams.get("project") ?? undefined),
     pageTitle: pageTitles[pathname],
   };
 }

@@ -21,7 +21,8 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@e2e-types/playwright-test": ["./node_modules/@playwright/test"]
     }
   },
   "include": [

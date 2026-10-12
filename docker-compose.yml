@@ -1,12 +1,25 @@
 name: ai-chat
 
 services:
+  # Runs the migrations once, before web starts: `docker compose run --rm migrate` runs them again.
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    image: ai-chat-web
+    command: ["node", "scripts/migrate.ts"]
+    environment:
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-password}@postgres:5432/ai-chat
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   web:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
-      secrets:
-        - web_env
+    image: ai-chat-web
     init: true
     ports:
       - "3001:3001"
@@ -17,9 +30,14 @@ services:
       BETTER_AUTH_URL: http://localhost:3001
       CORS_ORIGIN: http://localhost:3001
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-password}@postgres:5432/ai-chat
+      REDIS_URL: redis://redis:6379
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test:
         [
@@ -52,10 +70,17 @@ services:
       retries: 5
     restart: unless-stopped
 
+  redis:
+    image: redis:8
+    container_name: ai-chat-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
 volumes:
   ai-chat_postgres_data:
-
-# BuildKit makes these available only while install/build commands run.
-secrets:
-  web_env:
-    file: apps/web/.env

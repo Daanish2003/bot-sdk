@@ -4,6 +4,21 @@ import { describe, expect, it } from "vitest";
 import { redactAttachmentsForShare, redactForShare } from "../../../../core/shared/share/redact";
 
 describe("redactForShare", () => {
+  it("keeps a fetch_url call in full: it is a builtin tool, read as a Source", () => {
+    const fetchCall = {
+      type: "tool-call",
+      id: "call-2",
+      name: "fetch_url",
+      arguments: '{"url":"https://example.com/page"}',
+      input: { url: "https://example.com/page" },
+      state: "complete",
+      output: { url: "https://example.com/page", title: "Page", content: "Hello." },
+      metadata: { source: "builtin", status: "done" },
+    } as MessagePart;
+
+    expect(redactForShare([fetchCall])).toEqual([fetchCall]);
+  });
+
   it("keeps text and web-search tool calls and results", () => {
     const parts: MessagePart[] = [
       { type: "text", content: "Let me look that up." },

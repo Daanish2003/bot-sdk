@@ -13,10 +13,12 @@ import {
   attachmentBlob,
   messageAttachment,
 } from "../../../core/server/db/schema/attachment";
-import { conversation, message } from "../../../core/server/db/schema/chat";
+import { conversation, message, project } from "../../../core/server/db/schema/chat";
 import { userCredentials } from "../../../core/server/db/schema/credentials";
 import { sharedLink } from "../../../core/server/db/schema/share";
 import { userSettings } from "../../../core/server/db/schema/settings";
+import { usage } from "../../../core/server/db/schema/usage";
+import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { insertAttachment, linkTestAttachments } from "../../support/attachments";
 import { insertConversation, insertMessage } from "../../support/conversations";
 import { createTestDeps } from "../../support/deps";
@@ -48,7 +50,20 @@ async function seedOwner(user: TestUser) {
     hint: "…-key",
     verified: true,
   });
-  await getTestDb().insert(userSettings).values({ userId: user.id, titleModel: "anthropic:x" });
+  await getTestDb()
+    .insert(userSettings)
+    .values({ userId: user.id, titleModel: "anthropic:x", instructions: "Be terse." });
+  await getTestDb().insert(project).values({ id: uuidv7(), userId: user.id, name: "Work" });
+  await getTestDb().insert(usage).values({
+    id: uuidv7(),
+    userId: user.id,
+    kind: "run",
+    model: "anthropic:claude-sonnet-5-5",
+    inputTokens: 1,
+    outputTokens: 1,
+    costMicros: 1,
+    estimated: false,
+  });
   return { conv, question, reply, file, link, deps };
 }
 
@@ -88,6 +103,8 @@ async function ownedRows(userId: string) {
       db.select().from(userCredentials).where(eq(userCredentials.userId, userId)),
     ),
     settings: await count(db.select().from(userSettings).where(eq(userSettings.userId, userId))),
+    projects: await count(db.select().from(project).where(eq(project.userId, userId))),
+    usage: await count(db.select().from(usage).where(eq(usage.userId, userId))),
   };
 }
 
@@ -100,6 +117,8 @@ const emptyRows = {
   messageAttachments: 0,
   credentials: 0,
   settings: 0,
+  projects: 0,
+  usage: 0,
 };
 
 describe("deleteUserData", () => {
@@ -171,6 +190,7 @@ describe("deleteUserData", () => {
     expect(rows.messageAttachments).toBe(1);
     expect(rows.credentials).toBe(1);
     expect(rows.settings).toBe(1);
+    expect(rows.projects).toBe(1);
     expect(
       await getTestDb().select().from(conversation).where(eq(conversation.id, conv.id)),
     ).toHaveLength(1);
@@ -244,7 +264,7 @@ describe("createChat().deleteUser", () => {
     const chat = createChat({
       databaseUrl: testDatabaseUrl,
       getUser: () => null,
-      keyEncryptionSecret: testKey,
+      keyEncryptionSecrets: [testKey],
       basePath: "/api/chat",
     });
 

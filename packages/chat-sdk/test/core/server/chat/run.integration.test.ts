@@ -141,7 +141,14 @@ describe("startRun", () => {
     });
 
     const startedAt = Date.now();
-    await startRun(deps, { messageId: row.id, adapter: held.adapter, messages: [] });
+    await startRun(deps, {
+      messageId: row.id,
+      provider: "anthropic",
+      adapter: held.adapter,
+      messages: [],
+      context: { userId: "user", conversationId: "conversation" },
+      systemPrompts: [],
+    });
     // Nothing is released, so no chunk arrives: only the timer can write the heartbeat.
     await expect
       .poll(async () => (await rowOf(deps, row.id)).heartbeatAt?.getTime() ?? 0)

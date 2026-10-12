@@ -14,8 +14,10 @@ export type { ChatOrpc } from "../chat-client";
 
 /** A page the chat UI links or navigates to. The host app maps each to its own route. */
 export type ChatPage =
-  | { to: "new"; model?: string }
+  /** `projectId` starts the new Conversation inside that Project. */
+  | { to: "new"; model?: string; projectId?: string }
   | { to: "conversation"; id: string; message?: string }
+  | { to: "project"; id: string }
   | { to: "keys" };
 
 export type ChatLinkProps = {
@@ -37,6 +39,8 @@ export type ChatLocation = {
   newConversation: boolean;
   /** The Model picked for the new Conversation (`?model=` in the web app). */
   newConversationModel?: string;
+  /** The Project open on its page, or the one a new Conversation is started in (`?project=`). */
+  projectId?: string;
   /** The top bar's title on a page that isn't a Conversation. */
   pageTitle?: string;
 };
@@ -51,7 +55,8 @@ export type ChatRouter = {
   shareUrl: (token: string) => string;
 };
 
-export type ChatAdapter = Pick<ChatClient, "orpc" | "chatUrl"> & ChatRouter;
+export type ChatAdapter = Pick<ChatClient, "orpc" | "chatUrl" | "exportUrl" | "connectionsUrl"> &
+  ChatRouter;
 
 const ChatContext = createContext<ChatAdapter | null>(null);
 
@@ -70,7 +75,13 @@ export function ChatProvider({
 }) {
   const [ownQueryClient] = useState(() => new QueryClient());
   const adapter = useMemo<ChatAdapter>(
-    () => ({ ...router, orpc: client.orpc, chatUrl: client.chatUrl }),
+    () => ({
+      ...router,
+      orpc: client.orpc,
+      chatUrl: client.chatUrl,
+      exportUrl: client.exportUrl,
+      connectionsUrl: client.connectionsUrl,
+    }),
     [client, router],
   );
   return (

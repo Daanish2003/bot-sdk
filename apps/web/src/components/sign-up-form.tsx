@@ -28,13 +28,16 @@ export default function SignUpForm({ onSwitchToSignIn }: { onSwitchToSignIn: () 
           email: value.email,
           password: value.password,
           name: value.name,
+          callbackURL: `${window.location.origin}/email-verified`,
         },
         {
+          // The same answer whether or not the address has an account (email enumeration
+          // protection), so the screen is the same either way.
           onSuccess: () => {
             navigate({
-              to: "/c",
+              to: "/check-email",
+              search: { email: value.email, sent: false },
             });
-            toast.success("Sign up successful");
           },
           onError: (error) => {
             toast.error(error.error.message || error.error.statusText);

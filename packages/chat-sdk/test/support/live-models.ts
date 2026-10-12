@@ -5,9 +5,12 @@
  */
 export function liveModelsFetch({
   openRouter = [],
+  openRouterReasoning = {},
   ollama = [],
 }: {
   openRouter?: string[];
+  /** OpenRouter Models that also take `reasoning`, with the efforts each lists. */
+  openRouterReasoning?: Record<string, string[]>;
   ollama?: string[];
 }) {
   const urls: string[] = [];
@@ -15,12 +18,16 @@ export function liveModelsFetch({
     const url = String(input);
     urls.push(url);
     if (url === "https://openrouter.ai/api/v1/models") {
+      const reasoning = Object.keys(openRouterReasoning);
       return Response.json({
-        data: openRouter.map((id) => ({
+        data: [...openRouter, ...reasoning].map((id) => ({
           id,
           name: `OpenRouter ${id}`,
           architecture: { input_modalities: ["text"] },
-          supported_parameters: ["tools"],
+          supported_parameters: reasoning.includes(id) ? ["tools", "reasoning"] : ["tools"],
+          ...(reasoning.includes(id) && {
+            reasoning: { supported_efforts: openRouterReasoning[id] },
+          }),
         })),
       });
     }

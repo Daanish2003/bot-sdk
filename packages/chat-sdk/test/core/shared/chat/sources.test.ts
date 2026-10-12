@@ -118,3 +118,49 @@ describe("replySegments", () => {
     expect(segments.map((segment) => segment.key)).toEqual(["call-1", "text-1"]);
   });
 });
+
+/** A finished `fetch_url` call as `useChat` (or `toUIParts`) holds it, with the page it read. */
+const fetchPart = (id: string, url: string, content = "Page text.") =>
+  ({
+    type: "tool-call",
+    id,
+    name: "fetch_url",
+    arguments: JSON.stringify({ url }),
+    input: { url },
+    state: "complete",
+    output: { url, title: "Page", content },
+    metadata: { source: "builtin", status: "done" },
+  }) as MessagePart;
+
+describe("sourcesOf with fetched pages", () => {
+  it("numbers a fetched page with the search results, in stream order, deduped by URL", () => {
+    const parts = [
+      fetchPart("call-1", "https://example.com/page/"),
+      searchPart("call-2", "two", [result(1), result(2, "https://example.com/page")]),
+      textPart("Text."),
+    ];
+
+    expect(sourcesOf(parts)).toEqual([
+      { number: 1, url: "https://example.com/page/", title: "Page", snippet: "Page text." },
+      { number: 2, url: "https://example.com/1", title: "Result 1", snippet: "Snippet 1" },
+    ]);
+  });
+
+  it("gives a fetch that read no page no Source", () => {
+    const failed = {
+      ...fetchPart("call-1", "https://example.com/pdf"),
+      output: { error: "unsupported", reason: "unsupported" },
+    } as MessagePart;
+
+    expect(sourcesOf([failed])).toEqual([]);
+  });
+
+  it("keeps a page's first 200 characters as its snippet", () => {
+    const [source] = sourcesOf([
+      fetchPart("call-1", "https://example.com/long", "word ".repeat(100)),
+    ]);
+
+    expect(source!.snippet.length).toBeLessThanOrEqual(201);
+    expect(source!.snippet.endsWith("…")).toBe(true);
+  });
+});

@@ -40,13 +40,21 @@ describe("models.list", () => {
       images: true,
       pdfs: false,
       tools: true,
+      onHostCredentials: false,
+      contextWindow: 1050000,
+      maxOutputTokens: 128000,
+      reasoning: { efforts: ["low", "medium", "high"], off: true, defaultEffort: null },
     });
   });
 
   it("returns no Models and no default without credentials", async () => {
     const { client } = await signedIn();
 
-    await expect(client.models.list()).resolves.toEqual({ models: [], defaultModel: null });
+    await expect(client.models.list()).resolves.toEqual({
+      models: [],
+      defaultModel: null,
+      webSearchOnHost: false,
+    });
   });
 
   it("defaults a new Conversation to the code default of the first Provider the user added", async () => {
@@ -154,6 +162,10 @@ describe("models.list with live lists", () => {
         images: false,
         pdfs: false,
         tools: true,
+        onHostCredentials: false,
+        contextWindow: null,
+        maxOutputTokens: null,
+        reasoning: { efforts: [], off: false, defaultEffort: null },
       },
       expect.objectContaining({ id: "ollama:llama3.2:latest" }),
     ]);
@@ -175,5 +187,93 @@ describe("models.list with live lists", () => {
     expect(live.urls).toEqual([]);
     expect(models.every((model) => model.provider === "gemini")).toBe(true);
     expect(defaultModel).toBe("gemini:gemini-3.8-flash");
+  });
+});
+
+describe("models.list with Host credentials", () => {
+  const hostProviders = [
+    {
+      provider: "anthropic" as const,
+      credentials: { apiKey: "sk-ant-host" },
+      models: [
+        {
+          modelId: "claude-haiku-4-5",
+          maxOutputTokens: 512,
+          inputUsdPerMillion: 1,
+          outputUsdPerMillion: 5,
+        },
+      ],
+    },
+  ];
+
+  it("lists the Host Models marked as Host Models for a user without credentials, and defaults to one", async () => {
+    const user = await insertUser();
+    const deps = createTestDeps({ hostProviders });
+
+    const { models, defaultModel } = await chatRpc({ user, deps }).models.list();
+
+    expect(models).toEqual([
+      {
+        id: "anthropic:claude-haiku-4-5",
+        provider: "anthropic",
+        modelId: "claude-haiku-4-5",
+        label: "Claude Haiku 4.5",
+        images: true,
+        pdfs: true,
+        tools: true,
+        onHostCredentials: true,
+        // The window and efforts fall back to the curated Model; the output is the Host's cap.
+        contextWindow: 200000,
+        maxOutputTokens: 512,
+        reasoning: { efforts: [], off: false, defaultEffort: null },
+      },
+    ]);
+    expect(defaultModel).toBe("anthropic:claude-haiku-4-5");
+  });
+
+  it("merges the Host Models with the user's own Models, and the user's own Provider wins", async () => {
+    const user = await insertUser();
+    const deps = createTestDeps({ hostProviders });
+    await addCredentials(user, "openai");
+    await saveCredentials(deps, user.id, {
+      service: "anthropic",
+      fields: { apiKey: "sk-ant-own" },
+      hint: "…-own",
+      verified: true,
+    });
+
+    const { models, defaultModel } = await chatRpc({ user, deps }).models.list();
+
+    expect(models.filter((model) => model.onHostCredentials)).toEqual([]);
+    expect(models.some((model) => model.id === "anthropic:claude-haiku-4-5")).toBe(true);
+    expect(defaultModel).toBe("openai:gpt-5.6");
+  });
+
+  it("lists a Host Model of a Provider the user has no key for, beside the user's own Models", async () => {
+    const user = await insertUser();
+    const deps = createTestDeps({ hostProviders });
+    await addCredentials(user, "openai");
+
+    const { models } = await chatRpc({ user, deps }).models.list();
+
+    expect(models.find((model) => model.id === "anthropic:claude-haiku-4-5")).toMatchObject({
+      onHostCredentials: true,
+    });
+    expect(models.find((model) => model.id === "openai:gpt-5.6")).toMatchObject({
+      onHostCredentials: false,
+    });
+  });
+
+  it("says web search is on the Host when the Host offers a Tavily key", async () => {
+    const user = await insertUser();
+    const hosted = createTestDeps({
+      hostTools: [
+        { tool: "tavily", credentials: { apiKey: "tvly-host" }, pricePerSearchUsd: 0.008 },
+      ],
+    });
+
+    await expect(chatRpc({ user, deps: hosted }).models.list()).resolves.toMatchObject({
+      webSearchOnHost: true,
+    });
   });
 });

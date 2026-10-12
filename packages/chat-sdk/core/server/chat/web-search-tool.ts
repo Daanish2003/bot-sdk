@@ -26,17 +26,21 @@ const webSearchDefinition = toolDefinition({
  * Tavily Tool credential and records each search in the reply's `parts`, calling `onChange` when
  * they change. Failures become the search's error state and an `{ error }` result, so the reply
  * continues. After `maxSearchesPerReply` searches, a call gets `searchLimitError` and searches nothing.
+ * `recordSearch` runs after each search that returns results, when the search is on Host credentials
+ * (ADR 0007); it is awaited, so the usage row exists before the Run ends.
  */
 export function createWebSearchTool({
   searchClient,
   credentials,
   parts,
   onChange,
+  recordSearch,
 }: {
   searchClient: SearchClient;
   credentials: Credentials;
   parts: ReturnType<typeof createPartsBuilder>;
   onChange: () => void;
+  recordSearch?: () => Promise<void>;
 }) {
   let searches = 0;
   return webSearchDefinition.server(async ({ query }, context): Promise<WebSearchOutput> => {
@@ -52,6 +56,7 @@ export function createWebSearchTool({
         signal: context?.abortSignal,
       });
       parts.finishSearch(toolCallId, { results });
+      await recordSearch?.();
       return { results };
     } catch (caught) {
       // A search cut off by the run ending stays running; the run closes it as cancelled.

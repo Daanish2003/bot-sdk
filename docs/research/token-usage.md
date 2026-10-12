@@ -29,7 +29,7 @@ How to read the sources:
    - **What it does.** It rewrites only the messages sent to the Provider. Our Message tree stays the source of truth, so ADR 0001 is untouched.
    - **Setup.** Start with `evictOldest`, with `maxTokens` ≈ context window − max output − a margin.
    - **Estimator.** Replace the default estimator, which counts base64 attachments as text.
-   - **Upgrade needed.** The package needs `@tanstack/ai` ^0.65 and we have 0.64.1. Adding it is a **new dependency, and so a human decision** (AGENTS.md §6).
+   - **Dependency.** Added as `@tanstack/ai-compaction` 0.1.14 on `@tanstack/ai` 0.66.0 (#115). Its path to eviction ids is in §3, "Tracer result".
 5. **Generation settings need an SDK-owned mapping per Provider.**
    - **No common keys.** `chat()` 0.64.1 has no common `temperature`, `topP` or `maxTokens`. Every setting goes through `modelOptions`, spelled the Provider's way, and several adapters restrict them per Model.
    - **What to build.** A small `GenerationSettings` type (`temperature`, `maxOutputTokens`, `topP`, `reasoningEffort`), translated per Provider with the table in §4.
@@ -276,13 +276,32 @@ On the Provider-side options:
   - **Estimator.** The default is `chars / 4` over `JSON.stringify(content)` (`src/index.ts:228-233`). **For us that counts base64 image and PDF data as text** and would over-trigger on attachments. Pass an `estimateTokens` that counts an attachment as a fixed amount.
   - **Checkpoints.** With `withPersistence` providing metadata, it saves a checkpoint and reuses the compacted prefix. Without it, it is stateless (fine for us, since we rebuild messages from our tree per run).
   - **Events.** It emits `compaction:started|state|ended` CUSTOM events.
-  - **Peer dependency.** It needs `@tanstack/ai` **^0.65.0**. We have 0.64.1, and the latest is 0.65.1. Adopting it means an upgrade plus a new dependency (human decision).
+  - **Peer dependency.** `@tanstack/ai-compaction` 0.1.14 peers on `@tanstack/ai` **^0.66.0**, which the SDK now runs (0.66.0). Added to the Chat SDK under #115 (pre-approved in #51).
 - **Using real usage instead of the estimate.** The previous run's `promptTokens` (plus cached tokens on Anthropic and Bedrock) is the Provider-accurate size of the history up to that point. An `estimateTokens` could calibrate against it, or the UI could show "x% of context used". This is a design idea, not a TanStack feature.
 
 **Suggested shape:**
 
 - **Formula.** `withCompaction({ maxTokens: contextWindow − maxOutput − margin, strategy: composeStrategies(clearToolResults(), evictOldest()) })`. `contextWindow` and `maxOutput` come from the Model data in §2.
 - **Later.** Add `summarizeOldest` once quotas exist to pay for the extra call.
+
+### Tracer result: which Messages were evicted (#115)
+
+**Verdict: use the middleware (`evictOldest`), not the SDK's own pre-`chat()` fallback.** The middleware runs before every model call, so a tool iteration inside one Run evicts again. The fallback runs once and would let a tool-heavy Run grow past the budget. The cost is that the middleware reports counts, not ids, so the SDK derives the context start itself.
+
+Tested in `packages/chat-sdk/test/core/server/chat/compaction-tracer.test.ts` (5 tests, against `chat()` with the fake adapter, `@tanstack/ai-compaction` 0.1.14, `@tanstack/ai` 0.66.0):
+
+- **Eviction.** With six stored Messages and `maxTokens: 40`, the Model is sent the marker and the newest Messages. The oldest are missing.
+- **Context start.** `onCompact` reports `{ before, after, messagesBefore, messagesAfter }` and no ids. `evictOldest` prepends one marker, so the first Message the Model saw is at index `messagesBefore - (messagesAfter - 1)` of the sent list. Map that index back to a stored Message through the per-Message list the SDK built (one Message can yield several ModelMessages, for example web search tool calls).
+- **Tool iterations.** Each model call is compacted again from the canonical list. In the test, the second call had 8 messages and the cut was at index 6, past the six stored Messages. So the first Message the Model saw can be the Run's own assistant tool-call Message, which has no stored history yet.
+- **Custom estimator.** `estimateTokens` is accepted and changes the eviction. In the test a 1,000-token image fixed amount kept 2 sent Messages where the default kept 5.
+
+**Limits found:**
+
+- **`compaction:state` has no ids.** `dropped` and `result` are role, token and text previews, with text cut at 4,000 characters and at most 24 entries. `dropped` is computed by JSON equality, so an identical earlier Message is wrongly left out of `dropped` (the test shows this). Do not map evictions from `compaction:*` events.
+- **The start index is only valid for `evictOldest`.** It assumes exactly one marker is prepended. Other strategies (`clearToolResults` keeps the count, `summarizeOldest` adds one message) need their own derivation.
+- **The marker is sent to the Model.** It reads `[N earlier message(s) omitted to save context.]`, where N counts ModelMessages, not stored Messages. Pass a `marker` option, or accept the wording.
+- **One oversized Message is kept, not refused.** By reading `src/index.ts` (`splitAtRecent`), when the newest Message alone exceeds `keepRecentTokens`, it still keeps that Message. The Provider then gets it and fails. The pre-Run refusal the spec asks for has to be a separate check (not tested here).
+- **No checkpoints here.** Checkpoints need `withPersistence` metadata, which the SDK does not use, so the middleware is stateless.
 
 ---
 

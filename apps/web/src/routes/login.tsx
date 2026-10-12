@@ -3,6 +3,7 @@ import { useState } from "react";
 
 import SignInForm from "@/components/sign-in-form";
 import SignUpForm from "@/components/sign-up-form";
+import SocialSignIn from "@/components/social-sign-in";
 import { getUser } from "@/functions/get-user";
 
 export const Route = createFileRoute("/login")({
@@ -22,6 +23,7 @@ function RouteComponent() {
       ) : (
         <SignUpForm onSwitchToSignIn={() => setShowSignIn(true)} />
       )}
+      <SocialSignIn />
     </main>
   );
 }

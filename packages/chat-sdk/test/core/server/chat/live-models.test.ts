@@ -21,13 +21,21 @@ const openRouterList = {
       id: "anthropic/claude-sonnet-5.5",
       name: "Anthropic: Claude Sonnet 5.5",
       architecture: { input_modalities: ["text", "image", "file"], output_modalities: ["text"] },
-      supported_parameters: ["max_tokens", "tools", "tool_choice"],
+      context_length: 1000000,
+      top_provider: { context_length: 1000000, max_completion_tokens: 128000, is_moderated: false },
+      supported_parameters: ["max_tokens", "tools", "tool_choice", "reasoning"],
+      reasoning: {
+        mandatory: false,
+        supported_efforts: ["max", "xhigh", "high", "medium", "low"],
+        default_effort: "medium",
+      },
     },
     {
       id: "deepseek/deepseek-v4-pro",
       name: "DeepSeek: DeepSeek V4 Pro",
       architecture: { input_modalities: ["text"], output_modalities: ["text"] },
-      supported_parameters: ["tools", "temperature"],
+      supported_parameters: ["tools", "temperature", "reasoning"],
+      reasoning: { supported_efforts: ["high", "none"], default_effort: "none" },
     },
     {
       id: "mancer/weaver",
@@ -60,6 +68,9 @@ describe("openRouterModels", () => {
         images: true,
         pdfs: false,
         tools: true,
+        contextWindow: 1000000,
+        maxOutputTokens: 128000,
+        reasoning: { efforts: ["low", "medium", "high"], off: false, defaultEffort: "medium" },
       },
       {
         id: "openrouter:deepseek/deepseek-v4-pro",
@@ -69,8 +80,51 @@ describe("openRouterModels", () => {
         images: false,
         pdfs: false,
         tools: true,
+        contextWindow: null,
+        maxOutputTokens: null,
+        reasoning: { efforts: ["high"], off: true, defaultEffort: "off" },
       },
     ]);
+  });
+
+  it("reads a Model's reasoning efforts only when it lists the reasoning parameter", async () => {
+    const { fetch } = stubFetch(() =>
+      json({
+        data: [
+          {
+            id: "anthropic/claude-sonnet-5.5",
+            name: "Claude Sonnet 5.5",
+            architecture: { input_modalities: ["text"] },
+            supported_parameters: ["tools"],
+            reasoning: { supported_efforts: ["low", "high"], default_effort: "low" },
+          },
+        ],
+      }),
+    );
+
+    const [model] = await openRouterModels(fetch);
+
+    expect(model?.reasoning).toEqual({ efforts: [], off: false, defaultEffort: null });
+  });
+
+  it("doesn't call the default off when the Model doesn't allow reasoning to be turned off", async () => {
+    const { fetch } = stubFetch(() =>
+      json({
+        data: [
+          {
+            id: "deepseek/deepseek-v4-pro",
+            name: "DeepSeek V4 Pro",
+            architecture: { input_modalities: ["text"] },
+            supported_parameters: ["tools"],
+            reasoning: { supported_efforts: ["high", "none"], default_effort: "none" },
+          },
+        ],
+      }),
+    );
+
+    const [model] = await openRouterModels(fetch);
+
+    expect(model?.reasoning).toEqual({ efforts: [], off: false, defaultEffort: null });
   });
 
   it("keeps the list instead of asking again within the hour", async () => {
@@ -125,6 +179,9 @@ describe("ollamaModels", () => {
         images: false,
         pdfs: false,
         tools: true,
+        contextWindow: null,
+        maxOutputTokens: null,
+        reasoning: { efforts: [], off: false, defaultEffort: null },
       },
       {
         id: "ollama:qwen3:8b",
@@ -134,6 +191,9 @@ describe("ollamaModels", () => {
         images: false,
         pdfs: false,
         tools: true,
+        contextWindow: null,
+        maxOutputTokens: null,
+        reasoning: { efforts: [], off: false, defaultEffort: null },
       },
     ]);
   });

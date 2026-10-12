@@ -1,7 +1,10 @@
 import { numberSources } from "../shared/chat/sources";
 import type { WebSearchPart } from "../shared/message-parts";
 
-/** The composer's Search toggle: whether search can be offered, is offered, and why. */
+/**
+ * The composer's one Web toggle: search and page reading. Web is available whenever the Model has
+ * tools; search needs a Tavily key, so without one Web means fetch only, and the tooltip says so.
+ */
 export function searchToggle({
   hasTavilyKey,
   modelTools,
@@ -11,21 +14,21 @@ export function searchToggle({
   modelTools: boolean;
   on: boolean;
 }) {
-  if (!hasTavilyKey) {
-    return {
-      available: false,
-      enabled: false,
-      tooltip: "Web search needs a Tavily key in Keys & settings",
-    };
-  }
   if (!modelTools) {
     return {
       available: false,
       enabled: false,
-      tooltip: "This Model can't use tools, so it can't search the web",
+      tooltip: "This Model can't use tools, so it can't use the web",
     };
   }
-  return { available: true, enabled: on, tooltip: on ? "Web search on" : "Web search off" };
+  if (!on) return { available: true, enabled: false, tooltip: "Web off" };
+  return {
+    available: true,
+    enabled: true,
+    tooltip: hasTavilyKey
+      ? "Web on: search and read pages"
+      : "Web on: reads pages you link. Search needs a Tavily key in Keys & settings",
+  };
 }
 
 const failureText: Record<NonNullable<WebSearchPart["errorReason"]>, string> = {
@@ -73,7 +76,7 @@ export function describeSearches(searches: WebSearchPart[]) {
   if (searches.length === 1 || running || failed) {
     return { text: describeSearch(running ?? searches.at(-1)!).text, keySettings, failed };
   }
-  const count = numberSources(searches).length;
+  const count = numberSources(searches.flatMap((search) => search.results)).length;
   const sources = count === 0 ? "no sources" : `${count} ${count === 1 ? "source" : "sources"}`;
   return { text: `Searched ${searches.length} times · ${sources}`, keySettings, failed };
 }

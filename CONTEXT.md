@@ -73,7 +73,7 @@ A user's yes or no to one tool call before it runs. While a call waits for it, t
 _Avoid_: Confirmation, consent, permission
 
 **Source**:
-A web page a web search returned during an assistant Message, numbered within that Message and shown as a chip under the search and wherever the reply cites it.
+A web page a web search returned, or a page the `fetch_url` tool read, during an assistant Message, numbered within that Message and shown as a chip under the search or fetch and wherever the reply cites it.
 _Avoid_: Citation (that is the chip in the text pointing at a Source), result, reference
 
 **Shared link**:

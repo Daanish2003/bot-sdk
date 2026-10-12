@@ -3,37 +3,20 @@
  * The end-to-end run's web server: creates the e2e database if missing, migrates and empties
  * it, then runs the production build (`.output`) in this process. Run by Playwright's
  * `webServer` with `serverEnv`; plain Node (type stripping), so imports keep their extensions.
+ * It also starts a second copy of the build, on its own port, with `mcpServerEnv`: the one that
+ * offers an MCP server. Both share the database.
  */
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
+
+import { e2eDatabaseUrl } from "./database.ts";
+import { mcpServerEnv } from "./env.ts";
 
 // `pg` and Drizzle are the db package's dependencies, not the web app's.
 const dbRequire = createRequire(new URL("../../../packages/db/package.json", import.meta.url));
 const { Client } = dbRequire("pg");
 const { drizzle } = dbRequire("drizzle-orm/node-postgres");
-
-/**
- * `E2E_DATABASE_URL`, else `ai-chat_e2e` on the server of the app's `DATABASE_URL`. That one is
- * read in a child process: loading Varlock here would hand its resolved `.env` (and its
- * `NODE_ENV`) on to the server.
- */
-function e2eDatabaseUrl() {
-  if (process.env.E2E_DATABASE_URL) return process.env.E2E_DATABASE_URL;
-  const appUrl = execFileSync(
-    process.execPath,
-    [
-      "--input-type=module",
-      "-e",
-      "await import('varlock/auto-load'); process.stdout.write(process.env.DATABASE_URL ?? '')",
-    ],
-    { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
-  );
-  if (!appUrl) throw new Error("Set DATABASE_URL or E2E_DATABASE_URL");
-  const url = new URL(appUrl);
-  url.pathname = "/ai-chat_e2e";
-  return url.toString();
-}
 
 const databaseUrl = e2eDatabaseUrl();
 process.env.DATABASE_URL = databaseUrl;
@@ -86,6 +69,16 @@ async function empty() {
 await createDatabaseIfMissing();
 await runMigrateScript();
 await empty();
-await import(
-  pathToFileURL(fileURLToPath(new URL("../.output/server/index.mjs", import.meta.url))).href
-);
+
+const serverEntry = fileURLToPath(new URL("../.output/server/index.mjs", import.meta.url));
+
+// The MCP server's copy runs as a child process: the production build listens at import, so
+// two copies can't share this process. Playwright stops this one, and the child with it.
+const mcpCopy = spawn(process.execPath, [serverEntry], {
+  env: { ...process.env, ...mcpServerEnv },
+  stdio: "inherit",
+});
+process.on("exit", () => mcpCopy.kill());
+for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, () => process.exit());
+
+await import(pathToFileURL(serverEntry).href);

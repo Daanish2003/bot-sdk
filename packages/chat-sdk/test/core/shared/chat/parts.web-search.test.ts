@@ -7,7 +7,7 @@ import { EventType, type MessagePart } from "@tanstack/ai";
 import { describe, expect, it } from "vitest";
 
 import {
-  cancelRunningSearches,
+  cancelRunningCalls,
   createPartsBuilder,
   parseStoredParts,
   searchTextOf,
@@ -76,7 +76,7 @@ describe("web searches in stored parts from a stream", () => {
     builder.finishSearch("call-1", { results: [result(1)] });
     builder.startSearch("call-2", "second");
 
-    builder.cancelRunningSearches();
+    builder.cancelRunningCalls();
     builder.finishSearch("call-2", { results: [result(2)] });
 
     expect(builder.parts().parts).toEqual([
@@ -88,7 +88,7 @@ describe("web searches in stored parts from a stream", () => {
   it("closes running searches in stored parts as cancelled", () => {
     const parts = storedParts([search({ state: "running", results: [] }), text("Hi"), search()]);
 
-    expect(cancelRunningSearches(parts).parts).toEqual([
+    expect(cancelRunningCalls(parts).parts).toEqual([
       search({ state: "cancelled", results: [] }),
       text("Hi"),
       search(),

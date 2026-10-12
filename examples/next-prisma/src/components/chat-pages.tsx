@@ -6,7 +6,9 @@ import {
   ChatView,
   KeySettingsPage,
   NewConversationPage,
+  ProjectPage,
   SharedConversationPage,
+  type SharedViewer,
   SharedLinkNotFound as SdkSharedLinkNotFound,
 } from "@/chat-sdk/ui";
 import { useQuery } from "@tanstack/react-query";
@@ -16,12 +18,22 @@ export function NewConversation() {
   return <NewConversationPage />;
 }
 
+export function ProjectRoute({ id }: { id: string }) {
+  return <ProjectPage key={id} projectId={id} />;
+}
+
 export function KeySettings() {
   return <KeySettingsPage />;
 }
 
-export function SharedConversation({ data }: { data: SharedSnapshot }) {
-  return <SharedConversationPage data={data} />;
+export function SharedConversation({
+  data,
+  viewer,
+}: {
+  data: SharedSnapshot;
+  viewer: SharedViewer;
+}) {
+  return <SharedConversationPage data={data} viewer={viewer} />;
 }
 
 export function SharedLinkNotFound() {

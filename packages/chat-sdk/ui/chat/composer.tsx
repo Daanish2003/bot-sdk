@@ -19,6 +19,7 @@ export function Composer({
   children,
   attachments,
   attachmentsPending = false,
+  placeholder = "Message (Shift+Enter for a new line)",
 }: {
   onSend: (text: string) => void;
   onStop?: () => void;
@@ -32,6 +33,8 @@ export function Composer({
   attachments?: ReactNode;
   /** An attachment is still uploading (or failed), so sending waits. */
   attachmentsPending?: boolean;
+  /** Shown instead of the default hint, for example while a call waits for Approval. */
+  placeholder?: string;
 }) {
   const [value, setValue] = useState("");
   const canSend = !disabled && !streaming && !attachmentsPending && value.trim().length > 0;
@@ -52,7 +55,7 @@ export function Composer({
     >
       {attachments}
       <PromptInputTextarea
-        placeholder="Message (Shift+Enter for a new line)"
+        placeholder={placeholder}
         className="text-sm text-foreground"
         aria-label="Message"
       />

@@ -1,10 +1,14 @@
+import type { MessagePart } from "@tanstack/ai";
+import { createElement, Fragment } from "react";
 import type { Source } from "../../../core/shared/chat/sources";
+import { pageSourcesOf, sourcesOf } from "../../../core/shared/chat/sources";
+import { toolCallOf } from "../../../core/shared/chat/tool-call";
 import { Markdown } from "@/components/ui/prompt-kit/markdown";
-import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { replyComponents, ReplySources } from "../../../ui/chat/source-chips";
+import { replyComponents, ReplySources, SourceChips } from "../../../ui/chat/source-chips";
+import { ToolCallRow } from "../../../ui/chat/tool-call-row";
 
 const sources: Source[] = [
   { number: 1, url: "https://tanstack.com/ai", title: "TanStack AI", snippet: "Docs" },
@@ -42,5 +46,41 @@ describe("a reply's links", () => {
     expect(render("([x](https://example.com/blog))")).toContain(
       'target="_blank" rel="noopener noreferrer nofollow"',
     );
+  });
+});
+
+describe("a fetched page", () => {
+  it("shows its numbered Source chip under its call row", () => {
+    const parts = [
+      {
+        type: "tool-call",
+        id: "call-1",
+        name: "fetch_url",
+        arguments: JSON.stringify({ url: "https://example.com/page" }),
+        input: { url: "https://example.com/page" },
+        state: "complete",
+        output: { url: "https://example.com/page", title: "Example page", content: "Hello." },
+        metadata: { source: "builtin", status: "done" },
+      },
+    ] as MessagePart[];
+    const found = sourcesOf(parts);
+    const call = toolCallOf(parts[0]!)!;
+
+    const html = renderToStaticMarkup(
+      createElement(
+        ReplySources.Provider,
+        { value: found },
+        createElement(
+          Fragment,
+          null,
+          createElement(ToolCallRow, { call }),
+          createElement(SourceChips, { sources: pageSourcesOf(call, found) }),
+        ),
+      ),
+    );
+
+    expect(html).toContain("fetch_url");
+    expect(html.indexOf("fetch_url")).toBeLessThan(html.indexOf('data-slot="hover-card-trigger"'));
+    expect(html).toMatch(/data-slot="hover-card-trigger"[\s\S]*?<span[^>]*>1<\/span>/);
   });
 });

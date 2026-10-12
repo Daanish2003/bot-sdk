@@ -2,7 +2,7 @@ import { Button } from "@ai-chat/ui/components/button";
 import { Input } from "@ai-chat/ui/components/input";
 import { Label } from "@ai-chat/ui/components/label";
 import { useForm } from "@tanstack/react-form";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import z from "zod";
 
@@ -35,6 +35,14 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
             toast.success("Sign in successful");
           },
           onError: (error) => {
+            // Refused until the email is verified (403). Better Auth has sent a fresh link.
+            if (error.error.status === 403) {
+              navigate({
+                to: "/check-email",
+                search: { email: value.email, sent: true },
+              });
+              return;
+            }
             toast.error(error.error.message || error.error.statusText);
           },
         },
@@ -120,6 +128,12 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
           )}
         </form.Subscribe>
       </form>
+
+      <div className="mt-4 text-center">
+        <Link to="/forgot-password" className="text-sm underline">
+          Forgot password?
+        </Link>
+      </div>
 
       <div className="mt-4 text-center">
         <Button variant="link" onClick={onSwitchToSignUp}>

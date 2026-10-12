@@ -194,6 +194,11 @@ export function addKeyMessage(service: string) {
   return `Add ${/^[aeiou]/i.test(label) ? "an" : "a"} ${label} key or pick another Model`;
 }
 
+/** Why a Model can't be used: the key prompt while the user may bring keys (`byok`), else only "pick another". */
+export function unusableModelMessage(service: string, byok: boolean) {
+  return byok ? addKeyMessage(service) : "Pick another Model";
+}
+
 /**
  * The hint the client sees instead of the credentials: the end of the key, e.g. "…abcd", or the
  * Ollama host, which isn't a secret.

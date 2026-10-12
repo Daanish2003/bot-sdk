@@ -29,3 +29,11 @@ The SDK ships `memoryRuntime()` (the default, one process) and `redisRuntime({ u
 - Two new columns on `chat.message`: `cancel_requested_at` and `heartbeat_at`.
 - Production needs Redis, and the SDK depends on `redis`.
 - Whether `resumeServerSentEventsResponse` accepts a `StreamDurability` keyed by our Run id is unverified; the first implementation ticket checks it, and the fallback is our own SSE `GET` over `RunStreams.read`.
+
+## Amendment: a Message's later Runs (2026-10-10, #158)
+
+A Message can span several Runs: a decision on a call that waits for Approval starts the next one on the same Message (ADR 0008). Each Run keeps its own log, so the amendment keeps the rules above and adds:
+
+- **A resumed Run's id is `<messageId>:<n>`**, where `n` is the Run's number on its Message. The first Run keeps the Message's id, so logs written before this change read the same.
+- **The Message stores its current Run number** (`message.run_number`, starting at 1). Joining a Message reads the log of its current Run, so a reader finds the newest log.
+- **Logs stay append-only and close once.** A Run closes its own log, and no Run reopens another Run's log. A Run that ends waiting for Approval closes its log like any ended Run.

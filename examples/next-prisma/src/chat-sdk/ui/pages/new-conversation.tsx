@@ -1,6 +1,7 @@
 import { setPendingFirstMessage } from "../../core/client/chat";
 import { missingCredentialsMessage } from "../../core/client/models";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { toast } from "sonner";
 
 import { AttachButton, DraftAttachmentChips, useAttachmentDraft } from "../chat/attachments";
@@ -10,21 +11,32 @@ import { NoCredentials } from "../chat/no-credentials";
 import { SearchToggle, useWebSearch } from "../chat/search-toggle";
 import { Welcome } from "../chat/welcome";
 import { invalidateConversationList } from "../../core/client/react/conversation-list";
+import { useByok } from "../../core/client/react/byok";
+import {
+  setNewConversationEffort,
+  useNewConversationEffort,
+} from "../../core/client/react/new-conversation-effort";
 import { useNewConversationModel } from "../../core/client/react/new-conversation-model";
-import { useChatAdapter } from "../../core/client/react/provider";
+import { useChatAdapter, useChatLocation } from "../../core/client/react/provider";
 
 /**
  * A new Conversation: type the first Message; it's created with the picked Model (the location's
- * `newConversationModel`, else `models.list`'s default) when sent.
+ * `newConversationModel`, else `models.list`'s default) when sent, inside the location's Project
+ * when it has one.
  */
 export function NewConversationPage() {
   const { orpc, navigate } = useChatAdapter();
   const queryClient = useQueryClient();
   const models = useQuery(orpc.models.list.queryOptions());
+  const byok = useByok();
   const { model } = useNewConversationModel();
+  const { projectId } = useChatLocation();
+  const { effort } = useNewConversationEffort();
+  // A pick belongs to this new Conversation: leaving the page without sending drops it.
+  useEffect(() => () => setNewConversationEffort(null), []);
   const create = useMutation(orpc.conversation.create.mutationOptions());
   const blocked =
-    models.data && model ? missingCredentialsMessage(model, models.data.models) : null;
+    models.data && model ? missingCredentialsMessage(model, models.data.models, byok) : null;
   const disabled = !model || !!blocked || create.isPending;
   const draft = useAttachmentDraft(model);
   const search = useWebSearch(model);
@@ -33,7 +45,9 @@ export function NewConversationPage() {
     if (!model) return;
     const attachments = draft.uploaded;
     try {
-      const { id } = await create.mutateAsync({ model });
+      const { id } = await create.mutateAsync({ model, reasoningEffort: effort, projectId });
+      // The choice is stored on the Conversation now; the next new one starts at the Model's default.
+      setNewConversationEffort(null);
       void invalidateConversationList(queryClient, orpc);
       setPendingFirstMessage(id, { text, attachments });
       await navigate({ to: "conversation", id });

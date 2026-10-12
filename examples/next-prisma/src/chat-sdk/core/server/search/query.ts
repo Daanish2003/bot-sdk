@@ -34,10 +34,32 @@ export function decodeCursor(cursor: string): Cursor | undefined {
 }
 
 /**
+ * Narrows a search. `model` and `provider` match the Model that wrote an assistant Message, so
+ * user Messages never match them. `from` is inclusive and `to` exclusive, both on the Message's
+ * date. Every filter is optional and they combine with AND.
+ */
+export type SearchFilters = {
+  /** A `"provider:model"` id. */
+  model?: string;
+  /** A Provider id: the part of a Model id before its `:`. */
+  provider?: string;
+  from?: Date;
+  to?: Date;
+  /** A Project id: only Messages in its Conversations. */
+  projectId?: string;
+};
+
+/**
  * The user's Messages whose text contains `q` (case-insensitive, literally), on every Branch and
  * in any status, newest first, one row per Message with a plain-text snippet around the match.
  */
-export async function searchMessages(deps: Deps, userId: string, q: string, cursor?: Cursor) {
+export async function searchMessages(
+  deps: Deps,
+  userId: string,
+  q: string,
+  cursor?: Cursor,
+  filters: SearchFilters = {},
+) {
   const createdAtText = sql<string>`${message.createdAt}::text`;
   const rows = await deps.db
     .select({
@@ -57,6 +79,23 @@ export async function searchMessages(deps: Deps, userId: string, q: string, curs
         ilike(message.searchText, `%${escapeLike(q)}%`),
         cursor &&
           sql`(${message.createdAt}, ${message.id}) < (${cursor.createdAt}::timestamp, ${cursor.id}::uuid)`,
+        filters.model === undefined
+          ? undefined
+          : and(eq(message.role, "assistant"), eq(message.model, filters.model)),
+        filters.provider === undefined
+          ? undefined
+          : and(
+              eq(message.role, "assistant"),
+              sql`split_part(${message.model}, ':', 1) = ${filters.provider}`,
+            ),
+        // Dates are stored as UTC wall-clock time (as the app writes them), so compare with the UTC ISO text.
+        filters.from === undefined
+          ? undefined
+          : sql`${message.createdAt} >= ${filters.from.toISOString()}::timestamp`,
+        filters.to === undefined
+          ? undefined
+          : sql`${message.createdAt} < ${filters.to.toISOString()}::timestamp`,
+        filters.projectId === undefined ? undefined : eq(conversation.projectId, filters.projectId),
       ),
     )
     .orderBy(desc(message.createdAt), desc(message.id))

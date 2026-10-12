@@ -27,6 +27,27 @@ export function recentConversations<T extends { title: string | null }>(
 }
 
 /**
+ * The search's date filter as ISO instants, from the picked days (`YYYY-MM-DD`, the user's local
+ * time zone). `from` is local midnight of the first day; `to` is local midnight after the last day,
+ * since the server's `to` is exclusive. A missing end stays open.
+ */
+export function localDayRange(
+  fromDay: string | undefined,
+  toDay: string | undefined,
+): { from?: string; to?: string } {
+  const range: { from?: string; to?: string } = {};
+  if (fromDay) range.from = localMidnight(fromDay, 0).toISOString();
+  if (toDay) range.to = localMidnight(toDay, 1).toISOString();
+  return range;
+}
+
+/** Local midnight of the `YYYY-MM-DD` day, moved forward by `dayOffset` days. */
+function localMidnight(day: string, dayOffset: number) {
+  const [year = 0, month = 1, date = 1] = day.split("-").map(Number);
+  return new Date(year, month - 1, date + dayOffset);
+}
+
+/**
  * What opening a search hit does next: highlight the Message once it's on screen, wait while the
  * Active Branch has it but the screen doesn't yet, or switch to the Branch through it.
  */

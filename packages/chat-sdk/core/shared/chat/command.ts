@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { conversationToolsSchema } from "./conversation-tools";
+
 /**
  * What the client asks for: a command, never history (ADR 0001). History is rebuilt from the
  * database by walking up from `parentId`. `useChat` sends it as the AG-UI `forwardedProps`.
@@ -19,6 +21,11 @@ export const chatCommandSchema = z.object({
   /** `"provider:model"` */
   model: z.string(),
   webSearch: z.boolean().default(false),
+  /**
+   * The MCP tools the composer has switched on. Sent with the first Message only: a Conversation
+   * with no Message yet takes them, and later sends use the stored choice (spec #91).
+   */
+  tools: conversationToolsSchema.optional(),
 });
 
 export type ChatCommand = z.input<typeof chatCommandSchema>;

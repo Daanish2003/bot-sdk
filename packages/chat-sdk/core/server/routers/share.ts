@@ -3,7 +3,9 @@ import { z } from "zod";
 
 import { protectedProcedure, publicProcedure } from "../procedures";
 import {
+  continueSharedConversation,
   deleteSharedLink,
+  listSharedLinks,
   loadSharedConversation,
   shareStatus,
   upsertSharedLink,
@@ -39,6 +41,9 @@ export const shareRouter = {
     if (!owned) throw conversationNotFound();
   }),
 
+  /** The caller's Shared links, newest share first, for the settings page. */
+  list: protectedProcedure.handler(({ context }) => listSharedLinks(context.deps, context.user.id)),
+
   /** The share dialog's state: the link, whether it's stale, and why sharing is blocked. */
   forConversation: protectedProcedure
     .input(conversationInput)
@@ -46,6 +51,22 @@ export const shareRouter = {
       const status = await shareStatus(context.deps, context.user.id, input.conversationId);
       if (!status) throw conversationNotFound();
       return status;
+    }),
+
+  /** Copies the shared Branch into a new Conversation of the caller's; returns its id. */
+  continue: protectedProcedure
+    .input(z.object({ token: z.string().max(64) }))
+    .handler(async ({ context, input }) => {
+      const result = await continueSharedConversation(context.deps, context.user.id, input.token);
+      if (result === "not_found") {
+        throw new ORPCError("NOT_FOUND", { message: "Shared link not found" });
+      }
+      if (result === "no_model") {
+        throw new ORPCError("BAD_REQUEST", {
+          message: "No Model is available to continue this Conversation",
+        });
+      }
+      return result;
     }),
 
   /** The public, read-only page for a token. */

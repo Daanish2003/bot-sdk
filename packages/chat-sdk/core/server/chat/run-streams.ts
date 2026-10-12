@@ -28,9 +28,14 @@ export interface RunStreams {
 }
 
 /** How long appends queue before they're made readable together. */
-const FLUSH_MS = 50;
+export const FLUSH_MS = 50;
 /** How long a closed log stays readable before it expires. */
-const CLOSED_LOG_TTL_MS = 60 * 60_000;
+export const CLOSED_LOG_TTL_MS = 60 * 60_000;
+
+export type RunStreamsOptions = {
+  /** How long a closed log stays readable. Defaults to an hour (ADR 0006). */
+  closedLogTtlMs?: number;
+};
 
 type Log = {
   entries: RunEntry[];
@@ -42,7 +47,9 @@ type Log = {
 };
 
 /** The in-process `RunStreams`: one process, logs held in memory, appends batched about every 50 ms. */
-export function createMemoryRunStreams(): RunStreams {
+export function createMemoryRunStreams({
+  closedLogTtlMs = CLOSED_LOG_TTL_MS,
+}: RunStreamsOptions = {}): RunStreams {
   const logs = new Map<string, Log>();
 
   const notify = (log: Log) => {
@@ -88,7 +95,7 @@ export function createMemoryRunStreams(): RunStreams {
       flush(log);
       log.closed = true;
       notify(log);
-      setTimeout(() => logs.delete(runId), CLOSED_LOG_TTL_MS);
+      setTimeout(() => logs.delete(runId), closedLogTtlMs);
     },
 
     read(runId, offset, signal) {

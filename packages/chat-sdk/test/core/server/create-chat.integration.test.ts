@@ -20,10 +20,35 @@ describe("createChat", () => {
       createChat({
         databaseUrl: "postgresql://nobody:nothing@127.0.0.1:1/unreachable",
         getUser: () => null,
-        keyEncryptionSecret: "test-key-encryption-secret-not-for-production",
+        keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
         basePath,
       }),
     ).not.toThrow();
+  });
+
+  it("rejects an empty keyring", () => {
+    expect(() =>
+      createChat({
+        databaseUrl: "postgresql://nobody:nothing@127.0.0.1:1/unreachable",
+        getUser: () => null,
+        keyEncryptionSecrets: [],
+        basePath,
+      }),
+    ).toThrow(/at least one/);
+  });
+});
+
+describe("createChat start", () => {
+  it("refuses to start with neither Host credentials nor BYOK", async () => {
+    const chat = createChat({
+      databaseUrl: "postgresql://nobody:nothing@127.0.0.1:1/unreachable",
+      getUser: () => null,
+      keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
+      basePath,
+      byok: false,
+    });
+
+    await expect(chat.start()).rejects.toThrow(/hostProviders|byok/);
   });
 });
 
@@ -44,7 +69,7 @@ describe("the chat handler", () => {
     const user = await insertUser();
     const conv = await insertConversation(user, { title: "Hello" });
 
-    const list = await createTestChat({ user }).rpc.conversation.list();
+    const list = (await createTestChat({ user }).rpc.conversation.list({})).items;
 
     expect(list.map(({ id }) => id)).toEqual([conv.id]);
   });

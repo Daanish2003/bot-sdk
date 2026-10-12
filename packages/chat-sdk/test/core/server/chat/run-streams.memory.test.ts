@@ -8,7 +8,7 @@ import {
 } from "../../../../core/server/chat/run-streams";
 import { runStreamsContract } from "./run-streams.contract";
 
-runStreamsContract("memory", () => createMemoryRunStreams());
+runStreamsContract("memory", (options) => createMemoryRunStreams(options));
 
 const chunk = (delta: string) =>
   ({ type: EventType.TEXT_MESSAGE_CONTENT, messageId: "m", delta, timestamp: 0 }) as StreamChunk;

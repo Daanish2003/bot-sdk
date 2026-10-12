@@ -18,12 +18,22 @@ import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tansta
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { useByok } from "../../core/client/react/byok";
 import { type ChatOrpc, useOrpc } from "../../core/client/react/provider";
+import { ConnectionsSection } from "../settings/connections-section";
+import { DeleteAllConversationsSection } from "../settings/delete-all-conversations";
+import { ExportDataButton } from "../settings/export-data-button";
+import { InstructionsField } from "../settings/instructions-field";
+import { SharedLinksSection } from "../settings/shared-links";
 import { TitleModelSelect } from "../settings/title-model-select";
 
-/** Keys & settings: the user's Provider and Tool credentials, and the Title Model. */
+/**
+ * Keys & settings: the user's Provider and Tool credentials, the Title Model and the Instructions.
+ * With `byok` off the credential sections are left out; the settings stay.
+ */
 export function KeySettingsPage() {
   const orpc = useOrpc();
+  const byok = useByok();
   const credentials = useQuery(orpc.credentials.list.queryOptions());
   const [editing, setEditing] = useState<CredentialService | null>(null);
   const rows = providerRows(credentials.data ?? []);
@@ -32,48 +42,71 @@ export function KeySettingsPage() {
     <main className="mx-auto w-full max-w-2xl space-y-6 p-6">
       <div className="space-y-1">
         <h1 className="text-xl font-semibold">Keys & settings</h1>
-        <p className="text-sm text-muted-foreground">
-          Bring your own Provider credentials. Keys are encrypted on the server and never shown
-          again; you only see the last characters.
-        </p>
+        {byok && (
+          <p className="text-sm text-muted-foreground">
+            Bring your own Provider credentials. Keys are encrypted on the server and never shown
+            again; you only see the last characters.
+          </p>
+        )}
       </div>
 
-      <section className="space-y-2">
-        <h2 className="text-sm font-medium">Providers</h2>
-        <ul className="divide-y overflow-hidden rounded-xl border">
-          {rows.map((row) => (
-            <ProviderRowItem
-              key={row.id}
-              row={row}
-              loading={credentials.isPending}
-              editing={row.service !== null && editing === row.service}
-              onEdit={setEditing}
-              onDone={() => setEditing(null)}
-            />
-          ))}
-        </ul>
-      </section>
+      {byok && (
+        <>
+          <section className="space-y-2">
+            <h2 className="text-sm font-medium">Providers</h2>
+            <ul className="divide-y overflow-hidden rounded-xl border">
+              {rows.map((row) => (
+                <ProviderRowItem
+                  key={row.id}
+                  row={row}
+                  loading={credentials.isPending}
+                  editing={row.service !== null && editing === row.service}
+                  onEdit={setEditing}
+                  onDone={() => setEditing(null)}
+                />
+              ))}
+            </ul>
+          </section>
 
-      <section className="space-y-2">
-        <h2 className="text-sm font-medium">Tools</h2>
-        <p className="text-xs text-muted-foreground">
-          Tool credentials for features beyond chat. Without a Tavily key, web search is off.
-        </p>
-        <ul className="divide-y overflow-hidden rounded-xl border">
-          {toolRows(credentials.data ?? []).map((row) => (
-            <ProviderRowItem
-              key={row.id}
-              row={row}
-              loading={credentials.isPending}
-              editing={editing === row.service}
-              onEdit={setEditing}
-              onDone={() => setEditing(null)}
-            />
-          ))}
-        </ul>
-      </section>
+          <section className="space-y-2">
+            <h2 className="text-sm font-medium">Tools</h2>
+            <p className="text-xs text-muted-foreground">
+              Tool credentials for features beyond chat. Without a Tavily key, web search is off.
+            </p>
+            <ul className="divide-y overflow-hidden rounded-xl border">
+              {toolRows(credentials.data ?? []).map((row) => (
+                <ProviderRowItem
+                  key={row.id}
+                  row={row}
+                  loading={credentials.isPending}
+                  editing={editing === row.service}
+                  onEdit={setEditing}
+                  onDone={() => setEditing(null)}
+                />
+              ))}
+            </ul>
+          </section>
+        </>
+      )}
+
+      <ConnectionsSection />
+
+      <SharedLinksSection />
+
+      <InstructionsField />
 
       <TitleModelSelect />
+
+      <section className="space-y-2">
+        <h2 className="text-sm font-medium">Your data</h2>
+        <p className="text-xs text-muted-foreground">
+          Download your Projects, Conversations, Messages, settings and Shared links as one JSON
+          file. Keys are never included.
+        </p>
+        <ExportDataButton />
+      </section>
+
+      <DeleteAllConversationsSection />
     </main>
   );
 }

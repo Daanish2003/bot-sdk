@@ -24,9 +24,12 @@ describe("toUIMessages", () => {
         parts: [{ type: "text", content: "Hi" }],
         attachments: [{ id: "f1", filename: "cat.png", mediaType: "image/png", size: 10 }],
         model: null,
+        reasoningEffort: null,
         status: "complete",
         error: null,
         errorReason: null,
+        usage: null,
+        contextStartId: null,
         createdAt,
         siblings: { index: 0, count: 1, previousId: null, nextId: null },
       },
@@ -37,9 +40,12 @@ describe("toUIMessages", () => {
         parts: [{ type: "text", content: "Hello" }],
         attachments: [],
         model: "openai:gpt-5.6",
+        reasoningEffort: null,
         status: "streaming",
         error: null,
         errorReason: null,
+        usage: null,
+        contextStartId: null,
         createdAt,
         siblings: { index: 1, count: 2, previousId: "a0", nextId: null },
       },
@@ -53,9 +59,12 @@ describe("toUIMessages", () => {
         createdAt,
         metadata: {
           model: null,
+          reasoningEffort: null,
           status: "complete",
           error: null,
           errorReason: null,
+          usage: null,
+          contextStartId: null,
           siblings: { index: 0, count: 1, previousId: null, nextId: null },
           attachments: [{ id: "f1", filename: "cat.png", mediaType: "image/png", size: 10 }],
         },
@@ -67,9 +76,12 @@ describe("toUIMessages", () => {
         createdAt,
         metadata: {
           model: "openai:gpt-5.6",
+          reasoningEffort: null,
           status: "streaming",
           error: null,
           errorReason: null,
+          usage: null,
+          contextStartId: null,
           siblings: { index: 1, count: 2, previousId: "a0", nextId: null },
           attachments: [],
         },
@@ -77,18 +89,22 @@ describe("toUIMessages", () => {
     ]);
     expect(messageInfo(messages[1]!)).toEqual({
       model: "openai:gpt-5.6",
+      reasoningEffort: null,
       status: "streaming",
       error: null,
       errorReason: null,
+      usage: null,
     });
   });
 
   it("treats a message useChat is streaming, which has no server metadata, as streaming", () => {
     expect(messageInfo({ id: "x", role: "assistant", parts: [] })).toEqual({
       model: null,
+      reasoningEffort: null,
       status: "streaming",
       error: null,
       errorReason: null,
+      usage: null,
     });
   });
 });
@@ -103,9 +119,12 @@ describe("messageAttachments", () => {
         parts: [],
         attachments: [{ id: "f1", filename: "cat.png", mediaType: "image/png", size: 10 }],
         model: null,
+        reasoningEffort: null,
         status: "complete",
         error: null,
         errorReason: null,
+        usage: null,
+        contextStartId: null,
         createdAt,
         siblings: { index: 0, count: 1, previousId: null, nextId: null },
       },
@@ -130,9 +149,12 @@ describe("messageSiblings", () => {
         parts: [],
         attachments: [],
         model: null,
+        reasoningEffort: null,
         status: "complete",
         error: null,
         errorReason: null,
+        usage: null,
+        contextStartId: null,
         createdAt,
         siblings: { index: 0, count: 1, previousId: null, nextId: null },
       },
@@ -143,9 +165,12 @@ describe("messageSiblings", () => {
         parts: [],
         attachments: [],
         model: null,
+        reasoningEffort: null,
         status: "complete",
         error: null,
         errorReason: null,
+        usage: null,
+        contextStartId: null,
         createdAt,
         siblings: { index: 0, count: 3, previousId: null, nextId: "a2" },
       },
@@ -187,9 +212,11 @@ describe("branchFrom", () => {
 describe("describeError", () => {
   const info = (fields: Partial<MessageInfo>): MessageInfo => ({
     model: null,
+    reasoningEffort: null,
     status: "error",
     error: null,
     errorReason: null,
+    usage: null,
     ...fields,
   });
 

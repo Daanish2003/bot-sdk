@@ -8,6 +8,7 @@ import { describeSearch, describeSearches, domainOf } from "../../core/client/we
 
 import { SourceChips } from "./source-chips";
 
+import { useByok } from "../../core/client/react/byok";
 import { useChatAdapter } from "../../core/client/react/provider";
 
 /**
@@ -18,6 +19,7 @@ import { useChatAdapter } from "../../core/client/react/provider";
  */
 export function SearchRow({ searches, sources }: { searches: WebSearchPart[]; sources: Source[] }) {
   const { Link } = useChatAdapter();
+  const byok = useByok();
   const [open, setOpen] = useState(false);
   const listId = useId();
   const { text, keySettings, failed } = describeSearches(searches);
@@ -54,7 +56,7 @@ export function SearchRow({ searches, sources }: { searches: WebSearchPart[]; so
             text
           )}
         </span>
-        {keySettings && (
+        {keySettings && byok && (
           <Link page={{ to: "keys" }} className="font-medium underline underline-offset-2">
             Key settings
           </Link>

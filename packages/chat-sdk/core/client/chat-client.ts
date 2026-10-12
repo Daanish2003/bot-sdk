@@ -3,6 +3,7 @@ import { RPCLink } from "@orpc/client/fetch";
 import { createTanstackQueryUtils, type RouterUtils } from "@orpc/tanstack-query";
 
 import type { AppRouterClient } from "../server/routers/index";
+import { throwIfRateLimited } from "./rate-limit";
 
 /** The oRPC TanStack Query utils for the app router. */
 export type ChatOrpc = RouterUtils<AppRouterClient>;
@@ -18,6 +19,10 @@ export type ChatClient = {
   orpc: ChatOrpc;
   /** Where a Run is posted (`POST`) and joined (`GET ?runId=`). */
   chatUrl: string;
+  /** The signed-in user's export, a JSON download (`GET`). */
+  exportUrl: string;
+  /** Where the MCP sign-in starts (`GET ?server=<key>&returnTo=<path>`) and finishes. */
+  connectionsUrl: string;
   /** The transport every RPC call goes through. */
   fetch: ChatFetch;
 };
@@ -32,12 +37,17 @@ export function createChatClient({
 }): ChatClient {
   const base = baseUrl.replace(/\/+$/, "");
   const rpc: AppRouterClient = createORPCClient(
-    new RPCLink({ url: `${base}/rpc`, fetch: (request) => fetch(request) }),
+    new RPCLink({
+      url: `${base}/rpc`,
+      fetch: async (request) => throwIfRateLimited(await fetch(request)),
+    }),
   );
   return {
     rpc,
     orpc: createTanstackQueryUtils(rpc),
     chatUrl: `${base}/run`,
+    exportUrl: `${base}/export`,
+    connectionsUrl: `${base}/mcp`,
     fetch,
   };
 }

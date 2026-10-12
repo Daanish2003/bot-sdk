@@ -41,6 +41,7 @@ export default function UserMenu() {
           <DropdownMenuLabel>My Account</DropdownMenuLabel>
           <DropdownMenuSeparator />
           <DropdownMenuItem>{session.user.email}</DropdownMenuItem>
+          <DropdownMenuItem render={<Link to="/settings/account" />}>Account</DropdownMenuItem>
           <DropdownMenuItem
             variant="destructive"
             onClick={() => {

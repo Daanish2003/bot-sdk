@@ -53,7 +53,7 @@ describe("stored parts from a stream", () => {
   it("collects text deltas into one text part", () => {
     const chunks = [runStarted, textStart("a"), textDelta("a", "Hel"), textDelta("a", "lo!")];
 
-    expect(build(chunks)).toEqual({ schemaVersion: 1, parts: [{ type: "text", text: "Hello!" }] });
+    expect(build(chunks)).toEqual({ schemaVersion: 2, parts: [{ type: "text", text: "Hello!" }] });
   });
 
   it("starts a new text part for each text message", () => {
@@ -234,7 +234,7 @@ describe("reading stored parts", () => {
   });
 
   it("refuses an unknown schema version or part", () => {
-    expect(() => parseStoredParts({ schemaVersion: 2, parts: [] })).toThrow();
+    expect(() => parseStoredParts({ schemaVersion: 3, parts: [] })).toThrow();
     expect(() =>
       parseStoredParts({ schemaVersion: 1, parts: [{ type: "image", url: "x" }] }),
     ).toThrow();

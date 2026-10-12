@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { loadCredentials } from "../../../../core/server/credentials/store";
+import { loadCredentials, saveCredentials } from "../../../../core/server/credentials/store";
 import { createTestDeps } from "../../../support/deps";
 import { insertUser } from "../../../support/users";
 import { chatRpc } from "../../../support/sdk";
@@ -212,7 +212,9 @@ describe("credentials", () => {
   it("treats credentials that no longer decrypt as missing", async () => {
     const { client, user } = await signedIn(200);
     await client.credentials.save({ service: "anthropic", fields: { apiKey: goodKey } });
-    const rotated = createTestDeps({ keyEncryptionSecret: "a-different-secret-of-32-characters!" });
+    const rotated = createTestDeps({
+      keyEncryptionSecrets: ["a-different-secret-of-32-characters!"],
+    });
 
     await expect(chatRpc({ user, deps: rotated }).credentials.list()).resolves.toEqual([]);
     await expect(loadCredentials(rotated, user.id, "anthropic")).resolves.toBeNull();
@@ -242,5 +244,48 @@ describe("credentials", () => {
     await expect(client.credentials.delete({ service: "anthropic" })).rejects.toMatchObject({
       code: "UNAUTHORIZED",
     });
+  });
+});
+
+describe("credentials with byok off (ADR 0007)", () => {
+  async function byokOff() {
+    const user = await insertUser();
+    const provider = providerAnswering(200);
+    const deps = createTestDeps({ fetch: provider.fetch, byok: false });
+    await saveCredentials(deps, user.id, {
+      service: "openai",
+      hint: "…abcd",
+      verified: true,
+      fields: { apiKey: "sk-proj-abcd" },
+    });
+    return { user, deps, provider, client: chatRpc({ user, deps }) };
+  }
+
+  it("rejects saving a key without checking it with the Provider", async () => {
+    const { client, provider, deps, user } = await byokOff();
+
+    await expect(
+      client.credentials.save({ service: "anthropic", fields: { apiKey: goodKey } }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(provider.urls).toEqual([]);
+    await expect(loadCredentials(deps, user.id, "anthropic")).resolves.toBeNull();
+  });
+
+  it("still lists and deletes the credentials it already holds", async () => {
+    const { client, deps, user } = await byokOff();
+
+    await expect(client.credentials.list()).resolves.toEqual([
+      { service: "openai", hint: "…abcd", verified: true },
+    ]);
+    await client.credentials.delete({ service: "openai" });
+
+    expect(await client.credentials.list()).toEqual([]);
+    await expect(loadCredentials(deps, user.id, "openai")).resolves.toBeNull();
+  });
+
+  it("tells the client the mode", async () => {
+    const { client } = await byokOff();
+
+    await expect(client.credentials.mode()).resolves.toEqual({ byok: false });
   });
 });

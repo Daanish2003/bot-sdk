@@ -30,13 +30,32 @@ jobs:
           --health-timeout 5s
           --health-retries 10
 
+      redis:
+        image: redis:8
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     env:
       TEST_DATABASE_URL: postgresql://postgres:password@localhost:5432/ai-chat_test
+      TEST_REDIS_URL: redis://localhost:6379/5
       # Placeholders so Varlock validates during the web app's typecheck build.
       DATABASE_URL: postgresql://postgres:password@localhost:5432/ai-chat
       BETTER_AUTH_URL: http://localhost:3001
       BETTER_AUTH_SECRET: ci-better-auth-secret-not-for-production
       KEY_ENCRYPTION_SECRET: ci-key-encryption-secret-not-for-production
+      RESEND_API_KEY: ci-resend-key-not-sent
+      GITHUB_CLIENT_ID: ci-github-client-id
+      GITHUB_CLIENT_SECRET: ci-github-client-secret-not-for-production
+      GOOGLE_CLIENT_ID: ci-google-client-id
+      GOOGLE_CLIENT_SECRET: ci-google-client-secret-not-for-production
+      EMAIL_FROM: AI Chat <no-reply@example.com>
+      APP_NAME: AI Chat
+      EMAIL_TRANSPORT: capture
 
     steps:
       - uses: actions/checkout@v4
@@ -58,3 +77,120 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+  # What's tested is what's deployed: the suite runs against the containers of the image built here,
+  # with Redis as the runtime (REDIS_URL), so `redisRuntime()` and the migrate script are exercised.
+  web-e2e:
+    name: apps/web image and end-to-end
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: ai-chat_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:8
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    # The containers run with host networking, so their localhost is this runner's: the service
+    # containers, and the fake Ollama and MCP servers that Playwright's globalSetup starts here.
+    env:
+      E2E_EXTERNAL_SERVER: "1"
+      E2E_DATABASE_URL: postgresql://postgres:password@127.0.0.1:5432/ai-chat_e2e
+      DATABASE_URL: postgresql://postgres:password@127.0.0.1:5432/ai-chat_e2e
+      REDIS_URL: redis://127.0.0.1:6379/0
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The image carries its own build-time placeholders (apps/web/Dockerfile); runtime values come
+      # from the environment of the containers below.
+      - name: Build the apps/web image
+        run: docker build -f apps/web/Dockerfile -t ai-chat-web:ci .
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Migrate the e2e database (the image's migrate script)
+        run: |
+          docker run --rm --network host --workdir /app/apps/web \
+            -e DATABASE_URL ai-chat-web:ci node scripts/migrate.ts
+
+      # Each server's environment is apps/web/e2e/env.ts's (`serverEnv`, `mcpServerEnv`, with REDIS_URL
+      # from this job), so the containers run exactly as the local suite's servers do.
+      - name: Write the two servers' environments from apps/web/e2e/env.ts
+        working-directory: apps/web
+        run: |
+          node --input-type=module -e "
+            import { writeFileSync } from 'node:fs';
+            import { serverEnv, mcpServerEnv } from './e2e/env.ts';
+            const file = (env) => Object.entries({ ...env, DATABASE_URL: process.env.DATABASE_URL })
+              .map(([name, value]) => name + '=' + value).join('\n') + '\n';
+            writeFileSync('${{ runner.temp }}/web.env', file(serverEnv));
+            writeFileSync('${{ runner.temp }}/web-mcp.env', file(mcpServerEnv));
+          "
+
+      - name: Start the server (no MCP server) on 3100 and the server offering one MCP server on 3101
+        run: |
+          docker run -d --name web-e2e --network host --env-file "${{ runner.temp }}/web.env" ai-chat-web:ci
+          docker run -d --name web-e2e-mcp --network host --env-file "${{ runner.temp }}/web-mcp.env" ai-chat-web:ci
+
+      - name: Wait for both servers
+        run: |
+          for port in 3100 3101; do
+            for _ in $(seq 1 90); do
+              curl -fsS -o /dev/null "http://localhost:$port/login" && break
+              sleep 2
+            done
+            curl -fsS -o /dev/null "http://localhost:$port/login"
+          done
+
+      - name: Install Chromium for Playwright
+        run: pnpm -F web exec playwright install --with-deps chromium
+
+      # The suite's own fake Ollama and fake MCP servers start in its globalSetup. Its `desktop`,
+      # `phone` and `mcp` projects, and the Redis spec (REDIS_URL is set), run here.
+      - name: End-to-end tests
+        run: pnpm -F web test:e2e
+
+      - name: Upload the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+          if-no-files-found: ignore
+
+      - name: Container logs
+        if: failure()
+        run: docker logs web-e2e; docker logs web-e2e-mcp
+
+      - name: Stop the containers
+        if: always()
+        run: docker rm -f web-e2e web-e2e-mcp || true

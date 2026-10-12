@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import type { AppDeps } from "../deps";
 import type { ChatUser } from "../context";
+import { runLogId } from "./run";
 import { runStreamDurability, START } from "./run-streams";
 
 const refuse = (status: number, message: string) => Response.json({ message }, { status });
@@ -25,9 +26,10 @@ export async function handleJoin(
   const runId = runIdSchema.safeParse(url.searchParams.get("runId"));
   if (!runId.success) return refuse(400, "Invalid Run id");
 
-  // A Run is its assistant Message; only the Conversation's owner may join it.
+  // A Run is its assistant Message; only the Conversation's owner may join it. The Message's current
+  // Run is the newest log, so a reply resumed after an Approval is joined on that Run (ADR 0008).
   const [owned] = await deps.db
-    .select({ id: message.id })
+    .select({ id: message.id, runNumber: message.runNumber })
     .from(message)
     .innerJoin(conversation, eq(conversation.id, message.conversationId))
     .where(and(eq(message.id, runId.data), eq(conversation.userId, user.id)))
@@ -37,6 +39,6 @@ export async function handleJoin(
   const resumeFrom =
     request.headers.get("Last-Event-ID") ?? url.searchParams.get("offset") ?? START;
   return resumeServerSentEventsResponse({
-    adapter: runStreamDurability(deps.runStreams, runId.data, resumeFrom),
+    adapter: runStreamDurability(deps.runStreams, runLogId(owned.id, owned.runNumber), resumeFrom),
   });
 }

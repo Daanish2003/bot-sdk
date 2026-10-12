@@ -173,3 +173,314 @@ describe("search.query", () => {
     });
   });
 });
+
+describe("search.query filters", () => {
+  const sonnet = "anthropic:claude-sonnet-5-5";
+  const gpt = "openai:gpt-5";
+
+  it("Model matches the Model that wrote each assistant Message, never user Messages", async () => {
+    const { user, client } = await signedIn();
+    const conv = await insertConversation(user);
+    await insertMessage({
+      conversationId: conv.id,
+      role: "user",
+      text: "lisbon question",
+      createdAt: at(1),
+    });
+    const fromSonnet = await insertMessage({
+      conversationId: conv.id,
+      role: "assistant",
+      text: "lisbon answer A",
+      model: sonnet,
+      createdAt: at(2),
+    });
+    await insertMessage({
+      conversationId: conv.id,
+      role: "assistant",
+      text: "lisbon answer B",
+      model: gpt,
+      createdAt: at(3),
+    });
+
+    const result = await client.search.query({ q: "lisbon", model: sonnet });
+
+    expect(result.hits.map((hit) => hit.messageId)).toEqual([fromSonnet.id]);
+  });
+
+  it("Provider matches the Provider part of the Model that wrote each assistant Message", async () => {
+    const { user, client } = await signedIn();
+    const conv = await insertConversation(user);
+    await insertMessage({
+      conversationId: conv.id,
+      role: "user",
+      text: "tides note",
+      createdAt: at(1),
+    });
+    const anthropicReply = await insertMessage({
+      conversationId: conv.id,
+      role: "assistant",
+      text: "tides reply",
+      model: sonnet,
+      createdAt: at(2),
+    });
+    await insertMessage({
+      conversationId: conv.id,
+      role: "assistant",
+      text: "tides reply from openai",
+      model: gpt,
+      createdAt: at(3),
+    });
+
+    const result = await client.search.query({ q: "tides", provider: "anthropic" });
+
+    expect(result.hits.map((hit) => hit.messageId)).toEqual([anthropicReply.id]);
+  });
+
+  it("the date range is from-inclusive and to-exclusive, over every Message's date", async () => {
+    const { user, client } = await signedIn();
+    const conv = await insertConversation(user);
+    const before = await insertMessage({
+      conversationId: conv.id,
+      role: "user",
+      text: "river before",
+      createdAt: at(0),
+    });
+    const first = await insertMessage({
+      conversationId: conv.id,
+      role: "user",
+      text: "river first",
+      createdAt: at(1),
+    });
+    const second = await insertMessage({
+      conversationId: conv.id,
+      role: "assistant",
+      text: "river second",
+      createdAt: at(2),
+    });
+    await insertMessage({
+      conversationId: conv.id,
+      role: "user",
+      text: "river after",
+      createdAt: at(3),
+    });
+
+    const result = await client.search.query({
+      q: "river",
+      from: at(1).toISOString(),
+      to: at(3).toISOString(),
+    });
+
+    expect(result.hits.map((hit) => hit.messageId)).toEqual([second.id, first.id]);
+    expect(result.hits.map((hit) => hit.messageId)).not.toContain(before.id);
+  });
+
+  it("filters combine with each other and with the text (AND)", async () => {
+    const { user, client } = await signedIn();
+    const conv = await insertConversation(user);
+    const match = await insertMessage({
+      conversationId: conv.id,
+      role: "assistant",
+      text: "cloud pricing",
+      model: sonnet,
+      createdAt: at(5),
+    });
+    await insertMessage({
+      conversationId: conv.id,
+      role: "assistant",
+      text: "cloud notes",
+      model: gpt,
+      createdAt: at(5),
+    });
+    await insertMessage({
+      conversationId: conv.id,
+      role: "assistant",
+      text: "cloud old",
+      model: sonnet,
+      createdAt: at(0),
+    });
+    await insertMessage({
+      conversationId: conv.id,
+      role: "assistant",
+      text: "rain pricing",
+      model: sonnet,
+      createdAt: at(5),
+    });
+
+    const result = await client.search.query({
+      q: "cloud",
+      model: sonnet,
+      provider: "anthropic",
+      from: at(4).toISOString(),
+      to: at(6).toISOString(),
+    });
+
+    expect(result.hits.map((hit) => hit.messageId)).toEqual([match.id]);
+  });
+
+  it("pages a filtered result set past 50 hits with no duplicates or gaps", async () => {
+    const { user, client } = await signedIn();
+    const conv = await insertConversation(user);
+    const ids: string[] = [];
+    for (let minute = 0; minute < 55; minute++) {
+      const row = await insertMessage({
+        conversationId: conv.id,
+        role: "assistant",
+        text: `filtered ${minute}`,
+        model: sonnet,
+        createdAt: at(minute),
+      });
+      ids.unshift(row.id);
+      await insertMessage({
+        conversationId: conv.id,
+        role: "assistant",
+        text: `filtered other ${minute}`,
+        model: gpt,
+        createdAt: at(minute),
+      });
+    }
+    const filter = { q: "filtered", model: sonnet };
+
+    const first = await client.search.query(filter);
+    expect(first.hits.map((hit) => hit.messageId)).toEqual(ids.slice(0, 50));
+    const second = await client.search.query({ ...filter, cursor: first.nextCursor! });
+    expect(second.hits.map((hit) => hit.messageId)).toEqual(ids.slice(50));
+    expect(second.nextCursor).toBeNull();
+  });
+
+  it("a filter matching nothing returns an empty page, not an error", async () => {
+    const { user, client } = await signedIn();
+    const conv = await insertConversation(user);
+    await insertMessage({ conversationId: conv.id, role: "user", text: "anything here" });
+
+    await expect(client.search.query({ q: "anything", provider: "openai" })).resolves.toEqual({
+      hits: [],
+      nextCursor: null,
+    });
+  });
+
+  it("refuses a filtered query shorter than 2 characters and a malformed date", async () => {
+    const { client } = await signedIn();
+
+    await expect(client.search.query({ q: "a", model: sonnet })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
+    await expect(client.search.query({ q: "note", from: "last tuesday" })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
+  });
+});
+
+describe("search.query Project filter", () => {
+  it("returns only Messages from the Project's Conversations, combined with the other filters", async () => {
+    const { user, client } = await signedIn();
+    const { id: projectId } = await client.project.create({ name: "Thesis" });
+    const { id: otherProjectId } = await client.project.create({ name: "Other" });
+    const inProject = await insertConversation(user, { projectId });
+    const inOther = await insertConversation(user, { projectId: otherProjectId });
+    const loose = await insertConversation(user);
+    const match = await insertMessage({
+      conversationId: inProject.id,
+      role: "assistant",
+      text: "thesis outline",
+      model: "anthropic:claude-sonnet-5-5",
+      createdAt: at(5),
+    });
+    const notes = await insertMessage({
+      conversationId: inProject.id,
+      role: "assistant",
+      text: "thesis notes",
+      model: "openai:gpt-5",
+      createdAt: at(3),
+    });
+    await insertMessage({
+      conversationId: inOther.id,
+      role: "assistant",
+      text: "thesis elsewhere",
+      model: "anthropic:claude-sonnet-5-5",
+      createdAt: at(5),
+    });
+    await insertMessage({
+      conversationId: loose.id,
+      role: "assistant",
+      text: "thesis loose",
+      model: "anthropic:claude-sonnet-5-5",
+      createdAt: at(5),
+    });
+
+    const byProject = await client.search.query({ q: "thesis", projectId });
+    expect(byProject.hits.map((hit) => hit.messageId)).toEqual([match.id, notes.id]);
+
+    const combined = await client.search.query({
+      q: "thesis",
+      projectId,
+      model: "anthropic:claude-sonnet-5-5",
+      provider: "anthropic",
+      from: at(4).toISOString(),
+      to: at(6).toISOString(),
+    });
+    expect(combined.hits.map((hit) => hit.messageId)).toEqual([match.id]);
+  });
+
+  it("pages a Project-filtered result set past 50 hits with no duplicates or gaps", async () => {
+    const { user, client } = await signedIn();
+    const { id: projectId } = await client.project.create({ name: "Long" });
+    const inProject = await insertConversation(user, { projectId });
+    const loose = await insertConversation(user);
+    const ids: string[] = [];
+    for (let minute = 0; minute < 55; minute++) {
+      const row = await insertMessage({
+        conversationId: inProject.id,
+        role: "user",
+        text: `project note ${minute}`,
+        createdAt: at(minute),
+      });
+      ids.unshift(row.id);
+      await insertMessage({
+        conversationId: loose.id,
+        role: "user",
+        text: `project note loose ${minute}`,
+        createdAt: at(minute),
+      });
+    }
+
+    const first = await client.search.query({ q: "project note", projectId });
+    expect(first.hits.map((hit) => hit.messageId)).toEqual(ids.slice(0, 50));
+    const second = await client.search.query({
+      q: "project note",
+      projectId,
+      cursor: first.nextCursor!,
+    });
+    expect(second.hits.map((hit) => hit.messageId)).toEqual(ids.slice(50));
+    expect(second.nextCursor).toBeNull();
+  });
+
+  it("without the filter, Messages in Project Conversations are still found", async () => {
+    const { user, client } = await signedIn();
+    const { id: projectId } = await client.project.create({ name: "Hidden" });
+    const inProject = await insertConversation(user, { projectId });
+    const message1 = await insertMessage({
+      conversationId: inProject.id,
+      role: "user",
+      text: "kelp forest survey",
+    });
+
+    const result = await client.search.query({ q: "kelp" });
+
+    expect(result.hits.map((hit) => hit.messageId)).toEqual([message1.id]);
+  });
+
+  it("another user's Project id yields an empty page", async () => {
+    const { client } = await signedIn();
+    const other = await insertUser();
+    const { id: theirProjectId } = await chatRpc({ user: other }).project.create({
+      name: "Theirs",
+    });
+    const theirs = await insertConversation(other, { projectId: theirProjectId });
+    await insertMessage({ conversationId: theirs.id, role: "user", text: "secret plans" });
+
+    await expect(client.search.query({ q: "secret", projectId: theirProjectId })).resolves.toEqual({
+      hits: [],
+      nextCursor: null,
+    });
+  });
+});

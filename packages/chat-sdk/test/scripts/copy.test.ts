@@ -9,6 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -100,5 +101,18 @@ describe("copySdk", () => {
     expect(existsSync(join(dest, "core", "client", "index.ts"))).toBe(false);
     expect(readFileSync(join(dest, "core", "VERSION"), "utf8")).toContain("fff9999");
     expect(readFileSync(join(dest, "ui", "chat", "composer.tsx"), "utf8")).toBe("host edit");
+  });
+
+  it("gives a Host core and ui only, so the shared e2e scenarios never reach it", () => {
+    const sdkRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+    // The check is only meaningful while the scenarios exist in the canonical repo.
+    expect(existsSync(join(sdkRoot, "test", "e2e", "scenarios.ts"))).toBe(true);
+
+    copySdk(dest, { version });
+
+    const scenarioFiles = listFiles(dest).filter((file) =>
+      /(^|\/)(test|e2e)\/|scenarios\.ts$|\.test\./.test(file),
+    );
+    expect(scenarioFiles).toEqual([]);
   });
 });

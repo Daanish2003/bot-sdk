@@ -23,7 +23,7 @@ const adminUrl =
 const databaseName = "ai-chat_smoke";
 const providerUrl = `http://localhost:${process.env.FAKE_PROVIDER_PORT ?? 11436}`;
 const model = "ollama:fake-model";
-const keyEncryptionSecret = "smoke-key-encryption-secret-not-for-production";
+const keyEncryptionSecrets = ["smoke-key-encryption-secret-not-for-production"];
 
 /** Drops and recreates the smoke database, and returns its URL. */
 async function freshDatabase(): Promise<string> {
@@ -80,7 +80,7 @@ async function main() {
   });
   const chat = createChat({
     databaseUrl,
-    keyEncryptionSecret,
+    keyEncryptionSecrets,
     basePath: "/api/chat",
     getUser: () => ({ id: user.id }),
   });

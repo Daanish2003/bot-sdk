@@ -13,9 +13,12 @@ export function toClientMessage(row: MessageRecord, attachments: AttachmentInfo[
     /** The files the Message carries, as chips: never their bytes. */
     attachments,
     model: row.model,
+    reasoningEffort: row.reasoningEffort,
     status: row.status,
     error: row.error,
     errorReason: row.errorReason,
+    usage: row.usage,
+    contextStartId: row.contextStartId,
     createdAt: row.createdAt,
   };
 }

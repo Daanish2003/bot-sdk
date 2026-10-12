@@ -125,7 +125,7 @@ describe("the web_search tool", () => {
 
     const body = await (await send()).text();
 
-    expect(offeredTools(fake)).toEqual(["web_search"]);
+    expect(offeredTools(fake)).toEqual(["web_search", "fetch_url"]);
     expect(searchClient.calls).toEqual([{ query: "tanstack ai", credentials: tavilyKey }]);
     const reply = await replyOf(deps, conv.id);
     expect(reply).toMatchObject({
@@ -281,14 +281,14 @@ describe("the web_search tool is not offered", () => {
     });
   });
 
-  it("when the user has no Tavily key", async () => {
+  it("when the user has no Tavily key: web_search is not offered, fetch_url still is", async () => {
     const { fake, send } = await setup({ tavily: false, rounds: [round(text("Sure."))] });
 
     const response = await send();
     await response.text();
 
     expect(response.status).toBe(200);
-    expect(offeredTools(fake)).toEqual([]);
+    expect(offeredTools(fake)).toEqual(["fetch_url"]);
   });
 
   describe("when the Model has no tool support", () => {

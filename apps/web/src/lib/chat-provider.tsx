@@ -14,14 +14,21 @@ import { chatClient } from "@/utils/orpc";
 /** The web app's route for each chat page. */
 function routeOf(page: ChatPage) {
   switch (page.to) {
-    case "new":
-      return page.model ? { to: "/c", search: { model: page.model } } : { to: "/c" };
+    case "new": {
+      const search = {
+        ...(page.model && { model: page.model }),
+        ...(page.projectId && { project: page.projectId }),
+      };
+      return Object.keys(search).length > 0 ? { to: "/c", search } : { to: "/c" };
+    }
     case "conversation":
       return {
         to: "/c/$id",
         params: { id: page.id },
         ...(page.message && { search: { message: page.message } }),
       };
+    case "project":
+      return { to: "/p/$id", params: { id: page.id } };
     case "keys":
       return { to: "/settings/keys" };
   }
@@ -39,16 +46,19 @@ function ChatLink({ page, activeClassName, ...props }: ChatLinkProps) {
 
 const pageTitles: Record<string, string> = {
   "/settings/keys": "Keys & settings",
+  "/settings/account": "Account",
 };
 
 function useChatLocation(): ChatLocation {
   const { id } = useParams({ strict: false });
-  const { model } = useSearch({ strict: false });
+  const { model, project } = useSearch({ strict: false });
   const pathname = useLocation({ select: (location) => location.pathname.replace(/\/$/, "") });
+  const openProject = /^\/p\/([^/]+)$/.exec(pathname)?.[1];
   return {
-    conversationId: id,
+    conversationId: pathname.startsWith("/c/") ? id : undefined,
     newConversation: pathname === "/c",
     newConversationModel: model,
+    projectId: openProject ?? project,
     pageTitle: pageTitles[pathname],
   };
 }

@@ -1,0 +1,27 @@
+{
+  "name": "@ai-chat/email",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./templates": "./src/templates.tsx",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "check-types": "tsc -b",
+    "preview": "tsx scripts/preview.tsx"
+  },
+  "dependencies": {
+    "@react-email/components": "^1.0.12",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "resend": "^6.32.1"
+  },
+  "devDependencies": {
+    "@ai-chat/config": "workspace:*",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "tsx": "^4.23.15",
+    "typescript": "catalog:"
+  }
+}

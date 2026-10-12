@@ -11,8 +11,13 @@ import { type RunEntry, type RunStreams, START } from "../../../../core/server/c
  *
  * It uses only the public interface. Each test gets a fresh run id, so a factory may share one
  * store between tests. It assumes nothing about offsets beyond passing back what `read` returned.
+ * The factory gets the closed-log TTL to use, so the expiry test runs in milliseconds; the other
+ * tests pass no options and keep the implementation's default TTL.
  */
-export function runStreamsContract(name: string, make: () => RunStreams | Promise<RunStreams>) {
+export function runStreamsContract(
+  name: string,
+  make: (options?: { closedLogTtlMs: number }) => RunStreams | Promise<RunStreams>,
+) {
   describe(`RunStreams contract: ${name}`, () => {
     /** A fresh, open run's log. */
     async function openRun() {
@@ -137,6 +142,19 @@ export function runStreamsContract(name: string, make: () => RunStreams | Promis
       await streams.append(runId, text("c"));
       await streams.close(runId);
       expect(deltas(await collect(streams.read(runId, START)))).toEqual(["a", "b", "c"]);
+    });
+
+    it("a closed log expires once its TTL has passed, and a read after that ends with nothing", async () => {
+      const streams = await make({ closedLogTtlMs: 200 });
+      const runId = crypto.randomUUID();
+      await streams.open(runId);
+      await streams.append(runId, text("gone"));
+      await streams.close(runId);
+      expect(deltas(await collect(streams.read(runId, START)))).toEqual(["gone"]);
+
+      await new Promise((resolve) => setTimeout(resolve, 400));
+
+      expect(await collect(streams.read(runId, START))).toEqual([]);
     });
 
     it("reading a run that was never opened ends at once with nothing", async () => {

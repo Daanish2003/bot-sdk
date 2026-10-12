@@ -1,12 +1,9 @@
 name: Example Host
 
-# Only the Chat SDK and its example Host. The main CI (ci.yml) runs on every PR.
+# The example Host (examples/next-prisma): its typecheck, build, smoke test and end-to-end suite.
+# Runs on every PR, in parallel with the main CI (ci.yml, whose `check` job is the same kind of run).
 on:
   pull_request:
-    paths:
-      - "packages/chat-sdk/**"
-      - "examples/**"
-      - ".github/workflows/example-host.yml"
 
 concurrency:
   group: example-host-${{ github.ref }}
@@ -26,7 +23,8 @@ jobs:
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: password
-          POSTGRES_DB: postgres
+          # `postgres` always exists; the end-to-end suite needs the second database.
+          POSTGRES_DB: ai-chat_e2e_example
         ports:
           - 5432:5432
         options: >-
@@ -81,3 +79,13 @@ jobs:
         run: |
           pnpm -F @ai-chat/example-next-prisma fake-provider > fake-provider.log 2>&1 &
           pnpm -F @ai-chat/example-next-prisma smoke
+
+      - name: Install Chromium for Playwright
+        run: pnpm -F @ai-chat/example-next-prisma exec playwright install --with-deps chromium
+
+      # The suite builds and migrates the example itself (playwright.config.ts webServer) on the
+      # database created by the service above, then runs the shared scenarios and its own tests.
+      - name: End-to-end tests
+        env:
+          E2E_DATABASE_URL: postgresql://postgres:password@localhost:5432/ai-chat_e2e_example
+        run: pnpm -F @ai-chat/example-next-prisma test:e2e

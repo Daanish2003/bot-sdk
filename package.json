@@ -18,6 +18,7 @@
     "db:push": "turbo run db:push -F @ai-chat/chat-sdk --",
     "db:studio": "turbo run db:studio -F @ai-chat/chat-sdk --",
     "db:generate": "turbo run db:generate -F @ai-chat/chat-sdk --",
+    "snapshot:models": "node packages/chat-sdk/scripts/models-snapshot.ts",
     "db:migrate": "turbo run db:migrate -F web --",
     "db:start": "docker compose up -d postgres",
     "db:watch": "docker compose up postgres",

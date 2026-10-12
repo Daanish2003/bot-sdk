@@ -16,7 +16,7 @@
     },
     "//#test:vitest": {
       "cache": false,
-      "passThroughEnv": ["TEST_DATABASE_URL"]
+      "passThroughEnv": ["TEST_DATABASE_URL", "TEST_REDIS_URL"]
     },
     "dev": {
       "cache": false,
@@ -54,10 +54,19 @@
   "globalEnv": [
     "BETTER_AUTH_SECRET",
     "BETTER_AUTH_URL",
+    "APP_NAME",
     "CI",
     "DATABASE_URL",
+    "EMAIL_FROM",
+    "EMAIL_TRANSPORT",
+    "GITHUB_CLIENT_ID",
+    "GITHUB_CLIENT_SECRET",
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
     "KEY_ENCRYPTION_SECRET",
+    "KEY_ENCRYPTION_SECRET_PREVIOUS",
     "NODE_ENV",
+    "RESEND_API_KEY",
     "VERCEL",
     "VERCEL_ENV",
     "VERCEL_PROJECT_PRODUCTION_URL",

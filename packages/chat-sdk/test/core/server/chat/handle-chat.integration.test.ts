@@ -16,6 +16,8 @@ import { chatRpc, sendAs } from "../../../support/sdk";
 import type { ChatCommand } from "../../../../core/shared/chat/command";
 
 const anthropicModel = "anthropic:claude-sonnet-5-5";
+const keyA = "key-a-of-at-least-32-characters-long!!";
+const keyB = "key-b-of-at-least-32-characters-long!!";
 
 function chatRequest(command: Partial<ChatCommand> & Record<string, unknown>, extra = {}) {
   // useChat posts an AG-UI RunAgentInput; our command rides in `forwardedProps`.
@@ -31,10 +33,13 @@ async function setup({
   rounds = [round(text("Hello", " there!"))],
   manual = false,
   deps: overrides = {},
+  savedUnder,
 }: {
   rounds?: Parameters<typeof createFakeAdapter>[0]["rounds"];
   manual?: boolean;
   deps?: TestDepsOverrides;
+  /** The keyring the credentials are written under, when it differs from the Run's keyring. */
+  savedUnder?: string[];
 } = {}) {
   const user = await insertUser();
   const fake = createFakeAdapter({ rounds, manual });
@@ -46,12 +51,16 @@ async function setup({
     },
     ...overrides,
   });
-  await saveCredentials(deps, user.id, {
-    service: "anthropic",
-    fields: { apiKey: "sk-ant-test-key" },
-    hint: "…-key",
-    verified: true,
-  });
+  await saveCredentials(
+    { ...deps, keyEncryptionSecrets: savedUnder ?? deps.keyEncryptionSecrets },
+    user.id,
+    {
+      service: "anthropic",
+      fields: { apiKey: "sk-ant-test-key" },
+      hint: "…-key",
+      verified: true,
+    },
+  );
   // Set `lastMessageAt` explicitly so the database's clock (the default) can't skew the bump assertion.
   const conv = await insertConversation(user, {
     model: "openai:gpt-5.6",
@@ -105,7 +114,7 @@ describe("the Run endpoint", () => {
     expect(question).toMatchObject({
       role: "user",
       parentId: null,
-      parts: { schemaVersion: 1, parts: [{ type: "text", text: "Hi" }] },
+      parts: { schemaVersion: 2, parts: [{ type: "text", text: "Hi" }] },
       searchText: "Hi",
       status: "complete",
       model: null,
@@ -113,7 +122,7 @@ describe("the Run endpoint", () => {
     expect(reply).toMatchObject({
       role: "assistant",
       parentId: question!.id,
-      parts: { schemaVersion: 1, parts: [{ type: "text", text: "Hello there!" }] },
+      parts: { schemaVersion: 2, parts: [{ type: "text", text: "Hello there!" }] },
       searchText: "Hello there!",
       status: "complete",
       model: anthropicModel,
@@ -141,6 +150,36 @@ describe("the Run endpoint", () => {
     expect(adapterCalls).toEqual([
       { model: anthropicModel, credentials: { apiKey: "sk-ant-test-key" } },
     ]);
+  });
+
+  it("runs with the decrypted key of a credential saved under a key the keyring still holds", async () => {
+    const { adapterCalls, send } = await setup({
+      savedUnder: [keyA],
+      deps: { keyEncryptionSecrets: [keyB, keyA] },
+    });
+
+    const response = await send();
+    await response.text();
+
+    expect(response.status).toBe(200);
+    expect(adapterCalls).toEqual([
+      { model: anthropicModel, credentials: { apiKey: "sk-ant-test-key" } },
+    ]);
+  });
+
+  it("refuses a Run for a credential whose key is no longer in the keyring, as for a missing one", async () => {
+    const { deps, conv, send } = await setup({
+      savedUnder: [keyA],
+      deps: { keyEncryptionSecrets: [keyB] },
+    });
+
+    const response = await send();
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      message: "Add an Anthropic key or pick another Model",
+    });
+    expect(await messagesOf(deps, conv.id)).toEqual([]);
   });
 
   it("writes snapshots of the assistant Message while it streams", async () => {
@@ -739,7 +778,7 @@ describe("the Run endpoint thinking", () => {
     expect(body).toContain("REASONING_MESSAGE_CONTENT");
     expect(reply).toMatchObject({
       parts: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         parts: [
           { type: "thinking", text: "Pondering hard." },
           { type: "text", text: "Hello!" },

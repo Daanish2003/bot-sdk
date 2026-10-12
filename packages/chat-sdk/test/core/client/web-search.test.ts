@@ -19,29 +19,32 @@ const search = (fields: Partial<WebSearchPart>): WebSearchPart => ({
 
 const result = { title: "TanStack AI", url: "https://tanstack.com/ai", snippet: "…" };
 
-describe("searchToggle", () => {
-  it("is on when available and the user left it on", () => {
+describe("searchToggle (the Web toggle)", () => {
+  it("is on with a Tavily key: search and fetch", () => {
     expect(searchToggle({ hasTavilyKey: true, modelTools: true, on: true })).toEqual({
       available: true,
       enabled: true,
-      tooltip: "Web search on",
+      tooltip: "Web on: search and read pages",
     });
     expect(searchToggle({ hasTavilyKey: true, modelTools: true, on: false })).toMatchObject({
       enabled: false,
-      tooltip: "Web search off",
+      tooltip: "Web off",
     });
   });
 
-  it("is unavailable, and explains why, without a Tavily key or a Model with tools", () => {
+  it("without a Tavily key is still available: fetch only, and the tooltip says search needs a key", () => {
     expect(searchToggle({ hasTavilyKey: false, modelTools: true, on: true })).toEqual({
-      available: false,
-      enabled: false,
-      tooltip: "Web search needs a Tavily key in Keys & settings",
+      available: true,
+      enabled: true,
+      tooltip: "Web on: reads pages you link. Search needs a Tavily key in Keys & settings",
     });
+  });
+
+  it("is unavailable, and explains why, for a Model without tools", () => {
     expect(searchToggle({ hasTavilyKey: true, modelTools: false, on: true })).toEqual({
       available: false,
       enabled: false,
-      tooltip: "This Model can't use tools, so it can't search the web",
+      tooltip: "This Model can't use tools, so it can't use the web",
     });
   });
 });
