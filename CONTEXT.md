@@ -77,7 +77,7 @@ A user's own API key for a non-LLM service a tool needs, such as web search. Wit
 _Avoid_: Search key, Provider credentials (those are for Providers only)
 
 **Connection**:
-A user's authorisation to use one of the MCP servers the Host offers, made by signing in to that server. The user switches each Connection on per Conversation.
+A user's authorisation to use an outside service the Host offers, made by signing in to it: one of its MCP servers, or GitHub. The user switches each MCP Connection on per Conversation. A GitHub Connection is always on and lets Synced sources read the private repositories the user chose.
 _Avoid_: Integration, MCP credential, Tool credential (that is an API key)
 
 **Approval**:
