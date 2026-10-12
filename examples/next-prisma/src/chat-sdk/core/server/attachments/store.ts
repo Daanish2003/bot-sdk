@@ -1,18 +1,23 @@
-import { attachment, attachmentBlob, messageAttachment } from "../db/schema/attachment";
+import { attachment, messageAttachment } from "../db/schema/attachment";
+import { blob } from "../db/schema/blob";
 import { and, asc, eq, inArray, lt, notExists } from "drizzle-orm";
 
+import { attachmentBlobKey, deleteBlobsBestEffort } from "../blob/store";
 import type { AppDeps } from "../deps";
 import { uuidv7 } from "../lib/uuidv7";
 import type { AttachmentInfo } from "../../shared/attachments/kinds";
 
 /**
  * The attachment store: every read and write of attachments goes through here (ADR 0001).
- * Metadata and bytes are in separate tables, so only `loadAttachmentBytes` ever reads bytes.
+ * Metadata lives in `attachment`, the bytes in the blob store (ADR 0015), so only
+ * `loadAttachmentBytes` ever reads bytes.
  */
 
 type Db = AppDeps["db"];
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 type Deps = Pick<AppDeps, "db">;
+/** What uploads and the reaper need: the rows, and the store their bytes go to. */
+type WriteDeps = Pick<AppDeps, "db" | "blobStore" | "logger">;
 
 const infoColumns = {
   id: attachment.id,
@@ -26,15 +31,18 @@ const orphanAgeMs = 24 * 60 * 60 * 1000;
 
 /** Stores an uploaded file for `userId`, first deleting orphans older than 24 hours. */
 export async function saveAttachment(
-  deps: Deps,
+  deps: WriteDeps,
   userId: string,
   file: { filename: string; mediaType: string; bytes: Uint8Array },
 ): Promise<AttachmentInfo> {
   const now = new Date();
   await deleteOrphanAttachments(deps, new Date(now.getTime() - orphanAgeMs));
   const id = uuidv7();
-  return deps.db.transaction(async (tx) => {
-    const [row] = await tx
+  const key = attachmentBlobKey(id);
+  // The bytes go first, so a row never points at nothing; a failed insert takes them back.
+  await deps.blobStore.put(key, file.bytes, { contentType: file.mediaType });
+  try {
+    const [row] = await deps.db
       .insert(attachment)
       .values({
         id,
@@ -46,32 +54,44 @@ export async function saveAttachment(
       })
       .returning(infoColumns);
     if (!row) throw new Error("Saving the attachment returned no row");
-    await tx.insert(attachmentBlob).values({ attachmentId: id, bytes: Buffer.from(file.bytes) });
     return row;
-  });
+  } catch (error) {
+    await deleteBlobsBestEffort(deps, [key]);
+    throw error;
+  }
 }
 
 /**
- * Deletes attachments created before `before` that no Message uses; their bytes go with them.
+ * Deletes attachments created before `before` that no Message uses, and their bytes. The rows and
+ * the Postgres bytes go in one transaction; the store's own delete runs after its commit.
  * Skips attachments a send has locked (`lockAttachments`), which are about to be linked.
  */
-export async function deleteOrphanAttachments(deps: Deps, before: Date) {
-  const orphans = deps.db
-    .select({ id: attachment.id })
-    .from(attachment)
-    .where(
-      and(
-        lt(attachment.createdAt, before),
-        notExists(
-          deps.db
-            .select({ id: messageAttachment.attachmentId })
-            .from(messageAttachment)
-            .where(eq(messageAttachment.attachmentId, attachment.id)),
+export async function deleteOrphanAttachments(deps: WriteDeps, before: Date) {
+  const keys = await deps.db.transaction(async (tx) => {
+    const orphans = tx
+      .select({ id: attachment.id })
+      .from(attachment)
+      .where(
+        and(
+          lt(attachment.createdAt, before),
+          notExists(
+            tx
+              .select({ id: messageAttachment.attachmentId })
+              .from(messageAttachment)
+              .where(eq(messageAttachment.attachmentId, attachment.id)),
+          ),
         ),
-      ),
-    )
-    .for("update", { skipLocked: true });
-  await deps.db.delete(attachment).where(inArray(attachment.id, orphans));
+      )
+      .for("update", { skipLocked: true });
+    const removed = await tx
+      .delete(attachment)
+      .where(inArray(attachment.id, orphans))
+      .returning({ id: attachment.id });
+    const removedKeys = removed.map((row) => attachmentBlobKey(row.id));
+    if (removedKeys.length > 0) await tx.delete(blob).where(inArray(blob.key, removedKeys));
+    return removedKeys;
+  });
+  await deleteBlobsBestEffort(deps, keys);
 }
 
 /**
@@ -123,15 +143,15 @@ export async function attachmentsOfMessages(
 
 /** The bytes of each attachment, by id. */
 export async function loadAttachmentBytes(
-  deps: Deps,
+  deps: Pick<AppDeps, "blobStore">,
   ids: string[],
 ): Promise<Map<string, Uint8Array>> {
-  if (ids.length === 0) return new Map();
-  const rows = await deps.db
-    .select()
-    .from(attachmentBlob)
-    .where(inArray(attachmentBlob.attachmentId, [...new Set(ids)]));
-  return new Map(rows.map((row) => [row.attachmentId, row.bytes]));
+  const loaded = await Promise.all(
+    [...new Set(ids)].map(
+      async (id) => [id, await deps.blobStore.get(attachmentBlobKey(id))] as const,
+    ),
+  );
+  return new Map(loaded.flatMap(([id, bytes]) => (bytes ? [[id, bytes] as const] : [])));
 }
 
 /** Links attachments to a new Message, in order. */

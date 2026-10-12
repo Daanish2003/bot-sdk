@@ -1,10 +1,8 @@
-import {
-  attachment,
-  attachmentBlob,
-  messageAttachment,
-} from "../../core/server/db/schema/attachment";
+import { attachment, messageAttachment } from "../../core/server/db/schema/attachment";
+import { blob } from "../../core/server/db/schema/blob";
 import { getTestDb } from "./test-database";
 
+import { attachmentBlobKey } from "../../core/server/blob/store";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
 import type { TestUser } from "./users";
 
@@ -39,7 +37,7 @@ export async function insertAttachment(
     size: size ?? bytes.byteLength,
     createdAt,
   });
-  await db.insert(attachmentBlob).values({ attachmentId: id, bytes });
+  await db.insert(blob).values({ key: attachmentBlobKey(id), bytes });
   return { id, filename, mediaType, size: size ?? bytes.byteLength };
 }
 

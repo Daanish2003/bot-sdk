@@ -1,12 +1,12 @@
-import { bytea, index, integer, primaryKey, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { index, integer, primaryKey, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
 import { chatSchema } from "./chat-schema";
 import { message } from "./chat";
 
 /**
  * A file a user uploaded to attach to Messages. Immutable once uploaded; Messages reference it
- * through `message_attachment`, never copy it (ADR 0001). The bytes live in `attachment_blob`, so
- * reading the metadata never loads them.
+ * through `message_attachment`, never copy it (ADR 0001). The bytes live in the blob store, under
+ * the key `attachment/<id>`, so reading the metadata never loads them.
  */
 export const attachment = chatSchema.table(
   "attachment",
@@ -23,14 +23,6 @@ export const attachment = chatSchema.table(
   },
   (table) => [index("attachment_user_id_created_at_idx").on(table.userId, table.createdAt)],
 );
-
-/** An attachment's bytes, one row per attachment. */
-export const attachmentBlob = chatSchema.table("attachment_blob", {
-  attachmentId: uuid("attachment_id")
-    .primaryKey()
-    .references(() => attachment.id, { onDelete: "cascade" }),
-  bytes: bytea("bytes").notNull(),
-});
 
 /**
  * Which attachments a Message carries, in order. Goes with its Message; an attachment can't be

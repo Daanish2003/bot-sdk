@@ -3,6 +3,8 @@ import { RPCHandler } from "@orpc/server/fetch";
 
 import { handleChat } from "./chat/handle-chat";
 import type { HostServerTool } from "./chat/host-tools";
+import type { BlobStore } from "./blob/store";
+import { postgresBlobStore } from "./blob/postgres";
 import { webSearchToolName } from "../shared/chat/web-search";
 import { fetchUrlToolName } from "../shared/chat/fetch-url";
 import { handleJoin } from "./chat/join-run";
@@ -87,6 +89,12 @@ export type CreateChatOptions = {
    * redirect URI to register.
    */
   mcpServers?: McpServerConfig[];
+  /**
+   * Where file bytes are kept (ADR 0015). Defaults to a `chat.blob` table in the same database;
+   * a Host with object storage passes its store, and then the bytes of files already stored
+   * stay where they are.
+   */
+  blobStore?: BlobStore;
 };
 
 /**
@@ -196,8 +204,12 @@ export function createChat(options: CreateChatOptions): {
   }
   let deps: AppDeps | undefined;
   const getDeps = () => {
-    deps ??= createAppDeps({
-      db: createDb({ DATABASE_URL: options.databaseUrl }),
+    if (deps) return deps;
+    const db = createDb({ DATABASE_URL: options.databaseUrl });
+    deps = createAppDeps({
+      db,
+      blobStore: options.blobStore ?? postgresBlobStore(db),
+      logger: options.logger ?? console,
       keyEncryptionSecrets: options.keyEncryptionSecrets,
       runtime: options.runtime ?? memoryRuntime(),
       hostProviders: (options.hostProviders ?? []).filter(isHostProvider),
