@@ -28,11 +28,15 @@ export const TEMPLATE_NAMES = [
 
 export type TemplateName = (typeof TEMPLATE_NAMES)[number];
 
-// Templates with an action link take a `url`; the notices take only the app name.
-type LinkTemplateName = Exclude<
-  TemplateName,
-  "password-changed" | "account-deleted" | "two-factor-enabled" | "two-factor-disabled"
->;
+// The notices take only the app name; the other templates take a `url` too.
+export const NOTICE_TEMPLATE_NAMES = [
+  "password-changed",
+  "account-deleted",
+  "two-factor-enabled",
+  "two-factor-disabled",
+] as const;
+
+type LinkTemplateName = Exclude<TemplateName, (typeof NOTICE_TEMPLATE_NAMES)[number]>;
 
 export type TemplateProps<N extends TemplateName> = {
   appName: string;

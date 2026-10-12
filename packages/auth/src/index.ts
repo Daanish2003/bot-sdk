@@ -223,10 +223,10 @@ export function createAuth(
         // the session. A sign-in verifies with the challenge cookie and has no session here.
         if (ctx.path === "/two-factor/verify-totp") {
           const session = ctx.context.session;
-          const current = ctx.context.newSession;
-          if (!session || !current) return;
+          const rotatedSession = ctx.context.newSession;
+          if (!session || !rotatedSession) return;
           const others = (await ctx.context.internalAdapter.listSessions(session.user.id)).filter(
-            (other) => other.token !== current.session.token,
+            (other) => other.token !== rotatedSession.session.token,
           );
           await Promise.all(
             others.map((other) => ctx.context.internalAdapter.deleteSession(other.token)),
