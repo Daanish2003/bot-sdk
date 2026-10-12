@@ -9,7 +9,9 @@ import {
   deleteConversation,
   findConversation,
   listConversations,
+  archiveAllConversations,
   archiveConversation,
+  listArchivedConversations,
   listPinnedConversations,
   loadActiveBranch,
   maxPinnedConversations,
@@ -229,6 +231,29 @@ export const conversationRouter = {
       const unarchived = await unarchiveConversation(context.deps, context.user.id, input.id);
       if (!unarchived) throw new ORPCError("NOT_FOUND", { message: "Conversation not found" });
     }),
+
+  /**
+   * One page of the caller's archived Conversations for the Archived list, Project ones too,
+   * newest Message first, 50 at a time. Pass the previous page's `nextCursor` for the next one.
+   */
+  archived: protectedProcedure
+    .input(z.object({ cursor: z.string().optional() }))
+    .handler(async ({ context, input }) => {
+      const cursor =
+        input.cursor === undefined ? undefined : decodeConversationCursor(input.cursor);
+      if (input.cursor !== undefined && !cursor) {
+        throw new ORPCError("BAD_REQUEST", { message: "Invalid cursor" });
+      }
+      return listArchivedConversations(context.deps, context.user.id, cursor);
+    }),
+
+  /**
+   * Archives every one of the caller's Conversations that is in no Project, isn't pinned and isn't
+   * archived yet. Returns how many it archived.
+   */
+  archiveAll: protectedProcedure.handler(async ({ context }) => ({
+    count: await archiveAllConversations(context.deps, context.user.id),
+  })),
 
   /**
    * Moves the Conversation into one of the caller's Projects, or out of its Project when
