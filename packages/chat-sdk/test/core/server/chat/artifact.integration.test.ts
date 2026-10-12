@@ -2,7 +2,7 @@ import { storedParts } from "../../../../core/shared/message-parts";
 import { artifact, artifactVersion } from "../../../../core/server/db/schema/artifact";
 import { message } from "../../../../core/server/db/schema/chat";
 import { createArtifactTool } from "../../../../core/server/chat/artifact-tool";
-import { createPartsBuilder } from "../../../../core/shared/chat/parts";
+import { createPartsBuilder, parseStoredParts } from "../../../../core/shared/chat/parts";
 import { createToolBudget } from "../../../../core/server/chat/host-tools";
 import { saveCredentials } from "../../../../core/server/credentials/store";
 import type { AppDeps } from "../../../../core/server/deps";
@@ -47,7 +47,7 @@ async function setup({
   });
   // Titled, so a complete run doesn't call the adapter again to title it (#26).
   const conv = await insertConversation(user, { title: "Artifacts" });
-  const send = (command: { text?: string; model?: string } = {}) =>
+  const send = (command: { text?: string; model?: string } = {}, runDeps: AppDeps = deps) =>
     sendAs(
       new Request("http://localhost/api/chat/run", {
         method: "POST",
@@ -66,7 +66,7 @@ async function setup({
         }),
       }),
       user,
-      deps,
+      runDeps,
     );
   return { user, deps, fake, conv, send };
 }
@@ -86,6 +86,32 @@ async function repliesOf(deps: AppDeps, conversationId: string) {
 
 const replyOf = async (deps: AppDeps, conversationId: string) =>
   (await repliesOf(deps, conversationId)).at(-1)!;
+
+/**
+ * The database, with `onArtifactInsert` run as each `artifact` row is inserted, inside its
+ * transaction. A throw there fails the write, and the transaction rolls back.
+ */
+function withArtifactInsertHook(db: AppDeps["db"], onArtifactInsert: () => void): AppDeps["db"] {
+  return new Proxy(db, {
+    get(target, key, receiver) {
+      if (key !== "transaction") return Reflect.get(target, key, receiver);
+      return (work: (tx: unknown) => Promise<unknown>) =>
+        target.transaction((tx) =>
+          work(
+            new Proxy(tx as object, {
+              get(inner, field, self) {
+                if (field !== "insert") return Reflect.get(inner, field, self);
+                return (table: unknown) => {
+                  if (table === artifact) onArtifactInsert();
+                  return (inner as { insert: (t: unknown) => unknown }).insert(table);
+                };
+              },
+            }),
+          ),
+        );
+    },
+  }) as AppDeps["db"];
+}
 
 const artifactRowsOf = (deps: AppDeps, conversationId: string) =>
   deps.db.select().from(artifact).where(eq(artifact.conversationId, conversationId));
@@ -131,6 +157,15 @@ describe("create_artifact in a reply", () => {
       status: "complete",
       parts: storedParts([
         { type: "text", text: "Here. " },
+        {
+          type: "tool_call",
+          toolCallId: "call-1",
+          name: "create_artifact",
+          source: "builtin",
+          args: { kind: "html", title: "Landing page" },
+          state: "done",
+          result: { artifactId: row!.id, version: 1 },
+        },
         {
           type: "artifact",
           artifactId: row!.id,
@@ -193,23 +228,15 @@ describe("create_artifact in a reply", () => {
     const { deps, conv, send } = await setup({ rounds: [round(text("Done."))] });
     await (await send()).text();
     const reply = await replyOf(deps, conv.id);
-    // The write commits, then the Run's signal aborts: the version is taken back, as a Stop does.
+    // The Stop lands as the artifact row is written, before its version: the transaction rolls back.
     const controller = new AbortController();
-    const db = new Proxy(deps.db, {
-      get(target, key, receiver) {
-        if (key !== "transaction") return Reflect.get(target, key, receiver);
-        return async (...args: Parameters<typeof target.transaction>) => {
-          const result = await target.transaction(...args);
-          controller.abort();
-          return result;
-        };
-      },
-    });
+    const db = withArtifactInsertHook(deps.db, () => controller.abort());
+    const parts = createPartsBuilder();
     const tool = createArtifactTool({
       deps: { ...deps, db },
       messageId: reply.id,
       conversationId: conv.id,
-      parts: createPartsBuilder(),
+      parts,
       onChange: () => {},
       budget: createToolBudget(0),
     });
@@ -219,6 +246,47 @@ describe("create_artifact in a reply", () => {
     ).rejects.toThrow("stopped");
     expect(await artifactRowsOf(deps, conv.id)).toEqual([]);
     expect(await versionRowsOf(deps)).toEqual([]);
+    // The cut call stays running in the reply, for the Run to close as cancelled.
+    expect(parts.parts().parts).toEqual([
+      expect.objectContaining({ type: "tool_call", state: "running" }),
+    ]);
+  });
+
+  it("answers a write that fails with an error result, and keeps the failed call in the reply", async () => {
+    const { deps, conv, send } = await setup({ rounds: [round(text("Done."))] });
+    await (await send()).text();
+    const reply = await replyOf(deps, conv.id);
+    const db = new Proxy(deps.db, {
+      get(target, key, receiver) {
+        if (key !== "transaction") return Reflect.get(target, key, receiver);
+        return () => Promise.reject(new Error("The database is down"));
+      },
+    });
+    const parts = createPartsBuilder();
+    const tool = createArtifactTool({
+      deps: { ...deps, db },
+      messageId: reply.id,
+      conversationId: conv.id,
+      parts,
+      onChange: () => {},
+      budget: createToolBudget(0),
+    });
+
+    const result = await tool.execute!(htmlPage, { toolCallId: "call-1" } as never);
+
+    expect(result).toEqual({ error: "The database is down" });
+    expect(await artifactRowsOf(deps, conv.id)).toEqual([]);
+    expect(parts.parts().parts).toEqual([
+      {
+        type: "tool_call",
+        toolCallId: "call-1",
+        name: "create_artifact",
+        source: "builtin",
+        args: { kind: "html", title: "Landing page" },
+        state: "error",
+        result: { error: "The database is down" },
+      },
+    ]);
   });
 
   it("is not offered when Artifacts are off", async () => {
@@ -268,6 +336,81 @@ describe("create_artifact in a reply", () => {
       toolCallId: "call-11",
       content: JSON.stringify({ error: "tool call limit reached" }),
     });
+  });
+
+  it("counts a failed Artifact call against the budget, and reloads it as a failed card", async () => {
+    const calls = Array.from({ length: 11 }, (_, i) =>
+      createCall(`call-${i + 1}`, { ...htmlPage, title: `Page ${i + 1}` }),
+    );
+    const { deps, fake, conv, send } = await setup({
+      rounds: [round(...calls), round(text("Done."))],
+    });
+    // The first artifact write fails inside its transaction; the others go through.
+    let failed = false;
+    const db = withArtifactInsertHook(deps.db, () => {
+      if (failed) return;
+      failed = true;
+      throw new Error("The database is down");
+    });
+
+    await (await send({}, { ...deps, db })).text();
+
+    expect(await artifactRowsOf(deps, conv.id)).toHaveLength(9);
+    expect(
+      fake.calls[1]!.messages.find((m) => m.role === "tool" && m.toolCallId === "call-11"),
+    ).toMatchObject({ content: JSON.stringify({ error: "tool call limit reached" }) });
+    // The round's calls run together, so any one of them may be the write that failed.
+    const { parts } = parseStoredParts((await replyOf(deps, conv.id)).parts);
+    const failedWrites = parts.filter(
+      (part) =>
+        part.type === "tool_call" &&
+        part.state === "error" &&
+        (part.result as { error?: string } | undefined)?.error === "The database is down",
+    );
+    expect(failedWrites).toEqual([
+      expect.objectContaining({ name: "create_artifact", source: "builtin" }),
+    ]);
+    expect(parts.filter((part) => part.type === "artifact")).toHaveLength(9);
+  });
+
+  it("stops a Run mid-write through the Stop path: nothing is saved, and the call ends cancelled", async () => {
+    const { user, deps, conv, send } = await setup({
+      rounds: [round(createCall("call-1", htmlPage)), round(text("Never."))],
+    });
+    // The Stop is sent through the same stop RPC as a user's, once the reply exists and before the
+    // Artifact's transaction runs; its signal is aborted by the time the artifact row is written.
+    let stopped = false;
+    const db = new Proxy(deps.db, {
+      get(target, key, receiver) {
+        if (key !== "transaction") return Reflect.get(target, key, receiver);
+        return async (...args: Parameters<typeof target.transaction>) => {
+          const reply = stopped ? undefined : await replyOf(deps, conv.id);
+          if (reply) {
+            stopped = true;
+            await chatRpc({ user, deps }).chat.stop({ messageId: reply.id });
+            await new Promise((resolve) => setTimeout(resolve, 50));
+          }
+          return target.transaction(...args);
+        };
+      },
+    }) as AppDeps["db"];
+
+    await (await send({}, { ...deps, db })).text();
+
+    expect(await artifactRowsOf(deps, conv.id)).toEqual([]);
+    expect(await versionRowsOf(deps)).toEqual([]);
+    const reply = await replyOf(deps, conv.id);
+    expect(reply).toMatchObject({ status: "stopped" });
+    const { parts } = parseStoredParts(reply.parts);
+    expect(parts).toContainEqual({
+      type: "tool_call",
+      toolCallId: "call-1",
+      name: "create_artifact",
+      source: "builtin",
+      args: { kind: "html", title: "Landing page" },
+      state: "cancelled",
+    });
+    expect(parts.some((part) => part.type === "artifact")).toBe(false);
   });
 
   it("streams its arguments in several deltas and still saves the Artifact", async () => {

@@ -29,9 +29,14 @@ export type NewArtifactVersion = {
 
 /**
  * Makes an Artifact with its version 1 in one transaction (ADR 0016): the `artifact` row is only
- * ever written with its first version. Returns the new Artifact's id.
+ * ever written with its first version. A `signal` that aborts before the transaction commits rolls
+ * it back, so a Stop mid-write leaves no row (no compensating delete). Returns the new Artifact's id.
  */
-export async function createArtifact(deps: Deps, version: NewArtifactVersion): Promise<string> {
+export async function createArtifact(
+  deps: Deps,
+  version: NewArtifactVersion,
+  signal?: AbortSignal,
+): Promise<string> {
   const id = newArtifactId();
   await deps.db.transaction(async (tx) => {
     await tx.insert(artifact).values({
@@ -40,6 +45,7 @@ export async function createArtifact(deps: Deps, version: NewArtifactVersion): P
       kind: version.kind,
       createdAt: version.createdAt,
     });
+    if (signal?.aborted) throw new Error("The reply was stopped");
     await tx.insert(artifactVersion).values({
       artifactId: id,
       messageId: version.messageId,
@@ -51,11 +57,6 @@ export async function createArtifact(deps: Deps, version: NewArtifactVersion): P
     });
   });
   return id;
-}
-
-/** Removes an Artifact and, with it, its versions. Used when a Stop lands while it is saved. */
-export async function deleteArtifact(deps: Deps, id: string): Promise<void> {
-  await deps.db.delete(artifact).where(eq(artifact.id, id));
 }
 
 /** One version of an Artifact, as its owner reads it. */

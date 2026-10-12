@@ -223,6 +223,19 @@ function textOf(parts: StoredParts, separator: string) {
 const finished = (part: WebSearchPart | ToolCallPart) =>
   part.state === "done" || part.state === "error" || part.state === "denied";
 
+/**
+ * A `create_artifact` call. It is stored as a tool call (for the budget and a failed card) and, once
+ * saved, as an `artifact` part; the Model never replays either, as before Artifacts were calls.
+ */
+const isArtifactCall = (part: StoredPart) =>
+  part.type === "tool_call" && part.name === createArtifactToolName;
+
+/** A finished search or tool call the Model replays (an Artifact call is not replayed). */
+const replayable = (part: StoredPart): part is WebSearchPart | ToolCallPart =>
+  (part.type === "web_search" || part.type === "tool_call") &&
+  finished(part) &&
+  !isArtifactCall(part);
+
 /** A call's arguments as the model streamed them; an unreadable stream reads as no arguments. */
 function parseArgs(json: string): unknown {
   try {
@@ -324,7 +337,7 @@ function withToolCalls({ role, parts }: StoredMessage, offered: OfferedTools): M
     } else if (part.type === "tool_call" && part.state === "awaiting_approval") {
       // Sent without a result, so the resumed Run can answer it (the Model's call is still open).
       if (offeredCall(part, offered)) calls.push(part);
-    } else if ((part.type === "web_search" || part.type === "tool_call") && finished(part)) {
+    } else if (replayable(part)) {
       if (offeredCall(part, offered)) {
         calls.push(part);
       } else {
@@ -348,7 +361,7 @@ function withPlaceholders({ role, parts }: StoredMessage): ModelMessage[] {
       if (lastWasText) pieces[pieces.length - 1] += part.text;
       else pieces.push(part.text);
       lastWasText = true;
-    } else if ((part.type === "web_search" || part.type === "tool_call") && finished(part)) {
+    } else if (replayable(part)) {
       pieces.push(placeholderOf(part));
       lastWasText = false;
     }
@@ -446,7 +459,11 @@ function toBase64(bytes: Uint8Array) {
 
 /** `UIMessage` parts for `useChat`. A search is a `web_search` tool call, as it streams. */
 export function toUIParts(parts: StoredParts): MessagePart[] {
-  return parts.parts.map((part): MessagePart => {
+  // A saved Artifact shows as its `artifact` part, so its finished call is not a second card.
+  const shown = parts.parts.filter(
+    (part) => !(part.type === "tool_call" && isArtifactCall(part) && part.state === "done"),
+  );
+  return shown.map((part): MessagePart => {
     if (part.type === "text") return { type: "text", content: part.text };
     // The signature is only for the Provider; the client never needs it.
     if (part.type === "thinking") return { type: "thinking", content: part.text };

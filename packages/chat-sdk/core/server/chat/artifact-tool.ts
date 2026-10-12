@@ -7,7 +7,7 @@ import {
   maxArtifactContent,
 } from "../../shared/chat/artifact";
 import type { createPartsBuilder } from "../../shared/chat/parts";
-import { createArtifact, deleteArtifact } from "../artifact/store";
+import { createArtifact } from "../artifact/store";
 import type { AppDeps } from "../deps";
 import { toolCallLimitError, type ToolBudget } from "./host-tools";
 
@@ -38,10 +38,12 @@ const createArtifactDefinition = toolDefinition({
 });
 
 /**
- * The `create_artifact` tool for one Run. A saved Artifact is stored with its version 1 in one
- * transaction (ADR 0016) and recorded in the reply's `parts` as a slim `artifact` part. It counts
- * against the reply's tool budget. A call the Run's signal cuts off, or whose write fails, saves
- * nothing: the Run ends (or the call gets the failure as its error result), and the reply continues.
+ * The `create_artifact` tool for one Run. Like `fetch_url`, it records its call in the reply's
+ * `parts` as a `builtin` tool call, with the title and kind but never the content, and calls
+ * `onChange` as it changes. A saved Artifact is stored with its version 1 in one transaction
+ * (ADR 0016), and the reply also keeps a slim `artifact` part for it. The call counts against the
+ * reply's tool budget. A call the Run's signal cuts off stays running (the Run closes it as
+ * cancelled) and saves nothing. A write that fails is an error result, and the reply continues.
  * An argument the schema refuses (an unknown kind, content over the cap) is an error result from
  * TanStack AI itself, before this runs.
  */
@@ -61,31 +63,50 @@ export function createArtifactTool({
   budget: ToolBudget;
 }) {
   return createArtifactDefinition.server(async (input, context) => {
-    if (!budget.take()) return { error: toolCallLimitError };
+    // TanStack AI passes the call's id to every server tool; the stored part is keyed by it.
+    const toolCallId = context?.toolCallId;
+    if (!toolCallId) throw new Error("create_artifact was called without a tool call id");
+    const { kind, title, content } = input;
+    const language = kind === "code" ? (input.language ?? null) : null;
+    parts.startToolCall({
+      toolCallId,
+      name: createArtifactToolName,
+      source: "builtin",
+      args: { kind, title, ...(language !== null && { language }) },
+    });
+    onChange();
     const signal = context?.abortSignal;
     try {
-      if (signal?.aborted) throw new Error("The reply was stopped");
-      const language = input.kind === "code" ? (input.language ?? null) : null;
-      const artifactId = await createArtifact(deps, {
-        conversationId,
-        messageId,
-        kind: input.kind,
-        title: input.title,
-        language,
-        content: input.content,
-        createdAt: new Date(),
-      });
-      if (signal?.aborted) {
-        // A Stop that landed while the version was written takes it back: a cut call saves nothing.
-        await deleteArtifact(deps, artifactId);
-        throw new Error("The reply was stopped");
+      if (!budget.take()) {
+        const error = { error: toolCallLimitError };
+        parts.finishToolCall(toolCallId, { state: "error", result: error });
+        return error;
       }
-      parts.addArtifact({ artifactId, version: 1, title: input.title, kind: input.kind });
-      onChange();
-      return { artifactId, version: 1 };
+      if (signal?.aborted) throw new Error("The reply was stopped");
+      const artifactId = await createArtifact(
+        deps,
+        {
+          conversationId,
+          messageId,
+          kind,
+          title,
+          language,
+          content,
+          createdAt: new Date(),
+        },
+        signal,
+      );
+      const output = { artifactId, version: 1 };
+      parts.addArtifact({ artifactId, version: 1, title, kind });
+      parts.finishToolCall(toolCallId, { state: "done", result: output });
+      return output;
     } catch (caught) {
       if (signal?.aborted) throw caught;
-      return { error: caught instanceof Error ? caught.message : String(caught) };
+      const error = { error: caught instanceof Error ? caught.message : String(caught) };
+      parts.finishToolCall(toolCallId, { state: "error", result: error });
+      return error;
+    } finally {
+      onChange();
     }
   });
 }

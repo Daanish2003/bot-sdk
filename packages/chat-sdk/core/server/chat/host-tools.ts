@@ -48,15 +48,14 @@ export function createToolBudget(used: number): ToolBudget {
 }
 
 /**
- * Calls a reply has already made: every tool call that ran, ended or was cut off, and every
- * Artifact version a `create_artifact` call saved (an `artifact` part, ADR 0016).
+ * Calls a reply has already made: every tool call that ran, ended or was cut off, `create_artifact`
+ * included. An Artifact's `artifact` part is not counted again: its call is.
  */
 export function spentCalls(parts: StoredPart[]): number {
   return parts.filter(
     (part) =>
-      part.type === "artifact" ||
-      (part.type === "tool_call" &&
-        (part.state === "done" || part.state === "error" || part.state === "cancelled")),
+      part.type === "tool_call" &&
+      (part.state === "done" || part.state === "error" || part.state === "cancelled"),
   ).length;
 }
 
