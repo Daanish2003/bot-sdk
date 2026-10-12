@@ -117,7 +117,7 @@ An outside collection of text files, such as a GitHub repository, kept in step w
 _Avoid_: Connector, repo, integration, Source (that is a web page)
 
 **Excerpt**:
-A passage of Knowledge the assistant read during an assistant Message, shown as a chip wherever the reply cites it.
+A passage of Knowledge the assistant read during an assistant Message, shown as a chip wherever the reply cites it. Excerpts are numbered together with the Message's Sources. An Excerpt stays with the reply even after its Knowledge file is deleted, and a Shared link shows only its file name.
 _Avoid_: Source (that is a web page), chunk, snippet, Knowledge source
 
 **Memory**:
