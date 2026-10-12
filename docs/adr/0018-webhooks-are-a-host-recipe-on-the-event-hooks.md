@@ -1,5 +1,5 @@
 ---
-Status: proposed
+Status: accepted
 ---
 
 # Outbound webhooks are a Host recipe on the event hooks, not an SDK feature
