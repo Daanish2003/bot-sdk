@@ -29,6 +29,7 @@ export function createTestDeps({
     db: getTestDb(),
     blobStore: postgresBlobStore(getTestDb()),
     logger: { error: () => {} },
+    isUserBlocked: async () => false,
     adapterFor: (model) => {
       throw new Error(`No fake adapter for model "${model}"; pass adapterFor to createTestDeps`);
     },

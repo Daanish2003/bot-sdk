@@ -6,6 +6,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import z from "zod";
 
+import { suspendedMessage } from "@/admin/ban";
 import { authClient } from "@/lib/auth-client";
 
 import Loader from "./loader";
@@ -35,6 +36,11 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
             toast.success("Sign in successful");
           },
           onError: (error) => {
+            // A banned user is refused with the same 403 as an unverified one, so the code comes first.
+            if (error.error.code === "BANNED_USER") {
+              toast.error(suspendedMessage);
+              return;
+            }
             // Refused until the email is verified (403). Better Auth has sent a fresh link.
             if (error.error.status === 403) {
               navigate({

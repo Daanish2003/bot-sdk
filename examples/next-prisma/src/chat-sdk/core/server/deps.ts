@@ -149,6 +149,8 @@ export type AppDeps = {
   mcpServers: McpServerConfig[];
   /** Where file bytes are kept (`createChat({ blobStore })`, ADR 0015). */
   blobStore: BlobStore;
+  /** Whether the Host has banned a user (`createChat({ isUserBlocked })`, spec #277). */
+  isUserBlocked: (userId: string) => boolean | Promise<boolean>;
   /** Where the SDK reports what it can't do quietly (`createChat({ logger })`). */
   logger: Pick<Console, "error">;
 };
@@ -176,6 +178,7 @@ export function createAppDeps({
   fetchAllowHosts,
   mcpServers,
   blobStore,
+  isUserBlocked = () => false,
   logger,
 }: {
   db: Database;
@@ -190,11 +193,13 @@ export function createAppDeps({
   fetchAllowHosts?: string[];
   mcpServers: McpServerConfig[];
   blobStore: BlobStore;
+  isUserBlocked?: AppDeps["isUserBlocked"];
   logger: Pick<Console, "error">;
 }): AppDeps {
   return {
     db,
     blobStore,
+    isUserBlocked,
     logger,
     adapterFor,
     hostProviders,

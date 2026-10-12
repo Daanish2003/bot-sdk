@@ -1,10 +1,16 @@
 import { createDb } from "@ai-chat/db";
 import { expect, type Page, test } from "@playwright/test";
 
+import { randomBytes } from "node:crypto";
+
+import { conversation, message } from "../../../packages/chat-sdk/core/server/db/schema/chat";
+import { sharedLink } from "../../../packages/chat-sdk/core/server/db/schema/share";
 import { usage } from "../../../packages/chat-sdk/core/server/db/schema/usage";
 import { uuidv7 } from "../../../packages/chat-sdk/core/server/lib/uuidv7";
+import { storedParts } from "../../../packages/chat-sdk/core/shared/message-parts";
 
 import { e2eDatabaseUrl } from "./database";
+import { signInOnForm } from "./helpers";
 import { type SeededUser, seedUser } from "./seed-user";
 
 /** Makes a signed-in user an Admin, straight in the e2e database (the grant script's effect). */
@@ -77,4 +83,119 @@ test("an Admin sees spend against Quota, searches, sorts and filters to At Quota
   await expect(page).toHaveURL(/atQuota=1/);
   await expect(emailCell(page, atQuota.email)).toBeVisible();
   await expect(emailCell(page, quiet.email)).toHaveCount(0);
+});
+
+/**
+ * Writes a two-message Conversation of `owner`'s and its Shared link straight into the e2e database
+ * (a reply's Run is not needed for the link). Returns the link's token.
+ */
+async function shareConversation(owner: SeededUser, title: string): Promise<string> {
+  const db = createDb({ DATABASE_URL: e2eDatabaseUrl() });
+  const conversationId = uuidv7();
+  const question = uuidv7();
+  const reply = uuidv7();
+  const token = randomBytes(16).toString("base64url");
+  const now = new Date();
+  try {
+    await db
+      .insert(conversation)
+      .values({ id: conversationId, userId: owner.id, title, model: "e2e-model" });
+    await db.insert(message).values([
+      {
+        id: question,
+        conversationId,
+        role: "user",
+        parts: storedParts([{ type: "text", text: "Hello" }]),
+        searchText: "Hello",
+        status: "complete",
+        createdAt: now,
+      },
+      {
+        id: reply,
+        conversationId,
+        parentId: question,
+        role: "assistant",
+        parts: storedParts([{ type: "text", text: "Hi there" }]),
+        searchText: "Hi there",
+        status: "complete",
+        model: "e2e-model",
+        createdAt: new Date(now.getTime() + 1),
+      },
+    ]);
+    // The Active Branch's leaf is set last: the message rows must exist before it can point at one.
+    await db.$client.query(`update chat.conversation set active_leaf_id = $1 where id = $2`, [
+      reply,
+      conversationId,
+    ]);
+    await db.insert(sharedLink).values({
+      token,
+      conversationId,
+      leafMessageId: reply,
+      title,
+      createdAt: now,
+      updatedAt: now,
+    });
+  } finally {
+    await db.$client.end();
+  }
+  return token;
+}
+
+test("a Ban signs a user out, blocks sign-in and hides their Shared link; unbanning restores both", async ({
+  page,
+  browser,
+}) => {
+  const admin = await seedUser(page);
+  await makeAdmin(admin);
+  const targetContext = await browser.newContext();
+  const targetPage = await targetContext.newPage();
+  const target = await seedUser(targetPage);
+  const token = await shareConversation(target, "Banned chat");
+  const anonymousContext = await browser.newContext();
+  const anonymous = await anonymousContext.newPage();
+
+  await anonymous.goto(`/share/${token}`);
+  await expect(anonymous).toHaveTitle("Banned chat · ai-chat");
+
+  await page.goto("/admin");
+  const targetRow = page.getByRole("row").filter({ has: emailCell(page, target.email) });
+  await targetRow.getByRole("button", { name: "Ban", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel(/^Reason/).fill("Spamming the chat");
+  await dialog.getByRole("button", { name: "Ban user" }).click();
+  await expect(page.getByText("User banned", { exact: true })).toBeVisible();
+  await expect(targetRow).toContainText("Banned");
+
+  // The Ban ended the user's sessions: their open tab is signed out.
+  await targetPage.goto("/c");
+  await expect(targetPage).toHaveURL(/\/login/);
+
+  // Sign-in is refused with the one static message, and the Shared link is not found.
+  await signInOnForm(anonymous, target.email, target.password);
+  await expect(anonymous.getByText("This account is suspended.")).toBeVisible();
+  await anonymous.goto(`/share/${token}`);
+  await expect(anonymous).toHaveTitle("Not found · ai-chat");
+
+  await page.goto("/admin");
+  await targetRow.getByRole("button", { name: "Unban", exact: true }).click();
+  await expect(targetRow).toContainText("Active");
+
+  await signInOnForm(anonymous, target.email, target.password);
+  await expect(anonymous).not.toHaveURL(/\/login/);
+  await anonymous.goto(`/share/${token}`);
+  await expect(anonymous).toHaveTitle("Banned chat · ai-chat");
+
+  await anonymousContext.close();
+  await targetContext.close();
+});
+
+test("an Admin's own row offers no Ban", async ({ page }) => {
+  const admin = await seedUser(page);
+  await makeAdmin(admin);
+
+  await page.goto("/admin");
+
+  const adminRow = page.getByRole("row").filter({ has: emailCell(page, admin.email) });
+  await expect(adminRow).toBeVisible();
+  await expect(adminRow.getByRole("button", { name: "Ban", exact: true })).toHaveCount(0);
 });

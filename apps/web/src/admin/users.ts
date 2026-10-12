@@ -6,7 +6,10 @@ export type AdminUser = {
   createdAt: string;
   signInMethods: string[];
   role: string | null;
+  /** Whether a Ban holds now (spec #277): a Ban past its end date no longer counts. */
   banned: boolean;
+  /** When the Ban that holds ends (ISO), or `null` for no end date or no Ban. */
+  banExpires: string | null;
   spentMicros: number;
   /** `null` when the user's Quota is unlimited. */
   budgetMicros: number | null;
