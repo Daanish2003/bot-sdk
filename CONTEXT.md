@@ -32,6 +32,10 @@ _Avoid_: Turn, reply, prompt
 A user's thumbs up or down on one assistant Message whose Run has ended, which they can change or clear. It stays with that Message (regenerating leaves it on the old reply), is never sent to the Provider or shown on a Shared link, and an Admin sees only totals, never the rated Message.
 _Avoid_: Feedback, vote, reaction, like
 
+**Hidden reply**:
+An assistant Message whose text the Host's moderation removed after its Run ended; everyone, on a Shared link too, sees only that it was hidden. It can't be rated, copied or exported, and it is never sent to the Model again; regenerating it makes a new reply as usual. Its Run's spend still counts against the Quota.
+_Avoid_: Moderated message, flagged message, censored reply
+
 **Run**:
 The generation of one assistant Message, from the moment it's sent until it ends `complete`, `stopped`, `error` or waiting for an Approval. It goes on without a reader, and anyone can join it while it's live.
 _Avoid_: Job, generation, stream
