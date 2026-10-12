@@ -23,7 +23,7 @@ import {
   usePinConversation,
   useRenameConversation,
 } from "../../core/client/react/conversation-actions";
-import { useChatAdapter, useOrpc } from "../../core/client/react/provider";
+import { useChatAdapter, useI18n, useOrpc } from "../../core/client/react/provider";
 import { ProjectsSection } from "./projects-section";
 
 export type ConversationSummary = Awaited<
@@ -36,6 +36,7 @@ export type ConversationSummary = Awaited<
  */
 export function ConversationPanel({ className }: { className?: string }) {
   const orpc = useOrpc();
+  const i18n = useI18n();
   const conversations = useInfiniteQuery(
     orpc.conversation.list.infiniteOptions({
       input: (cursor: string | undefined) => ({ cursor }),
@@ -45,7 +46,7 @@ export function ConversationPanel({ className }: { className?: string }) {
   );
   const pinned = useQuery(orpc.conversation.pinned.queryOptions());
   const rows = conversations.data?.pages.flatMap((page) => page.items) ?? [];
-  const groups = groupByDate(rows, (row) => row.lastMessageAt);
+  const groups = groupByDate(rows, (row) => row.lastMessageAt, i18n);
   const { hasNextPage, isFetchingNextPage, fetchNextPage } = conversations;
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -118,6 +119,7 @@ export function ConversationPanel({ className }: { className?: string }) {
 /** One Conversation in the panel, with its menu: rename, pin or unpin, move, share and delete. */
 export function ConversationRow({ conversation }: { conversation: ConversationSummary }) {
   const { Link, orpc } = useChatAdapter();
+  const i18n = useI18n();
   const [menuOpen, setMenuOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
   const [sharing, setSharing] = useState(false);
@@ -152,7 +154,7 @@ export function ConversationRow({ conversation }: { conversation: ConversationSu
             dateTime={conversation.lastMessageAt.toISOString()}
             className="text-[10px] text-muted-foreground group-focus-within:invisible group-hover:invisible pointer-coarse:visible"
           >
-            {relativeTime(conversation.lastMessageAt)}
+            {relativeTime(i18n, conversation.lastMessageAt)}
           </time>
         </div>
         <p className="mt-0.5 line-clamp-1 min-h-4 text-[11px] text-muted-foreground">

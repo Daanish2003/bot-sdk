@@ -4,16 +4,20 @@ import { describe, expect, it } from "vitest";
 
 import { contextFill } from "../../../core/client/context-ring";
 import { ContextOverflowNotice, ContextRing } from "../../../ui/chat/context-ring";
+import { renderInChat } from "../../support/chat-provider";
+
+const renderIn = (ui: ReturnType<typeof createElement>, locale?: string) =>
+  renderInChat(ui, { locale });
 
 describe("ContextRing", () => {
   it("is hidden when there is no reading (no Run, or an unknown window)", () => {
-    expect(renderToStaticMarkup(createElement(ContextRing, { fill: null }))).toBe("");
+    expect(renderIn(createElement(ContextRing, { fill: null }))).toBe("");
     expect(contextFill(5000, null)).toBeNull();
   });
 
   it("is neutral below 80%, amber from 80% and red from 95%", () => {
     const html = (tokens: number) =>
-      renderToStaticMarkup(createElement(ContextRing, { fill: contextFill(tokens, 10000) }));
+      renderIn(createElement(ContextRing, { fill: contextFill(tokens, 10000) }));
     expect(html(7999)).toContain("text-muted-foreground");
     expect(html(8000)).toContain("text-amber-500");
     expect(html(9500)).toContain("text-destructive");
@@ -21,10 +25,13 @@ describe("ContextRing", () => {
   });
 
   it("names the exact tokens and the window (the accessible name, and the tooltip on hover)", () => {
-    const html = renderToStaticMarkup(
-      createElement(ContextRing, { fill: contextFill(3400, 128000) }),
-    );
+    const html = renderIn(createElement(ContextRing, { fill: contextFill(3400, 128000) }));
     expect(html).toContain("3,400 of 128,000 tokens (3%)");
+  });
+
+  it("formats the numbers in the provider's locale", () => {
+    const html = renderIn(createElement(ContextRing, { fill: contextFill(3400, 128000) }), "de");
+    expect(html).toContain("3.400 of 128.000 tokens (3%)");
   });
 });
 

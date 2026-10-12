@@ -32,7 +32,12 @@ import { toast } from "sonner";
 
 import { invalidateConversationList } from "../../core/client/react/conversation-list";
 import { useDeleteConversation } from "../../core/client/react/delete-conversation";
-import { useChatAdapter, useChatLocation, useOrpc } from "../../core/client/react/provider";
+import {
+  useChatAdapter,
+  useChatLocation,
+  useI18n,
+  useOrpc,
+} from "../../core/client/react/provider";
 import { ShareDialog } from "../share/share-dialog";
 
 /** How long typing must pause before Messages are searched. */
@@ -115,6 +120,7 @@ function PaletteBody({
   onShare: () => void;
 }) {
   const { orpc, navigate } = useChatAdapter();
+  const i18n = useI18n();
   const [q, setQ] = useState("");
   const [active, setActive] = useState(0);
   const [renaming, setRenaming] = useState(false);
@@ -159,7 +165,7 @@ function PaletteBody({
     group: q.trim() ? "Conversations" : "Recent",
     icon: <MessageSquareIcon />,
     label: c.title ?? <i>Untitled</i>,
-    hint: relativeTime(c.lastMessageAt),
+    hint: relativeTime(i18n, c.lastMessageAt),
     run: () => void navigate({ to: "conversation", id: c.id }),
   }));
   const openHit = (hit: SearchHit) =>
@@ -171,7 +177,7 @@ function PaletteBody({
     icon: <TextSearchIcon />,
     label: hit.conversationTitle ?? <i>Untitled</i>,
     detail: <Snippet snippet={hit.snippet} />,
-    hint: relativeTime(hit.createdAt),
+    hint: relativeTime(i18n, hit.createdAt),
     run: () => void openHit(hit),
   }));
   if (search.hasNextPage) {

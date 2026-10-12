@@ -14,7 +14,7 @@ import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { invalidateConversationList } from "../../core/client/react/conversation-list";
-import { useChatAdapter } from "../../core/client/react/provider";
+import { useChatAdapter, useI18n } from "../../core/client/react/provider";
 
 const blockedReasons = {
   empty: "Send a message before sharing.",
@@ -51,6 +51,7 @@ export function ShareDialog({
 }) {
   const queryClient = useQueryClient();
   const { orpc, shareUrl, chatUrl } = useChatAdapter();
+  const i18n = useI18n();
   const statusQuery = orpc.share.forConversation.queryOptions({ input: { conversationId } });
   const status = useQuery({ ...statusQuery, enabled: open, staleTime: 0 });
   const conversationQuery = orpc.conversation.get.queryOptions({ input: { id: conversationId } });
@@ -131,7 +132,7 @@ export function ShareDialog({
                 <CopyButton text={url} />
               </div>
               <p className="text-[10px] text-muted-foreground">
-                Shared {relativeTime(link.updatedAt)}.
+                Shared {relativeTime(i18n, link.updatedAt)}.
                 {status.data?.movedOn &&
                   " The Conversation has moved on since; Update link to share the current Branch."}
               </p>

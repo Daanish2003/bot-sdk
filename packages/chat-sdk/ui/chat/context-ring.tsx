@@ -1,4 +1,5 @@
 import type { ContextFill } from "../../core/client/context-ring";
+import { useI18n } from "../../core/client/react/provider";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
@@ -14,9 +15,10 @@ const levelColor = {
  * tokens and the window.
  */
 export function ContextRing({ fill }: { fill: ContextFill | null }) {
+  const { locale } = useI18n();
   if (!fill) return null;
   const { tokens, window, percent, fraction, level } = fill;
-  const summary = `${tokens.toLocaleString("en-US")} of ${window.toLocaleString("en-US")} tokens (${percent}%)`;
+  const summary = `${tokens.toLocaleString(locale)} of ${window.toLocaleString(locale)} tokens (${percent}%)`;
   return (
     <Tooltip>
       <TooltipTrigger

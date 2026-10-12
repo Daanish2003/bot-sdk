@@ -6,12 +6,13 @@ import { toast } from "sonner";
 
 import { relativeTime } from "../../core/client/relative-time";
 import { invalidateConversationList } from "../../core/client/react/conversation-list";
-import { useChatAdapter } from "../../core/client/react/provider";
+import { useChatAdapter, useI18n } from "../../core/client/react/provider";
 
 /** Settings: every Shared link the user has, with copy and revoke. */
 export function SharedLinksSection() {
   const queryClient = useQueryClient();
   const { orpc, shareUrl } = useChatAdapter();
+  const i18n = useI18n();
   const links = useQuery(orpc.share.list.queryOptions());
   const remove = useMutation(
     orpc.share.delete.mutationOptions({
@@ -50,7 +51,7 @@ export function SharedLinksSection() {
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{link.title}</p>
                 <p className="text-xs text-muted-foreground">
-                  Shared {relativeTime(link.sharedAt)}
+                  Shared {relativeTime(i18n, link.sharedAt)}
                 </p>
               </div>
               <CopyLinkButton url={shareUrl(link.token)} />
