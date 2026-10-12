@@ -15,14 +15,107 @@ export type UsageEvent = {
   createdAt: Date;
 };
 
+/** How a Run ended. `awaiting_approval` is a Run that stopped waiting for a decision (ADR 0008). */
+export type RunEnding = "complete" | "stopped" | "error" | "awaiting_approval";
+
+/** A Run's ending, once it is written (#265). Never carries Message text. */
+export type RunEndEvent = {
+  userId: string;
+  conversationId: string;
+  messageId: string;
+  /** `<messageId>` for a Message's first Run, `<messageId>:<n>` after an Approval (ADR 0006). */
+  runId: string;
+  ending: RunEnding;
+  /** `timed_out`, `interrupted`, or a Provider's error reason. */
+  reason?: string;
+  /** The `"provider:model"` id the Run used. */
+  model: string;
+  onHostCredentials: boolean;
+  /** Always `false` until the Hidden reply ticket. */
+  hidden: boolean;
+};
+
+/** A Conversation a user started, or continued from a Shared link (#266). */
+export type ConversationCreatedEvent = {
+  userId: string;
+  conversationId: string;
+  projectId?: string;
+  fromSharedLink: boolean;
+};
+
+/** A Conversation a user deleted, or one of a deleted Project's (#266). */
+export type ConversationDeletedEvent = {
+  userId: string;
+  conversationId: string;
+  projectId?: string;
+};
+
+/** A Shared link created, moved to the current Branch, or removed (#266). */
+export type SharedLinkChangedEvent = {
+  userId: string;
+  conversationId: string;
+  change: "created" | "moved" | "removed";
+};
+
+/** An attachment the input check sees: image and text Attachments only (#267). */
+export type ModerationAttachment = {
+  name: string;
+  mediaType: string;
+  read: () => Promise<Uint8Array>;
+};
+
+/** The user's Message before it is saved (`phase: "input"`), checked before any Run starts (#267). */
+export type ModerationInput = {
+  phase: "input";
+  userId: string;
+  conversationId: string;
+  onHostCredentials: boolean;
+  text: string;
+  attachments: ModerationAttachment[];
+};
+
+/** The text one Run produced, checked when it ends (`phase: "output"`) (#267). */
+export type ModerationOutput = {
+  phase: "output";
+  userId: string;
+  conversationId: string;
+  messageId: string;
+  runId: string;
+  onHostCredentials: boolean;
+  /** The reply text, without reasoning or tool-call arguments. */
+  text: string;
+};
+
+/** The Host's answer to `moderate`: let the text through, or refuse it with the Host's reason. */
+export type ModerationResult = { allow: true } | { allow: false; reason?: string };
+
 /**
- * The Host's callbacks into the SDK (`createChat({ hooks })`). Every one is optional. A hook is
- * called after its change is written, never awaited, at most once, and never retried; one that
+ * The Host's callbacks into the SDK (`createChat({ hooks })`). Every one is optional. An event hook
+ * is called after its change is written, never awaited, at most once, and never retried; one that
  * throws or rejects is logged through the Host's `logger`.
+ *
+ * Only `onUsage` fires so far. The other event hooks and `moderate` are typed now and wired by
+ * #265 (`onRunEnd`), #266 (the Conversation and Shared link hooks) and #267 (`moderate`).
  */
 export type ChatHooks = {
   /** Fires after each usage row on Host credentials is written: a Run, a title or a web search. */
   onUsage?: (usage: UsageEvent) => unknown;
+  /** Fires once for every Run, whichever way it ends, after the ending is written (#265). */
+  onRunEnd?: (run: RunEndEvent) => unknown;
+  /** Fires when a user starts a Conversation, or continues a Shared link into one (#266). */
+  onConversationCreated?: (conversation: ConversationCreatedEvent) => unknown;
+  /** Fires when a user deletes a Conversation, or once per Conversation of a deleted Project (#266). */
+  onConversationDeleted?: (conversation: ConversationDeletedEvent) => unknown;
+  /** Fires when a Shared link is created, moved or removed (#266). */
+  onSharedLinkChanged?: (link: SharedLinkChangedEvent) => unknown;
+  /**
+   * Checks the user's Message before it is saved (`phase: "input"`) and each Run's text when it
+   * ends (`phase: "output"`). `allow: false` refuses it (#267). It fails open: a throw, a rejection
+   * or a 10-second timeout lets the text through and is logged.
+   */
+  moderate?: (
+    check: ModerationInput | ModerationOutput,
+  ) => ModerationResult | Promise<ModerationResult>;
 };
 
 type HookName = keyof ChatHooks;
