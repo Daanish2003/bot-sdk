@@ -23,7 +23,10 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "pnpm build && pnpm db:migrate && pnpm exec next start --port 3100",
+    // Next starts through node, not `pnpm exec`: pnpm runs its command in a new process group, which
+    // Playwright's group kill misses on Linux, so the server outlived the run and CI hung after it.
+    command:
+      "pnpm build && pnpm db:migrate && node node_modules/next/dist/bin/next start --port 3100",
     url: `${baseURL}/sign-in`,
     env: serverEnv,
     timeout: 300_000,
