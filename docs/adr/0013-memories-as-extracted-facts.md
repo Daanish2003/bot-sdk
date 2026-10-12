@@ -21,3 +21,22 @@ Published benchmarks (LoCoMo, LongMemEval) are disputed between vendors, so this
 - Schema changes: a Memory table with an embedding column, which needs the `pgvector` extension.
 - A new dependency on `@tanstack/ai-memory`.
 - Making Memories costs a Background Model call per Run, counted against the Quota on Host credentials.
+
+## Amendment: no @tanstack/ai-memory; Memory lives in the Chat SDK core (2026-10-12, #221)
+
+Research ([#216](https://github.com/Daanish2003/ai-chat/issues/216), `docs/research/tanstack-ai-memory.md`) found that `@tanstack/ai-memory` gives us little. Its `save` runs inside `chat()` and holds the Run open, it sees only the reply's text with no ids, it scopes memory per thread, and every release works with exactly one `@tanstack/ai` minor. Extraction, ranking, profiles and scoping would all be ours anyway.
+
+- **No dependency, no middleware.** Recall happens in `systemPromptsFor`, beside Instructions, before `chat()`. The Memory job is enqueued from the Run-end hook that already fires titling.
+- **In core.** The code lives in `core/server/memory/`, not `packages/memory`, for the reason the runner moved there (ADR 0011's amendment, ADR 0005).
+- **`createChat({ memory?: boolean })`**, on by default, switches Memory off for a whole Host.
+
+## Amendment: how Memories are made and recalled (2026-10-12, #222–#227)
+
+- **Mem0's two calls stay**, although Mem0 itself moved to only adding facts in 2026-04 ([#217](https://github.com/Daanish2003/ai-chat/issues/217)): that approach is weakest at knowledge updates, and the profile needs a clean set of current facts. The prompts are ported from Mem0 (Apache-2.0), not the package. The decide call sees the top 5 similar Memories in the same scope. An update marks the old Memory invalid and inserts a new one.
+- **Scope comes from the Conversation.** A Memory has no Project of its own: it's in its Conversation's current Project, or general. A candidate is only ever compared with Memories in its own scope, so a fact said in a Project never invalidates a general Memory.
+- **Facts come from the user's words.** The job reads the Run's user Message and reply, plus two earlier Messages for context, after Runs that end `complete` or `stopped`. It uses the Background Model or the Host's default, never the reply's Model.
+- **"Forget X" removes.** An outdated Memory is marked invalid; one the user deletes, or asks the assistant to forget, is deleted. "Remember X" and "forget X" go through the same job, with no tool.
+- **Recall:** a profile of the 20 newest valid Memories plus the top 10 by similarity to the latest user Message, after Instructions, which win on conflict. With 30 or fewer Memories in scope, all are included and nothing is embedded.
+- **The eval** is a hand-run LongMemEval script of 40 cases in `packages/chat-sdk/eval/memory/`, outside CI.
+
+Consequence updated: there is no new dependency on `@tanstack/ai-memory`. New schema: `chat.memory`, `user_settings.memory_enabled`, `conversation.temporary`, and `title_model` renamed `background_model`.

@@ -121,15 +121,15 @@ A passage of Knowledge the assistant read during an assistant Message, shown as 
 _Avoid_: Source (that is a web page), chunk, snippet, Knowledge source
 
 **Memory**:
-One fact about a user that the assistant learned in a Conversation and reuses in later ones. Memories made in a Project stay in that Project; the rest are general. Each remembers the Message it came from and goes when that Conversation is deleted.
+One fact about a user that the assistant learned in a Conversation and reuses in later ones. Memories made in a Project stay in that Project, which also uses the general ones; the rest are general. Each remembers the Message it came from and goes when that Conversation is deleted. One the user corrects is kept as outdated; one they delete or ask the assistant to forget is gone. A user can turn Memory off.
 _Avoid_: Fact, profile, saved memory, Instructions (those the user writes)
 
 **Temporary Conversation**:
-A Conversation that neither uses nor makes Memories, stays out of the sidebar and search, can't be shared, and is deleted 30 days after its last Message.
+A Conversation the user makes temporary before its first Message, which it stays. It is in no Project, neither uses nor makes Memories, isn't searched by the assistant, has no title, stays out of the sidebar and search, can't be shared, and is deleted 30 days after its last Message.
 _Avoid_: Incognito chat, private chat
 
 **Background Model**:
-The cheap Model a user picks for work done around their Messages rather than in them: titles and making Memories.
+The cheap Model a user picks for work done around their Messages rather than in them: titles and making Memories. When they pick none, the Host's default is used; with neither, titles use the Model that wrote the reply and no Memories are made.
 _Avoid_: Title Model, Memory Model, utility model
 
 **Image Model**:
