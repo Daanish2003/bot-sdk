@@ -70,7 +70,7 @@ export async function countProjectConversations(deps: Deps, userId: string, id: 
  * someone else.
  */
 export async function deleteProject(deps: AppDeps, userId: string, id: string) {
-  return deps.db.transaction(async (tx) => {
+  const result = await deps.db.transaction(async (tx) => {
     const [owned] = await tx
       .select({ id: project.id })
       .from(project)
@@ -79,12 +79,16 @@ export async function deleteProject(deps: AppDeps, userId: string, id: string) {
       // key takes a shared lock), so the count below and the cascade see the same rows.
       .for("update");
     if (!owned) return undefined;
-    await stopProjectRuns(deps, id, tx);
+    const ended = await stopProjectRuns(deps, id, tx);
     const [row] = await tx
       .select({ total: count() })
       .from(conversation)
       .where(eq(conversation.projectId, id));
     await tx.delete(project).where(eq(project.id, id));
-    return row?.total ?? 0;
+    return { total: row?.total ?? 0, ended };
   });
+  if (!result) return undefined;
+  // After the commit: a rolled-back delete fires nothing (#265).
+  for (const run of result.ended) deps.hooks.fire("onRunEnd", run);
+  return result.total;
 }

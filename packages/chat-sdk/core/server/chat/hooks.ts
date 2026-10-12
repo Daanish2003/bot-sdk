@@ -94,8 +94,8 @@ export type ModerationResult = { allow: true } | { allow: false; reason?: string
  * is called after its change is written, never awaited, at most once, and never retried; one that
  * throws or rejects is logged through the Host's `logger`.
  *
- * Only `onUsage` fires so far. The other event hooks and `moderate` are typed now and wired by
- * #265 (`onRunEnd`), #266 (the Conversation and Shared link hooks) and #267 (`moderate`).
+ * `onUsage` and `onRunEnd` fire so far. The other event hooks and `moderate` are typed now and
+ * wired by #266 (the Conversation and Shared link hooks) and #267 (`moderate`).
  */
 export type ChatHooks = {
   /** Fires after each usage row on Host credentials is written: a Run, a title or a web search. */

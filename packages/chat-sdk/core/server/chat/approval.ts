@@ -179,6 +179,7 @@ export async function decideApproval(
       interruptId: `${approvalPrefix}${waiting.toolCallId}`,
       approved,
     },
+    model: model.id,
     provider: model.provider,
     adapter,
     messages,
