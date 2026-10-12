@@ -29,6 +29,9 @@ export function createTestDeps({
     adapterFor: (model) => {
       throw new Error(`No fake adapter for model "${model}"; pass adapterFor to createTestDeps`);
     },
+    transcriptionAdapterFor: (model) => {
+      throw new Error(`No fake transcription adapter for "${model}"; pass one to createTestDeps`);
+    },
     searchClient: createFakeSearchClient(),
     tools: [],
     runStreams: createMemoryRunStreams(),
