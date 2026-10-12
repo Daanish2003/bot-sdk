@@ -42,7 +42,7 @@ jobs:
 
       # The S3 file store's contract suite runs against it (its bucket is made in the test step).
       rustfs:
-        image: rustfs/rustfs:latest
+        image: rustfs/rustfs:1.0.1
         env:
           RUSTFS_ACCESS_KEY: rustfsadmin
           RUSTFS_SECRET_KEY: rustfsadmin
