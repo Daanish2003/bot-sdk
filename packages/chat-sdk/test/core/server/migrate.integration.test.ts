@@ -221,7 +221,7 @@ describe("chat.migrate()", () => {
       await rows(
         url,
         `select c.title, c.model, c.reasoning_effort, c.project_id, c.pinned_at, m.role, m.parts, m.reasoning_effort as m_effort,
-                m.usage, m.context_start_id, s.title_model, s.instructions
+                m.usage, m.context_start_id, s.background_model, s.instructions
            from chat.conversation c
            join chat.message m on m.conversation_id = c.id
            join chat.user_settings s on s.user_id = c.user_id`,
@@ -238,7 +238,7 @@ describe("chat.migrate()", () => {
         m_effort: null,
         usage: null,
         context_start_id: null,
-        title_model: "openai:gpt",
+        background_model: "openai:gpt",
         instructions: null,
       },
     ]);
@@ -337,7 +337,7 @@ describe("chat.migrate()", () => {
     await expect(Promise.all([chat.migrate(), chat.migrate()])).resolves.toBeDefined();
 
     const applied = await rows<{ count: string }>(url, "select count(*) from chat.__migrations");
-    expect(applied).toEqual([{ count: "7" }]);
+    expect(applied).toEqual([{ count: "8" }]);
   });
 
   it("gives a Conversation's tool settings empty lists by default, so existing rows read as empty", async () => {

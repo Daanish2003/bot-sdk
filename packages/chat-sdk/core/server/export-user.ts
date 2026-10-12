@@ -16,7 +16,7 @@ export type UserExport = {
   /** The format version. Bumped only when a reader would misread the document. */
   version: 1;
   exportedAt: Date;
-  settings: { titleModel: string | null; instructions: string | null };
+  settings: { backgroundModel: string | null; instructions: string | null };
   projects: {
     id: string;
     name: string;
@@ -59,7 +59,10 @@ export async function exportUserData(deps: AppDeps, userId: string): Promise<Use
   return deps.db.transaction(
     async (tx) => {
       const [settings] = await tx
-        .select({ titleModel: userSettings.titleModel, instructions: userSettings.instructions })
+        .select({
+          backgroundModel: userSettings.backgroundModel,
+          instructions: userSettings.instructions,
+        })
         .from(userSettings)
         .where(eq(userSettings.userId, userId));
 
@@ -123,7 +126,7 @@ export async function exportUserData(deps: AppDeps, userId: string): Promise<Use
         version: 1,
         exportedAt: new Date(),
         settings: {
-          titleModel: settings?.titleModel ?? null,
+          backgroundModel: settings?.backgroundModel ?? null,
           instructions: settings?.instructions ?? null,
         },
         projects,
