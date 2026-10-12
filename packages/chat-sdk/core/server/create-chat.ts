@@ -10,7 +10,8 @@ import { fetchUrlToolName } from "../shared/chat/fetch-url";
 import { handleJoin } from "./chat/join-run";
 import type { ChatUser, Context } from "./context";
 import { createDb } from "./db/index";
-import { quotaLookup } from "./chat/quota";
+import { quotaLookup, quotaState, type QuotaState } from "./chat/quota";
+import { usageTotals, type UsageTotal } from "./admin/usage";
 import {
   createAppDeps,
   type AppDeps,
@@ -192,6 +193,16 @@ export function createChat(options: CreateChatOptions): {
    * as a one-off command, never in the pre-deploy step.
    */
   rotateKeys: () => Promise<{ reencrypted: number; unreadable: number }>;
+  /**
+   * Server-only reads for the Host's Admin views (spec #277). No HTTP route: the Host decides
+   * who may call them. They never return Conversation content.
+   */
+  admin: {
+    /** Every user's calls on Host credentials created in `[since, until)`. */
+    usageTotals: (range: { since: Date; until: Date }) => Promise<UsageTotal[]>;
+    /** A user's budget and spend in micros, with its window's reset time; `null` when unlimited. */
+    quota: (userId: string) => Promise<QuotaState | null>;
+  };
 } {
   if (options.keyEncryptionSecrets.length === 0) {
     throw new Error("keyEncryptionSecrets must hold at least one secret");
@@ -249,6 +260,10 @@ export function createChat(options: CreateChatOptions): {
     stop: async () => {
       await getLifecycle().stop();
       await options.runtime?.close?.();
+    },
+    admin: {
+      usageTotals: (range) => usageTotals(getDeps(), range),
+      quota: (userId) => quotaState(getDeps(), userId),
     },
     deleteUser: (userId) => deleteUserData(getDeps(), userId),
     exportUser: (userId) => exportUserData(getDeps(), userId),
