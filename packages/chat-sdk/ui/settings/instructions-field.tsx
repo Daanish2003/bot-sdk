@@ -7,7 +7,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { useOrpc } from "../../core/client/react/provider";
+import { useI18n, useOrpc } from "../../core/client/react/provider";
 
 /**
  * The Instructions field: one free-text note sent with every Run from the next one. Saving over
@@ -16,6 +16,7 @@ import { useOrpc } from "../../core/client/react/provider";
 export function InstructionsField() {
   const queryClient = useQueryClient();
   const orpc = useOrpc();
+  const { locale } = useI18n();
   const settings = useQuery(orpc.settings.get.queryOptions());
   const settingsKey = orpc.settings.get.queryKey();
   // `null` until the user types, so the field shows what is saved.
@@ -60,7 +61,7 @@ export function InstructionsField() {
               value.length > instructionsMaxChars && "text-destructive",
             )}
           >
-            {value.length.toLocaleString("en-US")} / {instructionsMaxChars.toLocaleString("en-US")}{" "}
+            {value.length.toLocaleString(locale)} / {instructionsMaxChars.toLocaleString(locale)}{" "}
             characters
           </p>
           <Button type="submit" size="sm" disabled={!dirty || save.isPending}>

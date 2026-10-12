@@ -18,7 +18,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { toast } from "sonner";
 
-import { useOrpc } from "../../core/client/react/provider";
+import { useI18n, useOrpc } from "../../core/client/react/provider";
 
 /** The select's value for "no default Model", which a Project stores as `null`. */
 const noModel = "none";
@@ -44,6 +44,7 @@ export function EditProjectForm({
   onDone: () => void;
 }) {
   const orpc = useOrpc();
+  const { locale } = useI18n();
   const queryClient = useQueryClient();
   const models = useQuery(orpc.models.list.queryOptions());
   const [draftName, setDraftName] = useState(name);
@@ -160,8 +161,8 @@ export function EditProjectForm({
               tooLong && "text-destructive",
             )}
           >
-            {draftInstructions.length.toLocaleString("en-US")} /{" "}
-            {instructionsMaxChars.toLocaleString("en-US")} characters
+            {draftInstructions.length.toLocaleString(locale)} /{" "}
+            {instructionsMaxChars.toLocaleString(locale)} characters
           </p>
         </div>
       </div>

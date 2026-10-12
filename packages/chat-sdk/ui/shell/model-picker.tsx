@@ -17,7 +17,7 @@ import { useState } from "react";
 import { modelGroups } from "../../core/client/models";
 
 import { useByok } from "../../core/client/react/byok";
-import { useChatAdapter } from "../../core/client/react/provider";
+import { useChatAdapter, useI18n } from "../../core/client/react/provider";
 import { useQuota } from "../../core/client/react/quota";
 import { quotaBlocksModel, quotaResetsAt } from "../../core/client/quota";
 
@@ -41,10 +41,13 @@ export function ModelPicker({
   invalid?: boolean;
 }) {
   const { Link } = useChatAdapter();
+  const { locale } = useI18n();
   const byok = useByok();
   const quota = useQuota().data;
   // A spent Quota turns the Host's Models off until it resets (ADR 0007).
-  const offTitle = quota ? `Host Models are off until ${quotaResetsAt(quota.resetsAt)}` : undefined;
+  const offTitle = quota
+    ? `Host Models are off until ${quotaResetsAt(quota.resetsAt, locale)}`
+    : undefined;
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const selected = value

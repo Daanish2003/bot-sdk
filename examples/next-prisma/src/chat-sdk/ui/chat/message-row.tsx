@@ -48,7 +48,7 @@ import { ToolCallRow } from "./tool-call-row";
 import { UsageInfo } from "./usage-info";
 
 import { useByok } from "../../core/client/react/byok";
-import { useChatAdapter } from "../../core/client/react/provider";
+import { useChatAdapter, useI18n } from "../../core/client/react/provider";
 
 function plainText(message: UIMessage) {
   return message.parts.map((part) => (part.type === "text" ? part.content : "")).join("");
@@ -105,6 +105,7 @@ export function MessageRow({
   /** The Model's context starts at this Message on the Branch: a marker sits above it. */
   contextCut?: boolean;
 }) {
+  const { locale } = useI18n();
   const info = messageInfo(message);
   const text = plainText(message);
   const thinking = thinkingText(message);
@@ -151,7 +152,7 @@ export function MessageRow({
                 className="text-[10px] text-muted-foreground"
                 dateTime={message.createdAt.toISOString()}
               >
-                {message.createdAt.toLocaleTimeString(undefined, {
+                {message.createdAt.toLocaleTimeString(locale, {
                   hour: "2-digit",
                   minute: "2-digit",
                 })}

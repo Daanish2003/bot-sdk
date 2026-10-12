@@ -6,7 +6,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import type { SharedConversation } from "../../core/shared/share/conversation";
 import { sharedToUIMessages } from "../../core/client/chat";
 import { invalidateConversationList } from "../../core/client/react/conversation-list";
-import { useChatAdapter } from "../../core/client/react/provider";
+import { useChatAdapter, useI18n } from "../../core/client/react/provider";
 
 import { MessageRow } from "../chat/message-row";
 
@@ -52,6 +52,7 @@ export function SharedConversationPage({
   data: SharedConversation;
   viewer?: SharedViewer;
 }) {
+  const { locale } = useI18n();
   return (
     <div className="h-full overflow-y-auto bg-background">
       <header className="border-b px-4 py-2 text-xs text-muted-foreground">
@@ -63,7 +64,7 @@ export function SharedConversationPage({
           <p className="mt-1 text-xs text-muted-foreground">
             Shared{" "}
             <time dateTime={data.sharedAt.toISOString()}>
-              {data.sharedAt.toLocaleDateString(undefined, { dateStyle: "long" })}
+              {data.sharedAt.toLocaleDateString(locale, { dateStyle: "long" })}
             </time>
           </p>
           {viewer && (

@@ -2,6 +2,7 @@ import { reasoningChoiceLabel, type ReasoningChoice } from "../../core/shared/ch
 import type { MessageUsage } from "../../core/shared/chat/message-record";
 import { buttonVariants } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { useI18n } from "../../core/client/react/provider";
 import { cn } from "@/lib/utils";
 import { InfoIcon } from "lucide-react";
 import { Fragment } from "react";
@@ -51,6 +52,7 @@ export function EffortLine({ reasoningEffort }: { reasoningEffort: ReasoningChoi
 
 /** The tokens a reply's Run used, and a note when they are an estimate. */
 export function UsageBreakdown({ usage }: { usage: MessageUsage }) {
+  const { locale } = useI18n();
   const rows = [
     ["Input", usage.input],
     ["Output", usage.output],
@@ -63,7 +65,7 @@ export function UsageBreakdown({ usage }: { usage: MessageUsage }) {
         {rows.map(([label, tokens]) => (
           <Fragment key={label}>
             <dt className="text-muted-foreground">{label}</dt>
-            <dd className="text-right tabular-nums">{tokens.toLocaleString("en-US")}</dd>
+            <dd className="text-right tabular-nums">{tokens.toLocaleString(locale)}</dd>
           </Fragment>
         ))}
       </dl>
