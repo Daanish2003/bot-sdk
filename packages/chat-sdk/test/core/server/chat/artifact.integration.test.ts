@@ -1,13 +1,15 @@
 import { storedParts } from "../../../../core/shared/message-parts";
 import { artifact, artifactVersion } from "../../../../core/server/db/schema/artifact";
 import { message } from "../../../../core/server/db/schema/chat";
-import { createArtifactTool } from "../../../../core/server/chat/artifact-tool";
+import { createArtifactTool, updateArtifactTool } from "../../../../core/server/chat/artifact-tool";
 import { createPartsBuilder, parseStoredParts } from "../../../../core/shared/chat/parts";
 import { createToolBudget } from "../../../../core/server/chat/host-tools";
 import { saveCredentials } from "../../../../core/server/credentials/store";
 import type { AppDeps } from "../../../../core/server/deps";
+import { toolDefinition } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
+import { z } from "zod";
 
 import { curatedModels } from "../../../../core/shared/chat/models";
 import { insertConversation } from "../../../support/conversations";
@@ -47,7 +49,10 @@ async function setup({
   });
   // Titled, so a complete run doesn't call the adapter again to title it (#26).
   const conv = await insertConversation(user, { title: "Artifacts" });
-  const send = (command: { text?: string; model?: string } = {}, runDeps: AppDeps = deps) =>
+  const send = (
+    command: { text?: string; model?: string; parentId?: string | null } = {},
+    runDeps: AppDeps = deps,
+  ) =>
     sendAs(
       new Request("http://localhost/api/chat/run", {
         method: "POST",
@@ -88,10 +93,14 @@ const replyOf = async (deps: AppDeps, conversationId: string) =>
   (await repliesOf(deps, conversationId)).at(-1)!;
 
 /**
- * The database, with `onArtifactInsert` run as each `artifact` row is inserted, inside its
- * transaction. A throw there fails the write, and the transaction rolls back.
+ * The database, with `onArtifactInsert` run as each row of `watched` (an `artifact` row by default)
+ * is inserted, inside its transaction. A throw there fails the write, and the transaction rolls back.
  */
-function withArtifactInsertHook(db: AppDeps["db"], onArtifactInsert: () => void): AppDeps["db"] {
+function withArtifactInsertHook(
+  db: AppDeps["db"],
+  onArtifactInsert: () => void,
+  watched: unknown = artifact,
+): AppDeps["db"] {
   return new Proxy(db, {
     get(target, key, receiver) {
       if (key !== "transaction") return Reflect.get(target, key, receiver);
@@ -102,7 +111,7 @@ function withArtifactInsertHook(db: AppDeps["db"], onArtifactInsert: () => void)
               get(inner, field, self) {
                 if (field !== "insert") return Reflect.get(inner, field, self);
                 return (table: unknown) => {
-                  if (table === artifact) onArtifactInsert();
+                  if (table === watched) onArtifactInsert();
                   return (inner as { insert: (t: unknown) => unknown }).insert(table);
                 };
               },
@@ -434,13 +443,17 @@ describe("the artifact.version read", () => {
     });
     await (await send()).text();
     const [row] = await artifactRowsOf(deps, conv.id);
-    return { user, deps, artifactId: row!.id };
+    return { user, deps, artifactId: row!.id, messageId: (await replyOf(deps, conv.id)).id };
   }
 
   it("returns the version's content to the owner of its Conversation", async () => {
-    const { user, deps, artifactId } = await savedArtifact();
+    const { user, deps, artifactId, messageId } = await savedArtifact();
 
-    const version = await chatRpc({ user, deps }).artifact.version({ artifactId, number: 1 });
+    const version = await chatRpc({ user, deps }).artifact.version({
+      artifactId,
+      number: 1,
+      messageId,
+    });
 
     expect(version).toMatchObject({
       artifactId,
@@ -452,32 +465,373 @@ describe("the artifact.version read", () => {
   });
 
   it("refuses another user, a version that doesn't exist, and an unknown Artifact", async () => {
-    const { deps, artifactId } = await savedArtifact();
+    const { deps, artifactId, messageId } = await savedArtifact();
     const stranger = await insertUser();
 
     await expect(
-      chatRpc({ user: stranger, deps }).artifact.version({ artifactId, number: 1 }),
+      chatRpc({ user: stranger, deps }).artifact.version({ artifactId, number: 1, messageId }),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
     const { user } = await savedArtifact();
     await expect(
-      chatRpc({ user, deps }).artifact.version({ artifactId, number: 1 }),
+      chatRpc({ user, deps }).artifact.version({ artifactId, number: 1, messageId }),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(
-      chatRpc({ user, deps }).artifact.version({ artifactId, number: 2 }),
+      chatRpc({ user, deps }).artifact.version({ artifactId, number: 2, messageId }),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(
-      chatRpc({ user, deps }).artifact.version({ artifactId: "missing", number: 1 }),
+      chatRpc({ user, deps }).artifact.version({ artifactId: "missing", number: 1, messageId }),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
   it("does not exist while Artifacts are off", async () => {
-    const { user, deps, artifactId } = await savedArtifact();
+    const { user, deps, artifactId, messageId } = await savedArtifact();
 
     await expect(
       chatRpc({ user, deps: { ...deps, artifacts: false } }).artifact.version({
         artifactId,
         number: 1,
+        messageId,
       }),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+});
+describe("update_artifact in a reply", () => {
+  const page = {
+    kind: "html" as const,
+    title: "Landing page",
+    content: "<h1>Hi</h1>\n<button>Go</button>",
+  };
+  const updateCall = (id: string, input: Record<string, unknown>) =>
+    toolCall({ id, name: "update_artifact", input });
+  const versionsOf = (deps: AppDeps, artifactId: string) =>
+    deps.db
+      .select()
+      .from(artifactVersion)
+      .where(eq(artifactVersion.artifactId, artifactId))
+      .orderBy(asc(artifactVersion.number));
+  const onlyArtifactId = async (deps: AppDeps, conversationId: string) =>
+    (await artifactRowsOf(deps, conversationId))[0]!.id;
+  /** The Active Branch's last reply, which the next send continues from. */
+  const tip = (deps: AppDeps, conversationId: string) => replyOf(deps, conversationId);
+
+  it("makes v2 by edits, with the full edited content, and says it was saved as v2", async () => {
+    let artifactId = "";
+    const { deps, fake, conv, send } = await setup({
+      rounds: [
+        round(createCall("call-1", page)),
+        round(text("Made it.")),
+        () =>
+          round(
+            updateCall("call-2", {
+              artifactId,
+              edits: [{ old: "<button>Go</button>", new: '<button class="blue">Go</button>' }],
+            }),
+          ),
+        round(text("Blue.")),
+      ],
+    });
+    await (await send()).text();
+    artifactId = await onlyArtifactId(deps, conv.id);
+
+    await (
+      await send({ text: "Make the button blue", parentId: (await tip(deps, conv.id)).id })
+    ).text();
+
+    const reply = await tip(deps, conv.id);
+    expect(await versionsOf(deps, artifactId)).toEqual([
+      expect.objectContaining({ number: 1, content: page.content }),
+      expect.objectContaining({
+        number: 2,
+        messageId: reply.id,
+        title: "Landing page",
+        content: '<h1>Hi</h1>\n<button class="blue">Go</button>',
+      }),
+    ]);
+    expect(toolResult(fake, 3)).toMatchObject({
+      role: "tool",
+      toolCallId: "call-2",
+      content: JSON.stringify({ artifactId, version: 2 }),
+    });
+    expect(reply.parts).toMatchObject({
+      parts: expect.arrayContaining([
+        expect.objectContaining({ type: "artifact", artifactId, version: 2, state: "done" }),
+      ]),
+    });
+  });
+
+  it("makes no version when an edit has no match or several, names the edit, and applies none", async () => {
+    let artifactId = "";
+    const { deps, fake, conv, send } = await setup({
+      rounds: [
+        round(createCall("call-1", page)),
+        round(text("Made it.")),
+        () =>
+          round(
+            updateCall("call-2", {
+              artifactId,
+              edits: [
+                { old: "<h1>Hi</h1>", new: "<h1>Hello</h1>" },
+                { old: "nowhere", new: "x" },
+              ],
+            }),
+          ),
+        round(text("Could not.")),
+        () => round(updateCall("call-3", { artifactId, edits: [{ old: "<", new: "&lt;" }] })),
+        round(text("Still not.")),
+      ],
+    });
+    await (await send()).text();
+    artifactId = await onlyArtifactId(deps, conv.id);
+
+    await (await send({ text: "Change it", parentId: (await tip(deps, conv.id)).id })).text();
+    expect(toolResult(fake, 3)).toMatchObject({
+      toolCallId: "call-2",
+      content: JSON.stringify({ error: "Edit 2: No match" }),
+    });
+
+    await (await send({ text: "Escape it", parentId: (await tip(deps, conv.id)).id })).text();
+    expect(toolResult(fake, 5)).toMatchObject({
+      toolCallId: "call-3",
+      content: JSON.stringify({ error: "Edit 1: Found 4 matches" }),
+    });
+    expect(await versionsOf(deps, artifactId)).toHaveLength(1);
+  });
+
+  it("makes v2 by a full content rewrite, and v3 by restoring v1, each keeping the title", async () => {
+    let artifactId = "";
+    const { deps, conv, send } = await setup({
+      rounds: [
+        round(createCall("call-1", page)),
+        round(text("Made it.")),
+        () => round(updateCall("call-2", { artifactId, content: "<h1>Rewritten</h1>" })),
+        round(text("Rewritten.")),
+        () => round(updateCall("call-3", { artifactId, restoreVersion: 1 })),
+        round(text("Restored.")),
+      ],
+    });
+    await (await send()).text();
+    artifactId = await onlyArtifactId(deps, conv.id);
+
+    await (await send({ text: "Rewrite it", parentId: (await tip(deps, conv.id)).id })).text();
+    await (await send({ text: "Undo it", parentId: (await tip(deps, conv.id)).id })).text();
+
+    expect(await versionsOf(deps, artifactId)).toEqual([
+      expect.objectContaining({ number: 1, content: page.content }),
+      expect.objectContaining({ number: 2, content: "<h1>Rewritten</h1>", title: "Landing page" }),
+      expect.objectContaining({ number: 3, content: page.content, title: "Landing page" }),
+    ]);
+  });
+
+  it("refuses a call with none, or two, of edits, content and restoreVersion, and stores nothing", async () => {
+    let artifactId = "";
+    const { deps, fake, conv, send } = await setup({
+      rounds: [
+        round(createCall("call-1", page)),
+        round(text("Made it.")),
+        () => round(updateCall("call-2", { artifactId })),
+        round(text("No.")),
+        () => round(updateCall("call-3", { artifactId, content: "x", restoreVersion: 1 })),
+        round(text("No.")),
+      ],
+    });
+    await (await send()).text();
+    artifactId = await onlyArtifactId(deps, conv.id);
+
+    await (await send({ text: "Nothing", parentId: (await tip(deps, conv.id)).id })).text();
+    await (await send({ text: "Two", parentId: (await tip(deps, conv.id)).id })).text();
+
+    for (const index of [3, 5]) {
+      expect(String(toolResult(fake, index)?.content)).toContain("exactly one of edits");
+    }
+    expect(await versionsOf(deps, artifactId)).toHaveLength(1);
+  });
+
+  it("gives each sibling Branch its own v2, and the version read resolves it on the Branch asked", async () => {
+    let artifactId = "";
+    const { user, deps, fake, conv, send } = await setup({
+      rounds: [
+        round(createCall("call-1", page)),
+        round(text("Made it.")),
+        () =>
+          round(
+            updateCall("call-2", {
+              artifactId,
+              edits: [{ old: "<h1>Hi</h1>", new: "<h1>Blue</h1>" }],
+            }),
+          ),
+        round(text("Blue.")),
+        () =>
+          round(
+            updateCall("call-3", {
+              artifactId,
+              edits: [{ old: "<h1>Hi</h1>", new: "<h1>Big</h1>" }],
+            }),
+          ),
+        round(text("Big.")),
+      ],
+    });
+    await (await send()).text();
+    artifactId = await onlyArtifactId(deps, conv.id);
+    const first = await tip(deps, conv.id);
+
+    // Two sends from the same reply: the second edits the first, so its Branch skips the version
+    // the first Branch made.
+    await (await send({ text: "Make it blue", parentId: first.id })).text();
+    const blueReply = await tip(deps, conv.id);
+    await (await send({ text: "Make it big", parentId: first.id })).text();
+    const bigReply = await tip(deps, conv.id);
+
+    expect(toolResult(fake, 3)).toMatchObject({
+      toolCallId: "call-2",
+      content: JSON.stringify({ artifactId, version: 2 }),
+    });
+    expect(toolResult(fake, 5)).toMatchObject({
+      toolCallId: "call-3",
+      content: JSON.stringify({ artifactId, version: 2 }),
+    });
+    const twos = (await versionsOf(deps, artifactId)).filter((row) => row.number === 2);
+    expect(twos.map((row) => [row.messageId, row.content]).sort()).toEqual(
+      [
+        [blueReply.id, "<h1>Blue</h1>\n<button>Go</button>"],
+        [bigReply.id, "<h1>Big</h1>\n<button>Go</button>"],
+      ].sort(),
+    );
+
+    const onBlue = await chatRpc({ user, deps }).artifact.version({
+      artifactId,
+      number: 2,
+      messageId: blueReply.id,
+    });
+    const onBig = await chatRpc({ user, deps }).artifact.version({
+      artifactId,
+      number: 2,
+      messageId: bigReply.id,
+    });
+    expect(onBlue.content).toContain("Blue");
+    expect(onBig.content).toContain("Big");
+  });
+
+  it("answers an update of an Artifact that is not on this Branch with an error, and stores nothing", async () => {
+    let artifactId = "";
+    const { deps, fake, conv, send } = await setup({
+      rounds: [
+        round(createCall("call-1", page)),
+        round(text("Made it.")),
+        () => round(updateCall("call-2", { artifactId, content: "<h1>Elsewhere</h1>" })),
+        round(text("Could not.")),
+      ],
+    });
+    await (await send()).text();
+    artifactId = await onlyArtifactId(deps, conv.id);
+
+    // A new root Message: a Branch that doesn't go through the reply that made the Artifact.
+    await (await send({ text: "Something else", parentId: null })).text();
+
+    expect(toolResult(fake, 3)).toMatchObject({
+      toolCallId: "call-2",
+      content: JSON.stringify({ error: "This Artifact isn't on this Branch" }),
+    });
+    expect(await versionsOf(deps, artifactId)).toHaveLength(1);
+  });
+
+  it("makes a new Artifact when the reply that created one is regenerated", async () => {
+    const { deps, conv, send } = await setup({
+      rounds: [
+        round(createCall("call-1", page)),
+        round(text("Made it.")),
+        round(createCall("call-2", page)),
+        round(text("Made it again.")),
+      ],
+    });
+    await (await send()).text();
+    const first = await tip(deps, conv.id);
+
+    await (await send({ text: undefined, parentId: first.parentId })).text();
+
+    const ids = (await artifactRowsOf(deps, conv.id)).map((row) => row.id);
+    expect(ids).toHaveLength(2);
+    expect(new Set(ids).size).toBe(2);
+  });
+
+  it("stores an update made in a Run resumed after an Approval like any other", async () => {
+    let artifactId = "";
+    const { user, deps, conv, send } = await setup({
+      rounds: [
+        round(createCall("call-1", page)),
+        round(toolCall({ id: "call-mail", name: "send_mail", input: { to: "a@b.c" } })),
+        () =>
+          round(
+            updateCall("call-2", {
+              artifactId,
+              edits: [{ old: "<h1>Hi</h1>", new: "<h1>Approved</h1>" }],
+            }),
+          ),
+        round(text("Done.")),
+      ],
+      deps: {
+        tools: [
+          toolDefinition({
+            name: "send_mail",
+            description: "Sends an email.",
+            inputSchema: z.object({ to: z.string() }),
+            needsApproval: true,
+          }).server(async () => ({ sent: true })),
+        ],
+      },
+    });
+    await (await send()).text();
+    artifactId = await onlyArtifactId(deps, conv.id);
+    const reply = await tip(deps, conv.id);
+
+    await chatRpc({ user, deps }).chat.decide({ messageId: reply.id, approved: true });
+    await (
+      await sendAs(
+        new Request(`http://localhost/api/chat/run?runId=${reply.id}`, { method: "GET" }),
+        user,
+        deps,
+      )
+    ).text();
+
+    expect(await versionsOf(deps, artifactId)).toEqual([
+      expect.objectContaining({ number: 1 }),
+      expect.objectContaining({
+        number: 2,
+        messageId: reply.id,
+        content: "<h1>Approved</h1>\n<button>Go</button>",
+      }),
+    ]);
+  });
+
+  it("stops mid-write: the version is not saved, and the call stays running for the Run to cancel", async () => {
+    let artifactId = "";
+    const { deps, conv, send } = await setup({
+      rounds: [round(createCall("call-1", page)), round(text("Made it."))],
+    });
+    await (await send()).text();
+    artifactId = await onlyArtifactId(deps, conv.id);
+    const reply = await tip(deps, conv.id);
+    // The Stop lands as the version is written, before it commits: the transaction rolls back.
+    const controller = new AbortController();
+    const db = withArtifactInsertHook(deps.db, () => controller.abort(), artifactVersion);
+    const parts = createPartsBuilder();
+    const tool = updateArtifactTool({
+      deps: { ...deps, db },
+      messageId: reply.id,
+      conversationId: conv.id,
+      parts,
+      onChange: () => {},
+      budget: createToolBudget(0),
+    });
+
+    await expect(
+      tool.execute!({ artifactId, content: "<h1>Stopped</h1>" }, {
+        toolCallId: "call-2",
+        abortSignal: controller.signal,
+      } as never),
+    ).rejects.toThrow("stopped");
+    expect(await versionsOf(deps, artifactId)).toHaveLength(1);
+    expect(parts.parts().parts).toEqual([
+      expect.objectContaining({ type: "tool_call", name: "update_artifact", state: "running" }),
+    ]);
   });
 });

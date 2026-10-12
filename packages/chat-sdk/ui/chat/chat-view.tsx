@@ -27,7 +27,7 @@ import { quotaBlocksModel } from "../../core/client/quota";
 
 import { AttachButton, DraftAttachmentChips, useAttachmentDraft } from "./attachments";
 import { Composer } from "./composer";
-import { ArtifactPanel } from "./artifact-panel";
+import { ArtifactPanel, artifactVersionsOn } from "./artifact-panel";
 import type { ArtifactRef } from "./artifact-card";
 import { ContextOverflowNotice, ContextRing } from "./context-ring";
 import { MessageRow } from "./message-row";
@@ -83,6 +83,12 @@ export function ChatView(props: ChatViewProps) {
         <ArtifactPanel
           key={`${openArtifact.artifactId}:${openArtifact.version}`}
           artifact={openArtifact}
+          // The versions on the Active Branch only, so the dropdown never lists another Branch's.
+          versions={artifactVersionsOn(
+            (restarted?.conversation ?? props.conversation).messages,
+            openArtifact.artifactId,
+          )}
+          onSelect={setOpenArtifact}
           onClose={() => setOpenArtifact(null)}
         />
       )}

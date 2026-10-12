@@ -7,28 +7,34 @@ import type { ToolCallView } from "../../core/shared/chat/tool-call";
 import { cn } from "@/lib/utils";
 import { FileCodeIcon, Loader2Icon } from "lucide-react";
 
-/** The Artifact version a `create_artifact` call saved, as its result carries it. */
-export type ArtifactRef = { artifactId: string; version: number };
+/** An Artifact version a reply shows: the version's number and the Message whose Branch holds it. */
+export type ArtifactRef = { artifactId: string; version: number; messageId: string };
 
 /**
  * The card an Artifact call shows in its reply (spec #304): an icon, the title and what happened.
  * Clicking it opens the panel on the version the call saved. A call still running reads "Writing…",
- * and one that failed or was cut off reads "Not saved" (no version was made).
+ * one that failed or was cut off reads "Not saved" (no version was made), and a later version reads
+ * "Updated to vN".
  */
 export function ArtifactCard({
   call,
+  messageId,
   onOpen,
 }: {
   call: ToolCallView;
+  /** The Message holding the call, which places the version on its Branch. */
+  messageId: string;
   /** Opens the panel on this version; without it the card is not a button. */
   onOpen?: (ref: ArtifactRef) => void;
 }) {
   const { title, kind } = artifactInputOf(call.args);
   const ref = artifactRefOf(call.result);
   // A version exists only for a call that ended `done` with its result (ADR 0016).
-  const saved = call.status === "done" ? ref : undefined;
+  const saved = call.status === "done" && ref ? { ...ref, messageId } : undefined;
   const status = saved
-    ? `Created v${saved.version} · ${artifactKindLabels[kind]}`
+    ? saved.version > 1
+      ? `Updated to v${saved.version}`
+      : `Created v${saved.version} · ${artifactKindLabels[kind]}`
     : call.status === "running"
       ? "Writing…"
       : "Not saved";
@@ -73,7 +79,10 @@ export function ArtifactCard({
   );
 }
 
-/** The title and kind a `create_artifact` call was made with (its input, without the content). */
+/**
+ * The title and kind an Artifact call was made with. An `update_artifact` call carries only its
+ * artifactId (and a new title), so its card title falls back to the Artifact's name.
+ */
 function artifactInputOf(args: unknown): { title: string; kind: ArtifactKind } {
   const input = (args ?? {}) as { title?: unknown; kind?: unknown };
   const kind = artifactKinds.find((known) => known === input.kind) ?? "code";
@@ -81,7 +90,9 @@ function artifactInputOf(args: unknown): { title: string; kind: ArtifactKind } {
 }
 
 /** The version a call saved, from its result; `undefined` when the call saved none. */
-export function artifactRefOf(result: unknown): ArtifactRef | undefined {
+export function artifactRefOf(
+  result: unknown,
+): { artifactId: string; version: number } | undefined {
   const output = (result ?? {}) as { artifactId?: unknown; version?: unknown };
   if (typeof output.artifactId !== "string" || typeof output.version !== "number") return undefined;
   return { artifactId: output.artifactId, version: output.version };

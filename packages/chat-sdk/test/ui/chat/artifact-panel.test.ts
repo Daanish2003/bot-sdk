@@ -4,12 +4,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   ArtifactPanelView,
+  artifactVersionsOn,
   type ArtifactVersionContent,
   codeLanguageOf,
   copyArtifact,
 } from "../../../ui/chat/artifact-panel";
 
 const version: ArtifactVersionContent = {
+  number: 1,
   title: "Landing page",
   kind: "html",
   language: null,
@@ -52,6 +54,67 @@ describe("the Artifact panel", () => {
     expect(codeLanguageOf("code", null)).toBe("text");
     expect(codeLanguageOf("markdown", null)).toBe("markdown");
     expect(codeLanguageOf("svg", null)).toBe("xml");
+  });
+});
+
+describe("the version dropdown", () => {
+  const ref = (number: number, messageId: string) => ({
+    artifactId: "abc",
+    version: number,
+    messageId,
+  });
+  /** A Message whose parts hold the `artifact` version it wrote, as the client sees them. */
+  const writes = (id: string, number: number | null, artifactId = "abc") => ({
+    id,
+    parts:
+      number === null
+        ? []
+        : [
+            {
+              type: "tool-call",
+              name: "update_artifact",
+              output: { artifactId, version: number },
+            },
+          ],
+  });
+
+  it("lists only the versions on the given path, newest first, with the latest marked", () => {
+    // Only the path's Messages are given: a sibling Branch's version never reaches the list.
+    const path = [writes("m-1", 1), writes("m-2", 2), writes("m-3", 3)];
+
+    const versions = artifactVersionsOn(path, "abc");
+
+    expect(versions.map((item) => [item.version, item.messageId])).toEqual([
+      [3, "m-3"],
+      [2, "m-2"],
+      [1, "m-1"],
+    ]);
+    const html = renderToStaticMarkup(
+      createElement(ArtifactPanelView, {
+        version: { ...version, number: 3 },
+        versions,
+        onSelect: () => {},
+        onClose: () => {},
+      }),
+    );
+    expect(html).toContain('aria-label="Version"');
+    expect(html).toContain("v3 (latest)");
+    expect(html).toContain(">v2<");
+    expect(html).toContain('value="3" selected=""');
+  });
+
+  it("ignores other Artifacts' versions, and shows no dropdown for a single version", () => {
+    const path = [writes("m-1", 1), writes("m-2", 1, "other")];
+
+    expect(artifactVersionsOn(path, "abc")).toEqual([ref(1, "m-1")]);
+    const html = renderToStaticMarkup(
+      createElement(ArtifactPanelView, {
+        version,
+        versions: artifactVersionsOn(path, "abc"),
+        onClose: () => {},
+      }),
+    );
+    expect(html).not.toContain('aria-label="Version"');
   });
 });
 

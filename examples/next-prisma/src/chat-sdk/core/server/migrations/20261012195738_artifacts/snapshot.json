@@ -1825,7 +1825,7 @@
       "table": "shared_link"
     },
     {
-      "columns": ["artifact_id", "number"],
+      "columns": ["artifact_id", "message_id", "number"],
       "nameExplicit": false,
       "name": "artifact_version_pkey",
       "entityType": "pks",

@@ -5,7 +5,7 @@ import { handleChat } from "./chat/handle-chat";
 import type { HostServerTool } from "./chat/host-tools";
 import { webSearchToolName } from "../shared/chat/web-search";
 import { fetchUrlToolName } from "../shared/chat/fetch-url";
-import { createArtifactToolName } from "../shared/chat/artifact";
+import { createArtifactToolName, updateArtifactToolName } from "../shared/chat/artifact";
 import { handleJoin } from "./chat/join-run";
 import type { ChatUser, Context } from "./context";
 import { createDb } from "./db/index";
@@ -198,7 +198,7 @@ export function createChat(options: CreateChatOptions): {
   const builtIns = [
     webSearchToolName,
     fetchUrlToolName,
-    ...(options.artifacts ? [createArtifactToolName] : []),
+    ...(options.artifacts ? [createArtifactToolName, updateArtifactToolName] : []),
   ];
   for (const builtIn of builtIns) {
     if (options.tools?.some((tool) => tool.name === builtIn)) {

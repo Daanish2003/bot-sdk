@@ -152,7 +152,8 @@ export function createFakeAdapter({
   model = "fake-model",
   manual = false,
 }: {
-  rounds: Chunks[];
+  /** A round, or a function of the call that makes it (for an id an earlier call returned). */
+  rounds: Array<Chunks | ((options: TextOptions) => Chunks)>;
   model?: string;
   manual?: boolean;
 }): FakeAdapter {
@@ -188,7 +189,8 @@ export function createFakeAdapter({
   // Rounds play one after another (one per tool-loop iteration), never concurrently.
   async function* play(options: TextOptions): AsyncGenerator<AdapterYieldChunk> {
     const index = calls.push(options) - 1;
-    const script = rounds[index];
+    const planned = rounds[index];
+    const script = typeof planned === "function" ? planned(options) : planned;
     if (!script) {
       finish();
       throw new Error(`The fake adapter has no round ${index + 1} scripted`);

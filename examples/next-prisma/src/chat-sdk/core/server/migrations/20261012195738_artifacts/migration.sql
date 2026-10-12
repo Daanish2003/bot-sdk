@@ -14,7 +14,7 @@ CREATE TABLE "chat"."artifact_version" (
 	"language" text,
 	"content" text NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL,
-	CONSTRAINT "artifact_version_pkey" PRIMARY KEY("artifact_id","number")
+	CONSTRAINT "artifact_version_pkey" PRIMARY KEY("artifact_id","message_id","number")
 );
 --> statement-breakpoint
 CREATE INDEX "artifact_conversation_id_idx" ON "chat"."artifact" ("conversation_id");--> statement-breakpoint

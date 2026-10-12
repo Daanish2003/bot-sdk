@@ -17,7 +17,7 @@ import {
 } from "@tanstack/ai";
 
 import { attachmentKind, kindLabel, kindLabelPlural } from "../attachments/kinds";
-import { createArtifactToolName } from "./artifact";
+import { createArtifactToolName, updateArtifactToolName } from "./artifact";
 import { fetchUrlToolName } from "./fetch-url";
 import { providerOf } from "./models";
 import {
@@ -224,11 +224,13 @@ const finished = (part: WebSearchPart | ToolCallPart) =>
   part.state === "done" || part.state === "error" || part.state === "denied";
 
 /**
- * A `create_artifact` call. It is stored as a tool call (for the budget and a failed card) and, once
- * saved, as an `artifact` part; the Model never replays either, as before Artifacts were calls.
+ * A `create_artifact` or `update_artifact` call. It is stored as a tool call (for the budget and a
+ * failed card) and, once saved, as an `artifact` part; the Model never replays either, as before
+ * Artifacts were calls.
  */
 const isArtifactCall = (part: StoredPart) =>
-  part.type === "tool_call" && part.name === createArtifactToolName;
+  part.type === "tool_call" &&
+  (part.name === createArtifactToolName || part.name === updateArtifactToolName);
 
 /** A finished search or tool call the Model replays (an Artifact call is not replayed). */
 const replayable = (part: StoredPart): part is WebSearchPart | ToolCallPart =>
