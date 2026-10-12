@@ -37,11 +37,11 @@ export type HookEmitter = {
 export function createHookEmitter(hooks: ChatHooks | undefined, logger: Logger): HookEmitter {
   return {
     fire(name, payload) {
-      const hook = hooks?.[name] as ((payload: unknown) => unknown) | undefined;
-      if (!hook) return;
+      if (!hooks?.[name]) return;
       // Started a microtask later, so a sync throw and an async rejection both land in `catch`.
+      // Called as a method of `hooks`, so a hook that uses `this` keeps it.
       void Promise.resolve()
-        .then(() => hook(payload))
+        .then(() => (hooks[name] as (payload: unknown) => unknown)(payload))
         .catch((error: unknown) => logger.error(`The Host's ${name} hook failed`, error));
     },
   };

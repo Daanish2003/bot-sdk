@@ -158,7 +158,7 @@ const chat = createChat({
 - **Delivery.** A hook runs after its change is written. It is never awaited, so a slow hook never delays a Run or a response. It runs at most once, with no retries: design your own delivery if you need one.
 - **Failures.** A hook that throws or rejects is logged through the Host's `logger` (`logger.error`). The Run completes as normal.
 - **Credentials.** `onUsage` fires only for usage on Host credentials (ADR 0007), never for a Run on the user's own credentials.
-- **The SDK's failures.** Failed snapshot writes, Run Log appends, usage rows, title generation, the reaper and the database pool all go to the Host's `logger`, not to `console`.
+- **The SDK's failures.** Failed snapshot writes, Run Log appends, usage rows, title generation, the reaper and the database pool all go to the Host's `logger`. The Redis runtime's connection errors still go to `console`: `redisRuntime()` takes no logger yet.
 
 ## Several processes: `redisRuntime()`
 
