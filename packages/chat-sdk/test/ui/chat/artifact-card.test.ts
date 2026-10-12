@@ -31,7 +31,7 @@ const done = {
 describe("an Artifact card in a reply", () => {
   it("shows the title and what was made, as a button that opens the version", () => {
     const html = renderToStaticMarkup(
-      createElement(ArtifactCard, { call: callOf(done), onOpen: () => {} }),
+      createElement(ArtifactCard, { call: callOf(done), messageId: "m-1", onOpen: () => {} }),
     );
 
     expect(html).toContain("Landing page");
@@ -41,7 +41,7 @@ describe("an Artifact card in a reply", () => {
 
   it("reads Writing… while the call runs, and is not a button yet", () => {
     const html = renderToStaticMarkup(
-      createElement(ArtifactCard, { call: callOf({}), onOpen: () => {} }),
+      createElement(ArtifactCard, { call: callOf({}), messageId: "m-1", onOpen: () => {} }),
     );
 
     expect(html).toContain("Writing…");
@@ -56,6 +56,7 @@ describe("an Artifact card in a reply", () => {
           output: { error: "Input validation failed" },
           metadata: { source: "builtin", status: "error" },
         }),
+        messageId: "m-1",
         onOpen: () => {},
       }),
     );
@@ -80,9 +81,29 @@ describe("an Artifact card in a reply", () => {
     const call = toolCallOf(part!);
     if (!call) throw new Error("Expected a tool call");
 
-    const html = renderToStaticMarkup(createElement(ArtifactCard, { call, onOpen: () => {} }));
+    const html = renderToStaticMarkup(
+      createElement(ArtifactCard, { call, messageId: "m-1", onOpen: () => {} }),
+    );
 
     expect(html).toContain("Notes");
-    expect(html).toContain("Created v2 · Markdown");
+    expect(html).toContain("Updated to v2");
+  });
+
+  it("reads Updated to vN for a call that saved a later version, opening it on its Message", () => {
+    const html = renderToStaticMarkup(
+      createElement(ArtifactCard, {
+        call: callOf({
+          name: "update_artifact",
+          input: { artifactId: "abc", title: "Notes" },
+          output: { artifactId: "abc", version: 3 },
+          metadata: { source: "builtin", status: "done" },
+        }),
+        messageId: "m-3",
+        onOpen: () => {},
+      }),
+    );
+
+    expect(html).toContain("Updated to v3");
+    expect(html).toContain("<button");
   });
 });

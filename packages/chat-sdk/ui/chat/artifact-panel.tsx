@@ -10,10 +10,11 @@ import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { CopyIcon, DownloadIcon, Loader2Icon, XIcon } from "lucide-react";
 
-import type { ArtifactRef } from "./artifact-card";
+import { artifactRefOf, type ArtifactRef } from "./artifact-card";
 
-/** One version of an Artifact, as the panel shows it: its title, kind, language and content. */
+/** One version of an Artifact, as the panel shows it: its number, title, kind, language and content. */
 export type ArtifactVersionContent = {
+  number: number;
   title: string;
   kind: ArtifactKind;
   language: string | null;
@@ -21,25 +22,62 @@ export type ArtifactVersionContent = {
 };
 
 /**
+ * The versions of one Artifact on the Active Branch, newest first (ADR 0016): each `artifact` part
+ * on the path names one. Versions written on other Branches never appear, since their Messages
+ * aren't on the path.
+ */
+export function artifactVersionsOn(
+  messages: ReadonlyArray<{ id: string; parts: ReadonlyArray<unknown> }>,
+  artifactId: string,
+): ArtifactRef[] {
+  const versions: ArtifactRef[] = [];
+  for (const message of messages) {
+    for (const part of message.parts) {
+      const call = part as { type?: unknown; output?: unknown };
+      if (call.type !== "tool-call") continue;
+      const ref = artifactRefOf(call.output);
+      if (ref?.artifactId === artifactId) versions.push({ ...ref, messageId: message.id });
+    }
+  }
+  return versions.sort((a, b) => b.version - a.version);
+}
+
+/**
  * The side panel an Artifact opens in (spec #304): the version a card points at, its source
  * highlighted, with copy, download and close. It loads the version's content on demand, so the
- * reply never carries it.
+ * reply never carries it. `versions` are the Artifact's versions on the Active Branch; choosing one
+ * is only a view (`onSelect`), and changes nothing the Model sees.
  */
 export function ArtifactPanel({
   artifact,
+  versions = [],
+  onSelect,
   onClose,
 }: {
   artifact: ArtifactRef;
+  versions?: ArtifactRef[];
+  onSelect?: (ref: ArtifactRef) => void;
   onClose: () => void;
 }) {
   const orpc = useOrpc();
   const version = useQuery(
     orpc.artifact.version.queryOptions({
-      input: { artifactId: artifact.artifactId, number: artifact.version },
+      input: {
+        artifactId: artifact.artifactId,
+        number: artifact.version,
+        messageId: artifact.messageId,
+      },
     }),
   );
   if (version.data) {
-    return <ArtifactPanelView version={version.data} onClose={onClose} />;
+    return (
+      <ArtifactPanelView
+        version={version.data}
+        versions={versions}
+        onSelect={onSelect}
+        onClose={onClose}
+      />
+    );
   }
   return (
     <PanelFrame onClose={onClose}>
@@ -56,12 +94,16 @@ export function ArtifactPanel({
   );
 }
 
-/** The panel with its content: the header's title, kind and actions, and the source. */
+/** The panel with its content: the header's title, kind, version and actions, and the source. */
 export function ArtifactPanelView({
   version,
+  versions = [],
+  onSelect,
   onClose,
 }: {
   version: ArtifactVersionContent;
+  versions?: ArtifactRef[];
+  onSelect?: (ref: ArtifactRef) => void;
   onClose: () => void;
 }) {
   const fileName = artifactFileName({
@@ -69,6 +111,7 @@ export function ArtifactPanelView({
     kind: version.kind,
     language: version.language,
   });
+  const latest = versions[0]?.version;
   return (
     <PanelFrame onClose={onClose}>
       <header className="flex items-center gap-2 border-b px-3 py-2 text-sm">
@@ -76,6 +119,23 @@ export function ArtifactPanelView({
         <span className="rounded border px-1.5 text-[10px] text-muted-foreground">
           {artifactKindLabels[version.kind]}
         </span>
+        {versions.length > 1 && (
+          <select
+            aria-label="Version"
+            className="rounded border bg-background px-1 text-xs"
+            value={version.number}
+            onChange={(event) => {
+              const chosen = versions.find((ref) => ref.version === Number(event.target.value));
+              if (chosen) onSelect?.(chosen);
+            }}
+          >
+            {versions.map((ref) => (
+              <option key={`${ref.messageId}:${ref.version}`} value={ref.version}>
+                {ref.version === latest ? `v${ref.version} (latest)` : `v${ref.version}`}
+              </option>
+            ))}
+          </select>
+        )}
         <Button
           variant="ghost"
           size="icon-sm"

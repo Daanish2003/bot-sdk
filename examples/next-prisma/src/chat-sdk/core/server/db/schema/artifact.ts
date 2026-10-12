@@ -46,7 +46,7 @@ export const artifactVersion = chatSchema.table(
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [
-    primaryKey({ columns: [table.artifactId, table.number] }),
+    primaryKey({ columns: [table.artifactId, table.messageId, table.number] }),
     index("artifact_version_message_id_idx").on(table.messageId),
   ],
 );

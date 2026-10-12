@@ -182,6 +182,9 @@ export async function decideApproval(
     provider: model.provider,
     adapter,
     messages,
+    // The resumed Run offers the Artifact tools too, so a version written after the Approval saves
+    // like any other (ADR 0016).
+    artifacts: deps.artifacts && model.tools,
     hostTools,
     mcp,
     context: { userId, conversationId: owned.conversationId },

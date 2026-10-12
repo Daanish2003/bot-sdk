@@ -10,6 +10,9 @@ export type ArtifactKind = (typeof artifactKinds)[number];
 /** The `create_artifact` tool, as the Model sees it. */
 export const createArtifactToolName = "create_artifact";
 
+/** The `update_artifact` tool, as the Model sees it (ADR 0016). */
+export const updateArtifactToolName = "update_artifact";
+
 /** The most content one version may hold (zod counts characters, which is bytes for ASCII). */
 export const maxArtifactContent = 256 * 1024;
 

@@ -1,5 +1,5 @@
 import type { AttachmentInfo } from "../../core/shared/attachments/kinds";
-import { createArtifactToolName } from "../../core/shared/chat/artifact";
+import { createArtifactToolName, updateArtifactToolName } from "../../core/shared/chat/artifact";
 import { pageSourcesOf, replySegments, sourcesOf } from "../../core/shared/chat/sources";
 import { toolCallOf } from "../../core/shared/chat/tool-call";
 import { webSearchOf } from "../../core/shared/chat/web-search";
@@ -226,6 +226,7 @@ export function MessageRow({
                 <Thinking text={thinking} inProgress={info.status === "streaming" && !text} />
               )}
               <AssistantParts
+                messageId={message.id}
                 parts={message.parts}
                 onDecide={actions?.onDecide}
                 onOpenArtifact={onOpenArtifact}
@@ -384,10 +385,12 @@ function EditBox({
  * to the reply's Sources render as their numbered citation chips.
  */
 function AssistantParts({
+  messageId,
   parts,
   onDecide,
   onOpenArtifact,
 }: {
+  messageId: string;
   parts: UIMessage["parts"];
   onDecide?: (approved: boolean, allowForConversation?: boolean) => void;
   onOpenArtifact?: (ref: ArtifactRef) => void;
@@ -408,8 +411,9 @@ function AssistantParts({
           <SearchRow key={segment.key} searches={segment.searches} sources={sources} />
         ) : (
           <Fragment key={segment.key}>
-            {segment.call.name === createArtifactToolName ? (
-              <ArtifactCard call={segment.call} onOpen={onOpenArtifact} />
+            {segment.call.name === createArtifactToolName ||
+            segment.call.name === updateArtifactToolName ? (
+              <ArtifactCard call={segment.call} messageId={messageId} onOpen={onOpenArtifact} />
             ) : (
               <ToolCallRow call={segment.call} onDecide={onDecide} />
             )}
