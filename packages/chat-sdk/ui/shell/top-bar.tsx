@@ -10,7 +10,7 @@ import { invalidateConversationList } from "../../core/client/react/conversation
 import { useByok } from "../../core/client/react/byok";
 import { useNewConversationModel } from "../../core/client/react/new-conversation-model";
 import { useChatLocation, useOrpc } from "../../core/client/react/provider";
-import { ShareButton } from "../share/share-dialog";
+import { ConversationHeaderActions } from "./conversation-header-actions";
 import { ModelPicker } from "./model-picker";
 import {
   ConversationReasoningEffort,
@@ -92,7 +92,7 @@ export function TopBar({
           </kbd>
         )}
       </Button>
-      {id && <ShareButton key={`share:${id}`} conversationId={id} />}
+      {id && <ConversationHeaderActions key={`actions:${id}`} id={id} />}
       {userMenu}
     </header>
   );

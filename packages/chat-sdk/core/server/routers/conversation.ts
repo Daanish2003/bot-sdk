@@ -202,6 +202,9 @@ export const conversationRouter = {
     const result = await pinConversation(context.deps, context.user.id, input.id);
     if (result === "not_found")
       throw new ORPCError("NOT_FOUND", { message: "Conversation not found" });
+    if (result === "temporary") {
+      throw new ORPCError("BAD_REQUEST", { message: "A Temporary Conversation can't be pinned" });
+    }
     if (result === "limit") {
       throw new ORPCError("BAD_REQUEST", {
         message: `You can pin up to ${maxPinnedConversations} Conversations. Unpin one first.`,
@@ -226,6 +229,14 @@ export const conversationRouter = {
     .handler(async ({ context, input }) => {
       if (input.projectId && !(await findProject(context.deps, context.user.id, input.projectId))) {
         throw new ORPCError("NOT_FOUND", { message: "Project not found" });
+      }
+      if (
+        input.projectId &&
+        (await findConversation(context.deps, context.user.id, input.id))?.temporary
+      ) {
+        throw new ORPCError("BAD_REQUEST", {
+          message: "A Temporary Conversation can't be moved into a Project",
+        });
       }
       const moved = await moveConversation(
         context.deps,

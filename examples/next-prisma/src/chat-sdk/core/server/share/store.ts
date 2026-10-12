@@ -35,6 +35,7 @@ async function findShareState(db: Db | Tx, userId: string, conversationId: strin
   const [row] = await db
     .select({
       title: conversation.title,
+      temporary: conversation.temporary,
       activeLeafId: conversation.activeLeafId,
       leafStatus: message.status,
       link: sharedLink,
@@ -76,6 +77,7 @@ export async function shareStatus(deps: Deps, userId: string, conversationId: st
 type UpsertResult =
   | { error: null; link: { token: string; title: string; updatedAt: Date } }
   | { error: "not_found" }
+  | { error: "temporary" }
   | { error: "blocked"; blockedBy: NonNullable<ShareBlock> };
 
 /**
@@ -96,6 +98,7 @@ export async function upsertSharedLink(
       .for("update");
     const state = await findShareState(tx, userId, conversationId);
     if (!state) return { error: "not_found" };
+    if (state.temporary) return { error: "temporary" };
     if (state.blockedBy || !state.activeLeafId) {
       return { error: "blocked", blockedBy: state.blockedBy ?? "empty" };
     }

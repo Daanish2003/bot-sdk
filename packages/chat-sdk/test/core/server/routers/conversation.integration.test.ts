@@ -1049,4 +1049,26 @@ describe("temporary Conversations", () => {
     await expect(client.conversation.pinned()).resolves.toEqual([]);
     await expect(client.conversation.list({ projectId })).resolves.toMatchObject({ items: [] });
   });
+
+  it("refuses to pin a Temporary Conversation", async () => {
+    const { user, client } = await signedIn();
+    const conv = await insertConversation(user, { temporary: true });
+
+    const refused = client.conversation.pin({ id: conv.id });
+    await expect(refused).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(refused).rejects.toThrow("A Temporary Conversation can't be pinned");
+    await expect(client.conversation.pinned()).resolves.toEqual([]);
+  });
+
+  it("refuses to move a Temporary Conversation into a Project", async () => {
+    const { user, client } = await signedIn();
+    const { id: projectId } = await client.project.create({ name: "Work" });
+    const conv = await insertConversation(user, { temporary: true });
+
+    const refused = client.conversation.move({ id: conv.id, projectId });
+    await expect(refused).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(refused).rejects.toThrow("A Temporary Conversation can't be moved into a Project");
+    const [row] = await getTestDb().select().from(conversation).where(eq(conversation.id, conv.id));
+    expect(row?.projectId).toBeNull();
+  });
 });
