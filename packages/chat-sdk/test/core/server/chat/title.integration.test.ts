@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
 import { saveCredentials } from "../../../../core/server/credentials/store";
-import { saveTitleModel } from "../../../../core/server/settings/store";
+import { saveBackgroundModel } from "../../../../core/server/settings/store";
 import { insertConversation, insertMessage } from "../../../support/conversations";
 import { createTestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, runError, text } from "../../../support/fake-adapter";
@@ -101,7 +101,7 @@ describe("automatic titles", () => {
     expect(prompt).toContain("Paris is the capital.");
   });
 
-  it("uses the user's Title Model with its Provider's credentials", async () => {
+  it("uses the user's Background Model with its Provider's credentials", async () => {
     const { user, deps, send, titleOf, adapterCalls } = await setup();
     await saveCredentials(deps, user.id, {
       service: "openai",
@@ -109,7 +109,7 @@ describe("automatic titles", () => {
       hint: "…-key",
       verified: true,
     });
-    await saveTitleModel(deps, user.id, cheapModel);
+    await saveBackgroundModel(deps, user.id, cheapModel);
 
     await send();
 
@@ -120,7 +120,7 @@ describe("automatic titles", () => {
     });
   });
 
-  it("titles with a live-listed Title Model (OpenRouter)", async () => {
+  it("titles with a live-listed Background Model (OpenRouter)", async () => {
     const { user, deps, send, titleOf, adapterCalls } = await setup();
     await saveCredentials(deps, user.id, {
       service: "openrouter",
@@ -128,7 +128,7 @@ describe("automatic titles", () => {
       hint: "…-key",
       verified: true,
     });
-    await saveTitleModel(deps, user.id, "openrouter:mistralai/mistral-large");
+    await saveBackgroundModel(deps, user.id, "openrouter:mistralai/mistral-large");
 
     await send();
 
@@ -139,9 +139,9 @@ describe("automatic titles", () => {
     });
   });
 
-  it("falls back to the start of the first Message without credentials for the Title Model", async () => {
+  it("falls back to the start of the first Message without credentials for the Background Model", async () => {
     const { user, deps, send, titleOf, adapterCalls } = await setup();
-    await saveTitleModel(deps, user.id, cheapModel);
+    await saveBackgroundModel(deps, user.id, cheapModel);
 
     await send({ text: "How do I keep my sourdough starter alive over a two-week holiday?" });
 

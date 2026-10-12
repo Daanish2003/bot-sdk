@@ -25,10 +25,10 @@ import { DeleteAllConversationsSection } from "../settings/delete-all-conversati
 import { ExportDataButton } from "../settings/export-data-button";
 import { InstructionsField } from "../settings/instructions-field";
 import { SharedLinksSection } from "../settings/shared-links";
-import { TitleModelSelect } from "../settings/title-model-select";
+import { BackgroundModelSelect } from "../settings/background-model-select";
 
 /**
- * Keys & settings: the user's Provider and Tool credentials, the Title Model and the Instructions.
+ * Keys & settings: the user's Provider and Tool credentials, the Background Model and the Instructions.
  * With `byok` off the credential sections are left out; the settings stay.
  */
 export function KeySettingsPage() {
@@ -95,7 +95,7 @@ export function KeySettingsPage() {
 
       <InstructionsField />
 
-      <TitleModelSelect />
+      <BackgroundModelSelect />
 
       <section className="space-y-2">
         <h2 className="text-sm font-medium">Your data</h2>

@@ -79,7 +79,7 @@ describe("createChat().exportUser", () => {
     await insertConversation(owner, { title: "Pinned", projectId, pinnedAt });
     await getTestDb().insert(userSettings).values({
       userId: owner.id,
-      titleModel: "anthropic:title-model",
+      backgroundModel: "anthropic:background-model",
       instructions: "Answer in French.",
     });
     const deps = createTestDeps();
@@ -112,7 +112,7 @@ describe("createChat().exportUser", () => {
       pinnedAt,
     });
     expect(exported.settings).toEqual({
-      titleModel: "anthropic:title-model",
+      backgroundModel: "anthropic:background-model",
       instructions: "Answer in French.",
     });
     const text = JSON.stringify(exported);
@@ -158,7 +158,7 @@ describe("createChat().exportUser", () => {
       conversations: [],
       projects: [],
       sharedLinks: [],
-      settings: { titleModel: null, instructions: null },
+      settings: { backgroundModel: null, instructions: null },
     });
   });
 });
