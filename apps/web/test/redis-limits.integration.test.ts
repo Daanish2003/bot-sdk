@@ -7,7 +7,7 @@ import { redisStore } from "@ai-chat/chat-sdk/server";
 
 import { afterAll, describe, expect, it } from "vitest";
 
-// Redis suites need TEST_REDIS_URL (the throwaway container, 127.0.0.1:6381). Every key sits under
+// Redis suites need TEST_REDIS_URL (for example redis://127.0.0.1:6380/5). Every key sits under
 // a random prefix, so runs never see each other's counts.
 const redisUrl = process.env.TEST_REDIS_URL;
 const BASE = "http://localhost:3000";
@@ -99,13 +99,26 @@ describe.skipIf(!redisUrl)("rate limits and mailbox on Redis", () => {
 
   it("two auth instances on one Redis share one count: the fourth reset request through the second is refused", async () => {
     const shared = `${prefix}auth:`;
+    // Better Auth's in-memory counts are one map per process, so the two instances would share
+    // them even without Redis: the counts each instance's own Redis connection returns prove it.
+    const counts: number[][] = [[], []];
+    const countingStore = (seen: number[]) => {
+      const store = openStore(shared);
+      return {
+        async increment(key: string, ttlSeconds: number) {
+          const count = await store.increment(key, ttlSeconds);
+          seen.push(count);
+          return count;
+        },
+      };
+    };
     const first = createAuth(env, database, createMemorySender(), log, noChatData, {
       rateLimit: true,
-      rateLimitCounter: openStore(shared),
+      rateLimitCounter: countingStore(counts[0]!),
     });
     const second = createAuth(env, database, createMemorySender(), log, noChatData, {
       rateLimit: true,
-      rateLimitCounter: openStore(shared),
+      rateLimitCounter: countingStore(counts[1]!),
     });
     const ip = fromAddress();
 
@@ -117,6 +130,7 @@ describe.skipIf(!redisUrl)("rate limits and mailbox on Redis", () => {
     ];
 
     expect(statuses).toEqual([200, 200, 200, 429]);
+    expect(counts).toEqual([[1, 2, 3], [4]]);
   });
 
   it("with Redis, sessions stay in Postgres: one signed in before Redis is listed, and signed out", async () => {
