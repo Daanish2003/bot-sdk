@@ -19,7 +19,7 @@ import type { AppDeps } from "./deps";
 export async function deleteUserData(deps: AppDeps, userId: string): Promise<void> {
   await deps.db.transaction(async (tx) => {
     // 1. Stop the user's live Runs through the Stop path. The Run's owner aborts and, its row gone,
-    // its later writes match nothing.
+    // its later writes match nothing. No `onRunEnd` fires for them: a Host's user delete emits nothing (#265).
     await stopUserRuns(deps, userId, tx);
 
     // 2. Conversations, which cascade to their Messages, Shared links and Message–Attachment links.
@@ -54,8 +54,10 @@ export async function deleteUserData(deps: AppDeps, userId: string): Promise<voi
  * Live Runs in them stop first, as in `deleteUserData`.
  */
 export async function deleteAllConversations(deps: AppDeps, userId: string): Promise<void> {
-  await deps.db.transaction(async (tx) => {
-    await stopUserRuns(deps, userId, tx);
+  const stopped = await deps.db.transaction(async (tx) => {
+    const ended = await stopUserRuns(deps, userId, tx);
     await tx.delete(conversation).where(eq(conversation.userId, userId));
+    return ended;
   });
+  for (const run of stopped) deps.hooks.fire("onRunEnd", run);
 }

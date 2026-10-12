@@ -262,6 +262,7 @@ export async function handleChat(
 
   await startRun(deps, {
     messageId: assistantMessageId,
+    model: model.id,
     provider: model.provider,
     adapter,
     messages,
