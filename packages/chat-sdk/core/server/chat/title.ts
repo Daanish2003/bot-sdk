@@ -23,8 +23,8 @@ const maxTitleChars = 100;
 /**
  * Titles a Conversation after the run of `replyId` ended `complete`, while it has no title.
  * Asks the Background Model (`user_settings.backgroundModel`, else the Host's `defaultBackgroundModel`,
- * else the Model that wrote the reply) with the user's credentials for its Provider. Without credentials, or when the call fails, the title
- * is the start of the first Message. A title set meanwhile (a manual rename) is never overwritten.
+ * else the Model that wrote the reply) with the user's credentials for its Provider. Without
+ * credentials, or when the call fails, the title is the start of the first Message. A title set meanwhile (a manual rename) is never overwritten.
  * Never throws: it runs fire-and-forget at the end of a run.
  */
 export async function titleConversation(deps: AppDeps, replyId: string): Promise<void> {

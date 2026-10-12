@@ -233,13 +233,12 @@ export function createChat(options: CreateChatOptions): {
         throw new Error("Configure hostProviders, byok, or both: with neither, no one can chat");
       }
       const defaultBackground = options.defaultBackgroundModel;
+      const hostProviders = (options.hostProviders ?? []).filter(isHostProvider);
       if (
         defaultBackground !== undefined &&
-        !(options.hostProviders ?? [])
-          .filter(isHostProvider)
-          .some(({ provider, models }) =>
-            models.some((model) => `${provider}:${model.modelId}` === defaultBackground),
-          )
+        !hostProviders.some(({ provider, models }) =>
+          models.some((model) => `${provider}:${model.modelId}` === defaultBackground),
+        )
       ) {
         throw new Error(
           `defaultBackgroundModel "${defaultBackground}" is not one of the hostProviders' Models`,

@@ -60,8 +60,9 @@ export function hostProvidersOf(env: HostEnv): HostProviders {
 export function hostBackgroundModelOf(env: HostEnv): string | undefined {
   if (!isSet(env.HOST_BACKGROUND_MODEL)) return undefined;
   const id = env.HOST_BACKGROUND_MODEL.trim();
-  const offered = hostProvidersOf(env).flatMap(({ provider, models }) =>
-    models.map((model) => `${provider}:${model.modelId}`),
+  // Only a Provider entry carries Models; a Host Tool entry never comes from these variables.
+  const offered = hostProvidersOf(env).flatMap((entry) =>
+    "models" in entry ? entry.models.map((model) => `${entry.provider}:${model.modelId}`) : [],
   );
   if (!offered.includes(id)) {
     throw new Error("HOST_BACKGROUND_MODEL must name one of the HOST_MODELS, as provider:model");
