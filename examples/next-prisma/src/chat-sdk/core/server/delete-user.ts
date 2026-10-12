@@ -1,7 +1,9 @@
 import { eq, inArray } from "drizzle-orm";
 
+import { attachmentBlobKey, deleteBlobsBestEffort } from "./blob/store";
 import { stopUserRuns } from "./chat/run";
-import { attachment, attachmentBlob } from "./db/schema/attachment";
+import { attachment } from "./db/schema/attachment";
+import { blob } from "./db/schema/blob";
 import { conversation, project } from "./db/schema/chat";
 import { mcpConnection } from "./db/schema/connection";
 import { userCredentials } from "./db/schema/credentials";
@@ -17,7 +19,7 @@ import type { AppDeps } from "./deps";
  * Attachments, because a Message's link to an Attachment does not cascade.
  */
 export async function deleteUserData(deps: AppDeps, userId: string): Promise<void> {
-  await deps.db.transaction(async (tx) => {
+  const blobKeys = await deps.db.transaction(async (tx) => {
     // 1. Stop the user's live Runs through the Stop path. The Run's owner aborts and, its row gone,
     // its later writes match nothing.
     await stopUserRuns(deps, userId, tx);
@@ -28,14 +30,14 @@ export async function deleteUserData(deps: AppDeps, userId: string): Promise<voi
     // 2b. Projects, after their Conversations; a Project's own Conversations are already gone.
     await tx.delete(project).where(eq(project.userId, userId));
 
-    // 3. Attachments and their bytes. The bytes live in Postgres, so they go with their rows. There
-    // is no external blob store yet: an external one would delete its objects here, best-effort,
-    // after the commit.
-    const ownAttachments = tx
+    // 3. Attachments and their bytes. The keys are collected here and their bytes deleted after the
+    // commit. The Postgres bytes also go in this transaction, so the default store stays atomic.
+    const ownAttachments = await tx
       .select({ id: attachment.id })
       .from(attachment)
       .where(eq(attachment.userId, userId));
-    await tx.delete(attachmentBlob).where(inArray(attachmentBlob.attachmentId, ownAttachments));
+    const keys = ownAttachments.map((row) => attachmentBlobKey(row.id));
+    if (keys.length > 0) await tx.delete(blob).where(inArray(blob.key, keys));
     await tx.delete(attachment).where(eq(attachment.userId, userId));
 
     // 4. Credentials and settings.
@@ -44,7 +46,10 @@ export async function deleteUserData(deps: AppDeps, userId: string): Promise<voi
     await tx.delete(userSettings).where(eq(userSettings.userId, userId));
     // 5. Usage rows, which no Conversation cascades to: a deleted account keeps no Quota history.
     await tx.delete(usage).where(eq(usage.userId, userId));
+    return keys;
   });
+  // 6. The store's own bytes, after the commit and best-effort: a failure is logged, not thrown.
+  await deleteBlobsBestEffort(deps, blobKeys);
 }
 
 /**

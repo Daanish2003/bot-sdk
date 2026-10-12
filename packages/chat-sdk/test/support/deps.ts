@@ -1,5 +1,6 @@
 import { getTestDb } from "./test-database";
 
+import { postgresBlobStore } from "../../core/server/blob/postgres";
 import { createMemoryCounters } from "../../core/server/chat/counters";
 import { createMemoryPubSub } from "../../core/server/chat/pubsub";
 import { createMemoryRunStreams } from "../../core/server/chat/run-streams";
@@ -26,6 +27,8 @@ export function createTestDeps({
     });
   return {
     db: getTestDb(),
+    blobStore: postgresBlobStore(getTestDb()),
+    logger: { error: () => {} },
     adapterFor: (model) => {
       throw new Error(`No fake adapter for model "${model}"; pass adapterFor to createTestDeps`);
     },

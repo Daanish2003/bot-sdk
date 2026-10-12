@@ -8,11 +8,8 @@ import { createChat } from "../../../core/server/create-chat";
 import { deleteUserData } from "../../../core/server/delete-user";
 import { saveCredentials } from "../../../core/server/credentials/store";
 import { START } from "../../../core/server/chat/run-streams";
-import {
-  attachment,
-  attachmentBlob,
-  messageAttachment,
-} from "../../../core/server/db/schema/attachment";
+import { attachment, messageAttachment } from "../../../core/server/db/schema/attachment";
+import { blob } from "../../../core/server/db/schema/blob";
 import { conversation, message, project } from "../../../core/server/db/schema/chat";
 import { userCredentials } from "../../../core/server/db/schema/credentials";
 import { sharedLink } from "../../../core/server/db/schema/share";
@@ -78,6 +75,10 @@ async function ownedRows(userId: string) {
     .select({ id: attachment.id })
     .from(attachment)
     .where(eq(attachment.userId, userId));
+  const ownBlobKeys = db
+    .select({ key: sql<string>`'attachment/' || ${attachment.id}` })
+    .from(attachment)
+    .where(eq(attachment.userId, userId));
   const count = async (query: Promise<unknown[]>) => (await query).length;
   return {
     conversations: await count(
@@ -90,9 +91,7 @@ async function ownedRows(userId: string) {
       db.select().from(sharedLink).where(inArray(sharedLink.conversationId, ownConversations)),
     ),
     attachments: await count(db.select().from(attachment).where(eq(attachment.userId, userId))),
-    attachmentBlobs: await count(
-      db.select().from(attachmentBlob).where(inArray(attachmentBlob.attachmentId, ownAttachments)),
-    ),
+    attachmentBlobs: await count(db.select().from(blob).where(inArray(blob.key, ownBlobKeys))),
     messageAttachments: await count(
       db
         .select()
