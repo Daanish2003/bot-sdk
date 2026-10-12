@@ -1,5 +1,5 @@
 ---
-Status: proposed
+Status: accepted
 ---
 
 # The blob store holds bytes only, and files are served through the handler
