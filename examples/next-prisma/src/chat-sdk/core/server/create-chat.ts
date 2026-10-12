@@ -65,6 +65,11 @@ export type CreateChatOptions = {
   /** Whether users may use their own Provider credentials. Defaults to `true` (ADR 0007). */
   byok?: boolean;
   /**
+   * The Host's default Background Model: a `"provider:model"` id of one of the `hostProviders`
+   * Models. Titles use it when a user picks none; `start()` refuses any other id.
+   */
+  defaultBackgroundModel?: string;
+  /**
    * A user's Quota on Host credentials, or one fixed Quota for everyone; `null` or unset is
    * unlimited (ADR 0007).
    */
@@ -203,6 +208,7 @@ export function createChat(options: CreateChatOptions): {
       hostProviders: (options.hostProviders ?? []).filter(isHostProvider),
       hostTools: (options.hostProviders ?? []).filter(isHostTool),
       byok: options.byok ?? true,
+      defaultBackgroundModel: options.defaultBackgroundModel,
       getQuota: quotaLookup(options.getQuota),
       rateLimits: resolveRateLimits(options.rateLimits),
       tools: options.tools ?? [],
@@ -225,6 +231,19 @@ export function createChat(options: CreateChatOptions): {
     start: async () => {
       if (options.byok === false && !options.hostProviders?.length) {
         throw new Error("Configure hostProviders, byok, or both: with neither, no one can chat");
+      }
+      const defaultBackground = options.defaultBackgroundModel;
+      if (
+        defaultBackground !== undefined &&
+        !(options.hostProviders ?? [])
+          .filter(isHostProvider)
+          .some(({ provider, models }) =>
+            models.some((model) => `${provider}:${model.modelId}` === defaultBackground),
+          )
+      ) {
+        throw new Error(
+          `defaultBackgroundModel "${defaultBackground}" is not one of the hostProviders' Models`,
+        );
       }
       await assertMigrated(options.databaseUrl);
       // Unreadable rows are reported, never a reason to refuse to boot (ADR 0010).
