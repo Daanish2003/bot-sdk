@@ -1,0 +1,2 @@
+ALTER TABLE "chat"."conversation" ADD COLUMN "archived_at" timestamp;--> statement-breakpoint
+CREATE INDEX "conversation_archived_user_id_last_message_at_idx" ON "chat"."conversation" ("user_id","last_message_at" DESC NULLS LAST) WHERE archived_at is not null;

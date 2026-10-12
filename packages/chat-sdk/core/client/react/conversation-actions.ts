@@ -8,7 +8,13 @@ import { useChatAdapter } from "./provider";
 export function usePinConversation() {
   const queryClient = useQueryClient();
   const { orpc } = useChatAdapter();
-  const onSuccess = () => invalidateConversationList(queryClient, orpc);
+  // Pinning an archived Conversation unarchives it, so its page's `archivedAt` is refetched too.
+  const onSuccess = async (_: unknown, { id }: { id: string }) => {
+    await invalidateConversationList(queryClient, orpc);
+    await queryClient.invalidateQueries({
+      queryKey: orpc.conversation.get.queryKey({ input: { id } }),
+    });
+  };
   const onError = (error: Error) => toast.error(error.message);
   const pin = useMutation(orpc.conversation.pin.mutationOptions({ onSuccess, onError }));
   const unpin = useMutation(orpc.conversation.unpin.mutationOptions({ onSuccess, onError }));
@@ -20,6 +26,32 @@ export function usePinConversation() {
       else pin.mutate({ id: conversation.id });
     },
     isPending: pin.isPending || unpin.isPending,
+  };
+}
+
+/**
+ * Archives and unarchives a Conversation: from the row menu, ⌘K, and an archived Conversation's
+ * notice. Both refresh the Conversation panel's lists and the Conversation's own page.
+ */
+export function useArchiveConversation() {
+  const queryClient = useQueryClient();
+  const { orpc } = useChatAdapter();
+  const onSuccess = async (_: unknown, { id }: { id: string }) => {
+    await invalidateConversationList(queryClient, orpc);
+    await queryClient.invalidateQueries({
+      queryKey: orpc.conversation.get.queryKey({ input: { id } }),
+    });
+  };
+  const onError = (error: Error) => toast.error(error.message);
+  const archive = useMutation(orpc.conversation.archive.mutationOptions({ onSuccess, onError }));
+  const unarchive = useMutation(
+    orpc.conversation.unarchive.mutationOptions({ onSuccess, onError }),
+  );
+
+  return {
+    archive: (id: string) => archive.mutate({ id }),
+    unarchive: (id: string) => unarchive.mutate({ id }),
+    isPending: archive.isPending || unarchive.isPending,
   };
 }
 

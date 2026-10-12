@@ -150,6 +150,29 @@ export function registerSharedScenarios(
       await expect(page).not.toHaveURL(host.paths.conversation);
     });
 
+    test("an archived Conversation leaves the sidebar, and sending it a Message brings it back", async ({
+      page,
+    }) => {
+      await signInWithModel(page);
+      await send(page, "Archive this one");
+      await expect(page).toHaveURL(host.paths.conversation);
+      const conversationPath = new URL(page.url()).pathname;
+      const panel = page.getByRole("complementary", { name: "Conversations" });
+      await expect(panel.locator(`a[href="${conversationPath}"]`)).toBeVisible();
+
+      await page.getByRole("button", { name: /^Actions for / }).click();
+      await page.getByRole("menuitem", { name: "Archive", exact: true }).click();
+
+      // It leaves the sidebar, and its page says so.
+      await expect(panel.locator(`a[href="${conversationPath}"]`)).toHaveCount(0);
+      await expect(page.getByText("This Conversation is archived.")).toBeVisible();
+
+      // Sending a Message unarchives it, and it returns to the sidebar.
+      await send(page, "Bring it back");
+      await expect(panel.locator(`a[href="${conversationPath}"]`)).toBeVisible();
+      await expect(page.getByText("This Conversation is archived.")).toHaveCount(0);
+    });
+
     test("a Project holds its chats, Pinned lists the pinned ones, and the main list pages on scroll", async ({
       page,
     }) => {

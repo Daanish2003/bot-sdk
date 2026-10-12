@@ -1003,3 +1003,203 @@ describe("conversation.move", () => {
     expect(row?.projectId).toBeNull();
   });
 });
+
+describe("conversation.archive and conversation.unarchive", () => {
+  it("archives a Conversation, so the main list drops it and get reports archivedAt", async () => {
+    const { user, client } = await signedIn();
+    const conv = await insertConversation(user, { title: "Old" });
+
+    await client.conversation.archive({ id: conv.id });
+
+    expect(await listItems(client)).toEqual([]);
+    await expect(client.conversation.get({ id: conv.id })).resolves.toMatchObject({
+      archivedAt: expect.any(Date),
+    });
+  });
+
+  it("unarchives a Conversation, so it returns to the main list", async () => {
+    const { user, client } = await signedIn();
+    const conv = await insertConversation(user, { title: "Old" });
+    await client.conversation.archive({ id: conv.id });
+
+    await client.conversation.unarchive({ id: conv.id });
+
+    expect((await listItems(client)).map((row) => row.id)).toEqual([conv.id]);
+    await expect(client.conversation.get({ id: conv.id })).resolves.toMatchObject({
+      archivedAt: null,
+    });
+  });
+
+  it("drops an archived Conversation from its Project's list too, and returns it on unarchive", async () => {
+    const { user, client } = await signedIn();
+    const projectId = uuidv7();
+    await getTestDb().insert(project).values({ id: projectId, userId: user.id, name: "Work" });
+    const conv = await insertConversation(user, { title: "Filed", projectId });
+
+    await client.conversation.archive({ id: conv.id });
+    expect((await client.conversation.list({ projectId })).items).toEqual([]);
+
+    await client.conversation.unarchive({ id: conv.id });
+    expect((await client.conversation.list({ projectId })).items.map((row) => row.id)).toEqual([
+      conv.id,
+    ]);
+  });
+
+  it("unpins a pinned Conversation when it is archived", async () => {
+    const { user, client } = await signedIn();
+    const conv = await insertConversation(user, { title: "Pinned" });
+    await client.conversation.pin({ id: conv.id });
+
+    await client.conversation.archive({ id: conv.id });
+
+    expect(await client.conversation.pinned()).toEqual([]);
+    const [row] = await getTestDb()
+      .select({ pinnedAt: conversation.pinnedAt, archivedAt: conversation.archivedAt })
+      .from(conversation)
+      .where(eq(conversation.id, conv.id));
+    expect(row).toEqual({ pinnedAt: null, archivedAt: expect.any(Date) });
+  });
+
+  it("unarchives an archived Conversation when it is pinned", async () => {
+    const { user, client } = await signedIn();
+    const conv = await insertConversation(user, { title: "Back" });
+    await client.conversation.archive({ id: conv.id });
+
+    await client.conversation.pin({ id: conv.id });
+
+    expect((await client.conversation.pinned()).map((row) => row.id)).toEqual([conv.id]);
+    await expect(client.conversation.get({ id: conv.id })).resolves.toMatchObject({
+      archivedAt: null,
+    });
+  });
+
+  it("still applies the pin cap when pinning an archived Conversation", async () => {
+    const { user, client } = await signedIn();
+    for (let i = 0; i < 20; i++) {
+      await insertConversation(user, { pinnedAt: new Date(Date.UTC(2026, 9, 1, 0, i)) });
+    }
+    const conv = await insertConversation(user, { title: "Over the cap" });
+    await client.conversation.archive({ id: conv.id });
+
+    await expect(client.conversation.pin({ id: conv.id })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
+    await expect(client.conversation.get({ id: conv.id })).resolves.toMatchObject({
+      archivedAt: expect.any(Date),
+    });
+  });
+
+  it("archives a Conversation whose reply is still streaming", async () => {
+    const { user, client } = await signedIn();
+    const conv = await insertConversation(user, { title: "Busy" });
+    const question = await insertMessage({ conversationId: conv.id, role: "user", text: "Hi" });
+    await insertMessage({
+      conversationId: conv.id,
+      parentId: question.id,
+      role: "assistant",
+      text: "",
+      status: "streaming",
+      active: true,
+    });
+
+    await client.conversation.archive({ id: conv.id });
+
+    await expect(client.conversation.get({ id: conv.id })).resolves.toMatchObject({
+      archivedAt: expect.any(Date),
+    });
+  });
+
+  it("keeps the archive through a rename, a Model change and a Branch switch", async () => {
+    const user = await insertUser();
+    const deps = createTestDeps();
+    await saveCredentials(deps, user.id, {
+      service: "anthropic",
+      fields: { apiKey: "sk-ant-test-key" },
+      hint: "…-key",
+      verified: true,
+    });
+    const client = chatRpc({ user, deps });
+    const conv = await insertConversation(user, { title: "Quiet" });
+    const question = await insertMessage({ conversationId: conv.id, role: "user", text: "Hi" });
+    await insertMessage({
+      conversationId: conv.id,
+      parentId: question.id,
+      role: "assistant",
+      text: "Hello",
+      active: true,
+    });
+    await client.conversation.archive({ id: conv.id });
+
+    await client.conversation.rename({ id: conv.id, title: "Renamed" });
+    await client.conversation.setModel({ id: conv.id, model: testModel });
+    await client.conversation.switchBranch({ messageId: question.id });
+
+    await expect(client.conversation.get({ id: conv.id })).resolves.toMatchObject({
+      archivedAt: expect.any(Date),
+    });
+  });
+
+  it("refuses another user's Conversation with NOT_FOUND", async () => {
+    const { user } = await signedIn();
+    const conv = await insertConversation(user, { title: "Mine" });
+    const stranger = chatRpc({ user: await insertUser() });
+
+    await expect(stranger.conversation.archive({ id: conv.id })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+    await expect(stranger.conversation.unarchive({ id: conv.id })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+  });
+
+  it("keeps the Shared link working while the Conversation is archived", async () => {
+    const { user, client } = await signedIn();
+    const conv = await insertConversation(user, { title: "Shared" });
+    await insertMessage({ conversationId: conv.id, role: "user", text: "Hi", active: true });
+    const link = await client.share.upsert({ conversationId: conv.id });
+
+    await client.conversation.archive({ id: conv.id });
+
+    await expect(chatRpc().share.get({ token: link.token })).resolves.toMatchObject({
+      title: "Shared",
+    });
+  });
+
+  it("unarchives an archived Conversation when a Message is sent in it", async () => {
+    const user = await insertUser();
+    const fake = createFakeAdapter({ rounds: [round(text("Sure."))] });
+    const deps = createTestDeps({ adapterFor: () => fake.adapter });
+    await saveCredentials(deps, user.id, {
+      service: "anthropic",
+      fields: { apiKey: "sk-ant-test-key" },
+      hint: "…-key",
+      verified: true,
+    });
+    const conv = await insertConversation(user, { title: "Sent to" });
+    const client = chatRpc({ user, deps });
+    await client.conversation.archive({ id: conv.id });
+
+    const response = await sendAs(
+      new Request("http://localhost/api/chat/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: [],
+          forwardedProps: {
+            conversationId: conv.id,
+            parentId: null,
+            text: "Back again",
+            attachmentIds: [],
+            model: testModel,
+            webSearch: false,
+          },
+        }),
+      }),
+      user,
+      deps,
+    );
+    await response.text();
+
+    expect((await listItems(client)).map((row) => row.id)).toEqual([conv.id]);
+  });
+});
