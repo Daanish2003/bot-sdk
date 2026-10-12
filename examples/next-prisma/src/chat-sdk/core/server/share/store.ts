@@ -13,7 +13,7 @@ import { uuidv7 } from "../lib/uuidv7";
 import { storedParts } from "../../shared/message-parts";
 import { toSharedConversation } from "../../shared/share/conversation";
 
-type Deps = Pick<AppDeps, "db">;
+type Deps = Pick<AppDeps, "db" | "isUserBlocked">;
 type Db = Deps["db"];
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
@@ -141,9 +141,23 @@ export async function deleteSharedLink(deps: Deps, userId: string, conversationI
   return true;
 }
 
+/**
+ * The Shared link for a token, or `undefined` when the token is unknown or its owner is blocked
+ * (spec #277): a banned user's links are not found, so they can't be read or continued.
+ */
+async function findVisibleLink(deps: Deps, token: string) {
+  const [row] = await deps.db
+    .select({ link: sharedLink, ownerId: conversation.userId })
+    .from(sharedLink)
+    .innerJoin(conversation, eq(conversation.id, sharedLink.conversationId))
+    .where(eq(sharedLink.token, token));
+  if (!row || (await deps.isUserBlocked(row.ownerId))) return undefined;
+  return row.link;
+}
+
 /** What anyone with the token sees (see `toSharedConversation`). `undefined` for an unknown token. */
 export async function loadSharedConversation(deps: Deps, token: string) {
-  const [link] = await deps.db.select().from(sharedLink).where(eq(sharedLink.token, token));
+  const link = await findVisibleLink(deps, token);
   if (!link) return undefined;
   const path = await loadPath(deps, link.conversationId, link.leafMessageId);
   const attachments = await attachmentsOfMessages(
@@ -165,7 +179,7 @@ export async function continueSharedConversation(
   userId: string,
   token: string,
 ): Promise<{ id: string } | "not_found" | "no_model"> {
-  const [link] = await deps.db.select().from(sharedLink).where(eq(sharedLink.token, token));
+  const link = await findVisibleLink(deps, token);
   if (!link) return "not_found";
   const path = await loadPath(deps, link.conversationId, link.leafMessageId);
   const lastModel = path.filter((row) => row.role === "assistant").at(-1)?.model;

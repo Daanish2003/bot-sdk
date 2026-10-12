@@ -3,6 +3,7 @@ import { createDb } from "@ai-chat/db";
 import { createChat, memoryRuntime, redisRuntime, redisStore } from "@ai-chat/chat-sdk/server";
 import { log } from "evlog";
 
+import { isBanActive } from "./admin/ban";
 import { appName, sender } from "./email";
 import { ENV, ssrfAllowHosts } from "./env.server";
 import { blobStoreOf } from "./blob-store";
@@ -51,6 +52,14 @@ export const chat = createChat({
   getQuota: quotaOf(ENV),
   // File bytes go to the S3 store when S3_* is set, and to Postgres otherwise (ADR 0015).
   blobStore: blobStoreOf(ENV),
+  // A banned user's Shared links are not found while the Ban holds (spec #277).
+  isUserBlocked: async (userId) => {
+    const row = await db.query.user.findFirst({
+      where: { id: userId },
+      columns: { banned: true, banExpires: true },
+    });
+    return row ? isBanActive(row, new Date()) : false;
+  },
   getUser: async (request) => {
     const session = await auth.api.getSession({ headers: request.headers });
     return session?.user ? { id: session.user.id } : null;

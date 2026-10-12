@@ -3,6 +3,7 @@ import { Input } from "@ai-chat/ui/components/input";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { z } from "zod";
 
+import { AdminBanControl } from "@/components/admin-ban-control";
 import { type AdminUser, formatUsd, isAtQuota } from "@/admin/users";
 import { listAdminUsers } from "@/functions/admin-users";
 
@@ -83,6 +84,7 @@ function UsersTable({ users }: { users: AdminUser[] }) {
             <th className="px-3 py-2 font-medium">Role</th>
             <th className="px-3 py-2 font-medium">Status</th>
             <th className="px-3 py-2 font-medium">Spend this window</th>
+            <th className="px-3 py-2 font-medium">Ban</th>
           </tr>
         </thead>
         <tbody>
@@ -93,7 +95,13 @@ function UsersTable({ users }: { users: AdminUser[] }) {
               <td className="px-3 py-2">{row.createdAt.slice(0, 10)}</td>
               <td className="px-3 py-2">{row.signInMethods.join(", ") || "None"}</td>
               <td className="px-3 py-2">{row.role ?? "user"}</td>
-              <td className="px-3 py-2">{row.banned ? "Banned" : "Active"}</td>
+              <td className="px-3 py-2">
+                {row.banned
+                  ? row.banExpires
+                    ? `Banned until ${new Date(row.banExpires).toLocaleString()}`
+                    : "Banned"
+                  : "Active"}
+              </td>
               <td className="px-3 py-2">
                 {formatUsd(row.spentMicros)}
                 {row.budgetMicros === null ? (
@@ -102,6 +110,9 @@ function UsersTable({ users }: { users: AdminUser[] }) {
                   <span className="text-muted-foreground"> of {formatUsd(row.budgetMicros)}</span>
                 )}
                 {isAtQuota(row) && <span className="ml-2 text-destructive">At Quota</span>}
+              </td>
+              <td className="px-3 py-2">
+                <AdminBanControl user={row} />
               </td>
             </tr>
           ))}

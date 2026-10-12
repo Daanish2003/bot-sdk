@@ -10,6 +10,7 @@ function user(fields: Partial<AdminUser> & { email: string }): AdminUser {
     signInMethods: ["Password"],
     role: "user",
     banned: false,
+    banExpires: null,
     spentMicros: 0,
     budgetMicros: null,
     ...fields,

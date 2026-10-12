@@ -24,6 +24,7 @@ import { deleteUserData } from "./delete-user";
 import { type McpServerConfig, checkMcpServers } from "./mcp/servers";
 import { callbackRoute, connectRoute } from "./mcp/routes";
 import { exportUserData, type UserExport } from "./export-user";
+import { stopUserRuns } from "./chat/run";
 import { countUnreadableCredentials, rotateCredentialKeys } from "./credentials/store";
 import { assertMigrated, migrate as migrateSchema } from "./migrate";
 import { rateLimitedFor, resolveRateLimits, rpcRateLimits, type RateLimits } from "./rate-limits";
@@ -96,6 +97,11 @@ export type CreateChatOptions = {
    * stay where they are.
    */
   blobStore?: BlobStore;
+  /**
+   * Whether the Host has banned a user (spec #277). A banned owner's Shared links are not found:
+   * they can't be read or continued. Unset, nobody is blocked.
+   */
+  isUserBlocked?: (userId: string) => boolean | Promise<boolean>;
 };
 
 /**
@@ -202,6 +208,11 @@ export function createChat(options: CreateChatOptions): {
     usageTotals: (range: { since: Date; until: Date }) => Promise<UsageTotal[]>;
     /** A user's budget and spend in micros, with its window's reset time; `null` when unlimited. */
     quota: (userId: string) => Promise<QuotaState | null>;
+    /**
+     * Stops every live Run of the user's, through the same path as Stop (spec #277). A Run whose
+     * owner is gone ends `stopped` here; the others end when their owner sees the Stop.
+     */
+    stopRuns: (userId: string) => Promise<void>;
   };
 } {
   if (options.keyEncryptionSecrets.length === 0) {
@@ -220,6 +231,7 @@ export function createChat(options: CreateChatOptions): {
     deps = createAppDeps({
       db,
       blobStore: options.blobStore ?? postgresBlobStore(db),
+      isUserBlocked: options.isUserBlocked,
       logger: options.logger ?? console,
       keyEncryptionSecrets: options.keyEncryptionSecrets,
       runtime: options.runtime ?? memoryRuntime(),
@@ -264,6 +276,7 @@ export function createChat(options: CreateChatOptions): {
     admin: {
       usageTotals: (range) => usageTotals(getDeps(), range),
       quota: (userId) => quotaState(getDeps(), userId),
+      stopRuns: (userId) => stopUserRuns(getDeps(), userId),
     },
     deleteUser: (userId) => deleteUserData(getDeps(), userId),
     exportUser: (userId) => exportUserData(getDeps(), userId),

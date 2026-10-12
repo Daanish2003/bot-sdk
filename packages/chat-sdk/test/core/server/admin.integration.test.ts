@@ -1,8 +1,11 @@
+import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createChat } from "../../../core/server/create-chat";
+import { message } from "../../../core/server/db/schema/chat";
 import { usage } from "../../../core/server/db/schema/usage";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
+import { insertConversation, insertMessage } from "../../support/conversations";
 import { insertUser, type TestUser } from "../../support/users";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 
@@ -137,5 +140,65 @@ describe("chat.admin.quota", () => {
     });
 
     expect(await chat.admin.quota(free.id)).toBeNull();
+  });
+});
+
+describe("chat.admin.stopRuns", () => {
+  it("ends the user's streaming Run as stopped, and leaves the other users' Runs alone", async () => {
+    const owner = await insertUser();
+    const bystander = await insertUser();
+    const conv = await insertConversation(owner);
+    const otherConv = await insertConversation(bystander);
+    // No owner is alive: its last heartbeat is past the lease, so the Stop ends it here.
+    const orphan = await insertMessage({
+      conversationId: conv.id,
+      role: "assistant",
+      text: "Half",
+      status: "streaming",
+      heartbeatAt: new Date(Date.now() - 60_000),
+    });
+    const theirs = await insertMessage({
+      conversationId: otherConv.id,
+      role: "assistant",
+      text: "Still going",
+      status: "streaming",
+      heartbeatAt: new Date(),
+    });
+    const chat = createChat({
+      databaseUrl: testDatabaseUrl,
+      getUser: () => null,
+      keyEncryptionSecrets,
+      basePath,
+    });
+
+    await chat.admin.stopRuns(owner.id);
+
+    const [ended] = await getTestDb().select().from(message).where(eq(message.id, orphan.id));
+    expect(ended).toMatchObject({ status: "stopped", cancelRequestedAt: expect.any(Date) });
+    const [untouched] = await getTestDb().select().from(message).where(eq(message.id, theirs.id));
+    expect(untouched).toMatchObject({ status: "streaming", cancelRequestedAt: null });
+  });
+
+  it("asks a live Run to stop through its own owner, by setting cancel_requested_at", async () => {
+    const owner = await insertUser();
+    const conv = await insertConversation(owner);
+    const live = await insertMessage({
+      conversationId: conv.id,
+      role: "assistant",
+      text: "Half",
+      status: "streaming",
+      heartbeatAt: new Date(),
+    });
+    const chat = createChat({
+      databaseUrl: testDatabaseUrl,
+      getUser: () => null,
+      keyEncryptionSecrets,
+      basePath,
+    });
+
+    await chat.admin.stopRuns(owner.id);
+
+    const [row] = await getTestDb().select().from(message).where(eq(message.id, live.id));
+    expect(row).toMatchObject({ status: "streaming", cancelRequestedAt: expect.any(Date) });
   });
 });

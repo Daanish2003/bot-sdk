@@ -2,6 +2,7 @@ import { account, user } from "@ai-chat/db/schema/auth";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
+import { isBanActive } from "@/admin/ban";
 import { type AdminUser, selectUsers, windowStart } from "@/admin/users";
 import { ENV } from "@/env.server";
 import { quotaOf } from "@/host-models";
@@ -36,6 +37,7 @@ export const listAdminUsers = createServerFn({ method: "GET" })
           email: user.email,
           role: user.role,
           banned: user.banned,
+          banExpires: user.banExpires,
           createdAt: user.createdAt,
         })
         .from(user),
@@ -60,7 +62,8 @@ export const listAdminUsers = createServerFn({ method: "GET" })
         .filter((linked) => linked.userId === row.id)
         .map((linked) => providerNames[linked.providerId] ?? linked.providerId),
       role: row.role,
-      banned: row.banned === true,
+      banned: isBanActive(row, now),
+      banExpires: isBanActive(row, now) ? (row.banExpires?.toISOString() ?? null) : null,
       spentMicros: spentBy.get(row.id) ?? 0,
       budgetMicros: quotas[index]?.budgetMicros ?? null,
     }));
