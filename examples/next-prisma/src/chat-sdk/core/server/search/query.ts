@@ -52,6 +52,7 @@ export type SearchFilters = {
 /**
  * The user's Messages whose text contains `q` (case-insensitive, literally), on every Branch and
  * in any status, newest first, one row per Message with a plain-text snippet around the match.
+ * Archived Conversations are included, flagged `archived`.
  */
 export async function searchMessages(
   deps: Deps,
@@ -66,6 +67,7 @@ export async function searchMessages(
       messageId: message.id,
       conversationId: message.conversationId,
       conversationTitle: conversation.title,
+      conversationArchived: sql<boolean>`${conversation.archivedAt} is not null`,
       role: message.role,
       createdAt: message.createdAt,
       createdAtText,
@@ -108,6 +110,7 @@ export async function searchMessages(
       messageId: row.messageId,
       conversationId: row.conversationId,
       conversationTitle: row.conversationTitle,
+      archived: row.conversationArchived,
       role: row.role,
       createdAt: row.createdAt,
       snippet: snippetAround(row.searchText, q),

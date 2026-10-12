@@ -150,6 +150,20 @@ describe("createChat().exportUser", () => {
     ]);
   });
 
+  it("says which Conversations are archived, with the format version unchanged", async () => {
+    const owner = await insertUser();
+    const archivedAt = new Date("2026-10-11T09:00:00Z");
+    await insertConversation(owner, { title: "Archived", archivedAt });
+    await insertConversation(owner, { title: "Live" });
+
+    const exported = await chatFor().exportUser(owner.id);
+
+    expect(exported.version).toBe(1);
+    const byTitle = (title: string) => exported.conversations.find((conv) => conv.title === title);
+    expect(byTitle("Archived")?.archivedAt).toEqual(archivedAt);
+    expect(byTitle("Live")?.archivedAt).toBeNull();
+  });
+
   it("exports an empty document for an unknown user id", async () => {
     const exported = await chatFor().exportUser(randomUUID());
 

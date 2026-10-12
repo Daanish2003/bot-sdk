@@ -54,6 +54,7 @@ describe("search.query", () => {
       messageId: active.id,
       conversationId: conv.id,
       conversationTitle: "Trip planning",
+      archived: false,
       role: "assistant",
       createdAt: at(3),
       snippet: { text: "Try LISBON's Bairro Alto.", match: { start: 4, end: 10 } },
@@ -482,5 +483,33 @@ describe("search.query Project filter", () => {
       hits: [],
       nextCursor: null,
     });
+  });
+});
+
+describe("search.query and archived Conversations", () => {
+  it("includes archived Conversations and flags their hits as archived", async () => {
+    const { user, client } = await signedIn();
+    const archived = await insertConversation(user, { title: "Archived trip" });
+    const live = await insertConversation(user, { title: "Live trip" });
+    await insertMessage({
+      conversationId: archived.id,
+      role: "user",
+      text: "Plan the archived trip",
+      createdAt: at(2),
+    });
+    await insertMessage({
+      conversationId: live.id,
+      role: "user",
+      text: "Plan the live trip",
+      createdAt: at(3),
+    });
+    await client.conversation.archive({ id: archived.id });
+
+    const { hits } = await client.search.query({ q: "trip" });
+
+    expect(hits.map((hit) => [hit.conversationId, hit.archived])).toEqual([
+      [live.id, false],
+      [archived.id, true],
+    ]);
   });
 });

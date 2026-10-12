@@ -9,6 +9,7 @@ import {
   deleteConversation,
   findConversation,
   listConversations,
+  archiveConversation,
   listPinnedConversations,
   loadActiveBranch,
   maxPinnedConversations,
@@ -19,6 +20,7 @@ import {
   setConversationModel,
   setConversationReasoningEffort,
   switchBranch,
+  unarchiveConversation,
   unpinConversation,
 } from "../chat/store";
 import { unusableModelMessage } from "../../shared/credentials/services";
@@ -88,6 +90,7 @@ export const conversationRouter = {
       model: row.model,
       reasoningEffort: row.reasoningEffort,
       tools: row.toolSettings,
+      archivedAt: row.archivedAt,
       messages,
     };
   }),
@@ -206,6 +209,25 @@ export const conversationRouter = {
     .handler(async ({ context, input }) => {
       const unpinned = await unpinConversation(context.deps, context.user.id, input.id);
       if (!unpinned) throw new ORPCError("NOT_FOUND", { message: "Conversation not found" });
+    }),
+
+  /**
+   * Archives the Conversation: it leaves the main list and its Project's list, and is unpinned.
+   * It is still found by search and opened by its URL. Doesn't bump `lastMessageAt`.
+   */
+  archive: protectedProcedure
+    .input(z.object({ id: z.uuid() }))
+    .handler(async ({ context, input }) => {
+      const archived = await archiveConversation(context.deps, context.user.id, input.id);
+      if (!archived) throw new ORPCError("NOT_FOUND", { message: "Conversation not found" });
+    }),
+
+  /** Brings an archived Conversation back to the lists. Doesn't bump `lastMessageAt`. */
+  unarchive: protectedProcedure
+    .input(z.object({ id: z.uuid() }))
+    .handler(async ({ context, input }) => {
+      const unarchived = await unarchiveConversation(context.deps, context.user.id, input.id);
+      if (!unarchived) throw new ORPCError("NOT_FOUND", { message: "Conversation not found" });
     }),
 
   /**

@@ -31,6 +31,8 @@ export type UserExport = {
     reasoningEffort: string | null;
     projectId: string | null;
     pinnedAt: Date | null;
+    /** When the Conversation was archived; null when it is not. */
+    archivedAt: Date | null;
     /** The newest Message of the Active Branch. */
     activeLeafId: string | null;
     lastMessageAt: Date;
@@ -134,6 +136,7 @@ export async function exportUserData(deps: AppDeps, userId: string): Promise<Use
           reasoningEffort: conv.reasoningEffort,
           projectId: conv.projectId,
           pinnedAt: conv.pinnedAt,
+          archivedAt: conv.archivedAt,
           activeLeafId: conv.activeLeafId,
           lastMessageAt: conv.lastMessageAt,
           createdAt: conv.createdAt,
