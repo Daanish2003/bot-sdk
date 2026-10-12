@@ -82,5 +82,35 @@ services:
       retries: 5
     restart: unless-stopped
 
+  # S3-compatible file storage (ADR 0015), for apps/web's S3_* variables and the S3 store's tests.
+  rustfs:
+    image: rustfs/rustfs:latest
+    container_name: ai-chat-rustfs
+    environment:
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-rustfsadmin}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-rustfsadmin}
+    ports:
+      - "${RUSTFS_PORT:-9000}:9000"
+    volumes:
+      - ai-chat_rustfs_data:/data
+    restart: unless-stopped
+
+  # Creates the bucket once, then exits. Its S3_BUCKET is the bucket apps/web and the tests use.
+  rustfs-init:
+    image: minio/mc
+    depends_on:
+      - rustfs
+    environment:
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-rustfsadmin}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-rustfsadmin}
+      S3_BUCKET: ${S3_BUCKET:-ai-chat-files}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until mc alias set local http://rustfs:9000 "$$RUSTFS_ACCESS_KEY" "$$RUSTFS_SECRET_KEY" >/dev/null 2>&1; do sleep 1; done
+        mc mb --ignore-existing "local/$$S3_BUCKET"
+    restart: "no"
+
 volumes:
   ai-chat_postgres_data:
+  ai-chat_rustfs_data:
