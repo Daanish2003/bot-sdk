@@ -122,15 +122,16 @@ export const maxPinnedConversations = 20;
 /**
  * Pins the user's Conversation (a Project one too); `"not_found"` when it isn't theirs, `"limit"`
  * when they already have `maxPinnedConversations` pinned. Pinning a pinned Conversation keeps its
- * pin time. Doesn't bump `lastMessageAt`.
+ * pin time. A Temporary Conversation is never pinned (`"temporary"`). Doesn't bump `lastMessageAt`.
  */
 export async function pinConversation(
   deps: Deps,
   userId: string,
   id: string,
-): Promise<"pinned" | "not_found" | "limit"> {
+): Promise<"pinned" | "not_found" | "limit" | "temporary"> {
   const row = await findConversation(deps, userId, id);
   if (!row) return "not_found";
+  if (row.temporary) return "temporary";
   if (row.pinnedAt) return "pinned";
   const [counted] = await deps.db
     .select({ count: sql<number>`count(*)::int` })
