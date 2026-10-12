@@ -13,8 +13,8 @@ An app that embeds the Chat SDK and supplies its users, its routes and a Postgre
 _Avoid_: Consumer, client app, integrator
 
 **Conversation**:
-One chat thread owned by a single user, listed in the sidebar. A user can pin it to the top of the sidebar.
-_Avoid_: Chat, thread, session
+One chat thread owned by a single user, listed in the sidebar. A user can pin it to the top of the sidebar, or archive it to take it out of the sidebar without deleting it; it is never both. An archived Conversation still shows in search, and sending it a Message unarchives it.
+_Avoid_: Chat, thread, session, hidden (for archived)
 
 **Project**:
 A named group of a user's Conversations that share context: instructions, a default Model, Knowledge and their own Memories. A Conversation is in at most one Project; deleting the Project deletes its Conversations.
@@ -23,6 +23,10 @@ _Avoid_: Folder, workspace, collection
 **Instructions**:
 Text a user or Project gives the assistant to shape every reply. A user's apply to all their Conversations, a Project's only to its Conversations, and both apply together.
 _Avoid_: System prompt, custom instructions, persona
+
+**Saved prompt**:
+Text a user saves under a short name and inserts into the composer with `/name`, to edit and send as a Message. Unlike Instructions, it applies only when inserted. Only this is called a prompt; a Message never is.
+_Avoid_: Template, snippet, command, macro
 
 **Message**:
 One turn in a Conversation, authored by either the user or the assistant.
@@ -65,7 +69,7 @@ Provider or Tool credentials the Host supplies for all its users, with the Model
 _Avoid_: Server key, free tier key, platform key
 
 **Quota**:
-How much a user may spend on Host credentials per window (a day or a month), set by the Host per user. It is measured in money, and unlimited when the Host sets none. It is checked before a Run and before each paid tool call (a web search, a Generated image), never by cutting a reply off.
+How much a user may spend on Host credentials per window (a day or a month), set by the Host per user. It is measured in money, and unlimited when the Host sets none. It is checked before a Run and before each paid tool call (a web search, a Generated image) or transcription of a voice recording, never by cutting a reply off.
 _Avoid_: Limit, allowance, credits, free tier
 
 **Admin**:

@@ -14,6 +14,8 @@ ADR 0003 rejected server keys: every run was paid for with the user's own Provid
 
   _Amended 2026-10-12 ([#185](https://github.com/Daanish2003/ai-chat/issues/185)): every paid tool call on Host credentials (a web search, a Generated image) is also checked before it runs. Over the budget, that call fails with `quota_exceeded`, the Model is told why, and the Run carries on, so no reply is cut off. A Generated image can cost about $0.25, and a Run that makes several can't be bounded by the check before the Run alone._
 
+  _Amended 2026-10-12 ([#235](https://github.com/Daanish2003/ai-chat/issues/235)): transcribing a voice recording on Host credentials, which happens outside any Run, is checked the same way before it runs; over the budget it is refused and the mic shows the reset time. It is metered as a `transcription` usage row, priced per minute from the Host's own price for the Model (the TanStack adapters report no cost), using the duration the Provider reports or else the recording's length._
+
 - **What the user sees.** A meter on the composer from 80% (percentages, never money); at the limit the composer is disabled for Host Models with the reset time, an "Add your own key" prompt when `byok` is on, and a Host-rendered `quotaExceeded` slot for plans.
 - **Rate limits are separate from Quotas.** The SDK limits Run starts, Attachment uploads, credential saves and checks, and Conversation search per user, and Shared link views per IP, with default limits the Host can override. Counters live in the `runtime` (ADR 0006): in memory for `memoryRuntime()`, Redis for `redisRuntime()`. Over the limit is HTTP 429 with `Retry-After`. Sign-up, sign-in and password reset stay the Host's (Better Auth's limiter, on Redis storage, in `apps/web`).
 
