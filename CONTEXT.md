@@ -28,6 +28,10 @@ _Avoid_: System prompt, custom instructions, persona
 One turn in a Conversation, authored by either the user or the assistant.
 _Avoid_: Turn, reply, prompt
 
+**Rating**:
+A user's thumbs up or down on one assistant Message whose Run has ended, which they can change or clear. It stays with that Message (regenerating leaves it on the old reply), is never sent to the Provider or shown on a Shared link, and an Admin sees only totals, never the rated Message.
+_Avoid_: Feedback, vote, reaction, like
+
 **Run**:
 The generation of one assistant Message, from the moment it's sent until it ends `complete`, `stopped`, `error` or waiting for an Approval. It goes on without a reader, and anyone can join it while it's live.
 _Avoid_: Job, generation, stream
@@ -60,6 +64,14 @@ _Avoid_: Server key, free tier key, platform key
 How much a user may spend on Host credentials per window (a day or a month), set by the Host per user. It is measured in money, and unlimited when the Host sets none.
 _Avoid_: Limit, allowance, credits, free tier
 
+**Admin**:
+A user of the Host who runs it for everyone else: sees each user's spend, changes a user's Quota, Bans and unbans users, and turns off a user's two-factor sign-in when they have lost every way to pass it. An Admin never reads another user's Conversations.
+_Avoid_: Operator (that is the person; Admin is the role), superuser, moderator
+
+**Ban**:
+An Admin shutting a user out, for good or until a set date: the user is signed out everywhere, can't sign in by any method, their running replies stop, and their Shared links stop showing until the Ban ends.
+_Avoid_: Suspension, block, disable
+
 **Tool credential**:
 A user's own API key for a non-LLM service a tool needs, such as web search. Without it, that tool is unavailable to the user.
 _Avoid_: Search key, Provider credentials (those are for Providers only)
@@ -77,7 +89,7 @@ A web page a web search returned, or a page the `fetch_url` tool read, during an
 _Avoid_: Citation (that is the chip in the text pointing at a Source), result, reference
 
 **Shared link**:
-A public, read-only snapshot of a Conversation's Active Branch taken at the moment it is shared. A Conversation has at most one; sharing again moves it to the current Active Branch under the same link. It disappears when its Conversation is deleted.
+A public, read-only snapshot of a Conversation's Active Branch taken at the moment it is shared. A Conversation has at most one; sharing again moves it to the current Active Branch under the same link. It disappears when its Conversation is deleted, and stops showing while its owner is under a Ban.
 _Avoid_: Share, public chat, permalink
 
 **Attachment**:
