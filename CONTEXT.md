@@ -61,7 +61,7 @@ Provider or Tool credentials the Host supplies for all its users, with the Model
 _Avoid_: Server key, free tier key, platform key
 
 **Quota**:
-How much a user may spend on Host credentials per window (a day or a month), set by the Host per user. It is measured in money, and unlimited when the Host sets none.
+How much a user may spend on Host credentials per window (a day or a month), set by the Host per user. It is measured in money, and unlimited when the Host sets none. It is checked before a Run and before each paid tool call (a web search, a Generated image), never by cutting a reply off.
 _Avoid_: Limit, allowance, credits, free tier
 
 **Admin**:
@@ -97,7 +97,7 @@ A file (image, PDF or text file) a user uploads and attaches to their Message. I
 _Avoid_: Upload, file part, document
 
 **Generated image**:
-An image the assistant made with an image Model during an assistant Message, shown in the reply. It is not an Attachment: the user didn't upload it.
+An image the assistant made with the user's Image Model during an assistant Message, shown in the reply. It belongs to that Message: regenerating the reply makes new ones and leaves the old reply's as they were. It can be made from earlier Generated images or image Attachments on the same Branch (an edit), never by changing them. Unlike an Attachment, the user didn't upload it, and a Shared link shows it in full.
 _Avoid_: Image attachment, picture, output image
 
 **Artifact**:
@@ -133,5 +133,5 @@ The cheap Model a user picks for work done around their Messages rather than in 
 _Avoid_: Title Model, Memory Model, utility model
 
 **Image Model**:
-The Model a user picks for Generated images.
+The Model a user picks for Generated images, independent of the Model they chat with. When they pick none, the Host's default is used; with no default, the assistant can't make images.
 _Avoid_: Image generator, image Provider
