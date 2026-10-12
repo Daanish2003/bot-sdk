@@ -13,7 +13,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import { useByok } from "../../core/client/react/byok";
-import { useOrpc } from "../../core/client/react/provider";
+import { useI18n, useOrpc } from "../../core/client/react/provider";
 
 /** The Title Model select: which Model writes automatic titles ("Same as first reply" by default). */
 export function TitleModelSelect() {
@@ -22,6 +22,7 @@ export function TitleModelSelect() {
   const settings = useQuery(orpc.settings.get.queryOptions());
   const models = useQuery(orpc.models.list.queryOptions());
   const byok = useByok();
+  const { t } = useI18n();
   const settingsKey = orpc.settings.get.queryKey();
   const setTitleModel = useMutation(
     orpc.settings.setTitleModel.mutationOptions({
@@ -48,8 +49,10 @@ export function TitleModelSelect() {
   const groups = modelGroups(available, "");
   // `null` is "Same as first reply".
   const first: Array<{ value: string | null; label: string }> = [
-    { value: null, label: "Same as first reply" },
-    ...(saved && missingKey ? [{ value: saved, label: `${modelLabel(saved)} (no key)` }] : []),
+    { value: null, label: t("settings.sameAsFirstReply") },
+    ...(saved && missingKey
+      ? [{ value: saved, label: t("settings.noKeyModel", { model: modelLabel(saved) }) }]
+      : []),
   ];
   // What the trigger shows for the selected value.
   const items = [
@@ -61,9 +64,9 @@ export function TitleModelSelect() {
 
   return (
     <section className="space-y-2">
-      <h2 className="text-sm font-medium">Titles</h2>
+      <h2 className="text-sm font-medium">{t("settings.titles")}</h2>
       <div className="space-y-2 rounded-xl border px-4 py-3">
-        <Label htmlFor="title-model">Title Model</Label>
+        <Label htmlFor="title-model">{t("settings.titleModel")}</Label>
         <Select
           items={items}
           value={saved}
@@ -95,8 +98,8 @@ export function TitleModelSelect() {
         </Select>
         <p className="text-xs text-muted-foreground">
           {missingKey
-            ? `${missingKey}. Until then, titles are the start of your first Message.`
-            : "Writes each new Conversation's title after the first reply. A cheap Model is enough."}
+            ? t("settings.titleMissingKey", { reason: missingKey })
+            : t("settings.titleHelp")}
         </p>
       </div>
     </section>

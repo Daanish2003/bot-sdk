@@ -41,12 +41,12 @@ export function ModelPicker({
   invalid?: boolean;
 }) {
   const { Link } = useChatAdapter();
-  const { locale } = useI18n();
+  const { t, locale } = useI18n();
   const byok = useByok();
   const quota = useQuota().data;
   // A spent Quota turns the Host's Models off until it resets (ADR 0007).
   const offTitle = quota
-    ? `Host Models are off until ${quotaResetsAt(quota.resetsAt, locale)}`
+    ? t("shell.hostModelsOff", { resetsAt: quotaResetsAt(quota.resetsAt, locale) })
     : undefined;
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -64,7 +64,7 @@ export function ModelPicker({
       }}
     >
       <PopoverTrigger
-        aria-label="Model"
+        aria-label={t("shell.model")}
         className={cn(
           buttonVariants({ variant: "ghost", size: "sm" }),
           "min-w-0",
@@ -79,7 +79,7 @@ export function ModelPicker({
             <span className="truncate">{selected.label}</span>
           </>
         ) : (
-          (value ?? "Pick a Model")
+          (value ?? t("shell.pickAModel"))
         )}
         <ChevronDownIcon />
       </PopoverTrigger>
@@ -87,10 +87,10 @@ export function ModelPicker({
         <div className="flex items-center gap-2 border-b px-2.5">
           <SearchIcon className="size-3.5 text-muted-foreground" />
           <input
-            aria-label="Search Models"
+            aria-label={t("shell.searchModels")}
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search Models…"
+            placeholder={t("shell.searchModelsPlaceholder")}
             className="h-9 flex-1 bg-transparent text-xs outline-none"
           />
         </div>
@@ -99,7 +99,7 @@ export function ModelPicker({
             <div key={group.provider} role="group" aria-label={group.label} className="p-1">
               <div className="px-1.5 py-1 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
                 {group.label}
-                {group.live && <span className="ml-1.5 normal-case">· live list</span>}
+                {group.live && <span className="ml-1.5 normal-case">{t("shell.liveList")}</span>}
               </div>
               {group.models.map((model) => (
                 <button
@@ -122,9 +122,9 @@ export function ModelPicker({
                   {model.onHostCredentials && (
                     <span
                       className="rounded border px-1 text-[10px] text-muted-foreground"
-                      title="Runs on the Host's credentials"
+                      title={t("shell.hostCredentials")}
                     >
-                      Host
+                      {t("shell.hostBadge")}
                     </span>
                   )}
                   <Capabilities model={model} />
@@ -140,9 +140,9 @@ export function ModelPicker({
             <p className="px-2.5 py-4 text-center text-xs text-muted-foreground">
               {models.length === 0
                 ? byok
-                  ? "No Provider credentials yet"
-                  : "No Models yet"
-                : "No matching Models"}
+                  ? t("shell.noProviderCredentials")
+                  : t("shell.noModels")
+                : t("shell.noMatchingModels")}
             </p>
           )}
         </div>
@@ -152,7 +152,7 @@ export function ModelPicker({
             onClick={() => setOpen(false)}
             className="flex items-center gap-2 border-t px-2.5 py-2 text-xs text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:bg-muted"
           >
-            <PlusIcon className="size-3.5" /> Add a Provider…
+            <PlusIcon className="size-3.5" /> {t("shell.addProvider")}
           </Link>
         )}
       </PopoverContent>
@@ -161,18 +161,19 @@ export function ModelPicker({
 }
 
 const capabilities = [
-  { key: "images", label: "Reads images", Icon: ImageIcon },
-  { key: "pdfs", label: "Reads PDFs", Icon: FileTextIcon },
-  { key: "tools", label: "Uses tools (web search)", Icon: GlobeIcon },
+  { key: "images", label: "shell.readsImages", Icon: ImageIcon },
+  { key: "pdfs", label: "shell.readsPdfs", Icon: FileTextIcon },
+  { key: "tools", label: "shell.usesTools", Icon: GlobeIcon },
 ] as const;
 
 function Capabilities({ model }: { model: CuratedModel }) {
+  const { t } = useI18n();
   return (
     <span className="flex items-center gap-1 text-muted-foreground">
       {capabilities.map(({ key, label, Icon }) =>
         model[key] ? (
-          <Icon key={key} role="img" aria-label={label} className="size-3">
-            <title>{label}</title>
+          <Icon key={key} role="img" aria-label={t(label)} className="size-3">
+            <title>{t(label)}</title>
           </Icon>
         ) : (
           <span key={key} className="size-3" />

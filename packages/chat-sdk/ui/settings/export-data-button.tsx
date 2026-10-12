@@ -2,13 +2,12 @@ import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { useChatAdapter } from "../../core/client/react/provider";
-
-const exportFailed = "Couldn't export your data";
+import { useChatAdapter, useI18n } from "../../core/client/react/provider";
 
 /** Downloads the signed-in user's export (`exportUrl`) as one JSON file, named by the server. */
 export function ExportDataButton() {
   const { exportUrl } = useChatAdapter();
+  const { t } = useI18n();
   const [pending, setPending] = useState(false);
 
   async function download() {
@@ -17,7 +16,7 @@ export function ExportDataButton() {
       const response = await fetch(exportUrl);
       if (!response.ok) {
         const body = (await response.json().catch(() => null)) as { message?: string } | null;
-        toast.error(body?.message ?? exportFailed);
+        toast.error(body?.message ?? t("settings.exportFailed"));
         return;
       }
       const fileName = /filename="([^"]+)"/.exec(
@@ -33,7 +32,7 @@ export function ExportDataButton() {
       // Some browsers cancel the download when the URL is revoked too soon.
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch {
-      toast.error(exportFailed);
+      toast.error(t("settings.exportFailed"));
     } finally {
       setPending(false);
     }
@@ -41,7 +40,7 @@ export function ExportDataButton() {
 
   return (
     <Button variant="outline" size="sm" disabled={pending} onClick={download}>
-      {pending ? "Preparing…" : "Export my data"}
+      {pending ? t("settings.preparing") : t("settings.exportData")}
     </Button>
   );
 }

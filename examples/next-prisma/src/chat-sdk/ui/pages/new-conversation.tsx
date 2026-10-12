@@ -17,7 +17,7 @@ import {
   useNewConversationEffort,
 } from "../../core/client/react/new-conversation-effort";
 import { useNewConversationModel } from "../../core/client/react/new-conversation-model";
-import { useChatAdapter, useChatLocation } from "../../core/client/react/provider";
+import { useChatAdapter, useChatLocation, useI18n } from "../../core/client/react/provider";
 
 /**
  * A new Conversation: type the first Message; it's created with the picked Model (the location's
@@ -26,6 +26,7 @@ import { useChatAdapter, useChatLocation } from "../../core/client/react/provide
  */
 export function NewConversationPage() {
   const { orpc, navigate } = useChatAdapter();
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const models = useQuery(orpc.models.list.queryOptions());
   const byok = useByok();
@@ -52,7 +53,7 @@ export function NewConversationPage() {
       setPendingFirstMessage(id, { text, attachments });
       await navigate({ to: "conversation", id });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Couldn't start the Conversation");
+      toast.error(error instanceof Error ? error.message : t("pages.couldntStartConversation"));
     }
   };
 
