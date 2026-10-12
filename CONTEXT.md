@@ -101,8 +101,8 @@ An image the assistant made with the user's Image Model during an assistant Mess
 _Avoid_: Image attachment, picture, output image
 
 **Artifact**:
-A standalone piece of content the assistant creates in a Conversation and then revises (code, an HTML page, a document, a diagram), opened beside the chat with a preview. Each revision is a numbered version of the same Artifact.
-_Avoid_: Canvas, code block, file, document
+A standalone piece of content the assistant creates in a Conversation and then revises (code, an HTML page, a document, a diagram), opened beside the chat with a preview. Each change makes a numbered version, which belongs to the assistant Message that wrote it, so a Branch shows only the versions on its path.
+_Avoid_: Canvas, code block, file, document, revision
 
 **Knowledge**:
 The material a Project gives the assistant to look things up in while replying in its Conversations: its Knowledge files and Synced sources.
