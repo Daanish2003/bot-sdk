@@ -1,5 +1,4 @@
 import {
-  reasoningChoiceLabel,
   reasoningChoices,
   type ReasoningChoice,
   type ReasoningSupport,
@@ -16,10 +15,17 @@ import { toast } from "sonner";
 
 import { useNewConversationModel } from "../../core/client/react/new-conversation-model";
 import { useNewConversationEffort } from "../../core/client/react/new-conversation-effort";
-import { useOrpc } from "../../core/client/react/provider";
+import { useI18n, useOrpc } from "../../core/client/react/provider";
 
 /** The select's value for "the Model's default", which a Conversation stores as `null`. */
 const defaultValue = "default";
+
+const choiceKeys = {
+  off: "shell.effortOff",
+  low: "shell.effortLow",
+  medium: "shell.effortMedium",
+  high: "shell.effortHigh",
+} as const;
 
 /**
  * The reasoning effort control beside the Model picker: the Model's default, then only the choices
@@ -35,14 +41,17 @@ export function ReasoningEffortSelect({
   value: ReasoningChoice | null;
   onChange: (effort: ReasoningChoice | null) => void;
 }) {
+  const { t } = useI18n();
   if (!model) return null;
   const choices = reasoningChoices(model);
   if (choices.length === 0) return null;
   // A stored choice this Model doesn't offer shows as the default; it stays stored, so switching back restores it.
   const selected = value !== null && choices.includes(value) ? value : null;
+  const choiceLabel = (choice: ReasoningChoice | null) =>
+    choice === null ? t("shell.modelDefault") : t(choiceKeys[choice]);
   const items = [
-    { value: defaultValue, label: reasoningChoiceLabel(null) },
-    ...choices.map((choice) => ({ value: choice, label: reasoningChoiceLabel(choice) })),
+    { value: defaultValue, label: choiceLabel(null) },
+    ...choices.map((choice) => ({ value: choice, label: choiceLabel(choice) })),
   ];
 
   return (
@@ -51,7 +60,7 @@ export function ReasoningEffortSelect({
       value={selected ?? defaultValue}
       onValueChange={(next) => onChange(next === defaultValue ? null : (next as ReasoningChoice))}
     >
-      <SelectTrigger aria-label="Reasoning effort" size="sm" className="min-w-0">
+      <SelectTrigger aria-label={t("shell.reasoningEffort")} size="sm" className="min-w-0">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>

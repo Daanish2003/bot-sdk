@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { MessagesSquareIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 
-import { useChatAdapter } from "../../core/client/react/provider";
+import { useChatAdapter, useI18n } from "../../core/client/react/provider";
 import { CommandPalette } from "./command-palette";
 import { ConversationPanel } from "./conversation-panel";
 import { QuotaSlotProvider } from "./quota-slot";
@@ -30,6 +30,7 @@ export function AppShell({
   quotaExceeded?: ReactNode;
 }) {
   const { orpc, Link } = useChatAdapter();
+  const { t } = useI18n();
   const [panelOpen, setPanelOpen] = useState(true);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -74,7 +75,7 @@ export function AppShell({
           }}
         >
           <nav
-            aria-label="App"
+            aria-label={t("shell.app")}
             className="flex w-12 shrink-0 flex-col items-center gap-1 border-r bg-sidebar py-2"
           >
             <Link
@@ -88,8 +89,8 @@ export function AppShell({
               <Button
                 variant="ghost"
                 size="icon"
-                title="Add Provider credentials to start"
-                aria-label="New Conversation"
+                title={t("shell.addCredentialsToStart")}
+                aria-label={t("shell.newConversation")}
                 disabled
               >
                 <PlusIcon />
@@ -97,8 +98,8 @@ export function AppShell({
             ) : (
               <Link
                 page={{ to: "new" }}
-                title="New Conversation"
-                aria-label="New Conversation"
+                title={t("shell.newConversation")}
+                aria-label={t("shell.newConversation")}
                 className={buttonVariants({ variant: "ghost", size: "icon" })}
               >
                 <PlusIcon />
@@ -107,8 +108,8 @@ export function AppShell({
             <Button
               variant="ghost"
               size="icon"
-              title="Search (⌘K / Ctrl+K)"
-              aria-label="Search"
+              title={t("shell.searchTitle")}
+              aria-label={t("shell.search")}
               aria-haspopup="dialog"
               onClick={openSearch}
             >
@@ -117,8 +118,8 @@ export function AppShell({
             <Button
               variant="ghost"
               size="icon"
-              title="Conversations"
-              aria-label="Conversations"
+              title={t("shell.conversations")}
+              aria-label={t("shell.conversations")}
               aria-pressed={panelOpen}
               onClick={() => showPanel(!panelOpen)}
               className={cn("max-md:hidden", panelOpen && "bg-sidebar-accent text-primary")}
@@ -128,8 +129,8 @@ export function AppShell({
             <div className="flex-1" />
             <Link
               page={{ to: "keys" }}
-              title="Keys & settings"
-              aria-label="Keys & settings"
+              title={t("shell.keysAndSettings")}
+              aria-label={t("shell.keysAndSettings")}
               className={buttonVariants({ variant: "ghost", size: "icon" })}
               activeClassName="bg-sidebar-accent text-primary"
             >

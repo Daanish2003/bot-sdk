@@ -71,21 +71,23 @@ export function ConversationPanel({ className }: { className?: string }) {
 
   return (
     <aside
-      aria-label="Conversations"
+      aria-label={i18n.t("shell.conversations")}
       className={cn("flex w-72 shrink-0 flex-col border-r bg-sidebar/50", className)}
     >
       <div className="flex h-11 shrink-0 items-center justify-between border-b px-3">
-        <span className="text-xs font-medium">Conversations</span>
+        <span className="text-xs font-medium">{i18n.t("shell.conversations")}</span>
         <span className="text-[10px] text-muted-foreground">{rows.length + pinnedRows.length}</span>
       </div>
       {conversations.isSuccess && rows.length === 0 && pinnedRows.length === 0 && (
-        <p className="px-3 py-6 text-center text-xs text-muted-foreground">No Conversations yet</p>
+        <p className="px-3 py-6 text-center text-xs text-muted-foreground">
+          {i18n.t("shell.noConversations")}
+        </p>
       )}
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         {pinnedRows.length > 0 && (
-          <section aria-label="Pinned">
+          <section aria-label={i18n.t("shell.pinned")}>
             <h3 className="sticky top-0 z-10 bg-sidebar/95 px-3 py-1.5 text-[10px] font-medium text-muted-foreground">
-              Pinned
+              {i18n.t("shell.pinned")}
             </h3>
             <ul>
               {pinnedRows.map((row) => (
@@ -109,7 +111,9 @@ export function ConversationPanel({ className }: { className?: string }) {
         ))}
         <div ref={sentinelRef} />
         {isFetchingNextPage && (
-          <p className="px-3 py-2 text-center text-[10px] text-muted-foreground">Loading…</p>
+          <p className="px-3 py-2 text-center text-[10px] text-muted-foreground">
+            {i18n.t("shell.loading")}
+          </p>
         )}
       </div>
     </aside>
@@ -146,9 +150,13 @@ export function ConversationRow({ conversation }: { conversation: ConversationSu
         activeClassName="border-l-primary bg-sidebar-accent"
       >
         <div className="flex items-center gap-2">
-          {pinned && <PinIcon aria-label="Pinned" className="size-3 shrink-0 text-primary" />}
+          {pinned && (
+            <PinIcon aria-label={i18n.t("shell.pinned")} className="size-3 shrink-0 text-primary" />
+          )}
           <span className="flex-1 truncate text-xs font-medium">
-            {conversation.title ?? <i className="text-muted-foreground">Untitled</i>}
+            {conversation.title ?? (
+              <i className="text-muted-foreground">{i18n.t("shell.untitled")}</i>
+            )}
           </span>
           <time
             dateTime={conversation.lastMessageAt.toISOString()}
@@ -163,9 +171,14 @@ export function ConversationRow({ conversation }: { conversation: ConversationSu
         <div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground">
           <span className="truncate">{modelLabel(conversation.model)}</span>
           {conversation.shared && (
-            <Share2Icon aria-label="Shared" className="size-3 shrink-0 text-primary" />
+            <Share2Icon
+              aria-label={i18n.t("shell.shared")}
+              className="size-3 shrink-0 text-primary"
+            />
           )}
-          {conversation.hasError && <span className="text-destructive">error</span>}
+          {conversation.hasError && (
+            <span className="text-destructive">{i18n.t("shell.errorBadge")}</span>
+          )}
         </div>
       </Link>
       <Popover
@@ -176,8 +189,10 @@ export function ConversationRow({ conversation }: { conversation: ConversationSu
         }}
       >
         <PopoverTrigger
-          aria-label={`Actions for "${conversation.title ?? "Untitled"}"`}
-          title="Conversation actions"
+          aria-label={i18n.t("shell.actionsFor", {
+            title: conversation.title ?? i18n.t("shell.untitled"),
+          })}
+          title={i18n.t("shell.conversationActions")}
           disabled={remove.isPending || pin.isPending || move.isPending}
           className={cn(
             buttonVariants({ variant: "ghost", size: "icon-xs" }),
@@ -188,7 +203,7 @@ export function ConversationRow({ conversation }: { conversation: ConversationSu
         </PopoverTrigger>
         <PopoverContent align="end" className="w-44 p-1">
           {moveOpen ? (
-            <div role="menu" aria-label="Move to Project" className="flex flex-col">
+            <div role="menu" aria-label={i18n.t("shell.moveToProject")} className="flex flex-col">
               <Button
                 variant="ghost"
                 size="sm"
@@ -196,7 +211,7 @@ export function ConversationRow({ conversation }: { conversation: ConversationSu
                 className="justify-start"
                 onClick={() => setMoveOpen(false)}
               >
-                Back
+                {i18n.t("shell.back")}
               </Button>
               {conversation.projectId && (
                 <Button
@@ -206,7 +221,7 @@ export function ConversationRow({ conversation }: { conversation: ConversationSu
                   className="justify-start"
                   onClick={() => pick(() => move.moveTo(conversation, null))}
                 >
-                  Remove from Project
+                  {i18n.t("shell.removeFromProject")}
                 </Button>
               )}
               {targets.map((target) => (
@@ -224,7 +239,9 @@ export function ConversationRow({ conversation }: { conversation: ConversationSu
               ))}
               {projects.isSuccess && targets.length === 0 && (
                 <p className="px-2 py-1.5 text-xs text-muted-foreground">
-                  {conversation.projectId ? "No other Projects" : "No Projects yet"}
+                  {conversation.projectId
+                    ? i18n.t("shell.noOtherProjects")
+                    : i18n.t("shell.noProjectsYet")}
                 </p>
               )}
             </div>
@@ -237,7 +254,7 @@ export function ConversationRow({ conversation }: { conversation: ConversationSu
                 className="justify-start"
                 onClick={() => pick(() => rename.promptRename(conversation))}
               >
-                Rename
+                {i18n.t("shell.rename")}
               </Button>
               <Button
                 variant="ghost"
@@ -247,7 +264,7 @@ export function ConversationRow({ conversation }: { conversation: ConversationSu
                 onClick={() => pick(() => pin.toggle(conversation))}
               >
                 {pinned ? <PinOffIcon /> : <PinIcon />}
-                {pinned ? "Unpin" : "Pin"}
+                {pinned ? i18n.t("shell.unpin") : i18n.t("shell.pin")}
               </Button>
               <Button
                 variant="ghost"
@@ -257,7 +274,7 @@ export function ConversationRow({ conversation }: { conversation: ConversationSu
                 onClick={() => setMoveOpen(true)}
               >
                 <FolderIcon />
-                Move to Project
+                {i18n.t("shell.moveToProject")}
               </Button>
               <Button
                 variant="ghost"
@@ -267,7 +284,7 @@ export function ConversationRow({ conversation }: { conversation: ConversationSu
                 onClick={() => pick(() => setSharing(true))}
               >
                 <Share2Icon />
-                Share
+                {i18n.t("shell.share")}
               </Button>
               <Button
                 variant="ghost"
@@ -277,7 +294,7 @@ export function ConversationRow({ conversation }: { conversation: ConversationSu
                 onClick={() => pick(() => remove.confirmDelete(conversation))}
               >
                 <Trash2Icon />
-                Delete
+                {i18n.t("shell.delete")}
               </Button>
             </div>
           )}

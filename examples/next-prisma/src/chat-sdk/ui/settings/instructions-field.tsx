@@ -16,7 +16,7 @@ import { useI18n, useOrpc } from "../../core/client/react/provider";
 export function InstructionsField() {
   const queryClient = useQueryClient();
   const orpc = useOrpc();
-  const { locale } = useI18n();
+  const { t, locale } = useI18n();
   const settings = useQuery(orpc.settings.get.queryOptions());
   const settingsKey = orpc.settings.get.queryKey();
   // `null` until the user types, so the field shows what is saved.
@@ -28,7 +28,7 @@ export function InstructionsField() {
     orpc.settings.setInstructions.mutationOptions({
       onSuccess: async () => {
         setDraft(null);
-        toast.success("Instructions saved");
+        toast.success(t("settings.instructionsSaved"));
         await queryClient.invalidateQueries({ queryKey: settingsKey });
       },
     }),
@@ -36,7 +36,7 @@ export function InstructionsField() {
 
   return (
     <section className="space-y-2">
-      <h2 className="text-sm font-medium">Instructions</h2>
+      <h2 className="text-sm font-medium">{t("settings.instructions")}</h2>
       <form
         className="space-y-3 rounded-xl border px-4 py-3"
         onSubmit={(event) => {
@@ -45,12 +45,12 @@ export function InstructionsField() {
           save.mutate({ instructions: value.trim() === "" ? null : value });
         }}
       >
-        <Label htmlFor="instructions">Your Instructions</Label>
+        <Label htmlFor="instructions">{t("settings.yourInstructions")}</Label>
         <Textarea
           id="instructions"
           value={value}
           disabled={settings.isPending}
-          placeholder="For example: answer briefly, use British spelling, I write TypeScript."
+          placeholder={t("settings.instructionsPlaceholder")}
           onChange={(event) => setDraft(event.target.value)}
           aria-invalid={value.length > instructionsMaxChars || undefined}
         />
@@ -61,11 +61,13 @@ export function InstructionsField() {
               value.length > instructionsMaxChars && "text-destructive",
             )}
           >
-            {value.length.toLocaleString(locale)} / {instructionsMaxChars.toLocaleString(locale)}{" "}
-            characters
+            {t("settings.characterCount", {
+              count: value.length.toLocaleString(locale),
+              max: instructionsMaxChars.toLocaleString(locale),
+            })}
           </p>
           <Button type="submit" size="sm" disabled={!dirty || save.isPending}>
-            {save.isPending ? "Saving…" : "Save"}
+            {save.isPending ? t("settings.saving") : t("settings.save")}
           </Button>
         </div>
         {save.error ? (
@@ -73,10 +75,7 @@ export function InstructionsField() {
             {save.error.message}
           </p>
         ) : (
-          <p className="text-xs text-muted-foreground">
-            Sent with every Run from the next one, after the chat's own rules. Shared links never
-            show them.
-          </p>
+          <p className="text-xs text-muted-foreground">{t("settings.instructionsHelp")}</p>
         )}
       </form>
     </section>

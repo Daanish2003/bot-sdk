@@ -1,3 +1,6 @@
+import { pagesMessages } from "./pages";
+import { settingsMessages } from "./settings";
+import { shellMessages } from "./shell";
 import { timeMessages } from "./time";
 
 /**
@@ -6,4 +9,7 @@ import { timeMessages } from "./time";
  */
 export const en = {
   ...timeMessages,
+  ...shellMessages,
+  ...pagesMessages,
+  ...settingsMessages,
 };
