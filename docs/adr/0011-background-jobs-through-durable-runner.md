@@ -18,3 +18,25 @@ Runs themselves don't move onto it. They stay on the run log and pub/sub of ADR 
 
 - A new package and an optional Trigger.dev dependency.
 - Each job type must be safe to retry, since a reaped lease runs it again.
+
+## Amendment: the runner lives in the Chat SDK core (2026-10-12, #202)
+
+Before anything was built, the runner moved out of its own package. The Chat SDK is the runner's only consumer, and ADR 0005 copies the SDK into a Host as one unit. A separate package would add a second `package.json`, a second copy rule and a second migration path, all to serve one interface.
+
+- **In core.** The `JobRunner` interface and the in-process runner live in `core/server/jobs/`. They share the SDK's pool and migrations, and they start and stop with `chat.start()` and `chat.stop()`.
+- **`createChat({ jobs? })`.** The option defaults to the in-process runner, the way `runtime?` defaults to `memoryRuntime()`.
+- **Trigger.dev is a Host-owned adapter.** Trigger.dev finds and deploys tasks from the Host's own project, so its runner can't live only in copied code. It ships under `extras/trigger/`, which the copy script copies only once, like `ui/`. Its `enqueue` triggers the Host's task, and that task calls `chat.runJob(name, payload)`.
+- **`@trigger.dev/sdk` stays optional.** The SDK's `package.json` never lists it, and the README says which Hosts need it.
+- **No new glossary term.** Users see a Knowledge file's status, never a job.
+
+## Amendment: how a job lives (2026-10-12, #203)
+
+- **One `chat.job` table, polled.** Each process polls every 2 s and takes the next due job with `FOR UPDATE SKIP LOCKED`. `enqueue` also wakes its own process. There's no `LISTEN/NOTIFY`, which breaks behind connection pooling (ADR 0006). An idempotency key is unique among active jobs.
+- **Retries.** Three attempts, with backoff of about 10 s, 1 min and 5 min. A `PermanentJobError` fails a job at once. When the last attempt fails, the job's `onFailed` runs.
+- **An expired lease puts a job back in the queue.** A stale Run ends `error` (ADR 0006), but a stale job is `queued` again, and the attempt counts. Jobs heartbeat every 10 s and hold a 60 s lease, since parsing is CPU-heavy, with a 15-minute limit per attempt.
+- **The domain row owns what users see.** A Knowledge file's status lives on its own row, and the job's handler writes it. The runner's own status is for operators and the Trigger.dev adapter, so both runners look the same to users.
+- **Cancelling.** Cancelling a queued job drops it. A running job gets an abort signal at its next heartbeat. Every handler checks that its row still exists before writing, so a late cancel is harmless.
+- **Concurrency.** Two jobs per process by default. File parsing runs in a `worker_threads` worker so it doesn't stall streaming Runs.
+- **Recurring jobs:** `schedule(name, { everyMs })`, with no cron. Each slot is enqueued under the key `name:<slot>`, so exactly one process fires it. They're designed now and built with Synced sources.
+- **Shutdown and retention.** `stop()` stops taking jobs and drains for `drainMs`, then aborts the rest; their leases expire and another process re-runs them. Succeeded and cancelled jobs are deleted after 7 days, failed ones after 30.
+- **Jobs are internal.** `defineJob({ name, payload, run, onFailed })` isn't public, and a Host can't register its own jobs.

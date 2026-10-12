@@ -85,7 +85,7 @@ A user's own API key for a non-LLM service a tool needs, such as web search. Wit
 _Avoid_: Search key, Provider credentials (those are for Providers only)
 
 **Connection**:
-A user's authorisation to use one of the MCP servers the Host offers, made by signing in to that server. The user switches each Connection on per Conversation.
+A user's authorisation to use an outside service the Host offers, made by signing in to it: one of its MCP servers, or GitHub. The user switches each MCP Connection on per Conversation. A GitHub Connection is always on and lets Synced sources read the private repositories the user chose.
 _Avoid_: Integration, MCP credential, Tool credential (that is an API key)
 
 **Approval**:
@@ -125,7 +125,7 @@ An outside collection of text files, such as a GitHub repository, kept in step w
 _Avoid_: Connector, repo, integration, Source (that is a web page)
 
 **Excerpt**:
-A passage of Knowledge the assistant read during an assistant Message, shown as a chip wherever the reply cites it.
+A passage of Knowledge the assistant read during an assistant Message, shown as a chip wherever the reply cites it. Excerpts are numbered together with the Message's Sources. An Excerpt stays with the reply even after its Knowledge file is deleted, and a Shared link shows only its file name.
 _Avoid_: Source (that is a web page), chunk, snippet, Knowledge source
 
 **Memory**:
