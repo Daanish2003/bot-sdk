@@ -1,7 +1,8 @@
 import type { Database } from "./db/index";
-import type { AnyTextAdapter } from "@tanstack/ai";
+import type { AnyTextAdapter, AnyTranscriptionAdapter } from "@tanstack/ai";
 
 import { adapterFor } from "./chat/adapters";
+import { transcriptionAdapterFor } from "./chat/transcription";
 import type { CounterStore } from "./chat/counters";
 import type { PubSub } from "./chat/pubsub";
 import type { HostServerTool } from "./chat/host-tools";
@@ -107,6 +108,11 @@ export type AppDeps = {
     credentials: Credentials,
     options?: { maxOutputTokens?: number },
   ) => AnyTextAdapter;
+  /**
+   * Builds the TanStack AI transcription adapter for a `"provider:model"` id (spec #249), from the
+   * user's own key for that Provider.
+   */
+  transcriptionAdapterFor: (model: string, credentials: Credentials) => AnyTranscriptionAdapter;
   /** The Host credentials (`hostProviders`, ADR 0007). Never stored. */
   hostProviders: HostProvider[];
   /** The Host's Tools, such as a Tavily key for web search (`hostProviders`, ADR 0007). Never stored. */
@@ -186,6 +192,7 @@ export function createAppDeps({
   return {
     db,
     adapterFor,
+    transcriptionAdapterFor,
     hostProviders,
     hostTools,
     byok,

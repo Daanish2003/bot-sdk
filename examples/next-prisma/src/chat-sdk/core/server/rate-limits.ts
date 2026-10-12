@@ -12,6 +12,8 @@ export type RateLimits = {
   runStart?: RateLimit | false;
   /** Attachment uploads, per user. */
   attachmentUpload?: RateLimit | false;
+  /** Dictation transcriptions, per user (spec #249). */
+  transcription?: RateLimit | false;
   /** Provider and Tool credential saves (each one runs a check), per user. */
   credentialSave?: RateLimit | false;
   /** Conversation searches, per user. */
@@ -23,6 +25,7 @@ export type RateLimits = {
 export type ResolvedRateLimits = {
   runStart: RateLimit | false;
   attachmentUpload: RateLimit | false;
+  transcription: RateLimit | false;
   credentialSave: RateLimit | false;
   conversationSearch: RateLimit | false;
   sharedLinkView: RateLimit | false;
@@ -31,6 +34,7 @@ export type ResolvedRateLimits = {
 export const defaultRateLimits: ResolvedRateLimits = {
   runStart: { limit: 20, windowSeconds: 60 },
   attachmentUpload: { limit: 30, windowSeconds: 600 },
+  transcription: { limit: 30, windowSeconds: 600 },
   credentialSave: { limit: 10, windowSeconds: 60 },
   conversationSearch: { limit: 60, windowSeconds: 60 },
   sharedLinkView: { limit: 60, windowSeconds: 60 },
@@ -41,6 +45,7 @@ export function resolveRateLimits(overrides: RateLimits = {}): ResolvedRateLimit
   return {
     runStart: overrides.runStart ?? defaultRateLimits.runStart,
     attachmentUpload: overrides.attachmentUpload ?? defaultRateLimits.attachmentUpload,
+    transcription: overrides.transcription ?? defaultRateLimits.transcription,
     credentialSave: overrides.credentialSave ?? defaultRateLimits.credentialSave,
     conversationSearch: overrides.conversationSearch ?? defaultRateLimits.conversationSearch,
     sharedLinkView: overrides.sharedLinkView ?? defaultRateLimits.sharedLinkView,
@@ -50,6 +55,7 @@ export function resolveRateLimits(overrides: RateLimits = {}): ResolvedRateLimit
 /** The RPC routes (under the handler's `/rpc`) that have a limit, and the limit each one uses. */
 export const rpcRateLimits: Record<string, keyof ResolvedRateLimits | undefined> = {
   "/attachment/upload": "attachmentUpload",
+  "/voice/transcribe": "transcription",
   "/credentials/save": "credentialSave",
   "/search/query": "conversationSearch",
 };
