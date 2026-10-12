@@ -1,6 +1,7 @@
 import type { RouterClient } from "@orpc/server";
 
 import { protectedProcedure, publicProcedure } from "../procedures";
+import { artifactRouter } from "./artifact";
 import { attachmentRouter } from "./attachment";
 import { chatRouter } from "./chat";
 import { connectionsRouter } from "./connections";
@@ -14,6 +15,7 @@ import { searchRouter } from "./search";
 import { shareRouter } from "./share";
 
 export const appRouter = {
+  artifact: artifactRouter,
   attachment: attachmentRouter,
   chat: chatRouter,
   connections: connectionsRouter,

@@ -1,4 +1,5 @@
 import type { AttachmentInfo } from "../../core/shared/attachments/kinds";
+import { createArtifactToolName } from "../../core/shared/chat/artifact";
 import { pageSourcesOf, replySegments, sourcesOf } from "../../core/shared/chat/sources";
 import { toolCallOf } from "../../core/shared/chat/tool-call";
 import { webSearchOf } from "../../core/shared/chat/web-search";
@@ -42,6 +43,7 @@ import {
   useAttachmentDraft,
 } from "./attachments";
 
+import { ArtifactCard, type ArtifactRef } from "./artifact-card";
 import { SearchRow } from "./search-row";
 import { replyComponents, ReplySources, SourceChips } from "./source-chips";
 import { ToolCallRow } from "./tool-call-row";
@@ -96,6 +98,7 @@ export function MessageRow({
   actions,
   highlighted = false,
   contextCut = false,
+  onOpenArtifact,
 }: {
   message: UIMessage;
   userLabel?: string;
@@ -104,6 +107,8 @@ export function MessageRow({
   highlighted?: boolean;
   /** The Model's context starts at this Message on the Branch: a marker sits above it. */
   contextCut?: boolean;
+  /** Opens an Artifact's card in the side panel (spec #304). */
+  onOpenArtifact?: (ref: ArtifactRef) => void;
 }) {
   const info = messageInfo(message);
   const text = plainText(message);
@@ -220,7 +225,11 @@ export function MessageRow({
               {thinking && (
                 <Thinking text={thinking} inProgress={info.status === "streaming" && !text} />
               )}
-              <AssistantParts parts={message.parts} onDecide={actions?.onDecide} />
+              <AssistantParts
+                parts={message.parts}
+                onDecide={actions?.onDecide}
+                onOpenArtifact={onOpenArtifact}
+              />
               {info.status === "streaming" && !thinking && waitingForText(message.parts) && (
                 <Loader variant="typing" size="sm" />
               )}
@@ -377,9 +386,11 @@ function EditBox({
 function AssistantParts({
   parts,
   onDecide,
+  onOpenArtifact,
 }: {
   parts: UIMessage["parts"];
   onDecide?: (approved: boolean, allowForConversation?: boolean) => void;
+  onOpenArtifact?: (ref: ArtifactRef) => void;
 }) {
   const sources = sourcesOf(parts);
   return (
@@ -397,7 +408,11 @@ function AssistantParts({
           <SearchRow key={segment.key} searches={segment.searches} sources={sources} />
         ) : (
           <Fragment key={segment.key}>
-            <ToolCallRow call={segment.call} onDecide={onDecide} />
+            {segment.call.name === createArtifactToolName ? (
+              <ArtifactCard call={segment.call} onOpen={onOpenArtifact} />
+            ) : (
+              <ToolCallRow call={segment.call} onDecide={onDecide} />
+            )}
             <SourceChips sources={pageSourcesOf(segment.call, sources)} />
           </Fragment>
         ),

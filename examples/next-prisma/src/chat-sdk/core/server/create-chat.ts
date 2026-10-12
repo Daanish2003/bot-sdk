@@ -5,6 +5,7 @@ import { handleChat } from "./chat/handle-chat";
 import type { HostServerTool } from "./chat/host-tools";
 import { webSearchToolName } from "../shared/chat/web-search";
 import { fetchUrlToolName } from "../shared/chat/fetch-url";
+import { createArtifactToolName } from "../shared/chat/artifact";
 import { handleJoin } from "./chat/join-run";
 import type { ChatUser, Context } from "./context";
 import { createDb } from "./db/index";
@@ -87,6 +88,11 @@ export type CreateChatOptions = {
    * redirect URI to register.
    */
   mcpServers?: McpServerConfig[];
+  /**
+   * Turns Artifacts on (ADR 0016): the `create_artifact` tool for a Model with tools, the side
+   * panel and the version route. Off by default, and then none of them exist.
+   */
+  artifacts?: boolean;
 };
 
 /**
@@ -189,7 +195,12 @@ export function createChat(options: CreateChatOptions): {
     throw new Error("keyEncryptionSecrets must hold at least one secret");
   }
   checkMcpServers(options.mcpServers ?? [], options.fetchAllowHosts);
-  for (const builtIn of [webSearchToolName, fetchUrlToolName]) {
+  const builtIns = [
+    webSearchToolName,
+    fetchUrlToolName,
+    ...(options.artifacts ? [createArtifactToolName] : []),
+  ];
+  for (const builtIn of builtIns) {
     if (options.tools?.some((tool) => tool.name === builtIn)) {
       throw new Error(`A Host tool can't be named "${builtIn}": the SDK's tool has it`);
     }
@@ -208,6 +219,7 @@ export function createChat(options: CreateChatOptions): {
       tools: options.tools ?? [],
       fetchAllowHosts: options.fetchAllowHosts,
       mcpServers: options.mcpServers ?? [],
+      artifacts: options.artifacts,
     });
     return deps;
   };

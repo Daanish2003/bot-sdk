@@ -267,6 +267,8 @@ export async function handleChat(
     messages,
     webSearch: searchCall?.credentials,
     fetchUrl: web,
+    // Artifacts are offered to a Model with tools, and only when the Host turned them on (ADR 0016).
+    artifacts: deps.artifacts && model.tools,
     hostTools,
     mcp,
     context: { userId, conversationId: owned.id },

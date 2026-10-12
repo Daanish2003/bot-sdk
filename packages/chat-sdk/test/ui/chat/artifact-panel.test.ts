@@ -1,0 +1,69 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import {
+  ArtifactPanelView,
+  type ArtifactVersionContent,
+  codeLanguageOf,
+  copyArtifact,
+} from "../../../ui/chat/artifact-panel";
+
+const version: ArtifactVersionContent = {
+  title: "Landing page",
+  kind: "html",
+  language: null,
+  content: "<h1>Hello from the page</h1>",
+};
+
+const render = (fields: Partial<ArtifactVersionContent> = {}) =>
+  renderToStaticMarkup(
+    createElement(ArtifactPanelView, { version: { ...version, ...fields }, onClose: () => {} }),
+  );
+
+describe("the Artifact panel", () => {
+  it("shows the title, the kind and the source", () => {
+    const html = render();
+
+    expect(html).toContain("Landing page");
+    expect(html).toContain("HTML");
+    expect(html).toContain("&lt;h1&gt;Hello from the page&lt;/h1&gt;");
+  });
+
+  it("names its download after the title and the kind's extension", () => {
+    expect(render()).toContain('data-download-name="Landing page.html"');
+    expect(render({ kind: "code", language: "python", title: "Sorter" })).toContain(
+      'data-download-name="Sorter.py"',
+    );
+  });
+
+  it("has copy, download and close, and is full screen at phone width", () => {
+    const html = render();
+
+    expect(html).toContain('aria-label="Copy"');
+    expect(html).toContain('aria-label="Download"');
+    expect(html).toContain('aria-label="Close"');
+    expect(html).toContain("max-md:fixed");
+    expect(html).toContain("md:w-1/2");
+  });
+
+  it("highlights code by its language, and the other kinds by their own", () => {
+    expect(codeLanguageOf("code", "python")).toBe("python");
+    expect(codeLanguageOf("code", null)).toBe("text");
+    expect(codeLanguageOf("markdown", null)).toBe("markdown");
+    expect(codeLanguageOf("svg", null)).toBe("xml");
+  });
+});
+
+describe("copying an Artifact", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("copies the version's content to the clipboard", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+
+    await copyArtifact("<h1>Hi</h1>");
+
+    expect(writeText).toHaveBeenCalledWith("<h1>Hi</h1>");
+  });
+});

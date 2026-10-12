@@ -54,16 +54,24 @@ export function thinking(...deltas: string[]): Chunks {
   ];
 }
 
-/** A tool call the model asks for. A round containing one finishes with `tool_calls`. */
+/**
+ * A tool call the model asks for. A round containing one finishes with `tool_calls`. Its arguments
+ * stream as `split` TOOL_CALL_ARGS deltas (one by default), as a Provider streams a long call.
+ */
 export function toolCall({
   id: toolCallId = id("fake-call"),
   name,
   input,
+  split = 1,
 }: {
   id?: string;
   name: string;
   input: unknown;
+  split?: number;
 }): Chunks {
+  const json = JSON.stringify(input);
+  const size = Math.ceil(json.length / split);
+  const deltas = Array.from({ length: split }, (_, i) => json.slice(i * size, (i + 1) * size));
   return [
     {
       type: EventType.TOOL_CALL_START,
@@ -72,12 +80,12 @@ export function toolCall({
       toolName: name,
       timestamp: Date.now(),
     },
-    {
+    ...deltas.map((delta): AdapterYieldChunk => ({
       type: EventType.TOOL_CALL_ARGS,
       toolCallId,
-      delta: JSON.stringify(input),
+      delta,
       timestamp: Date.now(),
-    },
+    })),
     { type: EventType.TOOL_CALL_END, toolCallId, toolCallName: name, input, timestamp: Date.now() },
   ];
 }

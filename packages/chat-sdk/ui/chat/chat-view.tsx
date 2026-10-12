@@ -27,6 +27,8 @@ import { quotaBlocksModel } from "../../core/client/quota";
 
 import { AttachButton, DraftAttachmentChips, useAttachmentDraft } from "./attachments";
 import { Composer } from "./composer";
+import { ArtifactPanel } from "./artifact-panel";
+import type { ArtifactRef } from "./artifact-card";
 import { ContextOverflowNotice, ContextRing } from "./context-ring";
 import { MessageRow } from "./message-row";
 import { MissingCredentialsBanner } from "./missing-credentials-banner";
@@ -57,20 +59,34 @@ export function ChatView(props: ChatViewProps) {
     conversation: ConversationData;
     generation: number;
   }>();
+  // The Artifact version the side panel shows, or none while the panel is closed (spec #304).
+  const [openArtifact, setOpenArtifact] = useState<ArtifactRef | null>(null);
   return (
-    <ChatThread
-      key={restarted?.generation ?? 0}
-      {...props}
-      conversation={restarted?.conversation ?? props.conversation}
-      onDecided={(conversation) =>
-        setRestarted({ conversation, generation: (restarted?.generation ?? 0) + 1 })
-      }
-      // The restarted snapshot is the decision's, still streaming. Once its join ends, the
-      // refetched Conversation replaces it, or the page would keep showing the reply as streaming.
-      onSynced={(conversation) =>
-        setRestarted((current) => (current ? { ...current, conversation } : current))
-      }
-    />
+    <div className="flex h-full min-h-0">
+      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
+        <ChatThread
+          key={restarted?.generation ?? 0}
+          {...props}
+          conversation={restarted?.conversation ?? props.conversation}
+          onDecided={(conversation) =>
+            setRestarted({ conversation, generation: (restarted?.generation ?? 0) + 1 })
+          }
+          // The restarted snapshot is the decision's, still streaming. Once its join ends, the
+          // refetched Conversation replaces it, or the page would keep showing the reply as streaming.
+          onSynced={(conversation) =>
+            setRestarted((current) => (current ? { ...current, conversation } : current))
+          }
+          onOpenArtifact={setOpenArtifact}
+        />
+      </div>
+      {openArtifact && (
+        <ArtifactPanel
+          key={`${openArtifact.artifactId}:${openArtifact.version}`}
+          artifact={openArtifact}
+          onClose={() => setOpenArtifact(null)}
+        />
+      )}
+    </div>
   );
 }
 
@@ -86,11 +102,14 @@ function ChatThread({
   onFocused = () => {},
   onDecided,
   onSynced,
+  onOpenArtifact,
 }: ChatViewProps & {
   /** Called with the refetched Conversation once a decision has started its Run. */
   onDecided: (conversation: ConversationData) => void;
   /** Called with the refetched Conversation once a joined Run's log has closed. */
   onSynced: (conversation: ConversationData) => void;
+  /** Opens an Artifact version in the side panel beside the chat (spec #304). */
+  onOpenArtifact: (ref: ArtifactRef) => void;
 }) {
   const queryClient = useQueryClient();
   const { orpc, chatUrl } = useChatAdapter();
@@ -305,6 +324,7 @@ function ChatThread({
               message={message}
               highlighted={message.id === highlighted}
               contextCut={contextCuts.has(message.id)}
+              onOpenArtifact={onOpenArtifact}
               actions={{
                 streaming: streaming || switchBranch.isPending,
                 model: conversation.model,

@@ -22,6 +22,7 @@ import {
   type HostToolContext,
 } from "./host-tools";
 import type { McpTools } from "../mcp/tools";
+import { createArtifactTool } from "./artifact-tool";
 import { createWebSearchTool } from "./web-search-tool";
 import { createFetchUrlTool } from "./fetch-url-tool";
 import { cancelChannel, heartbeatExpired, listenForStop, stopRequested } from "./stop";
@@ -58,6 +59,7 @@ export async function startRun(
     messages,
     webSearch,
     fetchUrl = false,
+    artifacts = false,
     hostTools = [],
     context,
     systemPrompts,
@@ -85,6 +87,8 @@ export async function startRun(
     webSearch?: Credentials;
     /** Whether this reply offers the `fetch_url` tool, which needs no credential. */
     fetchUrl?: boolean;
+    /** Whether this reply offers the `create_artifact` tool (`createChat({ artifacts })`, ADR 0016). */
+    artifacts?: boolean;
     /** The Host tools this reply offers (none when its Model has no tools). */
     hostTools?: HostServerTool[];
     /** The user and Conversation the Host tools are called for, passed to them as their context. */
@@ -201,6 +205,18 @@ export async function startRun(
                 timeoutMs: deps.limits.fetchTimeoutMs,
                 parts,
                 onChange: () => (changed = true),
+              }),
+            ]
+          : []),
+        ...(artifacts
+          ? [
+              createArtifactTool({
+                deps,
+                messageId,
+                conversationId: context.conversationId,
+                parts,
+                onChange: () => (changed = true),
+                budget,
               }),
             ]
           : []),

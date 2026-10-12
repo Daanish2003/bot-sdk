@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { artifactKinds } from "./chat/artifact";
+
 /**
  * The stored shape of a Message's `parts` (ADR 0001): our own zod union, versioned, never
  * TanStack AI's `UIMessage` parts. core/shared/chat/parts converts it.
@@ -54,27 +56,42 @@ export const toolCallPartSchema = z.object({
   state: z.enum(["running", "done", "error", "cancelled", "awaiting_approval", "denied"]),
 });
 
+/**
+ * A version of an Artifact the reply created (spec #304). Slim: the content is never in the
+ * Message's parts; the panel reads it from the version's row on demand.
+ */
+export const artifactPartSchema = z.object({
+  type: z.literal("artifact"),
+  artifactId: z.string().min(1),
+  version: z.number().int().positive(),
+  title: z.string(),
+  kind: z.enum(artifactKinds),
+  state: z.literal("done"),
+});
+
 export const storedPartSchema = z.discriminatedUnion("type", [
   textPartSchema,
   thinkingPartSchema,
   webSearchPartSchema,
   toolCallPartSchema,
+  artifactPartSchema,
 ]);
 
 /**
  * The schema version a Message's parts are written at. 2 added `tool_call` (ADR 0008); a version 1
- * row has no `tool_call` part, so it still reads.
+ * row has no `tool_call` part, so it still reads. 3 added `artifact`; versions 1 and 2 still read.
  */
 export const storedPartsSchema = z.object({
-  schemaVersion: z.union([z.literal(1), z.literal(2)]),
+  schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]),
   parts: z.array(storedPartSchema),
 });
 
 export type StoredPart = z.infer<typeof storedPartSchema>;
 export type WebSearchPart = z.infer<typeof webSearchPartSchema>;
 export type ToolCallPart = z.infer<typeof toolCallPartSchema>;
+export type ArtifactPart = z.infer<typeof artifactPartSchema>;
 export type StoredParts = z.infer<typeof storedPartsSchema>;
 
 export function storedParts(parts: StoredPart[]): StoredParts {
-  return { schemaVersion: 2, parts };
+  return { schemaVersion: 3, parts };
 }
