@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { hostProvidersOf, quotaOf } from "./host-models";
+import { hostBackgroundModelOf, hostProvidersOf, quotaOf } from "./host-models";
 
 const model = {
   modelId: "e2e-model",
@@ -62,6 +62,28 @@ describe("hostProvidersOf", () => {
 
   it("refuses an empty Model list", () => {
     expect(() => hostProvidersOf({ ...hostEnv, HOST_MODELS: "[]" })).toThrow();
+  });
+});
+
+describe("hostBackgroundModelOf", () => {
+  it("is unset when HOST_BACKGROUND_MODEL is not set", () => {
+    expect(hostBackgroundModelOf(hostEnv)).toBeUndefined();
+    expect(hostBackgroundModelOf({ ...hostEnv, HOST_BACKGROUND_MODEL: " " })).toBeUndefined();
+  });
+
+  it("is the id of one of the Host's Models", () => {
+    expect(hostBackgroundModelOf({ ...hostEnv, HOST_BACKGROUND_MODEL: "ollama:e2e-model" })).toBe(
+      "ollama:e2e-model",
+    );
+  });
+
+  it("refuses an id that is not one of the Host's Models", () => {
+    expect(() =>
+      hostBackgroundModelOf({ ...hostEnv, HOST_BACKGROUND_MODEL: "ollama:other" }),
+    ).toThrow(/HOST_BACKGROUND_MODEL/);
+    expect(() => hostBackgroundModelOf({ HOST_BACKGROUND_MODEL: "ollama:e2e-model" })).toThrow(
+      /HOST_BACKGROUND_MODEL/,
+    );
   });
 });
 

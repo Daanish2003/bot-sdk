@@ -46,9 +46,13 @@ export function BackgroundModelSelect() {
   // A saved Background Model whose Provider lost its credentials stays selectable, and says so.
   const missingKey = saved ? missingCredentialsMessage(saved, available, byok) : null;
   const groups = modelGroups(available, "");
-  // `null` is "Same as first reply".
+  // `null` is "Same as first reply", or the Host's default Background Model when it has one.
+  const hostDefault = models.data?.defaultBackgroundModel ?? null;
   const first: Array<{ value: string | null; label: string }> = [
-    { value: null, label: "Same as first reply" },
+    {
+      value: null,
+      label: hostDefault ? `Host default (${modelLabel(hostDefault)})` : "Same as first reply",
+    },
     ...(saved && missingKey ? [{ value: saved, label: `${modelLabel(saved)} (no key)` }] : []),
   ];
   // What the trigger shows for the selected value.
@@ -96,7 +100,7 @@ export function BackgroundModelSelect() {
         <p className="text-xs text-muted-foreground">
           {missingKey
             ? `${missingKey}. Until then, titles are the start of your first Message.`
-            : "Used for titles and Memory; pick a cheap, fast Model."}
+            : `Used for titles and Memory; pick a cheap, fast Model.${hostDefault && !saved ? " Nothing picked uses the Host's default." : ""}`}
         </p>
       </div>
     </section>

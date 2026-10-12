@@ -42,12 +42,14 @@ async function titleOfConversation(id: string) {
  */
 async function setup({
   scripts = [[round(text("Paris is the capital."))], [round(text("Capital of France"))]],
-}: { scripts?: Rounds[] } = {}) {
+  defaultBackgroundModel = null,
+}: { scripts?: Rounds[]; defaultBackgroundModel?: string | null } = {}) {
   const user = await insertUser();
   const fakes = scripts.map((rounds) => createFakeAdapter({ rounds }));
   const adapterCalls: Array<{ model: string; credentials: Record<string, string> }> = [];
   const adapters: AnyTextAdapter[] = fakes.map((fake) => fake.adapter);
   const deps = createTestDeps({
+    defaultBackgroundModel,
     adapterFor: (model, credentials) => {
       adapterCalls.push({ model, credentials });
       const next = adapters.shift();
@@ -118,6 +120,41 @@ describe("automatic titles", () => {
       model: cheapModel,
       credentials: { apiKey: "sk-openai-test-key" },
     });
+  });
+
+  it("titles with the Host's default Background Model when the user picks none", async () => {
+    const { user, deps, send, titleOf, adapterCalls } = await setup({
+      defaultBackgroundModel: cheapModel,
+    });
+    await saveCredentials(deps, user.id, {
+      service: "openai",
+      fields: { apiKey: "sk-openai-test-key" },
+      hint: "…-key",
+      verified: true,
+    });
+
+    await send();
+
+    await vi.waitFor(async () => expect(await titleOf()).toBe("Capital of France"));
+    expect(adapterCalls.map((call) => call.model)).toEqual([replyModel, cheapModel]);
+  });
+
+  it("prefers the user's Background Model over the Host's default", async () => {
+    const { user, deps, send, titleOf, adapterCalls } = await setup({
+      defaultBackgroundModel: "anthropic:claude-haiku-4-5",
+    });
+    await saveBackgroundModel(deps, user.id, cheapModel);
+    await saveCredentials(deps, user.id, {
+      service: "openai",
+      fields: { apiKey: "sk-openai-test-key" },
+      hint: "…-key",
+      verified: true,
+    });
+
+    await send();
+
+    await vi.waitFor(async () => expect(await titleOf()).toBe("Capital of France"));
+    expect(adapterCalls.map((call) => call.model)).toEqual([replyModel, cheapModel]);
   });
 
   it("titles with a live-listed Background Model (OpenRouter)", async () => {

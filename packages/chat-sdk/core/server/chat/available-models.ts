@@ -17,7 +17,14 @@ import {
 
 type Deps = Pick<
   AppDeps,
-  "db" | "keyEncryptionSecrets" | "fetch" | "ollamaFetch" | "hostProviders" | "hostTools" | "byok"
+  | "db"
+  | "keyEncryptionSecrets"
+  | "fetch"
+  | "ollamaFetch"
+  | "hostProviders"
+  | "hostTools"
+  | "byok"
+  | "defaultBackgroundModel"
 >;
 
 /**
@@ -31,7 +38,13 @@ type Deps = Pick<
 export async function listAvailableModels(
   deps: Deps,
   userId: string,
-): Promise<{ models: ListedModel[]; defaultModel: string | null; webSearchOnHost: boolean }> {
+): Promise<{
+  models: ListedModel[];
+  defaultModel: string | null;
+  /** The Host's default Background Model, shown when a user picks none (`defaultBackgroundModel`). */
+  defaultBackgroundModel: string | null;
+  webSearchOnHost: boolean;
+}> {
   const services = deps.byok ? await resolvedServices(deps, userId) : [];
   const own = [
     ...curatedModels.filter((model) => services.includes(model.provider)),
@@ -67,6 +80,7 @@ export async function listAvailableModels(
   return {
     models,
     defaultModel: recentModel ?? providerDefault ?? null,
+    defaultBackgroundModel: deps.defaultBackgroundModel,
     // The Host's Tavily key, which search uses for a user with no Tool credential of their own (ADR 0007).
     webSearchOnHost: deps.hostTools.some((tool) => tool.tool === tavilyService),
   };
