@@ -11,7 +11,7 @@ import {
 } from "drizzle-orm/pg-core";
 
 import { chatSchema } from "./chat-schema";
-import type { KnowledgeFailureCode } from "../../../shared/knowledge/kinds";
+import type { KnowledgeFailureCode, KnowledgeMediaType } from "../../../shared/knowledge/kinds";
 import { project } from "./chat";
 
 /** Postgres full-text search vector, generated from a chunk's text. */
@@ -40,8 +40,8 @@ export const knowledgeFile = chatSchema.table(
       .notNull()
       .references(() => project.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
-    /** `text/markdown` or `text/plain`. */
-    mediaType: text("media_type").notNull(),
+    /** The format the bytes are read as (see `knowledgeFormats` in shared/knowledge/kinds). */
+    mediaType: text("media_type").notNull().$type<KnowledgeMediaType>(),
     /** Size in bytes. */
     size: integer("size").notNull(),
     status: knowledgeFileStatus("status").notNull().default("processing"),

@@ -14,13 +14,26 @@ import { toast } from "sonner";
 import { modelLabel } from "../../core/client/models";
 import { useI18n, useOrpc } from "../../core/client/react/provider";
 import { serverErrorText } from "../../core/client/rpc-error";
+import { parseModelId } from "../../core/shared/chat/models";
+import { providerLabel } from "../../core/shared/credentials/services";
 import {
   knowledgeAcceptAttribute,
+  knowledgeFileExtensions,
   maxKnowledgeFileBytes,
   type KnowledgeFailureCode,
+  type KnowledgeMediaType,
 } from "../../core/shared/knowledge/kinds";
 
 const megabyte = 1024 * 1024;
+
+/** The dictionary key of each format's name in the Files table. */
+const knowledgeTypeKey = {
+  "text/markdown": "knowledge.typeMarkdown",
+  "text/plain": "knowledge.typeText",
+  "text/html": "knowledge.typeHtml",
+  "text/csv": "knowledge.typeCsv",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "knowledge.typeWord",
+} as const satisfies Record<KnowledgeMediaType, `knowledge.type${string}`>;
 
 /** Polls the Project's Knowledge every two seconds while a file is still processing. */
 const pollWhileProcessing = (query: { state: { data?: { files: { status: string }[] } } }) =>
@@ -53,6 +66,19 @@ export function KnowledgeTab({ projectId }: { projectId: string }) {
   const knowledge = useProjectKnowledge(projectId);
   const inputRef = useRef<HTMLInputElement>(null);
   const upload = useMutation(orpc.knowledge.upload.mutationOptions());
+  const refreshFiles = () => queryClient.invalidateQueries({ queryKey: orpc.knowledge.key() });
+  const retry = useMutation(
+    orpc.knowledge.retry.mutationOptions({
+      onSuccess: refreshFiles,
+      onError: (error) => toast.error(serverErrorText(i18n, error)),
+    }),
+  );
+  const remove = useMutation(
+    orpc.knowledge.delete.mutationOptions({
+      onSuccess: refreshFiles,
+      onError: (error) => toast.error(serverErrorText(i18n, error)),
+    }),
+  );
   const setModel = useMutation(
     orpc.knowledge.setModel.mutationOptions({
       onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.knowledge.key() }),
@@ -87,15 +113,17 @@ export function KnowledgeTab({ projectId }: { projectId: string }) {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0 space-y-1.5">
           <p className="text-sm font-medium">{t("knowledge.model")}</p>
-          {locked && current ? (
+          {locked ? (
             <p className="flex items-center gap-1.5 text-sm">
               <Lock className="size-3.5 text-muted-foreground" aria-hidden />
-              {t("knowledge.lockedModel", {
-                model: modelLabel(current.id),
-                source: current.onHostCredentials
-                  ? t("knowledge.sourceHost")
-                  : t("knowledge.sourceOwn"),
-              })}
+              {current
+                ? t("knowledge.lockedModel", {
+                    model: modelLabel(current.id),
+                    source: current.onHostCredentials
+                      ? t("knowledge.sourceHost")
+                      : t("knowledge.sourceOwn"),
+                  })
+                : modelLabel(stored ?? "")}
             </p>
           ) : (
             <Select
@@ -145,15 +173,18 @@ export function KnowledgeTab({ projectId }: { projectId: string }) {
         </div>
       </div>
 
-      {data && stored && !current && (
+      {/* Files already added stay Ready; search needs the Model's key back (spec #357). */}
+      {data && locked && !current && stored && (
         <p
           role="alert"
           className="rounded-md border border-destructive/40 px-3 py-2 text-sm text-destructive"
         >
-          {t("knowledge.keyMissing", { model: modelLabel(stored) })}
+          {t("knowledge.keyMissing", {
+            provider: providerLabel(parseModelId(stored)?.provider ?? ""),
+          })}
         </p>
       )}
-      {data && !stored && !current && (
+      {data && !locked && !current && (
         <p role="status" className="rounded-md border px-3 py-2 text-sm text-muted-foreground">
           {t("knowledge.addKey")}
         </p>
@@ -163,7 +194,10 @@ export function KnowledgeTab({ projectId }: { projectId: string }) {
         <div className="rounded-md border border-dashed px-4 py-8 text-center">
           <p className="text-sm font-medium">{t("knowledge.emptyTitle")}</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            {t("knowledge.emptyHelp", { size: maxKnowledgeFileBytes / megabyte })}
+            {t("knowledge.emptyHelp", {
+              size: maxKnowledgeFileBytes / megabyte,
+              types: knowledgeFileExtensions.join(", "),
+            })}
           </p>
         </div>
       )}
@@ -182,6 +216,9 @@ export function KnowledgeTab({ projectId }: { projectId: string }) {
                 <th scope="col" className="px-3 py-2 font-medium">
                   {t("knowledge.status")}
                 </th>
+                <th scope="col" className="px-3 py-2 text-right font-medium">
+                  {t("knowledge.actions")}
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -190,9 +227,7 @@ export function KnowledgeTab({ projectId }: { projectId: string }) {
                   <td className="max-w-56 truncate px-3 py-2 font-medium">{file.name}</td>
                   <td className="px-3 py-2 text-muted-foreground">
                     <p>
-                      {file.mediaType === "text/markdown"
-                        ? t("knowledge.typeMarkdown")
-                        : t("knowledge.typeText")}
+                      {t(knowledgeTypeKey[file.mediaType])}
                       {" · "}
                       {formatSize(file.size, locale)}
                       {" · "}
@@ -211,6 +246,33 @@ export function KnowledgeTab({ projectId }: { projectId: string }) {
                         {t(`knowledge.failure.${file.failureCode satisfies KnowledgeFailureCode}`)}
                       </p>
                     )}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    <div className="flex justify-end gap-1">
+                      {file.status === "failed" && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={retry.isPending}
+                          onClick={() => retry.mutate({ projectId, fileId: file.id })}
+                        >
+                          {t("knowledge.retry")}
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-destructive"
+                        disabled={remove.isPending}
+                        onClick={() => {
+                          if (window.confirm(t("knowledge.deleteConfirm", { name: file.name }))) {
+                            remove.mutate({ projectId, fileId: file.id });
+                          }
+                        }}
+                      >
+                        {t("knowledge.delete")}
+                      </Button>
+                    </div>
                   </td>
                 </tr>
               ))}

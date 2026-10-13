@@ -1,20 +1,27 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
+import { knowledgeBlobKey } from "../../../../core/server/blob/store";
 import { fakeEmbeddingAdapter } from "../../../../core/server/chat/fake-embedding-adapter";
+import { saveCredentials } from "../../../../core/server/credentials/store";
 import { blob } from "../../../../core/server/db/schema/blob";
 import { project } from "../../../../core/server/db/schema/chat";
+import { userCredentials } from "../../../../core/server/db/schema/credentials";
 import { knowledgeChunk, knowledgeFile } from "../../../../core/server/db/schema/knowledge";
-import type { HostProvider } from "../../../../core/server/deps";
-import { knowledgeBlobKey } from "../../../../core/server/blob/store";
-import { maxKnowledgeFileBytes } from "../../../../core/shared/knowledge/kinds";
+import { usage } from "../../../../core/server/db/schema/usage";
+import type { AppDeps, HostProvider } from "../../../../core/server/deps";
+import { uuidv7 } from "../../../../core/server/lib/uuidv7";
+import { maxKnowledgeFileBytes, wordMediaType } from "../../../../core/shared/knowledge/kinds";
 import { createTestDeps } from "../../../support/deps";
 import { drainJobs } from "../../../support/jobs";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
+
+const docxFixture = new URL("./fixtures/sample.docx", import.meta.url);
 
 /** The Host offers OpenAI's small embedding Model on its own key. */
 const hostOpenAI: HostProvider = {
@@ -50,6 +57,30 @@ const markdown = (text: string, name = "notes.md") =>
 
 /** The error code the server sent, as the client sees it on a failed call. */
 const codeOf = (error: unknown) => (error as { data?: { code?: string } }).data?.code;
+
+/** Gives the user their own OpenAI key, which the Project's Model then runs on. */
+async function saveOwnOpenAIKey(deps: AppDeps, userId: string) {
+  await saveCredentials(deps, userId, {
+    service: "openai",
+    fields: { apiKey: "sk-own-openai" },
+    hint: "…-openai",
+    verified: true,
+  });
+}
+
+/** Records spend of `costMicros` in the user's Quota window, as a finished Run would. */
+async function spend(userId: string, costMicros: number) {
+  await getTestDb().insert(usage).values({
+    id: uuidv7(),
+    userId,
+    kind: "run",
+    model: "anthropic:claude-sonnet-5-5",
+    inputTokens: 0,
+    outputTokens: 0,
+    costMicros,
+    estimated: false,
+  });
+}
 
 describe("uploading a Knowledge file", () => {
   it("is Processing on upload, then Ready with its passage count, with its bytes kept", async () => {
@@ -144,6 +175,95 @@ describe("uploading a Knowledge file", () => {
     expect(codeOf(await attempt.catch((error: unknown) => error))).toBe("error.knowledgeNoModel");
   });
 
+  it("refuses an upload on Host credentials with 402 once the Quota is spent, and finishes the files already processing", async () => {
+    // A budget of 100 micros: the first upload is under it, then the spend takes the window over.
+    const { user, deps, rpc, projectId } = await setup({
+      getQuota: async () => ({ window: "day", budgetUsd: 0.0001 }),
+    });
+    const first = await rpc.knowledge.upload({ projectId, file: markdown(paragraphs(3)) });
+    await spend(user.id, 100);
+
+    const refused = await rpc.knowledge
+      .upload({ projectId, file: markdown(paragraphs(3), "second.md") })
+      .catch((e: unknown) => e);
+
+    expect(refused).toMatchObject({ status: 402 });
+    expect(codeOf(refused)).toBe("error.quotaSpent");
+    expect(await drainJobs({ deps })).toBe(1);
+    expect((await rpc.knowledge.list({ projectId })).files).toEqual([
+      expect.objectContaining({ id: first.id, status: "ready" }),
+    ]);
+  });
+
+  it("does not refuse or meter an upload on the user's own key, even with the Quota spent", async () => {
+    const { user, deps, rpc, projectId } = await setup({
+      getQuota: async () => ({ window: "day", budgetUsd: 0.0001 }),
+    });
+    await saveOwnOpenAIKey(deps, user.id);
+    await spend(user.id, 100);
+
+    const added = await rpc.knowledge.upload({ projectId, file: markdown(paragraphs(3)) });
+    await drainJobs({ deps });
+
+    expect((await rpc.knowledge.list({ projectId })).files).toEqual([
+      expect.objectContaining({ id: added.id, status: "ready" }),
+    ]);
+    const embeddingRows = await getTestDb()
+      .select({ id: usage.id })
+      .from(usage)
+      .where(eq(usage.kind, "embedding"));
+    expect(embeddingRows).toEqual([]);
+  });
+
+  it("switches between the user's own key and Host credentials for the same Model without re-embedding", async () => {
+    const { user, deps, rpc, projectId, embeddings } = await setup();
+    const added = await rpc.knowledge.upload({ projectId, file: markdown(paragraphs(3)) });
+    await drainJobs({ deps });
+    const before = await rpc.knowledge.list({ projectId });
+    const embeddedBefore = embeddings.calls.length;
+
+    await saveOwnOpenAIKey(deps, user.id);
+    const own = await rpc.knowledge.list({ projectId });
+    await getTestDb().delete(userCredentials).where(eq(userCredentials.userId, user.id));
+    const hostAgain = await rpc.knowledge.list({ projectId });
+
+    expect(before.currentModel).toEqual({
+      id: "openai:text-embedding-3-small",
+      onHostCredentials: true,
+    });
+    expect(own.currentModel).toEqual({
+      id: "openai:text-embedding-3-small",
+      onHostCredentials: false,
+    });
+    expect(hostAgain.currentModel).toEqual(before.currentModel);
+    for (const list of [own, hostAgain]) {
+      expect(list.embeddingModel).toBe("openai:text-embedding-3-small");
+      expect(list.files).toEqual([
+        expect.objectContaining({
+          id: added.id,
+          status: "ready",
+          chunkCount: before.files[0]!.chunkCount,
+        }),
+      ]);
+    }
+    expect(embeddings.calls).toHaveLength(embeddedBefore);
+  });
+
+  it("keeps files Ready, with no current Model, once the Model's key is gone", async () => {
+    const { user, deps, rpc, projectId } = await setup();
+    const added = await rpc.knowledge.upload({ projectId, file: markdown(paragraphs(3)) });
+    await drainJobs({ deps });
+
+    const withoutKey = chatRpc({ user, deps: createTestDeps({ hostProviders: [] }) });
+    const after = await withoutKey.knowledge.list({ projectId });
+
+    expect(after).toMatchObject({
+      embeddingModel: "openai:text-embedding-3-small",
+      currentModel: null,
+      files: [{ id: added.id, status: "ready", failureCode: null }],
+    });
+  });
+
   it("refuses a file over 20 MB", async () => {
     const { rpc, projectId } = await setup();
     const big = new File([new Uint8Array(maxKnowledgeFileBytes + 1)], "big.md", {
@@ -165,6 +285,48 @@ describe("uploading a Knowledge file", () => {
 
     expect(added).toMatchObject({ name: "exact.md", size: maxKnowledgeFileBytes });
   }, 120_000);
+
+  it("takes a DOCX to Ready, with its passages from the document's text", async () => {
+    const { deps, rpc, projectId } = await setup();
+    const docx = new File([readFileSync(docxFixture)], "plan.docx", { type: wordMediaType });
+
+    const added = await rpc.knowledge.upload({ projectId, file: docx });
+    expect(added).toMatchObject({ name: "plan.docx", mediaType: wordMediaType });
+    await drainJobs({ deps });
+
+    const { files } = await rpc.knowledge.list({ projectId });
+    expect(files).toEqual([
+      expect.objectContaining({ id: added.id, status: "ready", failureCode: null, chunkCount: 1 }),
+    ]);
+    const stored = await getTestDb()
+      .select({ text: knowledgeChunk.text })
+      .from(knowledgeChunk)
+      .where(eq(knowledgeChunk.fileId, added.id));
+    expect(stored[0]?.text).toContain("Quay 4 12 m");
+  });
+
+  it("takes an encrypted DOCX to Failed as encrypted", async () => {
+    const { deps, rpc, projectId } = await setup();
+    const encrypted = new File(
+      [
+        Buffer.concat([
+          Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]),
+          Buffer.from("EncryptionInfo", "utf16le"),
+          Buffer.from("EncryptedPackage", "utf16le"),
+        ]),
+      ],
+      "secret.docx",
+      { type: wordMediaType },
+    );
+    const added = await rpc.knowledge.upload({ projectId, file: encrypted });
+
+    await drainJobs({ deps });
+
+    const { files } = await rpc.knowledge.list({ projectId });
+    expect(files).toEqual([
+      expect.objectContaining({ id: added.id, status: "failed", failureCode: "encrypted" }),
+    ]);
+  });
 
   it("refuses a file that is neither Markdown nor text", async () => {
     const { rpc, projectId } = await setup();
@@ -196,7 +358,7 @@ describe("uploading a Knowledge file", () => {
           userId: user.id,
           projectId,
           name: `file-${n}.md`,
-          mediaType: "text/markdown",
+          mediaType: "text/markdown" as const,
           size: 1,
         })),
       );

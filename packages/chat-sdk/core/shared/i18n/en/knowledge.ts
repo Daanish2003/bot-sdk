@@ -11,8 +11,8 @@ export const knowledgeMessages = {
   "knowledge.sourceHost": "Host",
   "knowledge.noModel": "No embedding Model available",
   "knowledge.addKey": "Uploads need an OpenAI or Gemini key. Add a key",
-  "knowledge.keyMissing": ({ model }: { model: string }) =>
-    `Search unavailable: add the key for ${model}. Your files are kept.`,
+  "knowledge.keyMissing": ({ provider }: { provider: string }) =>
+    `Search unavailable: add your ${provider} key`,
   "knowledge.upload": "Upload files",
   "knowledge.uploading": "Uploading…",
   "knowledge.uploadStarted": ({ name }: { name: string }) => `${name} is being read`,
@@ -21,6 +21,9 @@ export const knowledgeMessages = {
   "knowledge.status": "Status",
   "knowledge.typeMarkdown": "Markdown",
   "knowledge.typeText": "Text",
+  "knowledge.typeHtml": "HTML",
+  "knowledge.typeCsv": "CSV",
+  "knowledge.typeWord": "Word",
   "knowledge.passages": ({ count }: { count: number }) =>
     count === 1 ? "1 passage" : `${count} passages`,
   "knowledge.addedOn": ({ date }: { date: string }) => `Added ${date}`,
@@ -28,11 +31,17 @@ export const knowledgeMessages = {
   "knowledge.ready": "Ready",
   "knowledge.failed": "Failed",
   "knowledge.failure.no_text": "No text found in this file",
-  "knowledge.failure.unreadable": "Couldn't read this file as UTF-8 text",
+  "knowledge.failure.unreadable": "Couldn't read this file",
+  "knowledge.failure.encrypted": "This file is encrypted or password-protected",
   "knowledge.failure.too_large": "Too large or complex to process",
-  "knowledge.failure.no_credentials": "No key for the embedding Model",
+  "knowledge.failure.no_credentials": "No credentials for the Model",
   "knowledge.failure.failed": "Couldn't process this file",
+  "knowledge.actions": "Actions",
+  "knowledge.retry": "Retry",
+  "knowledge.delete": "Delete",
+  "knowledge.deleteConfirm": ({ name }: { name: string }) =>
+    `Delete "${name}"? Its passages are removed too, and the assistant stops using it.`,
   "knowledge.emptyTitle": "No Knowledge files yet",
-  "knowledge.emptyHelp": ({ size }: { size: number }) =>
-    `Add Markdown (.md) or text (.txt) files up to ${size} MB each. The assistant searches them when a question needs them.`,
+  "knowledge.emptyHelp": ({ size, types }: { size: number; types: string }) =>
+    `Add ${types} files up to ${size} MB each. The assistant searches them when a question needs them.`,
 };
