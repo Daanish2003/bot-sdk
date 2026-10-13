@@ -56,6 +56,13 @@ pnpm test:vitest packages/chat-sdk/test/core/server/routers   # one file or fold
 pnpm test:watch        # watch mode
 ```
 
+The compose Postgres image is `pgvector/pgvector:0.8.7-pg18-trixie` (Postgres 18 with pgvector, which Knowledge needs). A container started on the old `postgres:18` image has no pgvector. To move it to the new image and keep its data, pull the image and recreate only that service; the `ai-chat_postgres_data` volume is kept:
+
+```bash
+docker compose pull postgres
+docker compose up -d --force-recreate postgres
+```
+
 - `*.test.ts` files are unit tests. `*.integration.test.ts` files run one at a time against a real Postgres database: it is created if missing, migrated once per run, and every table is truncated before each test.
 - The test database defaults to `postgresql://postgres:password@localhost:5432/ai-chat_test`. Point `TEST_DATABASE_URL` at another one, for example to give parallel runs their own database: `TEST_DATABASE_URL=postgresql://postgres:password@localhost:5434/ai-chat_test_2 pnpm test`.
 - Tests never call a Provider, Tavily or the network. Build `AppDeps` with `createTestDeps` and use the fakes in `packages/chat-sdk/test/support/` (scripted text adapter, search client, in-process router client).
