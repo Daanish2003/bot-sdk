@@ -10,7 +10,7 @@ import { uuidv7 } from "../../../packages/chat-sdk/core/server/lib/uuidv7";
 import { storedParts } from "../../../packages/chat-sdk/core/shared/message-parts";
 
 import { e2eDatabaseUrl } from "./database";
-import { signInOnForm } from "./helpers";
+import { signInOnForm, waitForMail } from "./helpers";
 import { type SeededUser, seedUser } from "./seed-user";
 
 /** Makes a signed-in user an Admin, straight in the e2e database (the grant script's effect). */
@@ -235,5 +235,43 @@ test("an Admin sets a user's Quota to 0, which turns Host Models off for them, a
   await targetPage.goto("/c");
   await targetPage.getByRole("button", { name: "Model" }).click();
   await expect(hostOption(targetPage)).toBeEnabled();
+  await targetContext.close();
+});
+
+test("an Admin turns off a user's lost two-factor sign-in: sessions end, the password alone signs in, and the notice arrives", async ({
+  page,
+  browser,
+}) => {
+  const admin = await seedUser(page);
+  await makeAdmin(admin);
+  const targetContext = await browser.newContext();
+  const targetPage = await targetContext.newPage();
+  const target = await seedUser(targetPage, { twoFactor: true });
+  const anonymousContext = await browser.newContext();
+  const anonymous = await anonymousContext.newPage();
+
+  await page.goto("/admin");
+  const targetRow = page.getByRole("row").filter({ has: emailCell(page, target.email) });
+  await targetRow.getByRole("button", { name: "Turn off 2FA", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog
+    .getByLabel(/^Reason/)
+    .fill("Lost authenticator and backup codes, confirmed by email reply");
+  await dialog.getByRole("button", { name: "Turn off 2FA", exact: true }).click();
+  await expect(page.getByText("Two-factor sign-in turned off", { exact: true })).toBeVisible();
+  await expect(targetRow.getByRole("button", { name: "Turn off 2FA", exact: true })).toHaveCount(0);
+
+  // The sessions ended: the open tab is signed out.
+  await targetPage.goto("/c");
+  await expect(targetPage).toHaveURL(/\/login/);
+
+  // The password alone signs in: no second-factor screen.
+  await signInOnForm(anonymous, target.email, target.password);
+  await expect(anonymous).toHaveURL(/\/c$/);
+
+  const mail = await waitForMail(page, target.email, 1);
+  expect(mail.map((message) => message.template)).toContain("two-factor-disabled");
+
+  await anonymousContext.close();
   await targetContext.close();
 });

@@ -11,6 +11,7 @@ function user(fields: Partial<AdminUser> & { email: string }): AdminUser {
     role: "user",
     banned: false,
     banExpires: null,
+    twoFactorEnabled: false,
     spentMicros: 0,
     budgetMicros: null,
     ...fields,

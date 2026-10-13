@@ -4,6 +4,7 @@ import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { z } from "zod";
 
 import { AdminBanControl } from "@/components/admin-ban-control";
+import { AdminTwoFactorControl } from "@/components/admin-two-factor-control";
 import { type AdminUser, formatUsd, isAtQuota } from "@/admin/users";
 import { listAdminUsers } from "@/functions/admin-users";
 
@@ -84,7 +85,7 @@ function UsersTable({ users }: { users: AdminUser[] }) {
             <th className="px-3 py-2 font-medium">Role</th>
             <th className="px-3 py-2 font-medium">Status</th>
             <th className="px-3 py-2 font-medium">Spend this window</th>
-            <th className="px-3 py-2 font-medium">Ban</th>
+            <th className="px-3 py-2 font-medium">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -120,7 +121,10 @@ function UsersTable({ users }: { users: AdminUser[] }) {
                 {isAtQuota(row) && <span className="ml-2 text-destructive">At Quota</span>}
               </td>
               <td className="px-3 py-2">
-                <AdminBanControl user={row} />
+                <div className="flex flex-wrap gap-2">
+                  <AdminBanControl user={row} />
+                  {row.twoFactorEnabled && <AdminTwoFactorControl user={row} />}
+                </div>
               </td>
             </tr>
           ))}
