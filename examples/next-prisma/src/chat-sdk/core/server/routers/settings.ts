@@ -1,10 +1,10 @@
-import { ORPCError } from "@orpc/server";
 import { z } from "zod";
 
 import { instructionsMaxChars } from "../../shared/chat/instructions";
 import { isKnownModel } from "../../shared/chat/models";
 import { resolveImageModel } from "../chat/image-models";
 import { protectedProcedure } from "../procedures";
+import { rpcError } from "../rpc-error";
 import {
   loadSettings,
   saveImageModel,
@@ -23,9 +23,14 @@ export const settingsRouter = {
     .input(z.object({ backgroundModel: z.string().nullable() }))
     .handler(async ({ context, input }) => {
       if (input.backgroundModel !== null && !isKnownModel(input.backgroundModel)) {
-        throw new ORPCError("BAD_REQUEST", {
-          message: `"${input.backgroundModel}" is not an available Model`,
-        });
+        throw rpcError(
+          "BAD_REQUEST",
+          "error.modelNotAvailable",
+          `"${input.backgroundModel}" is not an available Model`,
+          {
+            model: input.backgroundModel,
+          },
+        );
       }
       await saveBackgroundModel(context.deps, context.user.id, input.backgroundModel);
     }),
@@ -42,9 +47,12 @@ export const settingsRouter = {
         input.imageModel !== null &&
         !(await resolveImageModel(context.deps, context.user.id, input.imageModel))
       ) {
-        throw new ORPCError("BAD_REQUEST", {
-          message: `"${input.imageModel}" is not an available Image Model`,
-        });
+        throw rpcError(
+          "BAD_REQUEST",
+          "error.imageModelNotAvailable",
+          `"${input.imageModel}" is not an available Image Model`,
+          { model: input.imageModel },
+        );
       }
       await saveImageModel(context.deps, context.user.id, input.imageModel);
     }),
@@ -54,9 +62,14 @@ export const settingsRouter = {
     .input(z.object({ instructions: z.string().nullable() }))
     .handler(async ({ context, input }) => {
       if (input.instructions !== null && input.instructions.length > instructionsMaxChars) {
-        throw new ORPCError("BAD_REQUEST", {
-          message: `Instructions are limited to ${instructionsMaxChars.toLocaleString("en-US")} characters`,
-        });
+        throw rpcError(
+          "BAD_REQUEST",
+          "error.instructionsTooLong",
+          `Instructions are limited to ${instructionsMaxChars} characters`,
+          {
+            max: instructionsMaxChars,
+          },
+        );
       }
       await saveInstructions(context.deps, context.user.id, input.instructions);
     }),

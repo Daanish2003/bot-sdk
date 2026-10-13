@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { artifactKinds } from "./chat/artifact";
+
 /**
  * The stored shape of a Message's `parts` (ADR 0001): our own zod union, versioned, never
  * TanStack AI's `UIMessage` parts. core/shared/chat/parts converts it.
@@ -25,7 +27,21 @@ export const searchResultSchema = z.object({
   publishedDate: z.string().optional(),
 });
 
-/** One `web_search` tool call of a reply and how it went. Failures are states, never a Message error. */
+/**
+ * Why a tool failed, as a dictionary code and its params (spec #256): the client shows the text for
+ * the code in the reader's language. The text the Model reads for the same failure stays English.
+ */
+export const toolErrorSchema = z.object({
+  code: z.string(),
+  params: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
+});
+
+export type ToolError = z.infer<typeof toolErrorSchema>;
+
+/**
+ * One `web_search` tool call of a reply and how it went. Failures are states, never a Message error.
+ * `error` is the failure's code; `errorReason` is what a part stored before codes, still read.
+ */
 export const webSearchPartSchema = z.object({
   type: z.literal("web_search"),
   toolCallId: z.string(),
@@ -33,6 +49,7 @@ export const webSearchPartSchema = z.object({
   state: z.enum(["running", "done", "error", "cancelled"]),
   results: z.array(searchResultSchema).max(5),
   errorReason: z.enum(["invalid_key", "quota_exhausted", "quota_exceeded", "failed"]).optional(),
+  error: toolErrorSchema.optional(),
 });
 
 /** Where a tool came from: the SDK (`web_search` has its own part), the Host, or an MCP server. */
@@ -51,6 +68,8 @@ export const toolCallPartSchema = z.object({
   source: toolSourceSchema,
   args: z.unknown(),
   result: z.unknown().optional(),
+  /** A failed call's code (spec #256). `result` keeps the English text the Model read. */
+  error: toolErrorSchema.optional(),
   state: z.enum(["running", "done", "error", "cancelled", "awaiting_approval", "denied"]),
 });
 
@@ -80,17 +99,32 @@ export const generatedImagePartSchema = z.object({
   editedFrom: z.array(z.string()).optional(),
 });
 
+/**
+ * A version of an Artifact the reply created (spec #304). Slim: the content is never in the
+ * Message's parts; the panel reads it from the version's row on demand.
+ */
+export const artifactPartSchema = z.object({
+  type: z.literal("artifact"),
+  artifactId: z.string().min(1),
+  version: z.number().int().positive(),
+  title: z.string(),
+  kind: z.enum(artifactKinds),
+  state: z.literal("done"),
+});
+
 export const storedPartSchema = z.discriminatedUnion("type", [
   textPartSchema,
   thinkingPartSchema,
   webSearchPartSchema,
   toolCallPartSchema,
   generatedImagePartSchema,
+  artifactPartSchema,
 ]);
 
 /**
- * The schema version a Message's parts are written at. 2 added `tool_call` (ADR 0008); 3 added
- * `generated_image` (spec #278). A version 1 or 2 row has no such part, so it still reads.
+ * The schema version a Message's parts are written at. 2 added `tool_call` (ADR 0008); a version 1
+ * row has no `tool_call` part, so it still reads. 3 added `generated_image` and `artifact`; versions
+ * 1 and 2 still read.
  */
 export const storedPartsSchema = z.object({
   schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]),
@@ -101,6 +135,7 @@ export type StoredPart = z.infer<typeof storedPartSchema>;
 export type WebSearchPart = z.infer<typeof webSearchPartSchema>;
 export type ToolCallPart = z.infer<typeof toolCallPartSchema>;
 export type GeneratedImagePart = z.infer<typeof generatedImagePartSchema>;
+export type ArtifactPart = z.infer<typeof artifactPartSchema>;
 export type StoredParts = z.infer<typeof storedPartsSchema>;
 
 export function storedParts(parts: StoredPart[]): StoredParts {

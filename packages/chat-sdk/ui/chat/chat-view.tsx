@@ -6,12 +6,15 @@ import type { ChatCommand } from "../../core/shared/chat/command";
 import {
   branchFrom,
   contextCutIds,
+  hideReply,
+  isModeratedChunk,
   messageInfo,
   takePendingFirstMessage,
   toUIMessages,
 } from "../../core/client/chat";
 import { contextFill, lastRunTokens } from "../../core/client/context-ring";
 import { missingCredentialsMessage } from "../../core/client/models";
+import { moderatedErrorOf } from "../../core/client/moderation";
 import { rateLimitedErrorOf, runFetch } from "../../core/client/rate-limit";
 import { fetchServerSentEvents, type UIMessage, useChat } from "@tanstack/ai-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -20,15 +23,26 @@ import { toast } from "sonner";
 
 import { invalidateConversationList } from "../../core/client/react/conversation-list";
 import { useByok } from "../../core/client/react/byok";
-import { useChatAdapter } from "../../core/client/react/provider";
+import { useChatAdapter, useI18n } from "../../core/client/react/provider";
+import { serverErrorText } from "../../core/client/rpc-error";
 import { useQuota } from "../../core/client/react/quota";
 import { readSearchPreference } from "../../core/client/react/search-preference";
 import { quotaBlocksModel } from "../../core/client/quota";
 
 import { AttachButton, DraftAttachmentChips, useAttachmentDraft } from "./attachments";
 import { Composer } from "./composer";
+import { ArtifactPanel, artifactVersionsOn, LiveArtifactPanel } from "./artifact-panel";
+import { artifactIdOf, type ArtifactRef } from "./artifact-card";
+import {
+  artifactCallsIn,
+  type PanelTarget,
+  panelTargetOf,
+  rememberSaved,
+  startedArtifactCalls,
+} from "./artifact-live";
 import { ContextOverflowNotice, ContextRing } from "./context-ring";
 import { editSourcesOf, MessageRow } from "./message-row";
+import { ArchivedNotice } from "./archived-notice";
 import { MissingCredentialsBanner } from "./missing-credentials-banner";
 import { QuotaBanner } from "./quota-banner";
 import { TemporaryBanner } from "./temporary-banner";
@@ -58,20 +72,61 @@ export function ChatView(props: ChatViewProps) {
     conversation: ConversationData;
     generation: number;
   }>();
+  // What the side panel shows: a saved Artifact version, or a call still streaming (spec #304). It
+  // lives here, not in the thread, so a restart of the thread leaves the panel as it was.
+  const [panel, setPanel] = useState<PanelTarget | null>(null);
+  // The Messages the thread shows, as it streams, so the panel can follow an Artifact call in them.
+  const [messages, setMessages] = useState<UIMessage[]>(() =>
+    toUIMessages(props.conversation.messages),
+  );
+  const shown = panel ? panelTargetOf(messages, panel) : null;
+  // The Artifact's newest version on the Branch, which an update that the panel shows changes.
+  const updated = shown?.kind === "live" ? artifactIdOf(shown.call) : undefined;
+  const latest = updated === undefined ? undefined : artifactVersionsOn(messages, updated)[0];
   return (
-    <ChatThread
-      key={restarted?.generation ?? 0}
-      {...props}
-      conversation={restarted?.conversation ?? props.conversation}
-      onDecided={(conversation) =>
-        setRestarted({ conversation, generation: (restarted?.generation ?? 0) + 1 })
-      }
-      // The restarted snapshot is the decision's, still streaming. Once its join ends, the
-      // refetched Conversation replaces it, or the page would keep showing the reply as streaming.
-      onSynced={(conversation) =>
-        setRestarted((current) => (current ? { ...current, conversation } : current))
-      }
-    />
+    <div className="flex h-full min-h-0">
+      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
+        <ChatThread
+          key={restarted?.generation ?? 0}
+          {...props}
+          conversation={restarted?.conversation ?? props.conversation}
+          onDecided={(conversation) =>
+            setRestarted({ conversation, generation: (restarted?.generation ?? 0) + 1 })
+          }
+          // The restarted snapshot is the decision's, still streaming. Once its join ends, the
+          // refetched Conversation replaces it, or the page would keep showing the reply as streaming.
+          onSynced={(conversation) =>
+            setRestarted((current) => (current ? { ...current, conversation } : current))
+          }
+          onOpenArtifact={(ref) => setPanel({ kind: "saved", ref })}
+          onStreamArtifact={(callId) => setPanel({ kind: "live", callId })}
+          onMessages={(current) => {
+            setMessages(current);
+            setPanel((target) =>
+              target?.kind === "live" ? rememberSaved(target, current) : target,
+            );
+          }}
+        />
+      </div>
+      {shown?.kind === "saved" && (
+        <ArtifactPanel
+          key={`${shown.ref.artifactId}:${shown.ref.version}`}
+          artifact={shown.ref}
+          // The versions on the Active Branch only, so the dropdown never lists another Branch's.
+          versions={artifactVersionsOn(messages, shown.ref.artifactId)}
+          onSelect={(ref) => setPanel({ kind: "saved", ref })}
+          onClose={() => setPanel(null)}
+        />
+      )}
+      {shown?.kind === "live" && (
+        <LiveArtifactPanel
+          key={shown.call.id}
+          call={shown.call}
+          latest={latest}
+          onClose={() => setPanel(null)}
+        />
+      )}
+    </div>
   );
 }
 
@@ -87,16 +142,30 @@ function ChatThread({
   onFocused = () => {},
   onDecided,
   onSynced,
+  onOpenArtifact,
+  onStreamArtifact,
+  onMessages,
 }: ChatViewProps & {
   /** Called with the refetched Conversation once a decision has started its Run. */
   onDecided: (conversation: ConversationData) => void;
   /** Called with the refetched Conversation once a joined Run's log has closed. */
   onSynced: (conversation: ConversationData) => void;
+  /** Opens an Artifact version in the side panel beside the chat (spec #304). */
+  onOpenArtifact: (ref: ArtifactRef) => void;
+  /** Opens the side panel on an Artifact call as it first streams in (spec #304). */
+  onStreamArtifact: (callId: string) => void;
+  /** Reports the Messages the thread shows, as they change. */
+  onMessages: (messages: UIMessage[]) => void;
 }) {
   const queryClient = useQueryClient();
   const { orpc, chatUrl } = useChatAdapter();
+  const i18n = useI18n();
+  const { t } = i18n;
   // The server writes the new Messages before it streams, so the first chunk means "sent".
   const awaitingFirstChunk = useRef(false);
+  // The messages as of the last render, for a `moderated` chunk to hide from (#269) and a refused
+  // Rating to roll back on.
+  const latestMessages = useRef<UIMessage[]>([]);
   // The command for the next request. `reload` (regenerate) takes no body, so every command
   // rides in the connection's body instead.
   const command = useRef<ChatCommand>(undefined);
@@ -113,13 +182,25 @@ function ChatThread({
     initialResumeSnapshot: joinedRunId
       ? { resumeState: { threadId: conversation.id, runId: joinedRunId } }
       : undefined,
-    onChunk: () => {
+    onChunk: (chunk) => {
+      // A hidden reply's log ends with `moderated` (#269): its text goes from the page as it is read.
+      if (isModeratedChunk(chunk)) setMessages(hideReply(latestMessages.current));
       if (!awaitingFirstChunk.current) return;
       awaitingFirstChunk.current = false;
       void invalidateConversationList(queryClient, orpc);
     },
   });
+  latestMessages.current = messages;
   const [sending, setSending] = useState(false);
+  // The composer's text. A Message the Host refuses (#267) is put back in it, so the user can rephrase.
+  const [composerText, setComposerText] = useState("");
+  const composerSend = useRef(false);
+  const refusal = moderatedErrorOf(error);
+  useEffect(() => {
+    if (moderatedErrorOf(error) && composerSend.current) {
+      setComposerText(command.current?.text ?? "");
+    }
+  }, [error]);
   const serverStreaming = conversation.messages.some((m) => m.status === "streaming");
   const streaming = sending || serverStreaming;
   const conversationQuery = orpc.conversation.get.queryOptions({ input: { id: conversation.id } });
@@ -130,6 +211,22 @@ function ChatThread({
     setMessages(toUIMessages(messages));
   });
   useEffect(() => showServerMessages(conversation.messages), [conversation.messages]);
+
+  // The panel opens on an Artifact call from its first delta (spec #304). The calls already done when
+  // the page opens (or a decision restarts it) are not followed again; a call still running is.
+  const [followed] = useState(
+    () =>
+      new Set(
+        artifactCallsIn(toUIMessages(conversation.messages))
+          .filter(({ call }) => call.status !== "running")
+          .map(({ call }) => call.id),
+      ),
+  );
+  const reportMessages = useEffectEvent((current: UIMessage[]) => {
+    onMessages(current);
+    for (const { call } of startedArtifactCalls(current, followed)) onStreamArtifact(call.id);
+  });
+  useEffect(() => reportMessages(messages), [messages]);
 
   // A joined reply ends when its log closes: refetch the Conversation so the reply, the streaming
   // state and the Conversation panel row are final. A reply this page sent does this in `run`.
@@ -159,10 +256,6 @@ function ChatThread({
 
   // A Rating shows at once on its reply, and is taken back if the server refuses it. The rollback
   // reads the latest Messages, so a stream update that arrived meanwhile is kept.
-  const latestMessages = useRef(messages);
-  useEffect(() => {
-    latestMessages.current = messages;
-  }, [messages]);
   const rateCall = useMutation(orpc.chat.rate.mutationOptions());
   const withRating = (list: typeof messages, messageId: string, rating: "up" | "down" | null) =>
     list.map((message) =>
@@ -186,16 +279,16 @@ function ChatThread({
 
   // The newest reply waits for its call's Approval: the composer waits too (ADR 0008).
   const decideCall = useMutation(orpc.chat.decide.mutationOptions());
-  const waiting =
-    messages.length > 0 &&
-    messageInfo(messages[messages.length - 1]!).status === "awaiting_approval";
+  // A hidden reply lost its waiting call with its text (#268), so the composer doesn't wait on it.
+  const last = messages.length > 0 ? messageInfo(messages[messages.length - 1]!) : undefined;
+  const waiting = last?.status === "awaiting_approval" && !last.hidden;
   const decide = async (messageId: string, approved: boolean, allowForConversation?: boolean) => {
     // A second click while the first decision is in flight would be refused as stale.
     if (decideCall.isPending) return;
     try {
       await decideCall.mutateAsync({ messageId, approved, allowForConversation });
     } catch (caught) {
-      toast.error(`Deciding failed: ${(caught as Error).message}`);
+      toast.error(t("chat.decideFailed", { message: serverErrorText(i18n, caught) }));
       return;
     }
     onDecided(await fetchConversation());
@@ -205,7 +298,7 @@ function ChatThread({
   const models = useQuery(orpc.models.list.queryOptions());
   const byok = useByok();
   const blocked = models.data
-    ? missingCredentialsMessage(conversation.model, models.data.models, byok)
+    ? missingCredentialsMessage(i18n, conversation.model, models.data.models, byok)
     : null;
   // A spent Quota blocks the selected Model only when it's a Host Model; the user's own still runs.
   const quota = useQuota().data;
@@ -227,7 +320,8 @@ function ChatThread({
   const setConnections = useMutation(
     orpc.conversation.setConnections.mutationOptions({
       onSuccess: () => fetchConversation(),
-      onError: (caught) => toast.error(`Switching a tool failed: ${caught.message}`),
+      onError: (caught) =>
+        toast.error(t("chat.toolSwitchFailed", { message: serverErrorText(i18n, caught) })),
     }),
   );
   const toolItems = mcpToolsMenu(servers.data?.servers ?? [], connections);
@@ -282,14 +376,17 @@ function ChatThread({
     }
   };
 
-  const send = (text: string, attachments: AttachmentInfo[] = []) =>
-    run(conversation.messages.at(-1)?.id ?? null, text, undefined, attachments);
+  const send = (text: string, attachments: AttachmentInfo[] = []) => {
+    composerSend.current = true;
+    return run(conversation.messages.at(-1)?.id ?? null, text, undefined, attachments);
+  };
 
   /**
    * Edit (with `text`) or regenerate `messageId` into a new Branch beside it. An edit sends the
    * attachments the user kept and added; a regenerate leaves the user Message's alone.
    */
   const startBranch = (messageId: string, text?: string, attachments?: AttachmentInfo[]) => {
+    composerSend.current = false;
     const { parentId, history } = branchFrom(messages, messageId);
     void run(parentId, text, history, attachments);
   };
@@ -297,7 +394,8 @@ function ChatThread({
   const switchBranch = useMutation(
     orpc.conversation.switchBranch.mutationOptions({
       onSuccess: () => fetchConversation(),
-      onError: (caught) => toast.error(`Switching Branch failed: ${caught.message}`),
+      onError: (caught) =>
+        toast.error(t("chat.branchSwitchFailed", { message: serverErrorText(i18n, caught) })),
     }),
   );
 
@@ -336,6 +434,8 @@ function ChatThread({
               highlighted={message.id === highlighted}
               editSources={editSources}
               contextCut={contextCuts.has(message.id)}
+              onOpenArtifact={onOpenArtifact}
+              latestVersionOf={(artifactId) => artifactVersionsOn(messages, artifactId)[0]?.version}
               actions={{
                 streaming: streaming || switchBranch.isPending,
                 model: conversation.model,
@@ -353,21 +453,25 @@ function ChatThread({
           <ScrollButton />
         </div>
       </ChatContainerRoot>
-      <div className="border-t bg-background px-3 py-3 sm:px-6">
+      <div className="border-t bg-background px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6">
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-2">
           {/* A refused Run is explained by the Quota banner below, not by its error. */}
-          {error && !sending && !quotaBlocked && (
+          {error && !sending && !quotaBlocked && !refusal && (
             <p role="alert" className="text-xs text-destructive">
-              {rateLimitedErrorOf(error)
-                ? "Too many messages. Try again in a moment."
-                : error.message}
+              {rateLimitedErrorOf(error) ? t("chat.tooManyMessages") : serverErrorText(i18n, error)}
             </p>
           )}
           <QuotaMeter />
+          {conversation.archivedAt && !streaming && (
+            <ArchivedNotice conversationId={conversation.id} />
+          )}
           {blocked && <MissingCredentialsBanner message={blocked} />}
           {quotaBlocked && quota && <QuotaBanner resetsAt={quota.resetsAt} />}
           <ContextOverflowNotice fill={context} />
           <Composer
+            value={composerText}
+            onValueChange={setComposerText}
+            refusal={refusal?.message ?? null}
             onSend={(text) => {
               void send(text, draft.uploaded);
               draft.clear();
@@ -379,13 +483,13 @@ function ChatThread({
                 ? undefined
                 : () =>
                     stop().catch((caught: Error) =>
-                      toast.error(`Stopping failed: ${caught.message}`),
+                      toast.error(t("chat.stopFailed", { message: serverErrorText(i18n, caught) })),
                     )
             }
             streaming={streaming}
             // The next Message continues the Branch being switched to, so wait for it.
             disabled={!!blocked || quotaBlocked || switchBranch.isPending || waiting}
-            placeholder={waiting ? "Approve or deny the tool call first" : undefined}
+            placeholder={waiting ? t("chat.approveFirst") : undefined}
           >
             <AttachButton draft={draft} disabled={!!blocked || quotaBlocked} />
             <SearchToggle search={search} />

@@ -25,6 +25,8 @@ export type AdminUserDetail = {
   name: string;
   email: string;
   quota: AdminQuota;
+  /** Whether two-factor sign-in is on, so the detail page shows the turn-off control (#332). */
+  twoFactorEnabled: boolean;
   /** The last 30 UTC days, oldest first, with the spend split by Model. */
   days: DaySpend[];
   models: string[];
@@ -54,7 +56,7 @@ export const getAdminUserDetail = createServerFn({ method: "GET" })
   .handler(async ({ data }): Promise<AdminUserDetail> => {
     const target = await db.query.user.findFirst({
       where: { id: data.userId },
-      columns: { id: true, name: true, email: true },
+      columns: { id: true, name: true, email: true, twoFactorEnabled: true },
     });
     if (!target) throw new Error("No user has that id");
 
@@ -73,6 +75,7 @@ export const getAdminUserDetail = createServerFn({ method: "GET" })
       id: target.id,
       name: target.name,
       email: target.email,
+      twoFactorEnabled: target.twoFactorEnabled === true,
       quota: {
         mode: override ? (override.budgetUsd === null ? "unlimited" : "amount") : "default",
         budgetUsd: override?.budgetUsd ?? null,

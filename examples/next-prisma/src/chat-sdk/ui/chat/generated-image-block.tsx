@@ -1,8 +1,7 @@
-import {
-  generatedImageErrorLabels,
-  type GeneratedImageErrorReason,
-} from "../../core/shared/chat/generated-image";
+import { type GeneratedImageErrorReason } from "../../core/shared/chat/generated-image";
 import type { GeneratedImagePart } from "../../core/shared/message-parts";
+import type { MessageKey } from "../../core/shared/i18n";
+import { useI18n } from "../../core/client/react/provider";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
@@ -21,6 +20,15 @@ import { type ReactNode, useEffect, useState } from "react";
  * chip has its thumbnail; an image Attachment has none and shows an icon.
  */
 export type EditSource = { label: string; imageId?: string };
+
+/** The dictionary key of each failed image's label (`generatedImageErrorLabels` is the Model's English). */
+const generatedImageErrorKeys: Record<GeneratedImageErrorReason, MessageKey> = {
+  refused: "chat.imageRefused",
+  quota_exceeded: "chat.imageOverAllowance",
+  limit_reached: "chat.imageLimitReached",
+  too_many_images: "chat.imageTooManyToEdit",
+  failed: "chat.imageFailed",
+};
 
 /**
  * One `generate_image` call of a reply (spec #278), at the shape it asked for. A running image is a
@@ -41,6 +49,7 @@ export function GeneratedImageBlock({
   editedFrom?: EditSource[];
 }) {
   const [zoomed, setZoomed] = useState(false);
+  const { t } = useI18n();
   return (
     <figure className={cn("flex flex-col gap-1.5", shapeClass[image.aspectRatio])}>
       {image.state === "running" && <Placeholder image={image} />}
@@ -48,7 +57,7 @@ export function GeneratedImageBlock({
       {image.state === "cancelled" && (
         <Box variant="muted">
           <BanIcon className="size-3.5 shrink-0" aria-hidden />
-          <span>Stopped before the image was ready</span>
+          <span>{t("chat.imageStopped")}</span>
         </Box>
       )}
       {image.state === "done" && image.imageId && (
@@ -62,7 +71,7 @@ export function GeneratedImageBlock({
             <Button
               variant="secondary"
               size="icon-sm"
-              aria-label="Zoom"
+              aria-label={t("chat.imageZoom")}
               onClick={() => setZoomed(true)}
             >
               <ZoomInIcon />
@@ -89,6 +98,7 @@ export function GeneratedImageBlock({
 
 /** The "edited from" chip: the source's thumbnail, or an icon, then its label (spec #278). */
 function EditedFromChip({ source, imagesUrl }: { source: EditSource; imagesUrl: string }) {
+  const { t } = useI18n();
   return (
     <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border bg-muted px-1.5 py-0.5 not-italic">
       {source.imageId ? (
@@ -100,7 +110,7 @@ function EditedFromChip({ source, imagesUrl }: { source: EditSource; imagesUrl: 
       ) : (
         <ImageIcon className="size-3.5 shrink-0" aria-hidden />
       )}
-      <span className="shrink-0">Edited from</span>
+      <span className="shrink-0">{t("chat.imageEditedFrom")}</span>
       <span className="truncate">{source.label}</span>
     </span>
   );
@@ -143,15 +153,16 @@ function DownloadLink({
   image: GeneratedImagePart;
   label?: boolean;
 }) {
+  const { t } = useI18n();
   return (
     <a
       href={`${imagesUrl}/${image.imageId}?download=1`}
       download
-      aria-label="Download"
+      aria-label={t("chat.imageDownload")}
       className={buttonVariants({ variant: "secondary", size: label ? "sm" : "icon-sm" })}
     >
       <DownloadIcon />
-      {label && "Download"}
+      {label && t("chat.imageDownload")}
     </a>
   );
 }
@@ -171,6 +182,7 @@ const ratioClass: Record<GeneratedImagePart["aspectRatio"], string> = {
 
 function Placeholder({ image }: { image: GeneratedImagePart }) {
   const seconds = useElapsedSeconds();
+  const { t } = useI18n();
   return (
     <div
       role="status"
@@ -180,17 +192,20 @@ function Placeholder({ image }: { image: GeneratedImagePart }) {
       )}
     >
       <SparklesIcon className="size-5 animate-pulse text-muted-foreground" aria-hidden />
-      <span className="text-xs text-muted-foreground">Generating image · {seconds}s</span>
+      <span className="text-xs text-muted-foreground">
+        {t("chat.imageGenerating", { seconds })}
+      </span>
     </div>
   );
 }
 
 function Failure({ image }: { image: GeneratedImagePart }) {
   const reason: GeneratedImageErrorReason = image.errorReason ?? "failed";
+  const { t } = useI18n();
   return (
     <Box variant="error" role="alert">
       <TriangleAlertIcon className="size-3.5 shrink-0" aria-hidden />
-      <span>{generatedImageErrorLabels[reason]}</span>
+      <span>{t(generatedImageErrorKeys[reason])}</span>
     </Box>
   );
 }

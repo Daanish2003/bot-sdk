@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+
 import type {
   PlaywrightTestArgs,
   PlaywrightTestOptions,
@@ -210,6 +212,48 @@ export function registerSharedScenarios(
       await expect(page).not.toHaveURL(host.paths.conversation);
     });
 
+    test("an archived Conversation leaves the sidebar, and sending it a Message brings it back", async ({
+      page,
+    }) => {
+      await signInWithModel(page);
+      await send(page, "Archive this one");
+      await expect(page).toHaveURL(host.paths.conversation);
+      const conversationPath = new URL(page.url()).pathname;
+      const panel = page.getByRole("complementary", { name: "Conversations" });
+      await expect(panel.locator(`a[href="${conversationPath}"]`)).toBeVisible();
+
+      await page.getByRole("button", { name: /^Actions for / }).click();
+      await page.getByRole("menuitem", { name: "Archive", exact: true }).click();
+
+      // It leaves the sidebar, and its page says so.
+      await expect(panel.locator(`a[href="${conversationPath}"]`)).toHaveCount(0);
+      await expect(page.getByText("This Conversation is archived.")).toBeVisible();
+
+      // Sending a Message unarchives it, and it returns to the sidebar.
+      await send(page, "Bring it back");
+      await expect(panel.locator(`a[href="${conversationPath}"]`)).toBeVisible();
+      await expect(page.getByText("This Conversation is archived.")).toHaveCount(0);
+    });
+
+    test("Export as Markdown downloads the Conversation with its headings", async ({ page }) => {
+      await signInWithModel(page);
+      await send(page, "Export me");
+      await expect(messageRows(page)).toHaveCount(2);
+      await expect(messageRows(page).last()).toContainText("That's all.");
+
+      await page.getByRole("button", { name: "Conversation menu" }).click();
+      const [download] = await Promise.all([
+        page.waitForEvent("download"),
+        page.getByRole("menuitem", { name: "Export as Markdown" }).click(),
+      ]);
+
+      expect(download.suggestedFilename()).toMatch(/\.md$/);
+      const markdown = await readFile((await download.path())!, "utf8");
+      expect(markdown).toMatch(/^# .+$/m);
+      expect(markdown).toContain("## You\n\nExport me");
+      expect(markdown).toMatch(/^## Assistant · .+$/m);
+    });
+
     test("a Project holds its chats, Pinned lists the pinned ones, and the main list pages on scroll", async ({
       page,
     }) => {
@@ -270,6 +314,29 @@ export function registerSharedScenarios(
           return rows.count();
         })
         .toBe(1 + mainCount);
+    });
+
+    test("typing / inserts a Saved prompt with the keyboard, unsent", async ({ page }) => {
+      await signInWithModel(page);
+      const message = page.getByLabel("Message", { exact: true });
+
+      // With no Saved prompts yet, the menu's only row creates one, and saving inserts it.
+      await message.fill("/");
+      await expect(page.getByText("No Saved prompts yet.")).toBeVisible();
+      await page.keyboard.press("Enter");
+      await page.getByLabel("Name", { exact: true }).fill("greet");
+      await page.getByLabel("Text", { exact: true }).fill("Say hello to the team");
+      await page.getByRole("button", { name: "Save", exact: true }).click();
+      await expect(message).toHaveValue("Say hello to the team");
+      await expect(messageRows(page)).toHaveCount(0);
+
+      // Typing the name and pressing Enter inserts it for editing; nothing is sent.
+      await message.fill("/gre");
+      await expect(page.getByRole("option", { name: /\/greet/ })).toBeVisible();
+      await page.keyboard.press("Enter");
+      await expect(message).toHaveValue("Say hello to the team");
+      await expect(messageRows(page)).toHaveCount(0);
+      await expect(page.getByRole("listbox", { name: "Saved prompts" })).toHaveCount(0);
     });
   });
 }

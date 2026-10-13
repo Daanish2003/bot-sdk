@@ -1,11 +1,13 @@
 import type { Database } from "./db/index";
-import type { AnyImageAdapter, AnyTextAdapter } from "@tanstack/ai";
+import type { AnyImageAdapter, AnyTextAdapter, AnyTranscriptionAdapter } from "@tanstack/ai";
 import type { BlobStore } from "./blob/store";
 
 import { adapterFor, imageAdapterFor as productionImageAdapterFor } from "./chat/adapters";
+import { transcriptionAdapterFor } from "./chat/transcription";
 import type { CounterStore } from "./chat/counters";
 import type { PubSub } from "./chat/pubsub";
 import type { HostServerTool } from "./chat/host-tools";
+import { createHookEmitter, type ChatHooks, type HookEmitter } from "./chat/hooks";
 import type { RunStreams } from "./chat/run-streams";
 import { createTavilyClient } from "./chat/tavily";
 import { createGuardedFetch } from "./lib/guarded-fetch";
@@ -92,6 +94,12 @@ export type QuotaSetting =
   | null
   | ((userId: string) => Quota | null | Promise<Quota | null>);
 
+/**
+ * A transcription Model the Host pays for, for dictation (spec #249). Its price is per minute of
+ * audio, since the Providers' transcription APIs report no cost.
+ */
+export type HostTranscriptionModel = { model: string; pricePerMinuteUsd: number };
+
 /** The Host's own credentials for a Provider, and the Models they pay for. */
 export type HostProvider = {
   provider: ProviderId;
@@ -99,6 +107,8 @@ export type HostProvider = {
   models: HostModel[];
   /** The Host's Image Models of this Provider (spec #278). */
   imageModels?: HostImageModel[];
+  /** Transcription Models for dictation, on OpenAI, Groq or Grok only (spec #249). */
+  transcriptionModels?: HostTranscriptionModel[];
 };
 
 /**
@@ -144,6 +154,11 @@ export type AppDeps = {
     credentials: Credentials,
     options?: { maxOutputTokens?: number },
   ) => AnyTextAdapter;
+  /**
+   * Builds the TanStack AI transcription adapter for a `"provider:model"` id (spec #249), from the
+   * user's own key for that Provider.
+   */
+  transcriptionAdapterFor: (model: string, credentials: Credentials) => AnyTranscriptionAdapter;
   /** The Host credentials (`hostProviders`, ADR 0007). Never stored. */
   hostProviders: HostProvider[];
   /** The Host's Tools, such as a Tavily key for web search (`hostProviders`, ADR 0007). Never stored. */
@@ -191,8 +206,12 @@ export type AppDeps = {
   blobStore: BlobStore;
   /** Whether the Host has banned a user (`createChat({ isUserBlocked })`, spec #277). */
   isUserBlocked: (userId: string) => boolean | Promise<boolean>;
-  /** Where the SDK reports what it can't do quietly (`createChat({ logger })`). */
+  /** Where the SDK's own failures go: the Host's `logger` (`createChat({ logger })`). */
   logger: Pick<Console, "error">;
+  /** Fires the Host's `hooks` after each change the SDK writes (`createChat({ hooks })`). */
+  hooks: HookEmitter;
+  /** Whether Artifacts are on: the `create_artifact` tool, the panel and the version route (`createChat({ artifacts })`). */
+  artifacts: boolean;
 };
 
 export const defaultLimits: Limits = {
@@ -223,7 +242,9 @@ export function createAppDeps({
   mcpServers,
   blobStore,
   isUserBlocked = () => false,
-  logger,
+  logger = console,
+  hooks,
+  artifacts,
 }: {
   db: Database;
   /** The image adapter factory; the production one is `imageAdapterFor` in `chat/adapters.ts`. */
@@ -242,15 +263,19 @@ export function createAppDeps({
   mcpServers: McpServerConfig[];
   blobStore: BlobStore;
   isUserBlocked?: AppDeps["isUserBlocked"];
-  logger: Pick<Console, "error">;
+  logger?: AppDeps["logger"];
+  hooks?: ChatHooks;
+  artifacts?: boolean;
 }): AppDeps {
   return {
+    logger,
+    hooks: createHookEmitter(hooks, logger),
     db,
     blobStore,
     isUserBlocked,
-    logger,
     adapterFor,
     imageAdapterFor: imageAdapterFor ?? productionImageAdapterFor,
+    transcriptionAdapterFor,
     hostProviders,
     hostTools,
     byok,
@@ -270,5 +295,6 @@ export function createAppDeps({
     ollamaFetch: globalThis.fetch,
     keyEncryptionSecrets,
     mcpServers,
+    artifacts: artifacts ?? false,
   };
 }

@@ -132,7 +132,7 @@ export function createGenerateImageTool({
   /** The assistant Message whose reply this call belongs to; the image's row is owned by it. */
   messageId: string;
   /** The rows and the blob store the finished image is kept in (ADR 0015). */
-  deps: Pick<AppDeps, "db" | "blobStore" | "logger">;
+  deps: Pick<AppDeps, "db" | "hooks" | "blobStore" | "logger">;
   /** The SSRF-guarded `fetch`, for an image the Provider returns as a URL. */
   fetch: AppDeps["fetch"];
   timeoutMs: number;
@@ -247,8 +247,8 @@ export function createGenerateImageTool({
           (stopped && inFlight && !meter.cancelsUpstream) ||
           (answer !== undefined && (stored || usageReported(answer.usage)));
         if (billed) {
-          await recordImageUsage({ db: deps.db }, meter, answer?.usage, stopped).catch(
-            (caught: unknown) => console.error(`Recording an image of ${messageId} failed`, caught),
+          await recordImageUsage(deps, meter, answer?.usage, stopped).catch((caught: unknown) =>
+            console.error(`Recording an image of ${messageId} failed`, caught),
           );
         }
         onChange();

@@ -1,14 +1,18 @@
 import { conversation, reasoningEffort } from "../db/schema/chat";
-import { ORPCError } from "@orpc/server";
 import { z } from "zod";
 
 import { resolveModel } from "../chat/available-models";
+import { withProjectId } from "../chat/hooks";
 import { deleteAllConversations } from "../delete-user";
+import { renderConversationMarkdown } from "../export-markdown";
 import {
   decodeConversationCursor,
   deleteConversation,
   findConversation,
   listConversations,
+  archiveAllConversations,
+  archiveConversation,
+  listArchivedConversations,
   listPinnedConversations,
   loadActiveBranch,
   maxPinnedConversations,
@@ -19,12 +23,13 @@ import {
   setConversationModel,
   setConversationReasoningEffort,
   switchBranch,
+  unarchiveConversation,
   unpinConversation,
 } from "../chat/store";
-import { unusableModelMessage } from "../../shared/credentials/services";
 import { resolveModelCall } from "../credentials/resolve";
 import { findProject } from "../project/store";
 import { protectedProcedure } from "../procedures";
+import { rpcError, unusableModelError } from "../rpc-error";
 import { uuidv7 } from "../lib/uuidv7";
 
 export const conversationRouter = {
@@ -42,17 +47,24 @@ export const conversationRouter = {
     )
     .handler(async ({ context, input }) => {
       if (!(await resolveModel(context.deps, context.user.id, input.model))) {
-        throw new ORPCError("BAD_REQUEST", {
-          message: `"${input.model}" is not an available Model`,
-        });
+        throw rpcError(
+          "BAD_REQUEST",
+          "error.modelNotAvailable",
+          `"${input.model}" is not an available Model`,
+          {
+            model: input.model,
+          },
+        );
       }
       if (input.temporary && input.projectId) {
-        throw new ORPCError("BAD_REQUEST", {
-          message: "A Temporary Conversation can't be in a Project",
-        });
+        throw rpcError(
+          "BAD_REQUEST",
+          "error.temporaryInProject",
+          "A Temporary Conversation can't be in a Project",
+        );
       }
       if (input.projectId && !(await findProject(context.deps, context.user.id, input.projectId))) {
-        throw new ORPCError("NOT_FOUND", { message: "Project not found" });
+        throw rpcError("NOT_FOUND", "error.projectNotFound", "Project not found");
       }
       const id = uuidv7();
       await context.deps.db.insert(conversation).values({
@@ -62,6 +74,12 @@ export const conversationRouter = {
         reasoningEffort: input.reasoningEffort ?? null,
         projectId: input.projectId ?? null,
         temporary: input.temporary ?? false,
+      });
+      context.deps.hooks.fire("onConversationCreated", {
+        userId: context.user.id,
+        conversationId: id,
+        ...withProjectId(input.projectId),
+        fromSharedLink: false,
       });
       return { id };
     }),
@@ -77,10 +95,10 @@ export const conversationRouter = {
       const cursor =
         input.cursor === undefined ? undefined : decodeConversationCursor(input.cursor);
       if (input.cursor !== undefined && !cursor) {
-        throw new ORPCError("BAD_REQUEST", { message: "Invalid cursor" });
+        throw rpcError("BAD_REQUEST", "error.invalidCursor", "Invalid cursor");
       }
       if (input.projectId && !(await findProject(context.deps, context.user.id, input.projectId))) {
-        throw new ORPCError("NOT_FOUND", { message: "Project not found" });
+        throw rpcError("NOT_FOUND", "error.projectNotFound", "Project not found");
       }
       return listConversations(context.deps, context.user.id, cursor, input.projectId);
     }),
@@ -88,7 +106,7 @@ export const conversationRouter = {
   /** The Conversation with its Active Branch, oldest Message first. */
   get: protectedProcedure.input(z.object({ id: z.uuid() })).handler(async ({ context, input }) => {
     const row = await findConversation(context.deps, context.user.id, input.id);
-    if (!row) throw new ORPCError("NOT_FOUND", { message: "Conversation not found" });
+    if (!row) throw rpcError("NOT_FOUND", "error.conversationNotFound", "Conversation not found");
     const messages = await loadActiveBranch(context.deps, row.id, row.activeLeafId);
     return {
       id: row.id,
@@ -97,9 +115,23 @@ export const conversationRouter = {
       reasoningEffort: row.reasoningEffort,
       temporary: row.temporary,
       tools: row.toolSettings,
+      archivedAt: row.archivedAt,
       messages,
     };
   }),
+
+  /**
+   * The Active Branch as a Markdown document, and the file name to download it as (ticket #252).
+   * Owner only; a reply still streaming exports what is stored so far, marked as such.
+   */
+  exportMarkdown: protectedProcedure
+    .input(z.object({ id: z.uuid() }))
+    .handler(async ({ context, input }) => {
+      const row = await findConversation(context.deps, context.user.id, input.id);
+      if (!row) throw rpcError("NOT_FOUND", "error.conversationNotFound", "Conversation not found");
+      const messages = await loadActiveBranch(context.deps, row.id, row.activeLeafId);
+      return renderConversationMarkdown({ title: row.title, messages, exportedAt: new Date() });
+    }),
 
   /**
    * Shows the Branch through `messageId`: the newest leaf under it becomes the Active Branch.
@@ -110,11 +142,13 @@ export const conversationRouter = {
     .handler(async ({ context, input }) => {
       const result = await switchBranch(context.deps, context.user.id, input.messageId);
       if (result === "not_found")
-        throw new ORPCError("NOT_FOUND", { message: "Message not found" });
+        throw rpcError("NOT_FOUND", "error.messageNotFound", "Message not found");
       if (result === "streaming") {
-        throw new ORPCError("CONFLICT", {
-          message: "A reply is still streaming in this Conversation",
-        });
+        throw rpcError(
+          "CONFLICT",
+          "error.replyStreaming",
+          "A reply is still streaming in this Conversation",
+        );
       }
     }),
 
@@ -128,7 +162,8 @@ export const conversationRouter = {
         input.id,
         input.title,
       );
-      if (!renamed) throw new ORPCError("NOT_FOUND", { message: "Conversation not found" });
+      if (!renamed)
+        throw rpcError("NOT_FOUND", "error.conversationNotFound", "Conversation not found");
     }),
 
   /** Selects the Model the next Message and regenerate use. Doesn't bump `lastMessageAt`. */
@@ -137,21 +172,25 @@ export const conversationRouter = {
     .handler(async ({ context, input }) => {
       const userId = context.user.id;
       if (!(await findConversation(context.deps, userId, input.id))) {
-        throw new ORPCError("NOT_FOUND", { message: "Conversation not found" });
+        throw rpcError("NOT_FOUND", "error.conversationNotFound", "Conversation not found");
       }
       const model = await resolveModel(context.deps, userId, input.model);
       if (!model) {
-        throw new ORPCError("BAD_REQUEST", {
-          message: `"${input.model}" is not an available Model`,
-        });
+        throw rpcError(
+          "BAD_REQUEST",
+          "error.modelNotAvailable",
+          `"${input.model}" is not an available Model`,
+          {
+            model: input.model,
+          },
+        );
       }
       if (!(await resolveModelCall(context.deps, userId, model.id))) {
-        throw new ORPCError("BAD_REQUEST", {
-          message: unusableModelMessage(model.provider, context.deps.byok),
-        });
+        throw unusableModelError(model.provider, context.deps.byok);
       }
       const updated = await setConversationModel(context.deps, userId, input.id, model.id);
-      if (!updated) throw new ORPCError("NOT_FOUND", { message: "Conversation not found" });
+      if (!updated)
+        throw rpcError("NOT_FOUND", "error.conversationNotFound", "Conversation not found");
     }),
 
   /** Selects the reasoning effort the next Message and regenerate use; `null` is the Model's default. */
@@ -164,12 +203,13 @@ export const conversationRouter = {
     .handler(async ({ context, input }) => {
       const known = new Set(context.deps.mcpServers.map((server) => server.key));
       if (input.connections.some((key) => !known.has(key))) {
-        throw new ORPCError("BAD_REQUEST", { message: "Unknown MCP server" });
+        throw rpcError("BAD_REQUEST", "error.unknownMcpServer", "Unknown MCP server");
       }
       const updated = await setConversationConnections(context.deps, context.user.id, input.id, [
         ...new Set(input.connections),
       ]);
-      if (!updated) throw new ORPCError("NOT_FOUND", { message: "Conversation not found" });
+      if (!updated)
+        throw rpcError("NOT_FOUND", "error.conversationNotFound", "Conversation not found");
     }),
 
   setReasoningEffort: protectedProcedure
@@ -186,7 +226,8 @@ export const conversationRouter = {
         input.id,
         input.reasoningEffort,
       );
-      if (!updated) throw new ORPCError("NOT_FOUND", { message: "Conversation not found" });
+      if (!updated)
+        throw rpcError("NOT_FOUND", "error.conversationNotFound", "Conversation not found");
     }),
 
   /**
@@ -201,14 +242,23 @@ export const conversationRouter = {
   pin: protectedProcedure.input(z.object({ id: z.uuid() })).handler(async ({ context, input }) => {
     const result = await pinConversation(context.deps, context.user.id, input.id);
     if (result === "not_found")
-      throw new ORPCError("NOT_FOUND", { message: "Conversation not found" });
+      throw rpcError("NOT_FOUND", "error.conversationNotFound", "Conversation not found");
     if (result === "temporary") {
-      throw new ORPCError("BAD_REQUEST", { message: "A Temporary Conversation can't be pinned" });
+      throw rpcError(
+        "BAD_REQUEST",
+        "error.temporaryPin",
+        "A Temporary Conversation can't be pinned",
+      );
     }
     if (result === "limit") {
-      throw new ORPCError("BAD_REQUEST", {
-        message: `You can pin up to ${maxPinnedConversations} Conversations. Unpin one first.`,
-      });
+      throw rpcError(
+        "BAD_REQUEST",
+        "error.pinLimit",
+        `You can pin up to ${maxPinnedConversations} Conversations. Unpin one first.`,
+        {
+          max: maxPinnedConversations,
+        },
+      );
     }
   }),
 
@@ -217,8 +267,53 @@ export const conversationRouter = {
     .input(z.object({ id: z.uuid() }))
     .handler(async ({ context, input }) => {
       const unpinned = await unpinConversation(context.deps, context.user.id, input.id);
-      if (!unpinned) throw new ORPCError("NOT_FOUND", { message: "Conversation not found" });
+      if (!unpinned)
+        throw rpcError("NOT_FOUND", "error.conversationNotFound", "Conversation not found");
     }),
+
+  /**
+   * Archives the Conversation: it leaves the main list and its Project's list, and is unpinned.
+   * It is still found by search and opened by its URL. Doesn't bump `lastMessageAt`.
+   */
+  archive: protectedProcedure
+    .input(z.object({ id: z.uuid() }))
+    .handler(async ({ context, input }) => {
+      const archived = await archiveConversation(context.deps, context.user.id, input.id);
+      if (!archived)
+        throw rpcError("NOT_FOUND", "error.conversationNotFound", "Conversation not found");
+    }),
+
+  /** Brings an archived Conversation back to the lists. Doesn't bump `lastMessageAt`. */
+  unarchive: protectedProcedure
+    .input(z.object({ id: z.uuid() }))
+    .handler(async ({ context, input }) => {
+      const unarchived = await unarchiveConversation(context.deps, context.user.id, input.id);
+      if (!unarchived)
+        throw rpcError("NOT_FOUND", "error.conversationNotFound", "Conversation not found");
+    }),
+
+  /**
+   * One page of the caller's archived Conversations for the Archived list, Project ones too,
+   * newest Message first, 50 at a time. Pass the previous page's `nextCursor` for the next one.
+   */
+  archived: protectedProcedure
+    .input(z.object({ cursor: z.string().optional() }))
+    .handler(async ({ context, input }) => {
+      const cursor =
+        input.cursor === undefined ? undefined : decodeConversationCursor(input.cursor);
+      if (input.cursor !== undefined && !cursor) {
+        throw rpcError("BAD_REQUEST", "error.invalidCursor", "Invalid cursor");
+      }
+      return listArchivedConversations(context.deps, context.user.id, cursor);
+    }),
+
+  /**
+   * Archives every one of the caller's Conversations that is in no Project, isn't pinned and isn't
+   * archived yet. Returns how many it archived.
+   */
+  archiveAll: protectedProcedure.handler(async ({ context }) => ({
+    count: await archiveAllConversations(context.deps, context.user.id),
+  })),
 
   /**
    * Moves the Conversation into one of the caller's Projects, or out of its Project when
@@ -228,15 +323,17 @@ export const conversationRouter = {
     .input(z.object({ id: z.uuid(), projectId: z.uuid().nullable() }))
     .handler(async ({ context, input }) => {
       if (input.projectId && !(await findProject(context.deps, context.user.id, input.projectId))) {
-        throw new ORPCError("NOT_FOUND", { message: "Project not found" });
+        throw rpcError("NOT_FOUND", "error.projectNotFound", "Project not found");
       }
       if (
         input.projectId &&
         (await findConversation(context.deps, context.user.id, input.id))?.temporary
       ) {
-        throw new ORPCError("BAD_REQUEST", {
-          message: "A Temporary Conversation can't be moved into a Project",
-        });
+        throw rpcError(
+          "BAD_REQUEST",
+          "error.temporaryMove",
+          "A Temporary Conversation can't be moved into a Project",
+        );
       }
       const moved = await moveConversation(
         context.deps,
@@ -244,7 +341,8 @@ export const conversationRouter = {
         input.id,
         input.projectId,
       );
-      if (!moved) throw new ORPCError("NOT_FOUND", { message: "Conversation not found" });
+      if (!moved)
+        throw rpcError("NOT_FOUND", "error.conversationNotFound", "Conversation not found");
     }),
 
   /** Deletes the Conversation for good; its Messages go with it (cascade). */
@@ -252,7 +350,8 @@ export const conversationRouter = {
     .input(z.object({ id: z.uuid() }))
     .handler(async ({ context, input }) => {
       const deleted = await deleteConversation(context.deps, context.user.id, input.id);
-      if (!deleted) throw new ORPCError("NOT_FOUND", { message: "Conversation not found" });
+      if (!deleted)
+        throw rpcError("NOT_FOUND", "error.conversationNotFound", "Conversation not found");
     }),
 
   /**

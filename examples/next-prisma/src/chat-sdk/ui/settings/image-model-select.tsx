@@ -12,13 +12,16 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
-import { useOrpc } from "../../core/client/react/provider";
+import { serverErrorText } from "../../core/client/rpc-error";
+import { useI18n, useOrpc } from "../../core/client/react/provider";
 import { groupImageModels } from "./image-model-groups";
 
 /** The Image Model select: which Model makes Generated images, or the Host's default when none is picked. */
 export function ImageModelSelect() {
   const queryClient = useQueryClient();
   const orpc = useOrpc();
+  const i18n = useI18n();
+  const { t } = i18n;
   const settings = useQuery(orpc.settings.get.queryOptions());
   const models = useQuery(orpc.models.list.queryOptions());
   const settingsKey = orpc.settings.get.queryKey();
@@ -35,7 +38,7 @@ export function ImageModelSelect() {
       },
       onError: (error, _, context) => {
         if (context?.previous) queryClient.setQueryData(settingsKey, context.previous);
-        toast.error(error.message);
+        toast.error(serverErrorText(i18n, error));
       },
       onSettled: () => queryClient.invalidateQueries({ queryKey: settingsKey }),
     }),
@@ -51,18 +54,22 @@ export function ImageModelSelect() {
   const first: Array<{ value: string | null; label: string }> = [
     {
       value: null,
-      label: hostDefaultLabel ? `Host default (${hostDefaultLabel})` : "No images",
+      label: hostDefaultLabel
+        ? t("settings.hostDefaultModel", { model: hostDefaultLabel })
+        : t("settings.noImages"),
     },
-    ...(saved && missingKey ? [{ value: saved, label: `${saved} (no key)` }] : []),
+    ...(saved && missingKey
+      ? [{ value: saved, label: t("settings.noKeyModel", { model: saved }) }]
+      : []),
   ];
   const groups = groupImageModels(available);
   const items = [...first, ...available.map((model) => ({ value: model.id, label: model.label }))];
 
   return (
     <section className="space-y-2">
-      <h2 className="text-sm font-medium">Images</h2>
+      <h2 className="text-sm font-medium">{t("settings.images")}</h2>
       <div className="space-y-2 rounded-xl border px-4 py-3">
-        <Label htmlFor="image-model">Image Model</Label>
+        <Label htmlFor="image-model">{t("settings.imageModel")}</Label>
         <Select
           items={items}
           value={saved}
@@ -86,7 +93,7 @@ export function ImageModelSelect() {
                 {group.models.map((model) => (
                   <SelectItem key={model.id} value={model.id}>
                     {model.label}
-                    {model.onHostCredentials ? " · Host" : ""}
+                    {model.onHostCredentials ? ` ${t("settings.onHost")}` : ""}
                   </SelectItem>
                 ))}
               </SelectGroup>
@@ -94,9 +101,7 @@ export function ImageModelSelect() {
           </SelectContent>
         </Select>
         <p className="text-xs text-muted-foreground">
-          {missingKey
-            ? "This Image Model's key was removed, so no images are made until you pick another."
-            : "Makes images when you ask for one. Images on the Host's credentials count against your allowance."}
+          {missingKey ? t("settings.imageModelMissingKey") : t("settings.imageModelHelp")}
         </p>
       </div>
     </section>

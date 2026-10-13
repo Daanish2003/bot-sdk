@@ -2,6 +2,7 @@ import { Link, createFileRoute } from "@tanstack/react-router";
 
 import { AdminQuotaControl } from "@/components/admin-quota-control";
 import { AdminSpendChart } from "@/components/admin-spend-chart";
+import { AdminTwoFactorControl } from "@/components/admin-two-factor-control";
 import { getAdminUserDetail } from "@/functions/admin-quota";
 
 /** Admin: one user's spend per day over 30 days, split by Model, and their Quota. Admin only. */
@@ -37,6 +38,14 @@ function AdminUserPage() {
         </h2>
         <AdminQuotaControl userId={detail.id} quota={detail.quota} />
       </section>
+      {detail.twoFactorEnabled && (
+        <section aria-labelledby="two-factor-heading" className="space-y-3">
+          <h2 id="two-factor-heading" className="font-medium">
+            Two-factor sign-in
+          </h2>
+          <AdminTwoFactorControl user={detail} />
+        </section>
+      )}
     </main>
   );
 }

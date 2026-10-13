@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { createI18n } from "../../../core/shared/i18n";
+
 import {
   focusStep,
   localDayRange,
@@ -32,7 +34,7 @@ describe("recentConversations", () => {
   }));
 
   it("shows the newest 6 without a query", () => {
-    expect(recentConversations(conversations, "").map((c) => c.id)).toEqual([
+    expect(recentConversations(createI18n(), conversations, "").map((c) => c.id)).toEqual([
       "0",
       "1",
       "2",
@@ -43,15 +45,17 @@ describe("recentConversations", () => {
   });
 
   it("filters titles case-insensitively, up to 20", () => {
-    expect(recentConversations(conversations, "TOPIC 1").map((c) => c.id)).toEqual([
+    expect(recentConversations(createI18n(), conversations, "TOPIC 1").map((c) => c.id)).toEqual([
       "1",
       ...Array.from({ length: 10 }, (_, i) => String(10 + i)),
     ]);
-    expect(recentConversations(conversations, "topic")).toHaveLength(20);
+    expect(recentConversations(createI18n(), conversations, "topic")).toHaveLength(20);
   });
 
   it("matches an untitled Conversation as Untitled", () => {
-    expect(recentConversations(conversations, "untitled").map((c) => c.id)).toEqual(["3"]);
+    expect(recentConversations(createI18n(), conversations, "untitled").map((c) => c.id)).toEqual([
+      "3",
+    ]);
   });
 });
 

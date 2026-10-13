@@ -38,6 +38,8 @@ describe("checkCredentials for Anthropic", () => {
       status: "rejected",
       reason: "invalid_key",
       message: "Anthropic rejected this API key.",
+      code: "error.keyRejected",
+      params: { label: "Anthropic" },
     });
   });
 });
@@ -62,6 +64,8 @@ describe("checkCredentials for OpenAI", () => {
       status: "rejected",
       reason: "invalid_key",
       message: "OpenAI rejected this API key.",
+      code: "error.keyRejected",
+      params: { label: "OpenAI" },
     });
   });
 
@@ -82,6 +86,8 @@ describe("checkCredentials for OpenAI", () => {
       status: "rejected",
       reason: "provider_error",
       message: "Couldn't check the key with OpenAI (HTTP 503). Try again.",
+      code: "error.keyCheckFailed",
+      params: { label: "OpenAI", status: 503 },
     });
   });
 
@@ -96,6 +102,8 @@ describe("checkCredentials for OpenAI", () => {
       status: "rejected",
       reason: "provider_error",
       message: "Couldn't reach OpenAI to check the key. Try again.",
+      code: "error.keyUnreachable",
+      params: { label: "OpenAI" },
     });
   });
 });
@@ -157,6 +165,8 @@ describe("checkCredentials for the other Providers", () => {
       status: "rejected",
       reason: "invalid_key",
       message: "Google Gemini rejected this API key.",
+      code: "error.keyRejected",
+      params: { label: "Google Gemini" },
     });
   });
 
@@ -198,6 +208,8 @@ describe("checkCredentials for the other Providers", () => {
       reason: "provider_error",
       message:
         "Couldn't reach Ollama at http://localhost:11434. Under Docker, use http://host.docker.internal:11434.",
+      code: "error.ollamaUnreachable",
+      params: { host: "http://localhost:11434" },
     });
   });
 

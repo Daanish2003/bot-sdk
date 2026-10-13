@@ -13,7 +13,8 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { useChatAdapter, useOrpc } from "../../core/client/react/provider";
+import { useChatAdapter, useI18n, useOrpc } from "../../core/client/react/provider";
+import { serverErrorText } from "../../core/client/rpc-error";
 import { ConversationRow } from "../shell/conversation-panel";
 import { EditProjectForm } from "./edit-project-form";
 
@@ -24,6 +25,7 @@ import { EditProjectForm } from "./edit-project-form";
 export function ProjectPage({ projectId }: { projectId: string }) {
   const orpc = useOrpc();
   const { Link } = useChatAdapter();
+  const { t } = useI18n();
   const project = useQuery(orpc.project.get.queryOptions({ input: { id: projectId } }));
   const [editing, setEditing] = useState(false);
   const conversations = useInfiniteQuery(
@@ -36,13 +38,15 @@ export function ProjectPage({ projectId }: { projectId: string }) {
   const rows = conversations.data?.pages.flatMap((page) => page.items) ?? [];
 
   if (project.error || conversations.error) {
-    return <p className="p-6 text-sm text-muted-foreground">This Project can&apos;t be opened.</p>;
+    return <p className="p-6 text-sm text-muted-foreground">{t("pages.projectUnavailable")}</p>;
   }
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-6">
       <header className="flex items-center justify-between gap-3">
-        <h1 className="truncate text-lg font-semibold">{project.data?.name ?? "Project"}</h1>
+        <h1 className="truncate text-lg font-semibold">
+          {project.data?.name ?? t("pages.project")}
+        </h1>
         <div className="flex shrink-0 items-center gap-2">
           {project.data && (
             <Button
@@ -51,11 +55,11 @@ export function ProjectPage({ projectId }: { projectId: string }) {
               aria-expanded={editing}
               onClick={() => setEditing((open) => !open)}
             >
-              Edit
+              {t("pages.edit")}
             </Button>
           )}
           <Link page={{ to: "new", projectId }} className={buttonVariants({ size: "sm" })}>
-            New chat in this Project
+            {t("pages.newChatInProject")}
           </Link>
           <DeleteProjectButton projectId={projectId} />
         </div>
@@ -70,7 +74,7 @@ export function ProjectPage({ projectId }: { projectId: string }) {
         />
       )}
       {conversations.isSuccess && rows.length === 0 && (
-        <p className="text-sm text-muted-foreground">No Conversations in this Project yet</p>
+        <p className="text-sm text-muted-foreground">{t("pages.noProjectConversations")}</p>
       )}
       {rows.length > 0 && (
         <ul className="overflow-hidden rounded-md border">
@@ -85,7 +89,7 @@ export function ProjectPage({ projectId }: { projectId: string }) {
           disabled={conversations.isFetchingNextPage}
           onClick={() => void conversations.fetchNextPage()}
         >
-          {conversations.isFetchingNextPage ? "Loading…" : "Load more"}
+          {conversations.isFetchingNextPage ? t("shell.loading") : t("pages.loadMore")}
         </Button>
       )}
     </div>
@@ -100,6 +104,8 @@ function DeleteProjectButton({ projectId }: { projectId: string }) {
   const orpc = useOrpc();
   const queryClient = useQueryClient();
   const { navigate } = useChatAdapter();
+  const i18n = useI18n();
+  const { t } = i18n;
   const [open, setOpen] = useState(false);
   const count = useQuery(
     orpc.project.conversationCount.queryOptions({ input: { id: projectId }, enabled: open }),
@@ -108,7 +114,11 @@ function DeleteProjectButton({ projectId }: { projectId: string }) {
     orpc.project.delete.mutationOptions({
       onSuccess: async ({ count: removed }) => {
         setOpen(false);
-        toast.success(`Project deleted with ${conversationsLabel(removed)}`);
+        toast.success(
+          t("pages.projectDeleted", {
+            conversations: t("pages.conversationCount", { count: removed }),
+          }),
+        );
         // The sidebar's Projects section, the Pinned section, the lists and the Shared links.
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: orpc.project.key() }),
@@ -117,7 +127,7 @@ function DeleteProjectButton({ projectId }: { projectId: string }) {
         ]);
         await navigate({ to: "new" });
       },
-      onError: (error) => toast.error(error.message),
+      onError: (error) => toast.error(serverErrorText(i18n, error)),
     }),
   );
   const total = count.data?.count;
@@ -125,36 +135,32 @@ function DeleteProjectButton({ projectId }: { projectId: string }) {
   return (
     <AlertDialog open={open} onOpenChange={setOpen}>
       <AlertDialogTrigger render={<Button variant="destructive" size="sm" />}>
-        Delete Project
+        {t("pages.deleteProject")}
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete this Project?</AlertDialogTitle>
+          <AlertDialogTitle>{t("pages.deleteProjectTitle")}</AlertDialogTitle>
           <AlertDialogDescription>
             {count.isError
-              ? "Couldn't count this Project's Conversations, so it can't be deleted right now."
+              ? t("pages.countUnavailable")
               : total === undefined
-                ? "Checking how many Conversations it holds…"
-                : `This deletes the Project and its ${conversationsLabel(total)}, with their Messages and Shared links. This can't be undone.`}
+                ? t("pages.countChecking")
+                : t("pages.deleteProjectBody", {
+                    conversations: t("pages.conversationCount", { count: total }),
+                  })}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogCancel>{t("pages.cancel")}</AlertDialogCancel>
           <Button
             variant="destructive"
             disabled={total === undefined || remove.isPending}
             onClick={() => remove.mutate({ id: projectId })}
           >
-            {remove.isPending ? "Deleting…" : "Delete Project"}
+            {remove.isPending ? t("pages.deleting") : t("pages.deleteProject")}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
   );
-}
-
-/** "1 Conversation", "3 Conversations", "no Conversations". */
-function conversationsLabel(count: number) {
-  if (count === 0) return "no Conversations";
-  return `${count} ${count === 1 ? "Conversation" : "Conversations"}`;
 }

@@ -48,6 +48,7 @@ describe("share.upsert", () => {
           attachments: [],
           model: null,
           status: "complete",
+          hidden: false,
           createdAt: question.createdAt,
         },
         {
@@ -57,6 +58,7 @@ describe("share.upsert", () => {
           attachments: [],
           model: "anthropic:claude-sonnet-5-5",
           status: "complete",
+          hidden: false,
           createdAt: reply.createdAt,
         },
       ],
@@ -207,6 +209,15 @@ describe("share.list", () => {
         sharedAt: link.updatedAt,
       },
     ]);
+  });
+
+  it("lists an untitled Conversation's link with a null title, not Untitled", async () => {
+    const { user, client } = await signedIn();
+    const conv = await insertConversation(user);
+    await insertMessage({ conversationId: conv.id, role: "user", text: "Hi", active: true });
+    await client.share.upsert({ conversationId: conv.id });
+
+    await expect(client.share.list()).resolves.toMatchObject([{ title: null }]);
   });
 
   it("never lists another user's links", async () => {
@@ -427,6 +438,7 @@ describe("share.get", () => {
       attachments: [],
       model: "anthropic:claude-sonnet-5-5",
       status: "error",
+      hidden: false,
       createdAt: failed.createdAt,
     });
   });

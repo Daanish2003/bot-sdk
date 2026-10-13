@@ -1,4 +1,17 @@
 export { createChat, type CreateChatOptions, type GetUser, type Logger } from "./create-chat";
+export type {
+  ChatHooks,
+  ConversationCreatedEvent,
+  ConversationDeletedEvent,
+  ModerationAttachment,
+  ModerationInput,
+  ModerationOutput,
+  ModerationResult,
+  RunEndEvent,
+  RunEnding,
+  SharedLinkChangedEvent,
+  UsageEvent,
+} from "./chat/hooks";
 export { memoryRuntime, redisRuntime, type ChatRuntime, type RedisRuntimeOptions } from "./runtime";
 export { redisStore, type RedisStore } from "./chat/redis-store";
 export type { HostServerTool, HostToolContext } from "./chat/host-tools";

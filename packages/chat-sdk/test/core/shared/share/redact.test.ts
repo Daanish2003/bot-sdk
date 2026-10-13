@@ -38,6 +38,19 @@ describe("redactForShare", () => {
     expect(redactForShare(parts)).toEqual(parts);
   });
 
+  it("keeps the slim artifact part: it names a version, never its content", () => {
+    const artifactPart = {
+      type: "artifact",
+      artifactId: "abc123",
+      version: 2,
+      title: "Landing page",
+      kind: "html",
+      state: "done",
+    } as unknown as MessagePart;
+
+    expect(redactForShare([artifactPart])).toEqual([artifactPart]);
+  });
+
   it("strips thinking", () => {
     expect(
       redactForShare([

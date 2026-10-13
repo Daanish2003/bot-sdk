@@ -18,6 +18,13 @@ export const turnOffTwoFactor = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     await turnOffUserTwoFactor(
       {
+        isOn: async (userId) => {
+          const row = await db.query.user.findFirst({
+            where: { id: userId },
+            columns: { twoFactorEnabled: true },
+          });
+          return row?.twoFactorEnabled === true;
+        },
         disable: (userId) => turnOffTwoFactorRows(db, userId),
         revokeSessions: async (userId) => {
           await auth.api.revokeUserSessions({ body: { userId }, headers: getRequest().headers });

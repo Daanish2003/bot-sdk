@@ -1,2 +1,27 @@
 /* Tailwind v4 Hosts: import this after `@import "tailwindcss";` so Tailwind compiles ui/'s classes. */
 @source ".";
+
+/*
+ * Printing a Conversation (#253): the browser's print dialog makes the PDF, so the page prints
+ * the conversation only. Buttons that drive the page (copy, regenerate, Approve, menus) and dialogs
+ * go; tool-call toggles stay so their rows keep the name, and their details print expanded.
+ */
+@media print {
+  button:not([aria-expanded]),
+  [role="menu"],
+  [role="dialog"] {
+    display: none !important;
+  }
+
+  pre {
+    break-inside: avoid;
+  }
+}
+
+/* Phones: tap targets at least 44px (WCAG 2.5.5). Desktop keeps the shadcn sizes. */
+@media (max-width: 767px) {
+  [data-slot="button"] {
+    min-height: 2.75rem;
+    min-width: 2.75rem;
+  }
+}

@@ -1,10 +1,12 @@
 import {
   type GeneratedImagePart,
+  type ArtifactPart,
   type StoredPart,
   type StoredParts,
   storedParts,
   storedPartsSchema,
   type ToolCallPart,
+  type ToolError,
   type WebSearchPart,
 } from "../message-parts";
 import {
@@ -17,6 +19,7 @@ import {
 } from "@tanstack/ai";
 
 import { attachmentKind, kindLabel, kindLabelPlural } from "../attachments/kinds";
+import { createArtifactToolName, updateArtifactToolName } from "./artifact";
 import { fetchUrlToolName } from "./fetch-url";
 import { providerOf } from "./models";
 import {
@@ -27,7 +30,9 @@ import {
   generatedImageErrorLabels,
 } from "./generated-image";
 import {
+  searchErrorCodes,
   searchErrorMessages,
+  searchReasonOfCode,
   type SearchErrorReason,
   type SearchResult,
   type WebSearchOutput,
@@ -158,7 +163,7 @@ export function createPartsBuilder(initial: StoredPart[] = []) {
         part.results = outcome.results;
       } else {
         part.state = "error";
-        part.errorReason = outcome.errorReason;
+        part.error = { code: searchErrorCodes[outcome.errorReason] };
       }
     },
     /** Starts a `generate_image` call, as the tool is about to run (spec #278). */
@@ -218,12 +223,17 @@ export function createPartsBuilder(initial: StoredPart[] = []) {
         state: "awaiting_approval",
       });
     },
+    /** Records a version a `create_artifact` call saved (ADR 0016). Only saved versions are parts. */
+    addArtifact({ artifactId, version, title, kind }: Omit<ArtifactPart, "type" | "state">) {
+      parts.push({ type: "artifact", artifactId, version, title, kind, state: "done" });
+    },
     /** Ends a running tool call with its result. A call cancelled meanwhile stays cancelled. */
-    finishToolCall(toolCallId: string, { state, result }: FinishToolCall) {
+    finishToolCall(toolCallId: string, { state, result, error }: FinishToolCall) {
       const part = runningCall(toolCallId);
       if (!part) return;
       part.state = state;
       part.result = result;
+      if (error) part.error = error;
     },
     cancelRunningCalls() {
       for (const part of parts) {
@@ -239,8 +249,11 @@ export function createPartsBuilder(initial: StoredPart[] = []) {
 
 /** A tool call as it starts: what the Model asked for, before the tool has run. */
 export type StartToolCall = Pick<ToolCallPart, "name" | "source" | "args"> & { toolCallId: string };
-/** How a tool call ended: `done` with its result, or `error` with `{ error }`. */
-export type FinishToolCall = { state: "done" | "error"; result: unknown };
+/**
+ * How a tool call ended: `done` with its result, or `error` with `{ error }` for the Model and the
+ * failure's code (`error`) for the reader.
+ */
+export type FinishToolCall = { state: "done" | "error"; result: unknown; error?: ToolError };
 
 /** The parts with every `running` search and tool call closed as `cancelled`, for a run that ended. */
 export function cancelRunningCalls(parts: StoredParts): StoredParts {
@@ -268,6 +281,18 @@ function textOf(parts: StoredParts, separator: string) {
 const finished = (part: CallPart) =>
   part.state === "done" || part.state === "error" || part.state === "denied";
 
+/**
+ * A `create_artifact` or `update_artifact` call. It is stored as a tool call (for the budget and a
+ * failed card) and, once saved, as an `artifact` part. Its stored arguments hold no content or
+ * edits, so the Model replays it as a stub (ADR 0016); the content comes with the latest version.
+ */
+const isArtifactCall = (part: StoredPart) =>
+  part.type === "tool_call" &&
+  (part.name === createArtifactToolName || part.name === updateArtifactToolName);
+
+/** A finished search, tool call or generated image the Model may replay. */
+const replayable = (part: StoredPart): part is CallPart => isCallPart(part) && finished(part);
+
 /** A call's arguments as the model streamed them; an unreadable stream reads as no arguments. */
 function parseArgs(json: string): unknown {
   try {
@@ -280,7 +305,7 @@ function parseArgs(json: string): unknown {
 /** What the Model read as the result of a finished search. */
 function searchOutput(part: WebSearchPart): WebSearchOutput {
   if (part.state !== "error") return { results: part.results };
-  const reason = part.errorReason ?? "failed";
+  const reason = part.error ? searchReasonOfCode(part.error.code) : (part.errorReason ?? "failed");
   return { error: searchErrorMessages[reason], reason };
 }
 
@@ -300,10 +325,17 @@ function toolCallPlaceholder(part: ToolCallPart) {
   return `[Called "${part.name}" with ${JSON.stringify(part.args)}: ${JSON.stringify(part.result ?? null)}]`;
 }
 
-/** What the Model reads as the result of a finished call. */
+/**
+ * What the Model reads back for a finished call. An Artifact call that saved a version reads as a
+ * short stub ("saved as v3"); any other call reads its search output, image output or stored result.
+ */
 function resultOf(call: CallPart): unknown {
   if (call.type === "web_search") return searchOutput(call);
   if (call.type === "generated_image") return imageOutput(call);
+  if (isArtifactCall(call) && call.state === "done") {
+    const saved = call.result as { version?: unknown } | null;
+    return `saved as v${String(saved?.version)}`;
+  }
   return call.result ?? null;
 }
 
@@ -337,12 +369,15 @@ type OfferedTools = {
   hostTools: boolean;
   mcpTools: boolean;
   generateImage: boolean;
+  /** Whether the request offers the Artifact tools (ADR 0016). */
+  artifacts: boolean;
 };
 
 /** A call a request offers its tool for, as the Model replays it: a Host or an MCP tool, by its source. */
 const offeredCall = (part: CallPart, offered: OfferedTools) => {
   if (part.type === "web_search") return offered.webSearch;
   if (part.type === "generated_image") return offered.generateImage;
+  if (isArtifactCall(part)) return offered.artifacts;
   if (part.name === fetchUrlToolName) return offered.fetchUrl;
   return part.source === "mcp" ? offered.mcpTools : offered.hostTools;
 };
@@ -403,10 +438,11 @@ function withToolCalls({ role, parts }: StoredMessage, offered: OfferedTools): M
     } else if (part.type === "tool_call" && part.state === "awaiting_approval") {
       // Sent without a result, so the resumed Run can answer it (the Model's call is still open).
       if (offeredCall(part, offered)) calls.push(part);
-    } else if (isCallPart(part) && finished(part)) {
+    } else if (replayable(part)) {
       if (offeredCall(part, offered)) {
         calls.push(part);
-      } else {
+      } else if (!isArtifactCall(part)) {
+        // An Artifact call whose tools aren't offered is left out, not written as text.
         if (calls.length > 0) flush();
         if (content) content += "\n\n";
         content += placeholderOf(part);
@@ -427,7 +463,7 @@ function withPlaceholders({ role, parts }: StoredMessage): ModelMessage[] {
       if (lastWasText) pieces[pieces.length - 1] += part.text;
       else pieces.push(part.text);
       lastWasText = true;
-    } else if (isCallPart(part) && finished(part)) {
+    } else if (replayable(part) && !isArtifactCall(part)) {
       pieces.push(placeholderOf(part));
       lastWasText = false;
     }
@@ -452,6 +488,7 @@ export function toModelMessages(
     hostTools = false,
     mcpTools = false,
     generateImage = false,
+    artifacts = false,
     reads = { images: false, pdfs: false },
   }: {
     provider?: string;
@@ -464,14 +501,23 @@ export function toModelMessages(
     mcpTools?: boolean;
     /** Whether this request offers the `generate_image` tool (spec #278). */
     generateImage?: boolean;
+    /** Whether this request offers the Artifact tools; their calls then replay as stubs (ADR 0016). */
+    artifacts?: boolean;
     /** Attachments the Model can't read become text placeholders. */
     reads?: ModelReads;
   } = {},
 ): ModelMessage[] {
   return history.flatMap((stored) => {
     const messages =
-      webSearch || fetchUrl || hostTools || mcpTools || generateImage
-        ? withToolCalls(stored, { webSearch, fetchUrl, hostTools, mcpTools, generateImage })
+      webSearch || fetchUrl || hostTools || mcpTools || generateImage || artifacts
+        ? withToolCalls(stored, {
+            webSearch,
+            fetchUrl,
+            hostTools,
+            mcpTools,
+            generateImage,
+            artifacts,
+          })
         : withPlaceholders(stored);
     const [first] = messages;
     if (!first) return [];
@@ -534,12 +580,17 @@ function toBase64(bytes: Uint8Array) {
 
 /** `UIMessage` parts for `useChat`. A search is a `web_search` tool call, as it streams. */
 export function toUIParts(parts: StoredParts): MessagePart[] {
-  return parts.parts.map((part): MessagePart => {
+  // A saved Artifact shows as its `artifact` part, so its finished call is not a second card.
+  const shown = parts.parts.filter(
+    (part) => !(part.type === "tool_call" && isArtifactCall(part) && part.state === "done"),
+  );
+  return shown.map((part): MessagePart => {
     if (part.type === "text") return { type: "text", content: part.text };
     // The signature is only for the Provider; the client never needs it.
     if (part.type === "thinking") return { type: "thinking", content: part.text };
     if (part.type === "tool_call") return toolCallUIPart(part);
     if (part.type === "generated_image") return generatedImageUIPart(part);
+    if (part.type === "artifact") return artifactUIPart(part);
     const input = { query: part.query };
     return {
       type: "tool-call",
@@ -604,7 +655,29 @@ function toolCallUIPart(part: ToolCallPart): MessagePart {
           ? "complete"
           : "error",
     ...(finished(part) && { output: part.result }),
-    metadata: { source: part.source, status: part.state },
+    metadata: {
+      source: part.source,
+      status: part.state,
+      ...(part.error && { error: part.error }),
+    },
+  };
+}
+
+/**
+ * A saved Artifact version as `useChat` shows it: a `create_artifact` call with its title and kind
+ * (as the call's input) and the version it saved (as its output). The content is never in it.
+ */
+function artifactUIPart(part: ArtifactPart): MessagePart {
+  const input = { kind: part.kind, title: part.title };
+  return {
+    type: "tool-call",
+    id: `artifact-${part.artifactId}-${part.version}`,
+    name: createArtifactToolName,
+    arguments: JSON.stringify(input),
+    input,
+    state: "complete",
+    output: { artifactId: part.artifactId, version: part.version },
+    metadata: { source: "builtin", status: "done" },
   };
 }
 

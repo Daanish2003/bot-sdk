@@ -1,6 +1,7 @@
-import type { MessagePart } from "@tanstack/ai";
+import { type MessagePart, parsePartialJSON } from "@tanstack/ai";
 
 import { generateImageToolName } from "./generated-image";
+import type { ToolError } from "../message-parts";
 import { webSearchToolName } from "./web-search";
 
 /**
@@ -25,6 +26,8 @@ export type ToolCallView = {
   status: ToolCallStatus;
   args: unknown;
   result: unknown;
+  /** Why a failed call failed, as a dictionary code (spec #256); the reader's text replaces its result. */
+  error?: ToolError;
   /** Set on a Shared link for a call whose arguments and result are kept private: only its name shows. */
   redacted: boolean;
 };
@@ -40,6 +43,7 @@ export function toolCallOf(part: MessagePart): ToolCallView | null {
     source: string;
     status: ToolCallStatus;
     redacted: boolean;
+    error: ToolError;
   }>;
   return {
     id: part.id,
@@ -47,8 +51,10 @@ export function toolCallOf(part: MessagePart): ToolCallView | null {
     // A call from the live stream carries no metadata; it is a Host call until it is stored.
     source: meta.source ?? "host",
     status: meta.status ?? statusOfState(part.state),
-    args: part.input ?? safeParse(part.arguments),
+    // A call still streaming has only its partial arguments; the partial parse reads them as they come.
+    args: part.input ?? parsePartialJSON(part.arguments),
     result: part.output,
+    ...(meta.error && { error: meta.error }),
     redacted: meta.redacted === true,
   };
 }
@@ -58,12 +64,4 @@ function statusOfState(state: string): ToolCallStatus {
   if (state === "complete") return "done";
   if (state === "error") return "error";
   return "running";
-}
-
-function safeParse(json: string): unknown {
-  try {
-    return JSON.parse(json);
-  } catch {
-    return undefined;
-  }
 }

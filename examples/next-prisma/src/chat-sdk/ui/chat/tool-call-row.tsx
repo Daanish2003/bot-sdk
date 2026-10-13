@@ -12,14 +12,17 @@ import {
 } from "lucide-react";
 import { useId, useState } from "react";
 
-const statusLabels: Record<ToolCallStatus, string> = {
-  running: "Running",
-  done: "Done",
-  error: "Failed",
-  cancelled: "Cancelled",
-  awaiting_approval: "Waiting for approval",
-  denied: "Denied",
-};
+import { useI18n } from "../../core/client/react/provider";
+import { toolErrorText } from "../../core/client/tool-error";
+
+const statusKeys = {
+  running: "chat.toolRunning",
+  done: "chat.toolDone",
+  error: "chat.toolFailed",
+  cancelled: "chat.toolCancelled",
+  awaiting_approval: "chat.toolWaiting",
+  denied: "chat.toolDenied",
+} as const satisfies Record<ToolCallStatus, string>;
 
 /**
  * One tool call of a reply other than a search (a Host tool, later an MCP tool): a slim line with
@@ -40,6 +43,7 @@ export function ToolCallRow({
    */
   onDecide?: (approved: boolean, allowForConversation?: boolean) => void;
 }) {
+  const { t } = useI18n();
   const waiting = call.status === "awaiting_approval";
   const [open, setOpen] = useState(waiting);
   const detailsId = useId();
@@ -48,7 +52,11 @@ export function ToolCallRow({
     return (
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <WrenchIcon className="size-3.5 shrink-0" aria-hidden />
-        <span>{waiting ? `Waiting for approval to use ${call.name}` : `Used ${call.name}`}</span>
+        <span>
+          {waiting
+            ? t("chat.toolWaitingFor", { name: call.name })
+            : t("chat.toolUsed", { name: call.name })}
+        </span>
       </div>
     );
   }
@@ -66,7 +74,7 @@ export function ToolCallRow({
         >
           <span className="font-medium">{call.name}</span>
           <span role="status" className="ml-1.5 italic">
-            {statusLabels[call.status]}
+            {t(statusKeys[call.status])}
           </span>
           <ChevronRightIcon
             className={cn("ml-1 inline size-3.5 transition-transform", open && "rotate-90")}
@@ -74,21 +82,30 @@ export function ToolCallRow({
           />
         </button>
       </div>
-      {open && (
-        <div id={detailsId} className="border-l pl-3">
-          <ToolCallDetails call={call} />
-        </div>
-      )}
+      {/* Kept in the page when collapsed, so printing shows the details (print:block). */}
+      <div id={detailsId} className={cn("border-l pl-3", !open && "hidden print:block")}>
+        <ToolCallDetails call={call} />
+      </div>
       {waiting && onDecide && (
-        <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" onClick={() => onDecide(true)}>
-            Approve
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+          <Button size="sm" className="max-sm:w-full" onClick={() => onDecide(true)}>
+            {t("chat.approve")}
           </Button>
-          <Button size="sm" variant="outline" onClick={() => onDecide(true, true)}>
-            Allow for this Conversation
+          <Button
+            size="sm"
+            variant="outline"
+            className="max-sm:w-full"
+            onClick={() => onDecide(true, true)}
+          >
+            {t("chat.allowForConversation")}
           </Button>
-          <Button size="sm" variant="outline" onClick={() => onDecide(false)}>
-            Deny
+          <Button
+            size="sm"
+            variant="outline"
+            className="max-sm:w-full"
+            onClick={() => onDecide(false)}
+          >
+            {t("chat.deny")}
           </Button>
         </div>
       )}
@@ -98,10 +115,17 @@ export function ToolCallRow({
 
 /** A tool call's arguments and, once it has one, its result. */
 export function ToolCallDetails({ call }: { call: ToolCallView }) {
+  const i18n = useI18n();
+  const { t } = i18n;
   return (
     <div className="space-y-2">
-      <JsonBlock title="Arguments" value={call.args} />
-      {call.result !== undefined && <JsonBlock title="Result" value={call.result} />}
+      <JsonBlock title={t("chat.arguments")} value={call.args} />
+      {call.error ? (
+        // The reader sees the failure in their language; the English result is what the Model read.
+        <p className="text-destructive">{toolErrorText(i18n, call.error)}</p>
+      ) : (
+        call.result !== undefined && <JsonBlock title={t("chat.result")} value={call.result} />
+      )}
     </div>
   );
 }

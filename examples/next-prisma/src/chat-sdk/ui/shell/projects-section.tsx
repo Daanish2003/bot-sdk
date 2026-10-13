@@ -5,13 +5,16 @@ import { PlusIcon } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { toast } from "sonner";
 
-import { useChatAdapter, useOrpc } from "../../core/client/react/provider";
+import { useChatAdapter, useI18n, useOrpc } from "../../core/client/react/provider";
+import { serverErrorText } from "../../core/client/rpc-error";
 
 /** The Projects section of the Conversation panel: each Project's page, and a form for a new one. */
 export function ProjectsSection() {
   const orpc = useOrpc();
   const queryClient = useQueryClient();
   const { Link, navigate } = useChatAdapter();
+  const i18n = useI18n();
+  const { t } = i18n;
   const projects = useQuery(orpc.project.list.queryOptions());
   const create = useMutation(orpc.project.create.mutationOptions());
   const [creating, setCreating] = useState(false);
@@ -28,19 +31,19 @@ export function ProjectsSection() {
       void queryClient.invalidateQueries({ queryKey: orpc.project.list.key() });
       await navigate({ to: "project", id });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Couldn't create the Project");
+      toast.error(serverErrorText(i18n, error, "shell.couldntCreateProject"));
     }
   };
 
   return (
-    <section aria-label="Projects" className="border-b pb-1">
+    <section aria-label={t("shell.projects")} className="border-b pb-1">
       <div className="flex h-8 items-center justify-between px-3">
-        <h3 className="text-[10px] font-medium text-muted-foreground">Projects</h3>
+        <h3 className="text-[10px] font-medium text-muted-foreground">{t("shell.projects")}</h3>
         <Button
           variant="ghost"
           size="icon-xs"
-          title="New Project"
-          aria-label="New Project"
+          title={t("shell.newProject")}
+          aria-label={t("shell.newProject")}
           aria-expanded={creating}
           onClick={() => setCreating((open) => !open)}
         >
@@ -54,12 +57,12 @@ export function ProjectsSection() {
             maxLength={100}
             value={name}
             onChange={(event) => setName(event.target.value)}
-            placeholder="Project name"
-            aria-label="Project name"
+            placeholder={t("shell.projectName")}
+            aria-label={t("shell.projectName")}
             className="h-7 text-xs"
           />
           <Button type="submit" size="sm" disabled={!name.trim() || create.isPending}>
-            Create
+            {t("shell.create")}
           </Button>
         </form>
       )}

@@ -9,9 +9,11 @@ import { conversation, project } from "./db/schema/chat";
 import { mcpConnection } from "./db/schema/connection";
 import { userCredentials } from "./db/schema/credentials";
 import { generatedImage } from "./db/schema/generated-image";
+import { savedPrompt } from "./db/schema/saved-prompt";
 import { userSettings } from "./db/schema/settings";
 import { usage } from "./db/schema/usage";
 import type { AppDeps } from "./deps";
+import { withProjectId } from "./chat/hooks";
 
 /**
  * Deletes everything the SDK holds for a user, in one transaction (spec #70). The Host calls it
@@ -23,7 +25,7 @@ import type { AppDeps } from "./deps";
 export async function deleteUserData(deps: AppDeps, userId: string): Promise<void> {
   const blobKeys = await deps.db.transaction(async (tx) => {
     // 1. Stop the user's live Runs through the Stop path. The Run's owner aborts and, its row gone,
-    // its later writes match nothing.
+    // its later writes match nothing. No `onRunEnd` fires for them: a Host's user delete emits nothing (#265).
     await stopUserRuns(deps, userId, tx);
 
     // 2. Generated images: their rows go by cascade with their Messages, so their keys are read first.
@@ -49,6 +51,7 @@ export async function deleteUserData(deps: AppDeps, userId: string): Promise<voi
     await tx.delete(userCredentials).where(eq(userCredentials.userId, userId));
     await tx.delete(mcpConnection).where(eq(mcpConnection.userId, userId));
     await tx.delete(userSettings).where(eq(userSettings.userId, userId));
+    await tx.delete(savedPrompt).where(eq(savedPrompt.userId, userId));
     // 5. Usage rows, which no Conversation cascades to: a deleted account keeps no Quota history.
     await tx.delete(usage).where(eq(usage.userId, userId));
     return [...keys, ...imageKeys];
@@ -64,12 +67,24 @@ export async function deleteUserData(deps: AppDeps, userId: string): Promise<voi
  * Live Runs in them stop first, as in `deleteUserData`.
  */
 export async function deleteAllConversations(deps: AppDeps, userId: string): Promise<void> {
-  const blobKeys = await deps.db.transaction(async (tx) => {
-    await stopUserRuns(deps, userId, tx);
-    const keys = await generatedImageKeysWhere(tx, eq(generatedImage.userId, userId));
-    await tx.delete(conversation).where(eq(conversation.userId, userId));
-    return keys;
+  const { ended, gone, blobKeys } = await deps.db.transaction(async (tx) => {
+    const ended = await stopUserRuns(deps, userId, tx);
+    // The Generated images of these Conversations: their rows go by cascade, their bytes after the commit.
+    const blobKeys = await generatedImageKeysWhere(tx, eq(generatedImage.userId, userId));
+    const gone = await tx
+      .delete(conversation)
+      .where(eq(conversation.userId, userId))
+      .returning({ id: conversation.id, projectId: conversation.projectId });
+    return { ended, gone, blobKeys };
   });
-  // The images' bytes go after the commit, best-effort (spec #278, ADR 0015).
   await deleteBlobsBestEffort(deps, blobKeys);
+  // After the commit: a rolled-back delete fires nothing (#265, #266).
+  for (const run of ended) deps.hooks.fire("onRunEnd", run);
+  for (const row of gone) {
+    deps.hooks.fire("onConversationDeleted", {
+      userId,
+      conversationId: row.id,
+      ...withProjectId(row.projectId),
+    });
+  }
 }

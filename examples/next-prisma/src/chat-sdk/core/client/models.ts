@@ -4,7 +4,8 @@ import {
   isLiveListProvider,
   parseModelId,
 } from "../shared/chat/models";
-import { providers, unusableModelMessage } from "../shared/credentials/services";
+import { providerLabel, providers } from "../shared/credentials/services";
+import type { I18n } from "../shared/i18n";
 
 export type ModelGroup<T extends CuratedModel = CuratedModel> = {
   provider: CuratedModel["provider"];
@@ -35,6 +36,7 @@ export function modelGroups<T extends CuratedModel>(models: T[], search: string)
  * With `byok` off the user can't add a key, so the only reason given is "pick another".
  */
 export function missingCredentialsMessage(
+  { t }: I18n,
   selected: string,
   available: CuratedModel[],
   byok: boolean,
@@ -44,9 +46,10 @@ export function missingCredentialsMessage(
   const provider =
     findModel(selected)?.provider ?? (isLiveListProvider(prefix) ? prefix : undefined);
   // A live-listed Model can leave its list while the Provider still has credentials.
-  return provider && !available.some((model) => model.provider === provider)
-    ? unusableModelMessage(provider, byok)
-    : "Pick another Model";
+  if (provider && !available.some((model) => model.provider === provider) && byok) {
+    return t("chat.addKeyOrPickModel", { label: providerLabel(provider) });
+  }
+  return t("chat.pickAnotherModel");
 }
 
 /** A Model's name to show: its curated label, else (a live-listed Model) its id without the Provider. */

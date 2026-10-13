@@ -82,9 +82,9 @@ export async function deleteProject(deps: AppDeps, userId: string, id: string) {
       // key takes a shared lock), so the count below and the cascade see the same rows.
       .for("update");
     if (!owned) return undefined;
-    await stopProjectRuns(deps, id, tx);
-    const [row] = await tx
-      .select({ total: count() })
+    const ended = await stopProjectRuns(deps, id, tx);
+    const gone = await tx
+      .select({ id: conversation.id })
       .from(conversation)
       .where(eq(conversation.projectId, id));
     // The Generated images of the Project's Conversations: their rows go by cascade, their bytes after the commit.
@@ -105,9 +105,14 @@ export async function deleteProject(deps: AppDeps, userId: string, id: string) {
       ),
     );
     await tx.delete(project).where(eq(project.id, id));
-    return { total: row?.total ?? 0, blobKeys };
+    return { gone, ended, blobKeys };
   });
   if (!result) return undefined;
   await deleteBlobsBestEffort(deps, result.blobKeys);
-  return result.total;
+  // After the commit: a rolled-back delete fires nothing (#265, #266).
+  for (const run of result.ended) deps.hooks.fire("onRunEnd", run);
+  for (const row of result.gone) {
+    deps.hooks.fire("onConversationDeleted", { userId, conversationId: row.id, projectId: id });
+  }
+  return result.gone.length;
 }

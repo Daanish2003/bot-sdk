@@ -22,6 +22,7 @@ import {
   quotaOf,
 } from "./host-models";
 import { mcpServersOf } from "./mcp-server";
+import { trustedIpHeadersOf } from "./trusted-ip";
 
 export const db = createDb(ENV);
 // The OAuth values are optional outside production (see .env.schema); an empty id makes the
@@ -48,6 +49,7 @@ export const auth = createAuth(
     rateLimitCounter: ENV.REDIS_URL
       ? redisStore({ url: ENV.REDIS_URL, prefix: "auth:" })
       : undefined,
+    trustedIpHeaders: trustedIpHeadersOf(ENV),
   },
 );
 // The Host's default Quota is parsed at boot, so a bad HOST_QUOTA_* fails the start, not a Run.
@@ -62,6 +64,8 @@ export const chat = createChat({
   basePath: "/api/chat",
   fetchAllowHosts: ssrfAllowHosts,
   mcpServers: mcpServersOf(ENV),
+  // Artifacts (spec #304): the assistant's create_artifact tool, the side panel and its version route.
+  artifacts: true,
   // The Host's Models and their Quota (ADR 0007); unset, users chat only on their own keys.
   // The Host's Image Models (`HOST_IMAGE_*`) come as one more Provider entry beside its chat Models.
   hostProviders: [...hostProvidersOf(ENV), ...hostImageProvidersOf(ENV)],

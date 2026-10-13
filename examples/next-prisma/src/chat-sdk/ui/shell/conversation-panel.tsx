@@ -7,6 +7,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { cn } from "@/lib/utils";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import {
+  ArchiveIcon,
   FolderIcon,
   MoreHorizontalIcon,
   PinIcon,
@@ -19,11 +20,12 @@ import { useEffect, useRef, useState } from "react";
 import { ShareDialog } from "../share/share-dialog";
 import { useDeleteConversation } from "../../core/client/react/delete-conversation";
 import {
+  useArchiveConversation,
   useMoveConversation,
   usePinConversation,
   useRenameConversation,
 } from "../../core/client/react/conversation-actions";
-import { useChatAdapter, useOrpc } from "../../core/client/react/provider";
+import { useChatAdapter, useI18n, useOrpc } from "../../core/client/react/provider";
 import { ProjectsSection } from "./projects-section";
 
 export type ConversationSummary = Awaited<
@@ -36,6 +38,7 @@ export type ConversationSummary = Awaited<
  */
 export function ConversationPanel({ className }: { className?: string }) {
   const orpc = useOrpc();
+  const i18n = useI18n();
   const conversations = useInfiniteQuery(
     orpc.conversation.list.infiniteOptions({
       input: (cursor: string | undefined) => ({ cursor }),
@@ -45,7 +48,7 @@ export function ConversationPanel({ className }: { className?: string }) {
   );
   const pinned = useQuery(orpc.conversation.pinned.queryOptions());
   const rows = conversations.data?.pages.flatMap((page) => page.items) ?? [];
-  const groups = groupByDate(rows, (row) => row.lastMessageAt);
+  const groups = groupByDate(rows, (row) => row.lastMessageAt, i18n);
   const { hasNextPage, isFetchingNextPage, fetchNextPage } = conversations;
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -70,21 +73,23 @@ export function ConversationPanel({ className }: { className?: string }) {
 
   return (
     <aside
-      aria-label="Conversations"
+      aria-label={i18n.t("shell.conversations")}
       className={cn("flex w-72 shrink-0 flex-col border-r bg-sidebar/50", className)}
     >
       <div className="flex h-11 shrink-0 items-center justify-between border-b px-3">
-        <span className="text-xs font-medium">Conversations</span>
+        <span className="text-xs font-medium">{i18n.t("shell.conversations")}</span>
         <span className="text-[10px] text-muted-foreground">{rows.length + pinnedRows.length}</span>
       </div>
       {conversations.isSuccess && rows.length === 0 && pinnedRows.length === 0 && (
-        <p className="px-3 py-6 text-center text-xs text-muted-foreground">No Conversations yet</p>
+        <p className="px-3 py-6 text-center text-xs text-muted-foreground">
+          {i18n.t("shell.noConversations")}
+        </p>
       )}
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         {pinnedRows.length > 0 && (
-          <section aria-label="Pinned">
+          <section aria-label={i18n.t("shell.pinned")}>
             <h3 className="sticky top-0 z-10 bg-sidebar/95 px-3 py-1.5 text-[10px] font-medium text-muted-foreground">
-              Pinned
+              {i18n.t("shell.pinned")}
             </h3>
             <ul>
               {pinnedRows.map((row) => (
@@ -108,22 +113,26 @@ export function ConversationPanel({ className }: { className?: string }) {
         ))}
         <div ref={sentinelRef} />
         {isFetchingNextPage && (
-          <p className="px-3 py-2 text-center text-[10px] text-muted-foreground">Loading…</p>
+          <p className="px-3 py-2 text-center text-[10px] text-muted-foreground">
+            {i18n.t("shell.loading")}
+          </p>
         )}
       </div>
     </aside>
   );
 }
 
-/** One Conversation in the panel, with its menu: rename, pin or unpin, move, share and delete. */
+/** One Conversation in the panel, with its menu: rename, pin or unpin, archive, move, share, delete. */
 export function ConversationRow({ conversation }: { conversation: ConversationSummary }) {
   const { Link, orpc } = useChatAdapter();
+  const i18n = useI18n();
   const [menuOpen, setMenuOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
   const [sharing, setSharing] = useState(false);
   const remove = useDeleteConversation();
   const rename = useRenameConversation();
   const pin = usePinConversation();
+  const archive = useArchiveConversation();
   const move = useMoveConversation();
   const projects = useQuery({ ...orpc.project.list.queryOptions(), enabled: moveOpen });
   const pinned = conversation.pinnedAt !== null;
@@ -144,15 +153,19 @@ export function ConversationRow({ conversation }: { conversation: ConversationSu
         activeClassName="border-l-primary bg-sidebar-accent"
       >
         <div className="flex items-center gap-2">
-          {pinned && <PinIcon aria-label="Pinned" className="size-3 shrink-0 text-primary" />}
+          {pinned && (
+            <PinIcon aria-label={i18n.t("shell.pinned")} className="size-3 shrink-0 text-primary" />
+          )}
           <span className="flex-1 truncate text-xs font-medium">
-            {conversation.title ?? <i className="text-muted-foreground">Untitled</i>}
+            {conversation.title ?? (
+              <i className="text-muted-foreground">{i18n.t("shell.untitled")}</i>
+            )}
           </span>
           <time
             dateTime={conversation.lastMessageAt.toISOString()}
             className="text-[10px] text-muted-foreground group-focus-within:invisible group-hover:invisible pointer-coarse:visible"
           >
-            {relativeTime(conversation.lastMessageAt)}
+            {relativeTime(i18n, conversation.lastMessageAt)}
           </time>
         </div>
         <p className="mt-0.5 line-clamp-1 min-h-4 text-[11px] text-muted-foreground">
@@ -161,9 +174,14 @@ export function ConversationRow({ conversation }: { conversation: ConversationSu
         <div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground">
           <span className="truncate">{modelLabel(conversation.model)}</span>
           {conversation.shared && (
-            <Share2Icon aria-label="Shared" className="size-3 shrink-0 text-primary" />
+            <Share2Icon
+              aria-label={i18n.t("shell.shared")}
+              className="size-3 shrink-0 text-primary"
+            />
           )}
-          {conversation.hasError && <span className="text-destructive">error</span>}
+          {conversation.hasError && (
+            <span className="text-destructive">{i18n.t("shell.errorBadge")}</span>
+          )}
         </div>
       </Link>
       <Popover
@@ -174,9 +192,11 @@ export function ConversationRow({ conversation }: { conversation: ConversationSu
         }}
       >
         <PopoverTrigger
-          aria-label={`Actions for "${conversation.title ?? "Untitled"}"`}
-          title="Conversation actions"
-          disabled={remove.isPending || pin.isPending || move.isPending}
+          aria-label={i18n.t("shell.actionsFor", {
+            title: conversation.title ?? i18n.t("shell.untitled"),
+          })}
+          title={i18n.t("shell.conversationActions")}
+          disabled={remove.isPending || pin.isPending || archive.isPending || move.isPending}
           className={cn(
             buttonVariants({ variant: "ghost", size: "icon-xs" }),
             "absolute top-1.5 right-2 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:top-auto pointer-coarse:bottom-1.5 pointer-coarse:opacity-100",
@@ -186,7 +206,7 @@ export function ConversationRow({ conversation }: { conversation: ConversationSu
         </PopoverTrigger>
         <PopoverContent align="end" className="w-44 p-1">
           {moveOpen ? (
-            <div role="menu" aria-label="Move to Project" className="flex flex-col">
+            <div role="menu" aria-label={i18n.t("shell.moveToProject")} className="flex flex-col">
               <Button
                 variant="ghost"
                 size="sm"
@@ -194,7 +214,7 @@ export function ConversationRow({ conversation }: { conversation: ConversationSu
                 className="justify-start"
                 onClick={() => setMoveOpen(false)}
               >
-                Back
+                {i18n.t("shell.back")}
               </Button>
               {conversation.projectId && (
                 <Button
@@ -204,7 +224,7 @@ export function ConversationRow({ conversation }: { conversation: ConversationSu
                   className="justify-start"
                   onClick={() => pick(() => move.moveTo(conversation, null))}
                 >
-                  Remove from Project
+                  {i18n.t("shell.removeFromProject")}
                 </Button>
               )}
               {targets.map((target) => (
@@ -222,7 +242,9 @@ export function ConversationRow({ conversation }: { conversation: ConversationSu
               ))}
               {projects.isSuccess && targets.length === 0 && (
                 <p className="px-2 py-1.5 text-xs text-muted-foreground">
-                  {conversation.projectId ? "No other Projects" : "No Projects yet"}
+                  {conversation.projectId
+                    ? i18n.t("shell.noOtherProjects")
+                    : i18n.t("shell.noProjectsYet")}
                 </p>
               )}
             </div>
@@ -235,7 +257,7 @@ export function ConversationRow({ conversation }: { conversation: ConversationSu
                 className="justify-start"
                 onClick={() => pick(() => rename.promptRename(conversation))}
               >
-                Rename
+                {i18n.t("shell.rename")}
               </Button>
               <Button
                 variant="ghost"
@@ -245,7 +267,17 @@ export function ConversationRow({ conversation }: { conversation: ConversationSu
                 onClick={() => pick(() => pin.toggle(conversation))}
               >
                 {pinned ? <PinOffIcon /> : <PinIcon />}
-                {pinned ? "Unpin" : "Pin"}
+                {pinned ? i18n.t("shell.unpin") : i18n.t("shell.pin")}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                role="menuitem"
+                className="justify-start"
+                onClick={() => pick(() => archive.archive(conversation.id))}
+              >
+                <ArchiveIcon />
+                Archive
               </Button>
               <Button
                 variant="ghost"
@@ -255,7 +287,7 @@ export function ConversationRow({ conversation }: { conversation: ConversationSu
                 onClick={() => setMoveOpen(true)}
               >
                 <FolderIcon />
-                Move to Project
+                {i18n.t("shell.moveToProject")}
               </Button>
               <Button
                 variant="ghost"
@@ -265,7 +297,7 @@ export function ConversationRow({ conversation }: { conversation: ConversationSu
                 onClick={() => pick(() => setSharing(true))}
               >
                 <Share2Icon />
-                Share
+                {i18n.t("shell.share")}
               </Button>
               <Button
                 variant="ghost"
@@ -275,7 +307,7 @@ export function ConversationRow({ conversation }: { conversation: ConversationSu
                 onClick={() => pick(() => remove.confirmDelete(conversation))}
               >
                 <Trash2Icon />
-                Delete
+                {i18n.t("shell.delete")}
               </Button>
             </div>
           )}

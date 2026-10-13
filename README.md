@@ -100,6 +100,8 @@ Run standalone Node/Bun tools that use Varlock from the owning app directory so 
 
 ## Deployment
 
+Rate limits count each client by its IP, read from `x-forwarded-for` unless `TRUSTED_IP_HEADERS` names other headers (e.g. `cf-connecting-ip` on Cloudflare). Production must run behind a proxy that sets that header. Otherwise no client IP is found, and every client shares one rate-limit bucket keyed `no-trusted-ip|<path>`.
+
 ### Docker Compose
 
 - Target: web + server

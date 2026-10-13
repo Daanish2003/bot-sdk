@@ -10,7 +10,9 @@ import { generatedImage } from "./db/schema/generated-image";
 import { postgresBlobStore } from "./blob/postgres";
 import { webSearchToolName } from "../shared/chat/web-search";
 import { fetchUrlToolName } from "../shared/chat/fetch-url";
+import { createArtifactToolName, updateArtifactToolName } from "../shared/chat/artifact";
 import { handleJoin } from "./chat/join-run";
+import { transcriptionProviders } from "./chat/transcription";
 import type { ChatUser, Context } from "./context";
 import { createDb } from "./db/index";
 import { quotaLookup, quotaState, type QuotaState } from "./chat/quota";
@@ -24,6 +26,7 @@ import {
   type QuotaSetting,
 } from "./deps";
 import { createLifecycle } from "./lifecycle";
+import type { ChatHooks } from "./chat/hooks";
 import { deleteUserData } from "./delete-user";
 import { type McpServerConfig, checkMcpServers } from "./mcp/servers";
 import { callbackRoute, connectRoute } from "./mcp/routes";
@@ -64,7 +67,16 @@ export type CreateChatOptions = {
    * so without this option there are no per-IP limits.
    */
   getClientIp?: (request: Request) => string | null | Promise<string | null>;
+  /**
+   * Where the SDK's own failures go (background writes, usage rows, title generation, the database
+   * pool, the reaper) and the RPC calls' errors. Defaults to `console`.
+   */
   logger?: Logger;
+  /**
+   * The Host's callbacks into the SDK. Each hook is optional and runs after its change is written,
+   * never awaited, at most once and without retries (README, "Host hooks").
+   */
+  hooks?: ChatHooks;
   /**
    * The Host's own credentials (ADR 0007). A Provider entry carries its Models; a Tool entry (`tool:
    * "tavily"`) carries its price per search. Never stored.
@@ -123,6 +135,11 @@ export type CreateChatOptions = {
    * they can't be read or continued. Unset, nobody is blocked.
    */
   isUserBlocked?: (userId: string) => boolean | Promise<boolean>;
+  /**
+   * Turns Artifacts on (ADR 0016): the `create_artifact` tool for a Model with tools, the side
+   * panel and the version route. Off by default, and then none of them exist.
+   */
+  artifacts?: boolean;
 };
 
 /**
@@ -147,7 +164,8 @@ export function createChatHandler(
   const mcpCallbackPath = `${prefix}/mcp/callback`;
   const generatedImagesPath = `${prefix}/generated-images/`;
   const sharedPath = `${prefix}/shared/`;
-  const sharedReadPath = `${rpcPrefix}/share/get`;
+  // The RPCs a signed-out visitor of a Shared link may call (ADR 0004, ADR 0016).
+  const sharedReadPaths = [`${rpcPrefix}/share/get`, `${rpcPrefix}/share/artifactVersion`];
   const rpc = new RPCHandler(appRouter, {
     interceptors: [onError((error) => logger.error(error))],
   });
@@ -164,10 +182,11 @@ export function createChatHandler(
       return sharedGeneratedImageResponse(deps, token!, id!, download);
     }
     const user = await getUser(request);
-    if (!user && pathname !== sharedReadPath) return unauthorized();
+    const sharedRead = sharedReadPaths.includes(pathname);
+    if (!user && !sharedRead) return unauthorized();
 
     if (pathname === rpcPrefix || pathname.startsWith(`${rpcPrefix}/`)) {
-      if (pathname === sharedReadPath && getClientIp) {
+      if (sharedRead && getClientIp) {
         const refused = await sharedLinkRefusal(deps, await getClientIp(request));
         if (refused) return refused;
       }
@@ -264,20 +283,25 @@ export function createChat(options: CreateChatOptions): {
     throw new Error("keyEncryptionSecrets must hold at least one secret");
   }
   checkMcpServers(options.mcpServers ?? [], options.fetchAllowHosts);
-  for (const builtIn of [webSearchToolName, fetchUrlToolName]) {
+  const builtIns = [
+    webSearchToolName,
+    fetchUrlToolName,
+    ...(options.artifacts ? [createArtifactToolName, updateArtifactToolName] : []),
+  ];
+  for (const builtIn of builtIns) {
     if (options.tools?.some((tool) => tool.name === builtIn)) {
       throw new Error(`A Host tool can't be named "${builtIn}": the SDK's tool has it`);
     }
   }
+  const logger = options.logger ?? console;
   let deps: AppDeps | undefined;
   const getDeps = () => {
     if (deps) return deps;
-    const db = createDb({ DATABASE_URL: options.databaseUrl });
+    const db = createDb({ DATABASE_URL: options.databaseUrl }, logger);
     deps = createAppDeps({
       db,
       blobStore: options.blobStore ?? postgresBlobStore(db),
       isUserBlocked: options.isUserBlocked,
-      logger: options.logger ?? console,
       keyEncryptionSecrets: options.keyEncryptionSecrets,
       runtime: options.runtime ?? memoryRuntime(),
       hostProviders: (options.hostProviders ?? []).filter(isHostProvider),
@@ -291,11 +315,14 @@ export function createChat(options: CreateChatOptions): {
       tools: options.tools ?? [],
       fetchAllowHosts: options.fetchAllowHosts,
       mcpServers: options.mcpServers ?? [],
+      logger,
+      hooks: options.hooks,
+      artifacts: options.artifacts,
     });
     return deps;
   };
   let lifecycle: ReturnType<typeof createLifecycle> | undefined;
-  const getLifecycle = () => (lifecycle ??= createLifecycle(getDeps()));
+  const getLifecycle = () => (lifecycle ??= createLifecycle(getDeps(), logger));
   let handler: ChatHandler | undefined;
   return {
     handler: (request) => {
@@ -308,6 +335,15 @@ export function createChat(options: CreateChatOptions): {
     start: async () => {
       if (options.byok === false && !options.hostProviders?.length) {
         throw new Error("Configure hostProviders, byok, or both: with neither, no one can chat");
+      }
+      for (const entry of options.hostProviders ?? []) {
+        if (isHostProvider(entry) && entry.transcriptionModels?.length) {
+          if (!transcriptionProviders.includes(entry.provider)) {
+            throw new Error(
+              `hostProviders: ${entry.provider} has no transcription adapter, so it can't list transcriptionModels`,
+            );
+          }
+        }
       }
       const defaultBackground = options.defaultBackgroundModel;
       const hostProviders = (options.hostProviders ?? []).filter(isHostProvider);
@@ -358,7 +394,11 @@ export function createChat(options: CreateChatOptions): {
       usageTotals: (range) => usageTotals(getDeps(), range),
       usage: ({ userId, since, until }) => usageByDay(getDeps(), userId, { since, until }),
       quota: (userId) => quotaState(getDeps(), userId),
-      stopRuns: (userId) => stopUserRuns(getDeps(), userId),
+      stopRuns: async (userId) => {
+        // As Stop does, each ended Run fires `onRunEnd` (#265).
+        const deps = getDeps();
+        for (const run of await stopUserRuns(deps, userId)) deps.hooks.fire("onRunEnd", run);
+      },
       ratingTotals: (range) => ratingTotals(getDeps(), range),
     },
     deleteUser: (userId) => deleteUserData(getDeps(), userId),
@@ -396,7 +436,7 @@ async function rpcRateLimitRefusal(
   );
   if (retryAfter === null) return null;
   return Response.json(
-    { message: "Too many requests; try again in a moment" },
+    { code: "error.tooManyRequests", params: {} },
     { status: 429, headers: { "Retry-After": String(retryAfter) } },
   );
 }
@@ -414,7 +454,7 @@ async function sharedLinkRefusal(deps: AppDeps, ip: string | null): Promise<Resp
   );
   if (retryAfter === null) return null;
   return Response.json(
-    { message: "Too many requests; try again in a moment" },
+    { code: "error.tooManyRequests", params: {} },
     { status: 429, headers: { "Retry-After": String(retryAfter) } },
   );
 }
@@ -480,14 +520,11 @@ function imageResponse(id: string, mediaType: string, bytes: Uint8Array, downloa
 }
 
 function unauthorized() {
-  return Response.json({ message: "Sign in to chat" }, { status: 401 });
+  return Response.json({ code: "error.unauthorized", params: {} }, { status: 401 });
 }
 
 function shuttingDown() {
-  return Response.json(
-    { message: "The chat is shutting down; try again shortly" },
-    { status: 503 },
-  );
+  return Response.json({ code: "error.shuttingDown", params: {} }, { status: 503 });
 }
 
 function notFound() {

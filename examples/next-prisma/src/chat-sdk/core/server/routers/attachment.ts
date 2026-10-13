@@ -1,4 +1,3 @@
-import { ORPCError } from "@orpc/server";
 import { z } from "zod";
 
 import {
@@ -8,6 +7,7 @@ import {
 } from "../../shared/attachments/kinds";
 import { saveAttachment } from "../attachments/store";
 import { protectedProcedure } from "../procedures";
+import { rpcError } from "../rpc-error";
 
 export const attachmentRouter = {
   /**
@@ -18,17 +18,34 @@ export const attachmentRouter = {
     .input(z.object({ file: z.file() }))
     .handler(async ({ context, input: { file } }) => {
       if (file.size > maxAttachmentBytes) {
-        throw new ORPCError("BAD_REQUEST", { message: `"${file.name}" is larger than 5 MB` });
+        throw rpcError(
+          "BAD_REQUEST",
+          "error.attachmentTooLarge",
+          `"${file.name}" is larger than 5 MB`,
+          {
+            name: file.name,
+          },
+        );
       }
       const kind = attachmentKind(file.type, file.name);
       if (!kind) {
-        throw new ORPCError("BAD_REQUEST", {
-          message: `"${file.name}" can't be attached: only images, PDFs and text files can`,
-        });
+        throw rpcError(
+          "BAD_REQUEST",
+          "error.attachmentNotSupported",
+          `"${file.name}" can't be attached: only images, PDFs and text files can`,
+          { name: file.name },
+        );
       }
       const bytes = new Uint8Array(await file.arrayBuffer());
       if (kind === "text" && !isUtf8(bytes)) {
-        throw new ORPCError("BAD_REQUEST", { message: `"${file.name}" isn't a UTF-8 text file` });
+        throw rpcError(
+          "BAD_REQUEST",
+          "error.attachmentNotUtf8",
+          `"${file.name}" isn't a UTF-8 text file`,
+          {
+            name: file.name,
+          },
+        );
       }
       return saveAttachment(context.deps, context.user.id, {
         filename: file.name,

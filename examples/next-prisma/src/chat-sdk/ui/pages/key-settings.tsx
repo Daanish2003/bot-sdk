@@ -18,12 +18,16 @@ import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tansta
 import { useState } from "react";
 import { toast } from "sonner";
 
+import type { MessageKey } from "../../core/shared/i18n";
 import { useByok } from "../../core/client/react/byok";
-import { type ChatOrpc, useOrpc } from "../../core/client/react/provider";
+import { type ChatOrpc, useI18n, useOrpc } from "../../core/client/react/provider";
+import { serverErrorText } from "../../core/client/rpc-error";
+import { ArchivedConversationsSection } from "../settings/archived-conversations";
 import { ConnectionsSection } from "../settings/connections-section";
 import { DeleteAllConversationsSection } from "../settings/delete-all-conversations";
 import { ExportDataButton } from "../settings/export-data-button";
 import { InstructionsField } from "../settings/instructions-field";
+import { SavedPromptsSection } from "../settings/saved-prompts";
 import { SharedLinksSection } from "../settings/shared-links";
 import { BackgroundModelSelect } from "../settings/background-model-select";
 import { ImageModelSelect } from "../settings/image-model-select";
@@ -35,6 +39,7 @@ import { ImageModelSelect } from "../settings/image-model-select";
 export function KeySettingsPage() {
   const orpc = useOrpc();
   const byok = useByok();
+  const { t } = useI18n();
   const credentials = useQuery(orpc.credentials.list.queryOptions());
   const [editing, setEditing] = useState<CredentialService | null>(null);
   const rows = providerRows(credentials.data ?? []);
@@ -42,19 +47,14 @@ export function KeySettingsPage() {
   return (
     <main className="mx-auto w-full max-w-2xl space-y-6 p-6">
       <div className="space-y-1">
-        <h1 className="text-xl font-semibold">Keys & settings</h1>
-        {byok && (
-          <p className="text-sm text-muted-foreground">
-            Bring your own Provider credentials. Keys are encrypted on the server and never shown
-            again; you only see the last characters.
-          </p>
-        )}
+        <h1 className="text-xl font-semibold">{t("shell.keysAndSettings")}</h1>
+        {byok && <p className="text-sm text-muted-foreground">{t("pages.keysIntro")}</p>}
       </div>
 
       {byok && (
         <>
           <section className="space-y-2">
-            <h2 className="text-sm font-medium">Providers</h2>
+            <h2 className="text-sm font-medium">{t("pages.providers")}</h2>
             <ul className="divide-y overflow-hidden rounded-xl border">
               {rows.map((row) => (
                 <ProviderRowItem
@@ -70,10 +70,8 @@ export function KeySettingsPage() {
           </section>
 
           <section className="space-y-2">
-            <h2 className="text-sm font-medium">Tools</h2>
-            <p className="text-xs text-muted-foreground">
-              Tool credentials for features beyond chat. Without a Tavily key, web search is off.
-            </p>
+            <h2 className="text-sm font-medium">{t("pages.tools")}</h2>
+            <p className="text-xs text-muted-foreground">{t("pages.toolsHelp")}</p>
             <ul className="divide-y overflow-hidden rounded-xl border">
               {toolRows(credentials.data ?? []).map((row) => (
                 <ProviderRowItem
@@ -94,17 +92,18 @@ export function KeySettingsPage() {
 
       <SharedLinksSection />
 
+      <ArchivedConversationsSection />
+
       <InstructionsField />
+
+      <SavedPromptsSection />
 
       <BackgroundModelSelect />
       <ImageModelSelect />
 
       <section className="space-y-2">
-        <h2 className="text-sm font-medium">Your data</h2>
-        <p className="text-xs text-muted-foreground">
-          Download your Projects, Conversations, Messages, settings and Shared links as one JSON
-          file. Keys are never included.
-        </p>
+        <h2 className="text-sm font-medium">{t("pages.yourData")}</h2>
+        <p className="text-xs text-muted-foreground">{t("pages.yourDataHelp")}</p>
         <ExportDataButton />
       </section>
 
@@ -113,11 +112,11 @@ export function KeySettingsPage() {
   );
 }
 
-const statusDot: Record<ProviderRowStatus, { className: string; label: string }> = {
-  verified: { className: "bg-green-500", label: "Verified" },
-  unverified: { className: "bg-amber-500", label: "Saved, not verified" },
-  missing: { className: "bg-muted-foreground/40", label: "No credentials" },
-  coming_soon: { className: "bg-muted-foreground/20", label: "Coming soon" },
+const statusDot: Record<ProviderRowStatus, { className: string; label: MessageKey }> = {
+  verified: { className: "bg-green-500", label: "pages.verified" },
+  unverified: { className: "bg-amber-500", label: "pages.unverified" },
+  missing: { className: "bg-muted-foreground/40", label: "pages.noCredentials" },
+  coming_soon: { className: "bg-muted-foreground/20", label: "pages.comingSoon" },
 };
 
 function ProviderRowItem({
@@ -135,10 +134,12 @@ function ProviderRowItem({
 }) {
   const queryClient = useQueryClient();
   const orpc = useOrpc();
+  const i18n = useI18n();
+  const { t } = i18n;
   const remove = useMutation(
     orpc.credentials.delete.mutationOptions({
       onSuccess: () => invalidateCredentials(queryClient, orpc),
-      onError: (error) => toast.error(error.message),
+      onError: (error) => toast.error(serverErrorText(i18n, error)),
     }),
   );
   const dot = statusDot[row.status];
@@ -150,8 +151,8 @@ function ProviderRowItem({
         <span
           className={cn("size-2 shrink-0 rounded-full", dot.className)}
           role="img"
-          aria-label={dot.label}
-          title={dot.label}
+          aria-label={t(dot.label)}
+          title={t(dot.label)}
         />
         <span className="flex-1 text-sm font-medium">
           {row.label}
@@ -163,7 +164,7 @@ function ProviderRowItem({
         </span>
 
         {row.status === "coming_soon" ? (
-          <span className="text-xs text-muted-foreground">Coming soon</span>
+          <span className="text-xs text-muted-foreground">{t("pages.comingSoon")}</span>
         ) : (
           <>
             {row.hint && (
@@ -171,7 +172,7 @@ function ProviderRowItem({
             )}
             {row.status !== "missing" && (
               <span className="text-xs text-muted-foreground">
-                {row.status === "verified" ? "Verified" : "Not verified"}
+                {row.status === "verified" ? t("pages.verified") : t("pages.notVerified")}
               </span>
             )}
             {service && !editing && (
@@ -182,7 +183,7 @@ function ProviderRowItem({
                   disabled={loading}
                   onClick={() => onEdit(service)}
                 >
-                  {row.status === "missing" ? "Add" : "Replace"}
+                  {row.status === "missing" ? t("pages.add") : t("pages.replace")}
                 </Button>
                 {row.status !== "missing" && (
                   <Button
@@ -191,7 +192,7 @@ function ProviderRowItem({
                     disabled={remove.isPending}
                     onClick={() => remove.mutate({ service })}
                   >
-                    Delete
+                    {t("pages.delete")}
                   </Button>
                 )}
               </div>
@@ -217,6 +218,8 @@ function CredentialForm({ service, onDone }: { service: CredentialService; onDon
   const form = credentialForms[service];
   const queryClient = useQueryClient();
   const orpc = useOrpc();
+  const i18n = useI18n();
+  const { t } = i18n;
   const [values, setValues] = useState<Record<string, string>>(() =>
     Object.fromEntries(form.fields.map((field) => [field.name, ""])),
   );
@@ -224,7 +227,7 @@ function CredentialForm({ service, onDone }: { service: CredentialService; onDon
     orpc.credentials.save.mutationOptions({
       onSuccess: async (saved) => {
         await invalidateCredentials(queryClient, orpc);
-        toast.success(saved.verified ? "Credentials checked and saved" : "Saved, not verified");
+        toast.success(saved.verified ? t("pages.credentialsChecked") : t("pages.unverified"));
         onDone();
       },
     }),
@@ -261,15 +264,15 @@ function CredentialForm({ service, onDone }: { service: CredentialService; onDon
       })}
       {save.error && (
         <p role="alert" className="text-xs text-destructive">
-          {save.error.message}
+          {serverErrorText(i18n, save.error)}
         </p>
       )}
       <div className="flex gap-2">
         <Button type="submit" size="sm" disabled={!filled || save.isPending}>
-          {save.isPending ? "Checking…" : "Check & save"}
+          {save.isPending ? t("pages.checking") : t("pages.checkAndSave")}
         </Button>
         <Button type="button" size="sm" variant="ghost" onClick={onDone}>
-          Cancel
+          {t("pages.cancel")}
         </Button>
       </div>
     </form>

@@ -1,5 +1,4 @@
 import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import type { GeneratedImagePart } from "../../../core/shared/message-parts";
@@ -7,6 +6,7 @@ import {
   generatedImageErrorLabels,
   type GeneratedImageErrorReason,
 } from "../../../core/shared/chat/generated-image";
+import { renderInChat } from "../../support/chat-provider";
 import { GeneratedImageBlock, GeneratedImageViewer } from "../../../ui/chat/generated-image-block";
 
 const image = (fields: Partial<GeneratedImagePart> = {}): GeneratedImagePart => ({
@@ -21,7 +21,7 @@ const image = (fields: Partial<GeneratedImagePart> = {}): GeneratedImagePart => 
 const imagesUrl = "http://localhost/api/chat/generated-images";
 
 const render = (part: GeneratedImagePart) =>
-  renderToStaticMarkup(createElement(GeneratedImageBlock, { image: part, imagesUrl }));
+  renderInChat(createElement(GeneratedImageBlock, { image: part, imagesUrl }));
 
 describe("a generated image block", () => {
   it("shows a running placeholder with its counter and the prompt as the caption", () => {
@@ -60,7 +60,7 @@ describe("a generated image block", () => {
   });
 
   it("shows an edited from chip with the source's thumbnail before the prompt", () => {
-    const html = renderToStaticMarkup(
+    const html = renderInChat(
       createElement(GeneratedImageBlock, {
         image: image({ state: "done", imageId: "img-2", editedFrom: ["img-1"] }),
         imagesUrl,
@@ -83,7 +83,7 @@ describe("a generated image block", () => {
 
 describe("the lightbox of a generated image", () => {
   it("shows the image large, with its prompt and a Download", () => {
-    const html = renderToStaticMarkup(
+    const html = renderInChat(
       createElement(GeneratedImageViewer, {
         image: image({ state: "done", imageId: "img-1" }),
         imagesUrl,

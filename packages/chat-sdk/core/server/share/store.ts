@@ -3,7 +3,8 @@ import { randomBytes } from "node:crypto";
 import { conversation, message } from "../db/schema/chat";
 import { generatedImage } from "../db/schema/generated-image";
 import { sharedLink } from "../db/schema/share";
-import { and, desc, eq } from "drizzle-orm";
+import { artifact, artifactVersion } from "../db/schema/artifact";
+import { and, desc, eq, inArray } from "drizzle-orm";
 
 import { generatedImageBlobKey } from "../blob/store";
 import { listAvailableModels, resolveModel } from "../chat/available-models";
@@ -17,6 +18,7 @@ import { storedParts } from "../../shared/message-parts";
 import { toSharedConversation } from "../../shared/share/conversation";
 
 type Deps = Pick<AppDeps, "db" | "isUserBlocked">;
+type EventDeps = Pick<AppDeps, "db" | "hooks">;
 type Db = Deps["db"];
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
@@ -77,7 +79,11 @@ export async function shareStatus(deps: Deps, userId: string, conversationId: st
 }
 
 type UpsertResult =
-  | { error: null; link: { token: string; title: string; updatedAt: Date } }
+  | {
+      error: null;
+      link: { token: string; title: string; updatedAt: Date };
+      change: "created" | "moved";
+    }
   | { error: "not_found" }
   | { error: "temporary" }
   | { error: "blocked"; blockedBy: NonNullable<ShareBlock> };
@@ -85,13 +91,14 @@ type UpsertResult =
 /**
  * Creates the Conversation's Shared link, or moves it to the current Active Branch under the same
  * token, freezing the title. Not while the newest Message is `streaming` or `error` (ADR 0004).
+ * Fires `onSharedLinkChanged` after the commit: `created`, or `moved` when a link existed (#266).
  */
 export async function upsertSharedLink(
-  deps: Deps,
+  deps: EventDeps,
   userId: string,
   conversationId: string,
 ): Promise<UpsertResult> {
-  return deps.db.transaction(async (tx) => {
+  const result = await deps.db.transaction(async (tx): Promise<UpsertResult> => {
     // A send locks the Conversation row too, so the Active Branch can't change under us.
     await tx
       .select({ id: conversation.id })
@@ -122,8 +129,13 @@ export async function upsertSharedLink(
       })
       .returning(linkColumns);
     if (!link) throw new Error("Saving the Shared link returned no row");
-    return { error: null, link };
+    const change: "created" | "moved" = state.link ? "moved" : "created";
+    return { error: null, link, change };
   });
+  if (result.error === null) {
+    deps.hooks.fire("onSharedLinkChanged", { userId, conversationId, change: result.change });
+  }
+  return result;
 }
 
 /** The user's Shared links, newest share first, with each Conversation's current title. */
@@ -139,17 +151,26 @@ export async function listSharedLinks(deps: Deps, userId: string) {
     .innerJoin(conversation, eq(conversation.id, sharedLink.conversationId))
     .where(eq(conversation.userId, userId))
     .orderBy(desc(sharedLink.updatedAt));
-  return rows.map((row) => ({ ...row, title: row.title ?? "Untitled" }));
+  return rows;
 }
 
-/** Deletes the Conversation's Shared link, if any; `false` when the Conversation isn't theirs. */
-export async function deleteSharedLink(deps: Deps, userId: string, conversationId: string) {
+/**
+ * Deletes the Conversation's Shared link, if any; `false` when the Conversation isn't theirs. Fires
+ * `onSharedLinkChanged` with `removed` when there was a link to delete (#266).
+ */
+export async function deleteSharedLink(deps: EventDeps, userId: string, conversationId: string) {
   const [owned] = await deps.db
     .select({ id: conversation.id })
     .from(conversation)
     .where(and(eq(conversation.id, conversationId), eq(conversation.userId, userId)));
   if (!owned) return false;
-  await deps.db.delete(sharedLink).where(eq(sharedLink.conversationId, owned.id));
+  const removed = await deps.db
+    .delete(sharedLink)
+    .where(eq(sharedLink.conversationId, owned.id))
+    .returning({ token: sharedLink.token });
+  if (removed.length > 0) {
+    deps.hooks.fire("onSharedLinkChanged", { userId, conversationId, change: "removed" });
+  }
   return true;
 }
 
@@ -200,6 +221,45 @@ export async function loadSharedGeneratedImage(deps: AppDeps, token: string, ima
 }
 
 /**
+ * Version `number` of an Artifact, for a visitor of a Shared link (ADR 0016). Only a version written
+ * by a Message on the shared path, up to `leafMessageId`, is served, and only from the link's own
+ * Conversation, so a version after the shared point, on another Branch or in another Conversation
+ * reads as absent. `null` for an unknown token or no such version.
+ */
+export async function loadSharedArtifactVersion(
+  deps: Deps,
+  token: string,
+  { artifactId, number }: { artifactId: string; number: number },
+) {
+  const [link] = await deps.db.select().from(sharedLink).where(eq(sharedLink.token, token));
+  if (!link) return null;
+  const pathIds = (await loadPath(deps, link.conversationId, link.leafMessageId)).map(
+    (row) => row.id,
+  );
+  if (pathIds.length === 0) return null;
+  const [row] = await deps.db
+    .select({
+      kind: artifact.kind,
+      messageId: artifactVersion.messageId,
+      title: artifactVersion.title,
+      language: artifactVersion.language,
+      content: artifactVersion.content,
+    })
+    .from(artifactVersion)
+    .innerJoin(artifact, eq(artifact.id, artifactVersion.artifactId))
+    .where(
+      and(
+        eq(artifactVersion.artifactId, artifactId),
+        eq(artifactVersion.number, number),
+        eq(artifact.conversationId, link.conversationId),
+        inArray(artifactVersion.messageId, pathIds),
+      ),
+    );
+  if (!row) return null;
+  return { artifactId, number, ...row };
+}
+
+/**
  * Copies a Shared link's Branch into a new Conversation of `userId` (spec 90, ticket 144): new ids
  * with the same parent chain, thinking parts stripped, no Attachments, no Project, not pinned, and
  * the copy's title frozen from the link. Its Model is the Model of the shared Branch's last reply
@@ -237,6 +297,9 @@ export async function continueSharedConversation(
         model: row.model,
         status: row.status,
         searchText: row.searchText,
+        // A Hidden reply stays hidden in the copy (#268).
+        hiddenAt: row.hiddenAt,
+        hiddenReason: row.hiddenReason,
         createdAt: row.createdAt,
       })),
     );
@@ -245,5 +308,7 @@ export async function continueSharedConversation(
       .set({ activeLeafId: newIds.get(path.at(-1)!.id) })
       .where(eq(conversation.id, id));
   });
+  // After the commit: the copy exists, so the Host hears of it (#266).
+  deps.hooks.fire("onConversationCreated", { userId, conversationId: id, fromSharedLink: true });
   return { id };
 }
