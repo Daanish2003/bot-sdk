@@ -195,7 +195,7 @@ export const chat = createChat({
 });
 ```
 
-`chat.runJob(name, payload)` runs a job's handler in the calling process, after validating the payload with the job's schema. It rejects an unknown name or a bad payload, and a handler's error reaches the task, so Trigger.dev's retries apply. The Trigger.dev runner supports `enqueue` only: `cancel`, `status` and `schedule` throw until they are needed.
+`chat.runJob(name, payload)` runs a job's handler in the calling process, after validating the payload with the job's schema. It rejects an unknown name or a bad payload, and a handler's error reaches the task, so Trigger.dev's retries apply. The Trigger.dev runner supports `enqueue` only: `cancel`, `status` and `schedule` throw until they are needed. Trigger.dev's idempotency keys also match runs that have finished, so unlike the in-process runner, an `idempotencyKey` can't be reused after its job ends.
 
 ## Host hooks
 

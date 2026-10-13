@@ -171,6 +171,32 @@ const data = await chat.getSharedConversation(token);
 
 A custom runner is any object with `enqueue(name, payload, options?)`, `start()` and `stop()`, and it takes the place of the default. Jobs are internal to the SDK: a Host can't declare its own.
 
+### Trigger.dev workers (optional)
+
+Only a Host that runs its jobs on Trigger.dev needs this. Every other Host keeps the in-process runner and needs nothing from `extras/`. The SDK never imports `extras/`, so `@trigger.dev/sdk` is a dependency of such a Host alone: install it there with `pnpm add @trigger.dev/sdk`.
+
+`extras/trigger/trigger-runner.ts` is a runner that triggers a Host task. The copy script copies `extras/` only when the destination has none, so your edits survive updates. Wire it in two places:
+
+```ts
+// src/trigger/chat-job.ts (the Host's task)
+import { task } from "@trigger.dev/sdk";
+import { chat } from "@/lib/chat";
+
+export const chatJob = task({
+  id: "chat-job",
+  run: async ({ name, payload }: { name: string; payload: unknown }) => {
+    await chat.runJob(name, payload);
+  },
+});
+
+// src/lib/chat.ts (where createChat is called)
+export const chat = createChat({
+  /* ...as before */ jobs: triggerJobRunner({ taskId: "chat-job" }),
+});
+```
+
+`chat.runJob(name, payload)` runs a job's handler in the calling process, after validating the payload with the job's schema. It rejects an unknown name or a bad payload, and a handler's error reaches the task, so Trigger.dev's retries apply. The Trigger.dev runner supports `enqueue` only: `cancel`, `status` and `schedule` throw until they are needed. Trigger.dev's idempotency keys also match runs that have finished, so unlike the in-process runner, an `idempotencyKey` can't be reused after its job ends.
+
 ## Host hooks
 
 `createChat({ hooks })` takes the Host's callbacks into the SDK. Every hook is optional.
@@ -180,9 +206,9 @@ const chat = createChat({
   // ...
   logger, // where the SDK's own failures go; defaults to console
   hooks: {
-    // every usage row written on Host credentials: a Run, a title, a web search, a transcription or a generated image
+    // every usage row written on Host credentials: a Run, a title, a web search, a transcription, a generated image or an embedding
     onUsage: (usage) => {
-      // usage: { id, userId, kind: "run" | "title" | "web_search" | "transcription" | "image", model, inputTokens,
+      // usage: { id, userId, kind: "run" | "title" | "web_search" | "transcription" | "image" | "embedding", model, inputTokens,
       //   outputTokens, costMicros, estimated, createdAt }
     },
     // every Run, whichever way it ends, once its ending is written
@@ -366,6 +392,7 @@ Stored Provider and Tool credentials are encrypted under `keyEncryptionSecrets`:
 - `hostProviders` are the Host's own credentials, from your environment (never stored): `[{ provider, credentials, models: [...] }]`. Each model is `{ modelId, label?, images?, pdfs?, tools?, maxOutputTokens, inputUsdPerMillion, outputUsdPerMillion }`. `maxOutputTokens` is required: the Host's output cap for a Run on that model, handed to `adapterFor` (the production adapters don't apply it yet). The prices are per 1M tokens and kept with the model. Capability flags default to off unless the model is curated, in which case its curated flags apply. A Tool goes in the same list as `{ tool: "tavily", credentials, pricePerSearchUsd }`: a Host Tavily key that searches for users with no Tavily key of their own, each search recorded at that fixed price.
 - `defaultBackgroundModel` (optional) is a `"provider:model"` id of one of your `hostProviders` Models. Titles use it for users who pick no Background Model; without it they use the Model that wrote the reply. `start()` throws when it isn't one of your Models.
 - `defaultImageModel` (optional) is a `"provider:model"` id of one of your `hostProviders` `imageModels`. Generated images use it for users who pick no Image Model; without it they get no Host images. `start()` throws when it isn't one of your Image Models, or when an Image Model has no `pricePerImageUsd`.
+- `hostProviders[].embeddingModels` (optional, OpenAI and Gemini only) are the embedding Models Knowledge may use on your credentials: `[{ model, pricePerMillionTokensUsd }]`, with `model` one of `text-embedding-3-small`, `text-embedding-3-large` or `gemini-embedding-001`. Each embedding call on them is recorded as a `usage` row of kind `embedding`, and `start()` throws for any other Provider or Model.
 - `byok` (default `true`) lets users run on their own Provider credentials. Set it independently of `hostProviders`: `byok: false` with `hostProviders` is a company Host that runs only its own keys.
 - A user's own key for a Provider always wins over the Host's. The Model list marks the Models that run on Host credentials.
 - `start()` throws with neither `hostProviders` nor `byok`.
