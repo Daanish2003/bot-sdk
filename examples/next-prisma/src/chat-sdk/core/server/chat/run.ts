@@ -524,8 +524,13 @@ export async function startRun(
         void titleConversation(deps, messageId);
       }
       // A Run that ended `complete` or `stopped` makes Memories from its user Message, in a background
-      // job (ADR 0013). `error` and a Run waiting for Approval make none; the resumed Run does.
-      if (endingSaved && (outcome.ending === "complete" || outcome.ending === "stopped")) {
+      // job (ADR 0013). `error`, a hidden reply (owner decision on #286) and a Run waiting for
+      // Approval make none; the resumed Run does.
+      if (
+        endingSaved &&
+        !hidden &&
+        (outcome.ending === "complete" || outcome.ending === "stopped")
+      ) {
         void enqueueMemories(deps, {
           userId: context.userId,
           conversationId: context.conversationId,

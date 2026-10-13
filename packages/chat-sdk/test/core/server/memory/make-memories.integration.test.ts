@@ -1,8 +1,11 @@
+import { randomUUID } from "node:crypto";
+
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
+import { createHookEmitter } from "../../../../core/server/chat/hooks";
 import { saveCredentials } from "../../../../core/server/credentials/store";
-import { conversation, message } from "../../../../core/server/db/schema/chat";
+import { conversation, message, project } from "../../../../core/server/db/schema/chat";
 import { job } from "../../../../core/server/db/schema/job";
 import { memory } from "../../../../core/server/db/schema/memory";
 import { userSettings } from "../../../../core/server/db/schema/settings";
@@ -81,7 +84,7 @@ async function setup({
     });
   }
   const conv = await insertConversation(user, { model: replyModel, title: "Chat", ...fields });
-  const post = (command: { parentId?: string | null } = {}) =>
+  const post = (command: { parentId?: string | null; conversationId?: string } = {}) =>
     sendAs(
       new Request("http://localhost/api/chat/run", {
         method: "POST",
@@ -102,7 +105,8 @@ async function setup({
       user,
       deps,
     );
-  const send = async (command: { parentId?: string | null } = {}) => (await post(command)).text();
+  const send = async (command: { parentId?: string | null; conversationId?: string } = {}) =>
+    (await post(command)).text();
   return { user, deps, conv, post, send, memoryFake };
 }
 
@@ -194,6 +198,23 @@ describe("making Memories after a Run", () => {
 
     await drainMemory(deps);
     expect((await memoriesOf(user.id)).map((row) => row.text)).toContain("Is vegetarian");
+  });
+
+  it("makes no job for a Run whose reply was hidden by moderation", async () => {
+    // The Host's output check hides every reply, so the Run ends `complete` with a hidden reply.
+    const hooks = createHookEmitter(
+      {
+        moderate: (check) =>
+          check.phase === "output" ? { allow: false, reason: "Policy" } : { allow: true },
+      },
+      { error: () => {} },
+    );
+    const { user, deps, send } = await setup({ deps: { hooks } });
+
+    await send();
+
+    await expectNoMemoryJob(deps);
+    expect(await memoriesOf(user.id)).toEqual([]);
   });
 
   it("makes no job for a Run that errored", async () => {
@@ -302,5 +323,204 @@ describe("making Memories after a Run", () => {
     expect(memoryFake.calls).toHaveLength(1);
     const [replayed] = await getTestDb().select().from(job).where(eq(job.idempotencyKey, key));
     expect(replayed?.status).toBe("succeeded");
+  });
+});
+
+/** A Background Model reply with this JSON. */
+const jsonRound = (json: unknown) => round(text(JSON.stringify(json)));
+
+/**
+ * The id the job's prompt gives each Memory, by its text. The decide and forget calls list the
+ * Memories as `{"id":"0","text":"..."}`, so a scripted reply can name them by their text.
+ */
+function idsIn(options: { messages: Array<{ content: unknown }> }): Map<string, string> {
+  const content = options.messages
+    .map((message) => (typeof message.content === "string" ? message.content : ""))
+    .join("\n");
+  return new Map(
+    [...content.matchAll(/\{"id":"(\d+)","text":"([^"]*)"\}/g)].map((m) => [m[2]!, m[1]!]),
+  );
+}
+
+type Event = { event: "ADD" | "UPDATE" | "DELETE" | "NONE"; text: string; of?: string };
+
+/** A decide reply: each event names the Memory it is about by its text (an ADD has none). */
+const decideRound =
+  (...events: Event[]) =>
+  (options: { messages: Array<{ content: unknown }> }) => {
+    const ids = idsIn(options);
+    return jsonRound({
+      memory: events.map(({ event, text: value, of }) => ({
+        id: of === undefined ? "new" : ids.get(of),
+        text: value,
+        event,
+      })),
+    });
+  };
+
+/** A forget reply: the ids of the Memories the request is about. */
+const forgetRound = (about: string) => (options: { messages: Array<{ content: unknown }> }) =>
+  jsonRound({ ids: [idsIn(options).get(about)] });
+
+const twoReplies: Rounds = [round(text("Noted.")), round(text("Noted again."))];
+
+describe("deciding against existing Memories", () => {
+  it("replaces a changed fact: the old Memory is kept invalid and linked to the new one", async () => {
+    const { user, deps, conv, send } = await setup({
+      reply: twoReplies,
+      facts: [
+        jsonRound({ facts: ["Is vegetarian", "Lives in Pune"] }),
+        jsonRound({ facts: ["Eats fish"] }),
+        decideRound(
+          { event: "UPDATE", text: "Eats fish", of: "Is vegetarian" },
+          { event: "NONE", text: "Lives in Pune", of: "Lives in Pune" },
+        ),
+      ],
+    });
+    await send();
+    await drainMemory(deps);
+    await send({ parentId: (await messageOf(conv.id, "assistant")).id });
+    await drainMemory(deps);
+
+    const rows = await memoriesOf(user.id);
+    const replacement = rows.find((row) => row.text === "Eats fish");
+    const old = rows.find((row) => row.text === "Is vegetarian");
+    expect(replacement).toMatchObject({ origin: "extracted", invalidAt: null });
+    expect(old?.replacedById).toBe(replacement?.id);
+    expect(old?.invalidAt?.getTime()).toBe(today.getTime());
+    expect(rows.find((row) => row.text === "Lives in Pune")?.invalidAt).toBeNull();
+  });
+
+  it("DELETE marks the old Memory invalid, with no new Memory", async () => {
+    const { user, deps, conv, send } = await setup({
+      reply: twoReplies,
+      facts: [
+        jsonRound({ facts: ["Is vegetarian", "Lives in Pune"] }),
+        jsonRound({ facts: ["Moved away from Pune"] }),
+        decideRound({ event: "DELETE", text: "Lives in Pune", of: "Lives in Pune" }),
+      ],
+    });
+    await send();
+    await drainMemory(deps);
+    await send({ parentId: (await messageOf(conv.id, "assistant")).id });
+    await drainMemory(deps);
+
+    const rows = await memoriesOf(user.id);
+    expect(rows).toHaveLength(2);
+    const deleted = rows.find((row) => row.text === "Lives in Pune");
+    expect(deleted?.invalidAt?.getTime()).toBe(today.getTime());
+    expect(deleted?.replacedById).toBeNull();
+    expect(rows.find((row) => row.text === "Is vegetarian")?.invalidAt).toBeNull();
+  });
+
+  it("NONE changes nothing", async () => {
+    const { user, deps, conv, send } = await setup({
+      reply: twoReplies,
+      facts: [
+        jsonRound({ facts: ["Is vegetarian", "Lives in Pune"] }),
+        jsonRound({ facts: ["Is vegetarian"] }),
+        decideRound({ event: "NONE", text: "Is vegetarian", of: "Is vegetarian" }),
+      ],
+    });
+    await send();
+    await drainMemory(deps);
+    await send({ parentId: (await messageOf(conv.id, "assistant")).id });
+    await drainMemory(deps);
+
+    const rows = await memoriesOf(user.id);
+    expect(rows).toHaveLength(2);
+    expect(rows.every((row) => row.invalidAt === null)).toBe(true);
+  });
+
+  it("ADD inserts a new Memory and leaves the others valid", async () => {
+    const { user, deps, conv, send } = await setup({
+      reply: twoReplies,
+      facts: [
+        jsonRound({ facts: ["Is vegetarian", "Lives in Pune"] }),
+        jsonRound({ facts: ["Works as an engineer"] }),
+        decideRound({ event: "ADD", text: "Works as an engineer" }),
+      ],
+    });
+    await send();
+    await drainMemory(deps);
+    await send({ parentId: (await messageOf(conv.id, "assistant")).id });
+    await drainMemory(deps);
+
+    const rows = await memoriesOf(user.id);
+    expect(rows.map((row) => row.text).sort()).toEqual([
+      "Is vegetarian",
+      "Lives in Pune",
+      "Works as an engineer",
+    ]);
+    expect(rows.every((row) => row.invalidAt === null)).toBe(true);
+  });
+
+  it("shows the decide call at most the 5 most similar Memories", async () => {
+    const seven = Array.from({ length: 7 }, (_, i) => `Fact ${i + 1}`);
+    const { deps, conv, send, memoryFake } = await setup({
+      reply: twoReplies,
+      facts: [jsonRound({ facts: seven }), jsonRound({ facts: ["Fact eight"] }), decideRound()],
+    });
+    await send();
+    await drainMemory(deps);
+    await send({ parentId: (await messageOf(conv.id, "assistant")).id });
+    await drainMemory(deps);
+
+    expect(memoryFake.calls).toHaveLength(3);
+    expect(idsIn(memoryFake.calls[2]!).size).toBe(5);
+  });
+
+  it("saves a 'remember' request as said, with no decide call, and gives the extract call today's date", async () => {
+    const { user, deps, memoryFake, send } = await setup({
+      facts: [jsonRound({ facts: [], remember: ["Likes jazz"] })],
+    });
+
+    await send();
+    await drainMemory(deps);
+
+    expect(await memoriesOf(user.id)).toMatchObject([
+      { text: "Likes jazz", origin: "said", invalidAt: null },
+    ]);
+    expect(memoryFake.calls).toHaveLength(1);
+    expect(JSON.stringify(memoryFake.calls[0])).toContain("2026-10-14");
+  });
+
+  it("hard-deletes the Memory a 'forget' request is about", async () => {
+    const { user, deps, conv, send } = await setup({
+      reply: twoReplies,
+      facts: [
+        jsonRound({ facts: ["Lives in Pune", "Is vegetarian"] }),
+        jsonRound({ facts: [], forget: ["Lives in Pune"] }),
+        forgetRound("Lives in Pune"),
+      ],
+    });
+    await send();
+    await drainMemory(deps);
+    await send({ parentId: (await messageOf(conv.id, "assistant")).id });
+    await drainMemory(deps);
+
+    expect((await memoriesOf(user.id)).map((row) => row.text)).toEqual(["Is vegetarian"]);
+  });
+
+  it("never invalidates a general Memory from a Project's Conversation", async () => {
+    const { user, deps, send, memoryFake } = await setup({
+      reply: twoReplies,
+      facts: [jsonRound({ facts: ["Is vegetarian"] }), jsonRound({ facts: ["Is vegetarian"] })],
+    });
+    await send();
+    await drainMemory(deps);
+
+    const projectId = randomUUID();
+    await getTestDb().insert(project).values({ id: projectId, userId: user.id, name: "Thesis" });
+    const inProject = await insertConversation(user, { projectId, title: "Thesis chat" });
+    await send({ conversationId: inProject.id });
+    await drainMemory(deps);
+
+    // The general fact's pool is empty in the Project's scope, so it is added with no decide call.
+    expect(memoryFake.calls).toHaveLength(2);
+    const rows = await memoriesOf(user.id);
+    expect(rows).toHaveLength(2);
+    expect(rows.every((row) => row.invalidAt === null)).toBe(true);
+    expect(rows.find((row) => row.conversationId === inProject.id)).toBeDefined();
   });
 });
