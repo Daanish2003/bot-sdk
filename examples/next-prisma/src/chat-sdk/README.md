@@ -209,6 +209,91 @@ moderate: async (check) => {
 },
 ```
 
+## Webhooks from the event hooks
+
+The SDK ships no webhooks (ADR 0018). A Host that wants them signs and POSTs from its event hooks. The recipe below uses only Web Crypto and the platform's `fetch`. Its hook sends directly to keep the example short. In your app, have the hook add the event to your own queue and let the queue's worker call `sendWebhook`: a failed send throws, so the queue retries it. The hooks fire at most once, so your queue is what makes delivery reliable.
+
+```ts
+import type { ChatHooks } from "@/lib/chat-sdk/core/server";
+
+const timestampHeader = "x-webhook-timestamp"; // Unix seconds when the event was sent
+const signatureHeader = "x-webhook-signature"; // "sha256=" + hex HMAC-SHA256 of `<timestamp>.<raw body>`
+const toleranceSeconds = 300; // a signature older (or newer) than this is rejected
+
+const encoder = new TextEncoder();
+
+function hmacKey(secret: string, usage: "sign" | "verify") {
+  return crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    [usage],
+  );
+}
+
+/** The sender: POSTs `{ type, data }` signed with `secret`. A non-2xx answer throws. */
+export async function sendWebhook(options: {
+  url: string;
+  secret: string;
+  type: string;
+  data: unknown;
+}) {
+  // The signature covers the exact bytes sent, so the receiver verifies the raw body.
+  const body = JSON.stringify({ type: options.type, data: options.data });
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const mac = await crypto.subtle.sign(
+    "HMAC",
+    await hmacKey(options.secret, "sign"),
+    encoder.encode(`${timestamp}.${body}`),
+  );
+  const hex = [...new Uint8Array(mac)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  const response = await fetch(options.url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      [timestampHeader]: timestamp,
+      [signatureHeader]: `sha256=${hex}`,
+    },
+    body,
+  });
+  if (!response.ok) throw new Error(`The webhook answered ${response.status}`);
+  return response;
+}
+
+/** The receiver: returns the event when its signature is valid and fresh, and throws otherwise. */
+export async function receiveWebhook(request: Request, secret: string, now = Date.now()) {
+  const body = await request.text();
+  const timestamp = request.headers.get(timestampHeader) ?? "";
+  if (!/^\d+$/.test(timestamp) || Math.abs(now / 1000 - Number(timestamp)) > toleranceSeconds) {
+    throw new Error("The webhook is stale");
+  }
+  const hex = /^sha256=([0-9a-f]{64})$/.exec(request.headers.get(signatureHeader) ?? "")?.[1];
+  if (!hex) throw new Error("The webhook signature is invalid");
+  const signature = Uint8Array.from(hex.match(/../g) ?? [], (pair) => parseInt(pair, 16));
+  // `verify` compares in constant time.
+  const valid = await crypto.subtle.verify(
+    "HMAC",
+    await hmacKey(secret, "verify"),
+    signature,
+    encoder.encode(`${timestamp}.${body}`),
+  );
+  if (!valid) throw new Error("The webhook signature is invalid");
+  return JSON.parse(body) as { type: string; data: unknown };
+}
+
+/** The hooks a Host passes to `createChat`: each finished Run is sent to `url`. */
+export function chatWebhookHooks(options: { url: string; secret: string }) {
+  return {
+    onRunEnd: (run) => sendWebhook({ ...options, type: "run.ended", data: run }),
+  } satisfies ChatHooks;
+}
+```
+
+The payload is the hook's payload: ids, the ending, the Model and flags. It never carries Message text, a title or an Attachment name, so a receiver learns what happened and nothing a user typed. Add the other hooks the same way (`onConversationDeleted`, `onSharedLinkChanged`, and so on), each with its own `type`. Your endpoint answers 401 when `receiveWebhook` throws, and otherwise routes the event by its `type`.
+
+User-configured webhooks, where a user enters a URL in settings, are out of scope (ADR 0017 and ADR 0018).
+
 ## Several processes: `redisRuntime()`
 
 A Run is shared between the processes of your app through its `runtime`. The default, `memoryRuntime()`, keeps Runs in one process's memory, which is fine for local development and for a Host that runs as a single process.
