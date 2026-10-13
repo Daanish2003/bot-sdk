@@ -1,3 +1,4 @@
+import type { AppDeps } from "../deps";
 import type { Database } from "../db/index";
 import { claimJob, enqueueJob, runClaimedJob } from "./store";
 import type { JobRunner } from "./runner";
@@ -22,6 +23,11 @@ export const systemClock: JobClock = {
 
 export type InProcessRunnerOptions = {
   db: Database;
+  /**
+   * The SDK's dependencies, handed to each job. A getter, because the dependencies hold this
+   * runner: `createAppDeps` passes a closure over the object it builds.
+   */
+  deps: () => AppDeps;
   logger?: Logger;
   /** Jobs run at once in this process (ADR 0011). */
   concurrency?: number;
@@ -37,6 +43,7 @@ export type InProcessRunnerOptions = {
  */
 export function inProcessRunner({
   db,
+  deps,
   logger = console,
   concurrency = 2,
   pollMs = 2_000,
@@ -58,7 +65,11 @@ export function inProcessRunner({
         return;
       }
       if (!claimed) return;
-      const work: Promise<void> = runClaimedJob(db, claimed, { now: clock.now, logger })
+      const work: Promise<void> = runClaimedJob(db, claimed, {
+        now: clock.now,
+        logger,
+        deps: deps(),
+      })
         .catch((error: unknown) => logger.error(`Background job "${claimed.name}" failed`, error))
         .finally(() => {
           inFlight.delete(work);

@@ -28,7 +28,7 @@ export function createTestDeps({
     (async (input) => {
       throw new Error(`Unexpected network call in a test: ${String(input)}`);
     });
-  return {
+  const deps: AppDeps = {
     db: getTestDb(),
     blobStore: postgresBlobStore(getTestDb()),
     isUserBlocked: async () => false,
@@ -75,11 +75,12 @@ export function createTestDeps({
     // Silent, like the handler's logger in `support/sdk.ts`: the tests assert on rows, not logs.
     logger: { error: () => {} },
     hooks: createHookEmitter(undefined, { error: () => {} }),
-    jobs: inProcessRunner({ db: getTestDb(), logger: { error: () => {} } }),
+    jobs: inProcessRunner({ db: getTestDb(), logger: { error: () => {} }, deps: () => deps }),
     ...overrides,
     fetch,
     ollamaFetch: overrides.ollamaFetch ?? fetch,
   };
+  return deps;
 }
 
 /** What a test may override in `createTestDeps`: any part of `AppDeps`, and any part of its limits. */

@@ -295,7 +295,7 @@ export function createAppDeps({
   artifacts?: boolean;
   jobs?: JobRunner;
 }): AppDeps {
-  return {
+  const deps: AppDeps = {
     logger,
     hooks: createHookEmitter(hooks, logger),
     db,
@@ -325,6 +325,7 @@ export function createAppDeps({
     keyEncryptionSecrets,
     mcpServers,
     artifacts: artifacts ?? false,
-    jobs: jobs ?? inProcessRunner({ db, logger }),
+    jobs: jobs ?? inProcessRunner({ db, logger, deps: () => deps }),
   };
+  return deps;
 }

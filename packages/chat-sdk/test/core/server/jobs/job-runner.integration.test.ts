@@ -7,9 +7,11 @@ import { job } from "../../../../core/server/db/schema/job";
 import { defineJob, PermanentJobError } from "../../../../core/server/jobs/define";
 import { inProcessRunner, type JobClock } from "../../../../core/server/jobs/in-process";
 import type { JobRunner } from "../../../../core/server/jobs/runner";
+import { createTestDeps } from "../../../support/deps";
 import { drainJobs } from "../../../support/jobs";
 import { getTestDb, testDatabaseUrl } from "../../../support/test-database";
 
+const jobDeps = createTestDeps();
 const start = new Date("2026-10-14T10:00:00Z");
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const silent = { error: () => {} };
@@ -91,7 +93,12 @@ afterEach(() => {
 
 describe("enqueue", () => {
   it("stores a queued job with its payload and the default retry settings", async () => {
-    const runner = inProcessRunner({ db: getTestDb(), logger: silent, clock: fakeClock().clock });
+    const runner = inProcessRunner({
+      deps: () => jobDeps,
+      db: getTestDb(),
+      logger: silent,
+      clock: fakeClock().clock,
+    });
 
     await runner.enqueue("test.record", { label: "a" });
 
@@ -109,7 +116,12 @@ describe("enqueue", () => {
   });
 
   it("makes a second enqueue with an active key a no-op, and reuses the key once the job has ended", async () => {
-    const runner = inProcessRunner({ db: getTestDb(), logger: silent, clock: fakeClock().clock });
+    const runner = inProcessRunner({
+      deps: () => jobDeps,
+      db: getTestDb(),
+      logger: silent,
+      clock: fakeClock().clock,
+    });
 
     await runner.enqueue("test.record", { label: "a" }, { idempotencyKey: "k1" });
     await runner.enqueue("test.record", { label: "b" }, { idempotencyKey: "k1" });
@@ -121,7 +133,12 @@ describe("enqueue", () => {
   });
 
   it("honours runAfter", async () => {
-    const runner = inProcessRunner({ db: getTestDb(), logger: silent, clock: fakeClock().clock });
+    const runner = inProcessRunner({
+      deps: () => jobDeps,
+      db: getTestDb(),
+      logger: silent,
+      clock: fakeClock().clock,
+    });
     const later = new Date(start.getTime() + 60_000);
 
     await runner.enqueue("test.record", { label: "a" }, { runAfter: later });
@@ -131,7 +148,12 @@ describe("enqueue", () => {
   });
 
   it("refuses an unknown job name and an invalid payload", async () => {
-    const runner = inProcessRunner({ db: getTestDb(), logger: silent, clock: fakeClock().clock });
+    const runner = inProcessRunner({
+      deps: () => jobDeps,
+      db: getTestDb(),
+      logger: silent,
+      clock: fakeClock().clock,
+    });
 
     await expect(runner.enqueue("test.missing", {})).rejects.toThrow(/No job named/);
     await expect(runner.enqueue("test.record", {})).rejects.toThrow();
@@ -141,7 +163,12 @@ describe("enqueue", () => {
 
 describe("the in-process runner", () => {
   it("runs a queued job once it is started", async () => {
-    const runner = inProcessRunner({ db: getTestDb(), logger: silent, clock: fakeClock().clock });
+    const runner = inProcessRunner({
+      deps: () => jobDeps,
+      db: getTestDb(),
+      logger: silent,
+      clock: fakeClock().clock,
+    });
     await runner.enqueue("test.record", { label: "a" });
 
     await runner.start();
@@ -152,7 +179,12 @@ describe("the in-process runner", () => {
   });
 
   it("wakes at once when its own enqueue adds a job, without waiting for the poll", async () => {
-    const runner = inProcessRunner({ db: getTestDb(), logger: silent, clock: fakeClock().clock });
+    const runner = inProcessRunner({
+      deps: () => jobDeps,
+      db: getTestDb(),
+      logger: silent,
+      clock: fakeClock().clock,
+    });
     await runner.start();
 
     await runner.enqueue("test.record", { label: "a" });
@@ -163,9 +195,19 @@ describe("the in-process runner", () => {
 
   it("polls on its timer for a job another process queued", async () => {
     const timer = fakeClock();
-    const runner = inProcessRunner({ db: getTestDb(), logger: silent, clock: timer.clock });
+    const runner = inProcessRunner({
+      deps: () => jobDeps,
+      db: getTestDb(),
+      logger: silent,
+      clock: timer.clock,
+    });
     await runner.start();
-    const otherProcess = inProcessRunner({ db: getTestDb(), logger: silent, clock: timer.clock });
+    const otherProcess = inProcessRunner({
+      deps: () => jobDeps,
+      db: getTestDb(),
+      logger: silent,
+      clock: timer.clock,
+    });
     await otherProcess.enqueue("test.record", { label: "a" });
     await sleep(20);
     expect(ran).toEqual([]);
@@ -177,7 +219,12 @@ describe("the in-process runner", () => {
   });
 
   it("runs at most two jobs at once by default", async () => {
-    const runner = inProcessRunner({ db: getTestDb(), logger: silent, clock: fakeClock().clock });
+    const runner = inProcessRunner({
+      deps: () => jobDeps,
+      db: getTestDb(),
+      logger: silent,
+      clock: fakeClock().clock,
+    });
     let release!: () => void;
     gate = new Promise((resolve) => {
       release = resolve;
@@ -198,8 +245,8 @@ describe("the in-process runner", () => {
     const { clock } = fakeClock();
     const db = getTestDb();
     const runners: JobRunner[] = [
-      inProcessRunner({ db, logger: silent, clock, concurrency: 4 }),
-      inProcessRunner({ db, logger: silent, clock, concurrency: 4 }),
+      inProcessRunner({ deps: () => jobDeps, db, logger: silent, clock, concurrency: 4 }),
+      inProcessRunner({ deps: () => jobDeps, db, logger: silent, clock, concurrency: 4 }),
     ];
     const labels = Array.from({ length: 20 }, (_, index) => `job-${index}`);
     for (const label of labels) await runners[0]!.enqueue("test.record", { label });
@@ -216,7 +263,12 @@ describe("the in-process runner", () => {
 describe("retries", () => {
   it("retries after about 10 s, then after about 1 min, then fails the job and runs onFailed", async () => {
     const timer = fakeClock();
-    const runner = inProcessRunner({ db: getTestDb(), logger: silent, clock: timer.clock });
+    const runner = inProcessRunner({
+      deps: () => jobDeps,
+      db: getTestDb(),
+      logger: silent,
+      clock: timer.clock,
+    });
     failure = new Error("boom");
     await runner.enqueue("test.fail", { label: "a" });
     await runner.start();
@@ -249,7 +301,12 @@ describe("retries", () => {
 
   it("fails a job at once on a PermanentJobError", async () => {
     const timer = fakeClock();
-    const runner = inProcessRunner({ db: getTestDb(), logger: silent, clock: timer.clock });
+    const runner = inProcessRunner({
+      deps: () => jobDeps,
+      db: getTestDb(),
+      logger: silent,
+      clock: timer.clock,
+    });
     failure = new PermanentJobError("no text layer");
     await runner.enqueue("test.fail", { label: "a" });
     await runner.start();
@@ -264,7 +321,12 @@ describe("retries", () => {
 
 describe("drainJobs", () => {
   it("runs every queued job, and the jobs they enqueue, until none are left", async () => {
-    const runner = inProcessRunner({ db: getTestDb(), logger: silent, clock: fakeClock().clock });
+    const runner = inProcessRunner({
+      deps: () => jobDeps,
+      db: getTestDb(),
+      logger: silent,
+      clock: fakeClock().clock,
+    });
     await runner.enqueue("test.record", { label: "a" });
     await runner.enqueue("test.record", { label: "b" });
 
@@ -275,7 +337,12 @@ describe("drainJobs", () => {
   });
 
   it("ignores retry backoff by default, so a failing job ends failed within one drain", async () => {
-    const runner = inProcessRunner({ db: getTestDb(), logger: silent, clock: fakeClock().clock });
+    const runner = inProcessRunner({
+      deps: () => jobDeps,
+      db: getTestDb(),
+      logger: silent,
+      clock: fakeClock().clock,
+    });
     failure = new Error("boom");
     await runner.enqueue("test.fail", { label: "a" });
 
@@ -286,7 +353,12 @@ describe("drainJobs", () => {
   });
 
   it("with respectRunAfter, leaves a job in its backoff alone", async () => {
-    const runner = inProcessRunner({ db: getTestDb(), logger: silent, clock: fakeClock().clock });
+    const runner = inProcessRunner({
+      deps: () => jobDeps,
+      db: getTestDb(),
+      logger: silent,
+      clock: fakeClock().clock,
+    });
     failure = new Error("boom");
     // drainJobs compares run_after with the real time, so this job is due now.
     await runner.enqueue("test.fail", { label: "a" }, { runAfter: new Date(Date.now() - 1_000) });

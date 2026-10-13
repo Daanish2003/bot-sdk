@@ -1,5 +1,6 @@
 import { eq, sql } from "drizzle-orm";
 
+import type { AppDeps } from "../deps";
 import type { Database } from "../db/index";
 import { job } from "../db/schema/job";
 import { uuidv7 } from "../lib/uuidv7";
@@ -87,13 +88,13 @@ export async function claimJob(
 export async function runClaimedJob(
   db: Database,
   claimed: ClaimedJob,
-  { now, logger }: { now: () => Date; logger: Logger },
+  { now, logger, deps }: { now: () => Date; logger: Logger; deps: AppDeps },
 ): Promise<void> {
   const definition = registeredJob(claimed.name);
   let failure: { error: unknown } | undefined;
   try {
     if (!definition) throw new Error(`No job named "${claimed.name}" is defined`);
-    await definition.run(definition.payload.parse(claimed.payload));
+    await definition.run(definition.payload.parse(claimed.payload), deps);
   } catch (error) {
     failure = { error };
   }
@@ -125,7 +126,7 @@ export async function runClaimedJob(
     .set({ status: "failed", lastError, updatedAt: at })
     .where(eq(job.id, claimed.id));
   try {
-    await definition?.onFailed?.(claimed.payload, error);
+    await definition?.onFailed?.(claimed.payload, error, deps);
   } catch (onFailedError) {
     logger.error(`onFailed for job "${claimed.name}" failed`, onFailedError);
   }
