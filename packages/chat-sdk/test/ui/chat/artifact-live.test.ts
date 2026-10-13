@@ -1,6 +1,7 @@
+import { createI18n } from "../../../core/shared/i18n";
 import type { UIMessage } from "@tanstack/ai-react";
 import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
+import { renderEnglish as renderToStaticMarkup } from "../fake-dictionary";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -150,9 +151,12 @@ describe("the live source of a streaming Artifact", () => {
 
     const [a] = artifactCallsIn([early]);
     const [b] = artifactCallsIn([later]);
-    expect(liveArtifactOf(a!.call).content).toBe("<h1>Hel");
-    expect(liveArtifactOf(b!.call).content).toBe("<h1>Hello</h1>");
-    expect(liveArtifactOf(b!.call)).toMatchObject({ kind: "html", title: "Landing page" });
+    expect(liveArtifactOf(createI18n(), a!.call).content).toBe("<h1>Hel");
+    expect(liveArtifactOf(createI18n(), b!.call).content).toBe("<h1>Hello</h1>");
+    expect(liveArtifactOf(createI18n(), b!.call)).toMatchObject({
+      kind: "html",
+      title: "Landing page",
+    });
   });
 
   it("writes the source with no preview frame while the call streams", () => {
@@ -161,7 +165,7 @@ describe("the live source of a streaming Artifact", () => {
         callPart({ arguments: '{"kind":"html","title":"Landing page","content":"<h1>Hel' }),
       ]),
     ]);
-    const live = liveArtifactOf(item!.call);
+    const live = liveArtifactOf(createI18n(), item!.call);
 
     const markup = renderToStaticMarkup(
       createElement(LiveArtifactView, {
@@ -191,7 +195,7 @@ describe("the live source of a streaming Artifact", () => {
         }),
       ]),
     ]);
-    const live = liveArtifactOf(item!.call);
+    const live = liveArtifactOf(createI18n(), item!.call);
 
     expect(live.content).toBeUndefined();
     expect(live.notice).toBeUndefined();
@@ -222,7 +226,7 @@ describe("the live source of a streaming Artifact", () => {
         }),
       ]),
     ]);
-    const live = liveArtifactOf(item!.call);
+    const live = liveArtifactOf(createI18n(), item!.call);
 
     expect(live.state).toBe("saving");
     expect(live.content).toBe("<h1>Hi</h1>");
@@ -239,7 +243,7 @@ describe("the live source of a streaming Artifact", () => {
         }),
       ]),
     ]);
-    const live = liveArtifactOf(item!.call);
+    const live = liveArtifactOf(createI18n(), item!.call);
 
     expect(live.state).toBe("not-saved");
     expect(live.content).toBe("<h1>Hel");

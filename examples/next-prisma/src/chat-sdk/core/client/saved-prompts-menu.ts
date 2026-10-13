@@ -4,10 +4,10 @@
  */
 import {
   savedPromptLimit,
-  savedPromptNameMessage,
   savedPromptNamePattern,
   savedPromptTextMaxChars,
 } from "../shared/chat/saved-prompt";
+import type { I18n } from "../shared/i18n";
 
 /** The `/` query while the menu may open; undefined when the whole value isn't `/` plus a name. */
 export function slashQuery(value: string): string | undefined {
@@ -55,26 +55,29 @@ export function createName(query: string): string | undefined {
 }
 
 /** The last row's label: "Create /xyz…" when nothing matches and the query is a valid name. */
-export function lastRowLabel(query: string, matchCount: number): string {
+export function lastRowLabel({ t }: I18n, query: string, matchCount: number): string {
   const name = matchCount === 0 ? createName(query) : undefined;
-  return name ? `Create /${name}…` : "New Saved prompt…";
+  return name ? t("chat.createSavedPrompt", { name }) : t("chat.newSavedPromptRow");
 }
 
 /** Why a new or edited Saved prompt can't be saved, as the form shows it; undefined when it can. */
 export function savedPromptDraftError(
+  { t, locale }: I18n,
   prompts: { name: string }[],
   draft: { name: string; text: string },
 ): string | undefined {
-  if (!savedPromptNamePattern.test(draft.name)) return savedPromptNameMessage;
+  if (!savedPromptNamePattern.test(draft.name)) return t("error.savedPromptName");
   if (prompts.some((prompt) => prompt.name === draft.name)) {
-    return `You already have a Saved prompt named "${draft.name}"`;
+    return t("error.savedPromptNameTaken", { name: draft.name });
   }
-  if (draft.text.trim() === "") return "Text can't be blank";
+  if (draft.text.trim() === "") return t("error.savedPromptTextBlank");
   if (draft.text.length > savedPromptTextMaxChars) {
-    return `Text is limited to ${savedPromptTextMaxChars.toLocaleString("en-US")} characters`;
+    return t("error.savedPromptTextTooLong", {
+      max: new Intl.NumberFormat(locale).format(savedPromptTextMaxChars),
+    });
   }
   if (prompts.length >= savedPromptLimit) {
-    return `You have ${savedPromptLimit} Saved prompts. Delete one first.`;
+    return t("error.savedPromptLimit", { max: String(savedPromptLimit) });
   }
   return undefined;
 }

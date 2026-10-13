@@ -116,12 +116,13 @@ export function TopBar({
 function ConversationMenu({ id }: { id: string }) {
   const [open, setOpen] = useState(false);
   const exporter = useExportConversation();
+  const { t } = useI18n();
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
-        aria-label="Conversation menu"
-        title="Conversation menu"
+        aria-label={t("shell.conversationMenu")}
+        title={t("shell.conversationMenu")}
         disabled={exporter.isPending}
         className={cn(buttonVariants({ variant: "ghost", size: "icon-sm" }))}
       >
@@ -155,6 +156,7 @@ export function ConversationMenuItems({
   onExport: () => void;
   onPrint: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <div role="menu" className="flex flex-col">
       <Button
@@ -166,11 +168,11 @@ export function ConversationMenuItems({
         onClick={onExport}
       >
         <DownloadIcon />
-        Export as Markdown
+        {t("shell.exportMarkdown")}
       </Button>
       <Button variant="ghost" size="sm" role="menuitem" className="justify-start" onClick={onPrint}>
         <PrinterIcon />
-        Print / Save as PDF
+        {t("shell.printSaveAsPdf")}
       </Button>
     </div>
   );

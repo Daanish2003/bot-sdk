@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Trash2Icon } from "lucide-react";
 
 import { useDeleteConversation } from "../../core/client/react/delete-conversation";
-import { useOrpc } from "../../core/client/react/provider";
+import { useI18n, useOrpc } from "../../core/client/react/provider";
 import { ShareButton } from "../share/share-dialog";
 
 /**
@@ -11,9 +11,10 @@ import { ShareButton } from "../share/share-dialog";
  * so it's deleted from here, through the normal delete path.
  */
 export function TemporaryHeaderActions({ onDelete }: { onDelete: () => void }) {
+  const { t } = useI18n();
   return (
-    <Button variant="ghost" size="sm" aria-label="Delete Conversation" onClick={onDelete}>
-      <Trash2Icon /> <span className="max-sm:hidden">Delete</span>
+    <Button variant="ghost" size="sm" aria-label={t("shell.deleteConversation")} onClick={onDelete}>
+      <Trash2Icon /> <span className="max-sm:hidden">{t("shell.delete")}</span>
     </Button>
   );
 }

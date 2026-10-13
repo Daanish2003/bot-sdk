@@ -91,4 +91,10 @@ export const shellMessages = {
   "shell.install": "Install",
   "shell.installIosSteps": "Tap Share, then Add to Home Screen.",
   "shell.installNotNow": "Not now",
+  "shell.conversationMenu": "Conversation menu",
+  "shell.exportMarkdown": "Export as Markdown",
+  "shell.printSaveAsPdf": "Print / Save as PDF",
+  "shell.archiveThisConversation": "Archive this Conversation",
+  "shell.unarchiveThisConversation": "Unarchive this Conversation",
+  "shell.deleteConversation": "Delete Conversation",
 };

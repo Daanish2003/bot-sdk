@@ -1,13 +1,13 @@
 import {
   artifactFileName,
-  artifactKindLabels,
   type ArtifactKind,
   updateArtifactToolName,
 } from "../../core/shared/chat/artifact";
 import type { UIMessage } from "@tanstack/ai-react";
 import type { ToolCallView } from "../../core/shared/chat/tool-call";
+import type { MessageKey } from "../../core/shared/i18n";
 import { messageInfo } from "../../core/client/chat";
-import { useOrpc } from "../../core/client/react/provider";
+import { useI18n, useOrpc } from "../../core/client/react/provider";
 import { CodeBlock, CodeBlockCode } from "@/components/ui/prompt-kit/code-block";
 import { Markdown } from "@/components/ui/prompt-kit/markdown";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,7 @@ import { CopyIcon, DownloadIcon, Loader2Icon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { liveArtifactOf } from "./artifact-live";
-import { artifactRefOf, type ArtifactRef, updatingTo } from "./artifact-card";
+import { artifactKindKeys, artifactRefOf, type ArtifactRef, updatingTo } from "./artifact-card";
 import {
   artifactFrameDocument,
   artifactFrameSandbox,
@@ -79,6 +79,7 @@ export function ArtifactPanel({
   sharedToken?: string;
 }) {
   const orpc = useOrpc();
+  const { t } = useI18n();
   const version = useQuery(
     sharedToken
       ? orpc.share.artifactVersion.queryOptions({
@@ -107,16 +108,23 @@ export function ArtifactPanel({
     <PanelFrame onClose={onClose}>
       {version.isError ? (
         <p className="p-4 text-sm text-muted-foreground" role="alert">
-          This Artifact couldn't be loaded.
+          {t("chat.artifactLoadFailed")}
         </p>
       ) : (
         <p className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
-          <Loader2Icon className="size-4 animate-spin" aria-hidden /> Loading…
+          <Loader2Icon className="size-4 animate-spin" aria-hidden /> {t("shell.loading")}
         </p>
       )}
     </PanelFrame>
   );
 }
+
+/** The Preview and Code tabs of a non-code Artifact, and the text each tab shows. */
+const tabNames = ["preview", "code"] as const;
+const tabKeys: Record<(typeof tabNames)[number], MessageKey> = {
+  preview: "chat.artifactTabPreview",
+  code: "chat.artifactTabCode",
+};
 
 /** The panel with its content: the header's title, kind, version and actions, and the source. */
 export function ArtifactPanelView({
@@ -139,6 +147,7 @@ export function ArtifactPanelView({
     language: version.language,
   });
   const latest = versions[0]?.version;
+  const { t } = useI18n();
   // Code kinds have only a source view; every other kind opens on its Preview.
   const [tab, setTab] = useState<"preview" | "code">(version.kind === "code" ? "code" : "preview");
   const showPreview = tab === "preview" && version.kind !== "code";
@@ -147,11 +156,15 @@ export function ArtifactPanelView({
       <header className="flex items-center gap-2 border-b px-3 py-2 text-sm">
         <span className="min-w-0 flex-1 truncate font-medium">{version.title}</span>
         <span className="rounded border px-1.5 text-[10px] text-muted-foreground">
-          {artifactKindLabels[version.kind]}
+          {t(artifactKindKeys[version.kind])}
         </span>
         {version.kind !== "code" && (
-          <div role="tablist" aria-label="View" className="flex rounded border text-xs">
-            {(["preview", "code"] as const).map((name) => (
+          <div
+            role="tablist"
+            aria-label={t("chat.artifactViewLabel")}
+            className="flex rounded border text-xs"
+          >
+            {tabNames.map((name) => (
               <button
                 key={name}
                 type="button"
@@ -163,14 +176,14 @@ export function ArtifactPanelView({
                   tab === name ? "bg-muted font-medium" : "text-muted-foreground",
                 )}
               >
-                {name}
+                {t(tabKeys[name])}
               </button>
             ))}
           </div>
         )}
         {versions.length > 1 && (
           <select
-            aria-label="Version"
+            aria-label={t("chat.artifactVersionLabel")}
             className="rounded border bg-background px-1 text-xs"
             value={version.number}
             onChange={(event) => {
@@ -180,7 +193,9 @@ export function ArtifactPanelView({
           >
             {versions.map((ref) => (
               <option key={`${ref.messageId}:${ref.version}`} value={ref.version}>
-                {ref.version === latest ? `v${ref.version} (latest)` : `v${ref.version}`}
+                {ref.version === latest
+                  ? t("chat.artifactVersionLatest", { version: ref.version })
+                  : t("chat.artifactVersionNumber", { version: ref.version })}
               </option>
             ))}
           </select>
@@ -188,8 +203,8 @@ export function ArtifactPanelView({
         <Button
           variant="ghost"
           size="icon-sm"
-          aria-label="Copy"
-          title="Copy"
+          aria-label={t("chat.copy")}
+          title={t("chat.copy")}
           onClick={() => void copyArtifact(version.content)}
         >
           <CopyIcon />
@@ -197,20 +212,26 @@ export function ArtifactPanelView({
         <Button
           variant="ghost"
           size="icon-sm"
-          aria-label="Download"
-          title="Download"
+          aria-label={t("chat.download")}
+          title={t("chat.download")}
           data-download-name={fileName}
           onClick={() => downloadArtifact(fileName, version.content, version.kind)}
         >
           <DownloadIcon />
         </Button>
-        <Button variant="ghost" size="icon-sm" aria-label="Close" title="Close" onClick={onClose}>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={t("chat.close")}
+          title={t("chat.close")}
+          onClick={onClose}
+        >
           <XIcon />
         </Button>
       </header>
       {readOnly && (
         <p className="border-b bg-muted px-3 py-1 text-xs text-muted-foreground">
-          Shared link · read-only
+          {t("chat.artifactSharedReadOnly")}
         </p>
       )}
       <div className="min-h-0 flex-1 overflow-auto p-3">
@@ -245,7 +266,8 @@ export function LiveArtifactPanel({
   latest?: ArtifactRef;
   onClose: () => void;
 }) {
-  const live = liveArtifactOf(call);
+  const i18n = useI18n();
+  const live = liveArtifactOf(i18n, call);
   if (call.name !== updateArtifactToolName || !latest) {
     return (
       <LiveArtifactView
@@ -272,6 +294,7 @@ function LiveUpdatePanel({
   onClose: () => void;
 }) {
   const orpc = useOrpc();
+  const i18n = useI18n();
   const previous = useQuery(
     orpc.artifact.version.queryOptions({
       input: {
@@ -286,17 +309,17 @@ function LiveUpdatePanel({
       <PanelFrame onClose={onClose}>
         {previous.isError ? (
           <p className="p-4 text-sm text-muted-foreground" role="alert">
-            This Artifact couldn't be loaded.
+            {i18n.t("chat.artifactLoadFailed")}
           </p>
         ) : (
           <p className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
-            <Loader2Icon className="size-4 animate-spin" aria-hidden /> Loading…
+            <Loader2Icon className="size-4 animate-spin" aria-hidden /> {i18n.t("shell.loading")}
           </p>
         )}
       </PanelFrame>
     );
   }
-  const live = liveArtifactOf(call);
+  const live = liveArtifactOf(i18n, call);
   const version = previous.data;
   const title = (call.args as { title?: unknown } | undefined)?.title;
   return (
@@ -305,7 +328,9 @@ function LiveUpdatePanel({
       kind={version.kind}
       language={version.language}
       source={live.content ?? version.content}
-      notice={live.edits && live.state === "updating" ? updatingTo(latest.version) : live.notice}
+      notice={
+        live.edits && live.state === "updating" ? updatingTo(i18n, latest.version) : live.notice
+      }
       onClose={onClose}
     />
   );
@@ -330,14 +355,21 @@ export function LiveArtifactView({
   notice?: string;
   onClose: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <PanelFrame onClose={onClose}>
       <header className="flex items-center gap-2 border-b px-3 py-2 text-sm">
         <span className="min-w-0 flex-1 truncate font-medium">{title}</span>
         <span className="rounded border px-1.5 text-[10px] text-muted-foreground">
-          {artifactKindLabels[kind]}
+          {t(artifactKindKeys[kind])}
         </span>
-        <Button variant="ghost" size="icon-sm" aria-label="Close" title="Close" onClick={onClose}>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={t("chat.close")}
+          title={t("chat.close")}
+          onClick={onClose}
+        >
           <XIcon />
         </Button>
       </header>
@@ -382,6 +414,7 @@ function ArtifactPreview({ version }: { version: ArtifactVersionContent }) {
  */
 function SandboxedFrame({ srcDoc, title }: { srcDoc: string; title: string }) {
   const frame = useRef<HTMLIFrameElement>(null);
+  const { t } = useI18n();
   const [height, setHeight] = useState<number | undefined>(undefined);
   const [error, setError] = useState<string | undefined>(undefined);
   useEffect(() => {
@@ -397,7 +430,7 @@ function SandboxedFrame({ srcDoc, title }: { srcDoc: string; title: string }) {
     <div className="flex flex-col gap-2">
       {error && (
         <p role="alert" className="rounded border border-destructive/40 px-2 py-1 text-xs">
-          The preview hit an error: {error}
+          {t("chat.artifactPreviewError", { error })}
         </p>
       )}
       <iframe
@@ -417,9 +450,10 @@ function SandboxedFrame({ srcDoc, title }: { srcDoc: string; title: string }) {
  * where close brings the chat back.
  */
 function PanelFrame({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+  const { t } = useI18n();
   return (
     <aside
-      aria-label="Artifact"
+      aria-label={t("chat.artifactPanel")}
       data-artifact-panel
       onKeyDown={(event) => {
         if (event.key === "Escape") onClose();

@@ -1,5 +1,5 @@
 import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
+import { renderEnglish as renderToStaticMarkup } from "../fake-dictionary";
 import { describe, expect, it } from "vitest";
 
 import { TemporaryHeaderActions } from "../../../ui/shell/conversation-header-actions";

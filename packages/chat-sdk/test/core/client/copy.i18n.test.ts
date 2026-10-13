@@ -5,6 +5,9 @@ import { renamePromptText } from "../../../core/client/react/conversation-action
 import { deleteConfirmText } from "../../../core/client/react/delete-conversation";
 import { recentConversations } from "../../../core/client/search";
 import { missingCredentialsMessage } from "../../../core/client/models";
+import { RateLimitedError } from "../../../core/client/rate-limit";
+import { lastRowLabel, savedPromptDraftError } from "../../../core/client/saved-prompts-menu";
+import { dictationFailureMessage } from "../../../core/client/voice";
 import { describeSearch, describeSearches, searchToggle } from "../../../core/client/web-search";
 import { createI18n } from "../../../core/shared/i18n";
 import type { WebSearchPart } from "../../../core/shared/message-parts";
@@ -98,5 +101,39 @@ describe("core copy through the dictionary", () => {
     expect(
       recentConversations(french, [{ id: "1", title: null }], "sans").map((c) => c.id),
     ).toEqual(["1"]);
+  });
+
+  it("wraps every dictation toast, the Quota reset time included", () => {
+    expect(dictationFailureMessage({ data: { reason: "invalid_key" } }, wrapped)).toBe(
+      "⟦Dictation failed: your key was rejected. Check it in Keys & settings.⟧",
+    );
+    expect(dictationFailureMessage({ data: { reason: "failed" } }, wrapped)).toBe(
+      "⟦Dictation failed. Your message is unchanged.⟧",
+    );
+    expect(dictationFailureMessage(new RateLimitedError(12), wrapped)).toBe(
+      "⟦Too many recordings. Try again in 12 seconds.⟧",
+    );
+    expect(
+      dictationFailureMessage(
+        { data: { reason: "quota_exceeded", resetsAt: "2026-10-14T00:00:00.000Z" } },
+        wrapped,
+      ),
+    ).toMatch(/^⟦Dictation is off until .+, when your Quota resets\.⟧$/);
+  });
+
+  it("wraps the Saved prompt rows and the draft errors of the / menu", () => {
+    const prompts = [{ name: "review" }];
+
+    expect(lastRowLabel(wrapped, "xyz", 0)).toBe("⟦Create /xyz…⟧");
+    expect(lastRowLabel(wrapped, "rev", 2)).toBe("⟦New Saved prompt…⟧");
+    expect(savedPromptDraftError(wrapped, prompts, { name: "Bad Name", text: "x" })).toBe(
+      "⟦Names use lowercase letters, digits and -, up to 32 characters⟧",
+    );
+    expect(savedPromptDraftError(wrapped, prompts, { name: "review", text: "x" })).toBe(
+      '⟦You already have a Saved prompt named "review"⟧',
+    );
+    expect(savedPromptDraftError(wrapped, prompts, { name: "eli5", text: "   " })).toBe(
+      "⟦Text can't be blank⟧",
+    );
   });
 });

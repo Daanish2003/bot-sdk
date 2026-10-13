@@ -244,14 +244,14 @@ function PaletteBody({
                 key: "unarchive",
                 group: "Commands" as const,
                 icon: <ArchiveRestoreIcon />,
-                label: "Unarchive this Conversation",
+                label: t("shell.unarchiveThisConversation"),
                 run: () => archive.unarchive(conversationId),
               }
             : {
                 key: "archive",
                 group: "Commands" as const,
                 icon: <ArchiveIcon />,
-                label: "Archive this Conversation",
+                label: t("shell.archiveThisConversation"),
                 run: () => archive.archive(conversationId),
               },
         ]
@@ -262,14 +262,14 @@ function PaletteBody({
             key: "export",
             group: "Commands" as const,
             icon: <DownloadIcon />,
-            label: "Export as Markdown",
+            label: t("shell.exportMarkdown"),
             run: () => exporter.exportMarkdown(conversationId),
           },
           {
             key: "print",
             group: "Commands" as const,
             icon: <PrinterIcon />,
-            label: "Print / Save as PDF",
+            label: t("shell.printSaveAsPdf"),
             run: () => window.print(),
           },
         ]

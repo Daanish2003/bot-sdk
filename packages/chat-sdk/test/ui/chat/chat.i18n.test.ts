@@ -1,6 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { createElement, type ReactElement } from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { ChatClient } from "../../../core/client/chat-client";
 import { ChatView, type ConversationData } from "../../../ui/chat/chat-view";
@@ -17,8 +17,23 @@ import { ToolsMenu } from "../../../ui/chat/tools-menu";
 import { UsageBreakdown, UsageInfo } from "../../../ui/chat/usage-info";
 import { Welcome } from "../../../ui/chat/welcome";
 import { ShareButton } from "../../../ui/share/share-dialog";
+import { ArtifactCard } from "../../../ui/chat/artifact-card";
+import {
+  ArtifactPanel,
+  ArtifactPanelView,
+  LiveArtifactView,
+} from "../../../ui/chat/artifact-panel";
+import { liveArtifactOf } from "../../../ui/chat/artifact-live";
+import { GeneratedImageBlock } from "../../../ui/chat/generated-image-block";
+import { Dictation } from "../../../ui/chat/dictation";
+import { ReadAloudButton } from "../../../ui/chat/read-aloud";
+import { SavedPromptFormView, SlashMenuList } from "../../../ui/chat/slash-menu";
+import { TemporaryHeaderActions } from "../../../ui/shell/conversation-header-actions";
 import type { ListedModel } from "../../../core/shared/chat/models";
-import { renderWrapped, untranslated } from "../fake-dictionary";
+import { createI18n } from "../../../core/shared/i18n";
+import type { GeneratedImagePart } from "../../../core/shared/message-parts";
+import { toolCallOf, type ToolCallView } from "../../../core/shared/chat/tool-call";
+import { renderWrapped, untranslated, wrappedDictionary } from "../fake-dictionary";
 
 const model: ListedModel = {
   id: "anthropic:claude-haiku-4-5",
@@ -290,4 +305,273 @@ describe("the chat view with the dictionary", () => {
   it("shows no untranslated text on the Share button", () => {
     expectTranslated(createElement(ShareButton, { conversationId }), seedAll);
   });
+
+  it("shows no untranslated text in a Temporary Conversation's Delete action", () => {
+    const html = expectTranslated(createElement(TemporaryHeaderActions, { onDelete: () => {} }));
+
+    expect(html).toContain("⟦Delete Conversation⟧");
+  });
+
+  it("shows no untranslated text on the read-aloud control in both states", () => {
+    expectTranslated(createElement(ReadAloudButton, { speaking: false, onToggle: () => {} }));
+    const speaking = expectTranslated(
+      createElement(ReadAloudButton, { speaking: true, onToggle: () => {} }),
+    );
+
+    expect(speaking).toContain("⟦Stop reading⟧");
+  });
+
+  it("shows no untranslated text on the / menu, its create row and its form", () => {
+    const prompts = [{ name: "review", text: "Review this code for bugs first." }];
+    const list = expectTranslated(
+      createElement(SlashMenuList, {
+        prompts,
+        query: "",
+        loaded: true,
+        active: 0,
+        onHover: () => {},
+        onPick: () => {},
+      }),
+      undefined,
+      ["/review", "Review this code for bugs first."],
+    );
+    expect(list).toContain("⟦Saved prompts⟧");
+
+    const empty = expectTranslated(
+      createElement(SlashMenuList, {
+        prompts: [],
+        query: "xyz",
+        loaded: true,
+        active: 0,
+        onHover: () => {},
+        onPick: () => {},
+      }),
+    );
+    expect(empty).toContain(
+      "⟦No Saved prompts yet. Save text you send often and insert it with /name.⟧",
+    );
+    expect(empty).toContain("⟦Create /xyz…⟧");
+
+    const form = expectTranslated(
+      createElement(SavedPromptFormView, {
+        name: "",
+        onName: () => {},
+        text: "",
+        onText: () => {},
+        status: "⟦Saves, then inserts it.⟧",
+        canSave: false,
+        saving: false,
+        onSubmit: () => {},
+        onCancel: () => {},
+      }),
+    );
+    expect(form).toContain("⟦New Saved prompt⟧");
+  });
+
+  it("shows no untranslated text on the mic at the Quota limit, and when it is ready", () => {
+    vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: () => {} } });
+    vi.stubGlobal("MediaRecorder", class {});
+    try {
+      const off = expectTranslated(
+        createElement(Dictation, { onTranscript: () => {} }),
+        (queryClient, client) => {
+          queryClient.setQueryData(client.orpc.voice.status.queryOptions().queryKey, {
+            transcription: { available: true, onHostCredentials: true },
+          });
+          seedAll(queryClient, client);
+        },
+      );
+      expect(off).toContain("⟦Dictation off until ");
+
+      const ready = expectTranslated(
+        createElement(Dictation, { onTranscript: () => {} }),
+        (queryClient, client) => {
+          queryClient.setQueryData(client.orpc.voice.status.queryOptions().queryKey, {
+            transcription: { available: true, onHostCredentials: false },
+          });
+        },
+      );
+      expect(ready).toContain("⟦Dictate⟧");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("shows no untranslated text on a generated image in each state", () => {
+    const image = (fields: Record<string, unknown>) =>
+      ({
+        type: "generated_image",
+        prompt: "A lighthouse at dusk",
+        aspectRatio: "square",
+        state: "done",
+        imageId: "img-1",
+        ...fields,
+      }) as unknown as GeneratedImagePart;
+    const imagesUrl = "http://localhost/api/chat/generated-images";
+    const allow = ["A lighthouse at dusk"];
+
+    expectTranslated(
+      createElement(GeneratedImageBlock, { image: image({ state: "running" }), imagesUrl }),
+      undefined,
+      allow,
+    );
+    expectTranslated(
+      createElement(GeneratedImageBlock, {
+        image: image({ state: "error", errorReason: "refused" }),
+        imagesUrl,
+      }),
+      undefined,
+      allow,
+    );
+    expectTranslated(
+      createElement(GeneratedImageBlock, { image: image({ state: "cancelled" }), imagesUrl }),
+      undefined,
+      allow,
+    );
+    expectTranslated(
+      createElement(GeneratedImageBlock, {
+        image: image({}),
+        imagesUrl,
+        editedFrom: [{ label: "Harbour" }],
+      }),
+      undefined,
+      [...allow, "Harbour"],
+    );
+  });
+
+  it("shows no untranslated text on an Artifact card in each state", () => {
+    const allow = ["Landing page"];
+    const onOpen = () => {};
+    const saved = expectTranslated(
+      createElement(ArtifactCard, { call: artifactCall(doneFields), messageId: "m-1", onOpen }),
+      undefined,
+      allow,
+    );
+    expect(saved).toContain("⟦Created v1");
+    expectTranslated(
+      createElement(ArtifactCard, { call: artifactCall({}), messageId: "m-1", onOpen }),
+      undefined,
+      allow,
+    );
+    expectTranslated(
+      createElement(ArtifactCard, {
+        call: artifactCall({
+          state: "output-error",
+          output: { error: "Input validation failed" },
+          metadata: { source: "builtin", status: "error" },
+        }),
+        messageId: "m-1",
+        onOpen,
+      }),
+      undefined,
+      allow,
+    );
+    const update = expectTranslated(
+      createElement(ArtifactCard, {
+        call: artifactCall({
+          name: "update_artifact",
+          arguments: JSON.stringify({ artifactId: "abc" }),
+          input: { artifactId: "abc" },
+        }),
+        messageId: "m-1",
+        latestVersion: 1,
+        onOpen,
+      }),
+      undefined,
+      allow,
+    );
+    expect(update).toContain("⟦Updating to v2…⟧");
+  });
+
+  it("shows no untranslated text in the Artifact panel's views and its loading state", () => {
+    const version = {
+      number: 2,
+      title: "Landing page",
+      kind: "html" as const,
+      language: null,
+      content: "<h1>Hi</h1>",
+    };
+    const versions = [
+      { artifactId: "abc", version: 2, messageId: "m-2" },
+      { artifactId: "abc", version: 1, messageId: "m-1" },
+    ];
+    const allow = ["Landing page", "<h1>Hi</h1>"];
+    const panel = expectTranslated(
+      createElement(ArtifactPanelView, {
+        version,
+        versions,
+        onClose: () => {},
+        onSelect: () => {},
+      }),
+      undefined,
+      allow,
+    );
+    expect(panel).toContain("⟦v2 (latest)⟧");
+    expectTranslated(
+      createElement(ArtifactPanelView, {
+        version: { ...version, kind: "code", language: "html" },
+        onClose: () => {},
+        readOnly: true,
+      }),
+      undefined,
+      [...allow, "Shared link · read-only"],
+    );
+    expectTranslated(
+      createElement(LiveArtifactView, {
+        title: "Landing page",
+        kind: "html",
+        language: null,
+        source: "<h1>",
+        notice: "⟦This Artifact wasn't saved⟧",
+        onClose: () => {},
+      }),
+      undefined,
+      ["Landing page", "<h1>"],
+    );
+    expectTranslated(
+      createElement(ArtifactPanel, {
+        artifact: { artifactId: "abc", version: 2, messageId: "m-2" },
+        onClose: () => {},
+      }),
+    );
+  });
+
+  it("gives the Artifact call's notice and title through the dictionary", () => {
+    const i18n = createI18n(wrappedDictionary());
+    const live = liveArtifactOf(
+      i18n,
+      artifactCall({
+        state: "output-error",
+        output: { error: "x" },
+        metadata: { source: "builtin", status: "error" },
+      }),
+    );
+
+    expect(live.notice).toBe("⟦This Artifact wasn't saved⟧");
+    expect(liveArtifactOf(i18n, artifactCall({ arguments: "{}", input: {} })).title).toBe(
+      "⟦Artifact⟧",
+    );
+  });
 });
+
+const doneFields = {
+  state: "complete",
+  output: { artifactId: "abc", version: 1 },
+  metadata: { source: "builtin", status: "done" },
+};
+
+/** An `create_artifact` call with its arguments: the title is the card's text. */
+function artifactCall(fields: Record<string, unknown>): ToolCallView {
+  const call = toolCallOf({
+    type: "tool-call",
+    id: "call-1",
+    name: "create_artifact",
+    arguments: JSON.stringify({ kind: "html", title: "Landing page" }),
+    input: { kind: "html", title: "Landing page" },
+    state: "input-complete",
+    metadata: { source: "builtin", status: "running" },
+    ...fields,
+  } as never);
+  if (!call) throw new Error("Expected a tool call");
+  return call;
+}

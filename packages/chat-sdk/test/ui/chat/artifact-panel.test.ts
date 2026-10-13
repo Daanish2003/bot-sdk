@@ -1,5 +1,5 @@
 import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
+import { renderEnglish as renderToStaticMarkup } from "../fake-dictionary";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -37,8 +37,8 @@ describe("the Artifact panel", () => {
     for (const kind of ["markdown", "html", "svg", "mermaid"] as const) {
       const html = render({ kind });
       expect(html).toContain('role="tab"');
-      expect(html).toContain(">preview<");
-      expect(html).toContain(">code<");
+      expect(html).toContain(">Preview<");
+      expect(html).toContain(">Code<");
     }
   });
 

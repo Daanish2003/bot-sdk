@@ -197,8 +197,10 @@ function ChatThread({
   const composerSend = useRef(false);
   const refusal = moderatedErrorOf(error);
   useEffect(() => {
-    if (moderatedErrorOf(error) && composerSend.current) {
+    if (refusal && composerSend.current) {
       setComposerText(command.current?.text ?? "");
+      // The Host's reason, or the dictionary's default when it gave none.
+      toast.error(refusal.message || t("chat.moderatedDefault"));
     }
   }, [error]);
   const serverStreaming = conversation.messages.some((m) => m.status === "streaming");
@@ -271,7 +273,7 @@ function ChatThread({
       {
         onError: (caught) => {
           setMessages(withRating(latestMessages.current, messageId, previous));
-          toast.error(`Rating failed: ${caught.message}`);
+          toast.error(t("chat.ratingFailed", { message: serverErrorText(i18n, caught) }));
         },
       },
     );

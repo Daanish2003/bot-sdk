@@ -1,3 +1,4 @@
+import type { I18n, MessageKey } from "../shared/i18n";
 import type { DictationErrorReason } from "../shared/chat/voice";
 import { quotaResetsAt } from "./quota";
 import { RateLimitedError } from "./rate-limit";
@@ -13,25 +14,28 @@ export function appendTranscript(current: string, transcript: string): string {
   return /\s$/.test(current) ? `${current}${text}` : `${current} ${text}`;
 }
 
-const failureText: Record<DictationErrorReason, string> = {
-  unavailable: "Dictation needs an OpenAI, Groq or Grok key of yours in Keys & settings.",
-  quota_exceeded: "Dictation is off until your Quota resets.",
-  invalid_key: "Dictation failed: your key was rejected. Check it in Keys & settings.",
-  rate_limited: "Dictation failed: the Provider is busy. Try again in a moment.",
-  failed: "Dictation failed. Your message is unchanged.",
+const failureKeys: Record<DictationErrorReason, MessageKey> = {
+  unavailable: "chat.dictationNeedsKey",
+  quota_exceeded: "chat.dictationQuotaOff",
+  invalid_key: "chat.dictationKeyRejected",
+  rate_limited: "chat.dictationBusy",
+  failed: "chat.dictationFailed",
 };
 
 /**
  * The toast text for a failed transcription, from the error the RPC call threw. The reset time is
- * formatted in `locale`.
+ * formatted in the dictionary's locale.
  */
-export function dictationFailureMessage(caught: unknown, locale: string): string {
+export function dictationFailureMessage(caught: unknown, i18n: I18n): string {
+  const { t } = i18n;
   if (caught instanceof RateLimitedError) {
-    return `Too many recordings. Try again in ${caught.retryAfterSeconds} seconds.`;
+    return t("chat.dictationTooManyRecordings", { seconds: caught.retryAfterSeconds });
   }
   const data = (caught as { data?: { reason?: unknown; resetsAt?: unknown } } | null)?.data;
   if (data?.reason === "quota_exceeded" && typeof data.resetsAt === "string") {
-    return `Dictation is off until ${quotaResetsAt(data.resetsAt, locale)}, when your Quota resets.`;
+    return t("chat.dictationQuotaOffUntil", {
+      reset: quotaResetsAt(data.resetsAt, i18n.locale),
+    });
   }
-  return failureText[data?.reason as DictationErrorReason] ?? failureText.failed;
+  return t(failureKeys[data?.reason as DictationErrorReason] ?? failureKeys.failed);
 }

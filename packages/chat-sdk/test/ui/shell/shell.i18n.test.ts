@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { ChatClient } from "../../../core/client/chat-client";
 import type { ListedModel } from "../../../core/shared/chat/models";
 import { AppShell } from "../../../ui/shell/app-shell";
+import { ConversationMenuItems, TopBar } from "../../../ui/shell/top-bar";
 import { renderWrapped, untranslated } from "../fake-dictionary";
 
 const conversation = {
@@ -109,5 +110,31 @@ describe("the shell with the dictionary", () => {
     expect(html).toContain("⟦No Conversations yet⟧");
     expect(html).toContain("⟦Add Provider credentials to start⟧");
     expect(untranslated(html, userContent)).toEqual([]);
+  });
+
+  it("shows no untranslated text in the top bar of an open Conversation, with its Conversation menu", () => {
+    const html = renderWrapped(
+      createElement(TopBar, {
+        panelOpen: true,
+        drawerOpen: false,
+        onOpenPanel: () => {},
+        onOpenDrawer: () => {},
+        onOpenSearch: () => {},
+      }),
+      { location: { conversationId: conversation.id } },
+    );
+
+    expect(html).toContain("⟦Conversation menu⟧");
+    expect(untranslated(html, userContent)).toEqual([]);
+  });
+
+  it("shows no untranslated text in the Conversation menu's items", () => {
+    const html = renderWrapped(
+      createElement(ConversationMenuItems, { onExport: () => {}, onPrint: () => {} }),
+    );
+
+    expect(html).toContain("⟦Export as Markdown⟧");
+    expect(html).toContain("⟦Print / Save as PDF⟧");
+    expect(untranslated(html)).toEqual([]);
   });
 });
