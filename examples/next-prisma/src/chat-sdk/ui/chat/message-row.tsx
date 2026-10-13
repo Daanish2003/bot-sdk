@@ -1,6 +1,11 @@
 import type { AttachmentInfo } from "../../core/shared/attachments/kinds";
 import { createArtifactToolName, updateArtifactToolName } from "../../core/shared/chat/artifact";
-import { pageSourcesOf, replySegments, sourcesOf } from "../../core/shared/chat/sources";
+import {
+  pageSourcesOf,
+  replySegments,
+  sourcesOf,
+  webSourcesOf,
+} from "../../core/shared/chat/sources";
 import { generatedImageOf } from "../../core/shared/chat/generated-image";
 import { toolCallOf, type ToolCallView } from "../../core/shared/chat/tool-call";
 import { knowledgeSearchOf } from "../../core/shared/chat/knowledge-search";
@@ -52,7 +57,7 @@ import { ReadAloud } from "./read-aloud";
 import { ArtifactCard, artifactIdOf, type ArtifactRef } from "./artifact-card";
 import { KnowledgeSearchRow } from "./knowledge-search-row";
 import { SearchRow } from "./search-row";
-import { replyComponents, ReplySources, SourceChips } from "./source-chips";
+import { replyComponents, replyKeepUrl, ReplySources, SourceChips } from "./source-chips";
 import { ToolCallRow } from "./tool-call-row";
 import { UsageInfo } from "./usage-info";
 
@@ -536,6 +541,7 @@ function AssistantParts({
             key={segment.key}
             className="prose prose-sm min-w-0 max-w-[80ch] dark:prose-invert max-md:[&_table]:block max-md:[&_table]:overflow-x-auto"
             components={replyComponents}
+            keepUrl={replyKeepUrl}
           >
             {segment.content}
           </Markdown>
@@ -551,7 +557,11 @@ function AssistantParts({
         ) : segment.type === "knowledge" ? (
           <KnowledgeSearchRow key={segment.key} search={segment.search} />
         ) : segment.type === "searches" ? (
-          <SearchRow key={segment.key} searches={segment.searches} sources={sources} />
+          <SearchRow
+            key={segment.key}
+            searches={segment.searches}
+            sources={webSourcesOf(sources)}
+          />
         ) : (
           <Fragment key={segment.key}>
             {segment.call.name === createArtifactToolName ||

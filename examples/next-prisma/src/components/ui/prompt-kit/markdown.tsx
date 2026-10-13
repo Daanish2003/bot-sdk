@@ -1,7 +1,7 @@
 import { cn } from "@/lib/utils";
 import { marked } from "marked";
 import { memo, useId, useMemo } from "react";
-import ReactMarkdown, { type Components } from "react-markdown";
+import ReactMarkdown, { type Components, defaultUrlTransform } from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import { CodeBlock, CodeBlockCode } from "./code-block";
@@ -11,6 +11,8 @@ export type MarkdownProps = {
   id?: string;
   className?: string;
   components?: Partial<Components>;
+  /** Hrefs kept as written, past react-markdown's URL allowlist (a reply's `excerpt:<n>` links). */
+  keepUrl?: (href: string) => boolean;
 };
 
 function parseMarkdownIntoBlocks(markdown: string): string[] {
@@ -64,24 +66,40 @@ const MemoizedMarkdownBlock = memo(
   function MarkdownBlock({
     content,
     components = INITIAL_COMPONENTS,
+    keepUrl,
   }: {
     content: string;
     components?: Partial<Components>;
+    keepUrl?: (href: string) => boolean;
   }) {
     return (
-      <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={components}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm, remarkBreaks]}
+        components={components}
+        urlTransform={(url) => (keepUrl?.(url) ? url : defaultUrlTransform(url))}
+      >
         {content}
       </ReactMarkdown>
     );
   },
   function propsAreEqual(prevProps, nextProps) {
-    return prevProps.content === nextProps.content && prevProps.components === nextProps.components;
+    return (
+      prevProps.content === nextProps.content &&
+      prevProps.components === nextProps.components &&
+      prevProps.keepUrl === nextProps.keepUrl
+    );
   },
 );
 
 MemoizedMarkdownBlock.displayName = "MemoizedMarkdownBlock";
 
-function MarkdownComponent({ children, id, className, components: overrides }: MarkdownProps) {
+function MarkdownComponent({
+  children,
+  id,
+  className,
+  components: overrides,
+  keepUrl,
+}: MarkdownProps) {
   const generatedId = useId();
   const blockId = id ?? generatedId;
   const blocks = useMemo(() => parseMarkdownIntoBlocks(children), [children]);
@@ -98,6 +116,7 @@ function MarkdownComponent({ children, id, className, components: overrides }: M
           key={`${blockId}-block-${index}`}
           content={block}
           components={components}
+          keepUrl={keepUrl}
         />
       ))}
     </div>

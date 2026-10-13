@@ -209,6 +209,37 @@ describe("the search_knowledge tool", () => {
     expect(promptsOf(fake)).not.toContain("other.md");
   });
 
+  it("labels each search's passages after the reply's earlier ones, so no two Excerpts share a label", async () => {
+    const { deps, rpc, projectId, send, fake } = await setup([
+      round(
+        text("Checking."),
+        toolCall({ id: "call-1", name: "search_knowledge", input: { query: "2026 budget" } }),
+      ),
+      round(
+        text("Checking the deadline."),
+        toolCall({ id: "call-2", name: "search_knowledge", input: { query: "deadline" } }),
+      ),
+      round(text("Done.")),
+    ]);
+    await uploadReady(
+      rpc,
+      deps,
+      projectId,
+      "budget.md",
+      "The budget for 2026 is 4 million dollars.",
+    );
+    await uploadReady(rpc, deps, projectId, "plan.md", "The deadline for the plan is in May.");
+
+    await (await send()).text();
+
+    const results = fake.calls[2]!.messages.filter((message) => message.role === "tool").map(
+      (message) => (JSON.parse(String(message.content)) as { excerpts: { id: string }[] }).excerpts,
+    );
+    const [first, second] = results;
+    expect(first!.length).toBeGreaterThan(0);
+    expect(second![0]!.id).toBe(`excerpt:${first!.length + 1}`);
+  });
+
   it("tells the Model Knowledge is unavailable when the search fails, and the reply goes on", async () => {
     const { deps, rpc, projectId, conv, fake, send, setEmbeddingsFail } = await setup([
       round(text("Checking."), searchCall("2026 budget")),

@@ -27,13 +27,17 @@ export type Excerpt = { id: string; fileName: string; text: string };
 /** The `search_knowledge` tool result the Model sees: the passages found, or why none were. */
 export type KnowledgeSearchOutput = { excerpts: Excerpt[] } | { error: string };
 
-/** The stored passages of a finished search, numbered from 1 in the order they were found. */
+/**
+ * The passages of a finished search, labelled from the reply's next label. `offset` is the number
+ * of Excerpts the reply already has, so each label is unique within its Message (spec #357).
+ */
 export function knowledgeOutput(
   excerpts: { fileName: string; text: string }[],
+  offset = 0,
 ): KnowledgeSearchOutput {
   return {
     excerpts: excerpts.map(({ fileName, text }, index) => ({
-      id: `excerpt:${index + 1}`,
+      id: `excerpt:${offset + index + 1}`,
       fileName,
       text,
     })),
@@ -43,16 +47,21 @@ export function knowledgeOutput(
 /** The result a stored search part gives: its passages, or the unavailable error when it failed. */
 export function knowledgeOutputOf(
   part: Pick<KnowledgeSearchPart, "state" | "excerpts">,
+  offset = 0,
 ): KnowledgeSearchOutput {
   if (part.state === "error") return { error: knowledgeUnavailableError };
-  return knowledgeOutput(part.excerpts);
+  return knowledgeOutput(part.excerpts, offset);
 }
 
-/** The line that tells the Model which Knowledge files it can search. */
+/** The line that tells the Model which Knowledge files it can search, and how to cite a passage. */
 export function knowledgePromptOf(fileNames: string[]): string {
   return (
     "This Project has these Knowledge files, which you can search with search_knowledge when a " +
-    `question may be answered from them: ${fileNames.join(", ")}.`
+    `question may be answered from them: ${fileNames.join(", ")}. When you use a passage ` +
+    "search_knowledge returned, cite it right after the claim with a markdown link whose text is " +
+    "the passage's file name and whose url is its id, for example: The budget is 5,000 " +
+    "([brief.md](excerpt:2)). Only cite ids that a search returned. Don't add numbered markers " +
+    "like [1]; the app numbers the citations."
   );
 }
 
@@ -67,7 +76,8 @@ export type KnowledgeSearchView = {
   toolCallId: string;
   query: string;
   state: "running" | "done" | "error" | "cancelled";
-  excerpts: { fileName: string; text?: string }[];
+  /** `label` is the id the reply cites the passage by (`excerpt:<n>`). */
+  excerpts: { label?: string; fileName: string; text?: string }[];
   error?: ToolError;
 };
 
@@ -78,7 +88,7 @@ export type KnowledgeSearchView = {
 export function knowledgeSearchOf(part: MessagePart): KnowledgeSearchView | null {
   if (part.type !== "tool-call" || part.name !== searchKnowledgeToolName) return null;
   const output = part.output as
-    | { excerpts?: { fileName?: unknown; text?: unknown }[]; error?: unknown }
+    | { excerpts?: { id?: unknown; fileName?: unknown; text?: unknown }[]; error?: unknown }
     | null
     | undefined;
   const meta = (part.metadata ?? {}) as Partial<{
@@ -91,6 +101,7 @@ export function knowledgeSearchOf(part: MessagePart): KnowledgeSearchView | null
 
   const excerpts = Array.isArray(output?.excerpts)
     ? output.excerpts.map((excerpt) => ({
+        ...(typeof excerpt.id === "string" && { label: excerpt.id }),
         fileName: String(excerpt.fileName ?? ""),
         ...(typeof excerpt.text === "string" && { text: excerpt.text }),
       }))

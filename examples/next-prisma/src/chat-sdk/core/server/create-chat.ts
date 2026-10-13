@@ -106,6 +106,12 @@ export type CreateChatOptions = {
    */
   imageAdapterFor?: AppDeps["imageAdapterFor"];
   /**
+   * The embedding adapter for an embedding Model's `(model, credentials)`. Defaults to the
+   * production adapters (OpenAI and Gemini). A Host passes a fake here to run Knowledge without a
+   * paid call (spec #357, ticket #370).
+   */
+  embeddingAdapterFor?: AppDeps["embeddingAdapterFor"];
+  /**
    * A user's Quota on Host credentials, or one fixed Quota for everyone; `null` or unset is
    * unlimited (ADR 0007).
    */
@@ -325,6 +331,7 @@ export function createChat(options: CreateChatOptions): {
       defaultBackgroundModel: options.defaultBackgroundModel,
       defaultImageModel: options.defaultImageModel,
       imageAdapterFor: options.imageAdapterFor,
+      embeddingAdapterFor: options.embeddingAdapterFor,
       getQuota: quotaLookup(options.getQuota),
       rateLimits: resolveRateLimits(options.rateLimits),
       tools: options.tools ?? [],
