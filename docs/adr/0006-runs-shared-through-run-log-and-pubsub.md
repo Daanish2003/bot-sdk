@@ -37,3 +37,11 @@ A Message can span several Runs: a decision on a call that waits for Approval st
 - **A resumed Run's id is `<messageId>:<n>`**, where `n` is the Run's number on its Message. The first Run keeps the Message's id, so logs written before this change read the same.
 - **The Message stores its current Run number** (`message.run_number`, starting at 1). Joining a Message reads the log of its current Run, so a reader finds the newest log.
 - **Logs stay append-only and close once.** A Run closes its own log, and no Run reopens another Run's log. A Run that ends waiting for Approval closes its log like any ended Run.
+
+## Amendment: a Conversation's events (2026-10-14, #290)
+
+Some events reach an open tab after its Run's stream has closed. The first is the Memory job's `memory_updated` (spec #263). So a Conversation gets its own pub/sub channel, beside the Run's:
+
+- **The channel is `conversation:<id>`.** A publisher posts JSON events on it. A publish that fails is logged and never fails the job.
+- **An open tab subscribes through `GET <basePath>/events?conversationId=…`**, a Server-Sent Events stream on `chat.handler`. Only the Conversation's owner can open it; anyone else gets 404. It pings every 25 s and unsubscribes when the client goes away.
+- **Events are hints, not the record.** What an event carries can also be read from the database, except a forget, which leaves no row. A tab that missed an event finds the rest on its next load.
