@@ -22,16 +22,3 @@ export async function throwIfModerated(response: Response): Promise<Response> {
   }
   return response;
 }
-
-/**
- * The `ModeratedError` behind a failed send, if there is one. The connection wraps a failed fetch
- * in its own error, so this follows the `cause` chain.
- */
-export function moderatedErrorOf(error: unknown): ModeratedError | null {
-  let current: unknown = error;
-  for (let depth = 0; depth < 5 && current; depth++) {
-    if (current instanceof ModeratedError) return current;
-    current = (current as { cause?: unknown }).cause;
-  }
-  return null;
-}

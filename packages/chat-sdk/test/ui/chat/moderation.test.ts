@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { moderatedErrorOf } from "../../../core/client/moderation";
+import { ModeratedError } from "../../../core/client/moderation";
 import { runFetch } from "../../../core/client/rate-limit";
 
 afterEach(() => {
@@ -26,7 +26,8 @@ describe("a Message the Host refuses", () => {
 
     const error = await runFetch("http://localhost/api/chat/run").catch((caught) => caught);
 
-    expect(moderatedErrorOf(error)?.message).toBe("Off-policy request");
+    expect(error).toBeInstanceOf(ModeratedError);
+    expect(error.message).toBe("Off-policy request");
   });
 
   it("leaves every other response to the send as it was", async () => {
@@ -35,6 +36,5 @@ describe("a Message the Host refuses", () => {
     const response = await runFetch("http://localhost/api/chat/run");
 
     expect(response.status).toBe(200);
-    expect(moderatedErrorOf(new Error("network"))).toBeNull();
   });
 });
