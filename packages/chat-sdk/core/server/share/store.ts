@@ -231,13 +231,19 @@ export async function loadSharedArtifactVersion(
   token: string,
   { artifactId, number }: { artifactId: string; number: number },
 ) {
-  const [link] = await deps.db.select().from(sharedLink).where(eq(sharedLink.token, token));
-  if (!link) return null;
+  const [row] = await deps.db
+    .select({ link: sharedLink, ownerId: conversation.userId })
+    .from(sharedLink)
+    .innerJoin(conversation, eq(conversation.id, sharedLink.conversationId))
+    .where(eq(sharedLink.token, token));
+  // A banned owner's links are not found, as in `findVisibleLink` (spec #277).
+  if (!row || (await deps.isUserBlocked(row.ownerId))) return null;
+  const link = row.link;
   const pathIds = (await loadPath(deps, link.conversationId, link.leafMessageId)).map(
     (row) => row.id,
   );
   if (pathIds.length === 0) return null;
-  const [row] = await deps.db
+  const [version] = await deps.db
     .select({
       kind: artifact.kind,
       messageId: artifactVersion.messageId,
@@ -255,8 +261,8 @@ export async function loadSharedArtifactVersion(
         inArray(artifactVersion.messageId, pathIds),
       ),
     );
-  if (!row) return null;
-  return { artifactId, number, ...row };
+  if (!version) return null;
+  return { artifactId, number, ...version };
 }
 
 /**

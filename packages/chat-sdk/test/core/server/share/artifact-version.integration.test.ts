@@ -281,6 +281,22 @@ describe("a Shared link's Artifact versions (ADR 0004, ADR 0016)", () => {
     await expect(readShared(token, "art-page", 1)).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
+  it("refuses a banned owner's link, as share.get does", async () => {
+    const { owner, token } = await setup();
+    const bannedDeps = createTestDeps({ artifacts: true, isUserBlocked: (id) => id === owner.id });
+
+    await expect(
+      chatRpc({ deps: bannedDeps }).share.artifactVersion({
+        token,
+        artifactId: "art-page",
+        number: 1,
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(chatRpc({ deps: bannedDeps }).share.get({ token })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+  });
+
   it("refuses an unknown token", async () => {
     await setup();
 
