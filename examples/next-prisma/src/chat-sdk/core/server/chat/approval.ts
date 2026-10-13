@@ -21,6 +21,7 @@ import { mcpToolsFor } from "../mcp/tools";
 import { noConversationTools, type ConversationTools } from "../../shared/chat/conversation-tools";
 import { loadSettings } from "../settings/store";
 import { systemPromptsFor } from "./system-prompts";
+import { artifactContextPrompts } from "./artifact-context";
 import { projectInstructionsOf } from "../project/store";
 
 /** Why a decision didn't start a Run. `started` is the only success. */
@@ -89,11 +90,16 @@ export async function decideApproval(
   const hostTools = model.tools ? allowTools(deps.tools, askedSettings.allowedTools) : [];
   const mcp = model.tools && asked ? await mcpToolsFor(deps, userId, askedSettings) : undefined;
   const { instructions } = await loadSettings(deps, userId);
-  const systemPrompts = systemPromptsFor({
-    web: false,
-    instructions,
-    projectInstructions: await projectInstructionsOf(deps, asked?.projectId ?? null),
-  });
+  // The Artifact tools are offered on the resumed Run as on the Run that asked (ADR 0016).
+  const artifacts = deps.artifacts && model.tools;
+  const systemPrompts = [
+    ...systemPromptsFor({
+      web: false,
+      instructions,
+      projectInstructions: await projectInstructionsOf(deps, asked?.projectId ?? null),
+    }),
+    ...(artifacts ? await artifactContextPrompts(deps, owned.conversationId, owned.id) : []),
+  ];
   const messages = toModelMessages(
     history.map((row) => ({
       role: row.role,
@@ -105,6 +111,7 @@ export async function decideApproval(
       provider: model.provider,
       hostTools: hostTools.length > 0,
       mcpTools: (mcp?.tools.length ?? 0) > 0,
+      artifacts,
       reads: { images: model.images, pdfs: model.pdfs },
     },
   );
@@ -184,7 +191,7 @@ export async function decideApproval(
     messages,
     // The resumed Run offers the Artifact tools too, so a version written after the Approval saves
     // like any other (ADR 0016).
-    artifacts: deps.artifacts && model.tools,
+    artifacts,
     hostTools,
     mcp,
     context: { userId, conversationId: owned.conversationId },

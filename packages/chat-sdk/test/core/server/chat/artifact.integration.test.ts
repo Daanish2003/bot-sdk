@@ -1,7 +1,11 @@
 import { storedParts } from "../../../../core/shared/message-parts";
 import { artifact, artifactVersion } from "../../../../core/server/db/schema/artifact";
 import { message } from "../../../../core/server/db/schema/chat";
-import { createArtifactTool, updateArtifactTool } from "../../../../core/server/chat/artifact-tool";
+import {
+  createArtifactTool,
+  cutOffArtifactResult,
+  updateArtifactTool,
+} from "../../../../core/server/chat/artifact-tool";
 import { createPartsBuilder, parseStoredParts } from "../../../../core/shared/chat/parts";
 import { createToolBudget } from "../../../../core/server/chat/host-tools";
 import { saveCredentials } from "../../../../core/server/credentials/store";
@@ -12,7 +16,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { curatedModels } from "../../../../core/shared/chat/models";
-import { insertConversation } from "../../../support/conversations";
+import { insertConversation, insertMessage } from "../../../support/conversations";
 import { createTestDeps, type TestDepsOverrides } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { sendAs, chatRpc } from "../../../support/sdk";
@@ -832,6 +836,192 @@ describe("update_artifact in a reply", () => {
     expect(await versionsOf(deps, artifactId)).toHaveLength(1);
     expect(parts.parts().parts).toEqual([
       expect.objectContaining({ type: "tool_call", name: "update_artifact", state: "running" }),
+    ]);
+  });
+});
+
+describe("what the Model sees of Artifacts (ADR 0016)", () => {
+  const page = {
+    kind: "html" as const,
+    title: "Landing page",
+    content: "<h1>Hi</h1>\n<button>Go</button>",
+  };
+  const updateCall = (id: string, input: Record<string, unknown>) =>
+    toolCall({ id, name: "update_artifact", input });
+
+  it("replays the Artifact calls as stubs, and sends the latest content once, after the system prompts", async () => {
+    let artifactId = "";
+    const { deps, fake, conv, send } = await setup({
+      rounds: [
+        round(createCall("call-1", page)),
+        round(text("Made it.")),
+        () =>
+          round(
+            updateCall("call-2", {
+              artifactId,
+              edits: [{ old: "<button>Go</button>", new: '<button class="blue">Go</button>' }],
+            }),
+          ),
+        round(text("Blue.")),
+        round(text("Next.")),
+      ],
+    });
+    await (await send()).text();
+    artifactId = (await artifactRowsOf(deps, conv.id))[0]!.id;
+    await (
+      await send({ text: "Make the button blue", parentId: (await replyOf(deps, conv.id)).id })
+    ).text();
+    await (await send({ text: "What next?", parentId: (await replyOf(deps, conv.id)).id })).text();
+
+    const next = fake.calls[4]!;
+    expect(next.messages).toEqual([
+      { role: "user", content: "Make me a page" },
+      {
+        role: "assistant",
+        content: null,
+        toolCalls: [
+          {
+            id: "call-1",
+            type: "function",
+            function: {
+              name: "create_artifact",
+              arguments: JSON.stringify({ kind: "html", title: "Landing page" }),
+            },
+          },
+        ],
+      },
+      { role: "tool", toolCallId: "call-1", content: JSON.stringify("saved as v1") },
+      { role: "assistant", content: "Made it." },
+      { role: "user", content: "Make the button blue" },
+      {
+        role: "assistant",
+        content: null,
+        toolCalls: [
+          {
+            id: "call-2",
+            type: "function",
+            function: { name: "update_artifact", arguments: JSON.stringify({ artifactId }) },
+          },
+        ],
+      },
+      { role: "tool", toolCallId: "call-2", content: JSON.stringify("saved as v2") },
+      { role: "assistant", content: "Blue." },
+      { role: "user", content: "What next?" },
+    ]);
+    expect(next.systemPrompts).toHaveLength(1);
+    const latest = String(next.systemPrompts![0]);
+    expect(latest.split("<artifact ").length - 1).toBe(1);
+    expect(latest).toContain(`id="${artifactId}"`);
+    expect(latest).toContain('version="2"');
+    expect(latest).toContain('<button class="blue">Go</button>');
+    expect(latest).not.toContain("<button>Go</button>");
+  });
+
+  it("sends the latest version of each Artifact on the path, and not one written on another Branch", async () => {
+    const { deps, fake, conv, send } = await setup({
+      rounds: [
+        round(createCall("call-1", { kind: "markdown", title: "Notes", content: "# Notes" })),
+        round(text("Notes made.")),
+        round(createCall("call-2", { kind: "svg", title: "Logo", content: "<svg></svg>" })),
+        round(text("Logo made.")),
+        round(
+          createCall("call-3", {
+            kind: "code",
+            title: "Other Branch",
+            language: "python",
+            content: "print(1)",
+          }),
+        ),
+        round(text("Other made.")),
+        round(text("Final.")),
+      ],
+    });
+    await (await send()).text();
+    const first = await replyOf(deps, conv.id);
+    await (await send({ text: "A logo", parentId: first.id })).text();
+    const second = await replyOf(deps, conv.id);
+    await (await send({ text: "A sibling", parentId: first.id })).text();
+    await (await send({ text: "Continue", parentId: second.id })).text();
+
+    const prompt = fake.calls[6]!.systemPrompts!.join("\n");
+    expect(prompt).toContain('title="Notes"');
+    expect(prompt).toContain('title="Logo"');
+    expect(prompt).not.toContain("Other Branch");
+    expect(prompt).not.toContain("print(1)");
+  });
+
+  it("still sends the latest content after compaction has dropped the Message that made it", async () => {
+    const { deps, fake, conv, send, user } = await setup({
+      rounds: [round(createCall("call-1", page)), round(text("Made it.")), round(text("Ok."))],
+    });
+    // Nova Pro's budget is 288,000 tokens; four Messages of ~100,000 tokens each don't fit beside it.
+    const novaPro = "bedrock:us.amazon.nova-pro-v1:0";
+    await saveCredentials(deps, user.id, {
+      service: "bedrock",
+      fields: { apiKey: "test-key" },
+      hint: "…-key",
+      verified: true,
+    });
+    await (await send({ model: novaPro })).text();
+    let parentId = (await replyOf(deps, conv.id)).id;
+    for (let index = 0; index < 4; index++) {
+      const row = await insertMessage({
+        conversationId: conv.id,
+        parentId,
+        role: index % 2 === 0 ? "user" : "assistant",
+        text: `m${index} ${"x".repeat(400_000)}`,
+      });
+      parentId = row.id;
+    }
+    await (await send({ text: "What now?", parentId, model: novaPro })).text();
+
+    const compacted = fake.calls[2]!;
+    expect(JSON.stringify(compacted.messages)).not.toContain("m0 ");
+    expect(JSON.stringify(compacted.messages)).not.toContain("saved as v1");
+    expect(compacted.systemPrompts!.join("\n")).toContain("<h1>Hi</h1>");
+  });
+
+  it("answers a create cut off mid-arguments with a short error, with no partial content, and saves nothing", async () => {
+    const { deps, fake, conv, send } = await setup({
+      rounds: [
+        round(
+          toolCall({
+            id: "call-cut",
+            name: "create_artifact",
+            input: undefined,
+            raw: '{"kind":"html","title":"Big","content":"<h1>PARTIAL-CONTENT',
+          }),
+        ),
+        round(text("Sorry, that was cut off.")),
+      ],
+    });
+
+    await (await send()).text();
+
+    expect(await artifactRowsOf(deps, conv.id)).toEqual([]);
+    expect(await versionRowsOf(deps)).toEqual([]);
+    expect(JSON.stringify(fake.calls[1]!.messages)).not.toContain("PARTIAL-CONTENT");
+    expect(fake.calls[1]!.messages.at(-1)).toMatchObject({
+      role: "tool",
+      toolCallId: "call-cut",
+      content: JSON.stringify(cutOffArtifactResult),
+    });
+  });
+
+  it("sends a Conversation with no Artifact as before: no Artifact prompt, and its text as is", async () => {
+    const { deps, fake, conv, send } = await setup({
+      rounds: [round(text("Hello.")), round(text("Again."))],
+    });
+
+    await (await send()).text();
+    await (await send({ text: "More", parentId: (await replyOf(deps, conv.id)).id })).text();
+
+    expect(fake.calls[0]!.systemPrompts ?? []).toEqual([]);
+    expect(fake.calls[1]!.systemPrompts ?? []).toEqual([]);
+    expect(fake.calls[1]!.messages).toEqual([
+      { role: "user", content: "Make me a page" },
+      { role: "assistant", content: "Hello." },
+      { role: "user", content: "More" },
     ]);
   });
 });

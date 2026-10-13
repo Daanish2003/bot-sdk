@@ -16,6 +16,7 @@ import { parseStoredParts, searchTextOf, toModelMessages } from "../../shared/ch
 import { chatCommandSchema } from "../../shared/chat/command";
 import { runStreamDurability, START } from "./run-streams";
 import { startRun } from "./run";
+import { artifactContextPrompts } from "./artifact-context";
 import { allowTools } from "./host-tools";
 import { mcpToolsFor } from "../mcp/tools";
 import { findConversation, loadPath } from "./store";
@@ -86,6 +87,8 @@ export async function handleChat(
   // The Web tools are offered only when asked for and the Model has tools. `web_search` also needs a
   // usable Tavily key: the user's own, else the Host's (ADR 0007). `fetch_url` needs none.
   const web = command.webSearch && model.tools;
+  // The Artifact tools are offered to a Model with tools, and only when the Host turned them on (ADR 0016).
+  const artifacts = deps.artifacts && model.tools;
   const searchCall = web ? await resolveToolCall(deps, userId, tavilyService) : null;
   // The MCP tools switched on here (spec #91). The first Message takes the composer's choice; any
   // later one reads the stored choice.
@@ -163,6 +166,7 @@ export async function handleChat(
       fetchUrl: web,
       hostTools: hostTools.length > 0,
       mcpTools: (mcp?.tools.length ?? 0) > 0,
+      artifacts,
       reads: { images: model.images, pdfs: model.pdfs },
     }),
   }));
@@ -267,12 +271,15 @@ export async function handleChat(
     messages,
     webSearch: searchCall?.credentials,
     fetchUrl: web,
-    // Artifacts are offered to a Model with tools, and only when the Host turned them on (ADR 0016).
-    artifacts: deps.artifacts && model.tools,
+    artifacts,
     hostTools,
     mcp,
     context: { userId, conversationId: owned.id },
-    systemPrompts,
+    // The latest version of each Artifact on the path comes after the system prompts (ADR 0016).
+    systemPrompts: [
+      ...systemPrompts,
+      ...(artifacts ? await artifactContextPrompts(deps, owned.id, command.parentId) : []),
+    ],
     modelOptions: generationOptionsFor(model.id, {
       maxOutputTokens: model.maxOutputTokens,
       effort,

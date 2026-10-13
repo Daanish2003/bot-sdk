@@ -1,4 +1,4 @@
-import { toolDefinition } from "@tanstack/ai";
+import { type ChatMiddleware, type ModelMessage, toolDefinition } from "@tanstack/ai";
 import { z } from "zod";
 
 import {
@@ -256,3 +256,67 @@ export function updateArtifactTool({
     }
   });
 }
+
+/** What the Model reads back for an Artifact call whose arguments were cut off or not valid JSON. */
+export const cutOffArtifactResult = {
+  error:
+    "The arguments were cut off or not valid JSON, so nothing was saved. Call again with the complete arguments.",
+};
+
+const artifactToolNames: ReadonlySet<string> = new Set([
+  createArtifactToolName,
+  updateArtifactToolName,
+]);
+
+/** Whether a call's arguments parse the way TanStack AI reads them (an empty string is `{}`). */
+function parses(json: string): boolean {
+  try {
+    JSON.parse(json.trim() || "{}");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * TanStack AI answers an Artifact call whose arguments don't parse with an error that repeats the
+ * raw arguments, which is the partial content of a write cut off at max tokens (ADR 0016). Before
+ * each model call, this middleware makes the Model's messages carry the short `cutOffArtifactResult`
+ * instead, and empties the call's arguments, so the partial content never reaches the Model.
+ */
+export const artifactCutOff: ChatMiddleware = {
+  name: "artifact-cut-off",
+  onConfig(_ctx, config) {
+    const cut = new Set<string>();
+    for (const message of config.messages) {
+      for (const call of message.role === "assistant" ? (message.toolCalls ?? []) : []) {
+        if (artifactToolNames.has(call.function.name) && !parses(call.function.arguments)) {
+          cut.add(call.id);
+        }
+      }
+    }
+    if (cut.size === 0) return;
+    const messages = config.messages.map((message): ModelMessage => {
+      if (message.role === "assistant" && message.toolCalls?.some((call) => cut.has(call.id))) {
+        const toolCalls = message.toolCalls.map((call) =>
+          cut.has(call.id) ? { ...call, function: { ...call.function, arguments: "{}" } } : call,
+        );
+        return { ...message, toolCalls };
+      }
+      if (
+        message.role === "tool" &&
+        message.toolCallId !== undefined &&
+        cut.has(message.toolCallId)
+      ) {
+        // TanStack AI also keeps the raw parse failure on the message's `error`, so it is dropped.
+        return {
+          role: "tool",
+          toolCallId: message.toolCallId,
+          content: JSON.stringify(cutOffArtifactResult),
+        };
+      }
+      return message;
+    });
+    return { messages };
+  },
+};
