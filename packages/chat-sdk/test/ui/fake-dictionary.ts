@@ -57,6 +57,14 @@ function decode(text: string) {
     .replace(/&#x27;|&#39;/g, "'");
 }
 
+/**
+ * Renders `ui` inside a ChatProvider with the English dictionary, for render tests that check the
+ * English text. A component that reads the dictionary needs the provider around it.
+ */
+export function renderEnglish(ui: ReactElement): string {
+  return renderWrapped(ui, { messages: {} });
+}
+
 /** Renders `ui` inside a ChatProvider with the fake dictionary, seeding its queries from `seed`. */
 export function renderWrapped(
   ui: ReactElement,

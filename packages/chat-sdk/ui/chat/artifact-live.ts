@@ -7,6 +7,7 @@ import {
   createArtifactToolName,
   updateArtifactToolName,
 } from "../../core/shared/chat/artifact";
+import type { I18n } from "../../core/shared/i18n";
 import { toolCallOf, type ToolCallView } from "../../core/shared/chat/tool-call";
 import { type ArtifactRef, artifactRefOf } from "./artifact-card";
 
@@ -143,7 +144,7 @@ export type LiveArtifact = {
  * streaming call's JSON is parsed as it arrives (`toolCallOf`). An update's kind and title come from
  * its Artifact's latest version, which the panel loads; the defaults here are only placeholders.
  */
-export function liveArtifactOf(call: ToolCallView): LiveArtifact {
+export function liveArtifactOf({ t }: I18n, call: ToolCallView): LiveArtifact {
   const input = (call.args ?? {}) as {
     kind?: unknown;
     title?: unknown;
@@ -163,10 +164,10 @@ export function liveArtifactOf(call: ToolCallView): LiveArtifact {
   return {
     state,
     kind,
-    title: typeof input.title === "string" ? input.title : "Artifact",
+    title: typeof input.title === "string" ? input.title : t("chat.artifactTitleFallback"),
     language: typeof input.language === "string" ? input.language : null,
     content: edits ? undefined : typeof input.content === "string" ? input.content : "",
     edits,
-    ...(state === "not-saved" && { notice: "This Artifact wasn't saved" }),
+    ...(state === "not-saved" && { notice: t("chat.artifactNotSavedNotice") }),
   };
 }

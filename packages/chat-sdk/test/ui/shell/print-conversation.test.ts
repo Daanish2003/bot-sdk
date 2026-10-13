@@ -3,6 +3,8 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
+import { renderEnglish } from "../fake-dictionary";
+
 import { createChatClient } from "../../../core/client/chat-client";
 import { toolCallOf } from "../../../core/shared/chat/tool-call";
 import { ChatProvider, type ChatRouter } from "../../../core/client/react/provider";
@@ -28,7 +30,7 @@ const client = createChatClient({
 
 describe("printing a Conversation", () => {
   it("offers Print / Save as PDF in the Conversation menu, beside Export as Markdown", () => {
-    const markup = renderToStaticMarkup(
+    const markup = renderEnglish(
       createElement(ConversationMenuItems, { onExport: () => {}, onPrint: () => {} }),
     );
 

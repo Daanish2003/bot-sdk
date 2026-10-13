@@ -197,7 +197,7 @@ function ChatThread({
   const composerSend = useRef(false);
   const refusal = moderatedErrorOf(error);
   useEffect(() => {
-    if (moderatedErrorOf(error) && composerSend.current) {
+    if (refusal && composerSend.current) {
       setComposerText(command.current?.text ?? "");
     }
   }, [error]);
@@ -271,7 +271,7 @@ function ChatThread({
       {
         onError: (caught) => {
           setMessages(withRating(latestMessages.current, messageId, previous));
-          toast.error(`Rating failed: ${caught.message}`);
+          toast.error(t("chat.ratingFailed", { message: serverErrorText(i18n, caught) }));
         },
       },
     );
@@ -471,7 +471,7 @@ function ChatThread({
           <Composer
             value={composerText}
             onValueChange={setComposerText}
-            refusal={refusal?.message ?? null}
+            refusal={refusal ? refusal.message || t("chat.moderatedDefault") : null}
             onSend={(text) => {
               void send(text, draft.uploaded);
               draft.clear();

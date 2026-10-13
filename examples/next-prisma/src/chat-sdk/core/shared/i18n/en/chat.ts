@@ -158,4 +158,73 @@ export const chatMessages = {
   "chat.imageLimitReached": "Image limit for this reply reached",
   "chat.imageTooManyToEdit": "Too many images to edit",
   "chat.imageFailed": "Couldn't generate",
+
+  // Dictation (spec #249) and read-aloud (spec #257).
+  "chat.dictate": "Dictate",
+  "chat.stopDictation": "Stop dictation",
+  "chat.cancelDictation": "Cancel dictation",
+  "chat.transcribing": "Transcribing",
+  "chat.dictationOffUntil": ({ reset }: { reset: string }) => `Dictation off until ${reset}`,
+  "chat.quotaResets": ({ reset }: { reset: string }) => `Quota resets ${reset}`,
+  "chat.dictationQuotaOff": "Dictation is off until your Quota resets.",
+  "chat.dictationQuotaOffUntil": ({ reset }: { reset: string }) =>
+    `Dictation is off until ${reset}, when your Quota resets.`,
+  "chat.dictationNeedsKey":
+    "Dictation needs an OpenAI, Groq or Grok key of yours in Keys & settings.",
+  "chat.dictationKeyRejected":
+    "Dictation failed: your key was rejected. Check it in Keys & settings.",
+  "chat.dictationBusy": "Dictation failed: the Provider is busy. Try again in a moment.",
+  "chat.dictationFailed": "Dictation failed. Your message is unchanged.",
+  "chat.dictationTooManyRecordings": ({ seconds }: { seconds: number }) =>
+    `Too many recordings. Try again in ${seconds} seconds.`,
+  "chat.recordingNotFinished": "The recording couldn't be finished. Your message is unchanged.",
+  "chat.micBlocked": "Microphone access is blocked. Allow it in your browser to dictate.",
+  "chat.micStartFailed": "The microphone couldn't start.",
+  "chat.readAloud": "Read aloud",
+  "chat.stopReading": "Stop reading",
+
+  // A reply's rating (spec #267 refusals and the rating toast), and the Saved prompts `/` menu (#259).
+  "chat.ratingFailed": ({ message }: { message: string }) => `Rating failed: ${message}`,
+  "chat.moderatedDefault": "This message can't be sent",
+  "chat.savedPrompts": "Saved prompts",
+  "chat.noSavedPrompts": "No Saved prompts yet. Save text you send often and insert it with /name.",
+  "chat.createSavedPrompt": ({ name }: { name: string }) => `Create /${name}…`,
+  "chat.newSavedPromptRow": "New Saved prompt…",
+  "chat.newSavedPrompt": "New Saved prompt",
+  "chat.savedPromptNameLabel": "Name",
+  "chat.savedPromptNamePlaceholder": "name",
+  "chat.savedPromptTextLabel": "Text",
+  "chat.savedPromptTextPlaceholder": "The text it inserts",
+  "chat.savedPromptSavesThenInserts": "Saves, then inserts it.",
+  "chat.save": "Save",
+
+  // Artifacts (spec #304): the card, the panel and its versions.
+  "chat.artifactTitleFallback": "Artifact",
+  "chat.artifactKindCode": "Code",
+  "chat.artifactKindMarkdown": "Markdown",
+  "chat.artifactKindHtml": "HTML",
+  "chat.artifactKindSvg": "SVG",
+  "chat.artifactKindMermaid": "Mermaid",
+  "chat.artifactWriting": "Writing…",
+  "chat.artifactUpdating": "Updating…",
+  "chat.artifactUpdatingTo": ({ version }: { version: number }) => `Updating to v${version}…`,
+  "chat.artifactCreated": ({ version, kind }: { version: number; kind: string }) =>
+    `Created v${version} · ${kind}`,
+  "chat.artifactUpdated": ({ version }: { version: number }) => `Updated to v${version}`,
+  "chat.artifactNotSaved": "Not saved",
+  "chat.artifactCutOff": "Cut off, not saved",
+  "chat.artifactNotSavedNotice": "This Artifact wasn't saved",
+  "chat.artifactLoadFailed": "This Artifact couldn't be loaded.",
+  "chat.artifactPanel": "Artifact",
+  "chat.artifactViewLabel": "View",
+  "chat.artifactTabPreview": "Preview",
+  "chat.artifactTabCode": "Code",
+  "chat.artifactVersionLabel": "Version",
+  "chat.artifactVersionLatest": ({ version }: { version: number }) => `v${version} (latest)`,
+  "chat.artifactVersionNumber": ({ version }: { version: number }) => `v${version}`,
+  "chat.artifactSharedReadOnly": "Shared link · read-only",
+  "chat.artifactPreviewError": ({ error }: { error: string }) =>
+    `The preview hit an error: ${error}`,
+  "chat.download": "Download",
+  "chat.close": "Close",
 };

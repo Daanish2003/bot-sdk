@@ -16,14 +16,6 @@ export const updateArtifactToolName = "update_artifact";
 /** The most content one version may hold (zod counts characters, which is bytes for ASCII). */
 export const maxArtifactContent = 256 * 1024;
 
-export const artifactKindLabels: Record<ArtifactKind, string> = {
-  code: "Code",
-  markdown: "Markdown",
-  html: "HTML",
-  svg: "SVG",
-  mermaid: "Mermaid",
-};
-
 /** File extensions for the code languages the panel's downloads name. Other languages get `.txt`. */
 const languageExtensions: Record<string, string> = {
   bash: "sh",

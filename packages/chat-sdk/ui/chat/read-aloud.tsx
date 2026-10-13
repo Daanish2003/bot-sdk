@@ -3,6 +3,7 @@ import type { MessagePart } from "@tanstack/ai";
 import { SquareIcon, Volume2Icon } from "lucide-react";
 import { useEffect, useState, useSyncExternalStore } from "react";
 
+import { useI18n } from "../../core/client/react/provider";
 import { pickOnDeviceVoice, readAloudUtterances } from "../../core/shared/chat/read-aloud";
 
 /**
@@ -120,7 +121,8 @@ export function ReadAloudButton({
   speaking: boolean;
   onToggle: () => void;
 }) {
-  const label = speaking ? "Stop reading" : "Read aloud";
+  const { t } = useI18n();
+  const label = speaking ? t("chat.stopReading") : t("chat.readAloud");
   return (
     <Button variant="ghost" size="icon-xs" onClick={onToggle} title={label} aria-label={label}>
       {speaking ? <SquareIcon /> : <Volume2Icon />}

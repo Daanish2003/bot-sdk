@@ -30,18 +30,19 @@ export function Dictation({ onTranscript }: { onTranscript: (text: string) => vo
 
 /** The mic at the Quota's limit on the Host's Model: disabled, with the time the Quota resets. */
 function DictationOff({ resetsAt }: { resetsAt: Date | string }) {
-  const { locale } = useI18n();
-  const reset = quotaResetsAt(resetsAt, locale);
+  const i18n = useI18n();
+  const reset = quotaResetsAt(resetsAt, i18n.locale);
+  const label = i18n.t("chat.dictationOffUntil", { reset });
   return (
     <div className="flex items-center gap-1 text-xs text-muted-foreground">
-      <span>Quota resets {reset}</span>
+      <span>{i18n.t("chat.quotaResets", { reset })}</span>
       <Button
         variant="ghost"
         size="icon"
         className="rounded-full"
         disabled
-        title={`Dictation off until ${reset}`}
-        aria-label={`Dictation off until ${reset}`}
+        title={label}
+        aria-label={label}
       >
         <MicOffIcon />
       </Button>
@@ -51,7 +52,8 @@ function DictationOff({ resetsAt }: { resetsAt: Date | string }) {
 
 function DictationButton({ onTranscript }: { onTranscript: (text: string) => void }) {
   const orpc = useOrpc();
-  const { locale } = useI18n();
+  const i18n = useI18n();
+  const { t } = i18n;
   const queryClient = useQueryClient();
   // A transcription on the Host's Model spends the Quota, so the composer's meter is read again.
   const transcribe = useMutation(
@@ -72,7 +74,7 @@ function DictationButton({ onTranscript }: { onTranscript: (text: string) => voi
       try {
         recording = await recorder.stop();
       } catch {
-        toast.error("The recording couldn't be finished. Your message is unchanged.");
+        toast.error(t("chat.recordingNotFinished"));
         return;
       }
       try {
@@ -84,7 +86,7 @@ function DictationButton({ onTranscript }: { onTranscript: (text: string) => voi
         });
         onTranscript(text);
       } catch (caught) {
-        toast.error(dictationFailureMessage(caught, locale));
+        toast.error(dictationFailureMessage(caught, i18n));
       }
     } finally {
       stopping.current = false;
@@ -98,8 +100,8 @@ function DictationButton({ onTranscript }: { onTranscript: (text: string) => voi
     } catch (caught) {
       toast.error(
         (caught as Error).name === "NotAllowedError"
-          ? "Microphone access is blocked. Allow it in your browser to dictate."
-          : "The microphone couldn't start.",
+          ? t("chat.micBlocked")
+          : t("chat.micStartFailed"),
       );
     }
   };
@@ -126,8 +128,8 @@ function DictationButton({ onTranscript }: { onTranscript: (text: string) => voi
         size="icon"
         className="rounded-full"
         disabled
-        title="Transcribing"
-        aria-label="Transcribing"
+        title={t("chat.transcribing")}
+        aria-label={t("chat.transcribing")}
       >
         <Loader2Icon className="animate-spin" />
       </Button>
@@ -146,8 +148,8 @@ function DictationButton({ onTranscript }: { onTranscript: (text: string) => voi
           size="icon"
           className="rounded-full"
           onClick={() => void stopAndTranscribe()}
-          title="Stop dictation"
-          aria-label="Stop dictation"
+          title={t("chat.stopDictation")}
+          aria-label={t("chat.stopDictation")}
         >
           <SquareIcon className="fill-current" />
         </Button>
@@ -156,8 +158,8 @@ function DictationButton({ onTranscript }: { onTranscript: (text: string) => voi
           size="icon"
           className="rounded-full"
           onClick={() => recorder.cancel()}
-          title="Cancel dictation"
-          aria-label="Cancel dictation"
+          title={t("chat.cancelDictation")}
+          aria-label={t("chat.cancelDictation")}
         >
           <XIcon />
         </Button>
@@ -171,8 +173,8 @@ function DictationButton({ onTranscript }: { onTranscript: (text: string) => voi
       size="icon"
       className="rounded-full"
       onClick={() => void start()}
-      title="Dictate"
-      aria-label="Dictate"
+      title={t("chat.dictate")}
+      aria-label={t("chat.dictate")}
     >
       <MicIcon />
     </Button>

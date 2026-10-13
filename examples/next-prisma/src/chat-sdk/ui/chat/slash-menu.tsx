@@ -6,13 +6,14 @@ import { cn } from "@/lib/utils";
 import { PlusIcon } from "lucide-react";
 import { type FormEvent, type MouseEvent, useState } from "react";
 
+import { serverErrorText } from "../../core/client/rpc-error";
 import {
   firstLine,
   lastRowLabel,
   rankSavedPrompts,
   savedPromptDraftError,
 } from "../../core/client/saved-prompts-menu";
-import { useOrpc } from "../../core/client/react/provider";
+import { useI18n, useOrpc } from "../../core/client/react/provider";
 
 type SavedPromptRow = { name: string; text: string };
 
@@ -36,17 +37,21 @@ export function SlashMenuList({
   onHover: (index: number) => void;
   onPick: (index: number) => void;
 }) {
+  const i18n = useI18n();
+  const { t } = i18n;
   const matches = rankSavedPrompts(prompts, query);
   // Clicks keep the textarea's focus; the pick inserts and focuses it.
   const keepFocus = (event: MouseEvent) => event.preventDefault();
   // Hover follows a moving pointer only: a row that opens under a resting cursor stays unpicked,
   // so Enter still picks the row the keyboard chose.
   return (
-    <div role="listbox" aria-label="Saved prompts" className="max-h-72 overflow-y-auto p-1">
+    <div
+      role="listbox"
+      aria-label={t("chat.savedPrompts")}
+      className="max-h-72 overflow-y-auto p-1"
+    >
       {loaded && prompts.length === 0 && (
-        <p className="px-2 py-1.5 text-xs text-muted-foreground">
-          No Saved prompts yet. Save text you send often and insert it with /name.
-        </p>
+        <p className="px-2 py-1.5 text-xs text-muted-foreground">{t("chat.noSavedPrompts")}</p>
       )}
       {matches.map((prompt, index) => (
         <button
@@ -79,7 +84,7 @@ export function SlashMenuList({
         )}
       >
         <PlusIcon className="size-3.5" aria-hidden />
-        {lastRowLabel(query, matches.length)}
+        {lastRowLabel(i18n, query, matches.length)}
       </button>
     </div>
   );
@@ -110,26 +115,27 @@ export function SavedPromptFormView({
   onSubmit: (event: FormEvent) => void;
   onCancel: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <form className="flex flex-col gap-2 p-3" onSubmit={onSubmit}>
-      <span className="text-xs font-medium">New Saved prompt</span>
+      <span className="text-xs font-medium">{t("chat.newSavedPrompt")}</span>
       <label className="flex items-center gap-1 text-sm">
         <span className="text-muted-foreground">/</span>
         <Input
-          aria-label="Name"
+          aria-label={t("chat.savedPromptNameLabel")}
           autoFocus
           value={name}
           onChange={(event) => onName(event.target.value)}
-          placeholder="name"
+          placeholder={t("chat.savedPromptNamePlaceholder")}
           className="h-8"
         />
       </label>
       <Textarea
-        aria-label="Text"
+        aria-label={t("chat.savedPromptTextLabel")}
         value={text}
         onChange={(event) => onText(event.target.value)}
         rows={5}
-        placeholder="The text it inserts"
+        placeholder={t("chat.savedPromptTextPlaceholder")}
         className="resize-none text-sm"
       />
       <div className="flex items-center justify-between gap-2">
@@ -138,10 +144,10 @@ export function SavedPromptFormView({
         </span>
         <div className="flex gap-1">
           <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
-            Cancel
+            {t("chat.cancel")}
           </Button>
           <Button type="submit" size="sm" disabled={!canSave || saving}>
-            Save
+            {t("chat.save")}
           </Button>
         </div>
       </div>
@@ -166,18 +172,19 @@ export function SavedPromptForm({
   onCancel: () => void;
 }) {
   const orpc = useOrpc();
+  const i18n = useI18n();
   const queryClient = useQueryClient();
   const [name, setName] = useState(initialName);
   const [text, setText] = useState("");
   const [serverError, setServerError] = useState<string>();
-  const draftError = savedPromptDraftError(prompts, { name, text });
+  const draftError = savedPromptDraftError(i18n, prompts, { name, text });
   const create = useMutation(
     orpc.savedPrompt.create.mutationOptions({
       onSuccess: async (_, input) => {
         await queryClient.invalidateQueries({ queryKey: orpc.savedPrompt.list.queryKey() });
         onSaved(input.text);
       },
-      onError: (caught) => setServerError(caught.message),
+      onError: (caught) => setServerError(serverErrorText(i18n, caught)),
     }),
   );
 
@@ -193,7 +200,7 @@ export function SavedPromptForm({
         setText(next);
         setServerError(undefined);
       }}
-      status={serverError ?? draftError ?? "Saves, then inserts it."}
+      status={serverError ?? draftError ?? i18n.t("chat.savedPromptSavesThenInserts")}
       canSave={!draftError}
       saving={create.isPending}
       onSubmit={(event) => {

@@ -1,3 +1,4 @@
+import { createI18n } from "../../../core/shared/i18n";
 import { describe, expect, it } from "vitest";
 
 import { quotaResetsAt } from "../../../core/client/quota";
@@ -29,13 +30,13 @@ describe("dictationFailureMessage", () => {
       data: { reason: "quota_exceeded", resetsAt: "2026-10-14T00:00:00.000Z" },
     };
 
-    expect(dictationFailureMessage(caught, "en")).toBe(
+    expect(dictationFailureMessage(caught, createI18n())).toBe(
       `Dictation is off until ${quotaResetsAt("2026-10-14T00:00:00.000Z", "en")}, when your Quota resets.`,
     );
   });
 
   it("falls back to the generic failure for an unknown reason", () => {
-    expect(dictationFailureMessage({ data: { reason: "nonsense" } }, "en")).toBe(
+    expect(dictationFailureMessage({ data: { reason: "nonsense" } }, createI18n())).toBe(
       "Dictation failed. Your message is unchanged.",
     );
   });
