@@ -5,12 +5,21 @@ import {
 } from "../../core/shared/chat/artifact";
 import { useOrpc } from "../../core/client/react/provider";
 import { CodeBlock, CodeBlockCode } from "@/components/ui/prompt-kit/code-block";
+import { Markdown } from "@/components/ui/prompt-kit/markdown";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { CopyIcon, DownloadIcon, Loader2Icon, XIcon } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 import { artifactRefOf, type ArtifactRef } from "./artifact-card";
+import {
+  artifactFrameDocument,
+  artifactFrameSandbox,
+  frameMessageOf,
+  svgDataUrl,
+  type FrameMessage,
+} from "./artifact-sandbox";
 
 /** One version of an Artifact, as the panel shows it: its number, title, kind, language and content. */
 export type ArtifactVersionContent = {
@@ -112,6 +121,9 @@ export function ArtifactPanelView({
     language: version.language,
   });
   const latest = versions[0]?.version;
+  // Code kinds have only a source view; every other kind opens on its Preview.
+  const [tab, setTab] = useState<"preview" | "code">(version.kind === "code" ? "code" : "preview");
+  const showPreview = tab === "preview" && version.kind !== "code";
   return (
     <PanelFrame onClose={onClose}>
       <header className="flex items-center gap-2 border-b px-3 py-2 text-sm">
@@ -119,6 +131,25 @@ export function ArtifactPanelView({
         <span className="rounded border px-1.5 text-[10px] text-muted-foreground">
           {artifactKindLabels[version.kind]}
         </span>
+        {version.kind !== "code" && (
+          <div role="tablist" aria-label="View" className="flex rounded border text-xs">
+            {(["preview", "code"] as const).map((name) => (
+              <button
+                key={name}
+                type="button"
+                role="tab"
+                aria-selected={tab === name}
+                onClick={() => setTab(name)}
+                className={cn(
+                  "px-2 py-0.5 capitalize",
+                  tab === name ? "bg-muted font-medium" : "text-muted-foreground",
+                )}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+        )}
         {versions.length > 1 && (
           <select
             aria-label="Version"
@@ -160,14 +191,75 @@ export function ArtifactPanelView({
         </Button>
       </header>
       <div className="min-h-0 flex-1 overflow-auto p-3">
-        <CodeBlock>
-          <CodeBlockCode
-            code={version.content}
-            language={codeLanguageOf(version.kind, version.language)}
-          />
-        </CodeBlock>
+        {showPreview ? (
+          <ArtifactPreview version={version} />
+        ) : (
+          <CodeBlock>
+            <CodeBlockCode
+              code={version.content}
+              language={codeLanguageOf(version.kind, version.language)}
+            />
+          </CodeBlock>
+        )}
       </div>
     </PanelFrame>
+  );
+}
+
+/** The Preview of a version: Markdown rendered, SVG drawn, HTML and Mermaid run in the sandbox. */
+function ArtifactPreview({ version }: { version: ArtifactVersionContent }) {
+  switch (version.kind) {
+    case "markdown":
+      return <Markdown>{version.content}</Markdown>;
+    case "svg":
+      return <img src={svgDataUrl(version.content)} alt={version.title} className="max-w-full" />;
+    case "html":
+    case "mermaid":
+      return (
+        <SandboxedFrame
+          title={version.title}
+          srcDoc={artifactFrameDocument({ kind: version.kind, content: version.content })}
+        />
+      );
+    case "code":
+      return null;
+  }
+}
+
+/**
+ * The frame an HTML or Mermaid Preview runs in. It sizes itself to the height its document reports,
+ * and shows a script error inside it as a banner that leaves the preview running. It takes a
+ * message only from its own window (see `frameMessageOf`).
+ */
+function SandboxedFrame({ srcDoc, title }: { srcDoc: string; title: string }) {
+  const frame = useRef<HTMLIFrameElement>(null);
+  const [height, setHeight] = useState<number | undefined>(undefined);
+  const [error, setError] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      const message: FrameMessage | undefined = frameMessageOf(event, frame.current?.contentWindow);
+      if (message?.type === "resize") setHeight(message.height);
+      if (message?.type === "error") setError(message.message);
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
+  return (
+    <div className="flex flex-col gap-2">
+      {error && (
+        <p role="alert" className="rounded border border-destructive/40 px-2 py-1 text-xs">
+          The preview hit an error: {error}
+        </p>
+      )}
+      <iframe
+        ref={frame}
+        title={title}
+        srcDoc={srcDoc}
+        sandbox={artifactFrameSandbox}
+        style={{ height: height ?? 300 }}
+        className="w-full rounded border bg-background"
+      />
+    </div>
   );
 }
 

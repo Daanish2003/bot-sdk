@@ -24,12 +24,45 @@ const render = (fields: Partial<ArtifactVersionContent> = {}) =>
   );
 
 describe("the Artifact panel", () => {
-  it("shows the title, the kind and the source", () => {
-    const html = render();
+  it("shows the title and the kind, and the source on the Code tab", () => {
+    const html = render({ kind: "code", language: "html" });
 
     expect(html).toContain("Landing page");
-    expect(html).toContain("HTML");
     expect(html).toContain("&lt;h1&gt;Hello from the page&lt;/h1&gt;");
+    expect(html).not.toContain("<iframe");
+  });
+
+  it("shows each kind's tabs: code kinds show Code only, the others Preview and Code", () => {
+    expect(render({ kind: "code", language: "python" })).not.toContain('role="tab"');
+    for (const kind of ["markdown", "html", "svg", "mermaid"] as const) {
+      const html = render({ kind });
+      expect(html).toContain('role="tab"');
+      expect(html).toContain(">preview<");
+      expect(html).toContain(">code<");
+    }
+  });
+
+  it("previews HTML and Mermaid in a frame with allow-scripts and no allow-same-origin", () => {
+    for (const kind of ["html", "mermaid"] as const) {
+      const html = render({ kind });
+      expect(html).toContain('sandbox="allow-scripts"');
+      expect(html).not.toContain("allow-same-origin");
+      expect(html).toContain("<iframe");
+    }
+  });
+
+  it("draws SVG as an img from a data: URL, with no frame", () => {
+    const html = render({ kind: "svg", content: "<svg></svg>" });
+
+    expect(html).toContain('<img src="data:image/svg+xml;charset=utf-8,');
+    expect(html).not.toContain("<iframe");
+  });
+
+  it("renders Markdown in Preview, and its source on the Code tab", () => {
+    const html = render({ kind: "markdown", content: "# Heading" });
+
+    expect(html).toContain("<h1");
+    expect(html).toContain("Heading");
   });
 
   it("names its download after the title and the kind's extension", () => {
