@@ -1,6 +1,7 @@
 import type { Database } from "@ai-chat/db";
 import * as schema from "@ai-chat/db/schema/auth";
 import { type EmailMessage, type EmailSender, renderTemplate } from "@ai-chat/email";
+import { passkey } from "@better-auth/passkey";
 import { drizzleAdapter } from "@better-auth/drizzle-adapter/relations-v2";
 import { betterAuth } from "better-auth";
 import { createAuthMiddleware, isAPIError } from "better-auth/api";
@@ -237,6 +238,16 @@ export function createAuth(
           );
           return;
         }
+        // A passkey added from a signed-in session (spec #277): the notice goes to that session's owner.
+        if (ctx.path === "/passkey/verify-registration" && ctx.context.session) {
+          sendInBackground(
+            renderTemplate("passkey-added", ctx.context.session.user.email, {
+              appName: env.APP_NAME,
+            }),
+            "passkey added",
+          );
+          return;
+        }
         if (ctx.path === "/two-factor/disable" && ctx.context.session) {
           sendInBackground(
             renderTemplate("two-factor-disabled", ctx.context.session.user.email, {
@@ -250,6 +261,11 @@ export function createAuth(
     rateLimit: {
       enabled: options.rateLimit,
       storage: "memory",
+      // Passkey sign-in gets the same limit as `/sign-in*` (Better Auth's default for that path).
+      customRules: {
+        "/passkey/generate-authenticate-options": { window: 10, max: 3 },
+        "/passkey/verify-authentication": { window: 10, max: 3 },
+      },
       // Better Auth's own keys (IP and path) and rules; only where the count lives changes.
       ...(counter && {
         customStorage: {
@@ -266,6 +282,9 @@ export function createAuth(
       admin({ ac: accessControl, roles: { admin: adminRole, user: userRole } }),
       // TOTP with backup codes (spec #277): optional, for password accounts only, no email OTP.
       twoFactor({ allowPasswordless: false }),
+      // Passkeys for password-free sign-in (spec #277). The relying party id defaults to the
+      // hostname of `baseURL` (BETTER_AUTH_URL).
+      passkey({ rpName: env.APP_NAME }),
       tanstackStartCookies(),
     ],
   });

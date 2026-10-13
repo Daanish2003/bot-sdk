@@ -24,6 +24,7 @@ export const TEMPLATE_NAMES = [
   "account-deleted",
   "two-factor-enabled",
   "two-factor-disabled",
+  "passkey-added",
 ] as const;
 
 export type TemplateName = (typeof TEMPLATE_NAMES)[number];
@@ -34,6 +35,7 @@ export const NOTICE_TEMPLATE_NAMES = [
   "account-deleted",
   "two-factor-enabled",
   "two-factor-disabled",
+  "passkey-added",
 ] as const;
 
 type LinkTemplateName = Exclude<TemplateName, (typeof NOTICE_TEMPLATE_NAMES)[number]>;
@@ -126,6 +128,13 @@ const copy: { [N in TemplateName]: (props: TemplateProps<N>) => Copy } = {
     paragraph:
       "Two-factor sign-in was turned off for your account. If this wasn't you, reset your password now.",
     reason: "two-factor sign-in was turned off for your account",
+    notYou: "If this wasn't you, reset your password now.",
+  }),
+  "passkey-added": ({ appName }: TemplateProps<"passkey-added">) => ({
+    subject: `A passkey was added to your ${appName} account`,
+    heading: "A passkey was added",
+    paragraph: "A passkey was added to your account. If this wasn't you, reset your password now.",
+    reason: "a passkey was added to your account",
     notYou: "If this wasn't you, reset your password now.",
   }),
 };

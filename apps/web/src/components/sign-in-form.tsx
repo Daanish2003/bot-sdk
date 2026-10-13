@@ -3,6 +3,7 @@ import { Input } from "@ai-chat/ui/components/input";
 import { Label } from "@ai-chat/ui/components/label";
 import { useForm } from "@tanstack/react-form";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { useEffect } from "react";
 import { toast } from "sonner";
 import z from "zod";
 
@@ -16,6 +17,30 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
     from: "/",
   });
   const { isPending } = authClient.useSession();
+
+  // Conditional UI: where the browser supports it, saved passkeys are offered in the email field's
+  // autofill. Choosing one signs in without a password (and without the second factor).
+  useEffect(() => {
+    let active = true;
+    if (!window.PublicKeyCredential?.isConditionalMediationAvailable) return;
+    void PublicKeyCredential.isConditionalMediationAvailable().then(async (available) => {
+      if (!available || !active) return;
+      const { error } = await authClient.signIn.passkey({ autoFill: true });
+      if (!error && active) navigate({ to: "/c" });
+    });
+    return () => {
+      active = false;
+    };
+  }, [navigate]);
+
+  const passkeySignIn = async () => {
+    const { error } = await authClient.signIn.passkey();
+    if (error) {
+      toast.error(error.message || "Could not sign in with a passkey");
+      return;
+    }
+    navigate({ to: "/c" });
+  };
 
   const form = useForm({
     defaultValues: {
@@ -92,6 +117,7 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
                   id={field.name}
                   name={field.name}
                   type="email"
+                  autoComplete="username webauthn"
                   value={field.state.value}
                   onBlur={field.handleBlur}
                   onChange={(e) => field.handleChange(e.target.value)}
@@ -139,6 +165,12 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
           )}
         </form.Subscribe>
       </form>
+
+      <div className="mt-4">
+        <Button type="button" variant="outline" className="w-full" onClick={passkeySignIn}>
+          Sign in with a passkey
+        </Button>
+      </div>
 
       <div className="mt-4 text-center">
         <Link to="/forgot-password" className="text-sm underline">
