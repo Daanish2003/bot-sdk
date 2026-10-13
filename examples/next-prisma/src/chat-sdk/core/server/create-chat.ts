@@ -26,6 +26,7 @@ import {
   type QuotaSetting,
 } from "./deps";
 import { createLifecycle } from "./lifecycle";
+import type { JobRunner } from "./jobs/runner";
 import type { ChatHooks } from "./chat/hooks";
 import { deleteUserData } from "./delete-user";
 import { type McpServerConfig, checkMcpServers } from "./mcp/servers";
@@ -140,6 +141,11 @@ export type CreateChatOptions = {
    * panel and the version route. Off by default, and then none of them exist.
    */
   artifacts?: boolean;
+  /**
+   * Runs the background jobs (ADR 0011). Defaults to the in-process runner, which polls the
+   * `chat` schema and needs nothing beyond Postgres. `start()` and `stop()` start and stop it.
+   */
+  jobs?: JobRunner;
 };
 
 /**
@@ -318,6 +324,7 @@ export function createChat(options: CreateChatOptions): {
       logger,
       hooks: options.hooks,
       artifacts: options.artifacts,
+      jobs: options.jobs,
     });
     return deps;
   };

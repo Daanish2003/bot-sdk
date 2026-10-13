@@ -16,6 +16,8 @@ import type { ResolvedRateLimits } from "./rate-limits";
 import type { ChatRuntime } from "./runtime";
 import type { ProviderId } from "../shared/credentials/services";
 import type { McpServerConfig } from "./mcp/servers";
+import { inProcessRunner } from "./jobs/in-process";
+import type { JobRunner } from "./jobs/runner";
 
 export type { SearchErrorReason, SearchResult };
 
@@ -212,6 +214,8 @@ export type AppDeps = {
   hooks: HookEmitter;
   /** Whether Artifacts are on: the `create_artifact` tool, the panel and the version route (`createChat({ artifacts })`). */
   artifacts: boolean;
+  /** Background jobs (ADR 0011): `createChat({ jobs })`, the in-process runner by default. */
+  jobs: JobRunner;
 };
 
 export const defaultLimits: Limits = {
@@ -245,6 +249,7 @@ export function createAppDeps({
   logger = console,
   hooks,
   artifacts,
+  jobs,
 }: {
   db: Database;
   /** The image adapter factory; the production one is `imageAdapterFor` in `chat/adapters.ts`. */
@@ -266,6 +271,7 @@ export function createAppDeps({
   logger?: AppDeps["logger"];
   hooks?: ChatHooks;
   artifacts?: boolean;
+  jobs?: JobRunner;
 }): AppDeps {
   return {
     logger,
@@ -296,5 +302,6 @@ export function createAppDeps({
     keyEncryptionSecrets,
     mcpServers,
     artifacts: artifacts ?? false,
+    jobs: jobs ?? inProcessRunner({ db, logger }),
   };
 }

@@ -164,6 +164,12 @@ const data = await chat.getSharedConversation(token);
 - `start()` refuses to run while the `chat` schema is behind the bundled migrations.
 - `stop()` refuses new Runs with 503 while it drains, then closes the runtime's connections.
 
+## Background jobs: `jobs`
+
+`createChat({ jobs })` takes the runner for background work (ADR 0011). The default is the in-process runner: it keeps jobs in the `chat.job` table, which the `chat` schema already has, polls it every 2 s, runs two jobs at once and retries a failed job up to three times, after about 10 s and 1 min. `start()` starts it, and `stop()` takes no new jobs and waits for the running ones. Nothing else to configure, and no second database.
+
+A custom runner is any object with `enqueue(name, payload, options?)`, `start()` and `stop()`, and it takes the place of the default. Jobs are internal to the SDK: a Host can't declare its own.
+
 ## Host hooks
 
 `createChat({ hooks })` takes the Host's callbacks into the SDK. Every hook is optional.

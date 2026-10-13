@@ -43,6 +43,7 @@ export function createLifecycle(
       clearInterval(timer);
       timer = setInterval(() => void reap(), deps.limits.reapIntervalMs);
       await reap();
+      await deps.jobs.start();
     },
 
     async stop() {
@@ -56,6 +57,7 @@ export function createLifecycle(
       for (const run of runs.values()) run.abort(shutdownAbort);
       // An aborted Run leaves the registry only once it has saved itself and closed its log.
       while (runs.size > 0) await sleep(DRAIN_POLL_MS);
+      await deps.jobs.stop();
     },
   };
 }

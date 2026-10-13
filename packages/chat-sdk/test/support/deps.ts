@@ -5,6 +5,7 @@ import { createMemoryCounters } from "../../core/server/chat/counters";
 import { createHookEmitter } from "../../core/server/chat/hooks";
 import { createMemoryPubSub } from "../../core/server/chat/pubsub";
 import { createMemoryRunStreams } from "../../core/server/chat/run-streams";
+import { inProcessRunner } from "../../core/server/jobs/in-process";
 import type { AppDeps, Limits } from "../../core/server/deps";
 import { resolveRateLimits } from "../../core/server/rate-limits";
 import { createFakeSearchClient } from "./fake-search-client";
@@ -72,6 +73,7 @@ export function createTestDeps({
     // Silent, like the handler's logger in `support/sdk.ts`: the tests assert on rows, not logs.
     logger: { error: () => {} },
     hooks: createHookEmitter(undefined, { error: () => {} }),
+    jobs: inProcessRunner({ db: getTestDb(), logger: { error: () => {} } }),
     ...overrides,
     fetch,
     ollamaFetch: overrides.ollamaFetch ?? fetch,
