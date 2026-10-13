@@ -33,6 +33,7 @@ import {
   artifactCallsIn,
   type PanelTarget,
   panelTargetOf,
+  rememberSaved,
   startedArtifactCalls,
 } from "./artifact-live";
 import { ContextOverflowNotice, ContextRing } from "./context-ring";
@@ -93,7 +94,12 @@ export function ChatView(props: ChatViewProps) {
           }
           onOpenArtifact={(ref) => setPanel({ kind: "saved", ref })}
           onStreamArtifact={(callId) => setPanel({ kind: "live", callId })}
-          onMessages={setMessages}
+          onMessages={(current) => {
+            setMessages(current);
+            setPanel((target) =>
+              target?.kind === "live" ? rememberSaved(target, current) : target,
+            );
+          }}
         />
       </div>
       {shown?.kind === "saved" && (

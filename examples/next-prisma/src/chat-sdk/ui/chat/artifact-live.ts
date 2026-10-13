@@ -18,8 +18,17 @@ import { type ArtifactRef, artifactRefOf } from "./artifact-card";
 /** An Artifact call in a reply, and the Message holding it. `streaming` while that reply is live. */
 export type ArtifactCallOn = { messageId: string; call: ToolCallView; streaming: boolean };
 
-/** What the panel follows: an Artifact version, or an Artifact call still streaming (by its id). */
-export type PanelTarget = { kind: "saved"; ref: ArtifactRef } | { kind: "live"; callId: string };
+/** A saved version, by its Artifact and number. Its Message is looked up once the reply is stored. */
+type SavedVersion = Pick<ArtifactRef, "artifactId" | "version">;
+
+/**
+ * What the panel follows: an Artifact version, or an Artifact call still streaming (by its id). A
+ * live call keeps the version it saved (`saved`): the stored reply holds that version under another
+ * id, so the call's id stops matching once the reply is stored.
+ */
+export type PanelTarget =
+  | { kind: "saved"; ref: SavedVersion }
+  | { kind: "live"; callId: string; saved?: SavedVersion };
 
 /** What the panel shows: a saved version, or the live call (with the Message holding it). */
 export type PanelOn =
@@ -60,25 +69,61 @@ export function startedArtifactCalls(
 }
 
 /**
- * What the panel shows for its target: the saved version once the call is done with its version,
- * else the live call. `null` when no such call is among the Messages (the panel closes).
+ * What the panel shows for its target. A saved version is shown only once its Message is stored,
+ * since the version is loaded by that Message's server id; a call still streaming (even one that
+ * is done with its version) shows the live call. `null` when the target is no longer on screen.
  */
 export function panelTargetOf(
   messages: ReadonlyArray<UIMessage>,
   target: PanelTarget,
 ): PanelOn | null {
-  if (target.kind === "saved") return { kind: "saved", ref: target.ref };
+  if (target.kind === "saved") return storedPanelOn(messages, target.ref);
   const found = artifactCallsIn(messages).find(({ call }) => call.id === target.callId);
-  if (!found) return null;
-  const ref = found.call.status === "done" ? artifactRefOf(found.call.result) : undefined;
-  if (ref) return { kind: "saved", ref: { ...ref, messageId: found.messageId } };
+  if (!found) return target.saved ? storedPanelOn(messages, target.saved) : null;
+  const saved = found.call.status === "done" ? artifactRefOf(found.call.result) : undefined;
+  if (saved && !found.streaming) return storedPanelOn(messages, saved);
   return { kind: "live", call: found.call, messageId: found.messageId };
+}
+
+/** The saved version as the stored Message holding it shows it; `null` until that Message is stored. */
+function storedPanelOn(messages: ReadonlyArray<UIMessage>, version: SavedVersion): PanelOn | null {
+  for (const { messageId, call, streaming } of artifactCallsIn(messages)) {
+    const saved = artifactRefOf(call.result);
+    if (
+      streaming ||
+      saved?.artifactId !== version.artifactId ||
+      saved.version !== version.version
+    ) {
+      continue;
+    }
+    return { kind: "saved", ref: { ...saved, messageId } };
+  }
+  return null;
+}
+
+/**
+ * The live target with the version its call saved, once the call is done with one. The stored
+ * Message replaces the call with its saved version, so the target keeps that version from then on.
+ */
+export function rememberSaved(
+  target: PanelTarget,
+  messages: ReadonlyArray<UIMessage>,
+): PanelTarget {
+  if (target.kind !== "live" || target.saved) return target;
+  const found = artifactCallsIn(messages).find(({ call }) => call.id === target.callId);
+  const saved = found?.call.status === "done" ? artifactRefOf(found.call.result) : undefined;
+  return saved
+    ? { ...target, saved: { artifactId: saved.artifactId, version: saved.version } }
+    : target;
 }
 
 /** A call's source and state as the live panel shows them, from the arguments streamed so far. */
 export type LiveArtifact = {
-  /** `writing` (a create), `updating` (an update running), or `not-saved` (the call ended unsaved). */
-  state: "writing" | "updating" | "not-saved";
+  /**
+   * `writing` (a create), `updating` (an update running), `saving` (the call is done with its
+   * version, and its reply still streams), or `not-saved` (the call ended unsaved).
+   */
+  state: "writing" | "updating" | "saving" | "not-saved";
   kind: ArtifactKind;
   title: string;
   language: string | null;
@@ -108,11 +153,13 @@ export function liveArtifactOf(call: ToolCallView): LiveArtifact {
   const kind = artifactKinds.find((known) => known === input.kind) ?? "code";
   const edits = call.name === updateArtifactToolName && typeof input.content !== "string";
   const state =
-    call.status !== "running"
-      ? "not-saved"
-      : call.name === updateArtifactToolName
-        ? "updating"
-        : "writing";
+    call.status === "done" && artifactRefOf(call.result)
+      ? "saving"
+      : call.status !== "running"
+        ? "not-saved"
+        : call.name === updateArtifactToolName
+          ? "updating"
+          : "writing";
   return {
     state,
     kind,

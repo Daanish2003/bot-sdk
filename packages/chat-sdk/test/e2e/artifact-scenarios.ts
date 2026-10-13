@@ -52,8 +52,6 @@ export function registerArtifactScenarios(
   async function makeArtifact(page: Page) {
     await signInWithModel(page);
     await sendFor(page, `${artifactMarker} ${dataUrl}`, "Saved version 1");
-    // A reload loads the Message with its saved id, which the panel's version request needs.
-    await page.reload();
     await cards(page).first().click();
     await expect(panel(page)).toBeVisible();
   }

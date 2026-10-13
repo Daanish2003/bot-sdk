@@ -15,9 +15,7 @@ test("at phone width the Artifact panel fills the screen, and close returns to t
   await page.keyboard.press("Enter");
   await expect(messageRows(page).last()).toContainText("Saved version 1");
 
-  // A reload loads the Message with its saved id, which the panel's version request needs.
-  await page.reload();
-  await page.locator("[data-artifact-card]").click();
+  // The panel opens on its own as the call streams; at phone width it covers the chat.
   const panel = page.locator("[data-artifact-panel]");
   await expect(panel).toBeVisible();
   const viewport = page.viewportSize()!;
