@@ -18,6 +18,8 @@ export type RateLimits = {
   conversationSearch?: RateLimit | false;
   /** Shared link views (the handler's read, not `getSharedConversation`), per client IP. */
   sharedLinkView?: RateLimit | false;
+  /** Ratings set or cleared, per user. */
+  rating?: RateLimit | false;
 };
 
 export type ResolvedRateLimits = {
@@ -26,6 +28,7 @@ export type ResolvedRateLimits = {
   credentialSave: RateLimit | false;
   conversationSearch: RateLimit | false;
   sharedLinkView: RateLimit | false;
+  rating: RateLimit | false;
 };
 
 export const defaultRateLimits: ResolvedRateLimits = {
@@ -34,6 +37,7 @@ export const defaultRateLimits: ResolvedRateLimits = {
   credentialSave: { limit: 10, windowSeconds: 60 },
   conversationSearch: { limit: 60, windowSeconds: 60 },
   sharedLinkView: { limit: 60, windowSeconds: 60 },
+  rating: { limit: 60, windowSeconds: 60 },
 };
 
 /** The defaults, with each override in place. An override of `undefined` keeps the default. */
@@ -44,6 +48,7 @@ export function resolveRateLimits(overrides: RateLimits = {}): ResolvedRateLimit
     credentialSave: overrides.credentialSave ?? defaultRateLimits.credentialSave,
     conversationSearch: overrides.conversationSearch ?? defaultRateLimits.conversationSearch,
     sharedLinkView: overrides.sharedLinkView ?? defaultRateLimits.sharedLinkView,
+    rating: overrides.rating ?? defaultRateLimits.rating,
   };
 }
 
@@ -52,6 +57,7 @@ export const rpcRateLimits: Record<string, keyof ResolvedRateLimits | undefined>
   "/attachment/upload": "attachmentUpload",
   "/credentials/save": "credentialSave",
   "/search/query": "conversationSearch",
+  "/chat/rate": "rating",
 };
 
 /**

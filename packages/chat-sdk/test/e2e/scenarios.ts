@@ -134,6 +134,66 @@ export function registerSharedScenarios(
       await visitor.close();
     });
 
+    test("thumbs rate an ended reply: flip, clear, and the choice survives a reload", async ({
+      page,
+    }) => {
+      await signInWithModel(page);
+      await send(page, "Rate this reply");
+
+      const reply = messageRows(page).last();
+      await reply.hover();
+      const up = reply.getByRole("button", { name: "Good reply" });
+      const down = reply.getByRole("button", { name: "Bad reply" });
+      await up.click();
+      await expect(up).toHaveAttribute("aria-pressed", "true");
+      await down.click();
+      await expect(down).toHaveAttribute("aria-pressed", "true");
+      await expect(up).toHaveAttribute("aria-pressed", "false");
+      await down.click();
+      await expect(down).toHaveAttribute("aria-pressed", "false");
+      await expect(up).toHaveAttribute("aria-pressed", "false");
+
+      await up.click();
+      await page.reload();
+      await expect(messageRows(page)).toHaveCount(2);
+      await expect(
+        messageRows(page).last().getByRole("button", { name: "Good reply" }),
+      ).toHaveAttribute("aria-pressed", "true");
+      // A question is never rated.
+      await expect(
+        messageRows(page).first().getByRole("button", { name: "Good reply" }),
+      ).toHaveCount(0);
+    });
+
+    test("no thumbs on a reply that is still streaming, or on a Shared link", async ({
+      page,
+      browser,
+    }) => {
+      await signInWithModel(page);
+      await page.getByLabel("Message", { exact: true }).fill(`Take your time ${slowMarker}`);
+      await page.keyboard.press("Enter");
+      await expect(messageRows(page).last()).toContainText("You said");
+      await expect(
+        messageRows(page).last().getByRole("button", { name: "Good reply" }),
+      ).toHaveCount(0);
+      await page.getByRole("button", { name: "Stop" }).click();
+      await expect(messageRows(page).last()).toContainText("Stopped");
+      await expect(
+        messageRows(page).last().getByRole("button", { name: "Good reply" }),
+      ).toHaveCount(1);
+
+      await page.getByRole("button", { name: "Share" }).click();
+      const dialog = page.getByRole("dialog");
+      await dialog.getByRole("button", { name: "Create link" }).click();
+      const url = await dialog.getByText(host.paths.sharedLink).textContent();
+
+      const visitor = await browser.newPage();
+      await visitor.goto(url!);
+      await expect(visitor.getByText("Take your time").first()).toBeVisible();
+      await expect(visitor.getByRole("button", { name: "Good reply" })).toHaveCount(0);
+      await visitor.close();
+    });
+
     test("deleting a Conversation confirms, then removes it from the panel", async ({ page }) => {
       await signInWithModel(page);
       await send(page, "Delete me");
