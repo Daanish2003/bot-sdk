@@ -10,6 +10,8 @@ export type AdminUser = {
   banned: boolean;
   /** When the Ban that holds ends (ISO), or `null` for no end date or no Ban. */
   banExpires: string | null;
+  /** Whether two-factor sign-in is on (spec #277): the Admin can turn it off for a lost authenticator. */
+  twoFactorEnabled: boolean;
   spentMicros: number;
   /** `null` when the user's Quota is unlimited. */
   budgetMicros: number | null;

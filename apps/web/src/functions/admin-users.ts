@@ -38,6 +38,7 @@ export const listAdminUsers = createServerFn({ method: "GET" })
           role: user.role,
           banned: user.banned,
           banExpires: user.banExpires,
+          twoFactorEnabled: user.twoFactorEnabled,
           createdAt: user.createdAt,
         })
         .from(user),
@@ -64,6 +65,7 @@ export const listAdminUsers = createServerFn({ method: "GET" })
       role: row.role,
       banned: isBanActive(row, now),
       banExpires: isBanActive(row, now) ? (row.banExpires?.toISOString() ?? null) : null,
+      twoFactorEnabled: row.twoFactorEnabled === true,
       spentMicros: spentBy.get(row.id) ?? 0,
       budgetMicros: quotas[index]?.budgetMicros ?? null,
     }));
