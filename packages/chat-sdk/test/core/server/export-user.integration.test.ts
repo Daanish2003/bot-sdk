@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { createChat } from "../../../core/server/create-chat";
 import { saveCredentials } from "../../../core/server/credentials/store";
+import { artifact, artifactVersion } from "../../../core/server/db/schema/artifact";
 import { project } from "../../../core/server/db/schema/chat";
 import { sharedLink } from "../../../core/server/db/schema/share";
 import { userSettings } from "../../../core/server/db/schema/settings";
@@ -150,6 +151,140 @@ describe("createChat().exportUser", () => {
     ]);
   });
 
+  it("exports every Artifact with every version on every Branch", async () => {
+    const owner = await insertUser();
+    const bystander = await insertUser();
+    const conv = await insertConversation(owner, { title: "Artifacts" });
+    const question = await insertMessage({
+      conversationId: conv.id,
+      role: "user",
+      text: "Make it",
+    });
+    const firstReply = await insertMessage({
+      conversationId: conv.id,
+      parentId: question.id,
+      role: "assistant",
+      text: "Here",
+    });
+    const firstUpdate = await insertMessage({
+      conversationId: conv.id,
+      parentId: firstReply.id,
+      role: "assistant",
+      text: "Updated",
+      active: true,
+    });
+    const siblingReply = await insertMessage({
+      conversationId: conv.id,
+      parentId: question.id,
+      role: "assistant",
+      text: "Another",
+    });
+    const siblingUpdate = await insertMessage({
+      conversationId: conv.id,
+      parentId: siblingReply.id,
+      role: "assistant",
+      text: "Another updated",
+    });
+    const createdAt = new Date("2026-10-06T09:00:00Z");
+    const updatedAt = new Date("2026-10-06T09:05:00Z");
+    await getTestDb()
+      .insert(artifact)
+      .values([
+        { id: "main-art", conversationId: conv.id, kind: "code", createdAt },
+        { id: "sibling-art", conversationId: conv.id, kind: "markdown", createdAt },
+      ]);
+    await getTestDb()
+      .insert(artifactVersion)
+      .values([
+        {
+          artifactId: "main-art",
+          messageId: firstReply.id,
+          number: 1,
+          title: "Script",
+          language: "python",
+          content: "print(1)",
+          createdAt,
+        },
+        {
+          artifactId: "main-art",
+          messageId: firstUpdate.id,
+          number: 2,
+          title: "Script",
+          language: "python",
+          content: "print(2)",
+          createdAt: updatedAt,
+        },
+        {
+          artifactId: "sibling-art",
+          messageId: siblingReply.id,
+          number: 1,
+          title: "Notes",
+          language: null,
+          content: "# Notes",
+          createdAt,
+        },
+        {
+          artifactId: "sibling-art",
+          messageId: siblingUpdate.id,
+          number: 2,
+          title: "Notes",
+          language: null,
+          content: "# Notes v2",
+          createdAt: updatedAt,
+        },
+      ]);
+    const theirs = await insertConversation(bystander, { title: "Theirs" });
+    await getTestDb()
+      .insert(artifact)
+      .values({ id: "theirs-art", conversationId: theirs.id, kind: "svg", createdAt });
+
+    const exported = await chatFor().exportUser(owner.id);
+
+    expect(exported.version).toBe(1);
+    expect(exported.artifacts).toHaveLength(2);
+    const byId = new Map(exported.artifacts.map((a) => [a.id, a]));
+    expect(byId.get("main-art")).toEqual({
+      id: "main-art",
+      conversationId: conv.id,
+      kind: "code",
+      versions: [
+        {
+          number: 1,
+          messageId: firstReply.id,
+          title: "Script",
+          language: "python",
+          content: "print(1)",
+          createdAt,
+        },
+        {
+          number: 2,
+          messageId: firstUpdate.id,
+          title: "Script",
+          language: "python",
+          content: "print(2)",
+          createdAt: updatedAt,
+        },
+      ],
+    });
+    expect(byId.get("sibling-art")).toMatchObject({
+      kind: "markdown",
+      versions: [
+        { number: 1, messageId: siblingReply.id, content: "# Notes" },
+        { number: 2, messageId: siblingUpdate.id, content: "# Notes v2" },
+      ],
+    });
+    expect(byId.has("theirs-art")).toBe(false);
+  });
+
+  it("exports an empty artifacts list for a user with no Artifacts", async () => {
+    const owner = await insertUser();
+    await insertConversation(owner, { title: "Plain" });
+
+    const exported = await chatFor().exportUser(owner.id);
+
+    expect(exported.artifacts).toEqual([]);
+  });
+
   it("exports an empty document for an unknown user id", async () => {
     const exported = await chatFor().exportUser(randomUUID());
 
@@ -158,6 +293,7 @@ describe("createChat().exportUser", () => {
       conversations: [],
       projects: [],
       sharedLinks: [],
+      artifacts: [],
       settings: { titleModel: null, instructions: null },
     });
   });
