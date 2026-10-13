@@ -21,7 +21,7 @@ export function registerServiceWorker(): () => void {
   // `vite:preloadError`; reload once so the tab picks up the new build.
   const onPreloadError = (event: Event) => {
     event.preventDefault();
-    if (!markChunkReload()) return;
+    if (!takeChunkReload(sessionStorage)) return;
     window.location.reload();
   };
   window.addEventListener("vite:preloadError", onPreloadError);
@@ -33,11 +33,16 @@ export function registerServiceWorker(): () => void {
   };
 }
 
-/** True when the page may reload now: it hasn't already reloaded for a chunk and not yet recovered. */
-function markChunkReload(): boolean {
+type FlagStorage = Pick<Storage, "getItem" | "setItem">;
+
+/**
+ * True when the page may reload for a chunk now: it hasn't already reloaded and not yet recovered.
+ * Takes the storage as a parameter so the guard can be tested without a browser.
+ */
+export function takeChunkReload(storage: FlagStorage): boolean {
   try {
-    if (sessionStorage.getItem(chunkReloadKey) !== null) return false;
-    sessionStorage.setItem(chunkReloadKey, "1");
+    if (storage.getItem(chunkReloadKey) !== null) return false;
+    storage.setItem(chunkReloadKey, "1");
     return true;
   } catch {
     // Storage is blocked and the loop guard can't be kept: don't reload at all.

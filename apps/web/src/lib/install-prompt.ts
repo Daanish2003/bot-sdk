@@ -42,3 +42,27 @@ export function subscribeInstallPrompt(listen: () => void): () => void {
 export function getInstallPrompt(): InstallEvent | null {
   return deferred;
 }
+
+/** What the install row shows: the Chromium Install button, the iOS Share steps, or nothing. */
+export type InstallRow = "install" | "ios" | "hidden";
+
+/**
+ * The row's state from where the app runs. Nothing when installed or dismissed; the Install button
+ * when the browser's prompt is available; the Share steps on iOS, which has no prompt.
+ */
+export function installRowState({
+  installed,
+  dismissed,
+  ios,
+  promptAvailable,
+}: {
+  installed: boolean;
+  dismissed: boolean;
+  ios: boolean;
+  promptAvailable: boolean;
+}): InstallRow {
+  if (installed || dismissed) return "hidden";
+  if (promptAvailable) return "install";
+  if (ios) return "ios";
+  return "hidden";
+}
