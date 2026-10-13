@@ -8,6 +8,7 @@ const integrationTestFiles = ["{apps,packages}/*/{src,test}/**/*.integration.tes
 // The Chat SDK's `ui/` imports shadcn primitives as `@/components/ui/*` and `@/lib/utils`.
 // In this repo those live in packages/ui.
 const uiSource = fileURLToPath(new URL("./packages/ui/src", import.meta.url));
+const webSource = fileURLToPath(new URL("./apps/web/src", import.meta.url));
 const shadcnAliases = [
   { find: /^@\/components\/ui\/(.*)$/, replacement: `${uiSource}/components/$1` },
   { find: /^@\/lib\/utils$/, replacement: `${uiSource}/lib/utils` },
@@ -24,6 +25,19 @@ export default defineConfig({
           name: "unit",
           include: testFiles,
           exclude: integrationTestFiles,
+        },
+      },
+      {
+        // apps/web components render in jsdom and import the app's `@/` modules from apps/web/src.
+        resolve: {
+          alias: [...shadcnAliases, { find: /^@\/(.*)$/, replacement: `${webSource}/$1` }],
+        },
+        test: {
+          name: "web-components",
+          environment: "jsdom",
+          // The first render of a component pulls in the whole app's module graph.
+          testTimeout: 30000,
+          include: ["apps/web/src/**/*.test.tsx"],
         },
       },
       {

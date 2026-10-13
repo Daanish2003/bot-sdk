@@ -3,7 +3,7 @@ import { Input } from "@ai-chat/ui/components/input";
 import { Label } from "@ai-chat/ui/components/label";
 import { useForm } from "@tanstack/react-form";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import z from "zod";
 
@@ -11,6 +11,9 @@ import { suspendedMessage } from "@/admin/ban";
 import { authClient } from "@/lib/auth-client";
 
 import Loader from "./loader";
+
+// Set once per page load, so a remount of the form does not start another autofill request (#336).
+let autofillStarted = false;
 
 export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () => void }) {
   const navigate = useNavigate({
@@ -28,23 +31,30 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
   };
 
   // Conditional UI: where the browser supports it, saved passkeys are offered in the email field's
-  // autofill. Choosing one signs in without a password (and without the second factor).
+  // autofill. Choosing one signs in without a password (and without the second factor). The request
+  // starts on the email field's first focus, at most once per page load (#336).
+  const mounted = useRef(false);
   useEffect(() => {
-    let active = true;
-    if (!window.PublicKeyCredential?.isConditionalMediationAvailable) return;
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  const startAutofill = () => {
+    if (autofillStarted || !window.PublicKeyCredential?.isConditionalMediationAvailable) return;
+    autofillStarted = true;
     void PublicKeyCredential.isConditionalMediationAvailable().then(async (available) => {
-      if (!available || !active) return;
+      if (!available || !mounted.current) return;
       const { error } = await authClient.signIn.passkey({ autoFill: true });
+      if (!mounted.current) return;
       if (error) {
-        if (active) passkeyFailed(error);
+        passkeyFailed(error);
         return;
       }
-      if (active) navigate({ to: "/c" });
+      navigate({ to: "/c" });
     });
-    return () => {
-      active = false;
-    };
-  }, [navigate]);
+  };
 
   const passkeySignIn = async () => {
     const { error } = await authClient.signIn.passkey();
@@ -132,6 +142,7 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
                   type="email"
                   autoComplete="username webauthn"
                   value={field.state.value}
+                  onFocus={startAutofill}
                   onBlur={field.handleBlur}
                   onChange={(e) => field.handleChange(e.target.value)}
                 />
