@@ -3,12 +3,16 @@ import { RPCHandler } from "@orpc/server/fetch";
 
 import { handleChat } from "./chat/handle-chat";
 import type { HostServerTool } from "./chat/host-tools";
+import type { BlobStore } from "./blob/store";
+import { postgresBlobStore } from "./blob/postgres";
 import { webSearchToolName } from "../shared/chat/web-search";
 import { fetchUrlToolName } from "../shared/chat/fetch-url";
 import { handleJoin } from "./chat/join-run";
 import type { ChatUser, Context } from "./context";
 import { createDb } from "./db/index";
-import { quotaLookup } from "./chat/quota";
+import { quotaLookup, quotaState, type QuotaState } from "./chat/quota";
+import { ratingTotals, type RatingTotal } from "./admin/ratings";
+import { usageByDay, usageTotals, type UsageByDay, type UsageTotal } from "./admin/usage";
 import {
   createAppDeps,
   type AppDeps,
@@ -21,6 +25,7 @@ import { deleteUserData } from "./delete-user";
 import { type McpServerConfig, checkMcpServers } from "./mcp/servers";
 import { callbackRoute, connectRoute } from "./mcp/routes";
 import { exportUserData, type UserExport } from "./export-user";
+import { stopUserRuns } from "./chat/run";
 import { countUnreadableCredentials, rotateCredentialKeys } from "./credentials/store";
 import { assertMigrated, migrate as migrateSchema } from "./migrate";
 import { rateLimitedFor, resolveRateLimits, rpcRateLimits, type RateLimits } from "./rate-limits";
@@ -104,6 +109,17 @@ export type CreateChatOptions = {
    * redirect URI to register.
    */
   mcpServers?: McpServerConfig[];
+  /**
+   * Where file bytes are kept (ADR 0015). Defaults to a `chat.blob` table in the same database;
+   * a Host with object storage passes its store, and then the bytes of files already stored
+   * stay where they are.
+   */
+  blobStore?: BlobStore;
+  /**
+   * Whether the Host has banned a user (spec #277). A banned owner's Shared links are not found:
+   * they can't be read or continued. Unset, nobody is blocked.
+   */
+  isUserBlocked?: (userId: string) => boolean | Promise<boolean>;
 };
 
 /**
@@ -201,6 +217,25 @@ export function createChat(options: CreateChatOptions): {
    * as a one-off command, never in the pre-deploy step.
    */
   rotateKeys: () => Promise<{ reencrypted: number; unreadable: number }>;
+  /**
+   * Server-only reads for the Host's Admin views (spec #277). No HTTP route: the Host decides
+   * who may call them. They never return Conversation content.
+   */
+  admin: {
+    /** Every user's calls on Host credentials created in `[since, until)`. */
+    usageTotals: (range: { since: Date; until: Date }) => Promise<UsageTotal[]>;
+    /** One user's calls per UTC day and Model in `[since, until)` (spec #277). */
+    usage: (args: { userId: string; since: Date; until: Date }) => Promise<UsageByDay[]>;
+    /** A user's budget and spend in micros, with its window's reset time; `null` when unlimited. */
+    quota: (userId: string) => Promise<QuotaState | null>;
+    /**
+     * Stops every live Run of the user's, through the same path as Stop (spec #277). A Run whose
+     * owner is gone ends `stopped` here; the others end when their owner sees the Stop.
+     */
+    stopRuns: (userId: string) => Promise<void>;
+    /** 👍 and 👎 counts per Model over Ratings stamped at or after `since` (spec #277). */
+    ratingTotals: (range: { since: Date }) => Promise<RatingTotal[]>;
+  };
 } {
   if (options.keyEncryptionSecrets.length === 0) {
     throw new Error("keyEncryptionSecrets must hold at least one secret");
@@ -213,8 +248,13 @@ export function createChat(options: CreateChatOptions): {
   }
   let deps: AppDeps | undefined;
   const getDeps = () => {
-    deps ??= createAppDeps({
-      db: createDb({ DATABASE_URL: options.databaseUrl }),
+    if (deps) return deps;
+    const db = createDb({ DATABASE_URL: options.databaseUrl });
+    deps = createAppDeps({
+      db,
+      blobStore: options.blobStore ?? postgresBlobStore(db),
+      isUserBlocked: options.isUserBlocked,
+      logger: options.logger ?? console,
       keyEncryptionSecrets: options.keyEncryptionSecrets,
       runtime: options.runtime ?? memoryRuntime(),
       hostProviders: (options.hostProviders ?? []).filter(isHostProvider),
@@ -290,6 +330,13 @@ export function createChat(options: CreateChatOptions): {
     stop: async () => {
       await getLifecycle().stop();
       await options.runtime?.close?.();
+    },
+    admin: {
+      usageTotals: (range) => usageTotals(getDeps(), range),
+      usage: ({ userId, since, until }) => usageByDay(getDeps(), userId, { since, until }),
+      quota: (userId) => quotaState(getDeps(), userId),
+      stopRuns: (userId) => stopUserRuns(getDeps(), userId),
+      ratingTotals: (range) => ratingTotals(getDeps(), range),
     },
     deleteUser: (userId) => deleteUserData(getDeps(), userId),
     exportUser: (userId) => exportUserData(getDeps(), userId),

@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { checkCredentials } from "../../../core/server/credentials/check";
+import { postgresBlobStore } from "../../../core/server/blob/postgres";
 import { createAppDeps } from "../../../core/server/deps";
 import { ollamaModels } from "../../../core/server/chat/live-models";
 import { memoryRuntime } from "../../../core/server/runtime";
@@ -11,8 +12,11 @@ import type { Database } from "../../../core/server/db";
 import { resolveRateLimits } from "../../../core/server/rate-limits";
 
 function buildDeps() {
+  const db = {} as Database;
   return createAppDeps({
-    db: {} as Database,
+    db,
+    blobStore: postgresBlobStore(db),
+    logger: { error: () => {} },
     keyEncryptionSecrets: ["test-secret"],
     runtime: memoryRuntime(),
     hostProviders: [],

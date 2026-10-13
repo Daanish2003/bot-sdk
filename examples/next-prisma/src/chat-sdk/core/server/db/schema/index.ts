@@ -1,4 +1,5 @@
 export * from "./attachment";
+export * from "./blob";
 export * from "./chat";
 export * from "./connection";
 export * from "./credentials";

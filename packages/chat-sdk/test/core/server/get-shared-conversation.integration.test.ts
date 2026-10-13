@@ -266,3 +266,62 @@ describe("chat.getSharedConversation with tool calls", () => {
     expect(JSON.stringify(shared)).not.toContain("private");
   });
 });
+
+describe("chat.isUserBlocked", () => {
+  /** A Shared link of `owner`'s, made while the owner is still allowed. */
+  async function sharedByOwner() {
+    const owner = await insertUser();
+    const conv = await insertConversation(owner, { title: "Banned later" });
+    await insertMessage({ conversationId: conv.id, role: "user", text: "Hi", active: true });
+    const { client } = chatFor(owner);
+    const link = await client.rpc.share.upsert({ conversationId: conv.id });
+    return { owner, link };
+  }
+
+  /** A `createChat` whose Host has banned `blocked`, with `user` signed in. */
+  function chatBanning(blocked: TestUser, user: TestUser | null) {
+    const chat = createChat({
+      databaseUrl: testDatabaseUrl,
+      getUser: () => (user ? { id: user.id } : null),
+      keyEncryptionSecrets: [testKeyEncryptionSecret],
+      basePath,
+      isUserBlocked: (userId) => userId === blocked.id,
+    });
+    const client = createChatClient({
+      baseUrl: `http://localhost${basePath}`,
+      fetch: chat.handler,
+    });
+    return { chat, client };
+  }
+
+  it("hides a blocked owner's Shared link: it is not found", async () => {
+    const { owner, link } = await sharedByOwner();
+
+    const { chat, client } = chatBanning(owner, null);
+
+    expect(await chat.getSharedConversation(link.token)).toBeNull();
+    await expect(client.rpc.share.get({ token: link.token })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+  });
+
+  it("refuses to continue a blocked owner's Shared link", async () => {
+    const { owner, link } = await sharedByOwner();
+    const reader = await insertUser();
+
+    const { client } = chatBanning(owner, reader);
+
+    await expect(client.rpc.share.continue({ token: link.token })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+  });
+
+  it("leaves the Shared link of an owner who isn't blocked", async () => {
+    const { link } = await sharedByOwner();
+    const someoneElse = await insertUser();
+
+    const { chat } = chatBanning(someoneElse, null);
+
+    expect(await chat.getSharedConversation(link.token)).toMatchObject({ title: "Banned later" });
+  });
+});

@@ -23,6 +23,8 @@ import {
   CopyIcon,
   PencilIcon,
   RefreshCwIcon,
+  ThumbsDownIcon,
+  ThumbsUpIcon,
   UserIcon,
 } from "lucide-react";
 import { Fragment, useState } from "react";
@@ -83,7 +85,15 @@ type MessageActions = {
    * `allowForConversation` also allows the tool for the Conversation (#159).
    */
   onDecide?: (approved: boolean, allowForConversation?: boolean) => void;
+  /**
+   * Sets this reply's Rating (`up` or `down`), or clears it with null. Only offered on an ended
+   * reply (see `ratableStatuses`).
+   */
+  onRate: (rating: "up" | "down" | null) => void;
 };
+
+/** The statuses whose Run has ended: only their replies can be rated (CONTEXT.md, **Rating**). */
+const ratableStatuses = new Set(["complete", "stopped", "error"]);
 
 /**
  * One full-width Message row: avatar, header with the ‹ n/m › Branch arrows, then the text
@@ -170,8 +180,21 @@ export function MessageRow({
               />
             )}
             {!editing && actions && (
-              <div className="ml-auto flex overflow-hidden rounded-md border bg-background opacity-0 shadow-sm group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100">
+              <div
+                className={cn(
+                  "ml-auto flex overflow-hidden rounded-md border bg-background shadow-sm group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100",
+                  // A Rating stays visible, so the thumb that was chosen is still filled.
+                  info.rating ? "opacity-100" : "opacity-0",
+                )}
+              >
                 <CopyButton text={text} disabled={actions.streaming} />
+                {!isUser && ratableStatuses.has(info.status) && (
+                  <RatingButtons
+                    rating={info.rating}
+                    disabled={actions.streaming}
+                    onRate={actions.onRate}
+                  />
+                )}
                 {isUser ? (
                   <Button
                     variant="ghost"
@@ -290,6 +313,48 @@ function BranchArrows({
         <ChevronRightIcon />
       </Button>
     </span>
+  );
+}
+
+/**
+ * 👍 and 👎 on an ended reply. Clicking the chosen thumb clears the Rating; clicking the other one
+ * flips it (CONTEXT.md, **Rating**).
+ */
+function RatingButtons({
+  rating,
+  disabled,
+  onRate,
+}: {
+  rating: "up" | "down" | null;
+  disabled: boolean;
+  onRate: (rating: "up" | "down" | null) => void;
+}) {
+  const choose = (thumb: "up" | "down") => onRate(rating === thumb ? null : thumb);
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        disabled={disabled}
+        onClick={() => choose("up")}
+        title="Good reply"
+        aria-label="Good reply"
+        aria-pressed={rating === "up"}
+      >
+        <ThumbsUpIcon className={cn(rating === "up" && "fill-current")} />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        disabled={disabled}
+        onClick={() => choose("down")}
+        title="Bad reply"
+        aria-label="Bad reply"
+        aria-pressed={rating === "down"}
+      >
+        <ThumbsDownIcon className={cn(rating === "down" && "fill-current")} />
+      </Button>
+    </>
   );
 }
 

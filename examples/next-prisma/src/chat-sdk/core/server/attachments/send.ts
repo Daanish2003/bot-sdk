@@ -12,7 +12,7 @@ import {
 } from "../../shared/attachments/kinds";
 import { attachmentsOfMessages, findOwnedAttachments, loadAttachmentBytes } from "./store";
 
-type Deps = Pick<AppDeps, "db">;
+type Deps = Pick<AppDeps, "db" | "blobStore">;
 
 export type SendAttachments =
   | { error: { status: number; message: string } }

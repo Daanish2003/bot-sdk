@@ -1,14 +1,17 @@
-import { attachment, attachmentBlob } from "../../../../core/server/db/schema/attachment";
+import { attachment } from "../../../../core/server/db/schema/attachment";
+import { blob } from "../../../../core/server/db/schema/blob";
 import { getTestDb } from "../../../support/test-database";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
+import { attachmentBlobKey } from "../../../../core/server/blob/store";
 import { maxAttachmentBytes } from "../../../../core/shared/attachments/kinds";
 import {
   deleteOrphanAttachments,
   lockAttachments,
 } from "../../../../core/server/attachments/store";
 import { insertAttachment, linkTestAttachments } from "../../../support/attachments";
+import { createTestDeps } from "../../../support/deps";
 import { insertConversation, insertMessage } from "../../../support/conversations";
 import { insertUser } from "../../../support/users";
 import { chatRpc } from "../../../support/sdk";
@@ -31,11 +34,11 @@ describe("attachment.upload", () => {
       mediaType: "text/markdown",
       size: 7,
     });
-    const [blob] = await getTestDb()
+    const [stored] = await getTestDb()
       .select()
-      .from(attachmentBlob)
-      .where(eq(attachmentBlob.attachmentId, uploaded.id));
-    expect(blob?.bytes.toString("utf8")).toBe("# Notes");
+      .from(blob)
+      .where(eq(blob.key, attachmentBlobKey(uploaded.id)));
+    expect(stored?.bytes.toString("utf8")).toBe("# Notes");
   });
 
   it("stores a text file the browser gave no type as text/plain", async () => {
@@ -115,7 +118,7 @@ describe("attachment.upload", () => {
     });
     await lockTaken;
 
-    await deleteOrphanAttachments({ db }, new Date());
+    await deleteOrphanAttachments(createTestDeps(), new Date());
     finishSend();
     await send;
 

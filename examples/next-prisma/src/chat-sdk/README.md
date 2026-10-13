@@ -103,6 +103,33 @@ The `prompt-kit` components (`chat-container`, `loader`, `markdown`, `prompt-inp
 - The SDK's tables live in the `chat` schema of the Host's database, not in your ORM's schema. Your ORM's migrations never touch them.
 - The SDK's migrations are expand-then-contract: they add tables, columns and indexes, and never drop or rename one in the same release. The version still running during a deploy keeps working against the migrated schema.
 
+## File storage: `blobStore`
+
+Attachment bytes go to a `BlobStore`, which `createChat({ blobStore })` takes. Names, types, sizes and owners stay in Postgres either way. The store holds bytes only, under keys the SDK makes up, such as `attachment/<id>`.
+
+- **`postgresBlobStore()`** is the default: bytes in the `chat.blob` table of your database. Leave `blobStore` out and nothing changes. The migration copies the bytes from the old `attachment_blob` table into `chat.blob`.
+- **`s3BlobStore({ endpoint, bucket, region, accessKeyId, secretAccessKey, forcePathStyle? })`** keeps bytes in any S3-compatible bucket, such as Cloudflare R2 (`region: "auto"`) or RustFS. It needs an existing bucket: the store never creates one, so the app needs no bucket-admin rights. It is built on `aws4fetch`, and `forcePathStyle` defaults to `true`.
+
+```ts
+import { createChat, s3BlobStore } from "@ai-chat/chat-sdk/server";
+
+const chat = createChat({
+  databaseUrl,
+  getUser,
+  keyEncryptionSecrets,
+  blobStore: s3BlobStore({
+    endpoint: process.env.S3_ENDPOINT!,
+    bucket: process.env.S3_BUCKET!,
+    region: "auto",
+    accessKeyId: process.env.S3_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.S3_SECRET_ACCESS_KEY!,
+  }),
+});
+```
+
+- A failed upload leaves no object behind. Deleting a user, and the 24-hour cleanup of unused Attachments, remove their objects after the database commit. A failed object delete is logged and not thrown, so a stray object costs storage but no data, and nothing sweeps it.
+- **Switching a running deployment from one store to the other isn't supported**: there is no copy tool, so the Attachments already uploaded stay in the store they went to. Choose the store before you go live.
+
 ## Host lifecycle
 
 The server API below is the spec for the SDK (spec #70). Some of it lands in later tickets; until then, `core/server` exports only the parts already built.
