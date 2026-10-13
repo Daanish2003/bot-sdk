@@ -16,15 +16,19 @@ export interface LoaderProps {
     | "loading-dots";
   size?: "sm" | "md" | "lg";
   text?: string;
+  /** The screen-reader text for the loading state. Defaults to "Loading". */
+  label?: string;
   className?: string;
 }
 
 export function CircularLoader({
   className,
   size = "md",
+  label = "Loading",
 }: {
   className?: string;
   size?: "sm" | "md" | "lg";
+  label?: string;
 }) {
   const sizeClasses = {
     sm: "size-4",
@@ -40,7 +44,7 @@ export function CircularLoader({
         className,
       )}
     >
-      <span className="sr-only">Loading</span>
+      <span className="sr-only">{label}</span>
     </div>
   );
 }
@@ -48,9 +52,11 @@ export function CircularLoader({
 export function ClassicLoader({
   className,
   size = "md",
+  label = "Loading",
 }: {
   className?: string;
   size?: "sm" | "md" | "lg";
+  label?: string;
 }) {
   const sizeClasses = {
     sm: "size-4",
@@ -85,7 +91,7 @@ export function ClassicLoader({
           />
         ))}
       </div>
-      <span className="sr-only">Loading</span>
+      <span className="sr-only">{label}</span>
     </div>
   );
 }
@@ -93,9 +99,11 @@ export function ClassicLoader({
 export function PulseLoader({
   className,
   size = "md",
+  label = "Loading",
 }: {
   className?: string;
   size?: "sm" | "md" | "lg";
+  label?: string;
 }) {
   const sizeClasses = {
     sm: "size-4",
@@ -106,7 +114,7 @@ export function PulseLoader({
   return (
     <div className={cn("relative", sizeClasses[size], className)}>
       <div className="border-primary absolute inset-0 animate-[thin-pulse_1.5s_ease-in-out_infinite] rounded-full border-2" />
-      <span className="sr-only">Loading</span>
+      <span className="sr-only">{label}</span>
     </div>
   );
 }
@@ -114,9 +122,11 @@ export function PulseLoader({
 export function PulseDotLoader({
   className,
   size = "md",
+  label = "Loading",
 }: {
   className?: string;
   size?: "sm" | "md" | "lg";
+  label?: string;
 }) {
   const sizeClasses = {
     sm: "size-1",
@@ -132,7 +142,7 @@ export function PulseDotLoader({
         className,
       )}
     >
-      <span className="sr-only">Loading</span>
+      <span className="sr-only">{label}</span>
     </div>
   );
 }
@@ -140,9 +150,11 @@ export function PulseDotLoader({
 export function DotsLoader({
   className,
   size = "md",
+  label = "Loading",
 }: {
   className?: string;
   size?: "sm" | "md" | "lg";
+  label?: string;
 }) {
   const dotSizes = {
     sm: "h-1.5 w-1.5",
@@ -170,7 +182,7 @@ export function DotsLoader({
           }}
         />
       ))}
-      <span className="sr-only">Loading</span>
+      <span className="sr-only">{label}</span>
     </div>
   );
 }
@@ -178,9 +190,11 @@ export function DotsLoader({
 export function TypingLoader({
   className,
   size = "md",
+  label = "Loading",
 }: {
   className?: string;
   size?: "sm" | "md" | "lg";
+  label?: string;
 }) {
   const dotSizes = {
     sm: "h-1 w-1",
@@ -205,7 +219,7 @@ export function TypingLoader({
           }}
         />
       ))}
-      <span className="sr-only">Loading</span>
+      <span className="sr-only">{label}</span>
     </div>
   );
 }
@@ -213,9 +227,11 @@ export function TypingLoader({
 export function WaveLoader({
   className,
   size = "md",
+  label = "Loading",
 }: {
   className?: string;
   size?: "sm" | "md" | "lg";
+  label?: string;
 }) {
   const barWidths = {
     sm: "w-0.5",
@@ -250,7 +266,7 @@ export function WaveLoader({
           }}
         />
       ))}
-      <span className="sr-only">Loading</span>
+      <span className="sr-only">{label}</span>
     </div>
   );
 }
@@ -258,9 +274,11 @@ export function WaveLoader({
 export function BarsLoader({
   className,
   size = "md",
+  label = "Loading",
 }: {
   className?: string;
   size?: "sm" | "md" | "lg";
+  label?: string;
 }) {
   const barWidths = {
     sm: "w-1",
@@ -288,7 +306,7 @@ export function BarsLoader({
           }}
         />
       ))}
-      <span className="sr-only">Loading</span>
+      <span className="sr-only">{label}</span>
     </div>
   );
 }
@@ -296,9 +314,11 @@ export function BarsLoader({
 export function TerminalLoader({
   className,
   size = "md",
+  label = "Loading",
 }: {
   className?: string;
   size?: "sm" | "md" | "lg";
+  label?: string;
 }) {
   const cursorSizes = {
     sm: "h-3 w-1.5",
@@ -322,7 +342,7 @@ export function TerminalLoader({
     <div className={cn("flex items-center space-x-1", containerSizes[size], className)}>
       <span className={cn("text-primary font-mono", textSizes[size])}>{">"}</span>
       <div className={cn("bg-primary animate-[blink_1s_step-end_infinite]", cursorSizes[size])} />
-      <span className="sr-only">Loading</span>
+      <span className="sr-only">{label}</span>
     </div>
   );
 }
@@ -412,26 +432,26 @@ export function TextDotsLoader({
   );
 }
 
-function Loader({ variant = "circular", size = "md", text, className }: LoaderProps) {
+function Loader({ variant = "circular", size = "md", text, label, className }: LoaderProps) {
   switch (variant) {
     case "circular":
-      return <CircularLoader size={size} className={className} />;
+      return <CircularLoader size={size} label={label} className={className} />;
     case "classic":
-      return <ClassicLoader size={size} className={className} />;
+      return <ClassicLoader size={size} label={label} className={className} />;
     case "pulse":
-      return <PulseLoader size={size} className={className} />;
+      return <PulseLoader size={size} label={label} className={className} />;
     case "pulse-dot":
-      return <PulseDotLoader size={size} className={className} />;
+      return <PulseDotLoader size={size} label={label} className={className} />;
     case "dots":
-      return <DotsLoader size={size} className={className} />;
+      return <DotsLoader size={size} label={label} className={className} />;
     case "typing":
-      return <TypingLoader size={size} className={className} />;
+      return <TypingLoader size={size} label={label} className={className} />;
     case "wave":
-      return <WaveLoader size={size} className={className} />;
+      return <WaveLoader size={size} label={label} className={className} />;
     case "bars":
-      return <BarsLoader size={size} className={className} />;
+      return <BarsLoader size={size} label={label} className={className} />;
     case "terminal":
-      return <TerminalLoader size={size} className={className} />;
+      return <TerminalLoader size={size} label={label} className={className} />;
     case "text-blink":
       return <TextBlinkLoader text={text} size={size} className={className} />;
     case "text-shimmer":
@@ -439,7 +459,7 @@ function Loader({ variant = "circular", size = "md", text, className }: LoaderPr
     case "loading-dots":
       return <TextDotsLoader text={text} size={size} className={className} />;
     default:
-      return <CircularLoader size={size} className={className} />;
+      return <CircularLoader size={size} label={label} className={className} />;
   }
 }
 

@@ -250,7 +250,8 @@ export async function exportUserData(deps: AppDeps, userId: string): Promise<Use
             parts: row.parts,
             model: row.model,
             status: row.status,
-            rating: row.rating,
+            // A Hidden reply can't be rated, so its Rating is left out too (#330).
+            rating: row.hiddenAt === null ? row.rating : null,
             hidden: row.hiddenAt !== null,
             createdAt: row.createdAt,
             attachments: (attachmentsByMessage.get(row.id) ?? []).map(

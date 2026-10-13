@@ -210,7 +210,7 @@ export function MessageRow({
                 {!isUser && !info.hidden && info.status === "complete" && (
                   <ReadAloud messageId={message.id} parts={message.parts} />
                 )}
-                {!isUser && ratableStatuses.has(info.status) && (
+                {!isUser && !info.hidden && ratableStatuses.has(info.status) && (
                   <RatingButtons
                     rating={info.rating}
                     disabled={actions.streaming}
@@ -279,7 +279,7 @@ export function MessageRow({
                 latestVersionOf={latestVersionOf}
               />
               {info.status === "streaming" && !thinking && waitingForText(message.parts) && (
-                <Loader variant="typing" size="sm" />
+                <Loader variant="typing" size="sm" label={t("chat.loading")} />
               )}
               {info.status === "stopped" && (
                 <span className="text-xs text-muted-foreground italic">{t("chat.stopped")}</span>

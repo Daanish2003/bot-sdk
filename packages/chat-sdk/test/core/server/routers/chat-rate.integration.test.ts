@@ -208,3 +208,16 @@ describe("a Rating and the next reply", () => {
     expect(await row(reply.id)).toMatchObject({ rating: "up" });
   });
 });
+
+describe("a Hidden reply's Rating", () => {
+  it("answers 409 for a Hidden reply and leaves its Rating alone", async () => {
+    const { reply, rate, row, deps } = await setup();
+    await deps.db
+      .update(message)
+      .set({ hiddenAt: new Date(), hiddenReason: "policy", rating: "down", ratedAt: new Date() })
+      .where(eq(message.id, reply.id));
+
+    await expect(rate(reply.id, "up")).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(await row(reply.id)).toMatchObject({ rating: "down" });
+  });
+});

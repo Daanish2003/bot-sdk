@@ -67,6 +67,9 @@ export const chatRouter = {
           "Only an assistant Message can be rated",
         );
       }
+      if (result === "hidden") {
+        throw rpcError("CONFLICT", "error.rateHidden", "A hidden reply can't be rated");
+      }
       if (result === "live") {
         throw rpcError(
           "CONFLICT",
