@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { relativeTime } from "../../core/client/relative-time";
 import { invalidateConversationList } from "../../core/client/react/conversation-list";
 import { useChatAdapter, useI18n } from "../../core/client/react/provider";
+import { serverErrorText } from "../../core/client/rpc-error";
 
 /** Settings: every Shared link the user has, with copy and revoke. */
 export function SharedLinksSection() {
@@ -25,7 +26,7 @@ export function SharedLinksSection() {
           invalidateConversationList(queryClient, orpc),
         ]);
       },
-      onError: (error) => toast.error(error.message),
+      onError: (error) => toast.error(serverErrorText(i18n, error)),
     }),
   );
 
@@ -35,7 +36,7 @@ export function SharedLinksSection() {
       <p className="text-xs text-muted-foreground">{t("settings.sharedLinksHelp")}</p>
       {links.isError && (
         <p role="alert" className="text-xs text-destructive">
-          {t("settings.sharedLinksLoadFailed", { message: links.error.message })}
+          {t("settings.sharedLinksLoadFailed", { message: serverErrorText(i18n, links.error) })}
         </p>
       )}
       {links.isSuccess && links.data.length === 0 && (

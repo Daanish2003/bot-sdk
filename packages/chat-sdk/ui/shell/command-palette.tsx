@@ -39,6 +39,7 @@ import {
   useI18n,
   useOrpc,
 } from "../../core/client/react/provider";
+import { serverErrorText } from "../../core/client/rpc-error";
 import { ShareDialog } from "../share/share-dialog";
 
 /** How long typing must pause before Messages are searched. */
@@ -171,7 +172,7 @@ function PaletteBody({
       : [];
 
   const firstPage = conversations.data?.pages[0]?.items ?? [];
-  const recent: Item[] = recentConversations(firstPage, q).map((c) => ({
+  const recent: Item[] = recentConversations(i18n, firstPage, q).map((c) => ({
     key: `conversation:${c.id}`,
     group: q.trim() ? "Conversations" : "Recent",
     icon: <MessageSquareIcon />,
@@ -346,7 +347,7 @@ function PaletteBody({
         )}
         {search.isError && !searching && (
           <p role="alert" className="px-4 py-2 text-xs text-destructive">
-            {search.error.message}
+            {serverErrorText(i18n, search.error)}
           </p>
         )}
         {items.length === 0 && !searching && !search.isError && (
@@ -497,7 +498,8 @@ function RenameInput({
 }) {
   const queryClient = useQueryClient();
   const orpc = useOrpc();
-  const { t } = useI18n();
+  const i18n = useI18n();
+  const { t } = i18n;
   const rename = useMutation(
     orpc.conversation.rename.mutationOptions({
       onSuccess: (_, { id, title }) => {
@@ -507,7 +509,7 @@ function RenameInput({
         );
         void invalidateConversationList(queryClient, orpc);
       },
-      onError: (error) => toast.error(error.message),
+      onError: (error) => toast.error(serverErrorText(i18n, error)),
     }),
   );
   return (

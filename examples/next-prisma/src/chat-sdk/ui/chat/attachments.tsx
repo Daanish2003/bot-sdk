@@ -24,6 +24,7 @@ import { toast } from "sonner";
 
 import type { Translate } from "../../core/shared/i18n";
 import { useI18n, useOrpc } from "../../core/client/react/provider";
+import { serverErrorText } from "../../core/client/rpc-error";
 
 /** A file in the composer: uploading, uploaded (with its id), or failed. */
 type DraftAttachment = AttachmentChip & {
@@ -39,7 +40,8 @@ type DraftAttachment = AttachmentChip & {
  */
 export function useAttachmentDraft(model: string | undefined, initial: AttachmentInfo[] = []) {
   const orpc = useOrpc();
-  const { t } = useI18n();
+  const i18n = useI18n();
+  const { t } = i18n;
   const [items, setItems] = useState<DraftAttachment[]>(() =>
     initial.map((info) => ({ ...info, key: info.id, state: "done" })),
   );
@@ -74,7 +76,7 @@ export function useAttachmentDraft(model: string | undefined, initial: Attachmen
       ]);
       upload.mutateAsync({ file }).then(
         (info) => update(key, { ...info, state: "done" }),
-        (error: Error) => update(key, { state: "error", error: error.message }),
+        (error: Error) => update(key, { state: "error", error: serverErrorText(i18n, error) }),
       );
     }
   };

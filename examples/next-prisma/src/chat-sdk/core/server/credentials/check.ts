@@ -1,5 +1,7 @@
 import type { CredentialService } from "../../shared/credentials/services";
 import { providerLabel } from "../../shared/credentials/services";
+import type { ErrorCode } from "../../shared/i18n";
+import type { ErrorParams } from "../rpc-error";
 
 export type CheckRejectionReason = "invalid_key" | "provider_error";
 
@@ -7,15 +9,23 @@ export type CheckResult =
   | { status: "verified" }
   /** The service has no endpoint to check against; the credentials are saved as given. */
   | { status: "unverified" }
-  | { status: "rejected"; reason: CheckRejectionReason; message: string };
+  | {
+      status: "rejected";
+      reason: CheckRejectionReason;
+      /** English, for the logs. */
+      message: string;
+      /** The dictionary code and params the client shows. */
+      code: ErrorCode;
+      params: ErrorParams;
+    };
 
 type CheckRequest = {
   url: string;
   headers: Record<string, string>;
   /** Statuses that mean the key was refused. Default 401 and 403. */
   invalidKeyStatuses?: number[];
-  /** The message when the service can't be reached. */
-  unreachable?: string;
+  /** The message when the service can't be reached, with the code the client shows. */
+  unreachable?: { message: string; code: ErrorCode; params: ErrorParams };
 };
 
 const bearer = (apiKey = "") => ({ authorization: `Bearer ${apiKey}` });
@@ -80,7 +90,11 @@ const checkRequests: Record<
     url: `${host}/api/tags`,
     headers: {},
     invalidKeyStatuses: [],
-    unreachable: `Couldn't reach Ollama at ${host}. Under Docker, use http://host.docker.internal:11434.`,
+    unreachable: {
+      message: `Couldn't reach Ollama at ${host}. Under Docker, use http://host.docker.internal:11434.`,
+      code: "error.ollamaUnreachable",
+      params: { host },
+    },
   }),
   // The usage endpoint authenticates the key without spending a search credit.
   tavily: ({ apiKey }) => ({
@@ -106,14 +120,18 @@ export async function checkCredentials(
     url,
     headers,
     invalidKeyStatuses = [401, 403],
-    unreachable = `Couldn't reach ${label} to check the key. Try again.`,
+    unreachable = {
+      message: `Couldn't reach ${label} to check the key. Try again.`,
+      code: "error.keyUnreachable",
+      params: { label },
+    },
   } = buildRequest(fields);
 
   let response: Response;
   try {
     response = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) });
   } catch {
-    return { status: "rejected", reason: "provider_error", message: unreachable };
+    return { status: "rejected", reason: "provider_error", ...unreachable };
   }
   await response.body?.cancel();
 
@@ -123,11 +141,15 @@ export async function checkCredentials(
       status: "rejected",
       reason: "invalid_key",
       message: `${label} rejected this API key.`,
+      code: "error.keyRejected",
+      params: { label },
     };
   }
   return {
     status: "rejected",
     reason: "provider_error",
     message: `Couldn't check the key with ${label} (HTTP ${response.status}). Try again.`,
+    code: "error.keyCheckFailed",
+    params: { label, status: response.status },
   };
 }

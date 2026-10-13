@@ -14,6 +14,7 @@ import { toast } from "sonner";
 
 import { useByok } from "../../core/client/react/byok";
 import { useI18n, useOrpc } from "../../core/client/react/provider";
+import { serverErrorText } from "../../core/client/rpc-error";
 
 /** The Title Model select: which Model writes automatic titles ("Same as first reply" by default). */
 export function TitleModelSelect() {
@@ -37,7 +38,7 @@ export function TitleModelSelect() {
       },
       onError: (error, _, context) => {
         if (context?.previous) queryClient.setQueryData(settingsKey, context.previous);
-        toast.error(error.message);
+        toast.error(serverErrorText(i18n, error));
       },
       onSettled: () => queryClient.invalidateQueries({ queryKey: settingsKey }),
     }),

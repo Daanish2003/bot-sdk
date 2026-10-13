@@ -21,6 +21,7 @@ import { toast } from "sonner";
 import type { MessageKey } from "../../core/shared/i18n";
 import { useByok } from "../../core/client/react/byok";
 import { type ChatOrpc, useI18n, useOrpc } from "../../core/client/react/provider";
+import { serverErrorText } from "../../core/client/rpc-error";
 import { ConnectionsSection } from "../settings/connections-section";
 import { DeleteAllConversationsSection } from "../settings/delete-all-conversations";
 import { ExportDataButton } from "../settings/export-data-button";
@@ -125,11 +126,12 @@ function ProviderRowItem({
 }) {
   const queryClient = useQueryClient();
   const orpc = useOrpc();
-  const { t } = useI18n();
+  const i18n = useI18n();
+  const { t } = i18n;
   const remove = useMutation(
     orpc.credentials.delete.mutationOptions({
       onSuccess: () => invalidateCredentials(queryClient, orpc),
-      onError: (error) => toast.error(error.message),
+      onError: (error) => toast.error(serverErrorText(i18n, error)),
     }),
   );
   const dot = statusDot[row.status];
@@ -208,7 +210,8 @@ function CredentialForm({ service, onDone }: { service: CredentialService; onDon
   const form = credentialForms[service];
   const queryClient = useQueryClient();
   const orpc = useOrpc();
-  const { t } = useI18n();
+  const i18n = useI18n();
+  const { t } = i18n;
   const [values, setValues] = useState<Record<string, string>>(() =>
     Object.fromEntries(form.fields.map((field) => [field.name, ""])),
   );
@@ -253,7 +256,7 @@ function CredentialForm({ service, onDone }: { service: CredentialService; onDon
       })}
       {save.error && (
         <p role="alert" className="text-xs text-destructive">
-          {save.error.message}
+          {serverErrorText(i18n, save.error)}
         </p>
       )}
       <div className="flex gap-2">

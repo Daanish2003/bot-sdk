@@ -7,6 +7,7 @@ import type { SharedConversation } from "../../core/shared/share/conversation";
 import { sharedToUIMessages } from "../../core/client/chat";
 import { invalidateConversationList } from "../../core/client/react/conversation-list";
 import { useChatAdapter, useI18n } from "../../core/client/react/provider";
+import { serverErrorText } from "../../core/client/rpc-error";
 
 import { MessageRow } from "../chat/message-row";
 
@@ -16,7 +17,8 @@ export type SharedViewer = { signedIn: boolean; signInUrl: string };
 /** "Continue this Conversation": copies the snapshot into the viewer's account and opens it. */
 function ContinueConversation({ token, viewer }: { token: string; viewer: SharedViewer }) {
   const { orpc, navigate } = useChatAdapter();
-  const { t } = useI18n();
+  const i18n = useI18n();
+  const { t } = i18n;
   const queryClient = useQueryClient();
   const continueShared = useMutation(orpc.share.continue.mutationOptions());
 
@@ -34,7 +36,7 @@ function ContinueConversation({ token, viewer }: { token: string; viewer: Shared
       void invalidateConversationList(queryClient, orpc);
       await navigate({ to: "conversation", id });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("pages.couldntContinue"));
+      toast.error(serverErrorText(i18n, error, "pages.couldntContinue"));
     }
   };
 

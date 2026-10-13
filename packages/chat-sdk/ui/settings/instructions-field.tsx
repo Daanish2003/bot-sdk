@@ -8,6 +8,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { useI18n, useOrpc } from "../../core/client/react/provider";
+import { serverErrorText } from "../../core/client/rpc-error";
 
 /**
  * The Instructions field: one free-text note sent with every Run from the next one. Saving over
@@ -16,7 +17,8 @@ import { useI18n, useOrpc } from "../../core/client/react/provider";
 export function InstructionsField() {
   const queryClient = useQueryClient();
   const orpc = useOrpc();
-  const { t, locale } = useI18n();
+  const i18n = useI18n();
+  const { t, locale } = i18n;
   const settings = useQuery(orpc.settings.get.queryOptions());
   const settingsKey = orpc.settings.get.queryKey();
   // `null` until the user types, so the field shows what is saved.
@@ -72,7 +74,7 @@ export function InstructionsField() {
         </div>
         {save.error ? (
           <p role="alert" className="text-xs text-destructive">
-            {save.error.message}
+            {serverErrorText(i18n, save.error)}
           </p>
         ) : (
           <p className="text-xs text-muted-foreground">{t("settings.instructionsHelp")}</p>

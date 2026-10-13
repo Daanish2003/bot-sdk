@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import { describeError } from "../../../core/client/chat";
+import { renamePromptText } from "../../../core/client/react/conversation-actions";
+import { deleteConfirmText } from "../../../core/client/react/delete-conversation";
+import { recentConversations } from "../../../core/client/search";
 import { missingCredentialsMessage } from "../../../core/client/models";
 import { describeSearch, describeSearches, searchToggle } from "../../../core/client/web-search";
 import { createI18n } from "../../../core/shared/i18n";
@@ -74,5 +77,26 @@ describe("core copy through the dictionary", () => {
       "Choisissez un autre modèle",
     );
     expect(reasoningChoiceLabel(partial, "low")).toBe("Low");
+  });
+
+  it("wraps the delete confirmation and the rename prompt", () => {
+    expect(deleteConfirmText(wrapped, { title: "Trip", shared: false })).toBe(
+      '⟦Delete "Trip"? This can\'t be undone.⟧',
+    );
+    expect(deleteConfirmText(wrapped, { title: "Trip", shared: true })).toBe(
+      '⟦Delete "Trip"? This also deletes its Shared link. This can\'t be undone.⟧',
+    );
+    expect(renamePromptText(wrapped)).toBe("⟦Rename Conversation⟧");
+  });
+
+  it("reads Untitled from the dictionary, in the delete confirmation and the palette's search", () => {
+    const french = createI18n({ "shell.untitled": "Sans titre" }, "fr");
+
+    expect(deleteConfirmText(french, { title: null, shared: false })).toBe(
+      'Delete "Sans titre"? This can\'t be undone.',
+    );
+    expect(
+      recentConversations(french, [{ id: "1", title: null }], "sans").map((c) => c.id),
+    ).toEqual(["1"]);
   });
 });

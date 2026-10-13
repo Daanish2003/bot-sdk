@@ -14,6 +14,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { useChatAdapter, useI18n, useOrpc } from "../../core/client/react/provider";
+import { serverErrorText } from "../../core/client/rpc-error";
 import { ConversationRow } from "../shell/conversation-panel";
 import { EditProjectForm } from "./edit-project-form";
 
@@ -103,7 +104,8 @@ function DeleteProjectButton({ projectId }: { projectId: string }) {
   const orpc = useOrpc();
   const queryClient = useQueryClient();
   const { navigate } = useChatAdapter();
-  const { t } = useI18n();
+  const i18n = useI18n();
+  const { t } = i18n;
   const [open, setOpen] = useState(false);
   const count = useQuery(
     orpc.project.conversationCount.queryOptions({ input: { id: projectId }, enabled: open }),
@@ -125,7 +127,7 @@ function DeleteProjectButton({ projectId }: { projectId: string }) {
         ]);
         await navigate({ to: "new" });
       },
-      onError: (error) => toast.error(error.message),
+      onError: (error) => toast.error(serverErrorText(i18n, error)),
     }),
   );
   const total = count.data?.count;

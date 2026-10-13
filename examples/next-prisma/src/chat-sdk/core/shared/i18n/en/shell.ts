@@ -13,6 +13,9 @@ export const shellMessages = {
   "shell.rename": "Rename",
   "shell.conversationTitle": "Conversation title",
   "shell.untitled": "Untitled",
+  "shell.renameConversation": "Rename Conversation",
+  "shell.deleteConfirm": ({ title, shared }: { title: string; shared: boolean }) =>
+    `Delete "${title}"?${shared ? " This also deletes its Shared link." : ""} This can't be undone.`,
   "shell.pickAModel": "Pick a Model",
   "shell.model": "Model",
   "shell.searchModels": "Search Models",

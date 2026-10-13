@@ -15,8 +15,7 @@ export function ExportDataButton() {
     try {
       const response = await fetch(exportUrl);
       if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as { message?: string } | null;
-        toast.error(body?.message ?? t("settings.exportFailed"));
+        toast.error(t("settings.exportFailed"));
         return;
       }
       const fileName = /filename="([^"]+)"/.exec(
