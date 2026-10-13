@@ -16,11 +16,12 @@ export async function insertGeneratedImage(
   deps: AppDeps,
   user: TestUser,
   conversationId: string,
-  { prompt = "a red bicycle" }: { prompt?: string } = {},
+  { prompt = "a red bicycle", parentId = null }: { prompt?: string; parentId?: string | null } = {},
 ) {
   const id = uuidv7();
   const reply = await insertMessage({
     conversationId,
+    parentId,
     role: "assistant",
     text: "",
     parts: storedParts([

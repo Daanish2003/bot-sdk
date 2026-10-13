@@ -6,22 +6,39 @@ import type { GeneratedImagePart } from "../../core/shared/message-parts";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { BanIcon, DownloadIcon, SparklesIcon, TriangleAlertIcon, ZoomInIcon } from "lucide-react";
+import {
+  BanIcon,
+  DownloadIcon,
+  ImageIcon,
+  SparklesIcon,
+  TriangleAlertIcon,
+  ZoomInIcon,
+} from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
+
+/**
+ * An image an edit started from, as its chip shows it. A Generated image has an `imageId`, so the
+ * chip has its thumbnail; an image Attachment has none and shows an icon.
+ */
+export type EditSource = { label: string; imageId?: string };
 
 /**
  * One `generate_image` call of a reply (spec #278), at the shape it asked for. A running image is a
  * placeholder with a counter; a failed one says why; a stopped one says it was stopped. A finished
- * one is its picture, served by the owner's route under `imagesUrl`, with Zoom and Download. To give
- * images their own look, edit this file in the Host's `ui/`; the SDK copy never overwrites it.
+ * one is its picture, served by the owner's route under `imagesUrl`, with Zoom and Download. An
+ * edit starts its caption with an "edited from" chip per source. To give images their own look,
+ * edit this file in the Host's `ui/`; the SDK copy never overwrites it.
  */
 export function GeneratedImageBlock({
   image,
   imagesUrl,
+  editedFrom = [],
 }: {
   image: GeneratedImagePart;
   /** Where the owner's route serves the image bytes: `<chat base>/generated-images`. */
   imagesUrl: string;
+  /** The images this one was edited from, in the order the edit named them. */
+  editedFrom?: EditSource[];
 }) {
   const [zoomed, setZoomed] = useState(false);
   return (
@@ -60,8 +77,32 @@ export function GeneratedImageBlock({
           </Dialog>
         </div>
       )}
-      <figcaption className="text-xs text-muted-foreground italic">{image.prompt}</figcaption>
+      <figcaption className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground italic">
+        {editedFrom.map((source, index) => (
+          <EditedFromChip key={index} source={source} imagesUrl={imagesUrl} />
+        ))}
+        <span>{image.prompt}</span>
+      </figcaption>
     </figure>
+  );
+}
+
+/** The "edited from" chip: the source's thumbnail, or an icon, then its label (spec #278). */
+function EditedFromChip({ source, imagesUrl }: { source: EditSource; imagesUrl: string }) {
+  return (
+    <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border bg-muted px-1.5 py-0.5 not-italic">
+      {source.imageId ? (
+        <img
+          src={`${imagesUrl}/${source.imageId}`}
+          alt=""
+          className="size-5 shrink-0 rounded object-cover"
+        />
+      ) : (
+        <ImageIcon className="size-3.5 shrink-0" aria-hidden />
+      )}
+      <span className="shrink-0">Edited from</span>
+      <span className="truncate">{source.label}</span>
+    </span>
   );
 }
 

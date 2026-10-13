@@ -45,7 +45,7 @@ import {
   useAttachmentDraft,
 } from "./attachments";
 
-import { GeneratedImageBlock } from "./generated-image-block";
+import { type EditSource, GeneratedImageBlock } from "./generated-image-block";
 import { SearchRow } from "./search-row";
 import { replyComponents, ReplySources, SourceChips } from "./source-chips";
 import { ToolCallRow } from "./tool-call-row";
@@ -108,6 +108,7 @@ export function MessageRow({
   actions,
   highlighted = false,
   contextCut = false,
+  editSources,
 }: {
   message: UIMessage;
   userLabel?: string;
@@ -116,6 +117,8 @@ export function MessageRow({
   highlighted?: boolean;
   /** The Model's context starts at this Message on the Branch: a marker sits above it. */
   contextCut?: boolean;
+  /** The images on the Branch an edit can start from, by id (`editSourcesOf`). */
+  editSources?: ReadonlyMap<string, EditSource>;
 }) {
   const info = messageInfo(message);
   const text = plainText(message);
@@ -245,7 +248,11 @@ export function MessageRow({
               {thinking && (
                 <Thinking text={thinking} inProgress={info.status === "streaming" && !text} />
               )}
-              <AssistantParts parts={message.parts} onDecide={actions?.onDecide} />
+              <AssistantParts
+                parts={message.parts}
+                onDecide={actions?.onDecide}
+                editSources={editSources}
+              />
               {info.status === "streaming" && !thinking && waitingForText(message.parts) && (
                 <Loader variant="typing" size="sm" />
               )}
@@ -441,12 +448,34 @@ function EditBox({
  * A reply's text and web searches, in stream order. Back-to-back searches share one row; links
  * to the reply's Sources render as their numbered citation chips.
  */
+/**
+ * The images a Branch's Messages hold, by id, for an edit's "edited from" chip (spec #278). A
+ * finished Generated image is labelled by its prompt; an image Attachment by its file name.
+ */
+export function editSourcesOf(messages: UIMessage[]): Map<string, EditSource> {
+  const sources = new Map<string, EditSource>();
+  for (const message of messages) {
+    for (const part of message.parts) {
+      const image = generatedImageOf(part);
+      if (image?.state === "done" && image.imageId) {
+        sources.set(image.imageId, { label: image.prompt, imageId: image.imageId });
+      }
+    }
+    for (const file of messageAttachments(message)) {
+      if (file.id) sources.set(file.id, { label: file.filename });
+    }
+  }
+  return sources;
+}
+
 function AssistantParts({
   parts,
   onDecide,
+  editSources,
 }: {
   parts: UIMessage["parts"];
   onDecide?: (approved: boolean, allowForConversation?: boolean) => void;
+  editSources?: ReadonlyMap<string, EditSource>;
 }) {
   const sources = sourcesOf(parts);
   const { generatedImagesUrl } = useChatAdapter();
@@ -466,6 +495,9 @@ function AssistantParts({
             key={segment.key}
             image={segment.image}
             imagesUrl={generatedImagesUrl}
+            editedFrom={segment.image.editedFrom?.map(
+              (id) => editSources?.get(id) ?? { label: "an earlier image" },
+            )}
           />
         ) : segment.type === "searches" ? (
           <SearchRow key={segment.key} searches={segment.searches} sources={sources} />

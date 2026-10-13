@@ -28,7 +28,7 @@ import { quotaBlocksModel } from "../../core/client/quota";
 import { AttachButton, DraftAttachmentChips, useAttachmentDraft } from "./attachments";
 import { Composer } from "./composer";
 import { ContextOverflowNotice, ContextRing } from "./context-ring";
-import { MessageRow } from "./message-row";
+import { editSourcesOf, MessageRow } from "./message-row";
 import { MissingCredentialsBanner } from "./missing-credentials-banner";
 import { QuotaBanner } from "./quota-banner";
 import { TemporaryBanner } from "./temporary-banner";
@@ -303,6 +303,7 @@ function ChatThread({
 
   // The Messages the Model's context starts at, on the Branch shown (issue #122).
   const contextCuts = contextCutIds(messages);
+  const editSources = editSourcesOf(messages);
 
   const highlighted = useFocusMessage({
     target: focusMessageId,
@@ -333,6 +334,7 @@ function ChatThread({
               key={message.id}
               message={message}
               highlighted={message.id === highlighted}
+              editSources={editSources}
               contextCut={contextCuts.has(message.id)}
               actions={{
                 streaming: streaming || switchBranch.isPending,

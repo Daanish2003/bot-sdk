@@ -14,6 +14,7 @@ import { rateLimitedFor } from "../rate-limits";
 import { resolveModel } from "./available-models";
 import { resolveImageModelFor } from "./image-models";
 import { imageRequestFor } from "./adapters";
+import { editSourcesOf } from "./edit-sources";
 import { imageCancelsUpstream } from "./host-usage";
 import type { AspectRatio } from "../../shared/chat/generated-image";
 import { parseStoredParts, searchTextOf, toModelMessages } from "../../shared/chat/parts";
@@ -151,12 +152,19 @@ export async function handleChat(
       imageAdapter = undefined;
     }
   }
+  // The images an edit may name: the image Attachments and Generated images on this Branch (spec #278).
+  const editSources = editSourcesOf(deps, {
+    userId,
+    pathMessageIds: history.map((row) => row.id),
+    attachments: [...history.flatMap((row) => attachments.ofHistory(row)), ...attachments.added],
+  });
   const imageTool =
     image && imageAdapter
       ? {
           adapter: imageAdapter,
           request: (aspectRatio: AspectRatio) =>
             imageRequestFor(image.id, aspectRatio, image.hostModel),
+          edit: { maxInputImages: image.maxInputImages, sources: editSources },
           // Only a Host Image Model has a price, so a BYOK image records its usage with no Host cost.
           meter: {
             userId,

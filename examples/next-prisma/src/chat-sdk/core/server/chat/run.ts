@@ -27,6 +27,7 @@ import { createWebSearchTool } from "./web-search-tool";
 import { paidCallAllowed } from "./quota";
 import { createFetchUrlTool } from "./fetch-url-tool";
 import { createGenerateImageTool } from "./generate-image-tool";
+import type { EditSource } from "./edit-sources";
 import type { ImageRequest } from "./adapters";
 import type { AspectRatio } from "../../shared/chat/generated-image";
 import { cancelChannel, heartbeatExpired, listenForStop, stopRequested } from "./stop";
@@ -100,6 +101,11 @@ export async function startRun(
       adapter: AnyImageAdapter;
       meter: ImageMeter;
       request: (aspectRatio: AspectRatio) => ImageRequest;
+      /** The Image Model's input-image limit, and the path's images an edit may read (spec #278). */
+      edit?: {
+        maxInputImages: number;
+        sources: (ids: string[]) => Promise<EditSource[] | undefined>;
+      };
     };
     /** The Host tools this reply offers (none when its Model has no tools). */
     hostTools?: HostServerTool[];
@@ -228,6 +234,7 @@ export async function startRun(
                 adapter: image.adapter,
                 meter: image.meter,
                 request: image.request,
+                edit: image.edit,
                 messageId,
                 deps,
                 fetch: deps.fetch,

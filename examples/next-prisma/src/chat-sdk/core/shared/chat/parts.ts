@@ -48,7 +48,12 @@ export type StoredMessage = {
   attachments?: StoredAttachment[];
 };
 
-export type StoredAttachment = { filename: string; mediaType: string; bytes: Uint8Array };
+export type StoredAttachment = {
+  id: string;
+  filename: string;
+  mediaType: string;
+  bytes: Uint8Array;
+};
 
 /** What the Model reads besides text. */
 export type ModelReads = { images: boolean; pdfs: boolean };
@@ -169,13 +174,16 @@ export function createPartsBuilder(initial: StoredPart[] = []) {
     /** Ends a running `generate_image` call: with the image it made, or with why it failed. */
     finishGeneratedImage(
       toolCallId: string,
-      outcome: { imageId: string } | { errorReason: GeneratedImageErrorReason },
+      outcome:
+        | { imageId: string; editedFrom?: string[] }
+        | { errorReason: GeneratedImageErrorReason },
     ) {
       const part = runningImage(toolCallId);
       if (!part) return;
       if ("imageId" in outcome) {
         part.state = "done";
         part.imageId = outcome.imageId;
+        if (outcome.editedFrom) part.editedFrom = outcome.editedFrom;
       } else {
         part.state = "error";
         part.errorReason = outcome.errorReason;
@@ -361,7 +369,11 @@ function withToolCalls({ role, parts }: StoredMessage, offered: OfferedTools): M
             : call.type === "generated_image"
               ? {
                   name: generateImageToolName,
-                  arguments: JSON.stringify({ prompt: call.prompt, aspectRatio: call.aspectRatio }),
+                  arguments: JSON.stringify({
+                    prompt: call.prompt,
+                    aspectRatio: call.aspectRatio,
+                    ...(call.editedFrom && { editImageIds: call.editedFrom }),
+                  }),
                 }
               : { name: call.name, arguments: JSON.stringify(call.args) },
       }));
@@ -469,7 +481,7 @@ export function toModelMessages(
       messages[0] = {
         ...first,
         content: [
-          ...attachments.map((file) => attachmentPart(file, reads)),
+          ...attachments.flatMap((file) => attachmentParts(file, reads)),
           { type: "text", content: first.content },
         ],
       };
@@ -487,27 +499,33 @@ export function toModelMessages(
 
 /**
  * An attachment as the Provider gets it: images and PDFs as inline base64 when the Model reads
- * them, text files as fenced text, anything else as a short placeholder.
+ * them, text files as fenced text, anything else as a short placeholder. An image is preceded by
+ * a `[Attachment id: …]` note, so the Model can name it to an edit (spec #278).
  */
-function attachmentPart(
-  { filename, mediaType, bytes }: StoredAttachment,
+function attachmentParts(
+  { id, filename, mediaType, bytes }: StoredAttachment,
   reads: ModelReads,
-): ContentPart {
+): ContentPart[] {
   const kind = attachmentKind(mediaType, filename);
   const source = { type: "data" as const, value: toBase64(bytes), mimeType: mediaType };
-  if (kind === "image" && reads.images) return { type: "image", source };
-  if (kind === "pdf" && reads.pdfs) return { type: "document", source, metadata: { filename } };
+  const note: ContentPart[] =
+    kind === "image" ? [{ type: "text", content: `[Attachment id: ${id}]` }] : [];
+  if (kind === "image" && reads.images) return [...note, { type: "image", source }];
+  if (kind === "pdf" && reads.pdfs) return [{ type: "document", source, metadata: { filename } }];
   if (kind === "text") {
     const fileText = new TextDecoder().decode(bytes);
     const longestRun = Math.max(0, ...(fileText.match(/`+/g) ?? []).map((run) => run.length));
     const fence = "`".repeat(Math.max(3, longestRun + 1));
-    return { type: "text", content: `${filename}\n${fence}\n${fileText}\n${fence}` };
+    return [{ type: "text", content: `${filename}\n${fence}\n${fileText}\n${fence}` }];
   }
   const [label, plural] = kind ? [kindLabel(kind), kindLabelPlural(kind)] : ["file", "files"];
-  return {
-    type: "text",
-    content: `[Attached ${label} "${filename}" left out: this Model can't read ${plural}]`,
-  };
+  return [
+    ...note,
+    {
+      type: "text",
+      content: `[Attached ${label} "${filename}" left out: this Model can't read ${plural}]`,
+    },
+  ];
 }
 
 function toBase64(bytes: Uint8Array) {
@@ -546,7 +564,11 @@ export function toUIParts(parts: StoredParts): MessagePart[] {
  * its prompt and shape as input and the image or the failure as output (spec #278).
  */
 function generatedImageUIPart(part: GeneratedImagePart): MessagePart {
-  const input = { prompt: part.prompt, aspectRatio: part.aspectRatio };
+  const input = {
+    prompt: part.prompt,
+    aspectRatio: part.aspectRatio,
+    ...(part.editedFrom && { editImageIds: part.editedFrom }),
+  };
   return {
     type: "tool-call",
     id: part.toolCallId,

@@ -66,7 +66,8 @@ export const generatedImageErrorReasons = [
 /**
  * One `generate_image` tool call of a reply and how it went (spec #278), shaped like a search. The
  * image itself is the `generated_image` row its `imageId` names. `prompt` is what the Model asked
- * for, and `aspectRatio` the shape it asked for.
+ * for, and `aspectRatio` the shape it asked for. `editedFrom` holds the ids of the images (Generated
+ * images or image Attachments) an edit started from.
  */
 export const generatedImagePartSchema = z.object({
   type: z.literal("generated_image"),
@@ -76,6 +77,7 @@ export const generatedImagePartSchema = z.object({
   state: z.enum(["running", "done", "error", "cancelled"]),
   imageId: z.string().optional(),
   errorReason: z.enum(generatedImageErrorReasons).optional(),
+  editedFrom: z.array(z.string()).optional(),
 });
 
 export const storedPartSchema = z.discriminatedUnion("type", [
