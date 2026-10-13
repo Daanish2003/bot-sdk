@@ -4,11 +4,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { PlusIcon } from "lucide-react";
-import { type MouseEvent, useState } from "react";
+import { type FormEvent, type MouseEvent, useState } from "react";
 
 import {
-  createName,
   firstLine,
+  lastRowLabel,
   rankSavedPrompts,
   savedPromptDraftError,
 } from "../../core/client/saved-prompts-menu";
@@ -37,7 +37,6 @@ export function SlashMenuList({
   onPick: (index: number) => void;
 }) {
   const matches = rankSavedPrompts(prompts, query);
-  const newName = matches.length === 0 ? createName(query) : undefined;
   // Clicks keep the textarea's focus; the pick inserts and focuses it.
   const keepFocus = (event: MouseEvent) => event.preventDefault();
   return (
@@ -78,15 +77,80 @@ export function SlashMenuList({
         )}
       >
         <PlusIcon className="size-3.5" aria-hidden />
-        {newName ? `Create /${newName}…` : "New Saved prompt…"}
+        {lastRowLabel(query, matches.length)}
       </button>
     </div>
   );
 }
 
 /**
+ * The create form's fields and buttons, without state. `status` is the line under them: the
+ * server's message or the reason the draft can't be saved, or a hint when neither applies.
+ */
+export function SavedPromptFormView({
+  name,
+  onName,
+  text,
+  onText,
+  status,
+  canSave,
+  saving,
+  onSubmit,
+  onCancel,
+}: {
+  name: string;
+  onName: (name: string) => void;
+  text: string;
+  onText: (text: string) => void;
+  status: string;
+  canSave: boolean;
+  saving: boolean;
+  onSubmit: (event: FormEvent) => void;
+  onCancel: () => void;
+}) {
+  return (
+    <form className="flex flex-col gap-2 p-3" onSubmit={onSubmit}>
+      <span className="text-xs font-medium">New Saved prompt</span>
+      <label className="flex items-center gap-1 text-sm">
+        <span className="text-muted-foreground">/</span>
+        <Input
+          aria-label="Name"
+          autoFocus
+          value={name}
+          onChange={(event) => onName(event.target.value)}
+          placeholder="name"
+          className="h-8"
+        />
+      </label>
+      <Textarea
+        aria-label="Text"
+        value={text}
+        onChange={(event) => onText(event.target.value)}
+        rows={5}
+        placeholder="The text it inserts"
+        className="resize-none text-sm"
+      />
+      <div className="flex items-center justify-between gap-2">
+        <span role="status" className="text-xs text-muted-foreground">
+          {status}
+        </span>
+        <div className="flex gap-1">
+          <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button type="submit" size="sm" disabled={!canSave || saving}>
+            Save
+          </Button>
+        </div>
+      </div>
+    </form>
+  );
+}
+
+/**
  * The create row's form, in the popover: name (prefilled from the query), text, then Save, which
- * saves the prompt and hands its text back to insert. The reason it can't save shows in the form.
+ * saves the prompt, refreshes the cached list and hands the text back to insert. The server's
+ * message, or the reason the draft can't be saved, shows in the form.
  */
 export function SavedPromptForm({
   prompts,
@@ -116,48 +180,26 @@ export function SavedPromptForm({
   );
 
   return (
-    <form
-      className="flex flex-col gap-2 p-3"
+    <SavedPromptFormView
+      name={name}
+      onName={(next) => {
+        setName(next);
+        setServerError(undefined);
+      }}
+      text={text}
+      onText={(next) => {
+        setText(next);
+        setServerError(undefined);
+      }}
+      status={serverError ?? draftError ?? "Saves, then inserts it."}
+      canSave={!draftError}
+      saving={create.isPending}
       onSubmit={(event) => {
         event.preventDefault();
         if (draftError || create.isPending) return;
-        setServerError(undefined);
         create.mutate({ name, text });
       }}
-    >
-      <span className="text-xs font-medium">New Saved prompt</span>
-      <label className="flex items-center gap-1 text-sm">
-        <span className="text-muted-foreground">/</span>
-        <Input
-          aria-label="Name"
-          autoFocus
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          placeholder="name"
-          className="h-8"
-        />
-      </label>
-      <Textarea
-        aria-label="Text"
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-        rows={5}
-        placeholder="The text it inserts"
-        className="resize-none text-sm"
-      />
-      <div className="flex items-center justify-between gap-2">
-        <span role="status" className="text-xs text-muted-foreground">
-          {serverError ?? draftError ?? "Saves, then inserts it."}
-        </span>
-        <div className="flex gap-1">
-          <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
-            Cancel
-          </Button>
-          <Button type="submit" size="sm" disabled={Boolean(draftError) || create.isPending}>
-            Save
-          </Button>
-        </div>
-      </div>
-    </form>
+      onCancel={onCancel}
+    />
   );
 }

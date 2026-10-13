@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { SlashMenuList } from "../../../ui/chat/slash-menu";
+import { SavedPromptFormView, SlashMenuList } from "../../../ui/chat/slash-menu";
 
 const prompts = [
   { name: "review", text: "\n  Review this code for bugs first.\nThen readability." },
@@ -61,5 +61,51 @@ describe("the / menu's rows", () => {
 
   it("shows no empty state while the list is still loading", () => {
     expect(render({ prompts: [], loaded: false })).not.toContain("No Saved prompts yet");
+  });
+});
+
+function renderForm(props: Partial<Parameters<typeof SavedPromptFormView>[0]>) {
+  return renderToStaticMarkup(
+    createElement(SavedPromptFormView, {
+      name: "",
+      onName: () => {},
+      text: "",
+      onText: () => {},
+      status: "Saves, then inserts it.",
+      canSave: true,
+      saving: false,
+      onSubmit: () => {},
+      onCancel: () => {},
+      ...props,
+    }),
+  );
+}
+
+describe("the create form in the / menu", () => {
+  it("prefills the name field from the query and offers a text field, Save and Cancel", () => {
+    const markup = renderForm({ name: "xyz" });
+
+    expect(markup).toContain('value="xyz"');
+    expect(markup).toContain('aria-label="Text"');
+    expect(markup).toContain(">Save</button>");
+    expect(markup).toContain(">Cancel</button>");
+  });
+
+  it("shows the server's message in the form and keeps Save disabled while it is shown", () => {
+    const markup = renderForm({
+      name: "review",
+      status: 'You already have a Saved prompt named "review"',
+      canSave: false,
+    });
+
+    expect(markup).toContain("You already have a Saved prompt named &quot;review&quot;");
+    expect(markup).toMatch(/disabled=""[^>]*>Save/);
+  });
+
+  it("shows why a draft can't be saved, such as blank text", () => {
+    const markup = renderForm({ name: "eli5", status: "Text can't be blank", canSave: false });
+
+    expect(markup).toContain("Text can&#x27;t be blank");
+    expect(markup).not.toContain("Saves, then inserts it.");
   });
 });

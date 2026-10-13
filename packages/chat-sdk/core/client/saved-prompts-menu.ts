@@ -54,6 +54,12 @@ export function createName(query: string): string | undefined {
   return savedPromptNamePattern.test(query) ? query : undefined;
 }
 
+/** The last row's label: "Create /xyz…" when nothing matches and the query is a valid name. */
+export function lastRowLabel(query: string, matchCount: number): string {
+  const name = matchCount === 0 ? createName(query) : undefined;
+  return name ? `Create /${name}…` : "New Saved prompt…";
+}
+
 /** Why a new or edited Saved prompt can't be saved, as the form shows it; undefined when it can. */
 export function savedPromptDraftError(
   prompts: { name: string }[],

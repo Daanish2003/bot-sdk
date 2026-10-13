@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   createName,
   firstLine,
+  lastRowLabel,
   rankSavedPrompts,
   savedPromptDraftError,
   slashQuery,
@@ -62,6 +63,21 @@ describe("createName", () => {
     expect(createName("xyz")).toBe("xyz");
     expect(createName("")).toBeUndefined();
     expect(createName("Bad_Name")).toBeUndefined();
+  });
+});
+
+describe("lastRowLabel", () => {
+  it("creates the query as a name when nothing matches and it is a valid name", () => {
+    expect(lastRowLabel("xyz", 0)).toBe("Create /xyz…");
+  });
+
+  it("is New Saved prompt… when something matches, even for a valid query", () => {
+    expect(lastRowLabel("rev", 2)).toBe("New Saved prompt…");
+  });
+
+  it("is New Saved prompt… when the query is empty or not a valid name", () => {
+    expect(lastRowLabel("", 0)).toBe("New Saved prompt…");
+    expect(lastRowLabel("Bad Name", 0)).toBe("New Saved prompt…");
   });
 });
 
