@@ -156,6 +156,49 @@ export async function updateArtifact(
   });
 }
 
+/** The latest version of one Artifact on a Branch, as the Model is sent it (ADR 0016). */
+export type LatestOnBranch = {
+  artifactId: string;
+  kind: ArtifactKind;
+  number: number;
+  title: string;
+  language: string | null;
+  content: string;
+};
+
+/**
+ * The latest version of each Artifact of the Conversation on the Branch that ends at `leafId`,
+ * oldest Artifact first. Only versions written by Messages on that path count, so a version on
+ * another Branch is never returned. Nothing when the Branch has no Artifact (or `leafId` is null).
+ */
+export async function latestOnBranch(
+  deps: Deps,
+  conversationId: string,
+  leafId: string | null,
+): Promise<LatestOnBranch[]> {
+  const pathIds = (await loadPath(deps, conversationId, leafId)).map((row) => row.id);
+  if (pathIds.length === 0) return [];
+  const rows = await deps.db
+    .selectDistinctOn([artifactVersion.artifactId], {
+      artifactId: artifactVersion.artifactId,
+      kind: artifact.kind,
+      number: artifactVersion.number,
+      title: artifactVersion.title,
+      language: artifactVersion.language,
+      content: artifactVersion.content,
+      createdAt: artifact.createdAt,
+    })
+    .from(artifactVersion)
+    .innerJoin(artifact, eq(artifact.id, artifactVersion.artifactId))
+    .where(
+      and(eq(artifact.conversationId, conversationId), inArray(artifactVersion.messageId, pathIds)),
+    )
+    .orderBy(artifactVersion.artifactId, desc(artifactVersion.number));
+  return rows
+    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+    .map(({ createdAt: _createdAt, ...latest }) => latest);
+}
+
 /** One version of an Artifact, as its owner reads it. */
 export type ArtifactVersionView = {
   artifactId: string;

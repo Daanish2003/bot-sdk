@@ -57,19 +57,23 @@ export function thinking(...deltas: string[]): Chunks {
 /**
  * A tool call the model asks for. A round containing one finishes with `tool_calls`. Its arguments
  * stream as `split` TOOL_CALL_ARGS deltas (one by default), as a Provider streams a long call.
+ * `raw` streams those exact characters instead of `input`'s JSON, for arguments cut off mid-write;
+ * such a call ends without an input, as the cut-off Provider's does.
  */
 export function toolCall({
   id: toolCallId = id("fake-call"),
   name,
   input,
   split = 1,
+  raw,
 }: {
   id?: string;
   name: string;
   input: unknown;
   split?: number;
+  raw?: string;
 }): Chunks {
-  const json = JSON.stringify(input);
+  const json = raw ?? JSON.stringify(input);
   const size = Math.ceil(json.length / split);
   const deltas = Array.from({ length: split }, (_, i) => json.slice(i * size, (i + 1) * size));
   return [
@@ -86,7 +90,13 @@ export function toolCall({
       delta,
       timestamp: Date.now(),
     })),
-    { type: EventType.TOOL_CALL_END, toolCallId, toolCallName: name, input, timestamp: Date.now() },
+    {
+      type: EventType.TOOL_CALL_END,
+      toolCallId,
+      toolCallName: name,
+      ...(raw === undefined ? { input } : {}),
+      timestamp: Date.now(),
+    },
   ];
 }
 

@@ -225,18 +225,29 @@ const finished = (part: WebSearchPart | ToolCallPart) =>
 
 /**
  * A `create_artifact` or `update_artifact` call. It is stored as a tool call (for the budget and a
- * failed card) and, once saved, as an `artifact` part; the Model never replays either, as before
- * Artifacts were calls.
+ * failed card) and, once saved, as an `artifact` part. Its stored arguments hold no content or
+ * edits, so the Model replays it as a stub (ADR 0016); the content comes with the latest version.
  */
 const isArtifactCall = (part: StoredPart) =>
   part.type === "tool_call" &&
   (part.name === createArtifactToolName || part.name === updateArtifactToolName);
 
-/** A finished search or tool call the Model replays (an Artifact call is not replayed). */
+/** A finished search or tool call the Model may replay. */
 const replayable = (part: StoredPart): part is WebSearchPart | ToolCallPart =>
-  (part.type === "web_search" || part.type === "tool_call") &&
-  finished(part) &&
-  !isArtifactCall(part);
+  (part.type === "web_search" || part.type === "tool_call") && finished(part);
+
+/**
+ * What the Model reads back for a finished call. An Artifact call that saved a version reads as a
+ * short stub ("saved as v3"); any other call reads its search output or stored result.
+ */
+function resultOf(part: WebSearchPart | ToolCallPart): unknown {
+  if (part.type === "web_search") return searchOutput(part);
+  if (isArtifactCall(part) && part.state === "done") {
+    const saved = part.result as { version?: unknown } | null;
+    return `saved as v${String(saved?.version)}`;
+  }
+  return part.result ?? null;
+}
 
 /** A call's arguments as the model streamed them; an unreadable stream reads as no arguments. */
 function parseArgs(json: string): unknown {
@@ -281,11 +292,14 @@ type OfferedTools = {
   fetchUrl: boolean;
   hostTools: boolean;
   mcpTools: boolean;
+  /** Whether the request offers the Artifact tools (ADR 0016). */
+  artifacts: boolean;
 };
 
 /** A call a request offers its tool for, as the Model replays it: a Host or an MCP tool, by its source. */
 const offeredCall = (part: WebSearchPart | ToolCallPart, offered: OfferedTools) => {
   if (part.type === "web_search") return offered.webSearch;
+  if (isArtifactCall(part)) return offered.artifacts;
   if (part.name === fetchUrlToolName) return offered.fetchUrl;
   return part.source === "mcp" ? offered.mcpTools : offered.hostTools;
 };
@@ -317,9 +331,7 @@ function withToolCalls({ role, parts }: StoredMessage, offered: OfferedTools): M
         messages.push({
           role: "tool",
           toolCallId: call.toolCallId,
-          content: JSON.stringify(
-            call.type === "web_search" ? searchOutput(call) : (call.result ?? null),
-          ),
+          content: JSON.stringify(resultOf(call)),
         });
       }
     } else if (content) {
@@ -342,7 +354,8 @@ function withToolCalls({ role, parts }: StoredMessage, offered: OfferedTools): M
     } else if (replayable(part)) {
       if (offeredCall(part, offered)) {
         calls.push(part);
-      } else {
+      } else if (!isArtifactCall(part)) {
+        // An Artifact call whose tools aren't offered is left out, not written as text.
         if (calls.length > 0) flush();
         if (content) content += "\n\n";
         content += placeholderOf(part);
@@ -363,7 +376,7 @@ function withPlaceholders({ role, parts }: StoredMessage): ModelMessage[] {
       if (lastWasText) pieces[pieces.length - 1] += part.text;
       else pieces.push(part.text);
       lastWasText = true;
-    } else if (replayable(part)) {
+    } else if (replayable(part) && !isArtifactCall(part)) {
       pieces.push(placeholderOf(part));
       lastWasText = false;
     }
@@ -387,6 +400,7 @@ export function toModelMessages(
     fetchUrl = false,
     hostTools = false,
     mcpTools = false,
+    artifacts = false,
     reads = { images: false, pdfs: false },
   }: {
     provider?: string;
@@ -397,14 +411,16 @@ export function toModelMessages(
     hostTools?: boolean;
     /** Whether this request offers any MCP tools (spec #91). */
     mcpTools?: boolean;
+    /** Whether this request offers the Artifact tools; their calls then replay as stubs (ADR 0016). */
+    artifacts?: boolean;
     /** Attachments the Model can't read become text placeholders. */
     reads?: ModelReads;
   } = {},
 ): ModelMessage[] {
   return history.flatMap((stored) => {
     const messages =
-      webSearch || fetchUrl || hostTools || mcpTools
-        ? withToolCalls(stored, { webSearch, fetchUrl, hostTools, mcpTools })
+      webSearch || fetchUrl || hostTools || mcpTools || artifacts
+        ? withToolCalls(stored, { webSearch, fetchUrl, hostTools, mcpTools, artifacts })
         : withPlaceholders(stored);
     const [first] = messages;
     if (!first) return [];
