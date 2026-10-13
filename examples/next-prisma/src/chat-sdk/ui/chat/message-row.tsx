@@ -210,7 +210,7 @@ export function MessageRow({
                 {!isUser && !info.hidden && info.status === "complete" && (
                   <ReadAloud messageId={message.id} parts={message.parts} />
                 )}
-                {!isUser && ratableStatuses.has(info.status) && (
+                {!isUser && !info.hidden && ratableStatuses.has(info.status) && (
                   <RatingButtons
                     rating={info.rating}
                     disabled={actions.streaming}

@@ -404,17 +404,18 @@ const endedStatuses = ["complete", "stopped", "error"] as const;
 /**
  * Sets the owner's Rating of an ended assistant reply, or clears it with null. Only the latest is
  * kept. `live` covers a reply whose Run hasn't ended, checked again in the update so a Run that
- * starts in between can't be rated.
+ * starts in between can't be rated. `hidden` covers a Hidden reply, which is never ratable (#330).
  */
 export async function rateMessage(
   deps: Deps,
   userId: string,
   id: string,
   rating: "up" | "down" | null,
-): Promise<"rated" | "not_found" | "not_assistant" | "live"> {
+): Promise<"rated" | "not_found" | "not_assistant" | "hidden" | "live"> {
   const owned = await findMessage(deps, userId, id);
   if (!owned) return "not_found";
   if (owned.role !== "assistant") return "not_assistant";
+  if (owned.hiddenAt !== null) return "hidden";
   if (!(endedStatuses as readonly string[]).includes(owned.status)) return "live";
   const updated = await deps.db
     .update(message)

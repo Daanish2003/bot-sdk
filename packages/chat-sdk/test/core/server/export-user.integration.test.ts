@@ -391,3 +391,27 @@ describe("createChat().exportUser, Generated images", () => {
     expect(JSON.stringify(exported)).not.toContain(fakePngBase64);
   });
 });
+
+describe("createChat().exportUser, a Hidden reply's Rating", () => {
+  it("leaves the Rating out of a Hidden reply", async () => {
+    const owner = await insertUser();
+    const conv = await insertConversation(owner, { title: "Hidden rating" });
+    const question = await insertMessage({ conversationId: conv.id, role: "user", text: "Hi" });
+    const hidden = await insertMessage({
+      conversationId: conv.id,
+      parentId: question.id,
+      role: "assistant",
+      text: "",
+      rating: "up",
+      ratedAt: new Date(),
+      hiddenAt: new Date(),
+      hiddenReason: "policy",
+      active: true,
+    });
+
+    const exported = await chatFor().exportUser(owner.id);
+
+    const found = exported.conversations[0]!.messages.find((m) => m.id === hidden.id);
+    expect(found).toMatchObject({ hidden: true, rating: null });
+  });
+});

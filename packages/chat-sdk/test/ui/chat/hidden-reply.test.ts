@@ -44,6 +44,13 @@ describe("a Hidden reply", () => {
     expect(html).toContain('aria-label="Regenerate"');
   });
 
+  it("renders no thumbs on the hidden stub, even when its Run ended", () => {
+    const html = renderInChat(createElement(MessageRow, { message: reply(true), actions }));
+
+    expect(html).not.toContain('aria-label="Good reply"');
+    expect(html).not.toContain('aria-label="Bad reply"');
+  });
+
   it("renders a reply that is not hidden as before, with its text and Copy", () => {
     const html = renderInChat(createElement(MessageRow, { message: reply(false), actions }));
 
