@@ -331,7 +331,7 @@ export function createAppDeps({
     keyEncryptionSecrets,
     mcpServers,
     artifacts: artifacts ?? false,
-    jobs: jobs ?? inProcessRunner({ db, logger, deps: () => deps }),
+    jobs: jobs ?? inProcessRunner({ db, logger, drainMs: defaultLimits.drainMs, deps: () => deps }),
     memory: memory ?? true,
     clock: () => new Date(),
   };

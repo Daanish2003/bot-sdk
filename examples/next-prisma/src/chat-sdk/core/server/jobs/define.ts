@@ -14,14 +14,17 @@ export class PermanentJobError extends Error {
 }
 
 /**
- * A job as internal code declares it. Jobs are internal: a Host can't register its own. `run` gets
- * the SDK's dependencies from the runner that claimed it (`deps` in `inProcessRunner`), since a
- * job's models, adapters and clock are only known once `createChat` has built them.
+ * What a handler gets besides its payload. `signal` aborts at the next heartbeat after a cancel.
+ * `deps` are the SDK's dependencies, since a job's models, adapters and clock are only known once
+ * `createChat` has built them.
  */
+export type JobContext = { signal: AbortSignal; deps: AppDeps };
+
+/** A job as internal code declares it. Jobs are internal: a Host can't register its own. */
 export type JobDefinition<P> = {
   name: string;
   payload: z.ZodType<P>;
-  run: (payload: P, deps: AppDeps) => Promise<void>;
+  run: (payload: P, context: JobContext) => Promise<void>;
   /** Runs once, after the final failure (the last attempt, or a `PermanentJobError`). */
   onFailed?: (payload: P, error: unknown) => Promise<void> | void;
 };
@@ -30,7 +33,7 @@ export type JobDefinition<P> = {
 export type RegisteredJob = {
   name: string;
   payload: z.ZodType<unknown>;
-  run: (payload: unknown, deps: AppDeps) => Promise<void>;
+  run: (payload: unknown, context: JobContext) => Promise<void>;
   onFailed?: (payload: unknown, error: unknown) => Promise<void> | void;
 };
 
@@ -49,6 +52,25 @@ export function registeredJob(name: string): RegisteredJob | undefined {
   return registry.get(name);
 }
 
+/**
+ * Runs a registered job's handler in this process, with its payload validated against the job's
+ * schema. `chat.runJob` calls it, so a Host's own worker (such as a Trigger.dev task) can run a job.
+ * Errors reach the caller, which decides about retries.
+ */
+export async function runRegisteredJob(
+  name: string,
+  payload: unknown,
+  deps: AppDeps,
+): Promise<void> {
+  const job = registry.get(name);
+  if (!job) throw new Error(`Unknown job "${name}"`);
+  const parsed = job.payload.safeParse(payload);
+  if (!parsed.success) {
+    throw new Error(`Job "${name}" got an invalid payload: ${parsed.error.message}`);
+  }
+  await job.run(parsed.data, { signal: new AbortController().signal, deps });
+}
+
 /** Milliseconds to wait before attempt 2, 3, and so on: about 10 s, 1 min, then 5 min. */
 const retryBackoffMs = [10_000, 60_000, 300_000];
 
@@ -56,3 +78,19 @@ const retryBackoffMs = [10_000, 60_000, 300_000];
 export function backoffAfter(attempts: number): number {
   return retryBackoffMs[Math.min(attempts, retryBackoffMs.length) - 1] ?? retryBackoffMs.at(-1)!;
 }
+
+const DAY_MS = 86_400_000;
+
+/** Lease, heartbeat and retention for `chat.job` (ADR 0011). */
+export const JOB_TIMING = {
+  /** A running job writes `heartbeat_at` this often. */
+  heartbeatMs: 10_000,
+  /** A running job whose heartbeat is older than this has lost its lease. */
+  leaseMs: 60_000,
+  /** The longest one attempt may run before it is ended and counted as a failure. */
+  attemptCapMs: 15 * 60_000,
+  /** Succeeded and cancelled jobs are deleted this long after they end. */
+  retainDoneMs: 7 * DAY_MS,
+  /** Failed jobs are deleted this long after they end. */
+  retainFailedMs: 30 * DAY_MS,
+} as const;

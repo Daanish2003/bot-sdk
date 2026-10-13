@@ -81,7 +81,7 @@ async function memoryPlanOf(
 export const makeMemoriesJob = defineJob<MakeMemoriesPayload>({
   name: "memory.make",
   payload: makeMemoriesPayload,
-  run: makeMemories,
+  run: (payload, { deps }) => makeMemories(payload, deps),
 });
 
 /**

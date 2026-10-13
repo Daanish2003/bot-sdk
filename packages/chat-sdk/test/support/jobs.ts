@@ -1,5 +1,6 @@
 import type { AppDeps } from "../../core/server/deps";
 import type { Database } from "../../core/server/db/index";
+import { systemClock } from "../../core/server/jobs/in-process";
 import { claimJob, runClaimedJob } from "../../core/server/jobs/store";
 import { createTestDeps } from "./deps";
 import { getTestDb } from "./test-database";
@@ -35,7 +36,7 @@ export async function drainJobs({
     const claimed = await claimJob(db, new Date(), { respectRunAfter });
     if (!claimed) return ran;
     await runClaimedJob(db, claimed, {
-      now: () => new Date(),
+      clock: systemClock,
       logger: silent,
       deps: () => jobDeps,
     });
