@@ -168,6 +168,11 @@ const chat = createChat({
     onSharedLinkChanged: (link) => {
       // link: { userId, conversationId, change: "created" | "moved" | "removed" }
     },
+    // the input check: the user's Message before anything is saved (see Moderation below)
+    moderate: (check) => {
+      // check: { phase: "input", userId, conversationId, onHostCredentials, text,
+      //   attachments: [{ name, mediaType, read() }] } -> { allow: true } | { allow: false, reason? }
+    },
   },
 });
 ```
@@ -179,6 +184,30 @@ const chat = createChat({
 - **Failures.** A hook that throws or rejects is logged through the Host's `logger` (`logger.error`). The Run completes as normal.
 - **Credentials.** `onUsage` fires only for usage on Host credentials (ADR 0007), never for a Run on the user's own credentials.
 - **The SDK's failures.** Failed snapshot writes, Run Log appends, usage rows, title generation, the reaper and the database pool all go to the Host's `logger`. The Redis runtime's connection errors still go to `console`: `redisRuntime()` takes no logger yet.
+
+### Moderation
+
+`moderate` checks the user's Message before anything is saved. It runs after the Message's Attachments are validated and the Quota is checked, and before the Message is written or a Run starts. It is called for every Message the user sends, on Host credentials and on their own. It is not called for a regenerate, which writes no Message, nor for the Run that continues after an Approval.
+
+- **Input.** `check.text` is the Message's text. `check.attachments` holds its image and text Attachments (PDFs are not passed), each with `name`, `mediaType` and `read()`, which resolves to the file's bytes. `check.onHostCredentials` says whether the Run would use Host credentials, so a Host can skip one of the two.
+- **Refused.** `{ allow: false, reason? }` answers the request with HTTP 422 and the code `moderated`. The body carries `message` (the `reason`, or a default) and `reason`. Nothing is saved: no Message, no Run and no usage row. The composer keeps the user's text and shows the reason. Their Attachments are cleared with the send.
+- **Fails open.** A `moderate` that throws, rejects, or takes longer than 10 seconds lets the Message through and logs the failure through the Host's `logger`. There is no fail-closed setting: to refuse when your own check fails, catch the error and return `{ allow: false }`.
+- **No hook, no cost.** With no `moderate`, nothing is called and nothing is added to a send.
+- **Output.** Only the input check runs in this version. The check of a reply after its Run ends is not built yet.
+
+A moderation vendor's scores map to `{ allow }` in the Host:
+
+```ts
+moderate: async (check) => {
+  if (check.phase !== "input") return { allow: true };
+  // `vendor` is the Host's own moderation client; the scores are its per-category values in 0..1.
+  const scores = await vendor.score(check.text);
+  const flagged = Object.entries(scores).find(([, score]) => score >= 0.8);
+  return flagged
+    ? { allow: false, reason: `Your message was flagged as ${flagged[0]}.` }
+    : { allow: true };
+},
+```
 
 ## Several processes: `redisRuntime()`
 

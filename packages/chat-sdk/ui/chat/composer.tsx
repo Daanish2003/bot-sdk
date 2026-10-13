@@ -20,6 +20,9 @@ export function Composer({
   attachments,
   attachmentsPending = false,
   placeholder = "Message (Shift+Enter for a new line)",
+  value: controlledValue,
+  onValueChange,
+  refusal,
 }: {
   onSend: (text: string) => void;
   onStop?: () => void;
@@ -35,8 +38,15 @@ export function Composer({
   attachmentsPending?: boolean;
   /** Shown instead of the default hint, for example while a call waits for Approval. */
   placeholder?: string;
+  /** The text in the box. Leave it out and the composer keeps its own; pass it to restore a draft. */
+  value?: string;
+  onValueChange?: (value: string) => void;
+  /** Why the last Message was refused (#267), shown above the box. */
+  refusal?: string | null;
 }) {
-  const [value, setValue] = useState("");
+  const [ownValue, setOwnValue] = useState("");
+  const value = controlledValue ?? ownValue;
+  const setValue = onValueChange ?? setOwnValue;
   const canSend = !disabled && !streaming && !attachmentsPending && value.trim().length > 0;
 
   const submit = () => {
@@ -46,31 +56,38 @@ export function Composer({
   };
 
   return (
-    <PromptInput
-      value={value}
-      onValueChange={setValue}
-      onSubmit={submit}
-      isLoading={disabled || streaming}
-      className="bg-card"
-    >
-      {attachments}
-      <PromptInputTextarea
-        placeholder={placeholder}
-        className="text-sm text-foreground"
-        aria-label="Message"
-      />
-      <PromptInputActions className="justify-between px-1 pt-1">
-        <div className="flex items-center gap-1">{children}</div>
-        <Button
-          size="icon"
-          className="rounded-full"
-          disabled={streaming ? !onStop : !canSend}
-          onClick={streaming ? onStop : submit}
-          aria-label={streaming ? "Stop" : "Send"}
-        >
-          {streaming ? <SquareIcon className="fill-current" /> : <ArrowUpIcon />}
-        </Button>
-      </PromptInputActions>
-    </PromptInput>
+    <>
+      {refusal && (
+        <p role="alert" className="text-xs text-destructive">
+          {refusal}
+        </p>
+      )}
+      <PromptInput
+        value={value}
+        onValueChange={setValue}
+        onSubmit={submit}
+        isLoading={disabled || streaming}
+        className="bg-card"
+      >
+        {attachments}
+        <PromptInputTextarea
+          placeholder={placeholder}
+          className="text-sm text-foreground"
+          aria-label="Message"
+        />
+        <PromptInputActions className="justify-between px-1 pt-1">
+          <div className="flex items-center gap-1">{children}</div>
+          <Button
+            size="icon"
+            className="rounded-full"
+            disabled={streaming ? !onStop : !canSend}
+            onClick={streaming ? onStop : submit}
+            aria-label={streaming ? "Stop" : "Send"}
+          >
+            {streaming ? <SquareIcon className="fill-current" /> : <ArrowUpIcon />}
+          </Button>
+        </PromptInputActions>
+      </PromptInput>
+    </>
   );
 }

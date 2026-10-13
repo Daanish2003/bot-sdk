@@ -125,9 +125,17 @@ export function withProjectId(projectId: string | null | undefined): { projectId
   return projectId ? { projectId } : {};
 }
 
+/** How long the Host's `moderate` may take before the text goes through (#267). */
+export const moderationTimeoutMs = 10_000;
+
 /** Calls the Host's hooks. Used by the SDK after each change it writes. */
 export type HookEmitter = {
   fire: <K extends HookName>(name: K, payload: HookPayload<K>) => void;
+  /**
+   * The Host's verdict on a text (`moderate`), raced against `moderationTimeoutMs`. A throw, a
+   * rejection or a timeout lets the text through and is logged. With no `moderate`, nothing is called.
+   */
+  moderate: (check: ModerationInput | ModerationOutput) => Promise<ModerationResult>;
 };
 
 /** The emitter for a Host's hooks; a missing hook is a no-op. */
@@ -140,6 +148,26 @@ export function createHookEmitter(hooks: ChatHooks | undefined, logger: Logger):
       void Promise.resolve()
         .then(() => (hooks[name] as (payload: unknown) => unknown)(payload))
         .catch((error: unknown) => logger.error(`The Host's ${name} hook failed`, error));
+    },
+    moderate(check) {
+      const allowed: ModerationResult = { allow: true };
+      if (!hooks?.moderate) return Promise.resolve(allowed);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const deadline = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`The Host's moderate hook took over ${moderationTimeoutMs} ms`)),
+          moderationTimeoutMs,
+        );
+      });
+      // Called as a method of `hooks`, like the event hooks.
+      const verdict = Promise.resolve().then(() => hooks.moderate!.call(hooks, check));
+      return Promise.race([verdict, deadline])
+        .then((result) => (result?.allow === false ? result : allowed))
+        .catch((error: unknown) => {
+          logger.error("The Host's moderate hook failed; the text goes through", error);
+          return allowed;
+        })
+        .finally(() => clearTimeout(timer));
     },
   };
 }
