@@ -19,10 +19,14 @@ import {
 import { cn } from "@/lib/utils";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  ArchiveIcon,
+  ArchiveRestoreIcon,
+  DownloadIcon,
   KeyRoundIcon,
   MessageSquareIcon,
   PencilIcon,
   PlusIcon,
+  PrinterIcon,
   Share2Icon,
   TextSearchIcon,
   Trash2Icon,
@@ -30,6 +34,10 @@ import {
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import {
+  useArchiveConversation,
+  useExportConversation,
+} from "../../core/client/react/conversation-actions";
 import { invalidateConversationList } from "../../core/client/react/conversation-list";
 import { useDeleteConversation } from "../../core/client/react/delete-conversation";
 import { useChatAdapter, useChatLocation, useOrpc } from "../../core/client/react/provider";
@@ -128,7 +136,14 @@ function PaletteBody({
   );
   const loaded = conversations.data?.pages.flatMap((page) => page.items) ?? [];
   const current = loaded.find((c) => c.id === conversationId);
+  // The open Conversation's own page data: an archived one is not in the list, and says so here.
+  const detail = useQuery({
+    ...orpc.conversation.get.queryOptions({ input: { id: conversationId ?? "" } }),
+    enabled: conversationId !== undefined,
+  });
   const remove = useDeleteConversation();
+  const archive = useArchiveConversation();
+  const exporter = useExportConversation();
   const searched = useDebounced(q.trim(), searchDebounceMs);
   const [filters, setFilters] = useState<SearchFilterValue>({});
   const models = useQuery(orpc.models.list.queryOptions());
@@ -169,7 +184,16 @@ function PaletteBody({
     key: `message:${hit.messageId}`,
     group: "In Messages",
     icon: <TextSearchIcon />,
-    label: hit.conversationTitle ?? <i>Untitled</i>,
+    label: (
+      <>
+        {hit.conversationTitle ?? <i>Untitled</i>}
+        {hit.archived && (
+          <span className="ml-2 rounded border px-1 align-middle text-[10px] font-normal text-muted-foreground">
+            Archived
+          </span>
+        )}
+      </>
+    ),
     detail: <Snippet snippet={hit.snippet} />,
     hint: relativeTime(hit.createdAt),
     run: () => void openHit(hit),
@@ -195,6 +219,43 @@ function PaletteBody({
       label: "New Conversation",
       run: () => void navigate({ to: "new" }),
     },
+    ...(conversationId && detail.data
+      ? [
+          detail.data.archivedAt
+            ? {
+                key: "unarchive",
+                group: "Commands" as const,
+                icon: <ArchiveRestoreIcon />,
+                label: "Unarchive this Conversation",
+                run: () => archive.unarchive(conversationId),
+              }
+            : {
+                key: "archive",
+                group: "Commands" as const,
+                icon: <ArchiveIcon />,
+                label: "Archive this Conversation",
+                run: () => archive.archive(conversationId),
+              },
+        ]
+      : []),
+    ...(conversationId
+      ? [
+          {
+            key: "export",
+            group: "Commands" as const,
+            icon: <DownloadIcon />,
+            label: "Export as Markdown",
+            run: () => exporter.exportMarkdown(conversationId),
+          },
+          {
+            key: "print",
+            group: "Commands" as const,
+            icon: <PrinterIcon />,
+            label: "Print / Save as PDF",
+            run: () => window.print(),
+          },
+        ]
+      : []),
     ...(current
       ? [
           {

@@ -1,11 +1,22 @@
 import { missingCredentialsMessage } from "../../core/client/models";
 import { awaitingTitle, titleWaitMs } from "../../core/client/title";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { MenuIcon, PanelLeftIcon, PencilIcon, SearchIcon } from "lucide-react";
+import {
+  DownloadIcon,
+  MenuIcon,
+  MoreHorizontalIcon,
+  PanelLeftIcon,
+  PencilIcon,
+  PrinterIcon,
+  SearchIcon,
+} from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 
+import { useExportConversation } from "../../core/client/react/conversation-actions";
 import { invalidateConversationList } from "../../core/client/react/conversation-list";
 import { useByok } from "../../core/client/react/byok";
 import { useNewConversationModel } from "../../core/client/react/new-conversation-model";
@@ -40,7 +51,7 @@ export function TopBar({
   const modKey = useModKey();
 
   return (
-    <header className="flex h-11 shrink-0 items-center gap-1 border-b px-2 sm:gap-2">
+    <header className="flex h-11 shrink-0 items-center gap-1 border-b px-2 sm:gap-2 print:hidden">
       <Button
         variant="ghost"
         size="icon-sm"
@@ -92,9 +103,74 @@ export function TopBar({
           </kbd>
         )}
       </Button>
+      {id && <ConversationMenu key={`menu:${id}`} id={id} />}
       {id && <ConversationHeaderActions key={`actions:${id}`} id={id} />}
       {userMenu}
     </header>
+  );
+}
+
+/** The open Conversation's menu: Export as Markdown and Print / Save as PDF (⌘K has both too). */
+function ConversationMenu({ id }: { id: string }) {
+  const [open, setOpen] = useState(false);
+  const exporter = useExportConversation();
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        aria-label="Conversation menu"
+        title="Conversation menu"
+        disabled={exporter.isPending}
+        className={cn(buttonVariants({ variant: "ghost", size: "icon-sm" }))}
+      >
+        <MoreHorizontalIcon />
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-44 p-1">
+        <ConversationMenuItems
+          disabled={exporter.isPending}
+          onExport={() => {
+            setOpen(false);
+            exporter.exportMarkdown(id);
+          }}
+          onPrint={() => {
+            setOpen(false);
+            window.print();
+          }}
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/** The items of the Conversation menu. Both act on the open Conversation. */
+export function ConversationMenuItems({
+  disabled = false,
+  onExport,
+  onPrint,
+}: {
+  /** Export is busy. */
+  disabled?: boolean;
+  onExport: () => void;
+  onPrint: () => void;
+}) {
+  return (
+    <div role="menu" className="flex flex-col">
+      <Button
+        variant="ghost"
+        size="sm"
+        role="menuitem"
+        className="justify-start"
+        disabled={disabled}
+        onClick={onExport}
+      >
+        <DownloadIcon />
+        Export as Markdown
+      </Button>
+      <Button variant="ghost" size="sm" role="menuitem" className="justify-start" onClick={onPrint}>
+        <PrinterIcon />
+        Print / Save as PDF
+      </Button>
+    </div>
   );
 }
 

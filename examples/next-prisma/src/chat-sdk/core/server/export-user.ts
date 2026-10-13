@@ -2,6 +2,7 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 
 import { attachment, messageAttachment } from "./db/schema/attachment";
 import { conversation, message, project } from "./db/schema/chat";
+import { savedPrompt } from "./db/schema/saved-prompt";
 import { sharedLink } from "./db/schema/share";
 import { userSettings } from "./db/schema/settings";
 import type { AppDeps } from "./deps";
@@ -34,6 +35,8 @@ export type UserExport = {
     pinnedAt: Date | null;
     /** A Temporary Conversation (spec #262); the export holds the ones that still exist. */
     temporary: boolean;
+    /** When the Conversation was archived; null when it is not. */
+    archivedAt: Date | null;
     /** The newest Message of the Active Branch. */
     activeLeafId: string | null;
     lastMessageAt: Date;
@@ -56,6 +59,8 @@ export type UserExport = {
   }[];
   /** The user's Shared links: the token, the Conversation it shares and when it was shared. */
   sharedLinks: { token: string; conversationId: string; createdAt: Date }[];
+  /** The user's Saved prompts, by name. */
+  savedPrompts: { name: string; text: string; createdAt: Date }[];
 };
 
 /**
@@ -126,6 +131,16 @@ export async function exportUserData(deps: AppDeps, userId: string): Promise<Use
         .innerJoin(conversation, eq(conversation.id, sharedLink.conversationId))
         .where(and(eq(conversation.userId, userId), liveConversation(new Date())));
 
+      const savedPrompts = await tx
+        .select({
+          name: savedPrompt.name,
+          text: savedPrompt.text,
+          createdAt: savedPrompt.createdAt,
+        })
+        .from(savedPrompt)
+        .where(eq(savedPrompt.userId, userId))
+        .orderBy(asc(savedPrompt.name));
+
       const attachmentsByMessage = groupBy(attachments, (row) => row.messageId);
       const messagesByConversation = groupBy(messages, (row) => row.conversationId);
 
@@ -145,6 +160,7 @@ export async function exportUserData(deps: AppDeps, userId: string): Promise<Use
           projectId: conv.projectId,
           pinnedAt: conv.pinnedAt,
           temporary: conv.temporary,
+          archivedAt: conv.archivedAt,
           activeLeafId: conv.activeLeafId,
           lastMessageAt: conv.lastMessageAt,
           createdAt: conv.createdAt,
@@ -167,6 +183,7 @@ export async function exportUserData(deps: AppDeps, userId: string): Promise<Use
           })),
         })),
         sharedLinks: links,
+        savedPrompts,
       };
     },
     { isolationLevel: "repeatable read" },
