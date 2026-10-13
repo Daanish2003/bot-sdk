@@ -89,8 +89,17 @@ export type ImageMeter = {
   cancelsUpstream: boolean;
 };
 
-/** Providers whose image adapter lets a Provider request run on after Stop (spec #278, #182). */
-const imageCallsRunOnAfterStop = new Set(["openai", "grok", "openrouter", "byteplus"]);
+/**
+ * Providers whose image adapter lets a Provider request run on after Stop (spec #278, #182). Only
+ * Gemini-native, Cloudflare and Lovable cancel upstream, so Vercel Gateway runs on too.
+ */
+const imageCallsRunOnAfterStop = new Set([
+  "openai",
+  "grok",
+  "openrouter",
+  "byteplus",
+  "vercel-gateway",
+]);
 
 /** Whether a Stop cancels the Provider's request for an image on `provider`. */
 export function imageCancelsUpstream(provider: string): boolean {

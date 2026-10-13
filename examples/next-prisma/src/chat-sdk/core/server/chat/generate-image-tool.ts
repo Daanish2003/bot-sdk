@@ -149,12 +149,12 @@ export function createGenerateImageTool({
       } finally {
         const stopped = context?.abortSignal?.aborted === true;
         // A Stop during the call on an adapter that doesn't cancel upstream is billed at the flat
-        // price, estimated: the Provider runs the request on to the end. A stopped call on one that
-        // cancels bills nothing. Otherwise a call bills when its image was kept or the Provider
-        // reported usage; a refusal or error with no usage bills nothing.
-        const billed = stopped
-          ? inFlight && !meter.cancelsUpstream
-          : answer !== undefined && (stored || usageReported(answer.usage));
+        // price, estimated: the Provider runs the request on to the end. Otherwise a call bills when
+        // its image was kept or the Provider reported usage (a stopped call on a cancelling adapter
+        // that already answered with usage bills that usage); a refusal or error with no usage bills nothing.
+        const billed =
+          (stopped && inFlight && !meter.cancelsUpstream) ||
+          (answer !== undefined && (stored || usageReported(answer.usage)));
         if (billed) {
           await recordImageUsage({ db }, meter, answer?.usage, stopped).catch((caught: unknown) =>
             console.error(`Recording an image of ${messageId} failed`, caught),
