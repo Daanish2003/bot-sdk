@@ -19,6 +19,8 @@ export function toClientMessage(row: MessageRecord, attachments: AttachmentInfo[
     errorReason: row.errorReason,
     usage: row.usage,
     contextStartId: row.contextStartId,
+    /** A Hidden reply (#268): its parts are gone, and the client shows only that it was hidden. */
+    hidden: row.hiddenAt !== null,
     createdAt: row.createdAt,
   };
 }

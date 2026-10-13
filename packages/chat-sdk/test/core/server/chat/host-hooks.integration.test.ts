@@ -9,6 +9,9 @@ import {
   createHookEmitter,
   type ConversationCreatedEvent,
   type ConversationDeletedEvent,
+  type ModerationInput,
+  type ModerationOutput,
+  type ModerationResult,
   type RunEndEvent,
   type SharedLinkChangedEvent,
 } from "../../../../core/server/chat/hooks";
@@ -992,14 +995,17 @@ describe("the moderate hook on the user's Message", () => {
     const user = await insertUser();
     const conv = await insertConversation(user, { title: "Allowed" });
     scripted.adapter = createFakeAdapter({ rounds: [round(text("Hello"))] }).adapter;
-    const moderate = vi.fn(() => ({ allow: true as const }));
+    const moderate = vi.fn<(check: ModerationInput | ModerationOutput) => ModerationResult>(() => ({
+      allow: true,
+    }));
     const chat = chatWith({ userId: user.id, hooks: { moderate } });
 
     const response = await postRun(chat.handler, conv.id, { text: "Fine" });
     await response.text();
 
     expect(response.status).toBe(200);
-    expect(moderate).toHaveBeenCalledTimes(1);
+    // The reply is checked too when it ends (#268); this test is about the Message's input check.
+    expect(moderate.mock.calls.filter(([check]) => check.phase === "input")).toHaveLength(1);
     expect(await replyStatus(conv.id)).toBe("complete");
   });
 

@@ -211,6 +211,9 @@ export async function continueSharedConversation(
         model: row.model,
         status: row.status,
         searchText: row.searchText,
+        // A Hidden reply stays hidden in the copy (#268).
+        hiddenAt: row.hiddenAt,
+        hiddenReason: row.hiddenReason,
         createdAt: row.createdAt,
       })),
     );
