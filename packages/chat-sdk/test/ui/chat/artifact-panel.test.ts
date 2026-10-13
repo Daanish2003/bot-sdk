@@ -90,6 +90,29 @@ describe("the Artifact panel", () => {
   });
 });
 
+describe("the panel on a Shared link", () => {
+  const readOnly = (fields: Partial<ArtifactVersionContent> = {}) =>
+    renderToStaticMarkup(
+      createElement(ArtifactPanelView, {
+        version: { ...version, ...fields },
+        readOnly: true,
+        onClose: () => {},
+      }),
+    );
+
+  it("shows the read-only strip, and only then", () => {
+    expect(readOnly()).toContain("Shared link · read-only");
+    expect(render()).not.toContain("Shared link · read-only");
+  });
+
+  it("keeps copy and download on a Shared link", () => {
+    const html = readOnly();
+
+    expect(html).toContain('aria-label="Copy"');
+    expect(html).toContain('data-download-name="Landing page.html"');
+  });
+});
+
 describe("the version dropdown", () => {
   const ref = (number: number, messageId: string) => ({
     artifactId: "abc",

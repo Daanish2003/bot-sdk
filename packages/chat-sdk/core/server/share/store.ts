@@ -2,7 +2,8 @@ import { randomBytes } from "node:crypto";
 
 import { conversation, message } from "../db/schema/chat";
 import { sharedLink } from "../db/schema/share";
-import { and, desc, eq } from "drizzle-orm";
+import { artifact, artifactVersion } from "../db/schema/artifact";
+import { and, desc, eq, inArray } from "drizzle-orm";
 
 import { listAvailableModels, resolveModel } from "../chat/available-models";
 import { loadPath } from "../chat/store";
@@ -151,6 +152,45 @@ export async function loadSharedConversation(deps: Deps, token: string) {
     path.map((row) => row.id),
   );
   return toSharedConversation(link, path, attachments);
+}
+
+/**
+ * Version `number` of an Artifact, for a visitor of a Shared link (ADR 0016). Only a version written
+ * by a Message on the shared path, up to `leafMessageId`, is served, and only from the link's own
+ * Conversation, so a version after the shared point, on another Branch or in another Conversation
+ * reads as absent. `null` for an unknown token or no such version.
+ */
+export async function loadSharedArtifactVersion(
+  deps: Deps,
+  token: string,
+  { artifactId, number }: { artifactId: string; number: number },
+) {
+  const [link] = await deps.db.select().from(sharedLink).where(eq(sharedLink.token, token));
+  if (!link) return null;
+  const pathIds = (await loadPath(deps, link.conversationId, link.leafMessageId)).map(
+    (row) => row.id,
+  );
+  if (pathIds.length === 0) return null;
+  const [row] = await deps.db
+    .select({
+      kind: artifact.kind,
+      messageId: artifactVersion.messageId,
+      title: artifactVersion.title,
+      language: artifactVersion.language,
+      content: artifactVersion.content,
+    })
+    .from(artifactVersion)
+    .innerJoin(artifact, eq(artifact.id, artifactVersion.artifactId))
+    .where(
+      and(
+        eq(artifactVersion.artifactId, artifactId),
+        eq(artifactVersion.number, number),
+        eq(artifact.conversationId, link.conversationId),
+        inArray(artifactVersion.messageId, pathIds),
+      ),
+    );
+  if (!row) return null;
+  return { artifactId, number, ...row };
 }
 
 /**
