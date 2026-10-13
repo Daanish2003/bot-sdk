@@ -1,5 +1,4 @@
 import { findImageModel } from "../../core/shared/chat/image-models";
-import { providers } from "../../core/shared/credentials/services";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -14,6 +13,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import { useOrpc } from "../../core/client/react/provider";
+import { groupImageModels } from "./image-model-groups";
 
 /** The Image Model select: which Model makes Generated images, or the Host's default when none is picked. */
 export function ImageModelSelect() {
@@ -55,10 +55,7 @@ export function ImageModelSelect() {
     },
     ...(saved && missingKey ? [{ value: saved, label: `${saved} (no key)` }] : []),
   ];
-  const groups = providers.flatMap(({ id, label }) => {
-    const matching = available.filter((model) => model.provider === id);
-    return matching.length > 0 ? [{ provider: id, label, models: matching }] : [];
-  });
+  const groups = groupImageModels(available);
   const items = [...first, ...available.map((model) => ({ value: model.id, label: model.label }))];
 
   return (
