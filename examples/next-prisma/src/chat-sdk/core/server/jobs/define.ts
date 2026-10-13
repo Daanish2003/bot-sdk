@@ -1,5 +1,7 @@
 import type { z } from "zod";
 
+import type { AppDeps } from "../deps";
+
 /**
  * A failure retrying can't fix, such as a PDF with no text layer. It fails the job at once
  * (ADR 0011).
@@ -11,21 +13,25 @@ export class PermanentJobError extends Error {
   }
 }
 
-/** A job as internal code declares it. Jobs are internal: a Host can't register its own. */
+/**
+ * A job as internal code declares it. Jobs are internal: a Host can't register its own. A job's
+ * handlers get the SDK's dependencies (the database, the blob store, the adapters) from the runner
+ * that runs them, so the same definition works in every `createChat` and in tests.
+ */
 export type JobDefinition<P> = {
   name: string;
   payload: z.ZodType<P>;
-  run: (payload: P) => Promise<void>;
+  run: (payload: P, deps: AppDeps) => Promise<void>;
   /** Runs once, after the final failure (the last attempt, or a `PermanentJobError`). */
-  onFailed?: (payload: P, error: unknown) => Promise<void> | void;
+  onFailed?: (payload: P, error: unknown, deps: AppDeps) => Promise<void> | void;
 };
 
 /** A definition as the runner holds it, with its payload type erased. */
 export type RegisteredJob = {
   name: string;
   payload: z.ZodType<unknown>;
-  run: (payload: unknown) => Promise<void>;
-  onFailed?: (payload: unknown, error: unknown) => Promise<void> | void;
+  run: (payload: unknown, deps: AppDeps) => Promise<void>;
+  onFailed?: (payload: unknown, error: unknown, deps: AppDeps) => Promise<void> | void;
 };
 
 const registry = new Map<string, RegisteredJob>();
