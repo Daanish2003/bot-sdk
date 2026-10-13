@@ -46,6 +46,21 @@ export function registeredJob(name: string): RegisteredJob | undefined {
   return registry.get(name);
 }
 
+/**
+ * Runs a registered job's handler in this process, with its payload validated against the job's
+ * schema. `chat.runJob` calls it, so a Host's own worker (such as a Trigger.dev task) can run a job.
+ * Errors reach the caller, which decides about retries.
+ */
+export async function runRegisteredJob(name: string, payload: unknown): Promise<void> {
+  const job = registry.get(name);
+  if (!job) throw new Error(`Unknown job "${name}"`);
+  const parsed = job.payload.safeParse(payload);
+  if (!parsed.success) {
+    throw new Error(`Job "${name}" got an invalid payload: ${parsed.error.message}`);
+  }
+  await job.run(parsed.data, { signal: new AbortController().signal });
+}
+
 /** Milliseconds to wait before attempt 2, 3, and so on: about 10 s, 1 min, then 5 min. */
 const retryBackoffMs = [10_000, 60_000, 300_000];
 
