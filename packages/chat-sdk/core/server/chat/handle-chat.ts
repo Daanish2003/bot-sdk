@@ -140,7 +140,16 @@ export async function handleChat(
   });
   // The image tool is offered only when an adapter serves the Image Model; without one, the reply
   // chats as it would with no Image Model at all.
-  const imageAdapter = image && deps.imageAdapterFor(image.id, image.credentials);
+  // A Provider with no image adapter throws from the factory; that reply chats with no image tool
+  // rather than failing the Run (spec #278).
+  let imageAdapter: ReturnType<AppDeps["imageAdapterFor"]>;
+  if (image) {
+    try {
+      imageAdapter = deps.imageAdapterFor(image.id, image.credentials);
+    } catch {
+      imageAdapter = undefined;
+    }
+  }
   const imageTool =
     image && imageAdapter
       ? {
