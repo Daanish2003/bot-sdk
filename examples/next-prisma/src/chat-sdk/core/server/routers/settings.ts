@@ -1,9 +1,9 @@
-import { ORPCError } from "@orpc/server";
 import { z } from "zod";
 
 import { instructionsMaxChars } from "../../shared/chat/instructions";
 import { isKnownModel } from "../../shared/chat/models";
 import { protectedProcedure } from "../procedures";
+import { rpcError } from "../rpc-error";
 import { loadSettings, saveInstructions, saveTitleModel } from "../settings/store";
 
 export const settingsRouter = {
@@ -17,9 +17,14 @@ export const settingsRouter = {
     .input(z.object({ titleModel: z.string().nullable() }))
     .handler(async ({ context, input }) => {
       if (input.titleModel !== null && !isKnownModel(input.titleModel)) {
-        throw new ORPCError("BAD_REQUEST", {
-          message: `"${input.titleModel}" is not an available Model`,
-        });
+        throw rpcError(
+          "BAD_REQUEST",
+          "error.modelNotAvailable",
+          `"${input.titleModel}" is not an available Model`,
+          {
+            model: input.titleModel,
+          },
+        );
       }
       await saveTitleModel(context.deps, context.user.id, input.titleModel);
     }),
@@ -29,9 +34,14 @@ export const settingsRouter = {
     .input(z.object({ instructions: z.string().nullable() }))
     .handler(async ({ context, input }) => {
       if (input.instructions !== null && input.instructions.length > instructionsMaxChars) {
-        throw new ORPCError("BAD_REQUEST", {
-          message: `Instructions are limited to ${instructionsMaxChars.toLocaleString("en-US")} characters`,
-        });
+        throw rpcError(
+          "BAD_REQUEST",
+          "error.instructionsTooLong",
+          `Instructions are limited to ${instructionsMaxChars} characters`,
+          {
+            max: instructionsMaxChars,
+          },
+        );
       }
       await saveInstructions(context.deps, context.user.id, input.instructions);
     }),

@@ -16,6 +16,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { useI18n, useOrpc } from "../../core/client/react/provider";
+import { serverErrorText } from "../../core/client/rpc-error";
 
 /** What the user types before the delete button turns on. Exact, so `delete` doesn't count. */
 const confirmWord = "DELETE";
@@ -27,7 +28,8 @@ const confirmWord = "DELETE";
 export function DeleteAllConversationsSection() {
   const queryClient = useQueryClient();
   const orpc = useOrpc();
-  const { t } = useI18n();
+  const i18n = useI18n();
+  const { t } = i18n;
   const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState("");
   const remove = useMutation(
@@ -42,7 +44,7 @@ export function DeleteAllConversationsSection() {
           queryClient.invalidateQueries({ queryKey: orpc.share.key() }),
         ]);
       },
-      onError: (error) => toast.error(error.message),
+      onError: (error) => toast.error(serverErrorText(i18n, error)),
     }),
   );
 

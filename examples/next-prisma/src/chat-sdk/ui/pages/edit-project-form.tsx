@@ -19,6 +19,7 @@ import { type FormEvent, useState } from "react";
 import { toast } from "sonner";
 
 import { useI18n, useOrpc } from "../../core/client/react/provider";
+import { serverErrorText } from "../../core/client/rpc-error";
 
 /** The select's value for "no default Model", which a Project stores as `null`. */
 const noModel = "none";
@@ -44,7 +45,8 @@ export function EditProjectForm({
   onDone: () => void;
 }) {
   const orpc = useOrpc();
-  const { t, locale } = useI18n();
+  const i18n = useI18n();
+  const { t, locale } = i18n;
   const queryClient = useQueryClient();
   const models = useQuery(orpc.models.list.queryOptions());
   const [draftName, setDraftName] = useState(name);
@@ -57,7 +59,7 @@ export function EditProjectForm({
         await queryClient.invalidateQueries({ queryKey: orpc.project.key() });
         onDone();
       },
-      onError: (error) => toast.error(error.message),
+      onError: (error) => toast.error(serverErrorText(i18n, error)),
     }),
   );
 
