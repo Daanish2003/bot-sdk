@@ -2,7 +2,9 @@ import {
   artifactFileName,
   artifactKindLabels,
   type ArtifactKind,
+  updateArtifactToolName,
 } from "../../core/shared/chat/artifact";
+import type { ToolCallView } from "../../core/shared/chat/tool-call";
 import { useOrpc } from "../../core/client/react/provider";
 import { CodeBlock, CodeBlockCode } from "@/components/ui/prompt-kit/code-block";
 import { Markdown } from "@/components/ui/prompt-kit/markdown";
@@ -12,7 +14,8 @@ import { useQuery } from "@tanstack/react-query";
 import { CopyIcon, DownloadIcon, Loader2Icon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { artifactRefOf, type ArtifactRef } from "./artifact-card";
+import { liveArtifactOf } from "./artifact-live";
+import { artifactRefOf, type ArtifactRef, updatingTo } from "./artifact-card";
 import {
   artifactFrameDocument,
   artifactFrameSandbox,
@@ -201,6 +204,132 @@ export function ArtifactPanelView({
             />
           </CodeBlock>
         )}
+      </div>
+    </PanelFrame>
+  );
+}
+
+/**
+ * The panel for an Artifact call that has no saved version yet (spec #304): a create or a full
+ * rewrite shows its source filling in, as it streams; an edits update keeps the previous version
+ * under an "Updating to vN…" notice until the change lands. A call that ends unsaved shows its
+ * partial source under "This Artifact wasn't saved".
+ */
+export function LiveArtifactPanel({
+  call,
+  latest,
+  onClose,
+}: {
+  call: ToolCallView;
+  /** The Artifact's newest version on the Branch, for an update (the one it changes). */
+  latest?: ArtifactRef;
+  onClose: () => void;
+}) {
+  const live = liveArtifactOf(call);
+  if (call.name !== updateArtifactToolName || !latest) {
+    return (
+      <LiveArtifactView
+        title={live.title}
+        kind={live.kind}
+        language={live.language}
+        source={live.content ?? ""}
+        notice={live.notice}
+        onClose={onClose}
+      />
+    );
+  }
+  return <LiveUpdatePanel call={call} latest={latest} onClose={onClose} />;
+}
+
+/** The live panel for an update: its source is the previous version until a full rewrite streams in. */
+function LiveUpdatePanel({
+  call,
+  latest,
+  onClose,
+}: {
+  call: ToolCallView;
+  latest: ArtifactRef;
+  onClose: () => void;
+}) {
+  const orpc = useOrpc();
+  const previous = useQuery(
+    orpc.artifact.version.queryOptions({
+      input: {
+        artifactId: latest.artifactId,
+        number: latest.version,
+        messageId: latest.messageId,
+      },
+    }),
+  );
+  if (!previous.data) {
+    return (
+      <PanelFrame onClose={onClose}>
+        {previous.isError ? (
+          <p className="p-4 text-sm text-muted-foreground" role="alert">
+            This Artifact couldn't be loaded.
+          </p>
+        ) : (
+          <p className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
+            <Loader2Icon className="size-4 animate-spin" aria-hidden /> Loading…
+          </p>
+        )}
+      </PanelFrame>
+    );
+  }
+  const live = liveArtifactOf(call);
+  const version = previous.data;
+  const title = (call.args as { title?: unknown } | undefined)?.title;
+  return (
+    <LiveArtifactView
+      title={typeof title === "string" ? title : version.title}
+      kind={version.kind}
+      language={version.language}
+      source={live.content ?? version.content}
+      notice={live.edits && live.state === "updating" ? updatingTo(latest.version) : live.notice}
+      onClose={onClose}
+    />
+  );
+}
+
+/**
+ * The panel while an Artifact's source streams in, or for a call that ended unsaved: the source as
+ * code, under an optional notice. It has no tabs, since there is no preview until the version saves.
+ */
+export function LiveArtifactView({
+  title,
+  kind,
+  language,
+  source,
+  notice,
+  onClose,
+}: {
+  title: string;
+  kind: ArtifactKind;
+  language: string | null;
+  source: string;
+  notice?: string;
+  onClose: () => void;
+}) {
+  return (
+    <PanelFrame onClose={onClose}>
+      <header className="flex items-center gap-2 border-b px-3 py-2 text-sm">
+        <span className="min-w-0 flex-1 truncate font-medium">{title}</span>
+        <span className="rounded border px-1.5 text-[10px] text-muted-foreground">
+          {artifactKindLabels[kind]}
+        </span>
+        <Button variant="ghost" size="icon-sm" aria-label="Close" title="Close" onClick={onClose}>
+          <XIcon />
+        </Button>
+      </header>
+      {notice && (
+        <p role="status" className="border-b px-3 py-1.5 text-xs text-muted-foreground">
+          {notice}
+        </p>
+      )}
+      <div className="min-h-0 flex-1 overflow-auto p-3">
+        <CodeBlock>
+          <CodeBlockCode code={source} language={codeLanguageOf(kind, language)} />
+        </CodeBlock>
       </div>
     </PanelFrame>
   );

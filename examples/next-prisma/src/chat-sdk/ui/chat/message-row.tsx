@@ -43,7 +43,7 @@ import {
   useAttachmentDraft,
 } from "./attachments";
 
-import { ArtifactCard, type ArtifactRef } from "./artifact-card";
+import { ArtifactCard, artifactIdOf, type ArtifactRef } from "./artifact-card";
 import { SearchRow } from "./search-row";
 import { replyComponents, ReplySources, SourceChips } from "./source-chips";
 import { ToolCallRow } from "./tool-call-row";
@@ -99,6 +99,7 @@ export function MessageRow({
   highlighted = false,
   contextCut = false,
   onOpenArtifact,
+  latestVersionOf,
 }: {
   message: UIMessage;
   userLabel?: string;
@@ -109,6 +110,8 @@ export function MessageRow({
   contextCut?: boolean;
   /** Opens an Artifact's card in the side panel (spec #304). */
   onOpenArtifact?: (ref: ArtifactRef) => void;
+  /** The newest version of an Artifact on the Branch, which an update's card names (spec #304). */
+  latestVersionOf?: (artifactId: string) => number | undefined;
 }) {
   const info = messageInfo(message);
   const text = plainText(message);
@@ -230,6 +233,7 @@ export function MessageRow({
                 parts={message.parts}
                 onDecide={actions?.onDecide}
                 onOpenArtifact={onOpenArtifact}
+                latestVersionOf={latestVersionOf}
               />
               {info.status === "streaming" && !thinking && waitingForText(message.parts) && (
                 <Loader variant="typing" size="sm" />
@@ -389,11 +393,13 @@ function AssistantParts({
   parts,
   onDecide,
   onOpenArtifact,
+  latestVersionOf,
 }: {
   messageId: string;
   parts: UIMessage["parts"];
   onDecide?: (approved: boolean, allowForConversation?: boolean) => void;
   onOpenArtifact?: (ref: ArtifactRef) => void;
+  latestVersionOf?: (artifactId: string) => number | undefined;
 }) {
   const sources = sourcesOf(parts);
   return (
@@ -413,7 +419,12 @@ function AssistantParts({
           <Fragment key={segment.key}>
             {segment.call.name === createArtifactToolName ||
             segment.call.name === updateArtifactToolName ? (
-              <ArtifactCard call={segment.call} messageId={messageId} onOpen={onOpenArtifact} />
+              <ArtifactCard
+                call={segment.call}
+                messageId={messageId}
+                latestVersion={latestVersionOf?.(artifactIdOf(segment.call) ?? "")}
+                onOpen={onOpenArtifact}
+              />
             ) : (
               <ToolCallRow call={segment.call} onDecide={onDecide} />
             )}

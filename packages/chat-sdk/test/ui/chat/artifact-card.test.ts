@@ -106,4 +106,38 @@ describe("an Artifact card in a reply", () => {
     expect(html).toContain("Updated to v3");
     expect(html).toContain("<button");
   });
+
+  it("reads Updating to vN while an update runs, N being the next version on the Branch", () => {
+    const html = renderToStaticMarkup(
+      createElement(ArtifactCard, {
+        call: callOf({
+          name: "update_artifact",
+          input: { artifactId: "abc" },
+          arguments: JSON.stringify({ artifactId: "abc", edits: [] }),
+        }),
+        messageId: "m-4",
+        latestVersion: 3,
+        onOpen: () => {},
+      }),
+    );
+
+    expect(html).toContain("Updating to v4…");
+    expect(html).not.toContain("<button");
+  });
+
+  it("reads Cut off, not saved when the call ended before it ran", () => {
+    const html = renderToStaticMarkup(
+      createElement(ArtifactCard, {
+        call: callOf({
+          state: "input-complete",
+          metadata: { source: "builtin", status: "cancelled" },
+        }),
+        messageId: "m-1",
+        onOpen: () => {},
+      }),
+    );
+
+    expect(html).toContain("Cut off, not saved");
+    expect(html).not.toContain("Writing…");
+  });
 });
