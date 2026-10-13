@@ -1,3 +1,4 @@
+export * from "./artifact";
 export * from "./attachment";
 export * from "./blob";
 export * from "./chat";

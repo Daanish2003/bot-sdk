@@ -24,6 +24,7 @@ import {
   type HostToolContext,
 } from "./host-tools";
 import type { McpTools } from "../mcp/tools";
+import { artifactCutOff, createArtifactTool, updateArtifactTool } from "./artifact-tool";
 import { createWebSearchTool } from "./web-search-tool";
 import { createFetchUrlTool } from "./fetch-url-tool";
 import { cancelChannel, heartbeatExpired, listenForStop, stopRequested } from "./stop";
@@ -61,6 +62,7 @@ export async function startRun(
     messages,
     webSearch,
     fetchUrl = false,
+    artifacts = false,
     hostTools = [],
     context,
     systemPrompts,
@@ -90,6 +92,8 @@ export async function startRun(
     webSearch?: Credentials;
     /** Whether this reply offers the `fetch_url` tool, which needs no credential. */
     fetchUrl?: boolean;
+    /** Whether this reply offers the `create_artifact` and `update_artifact` tools (`createChat({ artifacts })`, ADR 0016). */
+    artifacts?: boolean;
     /** The Host tools this reply offers (none when its Model has no tools). */
     hostTools?: HostServerTool[];
     /** The user and Conversation the Host tools are called for, passed to them as their context. */
@@ -231,6 +235,26 @@ export async function startRun(
               }),
             ]
           : []),
+        ...(artifacts
+          ? [
+              createArtifactTool({
+                deps,
+                messageId,
+                conversationId: context.conversationId,
+                parts,
+                onChange: () => (changed = true),
+                budget,
+              }),
+              updateArtifactTool({
+                deps,
+                messageId,
+                conversationId: context.conversationId,
+                parts,
+                onChange: () => (changed = true),
+                budget,
+              }),
+            ]
+          : []),
         ...trackTools(hostTools, {
           source: "host",
           parts,
@@ -244,6 +268,10 @@ export async function startRun(
           budget,
         }),
       ];
+      const middleware: ChatMiddleware[] = [
+        ...(artifacts ? [artifactCutOff] : []),
+        ...(compaction ? [compaction.middleware] : []),
+      ];
       const stream = chat({
         adapter,
         messages,
@@ -252,7 +280,8 @@ export async function startRun(
         ...(tools.length > 0 && { tools }),
         ...(systemPrompts.length > 0 && { systemPrompts }),
         modelOptions,
-        ...(compaction && { middleware: [compaction.middleware] }),
+        // The Artifact cut-off override runs first, so compaction sees the rewritten messages.
+        ...(middleware.length > 0 && { middleware }),
         // A resumed Run continues the thread and the Run that ended waiting (ADR 0008, spike #154).
         ...(resume && {
           threadId: resume.threadId,

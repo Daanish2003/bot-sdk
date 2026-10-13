@@ -52,6 +52,8 @@ export const chat = createChat({
   basePath: "/api/chat",
   fetchAllowHosts: ssrfAllowHosts,
   mcpServers: mcpServersOf(ENV),
+  // Artifacts (spec #304): the assistant's create_artifact tool, the side panel and its version route.
+  artifacts: true,
   // The Host's Models and their Quota (ADR 0007); unset, users chat only on their own keys.
   hostProviders: hostProvidersOf(ENV),
   // The Host's default Background Model for titles (`HOST_BACKGROUND_MODEL`), one of its Models.

@@ -39,6 +39,8 @@ export function SlashMenuList({
   const matches = rankSavedPrompts(prompts, query);
   // Clicks keep the textarea's focus; the pick inserts and focuses it.
   const keepFocus = (event: MouseEvent) => event.preventDefault();
+  // Hover follows a moving pointer only: a row that opens under a resting cursor stays unpicked,
+  // so Enter still picks the row the keyboard chose.
   return (
     <div role="listbox" aria-label="Saved prompts" className="max-h-72 overflow-y-auto p-1">
       {loaded && prompts.length === 0 && (
@@ -52,7 +54,7 @@ export function SlashMenuList({
           type="button"
           role="option"
           aria-selected={index === active}
-          onMouseEnter={() => onHover(index)}
+          onMouseMove={() => onHover(index)}
           onMouseDown={keepFocus}
           onClick={() => onPick(index)}
           className={cn(
@@ -68,7 +70,7 @@ export function SlashMenuList({
         type="button"
         role="option"
         aria-selected={active === matches.length}
-        onMouseEnter={() => onHover(matches.length)}
+        onMouseMove={() => onHover(matches.length)}
         onMouseDown={keepFocus}
         onClick={() => onPick(matches.length)}
         className={cn(

@@ -54,16 +54,28 @@ export function thinking(...deltas: string[]): Chunks {
   ];
 }
 
-/** A tool call the model asks for. A round containing one finishes with `tool_calls`. */
+/**
+ * A tool call the model asks for. A round containing one finishes with `tool_calls`. Its arguments
+ * stream as `split` TOOL_CALL_ARGS deltas (one by default), as a Provider streams a long call.
+ * `raw` streams those exact characters instead of `input`'s JSON, for arguments cut off mid-write;
+ * such a call ends without an input, as the cut-off Provider's does.
+ */
 export function toolCall({
   id: toolCallId = id("fake-call"),
   name,
   input,
+  split = 1,
+  raw,
 }: {
   id?: string;
   name: string;
   input: unknown;
+  split?: number;
+  raw?: string;
 }): Chunks {
+  const json = raw ?? JSON.stringify(input);
+  const size = Math.ceil(json.length / split);
+  const deltas = Array.from({ length: split }, (_, i) => json.slice(i * size, (i + 1) * size));
   return [
     {
       type: EventType.TOOL_CALL_START,
@@ -72,13 +84,19 @@ export function toolCall({
       toolName: name,
       timestamp: Date.now(),
     },
-    {
+    ...deltas.map((delta): AdapterYieldChunk => ({
       type: EventType.TOOL_CALL_ARGS,
       toolCallId,
-      delta: JSON.stringify(input),
+      delta,
+      timestamp: Date.now(),
+    })),
+    {
+      type: EventType.TOOL_CALL_END,
+      toolCallId,
+      toolCallName: name,
+      ...(raw === undefined ? { input } : {}),
       timestamp: Date.now(),
     },
-    { type: EventType.TOOL_CALL_END, toolCallId, toolCallName: name, input, timestamp: Date.now() },
   ];
 }
 
@@ -144,7 +162,8 @@ export function createFakeAdapter({
   model = "fake-model",
   manual = false,
 }: {
-  rounds: Chunks[];
+  /** A round, or a function of the call that makes it (for an id an earlier call returned). */
+  rounds: Array<Chunks | ((options: TextOptions) => Chunks)>;
   model?: string;
   manual?: boolean;
 }): FakeAdapter {
@@ -180,7 +199,8 @@ export function createFakeAdapter({
   // Rounds play one after another (one per tool-loop iteration), never concurrently.
   async function* play(options: TextOptions): AsyncGenerator<AdapterYieldChunk> {
     const index = calls.push(options) - 1;
-    const script = rounds[index];
+    const planned = rounds[index];
+    const script = typeof planned === "function" ? planned(options) : planned;
     if (!script) {
       finish();
       throw new Error(`The fake adapter has no round ${index + 1} scripted`);

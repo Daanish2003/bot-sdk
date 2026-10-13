@@ -31,6 +31,15 @@ import { quotaBlocksModel } from "../../core/client/quota";
 
 import { AttachButton, DraftAttachmentChips, useAttachmentDraft } from "./attachments";
 import { Composer } from "./composer";
+import { ArtifactPanel, artifactVersionsOn, LiveArtifactPanel } from "./artifact-panel";
+import { artifactIdOf, type ArtifactRef } from "./artifact-card";
+import {
+  artifactCallsIn,
+  type PanelTarget,
+  panelTargetOf,
+  rememberSaved,
+  startedArtifactCalls,
+} from "./artifact-live";
 import { ContextOverflowNotice, ContextRing } from "./context-ring";
 import { MessageRow } from "./message-row";
 import { ArchivedNotice } from "./archived-notice";
@@ -63,20 +72,61 @@ export function ChatView(props: ChatViewProps) {
     conversation: ConversationData;
     generation: number;
   }>();
+  // What the side panel shows: a saved Artifact version, or a call still streaming (spec #304). It
+  // lives here, not in the thread, so a restart of the thread leaves the panel as it was.
+  const [panel, setPanel] = useState<PanelTarget | null>(null);
+  // The Messages the thread shows, as it streams, so the panel can follow an Artifact call in them.
+  const [messages, setMessages] = useState<UIMessage[]>(() =>
+    toUIMessages(props.conversation.messages),
+  );
+  const shown = panel ? panelTargetOf(messages, panel) : null;
+  // The Artifact's newest version on the Branch, which an update that the panel shows changes.
+  const updated = shown?.kind === "live" ? artifactIdOf(shown.call) : undefined;
+  const latest = updated === undefined ? undefined : artifactVersionsOn(messages, updated)[0];
   return (
-    <ChatThread
-      key={restarted?.generation ?? 0}
-      {...props}
-      conversation={restarted?.conversation ?? props.conversation}
-      onDecided={(conversation) =>
-        setRestarted({ conversation, generation: (restarted?.generation ?? 0) + 1 })
-      }
-      // The restarted snapshot is the decision's, still streaming. Once its join ends, the
-      // refetched Conversation replaces it, or the page would keep showing the reply as streaming.
-      onSynced={(conversation) =>
-        setRestarted((current) => (current ? { ...current, conversation } : current))
-      }
-    />
+    <div className="flex h-full min-h-0">
+      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
+        <ChatThread
+          key={restarted?.generation ?? 0}
+          {...props}
+          conversation={restarted?.conversation ?? props.conversation}
+          onDecided={(conversation) =>
+            setRestarted({ conversation, generation: (restarted?.generation ?? 0) + 1 })
+          }
+          // The restarted snapshot is the decision's, still streaming. Once its join ends, the
+          // refetched Conversation replaces it, or the page would keep showing the reply as streaming.
+          onSynced={(conversation) =>
+            setRestarted((current) => (current ? { ...current, conversation } : current))
+          }
+          onOpenArtifact={(ref) => setPanel({ kind: "saved", ref })}
+          onStreamArtifact={(callId) => setPanel({ kind: "live", callId })}
+          onMessages={(current) => {
+            setMessages(current);
+            setPanel((target) =>
+              target?.kind === "live" ? rememberSaved(target, current) : target,
+            );
+          }}
+        />
+      </div>
+      {shown?.kind === "saved" && (
+        <ArtifactPanel
+          key={`${shown.ref.artifactId}:${shown.ref.version}`}
+          artifact={shown.ref}
+          // The versions on the Active Branch only, so the dropdown never lists another Branch's.
+          versions={artifactVersionsOn(messages, shown.ref.artifactId)}
+          onSelect={(ref) => setPanel({ kind: "saved", ref })}
+          onClose={() => setPanel(null)}
+        />
+      )}
+      {shown?.kind === "live" && (
+        <LiveArtifactPanel
+          key={shown.call.id}
+          call={shown.call}
+          latest={latest}
+          onClose={() => setPanel(null)}
+        />
+      )}
+    </div>
   );
 }
 
@@ -92,11 +142,20 @@ function ChatThread({
   onFocused = () => {},
   onDecided,
   onSynced,
+  onOpenArtifact,
+  onStreamArtifact,
+  onMessages,
 }: ChatViewProps & {
   /** Called with the refetched Conversation once a decision has started its Run. */
   onDecided: (conversation: ConversationData) => void;
   /** Called with the refetched Conversation once a joined Run's log has closed. */
   onSynced: (conversation: ConversationData) => void;
+  /** Opens an Artifact version in the side panel beside the chat (spec #304). */
+  onOpenArtifact: (ref: ArtifactRef) => void;
+  /** Opens the side panel on an Artifact call as it first streams in (spec #304). */
+  onStreamArtifact: (callId: string) => void;
+  /** Reports the Messages the thread shows, as they change. */
+  onMessages: (messages: UIMessage[]) => void;
 }) {
   const queryClient = useQueryClient();
   const { orpc, chatUrl } = useChatAdapter();
@@ -152,6 +211,22 @@ function ChatThread({
     setMessages(toUIMessages(messages));
   });
   useEffect(() => showServerMessages(conversation.messages), [conversation.messages]);
+
+  // The panel opens on an Artifact call from its first delta (spec #304). The calls already done when
+  // the page opens (or a decision restarts it) are not followed again; a call still running is.
+  const [followed] = useState(
+    () =>
+      new Set(
+        artifactCallsIn(toUIMessages(conversation.messages))
+          .filter(({ call }) => call.status !== "running")
+          .map(({ call }) => call.id),
+      ),
+  );
+  const reportMessages = useEffectEvent((current: UIMessage[]) => {
+    onMessages(current);
+    for (const { call } of startedArtifactCalls(current, followed)) onStreamArtifact(call.id);
+  });
+  useEffect(() => reportMessages(messages), [messages]);
 
   // A joined reply ends when its log closes: refetch the Conversation so the reply, the streaming
   // state and the Conversation panel row are final. A reply this page sent does this in `run`.
@@ -357,6 +432,8 @@ function ChatThread({
               message={message}
               highlighted={message.id === highlighted}
               contextCut={contextCuts.has(message.id)}
+              onOpenArtifact={onOpenArtifact}
+              latestVersionOf={(artifactId) => artifactVersionsOn(messages, artifactId)[0]?.version}
               actions={{
                 streaming: streaming || switchBranch.isPending,
                 model: conversation.model,

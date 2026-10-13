@@ -77,4 +77,5 @@ export const errorMessages = {
   "error.recordingType": "That recording isn't an audio type dictation accepts",
   "error.recordingTooLarge": "A recording can be at most 25 MB",
   "error.dictationFailed": "The transcription failed",
+  "error.artifactVersionNotFound": "Artifact version not found",
 };

@@ -7,6 +7,7 @@ import type { BlobStore } from "./blob/store";
 import { postgresBlobStore } from "./blob/postgres";
 import { webSearchToolName } from "../shared/chat/web-search";
 import { fetchUrlToolName } from "../shared/chat/fetch-url";
+import { createArtifactToolName, updateArtifactToolName } from "../shared/chat/artifact";
 import { handleJoin } from "./chat/join-run";
 import { transcriptionProviders } from "./chat/transcription";
 import type { ChatUser, Context } from "./context";
@@ -119,6 +120,11 @@ export type CreateChatOptions = {
    * they can't be read or continued. Unset, nobody is blocked.
    */
   isUserBlocked?: (userId: string) => boolean | Promise<boolean>;
+  /**
+   * Turns Artifacts on (ADR 0016): the `create_artifact` tool for a Model with tools, the side
+   * panel and the version route. Off by default, and then none of them exist.
+   */
+  artifacts?: boolean;
 };
 
 /**
@@ -141,7 +147,8 @@ export function createChatHandler(
   const exportPath = `${prefix}/export`;
   const mcpConnectPath = `${prefix}/mcp/connect`;
   const mcpCallbackPath = `${prefix}/mcp/callback`;
-  const sharedReadPath = `${rpcPrefix}/share/get`;
+  // The RPCs a signed-out visitor of a Shared link may call (ADR 0004, ADR 0016).
+  const sharedReadPaths = [`${rpcPrefix}/share/get`, `${rpcPrefix}/share/artifactVersion`];
   const rpc = new RPCHandler(appRouter, {
     interceptors: [onError((error) => logger.error(error))],
   });
@@ -149,10 +156,11 @@ export function createChatHandler(
   return async (request) => {
     const { pathname } = new URL(request.url);
     const user = await getUser(request);
-    if (!user && pathname !== sharedReadPath) return unauthorized();
+    const sharedRead = sharedReadPaths.includes(pathname);
+    if (!user && !sharedRead) return unauthorized();
 
     if (pathname === rpcPrefix || pathname.startsWith(`${rpcPrefix}/`)) {
-      if (pathname === sharedReadPath && getClientIp) {
+      if (sharedRead && getClientIp) {
         const refused = await sharedLinkRefusal(deps, await getClientIp(request));
         if (refused) return refused;
       }
@@ -240,7 +248,12 @@ export function createChat(options: CreateChatOptions): {
     throw new Error("keyEncryptionSecrets must hold at least one secret");
   }
   checkMcpServers(options.mcpServers ?? [], options.fetchAllowHosts);
-  for (const builtIn of [webSearchToolName, fetchUrlToolName]) {
+  const builtIns = [
+    webSearchToolName,
+    fetchUrlToolName,
+    ...(options.artifacts ? [createArtifactToolName, updateArtifactToolName] : []),
+  ];
+  for (const builtIn of builtIns) {
     if (options.tools?.some((tool) => tool.name === builtIn)) {
       throw new Error(`A Host tool can't be named "${builtIn}": the SDK's tool has it`);
     }
@@ -267,6 +280,7 @@ export function createChat(options: CreateChatOptions): {
       mcpServers: options.mcpServers ?? [],
       logger,
       hooks: options.hooks,
+      artifacts: options.artifacts,
     });
     return deps;
   };

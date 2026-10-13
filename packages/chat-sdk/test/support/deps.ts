@@ -57,6 +57,7 @@ export function createTestDeps({
     hostTools: [],
     mcpServers: [],
     fetchAllowHosts: [],
+    artifacts: false,
     byok: true,
     defaultBackgroundModel: null,
     getQuota: async () => null,
