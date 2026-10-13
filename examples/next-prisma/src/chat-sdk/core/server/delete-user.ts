@@ -1,12 +1,14 @@
 import { eq, inArray } from "drizzle-orm";
 
 import { attachmentBlobKey, deleteBlobsBestEffort } from "./blob/store";
+import { generatedImageKeysWhere } from "./chat/generated-image-store";
 import { stopUserRuns } from "./chat/run";
 import { attachment } from "./db/schema/attachment";
 import { blob } from "./db/schema/blob";
 import { conversation, project } from "./db/schema/chat";
 import { mcpConnection } from "./db/schema/connection";
 import { userCredentials } from "./db/schema/credentials";
+import { generatedImage } from "./db/schema/generated-image";
 import { userSettings } from "./db/schema/settings";
 import { usage } from "./db/schema/usage";
 import type { AppDeps } from "./deps";
@@ -24,13 +26,16 @@ export async function deleteUserData(deps: AppDeps, userId: string): Promise<voi
     // its later writes match nothing.
     await stopUserRuns(deps, userId, tx);
 
-    // 2. Conversations, which cascade to their Messages, Shared links and Message–Attachment links.
+    // 2. Generated images: their rows go by cascade with their Messages, so their keys are read first.
+    const imageKeys = await generatedImageKeysWhere(tx, eq(generatedImage.userId, userId));
+
+    // 3. Conversations, which cascade to their Messages, Shared links and Message–Attachment links.
     await tx.delete(conversation).where(eq(conversation.userId, userId));
 
     // 2b. Projects, after their Conversations; a Project's own Conversations are already gone.
     await tx.delete(project).where(eq(project.userId, userId));
 
-    // 3. Attachments and their bytes. The keys are collected here and their bytes deleted after the
+    // 3b. Attachments and their bytes. The keys are collected here and their bytes deleted after the
     // commit. The Postgres bytes also go in this transaction, so the default store stays atomic.
     const ownAttachments = await tx
       .select({ id: attachment.id })
@@ -46,7 +51,7 @@ export async function deleteUserData(deps: AppDeps, userId: string): Promise<voi
     await tx.delete(userSettings).where(eq(userSettings.userId, userId));
     // 5. Usage rows, which no Conversation cascades to: a deleted account keeps no Quota history.
     await tx.delete(usage).where(eq(usage.userId, userId));
-    return keys;
+    return [...keys, ...imageKeys];
   });
   // 6. The store's own bytes, after the commit and best-effort: a failure is logged, not thrown.
   await deleteBlobsBestEffort(deps, blobKeys);
@@ -59,8 +64,12 @@ export async function deleteUserData(deps: AppDeps, userId: string): Promise<voi
  * Live Runs in them stop first, as in `deleteUserData`.
  */
 export async function deleteAllConversations(deps: AppDeps, userId: string): Promise<void> {
-  await deps.db.transaction(async (tx) => {
+  const blobKeys = await deps.db.transaction(async (tx) => {
     await stopUserRuns(deps, userId, tx);
+    const keys = await generatedImageKeysWhere(tx, eq(generatedImage.userId, userId));
     await tx.delete(conversation).where(eq(conversation.userId, userId));
+    return keys;
   });
+  // The images' bytes go after the commit, best-effort (spec #278, ADR 0015).
+  await deleteBlobsBestEffort(deps, blobKeys);
 }

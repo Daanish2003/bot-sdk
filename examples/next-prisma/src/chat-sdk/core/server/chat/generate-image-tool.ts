@@ -6,6 +6,7 @@ import {
 } from "@tanstack/ai";
 import { z } from "zod";
 
+import { deleteBlobsBestEffort, generatedImageBlobKey } from "../blob/store";
 import { generatedImage } from "../db/schema/generated-image";
 import type { AppDeps } from "../deps";
 import { ImageRefusedError } from "../deps";
@@ -72,7 +73,7 @@ export function createGenerateImageTool({
   meter,
   request,
   messageId,
-  db,
+  deps,
   fetch,
   timeoutMs,
   parts,
@@ -87,7 +88,8 @@ export function createGenerateImageTool({
   request: (aspectRatio: AspectRatio) => ImageRequest;
   /** The assistant Message whose reply this call belongs to; the image's row is owned by it. */
   messageId: string;
-  db: AppDeps["db"];
+  /** The rows and the blob store the finished image is kept in (ADR 0015). */
+  deps: Pick<AppDeps, "db" | "blobStore" | "logger">;
   /** The SSRF-guarded `fetch`, for an image the Provider returns as a URL. */
   fetch: AppDeps["fetch"];
   timeoutMs: number;
@@ -139,17 +141,25 @@ export function createGenerateImageTool({
         const info = imageInfo(bytes);
         if (!info) return fail("failed", "The Provider returned an image in an unknown format");
         const id = uuidv7();
-        await db.insert(generatedImage).values({
-          id,
-          userId: meter.userId,
-          messageId,
-          mediaType: info.mediaType,
-          width: info.width,
-          height: info.height,
-          size: bytes.byteLength,
-          model: meter.model,
-          createdAt: new Date(),
-        });
+        // The bytes go first, so a row never points at nothing; a failed insert takes them back.
+        const key = generatedImageBlobKey(id);
+        await deps.blobStore.put(key, bytes, { contentType: info.mediaType });
+        try {
+          await deps.db.insert(generatedImage).values({
+            id,
+            userId: meter.userId,
+            messageId,
+            mediaType: info.mediaType,
+            width: info.width,
+            height: info.height,
+            size: bytes.byteLength,
+            model: meter.model,
+            createdAt: new Date(),
+          });
+        } catch (error) {
+          await deleteBlobsBestEffort(deps, [key]);
+          throw error;
+        }
         stored = true;
         parts.finishGeneratedImage(toolCallId, { imageId: id });
         return { imageId: id, prompt, aspectRatio: aspectRatio as AspectRatio };
@@ -168,8 +178,8 @@ export function createGenerateImageTool({
           (stopped && inFlight && !meter.cancelsUpstream) ||
           (answer !== undefined && (stored || usageReported(answer.usage)));
         if (billed) {
-          await recordImageUsage({ db }, meter, answer?.usage, stopped).catch((caught: unknown) =>
-            console.error(`Recording an image of ${messageId} failed`, caught),
+          await recordImageUsage({ db: deps.db }, meter, answer?.usage, stopped).catch(
+            (caught: unknown) => console.error(`Recording an image of ${messageId} failed`, caught),
           );
         }
         onChange();

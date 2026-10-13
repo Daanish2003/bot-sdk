@@ -229,7 +229,7 @@ export async function startRun(
                 meter: image.meter,
                 request: image.request,
                 messageId,
-                db: deps.db,
+                deps,
                 fetch: deps.fetch,
                 timeoutMs: deps.limits.imageTimeoutMs,
                 parts,

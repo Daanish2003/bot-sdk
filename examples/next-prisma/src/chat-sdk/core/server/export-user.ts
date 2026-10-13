@@ -2,6 +2,7 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 
 import { attachment, messageAttachment } from "./db/schema/attachment";
 import { conversation, message, project } from "./db/schema/chat";
+import { generatedImage } from "./db/schema/generated-image";
 import { sharedLink } from "./db/schema/share";
 import { userSettings } from "./db/schema/settings";
 import type { AppDeps } from "./deps";
@@ -54,6 +55,8 @@ export type UserExport = {
       rating: "up" | "down" | null;
       createdAt: Date;
       attachments: { filename: string; mediaType: string }[];
+      /** The Generated images the reply made: by id, the Image Model and the prompt, never the bytes. */
+      generatedImages: { id: string; model: string; prompt: string | null }[];
     }[];
   }[];
   /** The user's Shared links: the token, the Conversation it shares and when it was shared. */
@@ -129,7 +132,30 @@ export async function exportUserData(deps: AppDeps, userId: string): Promise<Use
         .innerJoin(conversation, eq(conversation.id, sharedLink.conversationId))
         .where(and(eq(conversation.userId, userId), liveConversation(new Date())));
 
+      const images = messageIds.length
+        ? await tx
+            .select({
+              id: generatedImage.id,
+              messageId: generatedImage.messageId,
+              model: generatedImage.model,
+            })
+            .from(generatedImage)
+            .where(
+              and(inArray(generatedImage.messageId, messageIds), eq(generatedImage.userId, userId)),
+            )
+        : [];
+      const promptsByImage = new Map(
+        messages.flatMap((row) =>
+          row.parts.parts.flatMap((part) =>
+            part.type === "generated_image" && part.imageId
+              ? [[part.imageId, part.prompt] as const]
+              : [],
+          ),
+        ),
+      );
+
       const attachmentsByMessage = groupBy(attachments, (row) => row.messageId);
+      const imagesByMessage = groupBy(images, (row) => row.messageId);
       const messagesByConversation = groupBy(messages, (row) => row.conversationId);
 
       return {
@@ -167,6 +193,11 @@ export async function exportUserData(deps: AppDeps, userId: string): Promise<Use
                 mediaType,
               }),
             ),
+            generatedImages: (imagesByMessage.get(row.id) ?? []).map((image) => ({
+              id: image.id,
+              model: image.model,
+              prompt: promptsByImage.get(image.id) ?? null,
+            })),
           })),
         })),
         sharedLinks: links,

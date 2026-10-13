@@ -1,6 +1,12 @@
 import { createAuth } from "@ai-chat/auth";
 import { createDb } from "@ai-chat/db";
-import { createChat, memoryRuntime, redisRuntime, redisStore } from "@ai-chat/chat-sdk/server";
+import {
+  createChat,
+  fakeImageAdapter,
+  memoryRuntime,
+  redisRuntime,
+  redisStore,
+} from "@ai-chat/chat-sdk/server";
 import { log } from "evlog";
 
 import { isBanActive } from "./admin/ban";
@@ -63,6 +69,9 @@ export const chat = createChat({
   defaultBackgroundModel: hostBackgroundModelOf(ENV),
   // The Host's default Image Model (`HOST_DEFAULT_IMAGE_MODEL`), one of its Image Models.
   defaultImageModel: hostDefaultImageModelOf(ENV),
+  // CI only (spec #278): HOST_IMAGE_PROVIDER=fake answers every image with the fake adapter, so no
+  // paid call is made.
+  ...(ENV.HOST_IMAGE_PROVIDER === "fake" && { imageAdapterFor: () => fakeImageAdapter() }),
   // A user's Quota: an Admin's override, else the Host's default (spec #277).
   getQuota: (userId) => getQuota(db, ENV, userId),
   // File bytes go to the S3 store when S3_* is set, and to Postgres otherwise (ADR 0015).

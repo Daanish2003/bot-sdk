@@ -22,6 +22,17 @@ export const mcpToolName = "tracker_create_issue";
 /** The arguments the fake Model sends with that call. */
 export const mcpToolArguments = { title: "E2E launch" };
 
+/**
+ * A prompt with this marker makes the fake Model call `generate_image` (spec #278), when the request
+ * offers it. The Host's Image Model is `fakeImageModel`, answered by the fake image adapter.
+ */
+export const imageMarker = "[image]";
+const imageToolName = "generate_image";
+export const fakeImageModel = "e2e-image";
+export const imagePrompt = "a red bicycle";
+/** The reply once the image is made: the Model's words about it, with no pixels. */
+export const imageReply = "Here is the image of a red bicycle.";
+
 /** The reply to an MCP tool's result: what the tool returned, as the Model sees it. */
 export function mcpReply(toolResult: string): string {
   return `The issue was created. The tool returned: ${toolResult}`;
@@ -135,11 +146,17 @@ export function startFakeOllama(port: number): Promise<Server> {
         calls(mcpToolName, mcpToolArguments);
         return;
       }
+      if (stream && !answering && offers(imageToolName) && prompt.includes(imageMarker)) {
+        calls(imageToolName, { prompt: imagePrompt, aspectRatio: "landscape" });
+        return;
+      }
       const text =
         last?.role === "tool" && stream
           ? asked === mcpToolName
             ? mcpReply(last.content)
-            : fetchedReply(last.content)
+            : asked === imageToolName
+              ? imageReply
+              : fetchedReply(last.content)
           : fakeReply(prompt.slice(0, 80));
       const line = (content: string, done: boolean) =>
         JSON.stringify({

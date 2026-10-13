@@ -7,7 +7,7 @@ import {
   generatedImageErrorLabels,
   type GeneratedImageErrorReason,
 } from "../../../core/shared/chat/generated-image";
-import { GeneratedImageBlock } from "../../../ui/chat/generated-image-block";
+import { GeneratedImageBlock, GeneratedImageViewer } from "../../../ui/chat/generated-image-block";
 
 const image = (fields: Partial<GeneratedImagePart> = {}): GeneratedImagePart => ({
   type: "generated_image",
@@ -18,8 +18,10 @@ const image = (fields: Partial<GeneratedImagePart> = {}): GeneratedImagePart => 
   ...fields,
 });
 
+const imagesUrl = "http://localhost/api/chat/generated-images";
+
 const render = (part: GeneratedImagePart) =>
-  renderToStaticMarkup(createElement(GeneratedImageBlock, { image: part }));
+  renderToStaticMarkup(createElement(GeneratedImageBlock, { image: part, imagesUrl }));
 
 describe("a generated image block", () => {
   it("shows a running placeholder with its counter and the prompt as the caption", () => {
@@ -47,5 +49,35 @@ describe("a generated image block", () => {
     expect(html).toContain("Stopped before the image was ready");
     expect(html).toContain("a red bicycle");
     expect(html).not.toContain("Generating image");
+  });
+
+  it("shows a done image from the owner's route, with its prompt as the caption", () => {
+    const html = render(image({ state: "done", imageId: "img-1" }));
+
+    expect(html).toContain(`src="${imagesUrl}/img-1"`);
+    expect(html).toContain("a red bicycle");
+    expect(html).not.toContain("Generating image");
+  });
+
+  it("offers Zoom, and a Download that names the file", () => {
+    const html = render(image({ state: "done", imageId: "img-1" }));
+
+    expect(html).toContain("Zoom");
+    expect(html).toContain(`href="${imagesUrl}/img-1?download=1"`);
+  });
+});
+
+describe("the lightbox of a generated image", () => {
+  it("shows the image large, with its prompt and a Download", () => {
+    const html = renderToStaticMarkup(
+      createElement(GeneratedImageViewer, {
+        image: image({ state: "done", imageId: "img-1" }),
+        imagesUrl,
+      }),
+    );
+
+    expect(html).toContain(`src="${imagesUrl}/img-1"`);
+    expect(html).toContain("a red bicycle");
+    expect(html).toContain(`href="${imagesUrl}/img-1?download=1"`);
   });
 });

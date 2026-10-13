@@ -21,6 +21,8 @@ export type ChatClient = {
   chatUrl: string;
   /** The signed-in user's export, a JSON download (`GET`). */
   exportUrl: string;
+  /** A Generated image's bytes, by id (`GET <generatedImagesUrl>/<id>`, `?download=1` to save). */
+  generatedImagesUrl: string;
   /** Where the MCP sign-in starts (`GET ?server=<key>&returnTo=<path>`) and finishes. */
   connectionsUrl: string;
   /** The transport every RPC call goes through. */
@@ -47,6 +49,7 @@ export function createChatClient({
     orpc: createTanstackQueryUtils(rpc),
     chatUrl: `${base}/run`,
     exportUrl: `${base}/export`,
+    generatedImagesUrl: `${base}/generated-images`,
     connectionsUrl: `${base}/mcp`,
     fetch,
   };

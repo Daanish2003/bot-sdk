@@ -449,6 +449,7 @@ function AssistantParts({
   onDecide?: (approved: boolean, allowForConversation?: boolean) => void;
 }) {
   const sources = sourcesOf(parts);
+  const { generatedImagesUrl } = useChatAdapter();
   return (
     <ReplySources value={sources}>
       {replySegments(parts).map((segment) =>
@@ -461,7 +462,11 @@ function AssistantParts({
             {segment.content}
           </Markdown>
         ) : segment.type === "image" ? (
-          <GeneratedImageBlock key={segment.key} image={segment.image} />
+          <GeneratedImageBlock
+            key={segment.key}
+            image={segment.image}
+            imagesUrl={generatedImagesUrl}
+          />
         ) : segment.type === "searches" ? (
           <SearchRow key={segment.key} searches={segment.searches} sources={sources} />
         ) : (

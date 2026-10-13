@@ -5,7 +5,10 @@ import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 
 import { attachmentsOfMessages } from "../attachments/store";
+import { deleteBlobsBestEffort } from "../blob/store";
+import { generatedImage } from "../db/schema/generated-image";
 import type { AppDeps } from "../deps";
+import { generatedImageKeysWhere, imagesOfMessages } from "./generated-image-store";
 import { newestLeaf, pathTo, siblingPosition } from "../../shared/chat/branches";
 import { type ActiveBranchMessage, toClientMessage } from "../../shared/chat/client-message";
 import type { ReasoningChoice } from "../../shared/chat/models";
@@ -108,12 +111,21 @@ export async function setConversationConnections(
  * Deletes the user's Conversation and, by cascade, its Messages and Shared link; `false` when it
  * isn't theirs.
  */
-export async function deleteConversation(deps: Deps, userId: string, id: string) {
-  const rows = await deps.db
-    .delete(conversation)
-    .where(ownConversation(userId, id))
-    .returning({ id: conversation.id });
-  return rows.length > 0;
+export async function deleteConversation(deps: AppDeps, userId: string, id: string) {
+  const { deleted, blobKeys } = await deps.db.transaction(async (tx) => {
+    // The Generated images of this Conversation: their rows go by cascade, their bytes after the commit.
+    const blobKeys = await generatedImageKeysWhere(
+      tx,
+      and(eq(generatedImage.userId, userId), imagesOfMessages(tx, eq(message.conversationId, id))),
+    );
+    const rows = await tx
+      .delete(conversation)
+      .where(ownConversation(userId, id))
+      .returning({ id: conversation.id });
+    return { deleted: rows.length > 0, blobKeys };
+  });
+  await deleteBlobsBestEffort(deps, blobKeys);
+  return deleted;
 }
 
 /** How many Conversations a user can have pinned at once. */

@@ -8,7 +8,9 @@ import { describe, expect, it } from "vitest";
 
 import { saveCredentials } from "../../../../core/server/credentials/store";
 import type { AppDeps, HostProvider } from "../../../../core/server/deps";
-import { fakeImageAdapter } from "../../../../core/server/chat/fake-image-adapter";
+import { fakeImageAdapter, fakePngBase64 } from "../../../../core/server/chat/fake-image-adapter";
+import { blob } from "../../../../core/server/db/schema/blob";
+import { like } from "drizzle-orm";
 import { quotaLookup, readQuota } from "../../../../core/server/chat/quota";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { insertConversation } from "../../../support/conversations";
@@ -227,6 +229,9 @@ describe("the generate_image tool", () => {
       aspectRatio: "landscape",
     });
     expect(imageAdapter.calls).toEqual([{ prompt: "a red bicycle", size: "1024x1024" }]);
+    // The bytes are kept in the blob store under the image's id, next to its row (spec #278).
+    const stored = await deps.blobStore.get(`generated-image/${rows[0]!.id}`);
+    expect(Uint8Array.from(stored!)).toEqual(new Uint8Array(Buffer.from(fakePngBase64, "base64")));
   });
 
   it("refuses a fifth image in one Run as limit_reached, and makes no fifth call", async () => {
@@ -309,6 +314,10 @@ describe("the generate_image tool", () => {
     // The Run ends without waiting for the tool, so let a call still in flight settle before looking.
     await new Promise((resolve) => setTimeout(resolve, 200));
     expect(await imagesOf(reply.id)).toEqual([]);
+    // No bytes either: a stopped image is never stored (spec #278).
+    expect(
+      await getTestDb().select().from(blob).where(like(blob.key, "generated-image/%")),
+    ).toEqual([]);
   });
 
   it("stores a refused image as refused, gives the Model the Provider's message, and the Run completes", async () => {

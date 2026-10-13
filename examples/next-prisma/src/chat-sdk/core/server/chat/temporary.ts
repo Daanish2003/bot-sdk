@@ -1,8 +1,10 @@
 import { and, eq, gte, inArray, lt, notExists, or } from "drizzle-orm";
 
+import { deleteBlobsBestEffort } from "../blob/store";
 import { attachment, messageAttachment } from "../db/schema/attachment";
 import { conversation, message } from "../db/schema/chat";
 import type { AppDeps } from "../deps";
+import { generatedImageKeysWhere, imagesOfMessages } from "./generated-image-store";
 
 /** How long a Temporary Conversation lasts after its last Message (spec #262). */
 const temporaryRetentionMs = 30 * 24 * 60 * 60_000;
@@ -23,17 +25,17 @@ export const liveConversation = (now: Date) =>
  * uses one. Takes `now` as an argument, as the reaper does.
  */
 export async function sweepExpiredTemporaryConversations(
-  deps: Pick<AppDeps, "db">,
+  deps: Pick<AppDeps, "db" | "blobStore" | "logger">,
   now = new Date(),
 ): Promise<void> {
-  await deps.db.transaction(async (tx) => {
+  const blobKeys = await deps.db.transaction(async (tx) => {
     const expired = await tx
       .select({ id: conversation.id })
       .from(conversation)
       .where(
         and(eq(conversation.temporary, true), lt(conversation.lastMessageAt, expiryCutoff(now))),
       );
-    if (expired.length === 0) return;
+    if (expired.length === 0) return [];
     const conversationIds = expired.map((row) => row.id);
 
     const linked = await tx
@@ -42,22 +44,31 @@ export async function sweepExpiredTemporaryConversations(
       .innerJoin(message, eq(message.id, messageAttachment.messageId))
       .where(inArray(message.conversationId, conversationIds));
 
+    // The Generated images of these Conversations: their rows go by cascade, their bytes after the commit.
+    const keys = await generatedImageKeysWhere(
+      tx,
+      imagesOfMessages(tx, inArray(message.conversationId, conversationIds)),
+    );
+
     await tx.delete(conversation).where(inArray(conversation.id, conversationIds));
 
     const attachmentIds = linked.map((row) => row.attachmentId);
-    if (attachmentIds.length === 0) return;
-    await tx
-      .delete(attachment)
-      .where(
-        and(
-          inArray(attachment.id, attachmentIds),
-          notExists(
-            tx
-              .select({ id: messageAttachment.attachmentId })
-              .from(messageAttachment)
-              .where(eq(messageAttachment.attachmentId, attachment.id)),
+    if (attachmentIds.length > 0) {
+      await tx
+        .delete(attachment)
+        .where(
+          and(
+            inArray(attachment.id, attachmentIds),
+            notExists(
+              tx
+                .select({ id: messageAttachment.attachmentId })
+                .from(messageAttachment)
+                .where(eq(messageAttachment.attachmentId, attachment.id)),
+            ),
           ),
-        ),
-      );
+        );
+    }
+    return keys;
   });
+  await deleteBlobsBestEffort(deps, blobKeys);
 }

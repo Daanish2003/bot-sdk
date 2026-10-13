@@ -1,9 +1,12 @@
 import { onError } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
+import { and, eq } from "drizzle-orm";
+import { z } from "zod";
 
 import { handleChat } from "./chat/handle-chat";
 import type { HostServerTool } from "./chat/host-tools";
-import type { BlobStore } from "./blob/store";
+import { type BlobStore, generatedImageBlobKey } from "./blob/store";
+import { generatedImage } from "./db/schema/generated-image";
 import { postgresBlobStore } from "./blob/postgres";
 import { webSearchToolName } from "../shared/chat/web-search";
 import { fetchUrlToolName } from "../shared/chat/fetch-url";
@@ -142,6 +145,7 @@ export function createChatHandler(
   const exportPath = `${prefix}/export`;
   const mcpConnectPath = `${prefix}/mcp/connect`;
   const mcpCallbackPath = `${prefix}/mcp/callback`;
+  const generatedImagesPath = `${prefix}/generated-images/`;
   const sharedReadPath = `${rpcPrefix}/share/get`;
   const rpc = new RPCHandler(appRouter, {
     interceptors: [onError((error) => logger.error(error))],
@@ -173,6 +177,15 @@ export function createChatHandler(
     }
     if (user && pathname === exportPath && request.method === "GET") {
       return exportResponse(deps, user.id);
+    }
+    if (user && request.method === "GET" && pathname.startsWith(generatedImagesPath)) {
+      const download = new URL(request.url).searchParams.get("download") === "1";
+      return generatedImageResponse(
+        deps,
+        user.id,
+        pathname.slice(generatedImagesPath.length),
+        download,
+      );
     }
     if (
       user &&
@@ -402,6 +415,36 @@ async function exportResponse(deps: AppDeps, userId: string) {
   const date = document.exportedAt.toISOString().slice(0, 10);
   return Response.json(document, {
     headers: { "Content-Disposition": `attachment; filename="chat-export-${date}.json"` },
+  });
+}
+
+/**
+ * One of the user's Generated images, its bytes straight from the blob store (spec #278). Another
+ * user's image, an unknown id or an id that isn't one is 404. The bytes never change, so they are
+ * cached for good; `?download=1` names the file for saving.
+ */
+async function generatedImageResponse(
+  deps: AppDeps,
+  userId: string,
+  id: string,
+  download: boolean,
+): Promise<Response> {
+  if (!z.uuid().safeParse(id).success) return notFound();
+  const [row] = await deps.db
+    .select({ mediaType: generatedImage.mediaType })
+    .from(generatedImage)
+    .where(and(eq(generatedImage.id, id), eq(generatedImage.userId, userId)));
+  const bytes = row ? await deps.blobStore.get(generatedImageBlobKey(id)) : null;
+  if (!row || !bytes) return notFound();
+  const extension = row.mediaType === "image/jpeg" ? "jpg" : row.mediaType.split("/")[1];
+  return new Response(bytes as Uint8Array<ArrayBuffer>, {
+    headers: {
+      "Content-Type": row.mediaType,
+      "Cache-Control": "private, max-age=31536000, immutable",
+      ...(download && {
+        "Content-Disposition": `attachment; filename="generated-image-${id.slice(0, 8)}.${extension}"`,
+      }),
+    },
   });
 }
 

@@ -3,18 +3,27 @@ import {
   type GeneratedImageErrorReason,
 } from "../../core/shared/chat/generated-image";
 import type { GeneratedImagePart } from "../../core/shared/message-parts";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { BanIcon, SparklesIcon, TriangleAlertIcon } from "lucide-react";
+import { BanIcon, DownloadIcon, SparklesIcon, TriangleAlertIcon, ZoomInIcon } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 
 /**
  * One `generate_image` call of a reply (spec #278), at the shape it asked for. A running image is a
- * placeholder with a counter; a failed one says why; a stopped one says it was stopped. The finished
- * picture is shown once the image's bytes are stored (its own ticket): until then a done image shows
- * its prompt only. To give images their own look, edit this file in the Host's `ui/`; the SDK copy
- * never overwrites it.
+ * placeholder with a counter; a failed one says why; a stopped one says it was stopped. A finished
+ * one is its picture, served by the owner's route under `imagesUrl`, with Zoom and Download. To give
+ * images their own look, edit this file in the Host's `ui/`; the SDK copy never overwrites it.
  */
-export function GeneratedImageBlock({ image }: { image: GeneratedImagePart }) {
+export function GeneratedImageBlock({
+  image,
+  imagesUrl,
+}: {
+  image: GeneratedImagePart;
+  /** Where the owner's route serves the image bytes: `<chat base>/generated-images`. */
+  imagesUrl: string;
+}) {
+  const [zoomed, setZoomed] = useState(false);
   return (
     <figure className={cn("flex flex-col gap-1.5", shapeClass[image.aspectRatio])}>
       {image.state === "running" && <Placeholder image={image} />}
@@ -25,8 +34,84 @@ export function GeneratedImageBlock({ image }: { image: GeneratedImagePart }) {
           <span>Stopped before the image was ready</span>
         </Box>
       )}
+      {image.state === "done" && image.imageId && (
+        <div className="group relative overflow-hidden rounded-xl bg-muted">
+          <img
+            src={`${imagesUrl}/${image.imageId}`}
+            alt={image.prompt}
+            className="block h-auto w-full"
+          />
+          <div className="absolute top-2 right-2 flex gap-1 opacity-100 transition-opacity [@media(hover:hover)_and_(min-width:768px)]:opacity-0 [@media(hover:hover)_and_(min-width:768px)]:group-hover:opacity-100 [@media(hover:hover)_and_(min-width:768px)]:focus-within:opacity-100">
+            <Button
+              variant="secondary"
+              size="icon-sm"
+              aria-label="Zoom"
+              onClick={() => setZoomed(true)}
+            >
+              <ZoomInIcon />
+            </Button>
+            <DownloadLink imagesUrl={imagesUrl} image={image} />
+          </div>
+          <Dialog open={zoomed} onOpenChange={setZoomed}>
+            <DialogContent className="sm:max-w-[min(90vw,64rem)]">
+              <DialogTitle className="sr-only">{image.prompt}</DialogTitle>
+              <GeneratedImageViewer image={image} imagesUrl={imagesUrl} />
+            </DialogContent>
+          </Dialog>
+        </div>
+      )}
       <figcaption className="text-xs text-muted-foreground italic">{image.prompt}</figcaption>
     </figure>
+  );
+}
+
+/**
+ * A finished image as the lightbox shows it: as large as fits, with its prompt and a Download. The
+ * download asks the owner's route for the file under its own name.
+ */
+export function GeneratedImageViewer({
+  image,
+  imagesUrl,
+}: {
+  image: GeneratedImagePart;
+  imagesUrl: string;
+}) {
+  if (!image.imageId) return null;
+  return (
+    <div className="flex flex-col gap-3">
+      <img
+        src={`${imagesUrl}/${image.imageId}`}
+        alt={image.prompt}
+        className="max-h-[75vh] w-full object-contain"
+      />
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-xs text-muted-foreground italic">{image.prompt}</p>
+        <DownloadLink imagesUrl={imagesUrl} image={image} label />
+      </div>
+    </div>
+  );
+}
+
+/** The image's bytes as a file download (`?download=1`), named for saving. */
+function DownloadLink({
+  imagesUrl,
+  image,
+  label = false,
+}: {
+  imagesUrl: string;
+  image: GeneratedImagePart;
+  label?: boolean;
+}) {
+  return (
+    <a
+      href={`${imagesUrl}/${image.imageId}?download=1`}
+      download
+      aria-label="Download"
+      className={buttonVariants({ variant: "secondary", size: label ? "sm" : "icon-sm" })}
+    >
+      <DownloadIcon />
+      {label && "Download"}
+    </a>
   );
 }
 
