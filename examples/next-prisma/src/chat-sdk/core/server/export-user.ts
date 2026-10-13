@@ -5,6 +5,7 @@ import { conversation, message, project } from "./db/schema/chat";
 import { sharedLink } from "./db/schema/share";
 import { userSettings } from "./db/schema/settings";
 import type { AppDeps } from "./deps";
+import { liveConversation } from "./chat/temporary";
 import type { StoredParts } from "../shared/message-parts";
 
 /**
@@ -16,7 +17,7 @@ export type UserExport = {
   /** The format version. Bumped only when a reader would misread the document. */
   version: 1;
   exportedAt: Date;
-  settings: { titleModel: string | null; instructions: string | null };
+  settings: { backgroundModel: string | null; instructions: string | null };
   projects: {
     id: string;
     name: string;
@@ -31,6 +32,8 @@ export type UserExport = {
     reasoningEffort: string | null;
     projectId: string | null;
     pinnedAt: Date | null;
+    /** A Temporary Conversation (spec #262); the export holds the ones that still exist. */
+    temporary: boolean;
     /** The newest Message of the Active Branch. */
     activeLeafId: string | null;
     lastMessageAt: Date;
@@ -43,6 +46,8 @@ export type UserExport = {
       parts: StoredParts;
       model: string | null;
       status: string;
+      /** The owner's Rating; always null on a user Message, which can't be rated. */
+      rating: "up" | "down" | null;
       createdAt: Date;
       attachments: { filename: string; mediaType: string }[];
     }[];
@@ -59,7 +64,10 @@ export async function exportUserData(deps: AppDeps, userId: string): Promise<Use
   return deps.db.transaction(
     async (tx) => {
       const [settings] = await tx
-        .select({ titleModel: userSettings.titleModel, instructions: userSettings.instructions })
+        .select({
+          backgroundModel: userSettings.backgroundModel,
+          instructions: userSettings.instructions,
+        })
         .from(userSettings)
         .where(eq(userSettings.userId, userId));
 
@@ -78,7 +86,7 @@ export async function exportUserData(deps: AppDeps, userId: string): Promise<Use
       const conversations = await tx
         .select()
         .from(conversation)
-        .where(eq(conversation.userId, userId))
+        .where(and(eq(conversation.userId, userId), liveConversation(new Date())))
         .orderBy(asc(conversation.createdAt), asc(conversation.id));
 
       const messages = (
@@ -86,7 +94,7 @@ export async function exportUserData(deps: AppDeps, userId: string): Promise<Use
           .select({ message })
           .from(message)
           .innerJoin(conversation, eq(conversation.id, message.conversationId))
-          .where(eq(conversation.userId, userId))
+          .where(and(eq(conversation.userId, userId), liveConversation(new Date())))
           .orderBy(asc(message.createdAt), asc(message.id))
       ).map((row) => row.message);
 
@@ -114,7 +122,7 @@ export async function exportUserData(deps: AppDeps, userId: string): Promise<Use
         })
         .from(sharedLink)
         .innerJoin(conversation, eq(conversation.id, sharedLink.conversationId))
-        .where(eq(conversation.userId, userId));
+        .where(and(eq(conversation.userId, userId), liveConversation(new Date())));
 
       const attachmentsByMessage = groupBy(attachments, (row) => row.messageId);
       const messagesByConversation = groupBy(messages, (row) => row.conversationId);
@@ -123,7 +131,7 @@ export async function exportUserData(deps: AppDeps, userId: string): Promise<Use
         version: 1,
         exportedAt: new Date(),
         settings: {
-          titleModel: settings?.titleModel ?? null,
+          backgroundModel: settings?.backgroundModel ?? null,
           instructions: settings?.instructions ?? null,
         },
         projects,
@@ -134,6 +142,7 @@ export async function exportUserData(deps: AppDeps, userId: string): Promise<Use
           reasoningEffort: conv.reasoningEffort,
           projectId: conv.projectId,
           pinnedAt: conv.pinnedAt,
+          temporary: conv.temporary,
           activeLeafId: conv.activeLeafId,
           lastMessageAt: conv.lastMessageAt,
           createdAt: conv.createdAt,
@@ -144,6 +153,7 @@ export async function exportUserData(deps: AppDeps, userId: string): Promise<Use
             parts: row.parts,
             model: row.model,
             status: row.status,
+            rating: row.rating,
             createdAt: row.createdAt,
             attachments: (attachmentsByMessage.get(row.id) ?? []).map(
               ({ filename, mediaType }) => ({

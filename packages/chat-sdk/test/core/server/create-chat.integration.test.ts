@@ -69,6 +69,32 @@ describe("createChat start", () => {
 
     await expect(chat.start()).rejects.toThrow(/anthropic.*transcription/);
   });
+
+  it("refuses a defaultBackgroundModel that is not one of the Host's Models", async () => {
+    const chat = createChat({
+      databaseUrl: "postgresql://nobody:nothing@127.0.0.1:1/unreachable",
+      getUser: () => null,
+      keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
+      basePath,
+      hostProviders: [
+        {
+          provider: "ollama",
+          credentials: { host: "http://localhost:11434" },
+          models: [
+            {
+              modelId: "llama",
+              maxOutputTokens: 512,
+              inputUsdPerMillion: 0,
+              outputUsdPerMillion: 0,
+            },
+          ],
+        },
+      ],
+      defaultBackgroundModel: "ollama:mistral",
+    });
+
+    await expect(chat.start()).rejects.toThrow(/defaultBackgroundModel/);
+  });
 });
 
 describe("the chat handler", () => {

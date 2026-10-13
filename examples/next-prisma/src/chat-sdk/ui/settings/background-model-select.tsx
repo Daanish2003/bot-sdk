@@ -15,20 +15,20 @@ import { toast } from "sonner";
 import { useByok } from "../../core/client/react/byok";
 import { useOrpc } from "../../core/client/react/provider";
 
-/** The Title Model select: which Model writes automatic titles ("Same as first reply" by default). */
-export function TitleModelSelect() {
+/** The Background Model select: which Model writes automatic titles ("Same as first reply" by default). */
+export function BackgroundModelSelect() {
   const queryClient = useQueryClient();
   const orpc = useOrpc();
   const settings = useQuery(orpc.settings.get.queryOptions());
   const models = useQuery(orpc.models.list.queryOptions());
   const byok = useByok();
   const settingsKey = orpc.settings.get.queryKey();
-  const setTitleModel = useMutation(
-    orpc.settings.setTitleModel.mutationOptions({
-      onMutate: ({ titleModel }) => {
+  const setBackgroundModel = useMutation(
+    orpc.settings.setBackgroundModel.mutationOptions({
+      onMutate: ({ backgroundModel }) => {
         const previous = settings.data;
         queryClient.setQueryData(settingsKey, {
-          titleModel,
+          backgroundModel,
           instructions: settings.data?.instructions ?? null,
         });
         return { previous };
@@ -42,13 +42,17 @@ export function TitleModelSelect() {
   );
 
   const available = models.data?.models ?? [];
-  const saved = settings.data?.titleModel ?? null;
-  // A saved Title Model whose Provider lost its credentials stays selectable, and says so.
+  const saved = settings.data?.backgroundModel ?? null;
+  // A saved Background Model whose Provider lost its credentials stays selectable, and says so.
   const missingKey = saved ? missingCredentialsMessage(saved, available, byok) : null;
   const groups = modelGroups(available, "");
-  // `null` is "Same as first reply".
+  // `null` is "Same as first reply", or the Host's default Background Model when it has one.
+  const hostDefault = models.data?.defaultBackgroundModel ?? null;
   const first: Array<{ value: string | null; label: string }> = [
-    { value: null, label: "Same as first reply" },
+    {
+      value: null,
+      label: hostDefault ? `Host default (${modelLabel(hostDefault)})` : "Same as first reply",
+    },
     ...(saved && missingKey ? [{ value: saved, label: `${modelLabel(saved)} (no key)` }] : []),
   ];
   // What the trigger shows for the selected value.
@@ -63,14 +67,14 @@ export function TitleModelSelect() {
     <section className="space-y-2">
       <h2 className="text-sm font-medium">Titles</h2>
       <div className="space-y-2 rounded-xl border px-4 py-3">
-        <Label htmlFor="title-model">Title Model</Label>
+        <Label htmlFor="background-model">Background Model</Label>
         <Select
           items={items}
           value={saved}
-          onValueChange={(titleModel) => setTitleModel.mutate({ titleModel })}
+          onValueChange={(backgroundModel) => setBackgroundModel.mutate({ backgroundModel })}
           disabled={settings.isPending || models.isPending}
         >
-          <SelectTrigger id="title-model" size="sm" className="w-full">
+          <SelectTrigger id="background-model" size="sm" className="w-full">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -96,7 +100,7 @@ export function TitleModelSelect() {
         <p className="text-xs text-muted-foreground">
           {missingKey
             ? `${missingKey}. Until then, titles are the start of your first Message.`
-            : "Writes each new Conversation's title after the first reply. A cheap Model is enough."}
+            : `Used for titles and Memory; pick a cheap, fast Model.${hostDefault && !saved ? " Nothing picked uses the Host's default." : ""}`}
         </p>
       </div>
     </section>

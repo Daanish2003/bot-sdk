@@ -1,5 +1,6 @@
 import type { Database } from "./db/index";
 import type { AnyTextAdapter, AnyTranscriptionAdapter } from "@tanstack/ai";
+import type { BlobStore } from "./blob/store";
 
 import { adapterFor } from "./chat/adapters";
 import { transcriptionAdapterFor } from "./chat/transcription";
@@ -127,6 +128,8 @@ export type AppDeps = {
   hostTools: HostTool[];
   /** Whether users may use their own Provider credentials (`byok`, ADR 0007). */
   byok: boolean;
+  /** The Host's default Background Model, a Host Model's id, or `null` (`defaultBackgroundModel`). */
+  defaultBackgroundModel: string | null;
   /** A user's Quota on Host credentials, `null` when unlimited (ADR 0007). */
   getQuota: (userId: string) => Promise<Quota | null>;
   searchClient: SearchClient;
@@ -160,6 +163,12 @@ export type AppDeps = {
   keyEncryptionSecrets: string[];
   /** The remote MCP servers the Host offers (`createChat({ mcpServers })`, spec #91). */
   mcpServers: McpServerConfig[];
+  /** Where file bytes are kept (`createChat({ blobStore })`, ADR 0015). */
+  blobStore: BlobStore;
+  /** Whether the Host has banned a user (`createChat({ isUserBlocked })`, spec #277). */
+  isUserBlocked: (userId: string) => boolean | Promise<boolean>;
+  /** Where the SDK reports what it can't do quietly (`createChat({ logger })`). */
+  logger: Pick<Console, "error">;
 };
 
 export const defaultLimits: Limits = {
@@ -179,11 +188,15 @@ export function createAppDeps({
   hostProviders,
   hostTools,
   byok,
+  defaultBackgroundModel,
   getQuota,
   rateLimits,
   tools,
   fetchAllowHosts,
   mcpServers,
+  blobStore,
+  isUserBlocked = () => false,
+  logger,
 }: {
   db: Database;
   keyEncryptionSecrets: string[];
@@ -191,19 +204,27 @@ export function createAppDeps({
   hostProviders: HostProvider[];
   hostTools: HostTool[];
   byok: boolean;
+  defaultBackgroundModel?: string;
   getQuota: AppDeps["getQuota"];
   rateLimits: ResolvedRateLimits;
   tools: HostServerTool[];
   fetchAllowHosts?: string[];
   mcpServers: McpServerConfig[];
+  blobStore: BlobStore;
+  isUserBlocked?: AppDeps["isUserBlocked"];
+  logger: Pick<Console, "error">;
 }): AppDeps {
   return {
     db,
+    blobStore,
+    isUserBlocked,
+    logger,
     adapterFor,
     transcriptionAdapterFor,
     hostProviders,
     hostTools,
     byok,
+    defaultBackgroundModel: defaultBackgroundModel ?? null,
     getQuota,
     searchClient: createTavilyClient(globalThis.fetch),
     tools,

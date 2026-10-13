@@ -107,6 +107,11 @@ const rpcCases = [
     route: "search/query",
     rateLimits: { conversationSearch: { limit: 1, windowSeconds: 60 } },
   },
+  {
+    name: "Rating",
+    route: "chat/rate",
+    rateLimits: { rating: { limit: 1, windowSeconds: 60 } },
+  },
 ];
 
 /** An RPC call to `route`. The limit is checked before the body is read, so the body can be empty. */

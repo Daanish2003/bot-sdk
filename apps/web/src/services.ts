@@ -3,9 +3,12 @@ import { createDb } from "@ai-chat/db";
 import { createChat, memoryRuntime, redisRuntime, redisStore } from "@ai-chat/chat-sdk/server";
 import { log } from "evlog";
 
+import { isBanActive } from "./admin/ban";
 import { appName, sender } from "./email";
 import { ENV, ssrfAllowHosts } from "./env.server";
-import { hostProvidersOf, quotaOf } from "./host-models";
+import { blobStoreOf } from "./blob-store";
+import { getQuota } from "./admin/quota";
+import { hostBackgroundModelOf, hostProvidersOf, quotaOf } from "./host-models";
 import { mcpServersOf } from "./mcp-server";
 
 export const db = createDb(ENV);
@@ -35,6 +38,8 @@ export const auth = createAuth(
       : undefined,
   },
 );
+// The Host's default Quota is parsed at boot, so a bad HOST_QUOTA_* fails the start, not a Run.
+void quotaOf(ENV);
 export const chat = createChat({
   databaseUrl: ENV.DATABASE_URL,
   keyEncryptionSecrets: [ENV.KEY_ENCRYPTION_SECRET, ENV.KEY_ENCRYPTION_SECRET_PREVIOUS].filter(
@@ -47,7 +52,20 @@ export const chat = createChat({
   mcpServers: mcpServersOf(ENV),
   // The Host's Models and their Quota (ADR 0007); unset, users chat only on their own keys.
   hostProviders: hostProvidersOf(ENV),
-  getQuota: quotaOf(ENV),
+  // The Host's default Background Model for titles (`HOST_BACKGROUND_MODEL`), one of its Models.
+  defaultBackgroundModel: hostBackgroundModelOf(ENV),
+  // A user's Quota: an Admin's override, else the Host's default (spec #277).
+  getQuota: (userId) => getQuota(db, ENV, userId),
+  // File bytes go to the S3 store when S3_* is set, and to Postgres otherwise (ADR 0015).
+  blobStore: blobStoreOf(ENV),
+  // A banned user's Shared links are not found while the Ban holds (spec #277).
+  isUserBlocked: async (userId) => {
+    const row = await db.query.user.findFirst({
+      where: { id: userId },
+      columns: { banned: true, banExpires: true },
+    });
+    return row ? isBanActive(row, new Date()) : false;
+  },
   getUser: async (request) => {
     const session = await auth.api.getSession({ headers: request.headers });
     return session?.user ? { id: session.user.id } : null;

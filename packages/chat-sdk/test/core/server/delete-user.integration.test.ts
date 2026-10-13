@@ -8,11 +8,8 @@ import { createChat } from "../../../core/server/create-chat";
 import { deleteUserData } from "../../../core/server/delete-user";
 import { saveCredentials } from "../../../core/server/credentials/store";
 import { START } from "../../../core/server/chat/run-streams";
-import {
-  attachment,
-  attachmentBlob,
-  messageAttachment,
-} from "../../../core/server/db/schema/attachment";
+import { attachment, messageAttachment } from "../../../core/server/db/schema/attachment";
+import { blob } from "../../../core/server/db/schema/blob";
 import { conversation, message, project } from "../../../core/server/db/schema/chat";
 import { userCredentials } from "../../../core/server/db/schema/credentials";
 import { sharedLink } from "../../../core/server/db/schema/share";
@@ -52,7 +49,7 @@ async function seedOwner(user: TestUser) {
   });
   await getTestDb()
     .insert(userSettings)
-    .values({ userId: user.id, titleModel: "anthropic:x", instructions: "Be terse." });
+    .values({ userId: user.id, backgroundModel: "anthropic:x", instructions: "Be terse." });
   await getTestDb().insert(project).values({ id: uuidv7(), userId: user.id, name: "Work" });
   await getTestDb().insert(usage).values({
     id: uuidv7(),
@@ -78,6 +75,10 @@ async function ownedRows(userId: string) {
     .select({ id: attachment.id })
     .from(attachment)
     .where(eq(attachment.userId, userId));
+  const ownBlobKeys = db
+    .select({ key: sql<string>`'attachment/' || ${attachment.id}` })
+    .from(attachment)
+    .where(eq(attachment.userId, userId));
   const count = async (query: Promise<unknown[]>) => (await query).length;
   return {
     conversations: await count(
@@ -90,9 +91,7 @@ async function ownedRows(userId: string) {
       db.select().from(sharedLink).where(inArray(sharedLink.conversationId, ownConversations)),
     ),
     attachments: await count(db.select().from(attachment).where(eq(attachment.userId, userId))),
-    attachmentBlobs: await count(
-      db.select().from(attachmentBlob).where(inArray(attachmentBlob.attachmentId, ownAttachments)),
-    ),
+    attachmentBlobs: await count(db.select().from(blob).where(inArray(blob.key, ownBlobKeys))),
     messageAttachments: await count(
       db
         .select()
@@ -278,5 +277,22 @@ describe("createChat().deleteUser", () => {
         .from(conversation)
         .where(and(eq(conversation.userId, other.id))),
     ).toHaveLength(1);
+  });
+});
+
+describe("deleteUserData, Temporary Conversations", () => {
+  it("removes the user's Temporary Conversations with their Messages", async () => {
+    const owner = await insertUser();
+    const temporary = await insertConversation(owner, { temporary: true });
+    await insertMessage({ conversationId: temporary.id, role: "user", text: "Private" });
+
+    await deleteUserData(createTestDeps(), owner.id);
+
+    expect(
+      await getTestDb().select().from(conversation).where(eq(conversation.id, temporary.id)),
+    ).toEqual([]);
+    expect(
+      await getTestDb().select().from(message).where(eq(message.conversationId, temporary.id)),
+    ).toEqual([]);
   });
 });

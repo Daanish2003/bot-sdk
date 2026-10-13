@@ -15,6 +15,8 @@ const shadcnAliases = [
 
 export default defineConfig({
   test: {
+    // Several worktrees often run the suite at once; `--maxWorkers` on the command line overrides it.
+    maxWorkers: 2,
     projects: [
       {
         resolve: { alias: shadcnAliases },

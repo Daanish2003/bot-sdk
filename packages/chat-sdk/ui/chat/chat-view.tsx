@@ -31,6 +31,7 @@ import { ContextOverflowNotice, ContextRing } from "./context-ring";
 import { MessageRow } from "./message-row";
 import { MissingCredentialsBanner } from "./missing-credentials-banner";
 import { QuotaBanner } from "./quota-banner";
+import { TemporaryBanner } from "./temporary-banner";
 import { QuotaMeter } from "./quota-meter";
 import { SearchToggle, useWebSearch } from "./search-toggle";
 import { ToolsMenu } from "./tools-menu";
@@ -154,6 +155,33 @@ function ChatThread({
     const fresh = await fetchConversation();
     const running = fresh.messages.find((m) => m.status === "streaming");
     if (running) await stopRun.mutateAsync({ messageId: running.id });
+  };
+
+  // A Rating shows at once on its reply, and is taken back if the server refuses it. The rollback
+  // reads the latest Messages, so a stream update that arrived meanwhile is kept.
+  const latestMessages = useRef(messages);
+  useEffect(() => {
+    latestMessages.current = messages;
+  }, [messages]);
+  const rateCall = useMutation(orpc.chat.rate.mutationOptions());
+  const withRating = (list: typeof messages, messageId: string, rating: "up" | "down" | null) =>
+    list.map((message) =>
+      message.id === messageId
+        ? { ...message, metadata: { ...message.metadata, rating } }
+        : message,
+    );
+  const rate = (messageId: string, rating: "up" | "down" | null) => {
+    const previous = messageInfo(messages.find((message) => message.id === messageId)!).rating;
+    setMessages(withRating(messages, messageId, rating));
+    rateCall.mutate(
+      { messageId, rating },
+      {
+        onError: (caught) => {
+          setMessages(withRating(latestMessages.current, messageId, previous));
+          toast.error(`Rating failed: ${caught.message}`);
+        },
+      },
+    );
   };
 
   // The newest reply waits for its call's Approval: the composer waits too (ADR 0008).
@@ -297,6 +325,7 @@ function ChatThread({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {conversation.temporary && <TemporaryBanner />}
       <ChatContainerRoot className="relative min-h-0 flex-1">
         <ChatContainerContent className="py-2">
           {messages.map((message) => (
@@ -311,6 +340,7 @@ function ChatThread({
                 onEdit: (text, attachments) => startBranch(message.id, text, attachments),
                 onRegenerate: () => startBranch(message.id),
                 onSwitchBranch: (messageId) => switchBranch.mutate({ messageId }),
+                onRate: (rating) => rate(message.id, rating),
                 onDecide: (approved, allowForConversation) =>
                   void decide(message.id, approved, allowForConversation),
               }}

@@ -53,6 +53,7 @@ describe("models.list", () => {
     await expect(client.models.list()).resolves.toEqual({
       models: [],
       defaultModel: null,
+      defaultBackgroundModel: null,
       webSearchOnHost: false,
     });
   });

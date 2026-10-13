@@ -63,7 +63,7 @@ test("a reset link sets a new password, signs out the other device, and a used l
   await page.getByLabel("Password").fill(NEW_PASSWORD);
   await submitAuthForm(
     page,
-    page.getByRole("button", { name: "Sign In" }),
+    page.getByRole("button", { name: "Sign In", exact: true }),
     "/api/auth/sign-in/email",
   );
   await expect(page).toHaveURL(/\/c$/);

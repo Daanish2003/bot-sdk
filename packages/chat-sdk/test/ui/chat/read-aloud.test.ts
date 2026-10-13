@@ -28,6 +28,7 @@ const actions = {
   onEdit: () => {},
   onRegenerate: () => {},
   onSwitchBranch: () => {},
+  onRate: () => {},
 };
 
 describe("the read-aloud button", () => {

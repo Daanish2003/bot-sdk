@@ -103,6 +103,33 @@ The `prompt-kit` components (`chat-container`, `loader`, `markdown`, `prompt-inp
 - The SDK's tables live in the `chat` schema of the Host's database, not in your ORM's schema. Your ORM's migrations never touch them.
 - The SDK's migrations are expand-then-contract: they add tables, columns and indexes, and never drop or rename one in the same release. The version still running during a deploy keeps working against the migrated schema.
 
+## File storage: `blobStore`
+
+Attachment bytes go to a `BlobStore`, which `createChat({ blobStore })` takes. Names, types, sizes and owners stay in Postgres either way. The store holds bytes only, under keys the SDK makes up, such as `attachment/<id>`.
+
+- **`postgresBlobStore()`** is the default: bytes in the `chat.blob` table of your database. Leave `blobStore` out and nothing changes. The migration copies the bytes from the old `attachment_blob` table into `chat.blob`.
+- **`s3BlobStore({ endpoint, bucket, region, accessKeyId, secretAccessKey, forcePathStyle? })`** keeps bytes in any S3-compatible bucket, such as Cloudflare R2 (`region: "auto"`) or RustFS. It needs an existing bucket: the store never creates one, so the app needs no bucket-admin rights. It is built on `aws4fetch`, and `forcePathStyle` defaults to `true`.
+
+```ts
+import { createChat, s3BlobStore } from "@ai-chat/chat-sdk/server";
+
+const chat = createChat({
+  databaseUrl,
+  getUser,
+  keyEncryptionSecrets,
+  blobStore: s3BlobStore({
+    endpoint: process.env.S3_ENDPOINT!,
+    bucket: process.env.S3_BUCKET!,
+    region: "auto",
+    accessKeyId: process.env.S3_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.S3_SECRET_ACCESS_KEY!,
+  }),
+});
+```
+
+- A failed upload leaves no object behind. Deleting a user, and the 24-hour cleanup of unused Attachments, remove their objects after the database commit. A failed object delete is logged and not thrown, so a stray object costs storage but no data, and nothing sweeps it.
+- **Switching a running deployment from one store to the other isn't supported**: there is no copy tool, so the Attachments already uploaded stay in the store they went to. Choose the store before you go live.
+
 ## Host lifecycle
 
 The server API below is the spec for the SDK (spec #70). Some of it lands in later tickets; until then, `core/server` exports only the parts already built.
@@ -173,6 +200,7 @@ Stored Provider and Tool credentials are encrypted under `keyEncryptionSecrets`:
 ## Who pays for Runs
 
 - `hostProviders` are the Host's own credentials, from your environment (never stored): `[{ provider, credentials, models: [...] }]`. Each model is `{ modelId, label?, images?, pdfs?, tools?, maxOutputTokens, inputUsdPerMillion, outputUsdPerMillion }`. `maxOutputTokens` is required: the Host's output cap for a Run on that model, handed to `adapterFor` (the production adapters don't apply it yet). The prices are per 1M tokens and kept with the model. Capability flags default to off unless the model is curated, in which case its curated flags apply. A Tool goes in the same list as `{ tool: "tavily", credentials, pricePerSearchUsd }`: a Host Tavily key that searches for users with no Tavily key of their own, each search recorded at that fixed price.
+- `defaultBackgroundModel` (optional) is a `"provider:model"` id of one of your `hostProviders` Models. Titles use it for users who pick no Background Model; without it they use the Model that wrote the reply. `start()` throws when it isn't one of your Models.
 - `byok` (default `true`) lets users run on their own Provider credentials. Set it independently of `hostProviders`: `byok: false` with `hostProviders` is a company Host that runs only its own keys.
 - A user's own key for a Provider always wins over the Host's. The Model list marks the Models that run on Host credentials.
 - `start()` throws with neither `hostProviders` nor `byok`.
@@ -187,7 +215,7 @@ const chat = createChat({
 
 Three modes, chosen by those two options:
 
-- **Host only** (`hostProviders`, `byok: false`): a company Host. Users chat on the Models you offer. With `byok` off, the credential sections of the keys page and every "add your key" prompt are hidden; the Instructions and Title Model sections stay. Saving a credential is rejected with `FORBIDDEN`; listing and deleting the credentials a user already has still work.
+- **Host only** (`hostProviders`, `byok: false`): a company Host. Users chat on the Models you offer. With `byok` off, the credential sections of the keys page and every "add your key" prompt are hidden; the Instructions and Background Model sections stay. Saving a credential is rejected with `FORBIDDEN`; listing and deleting the credentials a user already has still work.
 - **User keys only** (no `hostProviders`, `byok: true`): every reply runs on the user's own keys, as before.
 - **Both** (`hostProviders` and `byok: true`, the default): a user's own key wins for its Provider; otherwise the Host's Models answer.
 

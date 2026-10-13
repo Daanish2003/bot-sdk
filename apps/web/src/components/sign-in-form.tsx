@@ -3,9 +3,11 @@ import { Input } from "@ai-chat/ui/components/input";
 import { Label } from "@ai-chat/ui/components/label";
 import { useForm } from "@tanstack/react-form";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { useEffect } from "react";
 import { toast } from "sonner";
 import z from "zod";
 
+import { suspendedMessage } from "@/admin/ban";
 import { authClient } from "@/lib/auth-client";
 
 import Loader from "./loader";
@@ -15,6 +17,43 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
     from: "/",
   });
   const { isPending } = authClient.useSession();
+
+  // A banned user is refused with the same one message as on the password path.
+  const passkeyFailed = (error: { code?: string; message?: string }) => {
+    toast.error(
+      error.code === "BANNED_USER"
+        ? suspendedMessage
+        : error.message || "Could not sign in with a passkey",
+    );
+  };
+
+  // Conditional UI: where the browser supports it, saved passkeys are offered in the email field's
+  // autofill. Choosing one signs in without a password (and without the second factor).
+  useEffect(() => {
+    let active = true;
+    if (!window.PublicKeyCredential?.isConditionalMediationAvailable) return;
+    void PublicKeyCredential.isConditionalMediationAvailable().then(async (available) => {
+      if (!available || !active) return;
+      const { error } = await authClient.signIn.passkey({ autoFill: true });
+      if (error) {
+        if (active) passkeyFailed(error);
+        return;
+      }
+      if (active) navigate({ to: "/c" });
+    });
+    return () => {
+      active = false;
+    };
+  }, [navigate]);
+
+  const passkeySignIn = async () => {
+    const { error } = await authClient.signIn.passkey();
+    if (error) {
+      passkeyFailed(error);
+      return;
+    }
+    navigate({ to: "/c" });
+  };
 
   const form = useForm({
     defaultValues: {
@@ -28,13 +67,23 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
           password: value.password,
         },
         {
-          onSuccess: () => {
+          onSuccess: (context) => {
+            // A user with two-factor sign-in gets the code screen, which finishes the sign-in.
+            if (context.data?.twoFactorRedirect) {
+              navigate({ to: "/two-factor" });
+              return;
+            }
             navigate({
               to: "/c",
             });
             toast.success("Sign in successful");
           },
           onError: (error) => {
+            // A banned user is refused with the same 403 as an unverified one, so the code comes first.
+            if (error.error.code === "BANNED_USER") {
+              toast.error(suspendedMessage);
+              return;
+            }
             // Refused until the email is verified (403). Better Auth has sent a fresh link.
             if (error.error.status === 403) {
               navigate({
@@ -81,6 +130,7 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
                   id={field.name}
                   name={field.name}
                   type="email"
+                  autoComplete="username webauthn"
                   value={field.state.value}
                   onBlur={field.handleBlur}
                   onChange={(e) => field.handleChange(e.target.value)}
@@ -128,6 +178,12 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
           )}
         </form.Subscribe>
       </form>
+
+      <div className="mt-4">
+        <Button type="button" variant="outline" className="w-full" onClick={passkeySignIn}>
+          Sign in with a passkey
+        </Button>
+      </div>
 
       <div className="mt-4 text-center">
         <Link to="/forgot-password" className="text-sm underline">

@@ -79,6 +79,7 @@ describe("conversation.get", () => {
         error: null,
         errorReason: null,
         usage: null,
+        rating: null,
         contextStartId: null,
         createdAt: question.createdAt,
         siblings: { index: 0, count: 1, previousId: null, nextId: null },
@@ -95,6 +96,7 @@ describe("conversation.get", () => {
         error: null,
         errorReason: null,
         usage: null,
+        rating: null,
         contextStartId: null,
         createdAt: reply.createdAt,
         siblings: { index: 1, count: 2, previousId: older.id, nextId: null },
@@ -1000,6 +1002,75 @@ describe("conversation.move", () => {
       .select()
       .from(conversation)
       .where(eq(conversation.id, theirConversation.id));
+    expect(row?.projectId).toBeNull();
+  });
+});
+
+describe("temporary Conversations", () => {
+  it("creates a Temporary Conversation, which get reports as temporary", async () => {
+    const { client } = await signedIn();
+
+    const { id } = await client.conversation.create({ model: testModel, temporary: true });
+
+    await expect(client.conversation.get({ id })).resolves.toMatchObject({
+      id,
+      temporary: true,
+    });
+  });
+
+  it("creates an ordinary Conversation by default, not temporary", async () => {
+    const { client } = await signedIn();
+
+    const { id } = await client.conversation.create({ model: testModel });
+
+    await expect(client.conversation.get({ id })).resolves.toMatchObject({ temporary: false });
+  });
+
+  it("refuses a Temporary Conversation inside a Project", async () => {
+    const { client } = await signedIn();
+    const { id: projectId } = await client.project.create({ name: "Work" });
+
+    await expect(
+      client.conversation.create({ model: testModel, temporary: true, projectId }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("leaves Temporary Conversations out of the main list, Pinned, a Project's list", async () => {
+    const { user, client } = await signedIn();
+    const { id: projectId } = await client.project.create({ name: "Work" });
+    const plain = await insertConversation(user, { title: "Plain" });
+    await insertConversation(user, { title: "Temporary", temporary: true });
+    await insertConversation(user, {
+      title: "Temporary pinned",
+      temporary: true,
+      pinnedAt: new Date("2026-10-02T08:00:00Z"),
+    });
+    await insertConversation(user, { title: "Temporary in Project", temporary: true, projectId });
+
+    expect((await listItems(client)).map((row) => row.id)).toEqual([plain.id]);
+    await expect(client.conversation.pinned()).resolves.toEqual([]);
+    await expect(client.conversation.list({ projectId })).resolves.toMatchObject({ items: [] });
+  });
+
+  it("refuses to pin a Temporary Conversation", async () => {
+    const { user, client } = await signedIn();
+    const conv = await insertConversation(user, { temporary: true });
+
+    const refused = client.conversation.pin({ id: conv.id });
+    await expect(refused).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(refused).rejects.toThrow("A Temporary Conversation can't be pinned");
+    await expect(client.conversation.pinned()).resolves.toEqual([]);
+  });
+
+  it("refuses to move a Temporary Conversation into a Project", async () => {
+    const { user, client } = await signedIn();
+    const { id: projectId } = await client.project.create({ name: "Work" });
+    const conv = await insertConversation(user, { temporary: true });
+
+    const refused = client.conversation.move({ id: conv.id, projectId });
+    await expect(refused).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(refused).rejects.toThrow("A Temporary Conversation can't be moved into a Project");
+    const [row] = await getTestDb().select().from(conversation).where(eq(conversation.id, conv.id));
     expect(row?.projectId).toBeNull();
   });
 });

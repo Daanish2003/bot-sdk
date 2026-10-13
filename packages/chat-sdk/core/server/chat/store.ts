@@ -1,6 +1,6 @@
 import { conversation, message, type MessageRow } from "../db/schema/chat";
 import { sharedLink } from "../db/schema/share";
-import { and, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 
@@ -9,12 +9,20 @@ import type { AppDeps } from "../deps";
 import { newestLeaf, pathTo, siblingPosition } from "../../shared/chat/branches";
 import { type ActiveBranchMessage, toClientMessage } from "../../shared/chat/client-message";
 import type { ReasoningChoice } from "../../shared/chat/models";
+import { liveConversation } from "./temporary";
 
 type Deps = Pick<AppDeps, "db">;
 
-/** Matches the Conversation `id` only when `userId` owns it. */
+/**
+ * Matches the Conversation `id` only when `userId` owns it and it is live: an expired Temporary
+ * Conversation is gone to every read and write until the sweep deletes it (spec #262).
+ */
 function ownConversation(userId: string, id: string) {
-  return and(eq(conversation.id, id), eq(conversation.userId, userId));
+  return and(
+    eq(conversation.id, id),
+    eq(conversation.userId, userId),
+    liveConversation(new Date()),
+  );
 }
 
 /** The user's Conversation, or `undefined` when it doesn't exist or belongs to someone else. */
@@ -114,15 +122,16 @@ export const maxPinnedConversations = 20;
 /**
  * Pins the user's Conversation (a Project one too); `"not_found"` when it isn't theirs, `"limit"`
  * when they already have `maxPinnedConversations` pinned. Pinning a pinned Conversation keeps its
- * pin time. Doesn't bump `lastMessageAt`.
+ * pin time. A Temporary Conversation is never pinned (`"temporary"`). Doesn't bump `lastMessageAt`.
  */
 export async function pinConversation(
   deps: Deps,
   userId: string,
   id: string,
-): Promise<"pinned" | "not_found" | "limit"> {
+): Promise<"pinned" | "not_found" | "limit" | "temporary"> {
   const row = await findConversation(deps, userId, id);
   if (!row) return "not_found";
+  if (row.temporary) return "temporary";
   if (row.pinnedAt) return "pinned";
   const [counted] = await deps.db
     .select({ count: sql<number>`count(*)::int` })
@@ -230,6 +239,7 @@ export async function listConversations(
     .where(
       and(
         eq(conversation.userId, userId),
+        eq(conversation.temporary, false),
         projectId
           ? eq(conversation.projectId, projectId)
           : and(isNull(conversation.projectId), isNull(conversation.pinnedAt)),
@@ -262,7 +272,13 @@ export async function listPinnedConversations(deps: Deps, userId: string) {
     .leftJoin(leaf, eq(leaf.id, conversation.activeLeafId))
     .leftJoin(leafParent, eq(leafParent.id, leaf.parentId))
     .leftJoin(sharedLink, eq(sharedLink.conversationId, conversation.id))
-    .where(and(eq(conversation.userId, userId), isNotNull(conversation.pinnedAt)))
+    .where(
+      and(
+        eq(conversation.userId, userId),
+        isNotNull(conversation.pinnedAt),
+        eq(conversation.temporary, false),
+      ),
+    )
     .orderBy(desc(conversation.pinnedAt), desc(conversation.id));
   return rows.map(summarize);
 }
@@ -273,8 +289,34 @@ export async function findMessage(deps: Deps, userId: string, id: string) {
     .select({ message })
     .from(message)
     .innerJoin(conversation, eq(conversation.id, message.conversationId))
-    .where(and(eq(message.id, id), eq(conversation.userId, userId)));
+    .where(and(eq(message.id, id), eq(conversation.userId, userId), liveConversation(new Date())));
   return row?.message;
+}
+
+/** The statuses whose Run has ended, so the reply can be rated (see **Rating** in CONTEXT.md). */
+const endedStatuses = ["complete", "stopped", "error"] as const;
+
+/**
+ * Sets the owner's Rating of an ended assistant reply, or clears it with null. Only the latest is
+ * kept. `live` covers a reply whose Run hasn't ended, checked again in the update so a Run that
+ * starts in between can't be rated.
+ */
+export async function rateMessage(
+  deps: Deps,
+  userId: string,
+  id: string,
+  rating: "up" | "down" | null,
+): Promise<"rated" | "not_found" | "not_assistant" | "live"> {
+  const owned = await findMessage(deps, userId, id);
+  if (!owned) return "not_found";
+  if (owned.role !== "assistant") return "not_assistant";
+  if (!(endedStatuses as readonly string[]).includes(owned.status)) return "live";
+  const updated = await deps.db
+    .update(message)
+    .set({ rating, ratedAt: rating ? new Date() : null })
+    .where(and(eq(message.id, id), inArray(message.status, endedStatuses)))
+    .returning({ id: message.id });
+  return updated.length ? "rated" : "live";
 }
 
 /** The Messages from a root down to `leafId`, oldest first. Empty without a leaf. */

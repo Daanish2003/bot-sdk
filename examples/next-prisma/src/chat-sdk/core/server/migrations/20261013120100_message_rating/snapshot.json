@@ -1,12 +1,18 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "756676db-0d63-4f7f-9543-067f25cddd38",
-  "prevIds": ["bf2b87dc-d277-4c21-805f-9ad1c805d3fe"],
+  "id": "ed822f60-14ca-4794-a583-e0e1e39c64d9",
+  "prevIds": ["0b37276e-9065-4492-9dad-f29d20ca14ad"],
   "ddl": [
     {
       "values": ["invalid_key", "rate_limited", "provider_error"],
       "name": "message_error_reason",
+      "entityType": "enums",
+      "schema": "chat"
+    },
+    {
+      "values": ["up", "down"],
+      "name": "message_rating",
       "entityType": "enums",
       "schema": "chat"
     },
@@ -29,7 +35,7 @@
       "schema": "chat"
     },
     {
-      "values": ["run", "title", "web_search", "transcription"],
+      "values": ["run", "title", "web_search"],
       "name": "usage_kind",
       "entityType": "enums",
       "schema": "chat"
@@ -42,13 +48,13 @@
     },
     {
       "isRlsEnabled": false,
-      "name": "attachment_blob",
+      "name": "message_attachment",
       "entityType": "tables",
       "schema": "chat"
     },
     {
       "isRlsEnabled": false,
-      "name": "message_attachment",
+      "name": "blob",
       "entityType": "tables",
       "schema": "chat"
     },
@@ -186,32 +192,6 @@
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "attachment_id",
-      "entityType": "columns",
-      "schema": "chat",
-      "table": "attachment_blob"
-    },
-    {
-      "type": "bytea",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "bytes",
-      "entityType": "columns",
-      "schema": "chat",
-      "table": "attachment_blob"
-    },
-    {
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
       "name": "message_id",
       "entityType": "columns",
       "schema": "chat",
@@ -242,6 +222,32 @@
       "entityType": "columns",
       "schema": "chat",
       "table": "message_attachment"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "key",
+      "entityType": "columns",
+      "schema": "chat",
+      "table": "blob"
+    },
+    {
+      "type": "bytea",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "bytes",
+      "entityType": "columns",
+      "schema": "chat",
+      "table": "blob"
     },
     {
       "type": "uuid",
@@ -647,6 +653,32 @@
       "table": "message"
     },
     {
+      "type": "message_rating",
+      "typeSchema": "chat",
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "rating",
+      "entityType": "columns",
+      "schema": "chat",
+      "table": "message"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "rated_at",
+      "entityType": "columns",
+      "schema": "chat",
+      "table": "message"
+    },
+    {
       "type": "uuid",
       "typeSchema": null,
       "notNull": true,
@@ -941,19 +973,6 @@
       "generated": null,
       "identity": null,
       "name": "user_id",
-      "entityType": "columns",
-      "schema": "chat",
-      "table": "user_settings"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "title_model",
       "entityType": "columns",
       "schema": "chat",
       "table": "user_settings"
@@ -1454,19 +1473,6 @@
     },
     {
       "nameExplicit": false,
-      "columns": ["attachment_id"],
-      "schemaTo": "chat",
-      "tableTo": "attachment",
-      "columnsTo": ["id"],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "attachment_blob_attachment_id_attachment_id_fkey",
-      "entityType": "fks",
-      "schema": "chat",
-      "table": "attachment_blob"
-    },
-    {
-      "nameExplicit": false,
       "columns": ["message_id"],
       "schemaTo": "chat",
       "tableTo": "message",
@@ -1615,11 +1621,11 @@
       "entityType": "pks"
     },
     {
-      "columns": ["attachment_id"],
+      "columns": ["key"],
       "nameExplicit": false,
-      "name": "attachment_blob_pkey",
+      "name": "blob_pkey",
       "schema": "chat",
-      "table": "attachment_blob",
+      "table": "blob",
       "entityType": "pks"
     },
     {
@@ -1678,6 +1684,32 @@
       "schema": "chat",
       "table": "shared_link",
       "entityType": "uniques"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "name": "temporary",
+      "entityType": "columns",
+      "schema": "chat",
+      "table": "conversation"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "background_model",
+      "entityType": "columns",
+      "schema": "chat",
+      "table": "user_settings"
     }
   ],
   "renames": []

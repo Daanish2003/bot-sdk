@@ -10,6 +10,7 @@ export type HostEnv = {
   HOST_PROVIDER?: string | undefined;
   HOST_CREDENTIALS?: string | undefined;
   HOST_MODELS?: string | undefined;
+  HOST_BACKGROUND_MODEL?: string | undefined;
   HOST_QUOTA_BUDGET_USD?: string | undefined;
   HOST_QUOTA_WINDOW?: string | undefined;
 };
@@ -53,6 +54,23 @@ export function hostProvidersOf(env: HostEnv): HostProviders {
 }
 
 /**
+ * The Host's default Background Model (`HOST_BACKGROUND_MODEL`), a `"provider:model"` id that must
+ * name one of the Host's Models. Unset, users who pick none get the reply's Model for titles.
+ */
+export function hostBackgroundModelOf(env: HostEnv): string | undefined {
+  if (!isSet(env.HOST_BACKGROUND_MODEL)) return undefined;
+  const id = env.HOST_BACKGROUND_MODEL.trim();
+  // Only a Provider entry carries Models; a Host Tool entry never comes from these variables.
+  const offered = hostProvidersOf(env).flatMap((entry) =>
+    "models" in entry ? entry.models.map((model) => `${entry.provider}:${model.modelId}`) : [],
+  );
+  if (!offered.includes(id)) {
+    throw new Error("HOST_BACKGROUND_MODEL must name one of the HOST_MODELS, as provider:model");
+  }
+  return id;
+}
+
+/**
  * The one Quota for every user, from `HOST_QUOTA_BUDGET_USD` (in dollars) and `HOST_QUOTA_WINDOW`
  * (`day`, the default, or `month`). Unset, Host Models are unlimited.
  */
@@ -62,11 +80,16 @@ export function quotaOf(env: HostEnv): Quota | undefined {
   if (!Number.isFinite(budgetUsd) || budgetUsd <= 0) {
     throw new Error("HOST_QUOTA_BUDGET_USD must be a positive number of dollars");
   }
+  return { budgetUsd, window: quotaWindowOf(env) };
+}
+
+/** The window every Quota resets on, from `HOST_QUOTA_WINDOW`: `day` (the default) or `month`. */
+export function quotaWindowOf(env: HostEnv): "day" | "month" {
   const window = isSet(env.HOST_QUOTA_WINDOW) ? env.HOST_QUOTA_WINDOW.trim() : "day";
   if (window !== "day" && window !== "month") {
     throw new Error("HOST_QUOTA_WINDOW must be day or month");
   }
-  return { budgetUsd, window };
+  return window;
 }
 
 function parseJson(value: string | undefined, name: string): unknown {

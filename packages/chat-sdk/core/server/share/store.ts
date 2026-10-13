@@ -6,6 +6,7 @@ import { and, desc, eq } from "drizzle-orm";
 
 import { listAvailableModels, resolveModel } from "../chat/available-models";
 import { loadPath } from "../chat/store";
+import { liveConversation } from "../chat/temporary";
 import { attachmentsOfMessages } from "../attachments/store";
 import { resolveModelCall } from "../credentials/resolve";
 import type { AppDeps } from "../deps";
@@ -13,7 +14,7 @@ import { uuidv7 } from "../lib/uuidv7";
 import { storedParts } from "../../shared/message-parts";
 import { toSharedConversation } from "../../shared/share/conversation";
 
-type Deps = Pick<AppDeps, "db">;
+type Deps = Pick<AppDeps, "db" | "isUserBlocked">;
 type Db = Deps["db"];
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
@@ -34,6 +35,7 @@ async function findShareState(db: Db | Tx, userId: string, conversationId: strin
   const [row] = await db
     .select({
       title: conversation.title,
+      temporary: conversation.temporary,
       activeLeafId: conversation.activeLeafId,
       leafStatus: message.status,
       link: sharedLink,
@@ -41,7 +43,13 @@ async function findShareState(db: Db | Tx, userId: string, conversationId: strin
     .from(conversation)
     .leftJoin(message, eq(message.id, conversation.activeLeafId))
     .leftJoin(sharedLink, eq(sharedLink.conversationId, conversation.id))
-    .where(and(eq(conversation.id, conversationId), eq(conversation.userId, userId)));
+    .where(
+      and(
+        eq(conversation.id, conversationId),
+        eq(conversation.userId, userId),
+        liveConversation(new Date()),
+      ),
+    );
   if (!row) return undefined;
   const blockedBy: ShareBlock = !row.activeLeafId
     ? "empty"
@@ -69,6 +77,7 @@ export async function shareStatus(deps: Deps, userId: string, conversationId: st
 type UpsertResult =
   | { error: null; link: { token: string; title: string; updatedAt: Date } }
   | { error: "not_found" }
+  | { error: "temporary" }
   | { error: "blocked"; blockedBy: NonNullable<ShareBlock> };
 
 /**
@@ -89,6 +98,7 @@ export async function upsertSharedLink(
       .for("update");
     const state = await findShareState(tx, userId, conversationId);
     if (!state) return { error: "not_found" };
+    if (state.temporary) return { error: "temporary" };
     if (state.blockedBy || !state.activeLeafId) {
       return { error: "blocked", blockedBy: state.blockedBy ?? "empty" };
     }
@@ -141,9 +151,24 @@ export async function deleteSharedLink(deps: Deps, userId: string, conversationI
   return true;
 }
 
+/**
+ * The Shared link for a token, or `undefined` when the token is unknown, its Conversation has
+ * expired (a Temporary Conversation), or its owner is blocked (spec #277): a banned user's links
+ * are not found, so they can't be read or continued.
+ */
+async function findVisibleLink(deps: Deps, token: string) {
+  const [row] = await deps.db
+    .select({ link: sharedLink, ownerId: conversation.userId })
+    .from(sharedLink)
+    .innerJoin(conversation, eq(conversation.id, sharedLink.conversationId))
+    .where(and(eq(sharedLink.token, token), liveConversation(new Date())));
+  if (!row || (await deps.isUserBlocked(row.ownerId))) return undefined;
+  return row.link;
+}
+
 /** What anyone with the token sees (see `toSharedConversation`). `undefined` for an unknown token. */
 export async function loadSharedConversation(deps: Deps, token: string) {
-  const [link] = await deps.db.select().from(sharedLink).where(eq(sharedLink.token, token));
+  const link = await findVisibleLink(deps, token);
   if (!link) return undefined;
   const path = await loadPath(deps, link.conversationId, link.leafMessageId);
   const attachments = await attachmentsOfMessages(
@@ -165,7 +190,7 @@ export async function continueSharedConversation(
   userId: string,
   token: string,
 ): Promise<{ id: string } | "not_found" | "no_model"> {
-  const [link] = await deps.db.select().from(sharedLink).where(eq(sharedLink.token, token));
+  const link = await findVisibleLink(deps, token);
   if (!link) return "not_found";
   const path = await loadPath(deps, link.conversationId, link.leafMessageId);
   const lastModel = path.filter((row) => row.role === "assistant").at(-1)?.model;

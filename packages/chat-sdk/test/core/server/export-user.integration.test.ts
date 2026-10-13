@@ -79,7 +79,7 @@ describe("createChat().exportUser", () => {
     await insertConversation(owner, { title: "Pinned", projectId, pinnedAt });
     await getTestDb().insert(userSettings).values({
       userId: owner.id,
-      titleModel: "anthropic:title-model",
+      backgroundModel: "anthropic:background-model",
       instructions: "Answer in French.",
     });
     const deps = createTestDeps();
@@ -112,7 +112,7 @@ describe("createChat().exportUser", () => {
       pinnedAt,
     });
     expect(exported.settings).toEqual({
-      titleModel: "anthropic:title-model",
+      backgroundModel: "anthropic:background-model",
       instructions: "Answer in French.",
     });
     const text = JSON.stringify(exported);
@@ -150,6 +150,35 @@ describe("createChat().exportUser", () => {
     ]);
   });
 
+  it("includes each Message's Rating, null while a reply is unrated", async () => {
+    const owner = await insertUser();
+    const conv = await insertConversation(owner, { title: "Rated" });
+    const question = await insertMessage({ conversationId: conv.id, role: "user", text: "Hi" });
+    const up = await insertMessage({
+      conversationId: conv.id,
+      parentId: question.id,
+      role: "assistant",
+      text: "Up",
+      rating: "up",
+      ratedAt: new Date(),
+    });
+    const unrated = await insertMessage({
+      conversationId: conv.id,
+      parentId: question.id,
+      role: "assistant",
+      text: "Plain",
+      active: true,
+    });
+
+    const exported = await chatFor().exportUser(owner.id);
+
+    expect(exported.version).toBe(1);
+    const byId = new Map(exported.conversations[0]!.messages.map((m) => [m.id, m]));
+    expect(byId.get(up.id)).toMatchObject({ rating: "up" });
+    expect(byId.get(unrated.id)).toMatchObject({ rating: null });
+    expect(byId.get(question.id)).toMatchObject({ rating: null });
+  });
+
   it("exports an empty document for an unknown user id", async () => {
     const exported = await chatFor().exportUser(randomUUID());
 
@@ -158,7 +187,22 @@ describe("createChat().exportUser", () => {
       conversations: [],
       projects: [],
       sharedLinks: [],
-      settings: { titleModel: null, instructions: null },
+      settings: { backgroundModel: null, instructions: null },
     });
+  });
+});
+
+describe("createChat().exportUser, Temporary Conversations", () => {
+  it("includes an existing Temporary Conversation, marked temporary", async () => {
+    const owner = await insertUser();
+    const temporary = await insertConversation(owner, { temporary: true, title: null });
+    await insertMessage({ conversationId: temporary.id, role: "user", text: "Private" });
+    const ordinary = await insertConversation(owner, { title: "Ordinary" });
+
+    const exported = await chatFor().exportUser(owner.id);
+
+    const byId = new Map(exported.conversations.map((row) => [row.id, row]));
+    expect(byId.get(temporary.id)).toMatchObject({ temporary: true, messages: [{ role: "user" }] });
+    expect(byId.get(ordinary.id)).toMatchObject({ temporary: false });
   });
 });

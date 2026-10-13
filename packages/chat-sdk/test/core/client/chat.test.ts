@@ -29,6 +29,7 @@ describe("toUIMessages", () => {
         error: null,
         errorReason: null,
         usage: null,
+        rating: null,
         contextStartId: null,
         createdAt,
         siblings: { index: 0, count: 1, previousId: null, nextId: null },
@@ -45,6 +46,7 @@ describe("toUIMessages", () => {
         error: null,
         errorReason: null,
         usage: null,
+        rating: null,
         contextStartId: null,
         createdAt,
         siblings: { index: 1, count: 2, previousId: "a0", nextId: null },
@@ -64,6 +66,7 @@ describe("toUIMessages", () => {
           error: null,
           errorReason: null,
           usage: null,
+          rating: null,
           contextStartId: null,
           siblings: { index: 0, count: 1, previousId: null, nextId: null },
           attachments: [{ id: "f1", filename: "cat.png", mediaType: "image/png", size: 10 }],
@@ -81,6 +84,7 @@ describe("toUIMessages", () => {
           error: null,
           errorReason: null,
           usage: null,
+          rating: null,
           contextStartId: null,
           siblings: { index: 1, count: 2, previousId: "a0", nextId: null },
           attachments: [],
@@ -94,6 +98,7 @@ describe("toUIMessages", () => {
       error: null,
       errorReason: null,
       usage: null,
+      rating: null,
     });
   });
 
@@ -105,6 +110,7 @@ describe("toUIMessages", () => {
       error: null,
       errorReason: null,
       usage: null,
+      rating: null,
     });
   });
 });
@@ -124,6 +130,7 @@ describe("messageAttachments", () => {
         error: null,
         errorReason: null,
         usage: null,
+        rating: null,
         contextStartId: null,
         createdAt,
         siblings: { index: 0, count: 1, previousId: null, nextId: null },
@@ -154,6 +161,7 @@ describe("messageSiblings", () => {
         error: null,
         errorReason: null,
         usage: null,
+        rating: null,
         contextStartId: null,
         createdAt,
         siblings: { index: 0, count: 1, previousId: null, nextId: null },
@@ -170,6 +178,7 @@ describe("messageSiblings", () => {
         error: null,
         errorReason: null,
         usage: null,
+        rating: null,
         contextStartId: null,
         createdAt,
         siblings: { index: 0, count: 3, previousId: null, nextId: "a2" },
@@ -217,6 +226,7 @@ describe("describeError", () => {
     error: null,
     errorReason: null,
     usage: null,
+    rating: null,
     ...fields,
   });
 

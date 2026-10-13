@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
+  boolean,
   index,
   integer,
   jsonb,
@@ -72,6 +73,8 @@ export const conversation = chatSchema.table(
       .notNull(),
     /** When the Conversation was pinned; null when it is not pinned. */
     pinnedAt: timestamp("pinned_at"),
+    /** A Temporary Conversation: kept out of the lists, search and titles. Set at creation only. */
+    temporary: boolean("temporary").default(false).notNull(),
     /** Bumped only by new Messages, never by renames or Branch switches. */
     lastMessageAt: timestamp("last_message_at").defaultNow().notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -107,6 +110,8 @@ export const messageStatus = chatSchema.enum("message_status", [
   "error",
   "awaiting_approval",
 ]);
+/** A Rating's thumb. The latest one only; null on the column means unrated. */
+export const messageRating = chatSchema.enum("message_rating", ["up", "down"]);
 export const messageErrorReason = chatSchema.enum("message_error_reason", [
   "invalid_key",
   "rate_limited",
@@ -156,6 +161,10 @@ export const message = chatSchema.table(
     threadId: text("thread_id"),
     /** The Run that ended waiting for Approval; the decision resumes it as its parent Run (ADR 0008). */
     interruptedRunId: text("interrupted_run_id"),
+    /** The owner's Rating of an ended assistant reply; null when unrated (see **Rating** in CONTEXT.md). */
+    rating: messageRating("rating"),
+    /** When `rating` was last set; null when unrated. */
+    ratedAt: timestamp("rated_at", { withTimezone: true }),
   },
   (table) => [
     index("message_conversation_id_parent_id_idx").on(table.conversationId, table.parentId),
