@@ -86,4 +86,8 @@ export const shellMessages = {
   "shell.effortLow": "Low",
   "shell.effortMedium": "Medium",
   "shell.effortHigh": "High",
+  "shell.installTitle": "Install ai-chat",
+  "shell.install": "Install",
+  "shell.installIosSteps": "Tap Share, then Add to Home Screen.",
+  "shell.installNotNow": "Not now",
 };
