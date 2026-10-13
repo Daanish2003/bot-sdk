@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { quotaExceeded, quotaResetsAt } from "../../core/client/quota";
 import { useQuota } from "../../core/client/react/quota";
 import { dictationFailureMessage } from "../../core/client/voice";
-import { useOrpc } from "../../core/client/react/provider";
+import { useI18n, useOrpc } from "../../core/client/react/provider";
 import { maxDictationSeconds } from "../../core/shared/chat/voice";
 
 /**
@@ -30,7 +30,8 @@ export function Dictation({ onTranscript }: { onTranscript: (text: string) => vo
 
 /** The mic at the Quota's limit on the Host's Model: disabled, with the time the Quota resets. */
 function DictationOff({ resetsAt }: { resetsAt: Date | string }) {
-  const reset = quotaResetsAt(resetsAt);
+  const { locale } = useI18n();
+  const reset = quotaResetsAt(resetsAt, locale);
   return (
     <div className="flex items-center gap-1 text-xs text-muted-foreground">
       <span>Quota resets {reset}</span>
@@ -50,6 +51,7 @@ function DictationOff({ resetsAt }: { resetsAt: Date | string }) {
 
 function DictationButton({ onTranscript }: { onTranscript: (text: string) => void }) {
   const orpc = useOrpc();
+  const { locale } = useI18n();
   const queryClient = useQueryClient();
   // A transcription on the Host's Model spends the Quota, so the composer's meter is read again.
   const transcribe = useMutation(
@@ -82,7 +84,7 @@ function DictationButton({ onTranscript }: { onTranscript: (text: string) => voi
         });
         onTranscript(text);
       } catch (caught) {
-        toast.error(dictationFailureMessage(caught));
+        toast.error(dictationFailureMessage(caught, locale));
       }
     } finally {
       stopping.current = false;

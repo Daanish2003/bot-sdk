@@ -14,21 +14,23 @@ import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { invalidateConversationList } from "../../core/client/react/conversation-list";
-import { useChatAdapter } from "../../core/client/react/provider";
+import { useChatAdapter, useI18n } from "../../core/client/react/provider";
+import { serverErrorText } from "../../core/client/rpc-error";
 
-const blockedReasons = {
-  empty: "Send a message before sharing.",
-  streaming: "Wait for the reply to finish before sharing.",
-  error: "The newest reply ended in an error. Regenerate it before sharing.",
+const blockedKeys = {
+  empty: "share.blockedEmpty",
+  streaming: "share.blockedStreaming",
+  error: "share.blockedError",
 } as const;
 
 /** The top bar's Share button and its dialog. */
 export function ShareButton({ conversationId }: { conversationId: string }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   return (
     <>
-      <Button variant="ghost" size="sm" aria-label="Share" onClick={() => setOpen(true)}>
-        <Share2Icon /> <span className="max-sm:hidden">Share</span>
+      <Button variant="ghost" size="sm" aria-label={t("shell.share")} onClick={() => setOpen(true)}>
+        <Share2Icon /> <span className="max-sm:hidden">{t("shell.share")}</span>
       </Button>
       <ShareDialog conversationId={conversationId} open={open} onOpenChange={setOpen} />
     </>
@@ -51,6 +53,8 @@ export function ShareDialog({
 }) {
   const queryClient = useQueryClient();
   const { orpc, shareUrl, chatUrl } = useChatAdapter();
+  const i18n = useI18n();
+  const { t } = i18n;
   const statusQuery = orpc.share.forConversation.queryOptions({ input: { conversationId } });
   const status = useQuery({ ...statusQuery, enabled: open, staleTime: 0 });
   const conversationQuery = orpc.conversation.get.queryOptions({ input: { id: conversationId } });
@@ -60,7 +64,7 @@ export function ShareDialog({
       await queryClient.invalidateQueries({ queryKey: statusQuery.queryKey });
       await invalidateConversationList(queryClient, orpc);
     },
-    onError: (error: Error) => toast.error(error.message),
+    onError: (error: Error) => toast.error(serverErrorText(i18n, error)),
   };
   const upsert = useMutation(orpc.share.upsert.mutationOptions(callbacks));
   const remove = useMutation(orpc.share.delete.mutationOptions(callbacks));
@@ -99,17 +103,15 @@ export function ShareDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="pr-6 break-words">Share "{title ?? "Untitled"}"</DialogTitle>
-          <DialogDescription>
-            Anyone with the link sees this Branch up to its newest Message, read-only and without
-            your name. Thinking is hidden, and attachments show as file names only: their contents
-            are never shared.
-          </DialogDescription>
+          <DialogTitle className="pr-6 break-words">
+            {t("share.title", { title: title ?? t("shell.untitled") })}
+          </DialogTitle>
+          <DialogDescription>{t("share.description")}</DialogDescription>
         </DialogHeader>
 
         {status.isError && (
           <p role="alert" className="text-destructive">
-            Couldn't load the Shared link: {status.error.message}
+            {t("share.loadFailed", { message: serverErrorText(i18n, status.error) })}
           </p>
         )}
 
@@ -118,7 +120,7 @@ export function ShareDialog({
             role="status"
             className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-destructive"
           >
-            {blockedReasons[blockedBy]}
+            {t(blockedKeys[blockedBy])}
           </p>
         )}
 
@@ -131,9 +133,8 @@ export function ShareDialog({
                 <CopyButton text={url} />
               </div>
               <p className="text-[10px] text-muted-foreground">
-                Shared {relativeTime(link.updatedAt)}.
-                {status.data?.movedOn &&
-                  " The Conversation has moved on since; Update link to share the current Branch."}
+                {t("share.sharedAgo", { time: relativeTime(i18n, link.updatedAt) })}
+                {status.data?.movedOn && ` ${t("share.movedOn")}`}
               </p>
             </div>
             <div className="flex justify-between gap-2">
@@ -143,7 +144,7 @@ export function ShareDialog({
                 disabled={busy}
                 onClick={() => remove.mutate({ conversationId })}
               >
-                Delete link
+                {t("share.deleteLink")}
               </Button>
               <div className="flex gap-2">
                 <a
@@ -152,14 +153,14 @@ export function ShareDialog({
                   rel="noreferrer"
                   className={buttonVariants({ variant: "outline", size: "sm" })}
                 >
-                  Preview
+                  {t("share.preview")}
                 </a>
                 <Button
                   size="sm"
                   disabled={!canShare}
                   onClick={() => upsert.mutate({ conversationId })}
                 >
-                  Update link
+                  {t("share.updateLink")}
                 </Button>
               </div>
             </div>
@@ -171,7 +172,7 @@ export function ShareDialog({
               disabled={!canShare}
               onClick={() => upsert.mutate({ conversationId })}
             >
-              <Link2Icon /> Create link
+              <Link2Icon /> {t("share.createLink")}
             </Button>
           </div>
         )}
@@ -181,6 +182,7 @@ export function ShareDialog({
 }
 
 function CopyButton({ text }: { text: string }) {
+  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     try {
@@ -188,15 +190,15 @@ function CopyButton({ text }: { text: string }) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1_500);
     } catch {
-      toast.error("Couldn't copy the link");
+      toast.error(t("share.copyFailed"));
     }
   };
   return (
     <Button
       variant="ghost"
       size="icon-xs"
-      aria-label={copied ? "Copied" : "Copy link"}
-      title="Copy link"
+      aria-label={copied ? t("share.copied") : t("share.copyLink")}
+      title={t("share.copyLink")}
       onClick={() => void copy()}
     >
       {copied ? <CheckIcon /> : <CopyIcon />}

@@ -1,7 +1,7 @@
-import { ORPCError } from "@orpc/server";
 import { z } from "zod";
 
 import { protectedProcedure, publicProcedure } from "../procedures";
+import { rpcError } from "../rpc-error";
 import {
   continueSharedConversation,
   deleteSharedLink,
@@ -13,14 +13,19 @@ import {
 
 const conversationInput = z.object({ conversationId: z.uuid() });
 
-const blockedMessages = {
-  empty: "There's nothing to share yet",
-  streaming: "Wait for the reply to finish before sharing",
-  error: "The newest reply ended in an error",
+/** Why sharing is blocked: the dictionary code and the English for the logs. */
+const blocked = {
+  empty: ["error.shareEmpty", "There's nothing to share yet"],
+  streaming: ["error.shareStreaming", "Wait for the reply to finish before sharing"],
+  error: ["error.shareErrored", "The newest reply ended in an error"],
 } as const;
 
 function conversationNotFound() {
-  return new ORPCError("NOT_FOUND", { message: "Conversation not found" });
+  return rpcError("NOT_FOUND", "error.conversationNotFound", "Conversation not found");
+}
+
+function sharedLinkNotFound() {
+  return rpcError("NOT_FOUND", "error.sharedLinkNotFound", "Shared link not found");
 }
 
 /** Shared links (ADR 0004). Only `get` is public; the rest are for the Conversation's owner. */
@@ -30,10 +35,15 @@ export const shareRouter = {
     const result = await upsertSharedLink(context.deps, context.user.id, input.conversationId);
     if (result.error === "not_found") throw conversationNotFound();
     if (result.error === "temporary") {
-      throw new ORPCError("BAD_REQUEST", { message: "A Temporary Conversation can't be shared" });
+      throw rpcError(
+        "BAD_REQUEST",
+        "error.temporaryShare",
+        "A Temporary Conversation can't be shared",
+      );
     }
     if (result.error === "blocked") {
-      throw new ORPCError("CONFLICT", { message: blockedMessages[result.blockedBy] });
+      const [code, message] = blocked[result.blockedBy];
+      throw rpcError("CONFLICT", code, message);
     }
     return result.link;
   }),
@@ -62,12 +72,14 @@ export const shareRouter = {
     .handler(async ({ context, input }) => {
       const result = await continueSharedConversation(context.deps, context.user.id, input.token);
       if (result === "not_found") {
-        throw new ORPCError("NOT_FOUND", { message: "Shared link not found" });
+        throw sharedLinkNotFound();
       }
       if (result === "no_model") {
-        throw new ORPCError("BAD_REQUEST", {
-          message: "No Model is available to continue this Conversation",
-        });
+        throw rpcError(
+          "BAD_REQUEST",
+          "error.noModelToContinue",
+          "No Model is available to continue this Conversation",
+        );
       }
       return result;
     }),
@@ -77,7 +89,7 @@ export const shareRouter = {
     .input(z.object({ token: z.string().max(64) }))
     .handler(async ({ context, input }) => {
       const shared = await loadSharedConversation(context.deps, input.token);
-      if (!shared) throw new ORPCError("NOT_FOUND", { message: "Shared link not found" });
+      if (!shared) throw sharedLinkNotFound();
       return shared;
     }),
 };

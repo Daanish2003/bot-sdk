@@ -54,6 +54,27 @@ export function fakeReply(prompt: string) {
   ].join("\n");
 }
 
+/**
+ * A prompt with this marker gets a reply with a table too wide for a phone and a code line too
+ * long for one, to check that they scroll inside the reply.
+ */
+export const wideMarker = "[wide]";
+export function wideReply(): string {
+  return [
+    "A wide table:",
+    "",
+    "| Column one | Column two | Column three | Column four | Column five | Column six |",
+    "| --- | --- | --- | --- | --- | --- |",
+    "| alpha | bravo | charlie | delta | echo | foxtrot |",
+    "",
+    "A long line of code:",
+    "",
+    "```ts",
+    "const someVeryLongVariableName = computeSomethingUseful(firstArgument, secondArgument, thirdArgument);",
+    "```",
+  ].join("\n");
+}
+
 /** Reply word by word, this far apart; a prompt with `slowMarker` is slow enough to Stop. */
 const chunkDelayMs = 40;
 const slowChunkDelayMs = 400;
@@ -140,7 +161,9 @@ export function startFakeOllama(port: number): Promise<Server> {
           ? asked === mcpToolName
             ? mcpReply(last.content)
             : fetchedReply(last.content)
-          : fakeReply(prompt.slice(0, 80));
+          : prompt.includes(wideMarker)
+            ? wideReply()
+            : fakeReply(prompt.slice(0, 80));
       const line = (content: string, done: boolean) =>
         JSON.stringify({
           model: fakeModel,

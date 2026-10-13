@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { MessageRow } from "../../../ui/chat/message-row";
+import { renderInChat } from "../../support/chat-provider";
 import { ReadAloudButton } from "../../../ui/chat/read-aloud";
 
 const reply = (status: "complete" | "streaming") =>
@@ -46,16 +47,14 @@ describe("the read-aloud control on a reply", () => {
   // The browser's voices are read in an effect, which a static render never runs. So no
   // server render offers the control, and the shared page never does either.
   it("is absent on a finished reply when no on-device voice is known", () => {
-    const html = renderToStaticMarkup(
-      createElement(MessageRow, { message: reply("complete"), actions }),
-    );
+    const html = renderInChat(createElement(MessageRow, { message: reply("complete"), actions }));
 
     expect(html).toContain('aria-label="Copy"');
     expect(html).not.toContain("Read aloud");
   });
 
   it("is absent on a Shared link page, which passes no actions", () => {
-    const html = renderToStaticMarkup(createElement(MessageRow, { message: reply("complete") }));
+    const html = renderInChat(createElement(MessageRow, { message: reply("complete") }));
 
     expect(html).not.toContain("Read aloud");
   });

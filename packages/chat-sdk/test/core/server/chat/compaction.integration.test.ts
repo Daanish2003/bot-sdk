@@ -160,7 +160,7 @@ describe("compaction on a Run", () => {
     });
 
     expect(run.status).toBe(400);
-    expect(run.body).toContain("too long for the Model's context window");
+    expect(run.body).toContain("error.messageTooLong");
     const stored = await getTestDb()
       .select({ id: message.id })
       .from(message)

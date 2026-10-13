@@ -1,4 +1,3 @@
-import { ORPCError } from "@orpc/server";
 import { z } from "zod";
 
 import {
@@ -8,6 +7,7 @@ import {
 } from "../../shared/chat/voice";
 import { DictationError, dictationEngine, transcribeRecording } from "../chat/transcription";
 import { protectedProcedure } from "../procedures";
+import { rpcError } from "../rpc-error";
 
 /** A base64 string of `maxDictationBytes` decodes to at most that many bytes. */
 const maxAudioChars = Math.ceil(maxDictationBytes / 3) * 4;
@@ -40,16 +40,26 @@ export const voiceRouter = {
     )
     .handler(async ({ context, input }) => {
       if (input.durationSeconds > maxDictationSeconds) {
-        throw new ORPCError("BAD_REQUEST", { message: "A recording can be at most 10 minutes" });
+        throw rpcError(
+          "BAD_REQUEST",
+          "error.recordingTooLong",
+          "A recording can be at most 10 minutes",
+        );
       }
       if (!isDictationAudioType(input.mimeType)) {
-        throw new ORPCError("BAD_REQUEST", {
-          message: "That recording isn't an audio type dictation accepts",
-        });
+        throw rpcError(
+          "BAD_REQUEST",
+          "error.recordingType",
+          "That recording isn't an audio type dictation accepts",
+        );
       }
       const bytes = new Uint8Array(Buffer.from(input.audio, "base64"));
       if (bytes.byteLength > maxDictationBytes) {
-        throw new ORPCError("BAD_REQUEST", { message: "A recording can be at most 25 MB" });
+        throw rpcError(
+          "BAD_REQUEST",
+          "error.recordingTooLarge",
+          "A recording can be at most 25 MB",
+        );
       }
       try {
         const text = await transcribeRecording(context.deps, context.user.id, {
@@ -61,9 +71,9 @@ export const voiceRouter = {
         return { text };
       } catch (caught) {
         if (caught instanceof DictationError) {
-          throw new ORPCError("BAD_REQUEST", {
-            message: caught.message,
-            data: { reason: caught.reason, resetsAt: caught.resetsAt?.toISOString() },
+          throw rpcError("BAD_REQUEST", "error.dictationFailed", caught.message, undefined, {
+            reason: caught.reason,
+            resetsAt: caught.resetsAt?.toISOString(),
           });
         }
         throw caught;

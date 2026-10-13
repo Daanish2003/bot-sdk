@@ -9,7 +9,7 @@ import { ArrowUpIcon, SquareIcon } from "lucide-react";
 import { type KeyboardEvent, type ReactNode, useRef, useState } from "react";
 
 import { createName, rankSavedPrompts, slashQuery } from "../../core/client/saved-prompts-menu";
-import { useOrpc } from "../../core/client/react/provider";
+import { useI18n, useOrpc } from "../../core/client/react/provider";
 import { appendTranscript } from "../../core/client/voice";
 import { Dictation } from "./dictation";
 import { SavedPromptForm, SlashMenuList } from "./slash-menu";
@@ -26,7 +26,7 @@ export function Composer({
   children,
   attachments,
   attachmentsPending = false,
-  placeholder = "Message (Shift+Enter for a new line)",
+  placeholder,
   value: controlledValue,
   onValueChange,
   refusal,
@@ -51,6 +51,7 @@ export function Composer({
   /** Why the last Message was refused (#267), shown above the box. */
   refusal?: string | null;
 }) {
+  const { t } = useI18n();
   const orpc = useOrpc();
   const [ownValue, setOwnValue] = useState("");
   const value = controlledValue ?? ownValue;
@@ -89,7 +90,11 @@ export function Composer({
   const insert = (text: string) => {
     setValue(text);
     setDismissed(true);
-    wrapRef.current?.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message"]')?.focus();
+    wrapRef.current
+      ?.querySelector<HTMLTextAreaElement>(
+        `textarea[aria-label="${CSS.escape(t("chat.messageLabel"))}"]`,
+      )
+      ?.focus();
   };
 
   const pick = (index: number) => {
@@ -157,9 +162,9 @@ export function Composer({
       >
         {attachments}
         <PromptInputTextarea
-          placeholder={placeholder}
-          className="text-sm text-foreground"
-          aria-label="Message"
+          placeholder={placeholder ?? t("chat.composerPlaceholder")}
+          className="text-base text-foreground md:text-sm"
+          aria-label={t("chat.messageLabel")}
           onKeyDown={onKeyDown}
         />
         <PromptInputActions className="justify-between px-1 pt-1">
@@ -171,7 +176,7 @@ export function Composer({
               className="rounded-full"
               disabled={streaming ? !onStop : !canSend}
               onClick={streaming ? onStop : submit}
-              aria-label={streaming ? "Stop" : "Send"}
+              aria-label={streaming ? t("chat.stop") : t("chat.send")}
             >
               {streaming ? <SquareIcon className="fill-current" /> : <ArrowUpIcon />}
             </Button>

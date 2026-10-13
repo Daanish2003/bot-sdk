@@ -21,14 +21,17 @@ const failureText: Record<DictationErrorReason, string> = {
   failed: "Dictation failed. Your message is unchanged.",
 };
 
-/** The toast text for a failed transcription, from the error the RPC call threw. */
-export function dictationFailureMessage(caught: unknown): string {
+/**
+ * The toast text for a failed transcription, from the error the RPC call threw. The reset time is
+ * formatted in `locale`.
+ */
+export function dictationFailureMessage(caught: unknown, locale: string): string {
   if (caught instanceof RateLimitedError) {
     return `Too many recordings. Try again in ${caught.retryAfterSeconds} seconds.`;
   }
   const data = (caught as { data?: { reason?: unknown; resetsAt?: unknown } } | null)?.data;
   if (data?.reason === "quota_exceeded" && typeof data.resetsAt === "string") {
-    return `Dictation is off until ${quotaResetsAt(data.resetsAt)}, when your Quota resets.`;
+    return `Dictation is off until ${quotaResetsAt(data.resetsAt, locale)}, when your Quota resets.`;
   }
   return failureText[data?.reason as DictationErrorReason] ?? failureText.failed;
 }

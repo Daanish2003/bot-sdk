@@ -249,6 +249,7 @@ describe("the fetch_url tool", () => {
         fetched({
           state: "error",
           result: { error: "The page took too long to load", reason: "timed_out" },
+          error: { code: "chat.pageError.timedOut" },
         }),
         { type: "text", text: "It was slow." },
       ]),

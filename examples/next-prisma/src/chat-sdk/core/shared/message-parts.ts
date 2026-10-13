@@ -25,7 +25,21 @@ export const searchResultSchema = z.object({
   publishedDate: z.string().optional(),
 });
 
-/** One `web_search` tool call of a reply and how it went. Failures are states, never a Message error. */
+/**
+ * Why a tool failed, as a dictionary code and its params (spec #256): the client shows the text for
+ * the code in the reader's language. The text the Model reads for the same failure stays English.
+ */
+export const toolErrorSchema = z.object({
+  code: z.string(),
+  params: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
+});
+
+export type ToolError = z.infer<typeof toolErrorSchema>;
+
+/**
+ * One `web_search` tool call of a reply and how it went. Failures are states, never a Message error.
+ * `error` is the failure's code; `errorReason` is what a part stored before codes, still read.
+ */
 export const webSearchPartSchema = z.object({
   type: z.literal("web_search"),
   toolCallId: z.string(),
@@ -33,6 +47,7 @@ export const webSearchPartSchema = z.object({
   state: z.enum(["running", "done", "error", "cancelled"]),
   results: z.array(searchResultSchema).max(5),
   errorReason: z.enum(["invalid_key", "quota_exhausted", "failed"]).optional(),
+  error: toolErrorSchema.optional(),
 });
 
 /** Where a tool came from: the SDK (`web_search` has its own part), the Host, or an MCP server. */
@@ -51,6 +66,8 @@ export const toolCallPartSchema = z.object({
   source: toolSourceSchema,
   args: z.unknown(),
   result: z.unknown().optional(),
+  /** A failed call's code (spec #256). `result` keeps the English text the Model read. */
+  error: toolErrorSchema.optional(),
   state: z.enum(["running", "done", "error", "cancelled", "awaiting_approval", "denied"]),
 });
 

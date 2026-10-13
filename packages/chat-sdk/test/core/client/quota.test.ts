@@ -53,7 +53,15 @@ describe("the reset time shown to the user", () => {
   it("formats a Date and an ISO string the same way", () => {
     const at = new Date("2026-10-11T00:00:00.000Z");
 
-    expect(quotaResetsAt(at)).toBe(quotaResetsAt(at.toISOString()));
-    expect(quotaResetsAt(at)).toMatch(/\d/);
+    expect(quotaResetsAt(at, "en")).toBe(quotaResetsAt(at.toISOString(), "en"));
+    expect(quotaResetsAt(at, "en")).toMatch(/\d/);
+  });
+
+  it("formats the reset time in the locale: German months and a 24-hour clock", () => {
+    const at = new Date(2026, 9, 11, 13, 5);
+
+    expect(quotaResetsAt(at, "de")).toMatch(/Okt/);
+    expect(quotaResetsAt(at, "de")).not.toMatch(/AM|PM/);
+    expect(quotaResetsAt(at, "en")).toMatch(/Oct/);
   });
 });

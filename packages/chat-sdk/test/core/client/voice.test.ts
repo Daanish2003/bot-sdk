@@ -29,13 +29,13 @@ describe("dictationFailureMessage", () => {
       data: { reason: "quota_exceeded", resetsAt: "2026-10-14T00:00:00.000Z" },
     };
 
-    expect(dictationFailureMessage(caught)).toBe(
-      `Dictation is off until ${quotaResetsAt("2026-10-14T00:00:00.000Z")}, when your Quota resets.`,
+    expect(dictationFailureMessage(caught, "en")).toBe(
+      `Dictation is off until ${quotaResetsAt("2026-10-14T00:00:00.000Z", "en")}, when your Quota resets.`,
     );
   });
 
   it("falls back to the generic failure for an unknown reason", () => {
-    expect(dictationFailureMessage({ data: { reason: "nonsense" } })).toBe(
+    expect(dictationFailureMessage({ data: { reason: "nonsense" } }, "en")).toBe(
       "Dictation failed. Your message is unchanged.",
     );
   });

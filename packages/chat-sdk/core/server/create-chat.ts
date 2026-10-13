@@ -364,7 +364,7 @@ async function rpcRateLimitRefusal(
   );
   if (retryAfter === null) return null;
   return Response.json(
-    { message: "Too many requests; try again in a moment" },
+    { code: "error.tooManyRequests", params: {} },
     { status: 429, headers: { "Retry-After": String(retryAfter) } },
   );
 }
@@ -382,7 +382,7 @@ async function sharedLinkRefusal(deps: AppDeps, ip: string | null): Promise<Resp
   );
   if (retryAfter === null) return null;
   return Response.json(
-    { message: "Too many requests; try again in a moment" },
+    { code: "error.tooManyRequests", params: {} },
     { status: 429, headers: { "Retry-After": String(retryAfter) } },
   );
 }
@@ -397,14 +397,11 @@ async function exportResponse(deps: AppDeps, userId: string) {
 }
 
 function unauthorized() {
-  return Response.json({ message: "Sign in to chat" }, { status: 401 });
+  return Response.json({ code: "error.unauthorized", params: {} }, { status: 401 });
 }
 
 function shuttingDown() {
-  return Response.json(
-    { message: "The chat is shutting down; try again shortly" },
-    { status: 503 },
-  );
+  return Response.json({ code: "error.shuttingDown", params: {} }, { status: 503 });
 }
 
 function notFound() {

@@ -193,7 +193,7 @@ describe("the web_search tool", () => {
       status: "complete",
       error: null,
       parts: storedParts([
-        search({ state: "error", results: [], errorReason: "invalid_key" }),
+        search({ state: "error", results: [], error: { code: "chat.searchFailedKey" } }),
         { type: "text", text: "I couldn't search." },
       ]),
     });
@@ -231,7 +231,7 @@ describe("the web_search tool", () => {
 
     expect(await replyOf(deps, conv.id)).toMatchObject({
       status: "error",
-      error: "timed out",
+      error: "timed_out",
       parts: storedParts([search({ state: "cancelled", results: [] })]),
     });
   });

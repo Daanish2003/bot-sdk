@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { GlobeIcon } from "lucide-react";
 
-import { useOrpc } from "../../core/client/react/provider";
+import { useI18n, useOrpc } from "../../core/client/react/provider";
 import { useSearchPreference } from "../../core/client/react/search-preference";
 
 /**
@@ -14,10 +14,11 @@ import { useSearchPreference } from "../../core/client/react/search-preference";
  */
 export function useWebSearch(model: string | null | undefined) {
   const orpc = useOrpc();
+  const i18n = useI18n();
   const credentials = useQuery(orpc.credentials.list.queryOptions());
   const models = useQuery(orpc.models.list.queryOptions());
   const [on, setOn] = useSearchPreference();
-  const toggle = searchToggle({
+  const toggle = searchToggle(i18n, {
     // The user's own Tavily key, or the Host's when it offers one (ADR 0007).
     hasTavilyKey:
       (credentials.data?.some((saved) => saved.service === tavilyService) ?? false) ||
@@ -30,6 +31,7 @@ export function useWebSearch(model: string | null | undefined) {
 
 /** The composer's Web toggle; disabled with the reason in its tooltip when unavailable. */
 export function SearchToggle({ search }: { search: ReturnType<typeof useWebSearch> }) {
+  const { t } = useI18n();
   return (
     <Tooltip>
       <TooltipTrigger
@@ -47,7 +49,7 @@ export function SearchToggle({ search }: { search: ReturnType<typeof useWebSearc
           !search.available && "cursor-not-allowed opacity-50 hover:bg-transparent",
         )}
       >
-        <GlobeIcon className="size-3.5" aria-hidden /> Web
+        <GlobeIcon className="size-3.5" aria-hidden /> {t("chat.web")}
       </TooltipTrigger>
       <TooltipContent>{search.tooltip}</TooltipContent>
     </Tooltip>

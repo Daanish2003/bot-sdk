@@ -1,17 +1,18 @@
 import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import type { ReasoningSupport } from "../../../core/shared/chat/models";
 import { ReasoningEffortSelect } from "../../../ui/shell/reasoning-effort-select";
+import { renderWrapped } from "../fake-dictionary";
 
 const sonnetLike: { provider: string; reasoning: ReasoningSupport } = {
   provider: "anthropic",
   reasoning: { efforts: ["low", "medium", "high"], off: false, defaultEffort: null },
 };
 
+// Inside a ChatProvider, with no Host dictionary: the English defaults apply.
 const render = (props: Parameters<typeof ReasoningEffortSelect>[0]) =>
-  renderToStaticMarkup(createElement(ReasoningEffortSelect, props));
+  renderWrapped(createElement(ReasoningEffortSelect, props), { messages: {} });
 
 describe("the reasoning effort control", () => {
   it("is hidden for a Model that doesn't reason", () => {

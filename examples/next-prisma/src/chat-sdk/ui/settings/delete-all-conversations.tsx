@@ -15,7 +15,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { useOrpc } from "../../core/client/react/provider";
+import { useI18n, useOrpc } from "../../core/client/react/provider";
+import { serverErrorText } from "../../core/client/rpc-error";
 
 /** What the user types before the delete button turns on. Exact, so `delete` doesn't count. */
 const confirmWord = "DELETE";
@@ -27,6 +28,8 @@ const confirmWord = "DELETE";
 export function DeleteAllConversationsSection() {
   const queryClient = useQueryClient();
   const orpc = useOrpc();
+  const i18n = useI18n();
+  const { t } = i18n;
   const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState("");
   const remove = useMutation(
@@ -34,24 +37,21 @@ export function DeleteAllConversationsSection() {
       onSuccess: async () => {
         setOpen(false);
         setTyped("");
-        toast.success("All Conversations deleted");
+        toast.success(t("settings.deleteAllDone"));
         // The Conversation panel, the Pinned section, and the Shared links the deleted ones held.
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: orpc.conversation.key() }),
           queryClient.invalidateQueries({ queryKey: orpc.share.key() }),
         ]);
       },
-      onError: (error) => toast.error(error.message),
+      onError: (error) => toast.error(serverErrorText(i18n, error)),
     }),
   );
 
   return (
     <section className="space-y-2">
-      <h2 className="text-sm font-medium">Delete all Conversations</h2>
-      <p className="text-xs text-muted-foreground">
-        Removes every Conversation, including those in your Projects, and their Shared links. Your
-        Projects stay, empty. Your account stays too.
-      </p>
+      <h2 className="text-sm font-medium">{t("settings.deleteAllTitle")}</h2>
+      <p className="text-xs text-muted-foreground">{t("settings.deleteAllHelp")}</p>
       <AlertDialog
         open={open}
         onOpenChange={(next) => {
@@ -60,19 +60,17 @@ export function DeleteAllConversationsSection() {
         }}
       >
         <AlertDialogTrigger render={<Button variant="destructive" size="sm" />}>
-          Delete all Conversations
+          {t("settings.deleteAllTitle")}
         </AlertDialogTrigger>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete all Conversations?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This deletes every Conversation for good, with its Messages and Shared links. Your
-              Projects stay, but they are left empty. This can't be undone.
-            </AlertDialogDescription>
+            <AlertDialogTitle>{t("settings.deleteAllConfirmTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("settings.deleteAllConfirmBody")}</AlertDialogDescription>
           </AlertDialogHeader>
           <div className="space-y-2">
             <Label htmlFor="delete-all-confirm">
-              Type <span className="font-mono">{confirmWord}</span> to confirm
+              {t("settings.typeToConfirmBefore")} <span className="font-mono">{confirmWord}</span>{" "}
+              {t("settings.typeToConfirmAfter")}
             </Label>
             <Input
               id="delete-all-confirm"
@@ -82,13 +80,13 @@ export function DeleteAllConversationsSection() {
             />
           </div>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("settings.cancel")}</AlertDialogCancel>
             <Button
               variant="destructive"
               disabled={typed !== confirmWord || remove.isPending}
               onClick={() => remove.mutate()}
             >
-              {remove.isPending ? "Deleting…" : "Delete all"}
+              {remove.isPending ? t("settings.deleting") : t("settings.deleteAll")}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
