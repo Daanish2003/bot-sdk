@@ -76,6 +76,7 @@ export async function searchMessages(
     .where(
       and(
         eq(conversation.userId, userId),
+        eq(conversation.temporary, false),
         ilike(message.searchText, `%${escapeLike(q)}%`),
         cursor &&
           sql`(${message.createdAt}, ${message.id}) < (${cursor.createdAt}::timestamp, ${cursor.id}::uuid)`,

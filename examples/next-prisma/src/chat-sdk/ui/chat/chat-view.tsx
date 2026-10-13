@@ -31,6 +31,7 @@ import { ContextOverflowNotice, ContextRing } from "./context-ring";
 import { MessageRow } from "./message-row";
 import { MissingCredentialsBanner } from "./missing-credentials-banner";
 import { QuotaBanner } from "./quota-banner";
+import { TemporaryBanner } from "./temporary-banner";
 import { QuotaMeter } from "./quota-meter";
 import { SearchToggle, useWebSearch } from "./search-toggle";
 import { ToolsMenu } from "./tools-menu";
@@ -297,6 +298,7 @@ function ChatThread({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {conversation.temporary && <TemporaryBanner />}
       <ChatContainerRoot className="relative min-h-0 flex-1">
         <ChatContainerContent className="py-2">
           {messages.map((message) => (

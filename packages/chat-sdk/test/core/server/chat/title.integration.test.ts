@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
 import { saveCredentials } from "../../../../core/server/credentials/store";
-import { saveTitleModel } from "../../../../core/server/settings/store";
+import { saveBackgroundModel } from "../../../../core/server/settings/store";
 import { insertConversation, insertMessage } from "../../../support/conversations";
 import { createTestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, runError, text } from "../../../support/fake-adapter";
@@ -42,12 +42,14 @@ async function titleOfConversation(id: string) {
  */
 async function setup({
   scripts = [[round(text("Paris is the capital."))], [round(text("Capital of France"))]],
-}: { scripts?: Rounds[] } = {}) {
+  defaultBackgroundModel = null,
+}: { scripts?: Rounds[]; defaultBackgroundModel?: string | null } = {}) {
   const user = await insertUser();
   const fakes = scripts.map((rounds) => createFakeAdapter({ rounds }));
   const adapterCalls: Array<{ model: string; credentials: Record<string, string> }> = [];
   const adapters: AnyTextAdapter[] = fakes.map((fake) => fake.adapter);
   const deps = createTestDeps({
+    defaultBackgroundModel,
     adapterFor: (model, credentials) => {
       adapterCalls.push({ model, credentials });
       const next = adapters.shift();
@@ -101,7 +103,7 @@ describe("automatic titles", () => {
     expect(prompt).toContain("Paris is the capital.");
   });
 
-  it("uses the user's Title Model with its Provider's credentials", async () => {
+  it("uses the user's Background Model with its Provider's credentials", async () => {
     const { user, deps, send, titleOf, adapterCalls } = await setup();
     await saveCredentials(deps, user.id, {
       service: "openai",
@@ -109,7 +111,7 @@ describe("automatic titles", () => {
       hint: "…-key",
       verified: true,
     });
-    await saveTitleModel(deps, user.id, cheapModel);
+    await saveBackgroundModel(deps, user.id, cheapModel);
 
     await send();
 
@@ -120,7 +122,42 @@ describe("automatic titles", () => {
     });
   });
 
-  it("titles with a live-listed Title Model (OpenRouter)", async () => {
+  it("titles with the Host's default Background Model when the user picks none", async () => {
+    const { user, deps, send, titleOf, adapterCalls } = await setup({
+      defaultBackgroundModel: cheapModel,
+    });
+    await saveCredentials(deps, user.id, {
+      service: "openai",
+      fields: { apiKey: "sk-openai-test-key" },
+      hint: "…-key",
+      verified: true,
+    });
+
+    await send();
+
+    await vi.waitFor(async () => expect(await titleOf()).toBe("Capital of France"));
+    expect(adapterCalls.map((call) => call.model)).toEqual([replyModel, cheapModel]);
+  });
+
+  it("prefers the user's Background Model over the Host's default", async () => {
+    const { user, deps, send, titleOf, adapterCalls } = await setup({
+      defaultBackgroundModel: "anthropic:claude-haiku-4-5",
+    });
+    await saveBackgroundModel(deps, user.id, cheapModel);
+    await saveCredentials(deps, user.id, {
+      service: "openai",
+      fields: { apiKey: "sk-openai-test-key" },
+      hint: "…-key",
+      verified: true,
+    });
+
+    await send();
+
+    await vi.waitFor(async () => expect(await titleOf()).toBe("Capital of France"));
+    expect(adapterCalls.map((call) => call.model)).toEqual([replyModel, cheapModel]);
+  });
+
+  it("titles with a live-listed Background Model (OpenRouter)", async () => {
     const { user, deps, send, titleOf, adapterCalls } = await setup();
     await saveCredentials(deps, user.id, {
       service: "openrouter",
@@ -128,7 +165,7 @@ describe("automatic titles", () => {
       hint: "…-key",
       verified: true,
     });
-    await saveTitleModel(deps, user.id, "openrouter:mistralai/mistral-large");
+    await saveBackgroundModel(deps, user.id, "openrouter:mistralai/mistral-large");
 
     await send();
 
@@ -139,9 +176,9 @@ describe("automatic titles", () => {
     });
   });
 
-  it("falls back to the start of the first Message without credentials for the Title Model", async () => {
+  it("falls back to the start of the first Message without credentials for the Background Model", async () => {
     const { user, deps, send, titleOf, adapterCalls } = await setup();
-    await saveTitleModel(deps, user.id, cheapModel);
+    await saveBackgroundModel(deps, user.id, cheapModel);
 
     await send({ text: "How do I keep my sourdough starter alive over a two-week holiday?" });
 
@@ -182,12 +219,12 @@ describe("automatic titles", () => {
 
 describe("titleConversation", () => {
   /** A Conversation with a first exchange, as the end of its first run leaves it. */
-  async function seeded({ manual = false, title = null as string | null } = {}) {
+  async function seeded({ manual = false, title = null as string | null, temporary = false } = {}) {
     const user = await insertUser();
     const titleAdapter = createFakeAdapter({ rounds: [round(text("Generated title"))], manual });
     const deps = createTestDeps({ adapterFor: () => titleAdapter.adapter });
     await addAnthropicKey(user.id);
-    const conv = await insertConversation(user, { model: replyModel, title });
+    const conv = await insertConversation(user, { model: replyModel, title, temporary });
     const question = await insertMessage({
       conversationId: conv.id,
       role: "user",
@@ -203,6 +240,15 @@ describe("titleConversation", () => {
     const titleOf = () => titleOfConversation(conv.id);
     return { user, deps, conv, reply, titleAdapter, titleOf };
   }
+
+  it("makes no title and no title call for a Temporary Conversation", async () => {
+    const { deps, reply, titleAdapter, titleOf } = await seeded({ temporary: true });
+
+    await titleConversation(deps, reply.id);
+
+    expect(await titleOf()).toBeNull();
+    expect(titleAdapter.calls).toHaveLength(0);
+  });
 
   it("leaves a renamed Conversation alone and makes no title call", async () => {
     const { deps, reply, titleAdapter, titleOf } = await seeded({ title: "My name" });

@@ -113,6 +113,8 @@ export type AppDeps = {
   hostTools: HostTool[];
   /** Whether users may use their own Provider credentials (`byok`, ADR 0007). */
   byok: boolean;
+  /** The Host's default Background Model, a Host Model's id, or `null` (`defaultBackgroundModel`). */
+  defaultBackgroundModel: string | null;
   /** A user's Quota on Host credentials, `null` when unlimited (ADR 0007). */
   getQuota: (userId: string) => Promise<Quota | null>;
   searchClient: SearchClient;
@@ -165,6 +167,7 @@ export function createAppDeps({
   hostProviders,
   hostTools,
   byok,
+  defaultBackgroundModel,
   getQuota,
   rateLimits,
   tools,
@@ -177,6 +180,7 @@ export function createAppDeps({
   hostProviders: HostProvider[];
   hostTools: HostTool[];
   byok: boolean;
+  defaultBackgroundModel?: string;
   getQuota: AppDeps["getQuota"];
   rateLimits: ResolvedRateLimits;
   tools: HostServerTool[];
@@ -189,6 +193,7 @@ export function createAppDeps({
     hostProviders,
     hostTools,
     byok,
+    defaultBackgroundModel: defaultBackgroundModel ?? null,
     getQuota,
     searchClient: createTavilyClient(globalThis.fetch),
     tools,

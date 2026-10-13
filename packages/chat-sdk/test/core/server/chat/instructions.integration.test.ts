@@ -115,7 +115,7 @@ describe("user Instructions in a Run", () => {
     expect(fakes[0]!.calls[0]!.systemPrompts ?? []).toEqual([]);
   });
 
-  it("are not sent to the Title Model's call", async () => {
+  it("are not sent to the Background Model's call", async () => {
     const { deps, user, fakes, conv, send } = await setup({
       titled: false,
       scripts: [[round(text("Sure."))], [round(text("A title"))]],
