@@ -5,4 +5,7 @@ export type { HostServerTool, HostToolContext } from "./chat/host-tools";
 export type { PubSub } from "./chat/pubsub";
 export type { RateLimit, RateLimits } from "./rate-limits";
 export { createDb, type Database } from "./db";
+export type { BlobStore } from "./blob/store";
+export { postgresBlobStore } from "./blob/postgres";
+export { s3BlobStore, type S3BlobStoreOptions } from "./blob/s3";
 export type { McpServerConfig } from "./mcp/servers";

@@ -31,8 +31,19 @@ export function quotaWindow(window: Quota["window"], now: Date) {
   };
 }
 
+/** A user's Quota as it stands now, in micros: its budget, its spend and when its window resets. */
+export type QuotaState = {
+  window: Quota["window"];
+  resetsAt: Date;
+  budgetMicros: number;
+  spentMicros: number;
+};
+
 /** A user's Quota as it stands now: its budget and spend in micros, and when its window resets. */
-async function quotaState(deps: Pick<AppDeps, "db" | "getQuota">, userId: string) {
+export async function quotaState(
+  deps: Pick<AppDeps, "db" | "getQuota">,
+  userId: string,
+): Promise<QuotaState | null> {
   const quota = await deps.getQuota(userId);
   if (!quota) return null;
   const now = new Date();

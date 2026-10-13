@@ -7,7 +7,7 @@ import type { UIMessage } from "@tanstack/ai-client";
 /** What the server knows about a Message beyond its parts, kept in `UIMessage.metadata`. */
 export type MessageInfo = Pick<
   ClientMessage,
-  "model" | "reasoningEffort" | "status" | "error" | "errorReason" | "usage"
+  "model" | "reasoningEffort" | "status" | "error" | "errorReason" | "usage" | "rating"
 >;
 
 /**
@@ -31,6 +31,7 @@ export function toUIMessages(messages: ActiveBranchMessage[]): UIMessage[] {
       error,
       errorReason,
       usage,
+      rating,
       contextStartId,
       siblings,
       attachments,
@@ -46,6 +47,7 @@ export function toUIMessages(messages: ActiveBranchMessage[]): UIMessage[] {
         error,
         errorReason,
         usage,
+        rating,
         contextStartId,
         siblings,
         attachments,
@@ -95,6 +97,8 @@ export function sharedToUIMessages(messages: SharedConversation["messages"]): UI
       error: null,
       errorReason: null,
       usage: null,
+      // A Shared link carries no Ratings.
+      rating: null,
       attachments,
     } satisfies MessageInfo & {
       attachments: AttachmentChip[];
@@ -139,6 +143,7 @@ export function messageInfo(message: UIMessage): MessageInfo {
     error: info?.error ?? null,
     errorReason: info?.errorReason ?? null,
     usage: info?.usage ?? null,
+    rating: info?.rating ?? null,
   };
 }
 

@@ -1,5 +1,6 @@
 import type { Database } from "./db/index";
 import type { AnyTextAdapter } from "@tanstack/ai";
+import type { BlobStore } from "./blob/store";
 
 import { adapterFor } from "./chat/adapters";
 import type { CounterStore } from "./chat/counters";
@@ -148,6 +149,12 @@ export type AppDeps = {
   keyEncryptionSecrets: string[];
   /** The remote MCP servers the Host offers (`createChat({ mcpServers })`, spec #91). */
   mcpServers: McpServerConfig[];
+  /** Where file bytes are kept (`createChat({ blobStore })`, ADR 0015). */
+  blobStore: BlobStore;
+  /** Whether the Host has banned a user (`createChat({ isUserBlocked })`, spec #277). */
+  isUserBlocked: (userId: string) => boolean | Promise<boolean>;
+  /** Where the SDK reports what it can't do quietly (`createChat({ logger })`). */
+  logger: Pick<Console, "error">;
 };
 
 export const defaultLimits: Limits = {
@@ -173,6 +180,9 @@ export function createAppDeps({
   tools,
   fetchAllowHosts,
   mcpServers,
+  blobStore,
+  isUserBlocked = () => false,
+  logger,
 }: {
   db: Database;
   keyEncryptionSecrets: string[];
@@ -186,9 +196,15 @@ export function createAppDeps({
   tools: HostServerTool[];
   fetchAllowHosts?: string[];
   mcpServers: McpServerConfig[];
+  blobStore: BlobStore;
+  isUserBlocked?: AppDeps["isUserBlocked"];
+  logger: Pick<Console, "error">;
 }): AppDeps {
   return {
     db,
+    blobStore,
+    isUserBlocked,
+    logger,
     adapterFor,
     hostProviders,
     hostTools,

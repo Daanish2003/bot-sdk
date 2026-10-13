@@ -36,7 +36,7 @@ export async function signInOnForm(page: Page, email: string, password: string) 
   await page.getByLabel("Password").fill(password);
   return submitAuthForm(
     page,
-    page.getByRole("button", { name: "Sign In" }),
+    page.getByRole("button", { name: "Sign In", exact: true }),
     "/api/auth/sign-in/email",
   );
 }

@@ -46,6 +46,8 @@ export type UserExport = {
       parts: StoredParts;
       model: string | null;
       status: string;
+      /** The owner's Rating; always null on a user Message, which can't be rated. */
+      rating: "up" | "down" | null;
       createdAt: Date;
       attachments: { filename: string; mediaType: string }[];
     }[];
@@ -151,6 +153,7 @@ export async function exportUserData(deps: AppDeps, userId: string): Promise<Use
             parts: row.parts,
             model: row.model,
             status: row.status,
+            rating: row.rating,
             createdAt: row.createdAt,
             attachments: (attachmentsByMessage.get(row.id) ?? []).map(
               ({ filename, mediaType }) => ({

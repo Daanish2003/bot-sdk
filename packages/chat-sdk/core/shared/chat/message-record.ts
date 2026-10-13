@@ -28,6 +28,8 @@ export type MessageRecord = {
   errorReason: "invalid_key" | "rate_limited" | "provider_error" | null;
   /** Tokens the Run used, for display only; null on user Messages and on older Runs. */
   usage: MessageUsage | null;
+  /** The owner's Rating of this reply: `up`, `down`, or null when unrated. Never sent to a Provider. */
+  rating: "up" | "down" | null;
   /**
    * The first stored Message the Model saw on this reply's Run, when older Messages were dropped to
    * fit the window; null when all were sent. Only the Conversation read carries it.
