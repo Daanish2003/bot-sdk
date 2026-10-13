@@ -3,7 +3,12 @@ import { bigint, boolean, index, integer, text, timestamp, uuid } from "drizzle-
 import { chatSchema } from "./chat-schema";
 
 /** What a call on Host credentials was for. Only `run` is written so far. */
-export const usageKind = chatSchema.enum("usage_kind", ["run", "title", "web_search"]);
+export const usageKind = chatSchema.enum("usage_kind", [
+  "run",
+  "title",
+  "web_search",
+  "transcription",
+]);
 
 /**
  * One call on Host credentials (ADR 0007), summed by a Quota. It has no foreign key, so deleting a
