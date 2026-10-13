@@ -199,3 +199,41 @@ test("an Admin's own row offers no Ban", async ({ page }) => {
   await expect(adminRow).toBeVisible();
   await expect(adminRow.getByRole("button", { name: "Ban", exact: true })).toHaveCount(0);
 });
+
+/** The Host's Model in the open Model picker. */
+const hostOption = (page: Page) =>
+  page.getByRole("group").getByRole("button").filter({ hasText: "e2e-model" });
+
+test("an Admin sets a user's Quota to 0, which turns Host Models off for them, and clearing it restores the default", async ({
+  page,
+  browser,
+}) => {
+  const admin = await seedUser(page);
+  await makeAdmin(admin);
+  const targetContext = await browser.newContext();
+  const targetPage = await targetContext.newPage();
+  const target = await seedUser(targetPage);
+
+  await page.goto("/admin");
+  await page.getByRole("link", { name: target.email, exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Quota", exact: true })).toBeVisible();
+  await page.getByLabel(/^Budget in dollars/).fill("0");
+  await page.getByRole("button", { name: "Set budget", exact: true }).click();
+  await expect(page.getByText("Quota saved", { exact: true })).toBeVisible();
+  await expect(page.getByText("$0.00: Host Models are off for this user")).toBeVisible();
+
+  await targetPage.goto("/c");
+  await expect(targetPage.getByRole("button", { name: "Model" })).toBeVisible();
+  await targetPage.getByRole("button", { name: "Model" }).click();
+  await expect(hostOption(targetPage)).toBeDisabled();
+  await targetPage.keyboard.press("Escape");
+
+  await page.getByRole("button", { name: "Clear to default", exact: true }).click();
+  await expect(page.getByText("Quota cleared to the default", { exact: true })).toBeVisible();
+  await expect(page.getByText("Host default:")).toBeVisible();
+
+  await targetPage.goto("/c");
+  await targetPage.getByRole("button", { name: "Model" }).click();
+  await expect(hostOption(targetPage)).toBeEnabled();
+  await targetContext.close();
+});

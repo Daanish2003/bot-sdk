@@ -62,11 +62,16 @@ export function quotaOf(env: HostEnv): Quota | undefined {
   if (!Number.isFinite(budgetUsd) || budgetUsd <= 0) {
     throw new Error("HOST_QUOTA_BUDGET_USD must be a positive number of dollars");
   }
+  return { budgetUsd, window: quotaWindowOf(env) };
+}
+
+/** The window every Quota resets on, from `HOST_QUOTA_WINDOW`: `day` (the default) or `month`. */
+export function quotaWindowOf(env: HostEnv): "day" | "month" {
   const window = isSet(env.HOST_QUOTA_WINDOW) ? env.HOST_QUOTA_WINDOW.trim() : "day";
   if (window !== "day" && window !== "month") {
     throw new Error("HOST_QUOTA_WINDOW must be day or month");
   }
-  return { budgetUsd, window };
+  return window;
 }
 
 function parseJson(value: string | undefined, name: string): unknown {

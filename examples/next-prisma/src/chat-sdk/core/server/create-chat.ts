@@ -11,7 +11,7 @@ import { handleJoin } from "./chat/join-run";
 import type { ChatUser, Context } from "./context";
 import { createDb } from "./db/index";
 import { quotaLookup, quotaState, type QuotaState } from "./chat/quota";
-import { usageTotals, type UsageTotal } from "./admin/usage";
+import { usageByDay, usageTotals, type UsageByDay, type UsageTotal } from "./admin/usage";
 import {
   createAppDeps,
   type AppDeps,
@@ -206,6 +206,8 @@ export function createChat(options: CreateChatOptions): {
   admin: {
     /** Every user's calls on Host credentials created in `[since, until)`. */
     usageTotals: (range: { since: Date; until: Date }) => Promise<UsageTotal[]>;
+    /** One user's calls per UTC day and Model in `[since, until)` (spec #277). */
+    usage: (args: { userId: string; since: Date; until: Date }) => Promise<UsageByDay[]>;
     /** A user's budget and spend in micros, with its window's reset time; `null` when unlimited. */
     quota: (userId: string) => Promise<QuotaState | null>;
     /**
@@ -275,6 +277,7 @@ export function createChat(options: CreateChatOptions): {
     },
     admin: {
       usageTotals: (range) => usageTotals(getDeps(), range),
+      usage: ({ userId, since, until }) => usageByDay(getDeps(), userId, { since, until }),
       quota: (userId) => quotaState(getDeps(), userId),
       stopRuns: (userId) => stopUserRuns(getDeps(), userId),
     },

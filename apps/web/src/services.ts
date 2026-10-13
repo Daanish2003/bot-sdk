@@ -7,6 +7,7 @@ import { isBanActive } from "./admin/ban";
 import { appName, sender } from "./email";
 import { ENV, ssrfAllowHosts } from "./env.server";
 import { blobStoreOf } from "./blob-store";
+import { getQuota } from "./admin/quota";
 import { hostProvidersOf, quotaOf } from "./host-models";
 import { mcpServersOf } from "./mcp-server";
 
@@ -37,6 +38,8 @@ export const auth = createAuth(
       : undefined,
   },
 );
+// The Host's default Quota is parsed at boot, so a bad HOST_QUOTA_* fails the start, not a Run.
+void quotaOf(ENV);
 export const chat = createChat({
   databaseUrl: ENV.DATABASE_URL,
   keyEncryptionSecrets: [ENV.KEY_ENCRYPTION_SECRET, ENV.KEY_ENCRYPTION_SECRET_PREVIOUS].filter(
@@ -49,7 +52,8 @@ export const chat = createChat({
   mcpServers: mcpServersOf(ENV),
   // The Host's Models and their Quota (ADR 0007); unset, users chat only on their own keys.
   hostProviders: hostProvidersOf(ENV),
-  getQuota: quotaOf(ENV),
+  // A user's Quota: an Admin's override, else the Host's default (spec #277).
+  getQuota: (userId) => getQuota(db, ENV, userId),
   // File bytes go to the S3 store when S3_* is set, and to Postgres otherwise (ADR 0015).
   blobStore: blobStoreOf(ENV),
   // A banned user's Shared links are not found while the Ban holds (spec #277).

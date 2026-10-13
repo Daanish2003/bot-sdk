@@ -1,6 +1,6 @@
 import { Button } from "@ai-chat/ui/components/button";
 import { Input } from "@ai-chat/ui/components/input";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { z } from "zod";
 
 import { AdminBanControl } from "@/components/admin-ban-control";
@@ -90,7 +90,15 @@ function UsersTable({ users }: { users: AdminUser[] }) {
         <tbody>
           {users.map((row) => (
             <tr key={row.id} className="border-b last:border-0">
-              <td className="px-3 py-2">{row.email}</td>
+              <td className="px-3 py-2">
+                <Link
+                  to="/admin/$userId"
+                  params={{ userId: row.id }}
+                  className="underline-offset-4 hover:underline"
+                >
+                  {row.email}
+                </Link>
+              </td>
               <td className="px-3 py-2">{row.name}</td>
               <td className="px-3 py-2">{row.createdAt.slice(0, 10)}</td>
               <td className="px-3 py-2">{row.signInMethods.join(", ") || "None"}</td>
