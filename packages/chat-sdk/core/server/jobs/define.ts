@@ -1,5 +1,7 @@
 import type { z } from "zod";
 
+import type { AppDeps } from "../deps";
+
 /**
  * A failure retrying can't fix, such as a PDF with no text layer. It fails the job at once
  * (ADR 0011).
@@ -11,11 +13,15 @@ export class PermanentJobError extends Error {
   }
 }
 
-/** A job as internal code declares it. Jobs are internal: a Host can't register its own. */
+/**
+ * A job as internal code declares it. Jobs are internal: a Host can't register its own. `run` gets
+ * the SDK's dependencies from the runner that claimed it (`deps` in `inProcessRunner`), since a
+ * job's models, adapters and clock are only known once `createChat` has built them.
+ */
 export type JobDefinition<P> = {
   name: string;
   payload: z.ZodType<P>;
-  run: (payload: P) => Promise<void>;
+  run: (payload: P, deps: AppDeps) => Promise<void>;
   /** Runs once, after the final failure (the last attempt, or a `PermanentJobError`). */
   onFailed?: (payload: P, error: unknown) => Promise<void> | void;
 };
@@ -24,7 +30,7 @@ export type JobDefinition<P> = {
 export type RegisteredJob = {
   name: string;
   payload: z.ZodType<unknown>;
-  run: (payload: unknown) => Promise<void>;
+  run: (payload: unknown, deps: AppDeps) => Promise<void>;
   onFailed?: (payload: unknown, error: unknown) => Promise<void> | void;
 };
 

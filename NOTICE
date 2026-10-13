@@ -1,0 +1,11 @@
+Third-party notices
+
+This project includes code and prompts adapted from the following third-party works.
+
+Mem0
+  Source:  https://github.com/mem0ai/mem0
+  License: Apache License 2.0
+  Used in: packages/chat-sdk/core/server/memory/prompt.ts, which ports the fact-extraction prompt
+           (FACT_RETRIEVAL_PROMPT in mem0/configs/prompts.py, Python v1.0.11, commit 144627c). The
+           changes from the original are listed in that file's header.
+  Copyright the Mem0 contributors.

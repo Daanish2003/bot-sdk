@@ -6,6 +6,7 @@ export * from "./connection";
 export * from "./credentials";
 export * from "./generated-image";
 export * from "./job";
+export * from "./memory";
 export * from "./saved-prompt";
 export * from "./settings";
 export * from "./share";

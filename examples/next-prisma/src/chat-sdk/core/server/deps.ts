@@ -238,6 +238,10 @@ export type AppDeps = {
   artifacts: boolean;
   /** Background jobs (ADR 0011): `createChat({ jobs })`, the in-process runner by default. */
   jobs: JobRunner;
+  /** Whether Memory is on for the Host (`createChat({ memory })`, ADR 0013). */
+  memory: boolean;
+  /** The time as a job reads it, so the Memory job's dates are testable (ADR 0013). */
+  clock: () => Date;
 };
 
 export const defaultLimits: Limits = {
@@ -272,6 +276,7 @@ export function createAppDeps({
   hooks,
   artifacts,
   jobs,
+  memory,
 }: {
   db: Database;
   /** The image adapter factory; the production one is `imageAdapterFor` in `chat/adapters.ts`. */
@@ -294,8 +299,9 @@ export function createAppDeps({
   hooks?: ChatHooks;
   artifacts?: boolean;
   jobs?: JobRunner;
+  memory?: boolean;
 }): AppDeps {
-  return {
+  const deps: AppDeps = {
     logger,
     hooks: createHookEmitter(hooks, logger),
     db,
@@ -325,6 +331,9 @@ export function createAppDeps({
     keyEncryptionSecrets,
     mcpServers,
     artifacts: artifacts ?? false,
-    jobs: jobs ?? inProcessRunner({ db, logger }),
+    jobs: jobs ?? inProcessRunner({ db, logger, deps: () => deps }),
+    memory: memory ?? true,
+    clock: () => new Date(),
   };
+  return deps;
 }

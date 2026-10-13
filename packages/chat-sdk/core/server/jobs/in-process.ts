@@ -1,3 +1,4 @@
+import type { AppDeps } from "../deps";
 import type { Database } from "../db/index";
 import { claimJob, enqueueJob, runClaimedJob } from "./store";
 import type { JobRunner } from "./runner";
@@ -28,6 +29,11 @@ export type InProcessRunnerOptions = {
   /** How often an idle runner polls `chat.job`. Enqueue wakes it sooner. */
   pollMs?: number;
   clock?: JobClock;
+  /**
+   * The SDK's dependencies, read when a job runs. A getter, since `createChat` builds the runner
+   * before the dependencies it hands the jobs exist.
+   */
+  deps: () => AppDeps;
 };
 
 /**
@@ -41,6 +47,7 @@ export function inProcessRunner({
   concurrency = 2,
   pollMs = 2_000,
   clock = systemClock,
+  deps,
 }: InProcessRunnerOptions): JobRunner {
   let running = false;
   let timer: unknown;
@@ -58,7 +65,7 @@ export function inProcessRunner({
         return;
       }
       if (!claimed) return;
-      const work: Promise<void> = runClaimedJob(db, claimed, { now: clock.now, logger })
+      const work: Promise<void> = runClaimedJob(db, claimed, { now: clock.now, logger, deps })
         .catch((error: unknown) => logger.error(`Background job "${claimed.name}" failed`, error))
         .finally(() => {
           inFlight.delete(work);

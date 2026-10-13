@@ -16,6 +16,7 @@ import type { AppDeps, Credentials } from "../deps";
 import { cancelRunningCalls, createPartsBuilder, searchTextOf } from "../../shared/chat/parts";
 import { resolveModelCall } from "../credentials/resolve";
 import type { RunEndEvent, RunEnding } from "./hooks";
+import { enqueueMemories } from "../memory/make";
 import { titleConversation } from "./title";
 import {
   createToolBudget,
@@ -521,6 +522,17 @@ export async function startRun(
         awaiting === undefined
       ) {
         void titleConversation(deps, messageId);
+      }
+      // A Run that ended `complete` or `stopped` makes Memories from its user Message, in a background
+      // job (ADR 0013). `error` and a Run waiting for Approval make none; the resumed Run does.
+      if (endingSaved && (outcome.ending === "complete" || outcome.ending === "stopped")) {
+        void enqueueMemories(deps, {
+          userId: context.userId,
+          conversationId: context.conversationId,
+          replyId: messageId,
+        }).catch((caught: unknown) =>
+          deps.logger.error(`Queuing the Memories of ${messageId} failed`, caught),
+        );
       }
     }
   })();

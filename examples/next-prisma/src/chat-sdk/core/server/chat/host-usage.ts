@@ -29,12 +29,12 @@ export function runCostMicros(
 }
 
 /**
- * Writes the `chat.usage` row of a call on Host credentials for a Run or a title (ADR 0007), then
- * fires `onUsage` with the row.
+ * Writes the `chat.usage` row of a call on Host credentials for a Run, a title or a Memory (ADR 0007,
+ * ADR 0013), then fires `onUsage` with the row.
  */
 export async function recordHostUsage(
   deps: Pick<AppDeps, "db" | "hooks">,
-  kind: "run" | "title",
+  kind: "run" | "title" | "memory",
   meter: UsageMeter,
   usage: MessageUsage,
   reportedCost: number | undefined,

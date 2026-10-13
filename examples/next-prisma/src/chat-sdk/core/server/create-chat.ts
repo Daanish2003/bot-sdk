@@ -147,6 +147,11 @@ export type CreateChatOptions = {
    * `chat` schema and needs nothing beyond Postgres. `start()` and `stop()` start and stop it.
    */
   jobs?: JobRunner;
+  /**
+   * Turns Memory on or off for the whole Host (ADR 0013). On by default: the assistant learns facts
+   * from what users say, in the background, on the Background Model. `false` makes no Memories.
+   */
+  memory?: boolean;
 };
 
 /**
@@ -326,6 +331,7 @@ export function createChat(options: CreateChatOptions): {
       hooks: options.hooks,
       artifacts: options.artifacts,
       jobs: options.jobs,
+      memory: options.memory,
     });
     return deps;
   };
