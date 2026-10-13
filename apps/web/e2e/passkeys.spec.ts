@@ -5,6 +5,7 @@ import { expect, type Page, test } from "@playwright/test";
 import { baseURL } from "./env";
 import { e2eDatabaseUrl } from "./database.ts";
 import { mailboxFor, signInAsSeededUser, waitForMail } from "./helpers";
+import { seedUser } from "./seed-user";
 
 const ACCOUNT = "/settings/account";
 
@@ -99,4 +100,71 @@ test("passkey sign-in is rate-limited like password sign-in", async ({ page }) =
     statuses.push(response.status());
   }
   expect(statuses[3]).toBe(429);
+});
+
+/** Makes a user an Admin, straight in the e2e database (the grant script's effect). */
+async function makeAdmin(userId: string) {
+  const db = createDb({ DATABASE_URL: e2eDatabaseUrl() });
+  try {
+    await db.$client.query(`update "user" set role = 'admin' where id = $1`, [userId]);
+  } finally {
+    await db.$client.end();
+  }
+}
+
+/** On the Account page, adds a passkey through the virtual authenticator and names it. */
+async function addPasskeyOnAccount(page: Page, name: string) {
+  await page.goto(ACCOUNT);
+  await page.getByRole("button", { name: "Add passkey" }).click();
+  await page.getByLabel("Passkey name").fill(name);
+  await page.getByRole("button", { name: "Save name" }).click();
+  await expect(page.getByText(name, { exact: true })).toBeVisible();
+}
+
+/** Signs in from the login page with the passkey on the page's authenticator. */
+async function signInWithPasskey(page: Page) {
+  await page.goto("/login");
+  await page.getByRole("button", { name: "Already have an account? Sign In" }).click();
+  await page.getByRole("button", { name: "Sign in with a passkey" }).click();
+}
+
+test("a banned user with a passkey can't sign in with it", async ({ page, browser }) => {
+  const admin = await seedUser(page);
+  await makeAdmin(admin.id);
+
+  const targetContext = await browser.newContext();
+  const target = await targetContext.newPage();
+  const seeded = await seedUser(target);
+  await addVirtualAuthenticator(target);
+  await addPasskeyOnAccount(target, "Laptop");
+
+  // The Ban is made the way admin.spec.ts makes it: from the Admin view.
+  await page.goto("/admin");
+  const row = page.getByRole("row").filter({ has: page.getByText(seeded.email, { exact: true }) });
+  await row.getByRole("button", { name: "Ban", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel(/^Reason/).fill("Spamming the chat");
+  await dialog.getByRole("button", { name: "Ban user" }).click();
+  await expect(page.getByText("User banned", { exact: true })).toBeVisible();
+
+  // No cookies: a fresh sign-in attempt with the passkey is refused, and no session is made.
+  await targetContext.clearCookies();
+  await signInWithPasskey(target);
+  await expect(target.getByText("This account is suspended.")).toBeVisible();
+  await target.goto("/c");
+  await expect(target).toHaveURL(/\/login/);
+});
+
+test("a passkey sign-in skips the two-factor prompt for a user with two-factor on", async ({
+  page,
+}) => {
+  await seedUser(page, { twoFactor: true });
+  await addVirtualAuthenticator(page);
+  await addPasskeyOnAccount(page, "Laptop");
+
+  await page.context().clearCookies();
+  await signInWithPasskey(page);
+
+  await expect(page).toHaveURL(/\/c$/);
+  await expect(page.getByLabel("Authentication code")).toHaveCount(0);
 });

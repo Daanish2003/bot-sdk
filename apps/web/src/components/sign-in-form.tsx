@@ -18,6 +18,15 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
   });
   const { isPending } = authClient.useSession();
 
+  // A banned user is refused with the same one message as on the password path.
+  const passkeyFailed = (error: { code?: string; message?: string }) => {
+    toast.error(
+      error.code === "BANNED_USER"
+        ? suspendedMessage
+        : error.message || "Could not sign in with a passkey",
+    );
+  };
+
   // Conditional UI: where the browser supports it, saved passkeys are offered in the email field's
   // autofill. Choosing one signs in without a password (and without the second factor).
   useEffect(() => {
@@ -26,7 +35,11 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
     void PublicKeyCredential.isConditionalMediationAvailable().then(async (available) => {
       if (!available || !active) return;
       const { error } = await authClient.signIn.passkey({ autoFill: true });
-      if (!error && active) navigate({ to: "/c" });
+      if (error) {
+        if (active) passkeyFailed(error);
+        return;
+      }
+      if (active) navigate({ to: "/c" });
     });
     return () => {
       active = false;
@@ -36,7 +49,7 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
   const passkeySignIn = async () => {
     const { error } = await authClient.signIn.passkey();
     if (error) {
-      toast.error(error.message || "Could not sign in with a passkey");
+      passkeyFailed(error);
       return;
     }
     navigate({ to: "/c" });
