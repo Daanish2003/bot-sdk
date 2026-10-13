@@ -34,6 +34,9 @@ export class KnowledgeFailure extends PermanentJobError {
   }
 }
 
+/** The idempotency key of a file's processing job, so Delete and Retry can find it. */
+export const knowledgeJobKey = (fileId: string) => `knowledge:${fileId}`;
+
 /**
  * Reads a Knowledge file, splits it into passages, embeds them with the Project's embedding Model
  * and stores them, then marks the file ready with its passage count. A file deleted meanwhile is
@@ -42,7 +45,7 @@ export class KnowledgeFailure extends PermanentJobError {
 export const knowledgeProcessJob = defineJob({
   name: "knowledge.process",
   payload: z.object({ fileId: z.uuid() }),
-  run: async ({ fileId }, { deps }) => {
+  run: async ({ fileId }, { deps, signal }) => {
     const [file] = await deps.db.select().from(knowledgeFile).where(eq(knowledgeFile.id, fileId));
     if (!file || file.status !== "processing") return;
 
@@ -73,8 +76,9 @@ export const knowledgeProcessJob = defineJob({
       : null;
     if (!model) throw new KnowledgeFailure("no_credentials");
 
-    await deps.db.delete(knowledgeChunk).where(eq(knowledgeChunk.fileId, fileId));
+    if (!(await storePassages(deps, fileId, [], { replace: true }))) return;
     for (let start = 0; start < chunks.length; start += passageBatch) {
+      if (signal.aborted) return;
       const batch = chunks.slice(start, start + passageBatch);
       const vectors = await embedTexts(deps, {
         userId: file.userId,
@@ -82,14 +86,18 @@ export const knowledgeProcessJob = defineJob({
         texts: batch.map((chunk) => chunk.text),
         purpose: "document",
       });
-      await deps.db.insert(knowledgeChunk).values(
+      const stored = await storePassages(
+        deps,
+        fileId,
         batch.map((chunk, offset) => ({
           fileId,
           position: start + offset,
           text: chunk.text,
           embedding: vectors[offset]!,
         })),
+        { replace: false },
       );
+      if (!stored) return;
     }
 
     await deps.db
@@ -101,6 +109,31 @@ export const knowledgeProcessJob = defineJob({
     await markFailed(deps, fileId, error instanceof KnowledgeFailure ? error.code : "failed");
   },
 });
+
+/**
+ * Writes passages for a file that is still processing, in one transaction that holds the file's
+ * row, so a delete can't land between the check and the write. `replace` clears the passages of an
+ * earlier attempt first. False when the file was deleted or has left `processing`: nothing is
+ * written, and the job stops quietly.
+ */
+async function storePassages(
+  deps: Pick<AppDeps, "db">,
+  fileId: string,
+  passages: (typeof knowledgeChunk.$inferInsert)[],
+  { replace }: { replace: boolean },
+): Promise<boolean> {
+  return deps.db.transaction(async (tx) => {
+    const [file] = await tx
+      .select({ status: knowledgeFile.status })
+      .from(knowledgeFile)
+      .where(eq(knowledgeFile.id, fileId))
+      .for("share");
+    if (file?.status !== "processing") return false;
+    if (replace) await tx.delete(knowledgeChunk).where(eq(knowledgeChunk.fileId, fileId));
+    if (passages.length > 0) await tx.insert(knowledgeChunk).values(passages);
+    return true;
+  });
+}
 
 /** Marks a file failed, unless it has already left `processing` (or was deleted). */
 async function markFailed(deps: Pick<AppDeps, "db">, fileId: string, code: KnowledgeFailureCode) {

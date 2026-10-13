@@ -8,14 +8,14 @@ import {
 } from "../chat/embedding-models";
 import { quotaRefusal } from "../chat/quota";
 import { project } from "../db/schema/chat";
-import { knowledgeFile } from "../db/schema/knowledge";
+import { knowledgeChunk, knowledgeFile } from "../db/schema/knowledge";
 import type { AppDeps } from "../deps";
 import { uuidv7 } from "../lib/uuidv7";
 import { findProject } from "../project/store";
 import { rpcError } from "../rpc-error";
 import { knowledgeFilesPerProject, type KnowledgeFailureCode } from "../../shared/knowledge/kinds";
 // Imported for its side effect: the job must be defined before the first upload enqueues it.
-import { knowledgeProcessJob } from "./process";
+import { knowledgeJobKey, knowledgeProcessJob } from "./process";
 
 /** What the Knowledge tab shows of a file. The bytes are never part of it. */
 export type KnowledgeFileInfo = {
@@ -144,7 +144,11 @@ export async function uploadKnowledgeFile(
       if (!created) throw new Error("Saving the Knowledge file returned no row");
       return created;
     });
-    await deps.jobs.enqueue(knowledgeProcessJob.name, { fileId: id });
+    await deps.jobs.enqueue(
+      knowledgeProcessJob.name,
+      { fileId: id },
+      { idempotencyKey: knowledgeJobKey(id) },
+    );
     return info;
   } catch (error) {
     await deleteBlobsBestEffort(deps, [key]);
@@ -188,4 +192,74 @@ export async function setKnowledgeModel(
     }
     await tx.update(project).set({ embeddingModel: model }).where(eq(project.id, projectId));
   });
+}
+
+/** The file's status, once the Project is the user's and the file is in it. */
+async function ownedFileStatus(deps: AppDeps, userId: string, projectId: string, fileId: string) {
+  if (!(await findProject(deps, userId, projectId))) {
+    throw rpcError("NOT_FOUND", "error.projectNotFound", "Project not found");
+  }
+  const [file] = await deps.db
+    .select({ status: knowledgeFile.status })
+    .from(knowledgeFile)
+    .where(and(eq(knowledgeFile.id, fileId), eq(knowledgeFile.projectId, projectId)));
+  if (!file) throw rpcError("NOT_FOUND", "error.knowledgeFileNotFound", "Knowledge file not found");
+  return file;
+}
+
+/**
+ * Queues a Failed file's processing again. Its original bytes are still in the blob store, so
+ * nothing is re-uploaded, and the job starts with fresh attempts.
+ */
+export async function retryKnowledgeFile(
+  deps: AppDeps,
+  userId: string,
+  projectId: string,
+  fileId: string,
+): Promise<void> {
+  const notFailed = () =>
+    rpcError(
+      "CONFLICT",
+      "error.knowledgeFileNotFailed",
+      "Only a Knowledge file that failed can be retried",
+    );
+  const file = await ownedFileStatus(deps, userId, projectId, fileId);
+  if (file.status !== "failed") throw notFailed();
+  const reset = await deps.db
+    .update(knowledgeFile)
+    .set({ status: "processing", failureCode: null, chunkCount: null })
+    .where(and(eq(knowledgeFile.id, fileId), eq(knowledgeFile.status, "failed")))
+    .returning({ id: knowledgeFile.id });
+  if (reset.length === 0) throw notFailed();
+  await deps.jobs.enqueue(
+    knowledgeProcessJob.name,
+    { fileId },
+    { idempotencyKey: knowledgeJobKey(fileId) },
+  );
+}
+
+/**
+ * Deletes a Knowledge file whatever its status. Its job is cancelled first; a job already running
+ * stops at its next write, since the passages are only written while the file row exists. The file
+ * row and its passages go in one transaction, then the bytes (best-effort, after the commit).
+ */
+export async function deleteKnowledgeFile(
+  deps: AppDeps,
+  userId: string,
+  projectId: string,
+  fileId: string,
+): Promise<void> {
+  await ownedFileStatus(deps, userId, projectId, fileId);
+  await deps.jobs.cancel(knowledgeJobKey(fileId));
+  await deps.db.transaction(async (tx) => {
+    // Locks the file row, so a passage write in progress finishes before its passages go.
+    await tx
+      .select({ id: knowledgeFile.id })
+      .from(knowledgeFile)
+      .where(eq(knowledgeFile.id, fileId))
+      .for("update");
+    await tx.delete(knowledgeChunk).where(eq(knowledgeChunk.fileId, fileId));
+    await tx.delete(knowledgeFile).where(eq(knowledgeFile.id, fileId));
+  });
+  await deleteBlobsBestEffort(deps, [knowledgeBlobKey(fileId)]);
 }
