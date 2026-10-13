@@ -25,7 +25,7 @@ export function wrappedDictionary(): Partial<Messages> {
   return Object.fromEntries(entries) as Partial<Messages>;
 }
 
-const wrapped = /⟦[^⟧]*⟧/g;
+const wrapped = /⟦[^⟦⟧]*⟧/g;
 
 /**
  * The visible text and labels (`aria-label`, `title`, `placeholder`, `alt`) in rendered markup that
@@ -42,7 +42,10 @@ export function untranslated(html: string, allow: string[] = []): string[] {
     .map(decode);
   return [...attributes, ...text]
     .map((piece) => {
-      const rest = piece.replace(wrapped, "").trim();
+      // A param can be wrapped inside its own message (⟦Delete ⟦2 Conversations⟧⟧): strip inside out.
+      let rest = piece;
+      while (/⟦[^⟦⟧]*⟧/.test(rest)) rest = rest.replace(wrapped, "");
+      rest = rest.trim();
       return allow.includes(rest) ? "" : rest;
     })
     .filter((piece) => /\p{L}/u.test(piece));
@@ -66,23 +69,36 @@ export function renderEnglish(ui: ReactElement): string {
 }
 
 /** Renders `ui` inside a ChatProvider with the fake dictionary, seeding its queries from `seed`. */
-export function renderWrapped(
+export function renderWrapped(ui: ReactElement, options: WrapOptions = {}) {
+  return renderToStaticMarkup(providerFor(ui, options));
+}
+
+type WrapOptions = {
+  seed?: (queryClient: QueryClient, client: ChatClient) => void;
+  location?: Partial<ChatLocation>;
+  messages?: Partial<Messages>;
+  /** The network. Defaults to failing, since a render test makes no requests. */
+  fetch?: NonNullable<Parameters<typeof createChatClient>[0]["fetch"]>;
+};
+
+/**
+ * The ChatProvider tree around `ui`, with the fake dictionary, for a client-rendered (jsdom) test
+ * to mount with RTL. `renderWrapped` renders the same tree to static markup.
+ */
+export function providerFor(
   ui: ReactElement,
   {
     seed,
     location = {},
     messages = wrappedDictionary(),
-  }: {
-    seed?: (queryClient: QueryClient, client: ChatClient) => void;
-    location?: Partial<ChatLocation>;
-    messages?: Partial<Messages>;
-  } = {},
+    fetch = async () => {
+      throw new Error("Unexpected request in a render test");
+    },
+  }: WrapOptions = {},
 ) {
   const client = createChatClient({
     baseUrl: "http://localhost/api/chat",
-    fetch: async () => {
-      throw new Error("Unexpected request in a render test");
-    },
+    fetch,
   });
   const router: ChatRouter = {
     Link: ({ children, className }: ChatLinkProps) => createElement("a", { className }, children),
@@ -92,13 +108,11 @@ export function renderWrapped(
   };
   const queryClient = new QueryClient();
   seed?.(queryClient, client);
-  return renderToStaticMarkup(
-    createElement(ChatProvider, {
-      client,
-      router,
-      queryClient,
-      messages,
-      children: ui,
-    }),
-  );
+  return createElement(ChatProvider, {
+    client,
+    router,
+    queryClient,
+    messages,
+    children: ui,
+  });
 }
