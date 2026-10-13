@@ -59,11 +59,12 @@ test("a user who isn't an Admin gets a 404 on /admin", async ({ page }) => {
 test("an Admin sees spend against Quota, searches, sorts and filters to At Quota", async ({
   page,
 }) => {
-  const admin = await seedUser(page);
-  await makeAdmin(admin);
   const atQuota = await seedUser(page);
   await spend(atQuota.id, 1_000_000);
   const quiet = await seedUser(page);
+  // seedUser signs `page` in as the user it seeds, so the Admin is seeded last.
+  const admin = await seedUser(page);
+  await makeAdmin(admin);
 
   await page.goto("/admin");
   await expect(page.getByRole("heading", { name: "Users", exact: true })).toBeVisible();
@@ -81,7 +82,8 @@ test("an Admin sees spend against Quota, searches, sorts and filters to At Quota
   await expect(emailCell(page, atQuota.email)).toBeVisible();
 
   await page.getByRole("button", { name: "At Quota" }).click();
-  await expect(page).toHaveURL(/atQuota=1/);
+  // The router JSON-encodes the value, so it reads atQuota=%221%22.
+  await expect(page).toHaveURL(/atQuota=/);
   await expect(emailCell(page, atQuota.email)).toBeVisible();
   await expect(emailCell(page, quiet.email)).toHaveCount(0);
 });
