@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { attachmentsOfMessages } from "../attachments/store";
 import type { AppDeps } from "../deps";
+import { withProjectId } from "./hooks";
 import { newestLeaf, pathTo, siblingPosition } from "../../shared/chat/branches";
 import { type ActiveBranchMessage, toClientMessage } from "../../shared/chat/client-message";
 import type { ReasoningChoice } from "../../shared/chat/models";
@@ -98,14 +99,24 @@ export async function setConversationConnections(
 
 /**
  * Deletes the user's Conversation and, by cascade, its Messages and Shared link; `false` when it
- * isn't theirs.
+ * isn't theirs. Fires `onConversationDeleted` after the delete (#266).
  */
-export async function deleteConversation(deps: Deps, userId: string, id: string) {
-  const rows = await deps.db
+export async function deleteConversation(
+  deps: Pick<AppDeps, "db" | "hooks">,
+  userId: string,
+  id: string,
+) {
+  const [row] = await deps.db
     .delete(conversation)
     .where(ownConversation(userId, id))
-    .returning({ id: conversation.id });
-  return rows.length > 0;
+    .returning({ id: conversation.id, projectId: conversation.projectId });
+  if (!row) return false;
+  deps.hooks.fire("onConversationDeleted", {
+    userId,
+    conversationId: row.id,
+    ...withProjectId(row.projectId),
+  });
+  return true;
 }
 
 /** How many Conversations a user can have pinned at once. */

@@ -5,7 +5,13 @@ import { z } from "zod";
 
 import { createChatClient } from "../../../../core/client/chat-client";
 import type { HostToolContext } from "../../../../core/server/chat/host-tools";
-import { createHookEmitter, type RunEndEvent } from "../../../../core/server/chat/hooks";
+import {
+  createHookEmitter,
+  type ConversationCreatedEvent,
+  type ConversationDeletedEvent,
+  type RunEndEvent,
+  type SharedLinkChangedEvent,
+} from "../../../../core/server/chat/hooks";
 import { reapStaleRuns } from "../../../../core/server/chat/run";
 import {
   createChat,
@@ -13,6 +19,7 @@ import {
   type CreateChatOptions,
 } from "../../../../core/server/create-chat";
 import { deleteAllConversations, deleteUserData } from "../../../../core/server/delete-user";
+import { deleteProject } from "../../../../core/server/project/store";
 import { saveCredentials } from "../../../../core/server/credentials/store";
 import { conversation, message, project } from "../../../../core/server/db/schema/chat";
 import { usage } from "../../../../core/server/db/schema/usage";
@@ -24,7 +31,7 @@ import { insertConversation, insertMessage } from "../../../support/conversation
 import { createFakeAdapter, round, runError, text, toolCall } from "../../../support/fake-adapter";
 import { chatRpc, sendAs } from "../../../support/sdk";
 import { getTestDb, testDatabaseUrl } from "../../../support/test-database";
-import { insertUser } from "../../../support/users";
+import { insertUser, type TestUser } from "../../../support/users";
 
 // The Run's adapter: the handler's `createChat` builds its adapters itself, so the module hands
 // it the scripted fake for each test.
@@ -258,6 +265,14 @@ function sendMail(runs: Array<{ to: string; body: string }>) {
   });
 }
 
+/** A delete that fails when awaited, bare or with `.returning()`. */
+function failingDelete() {
+  const fail = () => Promise.reject(new Error("delete failed"));
+  const failed = fail();
+  failed.catch(() => {});
+  return Object.assign(failed, { returning: fail });
+}
+
 /** The database, with the delete of `failing` table failing, so its transaction rolls back. */
 function failingDeleteOf(
   db: ReturnType<typeof getTestDb>,
@@ -274,7 +289,7 @@ function failingDeleteOf(
                 if (txKey !== "delete") return Reflect.get(txTarget, txKey, txTarget);
                 return (table: unknown) =>
                   table === failing
-                    ? { where: () => Promise.reject(new Error("delete failed")) }
+                    ? { where: () => failingDelete() }
                     : (txTarget as typeof db).delete(table as never);
               },
             }),
@@ -632,5 +647,211 @@ describe("the SDK's failures", () => {
       expect.stringMatching(/Generating a title with/),
       expect.anything(),
     );
+  });
+});
+/** The typed RPC client of a `createChat`'s handler, for the Conversation and Shared link procedures. */
+function rpcOf(chat: ReturnType<typeof createChat>) {
+  return createChatClient({ baseUrl: `http://localhost${basePath}`, fetch: chat.handler }).rpc;
+}
+
+/** A Conversation whose Active Branch ends in a complete reply: ready to share. */
+async function answeredConversation(
+  user: TestUser,
+  fields: Partial<typeof conversation.$inferInsert> = {},
+) {
+  const conv = await insertConversation(user, { title: "Shared", ...fields });
+  const question = await insertMessage({ conversationId: conv.id, role: "user", text: "Question" });
+  await insertMessage({
+    conversationId: conv.id,
+    parentId: question.id,
+    role: "assistant",
+    text: "Answer",
+    active: true,
+  });
+  return conv;
+}
+
+describe("the Conversation and Shared link hooks", () => {
+  /** A `createChat` for `userId` whose three hooks are recording mocks. */
+  function recordingChat(userId: string) {
+    const hooks = {
+      onConversationCreated: vi.fn<(event: ConversationCreatedEvent) => unknown>(),
+      onConversationDeleted: vi.fn<(event: ConversationDeletedEvent) => unknown>(),
+      onSharedLinkChanged: vi.fn<(event: SharedLinkChangedEvent) => unknown>(),
+    };
+    return { hooks, rpc: rpcOf(chatWith({ userId, hooks })) };
+  }
+
+  it("fires onConversationCreated once when a user starts a Conversation", async () => {
+    const user = await insertUser();
+    const { hooks, rpc } = recordingChat(user.id);
+
+    const { id } = await rpc.conversation.create({ model: hostModel });
+
+    await vi.waitFor(() => expect(hooks.onConversationCreated).toHaveBeenCalledTimes(1));
+    expect(hooks.onConversationCreated).toHaveBeenCalledWith({
+      userId: user.id,
+      conversationId: id,
+      fromSharedLink: false,
+    });
+  });
+
+  it("includes the Project when a Conversation starts in one", async () => {
+    const user = await insertUser();
+    const projectId = uuidv7();
+    await getTestDb().insert(project).values({ id: projectId, userId: user.id, name: "Thesis" });
+    const { hooks, rpc } = recordingChat(user.id);
+
+    const { id } = await rpc.conversation.create({ model: hostModel, projectId });
+
+    await vi.waitFor(() => expect(hooks.onConversationCreated).toHaveBeenCalledTimes(1));
+    expect(hooks.onConversationCreated).toHaveBeenCalledWith({
+      userId: user.id,
+      conversationId: id,
+      projectId,
+      fromSharedLink: false,
+    });
+  });
+
+  it("fires onConversationCreated with fromSharedLink when a Shared link is continued", async () => {
+    const user = await insertUser();
+    const conv = await answeredConversation(user);
+    const { hooks, rpc } = recordingChat(user.id);
+    const link = await rpc.share.upsert({ conversationId: conv.id });
+
+    const copy = await rpc.share.continue({ token: link.token });
+
+    await vi.waitFor(() => expect(hooks.onConversationCreated).toHaveBeenCalledTimes(1));
+    expect(hooks.onConversationCreated).toHaveBeenCalledWith({
+      userId: user.id,
+      conversationId: copy.id,
+      fromSharedLink: true,
+    });
+  });
+
+  it("fires onConversationDeleted once when a user deletes a Conversation", async () => {
+    const user = await insertUser();
+    const conv = await insertConversation(user, { title: "Gone" });
+    const { hooks, rpc } = recordingChat(user.id);
+
+    await rpc.conversation.delete({ id: conv.id });
+
+    await vi.waitFor(() => expect(hooks.onConversationDeleted).toHaveBeenCalledTimes(1));
+    expect(hooks.onConversationDeleted).toHaveBeenCalledWith({
+      userId: user.id,
+      conversationId: conv.id,
+    });
+  });
+
+  it("fires onConversationDeleted once per Conversation when a Project with three is deleted", async () => {
+    const user = await insertUser();
+    const projectId = uuidv7();
+    await getTestDb().insert(project).values({ id: projectId, userId: user.id, name: "Thesis" });
+    const conversations = await Promise.all(
+      [1, 2, 3].map(() => insertConversation(user, { projectId })),
+    );
+    const { hooks, rpc } = recordingChat(user.id);
+
+    await rpc.project.delete({ id: projectId });
+
+    await vi.waitFor(() => expect(hooks.onConversationDeleted).toHaveBeenCalledTimes(3));
+    for (const conv of conversations) {
+      expect(hooks.onConversationDeleted).toHaveBeenCalledWith({
+        userId: user.id,
+        conversationId: conv.id,
+        projectId,
+      });
+    }
+  });
+
+  it("fires onConversationDeleted for each Conversation a user deletes all of", async () => {
+    const user = await insertUser();
+    const projectId = uuidv7();
+    await getTestDb().insert(project).values({ id: projectId, userId: user.id, name: "Thesis" });
+    const inProject = await insertConversation(user, { projectId });
+    const loose = await insertConversation(user);
+    const { hooks, rpc } = recordingChat(user.id);
+
+    await rpc.conversation.deleteAll();
+
+    await vi.waitFor(() => expect(hooks.onConversationDeleted).toHaveBeenCalledTimes(2));
+    expect(hooks.onConversationDeleted).toHaveBeenCalledWith({
+      userId: user.id,
+      conversationId: inProject.id,
+      projectId,
+    });
+    expect(hooks.onConversationDeleted).toHaveBeenCalledWith({
+      userId: user.id,
+      conversationId: loose.id,
+    });
+  });
+
+  it("fires no Conversation or Shared link event when the Host deletes the user", async () => {
+    const user = await insertUser();
+    const projectId = uuidv7();
+    await getTestDb().insert(project).values({ id: projectId, userId: user.id, name: "Thesis" });
+    const conv = await answeredConversation(user, { projectId });
+    const hooks = {
+      onConversationCreated: vi.fn<(event: ConversationCreatedEvent) => unknown>(),
+      onConversationDeleted: vi.fn<(event: ConversationDeletedEvent) => unknown>(),
+      onSharedLinkChanged: vi.fn<(event: SharedLinkChangedEvent) => unknown>(),
+    };
+    await rpcOf(chatWith({ userId: user.id, hooks })).share.upsert({ conversationId: conv.id });
+    hooks.onSharedLinkChanged.mockClear();
+    const deps = createTestDeps({
+      hostProviders: [hostProvider],
+      hooks: createHookEmitter(hooks, { error: () => {} }),
+    });
+
+    await deleteUserData(deps, user.id);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(hooks.onConversationCreated).not.toHaveBeenCalled();
+    expect(hooks.onConversationDeleted).not.toHaveBeenCalled();
+    expect(hooks.onSharedLinkChanged).not.toHaveBeenCalled();
+  });
+
+  it("fires onSharedLinkChanged created, moved and removed for sharing, sharing again and unsharing", async () => {
+    const user = await insertUser();
+    const conv = await answeredConversation(user);
+    const { hooks, rpc } = recordingChat(user.id);
+
+    await rpc.share.upsert({ conversationId: conv.id });
+    await rpc.share.upsert({ conversationId: conv.id });
+    await rpc.share.delete({ conversationId: conv.id });
+
+    await vi.waitFor(() => expect(hooks.onSharedLinkChanged).toHaveBeenCalledTimes(3));
+    expect(hooks.onSharedLinkChanged.mock.calls.map(([event]) => event)).toEqual([
+      { userId: user.id, conversationId: conv.id, change: "created" },
+      { userId: user.id, conversationId: conv.id, change: "moved" },
+      { userId: user.id, conversationId: conv.id, change: "removed" },
+    ]);
+  });
+
+  it("fires nothing when a user unshares a Conversation that has no Shared link", async () => {
+    const user = await insertUser();
+    const conv = await answeredConversation(user);
+    const { hooks, rpc } = recordingChat(user.id);
+
+    await rpc.share.delete({ conversationId: conv.id });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(hooks.onSharedLinkChanged).not.toHaveBeenCalled();
+  });
+
+  it("fires nothing for a Project delete that rolls back", async () => {
+    const user = await insertUser();
+    const projectId = uuidv7();
+    await getTestDb().insert(project).values({ id: projectId, userId: user.id, name: "Thesis" });
+    await insertConversation(user, { projectId });
+    const onConversationDeleted = vi.fn<(event: ConversationDeletedEvent) => unknown>();
+    const deps = createTestDeps({
+      db: failingDeleteOf(getTestDb(), project),
+      hooks: createHookEmitter({ onConversationDeleted }, { error: () => {} }),
+    });
+
+    await expect(deleteProject(deps, user.id, projectId)).rejects.toThrow("delete failed");
+
+    expect(onConversationDeleted).not.toHaveBeenCalled();
   });
 });

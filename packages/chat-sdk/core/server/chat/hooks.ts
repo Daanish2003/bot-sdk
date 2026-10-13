@@ -94,8 +94,7 @@ export type ModerationResult = { allow: true } | { allow: false; reason?: string
  * is called after its change is written, never awaited, at most once, and never retried; one that
  * throws or rejects is logged through the Host's `logger`.
  *
- * `onUsage` and `onRunEnd` fire so far. The other event hooks and `moderate` are typed now and
- * wired by #266 (the Conversation and Shared link hooks) and #267 (`moderate`).
+ * `moderate` is typed now and wired by #267.
  */
 export type ChatHooks = {
   /** Fires after each usage row on Host credentials is written: a Run, a title or a web search. */
@@ -120,6 +119,11 @@ export type ChatHooks = {
 
 type HookName = keyof ChatHooks;
 type HookPayload<K extends HookName> = Parameters<NonNullable<ChatHooks[K]>>[0];
+
+/** The optional `projectId` of an event: left out when the Conversation has no Project. */
+export function withProjectId(projectId: string | null | undefined): { projectId?: string } {
+  return projectId ? { projectId } : {};
+}
 
 /** Calls the Host's hooks. Used by the SDK after each change it writes. */
 export type HookEmitter = {

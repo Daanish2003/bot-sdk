@@ -8,6 +8,7 @@ import { userCredentials } from "./db/schema/credentials";
 import { userSettings } from "./db/schema/settings";
 import { usage } from "./db/schema/usage";
 import type { AppDeps } from "./deps";
+import { withProjectId } from "./chat/hooks";
 
 /**
  * Deletes everything the SDK holds for a user, in one transaction (spec #70). The Host calls it
@@ -54,10 +55,21 @@ export async function deleteUserData(deps: AppDeps, userId: string): Promise<voi
  * Live Runs in them stop first, as in `deleteUserData`.
  */
 export async function deleteAllConversations(deps: AppDeps, userId: string): Promise<void> {
-  const stopped = await deps.db.transaction(async (tx) => {
+  const { ended, gone } = await deps.db.transaction(async (tx) => {
     const ended = await stopUserRuns(deps, userId, tx);
-    await tx.delete(conversation).where(eq(conversation.userId, userId));
-    return ended;
+    const gone = await tx
+      .delete(conversation)
+      .where(eq(conversation.userId, userId))
+      .returning({ id: conversation.id, projectId: conversation.projectId });
+    return { ended, gone };
   });
-  for (const run of stopped) deps.hooks.fire("onRunEnd", run);
+  // After the commit: a rolled-back delete fires nothing (#265, #266).
+  for (const run of ended) deps.hooks.fire("onRunEnd", run);
+  for (const row of gone) {
+    deps.hooks.fire("onConversationDeleted", {
+      userId,
+      conversationId: row.id,
+      ...withProjectId(row.projectId),
+    });
+  }
 }
