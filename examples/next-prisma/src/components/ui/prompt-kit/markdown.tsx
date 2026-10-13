@@ -52,6 +52,12 @@ const INITIAL_COMPONENTS: Partial<Components> = {
   pre: function PreComponent({ children }) {
     return <>{children}</>;
   },
+  // A remote image would fetch from a third-party host (and leak the reader's IP). Only data: sources render;
+  // anything else shows its alt text.
+  img: function ImageComponent({ src, alt }) {
+    if (typeof src === "string" && src.startsWith("data:")) return <img src={src} alt={alt} />;
+    return alt ? <span className="text-muted-foreground">{alt}</span> : null;
+  },
 };
 
 const MemoizedMarkdownBlock = memo(

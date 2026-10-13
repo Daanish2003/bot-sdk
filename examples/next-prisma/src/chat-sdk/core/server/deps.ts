@@ -172,6 +172,8 @@ export type AppDeps = {
   logger: Pick<Console, "error">;
   /** Fires the Host's `hooks` after each change the SDK writes (`createChat({ hooks })`). */
   hooks: HookEmitter;
+  /** Whether Artifacts are on: the `create_artifact` tool, the panel and the version route (`createChat({ artifacts })`). */
+  artifacts: boolean;
 };
 
 export const defaultLimits: Limits = {
@@ -201,6 +203,7 @@ export function createAppDeps({
   isUserBlocked = () => false,
   logger = console,
   hooks,
+  artifacts,
 }: {
   db: Database;
   keyEncryptionSecrets: string[];
@@ -218,6 +221,7 @@ export function createAppDeps({
   isUserBlocked?: AppDeps["isUserBlocked"];
   logger?: AppDeps["logger"];
   hooks?: ChatHooks;
+  artifacts?: boolean;
 }): AppDeps {
   return {
     logger,
@@ -245,5 +249,6 @@ export function createAppDeps({
     ollamaFetch: globalThis.fetch,
     keyEncryptionSecrets,
     mcpServers,
+    artifacts: artifacts ?? false,
   };
 }
