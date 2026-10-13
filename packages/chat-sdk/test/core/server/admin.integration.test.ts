@@ -280,3 +280,74 @@ describe("chat.admin.stopRuns", () => {
     expect(row).toMatchObject({ status: "streaming", cancelRequestedAt: expect.any(Date) });
   });
 });
+
+describe("chat.admin.ratingTotals", () => {
+  it("counts 👍 and 👎 per Model over Ratings stamped at or after `since`, and leaves out older ones", async () => {
+    const owner = await insertUser();
+    const other = await insertUser();
+    const conv = await insertConversation(owner);
+    const otherConv = await insertConversation(other);
+    const since = new Date("2040-01-10T00:00:00Z");
+    const haiku = "anthropic:claude-haiku-5-5";
+    const rated = (conversationId: string, model: string, rating: "up" | "down", ratedAt: Date) =>
+      insertMessage({ conversationId, role: "assistant", text: "Hi", model, rating, ratedAt });
+    await rated(conv.id, sonnet, "up", new Date("2040-01-10T00:00:00Z"));
+    await rated(conv.id, sonnet, "down", new Date("2040-01-11T12:00:00Z"));
+    await rated(otherConv.id, sonnet, "up", new Date("2040-01-12T08:00:00Z"));
+    await rated(otherConv.id, haiku, "down", new Date("2040-01-13T08:00:00Z"));
+    // Stamped before `since`, and never rated: both left out.
+    await rated(conv.id, sonnet, "down", new Date("2040-01-09T23:59:59Z"));
+    await insertMessage({
+      conversationId: conv.id,
+      role: "assistant",
+      text: "Unrated",
+      model: sonnet,
+    });
+    const chat = createChat({
+      databaseUrl: testDatabaseUrl,
+      getUser: () => null,
+      keyEncryptionSecrets,
+      basePath,
+    });
+
+    const totals = await chat.admin.ratingTotals({ since });
+
+    expect(totals.sort((a, b) => a.model.localeCompare(b.model))).toEqual([
+      { model: haiku, up: 0, down: 1 },
+      { model: sonnet, up: 2, down: 1 },
+    ]);
+  });
+
+  it("drops a deleted Message's Rating from the totals", async () => {
+    const owner = await insertUser();
+    const conv = await insertConversation(owner);
+    const since = new Date("2040-01-10T00:00:00Z");
+    const gone = await insertMessage({
+      conversationId: conv.id,
+      role: "assistant",
+      text: "Gone",
+      model: sonnet,
+      rating: "down",
+      ratedAt: new Date("2040-01-11T00:00:00Z"),
+    });
+    await insertMessage({
+      conversationId: conv.id,
+      role: "assistant",
+      text: "Kept",
+      model: sonnet,
+      rating: "up",
+      ratedAt: new Date("2040-01-11T00:00:00Z"),
+    });
+    const chat = createChat({
+      databaseUrl: testDatabaseUrl,
+      getUser: () => null,
+      keyEncryptionSecrets,
+      basePath,
+    });
+    expect(await chat.admin.ratingTotals({ since })).toEqual([{ model: sonnet, up: 1, down: 1 }]);
+
+    await getTestDb().delete(message).where(eq(message.id, gone.id));
+
+    expect(await chat.admin.ratingTotals({ since })).toEqual([{ model: sonnet, up: 1, down: 0 }]);
+  });
+});

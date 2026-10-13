@@ -11,6 +11,7 @@ import { handleJoin } from "./chat/join-run";
 import type { ChatUser, Context } from "./context";
 import { createDb } from "./db/index";
 import { quotaLookup, quotaState, type QuotaState } from "./chat/quota";
+import { ratingTotals, type RatingTotal } from "./admin/ratings";
 import { usageByDay, usageTotals, type UsageByDay, type UsageTotal } from "./admin/usage";
 import {
   createAppDeps,
@@ -215,6 +216,8 @@ export function createChat(options: CreateChatOptions): {
      * owner is gone ends `stopped` here; the others end when their owner sees the Stop.
      */
     stopRuns: (userId: string) => Promise<void>;
+    /** 👍 and 👎 counts per Model over Ratings stamped at or after `since` (spec #277). */
+    ratingTotals: (range: { since: Date }) => Promise<RatingTotal[]>;
   };
 } {
   if (options.keyEncryptionSecrets.length === 0) {
@@ -280,6 +283,7 @@ export function createChat(options: CreateChatOptions): {
       usage: ({ userId, since, until }) => usageByDay(getDeps(), userId, { since, until }),
       quota: (userId) => quotaState(getDeps(), userId),
       stopRuns: (userId) => stopUserRuns(getDeps(), userId),
+      ratingTotals: (range) => ratingTotals(getDeps(), range),
     },
     deleteUser: (userId) => deleteUserData(getDeps(), userId),
     exportUser: (userId) => exportUserData(getDeps(), userId),
