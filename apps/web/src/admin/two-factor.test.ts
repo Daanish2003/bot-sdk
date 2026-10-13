@@ -8,7 +8,7 @@ const admin = { id: "admin-1", role: "admin" as const };
 const input = { userId: "user-1", reason: "Lost phone and backup codes, confirmed by email" };
 
 /** Fake deps that record each effect in order, so a test can see what ran and what didn't. */
-function fakeDeps(options: { on?: boolean; sendFails?: boolean } = {}) {
+function fakeDeps(options: { on?: boolean; sendFails?: boolean; revokeFails?: boolean } = {}) {
   const events: string[] = [];
   const log: Array<Record<string, unknown>> = [];
   const sender = createMemorySender();
@@ -17,13 +17,18 @@ function fakeDeps(options: { on?: boolean; sendFails?: boolean } = {}) {
       throw new Error("provider down");
     };
   }
+  // The user's two-factor state, as the DB holds it: `disable` really turns it off.
+  const state = { on: options.on !== false, revokeFails: options.revokeFails === true };
   const deps: TwoFactorOffDeps = {
     disable: async (userId) => {
       events.push(`disable:${userId}`);
-      return options.on === false ? null : { email: "lost@example.com" };
+      if (!state.on) return null;
+      state.on = false;
+      return { email: "lost@example.com" };
     },
     revokeSessions: async (userId) => {
       events.push(`revoke:${userId}`);
+      if (state.revokeFails) throw new Error("session store down");
     },
     sender,
     appName: "Acme Chat",
@@ -35,7 +40,7 @@ function fakeDeps(options: { on?: boolean; sendFails?: boolean } = {}) {
       error: (entry) => log.push({ level: "error", ...entry }),
     },
   };
-  return { deps, events, log, sender };
+  return { deps, events, log, sender, state };
 }
 
 describe("twoFactorOffInput", () => {
@@ -60,12 +65,13 @@ describe("twoFactorOffInput", () => {
 });
 
 describe("turnOffUserTwoFactor", () => {
-  it("turns the user's two-factor off, revokes their sessions, writes one audit event and sends the notice", async () => {
-    const { deps, events, log, sender } = fakeDeps();
+  it("revokes their sessions, turns the user's two-factor off, writes one audit event and sends the notice", async () => {
+    const { deps, events, log, sender, state } = fakeDeps();
 
     await turnOffUserTwoFactor(deps, admin, input);
 
-    expect(events).toEqual(["disable:user-1", "revoke:user-1", "audit"]);
+    expect(events).toEqual(["revoke:user-1", "disable:user-1", "audit"]);
+    expect(state.on).toBe(false);
     expect(log).toEqual([
       expect.objectContaining({
         action: "admin.user.two-factor-off",
@@ -92,15 +98,35 @@ describe("turnOffUserTwoFactor", () => {
     expect(sender.messages).toHaveLength(0);
   });
 
-  it("refuses a user without two-factor sign-in on, before any change", async () => {
-    const { deps, events, sender } = fakeDeps({ on: false });
+  it("refuses a user without two-factor sign-in on, with no audit event or notice", async () => {
+    const { deps, events, log, sender } = fakeDeps({ on: false });
 
     await expect(turnOffUserTwoFactor(deps, admin, input)).rejects.toThrow(
       "Two-factor sign-in isn't on for this user",
     );
 
-    expect(events).toEqual(["disable:user-1"]);
+    expect(events).toEqual(["revoke:user-1", "disable:user-1"]);
+    expect(log).toHaveLength(0);
     expect(sender.messages).toHaveLength(0);
+  });
+
+  it("when the session revoke throws, leaves two-factor on with no audit event or notice, so a retry succeeds", async () => {
+    const { deps, events, log, sender, state } = fakeDeps({ revokeFails: true });
+
+    await expect(turnOffUserTwoFactor(deps, admin, input)).rejects.toThrow("session store down");
+
+    expect(events).toEqual(["revoke:user-1"]);
+    expect(state.on).toBe(true);
+    expect(log).toHaveLength(0);
+    expect(sender.messages).toHaveLength(0);
+
+    state.revokeFails = false;
+    await turnOffUserTwoFactor(deps, admin, input);
+
+    expect(state.on).toBe(false);
+    expect(events).toEqual(["revoke:user-1", "revoke:user-1", "disable:user-1", "audit"]);
+    expect(log).toHaveLength(1);
+    expect(sender.messages).toHaveLength(1);
   });
 
   it("keeps the change and logs a failed notice rather than failing the action", async () => {
@@ -108,7 +134,7 @@ describe("turnOffUserTwoFactor", () => {
 
     await turnOffUserTwoFactor(deps, admin, input);
 
-    expect(events).toEqual(["disable:user-1", "revoke:user-1", "audit"]);
+    expect(events).toEqual(["revoke:user-1", "disable:user-1", "audit"]);
     expect(log).toContainEqual(
       expect.objectContaining({
         level: "error",

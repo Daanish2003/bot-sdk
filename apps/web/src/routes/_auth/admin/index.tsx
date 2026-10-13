@@ -4,7 +4,6 @@ import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { z } from "zod";
 
 import { AdminBanControl } from "@/components/admin-ban-control";
-import { AdminTwoFactorControl } from "@/components/admin-two-factor-control";
 import { type RatingRow } from "@/admin/ratings";
 import { type AdminUser, formatUsd, isAtQuota } from "@/admin/users";
 import { listRatingTotals } from "@/functions/admin-ratings";
@@ -169,7 +168,6 @@ function UsersTable({ users }: { users: AdminUser[] }) {
               <td className="px-3 py-2">
                 <div className="flex flex-wrap gap-2">
                   <AdminBanControl user={row} />
-                  {row.twoFactorEnabled && <AdminTwoFactorControl user={row} />}
                 </div>
               </td>
             </tr>

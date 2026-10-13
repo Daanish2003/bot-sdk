@@ -25,8 +25,9 @@ export type TwoFactorOffDeps = {
 };
 
 /**
- * Turns off a user's lost two-factor sign-in (spec #277): the direct write, then every session ends,
- * then one evlog event (actor, action, target, reason), then the "2FA turned off" notice. Admin only,
+ * Turns off a user's lost two-factor sign-in (spec #277): every session ends first, then the direct
+ * write, then one evlog event (actor, action, target, reason), then the "2FA turned off" notice. If
+ * the session revoke throws, nothing has changed yet and the Admin can retry (#332). Admin only,
  * and a user who isn't on is refused. A notice that fails to send is logged; the change stands.
  */
 export async function turnOffUserTwoFactor(
@@ -36,10 +37,11 @@ export async function turnOffUserTwoFactor(
 ): Promise<void> {
   if (actor.role !== "admin") throw notFound();
 
+  await deps.revokeSessions(input.userId);
+
   const target = await deps.disable(input.userId);
   if (!target) throw new Error("Two-factor sign-in isn't on for this user");
 
-  await deps.revokeSessions(input.userId);
   deps.log.info({
     action: "admin.user.two-factor-off",
     message: "Two-factor sign-in turned off by an Admin",
