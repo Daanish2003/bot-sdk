@@ -8,6 +8,7 @@ import { evlogErrorHandler } from "evlog/nitro/v3";
 import { useEffect } from "react";
 
 import { WebChatProvider } from "@/lib/chat-provider";
+import { captureInstallPrompt } from "@/lib/install-prompt";
 import { registerServiceWorker } from "@/lib/service-worker";
 import type { orpc } from "@/utils/orpc";
 
@@ -81,6 +82,7 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
 function RootDocument() {
   const { queryClient } = Route.useRouteContext();
   useEffect(registerServiceWorker, []);
+  useEffect(captureInstallPrompt, []);
   return (
     <html lang="en" className="dark">
       <head>

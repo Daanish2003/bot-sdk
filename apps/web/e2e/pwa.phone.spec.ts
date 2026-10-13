@@ -44,6 +44,8 @@ test("the worker never answers for the API or a Shared link", async ({ page, con
 
     // A Shared link isn't handled by the worker, so the browser's own error page shows.
     await expect(page.goto("/share/not-a-real-token")).rejects.toThrow();
+    // A navigation to the API isn't handled either; the offline page would answer a handled one.
+    await expect(page.goto("/api/auth/get-session")).rejects.toThrow();
   } finally {
     await context.setOffline(false);
   }

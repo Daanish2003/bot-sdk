@@ -1,6 +1,9 @@
-/** Remembers when the page last reloaded for a failed chunk, so a broken build can't reload forever. */
-const chunkReloadKey = "ai-chat:chunk-reload-at";
-const chunkReloadWindowMs = 30_000;
+/**
+ * Set when the page reloads for a failed chunk, and cleared once a page has stayed up for a while.
+ * So a broken build reloads once, and a second failure right after that shows the error.
+ */
+const chunkReloadKey = "ai-chat:chunk-reloaded";
+const healthyAfterMs = 10_000;
 
 /**
  * Registers `/sw.js` (public/sw.js). Production builds only: in dev nothing stale is cached.
@@ -18,22 +21,34 @@ export function registerServiceWorker(): () => void {
   // `vite:preloadError`; reload once so the tab picks up the new build.
   const onPreloadError = (event: Event) => {
     event.preventDefault();
-    if (!reloadForChunk()) return;
+    if (!markChunkReload()) return;
     window.location.reload();
   };
   window.addEventListener("vite:preloadError", onPreloadError);
-  return () => window.removeEventListener("vite:preloadError", onPreloadError);
+  // A page that stays up this long has recovered, so a later failure may reload it again.
+  const clear = window.setTimeout(() => clearChunkReload(), healthyAfterMs);
+  return () => {
+    window.removeEventListener("vite:preloadError", onPreloadError);
+    window.clearTimeout(clear);
+  };
 }
 
-/** True when the page may reload now: it hasn't reloaded for a chunk in the last 30 seconds. */
-function reloadForChunk(): boolean {
+/** True when the page may reload now: it hasn't already reloaded for a chunk and not yet recovered. */
+function markChunkReload(): boolean {
   try {
-    const last = Number(sessionStorage.getItem(chunkReloadKey) ?? 0);
-    if (Date.now() - last < chunkReloadWindowMs) return false;
-    sessionStorage.setItem(chunkReloadKey, String(Date.now()));
+    if (sessionStorage.getItem(chunkReloadKey) !== null) return false;
+    sessionStorage.setItem(chunkReloadKey, "1");
     return true;
   } catch {
     // Storage is blocked and the loop guard can't be kept: don't reload at all.
     return false;
+  }
+}
+
+function clearChunkReload() {
+  try {
+    sessionStorage.removeItem(chunkReloadKey);
+  } catch {
+    // Nothing was stored.
   }
 }

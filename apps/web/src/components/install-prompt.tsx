@@ -1,12 +1,11 @@
 import { useI18n } from "@ai-chat/chat-sdk/client";
 import { Button } from "@ai-chat/ui/components/button";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
+
+import { getInstallPrompt, subscribeInstallPrompt, takeInstallPrompt } from "@/lib/install-prompt";
 
 /** Where this browser remembers that the user dismissed the install row. */
 const dismissedKey = "ai-chat:install-dismissed";
-
-/** Chromium's `beforeinstallprompt`, which can be shown once. */
-type InstallEvent = Event & { prompt: () => Promise<unknown> };
 
 function isInstalled() {
   return (
@@ -41,12 +40,14 @@ function rememberDismissed() {
 
 /**
  * The install row for the drawer's bottom (`AppShell`'s `installPrompt` slot). On Chromium it
- * shows Install once the browser offers the prompt; on iOS it shows the Share steps. It renders
- * nothing when the app is already installed or the user dismissed it.
+ * shows Install once the browser offers the prompt (captured by `captureInstallPrompt` at the
+ * root); on iOS it shows the Share steps. It renders nothing when the app is already installed or
+ * the user dismissed it.
  */
 export function InstallPrompt() {
   const { t } = useI18n();
-  const [installEvent, setInstallEvent] = useState<InstallEvent | null>(null);
+  // Null on the server and the first client render, so the two match.
+  const installEvent = useSyncExternalStore(subscribeInstallPrompt, getInstallPrompt, () => null);
   const [showIosSteps, setShowIosSteps] = useState(false);
   const [dismissed, setDismissed] = useState(false);
 
@@ -56,30 +57,14 @@ export function InstallPrompt() {
       setDismissed(true);
       return;
     }
-    if (isIos()) {
-      setShowIosSteps(true);
-      return;
-    }
-    const onBeforeInstall = (event: Event) => {
-      event.preventDefault();
-      setInstallEvent(event as InstallEvent);
-    };
-    const onInstalled = () => setInstallEvent(null);
-    window.addEventListener("beforeinstallprompt", onBeforeInstall);
-    window.addEventListener("appinstalled", onInstalled);
-    return () => {
-      window.removeEventListener("beforeinstallprompt", onBeforeInstall);
-      window.removeEventListener("appinstalled", onInstalled);
-    };
+    setShowIosSteps(isIos());
   }, []);
 
   if (dismissed || (!installEvent && !showIosSteps)) return null;
 
   const install = async () => {
-    if (!installEvent) return;
-    // A prompt is good for one showing; the user's choice is the browser's to remember.
-    setInstallEvent(null);
-    await installEvent.prompt();
+    const event = takeInstallPrompt();
+    await event?.prompt();
   };
 
   const dismiss = () => {
