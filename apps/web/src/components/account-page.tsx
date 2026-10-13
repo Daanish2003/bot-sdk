@@ -494,6 +494,8 @@ function PasskeysSection() {
   const [renaming, setRenaming] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // The session is older than a day: adding waits until the user signs in again.
+  const [staleSession, setStaleSession] = useState(false);
 
   const add = useMutation({
     mutationFn: async () => {
@@ -503,15 +505,19 @@ function PasskeysSection() {
     },
     onSuccess: (passkey) => {
       setError(null);
+      setStaleSession(false);
       setName("");
       setNaming(passkey.id);
     },
-    onError: (failure: { code?: string; message?: string }) =>
+    onError: (failure: { code?: string; message?: string }) => {
+      const stale = failure.code === "SESSION_NOT_FRESH";
+      setStaleSession(stale);
       setError(
-        failure.code === "SESSION_NOT_FRESH"
+        stale
           ? "Sign in again to add a passkey."
           : (failure.message ?? "Could not add the passkey"),
-      ),
+      );
+    },
   });
 
   const save = useMutation({
@@ -558,70 +564,73 @@ function PasskeysSection() {
       </p>
       {rows.length > 0 ? (
         <ul aria-label="Passkeys" className="divide-y overflow-hidden rounded-xl border">
-          {rows.map((passkey) => (
-            <li
-              key={passkey.id}
-              className="flex flex-col gap-2 p-4 text-sm sm:flex-row sm:items-center sm:justify-between"
-            >
-              {editingId === passkey.id ? (
-                <form
-                  className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-end"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    save.mutate(passkey.id);
-                  }}
-                >
-                  <div className="flex-1 space-y-2">
-                    <Label htmlFor="passkey-name">Passkey name</Label>
-                    <Input
-                      id="passkey-name"
-                      value={name}
-                      onChange={(event) => setName(event.target.value)}
-                      required
-                    />
-                  </div>
-                  <Button
-                    type="submit"
-                    variant="outline"
-                    disabled={save.isPending || name.trim() === ""}
+          {rows.map((passkey) => {
+            const label = passkey.name || "Unnamed passkey";
+            return (
+              <li
+                key={passkey.id}
+                className="flex flex-col gap-2 p-4 text-sm sm:flex-row sm:items-center sm:justify-between"
+              >
+                {editingId === passkey.id ? (
+                  <form
+                    className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-end"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      save.mutate(passkey.id);
+                    }}
                   >
-                    Save name
-                  </Button>
-                </form>
-              ) : (
-                <>
-                  <span className="flex flex-col">
-                    <span>{passkey.name || "Unnamed passkey"}</span>
-                    <span className="text-muted-foreground">
-                      Added {new Date(passkey.createdAt).toLocaleDateString()}
+                    <div className="flex-1 space-y-2">
+                      <Label htmlFor="passkey-name">Passkey name</Label>
+                      <Input
+                        id="passkey-name"
+                        value={name}
+                        onChange={(event) => setName(event.target.value)}
+                        required
+                      />
+                    </div>
+                    <Button
+                      type="submit"
+                      variant="outline"
+                      disabled={save.isPending || name.trim() === ""}
+                    >
+                      Save name
+                    </Button>
+                  </form>
+                ) : (
+                  <>
+                    <span className="flex flex-col">
+                      <span>{label}</span>
+                      <span className="text-muted-foreground">
+                        Added {new Date(passkey.createdAt).toLocaleDateString()}
+                      </span>
                     </span>
-                  </span>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      aria-label={`Rename ${passkey.name || "Unnamed passkey"}`}
-                      onClick={() => {
-                        setRenaming(passkey.id);
-                        setName(passkey.name ?? "");
-                      }}
-                    >
-                      Rename
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      aria-label={`Delete ${passkey.name || "Unnamed passkey"}`}
-                      disabled={remove.isPending}
-                      onClick={() => remove.mutate(passkey.id)}
-                    >
-                      Delete
-                    </Button>
-                  </div>
-                </>
-              )}
-            </li>
-          ))}
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        aria-label={`Rename ${label}`}
+                        onClick={() => {
+                          setRenaming(passkey.id);
+                          setName(passkey.name ?? "");
+                        }}
+                      >
+                        Rename
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        aria-label={`Delete ${label}`}
+                        disabled={remove.isPending}
+                        onClick={() => remove.mutate(passkey.id)}
+                      >
+                        Delete
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </li>
+            );
+          })}
         </ul>
       ) : null}
       <Button variant="outline" disabled={add.isPending} onClick={() => add.mutate()}>
@@ -631,6 +640,18 @@ function PasskeysSection() {
         <p role="alert" className="text-sm text-destructive">
           {error}
         </p>
+      ) : null}
+      {staleSession ? (
+        <Button
+          variant="outline"
+          onClick={() =>
+            authClient.signOut({
+              fetchOptions: { onSuccess: () => window.location.assign("/login") },
+            })
+          }
+        >
+          Sign in again
+        </Button>
       ) : null}
     </section>
   );

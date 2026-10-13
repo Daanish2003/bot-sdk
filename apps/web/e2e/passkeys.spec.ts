@@ -85,6 +85,7 @@ test("a session older than a day is asked to sign in again before a passkey is a
   await page.getByRole("button", { name: "Add passkey" }).click();
 
   await expect(page.getByText("Sign in again to add a passkey.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sign in again" })).toBeVisible();
   await expect(page.getByLabel("Passkey name")).toHaveCount(0);
 });
 
