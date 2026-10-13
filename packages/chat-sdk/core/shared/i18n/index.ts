@@ -6,6 +6,9 @@ export { en };
 export type Messages = typeof en;
 export type MessageKey = keyof Messages;
 
+/** A code the server sends with an error (`data.code`): a dictionary key under `error.`. */
+export type ErrorCode = Extract<MessageKey, `error.${string}`>;
+
 /** The params a key's function takes. A plain string key takes none. */
 export type MessageParams<K extends MessageKey> = Messages[K] extends (params: infer P) => string
   ? P
