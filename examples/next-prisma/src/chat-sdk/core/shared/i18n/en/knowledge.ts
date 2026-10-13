@@ -32,6 +32,11 @@ export const knowledgeMessages = {
   "knowledge.failure.too_large": "Too large or complex to process",
   "knowledge.failure.no_credentials": "No key for the embedding Model",
   "knowledge.failure.failed": "Couldn't process this file",
+  "knowledge.actions": "Actions",
+  "knowledge.retry": "Retry",
+  "knowledge.delete": "Delete",
+  "knowledge.deleteConfirm": ({ name }: { name: string }) =>
+    `Delete "${name}"? Its passages are removed too, and the assistant stops using it.`,
   "knowledge.emptyTitle": "No Knowledge files yet",
   "knowledge.emptyHelp": ({ size }: { size: number }) =>
     `Add Markdown (.md) or text (.txt) files up to ${size} MB each. The assistant searches them when a question needs them.`,

@@ -152,4 +152,27 @@ describe("the Knowledge tab", () => {
     expect(html).toContain("⟦Uploads need an OpenAI or Gemini key. Add a key⟧");
     expect(untranslated(html, owned)).toEqual([]);
   });
+
+  it("offers Delete on every file and Retry only on a failed one, with no untranslated text", () => {
+    const html = render({
+      embeddingModel: openai,
+      currentModel: { id: openai, onHostCredentials: true },
+      models: [openai],
+      files: [
+        file({ id: "f1", name: "ready.md", status: "ready" }),
+        file({
+          id: "f3",
+          name: "lost.md",
+          status: "failed",
+          failureCode: "no_credentials",
+          chunkCount: null,
+        }),
+      ],
+    });
+
+    expect(html).toContain("⟦Actions⟧");
+    expect(html.match(/⟦Delete⟧/g)).toHaveLength(2);
+    expect(html.match(/⟦Retry⟧/g)).toHaveLength(1);
+    expect(untranslated(html, owned)).toEqual([]);
+  });
 });

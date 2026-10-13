@@ -53,6 +53,19 @@ export function KnowledgeTab({ projectId }: { projectId: string }) {
   const knowledge = useProjectKnowledge(projectId);
   const inputRef = useRef<HTMLInputElement>(null);
   const upload = useMutation(orpc.knowledge.upload.mutationOptions());
+  const refreshFiles = () => queryClient.invalidateQueries({ queryKey: orpc.knowledge.key() });
+  const retry = useMutation(
+    orpc.knowledge.retry.mutationOptions({
+      onSuccess: refreshFiles,
+      onError: (error) => toast.error(serverErrorText(i18n, error)),
+    }),
+  );
+  const remove = useMutation(
+    orpc.knowledge.delete.mutationOptions({
+      onSuccess: refreshFiles,
+      onError: (error) => toast.error(serverErrorText(i18n, error)),
+    }),
+  );
   const setModel = useMutation(
     orpc.knowledge.setModel.mutationOptions({
       onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.knowledge.key() }),
@@ -182,6 +195,9 @@ export function KnowledgeTab({ projectId }: { projectId: string }) {
                 <th scope="col" className="px-3 py-2 font-medium">
                   {t("knowledge.status")}
                 </th>
+                <th scope="col" className="px-3 py-2 text-right font-medium">
+                  {t("knowledge.actions")}
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -211,6 +227,33 @@ export function KnowledgeTab({ projectId }: { projectId: string }) {
                         {t(`knowledge.failure.${file.failureCode satisfies KnowledgeFailureCode}`)}
                       </p>
                     )}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    <div className="flex justify-end gap-1">
+                      {file.status === "failed" && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={retry.isPending}
+                          onClick={() => retry.mutate({ projectId, fileId: file.id })}
+                        >
+                          {t("knowledge.retry")}
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-destructive"
+                        disabled={remove.isPending}
+                        onClick={() => {
+                          if (window.confirm(t("knowledge.deleteConfirm", { name: file.name }))) {
+                            remove.mutate({ projectId, fileId: file.id });
+                          }
+                        }}
+                      >
+                        {t("knowledge.delete")}
+                      </Button>
+                    </div>
                   </td>
                 </tr>
               ))}
