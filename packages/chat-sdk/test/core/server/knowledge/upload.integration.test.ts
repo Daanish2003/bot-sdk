@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
@@ -9,12 +10,14 @@ import { project } from "../../../../core/server/db/schema/chat";
 import { knowledgeChunk, knowledgeFile } from "../../../../core/server/db/schema/knowledge";
 import type { HostProvider } from "../../../../core/server/deps";
 import { knowledgeBlobKey } from "../../../../core/server/blob/store";
-import { maxKnowledgeFileBytes } from "../../../../core/shared/knowledge/kinds";
+import { maxKnowledgeFileBytes, wordMediaType } from "../../../../core/shared/knowledge/kinds";
 import { createTestDeps } from "../../../support/deps";
 import { drainJobs } from "../../../support/jobs";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
+
+const docxFixture = new URL("./fixtures/sample.docx", import.meta.url);
 
 /** The Host offers OpenAI's small embedding Model on its own key. */
 const hostOpenAI: HostProvider = {
@@ -166,6 +169,48 @@ describe("uploading a Knowledge file", () => {
     expect(added).toMatchObject({ name: "exact.md", size: maxKnowledgeFileBytes });
   }, 120_000);
 
+  it("takes a DOCX to Ready, with its passages from the document's text", async () => {
+    const { deps, rpc, projectId } = await setup();
+    const docx = new File([readFileSync(docxFixture)], "plan.docx", { type: wordMediaType });
+
+    const added = await rpc.knowledge.upload({ projectId, file: docx });
+    expect(added).toMatchObject({ name: "plan.docx", mediaType: wordMediaType });
+    await drainJobs({ deps });
+
+    const { files } = await rpc.knowledge.list({ projectId });
+    expect(files).toEqual([
+      expect.objectContaining({ id: added.id, status: "ready", failureCode: null, chunkCount: 1 }),
+    ]);
+    const stored = await getTestDb()
+      .select({ text: knowledgeChunk.text })
+      .from(knowledgeChunk)
+      .where(eq(knowledgeChunk.fileId, added.id));
+    expect(stored[0]?.text).toContain("Quay 4 12 m");
+  });
+
+  it("takes an encrypted DOCX to Failed as encrypted", async () => {
+    const { deps, rpc, projectId } = await setup();
+    const encrypted = new File(
+      [
+        Buffer.concat([
+          Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]),
+          Buffer.from("EncryptionInfo", "utf16le"),
+          Buffer.from("EncryptedPackage", "utf16le"),
+        ]),
+      ],
+      "secret.docx",
+      { type: wordMediaType },
+    );
+    const added = await rpc.knowledge.upload({ projectId, file: encrypted });
+
+    await drainJobs({ deps });
+
+    const { files } = await rpc.knowledge.list({ projectId });
+    expect(files).toEqual([
+      expect.objectContaining({ id: added.id, status: "failed", failureCode: "encrypted" }),
+    ]);
+  });
+
   it("refuses a file that is neither Markdown nor text", async () => {
     const { rpc, projectId } = await setup();
     const pdf = new File(["%PDF-1.4"], "report.pdf", { type: "application/pdf" });
@@ -196,7 +241,7 @@ describe("uploading a Knowledge file", () => {
           userId: user.id,
           projectId,
           name: `file-${n}.md`,
-          mediaType: "text/markdown",
+          mediaType: "text/markdown" as const,
           size: 1,
         })),
       );

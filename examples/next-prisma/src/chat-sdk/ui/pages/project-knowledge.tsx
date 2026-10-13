@@ -16,11 +16,22 @@ import { useI18n, useOrpc } from "../../core/client/react/provider";
 import { serverErrorText } from "../../core/client/rpc-error";
 import {
   knowledgeAcceptAttribute,
+  knowledgeFileExtensions,
   maxKnowledgeFileBytes,
   type KnowledgeFailureCode,
+  type KnowledgeMediaType,
 } from "../../core/shared/knowledge/kinds";
 
 const megabyte = 1024 * 1024;
+
+/** The dictionary key of each format's name in the Files table. */
+const knowledgeTypeKey = {
+  "text/markdown": "knowledge.typeMarkdown",
+  "text/plain": "knowledge.typeText",
+  "text/html": "knowledge.typeHtml",
+  "text/csv": "knowledge.typeCsv",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "knowledge.typeWord",
+} as const satisfies Record<KnowledgeMediaType, `knowledge.type${string}`>;
 
 /** Polls the Project's Knowledge every two seconds while a file is still processing. */
 const pollWhileProcessing = (query: { state: { data?: { files: { status: string }[] } } }) =>
@@ -163,7 +174,10 @@ export function KnowledgeTab({ projectId }: { projectId: string }) {
         <div className="rounded-md border border-dashed px-4 py-8 text-center">
           <p className="text-sm font-medium">{t("knowledge.emptyTitle")}</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            {t("knowledge.emptyHelp", { size: maxKnowledgeFileBytes / megabyte })}
+            {t("knowledge.emptyHelp", {
+              size: maxKnowledgeFileBytes / megabyte,
+              types: knowledgeFileExtensions.join(", "),
+            })}
           </p>
         </div>
       )}
@@ -190,9 +204,7 @@ export function KnowledgeTab({ projectId }: { projectId: string }) {
                   <td className="max-w-56 truncate px-3 py-2 font-medium">{file.name}</td>
                   <td className="px-3 py-2 text-muted-foreground">
                     <p>
-                      {file.mediaType === "text/markdown"
-                        ? t("knowledge.typeMarkdown")
-                        : t("knowledge.typeText")}
+                      {t(knowledgeTypeKey[file.mediaType])}
                       {" · "}
                       {formatSize(file.size, locale)}
                       {" · "}

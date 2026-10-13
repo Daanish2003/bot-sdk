@@ -12,7 +12,11 @@ import type { AppDeps } from "../deps";
 import { uuidv7 } from "../lib/uuidv7";
 import { findProject } from "../project/store";
 import { rpcError } from "../rpc-error";
-import { knowledgeFilesPerProject, type KnowledgeFailureCode } from "../../shared/knowledge/kinds";
+import {
+  knowledgeFilesPerProject,
+  type KnowledgeFailureCode,
+  type KnowledgeMediaType,
+} from "../../shared/knowledge/kinds";
 // Imported for its side effect: the job must be defined before the first upload enqueues it.
 import { knowledgeProcessJob } from "./process";
 
@@ -20,7 +24,7 @@ import { knowledgeProcessJob } from "./process";
 export type KnowledgeFileInfo = {
   id: string;
   name: string;
-  mediaType: string;
+  mediaType: KnowledgeMediaType;
   size: number;
   status: "processing" | "ready" | "failed";
   failureCode: KnowledgeFailureCode | null;
@@ -87,7 +91,7 @@ export async function uploadKnowledgeFile(
   deps: AppDeps,
   userId: string,
   projectId: string,
-  file: { name: string; mediaType: string; bytes: Uint8Array },
+  file: { name: string; mediaType: KnowledgeMediaType; bytes: Uint8Array },
 ): Promise<KnowledgeFileInfo> {
   const row = await findProject(deps, userId, projectId);
   if (!row) throw rpcError("NOT_FOUND", "error.projectNotFound", "Project not found");

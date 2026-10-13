@@ -9,6 +9,7 @@ import { embedTexts, resolveEmbeddingModel } from "../chat/embedding-models";
 import { defineJob, PermanentJobError } from "../jobs/define";
 import type { KnowledgeFailureCode } from "../../shared/knowledge/kinds";
 import { ChunkLimitExceededError, chunkText } from "./chunker";
+import { ExtractionFailure, extractKnowledgeText } from "./extract";
 
 /** Passages per embedding call and per insert: the most texts one step holds in memory. */
 const passageBatch = 100;
@@ -50,9 +51,10 @@ export const knowledgeProcessJob = defineJob({
     if (!bytes) throw new KnowledgeFailure("unreadable");
     let text: string;
     try {
-      text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-    } catch {
-      throw new KnowledgeFailure("unreadable");
+      text = await extractKnowledgeText(file.mediaType, bytes);
+    } catch (error) {
+      if (error instanceof ExtractionFailure) throw new KnowledgeFailure(error.code);
+      throw error;
     }
 
     let chunks: { text: string }[];

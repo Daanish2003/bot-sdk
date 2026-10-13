@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 
 import type { ChatClient } from "../../../core/client/chat-client";
+import type { KnowledgeMediaType } from "../../../core/shared/knowledge/kinds";
 import { KnowledgeTab } from "../../../ui/pages/project-knowledge";
 import { renderWrapped, untranslated } from "../fake-dictionary";
 
@@ -12,7 +13,7 @@ const openai = "openai:text-embedding-3-small";
 type KnowledgeFile = {
   id: string;
   name: string;
-  mediaType: string;
+  mediaType: KnowledgeMediaType;
   size: number;
   status: "processing" | "ready" | "failed";
   failureCode: "no_text" | "no_credentials" | null;
@@ -44,7 +45,7 @@ const owned = [
 const file = (overrides: Partial<KnowledgeFile>): KnowledgeFile => ({
   id: "f1",
   name: "notes.md",
-  mediaType: "text/markdown",
+  mediaType: "text/markdown" as const,
   size: 1536,
   status: "ready" as const,
   failureCode: null,

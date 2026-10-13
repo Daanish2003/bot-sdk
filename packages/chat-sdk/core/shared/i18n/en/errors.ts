@@ -33,8 +33,8 @@ export const errorMessages = {
     `A Project can hold at most ${max} Knowledge files`,
   "error.knowledgeFileTooLarge": ({ name, max }: { name: string; max: number }) =>
     `"${name}" is larger than ${max} MB`,
-  "error.knowledgeFileNotSupported": ({ name }: { name: string }) =>
-    `"${name}" can't be a Knowledge file: only Markdown and text files can`,
+  "error.knowledgeFileNotSupported": ({ name, types }: { name: string; types: string }) =>
+    `"${name}" can't be a Knowledge file: only ${types} files can`,
   "error.knowledgeFileNotUtf8": ({ name }: { name: string }) => `"${name}" isn't a UTF-8 text file`,
   "error.knowledgeModelNotAvailable": ({ model }: { model: string }) =>
     `"${model}" is not an available embedding Model`,

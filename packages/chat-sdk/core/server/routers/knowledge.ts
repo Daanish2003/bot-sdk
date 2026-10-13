@@ -1,6 +1,11 @@
 import { z } from "zod";
 
-import { knowledgeMediaType, maxKnowledgeFileBytes } from "../../shared/knowledge/kinds";
+import {
+  knowledgeFileExtensions,
+  knowledgeMediaType,
+  maxKnowledgeFileBytes,
+  wordMediaType,
+} from "../../shared/knowledge/kinds";
 import { knowledgeOf, setKnowledgeModel, uploadKnowledgeFile } from "../knowledge/store";
 import { protectedProcedure } from "../procedures";
 import { rpcError } from "../rpc-error";
@@ -21,8 +26,9 @@ export const knowledgeRouter = {
     }),
 
   /**
-   * Adds a Markdown or plain text file to a Project's Knowledge (ADR 0014): up to 20 MB, UTF-8,
-   * and at most 100 files per Project. Its passages are made in the background.
+   * Adds a Knowledge file to a Project's Knowledge (ADR 0014): up to 20 MB, of a supported format,
+   * and at most 100 files per Project. Text formats must be UTF-8. Its passages are made in the
+   * background.
    */
   upload: protectedProcedure
     .input(z.object({ projectId: z.uuid(), file: z.file() }))
@@ -40,12 +46,12 @@ export const knowledgeRouter = {
         throw rpcError(
           "BAD_REQUEST",
           "error.knowledgeFileNotSupported",
-          `"${file.name}" can't be a Knowledge file: only Markdown and text files can`,
-          { name: file.name },
+          `"${file.name}" can't be a Knowledge file: only ${knowledgeFileExtensions.join(", ")} files can`,
+          { name: file.name, types: knowledgeFileExtensions.join(", ") },
         );
       }
       const bytes = new Uint8Array(await file.arrayBuffer());
-      if (!isUtf8(bytes)) {
+      if (mediaType !== wordMediaType && !isUtf8(bytes)) {
         throw rpcError(
           "BAD_REQUEST",
           "error.knowledgeFileNotUtf8",
