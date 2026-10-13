@@ -255,14 +255,18 @@ test("an Admin turns off a user's lost two-factor sign-in: sessions end, the pas
 
   await page.goto("/admin");
   const targetRow = page.getByRole("row").filter({ has: emailCell(page, target.email) });
-  await targetRow.getByRole("button", { name: "Turn off 2FA", exact: true }).click();
+  await expect(targetRow.getByRole("button", { name: "Turn off 2FA", exact: true })).toHaveCount(0);
+
+  // The control lives on the user's detail page.
+  await page.goto(`/admin/${target.id}`);
+  await page.getByRole("button", { name: "Turn off 2FA", exact: true }).click();
   const dialog = page.getByRole("dialog");
   await dialog
     .getByLabel(/^Reason/)
     .fill("Lost authenticator and backup codes, confirmed by email reply");
   await dialog.getByRole("button", { name: "Turn off 2FA", exact: true }).click();
   await expect(page.getByText("Two-factor sign-in turned off", { exact: true })).toBeVisible();
-  await expect(targetRow.getByRole("button", { name: "Turn off 2FA", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Turn off 2FA", exact: true })).toHaveCount(0);
 
   // The sessions ended: the open tab is signed out.
   await targetPage.goto("/c");

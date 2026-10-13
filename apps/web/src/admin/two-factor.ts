@@ -12,6 +12,8 @@ export type TwoFactorOffInput = z.infer<typeof twoFactorOffInput>;
 
 /** What the action reaches outside itself, injected so the rules can be tested without a server. */
 export type TwoFactorOffDeps = {
+  /** Reads whether the user's two-factor is on, so a refusal revokes nothing. */
+  isOn: (userId: string) => Promise<boolean>;
   /** Turns the user's two-factor off by a direct write; `null` when it wasn't on (nothing changed). */
   disable: (userId: string) => Promise<{ email: string } | null>;
   /** Ends every session the user has, through Better Auth. */
@@ -25,9 +27,11 @@ export type TwoFactorOffDeps = {
 };
 
 /**
- * Turns off a user's lost two-factor sign-in (spec #277): the direct write, then every session ends,
- * then one evlog event (actor, action, target, reason), then the "2FA turned off" notice. Admin only,
- * and a user who isn't on is refused. A notice that fails to send is logged; the change stands.
+ * Turns off a user's lost two-factor sign-in (spec #277): every session ends first, then the direct
+ * write, then one evlog event (actor, action, target, reason), then the "2FA turned off" notice. If
+ * the session revoke throws, nothing has changed yet and the Admin can retry (#332). Admin only,
+ * and a user who isn't on is refused before any session ends. A notice that fails to send is logged;
+ * the change stands.
  */
 export async function turnOffUserTwoFactor(
   deps: TwoFactorOffDeps,
@@ -35,11 +39,14 @@ export async function turnOffUserTwoFactor(
   input: TwoFactorOffInput,
 ): Promise<void> {
   if (actor.role !== "admin") throw notFound();
+  if (!(await deps.isOn(input.userId)))
+    throw new Error("Two-factor sign-in isn't on for this user");
+
+  await deps.revokeSessions(input.userId);
 
   const target = await deps.disable(input.userId);
   if (!target) throw new Error("Two-factor sign-in isn't on for this user");
 
-  await deps.revokeSessions(input.userId);
   deps.log.info({
     action: "admin.user.two-factor-off",
     message: "Two-factor sign-in turned off by an Admin",
