@@ -18,7 +18,10 @@ function answerWith(response: Response) {
 describe("a Message the Host refuses", () => {
   it("fails the send with the Host's reason, which the composer shows", async () => {
     answerWith(
-      Response.json({ message: "Off-policy request", code: "moderated" }, { status: 422 }),
+      Response.json(
+        { message: "Off-policy request", code: "moderated", reason: "Off-policy request" },
+        { status: 422 },
+      ),
     );
 
     const error = await runFetch("http://localhost/api/chat/run").catch((caught) => caught);

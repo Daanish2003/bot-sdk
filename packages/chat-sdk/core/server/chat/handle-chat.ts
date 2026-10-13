@@ -169,7 +169,7 @@ export async function handleChat(
         {
           message: verdict.reason || "This message can't be sent",
           code: moderatedCode,
-          reason: verdict.reason ?? "",
+          reason: verdict.reason,
         },
         { status: 422 },
       );

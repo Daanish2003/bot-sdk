@@ -199,8 +199,6 @@ function ChatThread({
   useEffect(() => {
     if (refusal && composerSend.current) {
       setComposerText(command.current?.text ?? "");
-      // The Host's reason, or the dictionary's default when it gave none.
-      toast.error(refusal.message || t("chat.moderatedDefault"));
     }
   }, [error]);
   const serverStreaming = conversation.messages.some((m) => m.status === "streaming");
@@ -473,7 +471,7 @@ function ChatThread({
           <Composer
             value={composerText}
             onValueChange={setComposerText}
-            refusal={refusal?.message ?? null}
+            refusal={refusal ? refusal.message || t("chat.moderatedDefault") : null}
             onSend={(text) => {
               void send(text, draft.uploaded);
               draft.clear();
