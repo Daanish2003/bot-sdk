@@ -10,6 +10,7 @@ import { invalidateConversationList } from "../../core/client/react/conversation
 import { useByok } from "../../core/client/react/byok";
 import { useNewConversationModel } from "../../core/client/react/new-conversation-model";
 import { useChatLocation, useI18n, useOrpc } from "../../core/client/react/provider";
+import { serverErrorText } from "../../core/client/rpc-error";
 import { ShareButton } from "../share/share-dialog";
 import { ModelPicker } from "./model-picker";
 import {
@@ -133,7 +134,7 @@ function ConversationModelPicker({ id }: { id: string }) {
       onError: (error, _, context) => {
         const previous = context?.previous;
         if (previous) queryClient.setQueryData(getKey, (old) => old && { ...old, model: previous });
-        toast.error(error.message);
+        toast.error(serverErrorText(i18n, error));
       },
       // A refetch already in flight (polling, a run ending) may have overwritten the optimistic
       // Model. Not cancelled: the chat view awaits those fetches.
@@ -184,7 +185,8 @@ function NewConversationModelPicker() {
 function ConversationTitle({ id }: { id: string }) {
   const queryClient = useQueryClient();
   const orpc = useOrpc();
-  const { t } = useI18n();
+  const i18n = useI18n();
+  const { t } = i18n;
   // The automatic title is written just after a reply completes: check for it for a while.
   const awaitingSince = useRef<number | undefined>(undefined);
   const conversation = useQuery({
@@ -216,7 +218,7 @@ function ConversationTitle({ id }: { id: string }) {
         );
         void invalidateConversationList(queryClient, orpc);
       },
-      onError: (error) => toast.error(error.message),
+      onError: (error) => toast.error(serverErrorText(i18n, error)),
     }),
   );
   const title = rename.isPending ? rename.variables.title : conversation.data?.title;

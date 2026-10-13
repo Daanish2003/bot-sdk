@@ -15,6 +15,7 @@ import { toast } from "sonner";
 
 import { invalidateConversationList } from "../../core/client/react/conversation-list";
 import { useChatAdapter, useI18n } from "../../core/client/react/provider";
+import { serverErrorText } from "../../core/client/rpc-error";
 
 const blockedKeys = {
   empty: "share.blockedEmpty",
@@ -63,7 +64,7 @@ export function ShareDialog({
       await queryClient.invalidateQueries({ queryKey: statusQuery.queryKey });
       await invalidateConversationList(queryClient, orpc);
     },
-    onError: (error: Error) => toast.error(error.message),
+    onError: (error: Error) => toast.error(serverErrorText(i18n, error)),
   };
   const upsert = useMutation(orpc.share.upsert.mutationOptions(callbacks));
   const remove = useMutation(orpc.share.delete.mutationOptions(callbacks));
@@ -110,7 +111,7 @@ export function ShareDialog({
 
         {status.isError && (
           <p role="alert" className="text-destructive">
-            {t("share.loadFailed", { message: status.error.message })}
+            {t("share.loadFailed", { message: serverErrorText(i18n, status.error) })}
           </p>
         )}
 

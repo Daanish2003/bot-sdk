@@ -21,6 +21,7 @@ import { toast } from "sonner";
 import { invalidateConversationList } from "../../core/client/react/conversation-list";
 import { useByok } from "../../core/client/react/byok";
 import { useChatAdapter, useI18n } from "../../core/client/react/provider";
+import { serverErrorText } from "../../core/client/rpc-error";
 import { useQuota } from "../../core/client/react/quota";
 import { readSearchPreference } from "../../core/client/react/search-preference";
 import { quotaBlocksModel } from "../../core/client/quota";
@@ -169,7 +170,7 @@ function ChatThread({
     try {
       await decideCall.mutateAsync({ messageId, approved, allowForConversation });
     } catch (caught) {
-      toast.error(t("chat.decideFailed", { message: (caught as Error).message }));
+      toast.error(t("chat.decideFailed", { message: serverErrorText(i18n, caught) }));
       return;
     }
     onDecided(await fetchConversation());
@@ -201,7 +202,8 @@ function ChatThread({
   const setConnections = useMutation(
     orpc.conversation.setConnections.mutationOptions({
       onSuccess: () => fetchConversation(),
-      onError: (caught) => toast.error(t("chat.toolSwitchFailed", { message: caught.message })),
+      onError: (caught) =>
+        toast.error(t("chat.toolSwitchFailed", { message: serverErrorText(i18n, caught) })),
     }),
   );
   const toolItems = mcpToolsMenu(servers.data?.servers ?? [], connections);
@@ -271,7 +273,8 @@ function ChatThread({
   const switchBranch = useMutation(
     orpc.conversation.switchBranch.mutationOptions({
       onSuccess: () => fetchConversation(),
-      onError: (caught) => toast.error(t("chat.branchSwitchFailed", { message: caught.message })),
+      onError: (caught) =>
+        toast.error(t("chat.branchSwitchFailed", { message: serverErrorText(i18n, caught) })),
     }),
   );
 
@@ -328,7 +331,7 @@ function ChatThread({
           {/* A refused Run is explained by the Quota banner below, not by its error. */}
           {error && !sending && !quotaBlocked && (
             <p role="alert" className="text-xs text-destructive">
-              {rateLimitedErrorOf(error) ? t("chat.tooManyMessages") : error.message}
+              {rateLimitedErrorOf(error) ? t("chat.tooManyMessages") : serverErrorText(i18n, error)}
             </p>
           )}
           <QuotaMeter />
@@ -347,7 +350,7 @@ function ChatThread({
                 ? undefined
                 : () =>
                     stop().catch((caught: Error) =>
-                      toast.error(t("chat.stopFailed", { message: caught.message })),
+                      toast.error(t("chat.stopFailed", { message: serverErrorText(i18n, caught) })),
                     )
             }
             streaming={streaming}

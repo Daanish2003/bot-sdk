@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { useNewConversationModel } from "../../core/client/react/new-conversation-model";
 import { useNewConversationEffort } from "../../core/client/react/new-conversation-effort";
 import { useI18n, useOrpc } from "../../core/client/react/provider";
+import { serverErrorText } from "../../core/client/rpc-error";
 
 /** The select's value for "the Model's default", which a Conversation stores as `null`. */
 const defaultValue = "default";
@@ -76,6 +77,7 @@ export function ReasoningEffortSelect({
 
 /** The effort control of the open Conversation; changing it stores the choice on the Conversation. */
 export function ConversationReasoningEffort({ id }: { id: string }) {
+  const i18n = useI18n();
   const queryClient = useQueryClient();
   const orpc = useOrpc();
   const conversation = useQuery(orpc.conversation.get.queryOptions({ input: { id } }));
@@ -93,7 +95,7 @@ export function ConversationReasoningEffort({ id }: { id: string }) {
           getKey,
           (old) => old && { ...old, reasoningEffort: context?.previous ?? null },
         );
-        toast.error(error.message);
+        toast.error(serverErrorText(i18n, error));
       },
       onSettled: () => queryClient.invalidateQueries({ queryKey: getKey }),
     }),

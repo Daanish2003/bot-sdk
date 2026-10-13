@@ -6,13 +6,15 @@ import { type FormEvent, useState } from "react";
 import { toast } from "sonner";
 
 import { useChatAdapter, useI18n, useOrpc } from "../../core/client/react/provider";
+import { serverErrorText } from "../../core/client/rpc-error";
 
 /** The Projects section of the Conversation panel: each Project's page, and a form for a new one. */
 export function ProjectsSection() {
   const orpc = useOrpc();
   const queryClient = useQueryClient();
   const { Link, navigate } = useChatAdapter();
-  const { t } = useI18n();
+  const i18n = useI18n();
+  const { t } = i18n;
   const projects = useQuery(orpc.project.list.queryOptions());
   const create = useMutation(orpc.project.create.mutationOptions());
   const [creating, setCreating] = useState(false);
@@ -29,7 +31,7 @@ export function ProjectsSection() {
       void queryClient.invalidateQueries({ queryKey: orpc.project.list.key() });
       await navigate({ to: "project", id });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("shell.couldntCreateProject"));
+      toast.error(serverErrorText(i18n, error, "shell.couldntCreateProject"));
     }
   };
 
