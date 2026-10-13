@@ -14,7 +14,7 @@ import {
 } from "../../core/client/chat";
 import { contextFill, lastRunTokens } from "../../core/client/context-ring";
 import { missingCredentialsMessage } from "../../core/client/models";
-import { moderatedErrorOf } from "../../core/client/moderation";
+import { ModeratedError } from "../../core/client/moderation";
 import { rateLimitedErrorOf, runFetch } from "../../core/client/rate-limit";
 import { fetchServerSentEvents, type UIMessage, useChat } from "@tanstack/ai-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -169,8 +169,21 @@ function ChatThread({
   // The command for the next request. `reload` (regenerate) takes no body, so every command
   // rides in the connection's body instead.
   const command = useRef<ChatCommand>(undefined);
+  // The Host's refusal of the last send (#267). @tanstack/ai turns a failed send into a RUN_ERROR that
+  // keeps only the message, so the error `useChat` returns can't carry it: the fetch keeps it here (#355).
+  const [refusal, setRefusal] = useState<ModeratedError | null>(null);
   const [connection] = useState(() =>
-    fetchServerSentEvents(chatUrl, () => ({ body: command.current, fetchClient: runFetch })),
+    fetchServerSentEvents(chatUrl, () => ({
+      body: command.current,
+      fetchClient: async (input, init) => {
+        try {
+          return await runFetch(input, init);
+        } catch (caught) {
+          if (caught instanceof ModeratedError) setRefusal(caught);
+          throw caught;
+        }
+      },
+    })),
   );
   // A reply that is streaming when the page opens is joined: its Message id is its Run's id.
   const [joinedRunId] = useState(
@@ -195,12 +208,11 @@ function ChatThread({
   // The composer's text. A Message the Host refuses (#267) is put back in it, so the user can rephrase.
   const [composerText, setComposerText] = useState("");
   const composerSend = useRef(false);
-  const refusal = moderatedErrorOf(error);
   useEffect(() => {
     if (refusal && composerSend.current) {
       setComposerText(command.current?.text ?? "");
     }
-  }, [error]);
+  }, [refusal]);
   const serverStreaming = conversation.messages.some((m) => m.status === "streaming");
   const streaming = sending || serverStreaming;
   const conversationQuery = orpc.conversation.get.queryOptions({ input: { id: conversation.id } });
@@ -345,6 +357,7 @@ function ChatThread({
     attachments: AttachmentInfo[] = [],
   ) => {
     setSending(true);
+    setRefusal(null);
     awaitingFirstChunk.current = true;
     command.current = {
       conversationId: conversation.id,
