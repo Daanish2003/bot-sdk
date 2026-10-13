@@ -10,6 +10,7 @@ import { uuidv7 } from "../../../packages/chat-sdk/core/server/lib/uuidv7";
 import { storedParts } from "../../../packages/chat-sdk/core/shared/message-parts";
 
 import { e2eDatabaseUrl } from "./database";
+import { appWebHost } from "./host";
 import { signInOnForm } from "./helpers";
 import { type SeededUser, seedUser } from "./seed-user";
 
@@ -236,4 +237,79 @@ test("an Admin sets a user's Quota to 0, which turns Host Models off for them, a
   await targetPage.getByRole("button", { name: "Model" }).click();
   await expect(hostOption(targetPage)).toBeEnabled();
   await targetContext.close();
+});
+
+/**
+ * Writes a Conversation of `owner`'s with a question and `replies` ended assistant replies on
+ * `model`, straight into the e2e database. Returns the replies' ids, oldest first.
+ */
+async function writeReplies(owner: SeededUser, model: string, replies: number): Promise<string[]> {
+  const db = createDb({ DATABASE_URL: e2eDatabaseUrl() });
+  const conversationId = uuidv7();
+  const question = uuidv7();
+  const ids = Array.from({ length: replies }, () => uuidv7());
+  const now = new Date();
+  try {
+    await db
+      .insert(conversation)
+      .values({ id: conversationId, userId: owner.id, title: "Ratings", model });
+    await db.insert(message).values([
+      {
+        id: question,
+        conversationId,
+        role: "user",
+        parts: storedParts([{ type: "text", text: "Hello" }]),
+        searchText: "Hello",
+        status: "complete",
+        createdAt: now,
+      },
+      ...ids.map((id, index) => ({
+        id,
+        conversationId,
+        parentId: question,
+        role: "assistant" as const,
+        parts: storedParts([{ type: "text", text: `Reply ${index + 1}` }]),
+        searchText: `Reply ${index + 1}`,
+        status: "complete" as const,
+        model,
+        createdAt: new Date(now.getTime() + index + 1),
+      })),
+    ]);
+  } finally {
+    await db.$client.end();
+  }
+  return ids;
+}
+
+test("an Admin sees each Model's 👍, 👎 and % 👎 after a user rates its replies", async ({
+  page,
+  browser,
+}) => {
+  const admin = await seedUser(page);
+  await makeAdmin(admin);
+  // The rater signs in on their own browser context, so the Admin's page keeps the Admin's session.
+  const raterContext = await browser.newContext();
+  const raterPage = await raterContext.newPage();
+  const rater = await seedUser(raterPage);
+  // A Model no other test uses, so the row is this test's alone.
+  const model = `e2e-rated-${randomBytes(4).toString("hex")}`;
+  const [firstUp, secondUp, down] = await writeReplies(rater, model, 3);
+
+  for (const [messageId, rating] of [
+    [firstUp, "up"],
+    [secondUp, "up"],
+    [down, "down"],
+  ] as const) {
+    const response = await raterPage.request.post(`${appWebHost.paths.chatApi}/rpc/chat/rate`, {
+      data: { json: { messageId, rating } },
+    });
+    expect(response.ok()).toBe(true);
+  }
+  await raterContext.close();
+
+  await page.goto("/admin");
+  const row = page
+    .getByRole("row")
+    .filter({ has: page.getByRole("cell", { name: model, exact: true }) });
+  await expect(row.getByRole("cell")).toHaveText([model, "2", "1", "33%"]);
 });
