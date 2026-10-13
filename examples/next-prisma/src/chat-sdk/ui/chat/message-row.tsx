@@ -44,6 +44,7 @@ import {
   useAttachmentDraft,
 } from "./attachments";
 
+import { ReadAloud } from "./read-aloud";
 import { SearchRow } from "./search-row";
 import { replyComponents, ReplySources, SourceChips } from "./source-chips";
 import { ToolCallRow } from "./tool-call-row";
@@ -186,6 +187,9 @@ export function MessageRow({
                 )}
               >
                 <CopyButton text={text} disabled={actions.streaming} />
+                {!isUser && info.status === "complete" && (
+                  <ReadAloud messageId={message.id} parts={message.parts} />
+                )}
                 {!isUser && ratableStatuses.has(info.status) && (
                   <RatingButtons
                     rating={info.rating}

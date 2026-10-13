@@ -67,3 +67,39 @@ export async function recordSearchUsage(
     createdAt: new Date(),
   });
 }
+
+/** Groq bills every request for at least this many seconds of audio. */
+const groqMinimumSeconds = 10;
+
+/** A transcription on Host credentials: whose Quota it counts against, and the Host's price a minute. */
+export type TranscriptionMeter = {
+  userId: string;
+  provider: string;
+  model: string;
+  pricePerMinuteUsd: number;
+};
+
+/**
+ * Writes the `chat.usage` row of one transcription on Host credentials (spec #249, ADR 0007). The
+ * minutes are the length the Provider reports, else the recording's own length, which marks the row
+ * estimated. Groq's minimum per request applies to either.
+ */
+export async function recordTranscriptionUsage(
+  deps: Pick<AppDeps, "db">,
+  meter: TranscriptionMeter,
+  { durationSeconds, reportedSeconds }: { durationSeconds: number; reportedSeconds?: number },
+): Promise<void> {
+  const minimum = meter.provider === "groq" ? groqMinimumSeconds : 0;
+  const seconds = Math.max(reportedSeconds ?? durationSeconds, minimum);
+  await deps.db.insert(usageRows).values({
+    id: uuidv7(),
+    userId: meter.userId,
+    kind: "transcription",
+    model: meter.model,
+    inputTokens: 0,
+    outputTokens: 0,
+    costMicros: Math.round((seconds / 60) * meter.pricePerMinuteUsd * 1_000_000),
+    estimated: reportedSeconds === undefined,
+    createdAt: new Date(),
+  });
+}
