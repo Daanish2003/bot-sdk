@@ -327,7 +327,7 @@ function ConversationTitle({ id }: { id: string }) {
       type="button"
       title={t("shell.rename")}
       disabled={!conversation.isSuccess}
-      className="group flex min-w-16 items-center gap-1.5 px-2 text-sm font-medium"
+      className="group flex min-w-10 items-center gap-1.5 px-2 text-sm font-medium"
       onClick={() => setRenaming(true)}
     >
       <span className="truncate">{title ?? t("shell.untitled")}</span>

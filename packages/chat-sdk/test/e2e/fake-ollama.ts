@@ -132,6 +132,8 @@ export function wideReply(): string {
     "```ts",
     "const someVeryLongVariableName = computeSomethingUseful(firstArgument, secondArgument, thirdArgument);",
     "```",
+    "",
+    "That's all.",
   ].join("\n");
 }
 
