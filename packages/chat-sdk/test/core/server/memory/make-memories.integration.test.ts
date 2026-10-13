@@ -4,6 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
 import { createHookEmitter } from "../../../../core/server/chat/hooks";
+import { conversationChannel } from "../../../../core/server/memory/notice";
 import { saveCredentials } from "../../../../core/server/credentials/store";
 import { conversation, message, project } from "../../../../core/server/db/schema/chat";
 import { job } from "../../../../core/server/db/schema/job";
@@ -522,5 +523,122 @@ describe("deciding against existing Memories", () => {
     expect(rows).toHaveLength(2);
     expect(rows.every((row) => row.invalidAt === null)).toBe(true);
     expect(rows.find((row) => row.conversationId === inProject.id)).toBeDefined();
+  });
+});
+
+/** The next `data:` event a live stream sends, parsed. */
+async function nextEvent(reader: ReadableStreamDefaultReader<Uint8Array>) {
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) throw new Error("The stream ended before an event");
+    buffer += decoder.decode(value, { stream: true });
+    const match = /data: (.*)\n\n/.exec(buffer);
+    if (match) return JSON.parse(match[1]!);
+  }
+}
+
+describe("telling the user what a turn changed (#290)", () => {
+  it("publishes memory_updated with the turn's changes on the Conversation's channel", async () => {
+    const { user, deps, conv, send } = await setup();
+    const published: unknown[] = [];
+    const unsubscribe = await deps.pubsub.subscribe(conversationChannel(conv.id), (message) =>
+      published.push(JSON.parse(message)),
+    );
+
+    await send();
+    await drainMemory(deps);
+
+    const reply = await messageOf(conv.id, "assistant");
+    expect(published).toEqual([
+      {
+        type: "memory_updated",
+        messageId: reply.id,
+        changes: [
+          { kind: "added", memoryId: expect.any(String), text: "Is vegetarian" },
+          { kind: "added", memoryId: expect.any(String), text: "Lives in Pune" },
+        ],
+      },
+    ]);
+    await unsubscribe();
+    expect(await memoriesOf(user.id)).toHaveLength(2);
+  });
+
+  it("publishes nothing when the turn changed no Memory", async () => {
+    const { deps, conv, send } = await setup({ facts: [jsonRound({ facts: [] })] });
+    const published: string[] = [];
+    await deps.pubsub.subscribe(conversationChannel(conv.id), (message) => published.push(message));
+
+    await send();
+    await drainMemory(deps);
+
+    expect(published).toEqual([]);
+  });
+
+  it("streams the event to the owner's open page as the job finishes", async () => {
+    const { user, deps, conv, send } = await setup();
+    const response = await sendAs(
+      new Request(`http://localhost/api/chat/events?conversationId=${conv.id}`),
+      user,
+      deps,
+    );
+    const reader = response.body!.getReader();
+
+    await send();
+    await drainMemory(deps);
+
+    const reply = await messageOf(conv.id, "assistant");
+    expect(await nextEvent(reader)).toMatchObject({
+      type: "memory_updated",
+      messageId: reply.id,
+      changes: [
+        { kind: "added", text: "Is vegetarian" },
+        { kind: "added", text: "Lives in Pune" },
+      ],
+    });
+    await reader.cancel();
+  });
+
+  it("refuses the live stream to anyone but the Conversation's owner", async () => {
+    const { deps, conv } = await setup();
+    const stranger = await insertUser();
+
+    const response = await sendAs(
+      new Request(`http://localhost/api/chat/events?conversationId=${conv.id}`),
+      stranger,
+      deps,
+    );
+
+    expect(response.status).toBe(404);
+  });
+
+  it("derives the changes of a reloaded reply from its turn's Memories, updates from the old text", async () => {
+    const { user, deps, conv, send } = await setup({
+      reply: twoReplies,
+      facts: [
+        jsonRound({ facts: ["Is vegetarian", "Lives in Pune"] }),
+        jsonRound({ facts: ["Eats fish"] }),
+        decideRound({ event: "UPDATE", text: "Eats fish", of: "Is vegetarian" }),
+      ],
+    });
+    await send();
+    await drainMemory(deps);
+    await send({ parentId: (await messageOf(conv.id, "assistant")).id });
+    await drainMemory(deps);
+
+    const { messages } = await chatRpc({ user, deps }).conversation.get({ id: conv.id });
+    const replies = messages.filter((m) => m.role === "assistant");
+    // Both facts share the job's clock, so their order here is not defined; the set is.
+    expect(replies[0]?.memoryChanges).toHaveLength(2);
+    expect(replies[0]?.memoryChanges).toEqual(
+      expect.arrayContaining([
+        { kind: "added", memoryId: expect.any(String), text: "Is vegetarian" },
+        { kind: "added", memoryId: expect.any(String), text: "Lives in Pune" },
+      ]),
+    );
+    expect(replies[1]?.memoryChanges).toEqual([
+      { kind: "updated", memoryId: expect.any(String), from: "Is vegetarian", text: "Eats fish" },
+    ]);
   });
 });

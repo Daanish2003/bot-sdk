@@ -19,6 +19,8 @@ import type { AppDeps } from "../deps";
 import { resolveModelCall, type ModelCall } from "../credentials/resolve";
 import { uuidv7 } from "../lib/uuidv7";
 import { defineJob } from "../jobs/define";
+import type { TurnChange } from "../../shared/memory/changes";
+import { publishMemoryUpdated } from "./notice";
 import { reembedMemoriesJob } from "./manage";
 import {
   factExtractionPrompt,
@@ -157,6 +159,8 @@ async function makeMemories(payload: MakeMemoriesPayload, deps: AppDeps): Promis
   const user = path.at(-2);
   if (!reply || reply.id !== replyId || !user || user.role !== "user") return;
   const before = path.slice(Math.max(0, path.length - 4), path.length - 2);
+  // What this turn changed, published once the Memories are written (#290).
+  const changes: TurnChange[] = [];
 
   await deps.db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`memory:${userId}`}, 0))`);
@@ -175,14 +179,24 @@ async function makeMemories(payload: MakeMemoriesPayload, deps: AppDeps): Promis
       now,
     });
     const scope = { userId, projectId: plan.projectId };
-    const write = { userId, plan, tx, now, conversationId, sourceMessageId: user.id };
+    const write = { userId, plan, tx, now, conversationId, sourceMessageId: user.id, changes };
     for (const request of extract.forget) await forgetMatching(deps, { ...write, scope, request });
     if (extract.remember.length > 0) {
-      await insertMemories(deps, { ...write, texts: extract.remember, origin: "said" });
+      const ids = await insertMemories(deps, { ...write, texts: extract.remember, origin: "said" });
+      ids.forEach((id, i) =>
+        changes.push({ kind: "added", memoryId: id, text: extract.remember[i]! }),
+      );
     }
     if (extract.facts.length > 0)
       await decideFacts(deps, { ...write, scope, facts: extract.facts });
   });
+  if (changes.length > 0) {
+    await publishMemoryUpdated(deps, conversationId, {
+      type: "memory_updated",
+      messageId: replyId,
+      changes,
+    });
+  }
 }
 
 /** What every step of the job writes with: the Memories' owner, the transaction, and when. */
@@ -193,6 +207,8 @@ type Write = {
   now: Date;
   conversationId: string;
   sourceMessageId: string;
+  /** Where each change this turn makes is recorded, for the "Memory updated" notice (#290). */
+  changes: TurnChange[];
 };
 
 /** The scope a Memory is compared within: a Project's, or the general ones (ADR 0013). */
@@ -262,7 +278,7 @@ async function decideFacts(
   deps: AppDeps,
   { facts, scope, ...write }: Write & { facts: string[]; scope: Scope },
 ): Promise<void> {
-  const { userId, plan, tx, now } = write;
+  const { userId, plan, tx, now, changes } = write;
   const vectors = await embedTexts(deps, {
     userId,
     model: plan.embedding,
@@ -297,12 +313,13 @@ async function decideFacts(
 
   for (const event of events) {
     if (event.event === "ADD") {
-      await insertMemories(deps, {
+      const [added] = await insertMemories(deps, {
         ...write,
         texts: [event.text],
         origin: "extracted",
         vectors: [vectorOf.get(event.text)!],
       });
+      changes.push({ kind: "added", memoryId: added!, text: event.text });
     }
     if (event.event !== "UPDATE" && event.event !== "DELETE") continue;
     const target = event.of ? byId.get(event.of) : undefined;
@@ -319,11 +336,18 @@ async function decideFacts(
         .update(memory)
         .set({ invalidAt: now, replacedById: replacement!, updatedAt: now })
         .where(eq(memory.id, target.id));
+      changes.push({
+        kind: "updated",
+        memoryId: replacement!,
+        from: target.text,
+        text: event.text,
+      });
     } else {
       await tx
         .update(memory)
         .set({ invalidAt: now, updatedAt: now })
         .where(eq(memory.id, target.id));
+      changes.push({ kind: "forgot", text: target.text });
     }
   }
 }
@@ -364,7 +388,7 @@ async function forgetMatching(
   deps: AppDeps,
   { request, scope, ...write }: Write & { request: string; scope: Scope },
 ): Promise<void> {
-  const { userId, plan, tx } = write;
+  const { userId, plan, tx, changes } = write;
   const [vector] = await embedTexts(deps, {
     userId,
     model: plan.embedding,
@@ -383,7 +407,12 @@ async function forgetMatching(
     const of = near[Number(id)];
     return of === undefined ? [] : [of.id];
   });
-  if (ids.length > 0) await tx.delete(memory).where(inArray(memory.id, ids));
+  if (ids.length === 0) return;
+  const forgotten = await tx
+    .delete(memory)
+    .where(inArray(memory.id, ids))
+    .returning({ text: memory.text });
+  for (const row of forgotten) changes.push({ kind: "forgot", text: row.text });
 }
 
 /** The facts and requests the Background Model reads in the transcript (ADR 0013). */

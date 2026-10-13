@@ -1,4 +1,5 @@
 import type { AttachmentInfo } from "../attachments/kinds";
+import type { TurnChange } from "../memory/changes";
 import type { MessageRecord } from "./message-record";
 import type { SiblingPosition } from "./branches";
 import { parseStoredParts, toUIParts } from "./parts";
@@ -29,4 +30,8 @@ export function toClientMessage(row: MessageRecord, attachments: AttachmentInfo[
 export type ClientMessage = ReturnType<typeof toClientMessage>;
 
 /** A Message of the Active Branch as `conversation.get` returns it, with its ‹ n/m › position. */
-export type ActiveBranchMessage = ClientMessage & { siblings: SiblingPosition };
+export type ActiveBranchMessage = ClientMessage & {
+  siblings: SiblingPosition;
+  /** What the Memory job changed for this reply's turn, for its "Memory updated" chip (#290). */
+  memoryChanges: TurnChange[];
+};

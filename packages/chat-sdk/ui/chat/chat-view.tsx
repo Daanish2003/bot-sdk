@@ -11,7 +11,9 @@ import {
   messageInfo,
   takePendingFirstMessage,
   toUIMessages,
+  withMemoryChanges,
 } from "../../core/client/chat";
+import type { MemoryUpdatedEvent } from "../../core/shared/memory/changes";
 import { contextFill, lastRunTokens } from "../../core/client/context-ring";
 import { missingCredentialsMessage } from "../../core/client/models";
 import { ModeratedError } from "../../core/client/moderation";
@@ -158,7 +160,7 @@ function ChatThread({
   onMessages: (messages: UIMessage[]) => void;
 }) {
   const queryClient = useQueryClient();
-  const { orpc, chatUrl } = useChatAdapter();
+  const { orpc, chatUrl, eventsUrl } = useChatAdapter();
   const i18n = useI18n();
   const { t } = i18n;
   // The server writes the new Messages before it streams, so the first chunk means "sent".
@@ -265,6 +267,18 @@ function ChatThread({
     const running = fresh.messages.find((m) => m.status === "streaming");
     if (running) await stopRun.mutateAsync({ messageId: running.id });
   };
+
+  // A turn's Memory job publishes what it changed once it has finished, so an open tab shows the
+  // "Memory updated" chip then, without a reload (#290). Without EventSource, the chip shows on reload.
+  useEffect(() => {
+    if (typeof EventSource === "undefined") return;
+    const source = new EventSource(`${eventsUrl}?conversationId=${conversation.id}`);
+    source.onmessage = (event: MessageEvent<string>) => {
+      const update = JSON.parse(event.data) as MemoryUpdatedEvent;
+      setMessages(withMemoryChanges(latestMessages.current, update.messageId, update.changes));
+    };
+    return () => source.close();
+  }, [conversation.id, eventsUrl]);
 
   // A Rating shows at once on its reply, and is taken back if the server refuses it. The rollback
   // reads the latest Messages, so a stream update that arrived meanwhile is kept.

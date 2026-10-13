@@ -12,6 +12,7 @@ import { webSearchToolName } from "../shared/chat/web-search";
 import { fetchUrlToolName } from "../shared/chat/fetch-url";
 import { createArtifactToolName, updateArtifactToolName } from "../shared/chat/artifact";
 import { handleJoin } from "./chat/join-run";
+import { handleConversationEvents } from "./memory/notice";
 import { transcriptionProviders } from "./chat/transcription";
 import { embeddingModelsProblem } from "./chat/embedding-models";
 import type { ChatUser, Context } from "./context";
@@ -175,6 +176,7 @@ export function createChatHandler(
   const exportPath = `${prefix}/export`;
   const mcpConnectPath = `${prefix}/mcp/connect`;
   const mcpCallbackPath = `${prefix}/mcp/callback`;
+  const eventsPath = `${prefix}/events`;
   const generatedImagesPath = `${prefix}/generated-images/`;
   const sharedPath = `${prefix}/shared/`;
   // The RPCs a signed-out visitor of a Shared link may call (ADR 0004, ADR 0016).
@@ -216,6 +218,9 @@ export function createChatHandler(
         return deps.lifecycle.stopping ? shuttingDown() : handleChat(request, user, deps);
       }
       if (request.method === "GET") return handleJoin(request, user, deps);
+    }
+    if (user && pathname === eventsPath && request.method === "GET") {
+      return handleConversationEvents(request, user, deps);
     }
     if (user && pathname === exportPath && request.method === "GET") {
       return exportResponse(deps, user.id);

@@ -47,6 +47,7 @@ import {
 } from "./attachments";
 
 import { type EditSource, GeneratedImageBlock } from "./generated-image-block";
+import { MemoryChip } from "./memory-changes";
 import { ReadAloud } from "./read-aloud";
 import { ArtifactCard, artifactIdOf, type ArtifactRef } from "./artifact-card";
 import { SearchRow } from "./search-row";
@@ -285,6 +286,8 @@ export function MessageRow({
                 <span className="text-xs text-muted-foreground italic">{t("chat.stopped")}</span>
               )}
               {info.status === "error" && <ErrorMessage info={info} />}
+              {/* Only the owner's page has actions; a Shared link never shows what Memory changed (#290). */}
+              {actions && <MemoryChip changes={info.memoryChanges} />}
             </>
           )}
         </div>

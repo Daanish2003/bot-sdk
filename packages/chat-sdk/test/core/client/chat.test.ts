@@ -40,6 +40,7 @@ describe("toUIMessages", () => {
         hidden: false,
         createdAt,
         siblings: { index: 0, count: 1, previousId: null, nextId: null },
+        memoryChanges: [],
       },
       {
         id: "a",
@@ -58,6 +59,7 @@ describe("toUIMessages", () => {
         hidden: false,
         createdAt,
         siblings: { index: 1, count: 2, previousId: "a0", nextId: null },
+        memoryChanges: [],
       },
     ]);
 
@@ -78,6 +80,7 @@ describe("toUIMessages", () => {
           contextStartId: null,
           hidden: false,
           siblings: { index: 0, count: 1, previousId: null, nextId: null },
+          memoryChanges: [],
           attachments: [{ id: "f1", filename: "cat.png", mediaType: "image/png", size: 10 }],
         },
       },
@@ -97,6 +100,7 @@ describe("toUIMessages", () => {
           contextStartId: null,
           hidden: false,
           siblings: { index: 1, count: 2, previousId: "a0", nextId: null },
+          memoryChanges: [],
           attachments: [],
         },
       },
@@ -110,6 +114,7 @@ describe("toUIMessages", () => {
       usage: null,
       rating: null,
       hidden: false,
+      memoryChanges: [],
     });
   });
 
@@ -123,6 +128,7 @@ describe("toUIMessages", () => {
       usage: null,
       rating: null,
       hidden: false,
+      memoryChanges: [],
     });
   });
 });
@@ -147,6 +153,7 @@ describe("messageAttachments", () => {
         hidden: false,
         createdAt,
         siblings: { index: 0, count: 1, previousId: null, nextId: null },
+        memoryChanges: [],
       },
     ]);
     expect(messageAttachments(question!)).toEqual([
@@ -179,6 +186,7 @@ describe("messageSiblings", () => {
         hidden: false,
         createdAt,
         siblings: { index: 0, count: 1, previousId: null, nextId: null },
+        memoryChanges: [],
       },
       {
         id: "a",
@@ -197,6 +205,7 @@ describe("messageSiblings", () => {
         hidden: false,
         createdAt,
         siblings: { index: 0, count: 3, previousId: null, nextId: "a2" },
+        memoryChanges: [],
       },
     ]);
     expect(messageSiblings(reply!)).toEqual({ index: 0, count: 3, previousId: null, nextId: "a2" });
@@ -243,6 +252,7 @@ describe("describeError", () => {
     usage: null,
     rating: null,
     hidden: false,
+    memoryChanges: [],
     ...fields,
   });
 
