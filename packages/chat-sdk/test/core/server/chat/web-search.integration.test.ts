@@ -130,7 +130,7 @@ describe("the web_search tool", () => {
 
     const body = await (await send()).text();
 
-    expect(offeredTools(fake)).toEqual(["web_search", "fetch_url"]);
+    expect(offeredTools(fake)).toEqual(["web_search", "search_past_chats", "fetch_url"]);
     expect(searchClient.calls).toEqual([{ query: "tanstack ai", credentials: tavilyKey }]);
     const reply = await replyOf(deps, conv.id);
     expect(reply).toMatchObject({
@@ -278,7 +278,7 @@ describe("the web_search tool is not offered", () => {
 
     await (await send({ parentId: answer.id, text: "More?", webSearch: false })).text();
 
-    expect(offeredTools(fake)).toEqual([]);
+    expect(offeredTools(fake)).toEqual(["search_past_chats"]);
     expect(fake.calls[0]!.messages[1]).toEqual({
       role: "assistant",
       content:
@@ -293,7 +293,7 @@ describe("the web_search tool is not offered", () => {
     await response.text();
 
     expect(response.status).toBe(200);
-    expect(offeredTools(fake)).toEqual(["fetch_url"]);
+    expect(offeredTools(fake)).toEqual(["search_past_chats", "fetch_url"]);
   });
 
   describe("when the Model has no tool support", () => {

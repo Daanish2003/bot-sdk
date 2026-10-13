@@ -2,6 +2,7 @@ import type { AttachmentInfo } from "../../core/shared/attachments/kinds";
 import { createArtifactToolName, updateArtifactToolName } from "../../core/shared/chat/artifact";
 import { pageSourcesOf, replySegments, sourcesOf } from "../../core/shared/chat/sources";
 import { generatedImageOf } from "../../core/shared/chat/generated-image";
+import { pastChatsOf } from "../../core/shared/chat/past-chats";
 import { toolCallOf, type ToolCallView } from "../../core/shared/chat/tool-call";
 import { webSearchOf } from "../../core/shared/chat/web-search";
 import { Button } from "@/components/ui/button";
@@ -53,6 +54,8 @@ import { SearchRow } from "./search-row";
 import { replyComponents, ReplySources, SourceChips } from "./source-chips";
 import { ToolCallRow } from "./tool-call-row";
 import { UsageInfo } from "./usage-info";
+
+import { PastChatsRow } from "./past-chats-row";
 
 import { useByok } from "../../core/client/react/byok";
 import { useChatAdapter, useI18n } from "../../core/client/react/provider";
@@ -548,6 +551,8 @@ function AssistantParts({
           />
         ) : segment.type === "searches" ? (
           <SearchRow key={segment.key} searches={segment.searches} sources={sources} />
+        ) : segment.type === "pastChats" ? (
+          <PastChatsRow key={segment.key} search={segment.search} />
         ) : (
           <Fragment key={segment.key}>
             {segment.call.name === createArtifactToolName ||
@@ -577,7 +582,10 @@ function waitingForText(parts: UIMessage["parts"]) {
   const shown = parts.filter((part) =>
     part.type === "text"
       ? part.content !== ""
-      : webSearchOf(part) !== null || toolCallOf(part) !== null || generatedImageOf(part) !== null,
+      : webSearchOf(part) !== null ||
+        toolCallOf(part) !== null ||
+        generatedImageOf(part) !== null ||
+        pastChatsOf(part) !== null,
   );
   const last = shown.at(-1);
   if (!last) return true;
@@ -585,7 +593,8 @@ function waitingForText(parts: UIMessage["parts"]) {
   const running =
     webSearchOf(last)?.state === "running" ||
     toolCallOf(last)?.status === "running" ||
-    generatedImageOf(last)?.state === "running";
+    generatedImageOf(last)?.state === "running" ||
+    pastChatsOf(last)?.state === "running";
   return !running;
 }
 

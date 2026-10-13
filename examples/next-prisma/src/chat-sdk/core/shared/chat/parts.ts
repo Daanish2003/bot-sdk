@@ -1,6 +1,7 @@
 import {
   type GeneratedImagePart,
   type ArtifactPart,
+  type PastChatsSearchPart,
   type StoredPart,
   type StoredParts,
   storedParts,
@@ -22,6 +23,7 @@ import { attachmentKind, kindLabel, kindLabelPlural } from "../attachments/kinds
 import { createArtifactToolName, updateArtifactToolName } from "./artifact";
 import { fetchUrlToolName } from "./fetch-url";
 import { providerOf } from "./models";
+import { searchPastChatsToolName } from "./past-chats";
 import {
   type AspectRatio,
   type GenerateImageOutput,
@@ -118,6 +120,13 @@ export function createPartsBuilder(initial: StoredPart[] = []) {
         part.toolCallId === toolCallId &&
         part.state === "running",
     );
+  const runningPastChats = (toolCallId: string) =>
+    parts.find(
+      (part): part is PastChatsSearchPart =>
+        part.type === "past_chats_search" &&
+        part.toolCallId === toolCallId &&
+        part.state === "running",
+    );
 
   return {
     add(chunk: StreamChunk) {
@@ -194,6 +203,30 @@ export function createPartsBuilder(initial: StoredPart[] = []) {
         part.errorReason = outcome.errorReason;
       }
     },
+    /** Starts a `search_past_chats` call, as the tool is about to run (spec #263). */
+    startPastChats(toolCallId: string, query: string) {
+      parts.push({
+        type: "past_chats_search",
+        toolCallId,
+        query,
+        state: "running",
+        conversations: [],
+      });
+    },
+    /** Ends a running `search_past_chats` call with the Conversations it found, or as failed. */
+    finishPastChats(
+      toolCallId: string,
+      outcome: { conversations: PastChatsSearchPart["conversations"] } | "error",
+    ) {
+      const part = runningPastChats(toolCallId);
+      if (!part) return;
+      if (outcome === "error") {
+        part.state = "error";
+      } else {
+        part.state = "done";
+        part.conversations = outcome.conversations;
+      }
+    },
     /**
      * Starts a tool call other than `web_search`, as the tool is about to run. A call a resumed Run
      * already holds (waiting for Approval, now approved) is updated in place.
@@ -237,7 +270,7 @@ export function createPartsBuilder(initial: StoredPart[] = []) {
     },
     cancelRunningCalls() {
       for (const part of parts) {
-        if (isCallPart(part) && part.state === "running") part.state = "cancelled";
+        if (isCancellable(part) && part.state === "running") part.state = "cancelled";
       }
     },
     /** A copy of the parts so far. */
@@ -259,7 +292,7 @@ export type FinishToolCall = { state: "done" | "error"; result: unknown; error?:
 export function cancelRunningCalls(parts: StoredParts): StoredParts {
   return storedParts(
     parts.parts.map((part) =>
-      isCallPart(part) && part.state === "running" ? { ...part, state: "cancelled" } : part,
+      isCancellable(part) && part.state === "running" ? { ...part, state: "cancelled" } : part,
     ),
   );
 }
@@ -270,6 +303,10 @@ type CallPart = WebSearchPart | ToolCallPart | GeneratedImagePart;
 function isCallPart(part: StoredPart): part is CallPart {
   return part.type === "web_search" || part.type === "tool_call" || part.type === "generated_image";
 }
+
+/** A call a run that ended closes as cancelled when it is still running (spec #263 included). */
+const isCancellable = (part: StoredPart): part is CallPart | PastChatsSearchPart =>
+  isCallPart(part) || part.type === "past_chats_search";
 
 function textOf(parts: StoredParts, separator: string) {
   return parts.parts
@@ -353,6 +390,19 @@ function imagePlaceholder(part: GeneratedImagePart) {
   return part.state === "error"
     ? `[Couldn't generate an image for "${part.prompt}": ${generatedImageErrorLabels[part.errorReason ?? "failed"]}]`
     : `[Generated an image: "${part.prompt}"]`;
+}
+
+/**
+ * A `search_past_chats` call as text: the query and the titles it found. The Model reads the
+ * snippets only in the reply that searched, so a later reply gets the titles it can ask about.
+ */
+function pastChatsPlaceholder(part: PastChatsSearchPart) {
+  if (part.state !== "done") return `[Couldn't search past chats for "${part.query}"]`;
+  if (part.conversations.length === 0) {
+    return `[Searched past chats for "${part.query}": no matches]`;
+  }
+  const titles = part.conversations.map((found) => found.title).join(", ");
+  return `[Searched past chats for "${part.query}": ${titles}]`;
 }
 
 /** A finished search, tool call or image as text, for a request that doesn't offer its tool. */
@@ -448,6 +498,11 @@ function withToolCalls({ role, parts }: StoredMessage, offered: OfferedTools): M
         content += placeholderOf(part);
         breakBeforeText = true;
       }
+    } else if (part.type === "past_chats_search") {
+      if (calls.length > 0) flush();
+      if (content) content += "\n\n";
+      content += pastChatsPlaceholder(part);
+      breakBeforeText = true;
     }
   }
   flush();
@@ -465,6 +520,9 @@ function withPlaceholders({ role, parts }: StoredMessage): ModelMessage[] {
       lastWasText = true;
     } else if (replayable(part) && !isArtifactCall(part)) {
       pieces.push(placeholderOf(part));
+      lastWasText = false;
+    } else if (part.type === "past_chats_search") {
+      pieces.push(pastChatsPlaceholder(part));
       lastWasText = false;
     }
   }
@@ -591,6 +649,7 @@ export function toUIParts(parts: StoredParts): MessagePart[] {
     if (part.type === "tool_call") return toolCallUIPart(part);
     if (part.type === "generated_image") return generatedImageUIPart(part);
     if (part.type === "artifact") return artifactUIPart(part);
+    if (part.type === "past_chats_search") return pastChatsUIPart(part);
     const input = { query: part.query };
     return {
       type: "tool-call",
@@ -660,6 +719,29 @@ function toolCallUIPart(part: ToolCallPart): MessagePart {
       status: part.state,
       ...(part.error && { error: part.error }),
     },
+  };
+}
+
+/**
+ * A stored `search_past_chats` call, as `useChat` shows it: a tool call named for the tool, with its
+ * query as input and the Conversations it found as output (spec #263).
+ */
+function pastChatsUIPart(part: PastChatsSearchPart): MessagePart {
+  const input = { query: part.query };
+  return {
+    type: "tool-call",
+    id: part.toolCallId,
+    name: searchPastChatsToolName,
+    arguments: JSON.stringify(input),
+    input,
+    // A cancelled search ended without a result.
+    state:
+      part.state === "running"
+        ? "input-complete"
+        : part.state === "cancelled" || part.state === "error"
+          ? "error"
+          : "complete",
+    ...(part.state === "done" && { output: { conversations: part.conversations } }),
   };
 }
 

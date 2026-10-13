@@ -74,7 +74,7 @@ describe("share.continue", () => {
     expect(copiedQuestion?.parentId).toBeNull();
     expect(copy?.activeLeafId).toBe(copiedReply?.id);
     expect(copiedReply?.parts).toEqual({
-      schemaVersion: 3,
+      schemaVersion: 4,
       parts: [{ type: "text", text: "A CTE names a query." }],
     });
     expect(copiedReply?.searchText).toBe("A CTE names a query.");

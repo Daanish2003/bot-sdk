@@ -114,7 +114,7 @@ describe("the Run endpoint", () => {
     expect(question).toMatchObject({
       role: "user",
       parentId: null,
-      parts: { schemaVersion: 3, parts: [{ type: "text", text: "Hi" }] },
+      parts: { schemaVersion: 4, parts: [{ type: "text", text: "Hi" }] },
       searchText: "Hi",
       status: "complete",
       model: null,
@@ -122,7 +122,7 @@ describe("the Run endpoint", () => {
     expect(reply).toMatchObject({
       role: "assistant",
       parentId: question!.id,
-      parts: { schemaVersion: 3, parts: [{ type: "text", text: "Hello there!" }] },
+      parts: { schemaVersion: 4, parts: [{ type: "text", text: "Hello there!" }] },
       searchText: "Hello there!",
       status: "complete",
       model: anthropicModel,
@@ -780,7 +780,7 @@ describe("the Run endpoint thinking", () => {
     expect(body).toContain("REASONING_MESSAGE_CONTENT");
     expect(reply).toMatchObject({
       parts: {
-        schemaVersion: 3,
+        schemaVersion: 4,
         parts: [
           { type: "thinking", text: "Pondering hard." },
           { type: "text", text: "Hello!" },

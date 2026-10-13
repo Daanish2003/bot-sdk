@@ -179,6 +179,11 @@ export const message = chatSchema.table(
   (table) => [
     index("message_conversation_id_parent_id_idx").on(table.conversationId, table.parentId),
     index("message_search_text_trgm_idx").using("gin", table.searchText.op("public.gin_trgm_ops")),
+    // Full-text search over each Message's text, for `search_past_chats` (spec #263).
+    index("message_search_text_fts_idx").using(
+      "gin",
+      sql`to_tsvector('simple', ${table.searchText})`,
+    ),
   ],
 );
 

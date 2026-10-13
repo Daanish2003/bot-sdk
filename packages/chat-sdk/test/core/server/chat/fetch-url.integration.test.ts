@@ -299,7 +299,7 @@ describe("the fetch_url tool", () => {
 
     await (await send()).text();
 
-    expect(offeredTools(fake)).toEqual(["fetch_url"]);
+    expect(offeredTools(fake)).toEqual(["search_past_chats", "fetch_url"]);
     expect(fake.calls[0]!.systemPrompts).toEqual([citationPrompt]);
   });
 
@@ -308,7 +308,7 @@ describe("the fetch_url tool", () => {
 
     await (await send({ webSearch: false })).text();
 
-    expect(offeredTools(fake)).toEqual([]);
+    expect(offeredTools(fake)).toEqual(["search_past_chats"]);
   });
 
   it("closes a fetch still running when the reply is stopped as cancelled", async () => {

@@ -3,6 +3,7 @@ import type { MessagePart } from "@tanstack/ai";
 
 import { fetchedSourceOf, pageSourceOf } from "./fetch-url";
 import { generatedImageOf } from "./generated-image";
+import { type PastChatsView, pastChatsOf } from "./past-chats";
 import { toolCallOf, type ToolCallView } from "./tool-call";
 import { type SearchResult, webSearchOf } from "./web-search";
 
@@ -22,7 +23,8 @@ export type ReplySegment =
   | { type: "text"; key: string; content: string }
   | { type: "searches"; key: string; searches: WebSearchPart[] }
   | { type: "tool"; key: string; call: ToolCallView }
-  | { type: "image"; key: string; image: GeneratedImagePart };
+  | { type: "image"; key: string; image: GeneratedImagePart }
+  | { type: "pastChats"; key: string; search: PastChatsView };
 
 /**
  * The key two URLs share when they are the same Source: the URL without its fragment or a
@@ -88,6 +90,11 @@ export function replySegments(parts: MessagePart[]): ReplySegment[] {
     const image = generatedImageOf(part);
     if (image) {
       segments.push({ type: "image", key: `image-${index}`, image });
+      return;
+    }
+    const pastChats = pastChatsOf(part);
+    if (pastChats) {
+      segments.push({ type: "pastChats", key: `past-chats-${index}`, search: pastChats });
       return;
     }
     const search = webSearchOf(part);
