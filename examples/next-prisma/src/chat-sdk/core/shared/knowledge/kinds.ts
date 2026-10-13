@@ -13,12 +13,15 @@ export const knowledgeFilesPerProject = 100;
 export const wordMediaType =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
+export const pdfMediaType = "application/pdf";
+
 export type KnowledgeMediaType =
   | "text/markdown"
   | "text/plain"
   | "text/html"
   | "text/csv"
-  | typeof wordMediaType;
+  | typeof wordMediaType
+  | typeof pdfMediaType;
 
 /** Each supported format: the media type it is stored with, its file extensions and the types browsers may send. */
 const knowledgeFormats: {
@@ -31,6 +34,7 @@ const knowledgeFormats: {
   { mediaType: "text/html", extensions: [".html", ".htm"], types: ["text/html"] },
   { mediaType: "text/csv", extensions: [".csv"], types: ["text/csv"] },
   { mediaType: wordMediaType, extensions: [".docx"], types: [wordMediaType] },
+  { mediaType: pdfMediaType, extensions: [".pdf"], types: [pdfMediaType] },
 ];
 
 /** The extensions a Knowledge file can have, for the empty state and the upload's accept attribute. */

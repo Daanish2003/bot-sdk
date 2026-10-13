@@ -1,8 +1,10 @@
+import CSSMatrix from "@thednp/dommatrix";
 import { load } from "cheerio";
 import { parse as parseCsv } from "csv-parse/sync";
 import mammoth from "mammoth";
 
 import {
+  pdfMediaType,
   wordMediaType,
   type KnowledgeFailureCode,
   type KnowledgeMediaType,
@@ -27,7 +29,8 @@ export class ExtractionFailure extends Error {
 /**
  * The text a Knowledge file's passages are cut from, by its media type. Markdown and plain text
  * are read as they are; HTML and DOCX (through mammoth's HTML) are reduced to their text; CSV rows
- * are written with their header names, so every row describes itself. Throws ExtractionFailure.
+ * are written with their header names, so every row describes itself. A PDF gives its text layer;
+ * a scan with none fails as no_text. Throws ExtractionFailure.
  */
 export async function extractKnowledgeText(
   mediaType: KnowledgeMediaType,
@@ -43,6 +46,75 @@ export async function extractKnowledgeText(
       return csvToText(decodeUtf8(bytes));
     case wordMediaType:
       return docxToText(Buffer.from(bytes));
+    case pdfMediaType:
+      return pdfToText(bytes);
+  }
+}
+
+type PdfJs = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
+let pdfJsLoading: Promise<PdfJs> | undefined;
+
+/**
+ * pdf.js builds `new DOMMatrix()` while it loads, and Node has none, so a pure-JS one is set first
+ * (spec #357; no native binary). The import is dynamic so the polyfill is in place before it runs.
+ */
+function loadPdfJs(): Promise<PdfJs> {
+  pdfJsLoading ??= (async () => {
+    globalThis.DOMMatrix ??= CSSMatrix as unknown as typeof globalThis.DOMMatrix;
+    return import("pdfjs-dist/legacy/build/pdf.mjs");
+  })();
+  return pdfJsLoading;
+}
+
+/**
+ * The text layer of a PDF, one line per text line, pages in order. A PDF with no text layer (a
+ * scan) fails as no_text: there is nothing to search without OCR, which is left out.
+ */
+async function pdfToText(bytes: Uint8Array): Promise<string> {
+  const pdfjs = await loadPdfJs();
+  let document: Awaited<ReturnType<typeof pdfjs.getDocument>["promise"]>;
+  try {
+    document = await pdfjs.getDocument({
+      data: new Uint8Array(bytes),
+      isEvalSupported: false,
+      useSystemFonts: false,
+      verbosity: pdfjs.VerbosityLevel.ERRORS,
+    }).promise;
+  } catch (error) {
+    if (error instanceof Error && error.name === "PasswordException") {
+      throw new ExtractionFailure("encrypted");
+    }
+    throw new ExtractionFailure("unreadable");
+  }
+
+  try {
+    const pages: string[] = [];
+    for (let number = 1; number <= document.numPages; number++) {
+      const page = await document.getPage(number);
+      const content = await page.getTextContent();
+      let line = "";
+      for (const item of content.items) {
+        if (!("str" in item)) continue;
+        line += item.str;
+        if (item.hasEOL) {
+          pages.push(line);
+          line = "";
+        }
+      }
+      if (line) pages.push(line);
+      page.cleanup();
+    }
+    const text = pages
+      .map((line) => line.replace(/\s+/g, " ").trim())
+      .filter((line) => line.length > 0)
+      .join("\n");
+    if (text.length === 0) throw new ExtractionFailure("no_text");
+    return text;
+  } catch (error) {
+    if (error instanceof ExtractionFailure) throw error;
+    throw new ExtractionFailure("unreadable");
+  } finally {
+    await document.destroy();
   }
 }
 

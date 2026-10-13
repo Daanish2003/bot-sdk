@@ -14,7 +14,11 @@ import { knowledgeChunk, knowledgeFile } from "../../../../core/server/db/schema
 import { usage } from "../../../../core/server/db/schema/usage";
 import type { AppDeps, HostProvider } from "../../../../core/server/deps";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { maxKnowledgeFileBytes, wordMediaType } from "../../../../core/shared/knowledge/kinds";
+import {
+  maxKnowledgeFileBytes,
+  pdfMediaType,
+  wordMediaType,
+} from "../../../../core/shared/knowledge/kinds";
 import { createTestDeps } from "../../../support/deps";
 import { drainJobs } from "../../../support/jobs";
 import { chatRpc } from "../../../support/sdk";
@@ -22,6 +26,8 @@ import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
 
 const docxFixture = new URL("./fixtures/sample.docx", import.meta.url);
+const pdfFixture = new URL("./fixtures/sample-text.pdf", import.meta.url);
+const scannedPdfFixture = new URL("./fixtures/sample-scanned.pdf", import.meta.url);
 
 /** The Host offers OpenAI's small embedding Model on its own key. */
 const hostOpenAI: HostProvider = {
@@ -305,6 +311,38 @@ describe("uploading a Knowledge file", () => {
     expect(stored[0]?.text).toContain("Quay 4 12 m");
   });
 
+  it("takes a PDF with a text layer to Ready, with its passages from the text", async () => {
+    const { deps, rpc, projectId } = await setup();
+    const pdf = new File([readFileSync(pdfFixture)], "study.pdf", { type: pdfMediaType });
+
+    const added = await rpc.knowledge.upload({ projectId, file: pdf });
+    expect(added).toMatchObject({ name: "study.pdf", mediaType: pdfMediaType });
+    await drainJobs({ deps });
+
+    const { files } = await rpc.knowledge.list({ projectId });
+    expect(files).toEqual([
+      expect.objectContaining({ id: added.id, status: "ready", failureCode: null }),
+    ]);
+    const stored = await getTestDb()
+      .select({ text: knowledgeChunk.text })
+      .from(knowledgeChunk)
+      .where(eq(knowledgeChunk.fileId, added.id));
+    expect(stored[0]?.text).toContain("Quay 4 sits at 12 m depth.");
+  });
+
+  it("takes a scanned PDF with no text layer to Failed with 'no text'", async () => {
+    const { deps, rpc, projectId } = await setup();
+    const scan = new File([readFileSync(scannedPdfFixture)], "scan.pdf", { type: pdfMediaType });
+    const added = await rpc.knowledge.upload({ projectId, file: scan });
+
+    await drainJobs({ deps });
+
+    const { files } = await rpc.knowledge.list({ projectId });
+    expect(files).toEqual([
+      expect.objectContaining({ id: added.id, status: "failed", failureCode: "no_text" }),
+    ]);
+  });
+
   it("takes an encrypted DOCX to Failed as encrypted", async () => {
     const { deps, rpc, projectId } = await setup();
     const encrypted = new File(
@@ -328,11 +366,11 @@ describe("uploading a Knowledge file", () => {
     ]);
   });
 
-  it("refuses a file that is neither Markdown nor text", async () => {
+  it("refuses a file of a type that isn't supported", async () => {
     const { rpc, projectId } = await setup();
-    const pdf = new File(["%PDF-1.4"], "report.pdf", { type: "application/pdf" });
+    const rtf = new File(["{\\rtf1 notes}"], "notes.rtf", { type: "application/rtf" });
 
-    const error = await rpc.knowledge.upload({ projectId, file: pdf }).catch((e: unknown) => e);
+    const error = await rpc.knowledge.upload({ projectId, file: rtf }).catch((e: unknown) => e);
 
     expect(codeOf(error)).toBe("error.knowledgeFileNotSupported");
   });

@@ -4,7 +4,6 @@ import {
   knowledgeFileExtensions,
   knowledgeMediaType,
   maxKnowledgeFileBytes,
-  wordMediaType,
 } from "../../shared/knowledge/kinds";
 import {
   deleteKnowledgeFile,
@@ -57,7 +56,7 @@ export const knowledgeRouter = {
         );
       }
       const bytes = new Uint8Array(await file.arrayBuffer());
-      if (mediaType !== wordMediaType && !isUtf8(bytes)) {
+      if (mediaType.startsWith("text/") && !isUtf8(bytes)) {
         throw rpcError(
           "BAD_REQUEST",
           "error.knowledgeFileNotUtf8",

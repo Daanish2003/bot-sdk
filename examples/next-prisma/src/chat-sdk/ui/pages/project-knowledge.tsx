@@ -33,6 +33,7 @@ const knowledgeTypeKey = {
   "text/html": "knowledge.typeHtml",
   "text/csv": "knowledge.typeCsv",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "knowledge.typeWord",
+  "application/pdf": "knowledge.typePdf",
 } as const satisfies Record<KnowledgeMediaType, `knowledge.type${string}`>;
 
 /** Polls the Project's Knowledge every two seconds while a file is still processing. */

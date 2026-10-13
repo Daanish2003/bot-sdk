@@ -24,6 +24,7 @@ export const knowledgeMessages = {
   "knowledge.typeHtml": "HTML",
   "knowledge.typeCsv": "CSV",
   "knowledge.typeWord": "Word",
+  "knowledge.typePdf": "PDF",
   "knowledge.passages": ({ count }: { count: number }) =>
     count === 1 ? "1 passage" : `${count} passages`,
   "knowledge.addedOn": ({ date }: { date: string }) => `Added ${date}`,
