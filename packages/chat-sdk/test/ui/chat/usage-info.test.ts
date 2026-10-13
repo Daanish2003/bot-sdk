@@ -1,12 +1,11 @@
 import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import type { MessageUsage } from "../../../core/shared/chat/message-record";
 import { UsageBreakdown } from "../../../ui/chat/usage-info";
+import { renderInChat } from "../../support/chat-provider";
 
-const render = (usage: MessageUsage) =>
-  renderToStaticMarkup(createElement(UsageBreakdown, { usage }));
+const render = (usage: MessageUsage) => renderInChat(createElement(UsageBreakdown, { usage }));
 
 describe("a reply's token popover", () => {
   it("lists the exact input, output, reasoning and cached tokens, with no estimate note", () => {

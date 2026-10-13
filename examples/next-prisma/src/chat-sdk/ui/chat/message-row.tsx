@@ -1,6 +1,8 @@
 import type { AttachmentInfo } from "../../core/shared/attachments/kinds";
+import { createArtifactToolName, updateArtifactToolName } from "../../core/shared/chat/artifact";
 import { pageSourcesOf, replySegments, sourcesOf } from "../../core/shared/chat/sources";
-import { toolCallOf } from "../../core/shared/chat/tool-call";
+import { generatedImageOf } from "../../core/shared/chat/generated-image";
+import { toolCallOf, type ToolCallView } from "../../core/shared/chat/tool-call";
 import { webSearchOf } from "../../core/shared/chat/web-search";
 import { Button } from "@/components/ui/button";
 import { Loader } from "@/components/ui/prompt-kit/loader";
@@ -22,6 +24,8 @@ import {
   CopyIcon,
   PencilIcon,
   RefreshCwIcon,
+  ThumbsDownIcon,
+  ThumbsUpIcon,
   UserIcon,
 } from "lucide-react";
 import { Fragment, useState } from "react";
@@ -42,13 +46,16 @@ import {
   useAttachmentDraft,
 } from "./attachments";
 
+import { type EditSource, GeneratedImageBlock } from "./generated-image-block";
+import { ReadAloud } from "./read-aloud";
+import { ArtifactCard, artifactIdOf, type ArtifactRef } from "./artifact-card";
 import { SearchRow } from "./search-row";
 import { replyComponents, ReplySources, SourceChips } from "./source-chips";
 import { ToolCallRow } from "./tool-call-row";
 import { UsageInfo } from "./usage-info";
 
 import { useByok } from "../../core/client/react/byok";
-import { useChatAdapter } from "../../core/client/react/provider";
+import { useChatAdapter, useI18n } from "../../core/client/react/provider";
 
 function plainText(message: UIMessage) {
   return message.parts.map((part) => (part.type === "text" ? part.content : "")).join("");
@@ -81,7 +88,15 @@ type MessageActions = {
    * `allowForConversation` also allows the tool for the Conversation (#159).
    */
   onDecide?: (approved: boolean, allowForConversation?: boolean) => void;
+  /**
+   * Sets this reply's Rating (`up` or `down`), or clears it with null. Only offered on an ended
+   * reply (see `ratableStatuses`).
+   */
+  onRate: (rating: "up" | "down" | null) => void;
 };
+
+/** The statuses whose Run has ended: only their replies can be rated (CONTEXT.md, **Rating**). */
+const ratableStatuses = new Set(["complete", "stopped", "error"]);
 
 /**
  * One full-width Message row: avatar, header with the ‹ n/m › Branch arrows, then the text
@@ -92,10 +107,14 @@ type MessageActions = {
  */
 export function MessageRow({
   message,
-  userLabel = "You",
+  userLabel,
   actions,
   highlighted = false,
   contextCut = false,
+  imagesUrl,
+  editSources,
+  onOpenArtifact,
+  latestVersionOf,
 }: {
   message: UIMessage;
   userLabel?: string;
@@ -104,7 +123,16 @@ export function MessageRow({
   highlighted?: boolean;
   /** The Model's context starts at this Message on the Branch: a marker sits above it. */
   contextCut?: boolean;
+  /** Where a Generated image's bytes come from; the owner's route when unset (a Shared link passes its own). */
+  imagesUrl?: string;
+  /** The images on the Branch an edit can start from, by id (`editSourcesOf`). */
+  editSources?: ReadonlyMap<string, EditSource>;
+  /** Opens an Artifact's card in the side panel (spec #304). */
+  onOpenArtifact?: (ref: ArtifactRef) => void;
+  /** The newest version of an Artifact on the Branch, which an update's card names (spec #304). */
+  latestVersionOf?: (artifactId: string) => number | undefined;
 }) {
+  const { locale, t } = useI18n();
   const info = messageInfo(message);
   const text = plainText(message);
   const thinking = thinkingText(message);
@@ -125,7 +153,7 @@ export function MessageRow({
       {contextCut && (
         <p className="mx-auto mb-3 flex w-full max-w-4xl items-center gap-3 text-[11px] text-muted-foreground">
           <span className="h-px flex-1 bg-border" aria-hidden />
-          Earlier messages are no longer in the model's context
+          {t("chat.contextCut")}
           <span className="h-px flex-1 bg-border" aria-hidden />
         </p>
       )}
@@ -139,8 +167,10 @@ export function MessageRow({
           {isUser ? <UserIcon className="size-3.5" /> : <BotIcon className="size-3.5" />}
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-2">
-          <div className="flex min-h-6 items-center gap-2 text-xs">
-            <span className="font-medium">{isUser ? userLabel : "Assistant"}</span>
+          <div className="flex min-h-6 flex-wrap items-center gap-2 text-xs">
+            <span className="font-medium">
+              {isUser ? (userLabel ?? t("chat.you")) : t("chat.assistant")}
+            </span>
             {!isUser && model && (
               <span className="rounded-md border px-1.5 py-0.5 text-[10px] text-muted-foreground">
                 {model}
@@ -151,7 +181,7 @@ export function MessageRow({
                 className="text-[10px] text-muted-foreground"
                 dateTime={message.createdAt.toISOString()}
               >
-                {message.createdAt.toLocaleTimeString(undefined, {
+                {message.createdAt.toLocaleTimeString(locale, {
                   hour: "2-digit",
                   minute: "2-digit",
                 })}
@@ -168,16 +198,33 @@ export function MessageRow({
               />
             )}
             {!editing && actions && (
-              <div className="ml-auto flex overflow-hidden rounded-md border bg-background opacity-0 shadow-sm group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100">
-                <CopyButton text={text} disabled={actions.streaming} />
+              <div
+                className={cn(
+                  "ml-auto flex overflow-hidden rounded-md border bg-background shadow-sm group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100",
+                  // A Rating stays visible, so the thumb that was chosen is still filled.
+                  info.rating ? "opacity-100" : "opacity-0",
+                )}
+              >
+                {/* A Hidden reply's text is gone, so it can't be copied or read aloud (#268). */}
+                {!info.hidden && <CopyButton text={text} disabled={actions.streaming} />}
+                {!isUser && !info.hidden && info.status === "complete" && (
+                  <ReadAloud messageId={message.id} parts={message.parts} />
+                )}
+                {!isUser && ratableStatuses.has(info.status) && (
+                  <RatingButtons
+                    rating={info.rating}
+                    disabled={actions.streaming}
+                    onRate={actions.onRate}
+                  />
+                )}
                 {isUser ? (
                   <Button
                     variant="ghost"
                     size="icon-xs"
                     disabled={actions.streaming}
                     onClick={() => setEditing(true)}
-                    title="Edit (new Branch)"
-                    aria-label="Edit"
+                    title={t("chat.editNewBranch")}
+                    aria-label={t("chat.edit")}
                   >
                     <PencilIcon />
                   </Button>
@@ -187,8 +234,8 @@ export function MessageRow({
                     size="icon-xs"
                     disabled={actions.streaming}
                     onClick={actions.onRegenerate}
-                    title="Regenerate (new Branch)"
-                    aria-label="Regenerate"
+                    title={t("chat.regenerateNewBranch")}
+                    aria-label={t("chat.regenerate")}
                   >
                     <RefreshCwIcon />
                   </Button>
@@ -215,17 +262,27 @@ export function MessageRow({
               <AttachmentChips attachments={attachments} />
               <p className="max-w-[80ch] text-sm whitespace-pre-wrap">{text}</p>
             </>
+          ) : info.hidden ? (
+            <p className="text-xs text-muted-foreground italic">This reply was hidden</p>
           ) : (
             <>
               {thinking && (
                 <Thinking text={thinking} inProgress={info.status === "streaming" && !text} />
               )}
-              <AssistantParts parts={message.parts} onDecide={actions?.onDecide} />
+              <AssistantParts
+                messageId={message.id}
+                parts={message.parts}
+                onDecide={actions?.onDecide}
+                imagesUrl={imagesUrl}
+                editSources={editSources}
+                onOpenArtifact={onOpenArtifact}
+                latestVersionOf={latestVersionOf}
+              />
               {info.status === "streaming" && !thinking && waitingForText(message.parts) && (
                 <Loader variant="typing" size="sm" />
               )}
               {info.status === "stopped" && (
-                <span className="text-xs text-muted-foreground italic">Stopped</span>
+                <span className="text-xs text-muted-foreground italic">{t("chat.stopped")}</span>
               )}
               {info.status === "error" && <ErrorMessage info={info} />}
             </>
@@ -241,11 +298,12 @@ export function MessageRow({
  * the model is still thinking and folds away once the answer starts.
  */
 function Thinking({ text, inProgress }: { text: string; inProgress: boolean }) {
+  const { t } = useI18n();
   // No duration is stored, so the label stays approximate (as in the prototype).
   return (
     <Reasoning isStreaming={inProgress} className="max-w-[80ch]">
       <ReasoningTrigger className="text-xs text-muted-foreground">
-        {inProgress ? "Thinking…" : "Thought for a few seconds"}
+        {inProgress ? t("chat.thinking") : t("chat.thoughtAFewSeconds")}
       </ReasoningTrigger>
       <ReasoningContent markdown className="mt-2 border-l-2 pl-3 text-xs">
         {text}
@@ -264,6 +322,7 @@ function BranchArrows({
   disabled: boolean;
   onSwitch: (messageId: string) => void;
 }) {
+  const { t } = useI18n();
   const { index, count, previousId, nextId } = messageSiblings(message);
   if (count < 2) return null;
   return (
@@ -273,7 +332,7 @@ function BranchArrows({
         size="icon-xs"
         disabled={disabled || !previousId}
         onClick={() => previousId && onSwitch(previousId)}
-        aria-label="Previous Branch"
+        aria-label={t("chat.previousBranch")}
       >
         <ChevronLeftIcon />
       </Button>
@@ -283,7 +342,7 @@ function BranchArrows({
         size="icon-xs"
         disabled={disabled || !nextId}
         onClick={() => nextId && onSwitch(nextId)}
-        aria-label="Next Branch"
+        aria-label={t("chat.nextBranch")}
       >
         <ChevronRightIcon />
       </Button>
@@ -291,7 +350,50 @@ function BranchArrows({
   );
 }
 
+/**
+ * 👍 and 👎 on an ended reply. Clicking the chosen thumb clears the Rating; clicking the other one
+ * flips it (CONTEXT.md, **Rating**).
+ */
+function RatingButtons({
+  rating,
+  disabled,
+  onRate,
+}: {
+  rating: "up" | "down" | null;
+  disabled: boolean;
+  onRate: (rating: "up" | "down" | null) => void;
+}) {
+  const choose = (thumb: "up" | "down") => onRate(rating === thumb ? null : thumb);
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        disabled={disabled}
+        onClick={() => choose("up")}
+        title="Good reply"
+        aria-label="Good reply"
+        aria-pressed={rating === "up"}
+      >
+        <ThumbsUpIcon className={cn(rating === "up" && "fill-current")} />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        disabled={disabled}
+        onClick={() => choose("down")}
+        title="Bad reply"
+        aria-label="Bad reply"
+        aria-pressed={rating === "down"}
+      >
+        <ThumbsDownIcon className={cn(rating === "down" && "fill-current")} />
+      </Button>
+    </>
+  );
+}
+
 function CopyButton({ text, disabled }: { text: string; disabled: boolean }) {
+  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   return (
     <Button
@@ -304,8 +406,8 @@ function CopyButton({ text, disabled }: { text: string; disabled: boolean }) {
           setTimeout(() => setCopied(false), 1200);
         });
       }}
-      title="Copy"
-      aria-label="Copy"
+      title={t("chat.copy")}
+      aria-label={t("chat.copy")}
     >
       {copied ? <CheckIcon /> : <CopyIcon />}
     </Button>
@@ -331,6 +433,7 @@ function EditBox({
   onCancel: () => void;
   saveDisabled: boolean;
 }) {
+  const { t } = useI18n();
   const [value, setValue] = useState(initial);
   const draft = useAttachmentDraft(model, initialAttachments);
   const canSave = !saveDisabled && !draft.pending && value.trim().length > 0;
@@ -340,7 +443,7 @@ function EditBox({
       <DraftAttachmentChips draft={draft} />
       <Textarea
         autoFocus
-        aria-label="Edit Message"
+        aria-label={t("chat.editMessage")}
         className="min-h-12 border-none bg-transparent text-sm md:text-sm dark:bg-transparent"
         value={value}
         onChange={(event) => setValue(event.target.value)}
@@ -357,47 +460,106 @@ function EditBox({
           <AttachButton draft={draft} />
         </span>
         <Button variant="ghost" size="sm" onClick={onCancel}>
-          Cancel
+          {t("chat.cancel")}
         </Button>
         <Button size="sm" disabled={!canSave} onClick={save}>
-          Save & submit
+          {t("chat.saveAndSubmit")}
         </Button>
       </div>
-      <p className="text-[10px] text-muted-foreground">
-        Saving creates a new Branch. The old one stays reachable with the arrows.
-      </p>
+      <p className="text-[10px] text-muted-foreground">{t("chat.saveCreatesBranch")}</p>
     </div>
   );
+}
+
+/** The newest version on the Branch of the Artifact an update call names; `undefined` for a create. */
+function artifactTarget(
+  call: ToolCallView,
+  latestVersionOf?: (artifactId: string) => number | undefined,
+): number | undefined {
+  const artifactId = artifactIdOf(call);
+  return artifactId === undefined ? undefined : latestVersionOf?.(artifactId);
 }
 
 /**
  * A reply's text and web searches, in stream order. Back-to-back searches share one row; links
  * to the reply's Sources render as their numbered citation chips.
  */
+/**
+ * The images a Branch's Messages hold, by id, for an edit's "edited from" chip (spec #278). A
+ * finished Generated image is labelled by its prompt; an image Attachment by its file name.
+ */
+export function editSourcesOf(messages: UIMessage[]): Map<string, EditSource> {
+  const sources = new Map<string, EditSource>();
+  for (const message of messages) {
+    for (const part of message.parts) {
+      const image = generatedImageOf(part);
+      if (image?.state === "done" && image.imageId) {
+        sources.set(image.imageId, { label: image.prompt, imageId: image.imageId });
+      }
+    }
+    for (const file of messageAttachments(message)) {
+      if (file.id) sources.set(file.id, { label: file.filename });
+    }
+  }
+  return sources;
+}
+
 function AssistantParts({
+  messageId,
   parts,
   onDecide,
+  imagesUrl: imagesUrlOverride,
+  editSources,
+  onOpenArtifact,
+  latestVersionOf,
 }: {
+  messageId: string;
   parts: UIMessage["parts"];
   onDecide?: (approved: boolean, allowForConversation?: boolean) => void;
+  imagesUrl?: string;
+  editSources?: ReadonlyMap<string, EditSource>;
+  onOpenArtifact?: (ref: ArtifactRef) => void;
+  latestVersionOf?: (artifactId: string) => number | undefined;
 }) {
   const sources = sourcesOf(parts);
+  const { generatedImagesUrl } = useChatAdapter();
+  const { t } = useI18n();
+  const imagesUrl = imagesUrlOverride ?? generatedImagesUrl;
   return (
     <ReplySources value={sources}>
       {replySegments(parts).map((segment) =>
         segment.type === "text" ? (
           <Markdown
             key={segment.key}
-            className="prose prose-sm max-w-[80ch] dark:prose-invert"
+            className="prose prose-sm min-w-0 max-w-[80ch] dark:prose-invert max-md:[&_table]:block max-md:[&_table]:overflow-x-auto"
             components={replyComponents}
           >
             {segment.content}
           </Markdown>
+        ) : segment.type === "image" ? (
+          <GeneratedImageBlock
+            key={segment.key}
+            image={segment.image}
+            imagesUrl={imagesUrl}
+            editedFrom={segment.image.editedFrom?.map(
+              (id) => editSources?.get(id) ?? { label: t("chat.imageEarlier") },
+            )}
+          />
         ) : segment.type === "searches" ? (
           <SearchRow key={segment.key} searches={segment.searches} sources={sources} />
         ) : (
           <Fragment key={segment.key}>
-            <ToolCallRow call={segment.call} onDecide={onDecide} />
+            {segment.call.name === createArtifactToolName ||
+            segment.call.name === updateArtifactToolName ? (
+              <ArtifactCard
+                call={segment.call}
+                messageId={messageId}
+                latestVersion={artifactTarget(segment.call, latestVersionOf)}
+                onOpen={onOpenArtifact}
+              />
+            ) : (
+              <ToolCallRow call={segment.call} onDecide={onDecide} />
+            )}
             <SourceChips sources={pageSourcesOf(segment.call, sources)} />
           </Fragment>
         ),
@@ -414,12 +576,15 @@ function waitingForText(parts: UIMessage["parts"]) {
   const shown = parts.filter((part) =>
     part.type === "text"
       ? part.content !== ""
-      : webSearchOf(part) !== null || toolCallOf(part) !== null,
+      : webSearchOf(part) !== null || toolCallOf(part) !== null || generatedImageOf(part) !== null,
   );
   const last = shown.at(-1);
   if (!last) return true;
   if (last.type === "text") return false;
-  const running = webSearchOf(last)?.state === "running" || toolCallOf(last)?.status === "running";
+  const running =
+    webSearchOf(last)?.state === "running" ||
+    toolCallOf(last)?.status === "running" ||
+    generatedImageOf(last)?.state === "running";
   return !running;
 }
 
@@ -427,7 +592,8 @@ function waitingForText(parts: UIMessage["parts"]) {
 function ErrorMessage({ info }: { info: MessageInfo }) {
   const { Link } = useChatAdapter();
   const byok = useByok();
-  const { text, keySettings } = describeError(info);
+  const i18n = useI18n();
+  const { text, keySettings } = describeError(i18n, info);
   return (
     <SystemMessage variant="error" fill role="alert" className="max-w-[80ch]">
       {text}
@@ -435,7 +601,7 @@ function ErrorMessage({ info }: { info: MessageInfo }) {
         <>
           {" "}
           <Link page={{ to: "keys" }} className="font-medium underline underline-offset-2">
-            Key settings
+            {i18n.t("chat.keySettings")}
           </Link>
         </>
       )}

@@ -103,6 +103,33 @@ The `prompt-kit` components (`chat-container`, `loader`, `markdown`, `prompt-inp
 - The SDK's tables live in the `chat` schema of the Host's database, not in your ORM's schema. Your ORM's migrations never touch them.
 - The SDK's migrations are expand-then-contract: they add tables, columns and indexes, and never drop or rename one in the same release. The version still running during a deploy keeps working against the migrated schema.
 
+## File storage: `blobStore`
+
+Attachment bytes go to a `BlobStore`, which `createChat({ blobStore })` takes. Names, types, sizes and owners stay in Postgres either way. The store holds bytes only, under keys the SDK makes up, such as `attachment/<id>`.
+
+- **`postgresBlobStore()`** is the default: bytes in the `chat.blob` table of your database. Leave `blobStore` out and nothing changes. The migration copies the bytes from the old `attachment_blob` table into `chat.blob`.
+- **`s3BlobStore({ endpoint, bucket, region, accessKeyId, secretAccessKey, forcePathStyle? })`** keeps bytes in any S3-compatible bucket, such as Cloudflare R2 (`region: "auto"`) or RustFS. It needs an existing bucket: the store never creates one, so the app needs no bucket-admin rights. It is built on `aws4fetch`, and `forcePathStyle` defaults to `true`.
+
+```ts
+import { createChat, s3BlobStore } from "@ai-chat/chat-sdk/server";
+
+const chat = createChat({
+  databaseUrl,
+  getUser,
+  keyEncryptionSecrets,
+  blobStore: s3BlobStore({
+    endpoint: process.env.S3_ENDPOINT!,
+    bucket: process.env.S3_BUCKET!,
+    region: "auto",
+    accessKeyId: process.env.S3_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.S3_SECRET_ACCESS_KEY!,
+  }),
+});
+```
+
+- A failed upload leaves no object behind. Deleting a user, and the 24-hour cleanup of unused Attachments, remove their objects after the database commit. A failed object delete is logged and not thrown, so a stray object costs storage but no data, and nothing sweeps it.
+- **Switching a running deployment from one store to the other isn't supported**: there is no copy tool, so the Attachments already uploaded stay in the store they went to. Choose the store before you go live.
+
 ## Host lifecycle
 
 The server API below is the spec for the SDK (spec #70). Some of it lands in later tickets; until then, `core/server` exports only the parts already built.
@@ -136,6 +163,163 @@ const data = await chat.getSharedConversation(token);
 - `GET <basePath>/export` answers the signed-in user's export as a JSON download (`chat-export-<date>.json`), the same document as `exportUser`. The `ExportDataButton` in `ui/` calls it.
 - `start()` refuses to run while the `chat` schema is behind the bundled migrations.
 - `stop()` refuses new Runs with 503 while it drains, then closes the runtime's connections.
+
+## Host hooks
+
+`createChat({ hooks })` takes the Host's callbacks into the SDK. Every hook is optional.
+
+```ts
+const chat = createChat({
+  // ...
+  logger, // where the SDK's own failures go; defaults to console
+  hooks: {
+    // every usage row written on Host credentials: a Run, a title, a web search, a transcription or a generated image
+    onUsage: (usage) => {
+      // usage: { id, userId, kind: "run" | "title" | "web_search" | "transcription" | "image", model, inputTokens,
+      //   outputTokens, costMicros, estimated, createdAt }
+    },
+    // every Run, whichever way it ends, once its ending is written
+    onRunEnd: (run) => {
+      // run: { userId, conversationId, messageId, runId, ending, reason?, model,
+      //   onHostCredentials, hidden }
+    },
+    // a Conversation a user starts, or continues from a Shared link
+    onConversationCreated: (conversation) => {
+      // conversation: { userId, conversationId, projectId?, fromSharedLink }
+    },
+    // a Conversation a user deletes, or each Conversation of a deleted Project
+    onConversationDeleted: (conversation) => {
+      // conversation: { userId, conversationId, projectId? }
+    },
+    // a Shared link created, moved to the current Branch, or removed
+    onSharedLinkChanged: (link) => {
+      // link: { userId, conversationId, change: "created" | "moved" | "removed" }
+    },
+    // the input check: the user's Message before anything is saved (see Moderation below)
+    moderate: (check) => {
+      // check: { phase: "input", userId, conversationId, onHostCredentials, text,
+      //   attachments: [{ name, mediaType, read() }] } -> { allow: true } | { allow: false, reason? }
+    },
+  },
+});
+```
+
+- **Conversations and Shared links.** `onConversationCreated` fires when a user starts a Conversation, and when they continue a Shared link into a new one (`fromSharedLink: true`). `onConversationDeleted` fires once for each Conversation a user deletes, each one a Project delete removes, and each one a delete of all of a user's Conversations removes. `onSharedLinkChanged` reports `created` the first time a Conversation is shared, `moved` when it is shared again (the link moves to the current Branch), and `removed` when it is unshared. Each event fires after its write commits, and not if the write rolls back. Deleting a Conversation drops its Shared link without a `removed` event. `deleteUser` fires none of these events. No payload carries a title or Message text.
+
+- **`onRunEnd`.** `ending` is `complete`, `stopped`, `error` or `awaiting_approval` (a Run that stopped waiting for an Approval). `reason` is set on an `error`: `timed_out`, `interrupted`, or the Provider's error reason (`invalid_key`, `rate_limited` or `provider_error`). `runId` is the Message's id for its first Run, and `<messageId>:<n>` for the Run that continues after an Approval (`n` is 2 or more). `onHostCredentials` says whether the Run ran on Host credentials. `hidden` is `true` when the output check hid the reply (see Moderation). It fires once per Run, from the process that ended the Run: when the Run ends, when the reaper ends an abandoned one as `interrupted`, when `stop()` cuts one off on shutdown, and when a Stop reaches a Run whose process has stopped heartbeating (when a Project is deleted, or a user deletes all their Conversations, the event fires after the transaction commits, and not if it rolls back; `deleteUser` fires nothing). For a Run whose process is gone, `onHostCredentials` is read from the Model's credentials as they are at that moment. No payload carries the reply's text.
+- **Delivery.** A hook runs after its change is written. It is never awaited, so a slow hook never delays a Run or a response. It runs at most once, with no retries: design your own delivery if you need one.
+- **Failures.** A hook that throws or rejects is logged through the Host's `logger` (`logger.error`). The Run completes as normal.
+- **Credentials.** `onUsage` fires only for usage on Host credentials (ADR 0007), never for a Run on the user's own credentials.
+- **The SDK's failures.** Failed snapshot writes, Run Log appends, usage rows, title generation, the reaper and the database pool all go to the Host's `logger`. The Redis runtime's connection errors still go to `console`: `redisRuntime()` takes no logger yet.
+
+### Moderation
+
+`moderate` checks the user's Message before anything is saved. It runs after the Message's Attachments are validated and the Quota is checked, and before the Message is written or a Run starts. It is called for every Message the user sends, on Host credentials and on their own. It is not called for a regenerate, which writes no Message, nor for the Run that continues after an Approval.
+
+- **Input.** `check.text` is the Message's text. `check.attachments` holds its image and text Attachments (PDFs are not passed), each with `name`, `mediaType` and `read()`, which resolves to the file's bytes. `check.onHostCredentials` says whether the Run would use Host credentials, so a Host can skip one of the two.
+- **Refused.** `{ allow: false, reason? }` answers the request with HTTP 422 and the code `moderated`. The body carries `message` (the `reason`, or a default) and `reason`. Nothing is saved: no Message, no Run and no usage row. The composer keeps the user's text and shows the reason. Their Attachments are cleared with the send.
+- **Fails open.** A `moderate` that throws, rejects, or takes longer than 10 seconds lets the Message through and logs the failure through the Host's `logger`. There is no fail-closed setting: to refuse when your own check fails, catch the error and return `{ allow: false }`.
+- **No hook, no cost.** With no `moderate`, nothing is called and nothing is added to a send.
+- **Output.** `check.phase` is `"output"` when a Run ends, with `text`: the reply text that Run produced, without reasoning or tool-call arguments. It runs once per Run that produced any text, whatever its ending (`complete`, `stopped`, `error`, `awaiting_approval`), after the ending is saved. `{ allow: false }` makes the reply a Hidden reply: its text is erased, the Message shows only that it was hidden (also on a Shared link and in the export), and it is left out of the history the Model sees next. Its usage still counts, the Run ending stays as it was, and `onRunEnd` fires with `hidden: true`. A regenerate makes a new reply as usual. Fails open like the input check. The check runs after the reply has finished streaming, so a reply is visible for the length of the check. A Run that is ended without its owner (the reaper, a Stop of an orphaned Run, or a shutdown) is not checked in this version.
+
+A moderation vendor's scores map to `{ allow }` in the Host:
+
+```ts
+moderate: async (check) => {
+  if (check.phase !== "input") return { allow: true };
+  // `vendor` is the Host's own moderation client; the scores are its per-category values in 0..1.
+  const scores = await vendor.score(check.text);
+  const flagged = Object.entries(scores).find(([, score]) => score >= 0.8);
+  return flagged
+    ? { allow: false, reason: `Your message was flagged as ${flagged[0]}.` }
+    : { allow: true };
+},
+```
+
+## Webhooks from the event hooks
+
+The SDK ships no webhooks (ADR 0018). A Host that wants them signs and POSTs from its event hooks. The recipe below uses only Web Crypto and the platform's `fetch`. Its hook sends directly to keep the example short. In your app, have the hook add the event to your own queue and let the queue's worker call `sendWebhook`: a failed send throws, so the queue retries it. The hooks fire at most once, so your queue is what makes delivery reliable.
+
+```ts
+import type { ChatHooks } from "@/lib/chat-sdk/core/server";
+
+const timestampHeader = "x-webhook-timestamp"; // Unix seconds when the event was sent
+const signatureHeader = "x-webhook-signature"; // "sha256=" + hex HMAC-SHA256 of `<timestamp>.<raw body>`
+const toleranceSeconds = 300; // a signature older (or newer) than this is rejected
+
+const encoder = new TextEncoder();
+
+function hmacKey(secret: string, usage: "sign" | "verify") {
+  return crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    [usage],
+  );
+}
+
+/** The sender: POSTs `{ type, data }` signed with `secret`. A non-2xx answer throws. */
+export async function sendWebhook(options: {
+  url: string;
+  secret: string;
+  type: string;
+  data: unknown;
+}) {
+  // The signature covers the exact bytes sent, so the receiver verifies the raw body.
+  const body = JSON.stringify({ type: options.type, data: options.data });
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const mac = await crypto.subtle.sign(
+    "HMAC",
+    await hmacKey(options.secret, "sign"),
+    encoder.encode(`${timestamp}.${body}`),
+  );
+  const hex = [...new Uint8Array(mac)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  const response = await fetch(options.url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      [timestampHeader]: timestamp,
+      [signatureHeader]: `sha256=${hex}`,
+    },
+    body,
+  });
+  if (!response.ok) throw new Error(`The webhook answered ${response.status}`);
+  return response;
+}
+
+/** The receiver: returns the event when its signature is valid and fresh, and throws otherwise. */
+export async function receiveWebhook(request: Request, secret: string, now = Date.now()) {
+  const body = await request.text();
+  const timestamp = request.headers.get(timestampHeader) ?? "";
+  if (!/^\d+$/.test(timestamp) || Math.abs(now / 1000 - Number(timestamp)) > toleranceSeconds) {
+    throw new Error("The webhook is stale");
+  }
+  const hex = /^sha256=([0-9a-f]{64})$/.exec(request.headers.get(signatureHeader) ?? "")?.[1];
+  if (!hex) throw new Error("The webhook signature is invalid");
+  const signature = Uint8Array.from(hex.match(/../g) ?? [], (pair) => parseInt(pair, 16));
+  // `verify` compares in constant time.
+  const valid = await crypto.subtle.verify(
+    "HMAC",
+    await hmacKey(secret, "verify"),
+    signature,
+    encoder.encode(`${timestamp}.${body}`),
+  );
+  if (!valid) throw new Error("The webhook signature is invalid");
+  return JSON.parse(body) as { type: string; data: unknown };
+}
+
+/** The hooks a Host passes to `createChat`: each finished Run is sent to `url`. */
+export function chatWebhookHooks(options: { url: string; secret: string }) {
+  return {
+    onRunEnd: (run) => sendWebhook({ ...options, type: "run.ended", data: run }),
+  } satisfies ChatHooks;
+}
+```
+
+The payload is the hook's payload: ids, the ending, the Model and flags. It never carries Message text, a title or an Attachment name, so a receiver learns what happened and nothing a user typed. Add the other hooks the same way (`onConversationDeleted`, `onSharedLinkChanged`, and so on), each with its own `type`. Your endpoint answers 401 when `receiveWebhook` throws, and otherwise routes the event by its `type`.
+
+User-configured webhooks, where a user enters a URL in settings, are out of scope (ADR 0017 and ADR 0018).
 
 ## Several processes: `redisRuntime()`
 
@@ -173,6 +357,8 @@ Stored Provider and Tool credentials are encrypted under `keyEncryptionSecrets`:
 ## Who pays for Runs
 
 - `hostProviders` are the Host's own credentials, from your environment (never stored): `[{ provider, credentials, models: [...] }]`. Each model is `{ modelId, label?, images?, pdfs?, tools?, maxOutputTokens, inputUsdPerMillion, outputUsdPerMillion }`. `maxOutputTokens` is required: the Host's output cap for a Run on that model, handed to `adapterFor` (the production adapters don't apply it yet). The prices are per 1M tokens and kept with the model. Capability flags default to off unless the model is curated, in which case its curated flags apply. A Tool goes in the same list as `{ tool: "tavily", credentials, pricePerSearchUsd }`: a Host Tavily key that searches for users with no Tavily key of their own, each search recorded at that fixed price.
+- `defaultBackgroundModel` (optional) is a `"provider:model"` id of one of your `hostProviders` Models. Titles use it for users who pick no Background Model; without it they use the Model that wrote the reply. `start()` throws when it isn't one of your Models.
+- `defaultImageModel` (optional) is a `"provider:model"` id of one of your `hostProviders` `imageModels`. Generated images use it for users who pick no Image Model; without it they get no Host images. `start()` throws when it isn't one of your Image Models, or when an Image Model has no `pricePerImageUsd`.
 - `byok` (default `true`) lets users run on their own Provider credentials. Set it independently of `hostProviders`: `byok: false` with `hostProviders` is a company Host that runs only its own keys.
 - A user's own key for a Provider always wins over the Host's. The Model list marks the Models that run on Host credentials.
 - `start()` throws with neither `hostProviders` nor `byok`.
@@ -187,7 +373,7 @@ const chat = createChat({
 
 Three modes, chosen by those two options:
 
-- **Host only** (`hostProviders`, `byok: false`): a company Host. Users chat on the Models you offer. With `byok` off, the credential sections of the keys page and every "add your key" prompt are hidden; the Instructions and Title Model sections stay. Saving a credential is rejected with `FORBIDDEN`; listing and deleting the credentials a user already has still work.
+- **Host only** (`hostProviders`, `byok: false`): a company Host. Users chat on the Models you offer. With `byok` off, the credential sections of the keys page and every "add your key" prompt are hidden; the Instructions and Background Model sections stay. Saving a credential is rejected with `FORBIDDEN`; listing and deleting the credentials a user already has still work.
 - **User keys only** (no `hostProviders`, `byok: true`): every reply runs on the user's own keys, as before.
 - **Both** (`hostProviders` and `byok: true`, the default): a user's own key wins for its Provider; otherwise the Host's Models answer.
 
@@ -293,3 +479,42 @@ const client = createChatClient({ baseUrl: "/api/chat" });
 ```
 
 The `router` adapter maps the chat pages (`new`, `conversation`, `keys`) to your URLs. It provides `Link`, `navigate(page)`, `useLocation()` and `shareUrl(token)`. Pass your own TanStack Query client as `queryClient` if you have one; otherwise the provider creates its own.
+
+### Text and locale
+
+The dictionary, `messages`, covers the words the SDK shows for relative times, the Conversation list's date groups and the labels that are listed in the SDK's dictionary (`core/shared/i18n`). Other text is still English and moves into the dictionary over time. Dates, times and numbers are formatted in `locale`. Both are optional and English (`"en"`) is the default.
+
+```tsx
+import { type Messages } from "@ai-chat/chat-sdk/client";
+
+const messages: Partial<Messages> = {
+  "time.today": "Heute",
+  "time.minutesAgo": ({ count }) => `vor ${count} Min.`,
+};
+
+<ChatProvider client={client} router={router} messages={messages} locale="de">
+  {children}
+</ChatProvider>;
+```
+
+- Keys are the English dictionary's keys (`en` in `core/shared/i18n`, exported from `@ai-chat/chat-sdk/client` with the `Messages` type). Your editor checks them, so a misspelt key is an error.
+- A value is a string, or a function of its params. Use `Intl.PluralRules` inside the function for plural forms; there is no i18n library.
+- A key you leave out falls back to English, so a partial dictionary works.
+- The dictionary lives in the SDK, so it survives copying a new version of the SDK in: translate once, pass it in.
+- Build `messages` once, outside render (a module-level constant). A new object on every render gives the provider a new value and re-renders the chat UI.
+- An unknown key shows as itself.
+- `useI18n()` gives a component `{ t, locale }`, the same translator the SDK uses.
+
+## Phones and installing
+
+`ui/` is built for phones: safe areas around the top bar, drawer, composer and full-screen surfaces; tap targets at least 44px on small screens; a 16px composer that doesn't zoom on iOS and stays above the keyboard; code blocks and tables that scroll sideways inside the reply; an Artifact that opens full screen; and full-width Approval buttons. Your Host needs a `viewport-fit=cover` viewport meta for the safe-area insets to be non-zero.
+
+The signed-in shell takes an `installPrompt` node for your app's install UI, shown at the bottom of the drawer. `apps/web` fills it with a row that offers Install on Chromium and the Share steps on iOS, and goes once installed or dismissed:
+
+```tsx
+<AppShell userMenu={<UserMenu />} installPrompt={<InstallPrompt />}>
+  {children}
+</AppShell>
+```
+
+If your Host has a service worker (for an installable app, or for offline pages), it must never intercept `${basePath}/*` (the chat's API, MCP callback and export routes) or `/share/*` (Shared links). Those answers must always come from the server, never from a cache. The `apps/web` worker (`public/sw.js`) skips both, and a Host's worker should do the same.

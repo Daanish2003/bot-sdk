@@ -6,12 +6,15 @@ import { toast } from "sonner";
 
 import { relativeTime } from "../../core/client/relative-time";
 import { invalidateConversationList } from "../../core/client/react/conversation-list";
-import { useChatAdapter } from "../../core/client/react/provider";
+import { useChatAdapter, useI18n } from "../../core/client/react/provider";
+import { serverErrorText } from "../../core/client/rpc-error";
 
 /** Settings: every Shared link the user has, with copy and revoke. */
 export function SharedLinksSection() {
   const queryClient = useQueryClient();
   const { orpc, shareUrl } = useChatAdapter();
+  const i18n = useI18n();
+  const { t } = i18n;
   const links = useQuery(orpc.share.list.queryOptions());
   const remove = useMutation(
     orpc.share.delete.mutationOptions({
@@ -23,24 +26,22 @@ export function SharedLinksSection() {
           invalidateConversationList(queryClient, orpc),
         ]);
       },
-      onError: (error) => toast.error(error.message),
+      onError: (error) => toast.error(serverErrorText(i18n, error)),
     }),
   );
 
   return (
     <section className="space-y-2">
-      <h2 className="text-sm font-medium">Shared links</h2>
-      <p className="text-xs text-muted-foreground">
-        Anyone with a link can read its Conversation. Revoking a link stops its URL working at once.
-      </p>
+      <h2 className="text-sm font-medium">{t("settings.sharedLinks")}</h2>
+      <p className="text-xs text-muted-foreground">{t("settings.sharedLinksHelp")}</p>
       {links.isError && (
         <p role="alert" className="text-xs text-destructive">
-          Couldn't load your Shared links: {links.error.message}
+          {t("settings.sharedLinksLoadFailed", { message: serverErrorText(i18n, links.error) })}
         </p>
       )}
       {links.isSuccess && links.data.length === 0 && (
         <p className="rounded-xl border px-4 py-3 text-sm text-muted-foreground">
-          You haven't shared any Conversations.
+          {t("settings.noSharedLinks")}
         </p>
       )}
       {links.isSuccess && links.data.length > 0 && (
@@ -50,7 +51,7 @@ export function SharedLinksSection() {
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{link.title}</p>
                 <p className="text-xs text-muted-foreground">
-                  Shared {relativeTime(link.sharedAt)}
+                  {t("settings.sharedAgo", { time: relativeTime(i18n, link.sharedAt) })}
                 </p>
               </div>
               <CopyLinkButton url={shareUrl(link.token)} />
@@ -60,7 +61,7 @@ export function SharedLinksSection() {
                 disabled={remove.isPending}
                 onClick={() => remove.mutate({ conversationId: link.conversationId })}
               >
-                Revoke
+                {t("settings.revoke")}
               </Button>
             </li>
           ))}
@@ -71,6 +72,7 @@ export function SharedLinksSection() {
 }
 
 function CopyLinkButton({ url }: { url: string }) {
+  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     try {
@@ -78,15 +80,15 @@ function CopyLinkButton({ url }: { url: string }) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1_500);
     } catch {
-      toast.error("Couldn't copy the link");
+      toast.error(t("settings.copyFailed"));
     }
   };
   return (
     <Button
       variant="ghost"
       size="icon-xs"
-      aria-label={copied ? "Copied" : "Copy link"}
-      title="Copy link"
+      aria-label={copied ? t("settings.copied") : t("settings.copyLink")}
+      title={t("settings.copyLink")}
       onClick={() => void copy()}
     >
       {copied ? <CheckIcon /> : <CopyIcon />}

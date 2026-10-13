@@ -9,7 +9,7 @@ import { describeSearch, describeSearches, domainOf } from "../../core/client/we
 import { SourceChips } from "./source-chips";
 
 import { useByok } from "../../core/client/react/byok";
-import { useChatAdapter } from "../../core/client/react/provider";
+import { useChatAdapter, useI18n } from "../../core/client/react/provider";
 
 /**
  * Back-to-back web searches in a reply (often just one): a slim line with their state, announced
@@ -19,10 +19,11 @@ import { useChatAdapter } from "../../core/client/react/provider";
  */
 export function SearchRow({ searches, sources }: { searches: WebSearchPart[]; sources: Source[] }) {
   const { Link } = useChatAdapter();
+  const i18n = useI18n();
   const byok = useByok();
   const [open, setOpen] = useState(false);
   const listId = useId();
-  const { text, keySettings, failed } = describeSearches(searches);
+  const { text, keySettings, failed } = describeSearches(i18n, searches);
   const several = searches.length > 1;
   const expandable = several || searches.some((search) => search.results.length > 0);
   const running = searches.some((search) => search.state === "running");
@@ -58,7 +59,7 @@ export function SearchRow({ searches, sources }: { searches: WebSearchPart[]; so
         </span>
         {keySettings && byok && (
           <Link page={{ to: "keys" }} className="font-medium underline underline-offset-2">
-            Key settings
+            {i18n.t("chat.keySettings")}
           </Link>
         )}
       </div>
@@ -66,7 +67,7 @@ export function SearchRow({ searches, sources }: { searches: WebSearchPart[]; so
         <div id={listId} className="space-y-3 border-l pl-3">
           {searches.map((search) => (
             <div key={search.toolCallId} className="space-y-2">
-              {several && <p className="italic">{describeSearch(search).text}</p>}
+              {several && <p className="italic">{describeSearch(i18n, search).text}</p>}
               <SearchResults search={search} sources={sources} />
             </div>
           ))}

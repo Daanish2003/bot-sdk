@@ -1,3 +1,4 @@
+import type { I18n } from "../shared/i18n";
 import type { AttachmentInfo } from "../shared/attachments/kinds";
 import type { SiblingPosition } from "../shared/chat/branches";
 import type { ActiveBranchMessage, ClientMessage } from "../shared/chat/client-message";
@@ -7,7 +8,7 @@ import type { UIMessage } from "@tanstack/ai-client";
 /** What the server knows about a Message beyond its parts, kept in `UIMessage.metadata`. */
 export type MessageInfo = Pick<
   ClientMessage,
-  "model" | "reasoningEffort" | "status" | "error" | "errorReason" | "usage"
+  "model" | "reasoningEffort" | "status" | "error" | "errorReason" | "usage" | "rating" | "hidden"
 >;
 
 /**
@@ -31,7 +32,9 @@ export function toUIMessages(messages: ActiveBranchMessage[]): UIMessage[] {
       error,
       errorReason,
       usage,
+      rating,
       contextStartId,
+      hidden,
       siblings,
       attachments,
     }) => ({
@@ -46,6 +49,8 @@ export function toUIMessages(messages: ActiveBranchMessage[]): UIMessage[] {
         error,
         errorReason,
         usage,
+        rating,
+        hidden,
         contextStartId,
         siblings,
         attachments,
@@ -82,7 +87,7 @@ export function contextCutIds(messages: UIMessage[]): Set<string> {
 
 /** A Shared link's Messages, for read-only `MessageRow`s. */
 export function sharedToUIMessages(messages: SharedConversation["messages"]): UIMessage[] {
-  return messages.map(({ id, role, parts, attachments, createdAt, model, status }) => ({
+  return messages.map(({ id, role, parts, attachments, createdAt, model, status, hidden }) => ({
     id,
     role,
     parts: parts as UIMessage["parts"],
@@ -95,6 +100,9 @@ export function sharedToUIMessages(messages: SharedConversation["messages"]): UI
       error: null,
       errorReason: null,
       usage: null,
+      // A Shared link carries no Ratings.
+      rating: null,
+      hidden,
       attachments,
     } satisfies MessageInfo & {
       attachments: AttachmentChip[];
@@ -139,34 +147,53 @@ export function messageInfo(message: UIMessage): MessageInfo {
     error: info?.error ?? null,
     errorReason: info?.errorReason ?? null,
     usage: info?.usage ?? null,
+    rating: info?.rating ?? null,
+    hidden: info?.hidden ?? false,
   };
 }
 
+/** Whether a stream chunk is the `moderated` custom chunk that ends a hidden reply's Run log (#269). */
+export function isModeratedChunk(chunk: { type: string; name?: string }): boolean {
+  return chunk.type === "CUSTOM" && chunk.name === "moderated";
+}
+
+/**
+ * The reply a `moderated` chunk hides (#269): every assistant Message after the last user Message,
+ * since a reply can span several Runs. Its parts are dropped and it reads as hidden.
+ */
+export function hideReply(messages: UIMessage[]): UIMessage[] {
+  let lastUser = -1;
+  messages.forEach((message, index) => {
+    if (message.role === "user") lastUser = index;
+  });
+  return messages.map((message, index) =>
+    index > lastUser && message.role === "assistant"
+      ? { ...message, parts: [], metadata: { ...message.metadata, hidden: true } }
+      : message,
+  );
+}
+
 /** What to tell the user about a Message that ended in `error`, and whether to link Key settings. */
-export function describeError({ error, errorReason }: MessageInfo) {
+export function describeError({ t }: I18n, { error, errorReason }: MessageInfo) {
   switch (errorReason) {
     case "invalid_key":
-      return { text: "The Provider rejected your API key.", keySettings: true };
+      return { text: t("chat.errorInvalidKey"), keySettings: true };
     case "rate_limited":
-      return {
-        text: "The Provider rate limited this request. Try again in a moment.",
-        keySettings: false,
-      };
+      return { text: t("chat.errorRateLimited"), keySettings: false };
     case "provider_error":
       return {
-        text: error
-          ? `The Provider returned an error: ${error}`
-          : "The Provider returned an error.",
+        text: error ? t("chat.errorProviderWith", { error }) : t("chat.errorProvider"),
         keySettings: false,
       };
   }
   // Errors with no reason are the run's own guards (ADR 0002).
+  // A stored code (spec #256); a row written before codes says "timed out", which reads the same.
   const text =
-    error === "timed out"
-      ? "The reply took too long and timed out."
+    error === "timed_out" || error === "timed out"
+      ? t("chat.errorTimedOut")
       : error === "interrupted"
-        ? "The reply was interrupted by a server restart."
-        : (error ?? "Something went wrong.");
+        ? t("chat.errorInterrupted")
+        : (error ?? t("chat.errorGeneric"));
   return { text, keySettings: false };
 }
 

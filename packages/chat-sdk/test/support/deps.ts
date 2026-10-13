@@ -1,6 +1,8 @@
 import { getTestDb } from "./test-database";
 
+import { postgresBlobStore } from "../../core/server/blob/postgres";
 import { createMemoryCounters } from "../../core/server/chat/counters";
+import { createHookEmitter } from "../../core/server/chat/hooks";
 import { createMemoryPubSub } from "../../core/server/chat/pubsub";
 import { createMemoryRunStreams } from "../../core/server/chat/run-streams";
 import type { AppDeps, Limits } from "../../core/server/deps";
@@ -26,8 +28,18 @@ export function createTestDeps({
     });
   return {
     db: getTestDb(),
+    blobStore: postgresBlobStore(getTestDb()),
+    isUserBlocked: async () => false,
     adapterFor: (model) => {
       throw new Error(`No fake adapter for model "${model}"; pass adapterFor to createTestDeps`);
+    },
+    imageAdapterFor: (model) => {
+      throw new Error(
+        `No fake image adapter for model "${model}"; pass imageAdapterFor to createTestDeps`,
+      );
+    },
+    transcriptionAdapterFor: (model) => {
+      throw new Error(`No fake transcription adapter for "${model}"; pass one to createTestDeps`);
     },
     searchClient: createFakeSearchClient(),
     tools: [],
@@ -43,6 +55,7 @@ export function createTestDeps({
       reapIntervalMs: 30_000,
       drainMs: 250_000,
       fetchTimeoutMs: 10_000,
+      imageTimeoutMs: 120_000,
       ...limits,
     },
     keyEncryptionSecrets: [testKeyEncryptionSecret],
@@ -50,9 +63,15 @@ export function createTestDeps({
     hostTools: [],
     mcpServers: [],
     fetchAllowHosts: [],
+    artifacts: false,
     byok: true,
+    defaultBackgroundModel: null,
+    defaultImageModel: null,
     getQuota: async () => null,
     lifecycle: { stopping: false, runs: new Map() },
+    // Silent, like the handler's logger in `support/sdk.ts`: the tests assert on rows, not logs.
+    logger: { error: () => {} },
+    hooks: createHookEmitter(undefined, { error: () => {} }),
     ...overrides,
     fetch,
     ollamaFetch: overrides.ollamaFetch ?? fetch,

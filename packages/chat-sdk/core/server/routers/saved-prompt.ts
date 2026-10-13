@@ -1,4 +1,3 @@
-import { ORPCError } from "@orpc/server";
 import { and, asc, count, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 
@@ -11,28 +10,35 @@ import {
 import { savedPrompt } from "../db/schema/saved-prompt";
 import { uuidv7 } from "../lib/uuidv7";
 import { protectedProcedure } from "../procedures";
+import { rpcError } from "../rpc-error";
 
 const savedPromptInput = z.object({ name: z.string(), text: z.string() });
 
 /** Refuses a name or text the rules don't allow; the message is the one the form shows. */
 function checkSavedPrompt({ name, text }: { name: string; text: string }) {
   if (!savedPromptNamePattern.test(name)) {
-    throw new ORPCError("BAD_REQUEST", { message: savedPromptNameMessage });
+    throw rpcError("BAD_REQUEST", "error.savedPromptName", savedPromptNameMessage);
   }
   if (text.trim() === "") {
-    throw new ORPCError("BAD_REQUEST", { message: "Text can't be blank" });
+    throw rpcError("BAD_REQUEST", "error.savedPromptTextBlank", "Text can't be blank");
   }
   if (text.length > savedPromptTextMaxChars) {
-    throw new ORPCError("BAD_REQUEST", {
-      message: `Text is limited to ${savedPromptTextMaxChars.toLocaleString("en-US")} characters`,
-    });
+    throw rpcError(
+      "BAD_REQUEST",
+      "error.savedPromptTextTooLong",
+      `Text is limited to ${savedPromptTextMaxChars.toLocaleString("en-US")} characters`,
+      { max: savedPromptTextMaxChars },
+    );
   }
 }
 
 function nameClash(name: string) {
-  return new ORPCError("CONFLICT", {
-    message: `You already have a Saved prompt named "${name}"`,
-  });
+  return rpcError(
+    "CONFLICT",
+    "error.savedPromptNameTaken",
+    `You already have a Saved prompt named "${name}"`,
+    { name },
+  );
 }
 
 /**
@@ -84,9 +90,12 @@ export const savedPromptRouter = {
       .from(savedPrompt)
       .where(eq(savedPrompt.userId, userId));
     if ((counted?.total ?? 0) >= savedPromptLimit) {
-      throw new ORPCError("FORBIDDEN", {
-        message: `You have ${savedPromptLimit} Saved prompts. Delete one first.`,
-      });
+      throw rpcError(
+        "FORBIDDEN",
+        "error.savedPromptLimit",
+        `You have ${savedPromptLimit} Saved prompts. Delete one first.`,
+        { max: savedPromptLimit },
+      );
     }
     const id = uuidv7();
     try {
@@ -109,7 +118,8 @@ export const savedPromptRouter = {
         .select({ id: savedPrompt.id })
         .from(savedPrompt)
         .where(and(eq(savedPrompt.id, input.id), eq(savedPrompt.userId, userId)));
-      if (!owned) throw new ORPCError("NOT_FOUND", { message: "Saved prompt not found" });
+      if (!owned)
+        throw rpcError("NOT_FOUND", "error.savedPromptNotFound", "Saved prompt not found");
       const [clash] = await db
         .select({ id: savedPrompt.id })
         .from(savedPrompt)
@@ -141,7 +151,7 @@ export const savedPromptRouter = {
         .where(and(eq(savedPrompt.id, input.id), eq(savedPrompt.userId, context.user.id)))
         .returning({ id: savedPrompt.id });
       if (removed.length === 0) {
-        throw new ORPCError("NOT_FOUND", { message: "Saved prompt not found" });
+        throw rpcError("NOT_FOUND", "error.savedPromptNotFound", "Saved prompt not found");
       }
     }),
 };

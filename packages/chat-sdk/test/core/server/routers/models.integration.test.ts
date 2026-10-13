@@ -53,6 +53,9 @@ describe("models.list", () => {
     await expect(client.models.list()).resolves.toEqual({
       models: [],
       defaultModel: null,
+      defaultBackgroundModel: null,
+      imageModels: [],
+      defaultImageModel: null,
       webSearchOnHost: false,
     });
   });

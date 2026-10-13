@@ -13,7 +13,11 @@ export type SearchResult = {
   publishedDate?: string;
 };
 
-export type SearchErrorReason = "invalid_key" | "quota_exhausted" | "failed";
+/**
+ * `quota_exceeded` is the Host's Quota refusing the search before it runs (ADR 0007), kept apart
+ * from `quota_exhausted`, which is Tavily's own monthly quota.
+ */
+export type SearchErrorReason = "invalid_key" | "quota_exhausted" | "quota_exceeded" | "failed";
 
 export const webSearchToolName = "web_search";
 
@@ -26,8 +30,28 @@ export const searchLimitError = "search limit reached";
 export const searchErrorMessages: Record<SearchErrorReason, string> = {
   invalid_key: "Tavily rejected the API key",
   quota_exhausted: "Tavily's monthly quota is used up",
+  quota_exceeded: "Over this window's Quota, so the search wasn't run",
   failed: "The web search failed",
 };
+
+/**
+ * The dictionary code a failed search is stored under (spec #256): the same text the status line
+ * shows. The Model reads `searchErrorMessages` instead, so its text stays English.
+ */
+export const searchErrorCodes: Record<SearchErrorReason, string> = {
+  invalid_key: "chat.searchFailedKey",
+  quota_exhausted: "chat.searchFailedQuota",
+  quota_exceeded: "chat.searchNotRunQuota",
+  failed: "chat.searchFailed",
+};
+
+/** The reason a stored search code stands for; an unknown code reads as a generic failure. */
+export function searchReasonOfCode(code: string | undefined): SearchErrorReason {
+  const reason = (Object.keys(searchErrorCodes) as SearchErrorReason[]).find(
+    (key) => searchErrorCodes[key] === code,
+  );
+  return reason ?? "failed";
+}
 
 /**
  * The `web_search` tool result the Model sees, and `useChat` streams. A failed search carries
@@ -58,7 +82,12 @@ export function webSearchOf(part: MessagePart): WebSearchPart | null {
     return { ...search, state: "done", results: output.results };
   }
   if (typeof output?.error === "string") {
-    return { ...search, state: "error", results: [], errorReason: output.reason ?? "failed" };
+    return {
+      ...search,
+      state: "error",
+      results: [],
+      error: { code: searchErrorCodes[output.reason ?? "failed"] },
+    };
   }
   // A call that ended without a result was cancelled.
   return { ...search, state: part.state === "error" ? "cancelled" : "running", results: [] };

@@ -9,6 +9,7 @@ import { ChatProvider, type ChatRouter } from "../../../core/client/react/provid
 import { Composer } from "../../../ui/chat/composer";
 import { ToolCallRow } from "../../../ui/chat/tool-call-row";
 import { ConversationMenuItems, TopBar } from "../../../ui/shell/top-bar";
+import { renderInChat } from "../../support/chat-provider";
 
 const router: ChatRouter = {
   Link: () => null,
@@ -76,7 +77,7 @@ describe("printing a Conversation", () => {
     const call = toolCallOf(part);
     if (!call) throw new Error("Expected a tool call");
 
-    const markup = renderToStaticMarkup(createElement(ToolCallRow, { call }));
+    const markup = renderInChat(createElement(ToolCallRow, { call }));
 
     expect(markup).toContain("print:block");
     expect(markup).toContain("{&quot;zone&quot;:&quot;UTC&quot;}");

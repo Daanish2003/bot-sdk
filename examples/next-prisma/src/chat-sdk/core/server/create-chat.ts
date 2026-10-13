@@ -1,14 +1,23 @@
 import { onError } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
+import { and, eq } from "drizzle-orm";
+import { z } from "zod";
 
 import { handleChat } from "./chat/handle-chat";
 import type { HostServerTool } from "./chat/host-tools";
+import { type BlobStore, generatedImageBlobKey } from "./blob/store";
+import { generatedImage } from "./db/schema/generated-image";
+import { postgresBlobStore } from "./blob/postgres";
 import { webSearchToolName } from "../shared/chat/web-search";
 import { fetchUrlToolName } from "../shared/chat/fetch-url";
+import { createArtifactToolName, updateArtifactToolName } from "../shared/chat/artifact";
 import { handleJoin } from "./chat/join-run";
+import { transcriptionProviders } from "./chat/transcription";
 import type { ChatUser, Context } from "./context";
 import { createDb } from "./db/index";
-import { quotaLookup } from "./chat/quota";
+import { quotaLookup, quotaState, type QuotaState } from "./chat/quota";
+import { ratingTotals, type RatingTotal } from "./admin/ratings";
+import { usageByDay, usageTotals, type UsageByDay, type UsageTotal } from "./admin/usage";
 import {
   createAppDeps,
   type AppDeps,
@@ -17,16 +26,18 @@ import {
   type QuotaSetting,
 } from "./deps";
 import { createLifecycle } from "./lifecycle";
+import type { ChatHooks } from "./chat/hooks";
 import { deleteUserData } from "./delete-user";
 import { type McpServerConfig, checkMcpServers } from "./mcp/servers";
 import { callbackRoute, connectRoute } from "./mcp/routes";
 import { exportUserData, type UserExport } from "./export-user";
+import { stopUserRuns } from "./chat/run";
 import { countUnreadableCredentials, rotateCredentialKeys } from "./credentials/store";
 import { assertMigrated, migrate as migrateSchema } from "./migrate";
 import { rateLimitedFor, resolveRateLimits, rpcRateLimits, type RateLimits } from "./rate-limits";
 import { memoryRuntime, type ChatRuntime } from "./runtime";
 import { appRouter } from "./routers/index";
-import { loadSharedConversation } from "./share/store";
+import { loadSharedConversation, loadSharedGeneratedImage } from "./share/store";
 import type { SharedConversation } from "../shared/share/conversation";
 
 export type ChatHandler = (request: Request) => Promise<Response>;
@@ -56,7 +67,16 @@ export type CreateChatOptions = {
    * so without this option there are no per-IP limits.
    */
   getClientIp?: (request: Request) => string | null | Promise<string | null>;
+  /**
+   * Where the SDK's own failures go (background writes, usage rows, title generation, the database
+   * pool, the reaper) and the RPC calls' errors. Defaults to `console`.
+   */
   logger?: Logger;
+  /**
+   * The Host's callbacks into the SDK. Each hook is optional and runs after its change is written,
+   * never awaited, at most once and without retries (README, "Host hooks").
+   */
+  hooks?: ChatHooks;
   /**
    * The Host's own credentials (ADR 0007). A Provider entry carries its Models; a Tool entry (`tool:
    * "tavily"`) carries its price per search. Never stored.
@@ -64,6 +84,23 @@ export type CreateChatOptions = {
   hostProviders?: Array<HostProvider | HostTool>;
   /** Whether users may use their own Provider credentials. Defaults to `true` (ADR 0007). */
   byok?: boolean;
+  /**
+   * The Host's default Background Model: a `"provider:model"` id of one of the `hostProviders`
+   * Models. Titles use it when a user picks none; `start()` refuses any other id.
+   */
+  defaultBackgroundModel?: string;
+  /**
+   * The Host's default Image Model: a `"provider:model"` id of one of the `hostProviders`'s Image
+   * Models. Image generation uses it when a user picks none; with none, there are no Host images.
+   * `start()` refuses any other id.
+   */
+  defaultImageModel?: string;
+  /**
+   * The image adapter for an Image Model's `(model, credentials)`, or `undefined` for none. Defaults
+   * to the production adapters, which are not wired yet (spec #278, ticket #311), so no Image Model
+   * offers the image tool until they are. A Host passes a fake here to try the tool.
+   */
+  imageAdapterFor?: AppDeps["imageAdapterFor"];
   /**
    * A user's Quota on Host credentials, or one fixed Quota for everyone; `null` or unset is
    * unlimited (ADR 0007).
@@ -87,6 +124,22 @@ export type CreateChatOptions = {
    * redirect URI to register.
    */
   mcpServers?: McpServerConfig[];
+  /**
+   * Where file bytes are kept (ADR 0015). Defaults to a `chat.blob` table in the same database;
+   * a Host with object storage passes its store, and then the bytes of files already stored
+   * stay where they are.
+   */
+  blobStore?: BlobStore;
+  /**
+   * Whether the Host has banned a user (spec #277). A banned owner's Shared links are not found:
+   * they can't be read or continued. Unset, nobody is blocked.
+   */
+  isUserBlocked?: (userId: string) => boolean | Promise<boolean>;
+  /**
+   * Turns Artifacts on (ADR 0016): the `create_artifact` tool for a Model with tools, the side
+   * panel and the version route. Off by default, and then none of them exist.
+   */
+  artifacts?: boolean;
 };
 
 /**
@@ -109,18 +162,31 @@ export function createChatHandler(
   const exportPath = `${prefix}/export`;
   const mcpConnectPath = `${prefix}/mcp/connect`;
   const mcpCallbackPath = `${prefix}/mcp/callback`;
-  const sharedReadPath = `${rpcPrefix}/share/get`;
+  const generatedImagesPath = `${prefix}/generated-images/`;
+  const sharedPath = `${prefix}/shared/`;
+  // The RPCs a signed-out visitor of a Shared link may call (ADR 0004, ADR 0016).
+  const sharedReadPaths = [`${rpcPrefix}/share/get`, `${rpcPrefix}/share/artifactVersion`];
   const rpc = new RPCHandler(appRouter, {
     interceptors: [onError((error) => logger.error(error))],
   });
 
   return async (request) => {
     const { pathname } = new URL(request.url);
+    // A Generated image on a Shared link is public: the link's token is the only key (ADR 0004).
+    const sharedImage = /^([^/]+)\/generated-images\/([^/]+)$/.exec(
+      pathname.startsWith(sharedPath) ? pathname.slice(sharedPath.length) : "",
+    );
+    if (sharedImage && request.method === "GET") {
+      const download = new URL(request.url).searchParams.get("download") === "1";
+      const [, token, id] = sharedImage;
+      return sharedGeneratedImageResponse(deps, token!, id!, download);
+    }
     const user = await getUser(request);
-    if (!user && pathname !== sharedReadPath) return unauthorized();
+    const sharedRead = sharedReadPaths.includes(pathname);
+    if (!user && !sharedRead) return unauthorized();
 
     if (pathname === rpcPrefix || pathname.startsWith(`${rpcPrefix}/`)) {
-      if (pathname === sharedReadPath && getClientIp) {
+      if (sharedRead && getClientIp) {
         const refused = await sharedLinkRefusal(deps, await getClientIp(request));
         if (refused) return refused;
       }
@@ -140,6 +206,15 @@ export function createChatHandler(
     }
     if (user && pathname === exportPath && request.method === "GET") {
       return exportResponse(deps, user.id);
+    }
+    if (user && request.method === "GET" && pathname.startsWith(generatedImagesPath)) {
+      const download = new URL(request.url).searchParams.get("download") === "1";
+      return generatedImageResponse(
+        deps,
+        user.id,
+        pathname.slice(generatedImagesPath.length),
+        download,
+      );
     }
     if (
       user &&
@@ -184,35 +259,70 @@ export function createChat(options: CreateChatOptions): {
    * as a one-off command, never in the pre-deploy step.
    */
   rotateKeys: () => Promise<{ reencrypted: number; unreadable: number }>;
+  /**
+   * Server-only reads for the Host's Admin views (spec #277). No HTTP route: the Host decides
+   * who may call them. They never return Conversation content.
+   */
+  admin: {
+    /** Every user's calls on Host credentials created in `[since, until)`. */
+    usageTotals: (range: { since: Date; until: Date }) => Promise<UsageTotal[]>;
+    /** One user's calls per UTC day and Model in `[since, until)` (spec #277). */
+    usage: (args: { userId: string; since: Date; until: Date }) => Promise<UsageByDay[]>;
+    /** A user's budget and spend in micros, with its window's reset time; `null` when unlimited. */
+    quota: (userId: string) => Promise<QuotaState | null>;
+    /**
+     * Stops every live Run of the user's, through the same path as Stop (spec #277). A Run whose
+     * owner is gone ends `stopped` here; the others end when their owner sees the Stop.
+     */
+    stopRuns: (userId: string) => Promise<void>;
+    /** 👍 and 👎 counts per Model over Ratings stamped at or after `since` (spec #277). */
+    ratingTotals: (range: { since: Date }) => Promise<RatingTotal[]>;
+  };
 } {
   if (options.keyEncryptionSecrets.length === 0) {
     throw new Error("keyEncryptionSecrets must hold at least one secret");
   }
   checkMcpServers(options.mcpServers ?? [], options.fetchAllowHosts);
-  for (const builtIn of [webSearchToolName, fetchUrlToolName]) {
+  const builtIns = [
+    webSearchToolName,
+    fetchUrlToolName,
+    ...(options.artifacts ? [createArtifactToolName, updateArtifactToolName] : []),
+  ];
+  for (const builtIn of builtIns) {
     if (options.tools?.some((tool) => tool.name === builtIn)) {
       throw new Error(`A Host tool can't be named "${builtIn}": the SDK's tool has it`);
     }
   }
+  const logger = options.logger ?? console;
   let deps: AppDeps | undefined;
   const getDeps = () => {
-    deps ??= createAppDeps({
-      db: createDb({ DATABASE_URL: options.databaseUrl }),
+    if (deps) return deps;
+    const db = createDb({ DATABASE_URL: options.databaseUrl }, logger);
+    deps = createAppDeps({
+      db,
+      blobStore: options.blobStore ?? postgresBlobStore(db),
+      isUserBlocked: options.isUserBlocked,
       keyEncryptionSecrets: options.keyEncryptionSecrets,
       runtime: options.runtime ?? memoryRuntime(),
       hostProviders: (options.hostProviders ?? []).filter(isHostProvider),
       hostTools: (options.hostProviders ?? []).filter(isHostTool),
       byok: options.byok ?? true,
+      defaultBackgroundModel: options.defaultBackgroundModel,
+      defaultImageModel: options.defaultImageModel,
+      imageAdapterFor: options.imageAdapterFor,
       getQuota: quotaLookup(options.getQuota),
       rateLimits: resolveRateLimits(options.rateLimits),
       tools: options.tools ?? [],
       fetchAllowHosts: options.fetchAllowHosts,
       mcpServers: options.mcpServers ?? [],
+      logger,
+      hooks: options.hooks,
+      artifacts: options.artifacts,
     });
     return deps;
   };
   let lifecycle: ReturnType<typeof createLifecycle> | undefined;
-  const getLifecycle = () => (lifecycle ??= createLifecycle(getDeps()));
+  const getLifecycle = () => (lifecycle ??= createLifecycle(getDeps(), logger));
   let handler: ChatHandler | undefined;
   return {
     handler: (request) => {
@@ -226,6 +336,48 @@ export function createChat(options: CreateChatOptions): {
       if (options.byok === false && !options.hostProviders?.length) {
         throw new Error("Configure hostProviders, byok, or both: with neither, no one can chat");
       }
+      for (const entry of options.hostProviders ?? []) {
+        if (isHostProvider(entry) && entry.transcriptionModels?.length) {
+          if (!transcriptionProviders.includes(entry.provider)) {
+            throw new Error(
+              `hostProviders: ${entry.provider} has no transcription adapter, so it can't list transcriptionModels`,
+            );
+          }
+        }
+      }
+      const defaultBackground = options.defaultBackgroundModel;
+      const hostProviders = (options.hostProviders ?? []).filter(isHostProvider);
+      if (
+        defaultBackground !== undefined &&
+        !hostProviders.some(({ provider, models }) =>
+          models.some((model) => `${provider}:${model.modelId}` === defaultBackground),
+        )
+      ) {
+        throw new Error(
+          `defaultBackgroundModel "${defaultBackground}" is not one of the hostProviders' Models`,
+        );
+      }
+      for (const { provider, imageModels = [] } of hostProviders) {
+        for (const model of imageModels) {
+          // A Host Image Model is priced per image; without a price its spend isn't recorded.
+          if (!(model.pricePerImageUsd >= 0)) {
+            throw new Error(
+              `Host Image Model "${provider}:${model.modelId}" needs a pricePerImageUsd`,
+            );
+          }
+        }
+      }
+      const defaultImage = options.defaultImageModel;
+      if (
+        defaultImage !== undefined &&
+        !hostProviders.some(({ provider, imageModels = [] }) =>
+          imageModels.some((model) => `${provider}:${model.modelId}` === defaultImage),
+        )
+      ) {
+        throw new Error(
+          `defaultImageModel "${defaultImage}" is not one of the hostProviders' Image Models`,
+        );
+      }
       await assertMigrated(options.databaseUrl);
       // Unreadable rows are reported, never a reason to refuse to boot (ADR 0010).
       const unreadable = await countUnreadableCredentials(getDeps());
@@ -237,6 +389,17 @@ export function createChat(options: CreateChatOptions): {
     stop: async () => {
       await getLifecycle().stop();
       await options.runtime?.close?.();
+    },
+    admin: {
+      usageTotals: (range) => usageTotals(getDeps(), range),
+      usage: ({ userId, since, until }) => usageByDay(getDeps(), userId, { since, until }),
+      quota: (userId) => quotaState(getDeps(), userId),
+      stopRuns: async (userId) => {
+        // As Stop does, each ended Run fires `onRunEnd` (#265).
+        const deps = getDeps();
+        for (const run of await stopUserRuns(deps, userId)) deps.hooks.fire("onRunEnd", run);
+      },
+      ratingTotals: (range) => ratingTotals(getDeps(), range),
     },
     deleteUser: (userId) => deleteUserData(getDeps(), userId),
     exportUser: (userId) => exportUserData(getDeps(), userId),
@@ -273,7 +436,7 @@ async function rpcRateLimitRefusal(
   );
   if (retryAfter === null) return null;
   return Response.json(
-    { message: "Too many requests; try again in a moment" },
+    { code: "error.tooManyRequests", params: {} },
     { status: 429, headers: { "Retry-After": String(retryAfter) } },
   );
 }
@@ -291,7 +454,7 @@ async function sharedLinkRefusal(deps: AppDeps, ip: string | null): Promise<Resp
   );
   if (retryAfter === null) return null;
   return Response.json(
-    { message: "Too many requests; try again in a moment" },
+    { code: "error.tooManyRequests", params: {} },
     { status: 429, headers: { "Retry-After": String(retryAfter) } },
   );
 }
@@ -305,15 +468,63 @@ async function exportResponse(deps: AppDeps, userId: string) {
   });
 }
 
+/**
+ * One of the user's Generated images, its bytes straight from the blob store (spec #278). Another
+ * user's image, an unknown id or an id that isn't one is 404. The bytes never change, so they are
+ * cached for good; `?download=1` names the file for saving.
+ */
+async function generatedImageResponse(
+  deps: AppDeps,
+  userId: string,
+  id: string,
+  download: boolean,
+): Promise<Response> {
+  if (!z.uuid().safeParse(id).success) return notFound();
+  const [row] = await deps.db
+    .select({ mediaType: generatedImage.mediaType })
+    .from(generatedImage)
+    .where(and(eq(generatedImage.id, id), eq(generatedImage.userId, userId)));
+  const bytes = row ? await deps.blobStore.get(generatedImageBlobKey(id)) : null;
+  if (!row || !bytes) return notFound();
+  return imageResponse(id, row.mediaType, bytes, download);
+}
+
+/**
+ * One Generated image on a Shared link (spec #315), served to anyone with the token. Unknown or
+ * removed links, a blocked owner, and an image off the shared Branch are all 404.
+ */
+async function sharedGeneratedImageResponse(
+  deps: AppDeps,
+  token: string,
+  id: string,
+  download: boolean,
+): Promise<Response> {
+  if (!z.uuid().safeParse(id).success) return notFound();
+  const image = await loadSharedGeneratedImage(deps, token, id);
+  if (!image) return notFound();
+  return imageResponse(id, image.mediaType, image.bytes, download);
+}
+
+/** An image's bytes: immutable and cacheable, named for saving when `download` is set. */
+function imageResponse(id: string, mediaType: string, bytes: Uint8Array, download: boolean) {
+  const extension = mediaType === "image/jpeg" ? "jpg" : mediaType.split("/")[1];
+  return new Response(bytes as Uint8Array<ArrayBuffer>, {
+    headers: {
+      "Content-Type": mediaType,
+      "Cache-Control": "private, max-age=31536000, immutable",
+      ...(download && {
+        "Content-Disposition": `attachment; filename="generated-image-${id.slice(0, 8)}.${extension}"`,
+      }),
+    },
+  });
+}
+
 function unauthorized() {
-  return Response.json({ message: "Sign in to chat" }, { status: 401 });
+  return Response.json({ code: "error.unauthorized", params: {} }, { status: 401 });
 }
 
 function shuttingDown() {
-  return Response.json(
-    { message: "The chat is shutting down; try again shortly" },
-    { status: 503 },
-  );
+  return Response.json({ code: "error.shuttingDown", params: {} }, { status: 503 });
 }
 
 function notFound() {

@@ -9,7 +9,9 @@ import { ArrowUpIcon, SquareIcon } from "lucide-react";
 import { type KeyboardEvent, type ReactNode, useRef, useState } from "react";
 
 import { createName, rankSavedPrompts, slashQuery } from "../../core/client/saved-prompts-menu";
-import { useOrpc } from "../../core/client/react/provider";
+import { useI18n, useOrpc } from "../../core/client/react/provider";
+import { appendTranscript } from "../../core/client/voice";
+import { Dictation } from "./dictation";
 import { SavedPromptForm, SlashMenuList } from "./slash-menu";
 
 /**
@@ -24,7 +26,10 @@ export function Composer({
   children,
   attachments,
   attachmentsPending = false,
-  placeholder = "Message (Shift+Enter for a new line)",
+  placeholder,
+  value: controlledValue,
+  onValueChange,
+  refusal,
 }: {
   onSend: (text: string) => void;
   onStop?: () => void;
@@ -40,9 +45,17 @@ export function Composer({
   attachmentsPending?: boolean;
   /** Shown instead of the default hint, for example while a call waits for Approval. */
   placeholder?: string;
+  /** The text in the box. Leave it out and the composer keeps its own; pass it to restore a draft. */
+  value?: string;
+  onValueChange?: (value: string) => void;
+  /** Why the last Message was refused (#267), shown above the box. */
+  refusal?: string | null;
 }) {
+  const { t } = useI18n();
   const orpc = useOrpc();
-  const [value, setValue] = useState("");
+  const [ownValue, setOwnValue] = useState("");
+  const value = controlledValue ?? ownValue;
+  const setValue = onValueChange ?? setOwnValue;
   const [dismissed, setDismissed] = useState(false);
   const [active, setActive] = useState(0);
   const [creating, setCreating] = useState(false);
@@ -67,10 +80,21 @@ export function Composer({
     setValue("");
   };
 
+  // A transcript lands after the text already there; nothing is sent (spec #249). The text is read
+  // when the transcript arrives, so what was typed while it was transcribed is kept.
+  const latestValue = useRef(value);
+  latestValue.current = value;
+  const addTranscript = (transcript: string) =>
+    setValue(appendTranscript(latestValue.current, transcript));
+
   const insert = (text: string) => {
     setValue(text);
     setDismissed(true);
-    wrapRef.current?.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message"]')?.focus();
+    wrapRef.current
+      ?.querySelector<HTMLTextAreaElement>(
+        `textarea[aria-label="${CSS.escape(t("chat.messageLabel"))}"]`,
+      )
+      ?.focus();
   };
 
   const pick = (index: number) => {
@@ -92,6 +116,11 @@ export function Composer({
 
   return (
     <div ref={wrapRef} className="relative print:hidden">
+      {refusal && (
+        <p role="alert" className="text-xs text-destructive">
+          {refusal}
+        </p>
+      )}
       {menuOpen && (
         <div className="absolute bottom-full left-0 mb-2 w-full max-w-md overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-lg">
           {creating ? (
@@ -133,22 +162,25 @@ export function Composer({
       >
         {attachments}
         <PromptInputTextarea
-          placeholder={placeholder}
-          className="text-sm text-foreground"
-          aria-label="Message"
+          placeholder={placeholder ?? t("chat.composerPlaceholder")}
+          className="text-base text-foreground md:text-sm"
+          aria-label={t("chat.messageLabel")}
           onKeyDown={onKeyDown}
         />
         <PromptInputActions className="justify-between px-1 pt-1">
           <div className="flex items-center gap-1">{children}</div>
-          <Button
-            size="icon"
-            className="rounded-full"
-            disabled={streaming ? !onStop : !canSend}
-            onClick={streaming ? onStop : submit}
-            aria-label={streaming ? "Stop" : "Send"}
-          >
-            {streaming ? <SquareIcon className="fill-current" /> : <ArrowUpIcon />}
-          </Button>
+          <div className="flex items-center gap-1">
+            <Dictation onTranscript={addTranscript} />
+            <Button
+              size="icon"
+              className="rounded-full"
+              disabled={streaming ? !onStop : !canSend}
+              onClick={streaming ? onStop : submit}
+              aria-label={streaming ? t("chat.stop") : t("chat.send")}
+            >
+              {streaming ? <SquareIcon className="fill-current" /> : <ArrowUpIcon />}
+            </Button>
+          </div>
         </PromptInputActions>
       </PromptInput>
     </div>

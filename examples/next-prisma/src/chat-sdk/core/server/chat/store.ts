@@ -1,20 +1,32 @@
 import { conversation, message, type MessageRow } from "../db/schema/chat";
 import { sharedLink } from "../db/schema/share";
-import { and, desc, eq, isNotNull, isNull, type SQL, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, type SQL, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 
 import { attachmentsOfMessages } from "../attachments/store";
+import { deleteBlobsBestEffort } from "../blob/store";
+import { generatedImage } from "../db/schema/generated-image";
 import type { AppDeps } from "../deps";
+import { generatedImageKeysWhere, imagesOfMessages } from "./generated-image-store";
+import { withProjectId } from "./hooks";
 import { newestLeaf, pathTo, siblingPosition } from "../../shared/chat/branches";
 import { type ActiveBranchMessage, toClientMessage } from "../../shared/chat/client-message";
 import type { ReasoningChoice } from "../../shared/chat/models";
+import { liveConversation } from "./temporary";
 
 type Deps = Pick<AppDeps, "db">;
 
-/** Matches the Conversation `id` only when `userId` owns it. */
+/**
+ * Matches the Conversation `id` only when `userId` owns it and it is live: an expired Temporary
+ * Conversation is gone to every read and write until the sweep deletes it (spec #262).
+ */
 function ownConversation(userId: string, id: string) {
-  return and(eq(conversation.id, id), eq(conversation.userId, userId));
+  return and(
+    eq(conversation.id, id),
+    eq(conversation.userId, userId),
+    liveConversation(new Date()),
+  );
 }
 
 /** The user's Conversation, or `undefined` when it doesn't exist or belongs to someone else. */
@@ -98,14 +110,33 @@ export async function setConversationConnections(
 
 /**
  * Deletes the user's Conversation and, by cascade, its Messages and Shared link; `false` when it
- * isn't theirs.
+ * isn't theirs. Fires `onConversationDeleted` after the delete (#266).
  */
-export async function deleteConversation(deps: Deps, userId: string, id: string) {
-  const rows = await deps.db
-    .delete(conversation)
-    .where(ownConversation(userId, id))
-    .returning({ id: conversation.id });
-  return rows.length > 0;
+export async function deleteConversation(
+  deps: Pick<AppDeps, "db" | "hooks" | "blobStore" | "logger">,
+  userId: string,
+  id: string,
+) {
+  const { row, blobKeys } = await deps.db.transaction(async (tx) => {
+    // The Generated images of this Conversation: their rows go by cascade, their bytes after the commit.
+    const blobKeys = await generatedImageKeysWhere(
+      tx,
+      and(eq(generatedImage.userId, userId), imagesOfMessages(tx, eq(message.conversationId, id))),
+    );
+    const [row] = await tx
+      .delete(conversation)
+      .where(ownConversation(userId, id))
+      .returning({ id: conversation.id, projectId: conversation.projectId });
+    return { row, blobKeys };
+  });
+  await deleteBlobsBestEffort(deps, blobKeys);
+  if (!row) return false;
+  deps.hooks.fire("onConversationDeleted", {
+    userId,
+    conversationId: row.id,
+    ...withProjectId(row.projectId),
+  });
+  return true;
 }
 
 /** How many Conversations a user can have pinned at once. */
@@ -114,15 +145,17 @@ export const maxPinnedConversations = 20;
 /**
  * Pins the user's Conversation (a Project one too); `"not_found"` when it isn't theirs, `"limit"`
  * when they already have `maxPinnedConversations` pinned. Pinning a pinned Conversation keeps its
- * pin time. Pinning an archived Conversation unarchives it. Doesn't bump `lastMessageAt`.
+ * pin time. A Temporary Conversation is never pinned (`"temporary"`). Pinning an archived Conversation
+ * unarchives it. Doesn't bump `lastMessageAt`.
  */
 export async function pinConversation(
   deps: Deps,
   userId: string,
   id: string,
-): Promise<"pinned" | "not_found" | "limit"> {
+): Promise<"pinned" | "not_found" | "limit" | "temporary"> {
   const row = await findConversation(deps, userId, id);
   if (!row) return "not_found";
+  if (row.temporary) return "temporary";
   if (row.pinnedAt) return "pinned";
   const [counted] = await deps.db
     .select({ count: sql<number>`count(*)::int` })
@@ -164,7 +197,7 @@ export async function archiveConversation(deps: Deps, userId: string, id: string
 }
 
 /**
- * Archives every Conversation of the user that is in no Project, isn't pinned and isn't archived
+ * Archives every Conversation of the user that is in no Project, isn't pinned, Temporary or archived
  * yet, and returns how many. Doesn't bump `lastMessageAt`.
  */
 export async function archiveAllConversations(deps: Deps, userId: string) {
@@ -174,6 +207,7 @@ export async function archiveAllConversations(deps: Deps, userId: string) {
     .where(
       and(
         eq(conversation.userId, userId),
+        eq(conversation.temporary, false),
         isNull(conversation.projectId),
         isNull(conversation.pinnedAt),
         isNull(conversation.archivedAt),
@@ -271,6 +305,7 @@ export async function listConversations(
     deps,
     and(
       eq(conversation.userId, userId),
+      eq(conversation.temporary, false),
       isNull(conversation.archivedAt),
       projectId
         ? eq(conversation.projectId, projectId)
@@ -291,7 +326,11 @@ export async function listArchivedConversations(
 ) {
   return pageConversations(
     deps,
-    and(eq(conversation.userId, userId), isNotNull(conversation.archivedAt)),
+    and(
+      eq(conversation.userId, userId),
+      eq(conversation.temporary, false),
+      isNotNull(conversation.archivedAt),
+    ),
     cursor,
   );
 }
@@ -341,6 +380,7 @@ export async function listPinnedConversations(deps: Deps, userId: string) {
       and(
         eq(conversation.userId, userId),
         isNotNull(conversation.pinnedAt),
+        eq(conversation.temporary, false),
         isNull(conversation.archivedAt),
       ),
     )
@@ -354,8 +394,34 @@ export async function findMessage(deps: Deps, userId: string, id: string) {
     .select({ message })
     .from(message)
     .innerJoin(conversation, eq(conversation.id, message.conversationId))
-    .where(and(eq(message.id, id), eq(conversation.userId, userId)));
+    .where(and(eq(message.id, id), eq(conversation.userId, userId), liveConversation(new Date())));
   return row?.message;
+}
+
+/** The statuses whose Run has ended, so the reply can be rated (see **Rating** in CONTEXT.md). */
+const endedStatuses = ["complete", "stopped", "error"] as const;
+
+/**
+ * Sets the owner's Rating of an ended assistant reply, or clears it with null. Only the latest is
+ * kept. `live` covers a reply whose Run hasn't ended, checked again in the update so a Run that
+ * starts in between can't be rated.
+ */
+export async function rateMessage(
+  deps: Deps,
+  userId: string,
+  id: string,
+  rating: "up" | "down" | null,
+): Promise<"rated" | "not_found" | "not_assistant" | "live"> {
+  const owned = await findMessage(deps, userId, id);
+  if (!owned) return "not_found";
+  if (owned.role !== "assistant") return "not_assistant";
+  if (!(endedStatuses as readonly string[]).includes(owned.status)) return "live";
+  const updated = await deps.db
+    .update(message)
+    .set({ rating, ratedAt: rating ? new Date() : null })
+    .where(and(eq(message.id, id), inArray(message.status, endedStatuses)))
+    .returning({ id: message.id });
+  return updated.length ? "rated" : "live";
 }
 
 /** The Messages from a root down to `leafId`, oldest first. Empty without a leaf. */

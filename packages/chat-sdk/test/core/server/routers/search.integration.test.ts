@@ -484,6 +484,22 @@ describe("search.query Project filter", () => {
       nextCursor: null,
     });
   });
+
+  it("never returns the Messages of a Temporary Conversation", async () => {
+    const { user, client } = await signedIn();
+    const temporary = await insertConversation(user, { temporary: true });
+    await insertMessage({ conversationId: temporary.id, role: "user", text: "hidden thoughts" });
+    const plain = await insertConversation(user);
+    const shown = await insertMessage({
+      conversationId: plain.id,
+      role: "user",
+      text: "hidden in the open",
+    });
+
+    const result = await client.search.query({ q: "hidden" });
+
+    expect(result.hits.map((hit) => hit.messageId)).toEqual([shown.id]);
+  });
 });
 
 describe("search.query and archived Conversations", () => {

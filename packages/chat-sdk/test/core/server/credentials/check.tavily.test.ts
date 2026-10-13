@@ -31,6 +31,8 @@ describe("checkCredentials for the Tavily Tool credential", () => {
       status: "rejected",
       reason: "invalid_key",
       message: "Tavily rejected this API key.",
+      code: "error.keyRejected",
+      params: { label: "Tavily" },
     });
   });
 });

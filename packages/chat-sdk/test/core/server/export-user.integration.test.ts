@@ -4,13 +4,16 @@ import { describe, expect, it } from "vitest";
 
 import { createChat } from "../../../core/server/create-chat";
 import { saveCredentials } from "../../../core/server/credentials/store";
+import { artifact, artifactVersion } from "../../../core/server/db/schema/artifact";
 import { project } from "../../../core/server/db/schema/chat";
 import { savedPrompt } from "../../../core/server/db/schema/saved-prompt";
 import { sharedLink } from "../../../core/server/db/schema/share";
 import { userSettings } from "../../../core/server/db/schema/settings";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { insertAttachment, linkTestAttachments } from "../../support/attachments";
+import { fakePngBase64 } from "../../../core/server/chat/fake-image-adapter";
 import { insertConversation, insertMessage } from "../../support/conversations";
+import { insertGeneratedImage } from "../../support/generated-images";
 import { createTestDeps } from "../../support/deps";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 import { insertUser } from "../../support/users";
@@ -80,7 +83,8 @@ describe("createChat().exportUser", () => {
     await insertConversation(owner, { title: "Pinned", projectId, pinnedAt });
     await getTestDb().insert(userSettings).values({
       userId: owner.id,
-      titleModel: "anthropic:title-model",
+      backgroundModel: "anthropic:background-model",
+      imageModel: "openai:gpt-image-2",
       instructions: "Answer in French.",
     });
     const deps = createTestDeps();
@@ -113,7 +117,8 @@ describe("createChat().exportUser", () => {
       pinnedAt,
     });
     expect(exported.settings).toEqual({
-      titleModel: "anthropic:title-model",
+      backgroundModel: "anthropic:background-model",
+      imageModel: "openai:gpt-image-2",
       instructions: "Answer in French.",
     });
     const text = JSON.stringify(exported);
@@ -151,6 +156,35 @@ describe("createChat().exportUser", () => {
     ]);
   });
 
+  it("includes each Message's Rating, null while a reply is unrated", async () => {
+    const owner = await insertUser();
+    const conv = await insertConversation(owner, { title: "Rated" });
+    const question = await insertMessage({ conversationId: conv.id, role: "user", text: "Hi" });
+    const up = await insertMessage({
+      conversationId: conv.id,
+      parentId: question.id,
+      role: "assistant",
+      text: "Up",
+      rating: "up",
+      ratedAt: new Date(),
+    });
+    const unrated = await insertMessage({
+      conversationId: conv.id,
+      parentId: question.id,
+      role: "assistant",
+      text: "Plain",
+      active: true,
+    });
+
+    const exported = await chatFor().exportUser(owner.id);
+
+    expect(exported.version).toBe(1);
+    const byId = new Map(exported.conversations[0]!.messages.map((m) => [m.id, m]));
+    expect(byId.get(up.id)).toMatchObject({ rating: "up" });
+    expect(byId.get(unrated.id)).toMatchObject({ rating: null });
+    expect(byId.get(question.id)).toMatchObject({ rating: null });
+  });
+
   it("says which Conversations are archived, with the format version unchanged", async () => {
     const owner = await insertUser();
     const archivedAt = new Date("2026-10-11T09:00:00Z");
@@ -178,6 +212,140 @@ describe("createChat().exportUser", () => {
     expect(exported.version).toBe(1);
   });
 
+  it("exports every Artifact with every version on every Branch", async () => {
+    const owner = await insertUser();
+    const bystander = await insertUser();
+    const conv = await insertConversation(owner, { title: "Artifacts" });
+    const question = await insertMessage({
+      conversationId: conv.id,
+      role: "user",
+      text: "Make it",
+    });
+    const firstReply = await insertMessage({
+      conversationId: conv.id,
+      parentId: question.id,
+      role: "assistant",
+      text: "Here",
+    });
+    const firstUpdate = await insertMessage({
+      conversationId: conv.id,
+      parentId: firstReply.id,
+      role: "assistant",
+      text: "Updated",
+      active: true,
+    });
+    const siblingReply = await insertMessage({
+      conversationId: conv.id,
+      parentId: question.id,
+      role: "assistant",
+      text: "Another",
+    });
+    const siblingUpdate = await insertMessage({
+      conversationId: conv.id,
+      parentId: siblingReply.id,
+      role: "assistant",
+      text: "Another updated",
+    });
+    const createdAt = new Date("2026-10-06T09:00:00Z");
+    const updatedAt = new Date("2026-10-06T09:05:00Z");
+    await getTestDb()
+      .insert(artifact)
+      .values([
+        { id: "main-art", conversationId: conv.id, kind: "code", createdAt },
+        { id: "sibling-art", conversationId: conv.id, kind: "markdown", createdAt },
+      ]);
+    await getTestDb()
+      .insert(artifactVersion)
+      .values([
+        {
+          artifactId: "main-art",
+          messageId: firstReply.id,
+          number: 1,
+          title: "Script",
+          language: "python",
+          content: "print(1)",
+          createdAt,
+        },
+        {
+          artifactId: "main-art",
+          messageId: firstUpdate.id,
+          number: 2,
+          title: "Script",
+          language: "python",
+          content: "print(2)",
+          createdAt: updatedAt,
+        },
+        {
+          artifactId: "sibling-art",
+          messageId: siblingReply.id,
+          number: 1,
+          title: "Notes",
+          language: null,
+          content: "# Notes",
+          createdAt,
+        },
+        {
+          artifactId: "sibling-art",
+          messageId: siblingUpdate.id,
+          number: 2,
+          title: "Notes",
+          language: null,
+          content: "# Notes v2",
+          createdAt: updatedAt,
+        },
+      ]);
+    const theirs = await insertConversation(bystander, { title: "Theirs" });
+    await getTestDb()
+      .insert(artifact)
+      .values({ id: "theirs-art", conversationId: theirs.id, kind: "svg", createdAt });
+
+    const exported = await chatFor().exportUser(owner.id);
+
+    expect(exported.version).toBe(1);
+    expect(exported.artifacts).toHaveLength(2);
+    const byId = new Map(exported.artifacts.map((a) => [a.id, a]));
+    expect(byId.get("main-art")).toEqual({
+      id: "main-art",
+      conversationId: conv.id,
+      kind: "code",
+      versions: [
+        {
+          number: 1,
+          messageId: firstReply.id,
+          title: "Script",
+          language: "python",
+          content: "print(1)",
+          createdAt,
+        },
+        {
+          number: 2,
+          messageId: firstUpdate.id,
+          title: "Script",
+          language: "python",
+          content: "print(2)",
+          createdAt: updatedAt,
+        },
+      ],
+    });
+    expect(byId.get("sibling-art")).toMatchObject({
+      kind: "markdown",
+      versions: [
+        { number: 1, messageId: siblingReply.id, content: "# Notes" },
+        { number: 2, messageId: siblingUpdate.id, content: "# Notes v2" },
+      ],
+    });
+    expect(byId.has("theirs-art")).toBe(false);
+  });
+
+  it("exports an empty artifacts list for a user with no Artifacts", async () => {
+    const owner = await insertUser();
+    await insertConversation(owner, { title: "Plain" });
+
+    const exported = await chatFor().exportUser(owner.id);
+
+    expect(exported.artifacts).toEqual([]);
+  });
+
   it("exports an empty document for an unknown user id", async () => {
     const exported = await chatFor().exportUser(randomUUID());
 
@@ -186,7 +354,40 @@ describe("createChat().exportUser", () => {
       conversations: [],
       projects: [],
       sharedLinks: [],
-      settings: { titleModel: null, instructions: null },
+      artifacts: [],
+      settings: { backgroundModel: null, imageModel: null, instructions: null },
     });
+  });
+});
+
+describe("createChat().exportUser, Temporary Conversations", () => {
+  it("includes an existing Temporary Conversation, marked temporary", async () => {
+    const owner = await insertUser();
+    const temporary = await insertConversation(owner, { temporary: true, title: null });
+    await insertMessage({ conversationId: temporary.id, role: "user", text: "Private" });
+    const ordinary = await insertConversation(owner, { title: "Ordinary" });
+
+    const exported = await chatFor().exportUser(owner.id);
+
+    const byId = new Map(exported.conversations.map((row) => [row.id, row]));
+    expect(byId.get(temporary.id)).toMatchObject({ temporary: true, messages: [{ role: "user" }] });
+    expect(byId.get(ordinary.id)).toMatchObject({ temporary: false });
+  });
+});
+
+describe("createChat().exportUser, Generated images", () => {
+  it("lists each image by id, Model and prompt, with no bytes", async () => {
+    const owner = await insertUser();
+    const deps = createTestDeps();
+    const conv = await insertConversation(owner, { title: "Pictures" });
+    const imageId = await insertGeneratedImage(deps, owner, conv.id, { prompt: "a red bicycle" });
+
+    const exported = await chatFor().exportUser(owner.id);
+
+    const reply = exported.conversations[0]!.messages.find((row) => row.role === "assistant");
+    expect(reply?.generatedImages).toEqual([
+      { id: imageId, model: "openai:gpt-image-1-mini", prompt: "a red bicycle" },
+    ]);
+    expect(JSON.stringify(exported)).not.toContain(fakePngBase64);
   });
 });

@@ -1,4 +1,3 @@
-import { ORPCError } from "@orpc/server";
 import { z } from "zod";
 
 import { checkCredentials } from "../credentials/check";
@@ -9,6 +8,7 @@ import {
 } from "../../shared/credentials/services";
 import { deleteCredentials, listCredentials, saveCredentials } from "../credentials/store";
 import { protectedProcedure } from "../procedures";
+import { rpcError } from "../rpc-error";
 
 /** Provider credentials and Tool credentials. Write-only: the client only ever sees hints (ADR 0003). */
 export const credentialsRouter = {
@@ -19,15 +19,14 @@ export const credentialsRouter = {
 
   save: protectedProcedure.input(saveCredentialsInput).handler(async ({ context, input }) => {
     if (!context.deps.byok) {
-      throw new ORPCError("FORBIDDEN", { message: "Your own keys are turned off on this app" });
+      throw rpcError("FORBIDDEN", "error.byokOff", "Your own keys are turned off on this app");
     }
     // The user's Ollama host is not guarded (see `AppDeps.ollamaFetch`).
     const fetch = input.service === "ollama" ? context.deps.ollamaFetch : context.deps.fetch;
     const result = await checkCredentials(input.service, input.fields, fetch);
     if (result.status === "rejected") {
-      throw new ORPCError("BAD_REQUEST", {
-        message: result.message,
-        data: { reason: result.reason },
+      throw rpcError("BAD_REQUEST", result.code, result.message, result.params, {
+        reason: result.reason,
       });
     }
     const summary = {

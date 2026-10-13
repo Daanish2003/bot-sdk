@@ -27,7 +27,8 @@ const webSearchDefinition = toolDefinition({
  * they change. Failures become the search's error state and an `{ error }` result, so the reply
  * continues. After `maxSearchesPerReply` searches, a call gets `searchLimitError` and searches nothing.
  * `recordSearch` runs after each search that returns results, when the search is on Host credentials
- * (ADR 0007); it is awaited, so the usage row exists before the Run ends.
+ * (ADR 0007); it is awaited, so the usage row exists before the Run ends. `mayRun` is checked before
+ * each search: when it refuses, the search is not run and is stored as `quota_exceeded` (ADR 0007).
  */
 export function createWebSearchTool({
   searchClient,
@@ -35,12 +36,14 @@ export function createWebSearchTool({
   parts,
   onChange,
   recordSearch,
+  mayRun,
 }: {
   searchClient: SearchClient;
   credentials: Credentials;
   parts: ReturnType<typeof createPartsBuilder>;
   onChange: () => void;
   recordSearch?: () => Promise<void>;
+  mayRun: () => Promise<boolean>;
 }) {
   let searches = 0;
   return webSearchDefinition.server(async ({ query }, context): Promise<WebSearchOutput> => {
@@ -52,6 +55,10 @@ export function createWebSearchTool({
     parts.startSearch(toolCallId, query);
     onChange();
     try {
+      if (!(await mayRun())) {
+        parts.finishSearch(toolCallId, { errorReason: "quota_exceeded" });
+        return { error: searchErrorMessages.quota_exceeded, reason: "quota_exceeded" };
+      }
       const results = await searchClient.search(query, credentials, {
         signal: context?.abortSignal,
       });
@@ -63,6 +70,7 @@ export function createWebSearchTool({
       if (context?.abortSignal?.aborted) throw caught;
       const errorReason = caught instanceof SearchError ? caught.reason : "failed";
       parts.finishSearch(toolCallId, { errorReason });
+      // The Model reads English; the stored part keeps the code (spec #256).
       return { error: searchErrorMessages[errorReason], reason: errorReason };
     } finally {
       onChange();

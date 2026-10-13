@@ -1,6 +1,7 @@
 import type { RouterClient } from "@orpc/server";
 
 import { protectedProcedure, publicProcedure } from "../procedures";
+import { artifactRouter } from "./artifact";
 import { attachmentRouter } from "./attachment";
 import { chatRouter } from "./chat";
 import { connectionsRouter } from "./connections";
@@ -13,8 +14,10 @@ import { quotaRouter } from "./quota";
 import { settingsRouter } from "./settings";
 import { searchRouter } from "./search";
 import { shareRouter } from "./share";
+import { voiceRouter } from "./voice";
 
 export const appRouter = {
+  artifact: artifactRouter,
   attachment: attachmentRouter,
   chat: chatRouter,
   connections: connectionsRouter,
@@ -27,6 +30,7 @@ export const appRouter = {
   settings: settingsRouter,
   search: searchRouter,
   share: shareRouter,
+  voice: voiceRouter,
   healthCheck: publicProcedure.handler(() => {
     return "OK";
   }),

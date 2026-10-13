@@ -22,6 +22,8 @@ export default function SocialSignIn() {
             const { error } = await authClient.signIn.social({
               provider: provider.id,
               callbackURL: "/c",
+              // A failed OAuth sign-in comes back here with `?error=<code>` (a banned user's, spec #277).
+              errorCallbackURL: "/login",
             });
             if (error) toast.error(error.message || "Could not start sign-in");
           }}
