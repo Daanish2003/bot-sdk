@@ -35,7 +35,9 @@ export const chatRouter = {
         refuseDecision(await decideApproval(context.deps, context.user.id, owned.id, false));
         return;
       }
-      await stopRun(context.deps, owned.id);
+      for (const run of await stopRun(context.deps, owned.id)) {
+        context.deps.hooks.fire("onRunEnd", run);
+      }
     }),
   /**
    * Sets the owner's Rating of an ended assistant reply, `up` or `down`, or clears it with null

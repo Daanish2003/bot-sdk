@@ -5,7 +5,7 @@ import {
   PromptInputTextarea,
 } from "@/components/ui/prompt-kit/prompt-input";
 import { ArrowUpIcon, SquareIcon } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
 
 import { appendTranscript } from "../../core/client/voice";
 import { Dictation } from "./dictation";
@@ -23,6 +23,9 @@ export function Composer({
   attachments,
   attachmentsPending = false,
   placeholder = "Message (Shift+Enter for a new line)",
+  value: controlledValue,
+  onValueChange,
+  refusal,
 }: {
   onSend: (text: string) => void;
   onStop?: () => void;
@@ -38,8 +41,15 @@ export function Composer({
   attachmentsPending?: boolean;
   /** Shown instead of the default hint, for example while a call waits for Approval. */
   placeholder?: string;
+  /** The text in the box. Leave it out and the composer keeps its own; pass it to restore a draft. */
+  value?: string;
+  onValueChange?: (value: string) => void;
+  /** Why the last Message was refused (#267), shown above the box. */
+  refusal?: string | null;
 }) {
-  const [value, setValue] = useState("");
+  const [ownValue, setOwnValue] = useState("");
+  const value = controlledValue ?? ownValue;
+  const setValue = onValueChange ?? setOwnValue;
   const canSend = !disabled && !streaming && !attachmentsPending && value.trim().length > 0;
 
   const submit = () => {
@@ -48,39 +58,49 @@ export function Composer({
     setValue("");
   };
 
-  // A transcript lands after the text already there; nothing is sent (spec #249).
+  // A transcript lands after the text already there; nothing is sent (spec #249). The text is read
+  // when the transcript arrives, so what was typed while it was transcribed is kept.
+  const latestValue = useRef(value);
+  latestValue.current = value;
   const addTranscript = (transcript: string) =>
-    setValue((current) => appendTranscript(current, transcript));
+    setValue(appendTranscript(latestValue.current, transcript));
 
   return (
-    <PromptInput
-      value={value}
-      onValueChange={setValue}
-      onSubmit={submit}
-      isLoading={disabled || streaming}
-      className="bg-card"
-    >
-      {attachments}
-      <PromptInputTextarea
-        placeholder={placeholder}
-        className="text-sm text-foreground"
-        aria-label="Message"
-      />
-      <PromptInputActions className="justify-between px-1 pt-1">
-        <div className="flex items-center gap-1">{children}</div>
-        <div className="flex items-center gap-1">
-          <Dictation onTranscript={addTranscript} />
-          <Button
-            size="icon"
-            className="rounded-full"
-            disabled={streaming ? !onStop : !canSend}
-            onClick={streaming ? onStop : submit}
-            aria-label={streaming ? "Stop" : "Send"}
-          >
-            {streaming ? <SquareIcon className="fill-current" /> : <ArrowUpIcon />}
-          </Button>
-        </div>
-      </PromptInputActions>
-    </PromptInput>
+    <>
+      {refusal && (
+        <p role="alert" className="text-xs text-destructive">
+          {refusal}
+        </p>
+      )}
+      <PromptInput
+        value={value}
+        onValueChange={setValue}
+        onSubmit={submit}
+        isLoading={disabled || streaming}
+        className="bg-card"
+      >
+        {attachments}
+        <PromptInputTextarea
+          placeholder={placeholder}
+          className="text-sm text-foreground"
+          aria-label="Message"
+        />
+        <PromptInputActions className="justify-between px-1 pt-1">
+          <div className="flex items-center gap-1">{children}</div>
+          <div className="flex items-center gap-1">
+            <Dictation onTranscript={addTranscript} />
+            <Button
+              size="icon"
+              className="rounded-full"
+              disabled={streaming ? !onStop : !canSend}
+              onClick={streaming ? onStop : submit}
+              aria-label={streaming ? "Stop" : "Send"}
+            >
+              {streaming ? <SquareIcon className="fill-current" /> : <ArrowUpIcon />}
+            </Button>
+          </div>
+        </PromptInputActions>
+      </PromptInput>
+    </>
   );
 }

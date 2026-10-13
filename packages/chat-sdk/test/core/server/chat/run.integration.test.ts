@@ -146,6 +146,7 @@ describe("startRun", () => {
       provider: "anthropic",
       adapter: held.adapter,
       messages: [],
+      model: "anthropic:claude-sonnet-5-5",
       context: { userId: "user", conversationId: "conversation" },
       systemPrompts: [],
     });

@@ -165,6 +165,10 @@ export const message = chatSchema.table(
     rating: messageRating("rating"),
     /** When `rating` was last set; null when unrated. */
     ratedAt: timestamp("rated_at", { withTimezone: true }),
+    /** When the Host's output check hid this reply; null while it is shown (#268). */
+    hiddenAt: timestamp("hidden_at", { withTimezone: true }),
+    /** The reason the Host gave for hiding the reply, when it gave one (#268). */
+    hiddenReason: text("hidden_reason"),
   },
   (table) => [
     index("message_conversation_id_parent_id_idx").on(table.conversationId, table.parentId),

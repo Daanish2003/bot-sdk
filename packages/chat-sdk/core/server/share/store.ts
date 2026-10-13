@@ -15,6 +15,7 @@ import { storedParts } from "../../shared/message-parts";
 import { toSharedConversation } from "../../shared/share/conversation";
 
 type Deps = Pick<AppDeps, "db" | "isUserBlocked">;
+type EventDeps = Pick<AppDeps, "db" | "hooks">;
 type Db = Deps["db"];
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
@@ -75,7 +76,11 @@ export async function shareStatus(deps: Deps, userId: string, conversationId: st
 }
 
 type UpsertResult =
-  | { error: null; link: { token: string; title: string; updatedAt: Date } }
+  | {
+      error: null;
+      link: { token: string; title: string; updatedAt: Date };
+      change: "created" | "moved";
+    }
   | { error: "not_found" }
   | { error: "temporary" }
   | { error: "blocked"; blockedBy: NonNullable<ShareBlock> };
@@ -83,13 +88,14 @@ type UpsertResult =
 /**
  * Creates the Conversation's Shared link, or moves it to the current Active Branch under the same
  * token, freezing the title. Not while the newest Message is `streaming` or `error` (ADR 0004).
+ * Fires `onSharedLinkChanged` after the commit: `created`, or `moved` when a link existed (#266).
  */
 export async function upsertSharedLink(
-  deps: Deps,
+  deps: EventDeps,
   userId: string,
   conversationId: string,
 ): Promise<UpsertResult> {
-  return deps.db.transaction(async (tx) => {
+  const result = await deps.db.transaction(async (tx): Promise<UpsertResult> => {
     // A send locks the Conversation row too, so the Active Branch can't change under us.
     await tx
       .select({ id: conversation.id })
@@ -120,8 +126,13 @@ export async function upsertSharedLink(
       })
       .returning(linkColumns);
     if (!link) throw new Error("Saving the Shared link returned no row");
-    return { error: null, link };
+    const change: "created" | "moved" = state.link ? "moved" : "created";
+    return { error: null, link, change };
   });
+  if (result.error === null) {
+    deps.hooks.fire("onSharedLinkChanged", { userId, conversationId, change: result.change });
+  }
+  return result;
 }
 
 /** The user's Shared links, newest share first, with each Conversation's current title. */
@@ -140,14 +151,23 @@ export async function listSharedLinks(deps: Deps, userId: string) {
   return rows.map((row) => ({ ...row, title: row.title ?? "Untitled" }));
 }
 
-/** Deletes the Conversation's Shared link, if any; `false` when the Conversation isn't theirs. */
-export async function deleteSharedLink(deps: Deps, userId: string, conversationId: string) {
+/**
+ * Deletes the Conversation's Shared link, if any; `false` when the Conversation isn't theirs. Fires
+ * `onSharedLinkChanged` with `removed` when there was a link to delete (#266).
+ */
+export async function deleteSharedLink(deps: EventDeps, userId: string, conversationId: string) {
   const [owned] = await deps.db
     .select({ id: conversation.id })
     .from(conversation)
     .where(and(eq(conversation.id, conversationId), eq(conversation.userId, userId)));
   if (!owned) return false;
-  await deps.db.delete(sharedLink).where(eq(sharedLink.conversationId, owned.id));
+  const removed = await deps.db
+    .delete(sharedLink)
+    .where(eq(sharedLink.conversationId, owned.id))
+    .returning({ token: sharedLink.token });
+  if (removed.length > 0) {
+    deps.hooks.fire("onSharedLinkChanged", { userId, conversationId, change: "removed" });
+  }
   return true;
 }
 
@@ -216,6 +236,9 @@ export async function continueSharedConversation(
         model: row.model,
         status: row.status,
         searchText: row.searchText,
+        // A Hidden reply stays hidden in the copy (#268).
+        hiddenAt: row.hiddenAt,
+        hiddenReason: row.hiddenReason,
         createdAt: row.createdAt,
       })),
     );
@@ -224,5 +247,7 @@ export async function continueSharedConversation(
       .set({ activeLeafId: newIds.get(path.at(-1)!.id) })
       .where(eq(conversation.id, id));
   });
+  // After the commit: the copy exists, so the Host hears of it (#266).
+  deps.hooks.fire("onConversationCreated", { userId, conversationId: id, fromSharedLink: true });
   return { id };
 }

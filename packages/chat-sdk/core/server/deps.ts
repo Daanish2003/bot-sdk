@@ -7,6 +7,7 @@ import { transcriptionAdapterFor } from "./chat/transcription";
 import type { CounterStore } from "./chat/counters";
 import type { PubSub } from "./chat/pubsub";
 import type { HostServerTool } from "./chat/host-tools";
+import { createHookEmitter, type ChatHooks, type HookEmitter } from "./chat/hooks";
 import type { RunStreams } from "./chat/run-streams";
 import { createTavilyClient } from "./chat/tavily";
 import { createGuardedFetch } from "./lib/guarded-fetch";
@@ -167,8 +168,10 @@ export type AppDeps = {
   blobStore: BlobStore;
   /** Whether the Host has banned a user (`createChat({ isUserBlocked })`, spec #277). */
   isUserBlocked: (userId: string) => boolean | Promise<boolean>;
-  /** Where the SDK reports what it can't do quietly (`createChat({ logger })`). */
+  /** Where the SDK's own failures go: the Host's `logger` (`createChat({ logger })`). */
   logger: Pick<Console, "error">;
+  /** Fires the Host's `hooks` after each change the SDK writes (`createChat({ hooks })`). */
+  hooks: HookEmitter;
 };
 
 export const defaultLimits: Limits = {
@@ -196,7 +199,8 @@ export function createAppDeps({
   mcpServers,
   blobStore,
   isUserBlocked = () => false,
-  logger,
+  logger = console,
+  hooks,
 }: {
   db: Database;
   keyEncryptionSecrets: string[];
@@ -212,13 +216,15 @@ export function createAppDeps({
   mcpServers: McpServerConfig[];
   blobStore: BlobStore;
   isUserBlocked?: AppDeps["isUserBlocked"];
-  logger: Pick<Console, "error">;
+  logger?: AppDeps["logger"];
+  hooks?: ChatHooks;
 }): AppDeps {
   return {
+    logger,
+    hooks: createHookEmitter(hooks, logger),
     db,
     blobStore,
     isUserBlocked,
-    logger,
     adapterFor,
     transcriptionAdapterFor,
     hostProviders,

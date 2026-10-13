@@ -26,8 +26,12 @@ import { quotaExceededCode, quotaRefusal } from "./quota";
 import { generationOptionsFor } from "./generation";
 import { effortFor } from "../../shared/chat/models";
 import { compactionFor, contextBudgetOf, estimateModelMessageTokens } from "./compaction";
+import { attachmentKind } from "../../shared/attachments/kinds";
 
 const refuse = (status: number, message: string) => Response.json({ message }, { status });
+
+/** The error code a Message the Host's `moderate` refuses answers with (HTTP 422), #267. */
+export const moderatedCode = "moderated";
 
 /** `POST ${basePath}/run`: starts a run for the command and streams it back as server-sent events. */
 export async function handleChat(
@@ -112,8 +116,9 @@ export async function handleChat(
     return refuse(400, "Only a reply to your Message can be regenerated");
   }
   // A reply waiting for Approval can't be continued past its call; an edit or regenerate beside it
-  // starts a new Branch and stays allowed (ADR 0008).
-  if (history.at(-1)?.status === "awaiting_approval") {
+  // starts a new Branch and stays allowed (ADR 0008). A hidden reply lost its call, so it waits for nothing (#268).
+  const last = history.at(-1);
+  if (last?.status === "awaiting_approval" && last.hiddenAt === null) {
     return refuse(409, "Approve or deny the tool call first");
   }
   const attachments = await attachmentsForSend(deps, {
@@ -123,6 +128,38 @@ export async function handleChat(
     history,
   });
   if (attachments.error) return refuse(attachments.error.status, attachments.error.message);
+
+  // The Host's input check (`moderate`, #267): after the Message is validated and before anything
+  // is written. A regenerate writes no Message, so it has no input to check.
+  if (command.text !== undefined) {
+    const verdict = await deps.hooks.moderate({
+      phase: "input",
+      userId,
+      conversationId: owned.id,
+      onHostCredentials: Boolean(call.hostModel),
+      text: command.text,
+      attachments: attachments.added
+        .filter((file) => {
+          const kind = attachmentKind(file.mediaType, file.filename);
+          return kind === "image" || kind === "text";
+        })
+        .map((file) => ({
+          name: file.filename,
+          mediaType: file.mediaType,
+          read: async () => file.bytes,
+        })),
+    });
+    if (!verdict.allow) {
+      return Response.json(
+        {
+          message: verdict.reason || "This message can't be sent",
+          code: moderatedCode,
+          reason: verdict.reason,
+        },
+        { status: 422 },
+      );
+    }
+  }
 
   // The MCP tools this reply offers, opened before its history is built: a finished call of a tool
   // not offered is sent as text (spec #91). Every refusal below closes them, and so does the Run.
@@ -262,6 +299,7 @@ export async function handleChat(
 
   await startRun(deps, {
     messageId: assistantMessageId,
+    model: model.id,
     provider: model.provider,
     adapter,
     messages,

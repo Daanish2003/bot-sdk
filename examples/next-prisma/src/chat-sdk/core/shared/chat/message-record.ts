@@ -30,6 +30,8 @@ export type MessageRecord = {
   usage: MessageUsage | null;
   /** The owner's Rating of this reply: `up`, `down`, or null when unrated. Never sent to a Provider. */
   rating: "up" | "down" | null;
+  /** When the Host's output check hid this reply (#268); null while it is shown. */
+  hiddenAt: Date | null;
   /**
    * The first stored Message the Model saw on this reply's Run, when older Messages were dropped to
    * fit the window; null when all were sent. Only the Conversation read carries it.

@@ -7,7 +7,7 @@ import type { UIMessage } from "@tanstack/ai-client";
 /** What the server knows about a Message beyond its parts, kept in `UIMessage.metadata`. */
 export type MessageInfo = Pick<
   ClientMessage,
-  "model" | "reasoningEffort" | "status" | "error" | "errorReason" | "usage" | "rating"
+  "model" | "reasoningEffort" | "status" | "error" | "errorReason" | "usage" | "rating" | "hidden"
 >;
 
 /**
@@ -33,6 +33,7 @@ export function toUIMessages(messages: ActiveBranchMessage[]): UIMessage[] {
       usage,
       rating,
       contextStartId,
+      hidden,
       siblings,
       attachments,
     }) => ({
@@ -48,6 +49,7 @@ export function toUIMessages(messages: ActiveBranchMessage[]): UIMessage[] {
         errorReason,
         usage,
         rating,
+        hidden,
         contextStartId,
         siblings,
         attachments,
@@ -84,7 +86,7 @@ export function contextCutIds(messages: UIMessage[]): Set<string> {
 
 /** A Shared link's Messages, for read-only `MessageRow`s. */
 export function sharedToUIMessages(messages: SharedConversation["messages"]): UIMessage[] {
-  return messages.map(({ id, role, parts, attachments, createdAt, model, status }) => ({
+  return messages.map(({ id, role, parts, attachments, createdAt, model, status, hidden }) => ({
     id,
     role,
     parts: parts as UIMessage["parts"],
@@ -99,6 +101,7 @@ export function sharedToUIMessages(messages: SharedConversation["messages"]): UI
       usage: null,
       // A Shared link carries no Ratings.
       rating: null,
+      hidden,
       attachments,
     } satisfies MessageInfo & {
       attachments: AttachmentChip[];
@@ -144,7 +147,29 @@ export function messageInfo(message: UIMessage): MessageInfo {
     errorReason: info?.errorReason ?? null,
     usage: info?.usage ?? null,
     rating: info?.rating ?? null,
+    hidden: info?.hidden ?? false,
   };
+}
+
+/** Whether a stream chunk is the `moderated` custom chunk that ends a hidden reply's Run log (#269). */
+export function isModeratedChunk(chunk: { type: string; name?: string }): boolean {
+  return chunk.type === "CUSTOM" && chunk.name === "moderated";
+}
+
+/**
+ * The reply a `moderated` chunk hides (#269): every assistant Message after the last user Message,
+ * since a reply can span several Runs. Its parts are dropped and it reads as hidden.
+ */
+export function hideReply(messages: UIMessage[]): UIMessage[] {
+  let lastUser = -1;
+  messages.forEach((message, index) => {
+    if (message.role === "user") lastUser = index;
+  });
+  return messages.map((message, index) =>
+    index > lastUser && message.role === "assistant"
+      ? { ...message, parts: [], metadata: { ...message.metadata, hidden: true } }
+      : message,
+  );
 }
 
 /** What to tell the user about a Message that ended in `error`, and whether to link Key settings. */
