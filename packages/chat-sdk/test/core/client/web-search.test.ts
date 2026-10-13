@@ -22,6 +22,24 @@ const result = { title: "TanStack AI", url: "https://tanstack.com/ai", snippet: 
 
 const i18n = createI18n();
 
+describe("describeSearch reads a stored error code", () => {
+  it("shows the code's text and links Key settings for a rejected key", () => {
+    expect(
+      describeSearch(i18n, search({ state: "error", error: { code: "chat.searchFailedKey" } })),
+    ).toEqual({ text: "Search failed: Tavily rejected your key.", keySettings: true });
+  });
+
+  it("shows the quota and generic failures from their codes", () => {
+    expect(
+      describeSearch(i18n, search({ state: "error", error: { code: "chat.searchFailedQuota" } }))
+        .text,
+    ).toBe("Search failed: Tavily's monthly quota is used up.");
+    expect(
+      describeSearch(i18n, search({ state: "error", error: { code: "chat.searchFailed" } })).text,
+    ).toBe("Search failed.");
+  });
+});
+
 describe("searchToggle (the Web toggle)", () => {
   it("is on with a Tavily key: search and fetch", () => {
     expect(searchToggle(i18n, { hasTavilyKey: true, modelTools: true, on: true })).toEqual({

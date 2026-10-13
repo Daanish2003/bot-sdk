@@ -157,8 +157,9 @@ export function describeError({ t }: I18n, { error, errorReason }: MessageInfo) 
       };
   }
   // Errors with no reason are the run's own guards (ADR 0002).
+  // A stored code (spec #256); a row written before codes says "timed out", which reads the same.
   const text =
-    error === "timed out"
+    error === "timed_out" || error === "timed out"
       ? t("chat.errorTimedOut")
       : error === "interrupted"
         ? t("chat.errorInterrupted")

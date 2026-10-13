@@ -195,7 +195,11 @@ describe("a Host tool in a reply", () => {
       status: "complete",
       error: null,
       parts: storedParts([
-        hostCall({ state: "error", result: { error: "clock is broken" } }),
+        hostCall({
+          state: "error",
+          result: { error: "clock is broken" },
+          error: { code: "chat.toolError.failed", params: { message: "clock is broken" } },
+        }),
         { type: "text", text: "I could not check." },
       ]),
     });
@@ -223,6 +227,7 @@ describe("a Host tool in a reply", () => {
         toolCallId: "call-11",
         state: "error",
         result: { error: "tool call limit reached" },
+        error: { code: "chat.toolError.limit" },
       }),
     );
   });

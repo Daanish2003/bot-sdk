@@ -1,5 +1,6 @@
-import type { I18n } from "../shared/i18n";
+import type { I18n, MessageKey } from "../shared/i18n";
 import { numberSources } from "../shared/chat/sources";
+import { searchErrorCodes } from "../shared/chat/web-search";
 import type { WebSearchPart } from "../shared/message-parts";
 
 /**
@@ -37,14 +38,12 @@ export function describeSearch({ t }: I18n, search: WebSearchPart) {
     case "cancelled":
       return { text: t("chat.searchCancelled"), keySettings: false };
     case "error": {
-      const reason = search.errorReason ?? "failed";
-      const text =
-        reason === "invalid_key"
-          ? t("chat.searchFailedKey")
-          : reason === "quota_exhausted"
-            ? t("chat.searchFailedQuota")
-            : t("chat.searchFailed");
-      return { text, keySettings: reason === "invalid_key" };
+      // A part stores its failure's code; one stored before codes has only its reason.
+      const code = search.error?.code ?? searchErrorCodes[search.errorReason ?? "failed"];
+      return {
+        text: t(code as MessageKey),
+        keySettings: code === searchErrorCodes.invalid_key,
+      };
     }
     case "done": {
       const count = search.results.length;

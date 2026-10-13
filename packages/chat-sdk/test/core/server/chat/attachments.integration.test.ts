@@ -142,7 +142,10 @@ describe("the Run endpoint attachments", () => {
     const response = await send({ attachmentIds: [pdf.id], model: openaiModel });
 
     expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ message: "GPT-5.6 can't read PDFs" });
+    expect(await response.json()).toEqual({
+      code: "error.modelCantRead",
+      params: { model: "GPT-5.6", kind: "pdf" },
+    });
     expect(await messagesOf(deps, conv.id)).toEqual([]);
   });
 
@@ -153,7 +156,10 @@ describe("the Run endpoint attachments", () => {
     const response = await send({ attachmentIds: [big.id] });
 
     expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ message: '"big.txt" is larger than 5 MB' });
+    expect(await response.json()).toEqual({
+      code: "error.attachmentTooLarge",
+      params: { name: "big.txt" },
+    });
   });
 
   it("refuses attachments over 20 MB on the Active Branch with 400", async () => {
@@ -181,7 +187,8 @@ describe("the Run endpoint attachments", () => {
     const refused = await send({ parentId: reply.id, attachmentIds: [tooMuch.id] });
     expect(refused.status).toBe(400);
     expect(await refused.json()).toEqual({
-      message: "Attachments on this Branch would pass 20 MB",
+      code: "error.branchAttachmentsTooLarge",
+      params: {},
     });
     expect(await messagesOf(deps, conv.id)).toHaveLength(2);
 

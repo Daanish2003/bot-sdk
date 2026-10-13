@@ -13,6 +13,7 @@ import {
 import { useId, useState } from "react";
 
 import { useI18n } from "../../core/client/react/provider";
+import { toolErrorText } from "../../core/client/tool-error";
 
 const statusKeys = {
   running: "chat.toolRunning",
@@ -105,11 +106,17 @@ export function ToolCallRow({
 
 /** A tool call's arguments and, once it has one, its result. */
 export function ToolCallDetails({ call }: { call: ToolCallView }) {
-  const { t } = useI18n();
+  const i18n = useI18n();
+  const { t } = i18n;
   return (
     <div className="space-y-2">
       <JsonBlock title={t("chat.arguments")} value={call.args} />
-      {call.result !== undefined && <JsonBlock title={t("chat.result")} value={call.result} />}
+      {call.error ? (
+        // The reader sees the failure in their language; the English result is what the Model read.
+        <p className="text-destructive">{toolErrorText(i18n, call.error)}</p>
+      ) : (
+        call.result !== undefined && <JsonBlock title={t("chat.result")} value={call.result} />
+      )}
     </div>
   );
 }

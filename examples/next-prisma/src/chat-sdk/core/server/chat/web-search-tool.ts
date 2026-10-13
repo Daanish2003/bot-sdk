@@ -63,6 +63,7 @@ export function createWebSearchTool({
       if (context?.abortSignal?.aborted) throw caught;
       const errorReason = caught instanceof SearchError ? caught.reason : "failed";
       parts.finishSearch(toolCallId, { errorReason });
+      // The Model reads English; the stored part keeps the code (spec #256).
       return { error: searchErrorMessages[errorReason], reason: errorReason };
     } finally {
       onChange();

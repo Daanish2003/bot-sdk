@@ -31,6 +31,22 @@ export const errorMessages = {
   "error.modelCannotResume":
     "The Model can't resume this reply: its Model or credentials are unavailable",
   "error.quotaSpent": "You've used this window's Quota",
+  "error.invalidCommand": "Invalid chat command",
+  "error.regenerateAttachments": "A regenerate can't add attachments; edit the Message instead",
+  "error.parentNotFound": "The parent Message is not in this Conversation",
+  "error.regenerateNeedsMessage": "Only a reply to your Message can be regenerated",
+  "error.approveFirst": "Approve or deny the tool call first",
+  "error.messageTooLong":
+    "This message is too long for the Model's context window. Shorten it or remove an attachment.",
+  "error.attachmentNotFound": "Attachment not found",
+  "error.modelCantRead": ({ model, kind }: { model: string; kind: "text" | "image" | "pdf" }) =>
+    `${model} can't read ${kind === "pdf" ? "PDFs" : kind === "image" ? "images" : "text files"}`,
+  "error.branchAttachmentsTooLarge": "Attachments on this Branch would pass 20 MB",
+  "error.tooManyMessages": "Too many messages. Try again in a moment.",
+  "error.tooManyRequests": "Too many requests; try again in a moment",
+  "error.shuttingDown": "The chat is shutting down; try again shortly",
+  "error.invalidRunId": "Invalid Run id",
+  "error.runNotFound": "Run not found",
   "error.shareEmpty": "There's nothing to share yet",
   "error.shareStreaming": "Wait for the reply to finish before sharing",
   "error.shareErrored": "The newest reply ended in an error",

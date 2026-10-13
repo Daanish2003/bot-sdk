@@ -131,4 +131,17 @@ export const chatMessages = {
     `Searched "${query}" · ${count} ${count === 1 ? "source" : "sources"}`,
   "chat.searchedTimes": ({ count, sources }: { count: number; sources: number }) =>
     `Searched ${count} times · ${sources === 0 ? "no sources" : `${sources} ${sources === 1 ? "source" : "sources"}`}`,
+
+  // Why a tool call or a page read failed, as a reader sees it. The code is stored on the part; the
+  // Model reads the English its tool returned instead.
+  "chat.toolError.failed": ({ message }: { message: string }) => `The tool failed: ${message}`,
+  "chat.toolError.limit": "This reply already used its tool calls",
+  "chat.toolError.fetchLimit": "This reply already read its pages",
+  "chat.pageError.timedOut": "The page took too long to load",
+  "chat.pageError.tooLarge": ({ megabytes }: { megabytes: number }) =>
+    `The page is larger than ${megabytes} MB`,
+  "chat.pageError.unsupported": "Only HTML, plain text, Markdown and JSON pages can be read",
+  "chat.pageError.blocked": "The address is not a public address",
+  "chat.pageError.httpError": "The page couldn't be fetched",
+  "chat.pageError.failed": "The page couldn't be fetched",
 };

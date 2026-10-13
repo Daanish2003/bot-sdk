@@ -66,7 +66,7 @@ describe("web searches in stored parts from a stream", () => {
     builder.finishSearch("call-1", { errorReason: "quota_exhausted" });
 
     expect(builder.parts().parts).toEqual([
-      search({ state: "error", results: [], errorReason: "quota_exhausted" }),
+      search({ state: "error", results: [], error: { code: "chat.searchFailedQuota" } }),
     ]);
   });
 
@@ -182,7 +182,12 @@ describe("web searches to TanStack AI", () => {
     const parts = storedParts([
       search({ state: "running", results: [] }),
       search({ toolCallId: "call-2" }),
-      search({ toolCallId: "call-3", state: "error", results: [], errorReason: "quota_exhausted" }),
+      search({
+        toolCallId: "call-3",
+        state: "error",
+        results: [],
+        error: { code: "chat.searchFailedQuota" },
+      }),
       search({ toolCallId: "call-4", state: "cancelled", results: [] }),
     ]);
 
