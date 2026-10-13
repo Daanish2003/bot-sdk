@@ -17,7 +17,21 @@ import {
 } from "../../shared/chat/generated-image";
 import type { ToolBudget } from "./host-tools";
 import { toolCallLimitError } from "./host-tools";
+import type { ImageRequest } from "./adapters";
 import { imageInfo } from "./image-info";
+
+/**
+ * The bytes of one image a Provider made (spec #278): a `b64Json` result is decoded; a `url` result
+ * is downloaded at once, since Providers' URLs expire. A run's signal cuts the download short.
+ */
+export async function imageBytes(
+  image: { b64Json?: string; url?: string },
+  fetch: typeof globalThis.fetch,
+  signal?: AbortSignal,
+): Promise<Uint8Array> {
+  if (image.b64Json) return Buffer.from(image.b64Json, "base64");
+  return new Uint8Array(await (await fetch(image.url!, signal ? { signal } : {})).arrayBuffer());
+}
 
 const generateImageDefinition = toolDefinition({
   name: generateImageToolName,
@@ -45,7 +59,7 @@ const generateImageDefinition = toolDefinition({
 export function createGenerateImageTool({
   adapter,
   model,
-  size,
+  request,
   userId,
   messageId,
   db,
@@ -58,8 +72,8 @@ export function createGenerateImageTool({
   adapter: AnyImageAdapter;
   /** The Image Model's `"provider:model"` id, which the image's row records. */
   model: string;
-  /** The size the Image Model is pinned to, when it is a Host Image Model. */
-  size?: string;
+  /** The size and provider options of one call, for its aspect ratio (spec #278). */
+  request: (aspectRatio: AspectRatio) => ImageRequest;
   userId: string;
   /** The assistant Message whose reply this call belongs to; the image's row is owned by it. */
   messageId: string;
@@ -91,15 +105,13 @@ export function createGenerateImageTool({
         const result = await generateImage({
           adapter,
           prompt,
-          ...(size !== undefined && { size }),
+          ...request(aspectRatio),
           timeout: timeoutMs,
           ...(signal && { abortSignal: signal }),
         });
         const first = result.images[0];
         if (!first) return fail("failed", "The Provider returned no image");
-        const bytes = first.b64Json
-          ? Buffer.from(first.b64Json, "base64")
-          : new Uint8Array(await (await fetch(first.url!, signal ? { signal } : {})).arrayBuffer());
+        const bytes = await imageBytes(first, fetch, signal);
         // A run ended while the Provider answered keeps no image (the call is cancelled).
         if (signal?.aborted) throw new Error("The reply was stopped");
         const info = imageInfo(bytes);
