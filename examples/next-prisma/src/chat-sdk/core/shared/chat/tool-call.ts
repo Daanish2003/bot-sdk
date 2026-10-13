@@ -1,4 +1,4 @@
-import type { MessagePart } from "@tanstack/ai";
+import { type MessagePart, parsePartialJSON } from "@tanstack/ai";
 
 import { webSearchToolName } from "./web-search";
 
@@ -42,7 +42,8 @@ export function toolCallOf(part: MessagePart): ToolCallView | null {
     // A call from the live stream carries no metadata; it is a Host call until it is stored.
     source: meta.source ?? "host",
     status: meta.status ?? statusOfState(part.state),
-    args: part.input ?? safeParse(part.arguments),
+    // A call still streaming has only its partial arguments; the partial parse reads them as they come.
+    args: part.input ?? parsePartialJSON(part.arguments),
     result: part.output,
     redacted: meta.redacted === true,
   };
@@ -53,12 +54,4 @@ function statusOfState(state: string): ToolCallStatus {
   if (state === "complete") return "done";
   if (state === "error") return "error";
   return "running";
-}
-
-function safeParse(json: string): unknown {
-  try {
-    return JSON.parse(json);
-  } catch {
-    return undefined;
-  }
 }

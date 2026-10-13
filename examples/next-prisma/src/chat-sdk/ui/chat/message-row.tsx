@@ -1,7 +1,7 @@
 import type { AttachmentInfo } from "../../core/shared/attachments/kinds";
 import { createArtifactToolName, updateArtifactToolName } from "../../core/shared/chat/artifact";
 import { pageSourcesOf, replySegments, sourcesOf } from "../../core/shared/chat/sources";
-import { toolCallOf } from "../../core/shared/chat/tool-call";
+import { toolCallOf, type ToolCallView } from "../../core/shared/chat/tool-call";
 import { webSearchOf } from "../../core/shared/chat/web-search";
 import { Button } from "@/components/ui/button";
 import { Loader } from "@/components/ui/prompt-kit/loader";
@@ -43,7 +43,7 @@ import {
   useAttachmentDraft,
 } from "./attachments";
 
-import { ArtifactCard, type ArtifactRef } from "./artifact-card";
+import { ArtifactCard, artifactIdOf, type ArtifactRef } from "./artifact-card";
 import { SearchRow } from "./search-row";
 import { replyComponents, ReplySources, SourceChips } from "./source-chips";
 import { ToolCallRow } from "./tool-call-row";
@@ -99,6 +99,7 @@ export function MessageRow({
   highlighted = false,
   contextCut = false,
   onOpenArtifact,
+  latestVersionOf,
 }: {
   message: UIMessage;
   userLabel?: string;
@@ -109,6 +110,8 @@ export function MessageRow({
   contextCut?: boolean;
   /** Opens an Artifact's card in the side panel (spec #304). */
   onOpenArtifact?: (ref: ArtifactRef) => void;
+  /** The newest version of an Artifact on the Branch, which an update's card names (spec #304). */
+  latestVersionOf?: (artifactId: string) => number | undefined;
 }) {
   const info = messageInfo(message);
   const text = plainText(message);
@@ -230,6 +233,7 @@ export function MessageRow({
                 parts={message.parts}
                 onDecide={actions?.onDecide}
                 onOpenArtifact={onOpenArtifact}
+                latestVersionOf={latestVersionOf}
               />
               {info.status === "streaming" && !thinking && waitingForText(message.parts) && (
                 <Loader variant="typing" size="sm" />
@@ -380,6 +384,15 @@ function EditBox({
   );
 }
 
+/** The newest version on the Branch of the Artifact an update call names; `undefined` for a create. */
+function artifactTarget(
+  call: ToolCallView,
+  latestVersionOf?: (artifactId: string) => number | undefined,
+): number | undefined {
+  const artifactId = artifactIdOf(call);
+  return artifactId === undefined ? undefined : latestVersionOf?.(artifactId);
+}
+
 /**
  * A reply's text and web searches, in stream order. Back-to-back searches share one row; links
  * to the reply's Sources render as their numbered citation chips.
@@ -389,11 +402,13 @@ function AssistantParts({
   parts,
   onDecide,
   onOpenArtifact,
+  latestVersionOf,
 }: {
   messageId: string;
   parts: UIMessage["parts"];
   onDecide?: (approved: boolean, allowForConversation?: boolean) => void;
   onOpenArtifact?: (ref: ArtifactRef) => void;
+  latestVersionOf?: (artifactId: string) => number | undefined;
 }) {
   const sources = sourcesOf(parts);
   return (
@@ -413,7 +428,12 @@ function AssistantParts({
           <Fragment key={segment.key}>
             {segment.call.name === createArtifactToolName ||
             segment.call.name === updateArtifactToolName ? (
-              <ArtifactCard call={segment.call} messageId={messageId} onOpen={onOpenArtifact} />
+              <ArtifactCard
+                call={segment.call}
+                messageId={messageId}
+                latestVersion={artifactTarget(segment.call, latestVersionOf)}
+                onOpen={onOpenArtifact}
+              />
             ) : (
               <ToolCallRow call={segment.call} onDecide={onDecide} />
             )}
