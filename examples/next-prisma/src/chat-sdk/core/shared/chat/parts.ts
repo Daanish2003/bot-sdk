@@ -268,6 +268,13 @@ export function createPartsBuilder(initial: StoredPart[] = []) {
         if (isCallPart(part) && part.state === "running") part.state = "cancelled";
       }
     },
+    /** How many Excerpts the reply's Knowledge searches have found so far: the next label's offset. */
+    excerptCount(): number {
+      return parts.reduce(
+        (count, part) => (part.type === "knowledge_search" ? count + part.excerpts.length : count),
+        0,
+      );
+    },
     /** A copy of the parts so far. */
     parts(): StoredParts {
       return storedParts(parts.map((part) => ({ ...part })));
@@ -290,6 +297,21 @@ export function cancelRunningCalls(parts: StoredParts): StoredParts {
       isCallPart(part) && part.state === "running" ? { ...part, state: "cancelled" } : part,
     ),
   );
+}
+
+/**
+ * Each Knowledge search's label offset within its reply: the Excerpts the reply's earlier searches
+ * found, so every Excerpt label is unique in the Message. Keyed by the search's tool call id.
+ */
+export function excerptOffsetsOf(parts: StoredPart[]): Map<string, number> {
+  const offsets = new Map<string, number>();
+  let count = 0;
+  for (const part of parts) {
+    if (part.type !== "knowledge_search") continue;
+    offsets.set(part.toolCallId, count);
+    count += part.excerpts.length;
+  }
+  return offsets;
 }
 
 /** A part a reply's tool call made: a search, a tool call, a generated image or a Knowledge search. */
@@ -362,10 +384,10 @@ function toolCallPlaceholder(part: ToolCallPart) {
  * What the Model reads back for a finished call. An Artifact call that saved a version reads as a
  * short stub ("saved as v3"); any other call reads its search output, image output or stored result.
  */
-function resultOf(call: CallPart): unknown {
+function resultOf(call: CallPart, excerptOffset = 0): unknown {
   if (call.type === "web_search") return searchOutput(call);
   if (call.type === "generated_image") return imageOutput(call);
-  if (call.type === "knowledge_search") return knowledgeOutputOf(call);
+  if (call.type === "knowledge_search") return knowledgeOutputOf(call, excerptOffset);
   if (isArtifactCall(call) && call.state === "done") {
     const saved = call.result as { version?: unknown } | null;
     return `saved as v${String(saved?.version)}`;
@@ -437,6 +459,7 @@ const offeredCall = (part: CallPart, offered: OfferedTools) => {
  * (running, cancelled) is an unmatched tool call, and is left out.
  */
 function withToolCalls({ role, parts }: StoredMessage, offered: OfferedTools): ModelMessage[] {
+  const excerptOffsets = excerptOffsetsOf(parts.parts);
   const messages: ModelMessage[] = [];
   let content = "";
   // A placeholder is followed by a paragraph break before any text that comes after it.
@@ -472,7 +495,7 @@ function withToolCalls({ role, parts }: StoredMessage, offered: OfferedTools): M
         messages.push({
           role: "tool",
           toolCallId: call.toolCallId,
-          content: JSON.stringify(resultOf(call)),
+          content: JSON.stringify(resultOf(call, excerptOffsets.get(call.toolCallId))),
         });
       }
     } else if (content) {
@@ -648,6 +671,7 @@ export function toUIParts(parts: StoredParts): MessagePart[] {
   const shown = parts.parts.filter(
     (part) => !(part.type === "tool_call" && isArtifactCall(part) && part.state === "done"),
   );
+  const excerptOffsets = excerptOffsetsOf(parts.parts);
   return shown.map((part): MessagePart => {
     if (part.type === "text") return { type: "text", content: part.text };
     // The signature is only for the Provider; the client never needs it.
@@ -655,7 +679,8 @@ export function toUIParts(parts: StoredParts): MessagePart[] {
     if (part.type === "tool_call") return toolCallUIPart(part);
     if (part.type === "generated_image") return generatedImageUIPart(part);
     if (part.type === "artifact") return artifactUIPart(part);
-    if (part.type === "knowledge_search") return knowledgeUIPart(part);
+    if (part.type === "knowledge_search")
+      return knowledgeUIPart(part, excerptOffsets.get(part.toolCallId));
     const input = { query: part.query };
     return {
       type: "tool-call",
@@ -679,7 +704,7 @@ export function toUIParts(parts: StoredParts): MessagePart[] {
  * A stored `search_knowledge` call, as `useChat` shows it: a tool call with its query as input and
  * its passages (or the unavailable error) as output. Its status rides in `metadata`, as a tool call's.
  */
-function knowledgeUIPart(part: KnowledgeSearchPart): MessagePart {
+function knowledgeUIPart(part: KnowledgeSearchPart, excerptOffset = 0): MessagePart {
   const input = { query: part.query };
   return {
     type: "tool-call",
@@ -694,7 +719,7 @@ function knowledgeUIPart(part: KnowledgeSearchPart): MessagePart {
         : part.state === "cancelled"
           ? "error"
           : "complete",
-    ...(finished(part) && { output: knowledgeOutputOf(part) }),
+    ...(finished(part) && { output: knowledgeOutputOf(part, excerptOffset) }),
     metadata: { source: "builtin", status: part.state, ...(part.error && { error: part.error }) },
   };
 }

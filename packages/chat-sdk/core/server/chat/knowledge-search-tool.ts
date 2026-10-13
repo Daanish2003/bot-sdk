@@ -60,6 +60,8 @@ export function createKnowledgeSearchTool({
     const toolCallId = context?.toolCallId;
     if (!toolCallId) throw new Error("search_knowledge was called without a tool call id");
     parts.startKnowledgeSearch(toolCallId, query);
+    // The labels continue from the reply's earlier Excerpts (the running search has none yet).
+    const excerptOffset = parts.excerptCount();
     onChange();
     try {
       if (!budget.take()) {
@@ -74,7 +76,7 @@ export function createKnowledgeSearchTool({
       }
       const excerpts = await searchPassages(deps, { userId, projectId, model, query });
       parts.finishKnowledgeSearch(toolCallId, { excerpts });
-      return knowledgeOutput(excerpts);
+      return knowledgeOutput(excerpts, excerptOffset);
     } catch (caught) {
       if (context?.abortSignal?.aborted) throw caught;
       parts.finishKnowledgeSearch(toolCallId, { error: { code: knowledgeErrorCodes.failed } });

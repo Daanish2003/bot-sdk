@@ -3,9 +3,9 @@ import type { MessagePart } from "@tanstack/ai";
 import { attachmentKind } from "../shared/attachments/kinds";
 import { type ClientMessage } from "../shared/chat/client-message";
 import { findModel, parseModelId } from "../shared/chat/models";
-import { citationFor } from "../shared/chat/citations";
+import { citationFor, excerptFor } from "../shared/chat/citations";
 import { toolCallOf } from "../shared/chat/tool-call";
-import { type Source, sourcesOf } from "../shared/chat/sources";
+import { type Citation, type Source, sourcesOf, webSourcesOf } from "../shared/chat/sources";
 import { webSearchOf } from "../shared/chat/web-search";
 
 /**
@@ -51,6 +51,7 @@ function exportFileName(title: string | null): string {
 
 function renderMessage(message: ExportMessage): string {
   const sources = message.role === "assistant" ? sourcesOf(message.parts) : [];
+  const webSources = webSourcesOf(sources);
   const body: string[] = [];
   for (const part of message.parts) {
     if (part.type === "text") {
@@ -66,7 +67,7 @@ function renderMessage(message: ExportMessage): string {
 
   const sections = [`## ${headingOf(message)}`];
   if (body.length > 0) sections.push(body.join("\n\n"));
-  if (sources.length > 0) sections.push(sources.map(referenceDefinition).join("\n"));
+  if (webSources.length > 0) sections.push(webSources.map(referenceDefinition).join("\n"));
   return sections.join("\n\n");
 }
 
@@ -123,7 +124,7 @@ const inlineLink = /(?<!!)\[([^\]\n]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
  * Rewrites each link that cites one of the Message's Sources as `[text][n]`. Links outside the
  * text's fenced code blocks only; any other link stays as the Model wrote it.
  */
-function citeLinks(content: string, sources: Source[]): string {
+function citeLinks(content: string, sources: Citation[]): string {
   if (sources.length === 0) return content;
   let fenced = false;
   return content
@@ -135,6 +136,8 @@ function citeLinks(content: string, sources: Source[]): string {
       }
       if (fenced) return line;
       return line.replace(inlineLink, (link, label: string, href: string) => {
+        // An Excerpt has no URL to list, so its citation is its file name.
+        if (excerptFor(href, sources)) return `[${label}]`;
         const source = citationFor(href, sources);
         return source ? `[${label}][${source.number}]` : link;
       });

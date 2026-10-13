@@ -141,6 +141,8 @@ export const chatMessages = {
     `Searched Knowledge for "${query}" · ${count === 0 ? "no passages" : `${count} ${count === 1 ? "passage" : "passages"}`}`,
   "chat.knowledgeFailed": "Knowledge search failed.",
   "chat.knowledgeNotRunQuota": "Knowledge search not run: you're over this window's Quota.",
+  // An Excerpt chip's popover heading (spec #357, ticket #206), numbered with the reply's citations.
+  "chat.excerptHeading": ({ number }: { number: number }) => `Excerpt ${number}`,
 
   // Why a tool call or a page read failed, as a reader sees it. The code is stored on the part; the
   // Model reads the English its tool returned instead.
