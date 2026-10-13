@@ -156,9 +156,23 @@ const chat = createChat({
       // run: { userId, conversationId, messageId, runId, ending, reason?, model,
       //   onHostCredentials, hidden }
     },
+    // a Conversation a user starts, or continues from a Shared link
+    onConversationCreated: (conversation) => {
+      // conversation: { userId, conversationId, projectId?, fromSharedLink }
+    },
+    // a Conversation a user deletes, or each Conversation of a deleted Project
+    onConversationDeleted: (conversation) => {
+      // conversation: { userId, conversationId, projectId? }
+    },
+    // a Shared link created, moved to the current Branch, or removed
+    onSharedLinkChanged: (link) => {
+      // link: { userId, conversationId, change: "created" | "moved" | "removed" }
+    },
   },
 });
 ```
+
+- **Conversations and Shared links.** `onConversationCreated` fires when a user starts a Conversation, and when they continue a Shared link into a new one (`fromSharedLink: true`). `onConversationDeleted` fires once for each Conversation a user deletes, each one a Project delete removes, and each one a delete of all of a user's Conversations removes. `onSharedLinkChanged` reports `created` the first time a Conversation is shared, `moved` when it is shared again (the link moves to the current Branch), and `removed` when it is unshared. Each event fires after its write commits, and not if the write rolls back. Deleting a Conversation drops its Shared link without a `removed` event. `deleteUser` fires none of these events. No payload carries a title or Message text.
 
 - **`onRunEnd`.** `ending` is `complete`, `stopped`, `error` or `awaiting_approval` (a Run that stopped waiting for an Approval). `reason` is set on an `error`: `timed_out`, `interrupted`, or the Provider's error reason (`invalid_key`, `rate_limited` or `provider_error`). `runId` is the Message's id for its first Run, and `<messageId>:<n>` for the Run that continues after an Approval (`n` is 2 or more). `onHostCredentials` says whether the Run ran on Host credentials. `hidden` is always `false` until the Hidden reply ticket. It fires once per Run, from the process that ended the Run: when the Run ends, when the reaper ends an abandoned one as `interrupted`, when `stop()` cuts one off on shutdown, and when a Stop reaches a Run whose process has stopped heartbeating (when a Project is deleted, or a user deletes all their Conversations, the event fires after the transaction commits, and not if it rolls back; `deleteUser` fires nothing). For a Run whose process is gone, `onHostCredentials` is read from the Model's credentials as they are at that moment. No payload carries the reply's text.
 - **Delivery.** A hook runs after its change is written. It is never awaited, so a slow hook never delays a Run or a response. It runs at most once, with no retries: design your own delivery if you need one.

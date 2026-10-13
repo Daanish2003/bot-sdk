@@ -80,15 +80,18 @@ export async function deleteProject(deps: AppDeps, userId: string, id: string) {
       .for("update");
     if (!owned) return undefined;
     const ended = await stopProjectRuns(deps, id, tx);
-    const [row] = await tx
-      .select({ total: count() })
+    const gone = await tx
+      .select({ id: conversation.id })
       .from(conversation)
       .where(eq(conversation.projectId, id));
     await tx.delete(project).where(eq(project.id, id));
-    return { total: row?.total ?? 0, ended };
+    return { gone, ended };
   });
   if (!result) return undefined;
-  // After the commit: a rolled-back delete fires nothing (#265).
+  // After the commit: a rolled-back delete fires nothing (#265, #266).
   for (const run of result.ended) deps.hooks.fire("onRunEnd", run);
-  return result.total;
+  for (const row of result.gone) {
+    deps.hooks.fire("onConversationDeleted", { userId, conversationId: row.id, projectId: id });
+  }
+  return result.gone.length;
 }
