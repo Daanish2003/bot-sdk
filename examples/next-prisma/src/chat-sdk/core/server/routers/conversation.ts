@@ -5,11 +5,15 @@ import { z } from "zod";
 import { resolveModel } from "../chat/available-models";
 import { withProjectId } from "../chat/hooks";
 import { deleteAllConversations } from "../delete-user";
+import { renderConversationMarkdown } from "../export-markdown";
 import {
   decodeConversationCursor,
   deleteConversation,
   findConversation,
   listConversations,
+  archiveAllConversations,
+  archiveConversation,
+  listArchivedConversations,
   listPinnedConversations,
   loadActiveBranch,
   maxPinnedConversations,
@@ -20,6 +24,7 @@ import {
   setConversationModel,
   setConversationReasoningEffort,
   switchBranch,
+  unarchiveConversation,
   unpinConversation,
 } from "../chat/store";
 import { unusableModelMessage } from "../../shared/credentials/services";
@@ -104,9 +109,23 @@ export const conversationRouter = {
       reasoningEffort: row.reasoningEffort,
       temporary: row.temporary,
       tools: row.toolSettings,
+      archivedAt: row.archivedAt,
       messages,
     };
   }),
+
+  /**
+   * The Active Branch as a Markdown document, and the file name to download it as (ticket #252).
+   * Owner only; a reply still streaming exports what is stored so far, marked as such.
+   */
+  exportMarkdown: protectedProcedure
+    .input(z.object({ id: z.uuid() }))
+    .handler(async ({ context, input }) => {
+      const row = await findConversation(context.deps, context.user.id, input.id);
+      if (!row) throw new ORPCError("NOT_FOUND", { message: "Conversation not found" });
+      const messages = await loadActiveBranch(context.deps, row.id, row.activeLeafId);
+      return renderConversationMarkdown({ title: row.title, messages, exportedAt: new Date() });
+    }),
 
   /**
    * Shows the Branch through `messageId`: the newest leaf under it becomes the Active Branch.
@@ -226,6 +245,48 @@ export const conversationRouter = {
       const unpinned = await unpinConversation(context.deps, context.user.id, input.id);
       if (!unpinned) throw new ORPCError("NOT_FOUND", { message: "Conversation not found" });
     }),
+
+  /**
+   * Archives the Conversation: it leaves the main list and its Project's list, and is unpinned.
+   * It is still found by search and opened by its URL. Doesn't bump `lastMessageAt`.
+   */
+  archive: protectedProcedure
+    .input(z.object({ id: z.uuid() }))
+    .handler(async ({ context, input }) => {
+      const archived = await archiveConversation(context.deps, context.user.id, input.id);
+      if (!archived) throw new ORPCError("NOT_FOUND", { message: "Conversation not found" });
+    }),
+
+  /** Brings an archived Conversation back to the lists. Doesn't bump `lastMessageAt`. */
+  unarchive: protectedProcedure
+    .input(z.object({ id: z.uuid() }))
+    .handler(async ({ context, input }) => {
+      const unarchived = await unarchiveConversation(context.deps, context.user.id, input.id);
+      if (!unarchived) throw new ORPCError("NOT_FOUND", { message: "Conversation not found" });
+    }),
+
+  /**
+   * One page of the caller's archived Conversations for the Archived list, Project ones too,
+   * newest Message first, 50 at a time. Pass the previous page's `nextCursor` for the next one.
+   */
+  archived: protectedProcedure
+    .input(z.object({ cursor: z.string().optional() }))
+    .handler(async ({ context, input }) => {
+      const cursor =
+        input.cursor === undefined ? undefined : decodeConversationCursor(input.cursor);
+      if (input.cursor !== undefined && !cursor) {
+        throw new ORPCError("BAD_REQUEST", { message: "Invalid cursor" });
+      }
+      return listArchivedConversations(context.deps, context.user.id, cursor);
+    }),
+
+  /**
+   * Archives every one of the caller's Conversations that is in no Project, isn't pinned and isn't
+   * archived yet. Returns how many it archived.
+   */
+  archiveAll: protectedProcedure.handler(async ({ context }) => ({
+    count: await archiveAllConversations(context.deps, context.user.id),
+  })),
 
   /**
    * Moves the Conversation into one of the caller's Projects, or out of its Project when

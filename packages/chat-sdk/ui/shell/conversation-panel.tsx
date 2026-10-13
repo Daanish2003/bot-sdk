@@ -7,6 +7,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { cn } from "@/lib/utils";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import {
+  ArchiveIcon,
   FolderIcon,
   MoreHorizontalIcon,
   PinIcon,
@@ -19,6 +20,7 @@ import { useEffect, useRef, useState } from "react";
 import { ShareDialog } from "../share/share-dialog";
 import { useDeleteConversation } from "../../core/client/react/delete-conversation";
 import {
+  useArchiveConversation,
   useMoveConversation,
   usePinConversation,
   useRenameConversation,
@@ -115,7 +117,7 @@ export function ConversationPanel({ className }: { className?: string }) {
   );
 }
 
-/** One Conversation in the panel, with its menu: rename, pin or unpin, move, share and delete. */
+/** One Conversation in the panel, with its menu: rename, pin or unpin, archive, move, share, delete. */
 export function ConversationRow({ conversation }: { conversation: ConversationSummary }) {
   const { Link, orpc } = useChatAdapter();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -124,6 +126,7 @@ export function ConversationRow({ conversation }: { conversation: ConversationSu
   const remove = useDeleteConversation();
   const rename = useRenameConversation();
   const pin = usePinConversation();
+  const archive = useArchiveConversation();
   const move = useMoveConversation();
   const projects = useQuery({ ...orpc.project.list.queryOptions(), enabled: moveOpen });
   const pinned = conversation.pinnedAt !== null;
@@ -176,7 +179,7 @@ export function ConversationRow({ conversation }: { conversation: ConversationSu
         <PopoverTrigger
           aria-label={`Actions for "${conversation.title ?? "Untitled"}"`}
           title="Conversation actions"
-          disabled={remove.isPending || pin.isPending || move.isPending}
+          disabled={remove.isPending || pin.isPending || archive.isPending || move.isPending}
           className={cn(
             buttonVariants({ variant: "ghost", size: "icon-xs" }),
             "absolute top-1.5 right-2 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:top-auto pointer-coarse:bottom-1.5 pointer-coarse:opacity-100",
@@ -246,6 +249,16 @@ export function ConversationRow({ conversation }: { conversation: ConversationSu
               >
                 {pinned ? <PinOffIcon /> : <PinIcon />}
                 {pinned ? "Unpin" : "Pin"}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                role="menuitem"
+                className="justify-start"
+                onClick={() => pick(() => archive.archive(conversation.id))}
+              >
+                <ArchiveIcon />
+                Archive
               </Button>
               <Button
                 variant="ghost"

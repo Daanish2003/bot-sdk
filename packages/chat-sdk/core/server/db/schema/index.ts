@@ -3,6 +3,7 @@ export * from "./blob";
 export * from "./chat";
 export * from "./connection";
 export * from "./credentials";
+export * from "./saved-prompt";
 export * from "./settings";
 export * from "./share";
 export * from "./usage";

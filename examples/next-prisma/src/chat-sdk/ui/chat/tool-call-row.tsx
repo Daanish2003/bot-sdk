@@ -74,11 +74,10 @@ export function ToolCallRow({
           />
         </button>
       </div>
-      {open && (
-        <div id={detailsId} className="border-l pl-3">
-          <ToolCallDetails call={call} />
-        </div>
-      )}
+      {/* Kept in the page when collapsed, so printing shows the details (print:block). */}
+      <div id={detailsId} className={cn("border-l pl-3", !open && "hidden print:block")}>
+        <ToolCallDetails call={call} />
+      </div>
       {waiting && onDecide && (
         <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" onClick={() => onDecide(true)}>

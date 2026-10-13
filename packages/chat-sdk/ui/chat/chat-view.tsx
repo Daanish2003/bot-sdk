@@ -32,6 +32,7 @@ import { AttachButton, DraftAttachmentChips, useAttachmentDraft } from "./attach
 import { Composer } from "./composer";
 import { ContextOverflowNotice, ContextRing } from "./context-ring";
 import { MessageRow } from "./message-row";
+import { ArchivedNotice } from "./archived-notice";
 import { MissingCredentialsBanner } from "./missing-credentials-banner";
 import { QuotaBanner } from "./quota-banner";
 import { TemporaryBanner } from "./temporary-banner";
@@ -379,6 +380,9 @@ function ChatThread({
             </p>
           )}
           <QuotaMeter />
+          {conversation.archivedAt && !streaming && (
+            <ArchivedNotice conversationId={conversation.id} />
+          )}
           {blocked && <MissingCredentialsBanner message={blocked} />}
           {quotaBlocked && quota && <QuotaBanner resetsAt={quota.resetsAt} />}
           <ContextOverflowNotice fill={context} />

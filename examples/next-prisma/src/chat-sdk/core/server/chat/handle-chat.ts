@@ -278,6 +278,8 @@ export async function handleChat(
         .set({
           activeLeafId: assistantMessageId,
           lastMessageAt: now,
+          // Sending a Message brings an archived Conversation back to the lists.
+          archivedAt: null,
           model: model.id,
           ...(takesComposerTools && { toolSettings }),
         })

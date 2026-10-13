@@ -8,6 +8,7 @@ import { conversationRouter } from "./conversation";
 import { credentialsRouter } from "./credentials";
 import { modelsRouter } from "./models";
 import { projectRouter } from "./project";
+import { savedPromptRouter } from "./saved-prompt";
 import { quotaRouter } from "./quota";
 import { settingsRouter } from "./settings";
 import { searchRouter } from "./search";
@@ -22,6 +23,7 @@ export const appRouter = {
   credentials: credentialsRouter,
   models: modelsRouter,
   project: projectRouter,
+  savedPrompt: savedPromptRouter,
   quota: quotaRouter,
   settings: settingsRouter,
   search: searchRouter,

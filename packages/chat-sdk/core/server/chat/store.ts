@@ -1,6 +1,6 @@
 import { conversation, message, type MessageRow } from "../db/schema/chat";
 import { sharedLink } from "../db/schema/share";
-import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, type SQL, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 
@@ -133,7 +133,8 @@ export const maxPinnedConversations = 20;
 /**
  * Pins the user's Conversation (a Project one too); `"not_found"` when it isn't theirs, `"limit"`
  * when they already have `maxPinnedConversations` pinned. Pinning a pinned Conversation keeps its
- * pin time. A Temporary Conversation is never pinned (`"temporary"`). Doesn't bump `lastMessageAt`.
+ * pin time. A Temporary Conversation is never pinned (`"temporary"`). Pinning an archived Conversation
+ * unarchives it. Doesn't bump `lastMessageAt`.
  */
 export async function pinConversation(
   deps: Deps,
@@ -151,7 +152,7 @@ export async function pinConversation(
   if ((counted?.count ?? 0) >= maxPinnedConversations) return "limit";
   await deps.db
     .update(conversation)
-    .set({ pinnedAt: new Date() })
+    .set({ pinnedAt: new Date(), archivedAt: null })
     .where(ownConversation(userId, id));
   return "pinned";
 }
@@ -161,6 +162,54 @@ export async function unpinConversation(deps: Deps, userId: string, id: string) 
   const rows = await deps.db
     .update(conversation)
     .set({ pinnedAt: null })
+    .where(ownConversation(userId, id))
+    .returning({ id: conversation.id });
+  return rows.length > 0;
+}
+
+/**
+ * Archives the user's Conversation, which also unpins it: a Conversation is never both. It leaves
+ * the lists but nothing else changes. Archiving an archived one keeps its archive time. `false`
+ * when it isn't theirs. Doesn't bump `lastMessageAt`.
+ */
+export async function archiveConversation(deps: Deps, userId: string, id: string) {
+  const row = await findConversation(deps, userId, id);
+  if (!row) return false;
+  if (!row.archivedAt) {
+    await deps.db
+      .update(conversation)
+      .set({ archivedAt: new Date(), pinnedAt: null })
+      .where(ownConversation(userId, id));
+  }
+  return true;
+}
+
+/**
+ * Archives every Conversation of the user that is in no Project, isn't pinned, Temporary or archived
+ * yet, and returns how many. Doesn't bump `lastMessageAt`.
+ */
+export async function archiveAllConversations(deps: Deps, userId: string) {
+  const rows = await deps.db
+    .update(conversation)
+    .set({ archivedAt: new Date() })
+    .where(
+      and(
+        eq(conversation.userId, userId),
+        eq(conversation.temporary, false),
+        isNull(conversation.projectId),
+        isNull(conversation.pinnedAt),
+        isNull(conversation.archivedAt),
+      ),
+    )
+    .returning({ id: conversation.id });
+  return rows.length;
+}
+
+/** Brings the user's archived Conversation back to the lists; `false` when it isn't theirs. */
+export async function unarchiveConversation(deps: Deps, userId: string, id: string) {
+  const rows = await deps.db
+    .update(conversation)
+    .set({ archivedAt: null })
     .where(ownConversation(userId, id))
     .returning({ id: conversation.id });
   return rows.length > 0;
@@ -240,6 +289,42 @@ export async function listConversations(
   cursor?: ConversationCursor,
   projectId?: string,
 ) {
+  return pageConversations(
+    deps,
+    and(
+      eq(conversation.userId, userId),
+      eq(conversation.temporary, false),
+      isNull(conversation.archivedAt),
+      projectId
+        ? eq(conversation.projectId, projectId)
+        : and(isNull(conversation.projectId), isNull(conversation.pinnedAt)),
+    ),
+    cursor,
+  );
+}
+
+/**
+ * One page of the user's archived Conversations for the Archived list in settings, Project ones
+ * too. Newest Message first, `conversationPageSize` at a time, like `listConversations`.
+ */
+export async function listArchivedConversations(
+  deps: Deps,
+  userId: string,
+  cursor?: ConversationCursor,
+) {
+  return pageConversations(
+    deps,
+    and(
+      eq(conversation.userId, userId),
+      eq(conversation.temporary, false),
+      isNotNull(conversation.archivedAt),
+    ),
+    cursor,
+  );
+}
+
+/** Newest Message first, ties broken by id: one page of the rows `where` matches. */
+async function pageConversations(deps: Deps, where: SQL | undefined, cursor?: ConversationCursor) {
   const lastMessageAtText = sql<string>`${conversation.lastMessageAt}::text`;
   const rows = await deps.db
     .select({ ...conversationSummaryFields, lastMessageAtText })
@@ -249,11 +334,7 @@ export async function listConversations(
     .leftJoin(sharedLink, eq(sharedLink.conversationId, conversation.id))
     .where(
       and(
-        eq(conversation.userId, userId),
-        eq(conversation.temporary, false),
-        projectId
-          ? eq(conversation.projectId, projectId)
-          : and(isNull(conversation.projectId), isNull(conversation.pinnedAt)),
+        where,
         cursor &&
           sql`(${conversation.lastMessageAt}, ${conversation.id}) < (${cursor.lastMessageAt}::timestamp, ${cursor.id}::uuid)`,
       ),
@@ -288,6 +369,7 @@ export async function listPinnedConversations(deps: Deps, userId: string) {
         eq(conversation.userId, userId),
         isNotNull(conversation.pinnedAt),
         eq(conversation.temporary, false),
+        isNull(conversation.archivedAt),
       ),
     )
     .orderBy(desc(conversation.pinnedAt), desc(conversation.id));
