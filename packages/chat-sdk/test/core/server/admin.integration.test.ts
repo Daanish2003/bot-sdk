@@ -17,13 +17,18 @@ const sonnet = "anthropic:claude-sonnet-5-5";
 async function record(
   userId: string,
   createdAt: Date,
-  { costMicros, input, output }: { costMicros: number; input: number; output: number },
+  {
+    costMicros,
+    input,
+    output,
+    model = sonnet,
+  }: { costMicros: number; input: number; output: number; model?: string },
 ) {
   await getTestDb().insert(usage).values({
     id: uuidv7(),
     userId,
     kind: "run",
-    model: sonnet,
+    model,
     inputTokens: input,
     outputTokens: output,
     costMicros,
@@ -95,6 +100,79 @@ describe("chat.admin.usageTotals", () => {
       outputTokens: 2,
       calls: 1,
     });
+  });
+});
+
+describe("chat.admin.usage", () => {
+  it("groups one user's calls by UTC day and Model, in range, and leaves out other users", async () => {
+    const owner = await insertUser();
+    const other = await insertUser();
+    const since = new Date("2040-01-01T00:00:00Z");
+    const until = new Date("2040-01-03T00:00:00Z");
+    const haiku = "anthropic:claude-haiku-5-5";
+    await record(owner.id, new Date("2040-01-01T01:00:00Z"), {
+      costMicros: 300,
+      input: 100,
+      output: 20,
+    });
+    await record(owner.id, new Date("2040-01-01T23:00:00Z"), {
+      costMicros: 50,
+      input: 10,
+      output: 5,
+    });
+    await record(owner.id, new Date("2040-01-01T12:00:00Z"), {
+      costMicros: 7,
+      input: 1,
+      output: 2,
+      model: haiku,
+    });
+    await record(owner.id, new Date("2040-01-02T09:00:00Z"), {
+      costMicros: 9,
+      input: 3,
+      output: 4,
+    });
+    // Outside the range on either side, and another user's call on the same day: all left out.
+    await record(owner.id, new Date("2040-01-03T00:00:00Z"), {
+      costMicros: 1_000,
+      input: 1_000,
+      output: 1_000,
+    });
+    await record(owner.id, new Date("2039-12-31T23:59:59Z"), {
+      costMicros: 1_000,
+      input: 1_000,
+      output: 1_000,
+    });
+    await record(other.id, new Date("2040-01-01T12:00:00Z"), {
+      costMicros: 1_000,
+      input: 1_000,
+      output: 1_000,
+    });
+    const chat = createChat({
+      databaseUrl: testDatabaseUrl,
+      getUser: () => null,
+      keyEncryptionSecrets,
+      basePath,
+    });
+
+    expect(await chat.admin.usage({ userId: owner.id, since, until })).toEqual([
+      { day: "2040-01-01", model: haiku, costMicros: 7, inputTokens: 1, outputTokens: 2, calls: 1 },
+      {
+        day: "2040-01-01",
+        model: sonnet,
+        costMicros: 350,
+        inputTokens: 110,
+        outputTokens: 25,
+        calls: 2,
+      },
+      {
+        day: "2040-01-02",
+        model: sonnet,
+        costMicros: 9,
+        inputTokens: 3,
+        outputTokens: 4,
+        calls: 1,
+      },
+    ]);
   });
 });
 
