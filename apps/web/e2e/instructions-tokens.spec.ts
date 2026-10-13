@@ -18,6 +18,8 @@ test("Instructions are saved in settings, and a reply's tokens show in its info 
   await expect(page.getByLabel("Your Instructions")).toHaveValue(instructions);
 
   await page.goto("/c");
+  // The composer can't send until the Model is known from the models list, which loads after the page does.
+  await expect(page.getByRole("button", { name: "Model" })).toContainText("e2e-model");
   await send(page, "Tell me the time");
 
   const reply = messageRows(page).last();
