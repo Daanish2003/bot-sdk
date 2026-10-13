@@ -1,5 +1,6 @@
 export { ChatView, type ConversationData } from "./chat/chat-view";
 export { MessageRow } from "./chat/message-row";
+export { MemorySection } from "./settings/memory-section";
 export { AppShell } from "./shell/app-shell";
 export { KeySettingsPage } from "./pages/key-settings";
 export { DeleteAllConversationsSection } from "./settings/delete-all-conversations";

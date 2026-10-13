@@ -19,6 +19,7 @@ import type { AppDeps } from "../deps";
 import { resolveModelCall, type ModelCall } from "../credentials/resolve";
 import { uuidv7 } from "../lib/uuidv7";
 import { defineJob } from "../jobs/define";
+import { reembedMemoriesJob } from "./manage";
 import {
   factExtractionPrompt,
   forgetMatchPrompt,
@@ -122,7 +123,14 @@ export const makeMemoriesJob = defineJob<MakeMemoriesPayload>({
  * from the Run-end hook, fire-and-forget, so a reply never waits for it.
  */
 export async function enqueueMemories(deps: AppDeps, payload: MakeMemoriesPayload): Promise<void> {
-  if (!(await memoryPlanOf(deps, payload.userId, payload.conversationId))) return;
+  const plan = await memoryPlanOf(deps, payload.userId, payload.conversationId);
+  if (!plan) return;
+  // Once per embedding Model, the user's Memories made with another Model are embedded again (#289).
+  await deps.jobs.enqueue(
+    reembedMemoriesJob.name,
+    { userId: payload.userId },
+    { idempotencyKey: `memory-reembed:${payload.userId}:${plan.embedding.id}` },
+  );
   await deps.jobs.enqueue(makeMemoriesJob.name, payload, {
     idempotencyKey: `memory:${payload.replyId}`,
   });

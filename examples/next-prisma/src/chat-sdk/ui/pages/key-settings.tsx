@@ -27,6 +27,7 @@ import { ConnectionsSection } from "../settings/connections-section";
 import { DeleteAllConversationsSection } from "../settings/delete-all-conversations";
 import { ExportDataButton } from "../settings/export-data-button";
 import { InstructionsField } from "../settings/instructions-field";
+import { MemorySection } from "../settings/memory-section";
 import { SavedPromptsSection } from "../settings/saved-prompts";
 import { SharedLinksSection } from "../settings/shared-links";
 import { BackgroundModelSelect } from "../settings/background-model-select";
@@ -95,6 +96,8 @@ export function KeySettingsPage() {
       <ArchivedConversationsSection />
 
       <InstructionsField />
+
+      <MemorySection />
 
       <SavedPromptsSection />
 
