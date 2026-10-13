@@ -13,7 +13,9 @@ import { blob } from "../../../../core/server/db/schema/blob";
 import { like } from "drizzle-orm";
 import { quotaLookup, readQuota } from "../../../../core/server/chat/quota";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { insertConversation } from "../../../support/conversations";
+import { insertConversation, insertMessage } from "../../../support/conversations";
+import { insertGeneratedImage } from "../../../support/generated-images";
+import { insertAttachment, linkTestAttachments } from "../../../support/attachments";
 import { createTestDeps, type TestDepsOverrides } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { insertUser } from "../../../support/users";
@@ -665,5 +667,268 @@ describe("the Host's pricing of generated images", () => {
     expect(await imageUsageOf(user.id)).toEqual([
       { model: hostImageModel, inputTokens: 0, outputTokens: 0, costMicros: 0, estimated: false },
     ]);
+  });
+});
+
+describe("editing a generated image", () => {
+  const editCall = (id: string, input: { prompt: string; editImageIds: string[] }) =>
+    toolCall({ id, name: "generate_image", input });
+
+  /** The Message whose reply made the image `imageId`. */
+  async function messageOfImage(imageId: string) {
+    const [row] = await getTestDb()
+      .select()
+      .from(generatedImage)
+      .where(eq(generatedImage.id, imageId));
+    return row!.messageId;
+  }
+
+  /** The `generated_image` row of `imageId`, as stored. */
+  const rowOf = async (imageId: string) =>
+    (await getTestDb().select().from(generatedImage).where(eq(generatedImage.id, imageId)))[0];
+
+  const pngBase64 = fakePngBase64;
+  const pngPart = (base64: string) => ({
+    type: "image",
+    source: { type: "data", value: base64, mimeType: "image/png" },
+  });
+
+  it("passes an earlier Generated image's bytes to the adapter, and stores a new image with editedFrom", async () => {
+    const imageAdapter = fakeImageAdapter();
+    const rounds: Parameters<typeof setup>[0]["rounds"] = [];
+    const { user, deps, conv, send } = await setup({ imageAdapter, rounds });
+    const source = await insertGeneratedImage(deps, user, conv.id, { prompt: "a red bicycle" });
+    rounds.push(
+      round(editCall("call-1", { prompt: "a bluer bicycle", editImageIds: [source] })),
+      round(text("Bluer.")),
+    );
+
+    await (await send({ parentId: await messageOfImage(source), text: "make it bluer" })).text();
+
+    const reply = await replyOf(deps, conv.id);
+    const rows = await imagesOf(reply.id);
+    expect(reply).toMatchObject({ status: "complete" });
+    expect(rows).toHaveLength(1);
+    expect(reply.parts).toEqual(
+      storedParts([
+        image({
+          toolCallId: "call-1",
+          prompt: "a bluer bicycle",
+          state: "done",
+          imageId: rows[0]!.id,
+          editedFrom: [source],
+        }),
+        { type: "text", text: "Bluer." },
+      ]),
+    );
+    // The adapter gets the edit's text, then the source's bytes as an image part.
+    expect(imageAdapter.calls).toEqual([
+      {
+        prompt: [{ type: "text", content: "a bluer bicycle" }, pngPart(pngBase64)],
+        size: "1024x1024",
+      },
+    ]);
+  });
+
+  it("can edit an image Attachment on the path", async () => {
+    const imageAdapter = fakeImageAdapter();
+    const rounds: Parameters<typeof setup>[0]["rounds"] = [];
+    const { user, deps, conv, send } = await setup({ imageAdapter, rounds });
+    const photo = await insertAttachment(user, {
+      filename: "photo.png",
+      mediaType: "image/png",
+      contents: Buffer.from(pngBase64, "base64"),
+    });
+    const upload = await insertMessage({
+      conversationId: conv.id,
+      role: "user",
+      text: "Here is my photo",
+    });
+    await linkTestAttachments(upload.id, [photo.id]);
+    rounds.push(
+      round(editCall("call-1", { prompt: "rework it", editImageIds: [photo.id] })),
+      round(text("Done.")),
+    );
+
+    await (await send({ parentId: upload.id, text: "rework my photo" })).text();
+
+    const reply = await replyOf(deps, conv.id);
+    expect(reply.parts).toEqual(
+      storedParts([
+        image({
+          toolCallId: "call-1",
+          prompt: "rework it",
+          state: "done",
+          imageId: expect.any(String),
+          editedFrom: [photo.id],
+        }),
+        { type: "text", text: "Done." },
+      ]),
+    );
+    expect(imageAdapter.calls[0]!.prompt).toEqual([
+      { type: "text", content: "rework it" },
+      pngPart(pngBase64),
+    ]);
+  });
+
+  it("fails an id from a sibling Branch as failed, and makes no image", async () => {
+    const imageAdapter = fakeImageAdapter();
+    const rounds: Parameters<typeof setup>[0]["rounds"] = [];
+    const { user, deps, conv, send } = await setup({ imageAdapter, rounds });
+    const sibling = await insertGeneratedImage(deps, user, conv.id, { prompt: "sibling" });
+    const branch = await insertGeneratedImage(deps, user, conv.id, { prompt: "this branch" });
+    rounds.push(
+      round(editCall("call-1", { prompt: "bluer", editImageIds: [sibling] })),
+      round(text("I can't.")),
+    );
+
+    await (await send({ parentId: await messageOfImage(branch), text: "bluer" })).text();
+
+    expect(imageAdapter.calls).toEqual([]);
+    expect(await replyOf(deps, conv.id)).toMatchObject({
+      parts: storedParts([
+        image({ toolCallId: "call-1", prompt: "bluer", state: "error", errorReason: "failed" }),
+        { type: "text", text: "I can't." },
+      ]),
+    });
+  });
+
+  it("fails an id of another user's image as failed, even on the path", async () => {
+    const imageAdapter = fakeImageAdapter();
+    const rounds: Parameters<typeof setup>[0]["rounds"] = [];
+    const { user, deps, conv, send } = await setup({ imageAdapter, rounds });
+    const other = await insertUser();
+    const theirs = await insertGeneratedImage(deps, other, conv.id, { prompt: "theirs" });
+    rounds.push(
+      round(editCall("call-1", { prompt: "bluer", editImageIds: [theirs] })),
+      round(text("I can't.")),
+    );
+
+    await (await send({ parentId: await messageOfImage(theirs), text: "bluer" })).text();
+
+    expect(user.id).not.toBe(other.id);
+    expect(imageAdapter.calls).toEqual([]);
+    expect(await replyOf(deps, conv.id)).toMatchObject({
+      parts: storedParts([
+        image({ toolCallId: "call-1", prompt: "bluer", state: "error", errorReason: "failed" }),
+        { type: "text", text: "I can't." },
+      ]),
+    });
+  });
+
+  it("refuses more ids than min(maxInputImages, 4) as too_many_images", async () => {
+    const imageAdapter = fakeImageAdapter();
+    const rounds: Parameters<typeof setup>[0]["rounds"] = [];
+    const { user, deps, conv, send } = await setup({ imageAdapter, rounds });
+    const ids: string[] = [];
+    let parentId: string | null = null;
+    for (let index = 0; index < 5; index++) {
+      const id = await insertGeneratedImage(deps, user, conv.id, {
+        prompt: `image ${index}`,
+        parentId,
+      });
+      ids.push(id);
+      parentId = await messageOfImage(id);
+    }
+    rounds.push(
+      round(editCall("call-1", { prompt: "all of them", editImageIds: ids })),
+      round(text("Too many.")),
+    );
+
+    await (await send({ parentId, text: "combine these" })).text();
+
+    expect(imageAdapter.calls).toEqual([]);
+    expect(await replyOf(deps, conv.id)).toMatchObject({
+      parts: storedParts([
+        image({
+          toolCallId: "call-1",
+          prompt: "all of them",
+          state: "error",
+          errorReason: "too_many_images",
+        }),
+        { type: "text", text: "Too many." },
+      ]),
+    });
+  });
+
+  it("leaves the source's row and bytes as they were", async () => {
+    const rounds: Parameters<typeof setup>[0]["rounds"] = [];
+    const { user, deps, conv, send } = await setup({ imageAdapter: fakeImageAdapter(), rounds });
+    const source = await insertGeneratedImage(deps, user, conv.id);
+    const before = await rowOf(source);
+    rounds.push(
+      round(editCall("call-1", { prompt: "edit", editImageIds: [source] })),
+      round(text("Done.")),
+    );
+
+    await (await send({ parentId: await messageOfImage(source), text: "edit it" })).text();
+
+    expect(await rowOf(source)).toEqual(before);
+    expect(Uint8Array.from((await deps.blobStore.get(`generated-image/${source}`))!)).toEqual(
+      new Uint8Array(Buffer.from(pngBase64, "base64")),
+    );
+  });
+
+  it("tells the Model which image Attachments on the path it can name", async () => {
+    const rounds: Parameters<typeof setup>[0]["rounds"] = [];
+    const { user, conv, fake, send } = await setup({
+      imageAdapter: fakeImageAdapter(),
+      rounds,
+    });
+    const photo = await insertAttachment(user, {
+      filename: "photo.png",
+      mediaType: "image/png",
+      contents: Buffer.from(pngBase64, "base64"),
+    });
+    const upload = await insertMessage({ conversationId: conv.id, role: "user", text: "Look" });
+    await linkTestAttachments(upload.id, [photo.id]);
+    rounds.push(round(text("Sure.")));
+
+    await (await send({ parentId: upload.id, text: "what is it" })).text();
+
+    expect(JSON.stringify(fake.calls[0]!.messages)).toContain(`[Attachment id: ${photo.id}]`);
+  });
+
+  it("is not offered as edits when the Image Model can't edit, and the schema says so", async () => {
+    const rounds: Parameters<typeof setup>[0]["rounds"] = [];
+    const { fake, send } = await setup({
+      rounds,
+      deps: {
+        hostProviders: [
+          {
+            provider: "gemini",
+            credentials: { apiKey: "host-gemini-key" },
+            models: [],
+            imageModels: [
+              {
+                modelId: "gemini-3.1-flash-image",
+                size: "1024x1024",
+                quality: "medium",
+                pricePerImageUsd: 0.01,
+              },
+            ],
+          },
+        ],
+        defaultImageModel: "gemini:gemini-3.1-flash-image",
+      },
+    });
+    rounds.push(round(text("Sure.")));
+
+    await (await send()).text();
+
+    const tool = fake.calls[0]!.tools!.find((candidate) => candidate.name === "generate_image")!;
+    expect(JSON.stringify(tool.inputSchema)).not.toContain("editImageIds");
+    expect(tool.description).toContain("aren't supported");
+  });
+
+  it("is offered as edits when the Image Model can edit", async () => {
+    const rounds: Parameters<typeof setup>[0]["rounds"] = [];
+    const { fake, send } = await setup({ rounds });
+    rounds.push(round(text("Sure.")));
+
+    await (await send()).text();
+
+    const tool = fake.calls[0]!.tools!.find((candidate) => candidate.name === "generate_image")!;
+    expect(JSON.stringify(tool.inputSchema)).toContain("editImageIds");
   });
 });

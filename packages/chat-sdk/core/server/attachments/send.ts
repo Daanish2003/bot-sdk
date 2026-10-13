@@ -72,7 +72,7 @@ export async function attachmentsForSend(
     files.map(({ id, filename, mediaType }) => {
       const stored = bytes.get(id);
       if (!stored) throw new Error(`Attachment ${id} has no bytes`);
-      return { filename, mediaType, bytes: stored };
+      return { id, filename, mediaType, bytes: stored };
     });
   return {
     error: null,

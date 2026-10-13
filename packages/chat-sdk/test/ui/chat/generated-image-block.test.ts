@@ -59,6 +59,20 @@ describe("a generated image block", () => {
     expect(html).not.toContain("Generating image");
   });
 
+  it("shows an edited from chip with the source's thumbnail before the prompt", () => {
+    const html = renderToStaticMarkup(
+      createElement(GeneratedImageBlock, {
+        image: image({ state: "done", imageId: "img-2", editedFrom: ["img-1"] }),
+        imagesUrl,
+        editedFrom: [{ label: "a red bicycle", imageId: "img-1" }],
+      }),
+    );
+
+    expect(html).toContain("Edited from");
+    expect(html).toContain(`src="${imagesUrl}/img-1"`);
+    expect(html.indexOf("Edited from")).toBeLessThan(html.indexOf("a red bicycle</span>"));
+  });
+
   it("offers Zoom, and a Download that names the file", () => {
     const html = render(image({ state: "done", imageId: "img-1" }));
 

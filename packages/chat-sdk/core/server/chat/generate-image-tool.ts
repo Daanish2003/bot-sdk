@@ -18,10 +18,13 @@ import {
   type GenerateImageOutput,
   type GeneratedImageErrorReason,
   generatedImageErrorLabels,
+  editLimitOf,
   generateImageToolName,
   imageLimitError,
+  imageUnavailableError,
   maxImagesPerRun,
 } from "../../shared/chat/generated-image";
+import type { EditSource } from "./edit-sources";
 import type { ToolBudget } from "./host-tools";
 import { toolCallLimitError } from "./host-tools";
 import type { ImageRequest } from "./adapters";
@@ -41,18 +44,57 @@ export async function imageBytes(
   return new Uint8Array(await (await fetch(image.url!, signal ? { signal } : {})).arrayBuffer());
 }
 
-const generateImageDefinition = toolDefinition({
-  name: generateImageToolName,
-  description:
-    "Make an image from a text prompt. Use it whenever the user asks for a picture, drawing, logo or " +
-    `other image. Write the prompt from what the user asked for; choose aspectRatio when they name a shape. At most ${maxImagesPerRun} images per reply.`,
-  inputSchema: z.object({
-    prompt: z.string().min(1).meta({ description: "What the image should show" }),
-    aspectRatio: z
-      .enum(aspectRatios)
-      .optional()
-      .meta({ description: "The shape of the image; square when left out" }),
-  }),
+/**
+ * The tool's definition for an Image Model that takes `editLimit` input images (spec #278). At 0 it
+ * has no `editImageIds`, and its description says edits aren't supported, so the Model regenerates
+ * from a fuller prompt.
+ */
+function generateImageDefinition(editLimit: number) {
+  const editable = editLimit > 0;
+  return toolDefinition({
+    name: generateImageToolName,
+    description:
+      "Make an image from a text prompt. Use it whenever the user asks for a picture, drawing, logo or " +
+      `other image. Write the prompt from what the user asked for; choose aspectRatio when they name a shape. At most ${maxImagesPerRun} images per reply. ` +
+      (editable
+        ? `To change earlier images, pass their ids in editImageIds (up to ${editLimit}): an imageId you were given, or the id of an image the user attached. Each call makes a new image and leaves the source as it was.`
+        : "Edits of earlier images aren't supported by this image model, so to change one, write a prompt that describes the whole picture."),
+    inputSchema: z.object({
+      prompt: z.string().min(1).meta({ description: "What the image should show" }),
+      aspectRatio: z
+        .enum(aspectRatios)
+        .optional()
+        .meta({ description: "The shape of the image; square when left out" }),
+      ...(editable
+        ? {
+            editImageIds: z.array(z.string()).optional().meta({
+              description: "Ids of the images to edit, from earlier in this conversation",
+            }),
+          }
+        : {}),
+    }),
+  });
+}
+
+/** A call's arguments as the handler reads them; `editImageIds` only when the tool takes edits. */
+type CallInput = { prompt: string; aspectRatio?: AspectRatio; editImageIds?: unknown };
+
+/** The ids a call named, as strings; the schema has already checked them, so anything else is none. */
+const idsOf = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((id): id is string => typeof id === "string") : [];
+
+/** An image of an edit's input, as a part of the `generateImage` prompt (spec #278). */
+const editImagePart = (source: EditSource) => ({
+  type: "image" as const,
+  source: {
+    type: "data" as const,
+    value: Buffer.from(
+      source.bytes.buffer,
+      source.bytes.byteOffset,
+      source.bytes.byteLength,
+    ).toString("base64"),
+    mimeType: source.mediaType,
+  },
 });
 
 /**
@@ -80,6 +122,7 @@ export function createGenerateImageTool({
   onChange,
   budget,
   mayRun,
+  edit,
 }: {
   adapter: AnyImageAdapter;
   /** Whose usage the image is, and the Host's price for it when the call is on Host credentials. */
@@ -98,10 +141,22 @@ export function createGenerateImageTool({
   budget: ToolBudget;
   /** Whether a paid call may run now (the Quota, on Host credentials); checked before each call. */
   mayRun: () => Promise<boolean>;
+  /**
+   * The Image Model's input-image limit, and how a call's `editImageIds` resolve to the images it
+   * reads (spec #278). Unset, or a limit of 0, the tool takes no edits.
+   */
+  edit?: {
+    maxInputImages: number;
+    sources: (ids: string[]) => Promise<EditSource[] | undefined>;
+  };
 }) {
   let images = 0;
-  return generateImageDefinition.server(
-    async ({ prompt, aspectRatio = "square" }, context): Promise<GenerateImageOutput> => {
+  const editLimit = edit ? editLimitOf(edit.maxInputImages) : 0;
+  return generateImageDefinition(editLimit).server(
+    async (
+      { prompt, aspectRatio = "square", editImageIds }: CallInput,
+      context,
+    ): Promise<GenerateImageOutput> => {
       // TanStack AI passes the call's id to every server tool; the stored part is keyed by it.
       const toolCallId = context?.toolCallId;
       if (!toolCallId) throw new Error("generate_image was called without a tool call id");
@@ -120,7 +175,14 @@ export function createGenerateImageTool({
         // The slot is taken before the Quota is awaited, so parallel calls in one Run can't pass the cap.
         if (images >= maxImagesPerRun) return fail("limit_reached", imageLimitError);
         if (!budget.take()) return fail("limit_reached", toolCallLimitError);
+        // The edit's ids are the distinct ones the call named; the Model can't go past the limit.
+        const ids = editLimit > 0 ? [...new Set(idsOf(editImageIds))] : [];
+        if (ids.length > editLimit)
+          return fail("too_many_images", generatedImageErrorLabels.too_many_images);
         images++;
+        // An id that isn't an image on this Branch, or the user's, fails the call before any paid call.
+        const sources = edit && ids.length > 0 ? await edit.sources(ids) : [];
+        if (!sources) return fail("failed", imageUnavailableError);
         if (!(await mayRun())) {
           return fail("quota_exceeded", generatedImageErrorLabels.quota_exceeded);
         }
@@ -128,7 +190,11 @@ export function createGenerateImageTool({
         inFlight = true;
         answer = await generateImage({
           adapter,
-          prompt,
+          // An edit's prompt is its text, then each source image, in the order the call named them.
+          prompt:
+            sources.length > 0
+              ? [{ type: "text" as const, content: prompt }, ...sources.map(editImagePart)]
+              : prompt,
           ...request(aspectRatio),
           timeout: timeoutMs,
           ...(signal && { abortSignal: signal }),
@@ -161,7 +227,10 @@ export function createGenerateImageTool({
           throw error;
         }
         stored = true;
-        parts.finishGeneratedImage(toolCallId, { imageId: id });
+        parts.finishGeneratedImage(toolCallId, {
+          imageId: id,
+          ...(ids.length > 0 && { editedFrom: ids }),
+        });
         return { imageId: id, prompt, aspectRatio: aspectRatio as AspectRatio };
       } catch (caught) {
         // A call cut off by the run ending stays running; the run closes it as cancelled.
