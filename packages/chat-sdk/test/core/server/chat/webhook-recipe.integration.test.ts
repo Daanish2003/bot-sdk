@@ -53,7 +53,7 @@ function recipeSource(): string {
   return block;
 }
 
-/** The recipe's type errors, checked against the SDK's own types (`@/lib/chat-sdk` is this SDK). */
+/** The recipe's type errors, checked against the SDK's own `ChatHooks`. */
 function recipeTypeErrors(source: string): string[] {
   const fileName = `${sdkRoot}__webhook-recipe.ts`;
   const options: ts.CompilerOptions = {
