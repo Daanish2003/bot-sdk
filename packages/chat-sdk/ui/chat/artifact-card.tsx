@@ -2,9 +2,9 @@ import {
   artifactKindLabels,
   type ArtifactKind,
   artifactKinds,
+  updateArtifactToolName,
 } from "../../core/shared/chat/artifact";
 import type { ToolCallView } from "../../core/shared/chat/tool-call";
-import { updateArtifactToolName } from "../../core/shared/chat/artifact";
 import { cn } from "@/lib/utils";
 import { FileCodeIcon, Loader2Icon } from "lucide-react";
 

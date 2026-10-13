@@ -1,7 +1,7 @@
 import type { AttachmentInfo } from "../../core/shared/attachments/kinds";
 import { createArtifactToolName, updateArtifactToolName } from "../../core/shared/chat/artifact";
 import { pageSourcesOf, replySegments, sourcesOf } from "../../core/shared/chat/sources";
-import { toolCallOf } from "../../core/shared/chat/tool-call";
+import { toolCallOf, type ToolCallView } from "../../core/shared/chat/tool-call";
 import { webSearchOf } from "../../core/shared/chat/web-search";
 import { Button } from "@/components/ui/button";
 import { Loader } from "@/components/ui/prompt-kit/loader";
@@ -384,6 +384,15 @@ function EditBox({
   );
 }
 
+/** The newest version on the Branch of the Artifact an update call names; `undefined` for a create. */
+function artifactTarget(
+  call: ToolCallView,
+  latestVersionOf?: (artifactId: string) => number | undefined,
+): number | undefined {
+  const artifactId = artifactIdOf(call);
+  return artifactId === undefined ? undefined : latestVersionOf?.(artifactId);
+}
+
 /**
  * A reply's text and web searches, in stream order. Back-to-back searches share one row; links
  * to the reply's Sources render as their numbered citation chips.
@@ -422,7 +431,7 @@ function AssistantParts({
               <ArtifactCard
                 call={segment.call}
                 messageId={messageId}
-                latestVersion={latestVersionOf?.(artifactIdOf(segment.call) ?? "")}
+                latestVersion={artifactTarget(segment.call, latestVersionOf)}
                 onOpen={onOpenArtifact}
               />
             ) : (

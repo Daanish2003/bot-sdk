@@ -74,10 +74,8 @@ export function ChatView(props: ChatViewProps) {
   );
   const shown = panel ? panelTargetOf(messages, panel) : null;
   // The Artifact's newest version on the Branch, which an update that the panel shows changes.
-  const latest =
-    shown?.kind === "live" && artifactIdOf(shown.call)
-      ? artifactVersionsOn(messages, artifactIdOf(shown.call)!)[0]
-      : undefined;
+  const updated = shown?.kind === "live" ? artifactIdOf(shown.call) : undefined;
+  const latest = updated === undefined ? undefined : artifactVersionsOn(messages, updated)[0];
   return (
     <div className="flex h-full min-h-0">
       <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
