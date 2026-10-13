@@ -255,5 +255,28 @@ export function registerSharedScenarios(
         })
         .toBe(1 + mainCount);
     });
+
+    test("typing / inserts a Saved prompt with the keyboard, unsent", async ({ page }) => {
+      await signInWithModel(page);
+      const message = page.getByLabel("Message", { exact: true });
+
+      // With no Saved prompts yet, the menu's only row creates one, and saving inserts it.
+      await message.fill("/");
+      await expect(page.getByText("No Saved prompts yet.")).toBeVisible();
+      await page.keyboard.press("Enter");
+      await page.getByLabel("Name", { exact: true }).fill("greet");
+      await page.getByLabel("Text", { exact: true }).fill("Say hello to the team");
+      await page.getByRole("button", { name: "Save", exact: true }).click();
+      await expect(message).toHaveValue("Say hello to the team");
+      await expect(messageRows(page)).toHaveCount(0);
+
+      // Typing the name and pressing Enter inserts it for editing; nothing is sent.
+      await message.fill("/gre");
+      await expect(page.getByRole("option", { name: /\/greet/ })).toBeVisible();
+      await page.keyboard.press("Enter");
+      await expect(message).toHaveValue("Say hello to the team");
+      await expect(messageRows(page)).toHaveCount(0);
+      await expect(page.getByRole("listbox", { name: "Saved prompts" })).toHaveCount(0);
+    });
   });
 }
