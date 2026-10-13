@@ -171,6 +171,32 @@ const data = await chat.getSharedConversation(token);
 
 A custom runner is any object with `enqueue(name, payload, options?)`, `start()` and `stop()`, and it takes the place of the default. Jobs are internal to the SDK: a Host can't declare its own.
 
+### Trigger.dev workers (optional)
+
+Only a Host that runs its jobs on Trigger.dev needs this. Every other Host keeps the in-process runner and needs nothing from `extras/`. The SDK never imports `extras/`, so `@trigger.dev/sdk` is a dependency of such a Host alone: install it there with `pnpm add @trigger.dev/sdk`.
+
+`extras/trigger/trigger-runner.ts` is a runner that triggers a Host task. The copy script copies `extras/` only when the destination has none, so your edits survive updates. Wire it in two places:
+
+```ts
+// src/trigger/chat-job.ts (the Host's task)
+import { task } from "@trigger.dev/sdk";
+import { chat } from "@/lib/chat";
+
+export const chatJob = task({
+  id: "chat-job",
+  run: async ({ name, payload }: { name: string; payload: unknown }) => {
+    await chat.runJob(name, payload);
+  },
+});
+
+// src/lib/chat.ts (where createChat is called)
+export const chat = createChat({
+  /* ...as before */ jobs: triggerJobRunner({ taskId: "chat-job" }),
+});
+```
+
+`chat.runJob(name, payload)` runs a job's handler in the calling process, after validating the payload with the job's schema. It rejects an unknown name or a bad payload, and a handler's error reaches the task, so Trigger.dev's retries apply. The Trigger.dev runner supports `enqueue` only: `cancel`, `status` and `schedule` throw until they are needed.
+
 ## Host hooks
 
 `createChat({ hooks })` takes the Host's callbacks into the SDK. Every hook is optional.
