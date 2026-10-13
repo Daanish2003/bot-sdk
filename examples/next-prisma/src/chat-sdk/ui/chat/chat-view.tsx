@@ -326,7 +326,7 @@ function ChatThread({
           <ScrollButton />
         </div>
       </ChatContainerRoot>
-      <div className="border-t bg-background px-3 py-3 sm:px-6">
+      <div className="border-t bg-background px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6">
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-2">
           {/* A refused Run is explained by the Quota banner below, not by its error. */}
           {error && !sending && !quotaBlocked && (

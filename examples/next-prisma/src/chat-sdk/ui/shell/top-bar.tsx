@@ -42,7 +42,7 @@ export function TopBar({
   const { t } = useI18n();
 
   return (
-    <header className="flex h-11 shrink-0 items-center gap-1 border-b px-2 sm:gap-2">
+    <header className="flex h-11 shrink-0 items-center gap-1 border-b px-2 pt-[env(safe-area-inset-top)] max-md:h-auto max-md:min-h-11 sm:gap-2">
       <Button
         variant="ghost"
         size="icon-sm"

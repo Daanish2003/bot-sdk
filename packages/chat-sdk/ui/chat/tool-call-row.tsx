@@ -88,14 +88,24 @@ export function ToolCallRow({
         </div>
       )}
       {waiting && onDecide && (
-        <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" onClick={() => onDecide(true)}>
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+          <Button size="sm" className="max-sm:w-full" onClick={() => onDecide(true)}>
             {t("chat.approve")}
           </Button>
-          <Button size="sm" variant="outline" onClick={() => onDecide(true, true)}>
+          <Button
+            size="sm"
+            variant="outline"
+            className="max-sm:w-full"
+            onClick={() => onDecide(true, true)}
+          >
             {t("chat.allowForConversation")}
           </Button>
-          <Button size="sm" variant="outline" onClick={() => onDecide(false)}>
+          <Button
+            size="sm"
+            variant="outline"
+            className="max-sm:w-full"
+            onClick={() => onDecide(false)}
+          >
             {t("chat.deny")}
           </Button>
         </div>
