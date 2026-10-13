@@ -136,13 +136,13 @@ export async function handleChat(
   const adapter = deps.adapterFor(model.id, call.credentials, {
     maxOutputTokens: call.maxOutputTokens,
   });
-  const imageTool = image
-    ? {
-        adapter: deps.imageAdapterFor(image.modelId, image.credentials),
-        model: image.id,
-        size: image.hostModel?.size,
-      }
-    : undefined;
+  // The image tool is offered only when an adapter serves the Image Model; without one, the reply
+  // chats as it would with no Image Model at all.
+  const imageAdapter = image && deps.imageAdapterFor(image.modelId, image.credentials);
+  const imageTool =
+    image && imageAdapter
+      ? { adapter: imageAdapter, model: image.id, size: image.hostModel?.size }
+      : undefined;
   const userParts =
     command.text === undefined ? undefined : storedParts([{ type: "text", text: command.text }]);
   const userMessageId = uuidv7();

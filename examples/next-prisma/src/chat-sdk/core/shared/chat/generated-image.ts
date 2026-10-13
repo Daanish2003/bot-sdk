@@ -1,6 +1,6 @@
 import type { MessagePart } from "@tanstack/ai";
 
-import type { GeneratedImagePart } from "../message-parts";
+import { type GeneratedImagePart, generatedImageErrorReasons } from "../message-parts";
 
 /**
  * The `generate_image` tool's contract (spec #278), shared by the server tool, the parts boundary
@@ -46,14 +46,14 @@ export function generatedImageOf(part: MessagePart): GeneratedImagePart | null {
   const input = (part.input ?? {}) as Partial<{ prompt: unknown; aspectRatio: unknown }>;
   const prompt = typeof input.prompt === "string" ? input.prompt : "";
   const aspectRatio = aspectRatios.find((ratio) => ratio === input.aspectRatio) ?? "square";
-  const base = { type: "generated_image", toolCallId: part.id, prompt, aspectRatio } as const;
-  const output = part.output as Partial<GenerateImageOutput> | null | undefined;
-  if (output && typeof (output as { imageId?: unknown }).imageId === "string") {
-    return { ...base, state: "done", imageId: (output as { imageId: string }).imageId };
-  }
-  if (output && typeof (output as { reason?: unknown }).reason === "string") {
-    const reason = (output as { reason: GeneratedImageErrorReason }).reason;
-    return { ...base, state: "error", errorReason: reason };
+  const base = { type: "generated_image" as const, toolCallId: part.id, prompt, aspectRatio };
+  const output: unknown = part.output;
+  if (typeof output === "object" && output !== null) {
+    const { imageId, reason } = output as { imageId?: unknown; reason?: unknown };
+    if (typeof imageId === "string") return { ...base, state: "done", imageId };
+    // Only a reason the schema knows is an error; anything else reads as a call still running.
+    const errorReason = generatedImageErrorReasons.find((known) => known === reason);
+    if (errorReason) return { ...base, state: "error", errorReason };
   }
   return { ...base, state: part.state === "error" ? "cancelled" : "running" };
 }

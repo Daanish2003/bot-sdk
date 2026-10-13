@@ -76,11 +76,15 @@ export function adapterFor(model: string, credentials: Credentials): AnyTextAdap
 }
 
 /**
- * The image adapter for an Image Model (spec #278). The Provider image adapters come with their
- * own ticket; until one is wired here, no Image Model has an adapter, so its call fails.
+ * The image adapter for an Image Model (spec #278), or `undefined` when none serves it. The
+ * Provider image adapters come with their own ticket; until one is wired here, no Image Model has
+ * one, so the reply offers no `generate_image` tool and chats as before.
  */
-export function imageAdapterFor(_model: string, _credentials: Credentials): AnyImageAdapter {
-  throw new Error("No image adapter is available for this Image Model");
+export function imageAdapterFor(
+  _model: string,
+  _credentials: Credentials,
+): AnyImageAdapter | undefined {
+  return undefined;
 }
 
 /**
