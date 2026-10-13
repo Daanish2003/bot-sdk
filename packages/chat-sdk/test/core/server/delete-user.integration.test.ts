@@ -11,8 +11,12 @@ import { saveCredentials } from "../../../core/server/credentials/store";
 import { START } from "../../../core/server/chat/run-streams";
 import { artifact, artifactVersion } from "../../../core/server/db/schema/artifact";
 import { attachment, messageAttachment } from "../../../core/server/db/schema/attachment";
+import { knowledgeBlobKey } from "../../../core/server/blob/store";
 import { blob } from "../../../core/server/db/schema/blob";
 import { conversation, message, project } from "../../../core/server/db/schema/chat";
+import { job } from "../../../core/server/db/schema/job";
+import { knowledgeFile } from "../../../core/server/db/schema/knowledge";
+import { knowledgeJobKey } from "../../../core/server/knowledge/process";
 import { userCredentials } from "../../../core/server/db/schema/credentials";
 import { savedPrompt } from "../../../core/server/db/schema/saved-prompt";
 import { sharedLink } from "../../../core/server/db/schema/share";
@@ -393,5 +397,68 @@ describe("deleteUserData, Temporary Conversations", () => {
     expect(
       await getTestDb().select().from(message).where(eq(message.conversationId, temporary.id)),
     ).toEqual([]);
+  });
+});
+
+describe("deleteUserData, Knowledge files", () => {
+  it("deletes the user's Knowledge files, their bytes, and cancels their queued jobs", async () => {
+    const user = await insertUser();
+    const other = await insertUser();
+    const deps = createTestDeps();
+    const ownProject = uuidv7();
+    const otherProject = uuidv7();
+    await getTestDb()
+      .insert(project)
+      .values([
+        { id: ownProject, userId: user.id, name: "Mine" },
+        { id: otherProject, userId: other.id, name: "Theirs" },
+      ]);
+    const ownFile = uuidv7();
+    const otherFile = uuidv7();
+    await getTestDb()
+      .insert(knowledgeFile)
+      .values([
+        {
+          id: ownFile,
+          userId: user.id,
+          projectId: ownProject,
+          name: "a.md",
+          mediaType: "text/markdown",
+          size: 1,
+        },
+        {
+          id: otherFile,
+          userId: other.id,
+          projectId: otherProject,
+          name: "b.md",
+          mediaType: "text/markdown",
+          size: 1,
+        },
+      ]);
+    const bytes = new Uint8Array([1]);
+    await deps.blobStore.put(knowledgeBlobKey(ownFile), bytes, { contentType: "text/markdown" });
+    await deps.blobStore.put(knowledgeBlobKey(otherFile), bytes, { contentType: "text/markdown" });
+    await deps.jobs.enqueue(
+      "knowledge.process",
+      { fileId: ownFile },
+      { idempotencyKey: knowledgeJobKey(ownFile) },
+    );
+
+    await deleteUserData(deps, user.id);
+
+    expect(
+      await getTestDb().select().from(knowledgeFile).where(eq(knowledgeFile.id, ownFile)),
+    ).toEqual([]);
+    expect(await deps.blobStore.get(knowledgeBlobKey(ownFile))).toBeNull();
+    expect(
+      await getTestDb()
+        .select({ status: job.status })
+        .from(job)
+        .where(eq(job.idempotencyKey, knowledgeJobKey(ownFile))),
+    ).toEqual([{ status: "cancelled" }]);
+    expect(
+      await getTestDb().select().from(knowledgeFile).where(eq(knowledgeFile.id, otherFile)),
+    ).toHaveLength(1);
+    expect(await deps.blobStore.get(knowledgeBlobKey(otherFile))).not.toBeNull();
   });
 });

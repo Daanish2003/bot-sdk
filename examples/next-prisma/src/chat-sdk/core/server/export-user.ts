@@ -4,6 +4,7 @@ import { artifact, artifactVersion } from "./db/schema/artifact";
 import { attachment, messageAttachment } from "./db/schema/attachment";
 import { conversation, message, project } from "./db/schema/chat";
 import { generatedImage } from "./db/schema/generated-image";
+import { knowledgeFile } from "./db/schema/knowledge";
 import { savedPrompt } from "./db/schema/saved-prompt";
 import { sharedLink } from "./db/schema/share";
 import { userSettings } from "./db/schema/settings";
@@ -70,6 +71,8 @@ export type UserExport = {
   sharedLinks: { token: string; conversationId: string; createdAt: Date }[];
   /** The user's Saved prompts, by name. */
   savedPrompts: { name: string; text: string; createdAt: Date }[];
+  /** The user's Knowledge files, by name, type and Project; their bytes and passages are never in it. */
+  knowledgeFiles: { name: string; mediaType: string; projectId: string }[];
   /** The user's Artifacts, each with every version it has on any Branch (ADR 0016). */
   artifacts: {
     id: string;
@@ -197,6 +200,16 @@ export async function exportUserData(deps: AppDeps, userId: string): Promise<Use
         .where(and(eq(conversation.userId, userId), liveConversation(new Date())))
         .orderBy(asc(artifact.createdAt), asc(artifact.id));
 
+      const knowledgeFiles = await tx
+        .select({
+          name: knowledgeFile.name,
+          mediaType: knowledgeFile.mediaType,
+          projectId: knowledgeFile.projectId,
+        })
+        .from(knowledgeFile)
+        .where(eq(knowledgeFile.userId, userId))
+        .orderBy(asc(knowledgeFile.createdAt), asc(knowledgeFile.id));
+
       const versions = await tx
         .select({
           artifactId: artifactVersion.artifactId,
@@ -269,6 +282,7 @@ export async function exportUserData(deps: AppDeps, userId: string): Promise<Use
         })),
         sharedLinks: links,
         savedPrompts,
+        knowledgeFiles,
         artifacts: artifacts.map((row) => ({
           id: row.id,
           conversationId: row.conversationId,
