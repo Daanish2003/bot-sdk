@@ -13,6 +13,7 @@ import { fetchUrlToolName } from "../shared/chat/fetch-url";
 import { createArtifactToolName, updateArtifactToolName } from "../shared/chat/artifact";
 import { handleJoin } from "./chat/join-run";
 import { transcriptionProviders } from "./chat/transcription";
+import { embeddingModelsProblem } from "./chat/embedding-models";
 import type { ChatUser, Context } from "./context";
 import { createDb } from "./db/index";
 import { quotaLookup, quotaState, type QuotaState } from "./chat/quota";
@@ -345,8 +346,12 @@ export function createChat(options: CreateChatOptions): {
           }
         }
       }
-      const defaultBackground = options.defaultBackgroundModel;
       const hostProviders = (options.hostProviders ?? []).filter(isHostProvider);
+      for (const entry of hostProviders) {
+        const problem = embeddingModelsProblem(entry);
+        if (problem) throw new Error(problem);
+      }
+      const defaultBackground = options.defaultBackgroundModel;
       if (
         defaultBackground !== undefined &&
         !hostProviders.some(({ provider, models }) =>

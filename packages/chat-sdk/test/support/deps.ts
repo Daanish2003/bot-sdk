@@ -2,6 +2,7 @@ import { getTestDb } from "./test-database";
 
 import { postgresBlobStore } from "../../core/server/blob/postgres";
 import { createMemoryCounters } from "../../core/server/chat/counters";
+import { fakeEmbeddingAdapter } from "../../core/server/chat/fake-embedding-adapter";
 import { createHookEmitter } from "../../core/server/chat/hooks";
 import { createMemoryPubSub } from "../../core/server/chat/pubsub";
 import { createMemoryRunStreams } from "../../core/server/chat/run-streams";
@@ -38,6 +39,7 @@ export function createTestDeps({
         `No fake image adapter for model "${model}"; pass imageAdapterFor to createTestDeps`,
       );
     },
+    embeddingAdapterFor: () => fakeEmbeddingAdapter(),
     transcriptionAdapterFor: (model) => {
       throw new Error(`No fake transcription adapter for "${model}"; pass one to createTestDeps`);
     },
