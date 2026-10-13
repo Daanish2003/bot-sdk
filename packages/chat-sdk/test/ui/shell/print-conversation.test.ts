@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
+import { createChatClient } from "../../../core/client/chat-client";
 import { toolCallOf } from "../../../core/shared/chat/tool-call";
 import { ChatProvider, type ChatRouter } from "../../../core/client/react/provider";
 import { Composer } from "../../../ui/chat/composer";
@@ -16,13 +17,13 @@ const router: ChatRouter = {
   shareUrl: () => "",
 };
 
-/** The provider's client is only read by the Conversation's own queries, which these renders skip. */
-const client = {
-  orpc: {},
-  chatUrl: "",
-  exportUrl: "",
-  connectionsUrl: "",
-} as never;
+/** The renders here make no requests; the Composer's Saved prompts query only runs when the menu opens. */
+const client = createChatClient({
+  baseUrl: "http://localhost/api/chat",
+  fetch: async () => {
+    throw new Error("Unexpected request in a render test");
+  },
+});
 
 describe("printing a Conversation", () => {
   it("offers Print / Save as PDF in the Conversation menu, beside Export as Markdown", () => {
@@ -50,7 +51,13 @@ describe("printing a Conversation", () => {
   });
 
   it("hides the composer when printing", () => {
-    const markup = renderToStaticMarkup(createElement(Composer, { onSend: () => {} }));
+    const markup = renderToStaticMarkup(
+      createElement(ChatProvider, {
+        client,
+        router,
+        children: createElement(Composer, { onSend: () => {} }),
+      }),
+    );
 
     expect(markup).toContain("print:hidden");
   });
