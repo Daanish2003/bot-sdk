@@ -287,6 +287,8 @@ describe("the generate_image tool", () => {
       status: "stopped",
       parts: storedParts([image({ prompt: "stopped", state: "cancelled" })]),
     });
+    // The Run ends without waiting for the tool, so let a call still in flight settle before looking.
+    await new Promise((resolve) => setTimeout(resolve, 200));
     expect(await imagesOf(reply.id)).toEqual([]);
   });
 
