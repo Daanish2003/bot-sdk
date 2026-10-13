@@ -1,23 +1,29 @@
-import { ORPCError } from "@orpc/server";
 import { z } from "zod";
 
 import { type DecideResult, decideApproval } from "../chat/approval";
 import { stopRun } from "../chat/run";
 import { findMessage, rateMessage } from "../chat/store";
 import { protectedProcedure } from "../procedures";
+import { rpcError } from "../rpc-error";
 
-const refusals: Record<Exclude<DecideResult, "started" | "not_found">, string> = {
-  not_waiting: "The Message is not waiting for Approval",
-  streaming: "A reply is still streaming in this Conversation",
-  unavailable: "The Model can't resume this reply: its Model or credentials are unavailable",
-  quota: "You've used this window's Quota",
-};
+const refusals = {
+  not_waiting: ["error.decisionNotWaiting", "The Message is not waiting for Approval"],
+  streaming: ["error.replyStreaming", "A reply is still streaming in this Conversation"],
+  unavailable: [
+    "error.modelCannotResume",
+    "The Model can't resume this reply: its Model or credentials are unavailable",
+  ],
+  quota: ["error.quotaSpent", "You've used this window's Quota"],
+} as const;
 
 /** Throws the error a decision that didn't start a Run is refused with. */
 function refuseDecision(result: DecideResult): void {
   if (result === "started") return;
-  if (result === "not_found") throw new ORPCError("NOT_FOUND", { message: "Message not found" });
-  throw new ORPCError("CONFLICT", { message: refusals[result] });
+  if (result === "not_found") {
+    throw rpcError("NOT_FOUND", "error.messageNotFound", "Message not found");
+  }
+  const [code, message] = refusals[result];
+  throw rpcError("CONFLICT", code, message);
 }
 
 export const chatRouter = {
@@ -30,7 +36,7 @@ export const chatRouter = {
     .input(z.object({ messageId: z.uuid() }))
     .handler(async ({ context, input }) => {
       const owned = await findMessage(context.deps, context.user.id, input.messageId);
-      if (!owned) throw new ORPCError("NOT_FOUND", { message: "Message not found" });
+      if (!owned) throw rpcError("NOT_FOUND", "error.messageNotFound", "Message not found");
       if (owned.status === "awaiting_approval") {
         refuseDecision(await decideApproval(context.deps, context.user.id, owned.id, false));
         return;
@@ -53,14 +59,20 @@ export const chatRouter = {
         input.rating,
       );
       if (result === "not_found")
-        throw new ORPCError("NOT_FOUND", { message: "Message not found" });
+        throw rpcError("NOT_FOUND", "error.messageNotFound", "Message not found");
       if (result === "not_assistant") {
-        throw new ORPCError("BAD_REQUEST", { message: "Only an assistant Message can be rated" });
+        throw rpcError(
+          "BAD_REQUEST",
+          "error.rateNotAssistant",
+          "Only an assistant Message can be rated",
+        );
       }
       if (result === "live") {
-        throw new ORPCError("CONFLICT", {
-          message: "The reply can be rated once its Run has ended",
-        });
+        throw rpcError(
+          "CONFLICT",
+          "error.rateLive",
+          "The reply can be rated once its Run has ended",
+        );
       }
     }),
   /**

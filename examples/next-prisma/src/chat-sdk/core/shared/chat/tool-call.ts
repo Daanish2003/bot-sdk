@@ -1,5 +1,6 @@
 import type { MessagePart } from "@tanstack/ai";
 
+import type { ToolError } from "../message-parts";
 import { webSearchToolName } from "./web-search";
 
 /**
@@ -24,6 +25,8 @@ export type ToolCallView = {
   status: ToolCallStatus;
   args: unknown;
   result: unknown;
+  /** Why a failed call failed, as a dictionary code (spec #256); the reader's text replaces its result. */
+  error?: ToolError;
   /** Set on a Shared link for a call whose arguments and result are kept private: only its name shows. */
   redacted: boolean;
 };
@@ -35,6 +38,7 @@ export function toolCallOf(part: MessagePart): ToolCallView | null {
     source: string;
     status: ToolCallStatus;
     redacted: boolean;
+    error: ToolError;
   }>;
   return {
     id: part.id,
@@ -44,6 +48,7 @@ export function toolCallOf(part: MessagePart): ToolCallView | null {
     status: meta.status ?? statusOfState(part.state),
     args: part.input ?? safeParse(part.arguments),
     result: part.output,
+    ...(meta.error && { error: meta.error }),
     redacted: meta.redacted === true,
   };
 }

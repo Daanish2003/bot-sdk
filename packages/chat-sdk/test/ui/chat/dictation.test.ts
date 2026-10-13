@@ -106,8 +106,8 @@ describe("the dictation mic in a browser that can record", () => {
     const tag = micTag(markup);
 
     expect(tag).toMatch(/\sdisabled=""/);
-    expect(tag).toContain(`Dictation off until ${quotaResetsAt(resetsAt)}`);
-    expect(markup).toContain(quotaResetsAt(resetsAt));
+    expect(tag).toContain(`Dictation off until ${quotaResetsAt(resetsAt, "en")}`);
+    expect(markup).toContain(quotaResetsAt(resetsAt, "en"));
   });
 
   it("stays enabled at the Quota limit on the caller's own key", () => {

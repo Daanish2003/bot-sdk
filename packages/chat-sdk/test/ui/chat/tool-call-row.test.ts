@@ -1,6 +1,6 @@
+import { renderInChat } from "../../support/chat-provider";
 import type { MessagePart } from "@tanstack/ai";
 import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { toolCallOf } from "../../../core/shared/chat/tool-call";
@@ -22,7 +22,7 @@ const part = (fields: Partial<Extract<MessagePart, { type: "tool-call" }>>): Mes
 const render = (value: MessagePart) => {
   const call = toolCallOf(value);
   if (!call) throw new Error("Expected a tool call");
-  return renderToStaticMarkup(createElement(ToolCallRow, { call }));
+  return renderInChat(createElement(ToolCallRow, { call }));
 };
 
 describe("a tool call row", () => {
@@ -64,7 +64,7 @@ describe("a tool call row", () => {
     const call = toolCallOf(part({}));
     if (!call) throw new Error("Expected a tool call");
 
-    const html = renderToStaticMarkup(createElement(ToolCallDetails, { call }));
+    const html = renderInChat(createElement(ToolCallDetails, { call }));
 
     expect(html).toContain("{&quot;zone&quot;:&quot;UTC&quot;}");
     expect(html).toContain("{&quot;now&quot;:&quot;noon&quot;}");
@@ -95,7 +95,7 @@ describe("a tool call row", () => {
     const call = toolCallOf(waitingPart);
     if (!call) throw new Error("Expected a tool call");
 
-    const html = renderToStaticMarkup(createElement(ToolCallRow, { call, onDecide: () => {} }));
+    const html = renderInChat(createElement(ToolCallRow, { call, onDecide: () => {} }));
 
     expect(html).toContain("Waiting for approval");
     expect(html).toContain("server_time");
@@ -108,7 +108,7 @@ describe("a tool call row", () => {
     const call = toolCallOf(waitingPart);
     if (!call) throw new Error("Expected a tool call");
 
-    const html = renderToStaticMarkup(createElement(ToolCallRow, { call, onDecide: () => {} }));
+    const html = renderInChat(createElement(ToolCallRow, { call, onDecide: () => {} }));
 
     expect(html).toContain(">Allow for this Conversation<");
     expect(html).toContain(">Approve<");

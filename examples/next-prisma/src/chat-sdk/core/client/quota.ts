@@ -17,14 +17,14 @@ export function quotaBlocksModel(
   return model?.onHostCredentials === true && quotaExceeded(quota);
 }
 
-const resetFormat = new Intl.DateTimeFormat("en", {
-  month: "short",
-  day: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-});
+import { dateFormat } from "./intl";
 
-/** When a Quota window resets, in the viewer's time zone: "Oct 11, 12:00 AM". */
-export function quotaResetsAt(at: Date | string): string {
-  return resetFormat.format(new Date(at));
+/** When a Quota window resets, in the viewer's time zone and locale: "Oct 11, 12:00 AM". */
+export function quotaResetsAt(at: Date | string, locale: string): string {
+  return dateFormat(locale, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(at));
 }

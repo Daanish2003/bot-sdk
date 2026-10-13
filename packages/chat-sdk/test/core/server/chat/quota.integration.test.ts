@@ -131,9 +131,8 @@ describe("Quota enforcement on a Run", () => {
     const refused = await send();
     expect(refused.status).toBe(402);
     expect(await refused.json()).toEqual({
-      message: expect.any(String),
       code: "quota_exceeded",
-      resetsAt: "2026-10-11T00:00:00.000Z",
+      params: { resetsAt: "2026-10-11T00:00:00.000Z" },
     });
 
     atTime("2026-10-11T00:00:00Z");
@@ -151,7 +150,9 @@ describe("Quota enforcement on a Run", () => {
     atTime("2026-10-31T23:59:59Z");
     const refused = await send();
     expect(refused.status).toBe(402);
-    expect(await refused.json()).toMatchObject({ resetsAt: "2026-11-01T00:00:00.000Z" });
+    expect(await refused.json()).toMatchObject({
+      params: { resetsAt: "2026-11-01T00:00:00.000Z" },
+    });
 
     atTime("2026-11-01T00:00:00Z");
     expect(await sendToEnd(send)).toBe(200);

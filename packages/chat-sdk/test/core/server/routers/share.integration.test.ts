@@ -211,6 +211,15 @@ describe("share.list", () => {
     ]);
   });
 
+  it("lists an untitled Conversation's link with a null title, not Untitled", async () => {
+    const { user, client } = await signedIn();
+    const conv = await insertConversation(user);
+    await insertMessage({ conversationId: conv.id, role: "user", text: "Hi", active: true });
+    await client.share.upsert({ conversationId: conv.id });
+
+    await expect(client.share.list()).resolves.toMatchObject([{ title: null }]);
+  });
+
   it("never lists another user's links", async () => {
     const { client, conv } = await answeredConversation();
     await client.share.upsert({ conversationId: conv.id });

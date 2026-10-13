@@ -4,6 +4,7 @@ import {
   storedParts,
   storedPartsSchema,
   type ToolCallPart,
+  type ToolError,
   type WebSearchPart,
 } from "../message-parts";
 import {
@@ -19,7 +20,9 @@ import { attachmentKind, kindLabel, kindLabelPlural } from "../attachments/kinds
 import { fetchUrlToolName } from "./fetch-url";
 import { providerOf } from "./models";
 import {
+  searchErrorCodes,
   searchErrorMessages,
+  searchReasonOfCode,
   type SearchErrorReason,
   type SearchResult,
   type WebSearchOutput,
@@ -138,7 +141,7 @@ export function createPartsBuilder(initial: StoredPart[] = []) {
         part.results = outcome.results;
       } else {
         part.state = "error";
-        part.errorReason = outcome.errorReason;
+        part.error = { code: searchErrorCodes[outcome.errorReason] };
       }
     },
     /**
@@ -171,11 +174,12 @@ export function createPartsBuilder(initial: StoredPart[] = []) {
       });
     },
     /** Ends a running tool call with its result. A call cancelled meanwhile stays cancelled. */
-    finishToolCall(toolCallId: string, { state, result }: FinishToolCall) {
+    finishToolCall(toolCallId: string, { state, result, error }: FinishToolCall) {
       const part = runningCall(toolCallId);
       if (!part) return;
       part.state = state;
       part.result = result;
+      if (error) part.error = error;
     },
     cancelRunningCalls() {
       for (const part of parts) {
@@ -193,8 +197,11 @@ export function createPartsBuilder(initial: StoredPart[] = []) {
 
 /** A tool call as it starts: what the Model asked for, before the tool has run. */
 export type StartToolCall = Pick<ToolCallPart, "name" | "source" | "args"> & { toolCallId: string };
-/** How a tool call ended: `done` with its result, or `error` with `{ error }`. */
-export type FinishToolCall = { state: "done" | "error"; result: unknown };
+/**
+ * How a tool call ended: `done` with its result, or `error` with `{ error }` for the Model and the
+ * failure's code (`error`) for the reader.
+ */
+export type FinishToolCall = { state: "done" | "error"; result: unknown; error?: ToolError };
 
 /** The parts with every `running` search and tool call closed as `cancelled`, for a run that ended. */
 export function cancelRunningCalls(parts: StoredParts): StoredParts {
@@ -229,7 +236,7 @@ function parseArgs(json: string): unknown {
 /** What the Model read as the result of a finished search. */
 function searchOutput(part: WebSearchPart): WebSearchOutput {
   if (part.state !== "error") return { results: part.results };
-  const reason = part.errorReason ?? "failed";
+  const reason = part.error ? searchReasonOfCode(part.error.code) : (part.errorReason ?? "failed");
   return { error: searchErrorMessages[reason], reason };
 }
 
@@ -482,7 +489,11 @@ function toolCallUIPart(part: ToolCallPart): MessagePart {
           ? "complete"
           : "error",
     ...(finished(part) && { output: part.result }),
-    metadata: { source: part.source, status: part.state },
+    metadata: {
+      source: part.source,
+      status: part.state,
+      ...(part.error && { error: part.error }),
+    },
   };
 }
 

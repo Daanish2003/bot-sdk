@@ -22,7 +22,9 @@ import { FileTextIcon, ImageIcon, PaperclipIcon, XIcon } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { useOrpc } from "../../core/client/react/provider";
+import type { Translate } from "../../core/shared/i18n";
+import { useI18n, useOrpc } from "../../core/client/react/provider";
+import { serverErrorText } from "../../core/client/rpc-error";
 
 /** A file in the composer: uploading, uploaded (with its id), or failed. */
 type DraftAttachment = AttachmentChip & {
@@ -38,6 +40,8 @@ type DraftAttachment = AttachmentChip & {
  */
 export function useAttachmentDraft(model: string | undefined, initial: AttachmentInfo[] = []) {
   const orpc = useOrpc();
+  const i18n = useI18n();
+  const { t } = i18n;
   const [items, setItems] = useState<DraftAttachment[]>(() =>
     initial.map((info) => ({ ...info, key: info.id, state: "done" })),
   );
@@ -58,11 +62,11 @@ export function useAttachmentDraft(model: string | undefined, initial: Attachmen
     for (const file of files) {
       const kind = attachmentKind(file.type, file.name);
       if (!kind || !kinds.includes(kind)) {
-        toast.error(`"${file.name}" can't be attached for this Model`);
+        toast.error(t("chat.cantAttach", { name: file.name }));
         continue;
       }
       if (file.size > maxAttachmentBytes) {
-        toast.error(`"${file.name}" is larger than 5 MB`);
+        toast.error(t("chat.tooLarge", { name: file.name }));
         continue;
       }
       const key = crypto.randomUUID();
@@ -72,7 +76,7 @@ export function useAttachmentDraft(model: string | undefined, initial: Attachmen
       ]);
       upload.mutateAsync({ file }).then(
         (info) => update(key, { ...info, state: "done" }),
-        (error: Error) => update(key, { state: "error", error: error.message }),
+        (error: Error) => update(key, { state: "error", error: serverErrorText(i18n, error) }),
       );
     }
   };
@@ -98,6 +102,7 @@ export type AttachmentDraft = ReturnType<typeof useAttachmentDraft>;
 
 /** The paperclip: picks files the Model accepts. Hidden when it accepts none. */
 export function AttachButton({ draft, disabled }: { draft: AttachmentDraft; disabled?: boolean }) {
+  const { t } = useI18n();
   const input = useRef<HTMLInputElement>(null);
   if (!draft.accept) return null;
   return (
@@ -119,8 +124,8 @@ export function AttachButton({ draft, disabled }: { draft: AttachmentDraft; disa
         className="rounded-full"
         disabled={disabled}
         onClick={() => input.current?.click()}
-        title="Attach files"
-        aria-label="Attach files"
+        title={t("chat.attachFiles")}
+        aria-label={t("chat.attachFiles")}
       >
         <PaperclipIcon />
       </Button>
@@ -169,8 +174,14 @@ function AttachmentChipView({
   description?: string;
   onRemove?: () => void;
 }) {
+  const { t, locale } = useI18n();
   const kind = attachmentKind(attachment.mediaType, attachment.filename);
-  const label = kind === "image" ? "Image" : kind === "pdf" ? "PDF" : "Text";
+  const label =
+    kind === "image"
+      ? t("chat.kindImage")
+      : kind === "pdf"
+        ? t("chat.kindPdf")
+        : t("chat.kindText");
   return (
     <Attachment size="sm" state={state} className="min-w-0">
       <AttachmentMedia>{kind === "image" ? <ImageIcon /> : <FileTextIcon />}</AttachmentMedia>
@@ -178,13 +189,16 @@ function AttachmentChipView({
         <AttachmentTitle title={attachment.filename}>{attachment.filename}</AttachmentTitle>
         <AttachmentDescription>
           {description ??
-            [label, attachment.size !== undefined && formatSize(attachment.size)]
+            [label, attachment.size !== undefined && formatSize(t, attachment.size, locale)]
               .filter(Boolean)
               .join(" · ")}
         </AttachmentDescription>
       </AttachmentContent>
       {onRemove && (
-        <AttachmentAction onClick={onRemove} aria-label={`Remove ${attachment.filename}`}>
+        <AttachmentAction
+          onClick={onRemove}
+          aria-label={t("chat.removeFile", { name: attachment.filename })}
+        >
           <XIcon />
         </AttachmentAction>
       )}
@@ -192,8 +206,12 @@ function AttachmentChipView({
   );
 }
 
-function formatSize(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+/** A file's size in the viewer's locale, in B, KB or MB. */
+function formatSize(t: Translate, bytes: number, locale: string) {
+  const number = (value: number, maximumFractionDigits: number) =>
+    value.toLocaleString(locale, { maximumFractionDigits });
+  if (bytes < 1024) return t("chat.sizeBytes", { count: number(bytes, 0) });
+  if (bytes < 1024 * 1024)
+    return t("chat.sizeKilobytes", { count: number(Math.round(bytes / 1024), 0) });
+  return t("chat.sizeMegabytes", { count: number(bytes / (1024 * 1024), 1) });
 }

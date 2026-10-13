@@ -93,7 +93,9 @@ describe("settings", () => {
 
     await expect(
       client.settings.setInstructions({ instructions: "x".repeat(instructionsMaxChars + 1) }),
-    ).rejects.toThrow(/4,000 characters/);
+    ).rejects.toMatchObject({
+      data: { code: "error.instructionsTooLong", params: { max: instructionsMaxChars } },
+    });
 
     await expect(client.settings.get()).resolves.toMatchObject({ instructions: "Be terse." });
   });

@@ -2,12 +2,13 @@ import { Button } from "@/components/ui/button";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
-import { useChatAdapter, useOrpc } from "../../core/client/react/provider";
+import { useChatAdapter, useI18n, useOrpc } from "../../core/client/react/provider";
+import { serverErrorText } from "../../core/client/rpc-error";
 
-const stateLabel = {
-  connected: "Connected",
-  reconnect: "Reconnect needed",
-  disconnected: "Not connected",
+const stateKeys = {
+  connected: "settings.connected",
+  reconnect: "settings.reconnectNeeded",
+  disconnected: "settings.notConnected",
 } as const;
 
 /**
@@ -18,11 +19,13 @@ export function ConnectionsSection() {
   const orpc = useOrpc();
   const queryClient = useQueryClient();
   const { connectionsUrl } = useChatAdapter();
+  const i18n = useI18n();
+  const { t } = i18n;
   const connections = useQuery(orpc.connections.list.queryOptions());
   const disconnect = useMutation(
     orpc.connections.disconnect.mutationOptions({
       onSuccess: () => queryClient.invalidateQueries({ queryKey: orpc.connections.key() }),
-      onError: (error) => toast.error(error.message),
+      onError: (error) => toast.error(serverErrorText(i18n, error)),
     }),
   );
   const servers = connections.data?.servers ?? [];
@@ -30,18 +33,17 @@ export function ConnectionsSection() {
 
   return (
     <section className="space-y-2">
-      <h2 className="text-sm font-medium">Connections</h2>
-      <p className="text-xs text-muted-foreground">
-        Servers your app offers. Signing in connects your account to them.
-      </p>
+      <h2 className="text-sm font-medium">{t("settings.connections")}</h2>
+      <p className="text-xs text-muted-foreground">{t("settings.connectionsHelp")}</p>
       <ul className="divide-y overflow-hidden rounded-xl border">
         {servers.map((server) => (
           <li key={server.key} className="flex items-center gap-3 px-4 py-3">
             <div className="flex-1 space-y-0.5">
               <span className="text-sm font-medium">{server.name}</span>
               <p className="text-xs text-muted-foreground">
-                {stateLabel[server.state]}
-                {server.scopes.length > 0 && ` · Scopes: ${server.scopes.join(", ")}`}
+                {t(stateKeys[server.state])}
+                {server.scopes.length > 0 &&
+                  t("settings.scopes", { scopes: server.scopes.join(", ") })}
               </p>
             </div>
             <div className="flex gap-2">
@@ -57,7 +59,7 @@ export function ConnectionsSection() {
                     );
                   }}
                 >
-                  {server.state === "reconnect" ? "Reconnect" : "Connect"}
+                  {server.state === "reconnect" ? t("settings.reconnect") : t("settings.connect")}
                 </Button>
               )}
               {server.state !== "disconnected" && (
@@ -67,7 +69,7 @@ export function ConnectionsSection() {
                   disabled={disconnect.isPending}
                   onClick={() => disconnect.mutate({ key: server.key })}
                 >
-                  Disconnect
+                  {t("settings.disconnect")}
                 </Button>
               )}
             </div>

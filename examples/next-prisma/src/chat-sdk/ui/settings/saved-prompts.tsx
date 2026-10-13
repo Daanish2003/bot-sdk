@@ -6,7 +6,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { useOrpc } from "../../core/client/react/provider";
+import { useI18n, useOrpc } from "../../core/client/react/provider";
+import { serverErrorText } from "../../core/client/rpc-error";
 
 type SavedPrompt = { id: string; name: string; text: string };
 
@@ -17,6 +18,8 @@ type SavedPrompt = { id: string; name: string; text: string };
 export function SavedPromptsSection() {
   const queryClient = useQueryClient();
   const orpc = useOrpc();
+  const i18n = useI18n();
+  const { t } = i18n;
   const list = useQuery(orpc.savedPrompt.list.queryOptions());
   const listKey = orpc.savedPrompt.list.queryKey();
   const [creating, setCreating] = useState(false);
@@ -26,42 +29,39 @@ export function SavedPromptsSection() {
   const remove = useMutation(
     orpc.savedPrompt.delete.mutationOptions({
       onSuccess: async () => {
-        toast.success("Saved prompt deleted");
+        toast.success(t("settings.savedPromptDeleted"));
         await refresh();
       },
-      onError: (error) => toast.error(error.message),
+      onError: (error) => toast.error(serverErrorText(i18n, error)),
     }),
   );
 
   return (
     <section className="space-y-2">
       <div className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-medium">Saved prompts</h2>
+        <h2 className="text-sm font-medium">{t("settings.savedPrompts")}</h2>
         {!creating && (
           <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
-            New Saved prompt
+            {t("settings.newSavedPrompt")}
           </Button>
         )}
       </div>
-      <p className="text-xs text-muted-foreground">
-        Text you send often. Insert one into the composer by typing its /name, then edit it before
-        sending. Nothing is sent by itself.
-      </p>
+      <p className="text-xs text-muted-foreground">{t("settings.savedPromptsHelp")}</p>
       {list.isError && (
         <p role="alert" className="text-xs text-destructive">
-          Couldn't load your Saved prompts: {list.error.message}
+          {t("settings.savedPromptsLoadFailed", { message: serverErrorText(i18n, list.error) })}
         </p>
       )}
       {creating && (
         <SavedPromptForm
           onDone={() => setCreating(false)}
           onSaved={refresh}
-          submitLabel="Save prompt"
+          submitLabel={t("settings.savePrompt")}
         />
       )}
       {list.isSuccess && rows.length === 0 && !creating && (
         <p className="rounded-xl border px-4 py-3 text-sm text-muted-foreground">
-          You haven't saved any Saved prompts yet.
+          {t("settings.noSavedPrompts")}
         </p>
       )}
       {rows.length > 0 && (
@@ -73,7 +73,7 @@ export function SavedPromptsSection() {
                   initial={row}
                   onDone={() => setEditingId(null)}
                   onSaved={refresh}
-                  submitLabel="Save changes"
+                  submitLabel={t("settings.saveChanges")}
                 />
               </li>
             ) : (
@@ -90,7 +90,7 @@ export function SavedPromptsSection() {
                   disabled={remove.isPending}
                   onClick={() => setEditingId(row.id)}
                 >
-                  Edit
+                  {t("settings.edit")}
                 </Button>
                 <Button
                   size="sm"
@@ -98,7 +98,7 @@ export function SavedPromptsSection() {
                   disabled={remove.isPending}
                   onClick={() => remove.mutate({ id: row.id })}
                 >
-                  Delete
+                  {t("shell.delete")}
                 </Button>
               </li>
             ),
@@ -122,10 +122,12 @@ function SavedPromptForm({
   submitLabel: string;
 }) {
   const orpc = useOrpc();
+  const i18n = useI18n();
+  const { t } = i18n;
   const [name, setName] = useState(initial?.name ?? "");
   const [text, setText] = useState(initial?.text ?? "");
   const onSuccess = async () => {
-    toast.success("Saved prompt saved");
+    toast.success(t("settings.savedPromptSaved"));
     await onSaved();
     onDone();
   };
@@ -143,35 +145,39 @@ function SavedPromptForm({
       }}
     >
       <div className="space-y-1">
-        <Label htmlFor={`saved-prompt-name-${initial?.id ?? "new"}`}>Name</Label>
+        <Label htmlFor={`saved-prompt-name-${initial?.id ?? "new"}`}>
+          {t("settings.savedPromptName")}
+        </Label>
         <Input
           id={`saved-prompt-name-${initial?.id ?? "new"}`}
           value={name}
-          placeholder="review"
+          placeholder={t("settings.savedPromptNamePlaceholder")}
           className="font-mono"
           onChange={(event) => setName(event.target.value)}
         />
       </div>
       <div className="space-y-1">
-        <Label htmlFor={`saved-prompt-text-${initial?.id ?? "new"}`}>Text</Label>
+        <Label htmlFor={`saved-prompt-text-${initial?.id ?? "new"}`}>
+          {t("settings.savedPromptText")}
+        </Label>
         <Textarea
           id={`saved-prompt-text-${initial?.id ?? "new"}`}
           value={text}
-          placeholder="Review this code for bugs first, then suggest fixes."
+          placeholder={t("settings.savedPromptTextPlaceholder")}
           onChange={(event) => setText(event.target.value)}
         />
       </div>
       {save.error && (
         <p role="alert" className="text-xs text-destructive">
-          {save.error.message}
+          {serverErrorText(i18n, save.error)}
         </p>
       )}
       <div className="flex justify-end gap-2">
         <Button type="button" size="sm" variant="ghost" onClick={onDone}>
-          Cancel
+          {t("settings.cancel")}
         </Button>
         <Button type="submit" size="sm" disabled={save.isPending}>
-          {save.isPending ? "Saving…" : submitLabel}
+          {save.isPending ? t("settings.saving") : submitLabel}
         </Button>
       </div>
     </form>

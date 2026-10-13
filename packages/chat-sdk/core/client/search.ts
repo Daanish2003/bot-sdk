@@ -1,4 +1,5 @@
 import type { AppRouterClient } from "../server/routers/index";
+import type { I18n } from "../shared/i18n";
 
 export type SearchHit = Awaited<ReturnType<AppRouterClient["search"]["query"]>>["hits"][number];
 
@@ -16,13 +17,14 @@ export function splitSnippet({ text, match }: SearchHit["snippet"]) {
  * contains it (case-insensitive; an untitled one is "Untitled").
  */
 export function recentConversations<T extends { title: string | null }>(
+  { t }: I18n,
   conversations: T[],
   q: string,
 ) {
   const needle = q.trim().toLowerCase();
   if (!needle) return conversations.slice(0, 6);
   return conversations
-    .filter((c) => (c.title ?? "Untitled").toLowerCase().includes(needle))
+    .filter((c) => (c.title ?? t("shell.untitled")).toLowerCase().includes(needle))
     .slice(0, 20);
 }
 

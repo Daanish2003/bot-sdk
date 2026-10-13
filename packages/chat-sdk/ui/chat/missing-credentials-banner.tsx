@@ -1,11 +1,12 @@
 import { KeyRoundIcon } from "lucide-react";
 
 import { useByok } from "../../core/client/react/byok";
-import { useChatAdapter } from "../../core/client/react/provider";
+import { useChatAdapter, useI18n } from "../../core/client/react/provider";
 
 /** Above the composer when the selected Model can't be sent to: its Provider has no credentials. */
 export function MissingCredentialsBanner({ message }: { message: string }) {
   const { Link } = useChatAdapter();
+  const { t } = useI18n();
   const byok = useByok();
   return (
     <div
@@ -16,7 +17,7 @@ export function MissingCredentialsBanner({ message }: { message: string }) {
       <span>{message}.</span>
       {byok && (
         <Link page={{ to: "keys" }} className="ml-auto underline">
-          Key settings
+          {t("chat.keySettings")}
         </Link>
       )}
     </div>

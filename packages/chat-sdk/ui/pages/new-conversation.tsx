@@ -18,7 +18,8 @@ import {
   useNewConversationEffort,
 } from "../../core/client/react/new-conversation-effort";
 import { useNewConversationModel } from "../../core/client/react/new-conversation-model";
-import { useChatAdapter, useChatLocation } from "../../core/client/react/provider";
+import { useChatAdapter, useChatLocation, useI18n } from "../../core/client/react/provider";
+import { serverErrorText } from "../../core/client/rpc-error";
 
 /**
  * A new Conversation: type the first Message; it's created with the picked Model (the location's
@@ -27,6 +28,7 @@ import { useChatAdapter, useChatLocation } from "../../core/client/react/provide
  */
 export function NewConversationPage() {
   const { orpc, navigate } = useChatAdapter();
+  const i18n = useI18n();
   const queryClient = useQueryClient();
   const models = useQuery(orpc.models.list.queryOptions());
   const byok = useByok();
@@ -37,7 +39,7 @@ export function NewConversationPage() {
   useEffect(() => () => setNewConversationEffort(null), []);
   const create = useMutation(orpc.conversation.create.mutationOptions());
   const blocked =
-    models.data && model ? missingCredentialsMessage(model, models.data.models, byok) : null;
+    models.data && model ? missingCredentialsMessage(i18n, model, models.data.models, byok) : null;
   const disabled = !model || !!blocked || create.isPending;
   const draft = useAttachmentDraft(model);
   const search = useWebSearch(model);
@@ -60,7 +62,7 @@ export function NewConversationPage() {
       setPendingFirstMessage(id, { text, attachments });
       await navigate({ to: "conversation", id });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Couldn't start the Conversation");
+      toast.error(serverErrorText(i18n, error, "pages.couldntStartConversation"));
     }
   };
 

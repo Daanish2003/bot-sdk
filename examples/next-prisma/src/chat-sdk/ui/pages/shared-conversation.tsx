@@ -6,7 +6,8 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import type { SharedConversation } from "../../core/shared/share/conversation";
 import { sharedToUIMessages } from "../../core/client/chat";
 import { invalidateConversationList } from "../../core/client/react/conversation-list";
-import { useChatAdapter } from "../../core/client/react/provider";
+import { useChatAdapter, useI18n } from "../../core/client/react/provider";
+import { serverErrorText } from "../../core/client/rpc-error";
 
 import { MessageRow } from "../chat/message-row";
 
@@ -16,13 +17,15 @@ export type SharedViewer = { signedIn: boolean; signInUrl: string };
 /** "Continue this Conversation": copies the snapshot into the viewer's account and opens it. */
 function ContinueConversation({ token, viewer }: { token: string; viewer: SharedViewer }) {
   const { orpc, navigate } = useChatAdapter();
+  const i18n = useI18n();
+  const { t } = i18n;
   const queryClient = useQueryClient();
   const continueShared = useMutation(orpc.share.continue.mutationOptions());
 
   if (!viewer.signedIn) {
     return (
       <a href={viewer.signInUrl} className={buttonVariants({ size: "sm" })}>
-        Continue this Conversation
+        {t("pages.continueConversation")}
       </a>
     );
   }
@@ -33,13 +36,13 @@ function ContinueConversation({ token, viewer }: { token: string; viewer: Shared
       void invalidateConversationList(queryClient, orpc);
       await navigate({ to: "conversation", id });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Couldn't continue the Conversation");
+      toast.error(serverErrorText(i18n, error, "pages.couldntContinue"));
     }
   };
 
   return (
     <Button size="sm" onClick={() => void start()} disabled={continueShared.isPending}>
-      Continue this Conversation
+      {t("pages.continueConversation")}
     </Button>
   );
 }
@@ -52,18 +55,19 @@ export function SharedConversationPage({
   data: SharedConversation;
   viewer?: SharedViewer;
 }) {
+  const { t, locale } = useI18n();
   return (
     <div className="h-full overflow-y-auto bg-background">
       <header className="border-b px-4 py-2 text-xs text-muted-foreground">
-        ai-chat · shared Conversation
+        {t("pages.sharedHeader")}
       </header>
       <article className="mx-auto max-w-4xl py-8">
         <div className="px-6 pb-6">
           <h1 className="text-2xl font-semibold tracking-tight">{data.title}</h1>
           <p className="mt-1 text-xs text-muted-foreground">
-            Shared{" "}
+            {t("pages.shared")}{" "}
             <time dateTime={data.sharedAt.toISOString()}>
-              {data.sharedAt.toLocaleDateString(undefined, { dateStyle: "long" })}
+              {data.sharedAt.toLocaleDateString(locale, { dateStyle: "long" })}
             </time>
           </p>
           {viewer && (
@@ -74,11 +78,11 @@ export function SharedConversationPage({
         </div>
         <div className="border-t">
           {sharedToUIMessages(data.messages).map((message) => (
-            <MessageRow key={message.id} message={message} userLabel="User" />
+            <MessageRow key={message.id} message={message} userLabel={t("pages.userLabel")} />
           ))}
         </div>
         <footer className="mt-12 text-center text-xs text-muted-foreground">
-          Read-only snapshot. Attachments show as file names only; their contents aren't shared.
+          {t("pages.sharedFooter")}
         </footer>
       </article>
     </div>
@@ -86,12 +90,11 @@ export function SharedConversationPage({
 }
 
 export function SharedLinkNotFound() {
+  const { t } = useI18n();
   return (
     <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
-      <h1 className="text-sm font-medium">404: Shared link not found</h1>
-      <p className="text-xs text-muted-foreground">
-        This link doesn't exist, or its owner deleted it.
-      </p>
+      <h1 className="text-sm font-medium">{t("pages.sharedNotFoundTitle")}</h1>
+      <p className="text-xs text-muted-foreground">{t("pages.sharedNotFoundBody")}</p>
     </div>
   );
 }

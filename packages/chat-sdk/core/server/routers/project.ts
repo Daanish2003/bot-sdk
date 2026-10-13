@@ -1,11 +1,10 @@
 import { project } from "../db/schema/chat";
 import { and, eq } from "drizzle-orm";
-import { ORPCError } from "@orpc/server";
 import { z } from "zod";
 
 import { resolveModel } from "../chat/available-models";
 import { resolveModelCall } from "../credentials/resolve";
-import { unusableModelMessage } from "../../shared/credentials/services";
+import { rpcError, unusableModelError } from "../rpc-error";
 import {
   countProjectConversations,
   countProjects,
@@ -27,7 +26,7 @@ export const projectRouter = {
   /** One of the caller's Projects; `defaultModel` and `instructions` are null when it has none. */
   get: protectedProcedure.input(z.object({ id: z.uuid() })).handler(async ({ context, input }) => {
     const row = await findProject(context.deps, context.user.id, input.id);
-    if (!row) throw new ORPCError("NOT_FOUND", { message: "Project not found" });
+    if (!row) throw rpcError("NOT_FOUND", "error.projectNotFound", "Project not found");
     return {
       id: row.id,
       name: row.name,
@@ -54,12 +53,17 @@ export const projectRouter = {
     .handler(async ({ context, input }) => {
       const userId = context.user.id;
       if (!(await findProject(context.deps, userId, input.id))) {
-        throw new ORPCError("NOT_FOUND", { message: "Project not found" });
+        throw rpcError("NOT_FOUND", "error.projectNotFound", "Project not found");
       }
       if (input.instructions && input.instructions.length > instructionsMaxChars) {
-        throw new ORPCError("BAD_REQUEST", {
-          message: `Instructions are limited to ${instructionsMaxChars.toLocaleString("en-US")} characters`,
-        });
+        throw rpcError(
+          "BAD_REQUEST",
+          "error.instructionsTooLong",
+          `Instructions are limited to ${instructionsMaxChars} characters`,
+          {
+            max: instructionsMaxChars,
+          },
+        );
       }
       const changes: {
         name: string;
@@ -72,14 +76,17 @@ export const projectRouter = {
       if (typeof input.defaultModel === "string") {
         const model = await resolveModel(context.deps, userId, input.defaultModel);
         if (!model) {
-          throw new ORPCError("BAD_REQUEST", {
-            message: `"${input.defaultModel}" is not an available Model`,
-          });
+          throw rpcError(
+            "BAD_REQUEST",
+            "error.modelNotAvailable",
+            `"${input.defaultModel}" is not an available Model`,
+            {
+              model: input.defaultModel,
+            },
+          );
         }
         if (!(await resolveModelCall(context.deps, userId, model.id))) {
-          throw new ORPCError("BAD_REQUEST", {
-            message: unusableModelMessage(model.provider, context.deps.byok),
-          });
+          throw unusableModelError(model.provider, context.deps.byok);
         }
         changes.defaultModel = model.id;
       } else if (input.defaultModel === null) {
@@ -96,9 +103,14 @@ export const projectRouter = {
     .input(z.object({ name: z.string().trim().min(1).max(100) }))
     .handler(async ({ context, input }) => {
       if ((await countProjects(context.deps, context.user.id)) >= projectLimit) {
-        throw new ORPCError("BAD_REQUEST", {
-          message: `You can have at most ${projectLimit} Projects`,
-        });
+        throw rpcError(
+          "BAD_REQUEST",
+          "error.projectLimit",
+          `You can have at most ${projectLimit} Projects`,
+          {
+            max: projectLimit,
+          },
+        );
       }
       const id = uuidv7();
       await context.deps.db
@@ -112,7 +124,8 @@ export const projectRouter = {
     .input(z.object({ id: z.uuid() }))
     .handler(async ({ context, input }) => {
       const count = await countProjectConversations(context.deps, context.user.id, input.id);
-      if (count === undefined) throw new ORPCError("NOT_FOUND", { message: "Project not found" });
+      if (count === undefined)
+        throw rpcError("NOT_FOUND", "error.projectNotFound", "Project not found");
       return { count };
     }),
 
@@ -124,7 +137,8 @@ export const projectRouter = {
     .input(z.object({ id: z.uuid() }))
     .handler(async ({ context, input }) => {
       const count = await deleteProject(context.deps, context.user.id, input.id);
-      if (count === undefined) throw new ORPCError("NOT_FOUND", { message: "Project not found" });
+      if (count === undefined)
+        throw rpcError("NOT_FOUND", "error.projectNotFound", "Project not found");
       return { count };
     }),
 };

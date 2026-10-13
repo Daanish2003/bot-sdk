@@ -148,7 +148,7 @@ export async function listSharedLinks(deps: Deps, userId: string) {
     .innerJoin(conversation, eq(conversation.id, sharedLink.conversationId))
     .where(eq(conversation.userId, userId))
     .orderBy(desc(sharedLink.updatedAt));
-  return rows.map((row) => ({ ...row, title: row.title ?? "Untitled" }));
+  return rows;
 }
 
 /**

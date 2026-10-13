@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { RateLimitedError, rateLimitedErrorOf, runFetch } from "../../../core/client/rate-limit";
+import { serverErrorText } from "../../../core/client/rpc-error";
+import { createI18n } from "../../../core/shared/i18n";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -19,6 +21,23 @@ describe("runFetch", () => {
 
     expect(caught).toBeInstanceOf(RateLimitedError);
     expect((caught as RateLimitedError).retryAfterSeconds).toBe(7);
+  });
+
+  it("throws a refusal carrying the code and params the server answers with", async () => {
+    vi.stubGlobal(
+      "fetch",
+      async () =>
+        new Response(JSON.stringify({ code: "error.pickAnotherModel", params: {} }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+
+    const caught = await runFetch("http://localhost/api/chat/run", { method: "POST" }).catch(
+      (error: unknown) => error,
+    );
+
+    expect(serverErrorText(createI18n(), caught)).toBe("Pick another Model");
   });
 
   it("passes every other response through unchanged", async () => {

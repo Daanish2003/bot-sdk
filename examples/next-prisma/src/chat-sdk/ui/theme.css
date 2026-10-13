@@ -17,3 +17,11 @@
     break-inside: avoid;
   }
 }
+
+/* Phones: tap targets at least 44px (WCAG 2.5.5). Desktop keeps the shadcn sizes. */
+@media (max-width: 767px) {
+  [data-slot="button"] {
+    min-height: 2.75rem;
+    min-width: 2.75rem;
+  }
+}
