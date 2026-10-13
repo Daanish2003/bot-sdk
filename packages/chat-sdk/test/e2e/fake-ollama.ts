@@ -172,6 +172,34 @@ export function wideReply(): string {
   ].join("\n");
 }
 
+/**
+ * Memory (#290): a Background Model call of the Memory job gets a scripted answer. The extract call
+ * remembers `rememberedFact` when the user's Message says `rememberedText`; the decide call adds
+ * every fact it is given, as the prompt's JSON asks. Other calls get no answer here.
+ */
+export const rememberedText = "vegetarian";
+export const rememberedFact = "The user is vegetarian.";
+const extractionPrompt = "You are a Personal Information Organizer";
+const decisionPrompt = "You are a smart memory manager";
+
+/** The JSON a Memory call returns, or undefined when the call is not the Memory job's. */
+export function memoryReply(messages: { role: string; content: string }[]): string | undefined {
+  const user = messages.filter((message) => message.role === "user").at(-1)?.content ?? "";
+  if (messages.some((message) => message.content.includes(extractionPrompt))) {
+    const remember = user.includes(rememberedText) ? [rememberedFact] : [];
+    return JSON.stringify({ facts: [], remember, forget: [] });
+  }
+  if (messages.some((message) => message.content.includes(decisionPrompt))) {
+    // The facts are the last triple-backtick block of the decide call's user Message.
+    const blocks = [...user.matchAll(/```\n?([\s\S]*?)```/g)];
+    const facts = JSON.parse(blocks.at(-1)?.[1] ?? "[]") as string[];
+    return JSON.stringify({
+      memory: facts.map((text, index) => ({ id: String(index), text, event: "ADD" })),
+    });
+  }
+  return undefined;
+}
+
 /** Reply word by word, this far apart; a prompt with `slowMarker` is slow enough to Stop. */
 const chunkDelayMs = 40;
 const slowChunkDelayMs = 400;
@@ -298,12 +326,14 @@ export function startFakeOllama(port: number): Promise<Server> {
         });
         return;
       }
+      // Memory calls come on the same route, streamed as well (the adapter always streams).
       const text =
-        last?.role === "tool" && stream
+        memoryReply(messages) ??
+        (last?.role === "tool" && stream
           ? replyToTool(asked, last.content)
           : prompt.includes(wideMarker)
             ? wideReply()
-            : fakeReply(prompt.slice(0, 80));
+            : fakeReply(prompt.slice(0, 80)));
       const line = (content: string, done: boolean) =>
         JSON.stringify({
           model: fakeModel,
