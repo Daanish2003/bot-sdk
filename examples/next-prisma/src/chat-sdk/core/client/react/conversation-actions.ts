@@ -15,7 +15,13 @@ export function renamePromptText({ t }: I18n) {
 export function usePinConversation() {
   const queryClient = useQueryClient();
   const { orpc, i18n } = useChatAdapter();
-  const onSuccess = () => invalidateConversationList(queryClient, orpc);
+  // Pinning an archived Conversation unarchives it, so its page's `archivedAt` is refetched too.
+  const onSuccess = async (_: unknown, { id }: { id: string }) => {
+    await invalidateConversationList(queryClient, orpc);
+    await queryClient.invalidateQueries({
+      queryKey: orpc.conversation.get.queryKey({ input: { id } }),
+    });
+  };
   const onError = (error: Error) => toast.error(serverErrorText(i18n, error));
   const pin = useMutation(orpc.conversation.pin.mutationOptions({ onSuccess, onError }));
   const unpin = useMutation(orpc.conversation.unpin.mutationOptions({ onSuccess, onError }));
@@ -28,6 +34,63 @@ export function usePinConversation() {
     },
     isPending: pin.isPending || unpin.isPending,
   };
+}
+
+/**
+ * Archives and unarchives a Conversation: from the row menu, ⌘K, and an archived Conversation's
+ * notice. Both refresh the Conversation panel's lists and the Conversation's own page.
+ */
+export function useArchiveConversation() {
+  const queryClient = useQueryClient();
+  const { orpc, i18n } = useChatAdapter();
+  const onSuccess = async (_: unknown, { id }: { id: string }) => {
+    await invalidateConversationList(queryClient, orpc);
+    await queryClient.invalidateQueries({
+      queryKey: orpc.conversation.get.queryKey({ input: { id } }),
+    });
+  };
+  const onError = (error: Error) => toast.error(serverErrorText(i18n, error));
+  const archive = useMutation(orpc.conversation.archive.mutationOptions({ onSuccess, onError }));
+  const unarchive = useMutation(
+    orpc.conversation.unarchive.mutationOptions({ onSuccess, onError }),
+  );
+
+  return {
+    archive: (id: string) => archive.mutate({ id }),
+    unarchive: (id: string) => unarchive.mutate({ id }),
+    isPending: archive.isPending || unarchive.isPending,
+  };
+}
+
+/**
+ * Downloads a Conversation's Active Branch as a Markdown file (ticket #252). From the top bar's
+ * menu and ⌘K; the server names the file.
+ */
+export function useExportConversation() {
+  const { orpc, i18n } = useChatAdapter();
+  const exportMarkdown = useMutation(
+    orpc.conversation.exportMarkdown.mutationOptions({
+      onSuccess: ({ fileName, markdown }) => downloadText(fileName, markdown),
+      onError: (error) => toast.error(serverErrorText(i18n, error)),
+    }),
+  );
+
+  return {
+    exportMarkdown: (id: string) => exportMarkdown.mutate({ id }),
+    isPending: exportMarkdown.isPending,
+  };
+}
+
+function downloadText(fileName: string, text: string) {
+  const url = URL.createObjectURL(new Blob([text], { type: "text/markdown;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  // Some browsers cancel the download when the URL is revoked too soon.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 /**

@@ -22,9 +22,9 @@ const maxTitleChars = 100;
 
 /**
  * Titles a Conversation after the run of `replyId` ended `complete`, while it has no title.
- * Asks the Title Model (`user_settings.titleModel`, else the Model that wrote the reply) with
- * the user's credentials for its Provider. Without credentials, or when the call fails, the title
- * is the start of the first Message. A title set meanwhile (a manual rename) is never overwritten.
+ * Asks the Background Model (`user_settings.backgroundModel`, else the Host's `defaultBackgroundModel`,
+ * else the Model that wrote the reply) with the user's credentials for its Provider. Without
+ * credentials, or when the call fails, the title is the start of the first Message. A title set meanwhile (a manual rename) is never overwritten.
  * Never throws: it runs fire-and-forget at the end of a run.
  */
 export async function titleConversation(deps: AppDeps, replyId: string): Promise<void> {
@@ -35,11 +35,12 @@ export async function titleConversation(deps: AppDeps, replyId: string): Promise
         userId: conversation.userId,
         title: conversation.title,
         replyModel: message.model,
+        temporary: conversation.temporary,
       })
       .from(message)
       .innerJoin(conversation, eq(conversation.id, message.conversationId))
       .where(eq(message.id, replyId));
-    if (!row || row.title !== null) return;
+    if (!row || row.title !== null || row.temporary) return;
 
     const path = await loadPath(deps, row.conversationId, replyId);
     const first = path.find((m) => m.role === "user")?.searchText.trim() ?? "";
@@ -54,11 +55,11 @@ export async function titleConversation(deps: AppDeps, replyId: string): Promise
       .set({ title })
       .where(and(eq(conversation.id, row.conversationId), isNull(conversation.title)));
   } catch (error) {
-    console.error(`Titling the Conversation of Message ${replyId} failed`, error);
+    deps.logger.error(`Titling the Conversation of Message ${replyId} failed`, error);
   }
 }
 
-/** The Title Model's title, or `""` when there are no credentials or the call fails. */
+/** The Background Model's title, or `""` when there are no credentials or the call fails. */
 async function generateTitle(
   deps: AppDeps,
   userId: string,
@@ -66,8 +67,8 @@ async function generateTitle(
   first: string,
   reply: string,
 ) {
-  const { titleModel } = await loadSettings(deps, userId);
-  const model = titleModel ?? replyModel ?? "";
+  const { backgroundModel } = await loadSettings(deps, userId);
+  const model = backgroundModel ?? deps.defaultBackgroundModel ?? replyModel ?? "";
   if (!isKnownModel(model)) return "";
   const call = await resolveModelCall(deps, userId, model);
   if (!call) return "";
@@ -97,11 +98,11 @@ async function generateTitle(
         { userId, model, price: call.hostModel },
         usage,
         reported.cost,
-      ).catch((caught: unknown) => console.error(`Recording the title usage failed`, caught));
+      ).catch((caught: unknown) => deps.logger.error(`Recording the title usage failed`, caught));
     }
     return cleanTitle(result.text);
   } catch (error) {
-    console.error(`Generating a title with ${model} failed`, error);
+    deps.logger.error(`Generating a title with ${model} failed`, error);
     return "";
   }
 }

@@ -6,6 +6,7 @@ import {
   continueSharedConversation,
   deleteSharedLink,
   listSharedLinks,
+  loadSharedArtifactVersion,
   loadSharedConversation,
   shareStatus,
   upsertSharedLink,
@@ -34,6 +35,13 @@ export const shareRouter = {
   upsert: protectedProcedure.input(conversationInput).handler(async ({ context, input }) => {
     const result = await upsertSharedLink(context.deps, context.user.id, input.conversationId);
     if (result.error === "not_found") throw conversationNotFound();
+    if (result.error === "temporary") {
+      throw rpcError(
+        "BAD_REQUEST",
+        "error.temporaryShare",
+        "A Temporary Conversation can't be shared",
+      );
+    }
     if (result.error === "blocked") {
       const [code, message] = blocked[result.blockedBy];
       throw rpcError("CONFLICT", code, message);
@@ -84,5 +92,26 @@ export const shareRouter = {
       const shared = await loadSharedConversation(context.deps, input.token);
       if (!shared) throw sharedLinkNotFound();
       return shared;
+    }),
+
+  /**
+   * One Artifact version on a Shared link's path, for the public, read-only page (ADR 0016). Not
+   * found while Artifacts are off, and for any version the link doesn't show.
+   */
+  artifactVersion: publicProcedure
+    .input(
+      z.object({
+        token: z.string().max(64),
+        artifactId: z.string().min(1).max(64),
+        number: z.number().int().positive(),
+      }),
+    )
+    .handler(async ({ context, input }) => {
+      const version = context.deps.artifacts
+        ? await loadSharedArtifactVersion(context.deps, input.token, input)
+        : null;
+      if (!version)
+        throw rpcError("NOT_FOUND", "error.artifactVersionNotFound", "Artifact version not found");
+      return version;
     }),
 };

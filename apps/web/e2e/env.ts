@@ -1,4 +1,4 @@
-import { fakeModel } from "../../../packages/chat-sdk/test/e2e/fake-ollama.ts";
+import { fakeImageModel, fakeModel } from "../../../packages/chat-sdk/test/e2e/fake-ollama.ts";
 
 /** Where the end-to-end run's server, fake Ollama and fake MCP server live. */
 
@@ -56,6 +56,13 @@ export const serverEnv = {
   ]),
   HOST_QUOTA_BUDGET_USD: "1",
   HOST_QUOTA_WINDOW: "day",
+  // The Host's Image Model (spec #278): the fake adapter answers it, so no paid Provider is called.
+  HOST_IMAGE_PROVIDER: "fake",
+  HOST_IMAGE_CREDENTIALS: JSON.stringify({ apiKey: "e2e-not-sent" }),
+  HOST_IMAGE_MODELS: JSON.stringify([
+    { modelId: fakeImageModel, size: "1024x1024", quality: "medium", pricePerImageUsd: 0.01 },
+  ]),
+  HOST_DEFAULT_IMAGE_MODEL: `fake:${fakeImageModel}`,
   // Set only by a run with Redis (`redis.spec.ts`); otherwise the server runs on memory.
   ...(process.env.REDIS_URL ? { REDIS_URL: process.env.REDIS_URL } : {}),
 };

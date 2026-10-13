@@ -1,6 +1,8 @@
 import type { AttachmentInfo } from "../../core/shared/attachments/kinds";
+import { createArtifactToolName, updateArtifactToolName } from "../../core/shared/chat/artifact";
 import { pageSourcesOf, replySegments, sourcesOf } from "../../core/shared/chat/sources";
-import { toolCallOf } from "../../core/shared/chat/tool-call";
+import { generatedImageOf } from "../../core/shared/chat/generated-image";
+import { toolCallOf, type ToolCallView } from "../../core/shared/chat/tool-call";
 import { webSearchOf } from "../../core/shared/chat/web-search";
 import { Button } from "@/components/ui/button";
 import { Loader } from "@/components/ui/prompt-kit/loader";
@@ -22,6 +24,8 @@ import {
   CopyIcon,
   PencilIcon,
   RefreshCwIcon,
+  ThumbsDownIcon,
+  ThumbsUpIcon,
   UserIcon,
 } from "lucide-react";
 import { Fragment, useState } from "react";
@@ -42,6 +46,9 @@ import {
   useAttachmentDraft,
 } from "./attachments";
 
+import { type EditSource, GeneratedImageBlock } from "./generated-image-block";
+import { ReadAloud } from "./read-aloud";
+import { ArtifactCard, artifactIdOf, type ArtifactRef } from "./artifact-card";
 import { SearchRow } from "./search-row";
 import { replyComponents, ReplySources, SourceChips } from "./source-chips";
 import { ToolCallRow } from "./tool-call-row";
@@ -81,7 +88,15 @@ type MessageActions = {
    * `allowForConversation` also allows the tool for the Conversation (#159).
    */
   onDecide?: (approved: boolean, allowForConversation?: boolean) => void;
+  /**
+   * Sets this reply's Rating (`up` or `down`), or clears it with null. Only offered on an ended
+   * reply (see `ratableStatuses`).
+   */
+  onRate: (rating: "up" | "down" | null) => void;
 };
+
+/** The statuses whose Run has ended: only their replies can be rated (CONTEXT.md, **Rating**). */
+const ratableStatuses = new Set(["complete", "stopped", "error"]);
 
 /**
  * One full-width Message row: avatar, header with the ‹ n/m › Branch arrows, then the text
@@ -96,6 +111,10 @@ export function MessageRow({
   actions,
   highlighted = false,
   contextCut = false,
+  imagesUrl,
+  editSources,
+  onOpenArtifact,
+  latestVersionOf,
 }: {
   message: UIMessage;
   userLabel?: string;
@@ -104,6 +123,14 @@ export function MessageRow({
   highlighted?: boolean;
   /** The Model's context starts at this Message on the Branch: a marker sits above it. */
   contextCut?: boolean;
+  /** Where a Generated image's bytes come from; the owner's route when unset (a Shared link passes its own). */
+  imagesUrl?: string;
+  /** The images on the Branch an edit can start from, by id (`editSourcesOf`). */
+  editSources?: ReadonlyMap<string, EditSource>;
+  /** Opens an Artifact's card in the side panel (spec #304). */
+  onOpenArtifact?: (ref: ArtifactRef) => void;
+  /** The newest version of an Artifact on the Branch, which an update's card names (spec #304). */
+  latestVersionOf?: (artifactId: string) => number | undefined;
 }) {
   const { locale, t } = useI18n();
   const info = messageInfo(message);
@@ -140,7 +167,7 @@ export function MessageRow({
           {isUser ? <UserIcon className="size-3.5" /> : <BotIcon className="size-3.5" />}
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-2">
-          <div className="flex min-h-6 items-center gap-2 text-xs">
+          <div className="flex min-h-6 flex-wrap items-center gap-2 text-xs">
             <span className="font-medium">
               {isUser ? (userLabel ?? t("chat.you")) : t("chat.assistant")}
             </span>
@@ -171,8 +198,25 @@ export function MessageRow({
               />
             )}
             {!editing && actions && (
-              <div className="ml-auto flex overflow-hidden rounded-md border bg-background opacity-0 shadow-sm group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100">
-                <CopyButton text={text} disabled={actions.streaming} />
+              <div
+                className={cn(
+                  "ml-auto flex overflow-hidden rounded-md border bg-background shadow-sm group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100",
+                  // A Rating stays visible, so the thumb that was chosen is still filled.
+                  info.rating ? "opacity-100" : "opacity-0",
+                )}
+              >
+                {/* A Hidden reply's text is gone, so it can't be copied or read aloud (#268). */}
+                {!info.hidden && <CopyButton text={text} disabled={actions.streaming} />}
+                {!isUser && !info.hidden && info.status === "complete" && (
+                  <ReadAloud messageId={message.id} parts={message.parts} />
+                )}
+                {!isUser && ratableStatuses.has(info.status) && (
+                  <RatingButtons
+                    rating={info.rating}
+                    disabled={actions.streaming}
+                    onRate={actions.onRate}
+                  />
+                )}
                 {isUser ? (
                   <Button
                     variant="ghost"
@@ -218,12 +262,22 @@ export function MessageRow({
               <AttachmentChips attachments={attachments} />
               <p className="max-w-[80ch] text-sm whitespace-pre-wrap">{text}</p>
             </>
+          ) : info.hidden ? (
+            <p className="text-xs text-muted-foreground italic">This reply was hidden</p>
           ) : (
             <>
               {thinking && (
                 <Thinking text={thinking} inProgress={info.status === "streaming" && !text} />
               )}
-              <AssistantParts parts={message.parts} onDecide={actions?.onDecide} />
+              <AssistantParts
+                messageId={message.id}
+                parts={message.parts}
+                onDecide={actions?.onDecide}
+                imagesUrl={imagesUrl}
+                editSources={editSources}
+                onOpenArtifact={onOpenArtifact}
+                latestVersionOf={latestVersionOf}
+              />
               {info.status === "streaming" && !thinking && waitingForText(message.parts) && (
                 <Loader variant="typing" size="sm" label={t("chat.loading")} />
               )}
@@ -293,6 +347,48 @@ function BranchArrows({
         <ChevronRightIcon />
       </Button>
     </span>
+  );
+}
+
+/**
+ * 👍 and 👎 on an ended reply. Clicking the chosen thumb clears the Rating; clicking the other one
+ * flips it (CONTEXT.md, **Rating**).
+ */
+function RatingButtons({
+  rating,
+  disabled,
+  onRate,
+}: {
+  rating: "up" | "down" | null;
+  disabled: boolean;
+  onRate: (rating: "up" | "down" | null) => void;
+}) {
+  const choose = (thumb: "up" | "down") => onRate(rating === thumb ? null : thumb);
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        disabled={disabled}
+        onClick={() => choose("up")}
+        title="Good reply"
+        aria-label="Good reply"
+        aria-pressed={rating === "up"}
+      >
+        <ThumbsUpIcon className={cn(rating === "up" && "fill-current")} />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        disabled={disabled}
+        onClick={() => choose("down")}
+        title="Bad reply"
+        aria-label="Bad reply"
+        aria-pressed={rating === "down"}
+      >
+        <ThumbsDownIcon className={cn(rating === "down" && "fill-current")} />
+      </Button>
+    </>
   );
 }
 
@@ -375,18 +471,60 @@ function EditBox({
   );
 }
 
+/** The newest version on the Branch of the Artifact an update call names; `undefined` for a create. */
+function artifactTarget(
+  call: ToolCallView,
+  latestVersionOf?: (artifactId: string) => number | undefined,
+): number | undefined {
+  const artifactId = artifactIdOf(call);
+  return artifactId === undefined ? undefined : latestVersionOf?.(artifactId);
+}
+
 /**
  * A reply's text and web searches, in stream order. Back-to-back searches share one row; links
  * to the reply's Sources render as their numbered citation chips.
  */
+/**
+ * The images a Branch's Messages hold, by id, for an edit's "edited from" chip (spec #278). A
+ * finished Generated image is labelled by its prompt; an image Attachment by its file name.
+ */
+export function editSourcesOf(messages: UIMessage[]): Map<string, EditSource> {
+  const sources = new Map<string, EditSource>();
+  for (const message of messages) {
+    for (const part of message.parts) {
+      const image = generatedImageOf(part);
+      if (image?.state === "done" && image.imageId) {
+        sources.set(image.imageId, { label: image.prompt, imageId: image.imageId });
+      }
+    }
+    for (const file of messageAttachments(message)) {
+      if (file.id) sources.set(file.id, { label: file.filename });
+    }
+  }
+  return sources;
+}
+
 function AssistantParts({
+  messageId,
   parts,
   onDecide,
+  imagesUrl: imagesUrlOverride,
+  editSources,
+  onOpenArtifact,
+  latestVersionOf,
 }: {
+  messageId: string;
   parts: UIMessage["parts"];
   onDecide?: (approved: boolean, allowForConversation?: boolean) => void;
+  imagesUrl?: string;
+  editSources?: ReadonlyMap<string, EditSource>;
+  onOpenArtifact?: (ref: ArtifactRef) => void;
+  latestVersionOf?: (artifactId: string) => number | undefined;
 }) {
   const sources = sourcesOf(parts);
+  const { generatedImagesUrl } = useChatAdapter();
+  const { t } = useI18n();
+  const imagesUrl = imagesUrlOverride ?? generatedImagesUrl;
   return (
     <ReplySources value={sources}>
       {replySegments(parts).map((segment) =>
@@ -398,11 +536,30 @@ function AssistantParts({
           >
             {segment.content}
           </Markdown>
+        ) : segment.type === "image" ? (
+          <GeneratedImageBlock
+            key={segment.key}
+            image={segment.image}
+            imagesUrl={imagesUrl}
+            editedFrom={segment.image.editedFrom?.map(
+              (id) => editSources?.get(id) ?? { label: t("chat.imageEarlier") },
+            )}
+          />
         ) : segment.type === "searches" ? (
           <SearchRow key={segment.key} searches={segment.searches} sources={sources} />
         ) : (
           <Fragment key={segment.key}>
-            <ToolCallRow call={segment.call} onDecide={onDecide} />
+            {segment.call.name === createArtifactToolName ||
+            segment.call.name === updateArtifactToolName ? (
+              <ArtifactCard
+                call={segment.call}
+                messageId={messageId}
+                latestVersion={artifactTarget(segment.call, latestVersionOf)}
+                onOpen={onOpenArtifact}
+              />
+            ) : (
+              <ToolCallRow call={segment.call} onDecide={onDecide} />
+            )}
             <SourceChips sources={pageSourcesOf(segment.call, sources)} />
           </Fragment>
         ),
@@ -419,12 +576,15 @@ function waitingForText(parts: UIMessage["parts"]) {
   const shown = parts.filter((part) =>
     part.type === "text"
       ? part.content !== ""
-      : webSearchOf(part) !== null || toolCallOf(part) !== null,
+      : webSearchOf(part) !== null || toolCallOf(part) !== null || generatedImageOf(part) !== null,
   );
   const last = shown.at(-1);
   if (!last) return true;
   if (last.type === "text") return false;
-  const running = webSearchOf(last)?.state === "running" || toolCallOf(last)?.status === "running";
+  const running =
+    webSearchOf(last)?.state === "running" ||
+    toolCallOf(last)?.status === "running" ||
+    generatedImageOf(last)?.state === "running";
   return !running;
 }
 

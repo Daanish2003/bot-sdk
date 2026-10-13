@@ -22,15 +22,18 @@ import type { MessageKey } from "../../core/shared/i18n";
 import { useByok } from "../../core/client/react/byok";
 import { type ChatOrpc, useI18n, useOrpc } from "../../core/client/react/provider";
 import { serverErrorText } from "../../core/client/rpc-error";
+import { ArchivedConversationsSection } from "../settings/archived-conversations";
 import { ConnectionsSection } from "../settings/connections-section";
 import { DeleteAllConversationsSection } from "../settings/delete-all-conversations";
 import { ExportDataButton } from "../settings/export-data-button";
 import { InstructionsField } from "../settings/instructions-field";
+import { SavedPromptsSection } from "../settings/saved-prompts";
 import { SharedLinksSection } from "../settings/shared-links";
-import { TitleModelSelect } from "../settings/title-model-select";
+import { BackgroundModelSelect } from "../settings/background-model-select";
+import { ImageModelSelect } from "../settings/image-model-select";
 
 /**
- * Keys & settings: the user's Provider and Tool credentials, the Title Model and the Instructions.
+ * Keys & settings: the user's Provider and Tool credentials, the Background Model and the Instructions.
  * With `byok` off the credential sections are left out; the settings stay.
  */
 export function KeySettingsPage() {
@@ -89,9 +92,14 @@ export function KeySettingsPage() {
 
       <SharedLinksSection />
 
+      <ArchivedConversationsSection />
+
       <InstructionsField />
 
-      <TitleModelSelect />
+      <SavedPromptsSection />
+
+      <BackgroundModelSelect />
+      <ImageModelSelect />
 
       <section className="space-y-2">
         <h2 className="text-sm font-medium">{t("pages.yourData")}</h2>

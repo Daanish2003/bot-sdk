@@ -50,6 +50,100 @@ describe("createChat start", () => {
 
     await expect(chat.start()).rejects.toThrow(/hostProviders|byok/);
   });
+
+  it("refuses transcription Models on a Provider with no transcription adapter", async () => {
+    const chat = createChat({
+      databaseUrl: "postgresql://nobody:nothing@127.0.0.1:1/unreachable",
+      getUser: () => null,
+      keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
+      basePath,
+      hostProviders: [
+        {
+          provider: "anthropic",
+          credentials: { apiKey: "sk-host" },
+          models: [],
+          transcriptionModels: [{ model: "some-model", pricePerMinuteUsd: 0.01 }],
+        },
+      ],
+    });
+
+    await expect(chat.start()).rejects.toThrow(/anthropic.*transcription/);
+  });
+
+  it("refuses a defaultBackgroundModel that is not one of the Host's Models", async () => {
+    const chat = createChat({
+      databaseUrl: "postgresql://nobody:nothing@127.0.0.1:1/unreachable",
+      getUser: () => null,
+      keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
+      basePath,
+      hostProviders: [
+        {
+          provider: "ollama",
+          credentials: { host: "http://localhost:11434" },
+          models: [
+            {
+              modelId: "llama",
+              maxOutputTokens: 512,
+              inputUsdPerMillion: 0,
+              outputUsdPerMillion: 0,
+            },
+          ],
+        },
+      ],
+      defaultBackgroundModel: "ollama:mistral",
+    });
+
+    await expect(chat.start()).rejects.toThrow(/defaultBackgroundModel/);
+  });
+
+  it("refuses a defaultImageModel that is not one of the Host's Image Models", async () => {
+    const chat = createChat({
+      databaseUrl: "postgresql://nobody:nothing@127.0.0.1:1/unreachable",
+      getUser: () => null,
+      keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
+      basePath,
+      hostProviders: [
+        {
+          provider: "openai",
+          credentials: { apiKey: "host-key" },
+          models: [],
+          imageModels: [
+            {
+              modelId: "gpt-image-1-mini",
+              size: "1024x1024",
+              quality: "medium",
+              pricePerImageUsd: 0.01,
+            },
+          ],
+        },
+      ],
+      defaultImageModel: "openai:gpt-image-2",
+    });
+
+    await expect(chat.start()).rejects.toThrow(/defaultImageModel/);
+  });
+
+  it("refuses a Host Image Model without a pricePerImageUsd", async () => {
+    const chat = createChat({
+      databaseUrl: "postgresql://nobody:nothing@127.0.0.1:1/unreachable",
+      getUser: () => null,
+      keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
+      basePath,
+      hostProviders: [
+        {
+          provider: "openai",
+          credentials: { apiKey: "host-key" },
+          models: [],
+          imageModels: [
+            // Left unpriced on purpose: a JavaScript Host can omit what TypeScript requires.
+            { modelId: "gpt-image-1-mini", size: "1024x1024", quality: "medium" } as never,
+          ],
+        },
+      ],
+    });
+
+    await expect(chat.start()).rejects.toThrow(/pricePerImageUsd/);
+  });
 });
 
 describe("the chat handler", () => {

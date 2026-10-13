@@ -1,3 +1,5 @@
+import { throwIfModerated } from "./moderation";
+
 /** A request the server refused for its rate limit (spec 87). `retryAfterSeconds` comes from `Retry-After`. */
 export class RateLimitedError extends Error {
   readonly retryAfterSeconds: number;
@@ -32,11 +34,11 @@ export class RefusedError extends Error {
 
 /**
  * The `fetch` a Run's connection uses: a 429 throws a `RateLimitedError` carrying the retry time,
- * a refusal with a `{ code }` body throws a `RefusedError`, and every other response passes through
- * unchanged.
+ * a moderated 422 throws a `ModeratedError` (#267), any other refusal with a `{ code }` body throws a
+ * `RefusedError`, and every other response passes through unchanged.
  */
 export const runFetch: typeof fetch = async (input, init) => {
-  const response = throwIfRateLimited(await fetch(input, init));
+  const response = throwIfRateLimited(await throwIfModerated(await fetch(input, init)));
   if (response.ok) return response;
   const body: unknown = await response
     .clone()

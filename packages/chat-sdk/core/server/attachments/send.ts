@@ -13,7 +13,7 @@ import type { ErrorCode } from "../../shared/i18n";
 import type { ErrorParams } from "../rpc-error";
 import { attachmentsOfMessages, findOwnedAttachments, loadAttachmentBytes } from "./store";
 
-type Deps = Pick<AppDeps, "db">;
+type Deps = Pick<AppDeps, "db" | "blobStore">;
 
 export type SendAttachments =
   | { error: { status: number; code: ErrorCode; params: ErrorParams } }
@@ -85,7 +85,7 @@ export async function attachmentsForSend(
     files.map(({ id, filename, mediaType }) => {
       const stored = bytes.get(id);
       if (!stored) throw new Error(`Attachment ${id} has no bytes`);
-      return { filename, mediaType, bytes: stored };
+      return { id, filename, mediaType, bytes: stored };
     });
   return {
     error: null,

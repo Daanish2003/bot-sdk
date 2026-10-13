@@ -1,6 +1,9 @@
-import { conversation, project } from "../db/schema/chat";
-import { and, count, desc, eq, sql } from "drizzle-orm";
+import { conversation, message, project } from "../db/schema/chat";
+import { generatedImage } from "../db/schema/generated-image";
+import { and, count, desc, eq, inArray, sql } from "drizzle-orm";
 
+import { deleteBlobsBestEffort } from "../blob/store";
+import { generatedImageKeysWhere, imagesOfMessages } from "../chat/generated-image-store";
 import { stopProjectRuns } from "../chat/run";
 import type { AppDeps } from "../deps";
 
@@ -70,7 +73,7 @@ export async function countProjectConversations(deps: Deps, userId: string, id: 
  * someone else.
  */
 export async function deleteProject(deps: AppDeps, userId: string, id: string) {
-  return deps.db.transaction(async (tx) => {
+  const result = await deps.db.transaction(async (tx) => {
     const [owned] = await tx
       .select({ id: project.id })
       .from(project)
@@ -79,12 +82,37 @@ export async function deleteProject(deps: AppDeps, userId: string, id: string) {
       // key takes a shared lock), so the count below and the cascade see the same rows.
       .for("update");
     if (!owned) return undefined;
-    await stopProjectRuns(deps, id, tx);
-    const [row] = await tx
-      .select({ total: count() })
+    const ended = await stopProjectRuns(deps, id, tx);
+    const gone = await tx
+      .select({ id: conversation.id })
       .from(conversation)
       .where(eq(conversation.projectId, id));
+    // The Generated images of the Project's Conversations: their rows go by cascade, their bytes after the commit.
+    const blobKeys = await generatedImageKeysWhere(
+      tx,
+      and(
+        eq(generatedImage.userId, userId),
+        imagesOfMessages(
+          tx,
+          inArray(
+            message.conversationId,
+            tx
+              .select({ id: conversation.id })
+              .from(conversation)
+              .where(eq(conversation.projectId, id)),
+          ),
+        ),
+      ),
+    );
     await tx.delete(project).where(eq(project.id, id));
-    return row?.total ?? 0;
+    return { gone, ended, blobKeys };
   });
+  if (!result) return undefined;
+  await deleteBlobsBestEffort(deps, result.blobKeys);
+  // After the commit: a rolled-back delete fires nothing (#265, #266).
+  for (const run of result.ended) deps.hooks.fire("onRunEnd", run);
+  for (const row of result.gone) {
+    deps.hooks.fire("onConversationDeleted", { userId, conversationId: row.id, projectId: id });
+  }
+  return result.gone.length;
 }

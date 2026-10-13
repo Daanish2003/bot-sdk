@@ -19,7 +19,16 @@ export default defineConfig({
   // In CI, "list" too: a run cancelled at its timeout still shows which tests ran and how.
   reporter: process.env.CI ? [["github"], ["list"]] : "list",
   globalSetup: "./e2e/global-setup.ts",
-  use: { baseURL, trace: "retain-on-failure" },
+  use: {
+    baseURL,
+    trace: "retain-on-failure",
+    // Better Auth counts rate limits per client IP. The server runs as production, where a request
+    // with no forwarded IP shares one bucket per path, so every browser in the run would share it.
+    // Each worker sends its own test IP, so workers are counted apart. The limits are unchanged.
+    extraHTTPHeaders: {
+      "x-forwarded-for": `10.20.0.${Number(process.env.TEST_WORKER_INDEX ?? 0) + 1}`,
+    },
+  },
   projects: [
     {
       name: "desktop",

@@ -10,6 +10,8 @@
     "check-types": "vite build && tsc --noEmit",
     "env:generate": "varlock codegen",
     "db:migrate": "varlock run -- node scripts/migrate.ts",
+    "admin:grant": "varlock run -- node scripts/admin-role.ts grant",
+    "admin:revoke": "varlock run -- node scripts/admin-role.ts revoke",
     "db:rotate-keys": "varlock run -- node scripts/rotate-keys.ts",
     "auth:generate": "varlock run -- pnpm dlx auth@latest generate --config src/services.ts --output ../../packages/db/src/schema/auth.ts --yes"
   },

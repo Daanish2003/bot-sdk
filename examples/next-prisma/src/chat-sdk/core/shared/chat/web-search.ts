@@ -13,7 +13,11 @@ export type SearchResult = {
   publishedDate?: string;
 };
 
-export type SearchErrorReason = "invalid_key" | "quota_exhausted" | "failed";
+/**
+ * `quota_exceeded` is the Host's Quota refusing the search before it runs (ADR 0007), kept apart
+ * from `quota_exhausted`, which is Tavily's own monthly quota.
+ */
+export type SearchErrorReason = "invalid_key" | "quota_exhausted" | "quota_exceeded" | "failed";
 
 export const webSearchToolName = "web_search";
 
@@ -26,6 +30,7 @@ export const searchLimitError = "search limit reached";
 export const searchErrorMessages: Record<SearchErrorReason, string> = {
   invalid_key: "Tavily rejected the API key",
   quota_exhausted: "Tavily's monthly quota is used up",
+  quota_exceeded: "Over this window's Quota, so the search wasn't run",
   failed: "The web search failed",
 };
 
@@ -36,6 +41,7 @@ export const searchErrorMessages: Record<SearchErrorReason, string> = {
 export const searchErrorCodes: Record<SearchErrorReason, string> = {
   invalid_key: "chat.searchFailedKey",
   quota_exhausted: "chat.searchFailedQuota",
+  quota_exceeded: "chat.searchNotRunQuota",
   failed: "chat.searchFailed",
 };
 

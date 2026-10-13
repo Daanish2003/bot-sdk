@@ -56,7 +56,15 @@ export type ChatRouter = {
   shareUrl: (token: string) => string;
 };
 
-export type ChatAdapter = Pick<ChatClient, "orpc" | "chatUrl" | "exportUrl" | "connectionsUrl"> &
+export type ChatAdapter = Pick<
+  ChatClient,
+  | "orpc"
+  | "chatUrl"
+  | "exportUrl"
+  | "connectionsUrl"
+  | "generatedImagesUrl"
+  | "sharedGeneratedImagesUrl"
+> &
   ChatRouter & { i18n: I18n };
 
 const ChatContext = createContext<ChatAdapter | null>(null);
@@ -88,6 +96,8 @@ export function ChatProvider({
       chatUrl: client.chatUrl,
       exportUrl: client.exportUrl,
       connectionsUrl: client.connectionsUrl,
+      generatedImagesUrl: client.generatedImagesUrl,
+      sharedGeneratedImagesUrl: client.sharedGeneratedImagesUrl,
       i18n: createI18n(messages, locale),
     }),
     [client, router, messages, locale],

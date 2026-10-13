@@ -1,5 +1,6 @@
-import type { MessagePart } from "@tanstack/ai";
+import { type MessagePart, parsePartialJSON } from "@tanstack/ai";
 
+import { generateImageToolName } from "./generated-image";
 import type { ToolError } from "../message-parts";
 import { webSearchToolName } from "./web-search";
 
@@ -31,9 +32,13 @@ export type ToolCallView = {
   redacted: boolean;
 };
 
-/** The tool call a `useChat` part is, or `null` for any other part and for a `web_search` call. */
+/**
+ * The tool call a `useChat` part is, or `null` for any other part, a `web_search` call and a
+ * `generate_image` call (each has its own row).
+ */
 export function toolCallOf(part: MessagePart): ToolCallView | null {
-  if (part.type !== "tool-call" || part.name === webSearchToolName) return null;
+  if (part.type !== "tool-call") return null;
+  if (part.name === webSearchToolName || part.name === generateImageToolName) return null;
   const meta = (part.metadata ?? {}) as Partial<{
     source: string;
     status: ToolCallStatus;
@@ -46,7 +51,8 @@ export function toolCallOf(part: MessagePart): ToolCallView | null {
     // A call from the live stream carries no metadata; it is a Host call until it is stored.
     source: meta.source ?? "host",
     status: meta.status ?? statusOfState(part.state),
-    args: part.input ?? safeParse(part.arguments),
+    // A call still streaming has only its partial arguments; the partial parse reads them as they come.
+    args: part.input ?? parsePartialJSON(part.arguments),
     result: part.output,
     ...(meta.error && { error: meta.error }),
     redacted: meta.redacted === true,
@@ -58,12 +64,4 @@ function statusOfState(state: string): ToolCallStatus {
   if (state === "complete") return "done";
   if (state === "error") return "error";
   return "running";
-}
-
-function safeParse(json: string): unknown {
-  try {
-    return JSON.parse(json);
-  } catch {
-    return undefined;
-  }
 }

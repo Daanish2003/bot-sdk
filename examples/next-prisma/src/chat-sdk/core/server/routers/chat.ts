@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { type DecideResult, decideApproval } from "../chat/approval";
 import { stopRun } from "../chat/run";
-import { findMessage } from "../chat/store";
+import { findMessage, rateMessage } from "../chat/store";
 import { protectedProcedure } from "../procedures";
 import { rpcError } from "../rpc-error";
 
@@ -41,7 +41,39 @@ export const chatRouter = {
         refuseDecision(await decideApproval(context.deps, context.user.id, owned.id, false));
         return;
       }
-      await stopRun(context.deps, owned.id);
+      for (const run of await stopRun(context.deps, owned.id)) {
+        context.deps.hooks.fire("onRunEnd", run);
+      }
+    }),
+  /**
+   * Sets the owner's Rating of an ended assistant reply, `up` or `down`, or clears it with null
+   * (CONTEXT.md, **Rating**). Only the latest is kept. Never sent to a Provider, nor on a Shared link.
+   */
+  rate: protectedProcedure
+    .input(z.object({ messageId: z.uuid(), rating: z.enum(["up", "down"]).nullable() }))
+    .handler(async ({ context, input }) => {
+      const result = await rateMessage(
+        context.deps,
+        context.user.id,
+        input.messageId,
+        input.rating,
+      );
+      if (result === "not_found")
+        throw rpcError("NOT_FOUND", "error.messageNotFound", "Message not found");
+      if (result === "not_assistant") {
+        throw rpcError(
+          "BAD_REQUEST",
+          "error.rateNotAssistant",
+          "Only an assistant Message can be rated",
+        );
+      }
+      if (result === "live") {
+        throw rpcError(
+          "CONFLICT",
+          "error.rateLive",
+          "The reply can be rated once its Run has ended",
+        );
+      }
     }),
   /**
    * Answers the call a reply is waiting on (ADR 0008): approve runs it, deny refuses it. With

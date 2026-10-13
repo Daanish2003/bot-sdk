@@ -2,12 +2,17 @@ import { conversation, reasoningEffort } from "../db/schema/chat";
 import { z } from "zod";
 
 import { resolveModel } from "../chat/available-models";
+import { withProjectId } from "../chat/hooks";
 import { deleteAllConversations } from "../delete-user";
+import { renderConversationMarkdown } from "../export-markdown";
 import {
   decodeConversationCursor,
   deleteConversation,
   findConversation,
   listConversations,
+  archiveAllConversations,
+  archiveConversation,
+  listArchivedConversations,
   listPinnedConversations,
   loadActiveBranch,
   maxPinnedConversations,
@@ -18,6 +23,7 @@ import {
   setConversationModel,
   setConversationReasoningEffort,
   switchBranch,
+  unarchiveConversation,
   unpinConversation,
 } from "../chat/store";
 import { resolveModelCall } from "../credentials/resolve";
@@ -35,6 +41,8 @@ export const conversationRouter = {
         reasoningEffort: z.enum(reasoningEffort.enumValues).nullish(),
         /** The Project to create the Conversation in; it must be the caller's. */
         projectId: z.uuid().nullish(),
+        /** A Temporary Conversation: kept out of the lists, search and titles. Never in a Project. */
+        temporary: z.boolean().optional(),
       }),
     )
     .handler(async ({ context, input }) => {
@@ -48,6 +56,13 @@ export const conversationRouter = {
           },
         );
       }
+      if (input.temporary && input.projectId) {
+        throw rpcError(
+          "BAD_REQUEST",
+          "error.temporaryInProject",
+          "A Temporary Conversation can't be in a Project",
+        );
+      }
       if (input.projectId && !(await findProject(context.deps, context.user.id, input.projectId))) {
         throw rpcError("NOT_FOUND", "error.projectNotFound", "Project not found");
       }
@@ -58,6 +73,13 @@ export const conversationRouter = {
         model: input.model,
         reasoningEffort: input.reasoningEffort ?? null,
         projectId: input.projectId ?? null,
+        temporary: input.temporary ?? false,
+      });
+      context.deps.hooks.fire("onConversationCreated", {
+        userId: context.user.id,
+        conversationId: id,
+        ...withProjectId(input.projectId),
+        fromSharedLink: false,
       });
       return { id };
     }),
@@ -91,10 +113,25 @@ export const conversationRouter = {
       title: row.title,
       model: row.model,
       reasoningEffort: row.reasoningEffort,
+      temporary: row.temporary,
       tools: row.toolSettings,
+      archivedAt: row.archivedAt,
       messages,
     };
   }),
+
+  /**
+   * The Active Branch as a Markdown document, and the file name to download it as (ticket #252).
+   * Owner only; a reply still streaming exports what is stored so far, marked as such.
+   */
+  exportMarkdown: protectedProcedure
+    .input(z.object({ id: z.uuid() }))
+    .handler(async ({ context, input }) => {
+      const row = await findConversation(context.deps, context.user.id, input.id);
+      if (!row) throw rpcError("NOT_FOUND", "error.conversationNotFound", "Conversation not found");
+      const messages = await loadActiveBranch(context.deps, row.id, row.activeLeafId);
+      return renderConversationMarkdown({ title: row.title, messages, exportedAt: new Date() });
+    }),
 
   /**
    * Shows the Branch through `messageId`: the newest leaf under it becomes the Active Branch.
@@ -206,6 +243,13 @@ export const conversationRouter = {
     const result = await pinConversation(context.deps, context.user.id, input.id);
     if (result === "not_found")
       throw rpcError("NOT_FOUND", "error.conversationNotFound", "Conversation not found");
+    if (result === "temporary") {
+      throw rpcError(
+        "BAD_REQUEST",
+        "error.temporaryPin",
+        "A Temporary Conversation can't be pinned",
+      );
+    }
     if (result === "limit") {
       throw rpcError(
         "BAD_REQUEST",
@@ -228,6 +272,50 @@ export const conversationRouter = {
     }),
 
   /**
+   * Archives the Conversation: it leaves the main list and its Project's list, and is unpinned.
+   * It is still found by search and opened by its URL. Doesn't bump `lastMessageAt`.
+   */
+  archive: protectedProcedure
+    .input(z.object({ id: z.uuid() }))
+    .handler(async ({ context, input }) => {
+      const archived = await archiveConversation(context.deps, context.user.id, input.id);
+      if (!archived)
+        throw rpcError("NOT_FOUND", "error.conversationNotFound", "Conversation not found");
+    }),
+
+  /** Brings an archived Conversation back to the lists. Doesn't bump `lastMessageAt`. */
+  unarchive: protectedProcedure
+    .input(z.object({ id: z.uuid() }))
+    .handler(async ({ context, input }) => {
+      const unarchived = await unarchiveConversation(context.deps, context.user.id, input.id);
+      if (!unarchived)
+        throw rpcError("NOT_FOUND", "error.conversationNotFound", "Conversation not found");
+    }),
+
+  /**
+   * One page of the caller's archived Conversations for the Archived list, Project ones too,
+   * newest Message first, 50 at a time. Pass the previous page's `nextCursor` for the next one.
+   */
+  archived: protectedProcedure
+    .input(z.object({ cursor: z.string().optional() }))
+    .handler(async ({ context, input }) => {
+      const cursor =
+        input.cursor === undefined ? undefined : decodeConversationCursor(input.cursor);
+      if (input.cursor !== undefined && !cursor) {
+        throw rpcError("BAD_REQUEST", "error.invalidCursor", "Invalid cursor");
+      }
+      return listArchivedConversations(context.deps, context.user.id, cursor);
+    }),
+
+  /**
+   * Archives every one of the caller's Conversations that is in no Project, isn't pinned and isn't
+   * archived yet. Returns how many it archived.
+   */
+  archiveAll: protectedProcedure.handler(async ({ context }) => ({
+    count: await archiveAllConversations(context.deps, context.user.id),
+  })),
+
+  /**
    * Moves the Conversation into one of the caller's Projects, or out of its Project when
    * `projectId` is `null`. Its Model, Messages, pin and `lastMessageAt` stay as they are.
    */
@@ -236,6 +324,16 @@ export const conversationRouter = {
     .handler(async ({ context, input }) => {
       if (input.projectId && !(await findProject(context.deps, context.user.id, input.projectId))) {
         throw rpcError("NOT_FOUND", "error.projectNotFound", "Project not found");
+      }
+      if (
+        input.projectId &&
+        (await findConversation(context.deps, context.user.id, input.id))?.temporary
+      ) {
+        throw rpcError(
+          "BAD_REQUEST",
+          "error.temporaryMove",
+          "A Temporary Conversation can't be moved into a Project",
+        );
       }
       const moved = await moveConversation(
         context.deps,

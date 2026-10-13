@@ -5,16 +5,16 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createChat } from "../../../core/server/create-chat";
-import { deleteUserData } from "../../../core/server/delete-user";
+import { deleteAllConversations, deleteUserData } from "../../../core/server/delete-user";
+import { deleteConversation } from "../../../core/server/chat/store";
 import { saveCredentials } from "../../../core/server/credentials/store";
 import { START } from "../../../core/server/chat/run-streams";
-import {
-  attachment,
-  attachmentBlob,
-  messageAttachment,
-} from "../../../core/server/db/schema/attachment";
+import { artifact, artifactVersion } from "../../../core/server/db/schema/artifact";
+import { attachment, messageAttachment } from "../../../core/server/db/schema/attachment";
+import { blob } from "../../../core/server/db/schema/blob";
 import { conversation, message, project } from "../../../core/server/db/schema/chat";
 import { userCredentials } from "../../../core/server/db/schema/credentials";
+import { savedPrompt } from "../../../core/server/db/schema/saved-prompt";
 import { sharedLink } from "../../../core/server/db/schema/share";
 import { userSettings } from "../../../core/server/db/schema/settings";
 import { usage } from "../../../core/server/db/schema/usage";
@@ -52,8 +52,23 @@ async function seedOwner(user: TestUser) {
   });
   await getTestDb()
     .insert(userSettings)
-    .values({ userId: user.id, titleModel: "anthropic:x", instructions: "Be terse." });
+    .values({ userId: user.id, backgroundModel: "anthropic:x", instructions: "Be terse." });
   await getTestDb().insert(project).values({ id: uuidv7(), userId: user.id, name: "Work" });
+  await getTestDb()
+    .insert(savedPrompt)
+    .values({ id: uuidv7(), userId: user.id, name: "review", text: "Review this." });
+  const artifactId = `art-${randomUUID().slice(0, 8)}`;
+  await getTestDb()
+    .insert(artifact)
+    .values({ id: artifactId, conversationId: conv.id, kind: "markdown" });
+  await getTestDb().insert(artifactVersion).values({
+    artifactId,
+    messageId: reply.id,
+    number: 1,
+    title: "Notes",
+    language: null,
+    content: "# Notes",
+  });
   await getTestDb().insert(usage).values({
     id: uuidv7(),
     userId: user.id,
@@ -64,7 +79,7 @@ async function seedOwner(user: TestUser) {
     costMicros: 1,
     estimated: false,
   });
-  return { conv, question, reply, file, link, deps };
+  return { conv, question, reply, file, link, deps, artifactId };
 }
 
 /** Every row the SDK holds for the user, by table, counted through the user or their Conversations. */
@@ -76,6 +91,10 @@ async function ownedRows(userId: string) {
     .where(eq(conversation.userId, userId));
   const ownAttachments = db
     .select({ id: attachment.id })
+    .from(attachment)
+    .where(eq(attachment.userId, userId));
+  const ownBlobKeys = db
+    .select({ key: sql<string>`'attachment/' || ${attachment.id}` })
     .from(attachment)
     .where(eq(attachment.userId, userId));
   const count = async (query: Promise<unknown[]>) => (await query).length;
@@ -90,9 +109,7 @@ async function ownedRows(userId: string) {
       db.select().from(sharedLink).where(inArray(sharedLink.conversationId, ownConversations)),
     ),
     attachments: await count(db.select().from(attachment).where(eq(attachment.userId, userId))),
-    attachmentBlobs: await count(
-      db.select().from(attachmentBlob).where(inArray(attachmentBlob.attachmentId, ownAttachments)),
-    ),
+    attachmentBlobs: await count(db.select().from(blob).where(inArray(blob.key, ownBlobKeys))),
     messageAttachments: await count(
       db
         .select()
@@ -104,7 +121,25 @@ async function ownedRows(userId: string) {
     ),
     settings: await count(db.select().from(userSettings).where(eq(userSettings.userId, userId))),
     projects: await count(db.select().from(project).where(eq(project.userId, userId))),
+    savedPrompts: await count(db.select().from(savedPrompt).where(eq(savedPrompt.userId, userId))),
     usage: await count(db.select().from(usage).where(eq(usage.userId, userId))),
+    artifacts: await count(
+      db.select().from(artifact).where(inArray(artifact.conversationId, ownConversations)),
+    ),
+    artifactVersions: await count(
+      db
+        .select()
+        .from(artifactVersion)
+        .where(
+          inArray(
+            artifactVersion.artifactId,
+            db
+              .select({ id: artifact.id })
+              .from(artifact)
+              .where(inArray(artifact.conversationId, ownConversations)),
+          ),
+        ),
+    ),
   };
 }
 
@@ -118,8 +153,71 @@ const emptyRows = {
   credentials: 0,
   settings: 0,
   projects: 0,
+  savedPrompts: 0,
   usage: 0,
+  artifacts: 0,
+  artifactVersions: 0,
 };
+
+describe("Artifacts go with the Message, Conversation or user that owns them", () => {
+  it("deleting a Message removes the versions it wrote and keeps the others", async () => {
+    const owner = await insertUser();
+    const { conv, reply, artifactId } = await seedOwner(owner);
+    const update = await insertMessage({
+      conversationId: conv.id,
+      parentId: reply.id,
+      role: "assistant",
+      text: "Updated",
+      active: true,
+    });
+    await getTestDb().insert(artifactVersion).values({
+      artifactId,
+      messageId: update.id,
+      number: 2,
+      title: "Notes",
+      language: null,
+      content: "# Notes v2",
+    });
+
+    await getTestDb().delete(message).where(eq(message.id, update.id));
+
+    const versions = await getTestDb()
+      .select({ number: artifactVersion.number, messageId: artifactVersion.messageId })
+      .from(artifactVersion)
+      .where(eq(artifactVersion.artifactId, artifactId));
+    expect(versions).toEqual([{ number: 1, messageId: reply.id }]);
+    expect(
+      await getTestDb().select().from(artifact).where(eq(artifact.id, artifactId)),
+    ).toHaveLength(1);
+  });
+
+  it("deleting a Conversation leaves no Artifact or version of it", async () => {
+    const owner = await insertUser();
+    const other = await insertUser();
+    const { conv } = await seedOwner(owner);
+    await seedOwner(other);
+    const before = await ownedRows(other.id);
+
+    expect(await deleteConversation(createTestDeps(), owner.id, conv.id)).toBe(true);
+
+    expect(await ownedRows(owner.id)).toMatchObject({ artifacts: 0, artifactVersions: 0 });
+    expect(await ownedRows(other.id)).toEqual(before);
+  });
+
+  it("deleting all Conversations leaves no Artifact or version of the user's", async () => {
+    const owner = await insertUser();
+    const other = await insertUser();
+    await seedOwner(owner);
+    await seedOwner(other);
+    const before = await ownedRows(other.id);
+
+    await deleteAllConversations(createTestDeps(), owner.id);
+
+    expect(await ownedRows(owner.id)).toMatchObject({ artifacts: 0, artifactVersions: 0 });
+    expect(await ownedRows(other.id)).toEqual(before);
+    expect(before.artifactVersions).toBe(1);
+  });
+});
 
 describe("deleteUserData", () => {
   it("removes every row the user owns and leaves other users' rows alone", async () => {
@@ -278,5 +376,22 @@ describe("createChat().deleteUser", () => {
         .from(conversation)
         .where(and(eq(conversation.userId, other.id))),
     ).toHaveLength(1);
+  });
+});
+
+describe("deleteUserData, Temporary Conversations", () => {
+  it("removes the user's Temporary Conversations with their Messages", async () => {
+    const owner = await insertUser();
+    const temporary = await insertConversation(owner, { temporary: true });
+    await insertMessage({ conversationId: temporary.id, role: "user", text: "Private" });
+
+    await deleteUserData(createTestDeps(), owner.id);
+
+    expect(
+      await getTestDb().select().from(conversation).where(eq(conversation.id, temporary.id)),
+    ).toEqual([]);
+    expect(
+      await getTestDb().select().from(message).where(eq(message.conversationId, temporary.id)),
+    ).toEqual([]);
   });
 });

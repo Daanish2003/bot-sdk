@@ -12,6 +12,8 @@ export const errorMessages = {
   "error.invalidCursor": "Invalid cursor",
   "error.modelNotAvailable": ({ model }: { model: string }) =>
     `"${model}" is not an available Model`,
+  "error.imageModelNotAvailable": ({ model }: { model: string }) =>
+    `"${model}" is not an available Image Model`,
   "error.unknownMcpServer": "Unknown MCP server",
   "error.pickAnotherModel": "Pick another Model",
   "error.addKey": ({ label }: { label: string }) =>
@@ -58,4 +60,24 @@ export const errorMessages = {
     `Couldn't reach ${label} to check the key. Try again.`,
   "error.ollamaUnreachable": ({ host }: { host: string }) =>
     `Couldn't reach Ollama at ${host}. Under Docker, use http://host.docker.internal:11434.`,
+  "error.temporaryPin": "A Temporary Conversation can't be pinned",
+  "error.temporaryInProject": "A Temporary Conversation can't be in a Project",
+  "error.temporaryMove": "A Temporary Conversation can't be moved into a Project",
+  "error.temporaryShare": "A Temporary Conversation can't be shared",
+  "error.rateNotAssistant": "Only an assistant Message can be rated",
+  "error.rateLive": "The reply can be rated once its Run has ended",
+  "error.savedPromptName": "Names use lowercase letters, digits and -, up to 32 characters",
+  "error.savedPromptTextBlank": "Text can't be blank",
+  "error.savedPromptTextTooLong": ({ max }: { max: string }) =>
+    `Text is limited to ${max} characters`,
+  "error.savedPromptNameTaken": ({ name }: { name: string }) =>
+    `You already have a Saved prompt named "${name}"`,
+  "error.savedPromptLimit": ({ max }: { max: string }) =>
+    `You have ${max} Saved prompts. Delete one first.`,
+  "error.savedPromptNotFound": "Saved prompt not found",
+  "error.recordingTooLong": "A recording can be at most 10 minutes",
+  "error.recordingType": "That recording isn't an audio type dictation accepts",
+  "error.recordingTooLarge": "A recording can be at most 25 MB",
+  "error.dictationFailed": "The transcription failed",
+  "error.artifactVersionNotFound": "Artifact version not found",
 };

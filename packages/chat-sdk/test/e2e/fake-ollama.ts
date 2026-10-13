@@ -22,6 +22,68 @@ export const mcpToolName = "tracker_create_issue";
 /** The arguments the fake Model sends with that call. */
 export const mcpToolArguments = { title: "E2E launch" };
 
+/**
+ * A prompt with this marker makes the fake Model call `generate_image` (spec #278), when the request
+ * offers it. The Host's Image Model is `fakeImageModel`, answered by the fake image adapter.
+ */
+export const imageMarker = "[image]";
+const imageToolName = "generate_image";
+export const fakeImageModel = "e2e-image";
+export const imagePrompt = "a red bicycle";
+/** The reply once the image is made: the Model's words about it, with no pixels. */
+export const imageReply = "Here is the image of a red bicycle.";
+
+/**
+ * A prompt with this marker makes the fake Model call `create_artifact` with `artifactHtml`, when
+ * the request offers it. The prompt's link, if any, is the data the Artifact's script fetches.
+ */
+export const artifactMarker = "[artifact]";
+const createArtifactToolName = "create_artifact";
+/** A prompt with this marker makes the fake Model call `update_artifact` on the last Artifact it saw. */
+export const updateMarker = "[update]";
+const updateArtifactToolName = "update_artifact";
+/** The title of the Artifact the fake Model creates, and the heading its first version shows. */
+export const artifactTitle = "E2E page";
+export const revisedHeading = "Revised page";
+
+/** The JSON the fake host serves for the Artifact's fetch, with the CORS header a read would need. */
+export const dataPath = "/e2e/data";
+
+/**
+ * The HTML the fake Model creates. Its script reports, into the page, whether its `fetch` reached
+ * the fake host (which allows it), and whether it can read the parent page or its cookies. The
+ * "Shrink" button makes the page shorter, and "Break" throws a script error.
+ */
+export function artifactHtml(dataUrl: string): string {
+  return [
+    "<!doctype html><html><body>",
+    `<h1>${artifactTitle}</h1>`,
+    '<p id="fetch">fetch: pending</p>',
+    '<p id="parent">parent: pending</p>',
+    '<p id="cookie">cookie: pending</p>',
+    "<button id=\"shrink\" onclick=\"document.getElementById('tall').style.height='80px'\">Shrink</button>",
+    '<button id="break" onclick="throw new Error(\'boom\')">Break</button>',
+    '<div id="tall" style="height:900px"></div>',
+    "<script>",
+    "function report(id, value) { document.getElementById(id).textContent = id + ': ' + value; }",
+    `fetch(${JSON.stringify(dataUrl)}).then(function () { report('fetch', 'allowed'); }, function () { report('fetch', 'blocked'); });`,
+    "try { parent.document.title; report('parent', 'reachable'); } catch (error) { report('parent', 'blocked'); }",
+    "try { document.cookie; report('cookie', 'readable'); } catch (error) { report('cookie', 'blocked'); }",
+    "</script>",
+    "</body></html>",
+  ].join("");
+}
+
+/** What the fake Model's update writes: a new heading, so a later version reads differently. */
+export const revisedArtifactHtml = `<!doctype html><html><body><h1>${revisedHeading}</h1></body></html>`;
+
+/** The reply to a create or update: the version the tool saved, or why it saved none. */
+export function artifactReply(toolResult: string): string {
+  const result = JSON.parse(toolResult) as { version?: number; error?: string };
+  if (result.error) return `The Artifact could not be saved: ${result.error}.`;
+  return `Saved version ${result.version} of the page.`;
+}
+
 /** The reply to an MCP tool's result: what the tool returned, as the Model sees it. */
 export function mcpReply(toolResult: string): string {
   return `The issue was created. The tool returned: ${toolResult}`;
@@ -37,6 +99,16 @@ export function fetchedReply(toolResult: string): string {
   };
   if (result.error) return `The page could not be read: ${result.error}.`;
   return `According to [${result.title}](${result.url}): ${result.content}`;
+}
+
+/** The reply to the result of the tool the reply asked for last. */
+function replyToTool(asked: string | undefined, content: string): string {
+  if (asked === mcpToolName) return mcpReply(content);
+  if (asked === imageToolName) return imageReply;
+  if (asked === createArtifactToolName || asked === updateArtifactToolName) {
+    return artifactReply(content);
+  }
+  return fetchedReply(content);
 }
 
 /** A reply long enough to see streaming, with Markdown and a code block. */
@@ -72,6 +144,8 @@ export function wideReply(): string {
     "```ts",
     "const someVeryLongVariableName = computeSomethingUseful(firstArgument, secondArgument, thirdArgument);",
     "```",
+    "",
+    "That's all.",
   ].join("\n");
 }
 
@@ -93,6 +167,12 @@ export function startFakeOllama(port: number): Promise<Server> {
         `<!doctype html><html><head><title>${fetchedPageTitle}</title></head>` +
           `<body><main><p>${fetchedPageText}</p></main></body></html>`,
       );
+      return;
+    }
+    if (request.url === dataPath && request.method === "GET") {
+      response.setHeader("content-type", "application/json");
+      response.setHeader("access-control-allow-origin", "*");
+      response.end(JSON.stringify({ ok: true }));
       return;
     }
     if (request.url === "/api/tags") {
@@ -156,11 +236,44 @@ export function startFakeOllama(port: number): Promise<Server> {
         calls(mcpToolName, mcpToolArguments);
         return;
       }
+      if (stream && !answering && offers(imageToolName) && prompt.includes(imageMarker)) {
+        calls(imageToolName, { prompt: imagePrompt, aspectRatio: "landscape" });
+        return;
+      }
+      // The Artifact an update changes: the last one the system prompt lists for this Branch.
+      const savedArtifactId = messages
+        .map((message) => /<artifact id="([^"]+)"/.exec(message.content)?.[1])
+        .filter((id): id is string => id !== undefined)
+        .at(-1);
+      if (
+        stream &&
+        !answering &&
+        offers(createArtifactToolName) &&
+        prompt.includes(artifactMarker)
+      ) {
+        calls(createArtifactToolName, {
+          kind: "html",
+          title: artifactTitle,
+          content: artifactHtml(link ?? ""),
+        });
+        return;
+      }
+      if (
+        stream &&
+        !answering &&
+        savedArtifactId &&
+        offers(updateArtifactToolName) &&
+        prompt.includes(updateMarker)
+      ) {
+        calls(updateArtifactToolName, {
+          artifactId: savedArtifactId,
+          content: revisedArtifactHtml,
+        });
+        return;
+      }
       const text =
         last?.role === "tool" && stream
-          ? asked === mcpToolName
-            ? mcpReply(last.content)
-            : fetchedReply(last.content)
+          ? replyToTool(asked, last.content)
           : prompt.includes(wideMarker)
             ? wideReply()
             : fakeReply(prompt.slice(0, 80));

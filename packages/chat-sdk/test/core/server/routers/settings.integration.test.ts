@@ -13,60 +13,67 @@ async function signedIn() {
 }
 
 describe("settings", () => {
-  it("has no Title Model by default (the Model that wrote the first reply)", async () => {
+  it("has no Background Model by default (the Model that wrote the first reply)", async () => {
     const { client } = await signedIn();
 
-    await expect(client.settings.get()).resolves.toEqual({ titleModel: null, instructions: null });
+    await expect(client.settings.get()).resolves.toEqual({
+      backgroundModel: null,
+      imageModel: null,
+      instructions: null,
+    });
   });
 
-  it("saves the Title Model and resets it to the default", async () => {
+  it("saves the Background Model and resets it to the default", async () => {
     const { client } = await signedIn();
 
-    await client.settings.setTitleModel({ titleModel: "openai:gpt-5.4-mini" });
+    await client.settings.setBackgroundModel({ backgroundModel: "openai:gpt-5.4-mini" });
     await expect(client.settings.get()).resolves.toMatchObject({
-      titleModel: "openai:gpt-5.4-mini",
+      backgroundModel: "openai:gpt-5.4-mini",
     });
 
-    await client.settings.setTitleModel({ titleModel: null });
-    await expect(client.settings.get()).resolves.toMatchObject({ titleModel: null });
+    await client.settings.setBackgroundModel({ backgroundModel: null });
+    await expect(client.settings.get()).resolves.toMatchObject({ backgroundModel: null });
   });
 
-  it("keeps each user's Title Model to themselves", async () => {
+  it("keeps each user's Background Model to themselves", async () => {
     const { client } = await signedIn();
     const other = await signedIn();
 
-    await client.settings.setTitleModel({ titleModel: "openai:gpt-5.4-mini" });
+    await client.settings.setBackgroundModel({ backgroundModel: "openai:gpt-5.4-mini" });
 
-    await expect(other.client.settings.get()).resolves.toMatchObject({ titleModel: null });
+    await expect(other.client.settings.get()).resolves.toMatchObject({ backgroundModel: null });
   });
 
-  it("saves a live-listed Title Model (OpenRouter, Ollama)", async () => {
+  it("saves a live-listed Background Model (OpenRouter, Ollama)", async () => {
     const { client } = await signedIn();
 
-    await client.settings.setTitleModel({ titleModel: "openrouter:mistralai/mistral-large" });
+    await client.settings.setBackgroundModel({
+      backgroundModel: "openrouter:mistralai/mistral-large",
+    });
     await expect(client.settings.get()).resolves.toMatchObject({
-      titleModel: "openrouter:mistralai/mistral-large",
+      backgroundModel: "openrouter:mistralai/mistral-large",
     });
   });
 
   it("rejects a Model that isn't on the list", async () => {
     const { client } = await signedIn();
 
-    await expect(client.settings.setTitleModel({ titleModel: "openai:nope" })).rejects.toThrow(
-      /not an available Model/,
-    );
+    await expect(
+      client.settings.setBackgroundModel({ backgroundModel: "openai:nope" }),
+    ).rejects.toThrow(/not an available Model/);
   });
 
-  it("saves the Instructions beside the Title Model and reads them back", async () => {
+  it("saves the Instructions beside the Background Model and reads them back", async () => {
     const { client } = await signedIn();
 
-    await client.settings.setTitleModel({ titleModel: "openai:gpt-5.4-mini" });
+    await client.settings.setBackgroundModel({ backgroundModel: "openai:gpt-5.4-mini" });
     await client.settings.setInstructions({
       instructions: "Answer briefly. Use British spelling.",
     });
 
     await expect(client.settings.get()).resolves.toEqual({
-      titleModel: "openai:gpt-5.4-mini",
+      backgroundModel: "openai:gpt-5.4-mini",
+      imageModel: null,
       instructions: "Answer briefly. Use British spelling.",
     });
   });
@@ -108,7 +115,7 @@ describe("settings", () => {
     const client = chatRpc({ deps });
 
     await expect(client.settings.get()).rejects.toThrow();
-    await expect(client.settings.setTitleModel({ titleModel: null })).rejects.toThrow();
+    await expect(client.settings.setBackgroundModel({ backgroundModel: null })).rejects.toThrow();
     await expect(client.settings.setInstructions({ instructions: null })).rejects.toThrow();
   });
 });

@@ -69,6 +69,9 @@ function seedModels(queryClient: QueryClient, client: ChatClient) {
   queryClient.setQueryData(client.orpc.models.list.queryKey(), {
     models: [model],
     defaultModel: null,
+    defaultBackgroundModel: null,
+    imageModels: [],
+    defaultImageModel: null,
     webSearchOnHost: false,
   });
 }
@@ -136,7 +139,8 @@ describe("the pages with the dictionary", () => {
       queryClient.setQueryData(client.orpc.credentials.mode.queryKey(), { byok: true });
       queryClient.setQueryData(client.orpc.credentials.list.queryKey(), []);
       queryClient.setQueryData(client.orpc.settings.get.queryKey(), {
-        titleModel: null,
+        backgroundModel: null,
+        imageModel: null,
         instructions: null,
       });
       queryClient.setQueryData(client.orpc.share.list.queryKey(), []);

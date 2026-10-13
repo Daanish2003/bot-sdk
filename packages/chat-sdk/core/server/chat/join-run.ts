@@ -6,6 +6,7 @@ import { z } from "zod";
 import type { AppDeps } from "../deps";
 import type { ChatUser } from "../context";
 import { runLogId } from "./run";
+import { liveConversation } from "./temporary";
 import { runStreamDurability, START } from "./run-streams";
 
 /** A refusal: its HTTP status, and a body of the dictionary code and its params (spec #256). */
@@ -34,7 +35,13 @@ export async function handleJoin(
     .select({ id: message.id, runNumber: message.runNumber })
     .from(message)
     .innerJoin(conversation, eq(conversation.id, message.conversationId))
-    .where(and(eq(message.id, runId.data), eq(conversation.userId, user.id)))
+    .where(
+      and(
+        eq(message.id, runId.data),
+        eq(conversation.userId, user.id),
+        liveConversation(new Date()),
+      ),
+    )
     .limit(1);
   if (!owned) return refuse(404, "error.runNotFound");
 

@@ -2,6 +2,7 @@ import { expect, type Page, test } from "@playwright/test";
 
 import { mcpMarker, wideMarker } from "../../../packages/chat-sdk/test/e2e/fake-ollama";
 
+import { mcpBaseURL } from "./env";
 import { messageRows, send, signInAsSeededUser, signInAsSeededUserWithModel } from "./helpers";
 
 const trackerServer = "E2E Tracker";
@@ -19,12 +20,12 @@ test("the Conversation panel is a drawer, closed until the menu opens it", async
   const panel = page.getByRole("complementary", { name: "Conversations" });
   await expect(panel).toBeHidden();
 
-  await page.getByRole("button", { name: "Menu" }).click();
+  await page.getByRole("button", { name: "Menu", exact: true }).click();
   await expect(panel).toBeVisible();
   await panel.getByRole("link").first().click();
   await expect(panel).toBeHidden();
 
-  await page.getByRole("button", { name: "Menu" }).click();
+  await page.getByRole("button", { name: "Menu", exact: true }).click();
   await page.getByRole("link", { name: "New Conversation" }).click();
   await expect(page).toHaveURL(/\/c$/);
   await expect(panel).toBeHidden();
@@ -77,33 +78,40 @@ test("the composer's text is 16px, and a wide table and long code line scroll in
   await expectNoSidewaysScroll(page);
 });
 
-test("Approve and Deny fill the width of a phone", async ({ page }) => {
-  await signInAsSeededUserWithModel(page);
+// The tracker is offered by the server that runs an MCP server, not the default one.
+test.describe("on the server that offers an MCP server", () => {
+  test.use({ baseURL: mcpBaseURL });
 
-  // Connect the tracker from the keys page, then switch it on for a Conversation.
-  await page.goto("/settings/keys");
-  const connection = page.getByRole("listitem").filter({ hasText: trackerServer });
-  await connection.getByRole("button", { name: "Connect", exact: true }).click();
-  await expect(connection).toContainText("Connected");
-  await page.goto("/c");
-  await expect(page.getByRole("button", { name: "Model" })).toContainText("e2e-model");
-  await send(page, "Set up the tracker");
-  await expect(page).toHaveURL(/\/c\/[\w-]+$/);
-  await page.getByRole("button", { name: "Tools", exact: true }).click();
-  const item = page.getByRole("menuitemcheckbox", { name: trackerServer });
-  await item.click();
-  await expect(item).toHaveAttribute("aria-checked", "true");
-  await page.keyboard.press("Escape");
+  test("Approve and Deny fill the width of a phone", async ({ page }) => {
+    await signInAsSeededUserWithModel(page);
 
-  // The fake Model asks for the tool: the call waits for Approval.
-  await page.getByLabel("Message", { exact: true }).fill(`${mcpMarker} Open an issue`);
-  await page.keyboard.press("Enter");
-  await expect(messageRows(page).last()).toContainText("Waiting for approval");
+    // Connect the tracker from the keys page, then switch it on for a Conversation.
+    await page.goto("/settings/keys");
+    const connection = page.getByRole("listitem").filter({ hasText: trackerServer });
+    await connection.getByRole("button", { name: "Connect", exact: true }).click();
+    await expect(connection).toContainText("Connected");
+    await page.goto("/c");
+    await expect(page.getByRole("button", { name: "Model" })).toContainText("e2e-model");
+    await send(page, "Set up the tracker");
+    await expect(page).toHaveURL(/\/c\/[\w-]+$/);
+    await page.getByRole("button", { name: "Tools", exact: true }).click();
+    const item = page.getByRole("menuitemcheckbox", { name: trackerServer });
+    await item.click();
+    await expect(item).toHaveAttribute("aria-checked", "true");
+    await page.keyboard.press("Escape");
 
-  const approve = (await page.getByRole("button", { name: "Approve", exact: true }).boundingBox())!;
-  const deny = (await page.getByRole("button", { name: "Deny", exact: true }).boundingBox())!;
-  const viewport = page.viewportSize()!;
-  expect(approve.width).toBeGreaterThan(viewport.width * 0.8);
-  expect(deny.width).toBeGreaterThan(viewport.width * 0.8);
-  expect(approve.height).toBeGreaterThanOrEqual(44);
+    // The fake Model asks for the tool: the call waits for Approval.
+    await page.getByLabel("Message", { exact: true }).fill(`${mcpMarker} Open an issue`);
+    await page.keyboard.press("Enter");
+    await expect(messageRows(page).last()).toContainText("Waiting for approval");
+
+    const approve = (await page
+      .getByRole("button", { name: "Approve", exact: true })
+      .boundingBox())!;
+    const deny = (await page.getByRole("button", { name: "Deny", exact: true }).boundingBox())!;
+    const viewport = page.viewportSize()!;
+    expect(approve.width).toBeGreaterThan(viewport.width * 0.8);
+    expect(deny.width).toBeGreaterThan(viewport.width * 0.8);
+    expect(approve.height).toBeGreaterThanOrEqual(44);
+  });
 });

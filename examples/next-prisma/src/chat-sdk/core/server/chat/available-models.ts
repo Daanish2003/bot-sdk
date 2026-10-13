@@ -5,6 +5,7 @@ import { resolveCredentials, resolvedServices, hostModelList } from "../credenti
 import { tavilyService } from "../../shared/credentials/services";
 import type { AppDeps } from "../deps";
 import { ollamaModels, openRouterModels } from "./live-models";
+import { listImageModels } from "./image-models";
 import {
   type CuratedModel,
   type ListedModel,
@@ -14,10 +15,19 @@ import {
   isLiveListProvider,
   parseModelId,
 } from "../../shared/chat/models";
+import type { ListedImageModel } from "../../shared/chat/image-models";
 
 type Deps = Pick<
   AppDeps,
-  "db" | "keyEncryptionSecrets" | "fetch" | "ollamaFetch" | "hostProviders" | "hostTools" | "byok"
+  | "db"
+  | "keyEncryptionSecrets"
+  | "fetch"
+  | "ollamaFetch"
+  | "hostProviders"
+  | "hostTools"
+  | "byok"
+  | "defaultBackgroundModel"
+  | "defaultImageModel"
 >;
 
 /**
@@ -31,7 +41,17 @@ type Deps = Pick<
 export async function listAvailableModels(
   deps: Deps,
   userId: string,
-): Promise<{ models: ListedModel[]; defaultModel: string | null; webSearchOnHost: boolean }> {
+): Promise<{
+  models: ListedModel[];
+  defaultModel: string | null;
+  /** The Host's default Background Model, shown when a user picks none (`defaultBackgroundModel`). */
+  defaultBackgroundModel: string | null;
+  /** The Image Models the user can pick: their own Providers' first, then the Host's (spec #278). */
+  imageModels: ListedImageModel[];
+  /** The Host's default Image Model, shown when a user picks none (`defaultImageModel`). */
+  defaultImageModel: string | null;
+  webSearchOnHost: boolean;
+}> {
   const services = deps.byok ? await resolvedServices(deps, userId) : [];
   const own = [
     ...curatedModels.filter((model) => services.includes(model.provider)),
@@ -67,6 +87,9 @@ export async function listAvailableModels(
   return {
     models,
     defaultModel: recentModel ?? providerDefault ?? null,
+    defaultBackgroundModel: deps.defaultBackgroundModel,
+    imageModels: listImageModels(deps, services),
+    defaultImageModel: deps.defaultImageModel,
     // The Host's Tavily key, which search uses for a user with no Tool credential of their own (ADR 0007).
     webSearchOnHost: deps.hostTools.some((tool) => tool.tool === tavilyService),
   };

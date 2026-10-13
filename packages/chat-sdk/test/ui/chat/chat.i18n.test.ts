@@ -56,6 +56,9 @@ const seedAll = (queryClient: QueryClient, client: ChatClient) => {
   queryClient.setQueryData(client.orpc.models.list.queryKey(), {
     models: [model],
     defaultModel: model.id,
+    defaultBackgroundModel: null,
+    imageModels: [],
+    defaultImageModel: null,
     webSearchOnHost: true,
   });
   queryClient.setQueryData(client.orpc.credentials.mode.queryKey(), { byok: true });
@@ -172,6 +175,7 @@ describe("the chat view with the dictionary", () => {
           onEdit: () => {},
           onRegenerate: () => {},
           onSwitchBranch: () => {},
+          onRate: () => {},
         },
       }),
       seedAll,

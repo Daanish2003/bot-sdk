@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { expect, type Page, test } from "@playwright/test";
 
-import { verificationLink, waitForMail } from "./helpers";
+import { signInOnForm, verificationLink, waitForMail } from "./helpers";
 
 const PASSWORD = "password1234";
 
@@ -55,11 +55,7 @@ test("signing in before verifying shows check your email with resend, and sends 
   await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible();
   await waitForMail(page, email, 1);
 
-  await page.goto("/login");
-  await page.getByRole("button", { name: "Already have an account? Sign In" }).click();
-  await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(PASSWORD);
-  await page.getByRole("button", { name: "Sign In" }).click();
+  await signInOnForm(page, email, PASSWORD);
 
   await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible();
   await expect(page.getByText("We sent you a new link")).toBeVisible();

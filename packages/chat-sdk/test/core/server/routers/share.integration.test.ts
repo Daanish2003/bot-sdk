@@ -48,6 +48,7 @@ describe("share.upsert", () => {
           attachments: [],
           model: null,
           status: "complete",
+          hidden: false,
           createdAt: question.createdAt,
         },
         {
@@ -57,6 +58,7 @@ describe("share.upsert", () => {
           attachments: [],
           model: "anthropic:claude-sonnet-5-5",
           status: "complete",
+          hidden: false,
           createdAt: reply.createdAt,
         },
       ],
@@ -172,6 +174,24 @@ describe("share.upsert", () => {
     await expect(other.client.share.upsert({ conversationId: conv.id })).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
+  });
+
+  it("refuses to share a Temporary Conversation, with no link made", async () => {
+    const { user, client } = await signedIn();
+    const conv = await insertConversation(user, { temporary: true });
+    const question = await insertMessage({ conversationId: conv.id, role: "user", text: "Hi" });
+    await insertMessage({
+      conversationId: conv.id,
+      parentId: question.id,
+      role: "assistant",
+      text: "Hello!",
+      active: true,
+    });
+
+    const refused = client.share.upsert({ conversationId: conv.id });
+    await expect(refused).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(refused).rejects.toThrow("A Temporary Conversation can't be shared");
+    await expect(client.share.list()).resolves.toEqual([]);
   });
 });
 
@@ -418,6 +438,7 @@ describe("share.get", () => {
       attachments: [],
       model: "anthropic:claude-sonnet-5-5",
       status: "error",
+      hidden: false,
       createdAt: failed.createdAt,
     });
   });

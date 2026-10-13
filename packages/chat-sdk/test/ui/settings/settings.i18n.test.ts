@@ -9,7 +9,7 @@ import { DeleteAllConversationsSection } from "../../../ui/settings/delete-all-c
 import { ExportDataButton } from "../../../ui/settings/export-data-button";
 import { InstructionsField } from "../../../ui/settings/instructions-field";
 import { SharedLinksSection } from "../../../ui/settings/shared-links";
-import { TitleModelSelect } from "../../../ui/settings/title-model-select";
+import { BackgroundModelSelect } from "../../../ui/settings/background-model-select";
 import { renderWrapped, untranslated } from "../fake-dictionary";
 
 const model: ListedModel = {
@@ -29,14 +29,22 @@ const model: ListedModel = {
 /** Text the dictionary doesn't translate: Model and Provider names, and the user's own data. */
 const ownedContent = ["Claude Haiku 4.5", "Anthropic", "Trip planning", "GitHub", "repo"];
 
-function seedSettings(queryClient: QueryClient, client: ChatClient, titleModel: string | null) {
+function seedSettings(
+  queryClient: QueryClient,
+  client: ChatClient,
+  backgroundModel: string | null,
+) {
   queryClient.setQueryData(client.orpc.settings.get.queryKey(), {
-    titleModel,
+    backgroundModel,
+    imageModel: null,
     instructions: null,
   });
   queryClient.setQueryData(client.orpc.models.list.queryKey(), {
     models: [model],
     defaultModel: null,
+    defaultBackgroundModel: null,
+    imageModels: [],
+    defaultImageModel: null,
     webSearchOnHost: false,
   });
 }
@@ -56,8 +64,8 @@ describe("the settings sections with the dictionary", () => {
     );
   });
 
-  it("shows no untranslated text in Titles, with a saved Title Model", () => {
-    expectTranslated(createElement(TitleModelSelect), (queryClient, client) =>
+  it("shows no untranslated text in Titles, with a saved Background Model", () => {
+    expectTranslated(createElement(BackgroundModelSelect), (queryClient, client) =>
       seedSettings(queryClient, client, model.id),
     );
   });

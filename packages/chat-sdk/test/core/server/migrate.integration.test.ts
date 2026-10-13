@@ -52,13 +52,17 @@ afterEach(async () => {
 
 const sdkTables = [
   "__migrations",
+  "artifact",
+  "artifact_version",
   "attachment",
-  "attachment_blob",
+  "blob",
   "conversation",
+  "generated_image",
   "mcp_connection",
   "message",
   "message_attachment",
   "project",
+  "saved_prompt",
   "shared_link",
   "usage",
   "user_credentials",
@@ -83,7 +87,9 @@ describe("chat.migrate()", () => {
        where n.nspname = 'chat' and t.typtype = 'e'`,
     );
     expect(enums.map((row) => row.typname).sort()).toEqual([
+      "artifact_kind",
       "message_error_reason",
+      "message_rating",
       "message_role",
       "message_status",
       "reasoning_effort",
@@ -223,7 +229,7 @@ describe("chat.migrate()", () => {
       await rows(
         url,
         `select c.title, c.model, c.reasoning_effort, c.project_id, c.pinned_at, m.role, m.parts, m.reasoning_effort as m_effort,
-                m.usage, m.context_start_id, s.title_model, s.instructions
+                m.usage, m.context_start_id, s.background_model, s.instructions
            from chat.conversation c
            join chat.message m on m.conversation_id = c.id
            join chat.user_settings s on s.user_id = c.user_id`,
@@ -240,10 +246,63 @@ describe("chat.migrate()", () => {
         m_effort: null,
         usage: null,
         context_start_id: null,
-        title_model: "openai:gpt",
+        background_model: "openai:gpt",
         instructions: null,
       },
     ]);
+  });
+
+  it("copies existing attachment bytes into chat.blob under attachment/<id>, then drops the old table", async () => {
+    const url = await scratchDatabase("blob_copy");
+    const migrationsFolder = fileURLToPath(
+      new URL("../../../core/server/migrations", import.meta.url),
+    );
+    const baseline = readFileSync(
+      join(migrationsFolder, "20261009085944_chat_baseline", "migration.sql"),
+      "utf8",
+    );
+    const attachmentId = "0196a000-0000-7000-8000-0000000000aa";
+    const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff]);
+
+    // A database at the baseline with one Attachment whose bytes sit in attachment_blob.
+    const client = new Client({ connectionString: url });
+    await client.connect();
+    try {
+      await client.query("create schema chat");
+      await client.query("create extension if not exists pg_trgm");
+      await client.query(baseline);
+      await client.query(`create table if not exists chat.__migrations (
+        id serial primary key, hash text not null, created_at bigint)`);
+      await client.query("insert into chat.__migrations (hash, created_at) values ($1, $2)", [
+        createHash("sha256").update(baseline).digest("hex"),
+        Date.UTC(2026, 9, 9, 8, 59, 44),
+      ]);
+      await client.query(
+        `insert into chat.attachment (id, user_id, filename, media_type, size)
+         values ($1, 'user-1', 'a.png', 'image/png', $2)`,
+        [attachmentId, bytes.byteLength],
+      );
+      await client.query(
+        "insert into chat.attachment_blob (attachment_id, bytes) values ($1, $2)",
+        [attachmentId, bytes],
+      );
+    } finally {
+      await client.end();
+    }
+
+    await chatFor(url).migrate();
+
+    const stored = await rows<{ key: string; bytes: Buffer }>(
+      url,
+      "select key, bytes from chat.blob",
+    );
+    expect(stored.map((row) => row.key)).toEqual([`attachment/${attachmentId}`]);
+    expect(Buffer.from(stored[0]?.bytes ?? []).equals(bytes)).toBe(true);
+    const oldTable = await rows(
+      url,
+      "select 1 from information_schema.tables where table_schema = 'chat' and table_name = 'attachment_blob'",
+    );
+    expect(oldTable).toEqual([]);
   });
 
   it("creates reasoning_effort as the enum off, low, medium, high", async () => {
@@ -339,7 +398,7 @@ describe("chat.migrate()", () => {
     await expect(Promise.all([chat.migrate(), chat.migrate()])).resolves.toBeDefined();
 
     const applied = await rows<{ count: string }>(url, "select count(*) from chat.__migrations");
-    expect(applied).toEqual([{ count: "7" }]);
+    expect(applied).toEqual([{ count: "19" }]);
   });
 
   it("gives a Conversation's tool settings empty lists by default, so existing rows read as empty", async () => {

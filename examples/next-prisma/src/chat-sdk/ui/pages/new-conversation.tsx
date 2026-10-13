@@ -1,7 +1,7 @@
 import { setPendingFirstMessage } from "../../core/client/chat";
 import { missingCredentialsMessage } from "../../core/client/models";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { AttachButton, DraftAttachmentChips, useAttachmentDraft } from "../chat/attachments";
@@ -9,6 +9,7 @@ import { Composer } from "../chat/composer";
 import { MissingCredentialsBanner } from "../chat/missing-credentials-banner";
 import { NoCredentials } from "../chat/no-credentials";
 import { SearchToggle, useWebSearch } from "../chat/search-toggle";
+import { TemporaryToggle } from "../chat/temporary-toggle";
 import { Welcome } from "../chat/welcome";
 import { invalidateConversationList } from "../../core/client/react/conversation-list";
 import { useByok } from "../../core/client/react/byok";
@@ -42,12 +43,19 @@ export function NewConversationPage() {
   const disabled = !model || !!blocked || create.isPending;
   const draft = useAttachmentDraft(model);
   const search = useWebSearch(model);
+  // A Temporary Conversation starts outside every Project, so the toggle is hidden inside one.
+  const [temporary, setTemporary] = useState(false);
 
   const start = async (text: string) => {
     if (!model) return;
     const attachments = draft.uploaded;
     try {
-      const { id } = await create.mutateAsync({ model, reasoningEffort: effort, projectId });
+      const { id } = await create.mutateAsync({
+        model,
+        reasoningEffort: effort,
+        projectId,
+        temporary: !projectId && temporary,
+      });
       // The choice is stored on the Conversation now; the next new one starts at the Model's default.
       setNewConversationEffort(null);
       void invalidateConversationList(queryClient, orpc);
@@ -76,6 +84,7 @@ export function NewConversationPage() {
           >
             <AttachButton draft={draft} disabled={!model || !!blocked} />
             <SearchToggle search={search} />
+            {!projectId && <TemporaryToggle on={temporary} onChange={setTemporary} />}
           </Composer>
         </div>
       </div>

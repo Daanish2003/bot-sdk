@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import {
   branchFrom,
   describeError,
+  hideReply,
+  isModeratedChunk,
   messageAttachments,
   messageInfo,
   messageSiblings,
@@ -12,6 +14,7 @@ import {
   setPendingFirstMessage,
   type MessageInfo,
 } from "../../../core/client/chat";
+import type { UIMessage } from "@tanstack/ai-client";
 
 const createdAt = new Date("2026-10-06T12:00:00Z");
 
@@ -32,7 +35,9 @@ describe("toUIMessages", () => {
         error: null,
         errorReason: null,
         usage: null,
+        rating: null,
         contextStartId: null,
+        hidden: false,
         createdAt,
         siblings: { index: 0, count: 1, previousId: null, nextId: null },
       },
@@ -48,7 +53,9 @@ describe("toUIMessages", () => {
         error: null,
         errorReason: null,
         usage: null,
+        rating: null,
         contextStartId: null,
+        hidden: false,
         createdAt,
         siblings: { index: 1, count: 2, previousId: "a0", nextId: null },
       },
@@ -67,7 +74,9 @@ describe("toUIMessages", () => {
           error: null,
           errorReason: null,
           usage: null,
+          rating: null,
           contextStartId: null,
+          hidden: false,
           siblings: { index: 0, count: 1, previousId: null, nextId: null },
           attachments: [{ id: "f1", filename: "cat.png", mediaType: "image/png", size: 10 }],
         },
@@ -84,7 +93,9 @@ describe("toUIMessages", () => {
           error: null,
           errorReason: null,
           usage: null,
+          rating: null,
           contextStartId: null,
+          hidden: false,
           siblings: { index: 1, count: 2, previousId: "a0", nextId: null },
           attachments: [],
         },
@@ -97,6 +108,8 @@ describe("toUIMessages", () => {
       error: null,
       errorReason: null,
       usage: null,
+      rating: null,
+      hidden: false,
     });
   });
 
@@ -108,6 +121,8 @@ describe("toUIMessages", () => {
       error: null,
       errorReason: null,
       usage: null,
+      rating: null,
+      hidden: false,
     });
   });
 });
@@ -127,7 +142,9 @@ describe("messageAttachments", () => {
         error: null,
         errorReason: null,
         usage: null,
+        rating: null,
         contextStartId: null,
+        hidden: false,
         createdAt,
         siblings: { index: 0, count: 1, previousId: null, nextId: null },
       },
@@ -157,7 +174,9 @@ describe("messageSiblings", () => {
         error: null,
         errorReason: null,
         usage: null,
+        rating: null,
         contextStartId: null,
+        hidden: false,
         createdAt,
         siblings: { index: 0, count: 1, previousId: null, nextId: null },
       },
@@ -173,7 +192,9 @@ describe("messageSiblings", () => {
         error: null,
         errorReason: null,
         usage: null,
+        rating: null,
         contextStartId: null,
+        hidden: false,
         createdAt,
         siblings: { index: 0, count: 3, previousId: null, nextId: "a2" },
       },
@@ -220,6 +241,8 @@ describe("describeError", () => {
     error: null,
     errorReason: null,
     usage: null,
+    rating: null,
+    hidden: false,
     ...fields,
   });
 
@@ -269,6 +292,53 @@ describe("describeError", () => {
     expect(describeError(i18n, info({ error: "interrupted" })).text).toBe(
       "The reply was interrupted by a server restart.",
     );
+  });
+});
+
+describe("a moderated reply", () => {
+  const reply = (id: string, content: string): UIMessage =>
+    ({
+      id,
+      role: "assistant",
+      parts: [{ type: "text", content }],
+      metadata: { status: "streaming", hidden: false },
+    }) as UIMessage;
+  const user = {
+    id: "q",
+    role: "user",
+    parts: [{ type: "text", content: "Hi" }],
+  } as UIMessage;
+
+  it("is recognised by its moderated custom chunk and no other", () => {
+    expect(isModeratedChunk({ type: "CUSTOM", name: "moderated" })).toBe(true);
+    expect(isModeratedChunk({ type: "CUSTOM", name: "compaction:state" })).toBe(false);
+    expect(isModeratedChunk({ type: "RUN_FINISHED" })).toBe(false);
+  });
+
+  it("drops the text of the reply and marks it hidden", () => {
+    const hidden = hideReply([user, reply("a", "Forbidden words")]);
+
+    expect(hidden[1]).toMatchObject({
+      id: "a",
+      parts: [],
+      metadata: { hidden: true, status: "streaming" },
+    });
+    expect(JSON.stringify(hidden)).not.toContain("Forbidden");
+  });
+
+  it("hides every reply after the last user Message, so a reply that spans Runs is hidden whole", () => {
+    const hidden = hideReply([user, reply("a", "First Run"), reply("b", "Second Run")]);
+
+    expect(hidden.slice(1).every((message) => message.metadata?.hidden === true)).toBe(true);
+    expect(JSON.stringify(hidden)).not.toContain("First Run");
+    expect(JSON.stringify(hidden)).not.toContain("Second Run");
+  });
+
+  it("keeps the replies before the last user Message as they are", () => {
+    const earlier = reply("old", "Earlier answer");
+    const hidden = hideReply([earlier, user, reply("a", "Forbidden words")]);
+
+    expect(hidden[0]).toEqual(earlier);
   });
 });
 

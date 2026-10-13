@@ -66,7 +66,7 @@ export function AppShell({
         <div
           id="app-drawer"
           className={cn(
-            "fixed inset-y-0 left-0 z-40 flex flex-col bg-background transition-[translate,visibility] max-md:pt-[env(safe-area-inset-top)] max-md:pb-[env(safe-area-inset-bottom)] max-md:pl-[env(safe-area-inset-left)] md:static md:z-auto md:transition-none",
+            "fixed inset-y-0 left-0 z-40 flex flex-col bg-background transition-[translate,visibility] max-md:pt-[env(safe-area-inset-top)] max-md:pb-[env(safe-area-inset-bottom)] max-md:pl-[env(safe-area-inset-left)] md:static md:z-auto md:transition-none print:hidden",
             !drawerOpen && "max-md:invisible max-md:-translate-x-full",
           )}
           // Following a link (a Conversation, New Conversation, Keys) closes the drawer.
@@ -155,7 +155,7 @@ export function AppShell({
             onOpenSearch={openSearch}
             userMenu={userMenu}
           />
-          <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+          <div className="min-h-0 flex-1 overflow-y-auto print:overflow-visible">{children}</div>
         </div>
 
         <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />

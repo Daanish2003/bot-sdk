@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
+  boolean,
   index,
   integer,
   jsonb,
@@ -72,6 +73,10 @@ export const conversation = chatSchema.table(
       .notNull(),
     /** When the Conversation was pinned; null when it is not pinned. */
     pinnedAt: timestamp("pinned_at"),
+    /** A Temporary Conversation: kept out of the lists, search and titles. Set at creation only. */
+    temporary: boolean("temporary").default(false).notNull(),
+    /** When the Conversation was archived; null when it is not. Archiving never deletes it. */
+    archivedAt: timestamp("archived_at"),
     /** Bumped only by new Messages, never by renames or Branch switches. */
     lastMessageAt: timestamp("last_message_at").defaultNow().notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -95,6 +100,10 @@ export const conversation = chatSchema.table(
     index("conversation_pinned_user_id_pinned_at_idx")
       .on(table.userId, table.pinnedAt.desc())
       .where(sql`pinned_at is not null`),
+    // The Archived list: a user's archived Conversations, newest Message first.
+    index("conversation_archived_user_id_last_message_at_idx")
+      .on(table.userId, table.lastMessageAt.desc())
+      .where(sql`archived_at is not null`),
     index("conversation_title_trgm_idx").using("gin", table.title.op("public.gin_trgm_ops")),
   ],
 );
@@ -107,6 +116,8 @@ export const messageStatus = chatSchema.enum("message_status", [
   "error",
   "awaiting_approval",
 ]);
+/** A Rating's thumb. The latest one only; null on the column means unrated. */
+export const messageRating = chatSchema.enum("message_rating", ["up", "down"]);
 export const messageErrorReason = chatSchema.enum("message_error_reason", [
   "invalid_key",
   "rate_limited",
@@ -156,6 +167,14 @@ export const message = chatSchema.table(
     threadId: text("thread_id"),
     /** The Run that ended waiting for Approval; the decision resumes it as its parent Run (ADR 0008). */
     interruptedRunId: text("interrupted_run_id"),
+    /** The owner's Rating of an ended assistant reply; null when unrated (see **Rating** in CONTEXT.md). */
+    rating: messageRating("rating"),
+    /** When `rating` was last set; null when unrated. */
+    ratedAt: timestamp("rated_at", { withTimezone: true }),
+    /** When the Host's output check hid this reply; null while it is shown (#268). */
+    hiddenAt: timestamp("hidden_at", { withTimezone: true }),
+    /** The reason the Host gave for hiding the reply, when it gave one (#268). */
+    hiddenReason: text("hidden_reason"),
   },
   (table) => [
     index("message_conversation_id_parent_id_idx").on(table.conversationId, table.parentId),
