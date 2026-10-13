@@ -6,6 +6,7 @@ import {
   embeddingModelIds,
   resolveEmbeddingModel,
 } from "../chat/embedding-models";
+import { quotaRefusal } from "../chat/quota";
 import { project } from "../db/schema/chat";
 import { knowledgeFile } from "../db/schema/knowledge";
 import type { AppDeps } from "../deps";
@@ -100,6 +101,11 @@ export async function uploadKnowledgeFile(
       "error.knowledgeNoModel",
       "Uploads need an OpenAI or Gemini key. Add a key",
     );
+  }
+  // Host credentials count against the user's Quota, so an upload past it is refused (ADR 0007).
+  // Files already processing aren't checked again: they finish.
+  if (model.onHostCredentials && (await quotaRefusal(deps, userId))) {
+    throw rpcError("PAYMENT_REQUIRED", "error.quotaSpent", "You've used this window's Quota");
   }
 
   const id = uuidv7();

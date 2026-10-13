@@ -11,8 +11,8 @@ export const knowledgeMessages = {
   "knowledge.sourceHost": "Host",
   "knowledge.noModel": "No embedding Model available",
   "knowledge.addKey": "Uploads need an OpenAI or Gemini key. Add a key",
-  "knowledge.keyMissing": ({ model }: { model: string }) =>
-    `Search unavailable: add the key for ${model}. Your files are kept.`,
+  "knowledge.keyMissing": ({ provider }: { provider: string }) =>
+    `Search unavailable: add your ${provider} key`,
   "knowledge.upload": "Upload files",
   "knowledge.uploading": "Uploading…",
   "knowledge.uploadStarted": ({ name }: { name: string }) => `${name} is being read`,
@@ -30,7 +30,7 @@ export const knowledgeMessages = {
   "knowledge.failure.no_text": "No text found in this file",
   "knowledge.failure.unreadable": "Couldn't read this file as UTF-8 text",
   "knowledge.failure.too_large": "Too large or complex to process",
-  "knowledge.failure.no_credentials": "No key for the embedding Model",
+  "knowledge.failure.no_credentials": "No credentials for the Model",
   "knowledge.failure.failed": "Couldn't process this file",
   "knowledge.emptyTitle": "No Knowledge files yet",
   "knowledge.emptyHelp": ({ size }: { size: number }) =>

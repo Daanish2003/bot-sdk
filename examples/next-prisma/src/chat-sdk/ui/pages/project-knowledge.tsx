@@ -14,6 +14,8 @@ import { toast } from "sonner";
 import { modelLabel } from "../../core/client/models";
 import { useI18n, useOrpc } from "../../core/client/react/provider";
 import { serverErrorText } from "../../core/client/rpc-error";
+import { parseModelId } from "../../core/shared/chat/models";
+import { providerLabel } from "../../core/shared/credentials/services";
 import {
   knowledgeAcceptAttribute,
   maxKnowledgeFileBytes,
@@ -87,15 +89,17 @@ export function KnowledgeTab({ projectId }: { projectId: string }) {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0 space-y-1.5">
           <p className="text-sm font-medium">{t("knowledge.model")}</p>
-          {locked && current ? (
+          {locked ? (
             <p className="flex items-center gap-1.5 text-sm">
               <Lock className="size-3.5 text-muted-foreground" aria-hidden />
-              {t("knowledge.lockedModel", {
-                model: modelLabel(current.id),
-                source: current.onHostCredentials
-                  ? t("knowledge.sourceHost")
-                  : t("knowledge.sourceOwn"),
-              })}
+              {current
+                ? t("knowledge.lockedModel", {
+                    model: modelLabel(current.id),
+                    source: current.onHostCredentials
+                      ? t("knowledge.sourceHost")
+                      : t("knowledge.sourceOwn"),
+                  })
+                : modelLabel(stored ?? "")}
             </p>
           ) : (
             <Select
@@ -145,15 +149,18 @@ export function KnowledgeTab({ projectId }: { projectId: string }) {
         </div>
       </div>
 
-      {data && stored && !current && (
+      {/* Files already added stay Ready; search needs the Model's key back (spec #357). */}
+      {data && locked && !current && stored && (
         <p
           role="alert"
           className="rounded-md border border-destructive/40 px-3 py-2 text-sm text-destructive"
         >
-          {t("knowledge.keyMissing", { model: modelLabel(stored) })}
+          {t("knowledge.keyMissing", {
+            provider: providerLabel(parseModelId(stored)?.provider ?? ""),
+          })}
         </p>
       )}
-      {data && !stored && !current && (
+      {data && !locked && !current && (
         <p role="status" className="rounded-md border px-3 py-2 text-sm text-muted-foreground">
           {t("knowledge.addKey")}
         </p>

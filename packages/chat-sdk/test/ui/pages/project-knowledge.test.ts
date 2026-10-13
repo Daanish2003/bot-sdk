@@ -107,7 +107,7 @@ describe("the Knowledge tab", () => {
     expect(html).toContain("⟦Processing⟧");
     expect(html).toContain("⟦Failed⟧");
     expect(html).toContain("⟦2 passages⟧");
-    expect(html).toContain("⟦No key for the embedding Model⟧");
+    expect(html).toContain("⟦No credentials for the Model⟧");
     expect(html).toContain("⟦Text⟧");
     expect(untranslated(html, owned)).toEqual([]);
   });
@@ -134,13 +134,24 @@ describe("the Knowledge tab", () => {
     });
 
     expect(html).toContain('role="alert"');
-    expect(html).toContain(
-      "⟦Search unavailable: add the key for text-embedding-3-small. Your files are kept.⟧",
-    );
+    expect(html).toContain("⟦Search unavailable: add your OpenAI key⟧");
     expect(untranslated(html, owned)).toEqual([]);
   });
 
-  it("asks for a key when there is no Model to read files with", () => {
+  it("keeps the locked Model named without a picker when its key is gone", () => {
+    const html = render({
+      embeddingModel: openai,
+      currentModel: null,
+      models: [],
+      files: [file({})],
+    });
+
+    expect(html).toContain("text-embedding-3-small");
+    expect(html).not.toContain('aria-label="⟦Embedding Model⟧"');
+    expect(html).not.toContain("⟦Uploads need an OpenAI or Gemini key. Add a key⟧");
+  });
+
+  it("asks for a key when there is no Model to read files with, and disables uploads", () => {
     const html = render({
       embeddingModel: null,
       currentModel: null,
@@ -150,6 +161,20 @@ describe("the Knowledge tab", () => {
 
     expect(html).toContain('role="status"');
     expect(html).toContain("⟦Uploads need an OpenAI or Gemini key. Add a key⟧");
+    expect(html).toMatch(/<button(?=[^>]*disabled)[^>]*>⟦Upload files⟧/);
     expect(untranslated(html, owned)).toEqual([]);
+  });
+
+  it("asks for a key, not a search warning, when the stored Model's key is gone before any upload", () => {
+    const html = render({
+      embeddingModel: openai,
+      currentModel: null,
+      models: [],
+      files: [],
+    });
+
+    expect(html).toContain("⟦Uploads need an OpenAI or Gemini key. Add a key⟧");
+    expect(html).not.toContain('role="alert"');
+    expect(html).toMatch(/<button(?=[^>]*disabled)[^>]*>⟦Upload files⟧/);
   });
 });
