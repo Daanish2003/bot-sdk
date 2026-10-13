@@ -147,9 +147,7 @@ test("a banned user with a passkey can't sign in with it", async ({ page, browse
   // No cookies: a fresh sign-in attempt with the passkey is refused, and no session is made.
   await targetContext.clearCookies();
   await signInWithPasskey(target);
-  // `.first()`: the login page's autofill and button sign-ins can both fail, so the notice may show
-  // twice (#336).
-  await expect(target.getByText("This account is suspended.").first()).toBeVisible();
+  await expect(target.getByText("This account is suspended.")).toBeVisible();
   await target.goto("/c");
   await expect(target).toHaveURL(/\/login/);
 });
