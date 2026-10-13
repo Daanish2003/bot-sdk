@@ -22,6 +22,7 @@ export const chatMessages = {
   "chat.regenerate": "Regenerate",
   "chat.regenerateNewBranch": "Regenerate (new Branch)",
   "chat.thinking": "Thinking…",
+  "chat.loading": "Loading",
   "chat.thoughtAFewSeconds": "Thought for a few seconds",
   "chat.previousBranch": "Previous Branch",
   "chat.nextBranch": "Next Branch",
