@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { hostBackgroundModelOf, hostProvidersOf, quotaOf } from "./host-models";
+import {
+  hostBackgroundModelOf,
+  hostEmbeddingProvidersOf,
+  hostProvidersOf,
+  quotaOf,
+} from "./host-models";
 
 const model = {
   modelId: "e2e-model",
@@ -29,6 +34,24 @@ describe("hostProvidersOf", () => {
         provider: "ollama",
         credentials: { host: "http://localhost:11434" },
         models: [model],
+      },
+    ]);
+  });
+
+  it("offers text-embedding-3-small on the Host's key when the Host offers OpenAI", () => {
+    const credentials = JSON.stringify({ apiKey: "sk-host" });
+    expect(
+      hostProvidersOf({
+        HOST_PROVIDER: "openai",
+        HOST_CREDENTIALS: credentials,
+        HOST_MODELS: JSON.stringify([model]),
+      }),
+    ).toEqual([
+      {
+        provider: "openai",
+        credentials: { apiKey: "sk-host" },
+        models: [model],
+        embeddingModels: [{ model: "text-embedding-3-small", pricePerMillionTokensUsd: 0.02 }],
       },
     ]);
   });
@@ -83,6 +106,30 @@ describe("hostBackgroundModelOf", () => {
     ).toThrow(/HOST_BACKGROUND_MODEL/);
     expect(() => hostBackgroundModelOf({ HOST_BACKGROUND_MODEL: "ollama:e2e-model" })).toThrow(
       /HOST_BACKGROUND_MODEL/,
+    );
+  });
+});
+
+describe("hostEmbeddingProvidersOf", () => {
+  it("offers no embedding Models when HOST_EMBEDDING_PROVIDER is not set", () => {
+    expect(hostEmbeddingProvidersOf({})).toEqual([]);
+    expect(hostEmbeddingProvidersOf({ HOST_EMBEDDING_PROVIDER: " " })).toEqual([]);
+  });
+
+  it("offers text-embedding-3-small on the fake adapter when HOST_EMBEDDING_PROVIDER is fake", () => {
+    expect(hostEmbeddingProvidersOf({ HOST_EMBEDDING_PROVIDER: "fake" })).toEqual([
+      {
+        provider: "openai",
+        credentials: { apiKey: "e2e-not-sent" },
+        models: [],
+        embeddingModels: [{ model: "text-embedding-3-small", pricePerMillionTokensUsd: 0.02 }],
+      },
+    ]);
+  });
+
+  it("refuses any other value, since only the fake adapter is wired by a variable", () => {
+    expect(() => hostEmbeddingProvidersOf({ HOST_EMBEDDING_PROVIDER: "openai" })).toThrow(
+      /HOST_EMBEDDING_PROVIDER/,
     );
   });
 });

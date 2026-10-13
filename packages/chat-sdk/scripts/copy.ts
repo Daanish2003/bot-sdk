@@ -3,7 +3,8 @@
 // - core/ is always replaced, and core/VERSION records the commit and date copied.
 // - ui/ and extras/ are copied only when their destination folder does not exist, so a Host's
 //   edits survive updates.
-// - package.json and README.md are copied to <dest>/ on every run (SDK-owned).
+// - package.json, README.md and NOTICE (the credit for ported code) are copied to <dest>/ on
+//   every run (SDK-owned).
 // - Tests and test helpers are never copied.
 //
 // Node runs this file directly (type stripping), so it imports only node: built-ins.
@@ -25,7 +26,7 @@ export interface CopyOptions {
 }
 
 const SDK_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const SDK_ROOT_FILES = ["package.json", "README.md"];
+const SDK_ROOT_FILES = ["package.json", "README.md", "NOTICE"];
 const EXCLUDED_NAMES = new Set(["test", "tests", "testing", "__tests__", "node_modules"]);
 
 function currentVersion(): SdkVersion {

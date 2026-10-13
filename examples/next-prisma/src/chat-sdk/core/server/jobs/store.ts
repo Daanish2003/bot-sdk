@@ -120,7 +120,7 @@ async function recordOutcome(
   db: Database,
   claimed: ClaimedJob,
   failure: { error: unknown } | undefined,
-  { now, logger }: { now: Date; logger: Logger },
+  { now, logger, deps }: { now: Date; logger: Logger; deps: AppDeps },
 ): Promise<void> {
   if (!failure) {
     await db.update(job).set({ status: "succeeded", updatedAt: now }).where(ownAttempt(claimed));
@@ -150,7 +150,7 @@ async function recordOutcome(
     .returning({ id: job.id });
   if (ended.length === 0) return;
   try {
-    await registeredJob(claimed.name)?.onFailed?.(claimed.payload, error);
+    await registeredJob(claimed.name)?.onFailed?.(claimed.payload, error, deps);
   } catch (onFailedError) {
     logger.error(`onFailed for job "${claimed.name}" failed`, onFailedError);
   }
@@ -204,7 +204,7 @@ export async function runClaimedJob(
     if (decided) return;
     release();
     try {
-      await recordOutcome(db, claimed, failure, { now: clock.now(), logger });
+      await recordOutcome(db, claimed, failure, { now: clock.now(), logger, deps: deps() });
     } catch (error) {
       logger.error(`Recording the outcome of job "${claimed.name}" failed`, error);
     }
@@ -253,7 +253,12 @@ export async function runClaimedJob(
  * (ADR 0011). The attempt already counted when the job was claimed, so a job on its last attempt
  * fails here instead, and its `onFailed` runs.
  */
-export async function reapStaleJobs(db: Database, now: Date, logger: Logger): Promise<void> {
+export async function reapStaleJobs(
+  db: Database,
+  now: Date,
+  logger: Logger,
+  deps: AppDeps,
+): Promise<void> {
   const cutoff = new Date(now.getTime() - JOB_TIMING.leaseMs);
   const expired = and(
     eq(job.status, "running"),
@@ -271,7 +276,7 @@ export async function reapStaleJobs(db: Database, now: Date, logger: Logger): Pr
     .returning({ name: job.name, payload: job.payload });
   for (const row of lost) {
     try {
-      await registeredJob(row.name)?.onFailed?.(row.payload, new Error(lastError));
+      await registeredJob(row.name)?.onFailed?.(row.payload, new Error(lastError), deps);
     } catch (onFailedError) {
       logger.error(`onFailed for job "${row.name}" failed`, onFailedError);
     }

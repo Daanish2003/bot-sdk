@@ -37,6 +37,7 @@ Before anything was built, the runner moved out of its own package. The Chat SDK
 - **The domain row owns what users see.** A Knowledge file's status lives on its own row, and the job's handler writes it. The runner's own status is for operators and the Trigger.dev adapter, so both runners look the same to users.
 - **Cancelling.** Cancelling a queued job drops it. A running job gets an abort signal at its next heartbeat. Every handler checks that its row still exists before writing, so a late cancel is harmless.
 - **Concurrency.** Two jobs per process by default. File parsing runs in a `worker_threads` worker so it doesn't stall streaming Runs.
+  _Amended 2026-10-13 ([#368](https://github.com/Daanish2003/ai-chat/issues/368)): file parsing runs in-process, on the job runner. The SDK is copied into Hosts as TypeScript source, so there's no built entry for a worker to load, and the runner already keeps parsing off the request path._
 - **Recurring jobs:** `schedule(name, { everyMs })`, with no cron. Each slot is enqueued under the key `name:<slot>`, so exactly one process fires it. They're designed now and built with Synced sources.
 - **Shutdown and retention.** `stop()` stops taking jobs and drains for `drainMs`, then aborts the rest; their leases expire and another process re-runs them. Succeeded and cancelled jobs are deleted after 7 days, failed ones after 30.
 - **Jobs are internal.** `defineJob({ name, payload, run, onFailed })` isn't public, and a Host can't register its own jobs.

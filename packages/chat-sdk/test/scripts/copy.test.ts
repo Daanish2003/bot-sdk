@@ -57,6 +57,7 @@ describe("copySdk", () => {
     write(join(source, "extras", "trigger", "runner.ts"), "export const runner = 1;");
     write(join(source, "package.json"), "{}");
     write(join(source, "README.md"), "# readme");
+    write(join(source, "NOTICE"), "Sim Studio");
   });
 
   afterEach(() => {
@@ -75,6 +76,7 @@ describe("copySdk", () => {
     );
     expect(readFileSync(join(dest, "ui", "theme.css"), "utf8")).toBe('@source ".";');
     expect(listFiles(dest)).toEqual([
+      "NOTICE",
       "README.md",
       "core/VERSION",
       "core/client/index.ts",

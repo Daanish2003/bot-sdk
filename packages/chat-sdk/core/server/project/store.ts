@@ -1,11 +1,13 @@
 import { conversation, message, project } from "../db/schema/chat";
 import { generatedImage } from "../db/schema/generated-image";
+import { knowledgeFile } from "../db/schema/knowledge";
 import { and, count, desc, eq, inArray, sql } from "drizzle-orm";
 
 import { deleteBlobsBestEffort } from "../blob/store";
 import { generatedImageKeysWhere, imagesOfMessages } from "../chat/generated-image-store";
 import { stopProjectRuns } from "../chat/run";
 import type { AppDeps } from "../deps";
+import { discardKnowledgeFiles, knowledgeFileIdsWhere } from "../knowledge/cascade";
 
 type Deps = Pick<AppDeps, "db">;
 
@@ -104,11 +106,14 @@ export async function deleteProject(deps: AppDeps, userId: string, id: string) {
         ),
       ),
     );
+    // The Knowledge files: their rows and passages go by cascade, their bytes and jobs after the commit.
+    const knowledgeIds = await knowledgeFileIdsWhere(tx, eq(knowledgeFile.projectId, id));
     await tx.delete(project).where(eq(project.id, id));
-    return { gone, ended, blobKeys };
+    return { gone, ended, blobKeys, knowledgeIds };
   });
   if (!result) return undefined;
   await deleteBlobsBestEffort(deps, result.blobKeys);
+  await discardKnowledgeFiles(deps, result.knowledgeIds);
   // After the commit: a rolled-back delete fires nothing (#265, #266).
   for (const run of result.ended) deps.hooks.fire("onRunEnd", run);
   for (const row of result.gone) {

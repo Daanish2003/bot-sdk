@@ -36,7 +36,7 @@ export function createLifecycle(
     await reapStaleRuns(deps).catch((error: unknown) =>
       logger.error("Reaping interrupted runs failed", error),
     );
-    await reapStaleJobs(deps.db, new Date(), logger).catch((error: unknown) =>
+    await reapStaleJobs(deps.db, new Date(), logger, deps).catch((error: unknown) =>
       logger.error("Reaping background jobs failed", error),
     );
     if (Date.now() - lastPrune >= JOB_PRUNE_MS) {

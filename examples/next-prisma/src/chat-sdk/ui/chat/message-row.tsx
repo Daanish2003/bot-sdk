@@ -1,9 +1,15 @@
 import type { AttachmentInfo } from "../../core/shared/attachments/kinds";
 import { createArtifactToolName, updateArtifactToolName } from "../../core/shared/chat/artifact";
-import { pageSourcesOf, replySegments, sourcesOf } from "../../core/shared/chat/sources";
+import {
+  pageSourcesOf,
+  replySegments,
+  sourcesOf,
+  webSourcesOf,
+} from "../../core/shared/chat/sources";
 import { generatedImageOf } from "../../core/shared/chat/generated-image";
 import { pastChatsOf } from "../../core/shared/chat/past-chats";
 import { toolCallOf, type ToolCallView } from "../../core/shared/chat/tool-call";
+import { knowledgeSearchOf } from "../../core/shared/chat/knowledge-search";
 import { webSearchOf } from "../../core/shared/chat/web-search";
 import { Button } from "@/components/ui/button";
 import { Loader } from "@/components/ui/prompt-kit/loader";
@@ -50,8 +56,9 @@ import {
 import { type EditSource, GeneratedImageBlock } from "./generated-image-block";
 import { ReadAloud } from "./read-aloud";
 import { ArtifactCard, artifactIdOf, type ArtifactRef } from "./artifact-card";
+import { KnowledgeSearchRow } from "./knowledge-search-row";
 import { SearchRow } from "./search-row";
-import { replyComponents, ReplySources, SourceChips } from "./source-chips";
+import { replyComponents, replyKeepUrl, ReplySources, SourceChips } from "./source-chips";
 import { ToolCallRow } from "./tool-call-row";
 import { UsageInfo } from "./usage-info";
 
@@ -537,6 +544,7 @@ function AssistantParts({
             key={segment.key}
             className="prose prose-sm min-w-0 max-w-[80ch] dark:prose-invert max-md:[&_table]:block max-md:[&_table]:overflow-x-auto"
             components={replyComponents}
+            keepUrl={replyKeepUrl}
           >
             {segment.content}
           </Markdown>
@@ -549,10 +557,16 @@ function AssistantParts({
               (id) => editSources?.get(id) ?? { label: t("chat.imageEarlier") },
             )}
           />
-        ) : segment.type === "searches" ? (
-          <SearchRow key={segment.key} searches={segment.searches} sources={sources} />
+        ) : segment.type === "knowledge" ? (
+          <KnowledgeSearchRow key={segment.key} search={segment.search} />
         ) : segment.type === "pastChats" ? (
           <PastChatsRow key={segment.key} search={segment.search} />
+        ) : segment.type === "searches" ? (
+          <SearchRow
+            key={segment.key}
+            searches={segment.searches}
+            sources={webSourcesOf(sources)}
+          />
         ) : (
           <Fragment key={segment.key}>
             {segment.call.name === createArtifactToolName ||
@@ -585,7 +599,8 @@ function waitingForText(parts: UIMessage["parts"]) {
       : webSearchOf(part) !== null ||
         toolCallOf(part) !== null ||
         generatedImageOf(part) !== null ||
-        pastChatsOf(part) !== null,
+        pastChatsOf(part) !== null ||
+        knowledgeSearchOf(part) !== null,
   );
   const last = shown.at(-1);
   if (!last) return true;
@@ -594,7 +609,8 @@ function waitingForText(parts: UIMessage["parts"]) {
     webSearchOf(last)?.state === "running" ||
     toolCallOf(last)?.status === "running" ||
     generatedImageOf(last)?.state === "running" ||
-    pastChatsOf(last)?.state === "running";
+    pastChatsOf(last)?.state === "running" ||
+    knowledgeSearchOf(last)?.state === "running";
   return !running;
 }
 

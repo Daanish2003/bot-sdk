@@ -452,11 +452,11 @@ describe("heartbeats and leases", () => {
     holding = false;
 
     timer.advance(60_000);
-    await reapStaleJobs(getTestDb(), timer.clock.now(), silent);
+    await reapStaleJobs(getTestDb(), timer.clock.now(), silent, jobDeps());
     expect(await statusOf("test.hold")).toBe("running");
 
     timer.advance(1_000);
-    await reapStaleJobs(getTestDb(), timer.clock.now(), silent);
+    await reapStaleJobs(getTestDb(), timer.clock.now(), silent, jobDeps());
     expect(await jobRows()).toMatchObject([
       { status: "queued", attempts: 1, lastError: expect.stringContaining("lease") },
     ]);
@@ -475,7 +475,7 @@ describe("heartbeats and leases", () => {
     for (const attempt of [1, 2, 3]) {
       expect(await claimJob(db, timer.clock.now())).toMatchObject({ attempts: attempt });
       timer.advance(61_000);
-      await reapStaleJobs(db, timer.clock.now(), silent);
+      await reapStaleJobs(db, timer.clock.now(), silent, jobDeps());
     }
 
     expect(await jobRows()).toMatchObject([
@@ -499,7 +499,7 @@ describe("heartbeats and leases", () => {
     await lost.start();
     await expect.poll(() => statusOf("test.hold")).toBe("running");
     timer.advance(61_000);
-    await reapStaleJobs(db, timer.clock.now(), silent);
+    await reapStaleJobs(db, timer.clock.now(), silent, jobDeps());
     expect(await claimJob(db, timer.clock.now())).toMatchObject({ attempts: 2 });
 
     releaseHold?.();
