@@ -16,3 +16,11 @@ The Chat SDK keeps file bytes (Attachments now; Knowledge files and Generated im
 
 - Postgres and S3 can't share a transaction. Upload writes the object before the row; `deleteUser` and the orphan reaper delete objects after their commit, best-effort and logged. A failed delete leaves a stray object; nothing sweeps them.
 - Switching a running deployment from one store to the other is not supported: there is no copy tool.
+
+## Amendment: Knowledge files up to 20 MB (2026-10-13, #362)
+
+Knowledge files go up to 20 MB, four times the Attachment limit, because a long report or a thesis has to fit (spec #357). They are still held as whole byte arrays: the blob store puts and gets one array per key, and the Knowledge job reads the file whole before it parses and chunks it. A file's bytes sit under `knowledge/<fileId>`, next to `attachment/<id>`.
+
+- **Consequence:** a Host's proxy must accept a 20 MB request body on the upload route. The README note for that is not in this ticket (spec #357, story 61).
+- **Test:** the upload handler accepts a 20 MB body (`test/core/server/knowledge/upload.integration.test.ts`).
+- **Still out of scope:** streams, presigned uploads, and reading a file in pieces.
