@@ -23,6 +23,17 @@ export const mcpToolName = "tracker_create_issue";
 export const mcpToolArguments = { title: "E2E launch" };
 
 /**
+ * A prompt with this marker makes the fake Model call `generate_image` (spec #278), when the request
+ * offers it. The Host's Image Model is `fakeImageModel`, answered by the fake image adapter.
+ */
+export const imageMarker = "[image]";
+const imageToolName = "generate_image";
+export const fakeImageModel = "e2e-image";
+export const imagePrompt = "a red bicycle";
+/** The reply once the image is made: the Model's words about it, with no pixels. */
+export const imageReply = "Here is the image of a red bicycle.";
+
+/**
  * A prompt with this marker makes the fake Model call `create_artifact` with `artifactHtml`, when
  * the request offers it. The prompt's link, if any, is the data the Artifact's script fetches.
  */
@@ -93,6 +104,7 @@ export function fetchedReply(toolResult: string): string {
 /** The reply to the result of the tool the reply asked for last. */
 function replyToTool(asked: string | undefined, content: string): string {
   if (asked === mcpToolName) return mcpReply(content);
+  if (asked === imageToolName) return imageReply;
   if (asked === createArtifactToolName || asked === updateArtifactToolName) {
     return artifactReply(content);
   }
@@ -222,6 +234,10 @@ export function startFakeOllama(port: number): Promise<Server> {
       }
       if (stream && !answering && offers(mcpToolName) && prompt.includes(mcpMarker)) {
         calls(mcpToolName, mcpToolArguments);
+        return;
+      }
+      if (stream && !answering && offers(imageToolName) && prompt.includes(imageMarker)) {
+        calls(imageToolName, { prompt: imagePrompt, aspectRatio: "landscape" });
         return;
       }
       // The Artifact an update changes: the last one the system prompt lists for this Branch.

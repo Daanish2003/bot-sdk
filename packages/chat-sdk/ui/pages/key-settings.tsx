@@ -30,6 +30,7 @@ import { InstructionsField } from "../settings/instructions-field";
 import { SavedPromptsSection } from "../settings/saved-prompts";
 import { SharedLinksSection } from "../settings/shared-links";
 import { BackgroundModelSelect } from "../settings/background-model-select";
+import { ImageModelSelect } from "../settings/image-model-select";
 
 /**
  * Keys & settings: the user's Provider and Tool credentials, the Background Model and the Instructions.
@@ -98,6 +99,7 @@ export function KeySettingsPage() {
       <SavedPromptsSection />
 
       <BackgroundModelSelect />
+      <ImageModelSelect />
 
       <section className="space-y-2">
         <h2 className="text-sm font-medium">{t("pages.yourData")}</h2>

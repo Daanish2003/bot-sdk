@@ -41,7 +41,7 @@ import {
   startedArtifactCalls,
 } from "./artifact-live";
 import { ContextOverflowNotice, ContextRing } from "./context-ring";
-import { MessageRow } from "./message-row";
+import { editSourcesOf, MessageRow } from "./message-row";
 import { ArchivedNotice } from "./archived-notice";
 import { MissingCredentialsBanner } from "./missing-credentials-banner";
 import { QuotaBanner } from "./quota-banner";
@@ -401,6 +401,7 @@ function ChatThread({
 
   // The Messages the Model's context starts at, on the Branch shown (issue #122).
   const contextCuts = contextCutIds(messages);
+  const editSources = editSourcesOf(messages);
 
   const highlighted = useFocusMessage({
     target: focusMessageId,
@@ -431,6 +432,7 @@ function ChatThread({
               key={message.id}
               message={message}
               highlighted={message.id === highlighted}
+              editSources={editSources}
               contextCut={contextCuts.has(message.id)}
               onOpenArtifact={onOpenArtifact}
               latestVersionOf={(artifactId) => artifactVersionsOn(messages, artifactId)[0]?.version}

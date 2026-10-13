@@ -1,10 +1,12 @@
 import { randomBytes } from "node:crypto";
 
 import { conversation, message } from "../db/schema/chat";
+import { generatedImage } from "../db/schema/generated-image";
 import { sharedLink } from "../db/schema/share";
 import { artifact, artifactVersion } from "../db/schema/artifact";
 import { and, desc, eq, inArray } from "drizzle-orm";
 
+import { generatedImageBlobKey } from "../blob/store";
 import { listAvailableModels, resolveModel } from "../chat/available-models";
 import { loadPath } from "../chat/store";
 import { liveConversation } from "../chat/temporary";
@@ -197,6 +199,25 @@ export async function loadSharedConversation(deps: Deps, token: string) {
     path.map((row) => row.id),
   );
   return toSharedConversation(link, path, attachments);
+}
+
+/**
+ * A Generated image on a Shared link: its bytes and type, when the link is visible and the image's
+ * Message is on the path up from its leaf (ADR 0004). `undefined` for anything else, including an
+ * image on a sibling Branch or after the leaf.
+ */
+export async function loadSharedGeneratedImage(deps: AppDeps, token: string, imageId: string) {
+  const link = await findVisibleLink(deps, token);
+  if (!link) return undefined;
+  const [row] = await deps.db
+    .select({ messageId: generatedImage.messageId, mediaType: generatedImage.mediaType })
+    .from(generatedImage)
+    .where(eq(generatedImage.id, imageId));
+  if (!row) return undefined;
+  const path = await loadPath(deps, link.conversationId, link.leafMessageId);
+  if (!path.some((onPath) => onPath.id === row.messageId)) return undefined;
+  const bytes = await deps.blobStore.get(generatedImageBlobKey(imageId));
+  return bytes ? { mediaType: row.mediaType, bytes } : undefined;
 }
 
 /**

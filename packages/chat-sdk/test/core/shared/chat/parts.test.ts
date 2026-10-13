@@ -243,9 +243,24 @@ describe("reading stored parts", () => {
 
 describe("attachments in provider history", () => {
   const bytes = (text: string) => new TextEncoder().encode(text);
-  const png = { filename: "cat.png", mediaType: "image/png", bytes: bytes("png-bytes") };
-  const pdf = { filename: "spec.pdf", mediaType: "application/pdf", bytes: bytes("%PDF-1.7") };
-  const notes = { filename: "notes.md", mediaType: "text/markdown", bytes: bytes("# Notes\nhi") };
+  const png = {
+    id: "img-cat",
+    filename: "cat.png",
+    mediaType: "image/png",
+    bytes: bytes("png-bytes"),
+  };
+  const pdf = {
+    id: "doc-spec",
+    filename: "spec.pdf",
+    mediaType: "application/pdf",
+    bytes: bytes("%PDF-1.7"),
+  };
+  const notes = {
+    id: "txt-notes",
+    filename: "notes.md",
+    mediaType: "text/markdown",
+    bytes: bytes("# Notes\nhi"),
+  };
   const question = (attachments: (typeof png)[]) => ({
     role: "user" as const,
     parts: storedParts([{ type: "text", text: "What is this?" }]),
@@ -259,6 +274,8 @@ describe("attachments in provider history", () => {
       {
         role: "user",
         content: [
+          // An image is named by its Attachment id, so an edit can start from it (spec #278).
+          { type: "text", content: "[Attachment id: img-cat]" },
           {
             type: "image",
             source: { type: "data", value: btoa("png-bytes"), mimeType: "image/png" },
@@ -304,6 +321,7 @@ describe("attachments in provider history", () => {
       {
         role: "user",
         content: [
+          { type: "text", content: "[Attachment id: img-cat]" },
           {
             type: "text",
             content: '[Attached image "cat.png" left out: this Model can\'t read images]',

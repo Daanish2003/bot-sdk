@@ -1,6 +1,7 @@
 import { type StoredPart, storedParts, storedPartsSchema } from "../../shared/message-parts";
 import { conversation, message } from "../db/schema/chat";
 import {
+  type AnyImageAdapter,
   type AnyTextAdapter,
   type ChatMiddleware,
   chat,
@@ -26,11 +27,17 @@ import {
 import type { McpTools } from "../mcp/tools";
 import { artifactCutOff, createArtifactTool, updateArtifactTool } from "./artifact-tool";
 import { createWebSearchTool } from "./web-search-tool";
+import { paidCallAllowed } from "./quota";
 import { createFetchUrlTool } from "./fetch-url-tool";
+import { createGenerateImageTool } from "./generate-image-tool";
+import type { EditSource } from "./edit-sources";
+import type { ImageRequest } from "./adapters";
+import type { AspectRatio } from "../../shared/chat/generated-image";
 import { cancelChannel, heartbeatExpired, listenForStop, stopRequested } from "./stop";
 import { addUsage, messageUsage, normalizeUsage, promptCharactersOf, type RunUsage } from "./usage";
 import {
   recordHostUsage,
+  type ImageMeter,
   recordSearchUsage,
   type SearchMeter,
   type UsageMeter,
@@ -62,6 +69,7 @@ export async function startRun(
     messages,
     webSearch,
     fetchUrl = false,
+    image,
     artifacts = false,
     hostTools = [],
     context,
@@ -92,6 +100,20 @@ export async function startRun(
     webSearch?: Credentials;
     /** Whether this reply offers the `fetch_url` tool, which needs no credential. */
     fetchUrl?: boolean;
+    /**
+     * Set when this reply offers the `generate_image` tool: the Image Model's adapter, each call's
+     * request, and whose usage each image is (spec #278).
+     */
+    image?: {
+      adapter: AnyImageAdapter;
+      meter: ImageMeter;
+      request: (aspectRatio: AspectRatio) => ImageRequest;
+      /** The Image Model's input-image limit, and the path's images an edit may read (spec #278). */
+      edit?: {
+        maxInputImages: number;
+        sources: (ids: string[]) => Promise<EditSource[] | undefined>;
+      };
+    };
     /** Whether this reply offers the `create_artifact` and `update_artifact` tools (`createChat({ artifacts })`, ADR 0016). */
     artifacts?: boolean;
     /** The Host tools this reply offers (none when its Model has no tools). */
@@ -222,6 +244,8 @@ export async function startRun(
                         deps.logger.error(`Recording a search of ${messageId} failed`, caught),
                       )
                   : undefined,
+                // A search on Host credentials is checked against the Quota first (ADR 0007).
+                mayRun: () => paidCallAllowed(deps, searchMeter),
               }),
             ]
           : []),
@@ -232,6 +256,29 @@ export async function startRun(
                 timeoutMs: deps.limits.fetchTimeoutMs,
                 parts,
                 onChange: () => (changed = true),
+              }),
+            ]
+          : []),
+        ...(image
+          ? [
+              createGenerateImageTool({
+                adapter: image.adapter,
+                meter: image.meter,
+                request: image.request,
+                edit: image.edit,
+                messageId,
+                deps,
+                fetch: deps.fetch,
+                timeoutMs: deps.limits.imageTimeoutMs,
+                parts,
+                onChange: () => (changed = true),
+                budget,
+                // An image on Host credentials is checked against the Quota first (ADR 0007, spec #278).
+                mayRun: () =>
+                  paidCallAllowed(
+                    deps,
+                    image.meter.price ? { userId: image.meter.userId } : undefined,
+                  ),
               }),
             ]
           : []),
@@ -783,7 +830,10 @@ export async function reapStaleRuns(deps: AppDeps, now = new Date()) {
       parsed.success &&
       parsed.data.parts.some(
         (part) =>
-          (part.type === "web_search" || part.type === "tool_call") && part.state === "running",
+          (part.type === "web_search" ||
+            part.type === "tool_call" ||
+            part.type === "generated_image") &&
+          part.state === "running",
       )
     ) {
       await deps.db

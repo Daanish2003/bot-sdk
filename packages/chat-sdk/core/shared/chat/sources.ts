@@ -1,7 +1,8 @@
-import type { WebSearchPart } from "../message-parts";
+import type { GeneratedImagePart, WebSearchPart } from "../message-parts";
 import type { MessagePart } from "@tanstack/ai";
 
 import { fetchedSourceOf, pageSourceOf } from "./fetch-url";
+import { generatedImageOf } from "./generated-image";
 import { toolCallOf, type ToolCallView } from "./tool-call";
 import { type SearchResult, webSearchOf } from "./web-search";
 
@@ -20,7 +21,8 @@ export type Source = { number: number; url: string; title: string; snippet: stri
 export type ReplySegment =
   | { type: "text"; key: string; content: string }
   | { type: "searches"; key: string; searches: WebSearchPart[] }
-  | { type: "tool"; key: string; call: ToolCallView };
+  | { type: "tool"; key: string; call: ToolCallView }
+  | { type: "image"; key: string; image: GeneratedImagePart };
 
 /**
  * The key two URLs share when they are the same Source: the URL without its fragment or a
@@ -81,6 +83,11 @@ export function replySegments(parts: MessagePart[]): ReplySegment[] {
     if (part.type === "text") {
       if (part.content)
         segments.push({ type: "text", key: `text-${index}`, content: part.content });
+      return;
+    }
+    const image = generatedImageOf(part);
+    if (image) {
+      segments.push({ type: "image", key: `image-${index}`, image });
       return;
     }
     const search = webSearchOf(part);

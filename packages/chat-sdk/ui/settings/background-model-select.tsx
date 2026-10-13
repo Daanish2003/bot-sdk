@@ -32,6 +32,7 @@ export function BackgroundModelSelect() {
         const previous = settings.data;
         queryClient.setQueryData(settingsKey, {
           backgroundModel,
+          imageModel: settings.data?.imageModel ?? null,
           instructions: settings.data?.instructions ?? null,
         });
         return { previous };

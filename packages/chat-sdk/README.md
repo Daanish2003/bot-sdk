@@ -173,9 +173,9 @@ const chat = createChat({
   // ...
   logger, // where the SDK's own failures go; defaults to console
   hooks: {
-    // every usage row written on Host credentials: a Run, a title, a web search
+    // every usage row written on Host credentials: a Run, a title, a web search, a transcription or a generated image
     onUsage: (usage) => {
-      // usage: { id, userId, kind: "run" | "title" | "web_search", model, inputTokens,
+      // usage: { id, userId, kind: "run" | "title" | "web_search" | "transcription" | "image", model, inputTokens,
       //   outputTokens, costMicros, estimated, createdAt }
     },
     // every Run, whichever way it ends, once its ending is written
@@ -358,6 +358,7 @@ Stored Provider and Tool credentials are encrypted under `keyEncryptionSecrets`:
 
 - `hostProviders` are the Host's own credentials, from your environment (never stored): `[{ provider, credentials, models: [...] }]`. Each model is `{ modelId, label?, images?, pdfs?, tools?, maxOutputTokens, inputUsdPerMillion, outputUsdPerMillion }`. `maxOutputTokens` is required: the Host's output cap for a Run on that model, handed to `adapterFor` (the production adapters don't apply it yet). The prices are per 1M tokens and kept with the model. Capability flags default to off unless the model is curated, in which case its curated flags apply. A Tool goes in the same list as `{ tool: "tavily", credentials, pricePerSearchUsd }`: a Host Tavily key that searches for users with no Tavily key of their own, each search recorded at that fixed price.
 - `defaultBackgroundModel` (optional) is a `"provider:model"` id of one of your `hostProviders` Models. Titles use it for users who pick no Background Model; without it they use the Model that wrote the reply. `start()` throws when it isn't one of your Models.
+- `defaultImageModel` (optional) is a `"provider:model"` id of one of your `hostProviders` `imageModels`. Generated images use it for users who pick no Image Model; without it they get no Host images. `start()` throws when it isn't one of your Image Models, or when an Image Model has no `pricePerImageUsd`.
 - `byok` (default `true`) lets users run on their own Provider credentials. Set it independently of `hostProviders`: `byok: false` with `hostProviders` is a company Host that runs only its own keys.
 - A user's own key for a Provider always wins over the Host's. The Model list marks the Models that run on Host credentials.
 - `start()` throws with neither `hostProviders` nor `byok`.

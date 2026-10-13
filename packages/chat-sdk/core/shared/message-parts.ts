@@ -48,7 +48,7 @@ export const webSearchPartSchema = z.object({
   query: z.string(),
   state: z.enum(["running", "done", "error", "cancelled"]),
   results: z.array(searchResultSchema).max(5),
-  errorReason: z.enum(["invalid_key", "quota_exhausted", "failed"]).optional(),
+  errorReason: z.enum(["invalid_key", "quota_exhausted", "quota_exceeded", "failed"]).optional(),
   error: toolErrorSchema.optional(),
 });
 
@@ -73,6 +73,32 @@ export const toolCallPartSchema = z.object({
   state: z.enum(["running", "done", "error", "cancelled", "awaiting_approval", "denied"]),
 });
 
+/** Why a Generated image failed (spec #278). Each one is a state, never a Message error. */
+export const generatedImageErrorReasons = [
+  "refused",
+  "quota_exceeded",
+  "limit_reached",
+  "too_many_images",
+  "failed",
+] as const;
+
+/**
+ * One `generate_image` tool call of a reply and how it went (spec #278), shaped like a search. The
+ * image itself is the `generated_image` row its `imageId` names. `prompt` is what the Model asked
+ * for, and `aspectRatio` the shape it asked for. `editedFrom` holds the ids of the images (Generated
+ * images or image Attachments) an edit started from.
+ */
+export const generatedImagePartSchema = z.object({
+  type: z.literal("generated_image"),
+  toolCallId: z.string(),
+  prompt: z.string(),
+  aspectRatio: z.enum(["square", "landscape", "portrait"]),
+  state: z.enum(["running", "done", "error", "cancelled"]),
+  imageId: z.string().optional(),
+  errorReason: z.enum(generatedImageErrorReasons).optional(),
+  editedFrom: z.array(z.string()).optional(),
+});
+
 /**
  * A version of an Artifact the reply created (spec #304). Slim: the content is never in the
  * Message's parts; the panel reads it from the version's row on demand.
@@ -91,12 +117,14 @@ export const storedPartSchema = z.discriminatedUnion("type", [
   thinkingPartSchema,
   webSearchPartSchema,
   toolCallPartSchema,
+  generatedImagePartSchema,
   artifactPartSchema,
 ]);
 
 /**
  * The schema version a Message's parts are written at. 2 added `tool_call` (ADR 0008); a version 1
- * row has no `tool_call` part, so it still reads. 3 added `artifact`; versions 1 and 2 still read.
+ * row has no `tool_call` part, so it still reads. 3 added `generated_image` and `artifact`; versions
+ * 1 and 2 still read.
  */
 export const storedPartsSchema = z.object({
   schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]),
@@ -106,6 +134,7 @@ export const storedPartsSchema = z.object({
 export type StoredPart = z.infer<typeof storedPartSchema>;
 export type WebSearchPart = z.infer<typeof webSearchPartSchema>;
 export type ToolCallPart = z.infer<typeof toolCallPartSchema>;
+export type GeneratedImagePart = z.infer<typeof generatedImagePartSchema>;
 export type ArtifactPart = z.infer<typeof artifactPartSchema>;
 export type StoredParts = z.infer<typeof storedPartsSchema>;
 

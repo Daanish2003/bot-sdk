@@ -57,6 +57,8 @@ const seedAll = (queryClient: QueryClient, client: ChatClient) => {
     models: [model],
     defaultModel: model.id,
     defaultBackgroundModel: null,
+    imageModels: [],
+    defaultImageModel: null,
     webSearchOnHost: true,
   });
   queryClient.setQueryData(client.orpc.credentials.mode.queryKey(), { byok: true });

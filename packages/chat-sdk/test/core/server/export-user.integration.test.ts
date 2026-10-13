@@ -11,7 +11,9 @@ import { sharedLink } from "../../../core/server/db/schema/share";
 import { userSettings } from "../../../core/server/db/schema/settings";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { insertAttachment, linkTestAttachments } from "../../support/attachments";
+import { fakePngBase64 } from "../../../core/server/chat/fake-image-adapter";
 import { insertConversation, insertMessage } from "../../support/conversations";
+import { insertGeneratedImage } from "../../support/generated-images";
 import { createTestDeps } from "../../support/deps";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 import { insertUser } from "../../support/users";
@@ -82,6 +84,7 @@ describe("createChat().exportUser", () => {
     await getTestDb().insert(userSettings).values({
       userId: owner.id,
       backgroundModel: "anthropic:background-model",
+      imageModel: "openai:gpt-image-2",
       instructions: "Answer in French.",
     });
     const deps = createTestDeps();
@@ -115,6 +118,7 @@ describe("createChat().exportUser", () => {
     });
     expect(exported.settings).toEqual({
       backgroundModel: "anthropic:background-model",
+      imageModel: "openai:gpt-image-2",
       instructions: "Answer in French.",
     });
     const text = JSON.stringify(exported);
@@ -351,7 +355,7 @@ describe("createChat().exportUser", () => {
       projects: [],
       sharedLinks: [],
       artifacts: [],
-      settings: { backgroundModel: null, instructions: null },
+      settings: { backgroundModel: null, imageModel: null, instructions: null },
     });
   });
 });
@@ -368,5 +372,22 @@ describe("createChat().exportUser, Temporary Conversations", () => {
     const byId = new Map(exported.conversations.map((row) => [row.id, row]));
     expect(byId.get(temporary.id)).toMatchObject({ temporary: true, messages: [{ role: "user" }] });
     expect(byId.get(ordinary.id)).toMatchObject({ temporary: false });
+  });
+});
+
+describe("createChat().exportUser, Generated images", () => {
+  it("lists each image by id, Model and prompt, with no bytes", async () => {
+    const owner = await insertUser();
+    const deps = createTestDeps();
+    const conv = await insertConversation(owner, { title: "Pictures" });
+    const imageId = await insertGeneratedImage(deps, owner, conv.id, { prompt: "a red bicycle" });
+
+    const exported = await chatFor().exportUser(owner.id);
+
+    const reply = exported.conversations[0]!.messages.find((row) => row.role === "assistant");
+    expect(reply?.generatedImages).toEqual([
+      { id: imageId, model: "openai:gpt-image-1-mini", prompt: "a red bicycle" },
+    ]);
+    expect(JSON.stringify(exported)).not.toContain(fakePngBase64);
   });
 });

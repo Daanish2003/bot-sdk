@@ -126,6 +126,7 @@ export const chatMessages = {
   "chat.searchFailedKey": "Search failed: Tavily rejected your key.",
   "chat.searchFailedQuota": "Search failed: Tavily's monthly quota is used up.",
   "chat.searchFailed": "Search failed.",
+  "chat.searchNotRunQuota": "Search not run: you're over this window's Quota.",
   "chat.searchNoResults": ({ query }: { query: string }) => `No results for "${query}"`,
   "chat.searchedQuery": ({ query, count }: { query: string; count: number }) =>
     `Searched "${query}" · ${count} ${count === 1 ? "source" : "sources"}`,
@@ -144,4 +145,16 @@ export const chatMessages = {
   "chat.pageError.blocked": "The address is not a public address",
   "chat.pageError.httpError": "The page couldn't be fetched",
   "chat.pageError.failed": "The page couldn't be fetched",
+  // Generated images (spec #278).
+  "chat.imageZoom": "Zoom",
+  "chat.imageDownload": "Download",
+  "chat.imageStopped": "Stopped before the image was ready",
+  "chat.imageGenerating": ({ seconds }: { seconds: number }) => `Generating image · ${seconds}s`,
+  "chat.imageEditedFrom": "Edited from",
+  "chat.imageEarlier": "an earlier image",
+  "chat.imageRefused": "Refused by the Provider's safety filter",
+  "chat.imageOverAllowance": "Over today's allowance",
+  "chat.imageLimitReached": "Image limit for this reply reached",
+  "chat.imageTooManyToEdit": "Too many images to edit",
+  "chat.imageFailed": "Couldn't generate",
 };

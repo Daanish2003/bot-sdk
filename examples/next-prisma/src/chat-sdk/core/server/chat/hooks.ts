@@ -4,8 +4,8 @@ import type { Logger } from "../create-chat";
 export type UsageEvent = {
   id: string;
   userId: string;
-  kind: "run" | "title" | "web_search" | "transcription";
-  /** The `"provider:model"` id, `"tavily"` for a web search, or the transcription model's id. */
+  kind: "run" | "title" | "web_search" | "transcription" | "image";
+  /** The `"provider:model"` id, `"tavily"` for a web search, or the transcription or image model's id. */
   model: string;
   inputTokens: number;
   outputTokens: number;
@@ -97,7 +97,7 @@ export type ModerationResult = { allow: true } | { allow: false; reason?: string
  * `moderate` is typed now and wired by #267.
  */
 export type ChatHooks = {
-  /** Fires after each usage row on Host credentials is written: a Run, a title, a web search or a transcription. */
+  /** Fires after each usage row on Host credentials is written: a Run, a title, a web search, a transcription or a generated image. */
   onUsage?: (usage: UsageEvent) => unknown;
   /** Fires once for every Run, whichever way it ends, after the ending is written (#265). */
   onRunEnd?: (run: RunEndEvent) => unknown;

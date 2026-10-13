@@ -70,6 +70,8 @@ function seedModels(queryClient: QueryClient, client: ChatClient) {
     models: [model],
     defaultModel: null,
     defaultBackgroundModel: null,
+    imageModels: [],
+    defaultImageModel: null,
     webSearchOnHost: false,
   });
 }
@@ -138,6 +140,7 @@ describe("the pages with the dictionary", () => {
       queryClient.setQueryData(client.orpc.credentials.list.queryKey(), []);
       queryClient.setQueryData(client.orpc.settings.get.queryKey(), {
         backgroundModel: null,
+        imageModel: null,
         instructions: null,
       });
       queryClient.setQueryData(client.orpc.share.list.queryKey(), []);

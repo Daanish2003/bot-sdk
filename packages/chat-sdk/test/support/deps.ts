@@ -33,6 +33,11 @@ export function createTestDeps({
     adapterFor: (model) => {
       throw new Error(`No fake adapter for model "${model}"; pass adapterFor to createTestDeps`);
     },
+    imageAdapterFor: (model) => {
+      throw new Error(
+        `No fake image adapter for model "${model}"; pass imageAdapterFor to createTestDeps`,
+      );
+    },
     transcriptionAdapterFor: (model) => {
       throw new Error(`No fake transcription adapter for "${model}"; pass one to createTestDeps`);
     },
@@ -50,6 +55,7 @@ export function createTestDeps({
       reapIntervalMs: 30_000,
       drainMs: 250_000,
       fetchTimeoutMs: 10_000,
+      imageTimeoutMs: 120_000,
       ...limits,
     },
     keyEncryptionSecrets: [testKeyEncryptionSecret],
@@ -60,6 +66,7 @@ export function createTestDeps({
     artifacts: false,
     byok: true,
     defaultBackgroundModel: null,
+    defaultImageModel: null,
     getQuota: async () => null,
     lifecycle: { stopping: false, runs: new Map() },
     // Silent, like the handler's logger in `support/sdk.ts`: the tests assert on rows, not logs.

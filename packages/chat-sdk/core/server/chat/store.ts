@@ -5,7 +5,10 @@ import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 
 import { attachmentsOfMessages } from "../attachments/store";
+import { deleteBlobsBestEffort } from "../blob/store";
+import { generatedImage } from "../db/schema/generated-image";
 import type { AppDeps } from "../deps";
+import { generatedImageKeysWhere, imagesOfMessages } from "./generated-image-store";
 import { withProjectId } from "./hooks";
 import { newestLeaf, pathTo, siblingPosition } from "../../shared/chat/branches";
 import { type ActiveBranchMessage, toClientMessage } from "../../shared/chat/client-message";
@@ -110,14 +113,23 @@ export async function setConversationConnections(
  * isn't theirs. Fires `onConversationDeleted` after the delete (#266).
  */
 export async function deleteConversation(
-  deps: Pick<AppDeps, "db" | "hooks">,
+  deps: Pick<AppDeps, "db" | "hooks" | "blobStore" | "logger">,
   userId: string,
   id: string,
 ) {
-  const [row] = await deps.db
-    .delete(conversation)
-    .where(ownConversation(userId, id))
-    .returning({ id: conversation.id, projectId: conversation.projectId });
+  const { row, blobKeys } = await deps.db.transaction(async (tx) => {
+    // The Generated images of this Conversation: their rows go by cascade, their bytes after the commit.
+    const blobKeys = await generatedImageKeysWhere(
+      tx,
+      and(eq(generatedImage.userId, userId), imagesOfMessages(tx, eq(message.conversationId, id))),
+    );
+    const [row] = await tx
+      .delete(conversation)
+      .where(ownConversation(userId, id))
+      .returning({ id: conversation.id, projectId: conversation.projectId });
+    return { row, blobKeys };
+  });
+  await deleteBlobsBestEffort(deps, blobKeys);
   if (!row) return false;
   deps.hooks.fire("onConversationDeleted", {
     userId,

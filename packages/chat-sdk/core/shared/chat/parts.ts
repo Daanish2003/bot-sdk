@@ -1,4 +1,5 @@
 import {
+  type GeneratedImagePart,
   type ArtifactPart,
   type StoredPart,
   type StoredParts,
@@ -21,6 +22,13 @@ import { attachmentKind, kindLabel, kindLabelPlural } from "../attachments/kinds
 import { createArtifactToolName, updateArtifactToolName } from "./artifact";
 import { fetchUrlToolName } from "./fetch-url";
 import { providerOf } from "./models";
+import {
+  type AspectRatio,
+  type GenerateImageOutput,
+  type GeneratedImageErrorReason,
+  generateImageToolName,
+  generatedImageErrorLabels,
+} from "./generated-image";
 import {
   searchErrorCodes,
   searchErrorMessages,
@@ -45,7 +53,12 @@ export type StoredMessage = {
   attachments?: StoredAttachment[];
 };
 
-export type StoredAttachment = { filename: string; mediaType: string; bytes: Uint8Array };
+export type StoredAttachment = {
+  id: string;
+  filename: string;
+  mediaType: string;
+  bytes: Uint8Array;
+};
 
 /** What the Model reads besides text. */
 export type ModelReads = { images: boolean; pdfs: boolean };
@@ -98,6 +111,13 @@ export function createPartsBuilder(initial: StoredPart[] = []) {
       (part): part is ToolCallPart =>
         part.type === "tool_call" && part.toolCallId === toolCallId && part.state === "running",
     );
+  const runningImage = (toolCallId: string) =>
+    parts.find(
+      (part): part is GeneratedImagePart =>
+        part.type === "generated_image" &&
+        part.toolCallId === toolCallId &&
+        part.state === "running",
+    );
 
   return {
     add(chunk: StreamChunk) {
@@ -146,6 +166,34 @@ export function createPartsBuilder(initial: StoredPart[] = []) {
         part.error = { code: searchErrorCodes[outcome.errorReason] };
       }
     },
+    /** Starts a `generate_image` call, as the tool is about to run (spec #278). */
+    startGeneratedImage(toolCallId: string, prompt: string, aspectRatio: AspectRatio) {
+      parts.push({
+        type: "generated_image",
+        toolCallId,
+        prompt,
+        aspectRatio,
+        state: "running",
+      });
+    },
+    /** Ends a running `generate_image` call: with the image it made, or with why it failed. */
+    finishGeneratedImage(
+      toolCallId: string,
+      outcome:
+        | { imageId: string; editedFrom?: string[] }
+        | { errorReason: GeneratedImageErrorReason },
+    ) {
+      const part = runningImage(toolCallId);
+      if (!part) return;
+      if ("imageId" in outcome) {
+        part.state = "done";
+        part.imageId = outcome.imageId;
+        if (outcome.editedFrom) part.editedFrom = outcome.editedFrom;
+      } else {
+        part.state = "error";
+        part.errorReason = outcome.errorReason;
+      }
+    },
     /**
      * Starts a tool call other than `web_search`, as the tool is about to run. A call a resumed Run
      * already holds (waiting for Approval, now approved) is updated in place.
@@ -189,9 +237,7 @@ export function createPartsBuilder(initial: StoredPart[] = []) {
     },
     cancelRunningCalls() {
       for (const part of parts) {
-        if ((part.type === "web_search" || part.type === "tool_call") && part.state === "running") {
-          part.state = "cancelled";
-        }
+        if (isCallPart(part) && part.state === "running") part.state = "cancelled";
       }
     },
     /** A copy of the parts so far. */
@@ -213,11 +259,16 @@ export type FinishToolCall = { state: "done" | "error"; result: unknown; error?:
 export function cancelRunningCalls(parts: StoredParts): StoredParts {
   return storedParts(
     parts.parts.map((part) =>
-      (part.type === "web_search" || part.type === "tool_call") && part.state === "running"
-        ? { ...part, state: "cancelled" }
-        : part,
+      isCallPart(part) && part.state === "running" ? { ...part, state: "cancelled" } : part,
     ),
   );
+}
+
+/** A part a reply's tool call made: a search, a tool call or a generated image. */
+type CallPart = WebSearchPart | ToolCallPart | GeneratedImagePart;
+
+function isCallPart(part: StoredPart): part is CallPart {
+  return part.type === "web_search" || part.type === "tool_call" || part.type === "generated_image";
 }
 
 function textOf(parts: StoredParts, separator: string) {
@@ -227,7 +278,7 @@ function textOf(parts: StoredParts, separator: string) {
     .join(separator);
 }
 
-const finished = (part: WebSearchPart | ToolCallPart) =>
+const finished = (part: CallPart) =>
   part.state === "done" || part.state === "error" || part.state === "denied";
 
 /**
@@ -239,22 +290,8 @@ const isArtifactCall = (part: StoredPart) =>
   part.type === "tool_call" &&
   (part.name === createArtifactToolName || part.name === updateArtifactToolName);
 
-/** A finished search or tool call the Model may replay. */
-const replayable = (part: StoredPart): part is WebSearchPart | ToolCallPart =>
-  (part.type === "web_search" || part.type === "tool_call") && finished(part);
-
-/**
- * What the Model reads back for a finished call. An Artifact call that saved a version reads as a
- * short stub ("saved as v3"); any other call reads its search output or stored result.
- */
-function resultOf(part: WebSearchPart | ToolCallPart): unknown {
-  if (part.type === "web_search") return searchOutput(part);
-  if (isArtifactCall(part) && part.state === "done") {
-    const saved = part.result as { version?: unknown } | null;
-    return `saved as v${String(saved?.version)}`;
-  }
-  return part.result ?? null;
-}
+/** A finished search, tool call or generated image the Model may replay. */
+const replayable = (part: StoredPart): part is CallPart => isCallPart(part) && finished(part);
 
 /** A call's arguments as the model streamed them; an unreadable stream reads as no arguments. */
 function parseArgs(json: string): unknown {
@@ -288,9 +325,41 @@ function toolCallPlaceholder(part: ToolCallPart) {
   return `[Called "${part.name}" with ${JSON.stringify(part.args)}: ${JSON.stringify(part.result ?? null)}]`;
 }
 
-/** A finished search or tool call as text, for a request that doesn't offer its tool. */
-function placeholderOf(part: WebSearchPart | ToolCallPart) {
-  return part.type === "web_search" ? searchPlaceholder(part) : toolCallPlaceholder(part);
+/**
+ * What the Model reads back for a finished call. An Artifact call that saved a version reads as a
+ * short stub ("saved as v3"); any other call reads its search output, image output or stored result.
+ */
+function resultOf(call: CallPart): unknown {
+  if (call.type === "web_search") return searchOutput(call);
+  if (call.type === "generated_image") return imageOutput(call);
+  if (isArtifactCall(call) && call.state === "done") {
+    const saved = call.result as { version?: unknown } | null;
+    return `saved as v${String(saved?.version)}`;
+  }
+  return call.result ?? null;
+}
+
+/** A generated image as the Model reads it: the id, prompt and shape, or the reason it failed. */
+function imageOutput(part: GeneratedImagePart): GenerateImageOutput {
+  if (part.state === "error") {
+    const reason = part.errorReason ?? "failed";
+    return { error: generatedImageErrorLabels[reason], reason };
+  }
+  return { imageId: part.imageId ?? "", prompt: part.prompt, aspectRatio: part.aspectRatio };
+}
+
+/** A finished generated image as text, for a request that doesn't offer its tool. */
+function imagePlaceholder(part: GeneratedImagePart) {
+  return part.state === "error"
+    ? `[Couldn't generate an image for "${part.prompt}": ${generatedImageErrorLabels[part.errorReason ?? "failed"]}]`
+    : `[Generated an image: "${part.prompt}"]`;
+}
+
+/** A finished search, tool call or image as text, for a request that doesn't offer its tool. */
+function placeholderOf(part: CallPart) {
+  if (part.type === "web_search") return searchPlaceholder(part);
+  if (part.type === "generated_image") return imagePlaceholder(part);
+  return toolCallPlaceholder(part);
 }
 
 /** The tools a request offers: a finished search or tool call of a kind not offered is text. */
@@ -299,13 +368,15 @@ type OfferedTools = {
   fetchUrl: boolean;
   hostTools: boolean;
   mcpTools: boolean;
+  generateImage: boolean;
   /** Whether the request offers the Artifact tools (ADR 0016). */
   artifacts: boolean;
 };
 
 /** A call a request offers its tool for, as the Model replays it: a Host or an MCP tool, by its source. */
-const offeredCall = (part: WebSearchPart | ToolCallPart, offered: OfferedTools) => {
+const offeredCall = (part: CallPart, offered: OfferedTools) => {
   if (part.type === "web_search") return offered.webSearch;
+  if (part.type === "generated_image") return offered.generateImage;
   if (isArtifactCall(part)) return offered.artifacts;
   if (part.name === fetchUrlToolName) return offered.fetchUrl;
   return part.source === "mcp" ? offered.mcpTools : offered.hostTools;
@@ -321,7 +392,7 @@ function withToolCalls({ role, parts }: StoredMessage, offered: OfferedTools): M
   let content = "";
   // A placeholder is followed by a paragraph break before any text that comes after it.
   let breakBeforeText = false;
-  let calls: (WebSearchPart | ToolCallPart)[] = [];
+  let calls: CallPart[] = [];
   const flush = () => {
     if (calls.length > 0) {
       const toolCalls: ToolCall[] = calls.map((call) => ({
@@ -330,7 +401,16 @@ function withToolCalls({ role, parts }: StoredMessage, offered: OfferedTools): M
         function:
           call.type === "web_search"
             ? { name: webSearchToolName, arguments: JSON.stringify({ query: call.query }) }
-            : { name: call.name, arguments: JSON.stringify(call.args) },
+            : call.type === "generated_image"
+              ? {
+                  name: generateImageToolName,
+                  arguments: JSON.stringify({
+                    prompt: call.prompt,
+                    aspectRatio: call.aspectRatio,
+                    ...(call.editedFrom && { editImageIds: call.editedFrom }),
+                  }),
+                }
+              : { name: call.name, arguments: JSON.stringify(call.args) },
       }));
       messages.push({ role, content: content || null, toolCalls });
       // A call waiting for Approval has no result yet: the resumed Run supplies it (ADR 0008).
@@ -407,6 +487,7 @@ export function toModelMessages(
     fetchUrl = false,
     hostTools = false,
     mcpTools = false,
+    generateImage = false,
     artifacts = false,
     reads = { images: false, pdfs: false },
   }: {
@@ -418,6 +499,8 @@ export function toModelMessages(
     hostTools?: boolean;
     /** Whether this request offers any MCP tools (spec #91). */
     mcpTools?: boolean;
+    /** Whether this request offers the `generate_image` tool (spec #278). */
+    generateImage?: boolean;
     /** Whether this request offers the Artifact tools; their calls then replay as stubs (ADR 0016). */
     artifacts?: boolean;
     /** Attachments the Model can't read become text placeholders. */
@@ -426,8 +509,15 @@ export function toModelMessages(
 ): ModelMessage[] {
   return history.flatMap((stored) => {
     const messages =
-      webSearch || fetchUrl || hostTools || mcpTools || artifacts
-        ? withToolCalls(stored, { webSearch, fetchUrl, hostTools, mcpTools, artifacts })
+      webSearch || fetchUrl || hostTools || mcpTools || generateImage || artifacts
+        ? withToolCalls(stored, {
+            webSearch,
+            fetchUrl,
+            hostTools,
+            mcpTools,
+            generateImage,
+            artifacts,
+          })
         : withPlaceholders(stored);
     const [first] = messages;
     if (!first) return [];
@@ -437,7 +527,7 @@ export function toModelMessages(
       messages[0] = {
         ...first,
         content: [
-          ...attachments.map((file) => attachmentPart(file, reads)),
+          ...attachments.flatMap((file) => attachmentParts(file, reads)),
           { type: "text", content: first.content },
         ],
       };
@@ -455,27 +545,33 @@ export function toModelMessages(
 
 /**
  * An attachment as the Provider gets it: images and PDFs as inline base64 when the Model reads
- * them, text files as fenced text, anything else as a short placeholder.
+ * them, text files as fenced text, anything else as a short placeholder. An image is preceded by
+ * a `[Attachment id: …]` note, so the Model can name it to an edit (spec #278).
  */
-function attachmentPart(
-  { filename, mediaType, bytes }: StoredAttachment,
+function attachmentParts(
+  { id, filename, mediaType, bytes }: StoredAttachment,
   reads: ModelReads,
-): ContentPart {
+): ContentPart[] {
   const kind = attachmentKind(mediaType, filename);
   const source = { type: "data" as const, value: toBase64(bytes), mimeType: mediaType };
-  if (kind === "image" && reads.images) return { type: "image", source };
-  if (kind === "pdf" && reads.pdfs) return { type: "document", source, metadata: { filename } };
+  const note: ContentPart[] =
+    kind === "image" ? [{ type: "text", content: `[Attachment id: ${id}]` }] : [];
+  if (kind === "image" && reads.images) return [...note, { type: "image", source }];
+  if (kind === "pdf" && reads.pdfs) return [{ type: "document", source, metadata: { filename } }];
   if (kind === "text") {
     const fileText = new TextDecoder().decode(bytes);
     const longestRun = Math.max(0, ...(fileText.match(/`+/g) ?? []).map((run) => run.length));
     const fence = "`".repeat(Math.max(3, longestRun + 1));
-    return { type: "text", content: `${filename}\n${fence}\n${fileText}\n${fence}` };
+    return [{ type: "text", content: `${filename}\n${fence}\n${fileText}\n${fence}` }];
   }
   const [label, plural] = kind ? [kindLabel(kind), kindLabelPlural(kind)] : ["file", "files"];
-  return {
-    type: "text",
-    content: `[Attached ${label} "${filename}" left out: this Model can't read ${plural}]`,
-  };
+  return [
+    ...note,
+    {
+      type: "text",
+      content: `[Attached ${label} "${filename}" left out: this Model can't read ${plural}]`,
+    },
+  ];
 }
 
 function toBase64(bytes: Uint8Array) {
@@ -493,6 +589,7 @@ export function toUIParts(parts: StoredParts): MessagePart[] {
     // The signature is only for the Provider; the client never needs it.
     if (part.type === "thinking") return { type: "thinking", content: part.text };
     if (part.type === "tool_call") return toolCallUIPart(part);
+    if (part.type === "generated_image") return generatedImageUIPart(part);
     if (part.type === "artifact") return artifactUIPart(part);
     const input = { query: part.query };
     return {
@@ -511,6 +608,33 @@ export function toUIParts(parts: StoredParts): MessagePart[] {
       ...(finished(part) && { output: searchOutput(part) }),
     };
   });
+}
+
+/**
+ * A stored `generate_image` call, as `useChat` shows it: a tool call named `generate_image`, with
+ * its prompt and shape as input and the image or the failure as output (spec #278).
+ */
+function generatedImageUIPart(part: GeneratedImagePart): MessagePart {
+  const input = {
+    prompt: part.prompt,
+    aspectRatio: part.aspectRatio,
+    ...(part.editedFrom && { editImageIds: part.editedFrom }),
+  };
+  return {
+    type: "tool-call",
+    id: part.toolCallId,
+    name: generateImageToolName,
+    arguments: JSON.stringify(input),
+    input,
+    // A cancelled image ended without a result.
+    state:
+      part.state === "running"
+        ? "input-complete"
+        : part.state === "cancelled"
+          ? "error"
+          : "complete",
+    ...(finished(part) && { output: resultOf(part) }),
+  };
 }
 
 /**

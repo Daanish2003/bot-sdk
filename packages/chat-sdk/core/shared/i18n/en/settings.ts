@@ -88,4 +88,13 @@ export const settingsMessages = {
   "settings.savedPromptNamePlaceholder": "review",
   "settings.savedPromptText": "Text",
   "settings.savedPromptTextPlaceholder": "Review this code for bugs first, then suggest fixes.",
+  // Image Model (spec #278).
+  "settings.images": "Images",
+  "settings.imageModel": "Image Model",
+  "settings.noImages": "No images",
+  "settings.imageModelMissingKey":
+    "This Image Model's key was removed, so no images are made until you pick another.",
+  "settings.imageModelHelp":
+    "Makes images when you ask for one. Images on the Host's credentials count against your allowance.",
+  "settings.onHost": "· Host",
 };

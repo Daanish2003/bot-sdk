@@ -93,6 +93,7 @@ describe("the Run endpoint attachments", () => {
       {
         role: "user",
         content: [
+          { type: "text", content: `[Attachment id: ${image.id}]` },
           {
             type: "image",
             source: { type: "data", value: base64("png-bytes"), mimeType: "image/png" },

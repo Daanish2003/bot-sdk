@@ -1,6 +1,7 @@
 import type { AttachmentInfo } from "../../core/shared/attachments/kinds";
 import { createArtifactToolName, updateArtifactToolName } from "../../core/shared/chat/artifact";
 import { pageSourcesOf, replySegments, sourcesOf } from "../../core/shared/chat/sources";
+import { generatedImageOf } from "../../core/shared/chat/generated-image";
 import { toolCallOf, type ToolCallView } from "../../core/shared/chat/tool-call";
 import { webSearchOf } from "../../core/shared/chat/web-search";
 import { Button } from "@/components/ui/button";
@@ -45,6 +46,7 @@ import {
   useAttachmentDraft,
 } from "./attachments";
 
+import { type EditSource, GeneratedImageBlock } from "./generated-image-block";
 import { ReadAloud } from "./read-aloud";
 import { ArtifactCard, artifactIdOf, type ArtifactRef } from "./artifact-card";
 import { SearchRow } from "./search-row";
@@ -109,6 +111,8 @@ export function MessageRow({
   actions,
   highlighted = false,
   contextCut = false,
+  imagesUrl,
+  editSources,
   onOpenArtifact,
   latestVersionOf,
 }: {
@@ -119,6 +123,10 @@ export function MessageRow({
   highlighted?: boolean;
   /** The Model's context starts at this Message on the Branch: a marker sits above it. */
   contextCut?: boolean;
+  /** Where a Generated image's bytes come from; the owner's route when unset (a Shared link passes its own). */
+  imagesUrl?: string;
+  /** The images on the Branch an edit can start from, by id (`editSourcesOf`). */
+  editSources?: ReadonlyMap<string, EditSource>;
   /** Opens an Artifact's card in the side panel (spec #304). */
   onOpenArtifact?: (ref: ArtifactRef) => void;
   /** The newest version of an Artifact on the Branch, which an update's card names (spec #304). */
@@ -265,6 +273,8 @@ export function MessageRow({
                 messageId={message.id}
                 parts={message.parts}
                 onDecide={actions?.onDecide}
+                imagesUrl={imagesUrl}
+                editSources={editSources}
                 onOpenArtifact={onOpenArtifact}
                 latestVersionOf={latestVersionOf}
               />
@@ -474,20 +484,47 @@ function artifactTarget(
  * A reply's text and web searches, in stream order. Back-to-back searches share one row; links
  * to the reply's Sources render as their numbered citation chips.
  */
+/**
+ * The images a Branch's Messages hold, by id, for an edit's "edited from" chip (spec #278). A
+ * finished Generated image is labelled by its prompt; an image Attachment by its file name.
+ */
+export function editSourcesOf(messages: UIMessage[]): Map<string, EditSource> {
+  const sources = new Map<string, EditSource>();
+  for (const message of messages) {
+    for (const part of message.parts) {
+      const image = generatedImageOf(part);
+      if (image?.state === "done" && image.imageId) {
+        sources.set(image.imageId, { label: image.prompt, imageId: image.imageId });
+      }
+    }
+    for (const file of messageAttachments(message)) {
+      if (file.id) sources.set(file.id, { label: file.filename });
+    }
+  }
+  return sources;
+}
+
 function AssistantParts({
   messageId,
   parts,
   onDecide,
+  imagesUrl: imagesUrlOverride,
+  editSources,
   onOpenArtifact,
   latestVersionOf,
 }: {
   messageId: string;
   parts: UIMessage["parts"];
   onDecide?: (approved: boolean, allowForConversation?: boolean) => void;
+  imagesUrl?: string;
+  editSources?: ReadonlyMap<string, EditSource>;
   onOpenArtifact?: (ref: ArtifactRef) => void;
   latestVersionOf?: (artifactId: string) => number | undefined;
 }) {
   const sources = sourcesOf(parts);
+  const { generatedImagesUrl } = useChatAdapter();
+  const { t } = useI18n();
+  const imagesUrl = imagesUrlOverride ?? generatedImagesUrl;
   return (
     <ReplySources value={sources}>
       {replySegments(parts).map((segment) =>
@@ -499,6 +536,15 @@ function AssistantParts({
           >
             {segment.content}
           </Markdown>
+        ) : segment.type === "image" ? (
+          <GeneratedImageBlock
+            key={segment.key}
+            image={segment.image}
+            imagesUrl={imagesUrl}
+            editedFrom={segment.image.editedFrom?.map(
+              (id) => editSources?.get(id) ?? { label: t("chat.imageEarlier") },
+            )}
+          />
         ) : segment.type === "searches" ? (
           <SearchRow key={segment.key} searches={segment.searches} sources={sources} />
         ) : (
@@ -530,12 +576,15 @@ function waitingForText(parts: UIMessage["parts"]) {
   const shown = parts.filter((part) =>
     part.type === "text"
       ? part.content !== ""
-      : webSearchOf(part) !== null || toolCallOf(part) !== null,
+      : webSearchOf(part) !== null || toolCallOf(part) !== null || generatedImageOf(part) !== null,
   );
   const last = shown.at(-1);
   if (!last) return true;
   if (last.type === "text") return false;
-  const running = webSearchOf(last)?.state === "running" || toolCallOf(last)?.status === "running";
+  const running =
+    webSearchOf(last)?.state === "running" ||
+    toolCallOf(last)?.status === "running" ||
+    generatedImageOf(last)?.state === "running";
   return !running;
 }
 

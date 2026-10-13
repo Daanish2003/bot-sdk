@@ -1,9 +1,12 @@
 import { onError } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
+import { and, eq } from "drizzle-orm";
+import { z } from "zod";
 
 import { handleChat } from "./chat/handle-chat";
 import type { HostServerTool } from "./chat/host-tools";
-import type { BlobStore } from "./blob/store";
+import { type BlobStore, generatedImageBlobKey } from "./blob/store";
+import { generatedImage } from "./db/schema/generated-image";
 import { postgresBlobStore } from "./blob/postgres";
 import { webSearchToolName } from "../shared/chat/web-search";
 import { fetchUrlToolName } from "../shared/chat/fetch-url";
@@ -34,7 +37,7 @@ import { assertMigrated, migrate as migrateSchema } from "./migrate";
 import { rateLimitedFor, resolveRateLimits, rpcRateLimits, type RateLimits } from "./rate-limits";
 import { memoryRuntime, type ChatRuntime } from "./runtime";
 import { appRouter } from "./routers/index";
-import { loadSharedConversation } from "./share/store";
+import { loadSharedConversation, loadSharedGeneratedImage } from "./share/store";
 import type { SharedConversation } from "../shared/share/conversation";
 
 export type ChatHandler = (request: Request) => Promise<Response>;
@@ -86,6 +89,18 @@ export type CreateChatOptions = {
    * Models. Titles use it when a user picks none; `start()` refuses any other id.
    */
   defaultBackgroundModel?: string;
+  /**
+   * The Host's default Image Model: a `"provider:model"` id of one of the `hostProviders`'s Image
+   * Models. Image generation uses it when a user picks none; with none, there are no Host images.
+   * `start()` refuses any other id.
+   */
+  defaultImageModel?: string;
+  /**
+   * The image adapter for an Image Model's `(model, credentials)`, or `undefined` for none. Defaults
+   * to the production adapters, which are not wired yet (spec #278, ticket #311), so no Image Model
+   * offers the image tool until they are. A Host passes a fake here to try the tool.
+   */
+  imageAdapterFor?: AppDeps["imageAdapterFor"];
   /**
    * A user's Quota on Host credentials, or one fixed Quota for everyone; `null` or unset is
    * unlimited (ADR 0007).
@@ -147,6 +162,8 @@ export function createChatHandler(
   const exportPath = `${prefix}/export`;
   const mcpConnectPath = `${prefix}/mcp/connect`;
   const mcpCallbackPath = `${prefix}/mcp/callback`;
+  const generatedImagesPath = `${prefix}/generated-images/`;
+  const sharedPath = `${prefix}/shared/`;
   // The RPCs a signed-out visitor of a Shared link may call (ADR 0004, ADR 0016).
   const sharedReadPaths = [`${rpcPrefix}/share/get`, `${rpcPrefix}/share/artifactVersion`];
   const rpc = new RPCHandler(appRouter, {
@@ -155,6 +172,15 @@ export function createChatHandler(
 
   return async (request) => {
     const { pathname } = new URL(request.url);
+    // A Generated image on a Shared link is public: the link's token is the only key (ADR 0004).
+    const sharedImage = /^([^/]+)\/generated-images\/([^/]+)$/.exec(
+      pathname.startsWith(sharedPath) ? pathname.slice(sharedPath.length) : "",
+    );
+    if (sharedImage && request.method === "GET") {
+      const download = new URL(request.url).searchParams.get("download") === "1";
+      const [, token, id] = sharedImage;
+      return sharedGeneratedImageResponse(deps, token!, id!, download);
+    }
     const user = await getUser(request);
     const sharedRead = sharedReadPaths.includes(pathname);
     if (!user && !sharedRead) return unauthorized();
@@ -180,6 +206,15 @@ export function createChatHandler(
     }
     if (user && pathname === exportPath && request.method === "GET") {
       return exportResponse(deps, user.id);
+    }
+    if (user && request.method === "GET" && pathname.startsWith(generatedImagesPath)) {
+      const download = new URL(request.url).searchParams.get("download") === "1";
+      return generatedImageResponse(
+        deps,
+        user.id,
+        pathname.slice(generatedImagesPath.length),
+        download,
+      );
     }
     if (
       user &&
@@ -273,6 +308,8 @@ export function createChat(options: CreateChatOptions): {
       hostTools: (options.hostProviders ?? []).filter(isHostTool),
       byok: options.byok ?? true,
       defaultBackgroundModel: options.defaultBackgroundModel,
+      defaultImageModel: options.defaultImageModel,
+      imageAdapterFor: options.imageAdapterFor,
       getQuota: quotaLookup(options.getQuota),
       rateLimits: resolveRateLimits(options.rateLimits),
       tools: options.tools ?? [],
@@ -318,6 +355,27 @@ export function createChat(options: CreateChatOptions): {
       ) {
         throw new Error(
           `defaultBackgroundModel "${defaultBackground}" is not one of the hostProviders' Models`,
+        );
+      }
+      for (const { provider, imageModels = [] } of hostProviders) {
+        for (const model of imageModels) {
+          // A Host Image Model is priced per image; without a price its spend isn't recorded.
+          if (!(model.pricePerImageUsd >= 0)) {
+            throw new Error(
+              `Host Image Model "${provider}:${model.modelId}" needs a pricePerImageUsd`,
+            );
+          }
+        }
+      }
+      const defaultImage = options.defaultImageModel;
+      if (
+        defaultImage !== undefined &&
+        !hostProviders.some(({ provider, imageModels = [] }) =>
+          imageModels.some((model) => `${provider}:${model.modelId}` === defaultImage),
+        )
+      ) {
+        throw new Error(
+          `defaultImageModel "${defaultImage}" is not one of the hostProviders' Image Models`,
         );
       }
       await assertMigrated(options.databaseUrl);
@@ -407,6 +465,57 @@ async function exportResponse(deps: AppDeps, userId: string) {
   const date = document.exportedAt.toISOString().slice(0, 10);
   return Response.json(document, {
     headers: { "Content-Disposition": `attachment; filename="chat-export-${date}.json"` },
+  });
+}
+
+/**
+ * One of the user's Generated images, its bytes straight from the blob store (spec #278). Another
+ * user's image, an unknown id or an id that isn't one is 404. The bytes never change, so they are
+ * cached for good; `?download=1` names the file for saving.
+ */
+async function generatedImageResponse(
+  deps: AppDeps,
+  userId: string,
+  id: string,
+  download: boolean,
+): Promise<Response> {
+  if (!z.uuid().safeParse(id).success) return notFound();
+  const [row] = await deps.db
+    .select({ mediaType: generatedImage.mediaType })
+    .from(generatedImage)
+    .where(and(eq(generatedImage.id, id), eq(generatedImage.userId, userId)));
+  const bytes = row ? await deps.blobStore.get(generatedImageBlobKey(id)) : null;
+  if (!row || !bytes) return notFound();
+  return imageResponse(id, row.mediaType, bytes, download);
+}
+
+/**
+ * One Generated image on a Shared link (spec #315), served to anyone with the token. Unknown or
+ * removed links, a blocked owner, and an image off the shared Branch are all 404.
+ */
+async function sharedGeneratedImageResponse(
+  deps: AppDeps,
+  token: string,
+  id: string,
+  download: boolean,
+): Promise<Response> {
+  if (!z.uuid().safeParse(id).success) return notFound();
+  const image = await loadSharedGeneratedImage(deps, token, id);
+  if (!image) return notFound();
+  return imageResponse(id, image.mediaType, image.bytes, download);
+}
+
+/** An image's bytes: immutable and cacheable, named for saving when `download` is set. */
+function imageResponse(id: string, mediaType: string, bytes: Uint8Array, download: boolean) {
+  const extension = mediaType === "image/jpeg" ? "jpg" : mediaType.split("/")[1];
+  return new Response(bytes as Uint8Array<ArrayBuffer>, {
+    headers: {
+      "Content-Type": mediaType,
+      "Cache-Control": "private, max-age=31536000, immutable",
+      ...(download && {
+        "Content-Disposition": `attachment; filename="generated-image-${id.slice(0, 8)}.${extension}"`,
+      }),
+    },
   });
 }
 

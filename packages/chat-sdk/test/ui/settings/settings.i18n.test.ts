@@ -36,12 +36,15 @@ function seedSettings(
 ) {
   queryClient.setQueryData(client.orpc.settings.get.queryKey(), {
     backgroundModel,
+    imageModel: null,
     instructions: null,
   });
   queryClient.setQueryData(client.orpc.models.list.queryKey(), {
     models: [model],
     defaultModel: null,
     defaultBackgroundModel: null,
+    imageModels: [],
+    defaultImageModel: null,
     webSearchOnHost: false,
   });
 }

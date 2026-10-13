@@ -1,6 +1,12 @@
 import { createAuth } from "@ai-chat/auth";
 import { createDb } from "@ai-chat/db";
-import { createChat, memoryRuntime, redisRuntime, redisStore } from "@ai-chat/chat-sdk/server";
+import {
+  createChat,
+  fakeImageAdapter,
+  memoryRuntime,
+  redisRuntime,
+  redisStore,
+} from "@ai-chat/chat-sdk/server";
 import { log } from "evlog";
 
 import { isBanActive } from "./admin/ban";
@@ -8,7 +14,13 @@ import { appName, sender } from "./email";
 import { ENV, ssrfAllowHosts } from "./env.server";
 import { blobStoreOf } from "./blob-store";
 import { getQuota } from "./admin/quota";
-import { hostBackgroundModelOf, hostProvidersOf, quotaOf } from "./host-models";
+import {
+  hostBackgroundModelOf,
+  hostDefaultImageModelOf,
+  hostImageProvidersOf,
+  hostProvidersOf,
+  quotaOf,
+} from "./host-models";
 import { mcpServersOf } from "./mcp-server";
 import { trustedIpHeadersOf } from "./trusted-ip";
 
@@ -55,9 +67,15 @@ export const chat = createChat({
   // Artifacts (spec #304): the assistant's create_artifact tool, the side panel and its version route.
   artifacts: true,
   // The Host's Models and their Quota (ADR 0007); unset, users chat only on their own keys.
-  hostProviders: hostProvidersOf(ENV),
+  // The Host's Image Models (`HOST_IMAGE_*`) come as one more Provider entry beside its chat Models.
+  hostProviders: [...hostProvidersOf(ENV), ...hostImageProvidersOf(ENV)],
   // The Host's default Background Model for titles (`HOST_BACKGROUND_MODEL`), one of its Models.
   defaultBackgroundModel: hostBackgroundModelOf(ENV),
+  // The Host's default Image Model (`HOST_DEFAULT_IMAGE_MODEL`), one of its Image Models.
+  defaultImageModel: hostDefaultImageModelOf(ENV),
+  // CI only (spec #278): HOST_IMAGE_PROVIDER=fake answers every image with the fake adapter, so no
+  // paid call is made.
+  ...(ENV.HOST_IMAGE_PROVIDER === "fake" && { imageAdapterFor: () => fakeImageAdapter() }),
   // A user's Quota: an Admin's override, else the Host's default (spec #277).
   getQuota: (userId) => getQuota(db, ENV, userId),
   // File bytes go to the S3 store when S3_* is set, and to Postgres otherwise (ADR 0015).

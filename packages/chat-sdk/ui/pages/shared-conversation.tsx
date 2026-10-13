@@ -61,6 +61,7 @@ export function SharedConversationPage({
   // The Artifact version the side panel shows, or none while it is closed (spec #304).
   const [openArtifact, setOpenArtifact] = useState<ArtifactRef | null>(null);
   const { t, locale } = useI18n();
+  const { sharedGeneratedImagesUrl } = useChatAdapter();
   return (
     <div className="flex h-full min-h-0">
       <div className="h-full min-w-0 flex-1 overflow-y-auto bg-background">
@@ -88,6 +89,7 @@ export function SharedConversationPage({
                 key={message.id}
                 message={message}
                 userLabel={t("pages.userLabel")}
+                imagesUrl={sharedGeneratedImagesUrl(data.token)}
                 onOpenArtifact={setOpenArtifact}
               />
             ))}

@@ -14,6 +14,11 @@ import type { ChatUser } from "../context";
 import { uuidv7 } from "../lib/uuidv7";
 import { rateLimitedFor } from "../rate-limits";
 import { resolveModel } from "./available-models";
+import { resolveImageModelFor } from "./image-models";
+import { imageRequestFor } from "./adapters";
+import { editSourcesOf } from "./edit-sources";
+import { imageCancelsUpstream } from "./host-usage";
+import type { AspectRatio } from "../../shared/chat/generated-image";
 import { parseStoredParts, searchTextOf, toModelMessages } from "../../shared/chat/parts";
 import { chatCommandSchema } from "../../shared/chat/command";
 import { runStreamDurability, START } from "./run-streams";
@@ -96,6 +101,9 @@ export async function handleChat(
   // The Artifact tools are offered to a Model with tools, and only when the Host turned them on (ADR 0016).
   const artifacts = deps.artifacts && model.tools;
   const searchCall = web ? await resolveToolCall(deps, userId, tavilyService) : null;
+  // The image tool is offered to a Model that has tools, when the user has a usable Image Model
+  // (their pick, else the Host's default; spec #278). Without one, the tool is absent.
+  const image = model.tools ? await resolveImageModelFor(deps, userId) : null;
   // The MCP tools switched on here (spec #91). The first Message takes the composer's choice; any
   // later one reads the stored choice.
   const takesComposerTools = command.tools !== undefined && owned.activeLeafId === null;
@@ -176,6 +184,40 @@ export async function handleChat(
   const adapter = deps.adapterFor(model.id, call.credentials, {
     maxOutputTokens: call.maxOutputTokens,
   });
+  // The image tool is offered only when an adapter serves the Image Model; without one, the reply
+  // chats as it would with no Image Model at all.
+  // A Provider with no image adapter throws from the factory; that reply chats with no image tool
+  // rather than failing the Run (spec #278).
+  let imageAdapter: ReturnType<AppDeps["imageAdapterFor"]>;
+  if (image) {
+    try {
+      imageAdapter = deps.imageAdapterFor(image.id, image.credentials);
+    } catch {
+      imageAdapter = undefined;
+    }
+  }
+  // The images an edit may name: the image Attachments and Generated images on this Branch (spec #278).
+  const editSources = editSourcesOf(deps, {
+    userId,
+    pathMessageIds: history.map((row) => row.id),
+    attachments: [...history.flatMap((row) => attachments.ofHistory(row)), ...attachments.added],
+  });
+  const imageTool =
+    image && imageAdapter
+      ? {
+          adapter: imageAdapter,
+          request: (aspectRatio: AspectRatio) =>
+            imageRequestFor(image.id, aspectRatio, image.hostModel),
+          edit: { maxInputImages: image.maxInputImages, sources: editSources },
+          // Only a Host Image Model has a price, so a BYOK image records its usage with no Host cost.
+          meter: {
+            userId,
+            model: image.id,
+            price: image.hostModel,
+            cancelsUpstream: imageCancelsUpstream(image.provider),
+          },
+        }
+      : undefined;
   const userParts =
     command.text === undefined ? undefined : storedParts([{ type: "text", text: command.text }]);
   const userMessageId = uuidv7();
@@ -205,6 +247,7 @@ export async function handleChat(
       provider: model.provider,
       webSearch: searchCall !== null,
       fetchUrl: web,
+      generateImage: imageTool !== undefined,
       hostTools: hostTools.length > 0,
       mcpTools: (mcp?.tools.length ?? 0) > 0,
       artifacts,
@@ -312,6 +355,7 @@ export async function handleChat(
     messages,
     webSearch: searchCall?.credentials,
     fetchUrl: web,
+    image: imageTool,
     artifacts,
     hostTools,
     mcp,

@@ -4,13 +4,14 @@ import { chatSchema } from "./chat-schema";
 
 /**
  * What a call on Host credentials was for. Each kind is written by the call it names: a Run, a
- * title, a web search, or a transcription of a voice recording (ADR 0007).
+ * title, a web search, a transcription of a voice recording, or one generated image (ADR 0007).
  */
 export const usageKind = chatSchema.enum("usage_kind", [
   "run",
   "title",
   "web_search",
   "transcription",
+  "image",
 ]);
 
 /**
