@@ -26,7 +26,7 @@ export interface CopyOptions {
 
 const SDK_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SDK_ROOT_FILES = ["package.json", "README.md"];
-const EXCLUDED_NAMES = new Set(["test", "tests", "testing", "__tests__", "node_modules"]);
+const EXCLUDED_NAMES = new Set(["test", "tests", "testing", "__tests__", "node_modules", "eval"]);
 
 function currentVersion(): SdkVersion {
   const commit = execFileSync("git", ["rev-parse", "HEAD"], {
