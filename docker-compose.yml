@@ -53,7 +53,7 @@ services:
     restart: unless-stopped
 
   postgres:
-    image: postgres:18
+    image: pgvector/pgvector:0.8.7-pg18-trixie
     container_name: ai-chat-postgres
     environment:
       POSTGRES_DB: ai-chat

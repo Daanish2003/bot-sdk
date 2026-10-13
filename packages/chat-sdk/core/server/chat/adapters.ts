@@ -1,4 +1,4 @@
-import type { AnyImageAdapter, AnyTextAdapter } from "@tanstack/ai";
+import type { AnyEmbeddingAdapter, AnyImageAdapter, AnyTextAdapter } from "@tanstack/ai";
 import { type AnthropicChatModel, createAnthropicChat } from "@tanstack/ai-anthropic";
 import { BedrockConverseTextAdapter, type BedrockConverseModels } from "@tanstack/ai-bedrock";
 import { createBytePlusText } from "@tanstack/ai-byteplus";
@@ -9,7 +9,9 @@ import {
 } from "@tanstack/ai-cloudflare";
 import {
   createGeminiChat,
+  createGeminiEmbedding,
   createGeminiImage,
+  type GeminiEmbeddingModel,
   type GeminiImageModel,
   type GeminiTextModel,
   isGeminiNativeImageModel,
@@ -20,7 +22,13 @@ import { createLLMGatewayText } from "@tanstack/ai-llmgateway";
 import { createLovableImage, createLovableText } from "@tanstack/ai-lovable";
 import { createMistralText } from "@tanstack/ai-mistral";
 import { createOllamaChat } from "@tanstack/ai-ollama";
-import { createOpenaiChat, createOpenaiImage, type OpenAIChatModel } from "@tanstack/ai-openai";
+import {
+  createOpenaiChat,
+  createOpenaiEmbedding,
+  createOpenaiImage,
+  type OpenAIChatModel,
+  type OpenAIEmbeddingModel,
+} from "@tanstack/ai-openai";
 import { createOpenRouterImage, createOpenRouterText } from "@tanstack/ai-openrouter";
 import { createVercelGatewayImage, createVercelGatewayText } from "@tanstack/ai-vercel-gateway";
 import { createBytePlusImage } from "@tanstack/ai-byteplus";
@@ -91,6 +99,28 @@ export function adapterFor(model: string, credentials: Credentials): AnyTextAdap
 function imageApiKey(provider: string, credentials: Credentials): string {
   if (!credentials.apiKey) throw new Error(`The ${provider} credentials have no API key`);
   return credentials.apiKey;
+}
+
+/**
+ * The TanStack AI embedding adapter for an embedding Model (`"provider:model"`, ADR 0014), from the
+ * credentials it runs on. The production `deps.embeddingAdapterFor`. Only OpenAI and Gemini serve
+ * embeddings; any other Provider throws.
+ */
+export function embeddingAdapterFor(model: string, credentials: Credentials): AnyEmbeddingAdapter {
+  const parsed = parseModelId(model);
+  if (!parsed) throw new Error(`"${model}" is not an embedding Model`);
+  const { provider, modelId } = parsed;
+  const apiKey = credentials.apiKey;
+  if (!apiKey) throw new Error(`The ${provider} credentials have no API key`);
+
+  switch (provider) {
+    case "openai":
+      return createOpenaiEmbedding(modelId as OpenAIEmbeddingModel, apiKey);
+    case "gemini":
+      return createGeminiEmbedding(modelId as GeminiEmbeddingModel, apiKey);
+    default:
+      throw new Error(`No embedding adapter is available for the ${provider} Provider`);
+  }
 }
 
 /**

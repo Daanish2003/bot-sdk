@@ -213,6 +213,32 @@ export async function recordTranscriptionUsage(
   });
 }
 
+/** A Host embedding Model's price, per 1M tokens, and the Model's id the usage row records. */
+export type EmbeddingMeter = { userId: string; model: string; pricePerMillionTokensUsd: number };
+
+/**
+ * Writes the `chat.usage` row of one embedding call on Host credentials (ADR 0014). The tokens are
+ * the Provider's count, or the characters ÷ 4 when the Provider reports none (Gemini), which marks
+ * the row estimated. Then fires `onUsage` with the row.
+ */
+export async function recordEmbeddingUsage(
+  deps: Pick<AppDeps, "db" | "hooks">,
+  meter: EmbeddingMeter,
+  { tokens, estimated }: { tokens: number; estimated: boolean },
+): Promise<void> {
+  await insertUsage(deps, {
+    id: uuidv7(),
+    userId: meter.userId,
+    kind: "embedding",
+    model: meter.model,
+    inputTokens: tokens,
+    outputTokens: 0,
+    costMicros: Math.round(tokens * meter.pricePerMillionTokensUsd),
+    estimated,
+    createdAt: new Date(),
+  });
+}
+
 /** Inserts a usage row, then fires `onUsage` with it. The hook is never awaited (chat/hooks.ts). */
 async function insertUsage(deps: Pick<AppDeps, "db" | "hooks">, row: UsageEvent): Promise<void> {
   await deps.db.insert(usageRows).values(row);

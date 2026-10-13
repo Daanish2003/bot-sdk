@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "6950e908-eec9-475d-9216-88bf13b00c32",
-  "prevIds": ["b7f5a6cf-4f06-4d81-825f-c487485a1cd5"],
+  "id": "52a6ce3b-03a1-4ee3-887f-644a81d12ce3",
+  "prevIds": ["104e4e7c-ad7d-4293-80e8-1e8dd6aeb864"],
   "ddl": [
     {
       "values": ["code", "markdown", "html", "svg", "mermaid"],
@@ -47,7 +47,7 @@
       "schema": "chat"
     },
     {
-      "values": ["run", "title", "web_search", "transcription", "image"],
+      "values": ["run", "title", "web_search", "transcription", "image", "embedding"],
       "name": "usage_kind",
       "entityType": "enums",
       "schema": "chat"
