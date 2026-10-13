@@ -66,6 +66,7 @@ export const errorMessages = {
   "error.temporaryShare": "A Temporary Conversation can't be shared",
   "error.rateNotAssistant": "Only an assistant Message can be rated",
   "error.rateLive": "The reply can be rated once its Run has ended",
+  "error.rateHidden": "A hidden reply can't be rated",
   "error.savedPromptName": "Names use lowercase letters, digits and -, up to 32 characters",
   "error.savedPromptTextBlank": "Text can't be blank",
   "error.savedPromptTextTooLong": ({ max }: { max: string }) =>
