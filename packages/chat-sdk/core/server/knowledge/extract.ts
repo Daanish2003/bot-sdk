@@ -69,6 +69,10 @@ function loadPdfJs(): Promise<PdfJs> {
 /**
  * The text layer of a PDF, one line per text line, pages in order. A PDF with no text layer (a
  * scan) fails as no_text: there is nothing to search without OCR, which is left out.
+ *
+ * This runs in-process, not in a worker_threads worker, by the owner's decision on #368: the job
+ * runner is already off the request path, and the SDK ships TypeScript source, so there is no
+ * built worker entry for a Host to bundle.
  */
 async function pdfToText(bytes: Uint8Array): Promise<string> {
   const pdfjs = await loadPdfJs();
