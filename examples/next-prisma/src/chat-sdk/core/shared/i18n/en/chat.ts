@@ -134,6 +134,14 @@ export const chatMessages = {
   "chat.searchedTimes": ({ count, sources }: { count: number; sources: number }) =>
     `Searched ${count} times · ${sources === 0 ? "no sources" : `${sources} ${sources === 1 ? "source" : "sources"}`}`,
 
+  // The Knowledge search a reply makes (spec #357, ticket #206): its line, and why it failed.
+  "chat.knowledgeSearching": ({ query }: { query: string }) =>
+    `Searching Knowledge for "${query}"…`,
+  "chat.knowledgeSearched": ({ query, count }: { query: string; count: number }) =>
+    `Searched Knowledge for "${query}" · ${count === 0 ? "no passages" : `${count} ${count === 1 ? "passage" : "passages"}`}`,
+  "chat.knowledgeFailed": "Knowledge search failed.",
+  "chat.knowledgeNotRunQuota": "Knowledge search not run: you're over this window's Quota.",
+
   // Why a tool call or a page read failed, as a reader sees it. The code is stored on the part; the
   // Model reads the English its tool returned instead.
   "chat.toolError.failed": ({ message }: { message: string }) => `The tool failed: ${message}`,

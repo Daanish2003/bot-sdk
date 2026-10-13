@@ -1,6 +1,7 @@
 import { type MessagePart, parsePartialJSON } from "@tanstack/ai";
 
 import { generateImageToolName } from "./generated-image";
+import { searchKnowledgeToolName } from "./knowledge-search";
 import type { ToolError } from "../message-parts";
 import { webSearchToolName } from "./web-search";
 
@@ -38,7 +39,13 @@ export type ToolCallView = {
  */
 export function toolCallOf(part: MessagePart): ToolCallView | null {
   if (part.type !== "tool-call") return null;
-  if (part.name === webSearchToolName || part.name === generateImageToolName) return null;
+  if (
+    part.name === webSearchToolName ||
+    part.name === generateImageToolName ||
+    part.name === searchKnowledgeToolName
+  ) {
+    return null;
+  }
   const meta = (part.metadata ?? {}) as Partial<{
     source: string;
     status: ToolCallStatus;

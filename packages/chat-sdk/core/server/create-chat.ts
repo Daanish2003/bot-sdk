@@ -10,6 +10,7 @@ import { generatedImage } from "./db/schema/generated-image";
 import { postgresBlobStore } from "./blob/postgres";
 import { webSearchToolName } from "../shared/chat/web-search";
 import { fetchUrlToolName } from "../shared/chat/fetch-url";
+import { searchKnowledgeToolName } from "../shared/chat/knowledge-search";
 import { createArtifactToolName, updateArtifactToolName } from "../shared/chat/artifact";
 import { handleJoin } from "./chat/join-run";
 import { transcriptionProviders } from "./chat/transcription";
@@ -112,7 +113,7 @@ export type CreateChatOptions = {
   /**
    * The Host's own tools, written with TanStack AI's `toolDefinition(...).server(fn)`. The Model
    * can call them in any reply whose Model has tools; each call runs on this server. Their names
-   * must not be `web_search`, the SDK's own search tool.
+   * must not be `web_search`, `fetch_url` or `search_knowledge`, the SDK's own tools.
    */
   tools?: HostServerTool[];
   /**
@@ -299,6 +300,7 @@ export function createChat(options: CreateChatOptions): {
   const builtIns = [
     webSearchToolName,
     fetchUrlToolName,
+    searchKnowledgeToolName,
     ...(options.artifacts ? [createArtifactToolName, updateArtifactToolName] : []),
   ];
   for (const builtIn of builtIns) {

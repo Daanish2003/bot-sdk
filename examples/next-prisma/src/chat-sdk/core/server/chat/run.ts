@@ -29,6 +29,8 @@ import { artifactCutOff, createArtifactTool, updateArtifactTool } from "./artifa
 import { createWebSearchTool } from "./web-search-tool";
 import { paidCallAllowed } from "./quota";
 import { createFetchUrlTool } from "./fetch-url-tool";
+import { createKnowledgeSearchTool } from "./knowledge-search-tool";
+import type { ResolvedEmbeddingModel } from "./embedding-models";
 import { createGenerateImageTool } from "./generate-image-tool";
 import type { EditSource } from "./edit-sources";
 import type { ImageRequest } from "./adapters";
@@ -69,6 +71,7 @@ export async function startRun(
     messages,
     webSearch,
     fetchUrl = false,
+    knowledgeSearch,
     image,
     artifacts = false,
     hostTools = [],
@@ -100,6 +103,11 @@ export async function startRun(
     webSearch?: Credentials;
     /** Whether this reply offers the `fetch_url` tool, which needs no credential. */
     fetchUrl?: boolean;
+    /**
+     * Set when this reply offers the `search_knowledge` tool: the Conversation's Project, the user
+     * who owns it, and the embedding Model its files are searched with (spec #357).
+     */
+    knowledgeSearch?: { userId: string; projectId: string; model: ResolvedEmbeddingModel };
     /**
      * Set when this reply offers the `generate_image` tool: the Image Model's adapter, each call's
      * request, and whose usage each image is (spec #278).
@@ -256,6 +264,27 @@ export async function startRun(
                 timeoutMs: deps.limits.fetchTimeoutMs,
                 parts,
                 onChange: () => (changed = true),
+              }),
+            ]
+          : []),
+        ...(knowledgeSearch
+          ? [
+              createKnowledgeSearchTool({
+                deps,
+                userId: knowledgeSearch.userId,
+                projectId: knowledgeSearch.projectId,
+                model: knowledgeSearch.model,
+                parts,
+                onChange: () => (changed = true),
+                budget,
+                // The query is embedded on Host credentials, so it's checked against the Quota first (ADR 0007).
+                mayRun: () =>
+                  paidCallAllowed(
+                    deps,
+                    knowledgeSearch.model.onHostCredentials
+                      ? { userId: knowledgeSearch.userId }
+                      : undefined,
+                  ),
               }),
             ]
           : []),

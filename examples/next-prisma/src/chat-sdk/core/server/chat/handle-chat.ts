@@ -30,6 +30,7 @@ import { findConversation, loadPath } from "./store";
 import { projectInstructionsOf } from "../project/store";
 import { loadSettings } from "../settings/store";
 import { systemPromptsFor } from "./system-prompts";
+import { knowledgeSearchFor } from "../knowledge/search";
 import { quotaExceededCode, quotaRefusal } from "./quota";
 import { generationOptionsFor } from "./generation";
 import { effortFor } from "../../shared/chat/models";
@@ -111,6 +112,12 @@ export async function handleChat(
   // The Host's tools are offered to a Model that has tools (`createChat({ tools })`). A tool the
   // Conversation allows runs without Approval (#159).
   const hostTools = model.tools ? allowTools(deps.tools, toolSettings.allowedTools) : [];
+  // The Knowledge search is offered to a Model with tools, in a Project with ready Knowledge files and
+  // a working credential for its embedding Model (spec #357). A Temporary Conversation has no Project.
+  const knowledge =
+    model.tools && owned.projectId && !owned.temporary
+      ? await knowledgeSearchFor(deps, userId, owned.projectId)
+      : null;
   // Read now, so a Run keeps the Instructions it started with; a regenerate or edit reads them anew.
   const { instructions } = await loadSettings(deps, userId);
   // The Project's Instructions are read from the Conversation's Project at the same moment (spec 5).
@@ -118,6 +125,7 @@ export async function handleChat(
     web,
     instructions,
     projectInstructions: await projectInstructionsOf(deps, owned.projectId),
+    knowledgeFiles: knowledge?.fileNames ?? null,
   });
 
   const history = await loadPath(deps, owned.id, command.parentId);
@@ -248,6 +256,7 @@ export async function handleChat(
       webSearch: searchCall !== null,
       fetchUrl: web,
       generateImage: imageTool !== undefined,
+      knowledgeSearch: knowledge !== null,
       hostTools: hostTools.length > 0,
       mcpTools: (mcp?.tools.length ?? 0) > 0,
       artifacts,
@@ -355,6 +364,9 @@ export async function handleChat(
     messages,
     webSearch: searchCall?.credentials,
     fetchUrl: web,
+    knowledgeSearch: knowledge
+      ? { userId, projectId: owned.projectId!, model: knowledge.model }
+      : undefined,
     image: imageTool,
     artifacts,
     hostTools,

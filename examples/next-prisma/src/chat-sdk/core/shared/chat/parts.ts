@@ -1,6 +1,7 @@
 import {
   type GeneratedImagePart,
   type ArtifactPart,
+  type KnowledgeSearchPart,
   type StoredPart,
   type StoredParts,
   storedParts,
@@ -21,6 +22,7 @@ import {
 import { attachmentKind, kindLabel, kindLabelPlural } from "../attachments/kinds";
 import { createArtifactToolName, updateArtifactToolName } from "./artifact";
 import { fetchUrlToolName } from "./fetch-url";
+import { knowledgeOutputOf, searchKnowledgeToolName } from "./knowledge-search";
 import { providerOf } from "./models";
 import {
   type AspectRatio,
@@ -118,6 +120,13 @@ export function createPartsBuilder(initial: StoredPart[] = []) {
         part.toolCallId === toolCallId &&
         part.state === "running",
     );
+  const runningKnowledge = (toolCallId: string) =>
+    parts.find(
+      (part): part is KnowledgeSearchPart =>
+        part.type === "knowledge_search" &&
+        part.toolCallId === toolCallId &&
+        part.state === "running",
+    );
 
   return {
     add(chunk: StreamChunk) {
@@ -194,6 +203,25 @@ export function createPartsBuilder(initial: StoredPart[] = []) {
         part.errorReason = outcome.errorReason;
       }
     },
+    /** Starts a `search_knowledge` call, as the tool is about to run (spec #357, ticket #206). */
+    startKnowledgeSearch(toolCallId: string, query: string) {
+      parts.push({ type: "knowledge_search", toolCallId, query, state: "running", excerpts: [] });
+    },
+    /** Ends a running `search_knowledge` call: with the passages it found, or with its error code. */
+    finishKnowledgeSearch(
+      toolCallId: string,
+      outcome: { excerpts: KnowledgeSearchPart["excerpts"] } | { error: ToolError },
+    ) {
+      const part = runningKnowledge(toolCallId);
+      if (!part) return;
+      if ("excerpts" in outcome) {
+        part.state = "done";
+        part.excerpts = outcome.excerpts;
+      } else {
+        part.state = "error";
+        part.error = outcome.error;
+      }
+    },
     /**
      * Starts a tool call other than `web_search`, as the tool is about to run. A call a resumed Run
      * already holds (waiting for Approval, now approved) is updated in place.
@@ -264,11 +292,16 @@ export function cancelRunningCalls(parts: StoredParts): StoredParts {
   );
 }
 
-/** A part a reply's tool call made: a search, a tool call or a generated image. */
-type CallPart = WebSearchPart | ToolCallPart | GeneratedImagePart;
+/** A part a reply's tool call made: a search, a tool call, a generated image or a Knowledge search. */
+type CallPart = WebSearchPart | ToolCallPart | GeneratedImagePart | KnowledgeSearchPart;
 
 function isCallPart(part: StoredPart): part is CallPart {
-  return part.type === "web_search" || part.type === "tool_call" || part.type === "generated_image";
+  return (
+    part.type === "web_search" ||
+    part.type === "tool_call" ||
+    part.type === "generated_image" ||
+    part.type === "knowledge_search"
+  );
 }
 
 function textOf(parts: StoredParts, separator: string) {
@@ -332,6 +365,7 @@ function toolCallPlaceholder(part: ToolCallPart) {
 function resultOf(call: CallPart): unknown {
   if (call.type === "web_search") return searchOutput(call);
   if (call.type === "generated_image") return imageOutput(call);
+  if (call.type === "knowledge_search") return knowledgeOutputOf(call);
   if (isArtifactCall(call) && call.state === "done") {
     const saved = call.result as { version?: unknown } | null;
     return `saved as v${String(saved?.version)}`;
@@ -355,10 +389,22 @@ function imagePlaceholder(part: GeneratedImagePart) {
     : `[Generated an image: "${part.prompt}"]`;
 }
 
+/** A finished Knowledge search as text, for a request that doesn't offer its tool. */
+function knowledgePlaceholder(part: KnowledgeSearchPart) {
+  if (part.state === "error")
+    return `[Searched Knowledge for "${part.query}": Knowledge unavailable]`;
+  const found =
+    part.excerpts.length === 0
+      ? "no passages"
+      : `passages from ${[...new Set(part.excerpts.map((excerpt) => excerpt.fileName))].join(", ")}`;
+  return `[Searched Knowledge for "${part.query}": ${found}]`;
+}
+
 /** A finished search, tool call or image as text, for a request that doesn't offer its tool. */
 function placeholderOf(part: CallPart) {
   if (part.type === "web_search") return searchPlaceholder(part);
   if (part.type === "generated_image") return imagePlaceholder(part);
+  if (part.type === "knowledge_search") return knowledgePlaceholder(part);
   return toolCallPlaceholder(part);
 }
 
@@ -369,6 +415,8 @@ type OfferedTools = {
   hostTools: boolean;
   mcpTools: boolean;
   generateImage: boolean;
+  /** Whether the request offers the `search_knowledge` tool (spec #357, ticket #206). */
+  knowledgeSearch: boolean;
   /** Whether the request offers the Artifact tools (ADR 0016). */
   artifacts: boolean;
 };
@@ -377,6 +425,7 @@ type OfferedTools = {
 const offeredCall = (part: CallPart, offered: OfferedTools) => {
   if (part.type === "web_search") return offered.webSearch;
   if (part.type === "generated_image") return offered.generateImage;
+  if (part.type === "knowledge_search") return offered.knowledgeSearch;
   if (isArtifactCall(part)) return offered.artifacts;
   if (part.name === fetchUrlToolName) return offered.fetchUrl;
   return part.source === "mcp" ? offered.mcpTools : offered.hostTools;
@@ -410,7 +459,12 @@ function withToolCalls({ role, parts }: StoredMessage, offered: OfferedTools): M
                     ...(call.editedFrom && { editImageIds: call.editedFrom }),
                   }),
                 }
-              : { name: call.name, arguments: JSON.stringify(call.args) },
+              : call.type === "knowledge_search"
+                ? {
+                    name: searchKnowledgeToolName,
+                    arguments: JSON.stringify({ query: call.query }),
+                  }
+                : { name: call.name, arguments: JSON.stringify(call.args) },
       }));
       messages.push({ role, content: content || null, toolCalls });
       // A call waiting for Approval has no result yet: the resumed Run supplies it (ADR 0008).
@@ -488,6 +542,7 @@ export function toModelMessages(
     hostTools = false,
     mcpTools = false,
     generateImage = false,
+    knowledgeSearch = false,
     artifacts = false,
     reads = { images: false, pdfs: false },
   }: {
@@ -501,6 +556,8 @@ export function toModelMessages(
     mcpTools?: boolean;
     /** Whether this request offers the `generate_image` tool (spec #278). */
     generateImage?: boolean;
+    /** Whether this request offers the `search_knowledge` tool (spec #357). */
+    knowledgeSearch?: boolean;
     /** Whether this request offers the Artifact tools; their calls then replay as stubs (ADR 0016). */
     artifacts?: boolean;
     /** Attachments the Model can't read become text placeholders. */
@@ -509,13 +566,20 @@ export function toModelMessages(
 ): ModelMessage[] {
   return history.flatMap((stored) => {
     const messages =
-      webSearch || fetchUrl || hostTools || mcpTools || generateImage || artifacts
+      webSearch ||
+      fetchUrl ||
+      hostTools ||
+      mcpTools ||
+      generateImage ||
+      knowledgeSearch ||
+      artifacts
         ? withToolCalls(stored, {
             webSearch,
             fetchUrl,
             hostTools,
             mcpTools,
             generateImage,
+            knowledgeSearch,
             artifacts,
           })
         : withPlaceholders(stored);
@@ -591,6 +655,7 @@ export function toUIParts(parts: StoredParts): MessagePart[] {
     if (part.type === "tool_call") return toolCallUIPart(part);
     if (part.type === "generated_image") return generatedImageUIPart(part);
     if (part.type === "artifact") return artifactUIPart(part);
+    if (part.type === "knowledge_search") return knowledgeUIPart(part);
     const input = { query: part.query };
     return {
       type: "tool-call",
@@ -608,6 +673,30 @@ export function toUIParts(parts: StoredParts): MessagePart[] {
       ...(finished(part) && { output: searchOutput(part) }),
     };
   });
+}
+
+/**
+ * A stored `search_knowledge` call, as `useChat` shows it: a tool call with its query as input and
+ * its passages (or the unavailable error) as output. Its status rides in `metadata`, as a tool call's.
+ */
+function knowledgeUIPart(part: KnowledgeSearchPart): MessagePart {
+  const input = { query: part.query };
+  return {
+    type: "tool-call",
+    id: part.toolCallId,
+    name: searchKnowledgeToolName,
+    arguments: JSON.stringify(input),
+    input,
+    // A cancelled search ended without a result.
+    state:
+      part.state === "running"
+        ? "input-complete"
+        : part.state === "cancelled"
+          ? "error"
+          : "complete",
+    ...(finished(part) && { output: knowledgeOutputOf(part) }),
+    metadata: { source: "builtin", status: part.state, ...(part.error && { error: part.error }) },
+  };
 }
 
 /**

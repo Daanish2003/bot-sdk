@@ -3,6 +3,7 @@ import { createArtifactToolName, updateArtifactToolName } from "../../core/share
 import { pageSourcesOf, replySegments, sourcesOf } from "../../core/shared/chat/sources";
 import { generatedImageOf } from "../../core/shared/chat/generated-image";
 import { toolCallOf, type ToolCallView } from "../../core/shared/chat/tool-call";
+import { knowledgeSearchOf } from "../../core/shared/chat/knowledge-search";
 import { webSearchOf } from "../../core/shared/chat/web-search";
 import { Button } from "@/components/ui/button";
 import { Loader } from "@/components/ui/prompt-kit/loader";
@@ -49,6 +50,7 @@ import {
 import { type EditSource, GeneratedImageBlock } from "./generated-image-block";
 import { ReadAloud } from "./read-aloud";
 import { ArtifactCard, artifactIdOf, type ArtifactRef } from "./artifact-card";
+import { KnowledgeSearchRow } from "./knowledge-search-row";
 import { SearchRow } from "./search-row";
 import { replyComponents, ReplySources, SourceChips } from "./source-chips";
 import { ToolCallRow } from "./tool-call-row";
@@ -546,6 +548,8 @@ function AssistantParts({
               (id) => editSources?.get(id) ?? { label: t("chat.imageEarlier") },
             )}
           />
+        ) : segment.type === "knowledge" ? (
+          <KnowledgeSearchRow key={segment.key} search={segment.search} />
         ) : segment.type === "searches" ? (
           <SearchRow key={segment.key} searches={segment.searches} sources={sources} />
         ) : (
@@ -577,7 +581,10 @@ function waitingForText(parts: UIMessage["parts"]) {
   const shown = parts.filter((part) =>
     part.type === "text"
       ? part.content !== ""
-      : webSearchOf(part) !== null || toolCallOf(part) !== null || generatedImageOf(part) !== null,
+      : webSearchOf(part) !== null ||
+        toolCallOf(part) !== null ||
+        generatedImageOf(part) !== null ||
+        knowledgeSearchOf(part) !== null,
   );
   const last = shown.at(-1);
   if (!last) return true;
@@ -585,7 +592,8 @@ function waitingForText(parts: UIMessage["parts"]) {
   const running =
     webSearchOf(last)?.state === "running" ||
     toolCallOf(last)?.status === "running" ||
-    generatedImageOf(last)?.state === "running";
+    generatedImageOf(last)?.state === "running" ||
+    knowledgeSearchOf(last)?.state === "running";
   return !running;
 }
 
