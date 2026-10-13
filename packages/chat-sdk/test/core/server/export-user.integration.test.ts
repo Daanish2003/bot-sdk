@@ -6,6 +6,7 @@ import { createChat } from "../../../core/server/create-chat";
 import { saveCredentials } from "../../../core/server/credentials/store";
 import { artifact, artifactVersion } from "../../../core/server/db/schema/artifact";
 import { project } from "../../../core/server/db/schema/chat";
+import { knowledgeFile } from "../../../core/server/db/schema/knowledge";
 import { savedPrompt } from "../../../core/server/db/schema/saved-prompt";
 import { sharedLink } from "../../../core/server/db/schema/share";
 import { userSettings } from "../../../core/server/db/schema/settings";
@@ -413,5 +414,27 @@ describe("createChat().exportUser, a Hidden reply's Rating", () => {
 
     const found = exported.conversations[0]!.messages.find((m) => m.id === hidden.id);
     expect(found).toMatchObject({ hidden: true, rating: null });
+  });
+});
+
+describe("createChat().exportUser, Knowledge files", () => {
+  it("lists each Knowledge file by name, type and Project, with no bytes or passages", async () => {
+    const owner = await insertUser();
+    const projectId = uuidv7();
+    await getTestDb().insert(project).values({ id: projectId, userId: owner.id, name: "Thesis" });
+    await getTestDb().insert(knowledgeFile).values({
+      id: uuidv7(),
+      userId: owner.id,
+      projectId,
+      name: "draft.md",
+      mediaType: "text/markdown",
+      size: 12,
+    });
+
+    const exported = await chatFor().exportUser(owner.id);
+
+    expect(exported.knowledgeFiles).toEqual([
+      { name: "draft.md", mediaType: "text/markdown", projectId },
+    ]);
   });
 });
