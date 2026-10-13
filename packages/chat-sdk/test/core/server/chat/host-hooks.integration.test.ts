@@ -571,6 +571,32 @@ describe("the onRunEnd hook", () => {
     );
   });
 
+  it("records one usage row when a Stop ends a Host Run whose owner is still alive but late", async () => {
+    const user = await insertUser();
+    const conv = await insertConversation(user, { title: "Late owner usage" });
+    const held = createFakeAdapter({ rounds: [round(text("Hi"))], manual: true });
+    const onRunEnd = vi.fn<(run: RunEndEvent) => void>();
+    const deps = depsWithRunEnd(onRunEnd, { adapterFor: () => held.adapter });
+
+    const response = await sendAs(runRequest(conv.id), user, deps);
+    const reply = await replyOf(conv.id);
+    await getTestDb()
+      .update(message)
+      .set({ heartbeatAt: new Date(Date.now() - 60 * 60_000) })
+      .where(eq(message.id, reply.id));
+    await chatRpc({ user, deps }).chat.stop({ messageId: reply.id });
+    await vi.waitFor(() => expect(onRunEnd).toHaveBeenCalledTimes(1));
+    // The owner's ending matches no row, yet its Run was on Host credentials and spent tokens.
+    await held.releaseAll();
+    await response.text();
+    await vi.waitFor(() => expect(deps.lifecycle.runs.size).toBe(0));
+
+    const rows = await getTestDb().select().from(usage).where(eq(usage.userId, user.id));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ kind: "run", model: hostModel });
+    expect(onRunEnd).toHaveBeenCalledTimes(1);
+  });
+
   it("fires nothing for a live Run whose user is deleted: its owner's write matches no row", async () => {
     const user = await insertUser();
     const conv = await insertConversation(user, { title: "Live delete" });
