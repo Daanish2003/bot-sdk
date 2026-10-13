@@ -21,6 +21,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import {
   ArchiveIcon,
   ArchiveRestoreIcon,
+  DownloadIcon,
   KeyRoundIcon,
   MessageSquareIcon,
   PencilIcon,
@@ -32,7 +33,10 @@ import {
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { useArchiveConversation } from "../../core/client/react/conversation-actions";
+import {
+  useArchiveConversation,
+  useExportConversation,
+} from "../../core/client/react/conversation-actions";
 import { invalidateConversationList } from "../../core/client/react/conversation-list";
 import { useDeleteConversation } from "../../core/client/react/delete-conversation";
 import { useChatAdapter, useChatLocation, useOrpc } from "../../core/client/react/provider";
@@ -138,6 +142,7 @@ function PaletteBody({
   });
   const remove = useDeleteConversation();
   const archive = useArchiveConversation();
+  const exporter = useExportConversation();
   const searched = useDebounced(q.trim(), searchDebounceMs);
   const [filters, setFilters] = useState<SearchFilterValue>({});
   const models = useQuery(orpc.models.list.queryOptions());
@@ -230,6 +235,17 @@ function PaletteBody({
                 label: "Archive this Conversation",
                 run: () => archive.archive(conversationId),
               },
+        ]
+      : []),
+    ...(conversationId
+      ? [
+          {
+            key: "export",
+            group: "Commands" as const,
+            icon: <DownloadIcon />,
+            label: "Export as Markdown",
+            run: () => exporter.exportMarkdown(conversationId),
+          },
         ]
       : []),
     ...(current
