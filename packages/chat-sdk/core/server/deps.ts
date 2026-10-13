@@ -254,6 +254,7 @@ export const defaultLimits: Limits = {
 export function createAppDeps({
   db,
   imageAdapterFor,
+  embeddingAdapterFor,
   keyEncryptionSecrets,
   runtime,
   hostProviders,
@@ -276,6 +277,8 @@ export function createAppDeps({
   db: Database;
   /** The image adapter factory; the production one is `imageAdapterFor` in `chat/adapters.ts`. */
   imageAdapterFor?: AppDeps["imageAdapterFor"];
+  /** The embedding adapter factory; the production one is `embeddingAdapterFor` in `chat/adapters.ts`. */
+  embeddingAdapterFor?: AppDeps["embeddingAdapterFor"];
   keyEncryptionSecrets: string[];
   runtime: ChatRuntime;
   hostProviders: HostProvider[];
@@ -304,7 +307,7 @@ export function createAppDeps({
     adapterFor,
     imageAdapterFor: imageAdapterFor ?? productionImageAdapterFor,
     transcriptionAdapterFor,
-    embeddingAdapterFor: productionEmbeddingAdapterFor,
+    embeddingAdapterFor: embeddingAdapterFor ?? productionEmbeddingAdapterFor,
     hostProviders,
     hostTools,
     byok,

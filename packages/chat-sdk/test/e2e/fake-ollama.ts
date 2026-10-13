@@ -46,6 +46,28 @@ const updateArtifactToolName = "update_artifact";
 export const artifactTitle = "E2E page";
 export const revisedHeading = "Revised page";
 
+/**
+ * A prompt with this marker makes the fake Model call `search_knowledge` with `knowledgeQuery`, when
+ * the request offers it (its Project has ready Knowledge files). The reply cites the first Excerpt
+ * the search returned, as `excerpt:1`, by its file's name.
+ */
+export const knowledgeMarker = "[knowledge]";
+const knowledgeToolName = "search_knowledge";
+export const knowledgeQuery = "launch date";
+/** The Knowledge file the e2e run uploads, and the passage the search finds in it. */
+export const knowledgeFileName = "brief.md";
+export const knowledgePassage = "The launch date is 14 March.";
+
+/** The reply to a search's result: the first passage's file, cited as `excerpt:1`. */
+export function knowledgeReply(toolResult: string): string {
+  const result = JSON.parse(toolResult) as {
+    excerpts?: { fileName: string }[];
+    error?: string;
+  };
+  if (result.error || !result.excerpts?.length) return "The Knowledge files had no answer.";
+  return `The launch is on 14 March, according to [${result.excerpts[0]?.fileName}](excerpt:1).`;
+}
+
 /** The JSON the fake host serves for the Artifact's fetch, with the CORS header a read would need. */
 export const dataPath = "/e2e/data";
 
@@ -105,6 +127,7 @@ export function fetchedReply(toolResult: string): string {
 function replyToTool(asked: string | undefined, content: string): string {
   if (asked === mcpToolName) return mcpReply(content);
   if (asked === imageToolName) return imageReply;
+  if (asked === knowledgeToolName) return knowledgeReply(content);
   if (asked === createArtifactToolName || asked === updateArtifactToolName) {
     return artifactReply(content);
   }
@@ -238,6 +261,10 @@ export function startFakeOllama(port: number): Promise<Server> {
       }
       if (stream && !answering && offers(imageToolName) && prompt.includes(imageMarker)) {
         calls(imageToolName, { prompt: imagePrompt, aspectRatio: "landscape" });
+        return;
+      }
+      if (stream && !answering && offers(knowledgeToolName) && prompt.includes(knowledgeMarker)) {
+        calls(knowledgeToolName, { query: knowledgeQuery });
         return;
       }
       // The Artifact an update changes: the last one the system prompt lists for this Branch.
