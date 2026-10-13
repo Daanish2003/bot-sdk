@@ -112,6 +112,27 @@ export const artifactPartSchema = z.object({
   state: z.literal("done"),
 });
 
+/** One past Conversation a `search_past_chats` call found, with the snippets it matched (spec #263). */
+export const pastChatSchema = z.object({
+  conversationId: z.string(),
+  title: z.string(),
+  /** The date of the Message the first snippet comes from, as an ISO string. */
+  date: z.string(),
+  snippets: z.array(z.string()).max(3),
+});
+
+/**
+ * One `search_past_chats` call of a reply and how it went (spec #263). `conversations` are the
+ * Conversations it found, at most 5; a failed search is a state, never a Message error.
+ */
+export const pastChatsSearchPartSchema = z.object({
+  type: z.literal("past_chats_search"),
+  toolCallId: z.string(),
+  query: z.string(),
+  state: z.enum(["running", "done", "error", "cancelled"]),
+  conversations: z.array(pastChatSchema).max(5),
+});
+
 export const storedPartSchema = z.discriminatedUnion("type", [
   textPartSchema,
   thinkingPartSchema,
@@ -119,15 +140,16 @@ export const storedPartSchema = z.discriminatedUnion("type", [
   toolCallPartSchema,
   generatedImagePartSchema,
   artifactPartSchema,
+  pastChatsSearchPartSchema,
 ]);
 
 /**
  * The schema version a Message's parts are written at. 2 added `tool_call` (ADR 0008); a version 1
  * row has no `tool_call` part, so it still reads. 3 added `generated_image` and `artifact`; versions
- * 1 and 2 still read.
+ * 1 and 2 still read. 4 added `past_chats_search`; versions 1 to 3 still read.
  */
 export const storedPartsSchema = z.object({
-  schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+  schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
   parts: z.array(storedPartSchema),
 });
 
@@ -136,8 +158,9 @@ export type WebSearchPart = z.infer<typeof webSearchPartSchema>;
 export type ToolCallPart = z.infer<typeof toolCallPartSchema>;
 export type GeneratedImagePart = z.infer<typeof generatedImagePartSchema>;
 export type ArtifactPart = z.infer<typeof artifactPartSchema>;
+export type PastChatsSearchPart = z.infer<typeof pastChatsSearchPartSchema>;
 export type StoredParts = z.infer<typeof storedPartsSchema>;
 
 export function storedParts(parts: StoredPart[]): StoredParts {
-  return { schemaVersion: 3, parts };
+  return { schemaVersion: 4, parts };
 }

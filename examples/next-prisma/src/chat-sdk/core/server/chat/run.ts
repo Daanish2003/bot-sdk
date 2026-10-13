@@ -28,6 +28,7 @@ import {
 import type { McpTools } from "../mcp/tools";
 import { artifactCutOff, createArtifactTool, updateArtifactTool } from "./artifact-tool";
 import { createWebSearchTool } from "./web-search-tool";
+import { createSearchPastChatsTool } from "./past-chats-tool";
 import { paidCallAllowed } from "./quota";
 import { createFetchUrlTool } from "./fetch-url-tool";
 import { createGenerateImageTool } from "./generate-image-tool";
@@ -69,6 +70,7 @@ export async function startRun(
     adapter,
     messages,
     webSearch,
+    pastChats,
     fetchUrl = false,
     image,
     artifacts = false,
@@ -99,6 +101,11 @@ export async function startRun(
     messages: ModelMessage[];
     /** The user's Tavily Tool credential, when this reply offers the `web_search` tool. */
     webSearch?: Credentials;
+    /**
+     * Set when this reply offers the `search_past_chats` tool: Memory is on and the Conversation is
+     * not Temporary (spec #263). `projectId` is the Conversation's Project, which sets its scope.
+     */
+    pastChats?: { projectId: string | null };
     /** Whether this reply offers the `fetch_url` tool, which needs no credential. */
     fetchUrl?: boolean;
     /**
@@ -247,6 +254,18 @@ export async function startRun(
                   : undefined,
                 // A search on Host credentials is checked against the Quota first (ADR 0007).
                 mayRun: () => paidCallAllowed(deps, searchMeter),
+              }),
+            ]
+          : []),
+        ...(pastChats
+          ? [
+              createSearchPastChatsTool({
+                deps,
+                userId: context.userId,
+                conversationId: context.conversationId,
+                projectId: pastChats.projectId,
+                parts,
+                onChange: () => (changed = true),
               }),
             ]
           : []),

@@ -129,6 +129,13 @@ export const chatMessages = {
   "chat.searchFailed": "Search failed.",
   "chat.searchNotRunQuota": "Search not run: you're over this window's Quota.",
   "chat.searchNoResults": ({ query }: { query: string }) => `No results for "${query}"`,
+  // Searches of past chats (spec #263). A Shared link reads only the one without a query.
+  "chat.pastChatsSearching": ({ query }: { query: string }) =>
+    `Searching past chats for "${query}"…`,
+  "chat.pastChatsSearched": ({ query }: { query: string }) => `Searched past chats for "${query}"`,
+  "chat.pastChatsSearchedShared": "Searched past chats",
+  "chat.pastChatsNone": ({ query }: { query: string }) => `No past chats match "${query}"`,
+  "chat.pastChatsFailed": "Searching past chats failed",
   "chat.searchedQuery": ({ query, count }: { query: string; count: number }) =>
     `Searched "${query}" · ${count} ${count === 1 ? "source" : "sources"}`,
   "chat.searchedTimes": ({ count, sources }: { count: number; sources: number }) =>

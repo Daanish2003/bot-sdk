@@ -2,6 +2,7 @@ import { type MessagePart, parsePartialJSON } from "@tanstack/ai";
 
 import { generateImageToolName } from "./generated-image";
 import type { ToolError } from "../message-parts";
+import { searchPastChatsToolName } from "./past-chats";
 import { webSearchToolName } from "./web-search";
 
 /**
@@ -33,12 +34,18 @@ export type ToolCallView = {
 };
 
 /**
- * The tool call a `useChat` part is, or `null` for any other part, a `web_search` call and a
- * `generate_image` call (each has its own row).
+ * The tool call a `useChat` part is, or `null` for any other part, a `web_search`, `generate_image`
+ * or `search_past_chats` call (each has its own row).
  */
 export function toolCallOf(part: MessagePart): ToolCallView | null {
   if (part.type !== "tool-call") return null;
-  if (part.name === webSearchToolName || part.name === generateImageToolName) return null;
+  if (
+    part.name === webSearchToolName ||
+    part.name === generateImageToolName ||
+    part.name === searchPastChatsToolName
+  ) {
+    return null;
+  }
   const meta = (part.metadata ?? {}) as Partial<{
     source: string;
     status: ToolCallStatus;

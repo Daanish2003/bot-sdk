@@ -13,6 +13,7 @@ import type { AppDeps } from "../deps";
 import type { ChatUser } from "../context";
 import { uuidv7 } from "../lib/uuidv7";
 import { rateLimitedFor } from "../rate-limits";
+import { pastChatsOffered } from "../search/past-chats";
 import { resolveModel } from "./available-models";
 import { resolveImageModelFor } from "./image-models";
 import { imageRequestFor } from "./adapters";
@@ -99,6 +100,12 @@ export async function handleChat(
   // The Web tools are offered only when asked for and the Model has tools. `web_search` also needs a
   // usable Tavily key: the user's own, else the Host's (ADR 0007). `fetch_url` needs none.
   const web = command.webSearch && model.tools;
+  // The past-chats search is offered to a Model with tools, while Memory is on for the Host and the
+  // user and the Conversation is not Temporary (spec #263).
+  const pastChats =
+    model.tools && (await pastChatsOffered(deps, userId, owned.temporary))
+      ? { projectId: owned.projectId }
+      : undefined;
   // The Artifact tools are offered to a Model with tools, and only when the Host turned them on (ADR 0016).
   const artifacts = deps.artifacts && model.tools;
   const searchCall = web ? await resolveToolCall(deps, userId, tavilyService) : null;
@@ -364,6 +371,7 @@ export async function handleChat(
     adapter,
     messages,
     webSearch: searchCall?.credentials,
+    pastChats,
     fetchUrl: web,
     image: imageTool,
     artifacts,

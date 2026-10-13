@@ -1,6 +1,7 @@
 import type { MessagePart } from "@tanstack/ai";
 
 import type { AttachmentInfo } from "../attachments/kinds";
+import { searchPastChatsToolName } from "../chat/past-chats";
 import { toolCallOf } from "../chat/tool-call";
 import { webSearchToolName } from "../chat/web-search";
 
@@ -21,6 +22,17 @@ export function redactForShare(parts: MessagePart[]): MessagePart[] {
 }
 
 function redactToolCall(part: MessagePart): MessagePart {
+  // A past-chats search keeps only that it happened: its query and the chats it found stay private.
+  if (part.type === "tool-call" && part.name === searchPastChatsToolName) {
+    return {
+      type: "tool-call",
+      id: part.id,
+      name: part.name,
+      arguments: "",
+      state: part.state,
+      metadata: { source: "builtin", status: "done", redacted: true },
+    };
+  }
   if (part.type !== "tool-call" || part.name === webSearchToolName) return part;
   const call = toolCallOf(part);
   if (!call || call.source === "builtin") return part;
