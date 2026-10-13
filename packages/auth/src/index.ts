@@ -64,6 +64,9 @@ export type AuthOptions = {
   // limits are counted in memory per process. Only the counters go there, never sessions: Better
   // Auth's secondary storage would list and revoke sessions from Redis alone.
   rateLimitCounter?: RateLimitCounter;
+  // Headers Better Auth reads the client IP from, in order (TRUSTED_IP_HEADERS). Unset, Better Auth
+  // reads x-forwarded-for. Only list headers a proxy you run sets: a client can send any header.
+  trustedIpHeaders?: string[];
 };
 
 /** A fixed-window counter: adds one at `key` and returns the count, opening the window at 1. */
@@ -276,6 +279,10 @@ export function createAuth(
         },
       }),
     },
+    // Better Auth's default IP headers apply unless the Host names its own (advanced.ipAddress).
+    ...(options.trustedIpHeaders && {
+      advanced: { ipAddress: { ipAddressHeaders: options.trustedIpHeaders } },
+    }),
     secret: env.BETTER_AUTH_SECRET,
     baseURL: env.BETTER_AUTH_URL,
     plugins: [
