@@ -88,7 +88,7 @@ test("enable through the UI, sign in with a code, sign in with a backup code onc
     await signInOnForm(trusted, seeded.email, seeded.password);
     await expect(trusted).toHaveURL(/\/two-factor$/);
     await trusted.getByLabel("Authentication code").fill(totpCode(key));
-    await trusted.getByLabel("Trust this device for 30 days").check();
+    await trusted.getByRole("checkbox", { name: "Trust this device for 30 days" }).check();
     await submitAuthForm(
       trusted,
       trusted.getByRole("button", { name: "Verify" }),
@@ -140,7 +140,9 @@ test("an OAuth-only user sees the explanation, not the enable button", async ({ 
   await seedUser(page, { password: false, linked: ["github"] });
   await page.goto(ACCOUNT);
 
-  await expect(page.getByText("You sign in with GitHub or Google")).toBeVisible();
+  await expect(
+    page.getByText("You sign in with GitHub or Google, which secures your sign-in"),
+  ).toBeVisible();
   await expect(page.getByRole("button", { name: "Turn on two-factor authentication" })).toHaveCount(
     0,
   );
