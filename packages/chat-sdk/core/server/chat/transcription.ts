@@ -122,6 +122,7 @@ export async function transcribeRecording(
   deps: Pick<
     AppDeps,
     | "db"
+    | "hooks"
     | "keyEncryptionSecrets"
     | "byok"
     | "hostProviders"

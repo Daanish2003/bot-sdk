@@ -22,6 +22,7 @@ import {
   type QuotaSetting,
 } from "./deps";
 import { createLifecycle } from "./lifecycle";
+import type { ChatHooks } from "./chat/hooks";
 import { deleteUserData } from "./delete-user";
 import { type McpServerConfig, checkMcpServers } from "./mcp/servers";
 import { callbackRoute, connectRoute } from "./mcp/routes";
@@ -62,7 +63,16 @@ export type CreateChatOptions = {
    * so without this option there are no per-IP limits.
    */
   getClientIp?: (request: Request) => string | null | Promise<string | null>;
+  /**
+   * Where the SDK's own failures go (background writes, usage rows, title generation, the database
+   * pool, the reaper) and the RPC calls' errors. Defaults to `console`.
+   */
   logger?: Logger;
+  /**
+   * The Host's callbacks into the SDK. Each hook is optional and runs after its change is written,
+   * never awaited, at most once and without retries (README, "Host hooks").
+   */
+  hooks?: ChatHooks;
   /**
    * The Host's own credentials (ADR 0007). A Provider entry carries its Models; a Tool entry (`tool:
    * "tavily"`) carries its price per search. Never stored.
@@ -235,15 +245,15 @@ export function createChat(options: CreateChatOptions): {
       throw new Error(`A Host tool can't be named "${builtIn}": the SDK's tool has it`);
     }
   }
+  const logger = options.logger ?? console;
   let deps: AppDeps | undefined;
   const getDeps = () => {
     if (deps) return deps;
-    const db = createDb({ DATABASE_URL: options.databaseUrl });
+    const db = createDb({ DATABASE_URL: options.databaseUrl }, logger);
     deps = createAppDeps({
       db,
       blobStore: options.blobStore ?? postgresBlobStore(db),
       isUserBlocked: options.isUserBlocked,
-      logger: options.logger ?? console,
       keyEncryptionSecrets: options.keyEncryptionSecrets,
       runtime: options.runtime ?? memoryRuntime(),
       hostProviders: (options.hostProviders ?? []).filter(isHostProvider),
@@ -255,11 +265,13 @@ export function createChat(options: CreateChatOptions): {
       tools: options.tools ?? [],
       fetchAllowHosts: options.fetchAllowHosts,
       mcpServers: options.mcpServers ?? [],
+      logger,
+      hooks: options.hooks,
     });
     return deps;
   };
   let lifecycle: ReturnType<typeof createLifecycle> | undefined;
-  const getLifecycle = () => (lifecycle ??= createLifecycle(getDeps()));
+  const getLifecycle = () => (lifecycle ??= createLifecycle(getDeps(), logger));
   let handler: ChatHandler | undefined;
   return {
     handler: (request) => {
@@ -310,7 +322,11 @@ export function createChat(options: CreateChatOptions): {
       usageTotals: (range) => usageTotals(getDeps(), range),
       usage: ({ userId, since, until }) => usageByDay(getDeps(), userId, { since, until }),
       quota: (userId) => quotaState(getDeps(), userId),
-      stopRuns: (userId) => stopUserRuns(getDeps(), userId),
+      stopRuns: async (userId) => {
+        // As Stop does, each ended Run fires `onRunEnd` (#265).
+        const deps = getDeps();
+        for (const run of await stopUserRuns(deps, userId)) deps.hooks.fire("onRunEnd", run);
+      },
       ratingTotals: (range) => ratingTotals(getDeps(), range),
     },
     deleteUser: (userId) => deleteUserData(getDeps(), userId),

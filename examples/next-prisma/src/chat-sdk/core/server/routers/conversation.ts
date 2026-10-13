@@ -3,6 +3,7 @@ import { ORPCError } from "@orpc/server";
 import { z } from "zod";
 
 import { resolveModel } from "../chat/available-models";
+import { withProjectId } from "../chat/hooks";
 import { deleteAllConversations } from "../delete-user";
 import {
   decodeConversationCursor,
@@ -62,6 +63,12 @@ export const conversationRouter = {
         reasoningEffort: input.reasoningEffort ?? null,
         projectId: input.projectId ?? null,
         temporary: input.temporary ?? false,
+      });
+      context.deps.hooks.fire("onConversationCreated", {
+        userId: context.user.id,
+        conversationId: id,
+        ...withProjectId(input.projectId),
+        fromSharedLink: false,
       });
       return { id };
     }),

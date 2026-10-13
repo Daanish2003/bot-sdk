@@ -186,8 +186,9 @@ export function MessageRow({
                   info.rating ? "opacity-100" : "opacity-0",
                 )}
               >
-                <CopyButton text={text} disabled={actions.streaming} />
-                {!isUser && info.status === "complete" && (
+                {/* A Hidden reply's text is gone, so it can't be copied or read aloud (#268). */}
+                {!info.hidden && <CopyButton text={text} disabled={actions.streaming} />}
+                {!isUser && !info.hidden && info.status === "complete" && (
                   <ReadAloud messageId={message.id} parts={message.parts} />
                 )}
                 {!isUser && ratableStatuses.has(info.status) && (
@@ -242,6 +243,8 @@ export function MessageRow({
               <AttachmentChips attachments={attachments} />
               <p className="max-w-[80ch] text-sm whitespace-pre-wrap">{text}</p>
             </>
+          ) : info.hidden ? (
+            <p className="text-xs text-muted-foreground italic">This reply was hidden</p>
           ) : (
             <>
               {thinking && (
