@@ -200,6 +200,7 @@ Stored Provider and Tool credentials are encrypted under `keyEncryptionSecrets`:
 ## Who pays for Runs
 
 - `hostProviders` are the Host's own credentials, from your environment (never stored): `[{ provider, credentials, models: [...] }]`. Each model is `{ modelId, label?, images?, pdfs?, tools?, maxOutputTokens, inputUsdPerMillion, outputUsdPerMillion }`. `maxOutputTokens` is required: the Host's output cap for a Run on that model, handed to `adapterFor` (the production adapters don't apply it yet). The prices are per 1M tokens and kept with the model. Capability flags default to off unless the model is curated, in which case its curated flags apply. A Tool goes in the same list as `{ tool: "tavily", credentials, pricePerSearchUsd }`: a Host Tavily key that searches for users with no Tavily key of their own, each search recorded at that fixed price.
+- `defaultBackgroundModel` (optional) is a `"provider:model"` id of one of your `hostProviders` Models. Titles use it for users who pick no Background Model; without it they use the Model that wrote the reply. `start()` throws when it isn't one of your Models.
 - `byok` (default `true`) lets users run on their own Provider credentials. Set it independently of `hostProviders`: `byok: false` with `hostProviders` is a company Host that runs only its own keys.
 - A user's own key for a Provider always wins over the Host's. The Model list marks the Models that run on Host credentials.
 - `start()` throws with neither `hostProviders` nor `byok`.
@@ -214,7 +215,7 @@ const chat = createChat({
 
 Three modes, chosen by those two options:
 
-- **Host only** (`hostProviders`, `byok: false`): a company Host. Users chat on the Models you offer. With `byok` off, the credential sections of the keys page and every "add your key" prompt are hidden; the Instructions and Title Model sections stay. Saving a credential is rejected with `FORBIDDEN`; listing and deleting the credentials a user already has still work.
+- **Host only** (`hostProviders`, `byok: false`): a company Host. Users chat on the Models you offer. With `byok` off, the credential sections of the keys page and every "add your key" prompt are hidden; the Instructions and Background Model sections stay. Saving a credential is rejected with `FORBIDDEN`; listing and deleting the credentials a user already has still work.
 - **User keys only** (no `hostProviders`, `byok: true`): every reply runs on the user's own keys, as before.
 - **Both** (`hostProviders` and `byok: true`, the default): a user's own key wins for its Provider; otherwise the Host's Models answer.
 

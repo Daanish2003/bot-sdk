@@ -29,6 +29,9 @@ export const shareRouter = {
   upsert: protectedProcedure.input(conversationInput).handler(async ({ context, input }) => {
     const result = await upsertSharedLink(context.deps, context.user.id, input.conversationId);
     if (result.error === "not_found") throw conversationNotFound();
+    if (result.error === "temporary") {
+      throw new ORPCError("BAD_REQUEST", { message: "A Temporary Conversation can't be shared" });
+    }
     if (result.error === "blocked") {
       throw new ORPCError("CONFLICT", { message: blockedMessages[result.blockedBy] });
     }

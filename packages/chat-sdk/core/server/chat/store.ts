@@ -9,12 +9,20 @@ import type { AppDeps } from "../deps";
 import { newestLeaf, pathTo, siblingPosition } from "../../shared/chat/branches";
 import { type ActiveBranchMessage, toClientMessage } from "../../shared/chat/client-message";
 import type { ReasoningChoice } from "../../shared/chat/models";
+import { liveConversation } from "./temporary";
 
 type Deps = Pick<AppDeps, "db">;
 
-/** Matches the Conversation `id` only when `userId` owns it. */
+/**
+ * Matches the Conversation `id` only when `userId` owns it and it is live: an expired Temporary
+ * Conversation is gone to every read and write until the sweep deletes it (spec #262).
+ */
 function ownConversation(userId: string, id: string) {
-  return and(eq(conversation.id, id), eq(conversation.userId, userId));
+  return and(
+    eq(conversation.id, id),
+    eq(conversation.userId, userId),
+    liveConversation(new Date()),
+  );
 }
 
 /** The user's Conversation, or `undefined` when it doesn't exist or belongs to someone else. */
@@ -114,15 +122,16 @@ export const maxPinnedConversations = 20;
 /**
  * Pins the user's Conversation (a Project one too); `"not_found"` when it isn't theirs, `"limit"`
  * when they already have `maxPinnedConversations` pinned. Pinning a pinned Conversation keeps its
- * pin time. Doesn't bump `lastMessageAt`.
+ * pin time. A Temporary Conversation is never pinned (`"temporary"`). Doesn't bump `lastMessageAt`.
  */
 export async function pinConversation(
   deps: Deps,
   userId: string,
   id: string,
-): Promise<"pinned" | "not_found" | "limit"> {
+): Promise<"pinned" | "not_found" | "limit" | "temporary"> {
   const row = await findConversation(deps, userId, id);
   if (!row) return "not_found";
+  if (row.temporary) return "temporary";
   if (row.pinnedAt) return "pinned";
   const [counted] = await deps.db
     .select({ count: sql<number>`count(*)::int` })
@@ -230,6 +239,7 @@ export async function listConversations(
     .where(
       and(
         eq(conversation.userId, userId),
+        eq(conversation.temporary, false),
         projectId
           ? eq(conversation.projectId, projectId)
           : and(isNull(conversation.projectId), isNull(conversation.pinnedAt)),
@@ -262,7 +272,13 @@ export async function listPinnedConversations(deps: Deps, userId: string) {
     .leftJoin(leaf, eq(leaf.id, conversation.activeLeafId))
     .leftJoin(leafParent, eq(leafParent.id, leaf.parentId))
     .leftJoin(sharedLink, eq(sharedLink.conversationId, conversation.id))
-    .where(and(eq(conversation.userId, userId), isNotNull(conversation.pinnedAt)))
+    .where(
+      and(
+        eq(conversation.userId, userId),
+        isNotNull(conversation.pinnedAt),
+        eq(conversation.temporary, false),
+      ),
+    )
     .orderBy(desc(conversation.pinnedAt), desc(conversation.id));
   return rows.map(summarize);
 }
@@ -273,7 +289,7 @@ export async function findMessage(deps: Deps, userId: string, id: string) {
     .select({ message })
     .from(message)
     .innerJoin(conversation, eq(conversation.id, message.conversationId))
-    .where(and(eq(message.id, id), eq(conversation.userId, userId)));
+    .where(and(eq(message.id, id), eq(conversation.userId, userId), liveConversation(new Date())));
   return row?.message;
 }
 

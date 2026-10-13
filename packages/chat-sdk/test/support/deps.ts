@@ -55,6 +55,7 @@ export function createTestDeps({
     mcpServers: [],
     fetchAllowHosts: [],
     byok: true,
+    defaultBackgroundModel: null,
     getQuota: async () => null,
     lifecycle: { stopping: false, runs: new Map() },
     ...overrides,

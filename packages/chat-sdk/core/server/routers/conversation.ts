@@ -36,12 +36,19 @@ export const conversationRouter = {
         reasoningEffort: z.enum(reasoningEffort.enumValues).nullish(),
         /** The Project to create the Conversation in; it must be the caller's. */
         projectId: z.uuid().nullish(),
+        /** A Temporary Conversation: kept out of the lists, search and titles. Never in a Project. */
+        temporary: z.boolean().optional(),
       }),
     )
     .handler(async ({ context, input }) => {
       if (!(await resolveModel(context.deps, context.user.id, input.model))) {
         throw new ORPCError("BAD_REQUEST", {
           message: `"${input.model}" is not an available Model`,
+        });
+      }
+      if (input.temporary && input.projectId) {
+        throw new ORPCError("BAD_REQUEST", {
+          message: "A Temporary Conversation can't be in a Project",
         });
       }
       if (input.projectId && !(await findProject(context.deps, context.user.id, input.projectId))) {
@@ -54,6 +61,7 @@ export const conversationRouter = {
         model: input.model,
         reasoningEffort: input.reasoningEffort ?? null,
         projectId: input.projectId ?? null,
+        temporary: input.temporary ?? false,
       });
       return { id };
     }),
@@ -87,6 +95,7 @@ export const conversationRouter = {
       title: row.title,
       model: row.model,
       reasoningEffort: row.reasoningEffort,
+      temporary: row.temporary,
       tools: row.toolSettings,
       messages,
     };
@@ -193,6 +202,9 @@ export const conversationRouter = {
     const result = await pinConversation(context.deps, context.user.id, input.id);
     if (result === "not_found")
       throw new ORPCError("NOT_FOUND", { message: "Conversation not found" });
+    if (result === "temporary") {
+      throw new ORPCError("BAD_REQUEST", { message: "A Temporary Conversation can't be pinned" });
+    }
     if (result === "limit") {
       throw new ORPCError("BAD_REQUEST", {
         message: `You can pin up to ${maxPinnedConversations} Conversations. Unpin one first.`,
@@ -217,6 +229,14 @@ export const conversationRouter = {
     .handler(async ({ context, input }) => {
       if (input.projectId && !(await findProject(context.deps, context.user.id, input.projectId))) {
         throw new ORPCError("NOT_FOUND", { message: "Project not found" });
+      }
+      if (
+        input.projectId &&
+        (await findConversation(context.deps, context.user.id, input.id))?.temporary
+      ) {
+        throw new ORPCError("BAD_REQUEST", {
+          message: "A Temporary Conversation can't be moved into a Project",
+        });
       }
       const moved = await moveConversation(
         context.deps,

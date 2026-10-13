@@ -2,7 +2,7 @@
   "version": "8",
   "dialect": "postgres",
   "id": "0b37276e-9065-4492-9dad-f29d20ca14ad",
-  "prevIds": ["bf2b87dc-d277-4c21-805f-9ad1c805d3fe"],
+  "prevIds": ["3d4cec28-dd2c-4eb1-bab7-3bec4dc4335c"],
   "ddl": [
     {
       "values": ["invalid_key", "rate_limited", "provider_error"],
@@ -953,19 +953,6 @@
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "title_model",
-      "entityType": "columns",
-      "schema": "chat",
-      "table": "user_settings"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
       "name": "instructions",
       "entityType": "columns",
       "schema": "chat",
@@ -1665,6 +1652,32 @@
       "schema": "chat",
       "table": "shared_link",
       "entityType": "uniques"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "name": "temporary",
+      "entityType": "columns",
+      "schema": "chat",
+      "table": "conversation"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "background_model",
+      "entityType": "columns",
+      "schema": "chat",
+      "table": "user_settings"
     }
   ],
   "renames": []

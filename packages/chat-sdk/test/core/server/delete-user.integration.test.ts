@@ -49,7 +49,7 @@ async function seedOwner(user: TestUser) {
   });
   await getTestDb()
     .insert(userSettings)
-    .values({ userId: user.id, titleModel: "anthropic:x", instructions: "Be terse." });
+    .values({ userId: user.id, backgroundModel: "anthropic:x", instructions: "Be terse." });
   await getTestDb().insert(project).values({ id: uuidv7(), userId: user.id, name: "Work" });
   await getTestDb().insert(usage).values({
     id: uuidv7(),
@@ -277,5 +277,22 @@ describe("createChat().deleteUser", () => {
         .from(conversation)
         .where(and(eq(conversation.userId, other.id))),
     ).toHaveLength(1);
+  });
+});
+
+describe("deleteUserData, Temporary Conversations", () => {
+  it("removes the user's Temporary Conversations with their Messages", async () => {
+    const owner = await insertUser();
+    const temporary = await insertConversation(owner, { temporary: true });
+    await insertMessage({ conversationId: temporary.id, role: "user", text: "Private" });
+
+    await deleteUserData(createTestDeps(), owner.id);
+
+    expect(
+      await getTestDb().select().from(conversation).where(eq(conversation.id, temporary.id)),
+    ).toEqual([]);
+    expect(
+      await getTestDb().select().from(message).where(eq(message.conversationId, temporary.id)),
+    ).toEqual([]);
   });
 });

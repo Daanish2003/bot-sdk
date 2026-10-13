@@ -8,7 +8,7 @@ import { appName, sender } from "./email";
 import { ENV, ssrfAllowHosts } from "./env.server";
 import { blobStoreOf } from "./blob-store";
 import { getQuota } from "./admin/quota";
-import { hostProvidersOf, quotaOf } from "./host-models";
+import { hostBackgroundModelOf, hostProvidersOf, quotaOf } from "./host-models";
 import { mcpServersOf } from "./mcp-server";
 
 export const db = createDb(ENV);
@@ -52,6 +52,8 @@ export const chat = createChat({
   mcpServers: mcpServersOf(ENV),
   // The Host's Models and their Quota (ADR 0007); unset, users chat only on their own keys.
   hostProviders: hostProvidersOf(ENV),
+  // The Host's default Background Model for titles (`HOST_BACKGROUND_MODEL`), one of its Models.
+  defaultBackgroundModel: hostBackgroundModelOf(ENV),
   // A user's Quota: an Admin's override, else the Host's default (spec #277).
   getQuota: (userId) => getQuota(db, ENV, userId),
   // File bytes go to the S3 store when S3_* is set, and to Postgres otherwise (ADR 0015).
