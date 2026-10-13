@@ -151,6 +151,18 @@ describe("the generate_image tool is offered", () => {
 
     expect(offeredTools(fake)).not.toContain("generate_image");
   });
+
+  it("not when no image adapter serves the Image Model, and the reply completes as before", async () => {
+    const { deps, fake, conv, send } = await setup({
+      deps: { imageAdapterFor: () => undefined },
+      rounds: [round(text("Sure."))],
+    });
+
+    await (await send()).text();
+
+    expect(offeredTools(fake)).not.toContain("generate_image");
+    expect(await replyOf(deps, conv.id)).toMatchObject({ status: "complete", error: null });
+  });
 });
 
 describe("the generate_image tool", () => {

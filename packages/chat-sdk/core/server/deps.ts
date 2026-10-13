@@ -130,9 +130,10 @@ export type AppDeps = {
   db: Database;
   /**
    * Builds the TanStack AI image adapter for an Image Model (spec #278), from the credentials it
-   * runs on. Injected so tests and CI can pass a fake.
+   * runs on, or `undefined` when no adapter serves that Model (the reply then offers no image tool).
+   * Injected so tests and CI can pass a fake.
    */
-  imageAdapterFor: (model: string, credentials: Credentials) => AnyImageAdapter;
+  imageAdapterFor: (model: string, credentials: Credentials) => AnyImageAdapter | undefined;
   /**
    * Builds the TanStack AI text adapter for a `"provider:model"` id. `options.maxOutputTokens` is
    * set for a Host Model (ADR 0007); a user's own Model is uncapped.

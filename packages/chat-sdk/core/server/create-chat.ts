@@ -76,8 +76,9 @@ export type CreateChatOptions = {
    */
   defaultImageModel?: string;
   /**
-   * The image adapter for an Image Model's `(model, credentials)`. Defaults to the production
-   * adapters, which are not wired yet (spec #278, ticket #311); a Host or a test passes a fake here.
+   * The image adapter for an Image Model's `(model, credentials)`, or `undefined` for none. Defaults
+   * to the production adapters, which are not wired yet (spec #278, ticket #311), so no Image Model
+   * offers the image tool until they are. A Host passes a fake here to try the tool.
    */
   imageAdapterFor?: AppDeps["imageAdapterFor"];
   /**
