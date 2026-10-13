@@ -428,7 +428,7 @@ describe("the Quota check before each Host search", () => {
           query: "second",
           state: "error",
           results: [],
-          errorReason: "quota_exceeded",
+          error: { code: "chat.searchNotRunQuota" },
         }),
         { type: "text", text: "Done." },
       ]),
