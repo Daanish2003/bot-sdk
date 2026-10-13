@@ -17,7 +17,8 @@
     "ui/**/*.tsx",
     "test/**/*.ts",
     "test/**/*.tsx",
-    "scripts/**/*.ts"
+    "scripts/**/*.ts",
+    "eval/**/*.ts"
   ],
   "exclude": ["node_modules"]
 }

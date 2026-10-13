@@ -150,7 +150,7 @@ export async function handleChat(
       projectId: owned.projectId,
       temporary: owned.temporary,
       latestText:
-        command.text ?? history.findLast((row) => row.role === "user")?.searchText ?? null,
+        command.text ?? history.filter((row) => row.role === "user").at(-1)?.searchText ?? null,
     }),
   });
   // A reply waiting for Approval can't be continued past its call; an edit or regenerate beside it

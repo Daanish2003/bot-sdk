@@ -102,7 +102,7 @@ export async function decideApproval(
         userId,
         projectId: asked?.projectId ?? null,
         temporary: asked?.temporary ?? true,
-        latestText: history.findLast((row) => row.role === "user")?.searchText ?? null,
+        latestText: history.filter((row) => row.role === "user").at(-1)?.searchText ?? null,
       }),
     }),
     ...(artifacts ? await artifactContextPrompts(deps, owned.conversationId, owned.id) : []),

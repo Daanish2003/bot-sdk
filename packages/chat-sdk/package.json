@@ -9,6 +9,7 @@
   "scripts": {
     "check-types": "tsc --noEmit",
     "copy": "node scripts/copy.ts",
+    "eval:memory": "node --import ./eval/memory/register-ts.mjs eval/memory/run.ts",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio"

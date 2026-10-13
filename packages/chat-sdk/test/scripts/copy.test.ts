@@ -119,6 +119,14 @@ describe("copySdk", () => {
     expect(readFileSync(join(dest, "extras", "trigger", "runner.ts"), "utf8")).toBe("host edit");
   });
 
+  it("never copies an eval folder, so the Memory eval stays in the canonical repo", () => {
+    write(join(source, "core", "eval", "memory", "run.ts"), "eval");
+
+    copySdk(dest, { source, version });
+
+    expect(existsSync(join(dest, "core", "eval"))).toBe(false);
+  });
+
   it("gives a Host core and ui only, so the shared e2e scenarios never reach it", () => {
     const sdkRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
     // The check is only meaningful while the scenarios exist in the canonical repo.
