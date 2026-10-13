@@ -1,4 +1,9 @@
-import { type AnyImageAdapter, generateImage, toolDefinition } from "@tanstack/ai";
+import {
+  type AnyImageAdapter,
+  generateImage,
+  type ImageGenerationResult,
+  toolDefinition,
+} from "@tanstack/ai";
 import { z } from "zod";
 
 import { generatedImage } from "../db/schema/generated-image";
@@ -11,6 +16,7 @@ import {
   aspectRatios,
   type GenerateImageOutput,
   type GeneratedImageErrorReason,
+  generatedImageErrorLabels,
   generateImageToolName,
   imageLimitError,
   maxImagesPerRun,
@@ -18,6 +24,7 @@ import {
 import type { ToolBudget } from "./host-tools";
 import { toolCallLimitError } from "./host-tools";
 import { imageInfo } from "./image-info";
+import { type ImageMeter, recordImageUsage, usageReported } from "./host-usage";
 
 const generateImageDefinition = toolDefinition({
   name: generateImageToolName,
@@ -39,14 +46,17 @@ const generateImageDefinition = toolDefinition({
  * in the reply's `parts`, calling `onChange` when they change. A failure is the call's error state
  * and an `{ error, reason }` result, so the Run continues; `ImageRefusedError` is `refused`. Past
  * `maxImagesPerRun` in one Run, or past the reply's shared tool budget, a call is `limit_reached` and
- * makes no image. A call cut off by the run ending (its signal aborts) stays running, and the run
+ * makes no image. `mayRun` is checked before each call, and a call it refuses is `quota_exceeded`
+ * (ADR 0007). A call cut off by the run ending (its signal aborts) stays running, and the run
  * closes it as cancelled, with no row.
+ *
+ * Its usage is recorded in `chat.usage` (ADR 0007) when the Provider reported any, or the image was
+ * made; a call stopped on an adapter that doesn't cancel upstream is recorded at its flat price.
  */
 export function createGenerateImageTool({
   adapter,
-  model,
+  meter,
   size,
-  userId,
   messageId,
   db,
   fetch,
@@ -54,13 +64,13 @@ export function createGenerateImageTool({
   parts,
   onChange,
   budget,
+  mayRun,
 }: {
   adapter: AnyImageAdapter;
-  /** The Image Model's `"provider:model"` id, which the image's row records. */
-  model: string;
+  /** Whose usage the image is, and the Host's price for it when the call is on Host credentials. */
+  meter: ImageMeter;
   /** The size the Image Model is pinned to, when it is a Host Image Model. */
   size?: string;
-  userId: string;
   /** The assistant Message whose reply this call belongs to; the image's row is owned by it. */
   messageId: string;
   db: AppDeps["db"];
@@ -70,6 +80,8 @@ export function createGenerateImageTool({
   parts: ReturnType<typeof createPartsBuilder>;
   onChange: () => void;
   budget: ToolBudget;
+  /** Whether a paid call may run now (the Quota, on Host credentials); checked before each call. */
+  mayRun: () => Promise<boolean>;
 }) {
   let images = 0;
   return generateImageDefinition.server(
@@ -83,19 +95,29 @@ export function createGenerateImageTool({
         parts.finishGeneratedImage(toolCallId, { errorReason });
         return { error, reason: errorReason };
       };
+      // The Provider's answer, once it has given one: its usage is billed even when no image is kept.
+      let answer: ImageGenerationResult | undefined;
+      // Whether the call reached the Provider: a Stop during it may leave the Provider's request running.
+      let inFlight = false;
+      let stored = false;
       try {
+        // The slot is taken before the Quota is awaited, so parallel calls in one Run can't pass the cap.
         if (images >= maxImagesPerRun) return fail("limit_reached", imageLimitError);
         if (!budget.take()) return fail("limit_reached", toolCallLimitError);
         images++;
+        if (!(await mayRun())) {
+          return fail("quota_exceeded", generatedImageErrorLabels.quota_exceeded);
+        }
         const signal = context?.abortSignal;
-        const result = await generateImage({
+        inFlight = true;
+        answer = await generateImage({
           adapter,
           prompt,
           ...(size !== undefined && { size }),
           timeout: timeoutMs,
           ...(signal && { abortSignal: signal }),
         });
-        const first = result.images[0];
+        const first = answer.images[0];
         if (!first) return fail("failed", "The Provider returned no image");
         const bytes = first.b64Json
           ? Buffer.from(first.b64Json, "base64")
@@ -107,15 +129,16 @@ export function createGenerateImageTool({
         const id = uuidv7();
         await db.insert(generatedImage).values({
           id,
-          userId,
+          userId: meter.userId,
           messageId,
           mediaType: info.mediaType,
           width: info.width,
           height: info.height,
           size: bytes.byteLength,
-          model,
+          model: meter.model,
           createdAt: new Date(),
         });
+        stored = true;
         parts.finishGeneratedImage(toolCallId, { imageId: id });
         return { imageId: id, prompt, aspectRatio: aspectRatio as AspectRatio };
       } catch (caught) {
@@ -124,6 +147,19 @@ export function createGenerateImageTool({
         if (caught instanceof ImageRefusedError) return fail("refused", caught.message);
         return fail("failed", caught instanceof Error ? caught.message : String(caught));
       } finally {
+        const stopped = context?.abortSignal?.aborted === true;
+        // A Stop during the call on an adapter that doesn't cancel upstream is billed at the flat
+        // price, estimated: the Provider runs the request on to the end. A stopped call on one that
+        // cancels bills nothing. Otherwise a call bills when its image was kept or the Provider
+        // reported usage; a refusal or error with no usage bills nothing.
+        const billed = stopped
+          ? inFlight && !meter.cancelsUpstream
+          : answer !== undefined && (stored || usageReported(answer.usage));
+        if (billed) {
+          await recordImageUsage({ db }, meter, answer?.usage, stopped).catch((caught: unknown) =>
+            console.error(`Recording an image of ${messageId} failed`, caught),
+          );
+        }
         onChange();
       }
     },

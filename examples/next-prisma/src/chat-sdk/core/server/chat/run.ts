@@ -31,6 +31,7 @@ import { cancelChannel, heartbeatExpired, listenForStop, stopRequested } from ".
 import { addUsage, messageUsage, normalizeUsage, promptCharactersOf, type RunUsage } from "./usage";
 import {
   recordHostUsage,
+  type ImageMeter,
   recordSearchUsage,
   type SearchMeter,
   type UsageMeter,
@@ -89,8 +90,11 @@ export async function startRun(
     webSearch?: Credentials;
     /** Whether this reply offers the `fetch_url` tool, which needs no credential. */
     fetchUrl?: boolean;
-    /** Set when this reply offers the `generate_image` tool: the Image Model's adapter and pinned size. */
-    image?: { adapter: AnyImageAdapter; model: string; size?: string };
+    /**
+     * Set when this reply offers the `generate_image` tool: the Image Model's adapter, its pinned size,
+     * and whose usage each image is (spec #278).
+     */
+    image?: { adapter: AnyImageAdapter; meter: ImageMeter; size?: string };
     /** The Host tools this reply offers (none when its Model has no tools). */
     hostTools?: HostServerTool[];
     /** The user and Conversation the Host tools are called for, passed to them as their context. */
@@ -216,9 +220,8 @@ export async function startRun(
           ? [
               createGenerateImageTool({
                 adapter: image.adapter,
-                model: image.model,
+                meter: image.meter,
                 size: image.size,
-                userId: context.userId,
                 messageId,
                 db: deps.db,
                 fetch: deps.fetch,
@@ -226,6 +229,12 @@ export async function startRun(
                 parts,
                 onChange: () => (changed = true),
                 budget,
+                // An image on Host credentials is checked against the Quota first (ADR 0007, spec #278).
+                mayRun: () =>
+                  paidCallAllowed(
+                    deps,
+                    image.meter.price ? { userId: image.meter.userId } : undefined,
+                  ),
               }),
             ]
           : []),

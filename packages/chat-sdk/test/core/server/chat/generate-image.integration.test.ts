@@ -1,6 +1,7 @@
 import { storedParts, type GeneratedImagePart } from "../../../../core/shared/message-parts";
 import { generatedImage } from "../../../../core/server/db/schema/generated-image";
 import { conversation, message } from "../../../../core/server/db/schema/chat";
+import { usage } from "../../../../core/server/db/schema/usage";
 import { userSettings } from "../../../../core/server/db/schema/settings";
 import { asc, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
@@ -8,6 +9,8 @@ import { describe, expect, it } from "vitest";
 import { saveCredentials } from "../../../../core/server/credentials/store";
 import type { AppDeps, HostProvider } from "../../../../core/server/deps";
 import { fakeImageAdapter } from "../../../../core/server/chat/fake-image-adapter";
+import { quotaLookup, readQuota } from "../../../../core/server/chat/quota";
+import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { insertConversation } from "../../../support/conversations";
 import { createTestDeps, type TestDepsOverrides } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
@@ -355,5 +358,287 @@ describe("a regenerated reply's images", () => {
     expect(await imagesOf(first!.id)).toEqual(firstRows);
     expect(await imagesOf(second.id)).toHaveLength(1);
     expect(fake.calls).toHaveLength(4);
+  });
+});
+
+describe("the Host's pricing of generated images", () => {
+  /** The `chat.usage` rows of kind `image` of the user, oldest first (the Run's own rows are left out). */
+  async function imageUsageOf(userId: string) {
+    const rows = await getTestDb()
+      .select({
+        model: usage.model,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        costMicros: usage.costMicros,
+        estimated: usage.estimated,
+      })
+      .from(usage)
+      .where(eq(usage.userId, userId))
+      .orderBy(asc(usage.createdAt));
+    return rows.filter((row) => row.model !== anthropicModel);
+  }
+
+  /** The Run's spend, written directly, so the Quota is near its budget before the Run starts. */
+  async function spend(userId: string, costMicros: number) {
+    await getTestDb().insert(usage).values({
+      id: uuidv7(),
+      userId,
+      kind: "run",
+      model: anthropicModel,
+      inputTokens: 0,
+      outputTokens: 0,
+      costMicros,
+      estimated: false,
+      createdAt: new Date(),
+    });
+  }
+
+  it("records a reported cost as it is", async () => {
+    const { user, send } = await setup({
+      imageAdapter: fakeImageAdapter({ usage: { cost: 0.0123 } }),
+      rounds: [round(imageCall("call-1", { prompt: "priced" })), round(text("Done."))],
+    });
+
+    await (await send()).text();
+
+    expect(await imageUsageOf(user.id)).toEqual([
+      {
+        model: hostImageModel,
+        inputTokens: 0,
+        outputTokens: 0,
+        costMicros: 12_300,
+        estimated: false,
+      },
+    ]);
+  });
+
+  it("prices reported tokens with the Host's image token prices", async () => {
+    const { user, send } = await setup({
+      deps: {
+        hostProviders: [
+          {
+            provider: "openai",
+            credentials: { apiKey: "host-openai-key" },
+            models: [],
+            imageModels: [
+              {
+                modelId: "gpt-image-1-mini",
+                size: "1024x1024",
+                quality: "medium",
+                pricePerImageUsd: 0.01,
+                imageInputPerMTok: 10,
+                textInputPerMTok: 5,
+                imageOutputPerMTok: 40,
+              },
+            ],
+          },
+        ],
+      },
+      imageAdapter: fakeImageAdapter({
+        usage: { promptTokens: 1_000, completionTokens: 500, imageTokens: 200, textTokens: 800 },
+      }),
+      rounds: [round(imageCall("call-1", { prompt: "tokens" })), round(text("Done."))],
+    });
+
+    await (await send()).text();
+
+    // 200 image input tokens at 10, 800 text input at 5 and 500 output at 40, in micros.
+    expect(await imageUsageOf(user.id)).toEqual([
+      {
+        model: hostImageModel,
+        inputTokens: 1_000,
+        outputTokens: 500,
+        costMicros: 26_000,
+        estimated: false,
+      },
+    ]);
+  });
+
+  it("falls back to pricePerImageUsd, estimated, when the Provider reports no usage, one row per image", async () => {
+    const { user, deps, conv, send } = await setup({
+      imageAdapter: fakeImageAdapter(),
+      rounds: [
+        round(imageCall("call-1", { prompt: "one" }), imageCall("call-2", { prompt: "two" })),
+        round(text("Done.")),
+      ],
+    });
+
+    await (await send()).text();
+
+    expect(await replyOf(deps, conv.id)).toMatchObject({ status: "complete" });
+    expect(await imageUsageOf(user.id)).toEqual([
+      {
+        model: hostImageModel,
+        inputTokens: 0,
+        outputTokens: 0,
+        costMicros: 10_000,
+        estimated: true,
+      },
+      {
+        model: hostImageModel,
+        inputTokens: 0,
+        outputTokens: 0,
+        costMicros: 10_000,
+        estimated: true,
+      },
+    ]);
+  });
+
+  it("records nothing for a refused image that reported no usage", async () => {
+    const { user, send } = await setup({
+      imageAdapter: fakeImageAdapter({ refuse: "Refused" }),
+      rounds: [round(imageCall("call-1", { prompt: "no" })), round(text("I can't."))],
+    });
+
+    await (await send()).text();
+
+    expect(await imageUsageOf(user.id)).toEqual([]);
+  });
+
+  it("records the flat price, estimated, for a stopped call on an adapter that doesn't cancel upstream", async () => {
+    const { user, deps, conv, send } = await setup({
+      imageAdapter: fakeImageAdapter({ delayMs: 300, ignoresAbort: true }),
+      rounds: [round(imageCall("call-1", { prompt: "stopped" })), round(text("Never."))],
+    });
+    const response = await send();
+    await expect
+      .poll(async () => (await replyOf(deps, conv.id)).parts, { interval: 10 })
+      .toEqual(storedParts([image({ prompt: "stopped", state: "running" })]));
+    const reply = await replyOf(deps, conv.id);
+
+    await chatRpc({ user, deps }).chat.stop({ messageId: reply.id });
+    await response.text();
+
+    // The Provider finishes the call after the Run has stopped, so its price lands a little later.
+    await expect
+      .poll(() => imageUsageOf(user.id), { interval: 20 })
+      .toEqual([
+        {
+          model: hostImageModel,
+          inputTokens: 0,
+          outputTokens: 0,
+          costMicros: 10_000,
+          estimated: true,
+        },
+      ]);
+    expect(await imagesOf(reply.id)).toEqual([]);
+  });
+
+  it("records nothing for a stopped call on an adapter that cancels upstream", async () => {
+    const { user, deps, conv, send } = await setup({
+      deps: {
+        hostProviders: [
+          {
+            provider: "gemini",
+            credentials: { apiKey: "host-gemini-key" },
+            models: [],
+            imageModels: [
+              {
+                modelId: "gemini-3.1-flash-image",
+                size: "1024x1024",
+                quality: "medium",
+                pricePerImageUsd: 0.01,
+              },
+            ],
+          },
+        ],
+        defaultImageModel: "gemini:gemini-3.1-flash-image",
+      },
+      imageAdapter: fakeImageAdapter({ delayMs: 60_000 }),
+      rounds: [round(imageCall("call-1", { prompt: "stopped" })), round(text("Never."))],
+    });
+    const response = await send();
+    await expect
+      .poll(async () => (await replyOf(deps, conv.id)).parts, { interval: 10 })
+      .toEqual(storedParts([image({ prompt: "stopped", state: "running" })]));
+
+    await chatRpc({ user, deps }).chat.stop({ messageId: (await replyOf(deps, conv.id)).id });
+    await response.text();
+
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(await imageUsageOf(user.id)).toEqual([]);
+  });
+
+  it("refuses the second image once the window is over the budget, and the Run completes", async () => {
+    // 5,000 of the 10,000 budget is spent: the first image fits, and its 10,000 takes it over.
+    const { user, deps, conv, send } = await setup({
+      imageAdapter: fakeImageAdapter(),
+      deps: { getQuota: quotaLookup({ budgetUsd: 0.01, window: "day" }) },
+      rounds: [
+        round(imageCall("call-1", { prompt: "first" })),
+        round(imageCall("call-2", { prompt: "second" })),
+        round(text("Done.")),
+      ],
+    });
+    await spend(user.id, 5_000);
+
+    await (await send()).text();
+
+    const reply = await replyOf(deps, conv.id);
+    expect(reply).toMatchObject({ status: "complete", error: null });
+    expect(reply.parts).toEqual(
+      storedParts([
+        image({ toolCallId: "call-1", prompt: "first", imageId: expect.any(String) }),
+        image({
+          toolCallId: "call-2",
+          prompt: "second",
+          state: "error",
+          errorReason: "quota_exceeded",
+        }),
+        { type: "text", text: "Done." },
+      ]),
+    );
+    expect(await imageUsageOf(user.id)).toEqual([
+      {
+        model: hostImageModel,
+        inputTokens: 0,
+        outputTokens: 0,
+        costMicros: 10_000,
+        estimated: true,
+      },
+    ]);
+  });
+
+  it("counts an image in the Quota read, as a percentage", async () => {
+    const { user, deps, send } = await setup({
+      imageAdapter: fakeImageAdapter(),
+      deps: { getQuota: quotaLookup({ budgetUsd: 0.02, window: "day" }) },
+      rounds: [round(imageCall("call-1", { prompt: "one" })), round(text("Done."))],
+    });
+
+    await (await send()).text();
+
+    expect(await readQuota(deps, user.id)).toMatchObject({ usedPercent: 50, window: "day" });
+  });
+
+  it("gives a BYOK image no Host cost, and the Host's Quota doesn't refuse it", async () => {
+    const { user, deps, conv, fake, send } = await setup({
+      hostImage: false,
+      imageAdapter: fakeImageAdapter(),
+      deps: { getQuota: quotaLookup({ budgetUsd: 0.0001, window: "day" }) },
+      rounds: [round(imageCall("call-1", { prompt: "mine" })), round(text("Done."))],
+    });
+    await saveCredentials(deps, user.id, {
+      service: "openai",
+      fields: { apiKey: "openai-user-key" },
+      hint: "…-key",
+      verified: true,
+    });
+    await getTestDb().insert(userSettings).values({ userId: user.id, imageModel: hostImageModel });
+    await spend(user.id, 50_000);
+
+    await (await send()).text();
+
+    expect(await replyOf(deps, conv.id)).toMatchObject({
+      status: "complete",
+      parts: storedParts([
+        image({ prompt: "mine", state: "done", imageId: expect.any(String) }),
+        { type: "text", text: "Done." },
+      ]),
+    });
+    expect(fake.calls).toHaveLength(2);
+    expect(await imageUsageOf(user.id)).toEqual([
+      { model: hostImageModel, inputTokens: 0, outputTokens: 0, costMicros: 0, estimated: false },
+    ]);
   });
 });
