@@ -15,14 +15,14 @@ import { useRouter } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { toast } from "sonner";
 
-import type { AdminUser } from "@/admin/users";
 import { turnOffTwoFactor } from "@/functions/admin-two-factor";
 
 /**
  * The control that turns off a user's lost two-factor sign-in (spec #277). Shown only when the user
- * has it on. Confirm the request by email reply first (see `scripts/turn-off-2fa.md`).
+ * has it on, on the user detail page (#332). Confirm the request by email reply first (see
+ * `scripts/turn-off-2fa.md`).
  */
-export function AdminTwoFactorControl({ user }: { user: AdminUser }) {
+export function AdminTwoFactorControl({ user }: { user: { id: string; email: string } }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);

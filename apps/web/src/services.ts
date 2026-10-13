@@ -10,6 +10,7 @@ import { blobStoreOf } from "./blob-store";
 import { getQuota } from "./admin/quota";
 import { hostBackgroundModelOf, hostProvidersOf, quotaOf } from "./host-models";
 import { mcpServersOf } from "./mcp-server";
+import { trustedIpHeadersOf } from "./trusted-ip";
 
 export const db = createDb(ENV);
 // The OAuth values are optional outside production (see .env.schema); an empty id makes the
@@ -36,6 +37,7 @@ export const auth = createAuth(
     rateLimitCounter: ENV.REDIS_URL
       ? redisStore({ url: ENV.REDIS_URL, prefix: "auth:" })
       : undefined,
+    trustedIpHeaders: trustedIpHeadersOf(ENV),
   },
 );
 // The Host's default Quota is parsed at boot, so a bad HOST_QUOTA_* fails the start, not a Run.
