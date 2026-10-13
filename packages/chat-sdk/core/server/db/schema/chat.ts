@@ -156,6 +156,10 @@ export const message = chatSchema.table(
     threadId: text("thread_id"),
     /** The Run that ended waiting for Approval; the decision resumes it as its parent Run (ADR 0008). */
     interruptedRunId: text("interrupted_run_id"),
+    /** When the Host's output check hid this reply; null while it is shown (#268). */
+    hiddenAt: timestamp("hidden_at", { withTimezone: true }),
+    /** The reason the Host gave for hiding the reply, when it gave one (#268). */
+    hiddenReason: text("hidden_reason"),
   },
   (table) => [
     index("message_conversation_id_parent_id_idx").on(table.conversationId, table.parentId),

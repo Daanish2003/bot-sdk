@@ -43,6 +43,8 @@ export type UserExport = {
       parts: StoredParts;
       model: string | null;
       status: string;
+      /** A Hidden reply (#268): its parts are empty, and the export says only that it was hidden. */
+      hidden: boolean;
       createdAt: Date;
       attachments: { filename: string; mediaType: string }[];
     }[];
@@ -144,6 +146,7 @@ export async function exportUserData(deps: AppDeps, userId: string): Promise<Use
             parts: row.parts,
             model: row.model,
             status: row.status,
+            hidden: row.hiddenAt !== null,
             createdAt: row.createdAt,
             attachments: (attachmentsByMessage.get(row.id) ?? []).map(
               ({ filename, mediaType }) => ({

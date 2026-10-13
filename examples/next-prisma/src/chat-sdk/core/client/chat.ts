@@ -7,7 +7,7 @@ import type { UIMessage } from "@tanstack/ai-client";
 /** What the server knows about a Message beyond its parts, kept in `UIMessage.metadata`. */
 export type MessageInfo = Pick<
   ClientMessage,
-  "model" | "reasoningEffort" | "status" | "error" | "errorReason" | "usage"
+  "model" | "reasoningEffort" | "status" | "error" | "errorReason" | "usage" | "hidden"
 >;
 
 /**
@@ -32,6 +32,7 @@ export function toUIMessages(messages: ActiveBranchMessage[]): UIMessage[] {
       errorReason,
       usage,
       contextStartId,
+      hidden,
       siblings,
       attachments,
     }) => ({
@@ -46,6 +47,7 @@ export function toUIMessages(messages: ActiveBranchMessage[]): UIMessage[] {
         error,
         errorReason,
         usage,
+        hidden,
         contextStartId,
         siblings,
         attachments,
@@ -82,7 +84,7 @@ export function contextCutIds(messages: UIMessage[]): Set<string> {
 
 /** A Shared link's Messages, for read-only `MessageRow`s. */
 export function sharedToUIMessages(messages: SharedConversation["messages"]): UIMessage[] {
-  return messages.map(({ id, role, parts, attachments, createdAt, model, status }) => ({
+  return messages.map(({ id, role, parts, attachments, createdAt, model, status, hidden }) => ({
     id,
     role,
     parts: parts as UIMessage["parts"],
@@ -95,6 +97,7 @@ export function sharedToUIMessages(messages: SharedConversation["messages"]): UI
       error: null,
       errorReason: null,
       usage: null,
+      hidden,
       attachments,
     } satisfies MessageInfo & {
       attachments: AttachmentChip[];
@@ -139,6 +142,7 @@ export function messageInfo(message: UIMessage): MessageInfo {
     error: info?.error ?? null,
     errorReason: info?.errorReason ?? null,
     usage: info?.usage ?? null,
+    hidden: info?.hidden ?? false,
   };
 }
 

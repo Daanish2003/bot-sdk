@@ -168,9 +168,9 @@ function ChatThread({
 
   // The newest reply waits for its call's Approval: the composer waits too (ADR 0008).
   const decideCall = useMutation(orpc.chat.decide.mutationOptions());
-  const waiting =
-    messages.length > 0 &&
-    messageInfo(messages[messages.length - 1]!).status === "awaiting_approval";
+  // A hidden reply lost its waiting call with its text (#268), so the composer doesn't wait on it.
+  const last = messages.length > 0 ? messageInfo(messages[messages.length - 1]!) : undefined;
+  const waiting = last?.status === "awaiting_approval" && !last.hidden;
   const decide = async (messageId: string, approved: boolean, allowForConversation?: boolean) => {
     // A second click while the first decision is in flight would be refused as stale.
     if (decideCall.isPending) return;

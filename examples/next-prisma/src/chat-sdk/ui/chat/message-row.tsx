@@ -169,7 +169,8 @@ export function MessageRow({
             )}
             {!editing && actions && (
               <div className="ml-auto flex overflow-hidden rounded-md border bg-background opacity-0 shadow-sm group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100">
-                <CopyButton text={text} disabled={actions.streaming} />
+                {/* A Hidden reply's text is gone, so it can't be copied (#268). */}
+                {!info.hidden && <CopyButton text={text} disabled={actions.streaming} />}
                 {isUser ? (
                   <Button
                     variant="ghost"
@@ -215,6 +216,8 @@ export function MessageRow({
               <AttachmentChips attachments={attachments} />
               <p className="max-w-[80ch] text-sm whitespace-pre-wrap">{text}</p>
             </>
+          ) : info.hidden ? (
+            <p className="text-xs text-muted-foreground italic">This reply was hidden</p>
           ) : (
             <>
               {thinking && (

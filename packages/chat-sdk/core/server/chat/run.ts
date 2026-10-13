@@ -1,4 +1,4 @@
-import { type StoredPart, storedPartsSchema } from "../../shared/message-parts";
+import { type StoredPart, storedParts, storedPartsSchema } from "../../shared/message-parts";
 import { conversation, message } from "../db/schema/chat";
 import {
   type AnyTextAdapter,
@@ -134,6 +134,8 @@ export async function startRun(
   let awaiting: { toolCallId: string; threadId: string; runId: string } | undefined;
   // The Run's usage, summed over its model iterations as the stream is read (issue #117).
   let total: RunUsage | undefined;
+  /** The reply text this Run produced, for the output check (#268): no reasoning, no tool arguments. */
+  let runText = "";
   /** The Provider-reported cost in USD, summed over the Run's iterations, when it reports one. */
   let reportedCost: number | undefined;
   let costComplete = true;
@@ -189,6 +191,8 @@ export async function startRun(
   let timedOut = false;
   /** Whether this Run's own ending was saved: only then does it fire `onRunEnd` (#265). */
   let endingSaved = false;
+  /** Whether the reply is hidden by the output check (#268). */
+  let hidden = false;
   const capTimer = setTimeout(() => {
     // A run that was stopped but hasn't ended yet stays stopped.
     if (abortController.signal.aborted) return;
@@ -265,6 +269,7 @@ export async function startRun(
       for await (const chunk of untilAborted(stream, abortController.signal)) {
         parts.add(chunk);
         changed = true;
+        if (chunk.type === EventType.TEXT_MESSAGE_CONTENT) runText += chunk.delta;
         const approval = approvalOf(chunk);
         const chunkIds = runIdsOf(chunk);
         if (approval && chunkIds) {
@@ -350,6 +355,32 @@ export async function startRun(
         }),
         { whileStreaming: true },
       );
+      // The output check (#268), after the ending is saved and before anything else is reported. A
+      // reply that an earlier Run of its Message already hid stays hidden, so this Run's text is erased too.
+      if (endingSaved) {
+        const verdict =
+          runText === ""
+            ? undefined
+            : await deps.hooks.moderate({
+                phase: "output",
+                userId: context.userId,
+                conversationId: context.conversationId,
+                messageId,
+                runId: logId,
+                onHostCredentials: meter !== undefined,
+                text: runText,
+              });
+        if (verdict?.allow === false || (await isHidden(deps, messageId))) {
+          hidden = await write({
+            parts: storedParts([]),
+            searchText: "",
+            ...(verdict?.allow === false && {
+              hiddenAt: new Date(),
+              hiddenReason: verdict.reason ?? null,
+            }),
+          });
+        }
+      }
       // Recorded before the log closes, so a reader that has seen the end also sees the usage row.
       if (meter) {
         await recordHostUsage(
@@ -394,7 +425,7 @@ export async function startRun(
           ...(outcome.reason !== undefined && { reason: outcome.reason }),
           model,
           onHostCredentials: meter !== undefined,
-          hidden: false,
+          hidden,
         });
       }
       // The run ended `complete`: title its Conversation, fire-and-forget. A reply waiting for
@@ -417,6 +448,21 @@ export async function startRun(
  */
 export function runLogId(messageId: string, runNumber: number) {
   return runNumber <= 1 ? messageId : `${messageId}:${runNumber}`;
+}
+
+/** Whether an earlier Run of the Message already hid its reply (#268). */
+async function isHidden(deps: AppDeps, messageId: string): Promise<boolean> {
+  try {
+    const [row] = await deps.db
+      .select({ hiddenAt: message.hiddenAt })
+      .from(message)
+      .where(eq(message.id, messageId));
+    return row?.hiddenAt != null;
+  } catch (caught) {
+    // The Run's ending is saved by now, so a failed read must not stop the Run's other steps.
+    deps.logger.error(`Reading whether Message ${messageId} is hidden failed`, caught);
+    return false;
+  }
 }
 
 /** What a decision on a waiting call resumes: the thread, the Run that ended waiting, and the answer. */

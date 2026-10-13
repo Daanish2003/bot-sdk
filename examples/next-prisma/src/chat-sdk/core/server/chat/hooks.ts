@@ -31,7 +31,7 @@ export type RunEndEvent = {
   /** The `"provider:model"` id the Run used. */
   model: string;
   onHostCredentials: boolean;
-  /** Always `false` until the Hidden reply ticket. */
+  /** Whether the output check hid the reply (#268): its text is gone and the Run's ending is as it was. */
   hidden: boolean;
 };
 

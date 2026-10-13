@@ -116,8 +116,9 @@ export async function handleChat(
     return refuse(400, "Only a reply to your Message can be regenerated");
   }
   // A reply waiting for Approval can't be continued past its call; an edit or regenerate beside it
-  // starts a new Branch and stays allowed (ADR 0008).
-  if (history.at(-1)?.status === "awaiting_approval") {
+  // starts a new Branch and stays allowed (ADR 0008). A hidden reply lost its call, so it waits for nothing (#268).
+  const last = history.at(-1);
+  if (last?.status === "awaiting_approval" && last.hiddenAt === null) {
     return refuse(409, "Approve or deny the tool call first");
   }
   const attachments = await attachmentsForSend(deps, {

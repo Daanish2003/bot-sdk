@@ -24,6 +24,8 @@ export function toSharedConversation(
       attachments: redactAttachmentsForShare(attachments.get(row.id) ?? []),
       model: row.model,
       status: row.status,
+      /** A Hidden reply has no parts left to show; the viewer sees only that it was hidden (#268). */
+      hidden: row.hiddenAt !== null,
       createdAt: row.createdAt,
     })),
   };

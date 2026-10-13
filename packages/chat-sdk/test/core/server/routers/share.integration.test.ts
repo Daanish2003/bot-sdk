@@ -48,6 +48,7 @@ describe("share.upsert", () => {
           attachments: [],
           model: null,
           status: "complete",
+          hidden: false,
           createdAt: question.createdAt,
         },
         {
@@ -57,6 +58,7 @@ describe("share.upsert", () => {
           attachments: [],
           model: "anthropic:claude-sonnet-5-5",
           status: "complete",
+          hidden: false,
           createdAt: reply.createdAt,
         },
       ],
@@ -409,6 +411,7 @@ describe("share.get", () => {
       attachments: [],
       model: "anthropic:claude-sonnet-5-5",
       status: "error",
+      hidden: false,
       createdAt: failed.createdAt,
     });
   });
