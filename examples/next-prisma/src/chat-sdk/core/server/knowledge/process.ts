@@ -42,7 +42,7 @@ export class KnowledgeFailure extends PermanentJobError {
 export const knowledgeProcessJob = defineJob({
   name: "knowledge.process",
   payload: z.object({ fileId: z.uuid() }),
-  run: async ({ fileId }, deps) => {
+  run: async ({ fileId }, { deps }) => {
     const [file] = await deps.db.select().from(knowledgeFile).where(eq(knowledgeFile.id, fileId));
     if (!file || file.status !== "processing") return;
 

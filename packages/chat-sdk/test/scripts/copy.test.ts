@@ -54,6 +54,7 @@ describe("copySdk", () => {
     write(join(source, "ui", "chat", "composer.tsx"), "export const Composer = 1;");
     write(join(source, "ui", "theme.css"), '@source ".";');
     write(join(source, "ui", "chat", "composer.test.tsx"), "test");
+    write(join(source, "extras", "trigger", "runner.ts"), "export const runner = 1;");
     write(join(source, "package.json"), "{}");
     write(join(source, "README.md"), "# readme");
     write(join(source, "NOTICE"), "Sim Studio");
@@ -80,6 +81,7 @@ describe("copySdk", () => {
       "core/VERSION",
       "core/client/index.ts",
       "core/server/index.ts",
+      "extras/trigger/runner.ts",
       "package.json",
       "ui/chat/composer.tsx",
       "ui/theme.css",
@@ -103,6 +105,18 @@ describe("copySdk", () => {
     expect(existsSync(join(dest, "core", "client", "index.ts"))).toBe(false);
     expect(readFileSync(join(dest, "core", "VERSION"), "utf8")).toContain("fff9999");
     expect(readFileSync(join(dest, "ui", "chat", "composer.tsx"), "utf8")).toBe("host edit");
+  });
+
+  it("copies extras once, so a Host's edits to its adapter survive updates", () => {
+    copySdk(dest, { source, version });
+    expect(readFileSync(join(dest, "extras", "trigger", "runner.ts"), "utf8")).toBe(
+      "export const runner = 1;",
+    );
+
+    write(join(dest, "extras", "trigger", "runner.ts"), "host edit");
+    copySdk(dest, { source, version });
+
+    expect(readFileSync(join(dest, "extras", "trigger", "runner.ts"), "utf8")).toBe("host edit");
   });
 
   it("gives a Host core and ui only, so the shared e2e scenarios never reach it", () => {

@@ -28,6 +28,7 @@ import {
 } from "./deps";
 import { createLifecycle } from "./lifecycle";
 import type { JobRunner } from "./jobs/runner";
+import { runRegisteredJob } from "./jobs/define";
 import type { ChatHooks } from "./chat/hooks";
 import { deleteUserData } from "./delete-user";
 import { type McpServerConfig, checkMcpServers } from "./mcp/servers";
@@ -256,6 +257,11 @@ export function createChat(options: CreateChatOptions): {
    * rest as interrupted, stops the reaper and closes the runtime's connections. Call it on SIGTERM.
    */
   stop: () => Promise<void>;
+  /**
+   * Runs a job's handler in this process, with the payload validated against the job's schema.
+   * Rejects an unknown name or a bad payload. A Host's worker (such as a Trigger.dev task) calls it.
+   */
+  runJob: (name: string, payload: unknown) => Promise<void>;
   /** Deletes everything the SDK holds for a user, in one transaction. Idempotent. */
   deleteUser: (userId: string) => Promise<void>;
   /** Everything the SDK keeps for a user, as one document (`version: 1`). Empty for an unknown id. */
@@ -402,6 +408,8 @@ export function createChat(options: CreateChatOptions): {
       await getLifecycle().stop();
       await options.runtime?.close?.();
     },
+    /** Runs a job's handler in this process (ADR 0011). A Host's worker calls it; see extras/trigger. */
+    runJob: (name: string, payload: unknown) => runRegisteredJob(name, payload, getDeps()),
     admin: {
       usageTotals: (range) => usageTotals(getDeps(), range),
       usage: ({ userId, since, until }) => usageByDay(getDeps(), userId, { since, until }),

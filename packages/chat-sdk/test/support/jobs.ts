@@ -1,11 +1,15 @@
 import type { AppDeps } from "../../core/server/deps";
+import type { Database } from "../../core/server/db/index";
+import { systemClock } from "../../core/server/jobs/in-process";
 import { claimJob, runClaimedJob } from "../../core/server/jobs/store";
 import { createTestDeps } from "./deps";
+import { getTestDb } from "./test-database";
 
 export type DrainJobsOptions = {
+  db?: Database;
   /**
-   * The dependencies the jobs run with: pass the ones the test's chat uses (its blob store, its
-   * fake adapters). A fresh test set when left out.
+   * The dependencies the jobs run with. A test that drains a job which calls models passes the
+   * deps its Run used, so the fakes are the same. Defaults to fresh test deps.
    */
   deps?: AppDeps;
   /**
@@ -21,15 +25,21 @@ export type DrainJobsOptions = {
  * to its attempts, so the drain always ends. Failures are recorded on the row, not thrown.
  */
 export async function drainJobs({
-  deps = createTestDeps(),
+  db = getTestDb(),
   respectRunAfter = false,
+  deps,
 }: DrainJobsOptions = {}): Promise<number> {
   const silent = { error: () => {} };
+  const jobDeps = deps ?? createTestDeps({ db });
   let ran = 0;
   for (;;) {
-    const claimed = await claimJob(deps.db, new Date(), { respectRunAfter });
+    const claimed = await claimJob(db, new Date(), { respectRunAfter });
     if (!claimed) return ran;
-    await runClaimedJob(deps.db, claimed, { now: () => new Date(), logger: silent, deps });
+    await runClaimedJob(db, claimed, {
+      clock: systemClock,
+      logger: silent,
+      deps: () => jobDeps,
+    });
     ran += 1;
   }
 }
