@@ -412,6 +412,14 @@ export async function startRun(
             deps.logger.error(`Logging Message ${messageId} failed`, caught),
           );
       }
+      // A hidden reply's log ends with the `moderated` chunk, so every reader drops its text (#269).
+      if (hidden) {
+        await deps.runStreams
+          .append(logId, moderatedChunk())
+          .catch((caught: unknown) =>
+            deps.logger.error(`Logging Message ${messageId} failed`, caught),
+          );
+      }
       await deps.runStreams.close(logId);
       deps.lifecycle.runs.delete(messageId);
       // Last: the ending, the usage row and the log's end are all written by now (#265).
@@ -448,6 +456,14 @@ export async function startRun(
  */
 export function runLogId(messageId: string, runNumber: number) {
   return runNumber <= 1 ? messageId : `${messageId}:${runNumber}`;
+}
+
+/**
+ * The custom chunk a hidden reply's Run log ends with (#269). The client drops the reply's text
+ * when it reads it, so a reader that joins or reloads mid-Run hides it too.
+ */
+export function moderatedChunk(): StreamChunk {
+  return { type: EventType.CUSTOM, name: "moderated", value: {}, timestamp: Date.now() };
 }
 
 /** Whether an earlier Run of the Message already hid its reply (#268). */

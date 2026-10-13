@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import { type AnyTextAdapter, toolDefinition } from "@tanstack/ai";
+import { type AnyTextAdapter, EventType, type StreamChunk, toolDefinition } from "@tanstack/ai";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
@@ -15,6 +15,7 @@ import type { HostProvider } from "../../../../core/server/deps";
 import { message } from "../../../../core/server/db/schema/chat";
 import { usage } from "../../../../core/server/db/schema/usage";
 import { exportUserData } from "../../../../core/server/export-user";
+import { START } from "../../../../core/server/chat/run-streams";
 import { insertConversation } from "../../../support/conversations";
 import { createTestDeps } from "../../../support/deps";
 import {
@@ -104,6 +105,17 @@ async function replyOf(conversationId: string) {
   if (!row) throw new Error("No reply Message");
   return row;
 }
+
+/** The chunks a Run's log holds, from its first entry (ADR 0006). */
+async function logChunks(deps: ReturnType<typeof createTestDeps>, runId: string) {
+  const chunks: StreamChunk[] = [];
+  for await (const entry of deps.runStreams.read(runId, START)) chunks.push(entry.chunk);
+  return chunks;
+}
+
+/** Whether a chunk is the `moderated` custom chunk a hidden reply's Run log ends with (#269). */
+const isModerated = (chunk: StreamChunk) =>
+  chunk.type === EventType.CUSTOM && chunk.name === "moderated";
 
 describe("the moderate hook on the reply", () => {
   it("lets the user send again after a hidden reply that was waiting for Approval", async () => {
@@ -340,5 +352,83 @@ describe("the moderate hook on the reply", () => {
     const { messages } = await chatRpc({ user, deps }).conversation.get({ id: conv.id });
     expect(messages.at(-1)).toMatchObject({ hidden: false, status: "complete" });
     expect(error).toHaveBeenCalledWith(expect.any(String), expect.any(Error));
+  });
+
+  it("a flagged Run's log ends with the moderated chunk, after its own ending (#269)", async () => {
+    const user = await insertUser();
+    const conv = await insertConversation(user, { title: "Moderated log" });
+    const fake = createFakeAdapter({ rounds: [round(text("Forbidden", " words"))] });
+    const deps = moderatedDeps({ moderate: flags("Forbidden") }, fake);
+
+    await (await sendAs(commandRequest(conv.id), user, deps)).text();
+
+    const chunks = await logChunks(deps, (await replyOf(conv.id)).id);
+    expect(chunks.at(-1)).toMatchObject({ type: "CUSTOM", name: "moderated" });
+    expect(chunks.at(-2)?.type).toBe(EventType.RUN_FINISHED);
+  });
+
+  it("an unflagged Run's log has no moderated chunk (#269)", async () => {
+    const user = await insertUser();
+    const conv = await insertConversation(user, { title: "Unflagged log" });
+    const fake = createFakeAdapter({ rounds: [round(text("Fine answer"))] });
+    const deps = moderatedDeps({ moderate: flags("Forbidden") }, fake);
+
+    await (await sendAs(commandRequest(conv.id), user, deps)).text();
+
+    const chunks = await logChunks(deps, (await replyOf(conv.id)).id);
+    expect(chunks.some(isModerated)).toBe(false);
+  });
+
+  it("a Host without a moderate hook writes no moderated chunk (#269)", async () => {
+    const user = await insertUser();
+    const conv = await insertConversation(user, { title: "No hook log" });
+    const fake = createFakeAdapter({ rounds: [round(text("Forbidden", " words"))] });
+    const deps = createTestDeps({ hostProviders: [hostProvider], adapterFor: () => fake.adapter });
+
+    await (await sendAs(commandRequest(conv.id), user, deps)).text();
+
+    const chunks = await logChunks(deps, (await replyOf(conv.id)).id);
+    expect(chunks.some(isModerated)).toBe(false);
+  });
+
+  it("a reply that spans two Runs is hidden whole when its second Run is flagged (#269)", async () => {
+    const user = await insertUser();
+    const conv = await insertConversation(user, { title: "Two Runs" });
+    const fake = createFakeAdapter({
+      rounds: [
+        round(
+          text("Checking"),
+          toolCall({ name: "send_mail", input: { to: "a@b.c", body: "Hi" } }),
+        ),
+        round(text("Forbidden", " words")),
+      ],
+    });
+    const deps = createTestDeps({
+      hostProviders: [hostProvider],
+      hooks: createHookEmitter({ moderate: flags("Forbidden") }, { error: () => {} }),
+      adapterFor: () => fake.adapter,
+      tools: [sendMail],
+    });
+    await (await sendAs(commandRequest(conv.id), user, deps)).text();
+    const waiting = await replyOf(conv.id);
+
+    await chatRpc({ user, deps }).chat.decide({ messageId: waiting.id, approved: true });
+    await (
+      await sendAs(
+        new Request(`http://localhost${basePath}/run?runId=${waiting.id}`, { method: "GET" }),
+        user,
+        deps,
+      )
+    ).text();
+
+    const { messages } = await chatRpc({ user, deps }).conversation.get({ id: conv.id });
+    expect(messages.find((m) => m.id === waiting.id)).toMatchObject({ hidden: true, parts: [] });
+    const row = await replyOf(conv.id);
+    expect(JSON.stringify(row.parts)).not.toContain("Checking");
+    expect(JSON.stringify(row.parts)).not.toContain("Forbidden");
+    expect((await logChunks(deps, `${waiting.id}:2`)).at(-1)).toMatchObject({
+      type: "CUSTOM",
+      name: "moderated",
+    });
   });
 });

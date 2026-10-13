@@ -146,6 +146,27 @@ export function messageInfo(message: UIMessage): MessageInfo {
   };
 }
 
+/** Whether a stream chunk is the `moderated` custom chunk that ends a hidden reply's Run log (#269). */
+export function isModeratedChunk(chunk: { type: string; name?: string }): boolean {
+  return chunk.type === "CUSTOM" && chunk.name === "moderated";
+}
+
+/**
+ * The reply a `moderated` chunk hides (#269): every assistant Message after the last user Message,
+ * since a reply can span several Runs. Its parts are dropped and it reads as hidden.
+ */
+export function hideReply(messages: UIMessage[]): UIMessage[] {
+  let lastUser = -1;
+  messages.forEach((message, index) => {
+    if (message.role === "user") lastUser = index;
+  });
+  return messages.map((message, index) =>
+    index > lastUser && message.role === "assistant"
+      ? { ...message, parts: [], metadata: { ...message.metadata, hidden: true } }
+      : message,
+  );
+}
+
 /** What to tell the user about a Message that ended in `error`, and whether to link Key settings. */
 export function describeError({ error, errorReason }: MessageInfo) {
   switch (errorReason) {

@@ -6,6 +6,8 @@ import type { ChatCommand } from "../../core/shared/chat/command";
 import {
   branchFrom,
   contextCutIds,
+  hideReply,
+  isModeratedChunk,
   messageInfo,
   takePendingFirstMessage,
   toUIMessages,
@@ -97,6 +99,8 @@ function ChatThread({
   const { orpc, chatUrl } = useChatAdapter();
   // The server writes the new Messages before it streams, so the first chunk means "sent".
   const awaitingFirstChunk = useRef(false);
+  // The messages as of the last render, for a `moderated` chunk to hide from (#269).
+  const latestMessages = useRef<UIMessage[]>([]);
   // The command for the next request. `reload` (regenerate) takes no body, so every command
   // rides in the connection's body instead.
   const command = useRef<ChatCommand>(undefined);
@@ -113,12 +117,15 @@ function ChatThread({
     initialResumeSnapshot: joinedRunId
       ? { resumeState: { threadId: conversation.id, runId: joinedRunId } }
       : undefined,
-    onChunk: () => {
+    onChunk: (chunk) => {
+      // A hidden reply's log ends with `moderated` (#269): its text goes from the page as it is read.
+      if (isModeratedChunk(chunk)) setMessages(hideReply(latestMessages.current));
       if (!awaitingFirstChunk.current) return;
       awaitingFirstChunk.current = false;
       void invalidateConversationList(queryClient, orpc);
     },
   });
+  latestMessages.current = messages;
   const [sending, setSending] = useState(false);
   // The composer's text. A Message the Host refuses (#267) is put back in it, so the user can rephrase.
   const [composerText, setComposerText] = useState("");
