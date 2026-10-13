@@ -196,9 +196,6 @@ describe("the chat view with the dictionary", () => {
         contextCut: true,
       }),
       seedAll,
-      // The streaming typing loader's screen-reader label, hard-coded in the shared prompt-kit
-      // primitive (packages/ui), outside the chat view; a follow-up passes a localized label.
-      ["Loading"],
     );
   });
 
