@@ -27,6 +27,7 @@ import type { HostProvider } from "../../../../core/server/deps";
 import { createLifecycle } from "../../../../core/server/lifecycle";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { createTestDeps, testKeyEncryptionSecret } from "../../../support/deps";
+import { insertAttachment } from "../../../support/attachments";
 import { insertConversation, insertMessage } from "../../../support/conversations";
 import { createFakeAdapter, round, runError, text, toolCall } from "../../../support/fake-adapter";
 import { chatRpc, sendAs } from "../../../support/sdk";
@@ -853,5 +854,231 @@ describe("the Conversation and Shared link hooks", () => {
     await expect(deleteProject(deps, user.id, projectId)).rejects.toThrow("delete failed");
 
     expect(onConversationDeleted).not.toHaveBeenCalled();
+  });
+});
+
+/** Posts one Run for `conversationId` to the handler, as the composer does, and returns the response. */
+function postRun(
+  handler: ReturnType<typeof createChat>["handler"],
+  conversationId: string,
+  command: { text?: string; attachmentIds?: string[]; model?: string } = {},
+) {
+  return handler(
+    new Request(`http://localhost${basePath}/run`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: [],
+        forwardedProps: {
+          conversationId,
+          parentId: null,
+          text: "Hi",
+          attachmentIds: [],
+          model: hostModel,
+          webSearch: false,
+          ...command,
+        },
+      }),
+    }),
+  );
+}
+
+describe("the moderate hook on the user's Message", () => {
+  it("refuses a Message the Host disallows with 422 moderated and the reason, and saves nothing", async () => {
+    const user = await insertUser();
+    const conv = await insertConversation(user, { title: "Refused" });
+    const fake = createFakeAdapter({ rounds: [round(text("Hello"))] });
+    scripted.adapter = fake.adapter;
+    const chat = chatWith({
+      userId: user.id,
+      hooks: { moderate: () => ({ allow: false, reason: "Off-policy request" }) },
+    });
+
+    const response = await postRun(chat.handler, conv.id, { text: "Something disallowed" });
+
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({
+      message: "Off-policy request",
+      code: "moderated",
+      reason: "Off-policy request",
+    });
+    const messages = await getTestDb()
+      .select()
+      .from(message)
+      .where(eq(message.conversationId, conv.id));
+    expect(messages).toHaveLength(0);
+    expect(await getTestDb().select().from(usage).where(eq(usage.userId, user.id))).toHaveLength(0);
+    expect(fake.calls).toHaveLength(0);
+  });
+
+  it("answers a refusal without a reason with a default message", async () => {
+    const user = await insertUser();
+    const conv = await insertConversation(user, { title: "Refused without reason" });
+    scripted.adapter = createFakeAdapter({ rounds: [round(text("Hello"))] }).adapter;
+    const chat = chatWith({ userId: user.id, hooks: { moderate: () => ({ allow: false }) } });
+
+    const response = await postRun(chat.handler, conv.id);
+    const body = (await response.json()) as { message: string; code: string; reason?: string };
+
+    expect(response.status).toBe(422);
+    expect(body.code).toBe("moderated");
+    expect(body.message.length).toBeGreaterThan(0);
+    expect(body.reason).toBeUndefined();
+  });
+
+  it("hands the hook the text and the image and text Attachments, with readable bytes", async () => {
+    const user = await insertUser();
+    const conv = await insertConversation(user, { title: "Attachments" });
+    scripted.adapter = createFakeAdapter({ rounds: [round(text("Hello"))] }).adapter;
+    const notes = await insertAttachment(user, {
+      filename: "notes.txt",
+      mediaType: "text/plain",
+      contents: "Some notes",
+    });
+    const cat = await insertAttachment(user, {
+      filename: "cat.png",
+      mediaType: "image/png",
+      contents: "png-bytes",
+    });
+    const doc = await insertAttachment(user, {
+      filename: "doc.pdf",
+      mediaType: "application/pdf",
+      contents: "pdf-bytes",
+    });
+    const seen: unknown[] = [];
+    const chat = chatWith({
+      userId: user.id,
+      hooks: {
+        moderate: async (check) => {
+          if (check.phase !== "input") return { allow: true };
+          const attachments = await Promise.all(
+            check.attachments.map(async (file) => ({
+              name: file.name,
+              mediaType: file.mediaType,
+              bytes: Buffer.from(await file.read()).toString(),
+            })),
+          );
+          seen.push({ text: check.text, onHostCredentials: check.onHostCredentials, attachments });
+          return { allow: true };
+        },
+      },
+    });
+
+    const response = await postRun(chat.handler, conv.id, {
+      text: "Read these",
+      attachmentIds: [notes.id, cat.id, doc.id],
+    });
+    await response.text();
+
+    expect(response.status).toBe(200);
+    expect(seen).toHaveLength(1);
+    const [input] = seen as { attachments: { name: string }[] }[];
+    expect(input).toEqual({
+      text: "Read these",
+      onHostCredentials: true,
+      attachments: expect.any(Array),
+    });
+    expect(
+      (input!.attachments as { name: string; bytes: string }[])
+        .map(({ name, bytes }) => [name, bytes])
+        .sort(),
+    ).toEqual([
+      ["cat.png", "png-bytes"],
+      ["notes.txt", "Some notes"],
+    ]);
+  });
+
+  it("lets an allowed Message proceed as it does without the hook", async () => {
+    const user = await insertUser();
+    const conv = await insertConversation(user, { title: "Allowed" });
+    scripted.adapter = createFakeAdapter({ rounds: [round(text("Hello"))] }).adapter;
+    const moderate = vi.fn(() => ({ allow: true as const }));
+    const chat = chatWith({ userId: user.id, hooks: { moderate } });
+
+    const response = await postRun(chat.handler, conv.id, { text: "Fine" });
+    await response.text();
+
+    expect(response.status).toBe(200);
+    expect(moderate).toHaveBeenCalledTimes(1);
+    expect(await replyStatus(conv.id)).toBe("complete");
+  });
+
+  it("tells the hook a Run on the user's own credentials is not on Host credentials", async () => {
+    const user = await insertUser();
+    const deps = createTestDeps();
+    await saveCredentials(deps, user.id, {
+      service: "anthropic",
+      fields: { apiKey: "sk-ant-own-key" },
+      hint: "…-key",
+      verified: true,
+    });
+    const conv = await insertConversation(user, { title: "Own key moderated" });
+    scripted.adapter = createFakeAdapter({ rounds: [round(text("Hello"))] }).adapter;
+    const moderate = vi.fn(() => ({ allow: true as const }));
+    const chat = chatWith({ userId: user.id, hostProviders: [], hooks: { moderate } });
+
+    const response = await postRun(chat.handler, conv.id, { text: "Hi" });
+    await response.text();
+
+    expect(moderate).toHaveBeenCalledWith(
+      expect.objectContaining({ phase: "input", onHostCredentials: false }),
+    );
+  });
+
+  it("lets the Message through and logs when the hook throws", async () => {
+    const user = await insertUser();
+    const conv = await insertConversation(user, { title: "Throws" });
+    scripted.adapter = createFakeAdapter({ rounds: [round(text("Hello"))] }).adapter;
+    const error = vi.fn();
+    const chat = chatWith({
+      userId: user.id,
+      logger: { error },
+      hooks: {
+        moderate: () => {
+          throw new Error("vendor down");
+        },
+      },
+    });
+
+    const response = await postRun(chat.handler, conv.id, { text: "Fine" });
+    await response.text();
+
+    expect(response.status).toBe(200);
+    expect(await replyStatus(conv.id)).toBe("complete");
+    expect(error).toHaveBeenCalledWith(expect.any(String), new Error("vendor down"));
+  });
+
+  it("lets the Message through and logs when the hook takes longer than 10 seconds", async () => {
+    const user = await insertUser();
+    const conv = await insertConversation(user, { title: "Slow" });
+    scripted.adapter = createFakeAdapter({ rounds: [round(text("Hello"))] }).adapter;
+    const error = vi.fn();
+    const moderate = vi.fn(() => new Promise<never>(() => {}));
+    const chat = chatWith({ userId: user.id, logger: { error }, hooks: { moderate } });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const pending = postRun(chat.handler, conv.id, { text: "Fine" });
+      await vi.waitFor(() => expect(moderate).toHaveBeenCalledTimes(1));
+      await vi.advanceTimersByTimeAsync(10_000);
+      const response = await pending;
+
+      expect(response.status).toBe(200);
+      expect(error).toHaveBeenCalledWith(expect.any(String), expect.any(Error));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("calls nothing and refuses nothing when the Host has no moderate hook", async () => {
+    const user = await insertUser();
+    const conv = await insertConversation(user, { title: "No hook" });
+    scripted.adapter = createFakeAdapter({ rounds: [round(text("Hello"))] }).adapter;
+    const chat = chatWith({ userId: user.id, hooks: {} });
+
+    const response = await postRun(chat.handler, conv.id, { text: "Fine" });
+    await response.text();
+
+    expect(response.status).toBe(200);
+    expect(await replyStatus(conv.id)).toBe("complete");
   });
 });

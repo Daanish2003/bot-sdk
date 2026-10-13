@@ -12,6 +12,7 @@ import {
 } from "../../core/client/chat";
 import { contextFill, lastRunTokens } from "../../core/client/context-ring";
 import { missingCredentialsMessage } from "../../core/client/models";
+import { moderatedErrorOf } from "../../core/client/moderation";
 import { rateLimitedErrorOf, runFetch } from "../../core/client/rate-limit";
 import { fetchServerSentEvents, type UIMessage, useChat } from "@tanstack/ai-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -119,6 +120,15 @@ function ChatThread({
     },
   });
   const [sending, setSending] = useState(false);
+  // The composer's text. A Message the Host refuses (#267) is put back in it, so the user can rephrase.
+  const [composerText, setComposerText] = useState("");
+  const composerSend = useRef(false);
+  const refusal = moderatedErrorOf(error);
+  useEffect(() => {
+    if (moderatedErrorOf(error) && composerSend.current) {
+      setComposerText(command.current?.text ?? "");
+    }
+  }, [error]);
   const serverStreaming = conversation.messages.some((m) => m.status === "streaming");
   const streaming = sending || serverStreaming;
   const conversationQuery = orpc.conversation.get.queryOptions({ input: { id: conversation.id } });
@@ -254,14 +264,17 @@ function ChatThread({
     }
   };
 
-  const send = (text: string, attachments: AttachmentInfo[] = []) =>
-    run(conversation.messages.at(-1)?.id ?? null, text, undefined, attachments);
+  const send = (text: string, attachments: AttachmentInfo[] = []) => {
+    composerSend.current = true;
+    return run(conversation.messages.at(-1)?.id ?? null, text, undefined, attachments);
+  };
 
   /**
    * Edit (with `text`) or regenerate `messageId` into a new Branch beside it. An edit sends the
    * attachments the user kept and added; a regenerate leaves the user Message's alone.
    */
   const startBranch = (messageId: string, text?: string, attachments?: AttachmentInfo[]) => {
+    composerSend.current = false;
     const { parentId, history } = branchFrom(messages, messageId);
     void run(parentId, text, history, attachments);
   };
@@ -324,7 +337,7 @@ function ChatThread({
       <div className="border-t bg-background px-3 py-3 sm:px-6">
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-2">
           {/* A refused Run is explained by the Quota banner below, not by its error. */}
-          {error && !sending && !quotaBlocked && (
+          {error && !sending && !quotaBlocked && !refusal && (
             <p role="alert" className="text-xs text-destructive">
               {rateLimitedErrorOf(error)
                 ? "Too many messages. Try again in a moment."
@@ -336,6 +349,9 @@ function ChatThread({
           {quotaBlocked && quota && <QuotaBanner resetsAt={quota.resetsAt} />}
           <ContextOverflowNotice fill={context} />
           <Composer
+            value={composerText}
+            onValueChange={setComposerText}
+            refusal={refusal?.message ?? null}
             onSend={(text) => {
               void send(text, draft.uploaded);
               draft.clear();
