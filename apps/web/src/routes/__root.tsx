@@ -27,7 +27,7 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
       },
       {
         name: "viewport",
-        content: "width=device-width, initial-scale=1",
+        content: "width=device-width, initial-scale=1, viewport-fit=cover",
       },
       {
         title: "ai-chat",
@@ -52,7 +52,7 @@ function RootDocument() {
         <HeadContent />
       </head>
       <body>
-        <div className="flex h-svh flex-col">
+        <div className="flex h-dvh flex-col">
           <WebChatProvider queryClient={queryClient}>
             <Outlet />
           </WebChatProvider>

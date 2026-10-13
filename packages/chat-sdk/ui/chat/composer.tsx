@@ -59,7 +59,7 @@ export function Composer({
       {attachments}
       <PromptInputTextarea
         placeholder={placeholder ?? t("chat.composerPlaceholder")}
-        className="text-sm text-foreground"
+        className="text-base text-foreground md:text-sm"
         aria-label={t("chat.messageLabel")}
       />
       <PromptInputActions className="justify-between px-1 pt-1">

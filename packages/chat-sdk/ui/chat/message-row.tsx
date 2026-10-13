@@ -393,7 +393,7 @@ function AssistantParts({
         segment.type === "text" ? (
           <Markdown
             key={segment.key}
-            className="prose prose-sm max-w-[80ch] dark:prose-invert"
+            className="prose prose-sm min-w-0 max-w-[80ch] dark:prose-invert max-md:[&_table]:block max-md:[&_table]:overflow-x-auto"
             components={replyComponents}
           >
             {segment.content}
