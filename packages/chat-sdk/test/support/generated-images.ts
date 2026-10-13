@@ -7,6 +7,8 @@ import { getTestDb } from "./test-database";
 import type { TestUser } from "./users";
 import { fakePngBase64 } from "../../core/server/chat/fake-image-adapter";
 
+type ImageOptions = { prompt?: string; parentId?: string | null; active?: boolean };
+
 /**
  * Stores a finished Generated image for `user` as a reply of `conversationId`: its Message (whose
  * parts name the image and its prompt), its `generated_image` row and its bytes under
@@ -16,11 +18,13 @@ export async function insertGeneratedImage(
   deps: AppDeps,
   user: TestUser,
   conversationId: string,
-  { prompt = "a red bicycle" }: { prompt?: string } = {},
+  { prompt = "a red bicycle", parentId = null, active = false }: ImageOptions = {},
 ) {
   const id = uuidv7();
   const reply = await insertMessage({
     conversationId,
+    parentId,
+    active,
     role: "assistant",
     text: "",
     parts: storedParts([

@@ -52,6 +52,7 @@ export function SharedConversationPage({
   data: SharedConversation;
   viewer?: SharedViewer;
 }) {
+  const { sharedGeneratedImagesUrl } = useChatAdapter();
   return (
     <div className="h-full overflow-y-auto bg-background">
       <header className="border-b px-4 py-2 text-xs text-muted-foreground">
@@ -74,7 +75,12 @@ export function SharedConversationPage({
         </div>
         <div className="border-t">
           {sharedToUIMessages(data.messages).map((message) => (
-            <MessageRow key={message.id} message={message} userLabel="User" />
+            <MessageRow
+              key={message.id}
+              message={message}
+              userLabel="User"
+              imagesUrl={sharedGeneratedImagesUrl(data.token)}
+            />
           ))}
         </div>
         <footer className="mt-12 text-center text-xs text-muted-foreground">

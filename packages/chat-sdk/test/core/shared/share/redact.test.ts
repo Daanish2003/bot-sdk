@@ -1,6 +1,8 @@
 import type { MessagePart } from "@tanstack/ai";
 import { describe, expect, it } from "vitest";
 
+import { parseStoredParts, toUIParts } from "../../../../core/shared/chat/parts";
+import { storedParts } from "../../../../core/shared/message-parts";
 import { redactAttachmentsForShare, redactForShare } from "../../../../core/shared/share/redact";
 
 describe("redactForShare", () => {
@@ -56,6 +58,32 @@ describe("redactForShare", () => {
         { type: "text", content: "What's in these?" },
       ]),
     ).toEqual([{ type: "text", content: "What's in these?" }]);
+  });
+});
+
+describe("redactForShare with Generated images", () => {
+  it("keeps a stored generated_image part, with its image id, prompt and shape", () => {
+    const stored = storedParts([
+      { type: "text", text: "Here it is." },
+      {
+        type: "generated_image",
+        toolCallId: "call-1",
+        prompt: "a red bicycle",
+        aspectRatio: "landscape",
+        state: "done",
+        imageId: "0199a1b2-0000-7000-8000-0000000000aa",
+      },
+    ]);
+
+    const parts = redactForShare(toUIParts(parseStoredParts(stored)));
+
+    expect(parts).toHaveLength(2);
+    expect(parts[1]).toMatchObject({
+      type: "tool-call",
+      name: "generate_image",
+      input: { prompt: "a red bicycle", aspectRatio: "landscape" },
+      output: { imageId: "0199a1b2-0000-7000-8000-0000000000aa" },
+    });
   });
 });
 

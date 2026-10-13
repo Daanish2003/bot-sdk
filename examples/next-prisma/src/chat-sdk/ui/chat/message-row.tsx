@@ -108,6 +108,7 @@ export function MessageRow({
   actions,
   highlighted = false,
   contextCut = false,
+  imagesUrl,
 }: {
   message: UIMessage;
   userLabel?: string;
@@ -116,6 +117,8 @@ export function MessageRow({
   highlighted?: boolean;
   /** The Model's context starts at this Message on the Branch: a marker sits above it. */
   contextCut?: boolean;
+  /** Where a Generated image's bytes come from; the owner's route when unset (a Shared link passes its own). */
+  imagesUrl?: string;
 }) {
   const info = messageInfo(message);
   const text = plainText(message);
@@ -245,7 +248,11 @@ export function MessageRow({
               {thinking && (
                 <Thinking text={thinking} inProgress={info.status === "streaming" && !text} />
               )}
-              <AssistantParts parts={message.parts} onDecide={actions?.onDecide} />
+              <AssistantParts
+                parts={message.parts}
+                onDecide={actions?.onDecide}
+                imagesUrl={imagesUrl}
+              />
               {info.status === "streaming" && !thinking && waitingForText(message.parts) && (
                 <Loader variant="typing" size="sm" />
               )}
@@ -444,12 +451,15 @@ function EditBox({
 function AssistantParts({
   parts,
   onDecide,
+  imagesUrl: imagesUrlOverride,
 }: {
   parts: UIMessage["parts"];
   onDecide?: (approved: boolean, allowForConversation?: boolean) => void;
+  imagesUrl?: string;
 }) {
   const sources = sourcesOf(parts);
   const { generatedImagesUrl } = useChatAdapter();
+  const imagesUrl = imagesUrlOverride ?? generatedImagesUrl;
   return (
     <ReplySources value={sources}>
       {replySegments(parts).map((segment) =>
@@ -462,11 +472,7 @@ function AssistantParts({
             {segment.content}
           </Markdown>
         ) : segment.type === "image" ? (
-          <GeneratedImageBlock
-            key={segment.key}
-            image={segment.image}
-            imagesUrl={generatedImagesUrl}
-          />
+          <GeneratedImageBlock key={segment.key} image={segment.image} imagesUrl={imagesUrl} />
         ) : segment.type === "searches" ? (
           <SearchRow key={segment.key} searches={segment.searches} sources={sources} />
         ) : (

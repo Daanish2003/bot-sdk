@@ -34,7 +34,7 @@ import { assertMigrated, migrate as migrateSchema } from "./migrate";
 import { rateLimitedFor, resolveRateLimits, rpcRateLimits, type RateLimits } from "./rate-limits";
 import { memoryRuntime, type ChatRuntime } from "./runtime";
 import { appRouter } from "./routers/index";
-import { loadSharedConversation } from "./share/store";
+import { loadSharedConversation, loadSharedGeneratedImage } from "./share/store";
 import type { SharedConversation } from "../shared/share/conversation";
 
 export type ChatHandler = (request: Request) => Promise<Response>;
@@ -146,6 +146,7 @@ export function createChatHandler(
   const mcpConnectPath = `${prefix}/mcp/connect`;
   const mcpCallbackPath = `${prefix}/mcp/callback`;
   const generatedImagesPath = `${prefix}/generated-images/`;
+  const sharedPath = `${prefix}/shared/`;
   const sharedReadPath = `${rpcPrefix}/share/get`;
   const rpc = new RPCHandler(appRouter, {
     interceptors: [onError((error) => logger.error(error))],
@@ -153,6 +154,15 @@ export function createChatHandler(
 
   return async (request) => {
     const { pathname } = new URL(request.url);
+    // A Generated image on a Shared link is public: the link's token is the only key (ADR 0004).
+    const sharedImage = /^([^/]+)\/generated-images\/([^/]+)$/.exec(
+      pathname.startsWith(sharedPath) ? pathname.slice(sharedPath.length) : "",
+    );
+    if (sharedImage && request.method === "GET") {
+      const download = new URL(request.url).searchParams.get("download") === "1";
+      const [, token, id] = sharedImage;
+      return sharedGeneratedImageResponse(deps, token!, id!, download);
+    }
     const user = await getUser(request);
     if (!user && pathname !== sharedReadPath) return unauthorized();
 
@@ -436,10 +446,31 @@ async function generatedImageResponse(
     .where(and(eq(generatedImage.id, id), eq(generatedImage.userId, userId)));
   const bytes = row ? await deps.blobStore.get(generatedImageBlobKey(id)) : null;
   if (!row || !bytes) return notFound();
-  const extension = row.mediaType === "image/jpeg" ? "jpg" : row.mediaType.split("/")[1];
+  return imageResponse(id, row.mediaType, bytes, download);
+}
+
+/**
+ * One Generated image on a Shared link (spec #315), served to anyone with the token. Unknown or
+ * removed links, a blocked owner, and an image off the shared Branch are all 404.
+ */
+async function sharedGeneratedImageResponse(
+  deps: AppDeps,
+  token: string,
+  id: string,
+  download: boolean,
+): Promise<Response> {
+  if (!z.uuid().safeParse(id).success) return notFound();
+  const image = await loadSharedGeneratedImage(deps, token, id);
+  if (!image) return notFound();
+  return imageResponse(id, image.mediaType, image.bytes, download);
+}
+
+/** An image's bytes: immutable and cacheable, named for saving when `download` is set. */
+function imageResponse(id: string, mediaType: string, bytes: Uint8Array, download: boolean) {
+  const extension = mediaType === "image/jpeg" ? "jpg" : mediaType.split("/")[1];
   return new Response(bytes as Uint8Array<ArrayBuffer>, {
     headers: {
-      "Content-Type": row.mediaType,
+      "Content-Type": mediaType,
       "Cache-Control": "private, max-age=31536000, immutable",
       ...(download && {
         "Content-Disposition": `attachment; filename="generated-image-${id.slice(0, 8)}.${extension}"`,

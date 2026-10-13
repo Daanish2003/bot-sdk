@@ -57,7 +57,12 @@ export type ChatRouter = {
 
 export type ChatAdapter = Pick<
   ChatClient,
-  "orpc" | "chatUrl" | "exportUrl" | "connectionsUrl" | "generatedImagesUrl"
+  | "orpc"
+  | "chatUrl"
+  | "exportUrl"
+  | "connectionsUrl"
+  | "generatedImagesUrl"
+  | "sharedGeneratedImagesUrl"
 > &
   ChatRouter;
 
@@ -85,6 +90,7 @@ export function ChatProvider({
       exportUrl: client.exportUrl,
       connectionsUrl: client.connectionsUrl,
       generatedImagesUrl: client.generatedImagesUrl,
+      sharedGeneratedImagesUrl: client.sharedGeneratedImagesUrl,
     }),
     [client, router],
   );
