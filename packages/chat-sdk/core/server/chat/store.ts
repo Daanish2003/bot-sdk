@@ -1,6 +1,6 @@
 import { conversation, message, type MessageRow } from "../db/schema/chat";
 import { sharedLink } from "../db/schema/share";
-import { and, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 
@@ -275,6 +275,32 @@ export async function findMessage(deps: Deps, userId: string, id: string) {
     .innerJoin(conversation, eq(conversation.id, message.conversationId))
     .where(and(eq(message.id, id), eq(conversation.userId, userId)));
   return row?.message;
+}
+
+/** The statuses whose Run has ended, so the reply can be rated (see **Rating** in CONTEXT.md). */
+const endedStatuses = ["complete", "stopped", "error"] as const;
+
+/**
+ * Sets the owner's Rating of an ended assistant reply, or clears it with null. Only the latest is
+ * kept. `live` covers a reply whose Run hasn't ended, checked again in the update so a Run that
+ * starts in between can't be rated.
+ */
+export async function rateMessage(
+  deps: Deps,
+  userId: string,
+  id: string,
+  rating: "up" | "down" | null,
+): Promise<"rated" | "not_found" | "not_assistant" | "live"> {
+  const owned = await findMessage(deps, userId, id);
+  if (!owned) return "not_found";
+  if (owned.role !== "assistant") return "not_assistant";
+  if (!(endedStatuses as readonly string[]).includes(owned.status)) return "live";
+  const updated = await deps.db
+    .update(message)
+    .set({ rating, ratedAt: rating ? new Date() : null })
+    .where(and(eq(message.id, id), inArray(message.status, endedStatuses)))
+    .returning({ id: message.id });
+  return updated.length ? "rated" : "live";
 }
 
 /** The Messages from a root down to `leafId`, oldest first. Empty without a leaf. */

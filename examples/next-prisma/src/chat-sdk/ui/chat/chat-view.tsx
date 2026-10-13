@@ -156,6 +156,33 @@ function ChatThread({
     if (running) await stopRun.mutateAsync({ messageId: running.id });
   };
 
+  // A Rating shows at once on its reply, and is taken back if the server refuses it. The rollback
+  // reads the latest Messages, so a stream update that arrived meanwhile is kept.
+  const latestMessages = useRef(messages);
+  useEffect(() => {
+    latestMessages.current = messages;
+  }, [messages]);
+  const rateCall = useMutation(orpc.chat.rate.mutationOptions());
+  const withRating = (list: typeof messages, messageId: string, rating: "up" | "down" | null) =>
+    list.map((message) =>
+      message.id === messageId
+        ? { ...message, metadata: { ...message.metadata, rating } }
+        : message,
+    );
+  const rate = (messageId: string, rating: "up" | "down" | null) => {
+    const previous = messageInfo(messages.find((message) => message.id === messageId)!).rating;
+    setMessages(withRating(messages, messageId, rating));
+    rateCall.mutate(
+      { messageId, rating },
+      {
+        onError: (caught) => {
+          setMessages(withRating(latestMessages.current, messageId, previous));
+          toast.error(`Rating failed: ${caught.message}`);
+        },
+      },
+    );
+  };
+
   // The newest reply waits for its call's Approval: the composer waits too (ADR 0008).
   const decideCall = useMutation(orpc.chat.decide.mutationOptions());
   const waiting =
@@ -311,6 +338,7 @@ function ChatThread({
                 onEdit: (text, attachments) => startBranch(message.id, text, attachments),
                 onRegenerate: () => startBranch(message.id),
                 onSwitchBranch: (messageId) => switchBranch.mutate({ messageId }),
+                onRate: (rating) => rate(message.id, rating),
                 onDecide: (approved, allowForConversation) =>
                   void decide(message.id, approved, allowForConversation),
               }}

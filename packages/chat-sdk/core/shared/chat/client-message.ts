@@ -18,6 +18,7 @@ export function toClientMessage(row: MessageRecord, attachments: AttachmentInfo[
     error: row.error,
     errorReason: row.errorReason,
     usage: row.usage,
+    rating: row.rating,
     contextStartId: row.contextStartId,
     createdAt: row.createdAt,
   };

@@ -84,6 +84,7 @@ describe("chat.migrate()", () => {
     );
     expect(enums.map((row) => row.typname).sort()).toEqual([
       "message_error_reason",
+      "message_rating",
       "message_role",
       "message_status",
       "reasoning_effort",
@@ -392,7 +393,7 @@ describe("chat.migrate()", () => {
     await expect(Promise.all([chat.migrate(), chat.migrate()])).resolves.toBeDefined();
 
     const applied = await rows<{ count: string }>(url, "select count(*) from chat.__migrations");
-    expect(applied).toEqual([{ count: "8" }]);
+    expect(applied).toEqual([{ count: "9" }]);
   });
 
   it("gives a Conversation's tool settings empty lists by default, so existing rows read as empty", async () => {
