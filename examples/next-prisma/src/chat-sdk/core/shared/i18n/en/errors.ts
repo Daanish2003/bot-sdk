@@ -24,6 +24,11 @@ export const errorMessages = {
   "error.pinLimit": ({ max }: { max: string }) =>
     `You can pin up to ${max} Conversations. Unpin one first.`,
   "error.byokOff": "Your own keys are turned off on this app",
+  "error.memoryOff": "Memory is turned off on this app",
+  "error.memoryNotFound": "Memory not found",
+  "error.memoryTextBlank": "A Memory can't be blank",
+  "error.memoryNeedsEmbeddingModel":
+    "Memory needs an embedding Model. Add an OpenAI or Gemini key.",
   "error.attachmentTooLarge": ({ name }: { name: string }) => `"${name}" is larger than 5 MB`,
   "error.attachmentNotSupported": ({ name }: { name: string }) =>
     `"${name}" can't be attached: only images, PDFs and text files can`,

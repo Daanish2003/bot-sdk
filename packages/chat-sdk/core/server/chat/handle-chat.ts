@@ -31,6 +31,7 @@ import { findConversation, loadPath } from "./store";
 import { projectInstructionsOf } from "../project/store";
 import { loadSettings } from "../settings/store";
 import { systemPromptsFor } from "./system-prompts";
+import { recalledMemoriesPrompt } from "../memory/recall";
 import { quotaExceededCode, quotaRefusal } from "./quota";
 import { generationOptionsFor } from "./generation";
 import { effortFor } from "../../shared/chat/models";
@@ -121,11 +122,7 @@ export async function handleChat(
   // Read now, so a Run keeps the Instructions it started with; a regenerate or edit reads them anew.
   const { instructions } = await loadSettings(deps, userId);
   // The Project's Instructions are read from the Conversation's Project at the same moment (spec 5).
-  const systemPrompts = systemPromptsFor({
-    web,
-    instructions,
-    projectInstructions: await projectInstructionsOf(deps, owned.projectId),
-  });
+  const projectInstructions = await projectInstructionsOf(deps, owned.projectId);
 
   const history = await loadPath(deps, owned.id, command.parentId);
   if (command.parentId && history.length === 0) {
@@ -135,6 +132,19 @@ export async function handleChat(
   if (command.text === undefined && history.at(-1)?.role !== "user") {
     return refuse(400, "error.regenerateNeedsMessage");
   }
+  // The Memories recalled for this Run, found by the Message it answers (ADR 0013).
+  const systemPrompts = systemPromptsFor({
+    web,
+    instructions,
+    projectInstructions,
+    memories: await recalledMemoriesPrompt(deps, {
+      userId,
+      projectId: owned.projectId,
+      temporary: owned.temporary,
+      latestText:
+        command.text ?? history.findLast((row) => row.role === "user")?.searchText ?? null,
+    }),
+  });
   // A reply waiting for Approval can't be continued past its call; an edit or regenerate beside it
   // starts a new Branch and stays allowed (ADR 0008). A hidden reply lost its call, so it waits for nothing (#268).
   const last = history.at(-1);
