@@ -20,6 +20,7 @@ function fakeDeps(options: { on?: boolean; sendFails?: boolean; revokeFails?: bo
   // The user's two-factor state, as the DB holds it: `disable` really turns it off.
   const state = { on: options.on !== false, revokeFails: options.revokeFails === true };
   const deps: TwoFactorOffDeps = {
+    isOn: async () => state.on,
     disable: async (userId) => {
       events.push(`disable:${userId}`);
       if (!state.on) return null;
@@ -98,14 +99,14 @@ describe("turnOffUserTwoFactor", () => {
     expect(sender.messages).toHaveLength(0);
   });
 
-  it("refuses a user without two-factor sign-in on, with no audit event or notice", async () => {
+  it("refuses a user without two-factor sign-in on, before revoking sessions, with no audit event or notice", async () => {
     const { deps, events, log, sender } = fakeDeps({ on: false });
 
     await expect(turnOffUserTwoFactor(deps, admin, input)).rejects.toThrow(
       "Two-factor sign-in isn't on for this user",
     );
 
-    expect(events).toEqual(["revoke:user-1", "disable:user-1"]);
+    expect(events).toEqual([]);
     expect(log).toHaveLength(0);
     expect(sender.messages).toHaveLength(0);
   });
