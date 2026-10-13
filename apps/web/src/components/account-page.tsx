@@ -21,6 +21,7 @@ export function AccountPage() {
       <EmailSection email={current.user.email} />
       <PasswordSection email={current.user.email} />
       <TwoFactorSection />
+      <PasskeysSection />
       <ConnectedAccountsSection />
       <SessionsSection currentSessionId={current.session.id} />
       <DangerSection email={current.user.email} />
@@ -481,6 +482,178 @@ function BackupCodes({ codes, onDone }: { codes: string[]; onDone: () => void })
         <Button onClick={onDone}>Done</Button>
       </div>
     </div>
+  );
+}
+
+/** Passkeys: add one (the browser prompt, then a name), rename or delete. Adding needs a session from the last day. */
+function PasskeysSection() {
+  const passkeys = authClient.useListPasskeys();
+  const rows = passkeys.data ?? [];
+  // The passkey just added, named in the field below the list.
+  const [naming, setNaming] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  // The session is older than a day: adding waits until the user signs in again.
+  const [staleSession, setStaleSession] = useState(false);
+
+  const add = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await authClient.passkey.addPasskey();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (passkey) => {
+      setError(null);
+      setStaleSession(false);
+      setName("");
+      setNaming(passkey.id);
+    },
+    onError: (failure: { code?: string; message?: string }) => {
+      const stale = failure.code === "SESSION_NOT_FRESH";
+      setStaleSession(stale);
+      setError(
+        stale
+          ? "Sign in again to add a passkey."
+          : (failure.message ?? "Could not add the passkey"),
+      );
+    },
+  });
+
+  const save = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await authClient.$fetch("/passkey/update-passkey", {
+        method: "POST",
+        body: { id, name: name.trim() },
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      setNaming(null);
+      setRenaming(null);
+      setName("");
+      passkeys.refetch();
+    },
+    onError: (failure: { message?: string }) =>
+      toast.error(failure.message ?? "Could not rename the passkey"),
+  });
+
+  const remove = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await authClient.$fetch("/passkey/delete-passkey", {
+        method: "POST",
+        body: { id },
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Passkey deleted");
+      passkeys.refetch();
+    },
+    onError: (failure: { message?: string }) =>
+      toast.error(failure.message ?? "Could not delete the passkey"),
+  });
+
+  const editingId = naming ?? renaming;
+
+  return (
+    <section className="space-y-3">
+      <h2 className="text-sm font-medium">Passkeys</h2>
+      <p className="text-sm text-muted-foreground">
+        Passkeys let you sign in without a password, using this device&apos;s screen lock.
+      </p>
+      {rows.length > 0 ? (
+        <ul aria-label="Passkeys" className="divide-y overflow-hidden rounded-xl border">
+          {rows.map((passkey) => {
+            const label = passkey.name || "Unnamed passkey";
+            return (
+              <li
+                key={passkey.id}
+                className="flex flex-col gap-2 p-4 text-sm sm:flex-row sm:items-center sm:justify-between"
+              >
+                {editingId === passkey.id ? (
+                  <form
+                    className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-end"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      save.mutate(passkey.id);
+                    }}
+                  >
+                    <div className="flex-1 space-y-2">
+                      <Label htmlFor="passkey-name">Passkey name</Label>
+                      <Input
+                        id="passkey-name"
+                        value={name}
+                        onChange={(event) => setName(event.target.value)}
+                        required
+                      />
+                    </div>
+                    <Button
+                      type="submit"
+                      variant="outline"
+                      disabled={save.isPending || name.trim() === ""}
+                    >
+                      Save name
+                    </Button>
+                  </form>
+                ) : (
+                  <>
+                    <span className="flex flex-col">
+                      <span>{label}</span>
+                      <span className="text-muted-foreground">
+                        Added {new Date(passkey.createdAt).toLocaleDateString()}
+                      </span>
+                    </span>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        aria-label={`Rename ${label}`}
+                        onClick={() => {
+                          setRenaming(passkey.id);
+                          setName(passkey.name ?? "");
+                        }}
+                      >
+                        Rename
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        aria-label={`Delete ${label}`}
+                        disabled={remove.isPending}
+                        onClick={() => remove.mutate(passkey.id)}
+                      >
+                        Delete
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+      <Button variant="outline" disabled={add.isPending} onClick={() => add.mutate()}>
+        Add passkey
+      </Button>
+      {error ? (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      ) : null}
+      {staleSession ? (
+        <Button
+          variant="outline"
+          onClick={() =>
+            authClient.signOut({
+              fetchOptions: { onSuccess: () => window.location.assign("/login") },
+            })
+          }
+        >
+          Sign in again
+        </Button>
+      ) : null}
+    </section>
   );
 }
 

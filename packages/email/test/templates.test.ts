@@ -15,12 +15,13 @@ const LINK_TEMPLATES: TemplateName[] = [
 const NOTICE_TEMPLATES = TEMPLATE_NAMES.filter((name) => !LINK_TEMPLATES.includes(name));
 
 describe("email templates", () => {
-  it("has the nine templates from the ticket", () => {
+  it("has the ten templates from the ticket", () => {
     expect([...TEMPLATE_NAMES].sort()).toEqual(
       [
         "account-deleted",
         "change-email-confirm",
         "delete-account-confirm",
+        "passkey-added",
         "password-changed",
         "reset-password",
         "two-factor-disabled",
@@ -31,7 +32,7 @@ describe("email templates", () => {
     );
   });
 
-  it.each(["two-factor-enabled", "two-factor-disabled"] as const)(
+  it.each(["two-factor-enabled", "two-factor-disabled", "passkey-added"] as const)(
     "%s tells the user to reset the password when it wasn't them, and is not a link",
     async (name) => {
       const message = await renderTemplate(name, "person@example.com", { appName: APP });
