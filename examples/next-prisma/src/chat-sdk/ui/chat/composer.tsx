@@ -51,7 +51,7 @@ export function Composer({
       onValueChange={setValue}
       onSubmit={submit}
       isLoading={disabled || streaming}
-      className="bg-card"
+      className="bg-card print:hidden"
     >
       {attachments}
       <PromptInputTextarea

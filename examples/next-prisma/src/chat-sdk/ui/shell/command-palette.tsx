@@ -26,6 +26,7 @@ import {
   MessageSquareIcon,
   PencilIcon,
   PlusIcon,
+  PrinterIcon,
   Share2Icon,
   TextSearchIcon,
   Trash2Icon,
@@ -245,6 +246,13 @@ function PaletteBody({
             icon: <DownloadIcon />,
             label: "Export as Markdown",
             run: () => exporter.exportMarkdown(conversationId),
+          },
+          {
+            key: "print",
+            group: "Commands" as const,
+            icon: <PrinterIcon />,
+            label: "Print / Save as PDF",
+            run: () => window.print(),
           },
         ]
       : []),
