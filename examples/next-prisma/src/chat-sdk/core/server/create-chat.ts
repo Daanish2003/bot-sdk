@@ -10,6 +10,7 @@ import { generatedImage } from "./db/schema/generated-image";
 import { postgresBlobStore } from "./blob/postgres";
 import { webSearchToolName } from "../shared/chat/web-search";
 import { fetchUrlToolName } from "../shared/chat/fetch-url";
+import { searchKnowledgeToolName } from "../shared/chat/knowledge-search";
 import { createArtifactToolName, updateArtifactToolName } from "../shared/chat/artifact";
 import { handleJoin } from "./chat/join-run";
 import { handleConversationEvents } from "./memory/notice";
@@ -106,6 +107,12 @@ export type CreateChatOptions = {
    */
   imageAdapterFor?: AppDeps["imageAdapterFor"];
   /**
+   * The embedding adapter for an embedding Model's `(model, credentials)`. Defaults to the
+   * production adapters (OpenAI and Gemini). A Host passes a fake here to run Knowledge without a
+   * paid call (spec #357, ticket #370).
+   */
+  embeddingAdapterFor?: AppDeps["embeddingAdapterFor"];
+  /**
    * A user's Quota on Host credentials, or one fixed Quota for everyone; `null` or unset is
    * unlimited (ADR 0007).
    */
@@ -113,7 +120,7 @@ export type CreateChatOptions = {
   /**
    * The Host's own tools, written with TanStack AI's `toolDefinition(...).server(fn)`. The Model
    * can call them in any reply whose Model has tools; each call runs on this server. Their names
-   * must not be `web_search`, the SDK's own search tool.
+   * must not be `web_search`, `fetch_url` or `search_knowledge`, the SDK's own tools.
    */
   tools?: HostServerTool[];
   /**
@@ -309,6 +316,7 @@ export function createChat(options: CreateChatOptions): {
   const builtIns = [
     webSearchToolName,
     fetchUrlToolName,
+    searchKnowledgeToolName,
     ...(options.artifacts ? [createArtifactToolName, updateArtifactToolName] : []),
   ];
   for (const builtIn of builtIns) {
@@ -333,6 +341,7 @@ export function createChat(options: CreateChatOptions): {
       defaultBackgroundModel: options.defaultBackgroundModel,
       defaultImageModel: options.defaultImageModel,
       imageAdapterFor: options.imageAdapterFor,
+      embeddingAdapterFor: options.embeddingAdapterFor,
       getQuota: quotaLookup(options.getQuota),
       rateLimits: resolveRateLimits(options.rateLimits),
       tools: options.tools ?? [],

@@ -33,6 +33,19 @@ export const errorMessages = {
   "error.attachmentNotSupported": ({ name }: { name: string }) =>
     `"${name}" can't be attached: only images, PDFs and text files can`,
   "error.attachmentNotUtf8": ({ name }: { name: string }) => `"${name}" isn't a UTF-8 text file`,
+  "error.knowledgeNoModel": "Uploads need an OpenAI or Gemini key. Add a key",
+  "error.knowledgeFileLimit": ({ max }: { max: number }) =>
+    `A Project can hold at most ${max} Knowledge files`,
+  "error.knowledgeFileTooLarge": ({ name, max }: { name: string; max: number }) =>
+    `"${name}" is larger than ${max} MB`,
+  "error.knowledgeFileNotSupported": ({ name, types }: { name: string; types: string }) =>
+    `"${name}" can't be a Knowledge file: only ${types} files can`,
+  "error.knowledgeFileNotUtf8": ({ name }: { name: string }) => `"${name}" isn't a UTF-8 text file`,
+  "error.knowledgeModelNotAvailable": ({ model }: { model: string }) =>
+    `"${model}" is not an available embedding Model`,
+  "error.knowledgeModelLocked": "The embedding Model is fixed once the Project has Knowledge files",
+  "error.knowledgeFileNotFound": "Knowledge file not found",
+  "error.knowledgeFileNotFailed": "Only a Knowledge file that failed can be retried",
   "error.decisionNotWaiting": "The Message is not waiting for Approval",
   "error.replyStreaming": "A reply is still streaming in this Conversation",
   "error.modelCannotResume":

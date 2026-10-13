@@ -57,6 +57,7 @@ describe("copySdk", () => {
     write(join(source, "extras", "trigger", "runner.ts"), "export const runner = 1;");
     write(join(source, "package.json"), "{}");
     write(join(source, "README.md"), "# readme");
+    write(join(source, "NOTICE"), "Sim Studio");
   });
 
   afterEach(() => {
@@ -75,6 +76,7 @@ describe("copySdk", () => {
     );
     expect(readFileSync(join(dest, "ui", "theme.css"), "utf8")).toBe('@source ".";');
     expect(listFiles(dest)).toEqual([
+      "NOTICE",
       "README.md",
       "core/VERSION",
       "core/client/index.ts",
@@ -115,6 +117,14 @@ describe("copySdk", () => {
     copySdk(dest, { source, version });
 
     expect(readFileSync(join(dest, "extras", "trigger", "runner.ts"), "utf8")).toBe("host edit");
+  });
+
+  it("never copies an eval folder, so the Memory eval stays in the canonical repo", () => {
+    write(join(source, "core", "eval", "memory", "run.ts"), "eval");
+
+    copySdk(dest, { source, version });
+
+    expect(existsSync(join(dest, "core", "eval"))).toBe(false);
   });
 
   it("gives a Host core and ui only, so the shared e2e scenarios never reach it", () => {

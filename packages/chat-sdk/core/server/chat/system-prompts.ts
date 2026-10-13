@@ -1,16 +1,19 @@
 import { citationPrompt } from "../../shared/chat/citations";
+import { knowledgePromptOf } from "../../shared/chat/knowledge-search";
 
 /**
  * The system prompts of one Run, in the order the Model reads them: the SDK's own (the citation
- * prompt when the reply may read the web, which users can't edit), then the user's Instructions,
- * then the Project's, then the Memories recalled for the Run (ADR 0013). The more specific level
- * comes last, so it wins where they conflict.
+ * prompt when the reply may read the web, which users can't edit, and the line naming the Project's
+ * Knowledge files when the reply may search them), then the user's Instructions, then the Project's,
+ * then the Memories recalled for the Run (ADR 0013). The more specific level comes last, so it wins
+ * where they conflict.
  */
 export function systemPromptsFor({
   web,
   instructions,
   projectInstructions,
   memories,
+  knowledgeFiles = null,
 }: {
   /** Whether the reply offers the Web tools (`web_search`, `fetch_url`). */
   web: boolean;
@@ -19,9 +22,12 @@ export function systemPromptsFor({
   projectInstructions: string | null;
   /** The Memories block recalled for the Run (`recalledMemoriesPrompt`); null when none. */
   memories: string | null;
+  /** The ready Knowledge file names, when the reply offers `search_knowledge`; null otherwise. */
+  knowledgeFiles?: string[] | null;
 }): string[] {
   return [
     ...(web ? [citationPrompt] : []),
+    ...(knowledgeFiles ? [knowledgePromptOf(knowledgeFiles)] : []),
     ...(instructions ? [instructions] : []),
     ...(projectInstructions ? [projectInstructions] : []),
     ...(memories ? [memories] : []),

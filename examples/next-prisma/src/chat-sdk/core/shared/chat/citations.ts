@@ -1,9 +1,10 @@
-import { type Source, sourceKey } from "./sources";
+import { type Citation, type ExcerptCitation, isExcerpt, type Source, sourceKey } from "./sources";
 
 /**
- * Inline citations. The Model cites with ordinary markdown links (`citationPrompt`); the
- * renderer shows a link whose URL is one of this Message's Sources as that Source's numbered
- * chip. No `[n]` markers from the Model. No server code: safe to import into the browser.
+ * Inline citations. The Model cites with ordinary markdown links (`citationPrompt`, and
+ * `knowledgePromptOf` for Excerpts); the renderer shows a link whose URL is one of this Message's
+ * Sources, or whose `excerpt:<n>` names one of its Excerpts, as that citation's numbered chip. No
+ * `[n]` markers from the Model. No server code: safe to import into the browser.
  */
 
 /** The system prompt for a reply that may read the web (search or fetch). */
@@ -15,9 +16,25 @@ export const citationPrompt =
   "Only link to urls that a search returned or a page you read. Don't add numbered markers like [1] or a list " +
   "of sources at the end; the app shows the sources.";
 
-/** The Source a link in a reply cites, or `null` for a link that stays plain. */
-export function citationFor(href: string | undefined, sources: Source[]): Source | null {
+/** The web Source a link in a reply cites, or `null` for a link that stays plain. */
+export function citationFor(href: string | undefined, citations: Citation[]): Source | null {
   if (!href) return null;
   const key = sourceKey(href);
-  return sources.find((source) => sourceKey(source.url) === key) ?? null;
+  const source = citations.find(
+    (citation): citation is Source => !isExcerpt(citation) && sourceKey(citation.url) === key,
+  );
+  return source ?? null;
+}
+
+/** The Excerpt a link in a reply cites by its `excerpt:<n>` label, or `null` for any other link. */
+export function excerptFor(
+  href: string | undefined,
+  citations: Citation[],
+): ExcerptCitation | null {
+  if (!href) return null;
+  return (
+    citations.find(
+      (citation): citation is ExcerptCitation => isExcerpt(citation) && citation.label === href,
+    ) ?? null
+  );
 }

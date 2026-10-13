@@ -1,7 +1,7 @@
 import type { MessagePart } from "@tanstack/ai";
 import { describe, expect, it } from "vitest";
 
-import { replySegments, sourcesOf } from "../../../../core/shared/chat/sources";
+import { type Source, replySegments, sourcesOf } from "../../../../core/shared/chat/sources";
 
 const result = (n: number, url = `https://example.com/${n}`) => ({
   title: `Result ${n}`,
@@ -158,9 +158,48 @@ describe("sourcesOf with fetched pages", () => {
   it("keeps a page's first 200 characters as its snippet", () => {
     const [source] = sourcesOf([
       fetchPart("call-1", "https://example.com/long", "word ".repeat(100)),
-    ]);
+    ]) as Source[];
 
     expect(source!.snippet.length).toBeLessThanOrEqual(201);
     expect(source!.snippet.endsWith("…")).toBe(true);
+  });
+});
+
+/** A finished `search_knowledge` call as `useChat` (or `toUIParts`) holds it, with its labelled passages. */
+const knowledgePart = (id: string, excerpts: { id: string; fileName: string; text?: string }[]) =>
+  ({
+    type: "tool-call",
+    id,
+    name: "search_knowledge",
+    arguments: '{"query":"q"}',
+    input: { query: "q" },
+    state: "input-complete",
+    output: { excerpts },
+    metadata: { source: "builtin", status: "done" },
+  }) as MessagePart;
+
+describe("sourcesOf with Excerpts", () => {
+  it("numbers Excerpts and web Sources in one sequence per Message, by first appearance", () => {
+    const parts = [
+      searchPart("call-1", "one", [result(1)]),
+      knowledgePart("call-2", [
+        { id: "excerpt:1", fileName: "brief.md", text: "The budget is 5,000." },
+        { id: "excerpt:2", fileName: "spec.pdf", text: "Due in May." },
+      ]),
+      searchPart("call-3", "two", [result(2)]),
+    ];
+
+    expect(sourcesOf(parts)).toEqual([
+      { number: 1, url: "https://example.com/1", title: "Result 1", snippet: "Snippet 1" },
+      { number: 2, label: "excerpt:1", fileName: "brief.md", text: "The budget is 5,000." },
+      { number: 3, label: "excerpt:2", fileName: "spec.pdf", text: "Due in May." },
+      { number: 4, url: "https://example.com/2", title: "Result 2", snippet: "Snippet 2" },
+    ]);
+  });
+
+  it("keeps an Excerpt without its passage text, as a Shared link shows it", () => {
+    const parts = [knowledgePart("call-1", [{ id: "excerpt:1", fileName: "brief.md" }])];
+
+    expect(sourcesOf(parts)).toEqual([{ number: 1, label: "excerpt:1", fileName: "brief.md" }]);
   });
 });

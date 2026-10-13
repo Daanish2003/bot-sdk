@@ -26,7 +26,7 @@ export type JobDefinition<P> = {
   payload: z.ZodType<P>;
   run: (payload: P, context: JobContext) => Promise<void>;
   /** Runs once, after the final failure (the last attempt, or a `PermanentJobError`). */
-  onFailed?: (payload: P, error: unknown) => Promise<void> | void;
+  onFailed?: (payload: P, error: unknown, deps: AppDeps) => Promise<void> | void;
 };
 
 /** A definition as the runner holds it, with its payload type erased. */
@@ -34,7 +34,7 @@ export type RegisteredJob = {
   name: string;
   payload: z.ZodType<unknown>;
   run: (payload: unknown, context: JobContext) => Promise<void>;
-  onFailed?: (payload: unknown, error: unknown) => Promise<void> | void;
+  onFailed?: (payload: unknown, error: unknown, deps: AppDeps) => Promise<void> | void;
 };
 
 const registry = new Map<string, RegisteredJob>();

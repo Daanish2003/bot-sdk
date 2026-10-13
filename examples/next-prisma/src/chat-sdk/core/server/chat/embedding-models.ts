@@ -21,6 +21,13 @@ const embeddingModelsOf: Record<EmbeddingProvider, readonly string[]> = {
   gemini: GEMINI_EMBEDDING_MODELS,
 };
 
+/** Every embedding Model the SDK knows, as `"provider:model"`, in the order of its Providers. */
+export function embeddingModelIds(): string[] {
+  return (Object.keys(embeddingModelsOf) as EmbeddingProvider[]).flatMap((provider) =>
+    embeddingModelsOf[provider].map((modelId) => `${provider}:${modelId}`),
+  );
+}
+
 /** The Model a user gets on their own key of each Provider, when they've picked none. */
 const defaultModelOf: Record<EmbeddingProvider, string> = {
   openai: "text-embedding-3-small",

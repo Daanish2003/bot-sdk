@@ -8,6 +8,7 @@ export type RpcErrorStatus =
   | "CONFLICT"
   | "FORBIDDEN"
   | "NOT_FOUND"
+  | "PAYMENT_REQUIRED"
   | "UNAUTHORIZED";
 
 /** The params a code's dictionary text takes. Numbers stay numbers; the client formats them. */
@@ -24,7 +25,9 @@ export function rpcError(
   params?: ErrorParams,
   extra?: Record<string, unknown>,
 ) {
-  return new ORPCError(status, { message, data: { ...extra, code, params } });
+  // oRPC has no 402 code of its own, so the HTTP status is set beside the code.
+  const httpStatus = status === "PAYMENT_REQUIRED" ? 402 : undefined;
+  return new ORPCError(status, { message, status: httpStatus, data: { ...extra, code, params } });
 }
 
 /**

@@ -50,12 +50,15 @@ export function createToolBudget(used: number): ToolBudget {
 /**
  * Calls a reply has already made: every tool call that ran, ended or was cut off, `create_artifact`
  * included. An Artifact's `artifact` part is not counted again: its call is. A `generate_image`
- * call is one of them (its part is `generated_image`, spec #278).
+ * call is one of them (its part is `generated_image`, spec #278), and so is a `search_knowledge`
+ * call (its part is `knowledge_search`, spec #357).
  */
 export function spentCalls(parts: StoredPart[]): number {
   return parts.filter(
     (part) =>
-      (part.type === "tool_call" || part.type === "generated_image") &&
+      (part.type === "tool_call" ||
+        part.type === "generated_image" ||
+        part.type === "knowledge_search") &&
       (part.state === "done" || part.state === "error" || part.state === "cancelled"),
   ).length;
 }

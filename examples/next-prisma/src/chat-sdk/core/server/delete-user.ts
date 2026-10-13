@@ -12,7 +12,9 @@ import { generatedImage } from "./db/schema/generated-image";
 import { savedPrompt } from "./db/schema/saved-prompt";
 import { userSettings } from "./db/schema/settings";
 import { usage } from "./db/schema/usage";
+import { knowledgeFile } from "./db/schema/knowledge";
 import type { AppDeps } from "./deps";
+import { discardKnowledgeFiles, knowledgeFileIdsWhere } from "./knowledge/cascade";
 import { withProjectId } from "./chat/hooks";
 
 /**
@@ -23,7 +25,7 @@ import { withProjectId } from "./chat/hooks";
  * Attachments, because a Message's link to an Attachment does not cascade.
  */
 export async function deleteUserData(deps: AppDeps, userId: string): Promise<void> {
-  const blobKeys = await deps.db.transaction(async (tx) => {
+  const { blobKeys, knowledgeIds } = await deps.db.transaction(async (tx) => {
     // 1. Stop the user's live Runs through the Stop path. The Run's owner aborts and, its row gone,
     // its later writes match nothing. No `onRunEnd` fires for them: a Host's user delete emits nothing (#265).
     await stopUserRuns(deps, userId, tx);
@@ -33,6 +35,9 @@ export async function deleteUserData(deps: AppDeps, userId: string): Promise<voi
 
     // 3. Conversations, which cascade to their Messages, Shared links and Message–Attachment links.
     await tx.delete(conversation).where(eq(conversation.userId, userId));
+
+    // 2a. Knowledge files: their rows and passages go with their Projects; their bytes and jobs go after the commit.
+    const knowledgeIds = await knowledgeFileIdsWhere(tx, eq(knowledgeFile.userId, userId));
 
     // 2b. Projects, after their Conversations; a Project's own Conversations are already gone.
     await tx.delete(project).where(eq(project.userId, userId));
@@ -54,10 +59,11 @@ export async function deleteUserData(deps: AppDeps, userId: string): Promise<voi
     await tx.delete(savedPrompt).where(eq(savedPrompt.userId, userId));
     // 5. Usage rows, which no Conversation cascades to: a deleted account keeps no Quota history.
     await tx.delete(usage).where(eq(usage.userId, userId));
-    return [...keys, ...imageKeys];
+    return { blobKeys: [...keys, ...imageKeys], knowledgeIds };
   });
   // 6. The store's own bytes, after the commit and best-effort: a failure is logged, not thrown.
   await deleteBlobsBestEffort(deps, blobKeys);
+  await discardKnowledgeFiles(deps, knowledgeIds);
 }
 
 /**
