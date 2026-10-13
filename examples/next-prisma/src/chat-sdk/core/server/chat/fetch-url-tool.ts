@@ -7,6 +7,7 @@ import { convert } from "html-to-text";
 import { z } from "zod";
 
 import type { createPartsBuilder } from "../../shared/chat/parts";
+import type { ToolError } from "../../shared/message-parts";
 import {
   type FetchedPage,
   type FetchErrorReason,
@@ -62,7 +63,11 @@ export function createFetchUrlTool({
     try {
       if (fetches >= maxFetchesPerReply) {
         const error = { error: fetchLimitError };
-        parts.finishToolCall(toolCallId, { state: "error", result: error });
+        parts.finishToolCall(toolCallId, {
+          state: "error",
+          result: error,
+          error: { code: "chat.toolError.fetchLimit" },
+        });
         return error;
       }
       fetches++;
@@ -75,7 +80,11 @@ export function createFetchUrlTool({
         caught instanceof PageError
           ? { error: caught.message, reason: caught.reason }
           : { error: pageErrors.failed, reason: "failed" as const };
-      parts.finishToolCall(toolCallId, { state: "error", result: failure });
+      parts.finishToolCall(toolCallId, {
+        state: "error",
+        result: failure,
+        error: pageErrorOf(failure.reason),
+      });
       return failure;
     } finally {
       onChange();
@@ -91,6 +100,21 @@ const pageErrors: Record<FetchErrorReason, string> = {
   http_error: "The page couldn't be fetched",
   failed: "The page couldn't be fetched",
 };
+
+/** The code a page's failure is stored under, with its params (spec #256): the Model reads `pageErrors`. */
+function pageErrorOf(reason: FetchErrorReason): ToolError {
+  const codes: Record<FetchErrorReason, string> = {
+    timed_out: "chat.pageError.timedOut",
+    too_large: "chat.pageError.tooLarge",
+    unsupported: "chat.pageError.unsupported",
+    blocked: "chat.pageError.blocked",
+    http_error: "chat.pageError.httpError",
+    failed: "chat.pageError.failed",
+  };
+  return reason === "too_large"
+    ? { code: codes[reason], params: { megabytes: maxDownloadBytes / (1024 * 1024) } }
+    : { code: codes[reason] };
+}
 
 /** Why one page couldn't be read, with the message the Model reads. */
 class PageError extends Error {

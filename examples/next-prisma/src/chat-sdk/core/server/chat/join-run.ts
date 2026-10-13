@@ -8,7 +8,9 @@ import type { ChatUser } from "../context";
 import { runLogId } from "./run";
 import { runStreamDurability, START } from "./run-streams";
 
-const refuse = (status: number, message: string) => Response.json({ message }, { status });
+/** A refusal: its HTTP status, and a body of the dictionary code and its params (spec #256). */
+const refuse = (status: number, code: "error.invalidRunId" | "error.runNotFound") =>
+  Response.json({ code, params: {} }, { status });
 
 const runIdSchema = z.uuid();
 
@@ -24,7 +26,7 @@ export async function handleJoin(
 ): Promise<Response> {
   const url = new URL(request.url);
   const runId = runIdSchema.safeParse(url.searchParams.get("runId"));
-  if (!runId.success) return refuse(400, "Invalid Run id");
+  if (!runId.success) return refuse(400, "error.invalidRunId");
 
   // A Run is its assistant Message; only the Conversation's owner may join it. The Message's current
   // Run is the newest log, so a reply resumed after an Approval is joined on that Run (ADR 0008).
@@ -34,7 +36,7 @@ export async function handleJoin(
     .innerJoin(conversation, eq(conversation.id, message.conversationId))
     .where(and(eq(message.id, runId.data), eq(conversation.userId, user.id)))
     .limit(1);
-  if (!owned) return refuse(404, "Run not found");
+  if (!owned) return refuse(404, "error.runNotFound");
 
   const resumeFrom =
     request.headers.get("Last-Event-ID") ?? url.searchParams.get("offset") ?? START;

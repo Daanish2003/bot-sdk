@@ -279,7 +279,7 @@ export async function startRun(
       await mcp?.close();
       const interrupted = abortController.signal.reason === shutdownAbort;
       const ending: MessageUpdate = timedOut
-        ? { status: "error", error: "timed out" }
+        ? { status: "error", error: "timed_out" }
         : interrupted
           ? { status: "error", error: "interrupted" }
           : abortController.signal.aborted
@@ -336,7 +336,7 @@ export async function startRun(
             logId,
             endingChunk(
               ids ?? { threadId: messageId, runId: messageId },
-              timedOut ? "timed out" : interrupted ? "interrupted" : error?.message,
+              timedOut ? "timed_out" : interrupted ? "interrupted" : error?.message,
             ),
           )
           .catch((caught: unknown) => console.error(`Logging Message ${messageId} failed`, caught));

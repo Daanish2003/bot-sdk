@@ -3,11 +3,21 @@ import { en, type I18n, type MessageKey } from "../shared/i18n";
 /** What a server error carries in `data` (spec #256): a dictionary code and its params. */
 type ServerErrorData = { code: string; params?: Record<string, unknown> };
 
+/**
+ * The code and params an error carries: an oRPC error's `data`, or a chat-route refusal's (the
+ * connection wraps it, so the `cause` chain is followed too).
+ */
 function serverErrorData(error: unknown): ServerErrorData | null {
-  const data = (error as { data?: unknown } | null)?.data;
-  if (!data || typeof data !== "object") return null;
-  const { code } = data as { code?: unknown };
-  return typeof code === "string" ? (data as ServerErrorData) : null;
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current; depth++) {
+    const data = (current as { data?: unknown }).data;
+    if (data && typeof data === "object") {
+      const { code } = data as { code?: unknown };
+      if (typeof code === "string") return data as ServerErrorData;
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return null;
 }
 
 /** A code the dictionary has text for: an `error.` key, so `time.today` isn't one. */
@@ -16,7 +26,7 @@ function isErrorKey(code: string): code is Extract<MessageKey, `error.${string}`
 }
 
 /** Numbers come from the server as numbers; the text shows them in the locale. */
-function formatParams(locale: string, params: Record<string, unknown>) {
+export function formatParams(locale: string, params: Record<string, unknown>) {
   return Object.fromEntries(
     Object.entries(params).map(([name, value]) => [
       name,

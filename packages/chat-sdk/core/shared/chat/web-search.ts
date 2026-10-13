@@ -30,6 +30,24 @@ export const searchErrorMessages: Record<SearchErrorReason, string> = {
 };
 
 /**
+ * The dictionary code a failed search is stored under (spec #256): the same text the status line
+ * shows. The Model reads `searchErrorMessages` instead, so its text stays English.
+ */
+export const searchErrorCodes: Record<SearchErrorReason, string> = {
+  invalid_key: "chat.searchFailedKey",
+  quota_exhausted: "chat.searchFailedQuota",
+  failed: "chat.searchFailed",
+};
+
+/** The reason a stored search code stands for; an unknown code reads as a generic failure. */
+export function searchReasonOfCode(code: string | undefined): SearchErrorReason {
+  const reason = (Object.keys(searchErrorCodes) as SearchErrorReason[]).find(
+    (key) => searchErrorCodes[key] === code,
+  );
+  return reason ?? "failed";
+}
+
+/**
  * The `web_search` tool result the Model sees, and `useChat` streams. A failed search carries
  * its `reason` for the web app; a call over the limit has none (it never searched).
  */
@@ -58,7 +76,12 @@ export function webSearchOf(part: MessagePart): WebSearchPart | null {
     return { ...search, state: "done", results: output.results };
   }
   if (typeof output?.error === "string") {
-    return { ...search, state: "error", results: [], errorReason: output.reason ?? "failed" };
+    return {
+      ...search,
+      state: "error",
+      results: [],
+      error: { code: searchErrorCodes[output.reason ?? "failed"] },
+    };
   }
   // A call that ended without a result was cancelled.
   return { ...search, state: part.state === "error" ? "cancelled" : "running", results: [] };

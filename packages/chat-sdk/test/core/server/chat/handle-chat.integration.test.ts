@@ -176,8 +176,9 @@ describe("the Run endpoint", () => {
     const response = await send();
 
     expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({
-      message: "Add an Anthropic key or pick another Model",
+    expect(await response.json()).toEqual({
+      code: "error.addKey",
+      params: { label: "Anthropic" },
     });
     expect(await messagesOf(deps, conv.id)).toEqual([]);
   });
@@ -292,7 +293,7 @@ describe("the Run endpoint", () => {
 
     expect((await messagesOf(deps, conv.id))[1]).toMatchObject({
       status: "error",
-      error: "timed out",
+      error: "timed_out",
       errorReason: null,
       parts: { parts: [{ type: "text", text: "Hello" }] },
     });
@@ -418,7 +419,7 @@ describe("chat.stop", () => {
 
     expect((await messagesOf(deps, conv.id))[1]).toMatchObject({
       status: "error",
-      error: "timed out",
+      error: "timed_out",
     });
   });
 
@@ -561,8 +562,9 @@ describe("the Run endpoint refuses", () => {
     const response = await send({ model: "openai:gpt-5.6" });
 
     expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({
-      message: "Add an OpenAI key or pick another Model",
+    expect(await response.json()).toEqual({
+      code: "error.addKey",
+      params: { label: "OpenAI" },
     });
     expect(await messagesOf(deps, conv.id)).toEqual([]);
   });

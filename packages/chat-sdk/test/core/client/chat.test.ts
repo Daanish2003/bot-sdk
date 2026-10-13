@@ -256,6 +256,12 @@ describe("describeError", () => {
     );
   });
 
+  it("reads the stored code for a run that timed out", () => {
+    expect(describeError(i18n, info({ error: "timed_out" })).text).toBe(
+      "The reply took too long and timed out.",
+    );
+  });
+
   it("explains a run that timed out or was interrupted", () => {
     expect(describeError(i18n, info({ error: "timed out" })).text).toBe(
       "The reply took too long and timed out.",
