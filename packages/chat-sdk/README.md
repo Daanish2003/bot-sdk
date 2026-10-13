@@ -100,6 +100,7 @@ The `prompt-kit` components (`chat-container`, `loader`, `markdown`, `prompt-inp
 ## Postgres
 
 - The database needs the `pg_trgm` extension. `chat.migrate()` runs `CREATE EXTENSION IF NOT EXISTS pg_trgm` before its migrations and fails naming it, so a role allowed to create extensions (or a database that already has it) is needed.
+- Knowledge needs the `vector` extension from pgvector 0.8 or later. `chat.migrate()` runs `CREATE EXTENSION IF NOT EXISTS vector` and fails naming pgvector if it can't. If the migrating role can't create it, have a superuser run `CREATE EXTENSION vector` once. The extension's schema must be on the migrating role's `search_path`, because the SDK's `vector` columns refer to the type without a schema.
 - The SDK's tables live in the `chat` schema of the Host's database, not in your ORM's schema. Your ORM's migrations never touch them.
 - The SDK's migrations are expand-then-contract: they add tables, columns and indexes, and never drop or rename one in the same release. The version still running during a deploy keeps working against the migrated schema.
 

@@ -305,6 +305,18 @@ describe("chat.migrate()", () => {
     expect(oldTable).toEqual([]);
   });
 
+  it("creates the vector extension, so Knowledge can store embeddings", async () => {
+    const url = await scratchDatabase("k358_vector");
+
+    await chatFor(url).migrate();
+
+    const extensions = await rows<{ extname: string }>(
+      url,
+      "select extname from pg_extension where extname = 'vector'",
+    );
+    expect(extensions).toEqual([{ extname: "vector" }]);
+  });
+
   it("creates reasoning_effort as the enum off, low, medium, high", async () => {
     const url = await scratchDatabase("reasoning_enum");
 
