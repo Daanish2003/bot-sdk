@@ -56,6 +56,37 @@ export function useArchiveConversation() {
 }
 
 /**
+ * Downloads a Conversation's Active Branch as a Markdown file (ticket #252). From the top bar's
+ * menu and ⌘K; the server names the file.
+ */
+export function useExportConversation() {
+  const { orpc } = useChatAdapter();
+  const exportMarkdown = useMutation(
+    orpc.conversation.exportMarkdown.mutationOptions({
+      onSuccess: ({ fileName, markdown }) => downloadText(fileName, markdown),
+      onError: (error) => toast.error(error.message),
+    }),
+  );
+
+  return {
+    exportMarkdown: (id: string) => exportMarkdown.mutate({ id }),
+    isPending: exportMarkdown.isPending,
+  };
+}
+
+function downloadText(fileName: string, text: string) {
+  const url = URL.createObjectURL(new Blob([text], { type: "text/markdown;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  // Some browsers cancel the download when the URL is revoked too soon.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/**
  * Moves a Conversation into a Project, or out of its Project with `null`, from its row menu. Refreshes
  * the Conversation panel's lists (the main one, Pinned and each Project's) and the Projects list.
  */

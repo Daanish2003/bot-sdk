@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+
 import type {
   PlaywrightTestArgs,
   PlaywrightTestOptions,
@@ -171,6 +173,25 @@ export function registerSharedScenarios(
       await send(page, "Bring it back");
       await expect(panel.locator(`a[href="${conversationPath}"]`)).toBeVisible();
       await expect(page.getByText("This Conversation is archived.")).toHaveCount(0);
+    });
+
+    test("Export as Markdown downloads the Conversation with its headings", async ({ page }) => {
+      await signInWithModel(page);
+      await send(page, "Export me");
+      await expect(messageRows(page)).toHaveCount(2);
+      await expect(messageRows(page).last()).toContainText("That's all.");
+
+      await page.getByRole("button", { name: "Conversation menu" }).click();
+      const [download] = await Promise.all([
+        page.waitForEvent("download"),
+        page.getByRole("menuitem", { name: "Export as Markdown" }).click(),
+      ]);
+
+      expect(download.suggestedFilename()).toMatch(/\.md$/);
+      const markdown = await readFile((await download.path())!, "utf8");
+      expect(markdown).toMatch(/^# .+$/m);
+      expect(markdown).toContain("## You\n\nExport me");
+      expect(markdown).toMatch(/^## Assistant · .+$/m);
     });
 
     test("a Project holds its chats, Pinned lists the pinned ones, and the main list pages on scroll", async ({

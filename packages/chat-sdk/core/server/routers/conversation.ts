@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { resolveModel } from "../chat/available-models";
 import { deleteAllConversations } from "../delete-user";
+import { renderConversationMarkdown } from "../export-markdown";
 import {
   decodeConversationCursor,
   deleteConversation,
@@ -96,6 +97,19 @@ export const conversationRouter = {
       messages,
     };
   }),
+
+  /**
+   * The Active Branch as a Markdown document, and the file name to download it as (ticket #252).
+   * Owner only; a reply still streaming exports what is stored so far, marked as such.
+   */
+  exportMarkdown: protectedProcedure
+    .input(z.object({ id: z.uuid() }))
+    .handler(async ({ context, input }) => {
+      const row = await findConversation(context.deps, context.user.id, input.id);
+      if (!row) throw new ORPCError("NOT_FOUND", { message: "Conversation not found" });
+      const messages = await loadActiveBranch(context.deps, row.id, row.activeLeafId);
+      return renderConversationMarkdown({ title: row.title, messages, exportedAt: new Date() });
+    }),
 
   /**
    * Shows the Branch through `messageId`: the newest leaf under it becomes the Active Branch.

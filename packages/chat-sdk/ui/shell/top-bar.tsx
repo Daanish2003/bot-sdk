@@ -1,11 +1,21 @@
 import { missingCredentialsMessage } from "../../core/client/models";
 import { awaitingTitle, titleWaitMs } from "../../core/client/title";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { MenuIcon, PanelLeftIcon, PencilIcon, SearchIcon } from "lucide-react";
+import {
+  DownloadIcon,
+  MenuIcon,
+  MoreHorizontalIcon,
+  PanelLeftIcon,
+  PencilIcon,
+  SearchIcon,
+} from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 
+import { useExportConversation } from "../../core/client/react/conversation-actions";
 import { invalidateConversationList } from "../../core/client/react/conversation-list";
 import { useByok } from "../../core/client/react/byok";
 import { useNewConversationModel } from "../../core/client/react/new-conversation-model";
@@ -92,9 +102,47 @@ export function TopBar({
           </kbd>
         )}
       </Button>
+      {id && <ConversationMenu key={`menu:${id}`} id={id} />}
       {id && <ShareButton key={`share:${id}`} conversationId={id} />}
       {userMenu}
     </header>
+  );
+}
+
+/** The open Conversation's menu: Export as Markdown (⌘K has it too). Print / Save as PDF joins it later. */
+function ConversationMenu({ id }: { id: string }) {
+  const [open, setOpen] = useState(false);
+  const exporter = useExportConversation();
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        aria-label="Conversation menu"
+        title="Conversation menu"
+        disabled={exporter.isPending}
+        className={cn(buttonVariants({ variant: "ghost", size: "icon-sm" }))}
+      >
+        <MoreHorizontalIcon />
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-44 p-1">
+        <div role="menu" className="flex flex-col">
+          <Button
+            variant="ghost"
+            size="sm"
+            role="menuitem"
+            className="justify-start"
+            disabled={exporter.isPending}
+            onClick={() => {
+              setOpen(false);
+              exporter.exportMarkdown(id);
+            }}
+          >
+            <DownloadIcon />
+            Export as Markdown
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
