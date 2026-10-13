@@ -6,7 +6,13 @@ import {
   maxKnowledgeFileBytes,
   wordMediaType,
 } from "../../shared/knowledge/kinds";
-import { knowledgeOf, setKnowledgeModel, uploadKnowledgeFile } from "../knowledge/store";
+import {
+  deleteKnowledgeFile,
+  knowledgeOf,
+  retryKnowledgeFile,
+  setKnowledgeModel,
+  uploadKnowledgeFile,
+} from "../knowledge/store";
 import { protectedProcedure } from "../procedures";
 import { rpcError } from "../rpc-error";
 
@@ -64,6 +70,20 @@ export const knowledgeRouter = {
         mediaType,
         bytes,
       });
+    }),
+
+  /** Queues a Failed file's processing again, from its kept original. */
+  retry: protectedProcedure
+    .input(z.object({ projectId: z.uuid(), fileId: z.uuid() }))
+    .handler(async ({ context, input }) => {
+      await retryKnowledgeFile(context.deps, context.user.id, input.projectId, input.fileId);
+    }),
+
+  /** Deletes a Knowledge file, its passages and its bytes, whatever its status. */
+  delete: protectedProcedure
+    .input(z.object({ projectId: z.uuid(), fileId: z.uuid() }))
+    .handler(async ({ context, input }) => {
+      await deleteKnowledgeFile(context.deps, context.user.id, input.projectId, input.fileId);
     }),
 
   /** Sets the Project's embedding Model; refused once the Project has files. */

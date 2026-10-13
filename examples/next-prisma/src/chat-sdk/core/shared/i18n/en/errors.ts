@@ -39,6 +39,8 @@ export const errorMessages = {
   "error.knowledgeModelNotAvailable": ({ model }: { model: string }) =>
     `"${model}" is not an available embedding Model`,
   "error.knowledgeModelLocked": "The embedding Model is fixed once the Project has Knowledge files",
+  "error.knowledgeFileNotFound": "Knowledge file not found",
+  "error.knowledgeFileNotFailed": "Only a Knowledge file that failed can be retried",
   "error.decisionNotWaiting": "The Message is not waiting for Approval",
   "error.replyStreaming": "A reply is still streaming in this Conversation",
   "error.modelCannotResume":
