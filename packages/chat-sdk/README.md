@@ -318,3 +318,17 @@ const messages: Partial<Messages> = {
 - Build `messages` once, outside render (a module-level constant). A new object on every render gives the provider a new value and re-renders the chat UI.
 - An unknown key shows as itself.
 - `useI18n()` gives a component `{ t, locale }`, the same translator the SDK uses.
+
+## Phones and installing
+
+`ui/` is built for phones: safe areas around the top bar, drawer, composer and full-screen surfaces; tap targets at least 44px on small screens; a 16px composer that doesn't zoom on iOS and stays above the keyboard; code blocks and tables that scroll sideways inside the reply; an Artifact that opens full screen; and full-width Approval buttons. Your Host needs a `viewport-fit=cover` viewport meta for the safe-area insets to be non-zero.
+
+The signed-in shell takes an `installPrompt` node for your app's install UI, shown at the bottom of the drawer. `apps/web` fills it with a row that offers Install on Chromium and the Share steps on iOS, and goes once installed or dismissed:
+
+```tsx
+<AppShell userMenu={<UserMenu />} installPrompt={<InstallPrompt />}>
+  {children}
+</AppShell>
+```
+
+If your Host has a service worker (for an installable app, or for offline pages), it must never intercept `${basePath}/*` (the chat's API, MCP callback and export routes) or `/share/*` (Shared links). Those answers must always come from the server, never from a cache. The `apps/web` worker (`public/sw.js`) skips both, and a Host's worker should do the same.
