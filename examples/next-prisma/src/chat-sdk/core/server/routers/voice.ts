@@ -6,7 +6,7 @@ import {
   maxDictationBytes,
   maxDictationSeconds,
 } from "../../shared/chat/voice";
-import { DictationError, ownDictationEngine, transcribeRecording } from "../chat/transcription";
+import { DictationError, dictationEngine, transcribeRecording } from "../chat/transcription";
 import { protectedProcedure } from "../procedures";
 
 /** A base64 string of `maxDictationBytes` decodes to at most that many bytes. */
@@ -14,19 +14,20 @@ const maxAudioChars = Math.ceil(maxDictationBytes / 3) * 4;
 
 export const voiceRouter = {
   /**
-   * Whether the caller can dictate: a key of their own for OpenAI, Groq or Grok, with `byok` on.
-   * `onHostCredentials` is always false until the Host's transcription Models are offered.
+   * Whether the caller can dictate: a key of their own for OpenAI, Groq or Grok (with `byok` on),
+   * else the Host's transcription Model. `onHostCredentials` says the Host pays, so the Quota applies.
    */
-  status: protectedProcedure.handler(async ({ context }) => ({
-    transcription: {
-      available: (await ownDictationEngine(context.deps, context.user.id)) !== null,
-      onHostCredentials: false,
-    },
-  })),
+  status: protectedProcedure.handler(async ({ context }) => {
+    const engine = await dictationEngine(context.deps, context.user.id);
+    return {
+      transcription: { available: engine !== null, onHostCredentials: engine?.onHost === true },
+    };
+  }),
 
   /**
-   * Transcribes one recording with the caller's own Provider key, and returns its text. The audio
-   * is never stored. Refused over 10 minutes, over 25 MB, or for a type other than audio.
+   * Transcribes one recording, with the caller's own Provider key or the Host's transcription Model,
+   * and returns its text. The audio is never stored. Refused over 10 minutes, over 25 MB, or for a
+   * type other than audio.
    */
   transcribe: protectedProcedure
     .input(
@@ -54,6 +55,7 @@ export const voiceRouter = {
         const text = await transcribeRecording(context.deps, context.user.id, {
           bytes,
           mimeType: input.mimeType,
+          durationSeconds: input.durationSeconds,
           language: input.language,
         });
         return { text };
@@ -61,7 +63,7 @@ export const voiceRouter = {
         if (caught instanceof DictationError) {
           throw new ORPCError("BAD_REQUEST", {
             message: caught.message,
-            data: { reason: caught.reason },
+            data: { reason: caught.reason, resetsAt: caught.resetsAt?.toISOString() },
           });
         }
         throw caught;

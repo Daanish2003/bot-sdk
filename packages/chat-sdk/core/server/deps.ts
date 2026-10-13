@@ -79,11 +79,19 @@ export type QuotaSetting =
   | null
   | ((userId: string) => Quota | null | Promise<Quota | null>);
 
+/**
+ * A transcription Model the Host pays for, for dictation (spec #249). Its price is per minute of
+ * audio, since the Providers' transcription APIs report no cost.
+ */
+export type HostTranscriptionModel = { model: string; pricePerMinuteUsd: number };
+
 /** The Host's own credentials for a Provider, and the Models they pay for. */
 export type HostProvider = {
   provider: ProviderId;
   credentials: Credentials;
   models: HostModel[];
+  /** Transcription Models for dictation, on OpenAI, Groq or Grok only (spec #249). */
+  transcriptionModels?: HostTranscriptionModel[];
 };
 
 /**

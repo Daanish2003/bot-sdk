@@ -1,4 +1,5 @@
 import type { DictationErrorReason } from "../shared/chat/voice";
+import { quotaResetsAt } from "./quota";
 import { RateLimitedError } from "./rate-limit";
 
 /**
@@ -14,6 +15,7 @@ export function appendTranscript(current: string, transcript: string): string {
 
 const failureText: Record<DictationErrorReason, string> = {
   unavailable: "Dictation needs an OpenAI, Groq or Grok key of yours in Keys & settings.",
+  quota_exceeded: "Dictation is off until your Quota resets.",
   invalid_key: "Dictation failed: your key was rejected. Check it in Keys & settings.",
   rate_limited: "Dictation failed: the Provider is busy. Try again in a moment.",
   failed: "Dictation failed. Your message is unchanged.",
@@ -24,6 +26,9 @@ export function dictationFailureMessage(caught: unknown): string {
   if (caught instanceof RateLimitedError) {
     return `Too many recordings. Try again in ${caught.retryAfterSeconds} seconds.`;
   }
-  const reason = (caught as { data?: { reason?: unknown } } | null)?.data?.reason;
-  return failureText[reason as DictationErrorReason] ?? failureText.failed;
+  const data = (caught as { data?: { reason?: unknown; resetsAt?: unknown } } | null)?.data;
+  if (data?.reason === "quota_exceeded" && typeof data.resetsAt === "string") {
+    return `Dictation is off until ${quotaResetsAt(data.resetsAt)}, when your Quota resets.`;
+  }
+  return failureText[data?.reason as DictationErrorReason] ?? failureText.failed;
 }

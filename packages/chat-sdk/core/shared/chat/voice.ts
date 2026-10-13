@@ -31,5 +31,10 @@ export function isDictationAudioType(mimeType: string): boolean {
   return (dictationAudioTypes as readonly string[]).includes(dictationAudioType(mimeType));
 }
 
-/** Why a dictation failed, as the composer tells it. */
-export type DictationErrorReason = "unavailable" | "invalid_key" | "rate_limited" | "failed";
+/** Why a dictation failed, as the composer tells it. `quota_exceeded` is the Host's Quota (ADR 0007). */
+export type DictationErrorReason =
+  | "unavailable"
+  | "quota_exceeded"
+  | "invalid_key"
+  | "rate_limited"
+  | "failed";

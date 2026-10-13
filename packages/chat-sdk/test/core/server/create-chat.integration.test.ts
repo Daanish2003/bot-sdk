@@ -50,6 +50,25 @@ describe("createChat start", () => {
 
     await expect(chat.start()).rejects.toThrow(/hostProviders|byok/);
   });
+
+  it("refuses transcription Models on a Provider with no transcription adapter", async () => {
+    const chat = createChat({
+      databaseUrl: "postgresql://nobody:nothing@127.0.0.1:1/unreachable",
+      getUser: () => null,
+      keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
+      basePath,
+      hostProviders: [
+        {
+          provider: "anthropic",
+          credentials: { apiKey: "sk-host" },
+          models: [],
+          transcriptionModels: [{ model: "some-model", pricePerMinuteUsd: 0.01 }],
+        },
+      ],
+    });
+
+    await expect(chat.start()).rejects.toThrow(/anthropic.*transcription/);
+  });
 });
 
 describe("the chat handler", () => {

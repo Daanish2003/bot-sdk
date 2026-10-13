@@ -1,28 +1,62 @@
 import { Button } from "@/components/ui/button";
-import { useAudioRecorder } from "@tanstack/ai-react";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { Loader2Icon, MicIcon, SquareIcon, XIcon } from "lucide-react";
+import { AudioRecorder, useAudioRecorder } from "@tanstack/ai-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Loader2Icon, MicIcon, MicOffIcon, SquareIcon, XIcon } from "lucide-react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { quotaExceeded, quotaResetsAt } from "../../core/client/quota";
+import { useQuota } from "../../core/client/react/quota";
 import { dictationFailureMessage } from "../../core/client/voice";
 import { useOrpc } from "../../core/client/react/provider";
 import { maxDictationSeconds } from "../../core/shared/chat/voice";
 
 /**
- * The mic beside Send (spec #249): shown only when the caller can dictate here, on their own
- * Provider key. The transcript goes to `onTranscript`; nothing is sent.
+ * The mic beside Send (spec #249): shown only when the caller can dictate here, on their own key or
+ * the Host's transcription Model. The transcript goes to `onTranscript`; nothing is sent. On the
+ * Host's Model the mic is disabled at the Quota's limit, with the reset time (ADR 0007).
  */
 export function Dictation({ onTranscript }: { onTranscript: (text: string) => void }) {
   const orpc = useOrpc();
   const status = useQuery(orpc.voice.status.queryOptions());
-  if (!status.data?.transcription.available) return null;
+  const quota = useQuota().data;
+  const transcription = status.data?.transcription;
+  if (!transcription?.available || !AudioRecorder.isSupported()) return null;
+  if (transcription.onHostCredentials && quota && quotaExceeded(quota)) {
+    return <DictationOff resetsAt={quota.resetsAt} />;
+  }
   return <DictationButton onTranscript={onTranscript} />;
+}
+
+/** The mic at the Quota's limit on the Host's Model: disabled, with the time the Quota resets. */
+function DictationOff({ resetsAt }: { resetsAt: Date | string }) {
+  const reset = quotaResetsAt(resetsAt);
+  return (
+    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+      <span>Quota resets {reset}</span>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="rounded-full"
+        disabled
+        title={`Dictation off until ${reset}`}
+        aria-label={`Dictation off until ${reset}`}
+      >
+        <MicOffIcon />
+      </Button>
+    </div>
+  );
 }
 
 function DictationButton({ onTranscript }: { onTranscript: (text: string) => void }) {
   const orpc = useOrpc();
-  const transcribe = useMutation(orpc.voice.transcribe.mutationOptions());
+  const queryClient = useQueryClient();
+  // A transcription on the Host's Model spends the Quota, so the composer's meter is read again.
+  const transcribe = useMutation(
+    orpc.voice.transcribe.mutationOptions({
+      onSettled: () => void queryClient.invalidateQueries({ queryKey: orpc.quota.read.queryKey() }),
+    }),
+  );
   const recorder = useAudioRecorder();
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 

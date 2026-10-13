@@ -6,6 +6,7 @@ import type { HostServerTool } from "./chat/host-tools";
 import { webSearchToolName } from "../shared/chat/web-search";
 import { fetchUrlToolName } from "../shared/chat/fetch-url";
 import { handleJoin } from "./chat/join-run";
+import { transcriptionProviders } from "./chat/transcription";
 import type { ChatUser, Context } from "./context";
 import { createDb } from "./db/index";
 import { quotaLookup } from "./chat/quota";
@@ -225,6 +226,15 @@ export function createChat(options: CreateChatOptions): {
     start: async () => {
       if (options.byok === false && !options.hostProviders?.length) {
         throw new Error("Configure hostProviders, byok, or both: with neither, no one can chat");
+      }
+      for (const entry of options.hostProviders ?? []) {
+        if (isHostProvider(entry) && entry.transcriptionModels?.length) {
+          if (!transcriptionProviders.includes(entry.provider)) {
+            throw new Error(
+              `hostProviders: ${entry.provider} has no transcription adapter, so it can't list transcriptionModels`,
+            );
+          }
+        }
       }
       await assertMigrated(options.databaseUrl);
       // Unreadable rows are reported, never a reason to refuse to boot (ADR 0010).
