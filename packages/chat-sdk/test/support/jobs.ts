@@ -1,4 +1,5 @@
 import type { Database } from "../../core/server/db/index";
+import { systemClock } from "../../core/server/jobs/in-process";
 import { claimJob, runClaimedJob } from "../../core/server/jobs/store";
 import { getTestDb } from "./test-database";
 
@@ -25,7 +26,7 @@ export async function drainJobs({
   for (;;) {
     const claimed = await claimJob(db, new Date(), { respectRunAfter });
     if (!claimed) return ran;
-    await runClaimedJob(db, claimed, { now: () => new Date(), logger: silent });
+    await runClaimedJob(db, claimed, { clock: systemClock, logger: silent });
     ran += 1;
   }
 }

@@ -7,20 +7,24 @@ import { job } from "../../../../core/server/db/schema/job";
 import { defineJob, PermanentJobError } from "../../../../core/server/jobs/define";
 import { inProcessRunner, type JobClock } from "../../../../core/server/jobs/in-process";
 import type { JobRunner } from "../../../../core/server/jobs/runner";
+import { claimJob, pruneFinishedJobs, reapStaleJobs } from "../../../../core/server/jobs/store";
 import { drainJobs } from "../../../support/jobs";
 import { getTestDb, testDatabaseUrl } from "../../../support/test-database";
 
 const start = new Date("2026-10-14T10:00:00Z");
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const silent = { error: () => {} };
+const DAY = 86_400_000;
 
-/** A clock the test moves by hand; `tick()` fires the poll timer. */
+/** A clock the test moves by hand; `tick()` fires every timer (poll and heartbeat). */
 function fakeClock() {
   let current = start.getTime();
   const timers = new Set<() => void>();
+  const intervals: number[] = [];
   const clock: JobClock = {
     now: () => new Date(current),
-    setInterval: (callback) => {
+    setInterval: (callback, ms) => {
+      intervals.push(ms);
       timers.add(callback);
       return callback;
     },
@@ -30,6 +34,7 @@ function fakeClock() {
   };
   return {
     clock,
+    intervals,
     advance: (ms: number) => {
       current += ms;
     },
@@ -43,8 +48,12 @@ function fakeClock() {
 const ran: string[] = [];
 const started: string[] = [];
 const failedLabels: string[] = [];
+const aborted: string[] = [];
 let failure: unknown;
 let gate: Promise<void> | undefined;
+/** While true, `test.hold` runs until its attempt is aborted, or until `releaseHold()`. */
+let holding = false;
+let releaseHold: (() => void) | undefined;
 
 defineJob({
   name: "test.record",
@@ -67,6 +76,30 @@ defineJob({
   },
 });
 
+defineJob({
+  name: "test.hold",
+  payload: z.object({ label: z.string() }),
+  run: async ({ label }, { signal }) => {
+    if (!holding) {
+      ran.push(label);
+      return;
+    }
+    started.push(label);
+    await new Promise<void>((resolve, reject) => {
+      releaseHold = resolve;
+      signal.addEventListener(
+        "abort",
+        () => {
+          aborted.push(label);
+          reject(signal.reason);
+        },
+        { once: true },
+      );
+    });
+    ran.push(label);
+  },
+});
+
 /** Every `chat.job` row, read straight from the test database. */
 const jobRows = () => getTestDb().select().from(job);
 
@@ -80,13 +113,17 @@ beforeEach(() => {
   ran.length = 0;
   started.length = 0;
   failedLabels.length = 0;
+  aborted.length = 0;
   failure = undefined;
   gate = undefined;
+  holding = false;
+  releaseHold = undefined;
 });
 
 afterEach(() => {
   failure = undefined;
   gate = undefined;
+  holding = false;
 });
 
 describe("enqueue", () => {
@@ -297,10 +334,274 @@ describe("drainJobs", () => {
   });
 });
 
+describe("heartbeats and leases", () => {
+  it("heartbeats every 10 s while a job runs", async () => {
+    const timer = fakeClock();
+    holding = true;
+    const runner = inProcessRunner({
+      db: getTestDb(),
+      logger: silent,
+      clock: timer.clock,
+      drainMs: 20,
+    });
+    await runner.enqueue("test.hold", { label: "a" });
+
+    await runner.start();
+
+    await expect.poll(() => statusOf("test.hold")).toBe("running");
+    expect(timer.intervals).toContain(10_000);
+    timer.advance(10_000);
+    timer.tick();
+    await expect
+      .poll(async () => (await jobRows())[0]?.heartbeatAt?.getTime())
+      .toBe(start.getTime() + 10_000);
+    await runner.stop();
+  });
+
+  it("re-queues a job whose lease expired after 60 s, and the attempt counts", async () => {
+    const timer = fakeClock();
+    holding = true;
+    const crashed = inProcessRunner({
+      db: getTestDb(),
+      logger: silent,
+      clock: timer.clock,
+      drainMs: 20,
+    });
+    await crashed.enqueue("test.hold", { label: "a" });
+    await crashed.start();
+    await expect.poll(() => statusOf("test.hold")).toBe("running");
+    // Stopping leaves the lease behind, as a crash would.
+    await crashed.stop();
+    holding = false;
+
+    timer.advance(60_000);
+    await reapStaleJobs(getTestDb(), timer.clock.now(), silent);
+    expect(await statusOf("test.hold")).toBe("running");
+
+    timer.advance(1_000);
+    await reapStaleJobs(getTestDb(), timer.clock.now(), silent);
+    expect(await jobRows()).toMatchObject([
+      { status: "queued", attempts: 1, lastError: expect.stringContaining("lease") },
+    ]);
+
+    expect(await drainJobs()).toBe(1);
+    expect(ran).toEqual(["a"]);
+    expect(await jobRows()).toMatchObject([{ status: "succeeded", attempts: 2 }]);
+  });
+
+  it("fails a job whose lease expires on its last attempt, and runs onFailed", async () => {
+    const timer = fakeClock();
+    const db = getTestDb();
+    const runner = inProcessRunner({ db, logger: silent, clock: timer.clock });
+    await runner.enqueue("test.fail", { label: "a" });
+    // Three processes claim the job and die without finishing it.
+    for (const attempt of [1, 2, 3]) {
+      expect(await claimJob(db, timer.clock.now())).toMatchObject({ attempts: attempt });
+      timer.advance(61_000);
+      await reapStaleJobs(db, timer.clock.now(), silent);
+    }
+
+    expect(await jobRows()).toMatchObject([
+      { status: "failed", attempts: 3, lastError: expect.stringContaining("lease") },
+    ]);
+    expect(failedLabels).toEqual(["a"]);
+  });
+
+  it("ignores a lost attempt that ends after another attempt has claimed its job", async () => {
+    const timer = fakeClock();
+    const db = getTestDb();
+    holding = true;
+    const lost = inProcessRunner({ db, logger: silent, clock: timer.clock, drainMs: 2_000 });
+    await lost.enqueue("test.hold", { label: "a" });
+    await lost.start();
+    await expect.poll(() => statusOf("test.hold")).toBe("running");
+    timer.advance(61_000);
+    await reapStaleJobs(db, timer.clock.now(), silent);
+    expect(await claimJob(db, timer.clock.now())).toMatchObject({ attempts: 2 });
+
+    releaseHold?.();
+    await lost.stop();
+
+    expect(await jobRows()).toMatchObject([{ status: "running", attempts: 2 }]);
+  });
+
+  it("ends an attempt that runs past 15 minutes as a failure, and retries it", async () => {
+    const timer = fakeClock();
+    holding = true;
+    const runner = inProcessRunner({
+      db: getTestDb(),
+      logger: silent,
+      clock: timer.clock,
+      drainMs: 20,
+    });
+    await runner.enqueue("test.hold", { label: "a" });
+    await runner.start();
+    await expect.poll(() => statusOf("test.hold")).toBe("running");
+
+    timer.advance(15 * 60_000);
+    timer.tick();
+
+    await expect.poll(() => statusOf("test.hold")).toBe("queued");
+    expect(aborted).toEqual(["a"]);
+    expect(await jobRows()).toMatchObject([
+      { attempts: 1, lastError: "Timed out after 15 minutes" },
+    ]);
+    await runner.stop();
+  });
+});
+
+describe("cancel", () => {
+  it("drops a queued job, so it never runs", async () => {
+    const runner = inProcessRunner({ db: getTestDb(), logger: silent, clock: fakeClock().clock });
+    await runner.enqueue("test.record", { label: "a" }, { idempotencyKey: "k" });
+
+    await runner.cancel("k");
+
+    expect(await drainJobs()).toBe(0);
+    expect(ran).toEqual([]);
+    expect(await statusOf("test.record")).toBe("cancelled");
+  });
+
+  it("aborts a running job at its next heartbeat, and the handler sees the signal", async () => {
+    const timer = fakeClock();
+    holding = true;
+    const runner = inProcessRunner({
+      db: getTestDb(),
+      logger: silent,
+      clock: timer.clock,
+      drainMs: 20,
+    });
+    await runner.enqueue("test.hold", { label: "a" }, { idempotencyKey: "k" });
+    await runner.start();
+    await expect.poll(() => statusOf("test.hold")).toBe("running");
+
+    await runner.cancel("k");
+    expect(await statusOf("test.hold")).toBe("cancelled");
+    expect(aborted).toEqual([]);
+
+    timer.advance(10_000);
+    timer.tick();
+
+    await expect.poll(() => aborted).toEqual(["a"]);
+    expect(await jobRows()).toMatchObject([{ status: "cancelled", attempts: 1 }]);
+    await runner.stop();
+  });
+});
+
+describe("status", () => {
+  it("returns a job's state by id, and the active job's id for a repeated key", async () => {
+    const runner = inProcessRunner({ db: getTestDb(), logger: silent, clock: fakeClock().clock });
+    const id = await runner.enqueue("test.record", { label: "a" }, { idempotencyKey: "k" });
+
+    expect(await runner.enqueue("test.record", { label: "b" }, { idempotencyKey: "k" })).toBe(id);
+    expect(await runner.status(id)).toMatchObject({
+      id,
+      name: "test.record",
+      status: "queued",
+      attempts: 0,
+      maxAttempts: 3,
+      lastError: null,
+    });
+    expect(await runner.status("0195c0a2-0000-7000-8000-000000000000")).toBeUndefined();
+  });
+});
+
+describe("stop", () => {
+  it("waits up to drainMs for a running job, then aborts it and leaves its lease", async () => {
+    const timer = fakeClock();
+    holding = true;
+    const runner = inProcessRunner({
+      db: getTestDb(),
+      logger: silent,
+      clock: timer.clock,
+      drainMs: 20,
+    });
+    await runner.enqueue("test.hold", { label: "a" });
+    await runner.start();
+    await expect.poll(() => statusOf("test.hold")).toBe("running");
+    const heartbeatBefore = (await jobRows())[0]?.heartbeatAt;
+
+    await runner.stop();
+
+    expect(aborted).toEqual(["a"]);
+    expect(await jobRows()).toMatchObject([{ status: "running", attempts: 1 }]);
+    // Nothing heartbeats after stop, so the lease runs out for another process to reap.
+    timer.advance(10_000);
+    timer.tick();
+    expect((await jobRows())[0]?.heartbeatAt).toEqual(heartbeatBefore);
+  });
+
+  it("lets a job that finishes within drainMs complete", async () => {
+    let release!: () => void;
+    gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const runner = inProcessRunner({
+      db: getTestDb(),
+      logger: silent,
+      clock: fakeClock().clock,
+      drainMs: 2_000,
+    });
+    await runner.enqueue("test.record", { label: "a" });
+    await runner.start();
+    await expect.poll(() => started).toEqual(["a"]);
+
+    const stopping = runner.stop();
+    release();
+    await stopping;
+
+    expect(ran).toEqual(["a"]);
+    expect(await statusOf("test.record")).toBe("succeeded");
+  });
+});
+
+describe("retention", () => {
+  it("deletes succeeded and cancelled jobs 7 days after they end, and failed jobs 30 days after", async () => {
+    const db = getTestDb();
+    const runner = inProcessRunner({ db, logger: silent, clock: fakeClock().clock });
+    const endedAgo = async (
+      status: "succeeded" | "cancelled" | "failed" | "queued",
+      days: number,
+    ) => {
+      const id = await runner.enqueue("test.record", { label: `${status}-${days}` });
+      await db
+        .update(job)
+        .set({ status, updatedAt: new Date(start.getTime() - days * DAY) })
+        .where(eq(job.id, id));
+      return id;
+    };
+    const kept = [
+      await endedAgo("succeeded", 6),
+      await endedAgo("failed", 29),
+      await endedAgo("queued", 400),
+    ];
+    await endedAgo("succeeded", 8);
+    await endedAgo("cancelled", 8);
+    await endedAgo("failed", 31);
+
+    await pruneFinishedJobs(db, start);
+
+    expect((await jobRows()).map((row) => row.id).sort()).toEqual([...kept].sort());
+  });
+});
+
+describe("schedule", () => {
+  it("is not supported by the in-process runner yet", async () => {
+    const runner = inProcessRunner({ db: getTestDb(), logger: silent, clock: fakeClock().clock });
+
+    await expect(runner.schedule("test.record", { everyMs: 60_000 })).rejects.toThrow(
+      /not supported/,
+    );
+  });
+});
+
 describe("createChat({ jobs })", () => {
   it("starts and stops the Host's runner with chat.start() and chat.stop()", async () => {
     const jobs: JobRunner = {
-      enqueue: vi.fn(async () => {}),
+      enqueue: vi.fn(async () => "job-id"),
+      cancel: vi.fn(async () => {}),
+      status: vi.fn(async () => undefined),
+      schedule: vi.fn(async () => {}),
       start: vi.fn(async () => {}),
       stop: vi.fn(async () => {}),
     };

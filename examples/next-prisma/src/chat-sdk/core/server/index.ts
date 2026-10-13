@@ -25,4 +25,4 @@ export type { BlobStore } from "./blob/store";
 export { postgresBlobStore } from "./blob/postgres";
 export { s3BlobStore, type S3BlobStoreOptions } from "./blob/s3";
 export type { McpServerConfig } from "./mcp/servers";
-export type { JobRunner, EnqueueOptions } from "./jobs/runner";
+export type { JobRunner, JobStatus, EnqueueOptions } from "./jobs/runner";

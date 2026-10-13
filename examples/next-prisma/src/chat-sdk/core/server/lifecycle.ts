@@ -1,12 +1,16 @@
 import { reapStaleRuns, shutdownAbort } from "./chat/run";
 import { sweepExpiredTemporaryConversations } from "./chat/temporary";
 import type { AppDeps } from "./deps";
+import { pruneFinishedJobs, reapStaleJobs } from "./jobs/store";
 
 /** How often `stop()` checks whether the local Runs have ended. */
 const DRAIN_POLL_MS = 50;
 
 /** How often the reaper also sweeps expired Temporary Conversations (spec #262). */
 const TEMPORARY_SWEEP_MS = 60 * 60_000;
+
+/** How often the reaper also deletes finished background jobs past their retention (ADR 0011). */
+const JOB_PRUNE_MS = 60 * 60_000;
 
 export type Lifecycle = {
   /** Reaps now, then every `reapIntervalMs` (ADR 0006). Resolves after the first reap. */
@@ -27,10 +31,20 @@ export function createLifecycle(
 ): Lifecycle {
   let timer: ReturnType<typeof setInterval> | undefined;
   let lastSweep = Number.NEGATIVE_INFINITY;
+  let lastPrune = Number.NEGATIVE_INFINITY;
   const reap = async () => {
     await reapStaleRuns(deps).catch((error: unknown) =>
       logger.error("Reaping interrupted runs failed", error),
     );
+    await reapStaleJobs(deps.db, new Date(), logger).catch((error: unknown) =>
+      logger.error("Reaping background jobs failed", error),
+    );
+    if (Date.now() - lastPrune >= JOB_PRUNE_MS) {
+      lastPrune = Date.now();
+      await pruneFinishedJobs(deps.db, new Date()).catch((error: unknown) =>
+        logger.error("Pruning finished background jobs failed", error),
+      );
+    }
     if (Date.now() - lastSweep < TEMPORARY_SWEEP_MS) return;
     lastSweep = Date.now();
     await sweepExpiredTemporaryConversations(deps).catch((error: unknown) =>

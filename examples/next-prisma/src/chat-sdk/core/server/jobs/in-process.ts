@@ -1,12 +1,12 @@
 import type { Database } from "../db/index";
-import { claimJob, enqueueJob, runClaimedJob } from "./store";
+import { cancelJob, claimJob, enqueueJob, readJob, runClaimedJob } from "./store";
 import type { JobRunner } from "./runner";
 
 type Logger = Pick<Console, "error">;
 
 /**
- * Time as the runner sees it: `now` for backoff and claims, and the poll timer. Tests inject a
- * fake so that backoff and polling are deterministic.
+ * Time as the runner sees it: `now` for backoff, claims and leases, and the timers for polling and
+ * heartbeats. Tests inject a fake so that all of it is deterministic.
  */
 export type JobClock = {
   now: () => Date;
@@ -27,23 +27,41 @@ export type InProcessRunnerOptions = {
   concurrency?: number;
   /** How often an idle runner polls `chat.job`. Enqueue wakes it sooner. */
   pollMs?: number;
+  /** How long `stop()` lets running jobs finish before it aborts them. */
+  drainMs?: number;
   clock?: JobClock;
 };
+
+/** Resolves when `promise` settles or after `ms`, whichever comes first, and clears its timer. */
+async function waitUpTo(promise: Promise<unknown>, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, ms);
+  });
+  try {
+    await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /**
  * The default runner (ADR 0011): polls `chat.job` every `pollMs`, claims due jobs with
  * `FOR UPDATE SKIP LOCKED` and runs up to `concurrency` at once. Nothing polls until `start()`.
- * `stop()` takes no new jobs and waits for the running ones.
+ * `stop()` takes no new jobs, waits up to `drainMs` for the running ones, then aborts them and
+ * leaves their leases to expire.
  */
 export function inProcessRunner({
   db,
   logger = console,
   concurrency = 2,
   pollMs = 2_000,
+  drainMs = 250_000,
   clock = systemClock,
 }: InProcessRunnerOptions): JobRunner {
   let running = false;
   let timer: unknown;
+  let shutdown: AbortController | undefined;
   // Claims run one after another on this chain, so `concurrency` is never exceeded.
   let claims: Promise<void> = Promise.resolve();
   const inFlight = new Set<Promise<void>>();
@@ -58,7 +76,11 @@ export function inProcessRunner({
         return;
       }
       if (!claimed) return;
-      const work: Promise<void> = runClaimedJob(db, claimed, { now: clock.now, logger })
+      const work: Promise<void> = runClaimedJob(db, claimed, {
+        clock,
+        logger,
+        shutdown: shutdown?.signal,
+      })
         .catch((error: unknown) => logger.error(`Background job "${claimed.name}" failed`, error))
         .finally(() => {
           inFlight.delete(work);
@@ -74,13 +96,27 @@ export function inProcessRunner({
 
   return {
     async enqueue(name, payload, options = {}) {
-      await enqueueJob(db, name, payload, { ...options, now: clock.now() });
+      const id = await enqueueJob(db, name, payload, { ...options, now: clock.now() });
       requestClaim();
+      return id;
+    },
+
+    async cancel(idempotencyKey) {
+      await cancelJob(db, idempotencyKey, clock.now());
+    },
+
+    async status(jobId) {
+      return readJob(db, jobId);
+    },
+
+    async schedule() {
+      throw new Error("Recurring jobs are not supported yet");
     },
 
     async start() {
       if (running) return;
       running = true;
+      shutdown = new AbortController();
       timer = clock.setInterval(requestClaim, pollMs);
       requestClaim();
       await claims;
@@ -91,6 +127,8 @@ export function inProcessRunner({
       clock.clearInterval(timer);
       timer = undefined;
       await claims;
+      await waitUpTo(Promise.all(inFlight), drainMs);
+      shutdown?.abort();
       await Promise.all(inFlight);
     },
   };
