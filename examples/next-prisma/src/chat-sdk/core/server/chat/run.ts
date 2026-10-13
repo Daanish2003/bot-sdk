@@ -23,6 +23,7 @@ import {
 } from "./host-tools";
 import type { McpTools } from "../mcp/tools";
 import { createWebSearchTool } from "./web-search-tool";
+import { paidCallAllowed } from "./quota";
 import { createFetchUrlTool } from "./fetch-url-tool";
 import { cancelChannel, heartbeatExpired, listenForStop, stopRequested } from "./stop";
 import { addUsage, messageUsage, normalizeUsage, promptCharactersOf, type RunUsage } from "./usage";
@@ -191,6 +192,8 @@ export async function startRun(
                         console.error(`Recording a search of ${messageId} failed`, caught),
                       )
                   : undefined,
+                // A search on Host credentials is checked against the Quota first (ADR 0007).
+                mayRun: () => paidCallAllowed(deps, searchMeter),
               }),
             ]
           : []),

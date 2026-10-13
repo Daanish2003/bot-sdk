@@ -1,10 +1,11 @@
 import { storedParts, type WebSearchPart } from "../../../../core/shared/message-parts";
 import { message } from "../../../../core/server/db/schema/chat";
+import { usage } from "../../../../core/server/db/schema/usage";
 import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { saveCredentials } from "../../../../core/server/credentials/store";
-import type { AppDeps, SearchClient } from "../../../../core/server/deps";
+import type { AppDeps, HostTool, SearchClient } from "../../../../core/server/deps";
 import { insertConversation, insertMessage } from "../../../support/conversations";
 import { createTestDeps, type TestDepsOverrides } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
@@ -14,7 +15,11 @@ import { chatRpc, sendAs } from "../../../support/sdk";
 import { citationPrompt } from "../../../../core/shared/chat/citations";
 import type { ChatCommand } from "../../../../core/shared/chat/command";
 import { curatedModels } from "../../../../core/shared/chat/models";
+import { searchErrorMessages } from "../../../../core/shared/chat/web-search";
+import { quotaLookup } from "../../../../core/server/chat/quota";
 import { reapStaleRuns } from "../../../../core/server/chat/run";
+import { uuidv7 } from "../../../../core/server/lib/uuidv7";
+import { getTestDb } from "../../../support/test-database";
 
 const anthropicModel = "anthropic:claude-sonnet-5-5";
 const tavilyKey = { apiKey: "tvly-test-key" };
@@ -354,5 +359,103 @@ describe("reapStaleRuns", () => {
         search({ state: "cancelled", results: [] }),
       ]),
     });
+  });
+});
+
+describe("the Quota check before each Host search", () => {
+  const hostTools: HostTool[] = [
+    { tool: "tavily", credentials: { apiKey: "tvly-host-key" }, pricePerSearchUsd: 0.008 },
+  ];
+  // 10,000 micros. One Host search costs 8,000 micros, so a search after the first is over it.
+  const quota = { budgetUsd: 0.01, window: "day" as const };
+
+  /** Records spend in `chat.usage` directly, at the current time. */
+  async function spend(userId: string, costMicros: number) {
+    await getTestDb().insert(usage).values({
+      id: uuidv7(),
+      userId,
+      kind: "run",
+      model: anthropicModel,
+      inputTokens: 0,
+      outputTokens: 0,
+      costMicros,
+      estimated: false,
+      createdAt: new Date(),
+    });
+  }
+
+  /** The `chat.usage` rows of `userId`, oldest first: kind and cost. */
+  async function usageOf(userId: string) {
+    return getTestDb()
+      .select({ kind: usage.kind, costMicros: usage.costMicros })
+      .from(usage)
+      .where(eq(usage.userId, userId))
+      .orderBy(asc(usage.createdAt));
+  }
+
+  it("refuses a Host search that would take the window over the budget, and the Run carries on", async () => {
+    const searchClient = createFakeSearchClient({ results: [result(1)] });
+    const { user, deps, fake, conv, send } = await setup({
+      tavily: false,
+      searchClient,
+      rounds: [
+        round(searchCall("call-1", "first")),
+        round(searchCall("call-2", "second")),
+        round(text("Done.")),
+      ],
+      deps: { hostTools, getQuota: quotaLookup(quota) },
+    });
+    // 5,000 of the budget is spent: the first search fits, and its 8,000 takes the window over.
+    await spend(user.id, 5_000);
+
+    await (await send()).text();
+
+    expect(searchClient.calls.map((call) => call.query)).toEqual(["first"]);
+    expect(fake.calls[2]!.messages.at(-1)).toMatchObject({
+      role: "tool",
+      toolCallId: "call-2",
+      content: JSON.stringify({
+        error: searchErrorMessages.quota_exceeded,
+        reason: "quota_exceeded",
+      }),
+    });
+    expect(await replyOf(deps, conv.id)).toMatchObject({
+      status: "complete",
+      parts: storedParts([
+        search({ toolCallId: "call-1", query: "first" }),
+        search({
+          toolCallId: "call-2",
+          query: "second",
+          state: "error",
+          results: [],
+          errorReason: "quota_exceeded",
+        }),
+        { type: "text", text: "Done." },
+      ]),
+    });
+    // Only the first search is recorded: the refused one costs nothing.
+    expect(await usageOf(user.id)).toEqual([
+      { kind: "run", costMicros: 5_000 },
+      { kind: "web_search", costMicros: 8_000 },
+    ]);
+  });
+
+  it("never refuses a search on the user's own Tavily key, even over the Host's budget", async () => {
+    const searchClient = createFakeSearchClient({ results: [result(1)] });
+    const { user, deps, conv, send } = await setup({
+      searchClient,
+      rounds: [round(searchCall("call-1", "tanstack ai")), round(text("Done."))],
+      deps: { hostTools, getQuota: quotaLookup(quota) },
+    });
+    await spend(user.id, 50_000);
+
+    await (await send()).text();
+
+    expect(searchClient.calls).toEqual([{ query: "tanstack ai", credentials: tavilyKey }]);
+    expect(await replyOf(deps, conv.id)).toMatchObject({
+      status: "complete",
+      parts: storedParts([search({}), { type: "text", text: "Done." }]),
+    });
+    expect(await usageOf(user.id)).toEqual([{ kind: "run", costMicros: 50_000 }]);
   });
 });

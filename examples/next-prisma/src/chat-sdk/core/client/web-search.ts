@@ -34,6 +34,7 @@ export function searchToggle({
 const failureText: Record<NonNullable<WebSearchPart["errorReason"]>, string> = {
   invalid_key: "Search failed: Tavily rejected your key.",
   quota_exhausted: "Search failed: Tavily's monthly quota is used up.",
+  quota_exceeded: "Search not run: you're over this window's Quota.",
   failed: "Search failed.",
 };
 

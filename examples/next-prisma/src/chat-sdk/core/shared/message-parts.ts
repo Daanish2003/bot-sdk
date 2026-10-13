@@ -32,7 +32,7 @@ export const webSearchPartSchema = z.object({
   query: z.string(),
   state: z.enum(["running", "done", "error", "cancelled"]),
   results: z.array(searchResultSchema).max(5),
-  errorReason: z.enum(["invalid_key", "quota_exhausted", "failed"]).optional(),
+  errorReason: z.enum(["invalid_key", "quota_exhausted", "quota_exceeded", "failed"]).optional(),
 });
 
 /** Where a tool came from: the SDK (`web_search` has its own part), the Host, or an MCP server. */

@@ -64,6 +64,19 @@ export async function quotaRefusal(
   return { resetsAt: state.resetsAt };
 }
 
+/**
+ * May a paid tool call go ahead (ADR 0007)? `meter` is set for a call on Host credentials, whose
+ * user's Quota it counts against; a call on the user's own key has none and is never refused.
+ * Checked before each call, so a Run's later calls see the spend of its earlier ones.
+ */
+export async function paidCallAllowed(
+  deps: Pick<AppDeps, "db" | "getQuota">,
+  meter: { userId: string } | undefined,
+): Promise<boolean> {
+  if (!meter) return true;
+  return (await quotaRefusal(deps, meter.userId)) === null;
+}
+
 /** The Quota read: the used percentage, the window and its reset time, never money (ADR 0007). */
 export async function readQuota(
   deps: Pick<AppDeps, "db" | "getQuota">,
