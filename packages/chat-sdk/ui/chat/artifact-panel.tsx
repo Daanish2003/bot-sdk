@@ -4,7 +4,9 @@ import {
   type ArtifactKind,
   updateArtifactToolName,
 } from "../../core/shared/chat/artifact";
+import type { UIMessage } from "@tanstack/ai-react";
 import type { ToolCallView } from "../../core/shared/chat/tool-call";
+import { messageInfo } from "../../core/client/chat";
 import { useOrpc } from "../../core/client/react/provider";
 import { CodeBlock, CodeBlockCode } from "@/components/ui/prompt-kit/code-block";
 import { Markdown } from "@/components/ui/prompt-kit/markdown";
@@ -36,14 +38,16 @@ export type ArtifactVersionContent = {
 /**
  * The versions of one Artifact on the Active Branch, newest first (ADR 0016): each `artifact` part
  * on the path names one. Versions written on other Branches never appear, since their Messages
- * aren't on the path.
+ * aren't on the path. A Message still streaming is left out: its version has only a temporary id,
+ * which the server does not know, until the reply is stored.
  */
 export function artifactVersionsOn(
-  messages: ReadonlyArray<{ id: string; parts: ReadonlyArray<unknown> }>,
+  messages: ReadonlyArray<{ id: string; parts: ReadonlyArray<unknown>; metadata?: unknown }>,
   artifactId: string,
 ): ArtifactRef[] {
   const versions: ArtifactRef[] = [];
   for (const message of messages) {
+    if (messageInfo(message as UIMessage).status === "streaming") continue;
     for (const part of message.parts) {
       const call = part as { type?: unknown; output?: unknown };
       if (call.type !== "tool-call") continue;

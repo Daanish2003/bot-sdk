@@ -122,6 +122,7 @@ describe("the version dropdown", () => {
   /** A Message whose parts hold the `artifact` version it wrote, as the client sees them. */
   const writes = (id: string, number: number | null, artifactId = "abc") => ({
     id,
+    metadata: { status: "complete" },
     parts:
       number === null
         ? []
@@ -171,6 +172,14 @@ describe("the version dropdown", () => {
       }),
     );
     expect(html).not.toContain('aria-label="Version"');
+  });
+
+  it("lists only the versions of stored Messages, since a streaming one has no id the server knows", () => {
+    // A Message still streaming has no metadata status, and a temporary id.
+    const streamingWrite = { ...writes("temp-9", 3), metadata: undefined };
+    const path = [writes("m-1", 1), streamingWrite];
+
+    expect(artifactVersionsOn(path, "abc")).toEqual([ref(1, "m-1")]);
   });
 });
 

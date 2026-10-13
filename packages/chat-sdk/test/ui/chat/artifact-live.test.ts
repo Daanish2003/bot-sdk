@@ -7,6 +7,7 @@ import {
   artifactCallsIn,
   liveArtifactOf,
   panelTargetOf,
+  rememberSaved,
   startedArtifactCalls,
 } from "../../../ui/chat/artifact-live";
 import { LiveArtifactView } from "../../../ui/chat/artifact-panel";
@@ -58,9 +59,8 @@ describe("the panel follows a streaming Artifact call", () => {
     ]);
 
     expect(startedArtifactCalls([message], seen).map((item) => item.call.id)).toEqual(["call-1"]);
-    expect(panelTargetOf([message], { kind: "live", callId: "call-1" })).toEqual({
-      kind: "saved",
-      ref: { artifactId: "a-1", version: 1, messageId: "m-1" },
+    expect(panelTargetOf([message], { kind: "live", callId: "call-1" })).toMatchObject({
+      kind: "live",
     });
   });
 
@@ -75,16 +75,57 @@ describe("the panel follows a streaming Artifact call", () => {
     expect(artifactCallsIn(messages).map((item) => item.call.id)).toEqual(["call-1"]);
   });
 
-  it("follows the call to its saved version on its Message once the call is done", () => {
+  it("does not query a saved version by its Message's temporary id while the reply streams", () => {
     const messages = [
       streaming("m-1", [
         callPart({ state: "complete", output: { artifactId: "a-1", version: 1 } }),
       ]),
     ];
 
-    expect(panelTargetOf(messages, { kind: "live", callId: "call-1" })).toEqual({
-      kind: "saved",
-      ref: { artifactId: "a-1", version: 1, messageId: "m-1" },
+    expect(panelTargetOf(messages, { kind: "live", callId: "call-1" })).toMatchObject({
+      kind: "live",
+    });
+    expect(
+      panelTargetOf(messages, { kind: "saved", ref: { artifactId: "a-1", version: 1 } }),
+    ).toBeNull();
+  });
+
+  it("follows the saved version to its stored Message once the reply is stored", () => {
+    // The stored Message holds the call as its saved version, under another id than the stream's.
+    const messages = [
+      stored("m-9", [
+        callPart({
+          id: "artifact-a-1-1",
+          state: "complete",
+          output: { artifactId: "a-1", version: 1 },
+        }),
+      ]),
+    ];
+
+    expect(
+      panelTargetOf(messages, {
+        kind: "live",
+        callId: "call-1",
+        saved: { artifactId: "a-1", version: 1 },
+      }),
+    ).toEqual({ kind: "saved", ref: { artifactId: "a-1", version: 1, messageId: "m-9" } });
+  });
+
+  it("remembers the version a call saved, so the panel keeps it once the reply is stored", () => {
+    const messages = [
+      streaming("m-1", [
+        callPart({ state: "complete", output: { artifactId: "a-1", version: 1 } }),
+      ]),
+    ];
+
+    expect(rememberSaved({ kind: "live", callId: "call-1" }, messages)).toEqual({
+      kind: "live",
+      callId: "call-1",
+      saved: { artifactId: "a-1", version: 1 },
+    });
+    expect(rememberSaved({ kind: "live", callId: "other" }, messages)).toEqual({
+      kind: "live",
+      callId: "other",
     });
   });
 
@@ -168,6 +209,24 @@ describe("the live source of a streaming Artifact", () => {
     );
     expect(markup).toContain("Updating to v2…");
     expect(markup).toContain("&lt;h1&gt;Hi&lt;/h1&gt;");
+  });
+
+  it("shows a done call whose reply still streams as saving, with no notice", () => {
+    const [item] = artifactCallsIn([
+      streaming("m-1", [
+        callPart({
+          arguments: JSON.stringify(html("<h1>Hi</h1>")),
+          input: html("<h1>Hi</h1>"),
+          state: "complete",
+          output: { artifactId: "a-1", version: 1 },
+        }),
+      ]),
+    ]);
+    const live = liveArtifactOf(item!.call);
+
+    expect(live.state).toBe("saving");
+    expect(live.content).toBe("<h1>Hi</h1>");
+    expect(live.notice).toBeUndefined();
   });
 
   it("shows a cut-off call's partial source as not saved", () => {
