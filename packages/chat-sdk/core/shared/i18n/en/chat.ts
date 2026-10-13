@@ -185,6 +185,8 @@ export const chatMessages = {
 
   // A reply's rating (spec #267 refusals and the rating toast), and the Saved prompts `/` menu (#259).
   "chat.ratingFailed": ({ message }: { message: string }) => `Rating failed: ${message}`,
+  "chat.goodReply": "Good reply",
+  "chat.badReply": "Bad reply",
   "chat.moderatedDefault": "This message can't be sent",
   "chat.savedPrompts": "Saved prompts",
   "chat.noSavedPrompts": "No Saved prompts yet. Save text you send often and insert it with /name.",

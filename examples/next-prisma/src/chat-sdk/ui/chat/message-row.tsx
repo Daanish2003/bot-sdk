@@ -363,6 +363,7 @@ function RatingButtons({
   disabled: boolean;
   onRate: (rating: "up" | "down" | null) => void;
 }) {
+  const { t } = useI18n();
   const choose = (thumb: "up" | "down") => onRate(rating === thumb ? null : thumb);
   return (
     <>
@@ -371,8 +372,8 @@ function RatingButtons({
         size="icon-xs"
         disabled={disabled}
         onClick={() => choose("up")}
-        title="Good reply"
-        aria-label="Good reply"
+        title={t("chat.goodReply")}
+        aria-label={t("chat.goodReply")}
         aria-pressed={rating === "up"}
       >
         <ThumbsUpIcon className={cn(rating === "up" && "fill-current")} />
@@ -382,8 +383,8 @@ function RatingButtons({
         size="icon-xs"
         disabled={disabled}
         onClick={() => choose("down")}
-        title="Bad reply"
-        aria-label="Bad reply"
+        title={t("chat.badReply")}
+        aria-label={t("chat.badReply")}
         aria-pressed={rating === "down"}
       >
         <ThumbsDownIcon className={cn(rating === "down" && "fill-current")} />
