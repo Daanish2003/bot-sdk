@@ -10,6 +10,7 @@ import {
   MoreHorizontalIcon,
   PanelLeftIcon,
   PencilIcon,
+  PrinterIcon,
   SearchIcon,
 } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState, useSyncExternalStore } from "react";
@@ -50,7 +51,7 @@ export function TopBar({
   const modKey = useModKey();
 
   return (
-    <header className="flex h-11 shrink-0 items-center gap-1 border-b px-2 sm:gap-2">
+    <header className="flex h-11 shrink-0 items-center gap-1 border-b px-2 sm:gap-2 print:hidden">
       <Button
         variant="ghost"
         size="icon-sm"
@@ -109,7 +110,7 @@ export function TopBar({
   );
 }
 
-/** The open Conversation's menu: Export as Markdown (⌘K has it too). Print / Save as PDF joins it later. */
+/** The open Conversation's menu: Export as Markdown and Print / Save as PDF (⌘K has both too). */
 function ConversationMenu({ id }: { id: string }) {
   const [open, setOpen] = useState(false);
   const exporter = useExportConversation();
@@ -125,24 +126,51 @@ function ConversationMenu({ id }: { id: string }) {
         <MoreHorizontalIcon />
       </PopoverTrigger>
       <PopoverContent align="end" className="w-44 p-1">
-        <div role="menu" className="flex flex-col">
-          <Button
-            variant="ghost"
-            size="sm"
-            role="menuitem"
-            className="justify-start"
-            disabled={exporter.isPending}
-            onClick={() => {
-              setOpen(false);
-              exporter.exportMarkdown(id);
-            }}
-          >
-            <DownloadIcon />
-            Export as Markdown
-          </Button>
-        </div>
+        <ConversationMenuItems
+          disabled={exporter.isPending}
+          onExport={() => {
+            setOpen(false);
+            exporter.exportMarkdown(id);
+          }}
+          onPrint={() => {
+            setOpen(false);
+            window.print();
+          }}
+        />
       </PopoverContent>
     </Popover>
+  );
+}
+
+/** The items of the Conversation menu. Both act on the open Conversation. */
+export function ConversationMenuItems({
+  disabled = false,
+  onExport,
+  onPrint,
+}: {
+  /** Export is busy. */
+  disabled?: boolean;
+  onExport: () => void;
+  onPrint: () => void;
+}) {
+  return (
+    <div role="menu" className="flex flex-col">
+      <Button
+        variant="ghost"
+        size="sm"
+        role="menuitem"
+        className="justify-start"
+        disabled={disabled}
+        onClick={onExport}
+      >
+        <DownloadIcon />
+        Export as Markdown
+      </Button>
+      <Button variant="ghost" size="sm" role="menuitem" className="justify-start" onClick={onPrint}>
+        <PrinterIcon />
+        Print / Save as PDF
+      </Button>
+    </div>
   );
 }
 
