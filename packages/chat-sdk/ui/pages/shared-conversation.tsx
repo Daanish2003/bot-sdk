@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { useState } from "react";
 
 import { Button, buttonVariants } from "@/components/ui/button";
 
@@ -8,6 +9,8 @@ import { sharedToUIMessages } from "../../core/client/chat";
 import { invalidateConversationList } from "../../core/client/react/conversation-list";
 import { useChatAdapter } from "../../core/client/react/provider";
 
+import type { ArtifactRef } from "../chat/artifact-card";
+import { ArtifactPanel, artifactVersionsOn } from "../chat/artifact-panel";
 import { MessageRow } from "../chat/message-row";
 
 /** Whether the viewer is signed in, and where the Host sends a signed-out viewer to sign in. */
@@ -52,35 +55,55 @@ export function SharedConversationPage({
   data: SharedConversation;
   viewer?: SharedViewer;
 }) {
+  // The Artifact version the side panel shows, or none while it is closed (spec #304).
+  const [openArtifact, setOpenArtifact] = useState<ArtifactRef | null>(null);
   return (
-    <div className="h-full overflow-y-auto bg-background">
-      <header className="border-b px-4 py-2 text-xs text-muted-foreground">
-        ai-chat · shared Conversation
-      </header>
-      <article className="mx-auto max-w-4xl py-8">
-        <div className="px-6 pb-6">
-          <h1 className="text-2xl font-semibold tracking-tight">{data.title}</h1>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Shared{" "}
-            <time dateTime={data.sharedAt.toISOString()}>
-              {data.sharedAt.toLocaleDateString(undefined, { dateStyle: "long" })}
-            </time>
-          </p>
-          {viewer && (
-            <div className="mt-4">
-              <ContinueConversation token={data.token} viewer={viewer} />
-            </div>
-          )}
-        </div>
-        <div className="border-t">
-          {sharedToUIMessages(data.messages).map((message) => (
-            <MessageRow key={message.id} message={message} userLabel="User" />
-          ))}
-        </div>
-        <footer className="mt-12 text-center text-xs text-muted-foreground">
-          Read-only snapshot. Attachments show as file names only; their contents aren't shared.
-        </footer>
-      </article>
+    <div className="flex h-full min-h-0">
+      <div className="h-full min-w-0 flex-1 overflow-y-auto bg-background">
+        <header className="border-b px-4 py-2 text-xs text-muted-foreground">
+          ai-chat · shared Conversation
+        </header>
+        <article className="mx-auto max-w-4xl py-8">
+          <div className="px-6 pb-6">
+            <h1 className="text-2xl font-semibold tracking-tight">{data.title}</h1>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Shared{" "}
+              <time dateTime={data.sharedAt.toISOString()}>
+                {data.sharedAt.toLocaleDateString(undefined, { dateStyle: "long" })}
+              </time>
+            </p>
+            {viewer && (
+              <div className="mt-4">
+                <ContinueConversation token={data.token} viewer={viewer} />
+              </div>
+            )}
+          </div>
+          <div className="border-t">
+            {sharedToUIMessages(data.messages).map((message) => (
+              <MessageRow
+                key={message.id}
+                message={message}
+                userLabel="User"
+                onOpenArtifact={setOpenArtifact}
+              />
+            ))}
+          </div>
+          <footer className="mt-12 text-center text-xs text-muted-foreground">
+            Read-only snapshot. Attachments show as file names only; their contents aren't shared.
+          </footer>
+        </article>
+      </div>
+      {openArtifact && (
+        <ArtifactPanel
+          key={`${openArtifact.artifactId}:${openArtifact.version}`}
+          artifact={openArtifact}
+          sharedToken={data.token}
+          // The versions on the shared path only: the snapshot holds no other Branch's.
+          versions={artifactVersionsOn(data.messages, openArtifact.artifactId)}
+          onSelect={setOpenArtifact}
+          onClose={() => setOpenArtifact(null)}
+        />
+      )}
     </div>
   );
 }

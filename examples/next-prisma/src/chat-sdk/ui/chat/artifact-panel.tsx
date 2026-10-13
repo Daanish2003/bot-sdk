@@ -62,21 +62,28 @@ export function ArtifactPanel({
   versions = [],
   onSelect,
   onClose,
+  sharedToken,
 }: {
   artifact: ArtifactRef;
   versions?: ArtifactRef[];
   onSelect?: (ref: ArtifactRef) => void;
   onClose: () => void;
+  /** Set on a Shared link: the version is read through its token, and the panel is read-only. */
+  sharedToken?: string;
 }) {
   const orpc = useOrpc();
   const version = useQuery(
-    orpc.artifact.version.queryOptions({
-      input: {
-        artifactId: artifact.artifactId,
-        number: artifact.version,
-        messageId: artifact.messageId,
-      },
-    }),
+    sharedToken
+      ? orpc.share.artifactVersion.queryOptions({
+          input: { token: sharedToken, artifactId: artifact.artifactId, number: artifact.version },
+        })
+      : orpc.artifact.version.queryOptions({
+          input: {
+            artifactId: artifact.artifactId,
+            number: artifact.version,
+            messageId: artifact.messageId,
+          },
+        }),
   );
   if (version.data) {
     return (
@@ -85,6 +92,7 @@ export function ArtifactPanel({
         versions={versions}
         onSelect={onSelect}
         onClose={onClose}
+        readOnly={Boolean(sharedToken)}
       />
     );
   }
@@ -109,11 +117,14 @@ export function ArtifactPanelView({
   versions = [],
   onSelect,
   onClose,
+  readOnly = false,
 }: {
   version: ArtifactVersionContent;
   versions?: ArtifactRef[];
   onSelect?: (ref: ArtifactRef) => void;
   onClose: () => void;
+  /** On a Shared link: says so under the header; copy, download and close stay. */
+  readOnly?: boolean;
 }) {
   const fileName = artifactFileName({
     title: version.title,
@@ -190,6 +201,11 @@ export function ArtifactPanelView({
           <XIcon />
         </Button>
       </header>
+      {readOnly && (
+        <p className="border-b bg-muted px-3 py-1 text-xs text-muted-foreground">
+          Shared link · read-only
+        </p>
+      )}
       <div className="min-h-0 flex-1 overflow-auto p-3">
         {showPreview ? (
           <ArtifactPreview version={version} />

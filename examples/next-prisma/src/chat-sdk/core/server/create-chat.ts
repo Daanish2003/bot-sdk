@@ -115,7 +115,8 @@ export function createChatHandler(
   const exportPath = `${prefix}/export`;
   const mcpConnectPath = `${prefix}/mcp/connect`;
   const mcpCallbackPath = `${prefix}/mcp/callback`;
-  const sharedReadPath = `${rpcPrefix}/share/get`;
+  // The RPCs a signed-out visitor of a Shared link may call (ADR 0004, ADR 0016).
+  const sharedReadPaths = [`${rpcPrefix}/share/get`, `${rpcPrefix}/share/artifactVersion`];
   const rpc = new RPCHandler(appRouter, {
     interceptors: [onError((error) => logger.error(error))],
   });
@@ -123,10 +124,11 @@ export function createChatHandler(
   return async (request) => {
     const { pathname } = new URL(request.url);
     const user = await getUser(request);
-    if (!user && pathname !== sharedReadPath) return unauthorized();
+    const sharedRead = sharedReadPaths.includes(pathname);
+    if (!user && !sharedRead) return unauthorized();
 
     if (pathname === rpcPrefix || pathname.startsWith(`${rpcPrefix}/`)) {
-      if (pathname === sharedReadPath && getClientIp) {
+      if (sharedRead && getClientIp) {
         const refused = await sharedLinkRefusal(deps, await getClientIp(request));
         if (refused) return refused;
       }
