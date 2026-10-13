@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { createChat } from "../../../core/server/create-chat";
 import { saveCredentials } from "../../../core/server/credentials/store";
 import { project } from "../../../core/server/db/schema/chat";
+import { savedPrompt } from "../../../core/server/db/schema/saved-prompt";
 import { sharedLink } from "../../../core/server/db/schema/share";
 import { userSettings } from "../../../core/server/db/schema/settings";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
@@ -162,6 +163,19 @@ describe("createChat().exportUser", () => {
     const byTitle = (title: string) => exported.conversations.find((conv) => conv.title === title);
     expect(byTitle("Archived")?.archivedAt).toEqual(archivedAt);
     expect(byTitle("Live")?.archivedAt).toBeNull();
+  });
+
+  it("includes the Saved prompts by name, text and created time", async () => {
+    const owner = await insertUser();
+    const createdAt = new Date("2026-10-05T09:00:00Z");
+    await getTestDb()
+      .insert(savedPrompt)
+      .values({ id: uuidv7(), userId: owner.id, name: "review", text: "Review this.", createdAt });
+
+    const exported = await chatFor().exportUser(owner.id);
+
+    expect(exported.savedPrompts).toEqual([{ name: "review", text: "Review this.", createdAt }]);
+    expect(exported.version).toBe(1);
   });
 
   it("exports an empty document for an unknown user id", async () => {
