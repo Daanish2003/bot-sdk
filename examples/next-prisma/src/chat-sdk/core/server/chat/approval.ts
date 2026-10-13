@@ -23,6 +23,7 @@ import { loadSettings } from "../settings/store";
 import { systemPromptsFor } from "./system-prompts";
 import { artifactContextPrompts } from "./artifact-context";
 import { projectInstructionsOf } from "../project/store";
+import { recalledMemoriesPrompt } from "../memory/recall";
 
 /** Why a decision didn't start a Run. `started` is the only success. */
 export type DecideResult =
@@ -97,6 +98,12 @@ export async function decideApproval(
       web: false,
       instructions,
       projectInstructions: await projectInstructionsOf(deps, asked?.projectId ?? null),
+      memories: await recalledMemoriesPrompt(deps, {
+        userId,
+        projectId: asked?.projectId ?? null,
+        temporary: asked?.temporary ?? true,
+        latestText: history.findLast((row) => row.role === "user")?.searchText ?? null,
+      }),
     }),
     ...(artifacts ? await artifactContextPrompts(deps, owned.conversationId, owned.id) : []),
   ];
