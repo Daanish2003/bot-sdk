@@ -1,0 +1,115 @@
+import { eq } from "drizzle-orm";
+
+import { userSettings } from "../db/schema/settings";
+import { resolveCredentials } from "../credentials/resolve";
+import type { AppDeps, Credentials, HostImageModel } from "../deps";
+import {
+  type ImageModel,
+  type ListedImageModel,
+  curatedImageModels,
+  findImageModel,
+} from "../../shared/chat/image-models";
+import { parseModelId } from "../../shared/chat/models";
+
+type Deps = Pick<
+  AppDeps,
+  "db" | "keyEncryptionSecrets" | "hostProviders" | "byok" | "defaultImageModel"
+>;
+
+/** An Image Model the call runs on, with the credentials it uses (spec #278). */
+export type ResolvedImageModel = ImageModel & {
+  /** A Host pays for it (ADR 0007). */
+  onHostCredentials: boolean;
+  credentials: Credentials;
+  /** Set on a Host Image Model: its pinned size and quality, and its price per image. */
+  hostModel?: HostImageModel;
+};
+
+/**
+ * A Host Image Model as an Image Model: a curated id takes its label and edit limit from the
+ * catalogue; any other id is labelled by its model id and can't edit.
+ */
+function hostImageModel(provider: ImageModel["provider"], modelId: string): ImageModel {
+  const id = `${provider}:${modelId}`;
+  const curated = findImageModel(id);
+  return {
+    id,
+    provider,
+    modelId,
+    label: curated?.label ?? modelId,
+    maxInputImages: curated?.maxInputImages ?? 0,
+  };
+}
+
+/** The Host's Image Models as Image Models. */
+export function hostImageModelList(deps: Pick<Deps, "hostProviders">): ImageModel[] {
+  return deps.hostProviders.flatMap(({ provider, imageModels = [] }) =>
+    imageModels.map((model) => hostImageModel(provider, model.modelId)),
+  );
+}
+
+/**
+ * The Image Models a user can pick, given the Providers they have credentials for (`services`):
+ * the curated ones of those Providers first, then the Host's for the other Providers, marked as
+ * running on Host credentials. The same rule as chat Models: the user's own key wins (ADR 0007).
+ */
+export function listImageModels(deps: Pick<Deps, "hostProviders">, services: string[]) {
+  const own: ListedImageModel[] = curatedImageModels
+    .filter((model) => services.includes(model.provider))
+    .map((model) => ({ ...model, onHostCredentials: false }));
+  const hosted: ListedImageModel[] = hostImageModelList(deps)
+    .filter((model) => !services.includes(model.provider))
+    .map((model) => ({ ...model, onHostCredentials: true }));
+  return [...own, ...hosted];
+}
+
+/**
+ * The Image Model for a `"provider:model"` id a user can use, or `undefined`. With the user's own
+ * credentials for its Provider, only a curated Model of that Provider resolves; without them, the
+ * Host's Image Model with that id. Never picks a Provider on its own.
+ */
+export async function resolveImageModel(
+  deps: Deps,
+  userId: string,
+  id: string,
+): Promise<ResolvedImageModel | undefined> {
+  const provider = parseModelId(id)?.provider;
+  if (!provider) return undefined;
+  const own = deps.byok ? await resolveCredentials(deps, userId, provider) : null;
+  if (own) {
+    const curated = findImageModel(id);
+    return curated ? { ...curated, onHostCredentials: false, credentials: own } : undefined;
+  }
+  for (const hostProvider of deps.hostProviders) {
+    const hostModel = hostProvider.imageModels?.find(
+      (model) => `${hostProvider.provider}:${model.modelId}` === id,
+    );
+    if (hostModel) {
+      return {
+        ...hostImageModel(hostProvider.provider, hostModel.modelId),
+        onHostCredentials: true,
+        credentials: hostProvider.credentials,
+        hostModel,
+      };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The Image Model a call on the user's behalf uses: their saved pick, else the Host's default
+ * Image Model, else none (`null`, so no image tool is offered). A pick the user can no longer use
+ * (its key was removed) gives none too; the Host default isn't used in its place.
+ */
+export async function resolveImageModelFor(
+  deps: Deps,
+  userId: string,
+): Promise<ResolvedImageModel | null> {
+  const [row] = await deps.db
+    .select({ imageModel: userSettings.imageModel })
+    .from(userSettings)
+    .where(eq(userSettings.userId, userId));
+  const id = row?.imageModel ?? deps.defaultImageModel;
+  if (!id) return null;
+  return (await resolveImageModel(deps, userId, id)) ?? null;
+}

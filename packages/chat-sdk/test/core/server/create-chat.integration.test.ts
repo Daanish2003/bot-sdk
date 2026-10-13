@@ -76,6 +76,55 @@ describe("createChat start", () => {
 
     await expect(chat.start()).rejects.toThrow(/defaultBackgroundModel/);
   });
+
+  it("refuses a defaultImageModel that is not one of the Host's Image Models", async () => {
+    const chat = createChat({
+      databaseUrl: "postgresql://nobody:nothing@127.0.0.1:1/unreachable",
+      getUser: () => null,
+      keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
+      basePath,
+      hostProviders: [
+        {
+          provider: "openai",
+          credentials: { apiKey: "host-key" },
+          models: [],
+          imageModels: [
+            {
+              modelId: "gpt-image-1-mini",
+              size: "1024x1024",
+              quality: "medium",
+              pricePerImageUsd: 0.01,
+            },
+          ],
+        },
+      ],
+      defaultImageModel: "openai:gpt-image-2",
+    });
+
+    await expect(chat.start()).rejects.toThrow(/defaultImageModel/);
+  });
+
+  it("refuses a Host Image Model without a pricePerImageUsd", async () => {
+    const chat = createChat({
+      databaseUrl: "postgresql://nobody:nothing@127.0.0.1:1/unreachable",
+      getUser: () => null,
+      keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
+      basePath,
+      hostProviders: [
+        {
+          provider: "openai",
+          credentials: { apiKey: "host-key" },
+          models: [],
+          imageModels: [
+            // Left unpriced on purpose: a JavaScript Host can omit what TypeScript requires.
+            { modelId: "gpt-image-1-mini", size: "1024x1024", quality: "medium" } as never,
+          ],
+        },
+      ],
+    });
+
+    await expect(chat.start()).rejects.toThrow(/pricePerImageUsd/);
+  });
 });
 
 describe("the chat handler", () => {

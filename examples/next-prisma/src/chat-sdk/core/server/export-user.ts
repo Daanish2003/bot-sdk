@@ -17,7 +17,11 @@ export type UserExport = {
   /** The format version. Bumped only when a reader would misread the document. */
   version: 1;
   exportedAt: Date;
-  settings: { backgroundModel: string | null; instructions: string | null };
+  settings: {
+    backgroundModel: string | null;
+    imageModel: string | null;
+    instructions: string | null;
+  };
   projects: {
     id: string;
     name: string;
@@ -64,6 +68,7 @@ export async function exportUserData(deps: AppDeps, userId: string): Promise<Use
       const [settings] = await tx
         .select({
           backgroundModel: userSettings.backgroundModel,
+          imageModel: userSettings.imageModel,
           instructions: userSettings.instructions,
         })
         .from(userSettings)
@@ -130,6 +135,7 @@ export async function exportUserData(deps: AppDeps, userId: string): Promise<Use
         exportedAt: new Date(),
         settings: {
           backgroundModel: settings?.backgroundModel ?? null,
+          imageModel: settings?.imageModel ?? null,
           instructions: settings?.instructions ?? null,
         },
         projects,

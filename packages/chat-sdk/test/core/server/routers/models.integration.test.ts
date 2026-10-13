@@ -54,6 +54,8 @@ describe("models.list", () => {
       models: [],
       defaultModel: null,
       defaultBackgroundModel: null,
+      imageModels: [],
+      defaultImageModel: null,
       webSearchOnHost: false,
     });
   });

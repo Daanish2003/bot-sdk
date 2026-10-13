@@ -70,6 +70,12 @@ export type CreateChatOptions = {
    */
   defaultBackgroundModel?: string;
   /**
+   * The Host's default Image Model: a `"provider:model"` id of one of the `hostProviders`'s Image
+   * Models. Image generation uses it when a user picks none; with none, there are no Host images.
+   * `start()` refuses any other id.
+   */
+  defaultImageModel?: string;
+  /**
    * A user's Quota on Host credentials, or one fixed Quota for everyone; `null` or unset is
    * unlimited (ADR 0007).
    */
@@ -209,6 +215,7 @@ export function createChat(options: CreateChatOptions): {
       hostTools: (options.hostProviders ?? []).filter(isHostTool),
       byok: options.byok ?? true,
       defaultBackgroundModel: options.defaultBackgroundModel,
+      defaultImageModel: options.defaultImageModel,
       getQuota: quotaLookup(options.getQuota),
       rateLimits: resolveRateLimits(options.rateLimits),
       tools: options.tools ?? [],
@@ -242,6 +249,27 @@ export function createChat(options: CreateChatOptions): {
       ) {
         throw new Error(
           `defaultBackgroundModel "${defaultBackground}" is not one of the hostProviders' Models`,
+        );
+      }
+      for (const { provider, imageModels = [] } of hostProviders) {
+        for (const model of imageModels) {
+          // A Host Image Model is priced per image; without a price its spend isn't recorded.
+          if (!(model.pricePerImageUsd >= 0)) {
+            throw new Error(
+              `Host Image Model "${provider}:${model.modelId}" needs a pricePerImageUsd`,
+            );
+          }
+        }
+      }
+      const defaultImage = options.defaultImageModel;
+      if (
+        defaultImage !== undefined &&
+        !hostProviders.some(({ provider, imageModels = [] }) =>
+          imageModels.some((model) => `${provider}:${model.modelId}` === defaultImage),
+        )
+      ) {
+        throw new Error(
+          `defaultImageModel "${defaultImage}" is not one of the hostProviders' Image Models`,
         );
       }
       await assertMigrated(options.databaseUrl);

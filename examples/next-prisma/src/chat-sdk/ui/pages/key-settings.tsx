@@ -26,6 +26,7 @@ import { ExportDataButton } from "../settings/export-data-button";
 import { InstructionsField } from "../settings/instructions-field";
 import { SharedLinksSection } from "../settings/shared-links";
 import { BackgroundModelSelect } from "../settings/background-model-select";
+import { ImageModelSelect } from "../settings/image-model-select";
 
 /**
  * Keys & settings: the user's Provider and Tool credentials, the Background Model and the Instructions.
@@ -96,6 +97,7 @@ export function KeySettingsPage() {
       <InstructionsField />
 
       <BackgroundModelSelect />
+      <ImageModelSelect />
 
       <section className="space-y-2">
         <h2 className="text-sm font-medium">Your data</h2>

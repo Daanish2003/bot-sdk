@@ -83,6 +83,23 @@ export type HostProvider = {
   provider: ProviderId;
   credentials: Credentials;
   models: HostModel[];
+  /** The Host's Image Models of this Provider (spec #278). */
+  imageModels?: HostImageModel[];
+};
+
+/**
+ * A Host Image Model (spec #278): the Model with its size and quality pinned, and what one image
+ * costs. `pricePerImageUsd` is required, as `maxOutputTokens` is for a chat Model. The token prices
+ * are for Providers that report tokens (ADR 0007).
+ */
+export type HostImageModel = {
+  modelId: string;
+  size: string;
+  quality: string;
+  pricePerImageUsd: number;
+  imageInputPerMTok?: number;
+  imageOutputPerMTok?: number;
+  textInputPerMTok?: number;
 };
 
 /**
@@ -115,6 +132,8 @@ export type AppDeps = {
   byok: boolean;
   /** The Host's default Background Model, a Host Model's id, or `null` (`defaultBackgroundModel`). */
   defaultBackgroundModel: string | null;
+  /** The Host's default Image Model, a Host Image Model's id, or `null` (`defaultImageModel`). */
+  defaultImageModel: string | null;
   /** A user's Quota on Host credentials, `null` when unlimited (ADR 0007). */
   getQuota: (userId: string) => Promise<Quota | null>;
   searchClient: SearchClient;
@@ -168,6 +187,7 @@ export function createAppDeps({
   hostTools,
   byok,
   defaultBackgroundModel,
+  defaultImageModel,
   getQuota,
   rateLimits,
   tools,
@@ -181,6 +201,7 @@ export function createAppDeps({
   hostTools: HostTool[];
   byok: boolean;
   defaultBackgroundModel?: string;
+  defaultImageModel?: string;
   getQuota: AppDeps["getQuota"];
   rateLimits: ResolvedRateLimits;
   tools: HostServerTool[];
@@ -194,6 +215,7 @@ export function createAppDeps({
     hostTools,
     byok,
     defaultBackgroundModel: defaultBackgroundModel ?? null,
+    defaultImageModel: defaultImageModel ?? null,
     getQuota,
     searchClient: createTavilyClient(globalThis.fetch),
     tools,

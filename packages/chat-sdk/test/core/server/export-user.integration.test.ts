@@ -80,6 +80,7 @@ describe("createChat().exportUser", () => {
     await getTestDb().insert(userSettings).values({
       userId: owner.id,
       backgroundModel: "anthropic:background-model",
+      imageModel: "openai:gpt-image-2",
       instructions: "Answer in French.",
     });
     const deps = createTestDeps();
@@ -113,6 +114,7 @@ describe("createChat().exportUser", () => {
     });
     expect(exported.settings).toEqual({
       backgroundModel: "anthropic:background-model",
+      imageModel: "openai:gpt-image-2",
       instructions: "Answer in French.",
     });
     const text = JSON.stringify(exported);
@@ -158,7 +160,7 @@ describe("createChat().exportUser", () => {
       conversations: [],
       projects: [],
       sharedLinks: [],
-      settings: { backgroundModel: null, instructions: null },
+      settings: { backgroundModel: null, imageModel: null, instructions: null },
     });
   });
 });

@@ -18,6 +18,7 @@ describe("settings", () => {
 
     await expect(client.settings.get()).resolves.toEqual({
       backgroundModel: null,
+      imageModel: null,
       instructions: null,
     });
   });
@@ -72,6 +73,7 @@ describe("settings", () => {
 
     await expect(client.settings.get()).resolves.toEqual({
       backgroundModel: "openai:gpt-5.4-mini",
+      imageModel: null,
       instructions: "Answer briefly. Use British spelling.",
     });
   });

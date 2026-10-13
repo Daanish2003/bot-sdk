@@ -13,10 +13,15 @@ export type HostEnv = {
   HOST_BACKGROUND_MODEL?: string | undefined;
   HOST_QUOTA_BUDGET_USD?: string | undefined;
   HOST_QUOTA_WINDOW?: string | undefined;
+  HOST_IMAGE_PROVIDER?: string | undefined;
+  HOST_IMAGE_CREDENTIALS?: string | undefined;
+  HOST_IMAGE_MODELS?: string | undefined;
+  HOST_DEFAULT_IMAGE_MODEL?: string | undefined;
 };
 
 type HostProviders = NonNullable<CreateChatOptions["hostProviders"]>;
-type ProviderId = Extract<HostProviders[number], { models: unknown }>["provider"];
+type HostProvider = Extract<HostProviders[number], { models: unknown }>;
+type ProviderId = HostProvider["provider"];
 type Quota = { budgetUsd: number; window: "day" | "month" };
 
 const isSet = (value: string | undefined): value is string => (value?.trim() ?? "") !== "";
@@ -66,6 +71,60 @@ export function hostBackgroundModelOf(env: HostEnv): string | undefined {
   );
   if (!offered.includes(id)) {
     throw new Error("HOST_BACKGROUND_MODEL must name one of the HOST_MODELS, as provider:model");
+  }
+  return id;
+}
+
+const hostImageModel = z.object({
+  modelId: z.string().min(1),
+  size: z.string().min(1),
+  quality: z.string().min(1),
+  pricePerImageUsd: z.number().nonnegative(),
+  imageInputPerMTok: z.number().nonnegative().optional(),
+  imageOutputPerMTok: z.number().nonnegative().optional(),
+  textInputPerMTok: z.number().nonnegative().optional(),
+});
+
+/**
+ * The Host's Image Models (spec #278): one Provider entry with its Image Models, or none when the
+ * variables are unset. Its `models` are empty, since it offers no chat Models.
+ */
+export function hostImageProvidersOf(env: HostEnv): HostProvider[] {
+  const given = [env.HOST_IMAGE_PROVIDER, env.HOST_IMAGE_CREDENTIALS, env.HOST_IMAGE_MODELS].filter(
+    isSet,
+  );
+  if (given.length === 0) return [];
+  if (given.length < 3) {
+    throw new Error(
+      "HOST_IMAGE_PROVIDER, HOST_IMAGE_CREDENTIALS and HOST_IMAGE_MODELS are set together or not at all",
+    );
+  }
+  const credentials = z
+    .record(z.string(), z.string().min(1))
+    .parse(parseJson(env.HOST_IMAGE_CREDENTIALS, "HOST_IMAGE_CREDENTIALS"));
+  const imageModels = z
+    .array(hostImageModel)
+    .min(1, "HOST_IMAGE_MODELS needs at least one Model")
+    .parse(parseJson(env.HOST_IMAGE_MODELS, "HOST_IMAGE_MODELS"));
+  // The SDK checks the Provider id against its own list when it lists or runs a Model.
+  const provider = env.HOST_IMAGE_PROVIDER!.trim() as ProviderId;
+  return [{ provider, credentials, models: [], imageModels }];
+}
+
+/**
+ * The Host's default Image Model (`HOST_DEFAULT_IMAGE_MODEL`), a `"provider:model"` id that must name
+ * one of the HOST_IMAGE_MODELS. Unset, users who pick none get no images.
+ */
+export function hostDefaultImageModelOf(env: HostEnv): string | undefined {
+  if (!isSet(env.HOST_DEFAULT_IMAGE_MODEL)) return undefined;
+  const id = env.HOST_DEFAULT_IMAGE_MODEL.trim();
+  const offered = hostImageProvidersOf(env).flatMap((entry) =>
+    (entry.imageModels ?? []).map((model) => `${entry.provider}:${model.modelId}`),
+  );
+  if (!offered.includes(id)) {
+    throw new Error(
+      "HOST_DEFAULT_IMAGE_MODEL must name one of the HOST_IMAGE_MODELS, as provider:model",
+    );
   }
   return id;
 }

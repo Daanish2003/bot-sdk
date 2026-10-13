@@ -52,6 +52,7 @@ export function createTestDeps({
     fetchAllowHosts: [],
     byok: true,
     defaultBackgroundModel: null,
+    defaultImageModel: null,
     getQuota: async () => null,
     lifecycle: { stopping: false, runs: new Map() },
     ...overrides,
