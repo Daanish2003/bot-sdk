@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   artifactFrameCsp,
   artifactFrameDocument,
+  artifactFrameSandbox,
   clampFrameHeight,
   frameMessageOf,
   maxFrameHeight,
@@ -71,6 +72,12 @@ describe("the frame document", () => {
     expect(document).toContain(
       '<pre id="diagram" class="mermaid">graph TD; A[&quot;&lt;/pre&gt;&lt;script&gt;x&lt;/script&gt;&quot;]</pre>',
     );
+  });
+});
+
+describe("the frame's sandbox", () => {
+  it("is exactly allow-scripts: no allow-same-origin, which would give the Model's page the app's origin", () => {
+    expect(artifactFrameSandbox).toBe("allow-scripts");
   });
 });
 
