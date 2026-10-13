@@ -1,10 +1,12 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 
+import { artifact, artifactVersion } from "./db/schema/artifact";
 import { attachment, messageAttachment } from "./db/schema/attachment";
 import { conversation, message, project } from "./db/schema/chat";
 import { sharedLink } from "./db/schema/share";
 import { userSettings } from "./db/schema/settings";
 import type { AppDeps } from "./deps";
+import type { ArtifactKind } from "../shared/chat/artifact";
 import type { StoredParts } from "../shared/message-parts";
 
 /**
@@ -49,6 +51,20 @@ export type UserExport = {
   }[];
   /** The user's Shared links: the token, the Conversation it shares and when it was shared. */
   sharedLinks: { token: string; conversationId: string; createdAt: Date }[];
+  /** The user's Artifacts, each with every version it has on any Branch (ADR 0016). */
+  artifacts: {
+    id: string;
+    conversationId: string;
+    kind: ArtifactKind;
+    versions: {
+      number: number;
+      messageId: string;
+      title: string;
+      language: string | null;
+      content: string;
+      createdAt: Date;
+    }[];
+  }[];
 };
 
 /**
@@ -116,8 +132,40 @@ export async function exportUserData(deps: AppDeps, userId: string): Promise<Use
         .innerJoin(conversation, eq(conversation.id, sharedLink.conversationId))
         .where(eq(conversation.userId, userId));
 
+      const artifacts = await tx
+        .select({
+          id: artifact.id,
+          conversationId: artifact.conversationId,
+          kind: artifact.kind,
+        })
+        .from(artifact)
+        .innerJoin(conversation, eq(conversation.id, artifact.conversationId))
+        .where(eq(conversation.userId, userId))
+        .orderBy(asc(artifact.createdAt), asc(artifact.id));
+
+      const versions = await tx
+        .select({
+          artifactId: artifactVersion.artifactId,
+          number: artifactVersion.number,
+          messageId: artifactVersion.messageId,
+          title: artifactVersion.title,
+          language: artifactVersion.language,
+          content: artifactVersion.content,
+          createdAt: artifactVersion.createdAt,
+        })
+        .from(artifactVersion)
+        .innerJoin(artifact, eq(artifact.id, artifactVersion.artifactId))
+        .innerJoin(conversation, eq(conversation.id, artifact.conversationId))
+        .where(eq(conversation.userId, userId))
+        .orderBy(
+          asc(artifactVersion.createdAt),
+          asc(artifactVersion.messageId),
+          asc(artifactVersion.number),
+        );
+
       const attachmentsByMessage = groupBy(attachments, (row) => row.messageId);
       const messagesByConversation = groupBy(messages, (row) => row.conversationId);
+      const versionsByArtifact = groupBy(versions, (row) => row.artifactId);
 
       return {
         version: 1,
@@ -154,6 +202,21 @@ export async function exportUserData(deps: AppDeps, userId: string): Promise<Use
           })),
         })),
         sharedLinks: links,
+        artifacts: artifacts.map((row) => ({
+          id: row.id,
+          conversationId: row.conversationId,
+          kind: row.kind,
+          versions: (versionsByArtifact.get(row.id) ?? []).map(
+            ({ number, messageId, title, language, content, createdAt }) => ({
+              number,
+              messageId,
+              title,
+              language,
+              content,
+              createdAt,
+            }),
+          ),
+        })),
       };
     },
     { isolationLevel: "repeatable read" },
