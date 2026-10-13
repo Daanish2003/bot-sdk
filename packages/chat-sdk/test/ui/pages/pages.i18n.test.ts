@@ -134,6 +134,33 @@ describe("the pages with the dictionary", () => {
     expect(html).toContain("⟦Edit⟧");
   });
 
+  it("shows no untranslated text on the Project's tabs, with its Knowledge file count", () => {
+    const html = expectTranslated(
+      createElement(ProjectPage, { projectId }),
+      (queryClient, client) => {
+        queryClient.setQueryData(client.orpc.project.get.queryKey({ input: { id: projectId } }), {
+          id: projectId,
+          name: "Thesis",
+          defaultModel: null,
+          instructions: null,
+        });
+        queryClient.setQueryData(projectConversationsKey(client), {
+          pages: [{ items: [], nextCursor: null }],
+          pageParams: [undefined],
+        });
+        queryClient.setQueryData(client.orpc.knowledge.list.queryKey({ input: { projectId } }), {
+          embeddingModel: null,
+          currentModel: null,
+          models: [],
+          files: [],
+        });
+      },
+    );
+
+    expect(html).toContain("⟦Conversations⟧");
+    expect(html).toContain("⟦Knowledge⟧ 0");
+  });
+
   it("shows no untranslated text on the keys page, with credentials on", () => {
     expectTranslated(createElement(KeySettingsPage), (queryClient, client) => {
       queryClient.setQueryData(client.orpc.credentials.mode.queryKey(), { byok: true });
