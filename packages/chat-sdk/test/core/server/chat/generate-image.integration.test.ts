@@ -166,6 +166,22 @@ describe("the generate_image tool is offered", () => {
     expect(offeredTools(fake)).not.toContain("generate_image");
     expect(await replyOf(deps, conv.id)).toMatchObject({ status: "complete", error: null });
   });
+
+  it("not when the Provider has no image adapter, and the reply still completes", async () => {
+    const { deps, fake, conv, send } = await setup({
+      deps: {
+        imageAdapterFor: () => {
+          throw new Error("No image adapter is available for the anthropic Provider");
+        },
+      },
+      rounds: [round(text("Sure."))],
+    });
+
+    await (await send()).text();
+
+    expect(offeredTools(fake)).not.toContain("generate_image");
+    expect(await replyOf(deps, conv.id)).toMatchObject({ status: "complete", error: null });
+  });
 });
 
 describe("the generate_image tool", () => {

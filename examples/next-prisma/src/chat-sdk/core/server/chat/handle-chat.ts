@@ -13,7 +13,9 @@ import { uuidv7 } from "../lib/uuidv7";
 import { rateLimitedFor } from "../rate-limits";
 import { resolveModel } from "./available-models";
 import { resolveImageModelFor } from "./image-models";
+import { imageRequestFor } from "./adapters";
 import { imageCancelsUpstream } from "./host-usage";
+import type { AspectRatio } from "../../shared/chat/generated-image";
 import { parseStoredParts, searchTextOf, toModelMessages } from "../../shared/chat/parts";
 import { chatCommandSchema } from "../../shared/chat/command";
 import { runStreamDurability, START } from "./run-streams";
@@ -139,12 +141,22 @@ export async function handleChat(
   });
   // The image tool is offered only when an adapter serves the Image Model; without one, the reply
   // chats as it would with no Image Model at all.
-  const imageAdapter = image && deps.imageAdapterFor(image.modelId, image.credentials);
+  // A Provider with no image adapter throws from the factory; that reply chats with no image tool
+  // rather than failing the Run (spec #278).
+  let imageAdapter: ReturnType<AppDeps["imageAdapterFor"]>;
+  if (image) {
+    try {
+      imageAdapter = deps.imageAdapterFor(image.id, image.credentials);
+    } catch {
+      imageAdapter = undefined;
+    }
+  }
   const imageTool =
     image && imageAdapter
       ? {
           adapter: imageAdapter,
-          size: image.hostModel?.size,
+          request: (aspectRatio: AspectRatio) =>
+            imageRequestFor(image.id, aspectRatio, image.hostModel),
           // Only a Host Image Model has a price, so a BYOK image records its usage with no Host cost.
           meter: {
             userId,

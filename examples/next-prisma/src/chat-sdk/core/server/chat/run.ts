@@ -27,6 +27,8 @@ import { createWebSearchTool } from "./web-search-tool";
 import { paidCallAllowed } from "./quota";
 import { createFetchUrlTool } from "./fetch-url-tool";
 import { createGenerateImageTool } from "./generate-image-tool";
+import type { ImageRequest } from "./adapters";
+import type { AspectRatio } from "../../shared/chat/generated-image";
 import { cancelChannel, heartbeatExpired, listenForStop, stopRequested } from "./stop";
 import { addUsage, messageUsage, normalizeUsage, promptCharactersOf, type RunUsage } from "./usage";
 import {
@@ -91,10 +93,14 @@ export async function startRun(
     /** Whether this reply offers the `fetch_url` tool, which needs no credential. */
     fetchUrl?: boolean;
     /**
-     * Set when this reply offers the `generate_image` tool: the Image Model's adapter, its pinned size,
-     * and whose usage each image is (spec #278).
+     * Set when this reply offers the `generate_image` tool: the Image Model's adapter, each call's
+     * request, and whose usage each image is (spec #278).
      */
-    image?: { adapter: AnyImageAdapter; meter: ImageMeter; size?: string };
+    image?: {
+      adapter: AnyImageAdapter;
+      meter: ImageMeter;
+      request: (aspectRatio: AspectRatio) => ImageRequest;
+    };
     /** The Host tools this reply offers (none when its Model has no tools). */
     hostTools?: HostServerTool[];
     /** The user and Conversation the Host tools are called for, passed to them as their context. */
@@ -221,7 +227,7 @@ export async function startRun(
               createGenerateImageTool({
                 adapter: image.adapter,
                 meter: image.meter,
-                size: image.size,
+                request: image.request,
                 messageId,
                 db: deps.db,
                 fetch: deps.fetch,
