@@ -593,7 +593,7 @@ function PasskeysSection() {
                       variant="outline"
                       disabled={save.isPending || name.trim() === ""}
                     >
-                      Save name
+                      Save passkey name
                     </Button>
                   </form>
                 ) : (

@@ -9,6 +9,13 @@ import { seedUser } from "./seed-user";
 
 const ACCOUNT = "/settings/account";
 
+// Passkey sign-in allows 3 requests per 10 seconds per IP and path, and every test here shares the
+// IP. So the tests run in order (the rate-limit test last), and each passkey sign-in waits out the
+// window the one before it used.
+test.describe.configure({ mode: "serial" });
+const PASSKEY_WINDOW_MS = 10_000;
+let lastPasskeySignIn = 0;
+
 /** A virtual CTAP2 authenticator on the page's browser: it answers passkey prompts. */
 async function addVirtualAuthenticator(page: Page) {
   const cdp = await page.context().newCDPSession(page);
@@ -47,7 +54,7 @@ test("add a passkey, sign out, sign in with it, rename, delete; the notice arriv
   await page.getByRole("button", { name: "Add passkey" }).click();
   // The browser prompt is answered by the virtual authenticator; then the new passkey is named.
   await page.getByLabel("Passkey name").fill("Laptop");
-  await page.getByRole("button", { name: "Save name" }).click();
+  await page.getByRole("button", { name: "Save passkey name" }).click();
   await expect(page.getByText("Laptop", { exact: true })).toBeVisible();
 
   // The "passkey added" notice reaches the test mailbox.
@@ -55,17 +62,16 @@ test("add a passkey, sign out, sign in with it, rename, delete; the notice arriv
   expect(mail.map((message) => message.template)).toContain("passkey-added");
 
   // Sign out, then sign in with the passkey alone: no password, and no second-factor prompt.
-  await page.request.post("/api/auth/sign-out", { headers: { origin: baseURL } });
-  await page.goto("/login");
-  await page.getByRole("button", { name: "Already have an account? Sign In" }).click();
-  await page.getByRole("button", { name: "Sign in with a passkey" }).click();
+  // A POST needs a body (`data`) to send its JSON content type; without one the server answers 415.
+  await page.request.post("/api/auth/sign-out", { headers: { origin: baseURL }, data: {} });
+  await signInWithPasskey(page);
   await expect(page).toHaveURL(/\/c$/);
 
   // Rename it.
   await page.goto(ACCOUNT);
   await page.getByRole("button", { name: "Rename Laptop" }).click();
   await page.getByLabel("Passkey name").fill("Work laptop");
-  await page.getByRole("button", { name: "Save name" }).click();
+  await page.getByRole("button", { name: "Save passkey name" }).click();
   await expect(page.getByText("Work laptop", { exact: true })).toBeVisible();
 
   // Delete it. Removing a passkey sends no notice, so the mailbox still holds the one message.
@@ -90,18 +96,6 @@ test("a session older than a day is asked to sign in again before a passkey is a
   await expect(page.getByLabel("Passkey name")).toHaveCount(0);
 });
 
-test("passkey sign-in is rate-limited like password sign-in", async ({ page }) => {
-  const statuses: number[] = [];
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    const response = await page.request.post("/api/auth/passkey/verify-authentication", {
-      headers: { origin: baseURL },
-      data: { response: { id: `unknown-${attempt}` } },
-    });
-    statuses.push(response.status());
-  }
-  expect(statuses[3]).toBe(429);
-});
-
 /** Makes a user an Admin, straight in the e2e database (the grant script's effect). */
 async function makeAdmin(userId: string) {
   const db = createDb({ DATABASE_URL: e2eDatabaseUrl() });
@@ -117,15 +111,18 @@ async function addPasskeyOnAccount(page: Page, name: string) {
   await page.goto(ACCOUNT);
   await page.getByRole("button", { name: "Add passkey" }).click();
   await page.getByLabel("Passkey name").fill(name);
-  await page.getByRole("button", { name: "Save name" }).click();
+  await page.getByRole("button", { name: "Save passkey name" }).click();
   await expect(page.getByText(name, { exact: true })).toBeVisible();
 }
 
-/** Signs in from the login page with the passkey on the page's authenticator. */
+/** Signs in from the login page with the passkey on the page's authenticator, after the window. */
 async function signInWithPasskey(page: Page) {
+  const wait = lastPasskeySignIn + PASSKEY_WINDOW_MS - Date.now();
+  if (wait > 0) await page.waitForTimeout(wait);
   await page.goto("/login");
   await page.getByRole("button", { name: "Already have an account? Sign In" }).click();
   await page.getByRole("button", { name: "Sign in with a passkey" }).click();
+  lastPasskeySignIn = Date.now();
 }
 
 test("a banned user with a passkey can't sign in with it", async ({ page, browser }) => {
@@ -167,4 +164,16 @@ test("a passkey sign-in skips the two-factor prompt for a user with two-factor o
 
   await expect(page).toHaveURL(/\/c$/);
   await expect(page.getByLabel("Authentication code")).toHaveCount(0);
+});
+
+test("passkey sign-in is rate-limited like password sign-in", async ({ page }) => {
+  const statuses: number[] = [];
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const response = await page.request.post("/api/auth/passkey/verify-authentication", {
+      headers: { origin: baseURL },
+      data: { response: { id: `unknown-${attempt}` } },
+    });
+    statuses.push(response.status());
+  }
+  expect(statuses[3]).toBe(429);
 });
