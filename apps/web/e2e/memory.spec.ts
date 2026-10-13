@@ -4,11 +4,6 @@ import { rememberedFact } from "../../../packages/chat-sdk/test/e2e/fake-ollama"
 import { appWebHost } from "./host";
 import { messageRows, send, signInAsSeededUserWithModel } from "./helpers";
 
-// The Memory job runs in a second copy of the server's chat module (the Nitro plugin's import of
-// `src/services`), with its own in-memory pubsub. Its "Memory updated" notice only reaches the
-// page through Redis, so this runs only when the e2e run has REDIS_URL (see redis.spec.ts).
-test.skip(!process.env.REDIS_URL, "needs REDIS_URL: the notice crosses module copies via Redis");
-
 test("a Memory the user asks for is shown in its reply's chip, and can be deleted on the Memory page", async ({
   page,
 }) => {

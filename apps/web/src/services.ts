@@ -56,7 +56,11 @@ export const auth = createAuth(
 );
 // The Host's default Quota is parsed at boot, so a bad HOST_QUOTA_* fails the start, not a Run.
 void quotaOf(ENV);
-export const chat = createChat({
+// The Nitro lifecycle plugin is bundled apart from the routes, so it loads its own copy of this
+// module. Both share one chat, so the jobs the plugin's runner runs publish on the pub/sub the
+// routes subscribe to (#290).
+const shared = globalThis as typeof globalThis & { aiChat?: ReturnType<typeof createChat> };
+export const chat = (shared.aiChat ??= createChat({
   databaseUrl: ENV.DATABASE_URL,
   keyEncryptionSecrets: [ENV.KEY_ENCRYPTION_SECRET, ENV.KEY_ENCRYPTION_SECRET_PREVIOUS].filter(
     (secret): secret is string => Boolean(secret),
@@ -104,4 +108,4 @@ export const chat = createChat({
     const session = await auth.api.getSession({ headers: request.headers });
     return session?.user ? { id: session.user.id } : null;
   },
-});
+}));
