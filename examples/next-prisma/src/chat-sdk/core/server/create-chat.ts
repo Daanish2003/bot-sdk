@@ -76,6 +76,11 @@ export type CreateChatOptions = {
    */
   defaultImageModel?: string;
   /**
+   * The image adapter for an Image Model's `(model, credentials)`. Defaults to the production
+   * adapters, which are not wired yet (spec #278, ticket #311); a Host or a test passes a fake here.
+   */
+  imageAdapterFor?: AppDeps["imageAdapterFor"];
+  /**
    * A user's Quota on Host credentials, or one fixed Quota for everyone; `null` or unset is
    * unlimited (ADR 0007).
    */
@@ -216,6 +221,7 @@ export function createChat(options: CreateChatOptions): {
       byok: options.byok ?? true,
       defaultBackgroundModel: options.defaultBackgroundModel,
       defaultImageModel: options.defaultImageModel,
+      imageAdapterFor: options.imageAdapterFor,
       getQuota: quotaLookup(options.getQuota),
       rateLimits: resolveRateLimits(options.rateLimits),
       tools: options.tools ?? [],

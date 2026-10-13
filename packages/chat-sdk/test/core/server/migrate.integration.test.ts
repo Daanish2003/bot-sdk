@@ -55,6 +55,7 @@ const sdkTables = [
   "attachment",
   "attachment_blob",
   "conversation",
+  "generated_image",
   "mcp_connection",
   "message",
   "message_attachment",
@@ -339,7 +340,7 @@ describe("chat.migrate()", () => {
     await expect(Promise.all([chat.migrate(), chat.migrate()])).resolves.toBeDefined();
 
     const applied = await rows<{ count: string }>(url, "select count(*) from chat.__migrations");
-    expect(applied).toEqual([{ count: "10" }]);
+    expect(applied).toEqual([{ count: "11" }]);
   });
 
   it("gives a Conversation's tool settings empty lists by default, so existing rows read as empty", async () => {

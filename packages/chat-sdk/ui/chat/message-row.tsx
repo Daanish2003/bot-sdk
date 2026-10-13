@@ -1,5 +1,6 @@
 import type { AttachmentInfo } from "../../core/shared/attachments/kinds";
 import { pageSourcesOf, replySegments, sourcesOf } from "../../core/shared/chat/sources";
+import { generatedImageOf } from "../../core/shared/chat/generated-image";
 import { toolCallOf } from "../../core/shared/chat/tool-call";
 import { webSearchOf } from "../../core/shared/chat/web-search";
 import { Button } from "@/components/ui/button";
@@ -42,6 +43,7 @@ import {
   useAttachmentDraft,
 } from "./attachments";
 
+import { GeneratedImageBlock } from "./generated-image-block";
 import { SearchRow } from "./search-row";
 import { replyComponents, ReplySources, SourceChips } from "./source-chips";
 import { ToolCallRow } from "./tool-call-row";
@@ -393,6 +395,8 @@ function AssistantParts({
           >
             {segment.content}
           </Markdown>
+        ) : segment.type === "image" ? (
+          <GeneratedImageBlock key={segment.key} image={segment.image} />
         ) : segment.type === "searches" ? (
           <SearchRow key={segment.key} searches={segment.searches} sources={sources} />
         ) : (
@@ -414,12 +418,15 @@ function waitingForText(parts: UIMessage["parts"]) {
   const shown = parts.filter((part) =>
     part.type === "text"
       ? part.content !== ""
-      : webSearchOf(part) !== null || toolCallOf(part) !== null,
+      : webSearchOf(part) !== null || toolCallOf(part) !== null || generatedImageOf(part) !== null,
   );
   const last = shown.at(-1);
   if (!last) return true;
   if (last.type === "text") return false;
-  const running = webSearchOf(last)?.state === "running" || toolCallOf(last)?.status === "running";
+  const running =
+    webSearchOf(last)?.state === "running" ||
+    toolCallOf(last)?.status === "running" ||
+    generatedImageOf(last)?.state === "running";
   return !running;
 }
 

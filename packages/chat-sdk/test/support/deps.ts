@@ -29,6 +29,11 @@ export function createTestDeps({
     adapterFor: (model) => {
       throw new Error(`No fake adapter for model "${model}"; pass adapterFor to createTestDeps`);
     },
+    imageAdapterFor: (model) => {
+      throw new Error(
+        `No fake image adapter for model "${model}"; pass imageAdapterFor to createTestDeps`,
+      );
+    },
     searchClient: createFakeSearchClient(),
     tools: [],
     runStreams: createMemoryRunStreams(),
@@ -43,6 +48,7 @@ export function createTestDeps({
       reapIntervalMs: 30_000,
       drainMs: 250_000,
       fetchTimeoutMs: 10_000,
+      imageTimeoutMs: 120_000,
       ...limits,
     },
     keyEncryptionSecrets: [testKeyEncryptionSecret],

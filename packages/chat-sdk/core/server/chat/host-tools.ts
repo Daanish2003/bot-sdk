@@ -47,11 +47,14 @@ export function createToolBudget(used: number): ToolBudget {
   };
 }
 
-/** Calls a reply has already made: every tool call that ran, ended or was cut off. */
+/**
+ * Calls a reply has already made: every tool call that ran, ended or was cut off. A `generate_image`
+ * call is one of them (its part is `generated_image`, spec #278).
+ */
 export function spentCalls(parts: StoredPart[]): number {
   return parts.filter(
     (part) =>
-      part.type === "tool_call" &&
+      (part.type === "tool_call" || part.type === "generated_image") &&
       (part.state === "done" || part.state === "error" || part.state === "cancelled"),
   ).length;
 }

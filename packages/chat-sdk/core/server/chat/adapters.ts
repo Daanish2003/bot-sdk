@@ -1,4 +1,4 @@
-import type { AnyTextAdapter } from "@tanstack/ai";
+import type { AnyImageAdapter, AnyTextAdapter } from "@tanstack/ai";
 import { type AnthropicChatModel, createAnthropicChat } from "@tanstack/ai-anthropic";
 import { BedrockConverseTextAdapter, type BedrockConverseModels } from "@tanstack/ai-bedrock";
 import { createBytePlusText } from "@tanstack/ai-byteplus";
@@ -73,6 +73,14 @@ export function adapterFor(model: string, credentials: Credentials): AnyTextAdap
     default:
       throw new Error(`No adapter is available for the ${provider} Provider`);
   }
+}
+
+/**
+ * The image adapter for an Image Model (spec #278). The Provider image adapters come with their
+ * own ticket; until one is wired here, no Image Model has an adapter, so its call fails.
+ */
+export function imageAdapterFor(_model: string, _credentials: Credentials): AnyImageAdapter {
+  throw new Error("No image adapter is available for this Image Model");
 }
 
 /**

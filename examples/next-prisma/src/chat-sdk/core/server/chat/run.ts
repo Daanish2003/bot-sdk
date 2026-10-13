@@ -1,6 +1,7 @@
 import { type StoredPart, storedPartsSchema } from "../../shared/message-parts";
 import { conversation, message } from "../db/schema/chat";
 import {
+  type AnyImageAdapter,
   type AnyTextAdapter,
   type ChatMiddleware,
   chat,
@@ -25,6 +26,7 @@ import type { McpTools } from "../mcp/tools";
 import { createWebSearchTool } from "./web-search-tool";
 import { paidCallAllowed } from "./quota";
 import { createFetchUrlTool } from "./fetch-url-tool";
+import { createGenerateImageTool } from "./generate-image-tool";
 import { cancelChannel, heartbeatExpired, listenForStop, stopRequested } from "./stop";
 import { addUsage, messageUsage, normalizeUsage, promptCharactersOf, type RunUsage } from "./usage";
 import {
@@ -59,6 +61,7 @@ export async function startRun(
     messages,
     webSearch,
     fetchUrl = false,
+    image,
     hostTools = [],
     context,
     systemPrompts,
@@ -86,6 +89,8 @@ export async function startRun(
     webSearch?: Credentials;
     /** Whether this reply offers the `fetch_url` tool, which needs no credential. */
     fetchUrl?: boolean;
+    /** Set when this reply offers the `generate_image` tool: the Image Model's adapter and pinned size. */
+    image?: { adapter: AnyImageAdapter; model: string; size?: string };
     /** The Host tools this reply offers (none when its Model has no tools). */
     hostTools?: HostServerTool[];
     /** The user and Conversation the Host tools are called for, passed to them as their context. */
@@ -204,6 +209,23 @@ export async function startRun(
                 timeoutMs: deps.limits.fetchTimeoutMs,
                 parts,
                 onChange: () => (changed = true),
+              }),
+            ]
+          : []),
+        ...(image
+          ? [
+              createGenerateImageTool({
+                adapter: image.adapter,
+                model: image.model,
+                size: image.size,
+                userId: context.userId,
+                messageId,
+                db: deps.db,
+                fetch: deps.fetch,
+                timeoutMs: deps.limits.imageTimeoutMs,
+                parts,
+                onChange: () => (changed = true),
+                budget,
               }),
             ]
           : []),
@@ -574,7 +596,10 @@ export async function reapStaleRuns(deps: AppDeps, now = new Date()) {
       parsed.success &&
       parsed.data.parts.some(
         (part) =>
-          (part.type === "web_search" || part.type === "tool_call") && part.state === "running",
+          (part.type === "web_search" ||
+            part.type === "tool_call" ||
+            part.type === "generated_image") &&
+          part.state === "running",
       )
     ) {
       await deps.db

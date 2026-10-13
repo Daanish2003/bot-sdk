@@ -1,5 +1,6 @@
 import type { MessagePart } from "@tanstack/ai";
 
+import { generateImageToolName } from "./generated-image";
 import { webSearchToolName } from "./web-search";
 
 /**
@@ -28,9 +29,13 @@ export type ToolCallView = {
   redacted: boolean;
 };
 
-/** The tool call a `useChat` part is, or `null` for any other part and for a `web_search` call. */
+/**
+ * The tool call a `useChat` part is, or `null` for any other part, a `web_search` call and a
+ * `generate_image` call (each has its own row).
+ */
 export function toolCallOf(part: MessagePart): ToolCallView | null {
-  if (part.type !== "tool-call" || part.name === webSearchToolName) return null;
+  if (part.type !== "tool-call") return null;
+  if (part.name === webSearchToolName || part.name === generateImageToolName) return null;
   const meta = (part.metadata ?? {}) as Partial<{
     source: string;
     status: ToolCallStatus;

@@ -54,27 +54,53 @@ export const toolCallPartSchema = z.object({
   state: z.enum(["running", "done", "error", "cancelled", "awaiting_approval", "denied"]),
 });
 
+/** Why a Generated image failed (spec #278). Each one is a state, never a Message error. */
+export const generatedImageErrorReasons = [
+  "refused",
+  "quota_exceeded",
+  "limit_reached",
+  "too_many_images",
+  "failed",
+] as const;
+
+/**
+ * One `generate_image` tool call of a reply and how it went (spec #278), shaped like a search. The
+ * image itself is the `generated_image` row its `imageId` names. `prompt` is what the Model asked
+ * for, and `aspectRatio` the shape it asked for.
+ */
+export const generatedImagePartSchema = z.object({
+  type: z.literal("generated_image"),
+  toolCallId: z.string(),
+  prompt: z.string(),
+  aspectRatio: z.enum(["square", "landscape", "portrait"]),
+  state: z.enum(["running", "done", "error", "cancelled"]),
+  imageId: z.string().optional(),
+  errorReason: z.enum(generatedImageErrorReasons).optional(),
+});
+
 export const storedPartSchema = z.discriminatedUnion("type", [
   textPartSchema,
   thinkingPartSchema,
   webSearchPartSchema,
   toolCallPartSchema,
+  generatedImagePartSchema,
 ]);
 
 /**
- * The schema version a Message's parts are written at. 2 added `tool_call` (ADR 0008); a version 1
- * row has no `tool_call` part, so it still reads.
+ * The schema version a Message's parts are written at. 2 added `tool_call` (ADR 0008); 3 added
+ * `generated_image` (spec #278). A version 1 or 2 row has no such part, so it still reads.
  */
 export const storedPartsSchema = z.object({
-  schemaVersion: z.union([z.literal(1), z.literal(2)]),
+  schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]),
   parts: z.array(storedPartSchema),
 });
 
 export type StoredPart = z.infer<typeof storedPartSchema>;
 export type WebSearchPart = z.infer<typeof webSearchPartSchema>;
 export type ToolCallPart = z.infer<typeof toolCallPartSchema>;
+export type GeneratedImagePart = z.infer<typeof generatedImagePartSchema>;
 export type StoredParts = z.infer<typeof storedPartsSchema>;
 
 export function storedParts(parts: StoredPart[]): StoredParts {
-  return { schemaVersion: 2, parts };
+  return { schemaVersion: 3, parts };
 }

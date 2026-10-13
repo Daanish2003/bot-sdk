@@ -12,6 +12,7 @@ import type { ChatUser } from "../context";
 import { uuidv7 } from "../lib/uuidv7";
 import { rateLimitedFor } from "../rate-limits";
 import { resolveModel } from "./available-models";
+import { resolveImageModelFor } from "./image-models";
 import { parseStoredParts, searchTextOf, toModelMessages } from "../../shared/chat/parts";
 import { chatCommandSchema } from "../../shared/chat/command";
 import { runStreamDurability, START } from "./run-streams";
@@ -87,6 +88,9 @@ export async function handleChat(
   // usable Tavily key: the user's own, else the Host's (ADR 0007). `fetch_url` needs none.
   const web = command.webSearch && model.tools;
   const searchCall = web ? await resolveToolCall(deps, userId, tavilyService) : null;
+  // The image tool is offered to a Model that has tools, when the user has a usable Image Model
+  // (their pick, else the Host's default; spec #278). Without one, the tool is absent.
+  const image = model.tools ? await resolveImageModelFor(deps, userId) : null;
   // The MCP tools switched on here (spec #91). The first Message takes the composer's choice; any
   // later one reads the stored choice.
   const takesComposerTools = command.tools !== undefined && owned.activeLeafId === null;
@@ -132,6 +136,13 @@ export async function handleChat(
   const adapter = deps.adapterFor(model.id, call.credentials, {
     maxOutputTokens: call.maxOutputTokens,
   });
+  const imageTool = image
+    ? {
+        adapter: deps.imageAdapterFor(image.modelId, image.credentials),
+        model: image.id,
+        size: image.hostModel?.size,
+      }
+    : undefined;
   const userParts =
     command.text === undefined ? undefined : storedParts([{ type: "text", text: command.text }]);
   const userMessageId = uuidv7();
@@ -161,6 +172,7 @@ export async function handleChat(
       provider: model.provider,
       webSearch: searchCall !== null,
       fetchUrl: web,
+      generateImage: imageTool !== undefined,
       hostTools: hostTools.length > 0,
       mcpTools: (mcp?.tools.length ?? 0) > 0,
       reads: { images: model.images, pdfs: model.pdfs },
@@ -267,6 +279,7 @@ export async function handleChat(
     messages,
     webSearch: searchCall?.credentials,
     fetchUrl: web,
+    image: imageTool,
     hostTools,
     mcp,
     context: { userId, conversationId: owned.id },

@@ -1,4 +1,5 @@
 import {
+  type GeneratedImagePart,
   type StoredPart,
   type StoredParts,
   storedParts,
@@ -18,6 +19,13 @@ import {
 import { attachmentKind, kindLabel, kindLabelPlural } from "../attachments/kinds";
 import { fetchUrlToolName } from "./fetch-url";
 import { providerOf } from "./models";
+import {
+  type AspectRatio,
+  type GenerateImageOutput,
+  type GeneratedImageErrorReason,
+  generateImageToolName,
+  generatedImageErrorLabels,
+} from "./generated-image";
 import {
   searchErrorMessages,
   type SearchErrorReason,
@@ -93,6 +101,13 @@ export function createPartsBuilder(initial: StoredPart[] = []) {
       (part): part is ToolCallPart =>
         part.type === "tool_call" && part.toolCallId === toolCallId && part.state === "running",
     );
+  const runningImage = (toolCallId: string) =>
+    parts.find(
+      (part): part is GeneratedImagePart =>
+        part.type === "generated_image" &&
+        part.toolCallId === toolCallId &&
+        part.state === "running",
+    );
 
   return {
     add(chunk: StreamChunk) {
@@ -141,6 +156,31 @@ export function createPartsBuilder(initial: StoredPart[] = []) {
         part.errorReason = outcome.errorReason;
       }
     },
+    /** Starts a `generate_image` call, as the tool is about to run (spec #278). */
+    startGeneratedImage(toolCallId: string, prompt: string, aspectRatio: AspectRatio) {
+      parts.push({
+        type: "generated_image",
+        toolCallId,
+        prompt,
+        aspectRatio,
+        state: "running",
+      });
+    },
+    /** Ends a running `generate_image` call: with the image it made, or with why it failed. */
+    finishGeneratedImage(
+      toolCallId: string,
+      outcome: { imageId: string } | { errorReason: GeneratedImageErrorReason },
+    ) {
+      const part = runningImage(toolCallId);
+      if (!part) return;
+      if ("imageId" in outcome) {
+        part.state = "done";
+        part.imageId = outcome.imageId;
+      } else {
+        part.state = "error";
+        part.errorReason = outcome.errorReason;
+      }
+    },
     /**
      * Starts a tool call other than `web_search`, as the tool is about to run. A call a resumed Run
      * already holds (waiting for Approval, now approved) is updated in place.
@@ -179,9 +219,7 @@ export function createPartsBuilder(initial: StoredPart[] = []) {
     },
     cancelRunningCalls() {
       for (const part of parts) {
-        if ((part.type === "web_search" || part.type === "tool_call") && part.state === "running") {
-          part.state = "cancelled";
-        }
+        if (isCallPart(part) && part.state === "running") part.state = "cancelled";
       }
     },
     /** A copy of the parts so far. */
@@ -200,11 +238,16 @@ export type FinishToolCall = { state: "done" | "error"; result: unknown };
 export function cancelRunningCalls(parts: StoredParts): StoredParts {
   return storedParts(
     parts.parts.map((part) =>
-      (part.type === "web_search" || part.type === "tool_call") && part.state === "running"
-        ? { ...part, state: "cancelled" }
-        : part,
+      isCallPart(part) && part.state === "running" ? { ...part, state: "cancelled" } : part,
     ),
   );
+}
+
+/** A part a reply's tool call made: a search, a tool call or a generated image. */
+type CallPart = WebSearchPart | ToolCallPart | GeneratedImagePart;
+
+function isCallPart(part: StoredPart): part is CallPart {
+  return part.type === "web_search" || part.type === "tool_call" || part.type === "generated_image";
 }
 
 function textOf(parts: StoredParts, separator: string) {
@@ -214,7 +257,7 @@ function textOf(parts: StoredParts, separator: string) {
     .join(separator);
 }
 
-const finished = (part: WebSearchPart | ToolCallPart) =>
+const finished = (part: CallPart) =>
   part.state === "done" || part.state === "error" || part.state === "denied";
 
 /** A call's arguments as the model streamed them; an unreadable stream reads as no arguments. */
@@ -249,9 +292,34 @@ function toolCallPlaceholder(part: ToolCallPart) {
   return `[Called "${part.name}" with ${JSON.stringify(part.args)}: ${JSON.stringify(part.result ?? null)}]`;
 }
 
-/** A finished search or tool call as text, for a request that doesn't offer its tool. */
-function placeholderOf(part: WebSearchPart | ToolCallPart) {
-  return part.type === "web_search" ? searchPlaceholder(part) : toolCallPlaceholder(part);
+/** What the Model reads as the result of a finished call. */
+function resultOf(call: CallPart): unknown {
+  if (call.type === "web_search") return searchOutput(call);
+  if (call.type === "generated_image") return imageOutput(call);
+  return call.result ?? null;
+}
+
+/** A generated image as the Model reads it: the id, prompt and shape, or the reason it failed. */
+function imageOutput(part: GeneratedImagePart): GenerateImageOutput {
+  if (part.state === "error") {
+    const reason = part.errorReason ?? "failed";
+    return { error: generatedImageErrorLabels[reason], reason };
+  }
+  return { imageId: part.imageId ?? "", prompt: part.prompt, aspectRatio: part.aspectRatio };
+}
+
+/** A finished generated image as text, for a request that doesn't offer its tool. */
+function imagePlaceholder(part: GeneratedImagePart) {
+  return part.state === "error"
+    ? `[Couldn't generate an image for "${part.prompt}": ${generatedImageErrorLabels[part.errorReason ?? "failed"]}]`
+    : `[Generated an image: "${part.prompt}"]`;
+}
+
+/** A finished search, tool call or image as text, for a request that doesn't offer its tool. */
+function placeholderOf(part: CallPart) {
+  if (part.type === "web_search") return searchPlaceholder(part);
+  if (part.type === "generated_image") return imagePlaceholder(part);
+  return toolCallPlaceholder(part);
 }
 
 /** The tools a request offers: a finished search or tool call of a kind not offered is text. */
@@ -260,11 +328,13 @@ type OfferedTools = {
   fetchUrl: boolean;
   hostTools: boolean;
   mcpTools: boolean;
+  generateImage: boolean;
 };
 
 /** A call a request offers its tool for, as the Model replays it: a Host or an MCP tool, by its source. */
-const offeredCall = (part: WebSearchPart | ToolCallPart, offered: OfferedTools) => {
+const offeredCall = (part: CallPart, offered: OfferedTools) => {
   if (part.type === "web_search") return offered.webSearch;
+  if (part.type === "generated_image") return offered.generateImage;
   if (part.name === fetchUrlToolName) return offered.fetchUrl;
   return part.source === "mcp" ? offered.mcpTools : offered.hostTools;
 };
@@ -279,7 +349,7 @@ function withToolCalls({ role, parts }: StoredMessage, offered: OfferedTools): M
   let content = "";
   // A placeholder is followed by a paragraph break before any text that comes after it.
   let breakBeforeText = false;
-  let calls: (WebSearchPart | ToolCallPart)[] = [];
+  let calls: CallPart[] = [];
   const flush = () => {
     if (calls.length > 0) {
       const toolCalls: ToolCall[] = calls.map((call) => ({
@@ -288,7 +358,12 @@ function withToolCalls({ role, parts }: StoredMessage, offered: OfferedTools): M
         function:
           call.type === "web_search"
             ? { name: webSearchToolName, arguments: JSON.stringify({ query: call.query }) }
-            : { name: call.name, arguments: JSON.stringify(call.args) },
+            : call.type === "generated_image"
+              ? {
+                  name: generateImageToolName,
+                  arguments: JSON.stringify({ prompt: call.prompt, aspectRatio: call.aspectRatio }),
+                }
+              : { name: call.name, arguments: JSON.stringify(call.args) },
       }));
       messages.push({ role, content: content || null, toolCalls });
       // A call waiting for Approval has no result yet: the resumed Run supplies it (ADR 0008).
@@ -296,9 +371,7 @@ function withToolCalls({ role, parts }: StoredMessage, offered: OfferedTools): M
         messages.push({
           role: "tool",
           toolCallId: call.toolCallId,
-          content: JSON.stringify(
-            call.type === "web_search" ? searchOutput(call) : (call.result ?? null),
-          ),
+          content: JSON.stringify(resultOf(call)),
         });
       }
     } else if (content) {
@@ -318,7 +391,7 @@ function withToolCalls({ role, parts }: StoredMessage, offered: OfferedTools): M
     } else if (part.type === "tool_call" && part.state === "awaiting_approval") {
       // Sent without a result, so the resumed Run can answer it (the Model's call is still open).
       if (offeredCall(part, offered)) calls.push(part);
-    } else if ((part.type === "web_search" || part.type === "tool_call") && finished(part)) {
+    } else if (isCallPart(part) && finished(part)) {
       if (offeredCall(part, offered)) {
         calls.push(part);
       } else {
@@ -342,7 +415,7 @@ function withPlaceholders({ role, parts }: StoredMessage): ModelMessage[] {
       if (lastWasText) pieces[pieces.length - 1] += part.text;
       else pieces.push(part.text);
       lastWasText = true;
-    } else if ((part.type === "web_search" || part.type === "tool_call") && finished(part)) {
+    } else if (isCallPart(part) && finished(part)) {
       pieces.push(placeholderOf(part));
       lastWasText = false;
     }
@@ -366,6 +439,7 @@ export function toModelMessages(
     fetchUrl = false,
     hostTools = false,
     mcpTools = false,
+    generateImage = false,
     reads = { images: false, pdfs: false },
   }: {
     provider?: string;
@@ -376,14 +450,16 @@ export function toModelMessages(
     hostTools?: boolean;
     /** Whether this request offers any MCP tools (spec #91). */
     mcpTools?: boolean;
+    /** Whether this request offers the `generate_image` tool (spec #278). */
+    generateImage?: boolean;
     /** Attachments the Model can't read become text placeholders. */
     reads?: ModelReads;
   } = {},
 ): ModelMessage[] {
   return history.flatMap((stored) => {
     const messages =
-      webSearch || fetchUrl || hostTools || mcpTools
-        ? withToolCalls(stored, { webSearch, fetchUrl, hostTools, mcpTools })
+      webSearch || fetchUrl || hostTools || mcpTools || generateImage
+        ? withToolCalls(stored, { webSearch, fetchUrl, hostTools, mcpTools, generateImage })
         : withPlaceholders(stored);
     const [first] = messages;
     if (!first) return [];
@@ -445,6 +521,7 @@ export function toUIParts(parts: StoredParts): MessagePart[] {
     // The signature is only for the Provider; the client never needs it.
     if (part.type === "thinking") return { type: "thinking", content: part.text };
     if (part.type === "tool_call") return toolCallUIPart(part);
+    if (part.type === "generated_image") return generatedImageUIPart(part);
     const input = { query: part.query };
     return {
       type: "tool-call",
@@ -462,6 +539,29 @@ export function toUIParts(parts: StoredParts): MessagePart[] {
       ...(finished(part) && { output: searchOutput(part) }),
     };
   });
+}
+
+/**
+ * A stored `generate_image` call, as `useChat` shows it: a tool call named `generate_image`, with
+ * its prompt and shape as input and the image or the failure as output (spec #278).
+ */
+function generatedImageUIPart(part: GeneratedImagePart): MessagePart {
+  const input = { prompt: part.prompt, aspectRatio: part.aspectRatio };
+  return {
+    type: "tool-call",
+    id: part.toolCallId,
+    name: generateImageToolName,
+    arguments: JSON.stringify(input),
+    input,
+    // A cancelled image ended without a result.
+    state:
+      part.state === "running"
+        ? "input-complete"
+        : part.state === "cancelled"
+          ? "error"
+          : "complete",
+    ...(finished(part) && { output: resultOf(part) }),
+  };
 }
 
 /**

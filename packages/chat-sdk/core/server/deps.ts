@@ -1,7 +1,7 @@
 import type { Database } from "./db/index";
-import type { AnyTextAdapter } from "@tanstack/ai";
+import type { AnyImageAdapter, AnyTextAdapter } from "@tanstack/ai";
 
-import { adapterFor } from "./chat/adapters";
+import { adapterFor, imageAdapterFor as productionImageAdapterFor } from "./chat/adapters";
 import type { CounterStore } from "./chat/counters";
 import type { PubSub } from "./chat/pubsub";
 import type { HostServerTool } from "./chat/host-tools";
@@ -18,6 +18,17 @@ export type { SearchErrorReason, SearchResult };
 
 /** Decrypted Provider credentials or Tool credential fields, keyed by field name. */
 export type Credentials = Record<string, string>;
+
+/**
+ * An image the Provider's safety filter refused (spec #278). An image adapter throws it, so the
+ * `generate_image` call is stored as `refused` rather than `failed`.
+ */
+export class ImageRefusedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ImageRefusedError";
+  }
+}
 
 export class SearchError extends Error {
   readonly reason: SearchErrorReason;
@@ -51,6 +62,8 @@ export type Limits = {
   drainMs: number;
   /** How long one `fetch_url` page may take, from the request to its last byte. */
   fetchTimeoutMs: number;
+  /** How long one `generate_image` call may take before it fails (spec #278). */
+  imageTimeoutMs: number;
 };
 
 /**
@@ -116,6 +129,11 @@ export type HostTool = {
 export type AppDeps = {
   db: Database;
   /**
+   * Builds the TanStack AI image adapter for an Image Model (spec #278), from the credentials it
+   * runs on. Injected so tests and CI can pass a fake.
+   */
+  imageAdapterFor: (model: string, credentials: Credentials) => AnyImageAdapter;
+  /**
    * Builds the TanStack AI text adapter for a `"provider:model"` id. `options.maxOutputTokens` is
    * set for a Host Model (ADR 0007); a user's own Model is uncapped.
    */
@@ -176,11 +194,13 @@ export const defaultLimits: Limits = {
   reapIntervalMs: 30_000,
   drainMs: 250_000,
   fetchTimeoutMs: 10_000,
+  imageTimeoutMs: 120_000,
 };
 
 /** The production `AppDeps`. */
 export function createAppDeps({
   db,
+  imageAdapterFor,
   keyEncryptionSecrets,
   runtime,
   hostProviders,
@@ -195,6 +215,8 @@ export function createAppDeps({
   mcpServers,
 }: {
   db: Database;
+  /** The image adapter factory; the production one is `imageAdapterFor` in `chat/adapters.ts`. */
+  imageAdapterFor?: AppDeps["imageAdapterFor"];
   keyEncryptionSecrets: string[];
   runtime: ChatRuntime;
   hostProviders: HostProvider[];
@@ -211,6 +233,7 @@ export function createAppDeps({
   return {
     db,
     adapterFor,
+    imageAdapterFor: imageAdapterFor ?? productionImageAdapterFor,
     hostProviders,
     hostTools,
     byok,
