@@ -7,6 +7,9 @@ import {
 import { ArrowUpIcon, SquareIcon } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
+import { appendTranscript } from "../../core/client/voice";
+import { Dictation } from "./dictation";
+
 /**
  * The docked composer: Enter sends, Shift+Enter starts a new line. While a reply streams, sending
  * is disabled and Send becomes Stop.
@@ -45,6 +48,10 @@ export function Composer({
     setValue("");
   };
 
+  // A transcript lands after the text already there; nothing is sent (spec #249).
+  const addTranscript = (transcript: string) =>
+    setValue((current) => appendTranscript(current, transcript));
+
   return (
     <PromptInput
       value={value}
@@ -61,15 +68,18 @@ export function Composer({
       />
       <PromptInputActions className="justify-between px-1 pt-1">
         <div className="flex items-center gap-1">{children}</div>
-        <Button
-          size="icon"
-          className="rounded-full"
-          disabled={streaming ? !onStop : !canSend}
-          onClick={streaming ? onStop : submit}
-          aria-label={streaming ? "Stop" : "Send"}
-        >
-          {streaming ? <SquareIcon className="fill-current" /> : <ArrowUpIcon />}
-        </Button>
+        <div className="flex items-center gap-1">
+          <Dictation onTranscript={addTranscript} />
+          <Button
+            size="icon"
+            className="rounded-full"
+            disabled={streaming ? !onStop : !canSend}
+            onClick={streaming ? onStop : submit}
+            aria-label={streaming ? "Stop" : "Send"}
+          >
+            {streaming ? <SquareIcon className="fill-current" /> : <ArrowUpIcon />}
+          </Button>
+        </div>
       </PromptInputActions>
     </PromptInput>
   );

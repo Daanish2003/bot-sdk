@@ -12,6 +12,7 @@ import { quotaRouter } from "./quota";
 import { settingsRouter } from "./settings";
 import { searchRouter } from "./search";
 import { shareRouter } from "./share";
+import { voiceRouter } from "./voice";
 
 export const appRouter = {
   attachment: attachmentRouter,
@@ -25,6 +26,7 @@ export const appRouter = {
   settings: settingsRouter,
   search: searchRouter,
   share: shareRouter,
+  voice: voiceRouter,
   healthCheck: publicProcedure.handler(() => {
     return "OK";
   }),
