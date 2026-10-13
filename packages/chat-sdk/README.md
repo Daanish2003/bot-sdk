@@ -103,6 +103,33 @@ The `prompt-kit` components (`chat-container`, `loader`, `markdown`, `prompt-inp
 - The SDK's tables live in the `chat` schema of the Host's database, not in your ORM's schema. Your ORM's migrations never touch them.
 - The SDK's migrations are expand-then-contract: they add tables, columns and indexes, and never drop or rename one in the same release. The version still running during a deploy keeps working against the migrated schema.
 
+## File storage: `blobStore`
+
+Attachment bytes go to a `BlobStore`, which `createChat({ blobStore })` takes. Names, types, sizes and owners stay in Postgres either way. The store holds bytes only, under keys the SDK makes up, such as `attachment/<id>`.
+
+- **`postgresBlobStore()`** is the default: bytes in the `chat.blob` table of your database. Leave `blobStore` out and nothing changes. The migration copies the bytes from the old `attachment_blob` table into `chat.blob`.
+- **`s3BlobStore({ endpoint, bucket, region, accessKeyId, secretAccessKey, forcePathStyle? })`** keeps bytes in any S3-compatible bucket, such as Cloudflare R2 (`region: "auto"`) or RustFS. It needs an existing bucket: the store never creates one, so the app needs no bucket-admin rights. It is built on `aws4fetch`, and `forcePathStyle` defaults to `true`.
+
+```ts
+import { createChat, s3BlobStore } from "@ai-chat/chat-sdk/server";
+
+const chat = createChat({
+  databaseUrl,
+  getUser,
+  keyEncryptionSecrets,
+  blobStore: s3BlobStore({
+    endpoint: process.env.S3_ENDPOINT!,
+    bucket: process.env.S3_BUCKET!,
+    region: "auto",
+    accessKeyId: process.env.S3_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.S3_SECRET_ACCESS_KEY!,
+  }),
+});
+```
+
+- A failed upload leaves no object behind. Deleting a user, and the 24-hour cleanup of unused Attachments, remove their objects after the database commit. A failed object delete is logged and not thrown, so a stray object costs storage but no data, and nothing sweeps it.
+- **Switching a running deployment from one store to the other isn't supported**: there is no copy tool, so the Attachments already uploaded stay in the store they went to. Choose the store before you go live.
+
 ## Host lifecycle
 
 The server API below is the spec for the SDK (spec #70). Some of it lands in later tickets; until then, `core/server` exports only the parts already built.
@@ -146,9 +173,9 @@ const chat = createChat({
   // ...
   logger, // where the SDK's own failures go; defaults to console
   hooks: {
-    // every usage row written on Host credentials: a Run, a title, a web search
+    // every usage row written on Host credentials: a Run, a title, a web search, a transcription or a generated image
     onUsage: (usage) => {
-      // usage: { id, userId, kind: "run" | "title" | "web_search", model, inputTokens,
+      // usage: { id, userId, kind: "run" | "title" | "web_search" | "transcription" | "image", model, inputTokens,
       //   outputTokens, costMicros, estimated, createdAt }
     },
     // every Run, whichever way it ends, once its ending is written
@@ -330,6 +357,8 @@ Stored Provider and Tool credentials are encrypted under `keyEncryptionSecrets`:
 ## Who pays for Runs
 
 - `hostProviders` are the Host's own credentials, from your environment (never stored): `[{ provider, credentials, models: [...] }]`. Each model is `{ modelId, label?, images?, pdfs?, tools?, maxOutputTokens, inputUsdPerMillion, outputUsdPerMillion }`. `maxOutputTokens` is required: the Host's output cap for a Run on that model, handed to `adapterFor` (the production adapters don't apply it yet). The prices are per 1M tokens and kept with the model. Capability flags default to off unless the model is curated, in which case its curated flags apply. A Tool goes in the same list as `{ tool: "tavily", credentials, pricePerSearchUsd }`: a Host Tavily key that searches for users with no Tavily key of their own, each search recorded at that fixed price.
+- `defaultBackgroundModel` (optional) is a `"provider:model"` id of one of your `hostProviders` Models. Titles use it for users who pick no Background Model; without it they use the Model that wrote the reply. `start()` throws when it isn't one of your Models.
+- `defaultImageModel` (optional) is a `"provider:model"` id of one of your `hostProviders` `imageModels`. Generated images use it for users who pick no Image Model; without it they get no Host images. `start()` throws when it isn't one of your Image Models, or when an Image Model has no `pricePerImageUsd`.
 - `byok` (default `true`) lets users run on their own Provider credentials. Set it independently of `hostProviders`: `byok: false` with `hostProviders` is a company Host that runs only its own keys.
 - A user's own key for a Provider always wins over the Host's. The Model list marks the Models that run on Host credentials.
 - `start()` throws with neither `hostProviders` nor `byok`.
@@ -344,7 +373,7 @@ const chat = createChat({
 
 Three modes, chosen by those two options:
 
-- **Host only** (`hostProviders`, `byok: false`): a company Host. Users chat on the Models you offer. With `byok` off, the credential sections of the keys page and every "add your key" prompt are hidden; the Instructions and Title Model sections stay. Saving a credential is rejected with `FORBIDDEN`; listing and deleting the credentials a user already has still work.
+- **Host only** (`hostProviders`, `byok: false`): a company Host. Users chat on the Models you offer. With `byok` off, the credential sections of the keys page and every "add your key" prompt are hidden; the Instructions and Background Model sections stay. Saving a credential is rejected with `FORBIDDEN`; listing and deleting the credentials a user already has still work.
 - **User keys only** (no `hostProviders`, `byok: true`): every reply runs on the user's own keys, as before.
 - **Both** (`hostProviders` and `byok: true`, the default): a user's own key wins for its Provider; otherwise the Host's Models answer.
 
@@ -450,3 +479,42 @@ const client = createChatClient({ baseUrl: "/api/chat" });
 ```
 
 The `router` adapter maps the chat pages (`new`, `conversation`, `keys`) to your URLs. It provides `Link`, `navigate(page)`, `useLocation()` and `shareUrl(token)`. Pass your own TanStack Query client as `queryClient` if you have one; otherwise the provider creates its own.
+
+### Text and locale
+
+The dictionary, `messages`, covers the words the SDK shows for relative times, the Conversation list's date groups and the labels that are listed in the SDK's dictionary (`core/shared/i18n`). Other text is still English and moves into the dictionary over time. Dates, times and numbers are formatted in `locale`. Both are optional and English (`"en"`) is the default.
+
+```tsx
+import { type Messages } from "@ai-chat/chat-sdk/client";
+
+const messages: Partial<Messages> = {
+  "time.today": "Heute",
+  "time.minutesAgo": ({ count }) => `vor ${count} Min.`,
+};
+
+<ChatProvider client={client} router={router} messages={messages} locale="de">
+  {children}
+</ChatProvider>;
+```
+
+- Keys are the English dictionary's keys (`en` in `core/shared/i18n`, exported from `@ai-chat/chat-sdk/client` with the `Messages` type). Your editor checks them, so a misspelt key is an error.
+- A value is a string, or a function of its params. Use `Intl.PluralRules` inside the function for plural forms; there is no i18n library.
+- A key you leave out falls back to English, so a partial dictionary works.
+- The dictionary lives in the SDK, so it survives copying a new version of the SDK in: translate once, pass it in.
+- Build `messages` once, outside render (a module-level constant). A new object on every render gives the provider a new value and re-renders the chat UI.
+- An unknown key shows as itself.
+- `useI18n()` gives a component `{ t, locale }`, the same translator the SDK uses.
+
+## Phones and installing
+
+`ui/` is built for phones: safe areas around the top bar, drawer, composer and full-screen surfaces; tap targets at least 44px on small screens; a 16px composer that doesn't zoom on iOS and stays above the keyboard; code blocks and tables that scroll sideways inside the reply; an Artifact that opens full screen; and full-width Approval buttons. Your Host needs a `viewport-fit=cover` viewport meta for the safe-area insets to be non-zero.
+
+The signed-in shell takes an `installPrompt` node for your app's install UI, shown at the bottom of the drawer. `apps/web` fills it with a row that offers Install on Chromium and the Share steps on iOS, and goes once installed or dismissed:
+
+```tsx
+<AppShell userMenu={<UserMenu />} installPrompt={<InstallPrompt />}>
+  {children}
+</AppShell>
+```
+
+If your Host has a service worker (for an installable app, or for offline pages), it must never intercept `${basePath}/*` (the chat's API, MCP callback and export routes) or `/share/*` (Shared links). Those answers must always come from the server, never from a cache. The `apps/web` worker (`public/sw.js`) skips both, and a Host's worker should do the same.

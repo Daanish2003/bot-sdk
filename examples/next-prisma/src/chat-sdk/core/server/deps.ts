@@ -1,7 +1,9 @@
 import type { Database } from "./db/index";
-import type { AnyTextAdapter } from "@tanstack/ai";
+import type { AnyImageAdapter, AnyTextAdapter, AnyTranscriptionAdapter } from "@tanstack/ai";
+import type { BlobStore } from "./blob/store";
 
-import { adapterFor } from "./chat/adapters";
+import { adapterFor, imageAdapterFor as productionImageAdapterFor } from "./chat/adapters";
+import { transcriptionAdapterFor } from "./chat/transcription";
 import type { CounterStore } from "./chat/counters";
 import type { PubSub } from "./chat/pubsub";
 import type { HostServerTool } from "./chat/host-tools";
@@ -19,6 +21,17 @@ export type { SearchErrorReason, SearchResult };
 
 /** Decrypted Provider credentials or Tool credential fields, keyed by field name. */
 export type Credentials = Record<string, string>;
+
+/**
+ * An image the Provider's safety filter refused (spec #278). An image adapter throws it, so the
+ * `generate_image` call is stored as `refused` rather than `failed`.
+ */
+export class ImageRefusedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ImageRefusedError";
+  }
+}
 
 export class SearchError extends Error {
   readonly reason: SearchErrorReason;
@@ -52,6 +65,8 @@ export type Limits = {
   drainMs: number;
   /** How long one `fetch_url` page may take, from the request to its last byte. */
   fetchTimeoutMs: number;
+  /** How long one `generate_image` call may take before it fails (spec #278). */
+  imageTimeoutMs: number;
 };
 
 /**
@@ -79,11 +94,36 @@ export type QuotaSetting =
   | null
   | ((userId: string) => Quota | null | Promise<Quota | null>);
 
+/**
+ * A transcription Model the Host pays for, for dictation (spec #249). Its price is per minute of
+ * audio, since the Providers' transcription APIs report no cost.
+ */
+export type HostTranscriptionModel = { model: string; pricePerMinuteUsd: number };
+
 /** The Host's own credentials for a Provider, and the Models they pay for. */
 export type HostProvider = {
   provider: ProviderId;
   credentials: Credentials;
   models: HostModel[];
+  /** The Host's Image Models of this Provider (spec #278). */
+  imageModels?: HostImageModel[];
+  /** Transcription Models for dictation, on OpenAI, Groq or Grok only (spec #249). */
+  transcriptionModels?: HostTranscriptionModel[];
+};
+
+/**
+ * A Host Image Model (spec #278): the Model with its size and quality pinned, and what one image
+ * costs. `pricePerImageUsd` is required, as `maxOutputTokens` is for a chat Model. The token prices
+ * are for Providers that report tokens (ADR 0007).
+ */
+export type HostImageModel = {
+  modelId: string;
+  size: string;
+  quality: string;
+  pricePerImageUsd: number;
+  imageInputPerMTok?: number;
+  imageOutputPerMTok?: number;
+  textInputPerMTok?: number;
 };
 
 /**
@@ -100,6 +140,12 @@ export type HostTool = {
 export type AppDeps = {
   db: Database;
   /**
+   * Builds the TanStack AI image adapter for an Image Model (spec #278), from the credentials it
+   * runs on, or `undefined` when no adapter serves that Model (the reply then offers no image tool).
+   * Injected so tests and CI can pass a fake.
+   */
+  imageAdapterFor: (model: string, credentials: Credentials) => AnyImageAdapter | undefined;
+  /**
    * Builds the TanStack AI text adapter for a `"provider:model"` id. `options.maxOutputTokens` is
    * set for a Host Model (ADR 0007); a user's own Model is uncapped.
    */
@@ -108,12 +154,21 @@ export type AppDeps = {
     credentials: Credentials,
     options?: { maxOutputTokens?: number },
   ) => AnyTextAdapter;
+  /**
+   * Builds the TanStack AI transcription adapter for a `"provider:model"` id (spec #249), from the
+   * user's own key for that Provider.
+   */
+  transcriptionAdapterFor: (model: string, credentials: Credentials) => AnyTranscriptionAdapter;
   /** The Host credentials (`hostProviders`, ADR 0007). Never stored. */
   hostProviders: HostProvider[];
   /** The Host's Tools, such as a Tavily key for web search (`hostProviders`, ADR 0007). Never stored. */
   hostTools: HostTool[];
   /** Whether users may use their own Provider credentials (`byok`, ADR 0007). */
   byok: boolean;
+  /** The Host's default Background Model, a Host Model's id, or `null` (`defaultBackgroundModel`). */
+  defaultBackgroundModel: string | null;
+  /** The Host's default Image Model, a Host Image Model's id, or `null` (`defaultImageModel`). */
+  defaultImageModel: string | null;
   /** A user's Quota on Host credentials, `null` when unlimited (ADR 0007). */
   getQuota: (userId: string) => Promise<Quota | null>;
   searchClient: SearchClient;
@@ -147,10 +202,16 @@ export type AppDeps = {
   keyEncryptionSecrets: string[];
   /** The remote MCP servers the Host offers (`createChat({ mcpServers })`, spec #91). */
   mcpServers: McpServerConfig[];
+  /** Where file bytes are kept (`createChat({ blobStore })`, ADR 0015). */
+  blobStore: BlobStore;
+  /** Whether the Host has banned a user (`createChat({ isUserBlocked })`, spec #277). */
+  isUserBlocked: (userId: string) => boolean | Promise<boolean>;
   /** Where the SDK's own failures go: the Host's `logger` (`createChat({ logger })`). */
   logger: Pick<Console, "error">;
   /** Fires the Host's `hooks` after each change the SDK writes (`createChat({ hooks })`). */
   hooks: HookEmitter;
+  /** Whether Artifacts are on: the `create_artifact` tool, the panel and the version route (`createChat({ artifacts })`). */
+  artifacts: boolean;
 };
 
 export const defaultLimits: Limits = {
@@ -160,46 +221,66 @@ export const defaultLimits: Limits = {
   reapIntervalMs: 30_000,
   drainMs: 250_000,
   fetchTimeoutMs: 10_000,
+  imageTimeoutMs: 120_000,
 };
 
 /** The production `AppDeps`. */
 export function createAppDeps({
   db,
+  imageAdapterFor,
   keyEncryptionSecrets,
   runtime,
   hostProviders,
   hostTools,
   byok,
+  defaultBackgroundModel,
+  defaultImageModel,
   getQuota,
   rateLimits,
   tools,
   fetchAllowHosts,
   mcpServers,
+  blobStore,
+  isUserBlocked = () => false,
   logger = console,
   hooks,
+  artifacts,
 }: {
   db: Database;
+  /** The image adapter factory; the production one is `imageAdapterFor` in `chat/adapters.ts`. */
+  imageAdapterFor?: AppDeps["imageAdapterFor"];
   keyEncryptionSecrets: string[];
   runtime: ChatRuntime;
   hostProviders: HostProvider[];
   hostTools: HostTool[];
   byok: boolean;
+  defaultBackgroundModel?: string;
+  defaultImageModel?: string;
   getQuota: AppDeps["getQuota"];
   rateLimits: ResolvedRateLimits;
   tools: HostServerTool[];
   fetchAllowHosts?: string[];
   mcpServers: McpServerConfig[];
+  blobStore: BlobStore;
+  isUserBlocked?: AppDeps["isUserBlocked"];
   logger?: AppDeps["logger"];
   hooks?: ChatHooks;
+  artifacts?: boolean;
 }): AppDeps {
   return {
     logger,
     hooks: createHookEmitter(hooks, logger),
     db,
+    blobStore,
+    isUserBlocked,
     adapterFor,
+    imageAdapterFor: imageAdapterFor ?? productionImageAdapterFor,
+    transcriptionAdapterFor,
     hostProviders,
     hostTools,
     byok,
+    defaultBackgroundModel: defaultBackgroundModel ?? null,
+    defaultImageModel: defaultImageModel ?? null,
     getQuota,
     searchClient: createTavilyClient(globalThis.fetch),
     tools,
@@ -214,5 +295,6 @@ export function createAppDeps({
     ollamaFetch: globalThis.fetch,
     keyEncryptionSecrets,
     mcpServers,
+    artifacts: artifacts ?? false,
   };
 }

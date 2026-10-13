@@ -1,9 +1,9 @@
 import { randomBytes, randomUUID } from "node:crypto";
 
 import { createDb } from "@ai-chat/db";
-import { account, session, user } from "@ai-chat/db/schema/auth";
+import { account, session, twoFactor, user } from "@ai-chat/db/schema/auth";
 import type { Page } from "@playwright/test";
-import { hashPassword, makeSignature } from "better-auth/crypto";
+import { hashPassword, makeSignature, symmetricEncrypt } from "better-auth/crypto";
 
 import { e2eDatabaseUrl } from "./database.ts";
 import { serverEnv } from "./env.ts";
@@ -12,7 +12,15 @@ import { serverEnv } from "./env.ts";
 const sessionCookieName = "better-auth.session_token";
 const sessionLifetimeMs = 7 * 24 * 60 * 60 * 1000;
 
-export type SeededUser = { id: string; name: string; email: string; password: string };
+export type SeededUser = {
+  id: string;
+  name: string;
+  email: string;
+  password: string;
+  /** With `twoFactor`: the TOTP key (its bytes are the HMAC key) and the ten backup codes. */
+  totpSecret?: string;
+  backupCodes?: string[];
+};
 
 /**
  * Writes a verified user with a password, and a session for it, straight into the e2e database,
@@ -20,10 +28,12 @@ export type SeededUser = { id: string; name: string; email: string; password: st
  * so no test waits on email or on the sign-up rate limit. With `password: false` the user has no
  * credential account (as if they signed up with GitHub or Google); `password` is then unusable.
  * `linked` adds a provider account row for each named provider (a linked GitHub or Google).
+ * `twoFactor` turns on two-factor sign-in with a known secret and ten backup codes, stored the way
+ * Better Auth stores them, so a test can compute the codes (see `totp.ts`).
  */
 export async function seedUser(
   page: Page,
-  options: { password?: boolean; linked?: ("github" | "google")[] } = {},
+  options: { password?: boolean; linked?: ("github" | "google")[]; twoFactor?: boolean } = {},
 ): Promise<SeededUser> {
   const seeded: SeededUser = {
     id: randomUUID(),
@@ -39,6 +49,7 @@ export async function seedUser(
       name: seeded.name,
       email: seeded.email,
       emailVerified: true,
+      twoFactorEnabled: options.twoFactor === true,
       createdAt: now,
       updatedAt: now,
     });
@@ -62,6 +73,20 @@ export async function seedUser(
         createdAt: now,
         updatedAt: now,
       });
+    }
+    if (options.twoFactor) {
+      const totpSecret = randomBytes(20).toString("base64url");
+      const codes = Array.from({ length: 10 }, () => randomBytes(5).toString("hex"));
+      const secret = serverEnv.BETTER_AUTH_SECRET;
+      await db.insert(twoFactor).values({
+        id: randomUUID(),
+        userId: seeded.id,
+        secret: await symmetricEncrypt({ key: secret, data: totpSecret }),
+        backupCodes: await symmetricEncrypt({ key: secret, data: JSON.stringify(codes) }),
+        verified: true,
+      });
+      seeded.totpSecret = totpSecret;
+      seeded.backupCodes = codes;
     }
   } finally {
     await db.$client.end();

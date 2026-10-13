@@ -38,6 +38,7 @@
     "@tanstack/ai-react": "0.30.1",
     "@tanstack/ai-vercel-gateway": "0.3.7",
     "@tanstack/react-query": "^5.102.8",
+    "aws4fetch": "^1.0.20",
     "drizzle-orm": "catalog:",
     "html-to-text": "10.0.1",
     "ipaddr.js": "2.5.0",

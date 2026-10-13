@@ -1,11 +1,15 @@
 import { randomBytes } from "node:crypto";
 
 import { conversation, message } from "../db/schema/chat";
+import { generatedImage } from "../db/schema/generated-image";
 import { sharedLink } from "../db/schema/share";
-import { and, desc, eq } from "drizzle-orm";
+import { artifact, artifactVersion } from "../db/schema/artifact";
+import { and, desc, eq, inArray } from "drizzle-orm";
 
+import { generatedImageBlobKey } from "../blob/store";
 import { listAvailableModels, resolveModel } from "../chat/available-models";
 import { loadPath } from "../chat/store";
+import { liveConversation } from "../chat/temporary";
 import { attachmentsOfMessages } from "../attachments/store";
 import { resolveModelCall } from "../credentials/resolve";
 import type { AppDeps } from "../deps";
@@ -13,7 +17,7 @@ import { uuidv7 } from "../lib/uuidv7";
 import { storedParts } from "../../shared/message-parts";
 import { toSharedConversation } from "../../shared/share/conversation";
 
-type Deps = Pick<AppDeps, "db">;
+type Deps = Pick<AppDeps, "db" | "isUserBlocked">;
 type EventDeps = Pick<AppDeps, "db" | "hooks">;
 type Db = Deps["db"];
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
@@ -35,6 +39,7 @@ async function findShareState(db: Db | Tx, userId: string, conversationId: strin
   const [row] = await db
     .select({
       title: conversation.title,
+      temporary: conversation.temporary,
       activeLeafId: conversation.activeLeafId,
       leafStatus: message.status,
       link: sharedLink,
@@ -42,7 +47,13 @@ async function findShareState(db: Db | Tx, userId: string, conversationId: strin
     .from(conversation)
     .leftJoin(message, eq(message.id, conversation.activeLeafId))
     .leftJoin(sharedLink, eq(sharedLink.conversationId, conversation.id))
-    .where(and(eq(conversation.id, conversationId), eq(conversation.userId, userId)));
+    .where(
+      and(
+        eq(conversation.id, conversationId),
+        eq(conversation.userId, userId),
+        liveConversation(new Date()),
+      ),
+    );
   if (!row) return undefined;
   const blockedBy: ShareBlock = !row.activeLeafId
     ? "empty"
@@ -74,6 +85,7 @@ type UpsertResult =
       change: "created" | "moved";
     }
   | { error: "not_found" }
+  | { error: "temporary" }
   | { error: "blocked"; blockedBy: NonNullable<ShareBlock> };
 
 /**
@@ -95,6 +107,7 @@ export async function upsertSharedLink(
       .for("update");
     const state = await findShareState(tx, userId, conversationId);
     if (!state) return { error: "not_found" };
+    if (state.temporary) return { error: "temporary" };
     if (state.blockedBy || !state.activeLeafId) {
       return { error: "blocked", blockedBy: state.blockedBy ?? "empty" };
     }
@@ -138,7 +151,7 @@ export async function listSharedLinks(deps: Deps, userId: string) {
     .innerJoin(conversation, eq(conversation.id, sharedLink.conversationId))
     .where(eq(conversation.userId, userId))
     .orderBy(desc(sharedLink.updatedAt));
-  return rows.map((row) => ({ ...row, title: row.title ?? "Untitled" }));
+  return rows;
 }
 
 /**
@@ -161,9 +174,24 @@ export async function deleteSharedLink(deps: EventDeps, userId: string, conversa
   return true;
 }
 
+/**
+ * The Shared link for a token, or `undefined` when the token is unknown, its Conversation has
+ * expired (a Temporary Conversation), or its owner is blocked (spec #277): a banned user's links
+ * are not found, so they can't be read or continued.
+ */
+async function findVisibleLink(deps: Deps, token: string) {
+  const [row] = await deps.db
+    .select({ link: sharedLink, ownerId: conversation.userId })
+    .from(sharedLink)
+    .innerJoin(conversation, eq(conversation.id, sharedLink.conversationId))
+    .where(and(eq(sharedLink.token, token), liveConversation(new Date())));
+  if (!row || (await deps.isUserBlocked(row.ownerId))) return undefined;
+  return row.link;
+}
+
 /** What anyone with the token sees (see `toSharedConversation`). `undefined` for an unknown token. */
 export async function loadSharedConversation(deps: Deps, token: string) {
-  const [link] = await deps.db.select().from(sharedLink).where(eq(sharedLink.token, token));
+  const link = await findVisibleLink(deps, token);
   if (!link) return undefined;
   const path = await loadPath(deps, link.conversationId, link.leafMessageId);
   const attachments = await attachmentsOfMessages(
@@ -171,6 +199,64 @@ export async function loadSharedConversation(deps: Deps, token: string) {
     path.map((row) => row.id),
   );
   return toSharedConversation(link, path, attachments);
+}
+
+/**
+ * A Generated image on a Shared link: its bytes and type, when the link is visible and the image's
+ * Message is on the path up from its leaf (ADR 0004). `undefined` for anything else, including an
+ * image on a sibling Branch or after the leaf.
+ */
+export async function loadSharedGeneratedImage(deps: AppDeps, token: string, imageId: string) {
+  const link = await findVisibleLink(deps, token);
+  if (!link) return undefined;
+  const [row] = await deps.db
+    .select({ messageId: generatedImage.messageId, mediaType: generatedImage.mediaType })
+    .from(generatedImage)
+    .where(eq(generatedImage.id, imageId));
+  if (!row) return undefined;
+  const path = await loadPath(deps, link.conversationId, link.leafMessageId);
+  if (!path.some((onPath) => onPath.id === row.messageId)) return undefined;
+  const bytes = await deps.blobStore.get(generatedImageBlobKey(imageId));
+  return bytes ? { mediaType: row.mediaType, bytes } : undefined;
+}
+
+/**
+ * Version `number` of an Artifact, for a visitor of a Shared link (ADR 0016). Only a version written
+ * by a Message on the shared path, up to `leafMessageId`, is served, and only from the link's own
+ * Conversation, so a version after the shared point, on another Branch or in another Conversation
+ * reads as absent. `null` for an unknown token or no such version.
+ */
+export async function loadSharedArtifactVersion(
+  deps: Deps,
+  token: string,
+  { artifactId, number }: { artifactId: string; number: number },
+) {
+  const [link] = await deps.db.select().from(sharedLink).where(eq(sharedLink.token, token));
+  if (!link) return null;
+  const pathIds = (await loadPath(deps, link.conversationId, link.leafMessageId)).map(
+    (row) => row.id,
+  );
+  if (pathIds.length === 0) return null;
+  const [row] = await deps.db
+    .select({
+      kind: artifact.kind,
+      messageId: artifactVersion.messageId,
+      title: artifactVersion.title,
+      language: artifactVersion.language,
+      content: artifactVersion.content,
+    })
+    .from(artifactVersion)
+    .innerJoin(artifact, eq(artifact.id, artifactVersion.artifactId))
+    .where(
+      and(
+        eq(artifactVersion.artifactId, artifactId),
+        eq(artifactVersion.number, number),
+        eq(artifact.conversationId, link.conversationId),
+        inArray(artifactVersion.messageId, pathIds),
+      ),
+    );
+  if (!row) return null;
+  return { artifactId, number, ...row };
 }
 
 /**
@@ -185,7 +271,7 @@ export async function continueSharedConversation(
   userId: string,
   token: string,
 ): Promise<{ id: string } | "not_found" | "no_model"> {
-  const [link] = await deps.db.select().from(sharedLink).where(eq(sharedLink.token, token));
+  const link = await findVisibleLink(deps, token);
   if (!link) return "not_found";
   const path = await loadPath(deps, link.conversationId, link.leafMessageId);
   const lastModel = path.filter((row) => row.role === "assistant").at(-1)?.model;

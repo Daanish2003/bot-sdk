@@ -146,3 +146,15 @@ describe("conversation.deleteAll", () => {
     });
   });
 });
+
+describe("conversation.deleteAll, Temporary Conversations", () => {
+  it("deletes the caller's Temporary Conversations too", async () => {
+    const owner = await insertUser();
+    const client = chatRpc({ user: owner });
+    await insertConversation(owner, { temporary: true, title: null });
+
+    await client.conversation.deleteAll();
+
+    expect(await conversationsOf(owner.id)).toEqual([]);
+  });
+});

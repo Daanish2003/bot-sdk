@@ -1,0 +1,1 @@
+ALTER TABLE "chat"."user_settings" RENAME COLUMN "title_model" TO "background_model";

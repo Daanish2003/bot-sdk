@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { MessagesSquareIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 
-import { useChatAdapter } from "../../core/client/react/provider";
+import { useChatAdapter, useI18n } from "../../core/client/react/provider";
 import { CommandPalette } from "./command-palette";
 import { ConversationPanel } from "./conversation-panel";
 import { QuotaSlotProvider } from "./quota-slot";
@@ -19,17 +19,21 @@ const panelStorageKey = "ai-chat:conversation-panel";
  * `userMenu` is the host app's account menu, shown at the top bar's right end.
  * `quotaExceeded` is the host app's content for a user who has used up their Quota (ADR 0007),
  * shown in the composer's banner.
+ * `installPrompt` is the host app's install UI (a PWA's "Install" row), shown at the drawer's bottom.
  */
 export function AppShell({
   children,
   userMenu,
   quotaExceeded,
+  installPrompt,
 }: {
   children: ReactNode;
   userMenu?: ReactNode;
   quotaExceeded?: ReactNode;
+  installPrompt?: ReactNode;
 }) {
   const { orpc, Link } = useChatAdapter();
+  const { t } = useI18n();
   const [panelOpen, setPanelOpen] = useState(true);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -62,7 +66,7 @@ export function AppShell({
         <div
           id="app-drawer"
           className={cn(
-            "fixed inset-y-0 left-0 z-40 flex bg-background transition-[translate,visibility] md:static md:z-auto md:transition-none",
+            "fixed inset-y-0 left-0 z-40 flex flex-col bg-background transition-[translate,visibility] max-md:pt-[env(safe-area-inset-top)] max-md:pb-[env(safe-area-inset-bottom)] max-md:pl-[env(safe-area-inset-left)] md:static md:z-auto md:transition-none print:hidden",
             !drawerOpen && "max-md:invisible max-md:-translate-x-full",
           )}
           // Following a link (a Conversation, New Conversation, Keys) closes the drawer.
@@ -73,70 +77,73 @@ export function AppShell({
             if (event.key === "Escape") setDrawerOpen(false);
           }}
         >
-          <nav
-            aria-label="App"
-            className="flex w-12 shrink-0 flex-col items-center gap-1 border-r bg-sidebar py-2"
-          >
-            <Link
-              page={{ to: "new" }}
-              aria-label="ai-chat"
-              className="mb-2 flex size-8 items-center justify-center rounded-md bg-primary text-xs font-bold text-primary-foreground"
+          <div className="flex min-h-0 flex-1">
+            <nav
+              aria-label={t("shell.app")}
+              className="flex w-12 shrink-0 flex-col items-center gap-1 border-r bg-sidebar py-2"
             >
-              ai
-            </Link>
-            {noCredentials ? (
+              <Link
+                page={{ to: "new" }}
+                aria-label="ai-chat"
+                className="mb-2 flex size-8 items-center justify-center rounded-md bg-primary text-xs font-bold text-primary-foreground"
+              >
+                ai
+              </Link>
+              {noCredentials ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  title={t("shell.addCredentialsToStart")}
+                  aria-label={t("shell.newConversation")}
+                  disabled
+                >
+                  <PlusIcon />
+                </Button>
+              ) : (
+                <Link
+                  page={{ to: "new" }}
+                  title={t("shell.newConversation")}
+                  aria-label={t("shell.newConversation")}
+                  className={buttonVariants({ variant: "ghost", size: "icon" })}
+                >
+                  <PlusIcon />
+                </Link>
+              )}
               <Button
                 variant="ghost"
                 size="icon"
-                title="Add Provider credentials to start"
-                aria-label="New Conversation"
-                disabled
+                title={t("shell.searchTitle")}
+                aria-label={t("shell.search")}
+                aria-haspopup="dialog"
+                onClick={openSearch}
               >
-                <PlusIcon />
+                <SearchIcon />
               </Button>
-            ) : (
-              <Link
-                page={{ to: "new" }}
-                title="New Conversation"
-                aria-label="New Conversation"
-                className={buttonVariants({ variant: "ghost", size: "icon" })}
+              <Button
+                variant="ghost"
+                size="icon"
+                title={t("shell.conversations")}
+                aria-label={t("shell.conversations")}
+                aria-pressed={panelOpen}
+                onClick={() => showPanel(!panelOpen)}
+                className={cn("max-md:hidden", panelOpen && "bg-sidebar-accent text-primary")}
               >
-                <PlusIcon />
+                <MessagesSquareIcon />
+              </Button>
+              <div className="flex-1" />
+              <Link
+                page={{ to: "keys" }}
+                title={t("shell.keysAndSettings")}
+                aria-label={t("shell.keysAndSettings")}
+                className={buttonVariants({ variant: "ghost", size: "icon" })}
+                activeClassName="bg-sidebar-accent text-primary"
+              >
+                <SettingsIcon />
               </Link>
-            )}
-            <Button
-              variant="ghost"
-              size="icon"
-              title="Search (⌘K / Ctrl+K)"
-              aria-label="Search"
-              aria-haspopup="dialog"
-              onClick={openSearch}
-            >
-              <SearchIcon />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              title="Conversations"
-              aria-label="Conversations"
-              aria-pressed={panelOpen}
-              onClick={() => showPanel(!panelOpen)}
-              className={cn("max-md:hidden", panelOpen && "bg-sidebar-accent text-primary")}
-            >
-              <MessagesSquareIcon />
-            </Button>
-            <div className="flex-1" />
-            <Link
-              page={{ to: "keys" }}
-              title="Keys & settings"
-              aria-label="Keys & settings"
-              className={buttonVariants({ variant: "ghost", size: "icon" })}
-              activeClassName="bg-sidebar-accent text-primary"
-            >
-              <SettingsIcon />
-            </Link>
-          </nav>
-          <ConversationPanel className={cn(!panelOpen && "md:hidden")} />
+            </nav>
+            <ConversationPanel className={cn(!panelOpen && "md:hidden")} />
+          </div>
+          {installPrompt}
         </div>
 
         <div className="flex min-w-0 flex-1 flex-col">
@@ -148,7 +155,7 @@ export function AppShell({
             onOpenSearch={openSearch}
             userMenu={userMenu}
           />
-          <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+          <div className="min-h-0 flex-1 overflow-y-auto print:overflow-visible">{children}</div>
         </div>
 
         <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />

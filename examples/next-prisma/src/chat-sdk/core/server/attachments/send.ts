@@ -6,16 +6,17 @@ import type { AppDeps } from "../deps";
 import {
   acceptedKinds,
   attachmentKind,
-  kindLabelPlural,
   maxAttachmentBytes,
   maxBranchAttachmentBytes,
 } from "../../shared/attachments/kinds";
+import type { ErrorCode } from "../../shared/i18n";
+import type { ErrorParams } from "../rpc-error";
 import { attachmentsOfMessages, findOwnedAttachments, loadAttachmentBytes } from "./store";
 
-type Deps = Pick<AppDeps, "db">;
+type Deps = Pick<AppDeps, "db" | "blobStore">;
 
 export type SendAttachments =
-  | { error: { status: number; message: string } }
+  | { error: { status: number; code: ErrorCode; params: ErrorParams } }
   | {
       error: null;
       /** The new Message's attachments, with their bytes. */
@@ -40,17 +41,29 @@ export async function attachmentsForSend(
 ): Promise<SendAttachments> {
   const added = await findOwnedAttachments(deps, userId, attachmentIds);
   if (added.length !== attachmentIds.length) {
-    return { error: { status: 404, message: "Attachment not found" } };
+    return { error: { status: 404, code: "error.attachmentNotFound", params: {} } };
   }
   const accepted = acceptedKinds(model);
   for (const file of added) {
     const kind = attachmentKind(file.mediaType, file.filename);
-    if (!kind || !accepted.includes(kind)) {
-      const what = kind ? kindLabelPlural(kind) : `"${file.filename}"`;
-      return { error: { status: 400, message: `${model.label} can't read ${what}` } };
+    if (!kind) {
+      return {
+        error: {
+          status: 400,
+          code: "error.attachmentNotSupported",
+          params: { name: file.filename },
+        },
+      };
+    }
+    if (!accepted.includes(kind)) {
+      return {
+        error: { status: 400, code: "error.modelCantRead", params: { model: model.label, kind } },
+      };
     }
     if (file.size > maxAttachmentBytes) {
-      return { error: { status: 400, message: `"${file.filename}" is larger than 5 MB` } };
+      return {
+        error: { status: 400, code: "error.attachmentTooLarge", params: { name: file.filename } },
+      };
     }
   }
 
@@ -61,7 +74,7 @@ export async function attachmentsForSend(
   const onBranch = [...[...byMessage.values()].flat(), ...added];
   const branchBytes = onBranch.reduce((total, file) => total + file.size, 0);
   if (branchBytes > maxBranchAttachmentBytes) {
-    return { error: { status: 400, message: "Attachments on this Branch would pass 20 MB" } };
+    return { error: { status: 400, code: "error.branchAttachmentsTooLarge", params: {} } };
   }
 
   const bytes = await loadAttachmentBytes(
@@ -72,7 +85,7 @@ export async function attachmentsForSend(
     files.map(({ id, filename, mediaType }) => {
       const stored = bytes.get(id);
       if (!stored) throw new Error(`Attachment ${id} has no bytes`);
-      return { filename, mediaType, bytes: stored };
+      return { id, filename, mediaType, bytes: stored };
     });
   return {
     error: null,

@@ -20,6 +20,8 @@ export function AccountPage() {
       <ProfileSection name={current.user.name} />
       <EmailSection email={current.user.email} />
       <PasswordSection email={current.user.email} />
+      <TwoFactorSection />
+      <PasskeysSection />
       <ConnectedAccountsSection />
       <SessionsSection currentSessionId={current.session.id} />
       <DangerSection email={current.user.email} />
@@ -207,6 +209,451 @@ function SetPasswordByEmail({ email }: { email: string }) {
         Email me a link to set a password
       </Button>
     </div>
+  );
+}
+
+type TotpSetup = { secret: string; totpURI: string; backupCodes: string[] };
+
+function secretOf(totpURI: string) {
+  return new URL(totpURI).searchParams.get("secret") ?? "";
+}
+
+/**
+ * Two-factor authentication (spec #277). Turning it on takes the password, then a code from the
+ * authenticator that proves the setup works; the backup codes come with that. Once on, the backup
+ * codes can be regenerated and 2FA turned off, each behind the password. An OAuth-only user has no
+ * password to confirm, so this says what unlocks it instead.
+ */
+function TwoFactorSection() {
+  const { data: current } = authClient.useSession();
+  const accounts = useLinkedAccounts();
+  const hasPassword = accounts.data?.some((account) => account.providerId === "credential");
+  const enabled = current?.user.twoFactorEnabled === true;
+  const [setup, setSetup] = useState<TotpSetup | null>(null);
+  // The codes shown once, after a setup or a regeneration.
+  const [codes, setCodes] = useState<string[] | null>(null);
+
+  if (codes) {
+    return (
+      <section className="space-y-3">
+        <h2 className="text-sm font-medium">Backup codes</h2>
+        <BackupCodes codes={codes} onDone={() => setCodes(null)} />
+      </section>
+    );
+  }
+
+  return (
+    <section className="space-y-3">
+      <h2 className="text-sm font-medium">Two-factor authentication</h2>
+      {hasPassword === false ? (
+        <p className="text-sm text-muted-foreground">
+          You sign in with GitHub or Google, which secures your sign-in. Set a password to unlock
+          two-factor authentication.
+        </p>
+      ) : hasPassword === undefined ? null : enabled ? (
+        <div className="space-y-6">
+          <p className="text-sm text-muted-foreground">
+            Two-factor authentication is on. Signing in asks for a code from your authenticator app.
+          </p>
+          <PasswordForm
+            id="two-factor-regenerate-password"
+            submitLabel="Regenerate backup codes"
+            run={async (password) => {
+              const { data, error } = await authClient.twoFactor.generateBackupCodes({ password });
+              if (error) throw error;
+              setCodes(data.backupCodes);
+            }}
+          />
+          <PasswordForm
+            id="two-factor-disable-password"
+            submitLabel="Turn off"
+            run={async (password) => {
+              const { error } = await authClient.twoFactor.disable({ password });
+              if (error) throw error;
+              toast.success("Two-factor authentication is off");
+            }}
+          />
+        </div>
+      ) : setup ? (
+        <VerifySetup
+          setup={setup}
+          onCancel={() => setSetup(null)}
+          onVerified={() => {
+            setSetup(null);
+            setCodes(setup.backupCodes);
+          }}
+        />
+      ) : (
+        <EnableStart
+          onSetup={(next) => {
+            setSetup(next);
+          }}
+        />
+      )}
+    </section>
+  );
+}
+
+function EnableStart({ onSetup }: { onSetup: (setup: TotpSetup) => void }) {
+  const [open, setOpen] = useState(false);
+  if (!open) {
+    return (
+      <Button variant="outline" onClick={() => setOpen(true)}>
+        Turn on two-factor authentication
+      </Button>
+    );
+  }
+  return (
+    <PasswordForm
+      id="two-factor-enable-password"
+      submitLabel="Continue"
+      run={async (password) => {
+        const { data, error } = await authClient.twoFactor.enable({ password });
+        if (error) throw error;
+        if (data.method !== "totp") throw new Error("Could not start two-factor setup");
+        onSetup({
+          secret: secretOf(data.totpURI),
+          totpURI: data.totpURI,
+          backupCodes: data.backupCodes,
+        });
+      }}
+    />
+  );
+}
+
+/** The secret as text, and a link that opens it in an authenticator app. A code confirms it. */
+function VerifySetup({
+  setup,
+  onVerified,
+  onCancel,
+}: {
+  setup: TotpSetup;
+  onVerified: () => void;
+  onCancel: () => void;
+}) {
+  const [code, setCode] = useState("");
+  const verify = useMutation({
+    mutationFn: async () => {
+      const { error } = await authClient.twoFactor.verifyTotp({ code: code.trim() });
+      if (error) throw new Error(error.message ?? "That code didn't work");
+    },
+    onSuccess: () => {
+      toast.success("Two-factor authentication is on");
+      onVerified();
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">
+        Add this account to an authenticator app, then enter the 6-digit code it shows.
+      </p>
+      <p className="text-sm">
+        Setup key: <code className="break-all font-mono">{setup.secret}</code>
+      </p>
+      <a href={setup.totpURI} className="text-sm underline">
+        Open in an authenticator app
+      </a>
+      <form
+        className="flex flex-col gap-3 sm:flex-row sm:items-end"
+        onSubmit={(event) => {
+          event.preventDefault();
+          verify.mutate();
+        }}
+      >
+        <div className="flex-1 space-y-2">
+          <Label htmlFor="two-factor-setup-code">Authentication code</Label>
+          <Input
+            id="two-factor-setup-code"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            maxLength={6}
+            value={code}
+            onChange={(event) => setCode(event.target.value)}
+            required
+          />
+        </div>
+        <Button type="submit" disabled={verify.isPending || code.trim() === ""}>
+          Confirm
+        </Button>
+        <Button type="button" variant="outline" onClick={onCancel}>
+          Cancel
+        </Button>
+      </form>
+    </div>
+  );
+}
+
+/** A password field and one button. `run` throws the Better Auth error, which is shown by its code. */
+function PasswordForm({
+  id,
+  submitLabel,
+  run,
+}: {
+  id: string;
+  submitLabel: string;
+  run: (password: string) => Promise<void>;
+}) {
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const submit = useMutation({
+    mutationFn: () => run(password),
+    onSuccess: () => {
+      setPassword("");
+      setError(null);
+    },
+    onError: (failure: { code?: string; message?: string }) =>
+      setError(
+        failure.code === "INVALID_PASSWORD"
+          ? "Password is incorrect"
+          : (failure.message ?? "Something went wrong"),
+      ),
+  });
+
+  return (
+    <form
+      className="flex flex-col gap-3 sm:flex-row sm:items-end"
+      onSubmit={(event) => {
+        event.preventDefault();
+        submit.mutate();
+      }}
+    >
+      <div className="flex-1 space-y-2">
+        <Label htmlFor={id}>Password</Label>
+        <Input
+          id={id}
+          type="password"
+          autoComplete="current-password"
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          required
+        />
+      </div>
+      <Button type="submit" variant="outline" disabled={submit.isPending || password === ""}>
+        {submitLabel}
+      </Button>
+      {error ? (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      ) : null}
+    </form>
+  );
+}
+
+function BackupCodes({ codes, onDone }: { codes: string[]; onDone: () => void }) {
+  const text = codes.join("\n");
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">
+        Each code works once, in place of an authenticator code. Keep them somewhere safe.
+      </p>
+      <ul aria-label="Backup codes" className="grid grid-cols-2 gap-2 font-mono text-sm">
+        {codes.map((code) => (
+          <li key={code}>{code}</li>
+        ))}
+      </ul>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant="outline"
+          onClick={() =>
+            navigator.clipboard.writeText(text).then(
+              () => toast.success("Backup codes copied"),
+              () => toast.error("Could not copy the codes"),
+            )
+          }
+        >
+          Copy backup codes
+        </Button>
+        <Button
+          variant="outline"
+          onClick={() => {
+            const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = "backup-codes.txt";
+            link.click();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+          }}
+        >
+          Download backup codes
+        </Button>
+        <Button onClick={onDone}>Done</Button>
+      </div>
+    </div>
+  );
+}
+
+/** Passkeys: add one (the browser prompt, then a name), rename or delete. Adding needs a session from the last day. */
+function PasskeysSection() {
+  const passkeys = authClient.useListPasskeys();
+  const rows = passkeys.data ?? [];
+  // The passkey just added, named in the field below the list.
+  const [naming, setNaming] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  // The session is older than a day: adding waits until the user signs in again.
+  const [staleSession, setStaleSession] = useState(false);
+
+  const add = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await authClient.passkey.addPasskey();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (passkey) => {
+      setError(null);
+      setStaleSession(false);
+      setName("");
+      setNaming(passkey.id);
+    },
+    onError: (failure: { code?: string; message?: string }) => {
+      const stale = failure.code === "SESSION_NOT_FRESH";
+      setStaleSession(stale);
+      setError(
+        stale
+          ? "Sign in again to add a passkey."
+          : (failure.message ?? "Could not add the passkey"),
+      );
+    },
+  });
+
+  const save = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await authClient.$fetch("/passkey/update-passkey", {
+        method: "POST",
+        body: { id, name: name.trim() },
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      setNaming(null);
+      setRenaming(null);
+      setName("");
+      passkeys.refetch();
+    },
+    onError: (failure: { message?: string }) =>
+      toast.error(failure.message ?? "Could not rename the passkey"),
+  });
+
+  const remove = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await authClient.$fetch("/passkey/delete-passkey", {
+        method: "POST",
+        body: { id },
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Passkey deleted");
+      passkeys.refetch();
+    },
+    onError: (failure: { message?: string }) =>
+      toast.error(failure.message ?? "Could not delete the passkey"),
+  });
+
+  const editingId = naming ?? renaming;
+
+  return (
+    <section className="space-y-3">
+      <h2 className="text-sm font-medium">Passkeys</h2>
+      <p className="text-sm text-muted-foreground">
+        Passkeys let you sign in without a password, using this device&apos;s screen lock.
+      </p>
+      {rows.length > 0 ? (
+        <ul aria-label="Passkeys" className="divide-y overflow-hidden rounded-xl border">
+          {rows.map((passkey) => {
+            const label = passkey.name || "Unnamed passkey";
+            return (
+              <li
+                key={passkey.id}
+                className="flex flex-col gap-2 p-4 text-sm sm:flex-row sm:items-center sm:justify-between"
+              >
+                {editingId === passkey.id ? (
+                  <form
+                    className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-end"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      save.mutate(passkey.id);
+                    }}
+                  >
+                    <div className="flex-1 space-y-2">
+                      <Label htmlFor="passkey-name">Passkey name</Label>
+                      <Input
+                        id="passkey-name"
+                        value={name}
+                        onChange={(event) => setName(event.target.value)}
+                        required
+                      />
+                    </div>
+                    <Button
+                      type="submit"
+                      variant="outline"
+                      disabled={save.isPending || name.trim() === ""}
+                    >
+                      Save passkey name
+                    </Button>
+                  </form>
+                ) : (
+                  <>
+                    <span className="flex flex-col">
+                      <span>{label}</span>
+                      <span className="text-muted-foreground">
+                        Added {new Date(passkey.createdAt).toLocaleDateString()}
+                      </span>
+                    </span>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        aria-label={`Rename ${label}`}
+                        onClick={() => {
+                          setRenaming(passkey.id);
+                          setName(passkey.name ?? "");
+                        }}
+                      >
+                        Rename
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        aria-label={`Delete ${label}`}
+                        disabled={remove.isPending}
+                        onClick={() => remove.mutate(passkey.id)}
+                      >
+                        Delete
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+      <Button variant="outline" disabled={add.isPending} onClick={() => add.mutate()}>
+        Add passkey
+      </Button>
+      {error ? (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      ) : null}
+      {staleSession ? (
+        <Button
+          variant="outline"
+          onClick={() =>
+            authClient.signOut({
+              fetchOptions: { onSuccess: () => window.location.assign("/login") },
+            })
+          }
+        >
+          Sign in again
+        </Button>
+      ) : null}
+    </section>
   );
 }
 

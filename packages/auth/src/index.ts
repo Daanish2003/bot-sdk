@@ -1,10 +1,24 @@
 import type { Database } from "@ai-chat/db";
 import * as schema from "@ai-chat/db/schema/auth";
 import { type EmailMessage, type EmailSender, renderTemplate } from "@ai-chat/email";
+import { passkey } from "@better-auth/passkey";
 import { drizzleAdapter } from "@better-auth/drizzle-adapter/relations-v2";
 import { betterAuth } from "better-auth";
 import { createAuthMiddleware, isAPIError } from "better-auth/api";
+import { admin, twoFactor } from "better-auth/plugins";
+import { createAccessControl } from "better-auth/plugins/access";
+import { defaultStatements } from "better-auth/plugins/admin/access";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
+
+// The Admin role holds only what the Admin view needs (spec #277). Impersonation, role changes
+// (`admin:grant` is the only way), password and email changes and user deletion are left out, so the
+// plugin's endpoints for them refuse every role, Admins included. `user` gets no admin permissions.
+const accessControl = createAccessControl(defaultStatements);
+const adminRole = accessControl.newRole({
+  user: ["list", "get", "ban"],
+  session: ["list", "revoke"],
+});
+const userRole = accessControl.newRole({ user: [], session: [] });
 
 export type AuthConfig = {
   BETTER_AUTH_URL: string;
@@ -50,6 +64,9 @@ export type AuthOptions = {
   // limits are counted in memory per process. Only the counters go there, never sessions: Better
   // Auth's secondary storage would list and revoke sessions from Redis alone.
   rateLimitCounter?: RateLimitCounter;
+  // Headers Better Auth reads the client IP from, in order (TRUSTED_IP_HEADERS). Unset, Better Auth
+  // reads x-forwarded-for. Only list headers a proxy you run sets: a client can send any header.
+  trustedIpHeaders?: string[];
 };
 
 /** A fixed-window counter: adds one at `key` and returns the count, opening the window at 1. */
@@ -86,6 +103,8 @@ export function createAuth(
       schema,
     }),
     trustedOrigins: [env.BETTER_AUTH_URL],
+    // The TOTP issuer an authenticator app shows (spec #277).
+    appName: env.APP_NAME,
     socialProviders: {
       github: {
         clientId: env.GITHUB_CLIENT_ID,
@@ -113,6 +132,17 @@ export function createAuth(
       enabled: true,
       requireEmailVerification: true,
       revokeSessionsOnPasswordReset: true,
+      // The user object a sign-up answers with, whether or not the email is new (the answer must not
+      // reveal which). It carries the admin plugin's fields the same as a stored user.
+      customSyntheticUser: ({ coreFields, additionalFields, id }) => ({
+        ...coreFields,
+        role: "user",
+        banned: false,
+        banReason: null,
+        banExpires: null,
+        ...additionalFields,
+        id,
+      }),
       sendResetPassword: async ({ user, url }) => {
         sendInBackground(
           renderTemplate("reset-password", user.email, { appName: env.APP_NAME, url }),
@@ -180,20 +210,65 @@ export function createAuth(
     hooks: {
       // Changing a password while signed in (`/change-password`) doesn't run `onPasswordReset`,
       // so its notice is sent from here. Only a successful change has a `user` in its response.
+      // The two-factor steps below send their notices, and turning 2FA on signs out the other sessions.
       after: createAuthMiddleware(async (ctx) => {
         const returned = ctx.context.returned;
-        if (ctx.path !== "/change-password" || isAPIError(returned)) return;
-        const user = (returned as { user?: { email: string } } | undefined)?.user;
-        if (!user) return;
-        sendInBackground(
-          renderTemplate("password-changed", user.email, { appName: env.APP_NAME }),
-          "password changed",
-        );
+        if (isAPIError(returned)) return;
+        if (ctx.path === "/change-password") {
+          const user = (returned as { user?: { email: string } } | undefined)?.user;
+          if (!user) return;
+          sendInBackground(
+            renderTemplate("password-changed", user.email, { appName: env.APP_NAME }),
+            "password changed",
+          );
+          return;
+        }
+        // The first code confirms a new 2FA setup: a signed-in user's verify call, which rotates
+        // the session. A sign-in verifies with the challenge cookie and has no session here.
+        if (ctx.path === "/two-factor/verify-totp") {
+          const session = ctx.context.session;
+          const rotatedSession = ctx.context.newSession;
+          if (!session || !rotatedSession) return;
+          const others = (await ctx.context.internalAdapter.listSessions(session.user.id)).filter(
+            (other) => other.token !== rotatedSession.session.token,
+          );
+          await Promise.all(
+            others.map((other) => ctx.context.internalAdapter.deleteSession(other.token)),
+          );
+          sendInBackground(
+            renderTemplate("two-factor-enabled", session.user.email, { appName: env.APP_NAME }),
+            "two-factor enabled",
+          );
+          return;
+        }
+        // A passkey added from a signed-in session (spec #277): the notice goes to that session's owner.
+        if (ctx.path === "/passkey/verify-registration" && ctx.context.session) {
+          sendInBackground(
+            renderTemplate("passkey-added", ctx.context.session.user.email, {
+              appName: env.APP_NAME,
+            }),
+            "passkey added",
+          );
+          return;
+        }
+        if (ctx.path === "/two-factor/disable" && ctx.context.session) {
+          sendInBackground(
+            renderTemplate("two-factor-disabled", ctx.context.session.user.email, {
+              appName: env.APP_NAME,
+            }),
+            "two-factor disabled",
+          );
+        }
       }),
     },
     rateLimit: {
       enabled: options.rateLimit,
       storage: "memory",
+      // Passkey sign-in gets the same limit as `/sign-in*` (Better Auth's default for that path).
+      customRules: {
+        "/passkey/generate-authenticate-options": { window: 10, max: 3 },
+        "/passkey/verify-authentication": { window: 10, max: 3 },
+      },
       // Better Auth's own keys (IP and path) and rules; only where the count lives changes.
       ...(counter && {
         customStorage: {
@@ -204,9 +279,21 @@ export function createAuth(
         },
       }),
     },
+    // Better Auth's default IP headers apply unless the Host names its own (advanced.ipAddress).
+    ...(options.trustedIpHeaders && {
+      advanced: { ipAddress: { ipAddressHeaders: options.trustedIpHeaders } },
+    }),
     secret: env.BETTER_AUTH_SECRET,
     baseURL: env.BETTER_AUTH_URL,
-    plugins: [tanstackStartCookies()],
+    plugins: [
+      admin({ ac: accessControl, roles: { admin: adminRole, user: userRole } }),
+      // TOTP with backup codes (spec #277): optional, for password accounts only, no email OTP.
+      twoFactor({ allowPasswordless: false }),
+      // Passkeys for password-free sign-in (spec #277). The relying party id defaults to the
+      // hostname of `baseURL` (BETTER_AUTH_URL).
+      passkey({ rpName: env.APP_NAME }),
+      tanstackStartCookies(),
+    ],
   });
 }
 

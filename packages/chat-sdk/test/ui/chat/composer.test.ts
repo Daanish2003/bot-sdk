@@ -1,12 +1,41 @@
 import { describe, expect, it } from "vitest";
+import { QueryClient } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
-import { createElement } from "react";
+import { createElement, type ReactElement } from "react";
 
+import { createChatClient } from "../../../core/client/chat-client";
+import { ChatProvider, type ChatRouter } from "../../../core/client/react/provider";
 import { Composer } from "../../../ui/chat/composer";
+
+const client = createChatClient({
+  baseUrl: "http://localhost/api/chat",
+  fetch: async () => {
+    throw new Error("Unexpected request in a render test");
+  },
+});
+
+const router: ChatRouter = {
+  Link: ({ children, className }) => createElement("a", { className }, children),
+  navigate: () => {},
+  useLocation: () => ({ newConversation: false }),
+  shareUrl: (token) => token,
+};
+
+/** The composer inside the chat's provider, which its dictation mic reads (spec #249). */
+function render(composer: ReactElement) {
+  return renderToStaticMarkup(
+    createElement(ChatProvider, {
+      client,
+      router,
+      queryClient: new QueryClient(),
+      children: composer,
+    }),
+  );
+}
 
 describe("the composer after a refused Message", () => {
   it("keeps the text the user sent and shows the reason", () => {
-    const html = renderToStaticMarkup(
+    const html = render(
       createElement(Composer, {
         onSend: () => {},
         value: "Please rephrase me",
@@ -21,7 +50,7 @@ describe("the composer after a refused Message", () => {
   });
 
   it("shows no alert when nothing was refused", () => {
-    const html = renderToStaticMarkup(
+    const html = render(
       createElement(Composer, { onSend: () => {}, value: "", onValueChange: () => {} }),
     );
 

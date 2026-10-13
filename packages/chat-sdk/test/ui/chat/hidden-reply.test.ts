@@ -1,9 +1,9 @@
 import type { UIMessage } from "@tanstack/ai-react";
 import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { MessageRow } from "../../../ui/chat/message-row";
+import { renderInChat } from "../../support/chat-provider";
 
 const actions = {
   streaming: false,
@@ -11,6 +11,7 @@ const actions = {
   onEdit: () => {},
   onRegenerate: () => {},
   onSwitchBranch: () => {},
+  onRate: () => {},
 };
 
 /** A reply as `toUIMessages` builds it from the Active Branch. */
@@ -27,6 +28,7 @@ function reply(hidden: boolean): UIMessage {
       error: null,
       errorReason: null,
       usage: null,
+      rating: null,
       hidden,
     },
   } as UIMessage;
@@ -34,7 +36,7 @@ function reply(hidden: boolean): UIMessage {
 
 describe("a Hidden reply", () => {
   it("renders the hidden stub in place of the text, with no Copy", () => {
-    const html = renderToStaticMarkup(createElement(MessageRow, { message: reply(true), actions }));
+    const html = renderInChat(createElement(MessageRow, { message: reply(true), actions }));
 
     expect(html).toContain("This reply was hidden");
     expect(html).not.toContain("Forbidden words");
@@ -43,9 +45,7 @@ describe("a Hidden reply", () => {
   });
 
   it("renders a reply that is not hidden as before, with its text and Copy", () => {
-    const html = renderToStaticMarkup(
-      createElement(MessageRow, { message: reply(false), actions }),
-    );
+    const html = renderInChat(createElement(MessageRow, { message: reply(false), actions }));
 
     expect(html).toContain("Forbidden words");
     expect(html).not.toContain("This reply was hidden");

@@ -1,10 +1,15 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 
+import { artifact, artifactVersion } from "./db/schema/artifact";
 import { attachment, messageAttachment } from "./db/schema/attachment";
 import { conversation, message, project } from "./db/schema/chat";
+import { generatedImage } from "./db/schema/generated-image";
+import { savedPrompt } from "./db/schema/saved-prompt";
 import { sharedLink } from "./db/schema/share";
 import { userSettings } from "./db/schema/settings";
 import type { AppDeps } from "./deps";
+import { liveConversation } from "./chat/temporary";
+import type { ArtifactKind } from "../shared/chat/artifact";
 import type { StoredParts } from "../shared/message-parts";
 
 /**
@@ -16,7 +21,11 @@ export type UserExport = {
   /** The format version. Bumped only when a reader would misread the document. */
   version: 1;
   exportedAt: Date;
-  settings: { titleModel: string | null; instructions: string | null };
+  settings: {
+    backgroundModel: string | null;
+    imageModel: string | null;
+    instructions: string | null;
+  };
   projects: {
     id: string;
     name: string;
@@ -31,6 +40,10 @@ export type UserExport = {
     reasoningEffort: string | null;
     projectId: string | null;
     pinnedAt: Date | null;
+    /** A Temporary Conversation (spec #262); the export holds the ones that still exist. */
+    temporary: boolean;
+    /** When the Conversation was archived; null when it is not. */
+    archivedAt: Date | null;
     /** The newest Message of the Active Branch. */
     activeLeafId: string | null;
     lastMessageAt: Date;
@@ -43,14 +56,34 @@ export type UserExport = {
       parts: StoredParts;
       model: string | null;
       status: string;
+      /** The owner's Rating; always null on a user Message, which can't be rated. */
+      rating: "up" | "down" | null;
       /** A Hidden reply (#268): its parts are empty, and the export says only that it was hidden. */
       hidden: boolean;
       createdAt: Date;
       attachments: { filename: string; mediaType: string }[];
+      /** The Generated images the reply made: by id, the Image Model and the prompt, never the bytes. */
+      generatedImages: { id: string; model: string; prompt: string | null }[];
     }[];
   }[];
   /** The user's Shared links: the token, the Conversation it shares and when it was shared. */
   sharedLinks: { token: string; conversationId: string; createdAt: Date }[];
+  /** The user's Saved prompts, by name. */
+  savedPrompts: { name: string; text: string; createdAt: Date }[];
+  /** The user's Artifacts, each with every version it has on any Branch (ADR 0016). */
+  artifacts: {
+    id: string;
+    conversationId: string;
+    kind: ArtifactKind;
+    versions: {
+      number: number;
+      messageId: string;
+      title: string;
+      language: string | null;
+      content: string;
+      createdAt: Date;
+    }[];
+  }[];
 };
 
 /**
@@ -61,7 +94,11 @@ export async function exportUserData(deps: AppDeps, userId: string): Promise<Use
   return deps.db.transaction(
     async (tx) => {
       const [settings] = await tx
-        .select({ titleModel: userSettings.titleModel, instructions: userSettings.instructions })
+        .select({
+          backgroundModel: userSettings.backgroundModel,
+          imageModel: userSettings.imageModel,
+          instructions: userSettings.instructions,
+        })
         .from(userSettings)
         .where(eq(userSettings.userId, userId));
 
@@ -80,7 +117,7 @@ export async function exportUserData(deps: AppDeps, userId: string): Promise<Use
       const conversations = await tx
         .select()
         .from(conversation)
-        .where(eq(conversation.userId, userId))
+        .where(and(eq(conversation.userId, userId), liveConversation(new Date())))
         .orderBy(asc(conversation.createdAt), asc(conversation.id));
 
       const messages = (
@@ -88,7 +125,7 @@ export async function exportUserData(deps: AppDeps, userId: string): Promise<Use
           .select({ message })
           .from(message)
           .innerJoin(conversation, eq(conversation.id, message.conversationId))
-          .where(eq(conversation.userId, userId))
+          .where(and(eq(conversation.userId, userId), liveConversation(new Date())))
           .orderBy(asc(message.createdAt), asc(message.id))
       ).map((row) => row.message);
 
@@ -116,16 +153,81 @@ export async function exportUserData(deps: AppDeps, userId: string): Promise<Use
         })
         .from(sharedLink)
         .innerJoin(conversation, eq(conversation.id, sharedLink.conversationId))
-        .where(eq(conversation.userId, userId));
+        .where(and(eq(conversation.userId, userId), liveConversation(new Date())));
+
+      const images = messageIds.length
+        ? await tx
+            .select({
+              id: generatedImage.id,
+              messageId: generatedImage.messageId,
+              model: generatedImage.model,
+            })
+            .from(generatedImage)
+            .where(
+              and(inArray(generatedImage.messageId, messageIds), eq(generatedImage.userId, userId)),
+            )
+        : [];
+      const promptsByImage = new Map(
+        messages.flatMap((row) =>
+          row.parts.parts.flatMap((part) =>
+            part.type === "generated_image" && part.imageId
+              ? [[part.imageId, part.prompt] as const]
+              : [],
+          ),
+        ),
+      );
+      const savedPrompts = await tx
+        .select({
+          name: savedPrompt.name,
+          text: savedPrompt.text,
+          createdAt: savedPrompt.createdAt,
+        })
+        .from(savedPrompt)
+        .where(eq(savedPrompt.userId, userId))
+        .orderBy(asc(savedPrompt.name));
+
+      const artifacts = await tx
+        .select({
+          id: artifact.id,
+          conversationId: artifact.conversationId,
+          kind: artifact.kind,
+        })
+        .from(artifact)
+        .innerJoin(conversation, eq(conversation.id, artifact.conversationId))
+        .where(and(eq(conversation.userId, userId), liveConversation(new Date())))
+        .orderBy(asc(artifact.createdAt), asc(artifact.id));
+
+      const versions = await tx
+        .select({
+          artifactId: artifactVersion.artifactId,
+          number: artifactVersion.number,
+          messageId: artifactVersion.messageId,
+          title: artifactVersion.title,
+          language: artifactVersion.language,
+          content: artifactVersion.content,
+          createdAt: artifactVersion.createdAt,
+        })
+        .from(artifactVersion)
+        .innerJoin(artifact, eq(artifact.id, artifactVersion.artifactId))
+        .innerJoin(conversation, eq(conversation.id, artifact.conversationId))
+        .where(and(eq(conversation.userId, userId), liveConversation(new Date())))
+        .orderBy(
+          asc(artifactVersion.createdAt),
+          asc(artifactVersion.messageId),
+          asc(artifactVersion.number),
+        );
 
       const attachmentsByMessage = groupBy(attachments, (row) => row.messageId);
+      const imagesByMessage = groupBy(images, (row) => row.messageId);
       const messagesByConversation = groupBy(messages, (row) => row.conversationId);
+      const versionsByArtifact = groupBy(versions, (row) => row.artifactId);
 
       return {
         version: 1,
         exportedAt: new Date(),
         settings: {
-          titleModel: settings?.titleModel ?? null,
+          backgroundModel: settings?.backgroundModel ?? null,
+          imageModel: settings?.imageModel ?? null,
           instructions: settings?.instructions ?? null,
         },
         projects,
@@ -136,6 +238,8 @@ export async function exportUserData(deps: AppDeps, userId: string): Promise<Use
           reasoningEffort: conv.reasoningEffort,
           projectId: conv.projectId,
           pinnedAt: conv.pinnedAt,
+          temporary: conv.temporary,
+          archivedAt: conv.archivedAt,
           activeLeafId: conv.activeLeafId,
           lastMessageAt: conv.lastMessageAt,
           createdAt: conv.createdAt,
@@ -146,6 +250,7 @@ export async function exportUserData(deps: AppDeps, userId: string): Promise<Use
             parts: row.parts,
             model: row.model,
             status: row.status,
+            rating: row.rating,
             hidden: row.hiddenAt !== null,
             createdAt: row.createdAt,
             attachments: (attachmentsByMessage.get(row.id) ?? []).map(
@@ -154,9 +259,30 @@ export async function exportUserData(deps: AppDeps, userId: string): Promise<Use
                 mediaType,
               }),
             ),
+            generatedImages: (imagesByMessage.get(row.id) ?? []).map((image) => ({
+              id: image.id,
+              model: image.model,
+              prompt: promptsByImage.get(image.id) ?? null,
+            })),
           })),
         })),
         sharedLinks: links,
+        savedPrompts,
+        artifacts: artifacts.map((row) => ({
+          id: row.id,
+          conversationId: row.conversationId,
+          kind: row.kind,
+          versions: (versionsByArtifact.get(row.id) ?? []).map(
+            ({ number, messageId, title, language, content, createdAt }) => ({
+              number,
+              messageId,
+              title,
+              language,
+              content,
+              createdAt,
+            }),
+          ),
+        })),
       };
     },
     { isolationLevel: "repeatable read" },

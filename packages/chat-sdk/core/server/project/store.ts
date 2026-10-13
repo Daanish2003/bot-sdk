@@ -1,6 +1,9 @@
-import { conversation, project } from "../db/schema/chat";
-import { and, count, desc, eq, sql } from "drizzle-orm";
+import { conversation, message, project } from "../db/schema/chat";
+import { generatedImage } from "../db/schema/generated-image";
+import { and, count, desc, eq, inArray, sql } from "drizzle-orm";
 
+import { deleteBlobsBestEffort } from "../blob/store";
+import { generatedImageKeysWhere, imagesOfMessages } from "../chat/generated-image-store";
 import { stopProjectRuns } from "../chat/run";
 import type { AppDeps } from "../deps";
 
@@ -84,10 +87,28 @@ export async function deleteProject(deps: AppDeps, userId: string, id: string) {
       .select({ id: conversation.id })
       .from(conversation)
       .where(eq(conversation.projectId, id));
+    // The Generated images of the Project's Conversations: their rows go by cascade, their bytes after the commit.
+    const blobKeys = await generatedImageKeysWhere(
+      tx,
+      and(
+        eq(generatedImage.userId, userId),
+        imagesOfMessages(
+          tx,
+          inArray(
+            message.conversationId,
+            tx
+              .select({ id: conversation.id })
+              .from(conversation)
+              .where(eq(conversation.projectId, id)),
+          ),
+        ),
+      ),
+    );
     await tx.delete(project).where(eq(project.id, id));
-    return { gone, ended };
+    return { gone, ended, blobKeys };
   });
   if (!result) return undefined;
+  await deleteBlobsBestEffort(deps, result.blobKeys);
   // After the commit: a rolled-back delete fires nothing (#265, #266).
   for (const run of result.ended) deps.hooks.fire("onRunEnd", run);
   for (const row of result.gone) {

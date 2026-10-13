@@ -114,7 +114,7 @@ describe("the Run endpoint", () => {
     expect(question).toMatchObject({
       role: "user",
       parentId: null,
-      parts: { schemaVersion: 2, parts: [{ type: "text", text: "Hi" }] },
+      parts: { schemaVersion: 3, parts: [{ type: "text", text: "Hi" }] },
       searchText: "Hi",
       status: "complete",
       model: null,
@@ -122,7 +122,7 @@ describe("the Run endpoint", () => {
     expect(reply).toMatchObject({
       role: "assistant",
       parentId: question!.id,
-      parts: { schemaVersion: 2, parts: [{ type: "text", text: "Hello there!" }] },
+      parts: { schemaVersion: 3, parts: [{ type: "text", text: "Hello there!" }] },
       searchText: "Hello there!",
       status: "complete",
       model: anthropicModel,
@@ -176,8 +176,9 @@ describe("the Run endpoint", () => {
     const response = await send();
 
     expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({
-      message: "Add an Anthropic key or pick another Model",
+    expect(await response.json()).toEqual({
+      code: "error.addKey",
+      params: { label: "Anthropic" },
     });
     expect(await messagesOf(deps, conv.id)).toEqual([]);
   });
@@ -292,7 +293,7 @@ describe("the Run endpoint", () => {
 
     expect((await messagesOf(deps, conv.id))[1]).toMatchObject({
       status: "error",
-      error: "timed out",
+      error: "timed_out",
       errorReason: null,
       parts: { parts: [{ type: "text", text: "Hello" }] },
     });
@@ -418,7 +419,7 @@ describe("chat.stop", () => {
 
     expect((await messagesOf(deps, conv.id))[1]).toMatchObject({
       status: "error",
-      error: "timed out",
+      error: "timed_out",
     });
   });
 
@@ -561,8 +562,9 @@ describe("the Run endpoint refuses", () => {
     const response = await send({ model: "openai:gpt-5.6" });
 
     expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({
-      message: "Add an OpenAI key or pick another Model",
+    expect(await response.json()).toEqual({
+      code: "error.addKey",
+      params: { label: "OpenAI" },
     });
     expect(await messagesOf(deps, conv.id)).toEqual([]);
   });
@@ -778,7 +780,7 @@ describe("the Run endpoint thinking", () => {
     expect(body).toContain("REASONING_MESSAGE_CONTENT");
     expect(reply).toMatchObject({
       parts: {
-        schemaVersion: 2,
+        schemaVersion: 3,
         parts: [
           { type: "thinking", text: "Pondering hard." },
           { type: "text", text: "Hello!" },

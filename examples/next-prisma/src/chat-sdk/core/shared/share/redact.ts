@@ -4,8 +4,11 @@ import type { AttachmentInfo } from "../attachments/kinds";
 import { toolCallOf } from "../chat/tool-call";
 import { webSearchToolName } from "../chat/web-search";
 
-/** The parts a Shared link viewer may see. Anything else (thinking, file contents) is left out. */
-const sharedPartTypes = new Set<MessagePart["type"]>(["text", "tool-call", "tool-result"]);
+/**
+ * The parts a Shared link viewer may see. Anything else (thinking, file contents) is left out. The
+ * `artifact` part names a version and never holds its content (ADR 0016), so it is safe to show.
+ */
+const sharedPartTypes = new Set<string>(["text", "tool-call", "tool-result", "artifact"]);
 
 /**
  * A Message's parts as a Shared link shows them (ADR 0004): an allowlist, so a part type added

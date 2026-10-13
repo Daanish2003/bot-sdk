@@ -1,6 +1,7 @@
 import { type StoredPart, storedParts, storedPartsSchema } from "../../shared/message-parts";
 import { conversation, message } from "../db/schema/chat";
 import {
+  type AnyImageAdapter,
   type AnyTextAdapter,
   type ChatMiddleware,
   chat,
@@ -24,12 +25,19 @@ import {
   type HostToolContext,
 } from "./host-tools";
 import type { McpTools } from "../mcp/tools";
+import { artifactCutOff, createArtifactTool, updateArtifactTool } from "./artifact-tool";
 import { createWebSearchTool } from "./web-search-tool";
+import { paidCallAllowed } from "./quota";
 import { createFetchUrlTool } from "./fetch-url-tool";
+import { createGenerateImageTool } from "./generate-image-tool";
+import type { EditSource } from "./edit-sources";
+import type { ImageRequest } from "./adapters";
+import type { AspectRatio } from "../../shared/chat/generated-image";
 import { cancelChannel, heartbeatExpired, listenForStop, stopRequested } from "./stop";
 import { addUsage, messageUsage, normalizeUsage, promptCharactersOf, type RunUsage } from "./usage";
 import {
   recordHostUsage,
+  type ImageMeter,
   recordSearchUsage,
   type SearchMeter,
   type UsageMeter,
@@ -61,6 +69,8 @@ export async function startRun(
     messages,
     webSearch,
     fetchUrl = false,
+    image,
+    artifacts = false,
     hostTools = [],
     context,
     systemPrompts,
@@ -90,6 +100,22 @@ export async function startRun(
     webSearch?: Credentials;
     /** Whether this reply offers the `fetch_url` tool, which needs no credential. */
     fetchUrl?: boolean;
+    /**
+     * Set when this reply offers the `generate_image` tool: the Image Model's adapter, each call's
+     * request, and whose usage each image is (spec #278).
+     */
+    image?: {
+      adapter: AnyImageAdapter;
+      meter: ImageMeter;
+      request: (aspectRatio: AspectRatio) => ImageRequest;
+      /** The Image Model's input-image limit, and the path's images an edit may read (spec #278). */
+      edit?: {
+        maxInputImages: number;
+        sources: (ids: string[]) => Promise<EditSource[] | undefined>;
+      };
+    };
+    /** Whether this reply offers the `create_artifact` and `update_artifact` tools (`createChat({ artifacts })`, ADR 0016). */
+    artifacts?: boolean;
     /** The Host tools this reply offers (none when its Model has no tools). */
     hostTools?: HostServerTool[];
     /** The user and Conversation the Host tools are called for, passed to them as their context. */
@@ -218,6 +244,8 @@ export async function startRun(
                         deps.logger.error(`Recording a search of ${messageId} failed`, caught),
                       )
                   : undefined,
+                // A search on Host credentials is checked against the Quota first (ADR 0007).
+                mayRun: () => paidCallAllowed(deps, searchMeter),
               }),
             ]
           : []),
@@ -228,6 +256,49 @@ export async function startRun(
                 timeoutMs: deps.limits.fetchTimeoutMs,
                 parts,
                 onChange: () => (changed = true),
+              }),
+            ]
+          : []),
+        ...(image
+          ? [
+              createGenerateImageTool({
+                adapter: image.adapter,
+                meter: image.meter,
+                request: image.request,
+                edit: image.edit,
+                messageId,
+                deps,
+                fetch: deps.fetch,
+                timeoutMs: deps.limits.imageTimeoutMs,
+                parts,
+                onChange: () => (changed = true),
+                budget,
+                // An image on Host credentials is checked against the Quota first (ADR 0007, spec #278).
+                mayRun: () =>
+                  paidCallAllowed(
+                    deps,
+                    image.meter.price ? { userId: image.meter.userId } : undefined,
+                  ),
+              }),
+            ]
+          : []),
+        ...(artifacts
+          ? [
+              createArtifactTool({
+                deps,
+                messageId,
+                conversationId: context.conversationId,
+                parts,
+                onChange: () => (changed = true),
+                budget,
+              }),
+              updateArtifactTool({
+                deps,
+                messageId,
+                conversationId: context.conversationId,
+                parts,
+                onChange: () => (changed = true),
+                budget,
               }),
             ]
           : []),
@@ -244,6 +315,10 @@ export async function startRun(
           budget,
         }),
       ];
+      const middleware: ChatMiddleware[] = [
+        ...(artifacts ? [artifactCutOff] : []),
+        ...(compaction ? [compaction.middleware] : []),
+      ];
       const stream = chat({
         adapter,
         messages,
@@ -252,7 +327,8 @@ export async function startRun(
         ...(tools.length > 0 && { tools }),
         ...(systemPrompts.length > 0 && { systemPrompts }),
         modelOptions,
-        ...(compaction && { middleware: [compaction.middleware] }),
+        // The Artifact cut-off override runs first, so compaction sees the rewritten messages.
+        ...(middleware.length > 0 && { middleware }),
         // A resumed Run continues the thread and the Run that ended waiting (ADR 0008, spike #154).
         ...(resume && {
           threadId: resume.threadId,
@@ -309,7 +385,7 @@ export async function startRun(
       await mcp?.close();
       const interrupted = abortController.signal.reason === shutdownAbort;
       const outcome: { ending: RunEnding; reason?: string; update: MessageUpdate } = timedOut
-        ? { ending: "error", reason: "timed_out", update: { status: "error", error: "timed out" } }
+        ? { ending: "error", reason: "timed_out", update: { status: "error", error: "timed_out" } }
         : interrupted
           ? {
               ending: "error",
@@ -405,7 +481,7 @@ export async function startRun(
             logId,
             endingChunk(
               ids ?? { threadId: messageId, runId: messageId },
-              timedOut ? "timed out" : interrupted ? "interrupted" : error?.message,
+              timedOut ? "timed_out" : interrupted ? "interrupted" : error?.message,
             ),
           )
           .catch((caught: unknown) =>
@@ -754,7 +830,10 @@ export async function reapStaleRuns(deps: AppDeps, now = new Date()) {
       parsed.success &&
       parsed.data.parts.some(
         (part) =>
-          (part.type === "web_search" || part.type === "tool_call") && part.state === "running",
+          (part.type === "web_search" ||
+            part.type === "tool_call" ||
+            part.type === "generated_image") &&
+          part.state === "running",
       )
     ) {
       await deps.db

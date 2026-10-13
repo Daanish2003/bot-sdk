@@ -1,7 +1,7 @@
-import { ORPCError } from "@orpc/server";
 import { z } from "zod";
 
 import { protectedProcedure } from "../procedures";
+import { rpcError } from "../rpc-error";
 import { decodeCursor, searchMessages } from "../search/query";
 import { minSearchLength } from "../../shared/search/text";
 
@@ -28,7 +28,7 @@ export const searchRouter = {
     .handler(({ context, input }) => {
       const cursor = input.cursor === undefined ? undefined : decodeCursor(input.cursor);
       if (input.cursor !== undefined && !cursor) {
-        throw new ORPCError("BAD_REQUEST", { message: "Invalid cursor" });
+        throw rpcError("BAD_REQUEST", "error.invalidCursor", "Invalid cursor");
       }
       return searchMessages(context.deps, context.user.id, input.q, cursor, {
         model: input.model,

@@ -47,11 +47,15 @@ export function createToolBudget(used: number): ToolBudget {
   };
 }
 
-/** Calls a reply has already made: every tool call that ran, ended or was cut off. */
+/**
+ * Calls a reply has already made: every tool call that ran, ended or was cut off, `create_artifact`
+ * included. An Artifact's `artifact` part is not counted again: its call is. A `generate_image`
+ * call is one of them (its part is `generated_image`, spec #278).
+ */
 export function spentCalls(parts: StoredPart[]): number {
   return parts.filter(
     (part) =>
-      part.type === "tool_call" &&
+      (part.type === "tool_call" || part.type === "generated_image") &&
       (part.state === "done" || part.state === "error" || part.state === "cancelled"),
   ).length;
 }
@@ -90,7 +94,11 @@ export function trackTools(
         try {
           if (!budget.take()) {
             const error = { error: toolCallLimitError };
-            parts.finishToolCall(toolCallId, { state: "error", result: error });
+            parts.finishToolCall(toolCallId, {
+              state: "error",
+              result: error,
+              error: { code: "chat.toolError.limit" },
+            });
             return error;
           }
           const result = await run?.(args, context);
@@ -98,9 +106,14 @@ export function trackTools(
           return result;
         } catch (caught) {
           if (context?.abortSignal?.aborted) throw caught;
-          const error = { error: caught instanceof Error ? caught.message : String(caught) };
-          parts.finishToolCall(toolCallId, { state: "error", result: error });
-          return error;
+          const message = caught instanceof Error ? caught.message : String(caught);
+          // The Model reads the Host's message as it is; the reader gets the code and the message.
+          parts.finishToolCall(toolCallId, {
+            state: "error",
+            result: { error: message },
+            error: { code: "chat.toolError.failed", params: { message } },
+          });
+          return { error: message };
         } finally {
           onChange();
         }

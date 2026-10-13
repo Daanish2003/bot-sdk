@@ -22,12 +22,23 @@ export const TEMPLATE_NAMES = [
   "delete-account-confirm",
   "password-changed",
   "account-deleted",
+  "two-factor-enabled",
+  "two-factor-disabled",
+  "passkey-added",
 ] as const;
 
 export type TemplateName = (typeof TEMPLATE_NAMES)[number];
 
-// Templates with an action link take a `url`; the two notices take only the app name.
-type LinkTemplateName = Exclude<TemplateName, "password-changed" | "account-deleted">;
+// The notices take only the app name; the other templates take a `url` too.
+export const NOTICE_TEMPLATE_NAMES = [
+  "password-changed",
+  "account-deleted",
+  "two-factor-enabled",
+  "two-factor-disabled",
+  "passkey-added",
+] as const;
+
+type LinkTemplateName = Exclude<TemplateName, (typeof NOTICE_TEMPLATE_NAMES)[number]>;
 
 export type TemplateProps<N extends TemplateName> = {
   appName: string;
@@ -40,6 +51,8 @@ type Copy = {
   button?: string;
   expiry?: string;
   reason: string;
+  // Replaces the footer's "you can ignore it" for a notice that must not be ignored.
+  notYou?: string;
 };
 
 const EXPIRY = "This link expires in 1 hour.";
@@ -101,6 +114,29 @@ const copy: { [N in TemplateName]: (props: TemplateProps<N>) => Copy } = {
     paragraph: "Your account and its data were deleted as you asked. This cannot be undone.",
     reason: "your account was deleted",
   }),
+  "two-factor-enabled": ({ appName }: TemplateProps<"two-factor-enabled">) => ({
+    subject: `Two-factor sign-in was turned on for ${appName}`,
+    heading: "Two-factor sign-in is on",
+    paragraph:
+      "Two-factor sign-in was turned on for your account, and your other sessions were signed out. If this wasn't you, reset your password now.",
+    reason: "two-factor sign-in was turned on for your account",
+    notYou: "If this wasn't you, reset your password now.",
+  }),
+  "two-factor-disabled": ({ appName }: TemplateProps<"two-factor-disabled">) => ({
+    subject: `Two-factor sign-in was turned off for ${appName}`,
+    heading: "Two-factor sign-in is off",
+    paragraph:
+      "Two-factor sign-in was turned off for your account. If this wasn't you, reset your password now.",
+    reason: "two-factor sign-in was turned off for your account",
+    notYou: "If this wasn't you, reset your password now.",
+  }),
+  "passkey-added": ({ appName }: TemplateProps<"passkey-added">) => ({
+    subject: `A passkey was added to your ${appName} account`,
+    heading: "A passkey was added",
+    paragraph: "A passkey was added to your account. If this wasn't you, reset your password now.",
+    reason: "a passkey was added to your account",
+    notYou: "If this wasn't you, reset your password now.",
+  }),
 };
 
 const body = {
@@ -149,8 +185,8 @@ function EmailLayout({ copy, url, appName }: { copy: Copy; url?: string; appName
           {copy.expiry ? <Text style={muted}>{copy.expiry}</Text> : null}
           <Hr />
           <Text style={muted}>
-            You received this email from {appName} because {copy.reason}. If that wasn&apos;t you,
-            you can ignore it.
+            You received this email from {appName} because {copy.reason}.{" "}
+            {copy.notYou ?? "If that wasn't you, you can ignore it."}
           </Text>
         </Container>
       </Body>

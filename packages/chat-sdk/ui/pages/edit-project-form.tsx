@@ -18,7 +18,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { toast } from "sonner";
 
-import { useOrpc } from "../../core/client/react/provider";
+import { useI18n, useOrpc } from "../../core/client/react/provider";
+import { serverErrorText } from "../../core/client/rpc-error";
 
 /** The select's value for "no default Model", which a Project stores as `null`. */
 const noModel = "none";
@@ -44,6 +45,8 @@ export function EditProjectForm({
   onDone: () => void;
 }) {
   const orpc = useOrpc();
+  const i18n = useI18n();
+  const { t, locale } = i18n;
   const queryClient = useQueryClient();
   const models = useQuery(orpc.models.list.queryOptions());
   const [draftName, setDraftName] = useState(name);
@@ -52,11 +55,11 @@ export function EditProjectForm({
   const update = useMutation(
     orpc.project.update.mutationOptions({
       onSuccess: async () => {
-        toast.success("Project saved");
+        toast.success(t("pages.projectSaved"));
         await queryClient.invalidateQueries({ queryKey: orpc.project.key() });
         onDone();
       },
-      onError: (error) => toast.error(error.message),
+      onError: (error) => toast.error(serverErrorText(i18n, error)),
     }),
   );
 
@@ -69,9 +72,14 @@ export function EditProjectForm({
   const groups = modelGroups(available, "");
   // What the trigger shows for the selected value.
   const items = [
-    { value: noModel, label: "No default Model" },
+    { value: noModel, label: t("pages.noDefaultModel") },
     ...(unavailable
-      ? [{ value: unavailable, label: `${modelLabel(unavailable)} (unavailable)` }]
+      ? [
+          {
+            value: unavailable,
+            label: t("pages.unavailableModel", { model: modelLabel(unavailable) }),
+          },
+        ]
       : []),
     ...groups.flatMap((group) =>
       group.models.map((model) => ({ value: model.id, label: model.label })),
@@ -95,7 +103,7 @@ export function EditProjectForm({
   return (
     <form onSubmit={submit} className="space-y-3 rounded-xl border px-4 py-3">
       <div className="space-y-1.5">
-        <Label htmlFor="project-name">Name</Label>
+        <Label htmlFor="project-name">{t("pages.name")}</Label>
         <Input
           id="project-name"
           maxLength={100}
@@ -104,7 +112,7 @@ export function EditProjectForm({
         />
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="project-model">Default Model</Label>
+        <Label htmlFor="project-model">{t("pages.defaultModel")}</Label>
         <Select
           items={items}
           value={draftModel}
@@ -116,10 +124,10 @@ export function EditProjectForm({
           </SelectTrigger>
           <SelectContent>
             <SelectGroup>
-              <SelectItem value={noModel}>No default Model</SelectItem>
+              <SelectItem value={noModel}>{t("pages.noDefaultModel")}</SelectItem>
               {unavailable && (
                 <SelectItem value={unavailable}>
-                  {`${modelLabel(unavailable)} (unavailable)`}
+                  {t("pages.unavailableModel", { model: modelLabel(unavailable) })}
                 </SelectItem>
               )}
             </SelectGroup>
@@ -135,42 +143,38 @@ export function EditProjectForm({
             ))}
           </SelectContent>
         </Select>
-        <p className="text-xs text-muted-foreground">
-          New Conversations in this Project start on this Model. Replies already written keep
-          theirs.
-        </p>
+        <p className="text-xs text-muted-foreground">{t("pages.projectModelHelp")}</p>
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="project-instructions">Instructions</Label>
+        <Label htmlFor="project-instructions">{t("pages.instructions")}</Label>
         <Textarea
           id="project-instructions"
           value={draftInstructions}
-          placeholder="For example: this is my thesis on coastal erosion; cite sources."
+          placeholder={t("pages.projectInstructionsPlaceholder")}
           onChange={(event) => setDraftInstructions(event.target.value)}
           aria-invalid={tooLong || undefined}
         />
         <div className="flex items-center justify-between gap-3">
-          <p className="text-xs text-muted-foreground">
-            Sent with every reply here, after your own Instructions. Where they conflict, this
-            Project's win. Shared links never show them.
-          </p>
+          <p className="text-xs text-muted-foreground">{t("pages.projectInstructionsHelp")}</p>
           <p
             className={cn(
               "shrink-0 text-xs tabular-nums text-muted-foreground",
               tooLong && "text-destructive",
             )}
           >
-            {draftInstructions.length.toLocaleString("en-US")} /{" "}
-            {instructionsMaxChars.toLocaleString("en-US")} characters
+            {t("pages.characterCount", {
+              count: draftInstructions.length.toLocaleString(locale),
+              max: instructionsMaxChars.toLocaleString(locale),
+            })}
           </p>
         </div>
       </div>
       <div className="flex justify-end gap-2">
         <Button variant="outline" size="sm" type="button" onClick={onDone}>
-          Cancel
+          {t("pages.cancel")}
         </Button>
         <Button size="sm" type="submit" disabled={!trimmed || tooLong || update.isPending}>
-          {update.isPending ? "Saving…" : "Save"}
+          {update.isPending ? t("pages.saving") : t("pages.save")}
         </Button>
       </div>
     </form>
