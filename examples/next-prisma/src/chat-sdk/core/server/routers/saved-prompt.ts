@@ -35,6 +35,21 @@ function nameClash(name: string) {
   });
 }
 
+/**
+ * Whether Postgres refused a write because the user already has this name. A concurrent request can
+ * save the name after the check, so the unique index catches it. The query layer wraps the driver's
+ * error, so this follows the `cause` chain.
+ */
+function isNameClashViolation(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current; depth++) {
+    const { code, constraint } = current as { code?: unknown; constraint?: unknown };
+    if (code === "23505" && constraint === "saved_prompt_user_id_name_key") return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
 export const savedPromptRouter = {
   /** The caller's Saved prompts, by name. */
   list: protectedProcedure.handler(async ({ context }) => {
@@ -74,7 +89,12 @@ export const savedPromptRouter = {
       });
     }
     const id = uuidv7();
-    await db.insert(savedPrompt).values({ id, userId, name: input.name, text: input.text });
+    try {
+      await db.insert(savedPrompt).values({ id, userId, name: input.name, text: input.text });
+    } catch (error) {
+      if (isNameClashViolation(error)) throw nameClash(input.name);
+      throw error;
+    }
     return { id };
   }),
 
@@ -101,10 +121,15 @@ export const savedPromptRouter = {
           ),
         );
       if (clash) throw nameClash(input.name);
-      await db
-        .update(savedPrompt)
-        .set({ name: input.name, text: input.text })
-        .where(eq(savedPrompt.id, input.id));
+      try {
+        await db
+          .update(savedPrompt)
+          .set({ name: input.name, text: input.text })
+          .where(eq(savedPrompt.id, input.id));
+      } catch (error) {
+        if (isNameClashViolation(error)) throw nameClash(input.name);
+        throw error;
+      }
     }),
 
   /** Deletes one of the caller's Saved prompts. */

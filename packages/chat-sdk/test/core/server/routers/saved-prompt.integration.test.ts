@@ -38,6 +38,48 @@ async function seedSavedPrompts(user: TestUser, count: number) {
     );
 }
 
+/**
+ * A signed-in client whose first write of `method` runs after the name check, so `clashRow` is
+ * saved in the gap between the check and the write, as a concurrent request would save it.
+ */
+function clashingWriteClient(
+  user: TestUser,
+  method: "insert" | "update",
+  clashRow: { userId: string; name: string },
+) {
+  const db = getTestDb();
+  let raced = false;
+  const racing = new Proxy(db, {
+    get(target, prop, receiver) {
+      if (prop !== method) return Reflect.get(target, prop, receiver);
+      return (...args: unknown[]) => {
+        const write = (target[method] as (...a: unknown[]) => object)(...args);
+        return lateWrite(write, async () => {
+          if (raced) return;
+          raced = true;
+          await db.insert(savedPrompt).values({ id: uuidv7(), text: "Clashing.", ...clashRow });
+        });
+      };
+    },
+  });
+  return chatRpc({ user, deps: createTestDeps({ db: racing }) });
+}
+
+/** Wraps a query builder so that awaiting it runs `beforeAwait` first. */
+function lateWrite<T extends object>(builder: T, beforeAwait: () => Promise<void>): T {
+  return new Proxy(builder, {
+    get(target, prop) {
+      if (prop === "then") {
+        return (onOk: (value: unknown) => unknown, onErr: (error: unknown) => unknown) =>
+          beforeAwait().then(() => (target as PromiseLike<unknown>).then(onOk, onErr));
+      }
+      const value = Reflect.get(target, prop, target);
+      if (typeof value !== "function") return value;
+      return (...args: unknown[]) => lateWrite(value.apply(target, args) as object, beforeAwait);
+    },
+  });
+}
+
 describe("savedPrompt.list", () => {
   it("is empty by default", async () => {
     const { client } = await signedIn();
@@ -147,6 +189,18 @@ describe("savedPrompt.create", () => {
     });
   });
 
+  it("returns CONFLICT when a clashing name is saved between the check and the insert", async () => {
+    const user = await insertUser();
+    const client = clashingWriteClient(user, "insert", { userId: user.id, name: "racing" });
+
+    await expect(
+      client.savedPrompt.create({ name: "racing", text: "Second." }),
+    ).rejects.toMatchObject({
+      code: "CONFLICT",
+      message: 'You already have a Saved prompt named "racing"',
+    });
+  });
+
   it("lets another user have the same name", async () => {
     const { client } = await signedIn();
     const other = await signedIn();
@@ -195,6 +249,19 @@ describe("savedPrompt.update", () => {
         createdAt: before.createdAt,
       }),
     ]);
+  });
+
+  it("returns CONFLICT when a clashing name is saved between the check and the update", async () => {
+    const user = await insertUser();
+    const client = clashingWriteClient(user, "update", { userId: user.id, name: "racing" });
+    const { id } = await client.savedPrompt.create({ name: "free", text: "First." });
+
+    await expect(
+      client.savedPrompt.update({ id, name: "racing", text: "Second." }),
+    ).rejects.toMatchObject({
+      code: "CONFLICT",
+      message: 'You already have a Saved prompt named "racing"',
+    });
   });
 
   it("keeps the user's own name without a clash", async () => {
