@@ -2,7 +2,7 @@
 Status: accepted
 ---
 
-# Background jobs go through a durable-runner package, in-process by default
+# Background jobs go through a durable runner in the Chat SDK core, in-process by default
 
 Processing Knowledge files, syncing Synced sources and making Memories all happen after the request that caused them, can take minutes, and must survive a deploy. They go through `packages/durable-runner`: one interface (`enqueue`, retries, status) with two implementations. The **in-process** runner, built on the lease-and-reaper approach Runs already use (ADR 0006), is the default and needs nothing beyond Postgres. A **Trigger.dev** runner is opt-in for a Host that wants hosted, separately scaled workers.
 
