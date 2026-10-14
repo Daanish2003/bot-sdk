@@ -129,10 +129,27 @@ export const chatMessages = {
   "chat.searchFailed": "Search failed.",
   "chat.searchNotRunQuota": "Search not run: you're over this window's Quota.",
   "chat.searchNoResults": ({ query }: { query: string }) => `No results for "${query}"`,
+  // Searches of past chats (spec #263). A Shared link reads only the one without a query.
+  "chat.pastChatsSearching": ({ query }: { query: string }) =>
+    `Searching past chats for "${query}"…`,
+  "chat.pastChatsSearched": ({ query }: { query: string }) => `Searched past chats for "${query}"`,
+  "chat.pastChatsSearchedShared": "Searched past chats",
+  "chat.pastChatsNone": ({ query }: { query: string }) => `No past chats match "${query}"`,
+  "chat.pastChatsFailed": "Searching past chats failed",
   "chat.searchedQuery": ({ query, count }: { query: string; count: number }) =>
     `Searched "${query}" · ${count} ${count === 1 ? "source" : "sources"}`,
   "chat.searchedTimes": ({ count, sources }: { count: number; sources: number }) =>
     `Searched ${count} times · ${sources === 0 ? "no sources" : `${sources} ${sources === 1 ? "source" : "sources"}`}`,
+
+  // The Knowledge search a reply makes (spec #357, ticket #206): its line, and why it failed.
+  "chat.knowledgeSearching": ({ query }: { query: string }) =>
+    `Searching Knowledge for "${query}"…`,
+  "chat.knowledgeSearched": ({ query, count }: { query: string; count: number }) =>
+    `Searched Knowledge for "${query}" · ${count === 0 ? "no passages" : `${count} ${count === 1 ? "passage" : "passages"}`}`,
+  "chat.knowledgeFailed": "Knowledge search failed.",
+  "chat.knowledgeNotRunQuota": "Knowledge search not run: you're over this window's Quota.",
+  // An Excerpt chip's popover heading (spec #357, ticket #206), numbered with the reply's citations.
+  "chat.excerptHeading": ({ number }: { number: number }) => `Excerpt ${number}`,
 
   // Why a tool call or a page read failed, as a reader sees it. The code is stored on the part; the
   // Model reads the English its tool returned instead.
@@ -187,6 +204,13 @@ export const chatMessages = {
   "chat.ratingFailed": ({ message }: { message: string }) => `Rating failed: ${message}`,
   "chat.goodReply": "Good reply",
   "chat.badReply": "Bad reply",
+  // A reply's "Memory updated" chip and its popover (#290).
+  "chat.memoryUpdated": ({ count }: { count: number }) =>
+    count === 1 ? "Memory updated · 1 change" : `Memory updated · ${count} changes`,
+  "chat.memoryAdded": ({ text }: { text: string }) => `Added: ${text}`,
+  "chat.memoryUpdatedPrefix": "Updated:",
+  "chat.memoryForgot": ({ text }: { text: string }) => `Forgot: ${text}`,
+  "chat.manageMemory": "Manage Memory",
   "chat.moderatedDefault": "This message can't be sent",
   "chat.savedPrompts": "Saved prompts",
   "chat.noSavedPrompts": "No Saved prompts yet. Save text you send often and insert it with /name.",

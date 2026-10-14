@@ -4,7 +4,7 @@ import type { Logger } from "../create-chat";
 export type UsageEvent = {
   id: string;
   userId: string;
-  kind: "run" | "title" | "web_search" | "transcription" | "image";
+  kind: "run" | "title" | "web_search" | "transcription" | "image" | "embedding" | "memory";
   /** The `"provider:model"` id, `"tavily"` for a web search, or the transcription or image model's id. */
   model: string;
   inputTokens: number;

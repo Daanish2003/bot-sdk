@@ -1,4 +1,4 @@
-import { text } from "drizzle-orm/pg-core";
+import { boolean, text } from "drizzle-orm/pg-core";
 
 import { chatSchema } from "./chat-schema";
 
@@ -12,4 +12,6 @@ export const userSettings = chatSchema.table("user_settings", {
   imageModel: text("image_model"),
   /** The user's Instructions, sent with every Run; `null` means none. */
   instructions: text("instructions"),
+  /** Whether the assistant uses and makes Memories for this user (ADR 0013). */
+  memoryEnabled: boolean("memory_enabled").notNull().default(true),
 });

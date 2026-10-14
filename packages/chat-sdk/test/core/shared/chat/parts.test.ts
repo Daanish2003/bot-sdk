@@ -53,7 +53,7 @@ describe("stored parts from a stream", () => {
   it("collects text deltas into one text part", () => {
     const chunks = [runStarted, textStart("a"), textDelta("a", "Hel"), textDelta("a", "lo!")];
 
-    expect(build(chunks)).toEqual({ schemaVersion: 3, parts: [{ type: "text", text: "Hello!" }] });
+    expect(build(chunks)).toEqual({ schemaVersion: 5, parts: [{ type: "text", text: "Hello!" }] });
   });
 
   it("starts a new text part for each text message", () => {
@@ -233,8 +233,14 @@ describe("reading stored parts", () => {
     expect(parseStoredParts(json)).toEqual(json);
   });
 
+  it("still reads a version 4 row, written before `past_chats_search` took version 5", () => {
+    const json = { schemaVersion: 4, parts: [{ type: "text", text: "Hi" }] };
+
+    expect(parseStoredParts(json)).toEqual(json);
+  });
+
   it("refuses an unknown schema version or part", () => {
-    expect(() => parseStoredParts({ schemaVersion: 4, parts: [] })).toThrow();
+    expect(() => parseStoredParts({ schemaVersion: 6, parts: [] })).toThrow();
     expect(() =>
       parseStoredParts({ schemaVersion: 1, parts: [{ type: "image", url: "x" }] }),
     ).toThrow();
@@ -352,5 +358,35 @@ describe("attachments in provider history", () => {
     expect(toModelMessages([question([])], { reads: { images: true, pdfs: true } })).toEqual([
       { role: "user", content: "What is this?" },
     ]);
+  });
+});
+
+describe("Excerpt labels within one Message", () => {
+  it("continue across a reply's knowledge searches, so each label is unique in the Message", () => {
+    const stored = storedParts([
+      {
+        type: "knowledge_search",
+        toolCallId: "call-1",
+        query: "budget",
+        state: "done",
+        excerpts: [
+          { fileId: "f1", fileName: "a.md", chunkIndex: 0, text: "one" },
+          { fileId: "f1", fileName: "a.md", chunkIndex: 1, text: "two" },
+        ],
+      },
+      {
+        type: "knowledge_search",
+        toolCallId: "call-2",
+        query: "deadline",
+        state: "done",
+        excerpts: [{ fileId: "f2", fileName: "b.pdf", chunkIndex: 0, text: "three" }],
+      },
+    ]);
+
+    const [, second] = toUIParts(stored);
+
+    expect(second).toMatchObject({
+      output: { excerpts: [{ id: "excerpt:3", fileName: "b.pdf", text: "three" }] },
+    });
   });
 });

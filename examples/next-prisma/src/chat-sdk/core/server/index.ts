@@ -16,6 +16,7 @@ export { memoryRuntime, redisRuntime, type ChatRuntime, type RedisRuntimeOptions
 export { redisStore, type RedisStore } from "./chat/redis-store";
 export type { HostServerTool, HostToolContext } from "./chat/host-tools";
 export { fakeImageAdapter, type FakeImageOptions } from "./chat/fake-image-adapter";
+export { fakeEmbeddingAdapter, type FakeEmbeddingOptions } from "./chat/fake-embedding-adapter";
 export { ImageRefusedError } from "./deps";
 export type { PubSub } from "./chat/pubsub";
 export type { RateLimit, RateLimits } from "./rate-limits";
@@ -24,3 +25,4 @@ export type { BlobStore } from "./blob/store";
 export { postgresBlobStore } from "./blob/postgres";
 export { s3BlobStore, type S3BlobStoreOptions } from "./blob/s3";
 export type { McpServerConfig } from "./mcp/servers";
+export type { JobRunner, JobStatus, EnqueueOptions } from "./jobs/runner";

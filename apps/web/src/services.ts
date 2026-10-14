@@ -2,6 +2,7 @@ import { createAuth } from "@ai-chat/auth";
 import { createDb } from "@ai-chat/db";
 import {
   createChat,
+  fakeEmbeddingAdapter,
   fakeImageAdapter,
   memoryRuntime,
   redisRuntime,
@@ -17,6 +18,7 @@ import { getQuota } from "./admin/quota";
 import {
   hostBackgroundModelOf,
   hostDefaultImageModelOf,
+  hostEmbeddingProvidersOf,
   hostImageProvidersOf,
   hostProvidersOf,
   quotaOf,
@@ -54,7 +56,11 @@ export const auth = createAuth(
 );
 // The Host's default Quota is parsed at boot, so a bad HOST_QUOTA_* fails the start, not a Run.
 void quotaOf(ENV);
-export const chat = createChat({
+// The Nitro lifecycle plugin is bundled apart from the routes, so it loads its own copy of this
+// module. Both share one chat, so the jobs the plugin's runner runs publish on the pub/sub the
+// routes subscribe to (#290).
+const shared = globalThis as typeof globalThis & { aiChat?: ReturnType<typeof createChat> };
+export const chat = (shared.aiChat ??= createChat({
   databaseUrl: ENV.DATABASE_URL,
   keyEncryptionSecrets: [ENV.KEY_ENCRYPTION_SECRET, ENV.KEY_ENCRYPTION_SECRET_PREVIOUS].filter(
     (secret): secret is string => Boolean(secret),
@@ -68,7 +74,12 @@ export const chat = createChat({
   artifacts: true,
   // The Host's Models and their Quota (ADR 0007); unset, users chat only on their own keys.
   // The Host's Image Models (`HOST_IMAGE_*`) come as one more Provider entry beside its chat Models.
-  hostProviders: [...hostProvidersOf(ENV), ...hostImageProvidersOf(ENV)],
+  // The embedding Models (`HOST_EMBEDDING_PROVIDER`) come beside them, offered for Knowledge (ADR 0014).
+  hostProviders: [
+    ...hostProvidersOf(ENV),
+    ...hostImageProvidersOf(ENV),
+    ...hostEmbeddingProvidersOf(ENV),
+  ],
   // The Host's default Background Model for titles (`HOST_BACKGROUND_MODEL`), one of its Models.
   defaultBackgroundModel: hostBackgroundModelOf(ENV),
   // The Host's default Image Model (`HOST_DEFAULT_IMAGE_MODEL`), one of its Image Models.
@@ -76,6 +87,11 @@ export const chat = createChat({
   // CI only (spec #278): HOST_IMAGE_PROVIDER=fake answers every image with the fake adapter, so no
   // paid call is made.
   ...(ENV.HOST_IMAGE_PROVIDER === "fake" && { imageAdapterFor: () => fakeImageAdapter() }),
+  // CI only (spec #357, ticket #370): HOST_EMBEDDING_PROVIDER=fake answers every embedding with the
+  // fake adapter, so Knowledge makes no paid call.
+  ...(ENV.HOST_EMBEDDING_PROVIDER === "fake" && {
+    embeddingAdapterFor: () => fakeEmbeddingAdapter(),
+  }),
   // A user's Quota: an Admin's override, else the Host's default (spec #277).
   getQuota: (userId) => getQuota(db, ENV, userId),
   // File bytes go to the S3 store when S3_* is set, and to Postgres otherwise (ADR 0015).
@@ -92,4 +108,4 @@ export const chat = createChat({
     const session = await auth.api.getSession({ headers: request.headers });
     return session?.user ? { id: session.user.id } : null;
   },
-});
+}));

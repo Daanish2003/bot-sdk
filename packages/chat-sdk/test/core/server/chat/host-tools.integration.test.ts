@@ -145,6 +145,7 @@ describe("Host Tool credentials for web search", () => {
 
     expect(fakes[0]?.calls[0]?.tools?.map((tool) => tool.name)).toEqual([
       "web_search",
+      "search_past_chats",
       "fetch_url",
     ]);
     expect(searchClient.calls).toEqual([{ query: "tanstack ai", credentials: hostTavilyKey }]);

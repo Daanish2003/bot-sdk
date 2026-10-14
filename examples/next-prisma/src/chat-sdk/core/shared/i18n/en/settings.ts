@@ -1,5 +1,29 @@
 /** The Keys & settings sections that aren't credentials: Connections, Instructions, Shared links, Titles and deleting Conversations. */
 export const settingsMessages = {
+  "settings.memory": "Memory",
+  "settings.memoryHelp":
+    "What the assistant remembers about you from your chats. Memories made in a Project stay in that Project.",
+  "settings.memoryUse": "Use and make Memories",
+  "settings.memoryDeleteAll": "Delete all Memories",
+  "settings.memoryDeleteAllConfirm": "Delete every Memory for good? This can't be undone.",
+  "settings.memoryOffBanner":
+    "Memory is off. Your Memories are kept, but the assistant neither uses nor makes them.",
+  "settings.memoryNoEmbeddingBanner":
+    "Memory needs an embedding Model. Add an OpenAI or Gemini key to turn it on.",
+  "settings.memoryEmpty": "No Memories yet. Chat as usual, or say 'remember that…'",
+  "settings.memoryGeneral": "General",
+  "settings.memoryProject": ({ name }: { name: string }) => `Project · ${name}`,
+  "settings.memoryAsked": "You asked me to remember this · ",
+  "settings.memoryFrom": ({ title }: { title: string }) => `from ${title}`,
+  "settings.memoryUntitled": "Untitled",
+  "settings.memoryEdit": "Edit",
+  "settings.memoryEditLabel": "Edit Memory",
+  "settings.memoryDelete": "Delete",
+  "settings.memoryDeleteLabel": "Delete Memory",
+  "settings.memoryDeleted": "Memory deleted",
+  "settings.memoryDeletedAll": "All Memories deleted",
+  "settings.memoryLoadFailed": ({ message }: { message: string }) =>
+    `Couldn't load your Memories: ${message}`,
   "settings.connected": "Connected",
   "settings.reconnectNeeded": "Reconnect needed",
   "settings.notConnected": "Not connected",

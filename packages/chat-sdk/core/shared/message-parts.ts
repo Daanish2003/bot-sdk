@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { artifactKinds } from "./chat/artifact";
+import { maxExcerptsPerSearch } from "./chat/knowledge-search";
 
 /**
  * The stored shape of a Message's `parts` (ADR 0001): our own zod union, versioned, never
@@ -112,6 +113,50 @@ export const artifactPartSchema = z.object({
   state: z.literal("done"),
 });
 
+/** One past Conversation a `search_past_chats` call found, with the snippets it matched (spec #263). */
+export const pastChatSchema = z.object({
+  conversationId: z.string(),
+  title: z.string(),
+  /** The date of the Message the first snippet comes from, as an ISO string. */
+  date: z.string(),
+  snippets: z.array(z.string()).max(3),
+});
+
+/**
+ * One `search_past_chats` call of a reply and how it went (spec #263). `conversations` are the
+ * Conversations it found, at most 5; a failed search is a state, never a Message error.
+ */
+export const pastChatsSearchPartSchema = z.object({
+  type: z.literal("past_chats_search"),
+  toolCallId: z.string(),
+  query: z.string(),
+  state: z.enum(["running", "done", "error", "cancelled"]),
+  conversations: z.array(pastChatSchema).max(5),
+});
+
+/**
+ * One `search_knowledge` call of a reply (spec #357, ticket #206): the query and the passages it
+ * found, snapshotted so the reply keeps them after their file is deleted. `error` is the failure's
+ * code; a failed search has no passages.
+ */
+export const knowledgeSearchPartSchema = z.object({
+  type: z.literal("knowledge_search"),
+  toolCallId: z.string(),
+  query: z.string(),
+  state: z.enum(["running", "done", "error", "cancelled"]),
+  excerpts: z
+    .array(
+      z.object({
+        fileId: z.string(),
+        fileName: z.string(),
+        chunkIndex: z.number().int().nonnegative(),
+        text: z.string(),
+      }),
+    )
+    .max(maxExcerptsPerSearch),
+  error: toolErrorSchema.optional(),
+});
+
 export const storedPartSchema = z.discriminatedUnion("type", [
   textPartSchema,
   thinkingPartSchema,
@@ -119,15 +164,18 @@ export const storedPartSchema = z.discriminatedUnion("type", [
   toolCallPartSchema,
   generatedImagePartSchema,
   artifactPartSchema,
+  pastChatsSearchPartSchema,
+  knowledgeSearchPartSchema,
 ]);
 
 /**
  * The schema version a Message's parts are written at. 2 added `tool_call` (ADR 0008); a version 1
  * row has no `tool_call` part, so it still reads. 3 added `generated_image` and `artifact`; versions
- * 1 and 2 still read.
+ * 1 and 2 still read. 4 added `knowledge_search`; 5 added `past_chats_search`; earlier versions still
+ * read.
  */
 export const storedPartsSchema = z.object({
-  schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+  schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5)]),
   parts: z.array(storedPartSchema),
 });
 
@@ -136,8 +184,10 @@ export type WebSearchPart = z.infer<typeof webSearchPartSchema>;
 export type ToolCallPart = z.infer<typeof toolCallPartSchema>;
 export type GeneratedImagePart = z.infer<typeof generatedImagePartSchema>;
 export type ArtifactPart = z.infer<typeof artifactPartSchema>;
+export type PastChatsSearchPart = z.infer<typeof pastChatsSearchPartSchema>;
+export type KnowledgeSearchPart = z.infer<typeof knowledgeSearchPartSchema>;
 export type StoredParts = z.infer<typeof storedPartsSchema>;
 
 export function storedParts(parts: StoredPart[]): StoredParts {
-  return { schemaVersion: 3, parts };
+  return { schemaVersion: 5, parts };
 }

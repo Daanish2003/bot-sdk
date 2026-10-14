@@ -10,6 +10,7 @@ import { generatedImage } from "../db/schema/generated-image";
 import type { AppDeps } from "../deps";
 import { generatedImageKeysWhere, imagesOfMessages } from "./generated-image-store";
 import { withProjectId } from "./hooks";
+import { turnChangesOf } from "../memory/notice";
 import { newestLeaf, pathTo, siblingPosition } from "../../shared/chat/branches";
 import { type ActiveBranchMessage, toClientMessage } from "../../shared/chat/client-message";
 import type { ReasoningChoice } from "../../shared/chat/models";
@@ -452,10 +453,34 @@ export async function loadActiveBranch(
     deps,
     path.map((row) => row.id),
   );
+  const owners = memoryOwnerReplies(rows);
+  const changes = await turnChangesOf(
+    deps,
+    path.filter((row) => row.role === "user").map((row) => row.id),
+  );
   return path.map((row) => ({
     ...toClientMessage(row, attachments.get(row.id)),
     siblings: siblingPosition(rows, row),
+    memoryChanges:
+      row.parentId !== null && owners.get(row.parentId) === row.id
+        ? (changes.get(row.parentId) ?? [])
+        : [],
   }));
+}
+
+/**
+ * The reply that owns each user Message's Memory changes (#290): the first of its replies that
+ * ended `complete` or `stopped`, since a regenerated reply makes no Memories of its own.
+ */
+function memoryOwnerReplies(rows: MessageRow[]): Map<string, string> {
+  const owners = new Map<string, string>();
+  const oldestFirst = [...rows].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  for (const row of oldestFirst) {
+    if (row.role !== "assistant" || row.parentId === null || row.hiddenAt !== null) continue;
+    if (row.status !== "complete" && row.status !== "stopped") continue;
+    if (!owners.has(row.parentId)) owners.set(row.parentId, row.id);
+  }
+  return owners;
 }
 
 /**

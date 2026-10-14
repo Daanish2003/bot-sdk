@@ -10,9 +10,12 @@ import { generatedImage } from "./db/schema/generated-image";
 import { postgresBlobStore } from "./blob/postgres";
 import { webSearchToolName } from "../shared/chat/web-search";
 import { fetchUrlToolName } from "../shared/chat/fetch-url";
+import { searchKnowledgeToolName } from "../shared/chat/knowledge-search";
 import { createArtifactToolName, updateArtifactToolName } from "../shared/chat/artifact";
 import { handleJoin } from "./chat/join-run";
+import { handleConversationEvents } from "./memory/notice";
 import { transcriptionProviders } from "./chat/transcription";
+import { embeddingModelsProblem } from "./chat/embedding-models";
 import type { ChatUser, Context } from "./context";
 import { createDb } from "./db/index";
 import { quotaLookup, quotaState, type QuotaState } from "./chat/quota";
@@ -26,6 +29,8 @@ import {
   type QuotaSetting,
 } from "./deps";
 import { createLifecycle } from "./lifecycle";
+import type { JobRunner } from "./jobs/runner";
+import { runRegisteredJob } from "./jobs/define";
 import type { ChatHooks } from "./chat/hooks";
 import { deleteUserData } from "./delete-user";
 import { type McpServerConfig, checkMcpServers } from "./mcp/servers";
@@ -102,6 +107,12 @@ export type CreateChatOptions = {
    */
   imageAdapterFor?: AppDeps["imageAdapterFor"];
   /**
+   * The embedding adapter for an embedding Model's `(model, credentials)`. Defaults to the
+   * production adapters (OpenAI and Gemini). A Host passes a fake here to run Knowledge without a
+   * paid call (spec #357, ticket #370).
+   */
+  embeddingAdapterFor?: AppDeps["embeddingAdapterFor"];
+  /**
    * A user's Quota on Host credentials, or one fixed Quota for everyone; `null` or unset is
    * unlimited (ADR 0007).
    */
@@ -109,7 +120,7 @@ export type CreateChatOptions = {
   /**
    * The Host's own tools, written with TanStack AI's `toolDefinition(...).server(fn)`. The Model
    * can call them in any reply whose Model has tools; each call runs on this server. Their names
-   * must not be `web_search`, the SDK's own search tool.
+   * must not be `web_search`, `fetch_url` or `search_knowledge`, the SDK's own tools.
    */
   tools?: HostServerTool[];
   /**
@@ -140,6 +151,16 @@ export type CreateChatOptions = {
    * panel and the version route. Off by default, and then none of them exist.
    */
   artifacts?: boolean;
+  /**
+   * Runs the background jobs (ADR 0011). Defaults to the in-process runner, which polls the
+   * `chat` schema and needs nothing beyond Postgres. `start()` and `stop()` start and stop it.
+   */
+  jobs?: JobRunner;
+  /**
+   * Turns Memory on or off for the whole Host (ADR 0013). On by default: the assistant learns facts
+   * from what users say, in the background, on the Background Model. `false` makes no Memories.
+   */
+  memory?: boolean;
 };
 
 /**
@@ -162,6 +183,7 @@ export function createChatHandler(
   const exportPath = `${prefix}/export`;
   const mcpConnectPath = `${prefix}/mcp/connect`;
   const mcpCallbackPath = `${prefix}/mcp/callback`;
+  const eventsPath = `${prefix}/events`;
   const generatedImagesPath = `${prefix}/generated-images/`;
   const sharedPath = `${prefix}/shared/`;
   // The RPCs a signed-out visitor of a Shared link may call (ADR 0004, ADR 0016).
@@ -203,6 +225,9 @@ export function createChatHandler(
         return deps.lifecycle.stopping ? shuttingDown() : handleChat(request, user, deps);
       }
       if (request.method === "GET") return handleJoin(request, user, deps);
+    }
+    if (user && pathname === eventsPath && request.method === "GET") {
+      return handleConversationEvents(request, user, deps);
     }
     if (user && pathname === exportPath && request.method === "GET") {
       return exportResponse(deps, user.id);
@@ -249,6 +274,11 @@ export function createChat(options: CreateChatOptions): {
    * rest as interrupted, stops the reaper and closes the runtime's connections. Call it on SIGTERM.
    */
   stop: () => Promise<void>;
+  /**
+   * Runs a job's handler in this process, with the payload validated against the job's schema.
+   * Rejects an unknown name or a bad payload. A Host's worker (such as a Trigger.dev task) calls it.
+   */
+  runJob: (name: string, payload: unknown) => Promise<void>;
   /** Deletes everything the SDK holds for a user, in one transaction. Idempotent. */
   deleteUser: (userId: string) => Promise<void>;
   /** Everything the SDK keeps for a user, as one document (`version: 1`). Empty for an unknown id. */
@@ -286,6 +316,7 @@ export function createChat(options: CreateChatOptions): {
   const builtIns = [
     webSearchToolName,
     fetchUrlToolName,
+    searchKnowledgeToolName,
     ...(options.artifacts ? [createArtifactToolName, updateArtifactToolName] : []),
   ];
   for (const builtIn of builtIns) {
@@ -310,6 +341,7 @@ export function createChat(options: CreateChatOptions): {
       defaultBackgroundModel: options.defaultBackgroundModel,
       defaultImageModel: options.defaultImageModel,
       imageAdapterFor: options.imageAdapterFor,
+      embeddingAdapterFor: options.embeddingAdapterFor,
       getQuota: quotaLookup(options.getQuota),
       rateLimits: resolveRateLimits(options.rateLimits),
       tools: options.tools ?? [],
@@ -318,6 +350,8 @@ export function createChat(options: CreateChatOptions): {
       logger,
       hooks: options.hooks,
       artifacts: options.artifacts,
+      jobs: options.jobs,
+      memory: options.memory,
     });
     return deps;
   };
@@ -345,8 +379,12 @@ export function createChat(options: CreateChatOptions): {
           }
         }
       }
-      const defaultBackground = options.defaultBackgroundModel;
       const hostProviders = (options.hostProviders ?? []).filter(isHostProvider);
+      for (const entry of hostProviders) {
+        const problem = embeddingModelsProblem(entry);
+        if (problem) throw new Error(problem);
+      }
+      const defaultBackground = options.defaultBackgroundModel;
       if (
         defaultBackground !== undefined &&
         !hostProviders.some(({ provider, models }) =>
@@ -390,6 +428,8 @@ export function createChat(options: CreateChatOptions): {
       await getLifecycle().stop();
       await options.runtime?.close?.();
     },
+    /** Runs a job's handler in this process (ADR 0011). A Host's worker calls it; see extras/trigger. */
+    runJob: (name: string, payload: unknown) => runRegisteredJob(name, payload, getDeps()),
     admin: {
       usageTotals: (range) => usageTotals(getDeps(), range),
       usage: ({ userId, since, until }) => usageByDay(getDeps(), userId, { since, until }),

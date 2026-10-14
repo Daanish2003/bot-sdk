@@ -56,6 +56,12 @@ export const serverEnv = {
   ]),
   HOST_QUOTA_BUDGET_USD: "1",
   HOST_QUOTA_WINDOW: "day",
+  // The Background Model the Memory job calls (#290). The e2e user brings their own Ollama key
+  // (`addFakeOllama`), so these calls are not metered against the Quota.
+  HOST_BACKGROUND_MODEL: `ollama:${fakeModel}`,
+  // Knowledge's embedding Model (spec #357): the fake adapter answers it, and the Host offers
+  // text-embedding-3-small on a fake key, so no paid Provider is called.
+  HOST_EMBEDDING_PROVIDER: "fake",
   // The Host's Image Model (spec #278): the fake adapter answers it, so no paid Provider is called.
   HOST_IMAGE_PROVIDER: "fake",
   HOST_IMAGE_CREDENTIALS: JSON.stringify({ apiKey: "e2e-not-sent" }),

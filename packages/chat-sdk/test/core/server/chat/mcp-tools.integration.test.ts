@@ -36,9 +36,12 @@ const issueTools: FakeMcpTool[] = [
 
 const mcpOrigin = new URL(fakeMcpResource).origin;
 
-/** The tool names the adapter was offered on its `n`th model call. */
+/**
+ * The MCP tool names the adapter was offered on its `n`th model call. The built-in
+ * `search_past_chats` tool (spec #263) is left out: it is offered whatever the MCP setup.
+ */
 const offered = (calls: { tools?: Array<{ name: string }> }[], n = 0) =>
-  (calls[n]?.tools ?? []).map((tool) => tool.name);
+  (calls[n]?.tools ?? []).map((tool) => tool.name).filter((name) => name !== "search_past_chats");
 
 /**
  * A signed-in user with Anthropic credentials, a Linear Connection signed in through the Host's

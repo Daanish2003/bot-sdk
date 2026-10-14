@@ -46,6 +46,28 @@ const updateArtifactToolName = "update_artifact";
 export const artifactTitle = "E2E page";
 export const revisedHeading = "Revised page";
 
+/**
+ * A prompt with this marker makes the fake Model call `search_knowledge` with `knowledgeQuery`, when
+ * the request offers it (its Project has ready Knowledge files). The reply cites the first Excerpt
+ * the search returned, as `excerpt:1`, by its file's name.
+ */
+export const knowledgeMarker = "[knowledge]";
+const knowledgeToolName = "search_knowledge";
+export const knowledgeQuery = "launch date";
+/** The Knowledge file the e2e run uploads, and the passage the search finds in it. */
+export const knowledgeFileName = "brief.md";
+export const knowledgePassage = "The launch date is 14 March.";
+
+/** The reply to a search's result: the first passage's file, cited as `excerpt:1`. */
+export function knowledgeReply(toolResult: string): string {
+  const result = JSON.parse(toolResult) as {
+    excerpts?: { fileName: string }[];
+    error?: string;
+  };
+  if (result.error || !result.excerpts?.length) return "The Knowledge files had no answer.";
+  return `The launch is on 14 March, according to [${result.excerpts[0]?.fileName}](excerpt:1).`;
+}
+
 /** The JSON the fake host serves for the Artifact's fetch, with the CORS header a read would need. */
 export const dataPath = "/e2e/data";
 
@@ -105,6 +127,7 @@ export function fetchedReply(toolResult: string): string {
 function replyToTool(asked: string | undefined, content: string): string {
   if (asked === mcpToolName) return mcpReply(content);
   if (asked === imageToolName) return imageReply;
+  if (asked === knowledgeToolName) return knowledgeReply(content);
   if (asked === createArtifactToolName || asked === updateArtifactToolName) {
     return artifactReply(content);
   }
@@ -147,6 +170,34 @@ export function wideReply(): string {
     "",
     "That's all.",
   ].join("\n");
+}
+
+/**
+ * Memory (#290): a Background Model call of the Memory job gets a scripted answer. The extract call
+ * remembers `rememberedFact` when the user's Message says `rememberedText`; the decide call adds
+ * every fact it is given, as the prompt's JSON asks. Other calls get no answer here.
+ */
+export const rememberedText = "vegetarian";
+export const rememberedFact = "The user is vegetarian.";
+const extractionPrompt = "You are a Personal Information Organizer";
+const decisionPrompt = "You are a smart memory manager";
+
+/** The JSON a Memory call returns, or undefined when the call is not the Memory job's. */
+export function memoryReply(messages: { role: string; content: string }[]): string | undefined {
+  const user = messages.filter((message) => message.role === "user").at(-1)?.content ?? "";
+  if (messages.some((message) => message.content.includes(extractionPrompt))) {
+    const remember = user.includes(rememberedText) ? [rememberedFact] : [];
+    return JSON.stringify({ facts: [], remember, forget: [] });
+  }
+  if (messages.some((message) => message.content.includes(decisionPrompt))) {
+    // The facts are the last triple-backtick block of the decide call's user Message.
+    const blocks = [...user.matchAll(/```\n?([\s\S]*?)```/g)];
+    const facts = JSON.parse(blocks.at(-1)?.[1] ?? "[]") as string[];
+    return JSON.stringify({
+      memory: facts.map((text, index) => ({ id: String(index), text, event: "ADD" })),
+    });
+  }
+  return undefined;
 }
 
 /** Reply word by word, this far apart; a prompt with `slowMarker` is slow enough to Stop. */
@@ -240,6 +291,10 @@ export function startFakeOllama(port: number): Promise<Server> {
         calls(imageToolName, { prompt: imagePrompt, aspectRatio: "landscape" });
         return;
       }
+      if (stream && !answering && offers(knowledgeToolName) && prompt.includes(knowledgeMarker)) {
+        calls(knowledgeToolName, { query: knowledgeQuery });
+        return;
+      }
       // The Artifact an update changes: the last one the system prompt lists for this Branch.
       const savedArtifactId = messages
         .map((message) => /<artifact id="([^"]+)"/.exec(message.content)?.[1])
@@ -271,12 +326,14 @@ export function startFakeOllama(port: number): Promise<Server> {
         });
         return;
       }
+      // Memory calls come on the same route, streamed as well (the adapter always streams).
       const text =
-        last?.role === "tool" && stream
+        memoryReply(messages) ??
+        (last?.role === "tool" && stream
           ? replyToTool(asked, last.content)
           : prompt.includes(wideMarker)
             ? wideReply()
-            : fakeReply(prompt.slice(0, 80));
+            : fakeReply(prompt.slice(0, 80)));
       const line = (content: string, done: boolean) =>
         JSON.stringify({
           model: fakeModel,

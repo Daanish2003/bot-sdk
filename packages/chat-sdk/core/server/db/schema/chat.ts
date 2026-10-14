@@ -38,6 +38,8 @@ export const project = chatSchema.table(
     instructions: text("instructions"),
     /** The default Model, `"provider:model"`; null when it has none. */
     defaultModel: text("default_model"),
+    /** The embedding Model its Knowledge files use, `"provider:model"`; null until the first upload (ADR 0014). */
+    embeddingModel: text("embedding_model"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at")
       .defaultNow()
@@ -179,6 +181,11 @@ export const message = chatSchema.table(
   (table) => [
     index("message_conversation_id_parent_id_idx").on(table.conversationId, table.parentId),
     index("message_search_text_trgm_idx").using("gin", table.searchText.op("public.gin_trgm_ops")),
+    // Full-text search over each Message's text, for `search_past_chats` (spec #263).
+    index("message_search_text_fts_idx").using(
+      "gin",
+      sql`to_tsvector('simple', ${table.searchText})`,
+    ),
   ],
 );
 

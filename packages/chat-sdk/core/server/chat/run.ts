@@ -16,6 +16,7 @@ import type { AppDeps, Credentials } from "../deps";
 import { cancelRunningCalls, createPartsBuilder, searchTextOf } from "../../shared/chat/parts";
 import { resolveModelCall } from "../credentials/resolve";
 import type { RunEndEvent, RunEnding } from "./hooks";
+import { enqueueMemories } from "../memory/make";
 import { titleConversation } from "./title";
 import {
   createToolBudget,
@@ -27,8 +28,11 @@ import {
 import type { McpTools } from "../mcp/tools";
 import { artifactCutOff, createArtifactTool, updateArtifactTool } from "./artifact-tool";
 import { createWebSearchTool } from "./web-search-tool";
+import { createSearchPastChatsTool } from "./past-chats-tool";
 import { paidCallAllowed } from "./quota";
 import { createFetchUrlTool } from "./fetch-url-tool";
+import { createKnowledgeSearchTool } from "./knowledge-search-tool";
+import type { ResolvedEmbeddingModel } from "./embedding-models";
 import { createGenerateImageTool } from "./generate-image-tool";
 import type { EditSource } from "./edit-sources";
 import type { ImageRequest } from "./adapters";
@@ -68,7 +72,9 @@ export async function startRun(
     adapter,
     messages,
     webSearch,
+    pastChats,
     fetchUrl = false,
+    knowledgeSearch,
     image,
     artifacts = false,
     hostTools = [],
@@ -98,8 +104,18 @@ export async function startRun(
     messages: ModelMessage[];
     /** The user's Tavily Tool credential, when this reply offers the `web_search` tool. */
     webSearch?: Credentials;
+    /**
+     * Set when this reply offers the `search_past_chats` tool: Memory is on and the Conversation is
+     * not Temporary (spec #263). `projectId` is the Conversation's Project, which sets its scope.
+     */
+    pastChats?: { projectId: string | null };
     /** Whether this reply offers the `fetch_url` tool, which needs no credential. */
     fetchUrl?: boolean;
+    /**
+     * Set when this reply offers the `search_knowledge` tool: the Conversation's Project, the user
+     * who owns it, and the embedding Model its files are searched with (spec #357).
+     */
+    knowledgeSearch?: { userId: string; projectId: string; model: ResolvedEmbeddingModel };
     /**
      * Set when this reply offers the `generate_image` tool: the Image Model's adapter, each call's
      * request, and whose usage each image is (spec #278).
@@ -249,6 +265,18 @@ export async function startRun(
               }),
             ]
           : []),
+        ...(pastChats
+          ? [
+              createSearchPastChatsTool({
+                deps,
+                userId: context.userId,
+                conversationId: context.conversationId,
+                projectId: pastChats.projectId,
+                parts,
+                onChange: () => (changed = true),
+              }),
+            ]
+          : []),
         ...(fetchUrl
           ? [
               createFetchUrlTool({
@@ -256,6 +284,27 @@ export async function startRun(
                 timeoutMs: deps.limits.fetchTimeoutMs,
                 parts,
                 onChange: () => (changed = true),
+              }),
+            ]
+          : []),
+        ...(knowledgeSearch
+          ? [
+              createKnowledgeSearchTool({
+                deps,
+                userId: knowledgeSearch.userId,
+                projectId: knowledgeSearch.projectId,
+                model: knowledgeSearch.model,
+                parts,
+                onChange: () => (changed = true),
+                budget,
+                // The query is embedded on Host credentials, so it's checked against the Quota first (ADR 0007).
+                mayRun: () =>
+                  paidCallAllowed(
+                    deps,
+                    knowledgeSearch.model.onHostCredentials
+                      ? { userId: knowledgeSearch.userId }
+                      : undefined,
+                  ),
               }),
             ]
           : []),
@@ -521,6 +570,22 @@ export async function startRun(
         awaiting === undefined
       ) {
         void titleConversation(deps, messageId);
+      }
+      // A Run that ended `complete` or `stopped` makes Memories from its user Message, in a background
+      // job (ADR 0013). `error`, a hidden reply (owner decision on #286) and a Run waiting for
+      // Approval make none; the resumed Run does.
+      if (
+        endingSaved &&
+        !hidden &&
+        (outcome.ending === "complete" || outcome.ending === "stopped")
+      ) {
+        void enqueueMemories(deps, {
+          userId: context.userId,
+          conversationId: context.conversationId,
+          replyId: messageId,
+        }).catch((caught: unknown) =>
+          deps.logger.error(`Queuing the Memories of ${messageId} failed`, caught),
+        );
       }
     }
   })();

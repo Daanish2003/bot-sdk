@@ -4,8 +4,10 @@ import { artifact, artifactVersion } from "./db/schema/artifact";
 import { attachment, messageAttachment } from "./db/schema/attachment";
 import { conversation, message, project } from "./db/schema/chat";
 import { generatedImage } from "./db/schema/generated-image";
+import { knowledgeFile } from "./db/schema/knowledge";
 import { savedPrompt } from "./db/schema/saved-prompt";
 import { sharedLink } from "./db/schema/share";
+import { memory } from "./db/schema/memory";
 import { userSettings } from "./db/schema/settings";
 import type { AppDeps } from "./deps";
 import { liveConversation } from "./chat/temporary";
@@ -25,6 +27,8 @@ export type UserExport = {
     backgroundModel: string | null;
     imageModel: string | null;
     instructions: string | null;
+    /** Whether the assistant uses and makes Memories for the user (ADR 0013). */
+    memoryEnabled: boolean;
   };
   projects: {
     id: string;
@@ -66,10 +70,24 @@ export type UserExport = {
       generatedImages: { id: string; model: string; prompt: string | null }[];
     }[];
   }[];
+  /** Every Memory the user has, valid and outdated: the source Conversation and what replaced it. */
+  memories: {
+    id: string;
+    text: string;
+    origin: "extracted" | "said";
+    conversationId: string;
+    replacedById: string | null;
+    /** When the Memory was outdated; null while it is valid. */
+    invalidAt: Date | null;
+    createdAt: Date;
+    updatedAt: Date;
+  }[];
   /** The user's Shared links: the token, the Conversation it shares and when it was shared. */
   sharedLinks: { token: string; conversationId: string; createdAt: Date }[];
   /** The user's Saved prompts, by name. */
   savedPrompts: { name: string; text: string; createdAt: Date }[];
+  /** The user's Knowledge files, by name, type and Project; their bytes and passages are never in it. */
+  knowledgeFiles: { name: string; mediaType: string; projectId: string }[];
   /** The user's Artifacts, each with every version it has on any Branch (ADR 0016). */
   artifacts: {
     id: string;
@@ -98,6 +116,7 @@ export async function exportUserData(deps: AppDeps, userId: string): Promise<Use
           backgroundModel: userSettings.backgroundModel,
           imageModel: userSettings.imageModel,
           instructions: userSettings.instructions,
+          memoryEnabled: userSettings.memoryEnabled,
         })
         .from(userSettings)
         .where(eq(userSettings.userId, userId));
@@ -176,6 +195,21 @@ export async function exportUserData(deps: AppDeps, userId: string): Promise<Use
           ),
         ),
       );
+      const memories = await tx
+        .select({
+          id: memory.id,
+          text: memory.text,
+          origin: memory.origin,
+          conversationId: memory.conversationId,
+          replacedById: memory.replacedById,
+          invalidAt: memory.invalidAt,
+          createdAt: memory.createdAt,
+          updatedAt: memory.updatedAt,
+        })
+        .from(memory)
+        .where(eq(memory.userId, userId))
+        .orderBy(asc(memory.createdAt), asc(memory.id));
+
       const savedPrompts = await tx
         .select({
           name: savedPrompt.name,
@@ -196,6 +230,16 @@ export async function exportUserData(deps: AppDeps, userId: string): Promise<Use
         .innerJoin(conversation, eq(conversation.id, artifact.conversationId))
         .where(and(eq(conversation.userId, userId), liveConversation(new Date())))
         .orderBy(asc(artifact.createdAt), asc(artifact.id));
+
+      const knowledgeFiles = await tx
+        .select({
+          name: knowledgeFile.name,
+          mediaType: knowledgeFile.mediaType,
+          projectId: knowledgeFile.projectId,
+        })
+        .from(knowledgeFile)
+        .where(eq(knowledgeFile.userId, userId))
+        .orderBy(asc(knowledgeFile.createdAt), asc(knowledgeFile.id));
 
       const versions = await tx
         .select({
@@ -229,6 +273,7 @@ export async function exportUserData(deps: AppDeps, userId: string): Promise<Use
           backgroundModel: settings?.backgroundModel ?? null,
           imageModel: settings?.imageModel ?? null,
           instructions: settings?.instructions ?? null,
+          memoryEnabled: settings?.memoryEnabled ?? true,
         },
         projects,
         conversations: conversations.map((conv) => ({
@@ -267,8 +312,10 @@ export async function exportUserData(deps: AppDeps, userId: string): Promise<Use
             })),
           })),
         })),
+        memories,
         sharedLinks: links,
         savedPrompts,
+        knowledgeFiles,
         artifacts: artifacts.map((row) => ({
           id: row.id,
           conversationId: row.conversationId,

@@ -58,7 +58,11 @@ const sdkTables = [
   "blob",
   "conversation",
   "generated_image",
+  "job",
+  "knowledge_chunk",
+  "knowledge_file",
   "mcp_connection",
+  "memory",
   "message",
   "message_attachment",
   "project",
@@ -88,6 +92,9 @@ describe("chat.migrate()", () => {
     );
     expect(enums.map((row) => row.typname).sort()).toEqual([
       "artifact_kind",
+      "job_status",
+      "knowledge_file_status",
+      "memory_origin",
       "message_error_reason",
       "message_rating",
       "message_role",
@@ -305,6 +312,18 @@ describe("chat.migrate()", () => {
     expect(oldTable).toEqual([]);
   });
 
+  it("creates the vector extension, so Knowledge can store embeddings", async () => {
+    const url = await scratchDatabase("k358_vector");
+
+    await chatFor(url).migrate();
+
+    const extensions = await rows<{ extname: string }>(
+      url,
+      "select extname from pg_extension where extname = 'vector'",
+    );
+    expect(extensions).toEqual([{ extname: "vector" }]);
+  });
+
   it("creates reasoning_effort as the enum off, low, medium, high", async () => {
     const url = await scratchDatabase("reasoning_enum");
 
@@ -398,7 +417,7 @@ describe("chat.migrate()", () => {
     await expect(Promise.all([chat.migrate(), chat.migrate()])).resolves.toBeDefined();
 
     const applied = await rows<{ count: string }>(url, "select count(*) from chat.__migrations");
-    expect(applied).toEqual([{ count: "19" }]);
+    expect(applied).toEqual([{ count: "24" }]);
   });
 
   it("gives a Conversation's tool settings empty lists by default, so existing rows read as empty", async () => {

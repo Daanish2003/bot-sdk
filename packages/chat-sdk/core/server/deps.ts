@@ -1,8 +1,17 @@
 import type { Database } from "./db/index";
-import type { AnyImageAdapter, AnyTextAdapter, AnyTranscriptionAdapter } from "@tanstack/ai";
+import type {
+  AnyEmbeddingAdapter,
+  AnyImageAdapter,
+  AnyTextAdapter,
+  AnyTranscriptionAdapter,
+} from "@tanstack/ai";
 import type { BlobStore } from "./blob/store";
 
-import { adapterFor, imageAdapterFor as productionImageAdapterFor } from "./chat/adapters";
+import {
+  adapterFor,
+  embeddingAdapterFor as productionEmbeddingAdapterFor,
+  imageAdapterFor as productionImageAdapterFor,
+} from "./chat/adapters";
 import { transcriptionAdapterFor } from "./chat/transcription";
 import type { CounterStore } from "./chat/counters";
 import type { PubSub } from "./chat/pubsub";
@@ -16,6 +25,8 @@ import type { ResolvedRateLimits } from "./rate-limits";
 import type { ChatRuntime } from "./runtime";
 import type { ProviderId } from "../shared/credentials/services";
 import type { McpServerConfig } from "./mcp/servers";
+import { inProcessRunner } from "./jobs/in-process";
+import type { JobRunner } from "./jobs/runner";
 
 export type { SearchErrorReason, SearchResult };
 
@@ -100,6 +111,12 @@ export type QuotaSetting =
  */
 export type HostTranscriptionModel = { model: string; pricePerMinuteUsd: number };
 
+/**
+ * An embedding Model the Host pays for (ADR 0014): its price per 1M tokens. Its id is one of the
+ * OpenAI or Gemini embedding Models the SDK serves.
+ */
+export type HostEmbeddingModel = { model: string; pricePerMillionTokensUsd: number };
+
 /** The Host's own credentials for a Provider, and the Models they pay for. */
 export type HostProvider = {
   provider: ProviderId;
@@ -109,6 +126,8 @@ export type HostProvider = {
   imageModels?: HostImageModel[];
   /** Transcription Models for dictation, on OpenAI, Groq or Grok only (spec #249). */
   transcriptionModels?: HostTranscriptionModel[];
+  /** Embedding Models for Knowledge, on OpenAI or Gemini only (ADR 0014). */
+  embeddingModels?: HostEmbeddingModel[];
 };
 
 /**
@@ -159,6 +178,11 @@ export type AppDeps = {
    * user's own key for that Provider.
    */
   transcriptionAdapterFor: (model: string, credentials: Credentials) => AnyTranscriptionAdapter;
+  /**
+   * Builds the TanStack AI embedding adapter for an embedding Model's `(model, credentials)` (ADR
+   * 0014). Injected so tests and CI can pass a fake.
+   */
+  embeddingAdapterFor: (model: string, credentials: Credentials) => AnyEmbeddingAdapter;
   /** The Host credentials (`hostProviders`, ADR 0007). Never stored. */
   hostProviders: HostProvider[];
   /** The Host's Tools, such as a Tavily key for web search (`hostProviders`, ADR 0007). Never stored. */
@@ -212,6 +236,12 @@ export type AppDeps = {
   hooks: HookEmitter;
   /** Whether Artifacts are on: the `create_artifact` tool, the panel and the version route (`createChat({ artifacts })`). */
   artifacts: boolean;
+  /** Background jobs (ADR 0011): `createChat({ jobs })`, the in-process runner by default. */
+  jobs: JobRunner;
+  /** Whether Memory is on for the Host (`createChat({ memory })`, ADR 0013). */
+  memory: boolean;
+  /** The time as a job reads it, so the Memory job's dates are testable (ADR 0013). */
+  clock: () => Date;
 };
 
 export const defaultLimits: Limits = {
@@ -228,6 +258,7 @@ export const defaultLimits: Limits = {
 export function createAppDeps({
   db,
   imageAdapterFor,
+  embeddingAdapterFor,
   keyEncryptionSecrets,
   runtime,
   hostProviders,
@@ -245,10 +276,14 @@ export function createAppDeps({
   logger = console,
   hooks,
   artifacts,
+  jobs,
+  memory,
 }: {
   db: Database;
   /** The image adapter factory; the production one is `imageAdapterFor` in `chat/adapters.ts`. */
   imageAdapterFor?: AppDeps["imageAdapterFor"];
+  /** The embedding adapter factory; the production one is `embeddingAdapterFor` in `chat/adapters.ts`. */
+  embeddingAdapterFor?: AppDeps["embeddingAdapterFor"];
   keyEncryptionSecrets: string[];
   runtime: ChatRuntime;
   hostProviders: HostProvider[];
@@ -266,8 +301,10 @@ export function createAppDeps({
   logger?: AppDeps["logger"];
   hooks?: ChatHooks;
   artifacts?: boolean;
+  jobs?: JobRunner;
+  memory?: boolean;
 }): AppDeps {
-  return {
+  const deps: AppDeps = {
     logger,
     hooks: createHookEmitter(hooks, logger),
     db,
@@ -276,6 +313,7 @@ export function createAppDeps({
     adapterFor,
     imageAdapterFor: imageAdapterFor ?? productionImageAdapterFor,
     transcriptionAdapterFor,
+    embeddingAdapterFor: embeddingAdapterFor ?? productionEmbeddingAdapterFor,
     hostProviders,
     hostTools,
     byok,
@@ -296,5 +334,9 @@ export function createAppDeps({
     keyEncryptionSecrets,
     mcpServers,
     artifacts: artifacts ?? false,
+    jobs: jobs ?? inProcessRunner({ db, logger, drainMs: defaultLimits.drainMs, deps: () => deps }),
+    memory: memory ?? true,
+    clock: () => new Date(),
   };
+  return deps;
 }

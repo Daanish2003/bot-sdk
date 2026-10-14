@@ -1,6 +1,8 @@
 import type { MessagePart } from "@tanstack/ai";
 
 import type { AttachmentInfo } from "../attachments/kinds";
+import { searchKnowledgeToolName } from "../chat/knowledge-search";
+import { searchPastChatsToolName } from "../chat/past-chats";
 import { toolCallOf } from "../chat/tool-call";
 import { webSearchToolName } from "../chat/web-search";
 
@@ -21,6 +23,20 @@ export function redactForShare(parts: MessagePart[]): MessagePart[] {
 }
 
 function redactToolCall(part: MessagePart): MessagePart {
+  // A past-chats search keeps only that it happened: its query and the chats it found stay private.
+  if (part.type === "tool-call" && part.name === searchPastChatsToolName) {
+    return {
+      type: "tool-call",
+      id: part.id,
+      name: part.name,
+      arguments: "",
+      state: part.state,
+      metadata: { source: "builtin", status: "done", redacted: true },
+    };
+  }
+  if (part.type === "tool-call" && part.name === searchKnowledgeToolName) {
+    return redactKnowledgeSearch(part);
+  }
   if (part.type !== "tool-call" || part.name === webSearchToolName) return part;
   const call = toolCallOf(part);
   if (!call || call.source === "builtin") return part;
@@ -31,6 +47,24 @@ function redactToolCall(part: MessagePart): MessagePart {
     arguments: "",
     state: part.state,
     metadata: { source: call.source, status: call.status, redacted: true },
+  };
+}
+
+/**
+ * A `search_knowledge` call as a Shared link shows it (spec #357): its query and the file each
+ * passage came from, never the passage text (the owner's private files stay private).
+ */
+function redactKnowledgeSearch(part: Extract<MessagePart, { type: "tool-call" }>): MessagePart {
+  const output = part.output as
+    | { excerpts?: { id: string; fileName: string }[] }
+    | null
+    | undefined;
+  if (!Array.isArray(output?.excerpts)) return part;
+  return {
+    ...part,
+    output: {
+      excerpts: output.excerpts.map(({ id, fileName }) => ({ id, fileName })),
+    },
   };
 }
 

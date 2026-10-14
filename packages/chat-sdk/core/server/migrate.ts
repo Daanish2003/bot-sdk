@@ -16,7 +16,7 @@ const MIGRATION_LOCK_ID = 727_770_001;
  * The newest folder in `core/server/migrations`. A bundler can't read that folder at run time, so
  * `start()` compares against this name. A test keeps it equal to the folder listing.
  */
-export const LATEST_MIGRATION = "20261013170200_usage_kind_image";
+export const LATEST_MIGRATION = "20261014170000_past_chats_search_index";
 
 function migrationsFolder() {
   // Only `migrate()` reads the folder, from a migrate script that runs the file unbundled. The
@@ -32,8 +32,8 @@ function folderMillis(name: string) {
 }
 
 /**
- * Creates the `chat` schema, `pg_trgm`, and then applies the bundled migrations. A session
- * advisory lock is held for the whole run, so concurrent runs queue up and only one applies.
+ * Creates the `chat` schema, `pg_trgm` and `vector`, and then applies the bundled migrations. A
+ * session advisory lock is held for the whole run, so concurrent runs queue up and only one applies.
  */
 export async function migrate(databaseUrl: string): Promise<void> {
   const client = new pg.Client({ connectionString: databaseUrl });
@@ -42,6 +42,7 @@ export async function migrate(databaseUrl: string): Promise<void> {
     await client.query("select pg_advisory_lock($1)", [MIGRATION_LOCK_ID]);
     await createChatSchema(client);
     await createTrigramExtension(client);
+    await createVectorExtension(client);
     await applyMigrations(drizzle({ client }), {
       migrationsFolder: migrationsFolder(),
       migrationsSchema: "chat",
@@ -65,6 +66,17 @@ async function createTrigramExtension(client: pg.Client) {
   } catch (cause) {
     throw new Error(
       "chat.migrate() needs the pg_trgm extension, and it could not be created. Install pg_trgm, or run migrate as a role allowed to create extensions.",
+      { cause },
+    );
+  }
+}
+
+async function createVectorExtension(client: pg.Client) {
+  try {
+    await client.query("create extension if not exists vector");
+  } catch (cause) {
+    throw new Error(
+      "chat.migrate() needs the pgvector extension (version 0.8 or later) for Knowledge, and it could not be created. Install pgvector 0.8+, or have a superuser run `CREATE EXTENSION vector` once in this database, then run migrate again.",
       { cause },
     );
   }

@@ -13,6 +13,7 @@ import type { AppDeps } from "../deps";
 import type { ChatUser } from "../context";
 import { uuidv7 } from "../lib/uuidv7";
 import { rateLimitedFor } from "../rate-limits";
+import { pastChatsOffered } from "../search/past-chats";
 import { resolveModel } from "./available-models";
 import { resolveImageModelFor } from "./image-models";
 import { imageRequestFor } from "./adapters";
@@ -30,6 +31,8 @@ import { findConversation, loadPath } from "./store";
 import { projectInstructionsOf } from "../project/store";
 import { loadSettings } from "../settings/store";
 import { systemPromptsFor } from "./system-prompts";
+import { recalledMemoriesPrompt } from "../memory/recall";
+import { knowledgeSearchFor } from "../knowledge/search";
 import { quotaExceededCode, quotaRefusal } from "./quota";
 import { generationOptionsFor } from "./generation";
 import { effortFor } from "../../shared/chat/models";
@@ -98,6 +101,12 @@ export async function handleChat(
   // The Web tools are offered only when asked for and the Model has tools. `web_search` also needs a
   // usable Tavily key: the user's own, else the Host's (ADR 0007). `fetch_url` needs none.
   const web = command.webSearch && model.tools;
+  // The past-chats search is offered to a Model with tools, while Memory is on for the Host and the
+  // user and the Conversation is not Temporary (spec #263).
+  const pastChats =
+    model.tools && (await pastChatsOffered(deps, userId, owned.temporary))
+      ? { projectId: owned.projectId }
+      : undefined;
   // The Artifact tools are offered to a Model with tools, and only when the Host turned them on (ADR 0016).
   const artifacts = deps.artifacts && model.tools;
   const searchCall = web ? await resolveToolCall(deps, userId, tavilyService) : null;
@@ -111,14 +120,16 @@ export async function handleChat(
   // The Host's tools are offered to a Model that has tools (`createChat({ tools })`). A tool the
   // Conversation allows runs without Approval (#159).
   const hostTools = model.tools ? allowTools(deps.tools, toolSettings.allowedTools) : [];
+  // The Knowledge search is offered to a Model with tools, in a Project with ready Knowledge files and
+  // a working credential for its embedding Model (spec #357). A Temporary Conversation has no Project.
+  const knowledge =
+    model.tools && owned.projectId && !owned.temporary
+      ? await knowledgeSearchFor(deps, userId, owned.projectId)
+      : null;
   // Read now, so a Run keeps the Instructions it started with; a regenerate or edit reads them anew.
   const { instructions } = await loadSettings(deps, userId);
   // The Project's Instructions are read from the Conversation's Project at the same moment (spec 5).
-  const systemPrompts = systemPromptsFor({
-    web,
-    instructions,
-    projectInstructions: await projectInstructionsOf(deps, owned.projectId),
-  });
+  const projectInstructions = await projectInstructionsOf(deps, owned.projectId);
 
   const history = await loadPath(deps, owned.id, command.parentId);
   if (command.parentId && history.length === 0) {
@@ -128,6 +139,20 @@ export async function handleChat(
   if (command.text === undefined && history.at(-1)?.role !== "user") {
     return refuse(400, "error.regenerateNeedsMessage");
   }
+  // The Memories recalled for this Run, found by the Message it answers (ADR 0013).
+  const systemPrompts = systemPromptsFor({
+    web,
+    instructions,
+    projectInstructions,
+    knowledgeFiles: knowledge?.fileNames ?? null,
+    memories: await recalledMemoriesPrompt(deps, {
+      userId,
+      projectId: owned.projectId,
+      temporary: owned.temporary,
+      latestText:
+        command.text ?? history.filter((row) => row.role === "user").at(-1)?.searchText ?? null,
+    }),
+  });
   // A reply waiting for Approval can't be continued past its call; an edit or regenerate beside it
   // starts a new Branch and stays allowed (ADR 0008). A hidden reply lost its call, so it waits for nothing (#268).
   const last = history.at(-1);
@@ -248,6 +273,7 @@ export async function handleChat(
       webSearch: searchCall !== null,
       fetchUrl: web,
       generateImage: imageTool !== undefined,
+      knowledgeSearch: knowledge !== null,
       hostTools: hostTools.length > 0,
       mcpTools: (mcp?.tools.length ?? 0) > 0,
       artifacts,
@@ -354,7 +380,11 @@ export async function handleChat(
     adapter,
     messages,
     webSearch: searchCall?.credentials,
+    pastChats,
     fetchUrl: web,
+    knowledgeSearch: knowledge
+      ? { userId, projectId: owned.projectId!, model: knowledge.model }
+      : undefined,
     image: imageTool,
     artifacts,
     hostTools,

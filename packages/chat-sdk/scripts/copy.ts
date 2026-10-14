@@ -1,8 +1,10 @@
 // Copies the Chat SDK into a Host's source tree: `pnpm -F @ai-chat/chat-sdk copy <dest>`.
 //
 // - core/ is always replaced, and core/VERSION records the commit and date copied.
-// - ui/ is copied only when <dest>/ui does not exist, so a Host's edits survive updates.
-// - package.json and README.md are copied to <dest>/ on every run (SDK-owned).
+// - ui/ and extras/ are copied only when their destination folder does not exist, so a Host's
+//   edits survive updates.
+// - package.json, README.md and NOTICE (the credit for ported code) are copied to <dest>/ on
+//   every run (SDK-owned).
 // - Tests and test helpers are never copied.
 //
 // Node runs this file directly (type stripping), so it imports only node: built-ins.
@@ -24,8 +26,8 @@ export interface CopyOptions {
 }
 
 const SDK_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const SDK_ROOT_FILES = ["package.json", "README.md"];
-const EXCLUDED_NAMES = new Set(["test", "tests", "testing", "__tests__", "node_modules"]);
+const SDK_ROOT_FILES = ["package.json", "README.md", "NOTICE"];
+const EXCLUDED_NAMES = new Set(["test", "tests", "testing", "__tests__", "node_modules", "eval"]);
 
 function currentVersion(): SdkVersion {
   const commit = execFileSync("git", ["rev-parse", "HEAD"], {
@@ -62,6 +64,10 @@ export function copySdk(dest: string, options: CopyOptions = {}): void {
 
   if (!existsSync(join(target, "ui"))) {
     copyTree(join(source, "ui"), join(target, "ui"));
+  }
+  // Optional adapters (extras/, such as the Trigger.dev runner) are the Host's to edit once copied.
+  if (!existsSync(join(target, "extras"))) {
+    copyTree(join(source, "extras"), join(target, "extras"));
   }
 
   for (const file of SDK_ROOT_FILES) {

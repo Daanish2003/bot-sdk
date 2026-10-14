@@ -19,6 +19,8 @@ export type ChatClient = {
   orpc: ChatOrpc;
   /** Where a Run is posted (`POST`) and joined (`GET ?runId=`). */
   chatUrl: string;
+  /** The owner's live stream of a Conversation's `memory_updated` events (`GET ?conversationId=`). */
+  eventsUrl: string;
   /** The signed-in user's export, a JSON download (`GET`). */
   exportUrl: string;
   /** A Generated image's bytes, by id (`GET <generatedImagesUrl>/<id>`, `?download=1` to save). */
@@ -50,6 +52,7 @@ export function createChatClient({
     rpc,
     orpc: createTanstackQueryUtils(rpc),
     chatUrl: `${base}/run`,
+    eventsUrl: `${base}/events`,
     exportUrl: `${base}/export`,
     generatedImagesUrl: `${base}/generated-images`,
     sharedGeneratedImagesUrl: (token) => `${base}/shared/${token}/generated-images`,

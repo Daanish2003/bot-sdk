@@ -114,3 +114,27 @@ describe("redactAttachmentsForShare", () => {
     ).toEqual([{ filename: "cat.png", mediaType: "image/png" }]);
   });
 });
+
+describe("redactForShare with Excerpts", () => {
+  it("keeps each Excerpt's label and file name, and drops its passage text", () => {
+    const knowledgeCall = {
+      type: "tool-call",
+      id: "call-1",
+      name: "search_knowledge",
+      arguments: '{"query":"budget"}',
+      input: { query: "budget" },
+      state: "complete",
+      output: {
+        excerpts: [{ id: "excerpt:1", fileName: "brief.md", text: "The budget is 5,000." }],
+      },
+      metadata: { source: "builtin", status: "done" },
+    } as MessagePart;
+
+    expect(redactForShare([knowledgeCall])).toEqual([
+      {
+        ...knowledgeCall,
+        output: { excerpts: [{ id: "excerpt:1", fileName: "brief.md" }] },
+      },
+    ]);
+  });
+});

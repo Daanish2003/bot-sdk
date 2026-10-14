@@ -6,7 +6,9 @@ import { attachmentRouter } from "./attachment";
 import { chatRouter } from "./chat";
 import { connectionsRouter } from "./connections";
 import { conversationRouter } from "./conversation";
+import { knowledgeRouter } from "./knowledge";
 import { credentialsRouter } from "./credentials";
+import { memoryRouter } from "./memory";
 import { modelsRouter } from "./models";
 import { projectRouter } from "./project";
 import { savedPromptRouter } from "./saved-prompt";
@@ -23,6 +25,8 @@ export const appRouter = {
   connections: connectionsRouter,
   conversation: conversationRouter,
   credentials: credentialsRouter,
+  knowledge: knowledgeRouter,
+  memory: memoryRouter,
   models: modelsRouter,
   project: projectRouter,
   savedPrompt: savedPromptRouter,

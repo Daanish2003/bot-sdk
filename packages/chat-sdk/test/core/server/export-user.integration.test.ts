@@ -1,11 +1,14 @@
 import { randomUUID } from "node:crypto";
 
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { createChat } from "../../../core/server/create-chat";
 import { saveCredentials } from "../../../core/server/credentials/store";
 import { artifact, artifactVersion } from "../../../core/server/db/schema/artifact";
 import { project } from "../../../core/server/db/schema/chat";
+import { knowledgeFile } from "../../../core/server/db/schema/knowledge";
+import { memory } from "../../../core/server/db/schema/memory";
 import { savedPrompt } from "../../../core/server/db/schema/saved-prompt";
 import { sharedLink } from "../../../core/server/db/schema/share";
 import { userSettings } from "../../../core/server/db/schema/settings";
@@ -13,6 +16,7 @@ import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { insertAttachment, linkTestAttachments } from "../../support/attachments";
 import { fakePngBase64 } from "../../../core/server/chat/fake-image-adapter";
 import { insertConversation, insertMessage } from "../../support/conversations";
+import { insertMemory } from "../../support/memories";
 import { insertGeneratedImage } from "../../support/generated-images";
 import { createTestDeps } from "../../support/deps";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
@@ -120,6 +124,7 @@ describe("createChat().exportUser", () => {
       backgroundModel: "anthropic:background-model",
       imageModel: "openai:gpt-image-2",
       instructions: "Answer in French.",
+      memoryEnabled: true,
     });
     const text = JSON.stringify(exported);
     expect(text).not.toContain(providerKey);
@@ -355,7 +360,12 @@ describe("createChat().exportUser", () => {
       projects: [],
       sharedLinks: [],
       artifacts: [],
-      settings: { backgroundModel: null, imageModel: null, instructions: null },
+      settings: {
+        backgroundModel: null,
+        imageModel: null,
+        instructions: null,
+        memoryEnabled: true,
+      },
     });
   });
 });
@@ -413,5 +423,91 @@ describe("createChat().exportUser, a Hidden reply's Rating", () => {
 
     const found = exported.conversations[0]!.messages.find((m) => m.id === hidden.id);
     expect(found).toMatchObject({ hidden: true, rating: null });
+  });
+});
+
+describe("createChat().exportUser, Memories", () => {
+  it("includes every Memory, valid and outdated, with its source Conversation and replacement", async () => {
+    const owner = await insertUser();
+    const conv = await insertConversation(owner, { title: "Chat" });
+    const replaced = await insertMemory(owner, {
+      conversationId: conv.id,
+      text: "Runs 5k in 25 minutes",
+      origin: "extracted",
+      invalidAt: new Date("2026-10-02T10:00:00Z"),
+      createdAt: new Date("2026-09-01T10:00:00Z"),
+      updatedAt: new Date("2026-10-02T10:00:00Z"),
+    });
+    const current = await insertMemory(owner, {
+      conversationId: conv.id,
+      text: "Runs 5k in 22 minutes",
+      origin: "said",
+      createdAt: new Date("2026-10-02T10:00:00Z"),
+      updatedAt: new Date("2026-10-02T10:00:00Z"),
+    });
+    await getTestDb()
+      .update(memory)
+      .set({ replacedById: current.id })
+      .where(eq(memory.id, replaced.id));
+    await getTestDb().insert(userSettings).values({ userId: owner.id, memoryEnabled: false });
+
+    const exported = await chatFor().exportUser(owner.id);
+
+    expect(exported.memories).toEqual([
+      {
+        id: replaced.id,
+        text: "Runs 5k in 25 minutes",
+        origin: "extracted",
+        conversationId: conv.id,
+        replacedById: current.id,
+        invalidAt: new Date("2026-10-02T10:00:00Z"),
+        createdAt: new Date("2026-09-01T10:00:00Z"),
+        updatedAt: new Date("2026-10-02T10:00:00Z"),
+      },
+      {
+        id: current.id,
+        text: "Runs 5k in 22 minutes",
+        origin: "said",
+        conversationId: conv.id,
+        replacedById: null,
+        invalidAt: null,
+        createdAt: new Date("2026-10-02T10:00:00Z"),
+        updatedAt: new Date("2026-10-02T10:00:00Z"),
+      },
+    ]);
+    expect(exported.settings.memoryEnabled).toBe(false);
+  });
+
+  it("leaves out other users' Memories", async () => {
+    const owner = await insertUser();
+    const other = await insertUser();
+    const conv = await insertConversation(other, { title: "Theirs" });
+    await insertMemory(other, { conversationId: conv.id, text: "Not yours" });
+
+    const exported = await chatFor().exportUser(owner.id);
+
+    expect(exported.memories).toEqual([]);
+  });
+});
+
+describe("createChat().exportUser, Knowledge files", () => {
+  it("lists each Knowledge file by name, type and Project, with no bytes or passages", async () => {
+    const owner = await insertUser();
+    const projectId = uuidv7();
+    await getTestDb().insert(project).values({ id: projectId, userId: owner.id, name: "Thesis" });
+    await getTestDb().insert(knowledgeFile).values({
+      id: uuidv7(),
+      userId: owner.id,
+      projectId,
+      name: "draft.md",
+      mediaType: "text/markdown",
+      size: 12,
+    });
+
+    const exported = await chatFor().exportUser(owner.id);
+
+    expect(exported.knowledgeFiles).toEqual([
+      { name: "draft.md", mediaType: "text/markdown", projectId },
+    ]);
   });
 });

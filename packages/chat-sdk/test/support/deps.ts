@@ -2,9 +2,11 @@ import { getTestDb } from "./test-database";
 
 import { postgresBlobStore } from "../../core/server/blob/postgres";
 import { createMemoryCounters } from "../../core/server/chat/counters";
+import { fakeEmbeddingAdapter } from "../../core/server/chat/fake-embedding-adapter";
 import { createHookEmitter } from "../../core/server/chat/hooks";
 import { createMemoryPubSub } from "../../core/server/chat/pubsub";
 import { createMemoryRunStreams } from "../../core/server/chat/run-streams";
+import { inProcessRunner } from "../../core/server/jobs/in-process";
 import type { AppDeps, Limits } from "../../core/server/deps";
 import { resolveRateLimits } from "../../core/server/rate-limits";
 import { createFakeSearchClient } from "./fake-search-client";
@@ -26,7 +28,7 @@ export function createTestDeps({
     (async (input) => {
       throw new Error(`Unexpected network call in a test: ${String(input)}`);
     });
-  return {
+  const deps: AppDeps = {
     db: getTestDb(),
     blobStore: postgresBlobStore(getTestDb()),
     isUserBlocked: async () => false,
@@ -38,6 +40,7 @@ export function createTestDeps({
         `No fake image adapter for model "${model}"; pass imageAdapterFor to createTestDeps`,
       );
     },
+    embeddingAdapterFor: () => fakeEmbeddingAdapter(),
     transcriptionAdapterFor: (model) => {
       throw new Error(`No fake transcription adapter for "${model}"; pass one to createTestDeps`);
     },
@@ -72,10 +75,14 @@ export function createTestDeps({
     // Silent, like the handler's logger in `support/sdk.ts`: the tests assert on rows, not logs.
     logger: { error: () => {} },
     hooks: createHookEmitter(undefined, { error: () => {} }),
+    jobs: inProcessRunner({ db: getTestDb(), logger: { error: () => {} }, deps: () => deps }),
+    memory: true,
+    clock: () => new Date(),
     ...overrides,
     fetch,
     ollamaFetch: overrides.ollamaFetch ?? fetch,
   };
+  return deps;
 }
 
 /** What a test may override in `createTestDeps`: any part of `AppDeps`, and any part of its limits. */
