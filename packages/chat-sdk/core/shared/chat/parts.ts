@@ -296,11 +296,6 @@ export function createPartsBuilder(initial: StoredPart[] = []) {
       part.result = result;
       if (error) part.error = error;
     },
-    cancelRunningCalls() {
-      for (const part of parts) {
-        if (isCancellable(part) && part.state === "running") part.state = "cancelled";
-      }
-    },
     /** How many Excerpts the reply's Knowledge searches have found so far: the next label's offset. */
     excerptCount(): number {
       return parts.reduce(

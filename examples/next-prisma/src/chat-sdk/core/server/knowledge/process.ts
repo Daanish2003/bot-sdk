@@ -83,7 +83,6 @@ export const knowledgeProcessJob = defineJob({
       if (signal.aborted) return;
       const batch = chunks.slice(start, start + passageBatch);
       const vectors = await embedTexts(deps, {
-        userId: file.userId,
         model,
         texts: batch.map((chunk) => chunk.text),
         purpose: "document",

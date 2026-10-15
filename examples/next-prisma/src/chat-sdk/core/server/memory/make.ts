@@ -8,8 +8,6 @@ import {
   embedTexts,
   type ResolvedEmbeddingModel,
 } from "../chat/embedding-models";
-import { recordHostUsage } from "../chat/host-usage";
-import { quotaRefusal } from "../chat/quota";
 import { loadPath } from "../chat/store";
 import { messageUsage, promptCharactersOf, reportedUsageOf } from "../chat/usage";
 import { conversation, type MessageRow } from "../db/schema/chat";
@@ -151,8 +149,8 @@ async function makeMemories(payload: MakeMemoriesPayload, deps: AppDeps): Promis
   const { userId, conversationId, replyId } = payload;
   const plan = await memoryPlanOf(deps, userId, conversationId);
   if (!plan) return;
-  const metered = plan.call.hostModel !== undefined || plan.embedding.onHostCredentials;
-  if (metered && (await quotaRefusal(deps, userId))) return;
+  // Either Model on Host credentials counts against the Quota, so the job ends at once past it.
+  if (!(await plan.call.meter.mayRun()).ok || !(await plan.embedding.meter.mayRun()).ok) return;
 
   const path = await loadPath(deps, conversationId, replyId);
   const reply = path.at(-1);
@@ -173,7 +171,6 @@ async function makeMemories(payload: MakeMemoriesPayload, deps: AppDeps): Promis
 
     const now = deps.clock();
     const extract = await extractMemories(deps, {
-      userId,
       plan,
       transcript: transcriptOf([...before, user, reply]),
       now,
@@ -249,8 +246,7 @@ async function insertMemories(
 ): Promise<string[]> {
   const { userId, plan, tx, now, conversationId, sourceMessageId } = write;
   const embedded =
-    vectors ??
-    (await embedTexts(deps, { userId, model: plan.embedding, texts, purpose: "document" }));
+    vectors ?? (await embedTexts(deps, { model: plan.embedding, texts, purpose: "document" }));
   const ids = texts.map(() => uuidv7(now.getTime()));
   await tx.insert(memory).values(
     texts.map((text, i) => ({
@@ -278,9 +274,8 @@ async function decideFacts(
   deps: AppDeps,
   { facts, scope, ...write }: Write & { facts: string[]; scope: Scope },
 ): Promise<void> {
-  const { userId, plan, tx, now, changes } = write;
+  const { plan, tx, now, changes } = write;
   const vectors = await embedTexts(deps, {
-    userId,
     model: plan.embedding,
     texts: facts,
     purpose: "document",
@@ -294,7 +289,7 @@ async function decideFacts(
   const events: Decision[] =
     old.length === 0
       ? facts.map((text) => ({ event: "ADD", text }))
-      : await decideWith(deps, { userId, plan, old, facts });
+      : await decideWith(deps, { plan, old, facts });
 
   const byId = new Map(old.map((row) => [row.id, row]));
   const changed = new Set<string>();
@@ -303,7 +298,6 @@ async function decideFacts(
   const missing = [...new Set(writes.map((e) => e.text))].filter((text) => !vectorOf.has(text));
   if (missing.length > 0) {
     const embedded = await embedTexts(deps, {
-      userId,
       model: plan.embedding,
       texts: missing,
       purpose: "document",
@@ -356,19 +350,16 @@ async function decideFacts(
 async function decideWith(
   deps: AppDeps,
   {
-    userId,
     plan,
     old,
     facts,
   }: {
-    userId: string;
     plan: MemoryPlan;
     old: Array<{ id: string; text: string }>;
     facts: string[];
   },
 ): Promise<Decision[]> {
   const reply = await askBackground(deps, {
-    userId,
     plan,
     system: memoryDecisionPrompt,
     user: memoryDecisionMessage(numbered(old), facts),
@@ -388,9 +379,8 @@ async function forgetMatching(
   deps: AppDeps,
   { request, scope, ...write }: Write & { request: string; scope: Scope },
 ): Promise<void> {
-  const { userId, plan, tx, changes } = write;
+  const { plan, tx, changes } = write;
   const [vector] = await embedTexts(deps, {
-    userId,
     model: plan.embedding,
     texts: [request],
     purpose: "query",
@@ -398,7 +388,6 @@ async function forgetMatching(
   const near = await nearestValid(tx, scope, vector!, similarCount);
   if (near.length === 0) return;
   const reply = await askBackground(deps, {
-    userId,
     plan,
     system: forgetMatchPrompt,
     user: `Request: ${JSON.stringify(request)}\n\n${JSON.stringify(numbered(near))}`,
@@ -418,15 +407,9 @@ async function forgetMatching(
 /** The facts and requests the Background Model reads in the transcript (ADR 0013). */
 async function extractMemories(
   deps: AppDeps,
-  {
-    userId,
-    plan,
-    transcript,
-    now,
-  }: { userId: string; plan: MemoryPlan; transcript: string; now: Date },
+  { plan, transcript, now }: { plan: MemoryPlan; transcript: string; now: Date },
 ): Promise<z.infer<typeof extracted>> {
   const reply = await askBackground(deps, {
-    userId,
     plan,
     system: factExtractionPrompt(now.toISOString().slice(0, 10)),
     user: transcript,
@@ -444,12 +427,7 @@ async function extractMemories(
 /** One call on the Background Model, recorded against the Quota when it is on Host credentials (ADR 0007). */
 async function askBackground(
   deps: AppDeps,
-  {
-    userId,
-    plan,
-    system,
-    user,
-  }: { userId: string; plan: MemoryPlan; system: string; user: string },
+  { plan, system, user }: { plan: MemoryPlan; system: string; user: string },
 ): Promise<string> {
   const messages: ModelMessage[] = [{ role: "user", content: user }];
   const result = await chat({
@@ -460,20 +438,15 @@ async function askBackground(
     messages,
     stream: false,
   });
-  if (plan.call.hostModel) {
-    const reported = reportedUsageOf(parseModelId(plan.model)?.provider ?? "", result.chunks);
-    const usage = messageUsage(reported.usage, {
+  const reported = reportedUsageOf(parseModelId(plan.model)?.provider ?? "", result.chunks);
+  await plan.call.meter.record({
+    kind: "memory",
+    usage: messageUsage(reported.usage, {
       promptCharacters: promptCharactersOf(messages),
       parts: [{ type: "text", text: result.text }],
-    });
-    await recordHostUsage(
-      deps,
-      "memory",
-      { userId, model: plan.model, price: plan.call.hostModel },
-      usage,
-      reported.cost,
-    );
-  }
+    }),
+    reportedCost: reported.cost,
+  });
   return result.text;
 }
 

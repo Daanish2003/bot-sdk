@@ -1,8 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createChat } from "../../../../core/server/create-chat";
-import { resolveCredentials, resolvedServices } from "../../../../core/server/credentials/resolve";
-import { listCredentials, saveCredentials } from "../../../../core/server/credentials/store";
+import { resolvedServices } from "../../../../core/server/credentials/resolve";
+import {
+  listCredentials,
+  loadCredentials,
+  saveCredentials,
+} from "../../../../core/server/credentials/store";
 import { userCredentials } from "../../../../core/server/db/schema/credentials";
 import { createTestDeps } from "../../../support/deps";
 import { insertUser } from "../../../support/users";
@@ -23,7 +27,7 @@ describe("the keyring", () => {
     });
     const keyring = createTestDeps({ keyEncryptionSecrets: [keyB, keyA] });
 
-    await expect(resolveCredentials(keyring, user.id, "openai")).resolves.toEqual(fields);
+    await expect(loadCredentials(keyring, user.id, "openai")).resolves.toEqual(fields);
     await expect(resolvedServices(keyring, user.id)).resolves.toEqual(["openai"]);
   });
 
@@ -36,7 +40,7 @@ describe("the keyring", () => {
     });
     const keyring = createTestDeps({ keyEncryptionSecrets: [keyB] });
 
-    await expect(resolveCredentials(keyring, user.id, "openai")).resolves.toBeNull();
+    await expect(loadCredentials(keyring, user.id, "openai")).resolves.toBeNull();
     await expect(listCredentials(keyring, user.id)).resolves.toEqual([]);
   });
 

@@ -49,7 +49,7 @@ describe("resolveImageModelFor", () => {
 
     expect(resolved).toMatchObject({
       id: "openai:gpt-image-1-mini",
-      onHostCredentials: false,
+      meter: expect.objectContaining({ onHost: false }),
       credentials: { apiKey: "openai-test-key" },
     });
     expect(resolved?.hostModel).toBeUndefined();
@@ -66,7 +66,7 @@ describe("resolveImageModelFor", () => {
 
     expect(resolved).toMatchObject({
       id: "gemini:gemini-3.1-flash-image",
-      onHostCredentials: true,
+      meter: expect.objectContaining({ onHost: true }),
       credentials: { apiKey: "host-gemini-key" },
       hostModel: { size: "1024x1024", quality: "medium", pricePerImageUsd: 0.04 },
     });

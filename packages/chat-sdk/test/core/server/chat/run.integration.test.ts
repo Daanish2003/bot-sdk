@@ -1,4 +1,5 @@
 import { message } from "../../../../core/server/db/schema/chat";
+import { storedParts } from "../../../../core/shared/message-parts";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
@@ -6,6 +7,9 @@ import { insertConversation, insertMessage } from "../../../support/conversation
 import { createTestDeps } from "../../../support/deps";
 import { insertUser } from "../../../support/users";
 import { reapStaleRuns, startRun } from "../../../../core/server/chat/run";
+import { freeMeter } from "../../../../core/server/chat/meter";
+import type { RunPlan } from "../../../../core/server/chat/run-plan";
+import { findModel } from "../../../../core/shared/chat/models";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { START } from "../../../../core/server/chat/run-streams";
 import { EventType, type StreamChunk } from "@tanstack/ai";
@@ -106,6 +110,54 @@ describe("reapStaleRuns", () => {
     expect(chunks.at(-1)).toMatchObject({ type: EventType.RUN_ERROR, message: "interrupted" });
   });
 
+  it("closes a Knowledge search or a past-chats search still running in a reaped reply as cancelled", async () => {
+    const deps = createTestDeps();
+    const conv = await insertConversation(await insertUser());
+    const now = new Date("2026-10-09T12:00:00Z");
+    const stale = { status: "streaming" as const, heartbeatAt: new Date(now.getTime() - 60_000) };
+    const knowledge = await insertMessage({
+      conversationId: conv.id,
+      role: "assistant",
+      text: "",
+      ...stale,
+      parts: storedParts([
+        {
+          type: "knowledge_search",
+          toolCallId: "call-1",
+          query: "q",
+          state: "running",
+          excerpts: [],
+        },
+      ]),
+    });
+    const pastChats = await insertMessage({
+      conversationId: conv.id,
+      role: "assistant",
+      text: "",
+      ...stale,
+      parts: storedParts([
+        {
+          type: "past_chats_search",
+          toolCallId: "call-1",
+          query: "q",
+          state: "running",
+          conversations: [],
+        },
+      ]),
+    });
+
+    await reapStaleRuns(deps, now);
+
+    expect(await rowOf(deps, knowledge.id)).toMatchObject({
+      status: "error",
+      parts: { parts: [{ type: "knowledge_search", state: "cancelled" }] },
+    });
+    expect(await rowOf(deps, pastChats.id)).toMatchObject({
+      status: "error",
+      parts: { parts: [{ type: "past_chats_search", state: "cancelled" }] },
+    });
+  });
+
   it("still reaps a reply whose stored parts don't parse", async () => {
     const deps = createTestDeps();
     const conv = await insertConversation(await insertUser());
@@ -141,15 +193,30 @@ describe("startRun", () => {
     });
 
     const startedAt = Date.now();
-    await startRun(deps, {
-      messageId: row.id,
-      provider: "anthropic",
+    const plan: RunPlan = {
+      replyId: row.id,
+      model: findModel("anthropic:claude-sonnet-5-5")!,
+      context: { userId: "user", conversationId: "conversation" },
+      effort: undefined,
+      offered: {
+        webSearch: null,
+        fetchUrl: false,
+        pastChats: null,
+        knowledge: null,
+        image: null,
+        artifacts: false,
+        hostTools: [],
+        mcp: undefined,
+      },
       adapter: held.adapter,
       messages: [],
-      model: "anthropic:claude-sonnet-5-5",
-      context: { userId: "user", conversationId: "conversation" },
       systemPrompts: [],
-    });
+      modelOptions: undefined,
+      meter: freeMeter,
+      added: { parts: undefined, attachments: [] },
+      tools: () => [],
+    };
+    await startRun(deps, plan, {});
     // Nothing is released, so no chunk arrives: only the timer can write the heartbeat.
     await expect
       .poll(async () => (await rowOf(deps, row.id)).heartbeatAt?.getTime() ?? 0)

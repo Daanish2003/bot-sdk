@@ -6,7 +6,6 @@ import { resolveModelCall } from "../credentials/resolve";
 import type { AppDeps } from "../deps";
 import { loadSettings } from "../settings/store";
 import { isKnownModel, parseModelId } from "../../shared/chat/models";
-import { recordHostUsage } from "./host-usage";
 import { loadPath } from "./store";
 import { messageUsage, promptCharactersOf, reportedUsageOf } from "./usage";
 
@@ -86,20 +85,15 @@ async function generateTitle(
       stream: false,
     });
     // A title on Host credentials is recorded against the Quota, like a Run (ADR 0007).
-    if (call.hostModel) {
-      const reported = reportedUsageOf(parseModelId(model)?.provider ?? "", result.chunks);
-      const usage = messageUsage(reported.usage, {
+    const reported = reportedUsageOf(parseModelId(model)?.provider ?? "", result.chunks);
+    await call.meter.record({
+      kind: "title",
+      usage: messageUsage(reported.usage, {
         promptCharacters: promptCharactersOf(messages),
         parts: [{ type: "text", text: result.text }],
-      });
-      await recordHostUsage(
-        deps,
-        "title",
-        { userId, model, price: call.hostModel },
-        usage,
-        reported.cost,
-      ).catch((caught: unknown) => deps.logger.error(`Recording the title usage failed`, caught));
-    }
+      }),
+      reportedCost: reported.cost,
+    });
     return cleanTitle(result.text);
   } catch (error) {
     deps.logger.error(`Generating a title with ${model} failed`, error);

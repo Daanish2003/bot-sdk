@@ -1,161 +1,59 @@
-import { type StoredPart, storedParts, storedPartsSchema } from "../../shared/message-parts";
+import { type StoredPart, storedPartsSchema } from "../../shared/message-parts";
 import { conversation, message } from "../db/schema/chat";
 import {
-  type AnyImageAdapter,
-  type AnyTextAdapter,
   type ChatMiddleware,
   chat,
   EventType,
   fromSpecTokenUsage,
-  type ModelMessage,
   type StreamChunk,
 } from "@tanstack/ai";
 import { and, eq, isNull, lt, or, type SQL } from "drizzle-orm";
 
-import type { AppDeps, Credentials } from "../deps";
-import { cancelRunningCalls, createPartsBuilder, searchTextOf } from "../../shared/chat/parts";
-import { resolveModelCall } from "../credentials/resolve";
-import type { RunEndEvent, RunEnding } from "./hooks";
-import { enqueueMemories } from "../memory/make";
-import { titleConversation } from "./title";
-import {
-  createToolBudget,
-  spentCalls,
-  trackTools,
-  type HostServerTool,
-  type HostToolContext,
-} from "./host-tools";
-import type { McpTools } from "../mcp/tools";
-import { artifactCutOff, createArtifactTool, updateArtifactTool } from "./artifact-tool";
-import { createWebSearchTool } from "./web-search-tool";
-import { createSearchPastChatsTool } from "./past-chats-tool";
-import { paidCallAllowed } from "./quota";
-import { createFetchUrlTool } from "./fetch-url-tool";
-import { createKnowledgeSearchTool } from "./knowledge-search-tool";
-import type { ResolvedEmbeddingModel } from "./embedding-models";
-import { createGenerateImageTool } from "./generate-image-tool";
-import type { EditSource } from "./edit-sources";
-import type { ImageRequest } from "./adapters";
-import type { AspectRatio } from "../../shared/chat/generated-image";
+import type { AppDeps } from "../deps";
+import { createPartsBuilder, searchTextOf } from "../../shared/chat/parts";
+import type { RunEndEvent } from "./hooks";
+import { endRun, type Ending, type EndingRun } from "./end-run";
+import { createToolBudget, spentCalls } from "./host-tools";
+import { artifactCutOff } from "./artifact-tool";
+import type { RunPlan } from "./run-plan";
 import { cancelChannel, heartbeatExpired, listenForStop, stopRequested } from "./stop";
 import { addUsage, messageUsage, normalizeUsage, promptCharactersOf, type RunUsage } from "./usage";
-import {
-  recordHostUsage,
-  type ImageMeter,
-  recordSearchUsage,
-  type SearchMeter,
-  type UsageMeter,
-} from "./host-usage";
 
 type MessageUpdate = Partial<typeof message.$inferInsert>;
 type MessageErrorReason = NonNullable<MessageUpdate["errorReason"]>;
 type ProviderError = { message: string; code?: string };
 
+/** Which Run of its Message this is, beyond what the plan says. A send's first Run needs none. */
+export type RunOf = {
+  /** The Run's number on its Message: a decision on a waiting call starts the next one (ADR 0008). */
+  runNumber?: number;
+  /** The parts the Message holds before this Run, which a resumed Run's reply continues. */
+  initialParts?: StoredPart[];
+  /**
+   * Set on a Run that answers a call waiting for Approval: the thread and the Run that ended
+   * waiting, and the user's decision (ADR 0008).
+   */
+  resume?: ResumeOf;
+};
+
 /**
- * Runs one assistant Message (ADR 0002). The run drains `chat()` to the end on its own,
- * whether or not anyone reads the returned chunks: it snapshots the streaming Message's parts
- * every `deps.limits.snapshotIntervalMs`, and finishes the row in `finally`. A Stop aborts it, from
- * the pub/sub signal or from `cancel_requested_at` read back on a snapshot tick (ADR 0006).
+ * Runs one assistant Message (ADR 0002) from its plan (`planRun`, the only caller). The run drains
+ * `chat()` to the end on its own, whether or not anyone reads the returned chunks: it snapshots the
+ * streaming Message's parts every `deps.limits.snapshotIntervalMs`, and finishes the row in
+ * `finally`. A Stop aborts it, from the pub/sub signal or from `cancel_requested_at` read back on a
+ * snapshot tick (ADR 0006). The Run closes the plan's MCP clients when it ends, Stop included.
  *
  * Every chunk goes to the Run's log before anyone reads it (ADR 0006). The POST response and any
  * joiner read that log, so a reader that goes away only stops reading.
  */
 export async function startRun(
   deps: AppDeps,
-  {
-    messageId,
-    runNumber = 1,
-    initialParts = [],
-    resume,
-    model,
-    provider,
-    adapter,
-    messages,
-    webSearch,
-    pastChats,
-    fetchUrl = false,
-    knowledgeSearch,
-    image,
-    artifacts = false,
-    hostTools = [],
-    context,
-    systemPrompts,
-    modelOptions,
-    compaction,
-    meter,
-    searchMeter,
-    mcp,
-  }: {
-    messageId: string;
-    /** The Run's number on its Message: a decision on a waiting call starts the next one (ADR 0008). */
-    runNumber?: number;
-    /** The parts the Message holds before this Run, which a resumed Run's reply continues. */
-    initialParts?: StoredPart[];
-    /**
-     * Set on a Run that answers a call waiting for Approval: the thread and the Run that ended
-     * waiting, and the user's decision (ADR 0008).
-     */
-    resume?: ResumeOf;
-    /** The `"provider:model"` id the Run uses; `onRunEnd` reports it. */
-    model: string;
-    /** The Provider of the Model, which decides how its usage is normalised. */
-    provider: string;
-    adapter: AnyTextAdapter;
-    messages: ModelMessage[];
-    /** The user's Tavily Tool credential, when this reply offers the `web_search` tool. */
-    webSearch?: Credentials;
-    /**
-     * Set when this reply offers the `search_past_chats` tool: Memory is on and the Conversation is
-     * not Temporary (spec #263). `projectId` is the Conversation's Project, which sets its scope.
-     */
-    pastChats?: { projectId: string | null };
-    /** Whether this reply offers the `fetch_url` tool, which needs no credential. */
-    fetchUrl?: boolean;
-    /**
-     * Set when this reply offers the `search_knowledge` tool: the Conversation's Project, the user
-     * who owns it, and the embedding Model its files are searched with (spec #357).
-     */
-    knowledgeSearch?: { userId: string; projectId: string; model: ResolvedEmbeddingModel };
-    /**
-     * Set when this reply offers the `generate_image` tool: the Image Model's adapter, each call's
-     * request, and whose usage each image is (spec #278).
-     */
-    image?: {
-      adapter: AnyImageAdapter;
-      meter: ImageMeter;
-      request: (aspectRatio: AspectRatio) => ImageRequest;
-      /** The Image Model's input-image limit, and the path's images an edit may read (spec #278). */
-      edit?: {
-        maxInputImages: number;
-        sources: (ids: string[]) => Promise<EditSource[] | undefined>;
-      };
-    };
-    /** Whether this reply offers the `create_artifact` and `update_artifact` tools (`createChat({ artifacts })`, ADR 0016). */
-    artifacts?: boolean;
-    /** The Host tools this reply offers (none when its Model has no tools). */
-    hostTools?: HostServerTool[];
-    /** The user and Conversation the Host tools are called for, passed to them as their context. */
-    context: HostToolContext;
-    /** The reply's system prompts, from `systemPromptsFor` when the Run starts. */
-    systemPrompts: string[];
-    /** The Provider's options for the Run, from `generationOptionsFor` (max output, reasoning). */
-    modelOptions?: Record<string, unknown>;
-    /**
-     * Drops the oldest Messages a model call would send past the window (`compactionFor`). Its
-     * context start is saved on the Message when the Run ends.
-     */
-    compaction?: { middleware: ChatMiddleware; contextStartId: () => string | null };
-    /** Set on a Run on Host credentials: the Run is recorded in `chat.usage` (ADR 0007). */
-    meter?: UsageMeter;
-    /** Set when the search runs on the Host's Tavily key: each search is recorded (ADR 0007). */
-    searchMeter?: SearchMeter;
-    /**
-     * The MCP tools this Run offers, opened by the caller (spec #91). The Run closes them when it
-     * ends, Stop included. `undefined` when no Connection is switched on.
-     */
-    mcp?: McpTools;
-  },
+  plan: RunPlan,
+  { runNumber = 1, initialParts = [], resume }: RunOf,
 ): Promise<void> {
+  const { replyId: messageId, context, messages, compaction, meter } = plan;
+  const { id: model, provider } = plan.model;
+  const { mcp } = plan.offered;
   const abortController = new AbortController();
   const logId = runLogId(messageId, runNumber);
   let unsubscribeStop: Awaited<ReturnType<typeof listenForStop>>;
@@ -184,29 +82,13 @@ export async function startRun(
   const promptCharacters = promptCharactersOf(messages);
 
   let writes = Promise.resolve();
-  /**
-   * Saves `fields` on the Message. Resolves to whether a row was saved: false when the write failed
-   * or the Message is gone (its Conversation was deleted). With `whileStreaming`, a Message that
-   * already ended (stopped by another process) is left as it is, and so is false.
-   */
-  const write = (fields: MessageUpdate, { whileStreaming = false } = {}): Promise<boolean> => {
-    let saved = false;
+  /** Saves a snapshot's `fields` on the Message, after the snapshots already queued. */
+  const write = (fields: MessageUpdate) => {
     writes = writes
       .then(async () => {
-        const rows = await deps.db
-          .update(message)
-          .set(fields)
-          .where(
-            and(
-              eq(message.id, messageId),
-              whileStreaming ? eq(message.status, "streaming") : undefined,
-            ),
-          )
-          .returning({ id: message.id });
-        saved = rows.length > 0;
+        await deps.db.update(message).set(fields).where(eq(message.id, messageId));
       })
       .catch((error: unknown) => deps.logger.error(`Saving Message ${messageId} failed`, error));
-    return writes.then(() => saved);
   };
   const withParts = (fields: MessageUpdate = {}): MessageUpdate => {
     const snapshot = parts.parts();
@@ -217,7 +99,7 @@ export async function startRun(
   const snapshotTimer = setInterval(() => {
     // Every tick writes the heartbeat, even when nothing changed: it is the Run's lease (ADR 0006).
     const heartbeat = { heartbeatAt: new Date() };
-    void write(changed ? withParts(heartbeat) : heartbeat);
+    write(changed ? withParts(heartbeat) : heartbeat);
     changed = false;
     // The Stop signal is at most once, so a Stop it missed is found in the column.
     void stopRequested(deps, messageId)
@@ -231,10 +113,6 @@ export async function startRun(
   let logEnded = false;
   let ids: { threadId: string; runId: string } | undefined;
   let timedOut = false;
-  /** Whether this Run's own ending was saved: only then does it fire `onRunEnd` (#265). */
-  let endingSaved = false;
-  /** Whether the reply is hidden by the output check (#268). */
-  let hidden = false;
   const capTimer = setTimeout(() => {
     // A run that was stopped but hasn't ended yet stays stopped.
     if (abortController.signal.aborted) return;
@@ -246,136 +124,19 @@ export async function startRun(
     let error: ProviderError | undefined;
     try {
       const mcpNames = new Set((mcp?.tools ?? []).map((tool) => tool.name));
-      const tools = [
-        ...(webSearch
-          ? [
-              createWebSearchTool({
-                searchClient: deps.searchClient,
-                credentials: webSearch,
-                parts,
-                onChange: () => (changed = true),
-                recordSearch: searchMeter
-                  ? () =>
-                      recordSearchUsage(deps, searchMeter).catch((caught: unknown) =>
-                        deps.logger.error(`Recording a search of ${messageId} failed`, caught),
-                      )
-                  : undefined,
-                // A search on Host credentials is checked against the Quota first (ADR 0007).
-                mayRun: () => paidCallAllowed(deps, searchMeter),
-              }),
-            ]
-          : []),
-        ...(pastChats
-          ? [
-              createSearchPastChatsTool({
-                deps,
-                userId: context.userId,
-                conversationId: context.conversationId,
-                projectId: pastChats.projectId,
-                parts,
-                onChange: () => (changed = true),
-              }),
-            ]
-          : []),
-        ...(fetchUrl
-          ? [
-              createFetchUrlTool({
-                fetch: deps.fetch,
-                timeoutMs: deps.limits.fetchTimeoutMs,
-                parts,
-                onChange: () => (changed = true),
-              }),
-            ]
-          : []),
-        ...(knowledgeSearch
-          ? [
-              createKnowledgeSearchTool({
-                deps,
-                userId: knowledgeSearch.userId,
-                projectId: knowledgeSearch.projectId,
-                model: knowledgeSearch.model,
-                parts,
-                onChange: () => (changed = true),
-                budget,
-                // The query is embedded on Host credentials, so it's checked against the Quota first (ADR 0007).
-                mayRun: () =>
-                  paidCallAllowed(
-                    deps,
-                    knowledgeSearch.model.onHostCredentials
-                      ? { userId: knowledgeSearch.userId }
-                      : undefined,
-                  ),
-              }),
-            ]
-          : []),
-        ...(image
-          ? [
-              createGenerateImageTool({
-                adapter: image.adapter,
-                meter: image.meter,
-                request: image.request,
-                edit: image.edit,
-                messageId,
-                deps,
-                fetch: deps.fetch,
-                timeoutMs: deps.limits.imageTimeoutMs,
-                parts,
-                onChange: () => (changed = true),
-                budget,
-                // An image on Host credentials is checked against the Quota first (ADR 0007, spec #278).
-                mayRun: () =>
-                  paidCallAllowed(
-                    deps,
-                    image.meter.price ? { userId: image.meter.userId } : undefined,
-                  ),
-              }),
-            ]
-          : []),
-        ...(artifacts
-          ? [
-              createArtifactTool({
-                deps,
-                messageId,
-                conversationId: context.conversationId,
-                parts,
-                onChange: () => (changed = true),
-                budget,
-              }),
-              updateArtifactTool({
-                deps,
-                messageId,
-                conversationId: context.conversationId,
-                parts,
-                onChange: () => (changed = true),
-                budget,
-              }),
-            ]
-          : []),
-        ...trackTools(hostTools, {
-          source: "host",
-          parts,
-          onChange: () => (changed = true),
-          budget,
-        }),
-        ...trackTools(mcp?.tools ?? [], {
-          source: "mcp",
-          parts,
-          onChange: () => (changed = true),
-          budget,
-        }),
-      ];
+      const tools = plan.tools({ parts, onChange: () => (changed = true), budget });
       const middleware: ChatMiddleware[] = [
-        ...(artifacts ? [artifactCutOff] : []),
+        ...(plan.offered.artifacts ? [artifactCutOff] : []),
         ...(compaction ? [compaction.middleware] : []),
       ];
       const stream = chat({
-        adapter,
+        adapter: plan.adapter,
         messages,
         abortController,
         context,
         ...(tools.length > 0 && { tools }),
-        ...(systemPrompts.length > 0 && { systemPrompts }),
-        modelOptions,
+        ...(plan.systemPrompts.length > 0 && { systemPrompts: plan.systemPrompts }),
+        modelOptions: plan.modelOptions,
         // The Artifact cut-off override runs first, so compaction sees the rewritten messages.
         ...(middleware.length > 0 && { middleware }),
         // A resumed Run continues the thread and the Run that ended waiting (ADR 0008, spike #154).
@@ -429,166 +190,84 @@ export async function startRun(
     } finally {
       clearInterval(snapshotTimer);
       clearTimeout(capTimer);
-      parts.cancelRunningCalls();
+      // The parts as the stream ended: a call that finishes after this stays cancelled.
+      const ended = parts.parts();
       // The MCP clients close with the Run, Stop included (spec #91).
       await mcp?.close();
-      const interrupted = abortController.signal.reason === shutdownAbort;
-      const outcome: { ending: RunEnding; reason?: string; update: MessageUpdate } = timedOut
-        ? { ending: "error", reason: "timed_out", update: { status: "error", error: "timed_out" } }
-        : interrupted
-          ? {
-              ending: "error",
-              reason: "interrupted",
-              update: { status: "error", error: "interrupted" },
-            }
-          : abortController.signal.aborted
-            ? { ending: "stopped", update: { status: "stopped" } }
-            : error !== undefined
-              ? {
-                  ending: "error",
-                  reason: errorReasonOf(error.code),
-                  update: {
-                    status: "error",
-                    error: error.message,
-                    errorReason: errorReasonOf(error.code),
-                  },
-                }
-              : awaiting
-                ? {
-                    ending: "awaiting_approval",
-                    update: {
-                      status: "awaiting_approval",
-                      threadId: awaiting.threadId,
-                      interruptedRunId: awaiting.runId,
-                    },
-                  }
-                : { ending: "complete", update: { status: "complete" } };
-      const ending = outcome.update;
-      // Stored whatever the ending: the Provider's usage for a finished model call, else an estimate.
-      const usage = messageUsage(
-        outcome.ending === "complete" || outcome.ending === "awaiting_approval" ? total : undefined,
-        {
-          promptCharacters,
-          parts: parts.parts().parts,
-        },
-      );
-      endingSaved = await write(
-        withParts({
-          ...ending,
-          usage,
-          ...(compaction && { contextStartId: compaction.contextStartId() }),
-        }),
-        { whileStreaming: true },
-      );
-      // The output check (#268), after the ending is saved and before anything else is reported. A
-      // reply that an earlier Run of its Message already hid stays hidden, so this Run's text is erased too.
-      if (endingSaved) {
-        const verdict =
-          runText === ""
-            ? undefined
-            : await deps.hooks.moderate({
-                phase: "output",
-                userId: context.userId,
-                conversationId: context.conversationId,
-                messageId,
-                runId: logId,
-                onHostCredentials: meter !== undefined,
-                text: runText,
-              });
-        if (verdict?.allow === false || (await isHidden(deps, messageId))) {
-          hidden = await write({
-            parts: storedParts([]),
-            searchText: "",
-            ...(verdict?.allow === false && {
-              hiddenAt: new Date(),
-              hiddenReason: verdict.reason ?? null,
-            }),
-          });
-        }
-      }
-      // Recorded before the log closes, so a reader that has seen the end also sees the usage row.
-      if (meter) {
-        await recordHostUsage(
-          deps,
-          "run",
-          meter,
-          usage,
-          costComplete ? reportedCost : undefined,
-        ).catch((caught: unknown) =>
-          deps.logger.error(`Recording usage of ${messageId} failed`, caught),
-        );
-      }
       void unsubscribeStop().catch((error: unknown) =>
         deps.logger.error(`Unsubscribing Stop of ${messageId} failed`, error),
       );
-      // A Run that was stopped, timed out or threw has no terminal chunk of its own. A reader that
-      // sees its log end without one takes the stream as cut off and reconnects, which starts the
-      // Run again, so the log is ended explicitly.
-      if (!logEnded) {
-        void deps.runStreams
-          .append(
-            logId,
-            endingChunk(
-              ids ?? { threadId: messageId, runId: messageId },
-              timedOut ? "timed_out" : interrupted ? "interrupted" : error?.message,
-            ),
-          )
-          .catch((caught: unknown) =>
-            deps.logger.error(`Logging Message ${messageId} failed`, caught),
-          );
-      }
-      // A hidden reply's log ends with the `moderated` chunk, so every reader drops its text (#269).
-      if (hidden) {
-        await deps.runStreams
-          .append(logId, moderatedChunk())
-          .catch((caught: unknown) =>
-            deps.logger.error(`Logging Message ${messageId} failed`, caught),
-          );
-      }
-      await deps.runStreams.close(logId);
-      deps.lifecycle.runs.delete(messageId);
-      // Last: the ending, the usage row and the log's end are all written by now (#265).
-      if (endingSaved) {
-        deps.hooks.fire("onRunEnd", {
-          userId: context.userId,
-          conversationId: context.conversationId,
-          messageId,
-          runId: logId,
-          ending: outcome.ending,
-          ...(outcome.reason !== undefined && { reason: outcome.reason }),
-          model,
-          onHostCredentials: meter !== undefined,
-          hidden,
-        });
-      }
-      // The run ended `complete`: title its Conversation, fire-and-forget. A reply waiting for
-      // Approval is titled once its resumed Run completes.
-      if (
-        !timedOut &&
-        !abortController.signal.aborted &&
-        error === undefined &&
-        awaiting === undefined
-      ) {
-        void titleConversation(deps, messageId);
-      }
-      // A Run that ended `complete` or `stopped` makes Memories from its user Message, in a background
-      // job (ADR 0013). `error`, a hidden reply (owner decision on #286) and a Run waiting for
-      // Approval make none; the resumed Run does.
-      if (
-        endingSaved &&
-        !hidden &&
-        (outcome.ending === "complete" || outcome.ending === "stopped")
-      ) {
-        void enqueueMemories(deps, {
-          userId: context.userId,
-          conversationId: context.conversationId,
-          replyId: messageId,
-        }).catch((caught: unknown) =>
-          deps.logger.error(`Queuing the Memories of ${messageId} failed`, caught),
+      const ending = endingOf({
+        timedOut,
+        interrupted: abortController.signal.reason === shutdownAbort,
+        stopped: abortController.signal.aborted,
+        error,
+        awaiting,
+      });
+      // Stored whatever the ending: the Provider's usage for a finished model call, else an estimate.
+      const usage = messageUsage(
+        ending.status === "complete" || ending.status === "awaiting_approval" ? total : undefined,
+        { promptCharacters, parts: ended.parts },
+      );
+      // The ending is saved after every snapshot write already queued.
+      await writes;
+      try {
+        await endRun(
+          deps,
+          {
+            messageId,
+            runId: logId,
+            userId: context.userId,
+            conversationId: context.conversationId,
+            model,
+            parts: ended,
+            owner: {
+              usage,
+              ...(compaction && { contextStartId: compaction.contextStartId() }),
+              text: runText,
+              meter,
+              reportedCost: costComplete ? reportedCost : undefined,
+              logEnded,
+              ids,
+            },
+          },
+          ending,
         );
+      } finally {
+        deps.lifecycle.runs.delete(messageId);
       }
     }
   })();
+}
+
+/** How the owner's Run ended, from what stopped its stream. A cap or a shutdown wins over a Stop. */
+function endingOf({
+  timedOut,
+  interrupted,
+  stopped,
+  error,
+  awaiting,
+}: {
+  timedOut: boolean;
+  interrupted: boolean;
+  stopped: boolean;
+  error: ProviderError | undefined;
+  awaiting: { threadId: string; runId: string } | undefined;
+}): Ending {
+  if (timedOut) return { status: "error", error: "timed_out" };
+  if (interrupted) return { status: "error", error: "interrupted" };
+  if (stopped) return { status: "stopped" };
+  if (error !== undefined) {
+    return { status: "error", error: error.message, errorReason: errorReasonOf(error.code) };
+  }
+  if (awaiting) {
+    return {
+      status: "awaiting_approval",
+      threadId: awaiting.threadId,
+      interruptedRunId: awaiting.runId,
+    };
+  }
+  return { status: "complete" };
 }
 
 /**
@@ -597,29 +276,6 @@ export async function startRun(
  */
 export function runLogId(messageId: string, runNumber: number) {
   return runNumber <= 1 ? messageId : `${messageId}:${runNumber}`;
-}
-
-/**
- * The custom chunk a hidden reply's Run log ends with (#269). The client drops the reply's text
- * when it reads it, so a reader that joins or reloads mid-Run hides it too.
- */
-export function moderatedChunk(): StreamChunk {
-  return { type: EventType.CUSTOM, name: "moderated", value: {}, timestamp: Date.now() };
-}
-
-/** Whether an earlier Run of the Message already hid its reply (#268). */
-async function isHidden(deps: AppDeps, messageId: string): Promise<boolean> {
-  try {
-    const [row] = await deps.db
-      .select({ hiddenAt: message.hiddenAt })
-      .from(message)
-      .where(eq(message.id, messageId));
-    return row?.hiddenAt != null;
-  } catch (caught) {
-    // The Run's ending is saved by now, so a failed read must not stop the Run's other steps.
-    deps.logger.error(`Reading whether Message ${messageId} is hidden failed`, caught);
-    return false;
-  }
 }
 
 /** What a decision on a waiting call resumes: the thread, the Run that ended waiting, and the answer. */
@@ -654,17 +310,6 @@ function runIdsOf(chunk: StreamChunk) {
   return typeof threadId === "string" && typeof runId === "string"
     ? { threadId, runId }
     : undefined;
-}
-
-/** The chunk that ends a Run's log: a `RUN_ERROR` when it failed or timed out, else a `RUN_FINISHED`. */
-function endingChunk(
-  ids: { threadId: string; runId: string },
-  errorMessage: string | undefined,
-): StreamChunk {
-  const timestamp = Date.now();
-  return errorMessage === undefined
-    ? { type: EventType.RUN_FINISHED, ...ids, finishReason: "stop", timestamp }
-    : { type: EventType.RUN_ERROR, ...ids, message: errorMessage, timestamp };
 }
 
 /**
@@ -785,9 +430,9 @@ async function stopLiveRuns(deps: AppDeps, where: SQL, db: Executor): Promise<Ru
 }
 
 /**
- * Saves a streaming Message whose owner is gone as `stopped`, cancels its running searches and
- * ends its log, so a reader does not reconnect and start it again (the #71 lesson). Answers the
- * Run's `onRunEnd` event, or none when the Message had already ended.
+ * Saves a streaming Message whose owner is gone as `stopped`, cancels its running calls and ends
+ * its log, so a reader does not reconnect and start it again (the #71 lesson). Answers the Run's
+ * `onRunEnd` event for the caller to fire, or none when the Message had already ended.
  */
 async function endOrphanedRun(
   deps: AppDeps,
@@ -795,66 +440,42 @@ async function endOrphanedRun(
   db: Executor,
 ): Promise<RunEndEvent[]> {
   const [row] = await db
-    .select({
-      parts: message.parts,
-      runNumber: message.runNumber,
-      model: message.model,
-      conversationId: message.conversationId,
-      userId: conversation.userId,
-    })
+    .select(ownerlessRunColumns)
     .from(message)
     .innerJoin(conversation, eq(conversation.id, message.conversationId))
     .where(and(eq(message.id, messageId), eq(message.status, "streaming")));
   if (!row) return [];
-  const parsed = storedPartsSchema.safeParse(row.parts);
-  const ended = await db
-    .update(message)
-    .set({
-      status: "stopped",
-      ...(parsed.success && { parts: cancelRunningCalls(parsed.data) }),
-    })
-    .where(and(eq(message.id, messageId), eq(message.status, "streaming")))
-    .returning({ id: message.id });
-  if (ended.length === 0) return [];
-  const logId = runLogId(messageId, row.runNumber);
-  await deps.runStreams.open(logId);
-  await deps.runStreams.append(
-    logId,
-    endingChunk({ threadId: messageId, runId: messageId }, undefined),
-  );
-  await deps.runStreams.close(logId);
-  return [await runEndedWithoutOwner(deps, { ...row, messageId }, "stopped")];
+  const event = await endRun(deps, ownerlessRun(row), { status: "stopped" }, { db, fire: false });
+  return event ? [event] : [];
 }
 
-/**
- * The `onRunEnd` event of a Run whose owner process is gone: stopped from another process, or
- * reaped. The owner that started it can't say whether it ran on Host credentials, so that is read
- * as the Model resolves for its user now.
- */
-async function runEndedWithoutOwner(
-  deps: AppDeps,
-  run: {
-    messageId: string;
-    runNumber: number;
-    model: string | null;
-    userId: string;
-    conversationId: string;
-  },
-  ending: RunEnding,
-  reason?: string,
-): Promise<RunEndEvent> {
-  const model = run.model ?? "";
-  const call = model === "" ? null : await resolveModelCall(deps, run.userId, model);
+/** The columns a Run ended without its owner (stopped from another process, or reaped) is read from. */
+const ownerlessRunColumns = {
+  id: message.id,
+  parts: message.parts,
+  runNumber: message.runNumber,
+  model: message.model,
+  conversationId: message.conversationId,
+  userId: conversation.userId,
+};
+
+function ownerlessRun(row: {
+  id: string;
+  parts: unknown;
+  runNumber: number;
+  model: string | null;
+  conversationId: string;
+  userId: string;
+}): EndingRun {
+  // A row that doesn't parse holds no running call, and mustn't stop its Run from ending.
+  const parsed = storedPartsSchema.safeParse(row.parts);
   return {
-    userId: run.userId,
-    conversationId: run.conversationId,
-    messageId: run.messageId,
-    runId: runLogId(run.messageId, run.runNumber),
-    ending,
-    ...(reason !== undefined && { reason }),
-    model,
-    onHostCredentials: Boolean(call?.hostModel),
-    hidden: false,
+    messageId: row.id,
+    runId: runLogId(row.id, row.runNumber),
+    userId: row.userId,
+    conversationId: row.conversationId,
+    model: row.model ?? "",
+    ...(parsed.success && { parts: parsed.data }),
   };
 }
 
@@ -867,70 +488,28 @@ export const shutdownAbort = new Error("The chat SDK is stopping");
 /**
  * Reaps the Runs whose owner has stopped heartbeating (ADR 0006), from any process: every
  * `streaming` Message whose heartbeat is older than the lease, or was never written, ends as
- * `error` "interrupted". A search it left running is `cancelled`, and its log ends with a
+ * `error` "interrupted". A call it left running is `cancelled`, and its log ends with a
  * `RUN_ERROR` and closes, so a reader doesn't reconnect into a Run that is gone.
  */
 export async function reapStaleRuns(deps: AppDeps, now = new Date()) {
   const cutoff = new Date(now.getTime() - deps.limits.leaseMs);
-  const reaped = await deps.db
-    .update(message)
-    .set({ status: "error", error: "interrupted" })
+  const stale = await deps.db
+    .select(ownerlessRunColumns)
+    .from(message)
+    .innerJoin(conversation, eq(conversation.id, message.conversationId))
     .where(
       and(
         eq(message.status, "streaming"),
         or(isNull(message.heartbeatAt), lt(message.heartbeatAt, cutoff)),
       ),
-    )
-    .returning({
-      id: message.id,
-      conversationId: message.conversationId,
-      model: message.model,
-      parts: message.parts,
-      runNumber: message.runNumber,
-    });
-  for (const row of reaped) {
-    // A row that doesn't parse holds no running call, and mustn't stop the reaper.
-    const parsed = storedPartsSchema.safeParse(row.parts);
-    if (
-      parsed.success &&
-      parsed.data.parts.some(
-        (part) =>
-          (part.type === "web_search" ||
-            part.type === "tool_call" ||
-            part.type === "generated_image") &&
-          part.state === "running",
-      )
-    ) {
-      await deps.db
-        .update(message)
-        .set({ parts: cancelRunningCalls(parsed.data) })
-        .where(eq(message.id, row.id));
-    }
-    const ids = { threadId: row.id, runId: row.id };
-    const logId = runLogId(row.id, row.runNumber);
-    await deps.runStreams.open(logId);
-    await deps.runStreams.append(logId, endingChunk(ids, "interrupted"));
-    await deps.runStreams.close(logId);
-    const [owner] = await deps.db
-      .select({ userId: conversation.userId })
-      .from(conversation)
-      .where(eq(conversation.id, row.conversationId));
-    if (owner) {
-      deps.hooks.fire(
-        "onRunEnd",
-        await runEndedWithoutOwner(
-          deps,
-          {
-            messageId: row.id,
-            runNumber: row.runNumber,
-            model: row.model,
-            userId: owner.userId,
-            conversationId: row.conversationId,
-          },
-          "error",
-          "interrupted",
-        ),
-      );
-    }
+    );
+  for (const row of stale) {
+    // Still past the lease when it is saved, so an owner that has just heartbeated keeps its Run.
+    await endRun(
+      deps,
+      ownerlessRun(row),
+      { status: "error", error: "interrupted" },
+      { staleBefore: cutoff },
+    );
   }
 }

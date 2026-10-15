@@ -6,7 +6,6 @@ import {
   embeddingModelIds,
   resolveEmbeddingModel,
 } from "../chat/embedding-models";
-import { quotaRefusal } from "../chat/quota";
 import { project } from "../db/schema/chat";
 import { knowledgeChunk, knowledgeFile } from "../db/schema/knowledge";
 import type { AppDeps } from "../deps";
@@ -77,7 +76,7 @@ export async function knowledgeOf(deps: AppDeps, userId: string, projectId: stri
     /** The stored Model, or null before the first upload. */
     embeddingModel: row.embeddingModel,
     /** The Model files are read and searched with now: the stored one, else the default. Null when the user can't use it. */
-    currentModel: current ? { id: current.id, onHostCredentials: current.onHostCredentials } : null,
+    currentModel: current ? { id: current.id, onHostCredentials: current.meter.onHost } : null,
     models,
     files,
   };
@@ -108,7 +107,7 @@ export async function uploadKnowledgeFile(
   }
   // Host credentials count against the user's Quota, so an upload past it is refused (ADR 0007).
   // Files already processing aren't checked again: they finish.
-  if (model.onHostCredentials && (await quotaRefusal(deps, userId))) {
+  if (!(await model.meter.mayRun()).ok) {
     throw rpcError("PAYMENT_REQUIRED", "error.quotaSpent", "You've used this window's Quota");
   }
 

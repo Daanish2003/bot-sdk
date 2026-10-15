@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveCredentials, resolvedServices } from "../../../../core/server/credentials/resolve";
-import { saveCredentials } from "../../../../core/server/credentials/store";
+import { resolvedServices } from "../../../../core/server/credentials/resolve";
+import { loadCredentials, saveCredentials } from "../../../../core/server/credentials/store";
 import { createTestDeps } from "../../../support/deps";
 import { insertUser } from "../../../support/users";
 
@@ -16,7 +16,7 @@ describe("credential resolution", () => {
       verified: true,
     });
 
-    await expect(resolveCredentials(deps, user.id, "openai")).resolves.toEqual({
+    await expect(loadCredentials(deps, user.id, "openai")).resolves.toEqual({
       apiKey: "sk-proj-abcd",
     });
   });
@@ -32,7 +32,7 @@ describe("credential resolution", () => {
       verified: true,
     });
 
-    await expect(resolveCredentials(deps, user.id, "openai")).resolves.toBeNull();
+    await expect(loadCredentials(deps, user.id, "openai")).resolves.toBeNull();
   });
 
   it("lists the services the user has credentials for", async () => {

@@ -3,6 +3,7 @@ import { message } from "../../../../core/server/db/schema/chat";
 import { asc, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
+import { createHookEmitter } from "../../../../core/server/chat/hooks";
 import { stopRun } from "../../../../core/server/chat/run";
 import { saveCredentials } from "../../../../core/server/credentials/store";
 import type { AppDeps } from "../../../../core/server/deps";
@@ -410,6 +411,22 @@ describe("MCP tools in a Run", () => {
 
     expect(mcp.closed).toBeGreaterThanOrEqual(1);
     expect(await replyOf(deps, conv.id)).toMatchObject({ status: "stopped" });
+  });
+
+  it("closes its clients when a send is refused after they opened", async () => {
+    const { user, mcp, send } = await setup({
+      rounds: [round(text("Never sent."))],
+      deps: {
+        hooks: createHookEmitter({ moderate: () => ({ allow: false }) }, { error: () => {} }),
+      },
+    });
+    const conv = await insertConversation(user, { title: "Refused" });
+
+    const response = await send(conv.id, { tools: { connections: ["linear"], allowedTools: [] } });
+
+    expect(response.status).toBe(422);
+    expect(mcp.requests).toBeGreaterThan(0);
+    expect(mcp.closed).toBeGreaterThanOrEqual(1);
   });
 });
 

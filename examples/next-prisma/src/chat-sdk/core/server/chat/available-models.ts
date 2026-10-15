@@ -1,7 +1,8 @@
 import { conversation } from "../db/schema/chat";
 import { desc, eq } from "drizzle-orm";
 
-import { resolveCredentials, resolvedServices, hostModelList } from "../credentials/resolve";
+import { resolvedServices, hostModelList } from "../credentials/resolve";
+import { loadCredentials } from "../credentials/store";
 import { tavilyService } from "../../shared/credentials/services";
 import type { AppDeps } from "../deps";
 import { ollamaModels, openRouterModels } from "./live-models";
@@ -117,6 +118,6 @@ export async function resolveModel(
 async function liveModels(deps: Deps, userId: string, provider: string) {
   if (provider === "openrouter") return openRouterModels(deps.fetch);
   if (provider !== "ollama") return [];
-  const host = (await resolveCredentials(deps, userId, "ollama"))?.host;
+  const host = (await loadCredentials(deps, userId, "ollama"))?.host;
   return host ? ollamaModels(deps.ollamaFetch, host) : [];
 }

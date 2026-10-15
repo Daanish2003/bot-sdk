@@ -21,3 +21,4 @@ MCP tools need the user's Approval before they run, and Host tools may ask for i
 - A schema change: the `awaiting_approval` Message status and the `tool_call` part.
 - Whether `chat({ resume })` works with history rebuilt on the server is unverified. The spec needs a spike first.
 - A Message can span several Runs; usage and Quota accounting sum across them.
+- The new Run is planned by the same module as a send (`planRun` in `core/server/chat/run-plan.ts`), so it offers the same tools, prompts, replay and compaction as the Run that asked (#379). A send's web-search choice isn't stored, so `chat.decide` takes the user's choice as they decide (`webSearch`, as on a send). A decision without it, such as a Stop, offers the Web tools when the waiting reply already holds a `web_search` or `fetch_url` call.

@@ -1,5 +1,6 @@
 import type { AnyServerTool, ToolExecutionContext } from "@tanstack/ai";
 
+import { fetchUrlToolName } from "../../shared/chat/fetch-url";
 import type { createPartsBuilder } from "../../shared/chat/parts";
 import type { StoredPart } from "../../shared/message-parts";
 
@@ -48,19 +49,26 @@ export function createToolBudget(used: number): ToolBudget {
 }
 
 /**
- * Calls a reply has already made: every tool call that ran, ended or was cut off, `create_artifact`
- * included. An Artifact's `artifact` part is not counted again: its call is. A `generate_image`
- * call is one of them (its part is `generated_image`, spec #278), and so is a `search_knowledge`
- * call (its part is `knowledge_search`, spec #357).
+ * Calls a reply has already made that took from its budget, so a resumed Run starts where the
+ * Run before it stopped: every call that ran, ended or was cut off, of a Host or MCP tool,
+ * `create_artifact`, `update_artifact`, `generate_image` (its part is `generated_image`, spec #278)
+ * or `search_knowledge` (its part is `knowledge_search`, spec #357). An Artifact's `artifact` part
+ * is not counted again: its call is. `fetch_url` and `web_search` have their own caps and take
+ * nothing, and neither does an image the Run's own cap refused (`limit_reached`), which is refused
+ * before the budget is asked. A call the budget itself refused is counted, which changes nothing:
+ * the budget refuses only once it is spent.
  */
 export function spentCalls(parts: StoredPart[]): number {
-  return parts.filter(
-    (part) =>
-      (part.type === "tool_call" ||
-        part.type === "generated_image" ||
-        part.type === "knowledge_search") &&
-      (part.state === "done" || part.state === "error" || part.state === "cancelled"),
-  ).length;
+  const ended = (state: string) => state === "done" || state === "error" || state === "cancelled";
+  return parts.filter((part) => {
+    if (part.type === "tool_call") {
+      return ended(part.state) && !(part.source === "builtin" && part.name === fetchUrlToolName);
+    }
+    if (part.type === "generated_image") {
+      return ended(part.state) && part.errorReason !== "limit_reached";
+    }
+    return part.type === "knowledge_search" && ended(part.state);
+  }).length;
 }
 
 /**

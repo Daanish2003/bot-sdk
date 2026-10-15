@@ -31,29 +31,25 @@ const knowledgeDefinition = toolDefinition({
  * The `search_knowledge` server tool for one Run (spec #357, ticket #206). Each call searches the
  * Project's ready Knowledge files and records the call in the reply's `parts` as a
  * `knowledge_search`, calling `onChange` when they change. It takes a call from the reply's shared
- * budget. `mayRun` is checked before the query is embedded: when it refuses (the Quota, on Host
- * credentials), the search is stored as failed and not run. A failure is the call's error state and
- * a result of "Knowledge unavailable", so the reply continues. A call cut off by the run ending
- * (its signal aborts) stays running; the run closes it as cancelled.
+ * budget. The embedding Model's meter checks the Quota before the query is embedded: when it refuses
+ * (on Host credentials), the search is stored as failed and not run. A failure is the call's error
+ * state and a result of "Knowledge unavailable", so the reply continues. A call cut off by the run
+ * ending (its signal aborts) stays running; the run closes it as cancelled.
  */
 export function createKnowledgeSearchTool({
   deps,
-  userId,
   projectId,
   model,
   parts,
   onChange,
   budget,
-  mayRun,
 }: {
-  deps: Pick<AppDeps, "db" | "hooks" | "embeddingAdapterFor">;
-  userId: string;
+  deps: Pick<AppDeps, "db" | "embeddingAdapterFor">;
   projectId: string;
   model: ResolvedEmbeddingModel;
   parts: ReturnType<typeof createPartsBuilder>;
   onChange: () => void;
   budget: ToolBudget;
-  mayRun: () => Promise<boolean>;
 }) {
   return knowledgeDefinition.server(async ({ query }, context): Promise<KnowledgeSearchOutput> => {
     // TanStack AI passes the call's id to every server tool; the stored part is keyed by it.
@@ -68,13 +64,13 @@ export function createKnowledgeSearchTool({
         parts.finishKnowledgeSearch(toolCallId, { error: { code: "chat.toolError.limit" } });
         return { error: toolCallLimitError };
       }
-      if (!(await mayRun())) {
+      if (!(await model.meter.mayRun()).ok) {
         parts.finishKnowledgeSearch(toolCallId, {
           error: { code: knowledgeErrorCodes.quota_exceeded },
         });
         return { error: knowledgeUnavailableError };
       }
-      const excerpts = await searchPassages(deps, { userId, projectId, model, query });
+      const excerpts = await searchPassages(deps, { projectId, model, query });
       parts.finishKnowledgeSearch(toolCallId, { excerpts });
       return knowledgeOutput(excerpts, excerptOffset);
     } catch (caught) {
