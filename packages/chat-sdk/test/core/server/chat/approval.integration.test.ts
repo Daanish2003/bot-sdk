@@ -9,10 +9,21 @@ import type { HostToolContext } from "../../../../core/server/chat/host-tools";
 import { reapStaleRuns, stopRun } from "../../../../core/server/chat/run";
 import { deleteUserData } from "../../../../core/server/delete-user";
 import { saveCredentials } from "../../../../core/server/credentials/store";
-import type { AppDeps } from "../../../../core/server/deps";
-import { insertConversation } from "../../../support/conversations";
+import type { AppDeps, HostProvider } from "../../../../core/server/deps";
+import { fakeImageAdapter } from "../../../../core/server/chat/fake-image-adapter";
+import { citationPrompt } from "../../../../core/shared/chat/citations";
+import { knowledgePromptOf } from "../../../../core/shared/chat/knowledge-search";
+import { insertConversation, insertMessage } from "../../../support/conversations";
 import { createTestDeps, type TestDepsOverrides } from "../../../support/deps";
-import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
+import {
+  createFakeAdapter,
+  type FakeAdapter,
+  round,
+  text,
+  toolCall,
+} from "../../../support/fake-adapter";
+import { createFakeSearchClient } from "../../../support/fake-search-client";
+import { drainJobs } from "../../../support/jobs";
 import { chatRpc, sendAs } from "../../../support/sdk";
 import { insertUser, type TestUser } from "../../../support/users";
 
@@ -504,5 +515,189 @@ describe("Allow for this Conversation", () => {
     expect(
       await deps.db.select().from(conversation).where(eq(conversation.userId, user.id)),
     ).toEqual([]);
+  });
+});
+
+/** The Host's OpenAI: an embedding Model for Knowledge and an Image Model, so no user key is needed. */
+const hostOpenAI: HostProvider = {
+  provider: "openai",
+  credentials: { apiKey: "sk-host-openai" },
+  models: [],
+  embeddingModels: [{ model: "text-embedding-3-small", pricePerMillionTokensUsd: 0.02 }],
+  imageModels: [
+    { modelId: "gpt-image-1-mini", size: "1024x1024", quality: "medium", pricePerImageUsd: 0.01 },
+  ],
+};
+
+const toolNamesOf = (fake: FakeAdapter, call: number) =>
+  (fake.calls[call]?.tools ?? []).map((tool) => tool.name);
+
+/**
+ * A Run in a Project with a ready Knowledge file, web search on, an Image Model and Memory: it
+ * searches the web, draws an image and searches Knowledge, then asks to send mail. The approved
+ * call's Run makes the fifth model call.
+ */
+async function askAfterEveryFeature() {
+  const runs: Runs = [];
+  const user = await insertUser();
+  const fake = createFakeAdapter({
+    rounds: [
+      round(toolCall({ id: "search-1", name: "web_search", input: { query: "news" } })),
+      round(toolCall({ id: "image-1", name: "generate_image", input: { prompt: "a bicycle" } })),
+      round(toolCall({ id: "knowledge-1", name: "search_knowledge", input: { query: "budget" } })),
+      round(mailCall("call-1")),
+      round(text("Sent.")),
+    ],
+  });
+  const deps = createTestDeps({
+    adapterFor: () => fake.adapter,
+    tools: [sendMail(runs)],
+    hostProviders: [hostOpenAI],
+    defaultImageModel: "openai:gpt-image-1-mini",
+    imageAdapterFor: () => fakeImageAdapter(),
+    searchClient: createFakeSearchClient({
+      results: [{ title: "News", url: "https://example.com/news", snippet: "News." }],
+    }),
+  });
+  for (const service of ["anthropic", "tavily"]) {
+    await saveCredentials(deps, user.id, {
+      service,
+      fields: { apiKey: `${service}-test-key` },
+      hint: "…-key",
+      verified: true,
+    });
+  }
+  const rpc = chatRpc({ user, deps });
+  const { id: projectId } = await rpc.project.create({ name: "Thesis" });
+  await rpc.knowledge.upload({
+    projectId,
+    file: new File(["The 2026 budget is set."], "notes.md", { type: "text/markdown" }),
+  });
+  await drainJobs({ deps });
+  const conv = await insertConversation(user, { title: "Everything", projectId });
+  const response = await sendAs(
+    new Request(`${basePath}/run`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: [],
+        forwardedProps: {
+          conversationId: conv.id,
+          parentId: null,
+          text: "Search, draw, read, then email a@b.c",
+          attachmentIds: [],
+          model: anthropicModel,
+          webSearch: true,
+        },
+      }),
+    }),
+    user,
+    deps,
+  );
+  await response.text();
+  const reply = await replyOf(deps, conv.id);
+  expect(reply.status).toBe("awaiting_approval");
+  await rpc.chat.decide({ messageId: reply.id, approved: true });
+  await join(reply.id, user, deps);
+  expect(runs).toHaveLength(1);
+  return { deps, fake, conv };
+}
+
+describe("a Run resumed after an Approval is planned like the Run that asked (ADR 0008)", () => {
+  it("offers web search, fetch_url, image, Knowledge and past-chats tools", async () => {
+    const { fake } = await askAfterEveryFeature();
+
+    const resumed = toolNamesOf(fake, 4);
+    expect(resumed).toEqual(
+      expect.arrayContaining([
+        "web_search",
+        "fetch_url",
+        "generate_image",
+        "search_knowledge",
+        "search_past_chats",
+        "send_mail",
+      ]),
+    );
+    expect(resumed.toSorted()).toEqual(toolNamesOf(fake, 3).toSorted());
+  });
+
+  it("sends the citation and Knowledge-files prompts", async () => {
+    const { fake } = await askAfterEveryFeature();
+
+    const prompts = fake.calls[4]!.systemPrompts ?? [];
+    expect(prompts).toContain(citationPrompt);
+    expect(prompts).toContain(knowledgePromptOf(["notes.md"]));
+    expect(prompts).toEqual(fake.calls[3]!.systemPrompts);
+  });
+
+  it("replays the earlier web search, image and Knowledge calls as calls, not placeholders", async () => {
+    const { fake } = await askAfterEveryFeature();
+
+    const replayed = fake.calls[4]!.messages.flatMap((sent) =>
+      (sent.toolCalls ?? []).map((call) => call.function.name),
+    );
+    expect(replayed).toEqual(
+      expect.arrayContaining(["web_search", "generate_image", "search_knowledge", "send_mail"]),
+    );
+  });
+
+  it("compacts a long history, and records the first Message the resumed Run sent", async () => {
+    const novaPro = "bedrock:us.amazon.nova-pro-v1:0";
+    const user = await insertUser();
+    const fake = createFakeAdapter({ rounds: [round(mailCall("call-1")), round(text("Sent."))] });
+    const deps = createTestDeps({ adapterFor: () => fake.adapter, tools: [sendMail([])] });
+    await saveCredentials(deps, user.id, {
+      service: "bedrock",
+      fields: { apiKey: "test-key" },
+      hint: "…-key",
+      verified: true,
+    });
+    const conv = await insertConversation(user, { model: novaPro, title: "Long" });
+    // Four Messages of ~100,000 tokens against a ~288,000-token budget: the oldest two don't fit.
+    const ids: string[] = [];
+    for (let index = 0; index < 4; index++) {
+      const row = await insertMessage({
+        conversationId: conv.id,
+        parentId: ids.at(-1) ?? null,
+        role: index % 2 === 0 ? "user" : "assistant",
+        text: `m${index} ${"x".repeat(400_000)}`,
+        active: index === 3,
+      });
+      ids.push(row.id);
+    }
+    const response = await sendAs(
+      new Request(`${basePath}/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: [],
+          forwardedProps: {
+            conversationId: conv.id,
+            parentId: ids.at(-1),
+            text: "Email a@b.c",
+            attachmentIds: [],
+            model: novaPro,
+            webSearch: false,
+          },
+        }),
+      }),
+      user,
+      deps,
+    );
+    await response.text();
+    const reply = await replyOf(deps, conv.id);
+    expect(reply.status).toBe("awaiting_approval");
+
+    await chatRpc({ user, deps }).chat.decide({ messageId: reply.id, approved: true });
+    await join(reply.id, user, deps);
+
+    const sent = JSON.stringify(fake.calls[1]!.messages);
+    expect(sent).not.toContain("m0 ");
+    expect(sent).not.toContain("m1 ");
+    expect(sent).toContain("m2 ");
+    expect(await replyOf(deps, conv.id)).toMatchObject({
+      status: "complete",
+      contextStartId: ids[2],
+    });
   });
 });

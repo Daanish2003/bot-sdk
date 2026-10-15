@@ -8,6 +8,8 @@ import { createTestDeps } from "../../../support/deps";
 import { insertUser } from "../../../support/users";
 import { reapStaleRuns, startRun } from "../../../../core/server/chat/run";
 import { freeMeter } from "../../../../core/server/chat/meter";
+import type { RunPlan } from "../../../../core/server/chat/run-plan";
+import { findModel } from "../../../../core/shared/chat/models";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { START } from "../../../../core/server/chat/run-streams";
 import { EventType, type StreamChunk } from "@tanstack/ai";
@@ -191,16 +193,30 @@ describe("startRun", () => {
     });
 
     const startedAt = Date.now();
-    await startRun(deps, {
-      messageId: row.id,
-      provider: "anthropic",
+    const plan: RunPlan = {
+      replyId: row.id,
+      model: findModel("anthropic:claude-sonnet-5-5")!,
+      context: { userId: "user", conversationId: "conversation" },
+      effort: undefined,
+      offered: {
+        webSearch: null,
+        fetchUrl: false,
+        pastChats: null,
+        knowledge: null,
+        image: null,
+        artifacts: false,
+        hostTools: [],
+        mcp: undefined,
+      },
       adapter: held.adapter,
       messages: [],
-      model: "anthropic:claude-sonnet-5-5",
-      context: { userId: "user", conversationId: "conversation" },
       systemPrompts: [],
+      modelOptions: undefined,
       meter: freeMeter,
-    });
+      added: { parts: undefined, attachments: [] },
+      tools: () => [],
+    };
+    await startRun(deps, plan, {});
     // Nothing is released, so no chunk arrives: only the timer can write the heartbeat.
     await expect
       .poll(async () => (await rowOf(deps, row.id)).heartbeatAt?.getTime() ?? 0)
