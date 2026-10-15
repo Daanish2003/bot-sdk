@@ -85,7 +85,7 @@ async function setup({
   });
   // Titled, so a complete run doesn't call the adapter again to title it (#26).
   const conv = await insertConversation(user, { title: "Approval" });
-  const send = (command: { text?: string; parentId?: string | null } = {}) =>
+  const send = (command: { text?: string; parentId?: string | null; webSearch?: boolean } = {}) =>
     sendAs(
       new Request(`${basePath}/run`, {
         method: "POST",
@@ -699,5 +699,63 @@ describe("a Run resumed after an Approval is planned like the Run that asked (AD
       status: "complete",
       contextStartId: ids[2],
     });
+  });
+});
+
+describe("the decision carries the user's web search choice to the resumed Run", () => {
+  /**
+   * A Run sent with web search on that plays `rounds` and asks for Approval, with Tavily
+   * credentials so the Web tools can be offered.
+   */
+  async function ask(rounds = [round(mailCall("call-1")), round(text("Sent."))]) {
+    const ready = await setup({
+      rounds,
+      deps: {
+        searchClient: createFakeSearchClient({
+          results: [{ title: "News", url: "https://example.com/news", snippet: "News." }],
+        }),
+      },
+    });
+    await saveCredentials(ready.deps, ready.user.id, {
+      service: "tavily",
+      fields: { apiKey: "tavily-test-key" },
+      hint: "…-key",
+      verified: true,
+    });
+    await (await ready.send({ webSearch: true })).text();
+    const reply = await replyOf(ready.deps, ready.conv.id);
+    expect(reply.status).toBe("awaiting_approval");
+    return { ...ready, reply };
+  }
+
+  it("offers the Web tools when the user decides with web search on, though the reply never searched", async () => {
+    const { user, deps, fake, reply } = await ask();
+    expect(toolNamesOf(fake, 0)).toContain("web_search");
+
+    await chatRpc({ user, deps }).chat.decide({
+      messageId: reply.id,
+      approved: true,
+      webSearch: true,
+    });
+    await join(reply.id, user, deps);
+
+    expect(toolNamesOf(fake, 1)).toEqual(expect.arrayContaining(["web_search", "fetch_url"]));
+  });
+
+  it("leaves the Web tools out when the user decides with web search off, though the reply searched", async () => {
+    const { user, deps, fake, reply } = await ask([
+      round(toolCall({ id: "search-1", name: "web_search", input: { query: "news" } })),
+      round(mailCall("call-1")),
+      round(text("Sent.")),
+    ]);
+
+    await chatRpc({ user, deps }).chat.decide({
+      messageId: reply.id,
+      approved: true,
+      webSearch: false,
+    });
+    await join(reply.id, user, deps);
+
+    expect(toolNamesOf(fake, 2)).not.toContain("web_search");
   });
 });

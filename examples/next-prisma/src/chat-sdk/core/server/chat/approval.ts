@@ -33,8 +33,9 @@ function allowing(settings: ConversationTools, toolName: string): ConversationTo
 export const declinedResult = { error: "User declined tool execution" };
 
 /**
- * Whether the Run that asked offered the Web tools: a send's choice isn't stored, so it is read
- * from the reply, which holds a `web_search` or `fetch_url` call when it had them.
+ * Whether the Run that asked offered the Web tools, for a decision that doesn't say (a Stop): a
+ * send's choice isn't stored, so it is read from the reply, which holds a `web_search` or
+ * `fetch_url` call when it had them.
  */
 function webAsked(parts: StoredPart[]) {
   return parts.some(
@@ -51,6 +52,8 @@ function webAsked(parts: StoredPart[]) {
  * The Run is the Message's next Run (`runNumber`), planned by `planRun` like a send, so it gets the
  * same Run rules as any other. With `allowForConversation` (an approval only), the call's tool is
  * also allowed for the rest of the Conversation, so its later calls run without Approval (#159).
+ * `webSearch` is the user's web search choice as they decide, like a send's; without it the
+ * resumed Run offers the Web tools when the reply already used them.
  */
 export async function decideApproval(
   deps: AppDeps,
@@ -58,6 +61,7 @@ export async function decideApproval(
   messageId: string,
   approved: boolean,
   allowForConversation = false,
+  webSearch?: boolean,
 ): Promise<DecideResult> {
   const owned = await findMessage(deps, userId, messageId);
   if (!owned) return "not_found";
@@ -96,7 +100,7 @@ export async function decideApproval(
       // The effort the reply recorded when its first Run started.
       reasoningEffort: owned.reasoningEffort,
       toolSettings: asked.toolSettings,
-      web: webAsked(stored.data.parts),
+      web: webSearch ?? webAsked(stored.data.parts),
       replyId: owned.id,
       leafId: owned.id,
     },
