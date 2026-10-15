@@ -6,7 +6,6 @@ import { toolDefinition } from "@tanstack/ai";
 import { convert } from "html-to-text";
 import { z } from "zod";
 
-import type { createPartsBuilder } from "../../shared/chat/parts";
 import type { ToolError } from "../../shared/message-parts";
 import {
   type FetchedPage,
@@ -18,6 +17,7 @@ import {
   maxFetchesPerReply,
 } from "../../shared/chat/fetch-url";
 import { BlockedAddressError } from "../lib/guarded-fetch";
+import { endToolCall, limitReached, type RunToolState, trackedTool } from "./tracked-tool";
 
 /** The largest download a page may be; a larger one is refused. */
 export const maxDownloadBytes = 2 * 1024 * 1024;
@@ -36,60 +36,60 @@ const fetchUrlDefinition = toolDefinition({
 /**
  * The `fetch_url` server tool for one reply: it reads a page through `fetch` (the guarded fetch,
  * which refuses non-public addresses) and records the call in the reply's `parts` as a `builtin`
- * `tool_call`, calling `onChange` when they change. A page that can't be read is an error result
- * with its reason, and the reply continues. After `maxFetchesPerReply` fetches, a call gets
- * `fetchLimitError` and fetches nothing. A call cut off by the run ending (its signal aborts) stays
- * running; the run closes it as cancelled.
+ * `tool_call` (`trackedTool`). A page that can't be read is an error result with its reason, and
+ * the reply continues. After `maxFetchesPerReply` fetches, a call gets `fetchLimitError` and fetches
+ * nothing; the calls don't count against the reply's shared budget.
  */
 export function createFetchUrlTool({
   fetch,
   timeoutMs,
-  parts,
-  onChange,
-}: {
+  ...run
+}: RunToolState & {
   fetch: typeof globalThis.fetch;
   /** How long one page may take (`Limits.fetchTimeoutMs`). */
   timeoutMs: number;
-  parts: ReturnType<typeof createPartsBuilder>;
-  onChange: () => void;
 }) {
+  const { parts } = run;
   let fetches = 0;
-  return fetchUrlDefinition.server(async ({ url }, context): Promise<FetchUrlOutput> => {
-    // TanStack AI passes the call's id to every server tool; the stored part is keyed by it.
-    const toolCallId = context?.toolCallId;
-    if (!toolCallId) throw new Error("fetch_url was called without a tool call id");
-    parts.startToolCall({ toolCallId, name: fetchUrlToolName, source: "builtin", args: { url } });
-    onChange();
-    try {
-      if (fetches >= maxFetchesPerReply) {
-        const error = { error: fetchLimitError };
-        parts.finishToolCall(toolCallId, {
-          state: "error",
-          result: error,
-          error: { code: "chat.toolError.fetchLimit" },
-        });
-        return error;
-      }
-      fetches++;
-      const page = await readPage(url, { fetch, timeoutMs, signal: context?.abortSignal });
-      parts.finishToolCall(toolCallId, { state: "done", result: page });
-      return page;
-    } catch (caught) {
-      if (context?.abortSignal?.aborted) throw caught;
-      const failure =
-        caught instanceof PageError
-          ? { error: caught.message, reason: caught.reason }
-          : { error: pageErrors.failed, reason: "failed" as const };
-      parts.finishToolCall(toolCallId, {
-        state: "error",
-        result: failure,
-        error: pageErrorOf(failure.reason),
-      });
-      return failure;
-    } finally {
-      onChange();
-    }
-  });
+  return fetchUrlDefinition.server(
+    trackedTool(
+      fetchUrlToolName,
+      run,
+      {
+        part: {
+          start: (toolCallId, { url }: { url: string }) =>
+            parts.startToolCall({
+              toolCallId,
+              name: fetchUrlToolName,
+              source: "builtin",
+              args: { url },
+            }),
+          refused: (toolCallId): FetchUrlOutput => limitReached(parts, toolCallId),
+          failed: (toolCallId, caught) => {
+            const failure =
+              caught instanceof PageError
+                ? { error: caught.message, reason: caught.reason }
+                : { error: pageErrors.failed, reason: "failed" as const };
+            return endToolCall(parts, toolCallId, "error", failure, pageErrorOf(failure.reason));
+          },
+        },
+      },
+      async ({ url }, { toolCallId, signal }): Promise<FetchUrlOutput> => {
+        if (fetches >= maxFetchesPerReply) {
+          return endToolCall(
+            parts,
+            toolCallId,
+            "error",
+            { error: fetchLimitError },
+            { code: "chat.toolError.fetchLimit" },
+          );
+        }
+        fetches++;
+        const page = await readPage(url, { fetch, timeoutMs, signal });
+        return endToolCall(parts, toolCallId, "done", page);
+      },
+    ),
+  );
 }
 
 const pageErrors: Record<FetchErrorReason, string> = {

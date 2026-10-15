@@ -7,7 +7,7 @@ import {
   updateArtifactTool,
 } from "../../../../core/server/chat/artifact-tool";
 import { createPartsBuilder, parseStoredParts } from "../../../../core/shared/chat/parts";
-import { createToolBudget } from "../../../../core/server/chat/host-tools";
+import { createToolBudget } from "../../../../core/server/chat/tracked-tool";
 import { saveCredentials } from "../../../../core/server/credentials/store";
 import type { AppDeps } from "../../../../core/server/deps";
 import { toolDefinition } from "@tanstack/ai";

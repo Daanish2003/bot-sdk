@@ -6,12 +6,7 @@ import { tavilyService } from "../../shared/credentials/services";
 import type { ErrorCode } from "../../shared/i18n";
 import type { ConversationTools } from "../../shared/chat/conversation-tools";
 import type { AspectRatio } from "../../shared/chat/generated-image";
-import {
-  type createPartsBuilder,
-  parseStoredParts,
-  type StoredAttachment,
-  toModelMessages,
-} from "../../shared/chat/parts";
+import { parseStoredParts, type StoredAttachment, toModelMessages } from "../../shared/chat/parts";
 import { type CuratedModel, effortFor, type ReasoningChoice } from "../../shared/chat/models";
 import { resolveModelCall, resolveToolCall, type ToolCall } from "../credentials/resolve";
 import { unusableModelCode, type ErrorParams } from "../rpc-error";
@@ -28,7 +23,8 @@ import { resolveImageModelFor, type ResolvedImageModel } from "./image-models";
 import { imageRequestFor } from "./adapters";
 import { editSourcesOf } from "./edit-sources";
 import type { ResolvedEmbeddingModel } from "./embedding-models";
-import { allowTools, trackTools, type HostToolContext, type ToolBudget } from "./host-tools";
+import { allowTools, trackTools, type HostToolContext } from "./host-tools";
+import type { RunToolState } from "./tracked-tool";
 import { systemPromptsFor } from "./system-prompts";
 import { artifactContextPrompts } from "./artifact-context";
 import { quotaExceededCode } from "./quota";
@@ -97,13 +93,6 @@ type ImageTool = {
   request: (aspectRatio: AspectRatio) => ReturnType<typeof imageRequestFor>;
   /** The Image Model's input-image limit, and the path's images an edit may read (spec #278). */
   edit: { maxInputImages: number; sources: ReturnType<typeof editSourcesOf> };
-};
-
-/** What one Run's tools write to: the reply's parts, its change flag and its call budget. */
-export type RunToolState = {
-  parts: ReturnType<typeof createPartsBuilder>;
-  onChange: () => void;
-  budget: ToolBudget;
 };
 
 /** Everything a Run needs before it starts, the same for a send and a resume. */
@@ -421,11 +410,7 @@ function replayFlagsOf(offered: Offered) {
  * The tools of one Run of the plan, each writing its calls to the Run's parts (ADR 0008). This is
  * the one place a Run's tools are built.
  */
-function toolsOf(
-  deps: AppDeps,
-  plan: RunPlan,
-  { parts, onChange, budget }: RunToolState,
-): AnyServerTool[] {
+function toolsOf(deps: AppDeps, plan: RunPlan, run: RunToolState): AnyServerTool[] {
   const { offered, context, replyId: messageId } = plan;
   return [
     ...(offered.webSearch
@@ -434,8 +419,7 @@ function toolsOf(
             searchClient: deps.searchClient,
             credentials: offered.webSearch.credentials,
             meter: offered.webSearch.meter,
-            parts,
-            onChange,
+            ...run,
           }),
         ]
       : []),
@@ -446,8 +430,7 @@ function toolsOf(
             userId: context.userId,
             conversationId: context.conversationId,
             projectId: offered.pastChats.projectId,
-            parts,
-            onChange,
+            ...run,
           }),
         ]
       : []),
@@ -456,8 +439,7 @@ function toolsOf(
           createFetchUrlTool({
             fetch: deps.fetch,
             timeoutMs: deps.limits.fetchTimeoutMs,
-            parts,
-            onChange,
+            ...run,
           }),
         ]
       : []),
@@ -467,9 +449,7 @@ function toolsOf(
             deps,
             projectId: offered.knowledge.projectId,
             model: offered.knowledge.model,
-            parts,
-            onChange,
-            budget,
+            ...run,
           }),
         ]
       : []),
@@ -486,9 +466,7 @@ function toolsOf(
             deps,
             fetch: deps.fetch,
             timeoutMs: deps.limits.imageTimeoutMs,
-            parts,
-            onChange,
-            budget,
+            ...run,
           }),
         ]
       : []),
@@ -498,21 +476,17 @@ function toolsOf(
             deps,
             messageId,
             conversationId: context.conversationId,
-            parts,
-            onChange,
-            budget,
+            ...run,
           }),
           updateArtifactTool({
             deps,
             messageId,
             conversationId: context.conversationId,
-            parts,
-            onChange,
-            budget,
+            ...run,
           }),
         ]
       : []),
-    ...trackTools(offered.hostTools, { source: "host", parts, onChange, budget }),
-    ...trackTools(offered.mcp?.tools ?? [], { source: "mcp", parts, onChange, budget }),
+    ...trackTools(offered.hostTools, { source: "host", ...run }),
+    ...trackTools(offered.mcp?.tools ?? [], { source: "mcp", ...run }),
   ];
 }

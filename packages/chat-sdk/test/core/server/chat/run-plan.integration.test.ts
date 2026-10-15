@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { fakeImageAdapter } from "../../../../core/server/chat/fake-image-adapter";
-import { createToolBudget } from "../../../../core/server/chat/host-tools";
+import { createToolBudget } from "../../../../core/server/chat/tracked-tool";
 import { planRun, type RunPlan } from "../../../../core/server/chat/run-plan";
 import { findConversation } from "../../../../core/server/chat/store";
 import { saveCredentials } from "../../../../core/server/credentials/store";
