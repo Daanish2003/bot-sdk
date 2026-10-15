@@ -53,7 +53,10 @@ describe("the default embedding Model", () => {
 
     const model = await defaultEmbeddingModel(deps, user.id);
 
-    expect(model).toMatchObject({ id: "openai:text-embedding-3-small", onHostCredentials: false });
+    expect(model).toMatchObject({
+      id: "openai:text-embedding-3-small",
+      meter: expect.objectContaining({ onHost: false }),
+    });
     expect(model?.credentials).toEqual({ apiKey: "openai-own-key" });
   });
 
@@ -63,7 +66,10 @@ describe("the default embedding Model", () => {
 
     const model = await defaultEmbeddingModel(createTestDeps(), user.id);
 
-    expect(model).toMatchObject({ id: "gemini:gemini-embedding-001", onHostCredentials: false });
+    expect(model).toMatchObject({
+      id: "gemini:gemini-embedding-001",
+      meter: expect.objectContaining({ onHost: false }),
+    });
   });
 
   it("is the Host's first embedding Model, priced, when the user has no key", async () => {
@@ -74,10 +80,12 @@ describe("the default embedding Model", () => {
 
     expect(model).toMatchObject({
       id: "gemini:gemini-embedding-001",
-      onHostCredentials: true,
-      pricePerMillionTokensUsd: 0.15,
+      meter: expect.objectContaining({ onHost: true }),
       credentials: { apiKey: "gemini-host-key" },
     });
+    // Priced at the Host's price per 1M tokens.
+    await model!.meter.record({ characters: 0, reportedTokens: 1_000_000 });
+    expect((await usageRowsOf(user.id))[0]?.costMicros).toBe(150_000);
   });
 
   it("is none when there is no key and the Host offers no embedding Model", async () => {
@@ -93,7 +101,10 @@ describe("the default embedding Model", () => {
 
     const model = await defaultEmbeddingModel(deps, user.id);
 
-    expect(model).toMatchObject({ id: "openai:text-embedding-3-large", onHostCredentials: true });
+    expect(model).toMatchObject({
+      id: "openai:text-embedding-3-large",
+      meter: expect.objectContaining({ onHost: true }),
+    });
   });
 });
 
@@ -106,7 +117,7 @@ describe("the credentials for an embedding Model", () => {
     const model = await resolveEmbeddingModel(deps, user.id, "openai:text-embedding-3-large");
 
     expect(model).toMatchObject({
-      onHostCredentials: false,
+      meter: expect.objectContaining({ onHost: false }),
       credentials: { apiKey: "openai-own-key" },
     });
   });
@@ -118,10 +129,12 @@ describe("the credentials for an embedding Model", () => {
     const model = await resolveEmbeddingModel(deps, user.id, "openai:text-embedding-3-large");
 
     expect(model).toMatchObject({
-      onHostCredentials: true,
-      pricePerMillionTokensUsd: 0.13,
+      meter: expect.objectContaining({ onHost: true }),
       credentials: { apiKey: "sk-host-openai" },
     });
+    // Priced at the Host's price per 1M tokens.
+    await model!.meter.record({ characters: 0, reportedTokens: 1_000_000 });
+    expect((await usageRowsOf(user.id))[0]?.costMicros).toBe(130_000);
   });
 
   it("is none for a Model the Host doesn't offer, or one that is not an embedding Model", async () => {
@@ -152,7 +165,6 @@ describe("embedTexts", () => {
     const texts = ["a red guitar", "a blue drum kit"];
 
     const vectors = await embedTexts(deps, {
-      userId: user.id,
       model: model!,
       texts,
       purpose: "document",
@@ -188,7 +200,6 @@ describe("embedTexts", () => {
     const model = await defaultEmbeddingModel(deps, user.id);
 
     await embedTexts(deps, {
-      userId: user.id,
       model: model!,
       texts: ["a red guitar"],
       purpose: "query",
@@ -208,8 +219,8 @@ describe("embedTexts", () => {
     const model = await resolveEmbeddingModel(deps, user.id, "gemini:gemini-embedding-001");
     const texts = ["a red guitar"];
 
-    await embedTexts(deps, { userId: user.id, model: model!, texts, purpose: "document" });
-    await embedTexts(deps, { userId: user.id, model: model!, texts, purpose: "query" });
+    await embedTexts(deps, { model: model!, texts, purpose: "document" });
+    await embedTexts(deps, { model: model!, texts, purpose: "query" });
 
     expect(adapter.calls.map((call) => call.modelOptions)).toEqual([
       { taskType: "RETRIEVAL_DOCUMENT" },
@@ -247,7 +258,6 @@ describe("embedTexts", () => {
     const model = await resolveEmbeddingModel(deps, user.id, "gemini:gemini-embedding-001");
 
     const [vector] = await embedTexts(deps, {
-      userId: user.id,
       model: model!,
       texts: ["a red guitar"],
       purpose: "document",
@@ -268,13 +278,11 @@ describe("embedTexts", () => {
     const gemini = await resolveEmbeddingModel(deps, user.id, "gemini:gemini-embedding-001");
 
     const openAIVectors = await embedTexts(deps, {
-      userId: user.id,
       model: openAI!,
       texts: inputs(2_049),
       purpose: "document",
     });
     const geminiVectors = await embedTexts(deps, {
-      userId: user.id,
       model: gemini!,
       texts: inputs(150),
       purpose: "document",
@@ -297,7 +305,6 @@ describe("embedTexts", () => {
 
     await expect(
       embedTexts(deps, {
-        userId: user.id,
         model: model!,
         texts: ["a red guitar"],
         purpose: "document",

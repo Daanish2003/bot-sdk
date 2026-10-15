@@ -7,6 +7,7 @@ import {
   embedTexts,
   resolveEmbeddingModel,
 } from "../chat/embedding-models";
+import type { ResolveDeps } from "../credentials/resolve";
 import type { AppDeps } from "../deps";
 import { maxExcerptsPerSearch } from "../../shared/chat/knowledge-search";
 
@@ -28,7 +29,7 @@ export type Excerpt = { fileId: string; fileName: string; chunkIndex: number; te
  * no ready file) or no working credential for its Model, so the tool isn't offered (spec #357).
  */
 export async function knowledgeSearchFor(
-  deps: Pick<AppDeps, "db" | "keyEncryptionSecrets" | "hostProviders" | "byok">,
+  deps: ResolveDeps,
   userId: string,
   projectId: string,
 ): Promise<{ fileNames: string[]; model: ResolvedEmbeddingModel } | null> {
@@ -52,18 +53,13 @@ export async function knowledgeSearchFor(
 /**
  * The best passages of a Project's ready Knowledge files for `query`: the nearest by meaning and
  * the best matches by keyword, each leg's top candidates fused by reciprocal rank (spec #357). The
- * query is embedded with the Project's Model, metered on Host credentials by `embedTexts`.
+ * query is embedded with the Project's Model, and recorded by its meter.
  */
 export async function searchPassages(
-  deps: Pick<AppDeps, "db" | "hooks" | "embeddingAdapterFor">,
-  {
-    userId,
-    projectId,
-    model,
-    query,
-  }: { userId: string; projectId: string; model: ResolvedEmbeddingModel; query: string },
+  deps: Pick<AppDeps, "db" | "embeddingAdapterFor">,
+  { projectId, model, query }: { projectId: string; model: ResolvedEmbeddingModel; query: string },
 ): Promise<Excerpt[]> {
-  const [vector] = await embedTexts(deps, { userId, model, texts: [query], purpose: "query" });
+  const [vector] = await embedTexts(deps, { model, texts: [query], purpose: "query" });
   const literal = JSON.stringify(vector);
   const scope = and(eq(knowledgeFile.projectId, projectId), eq(knowledgeFile.status, "ready"));
   const columns = {

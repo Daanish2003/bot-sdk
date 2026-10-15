@@ -18,7 +18,6 @@ import { resolveModel } from "./available-models";
 import { resolveImageModelFor } from "./image-models";
 import { imageRequestFor } from "./adapters";
 import { editSourcesOf } from "./edit-sources";
-import { imageCancelsUpstream } from "./host-usage";
 import type { AspectRatio } from "../../shared/chat/generated-image";
 import { parseStoredParts, searchTextOf, toModelMessages } from "../../shared/chat/parts";
 import { chatCommandSchema } from "../../shared/chat/command";
@@ -33,7 +32,7 @@ import { loadSettings } from "../settings/store";
 import { systemPromptsFor } from "./system-prompts";
 import { recalledMemoriesPrompt } from "../memory/recall";
 import { knowledgeSearchFor } from "../knowledge/search";
-import { quotaExceededCode, quotaRefusal } from "./quota";
+import { quotaExceededCode } from "./quota";
 import { generationOptionsFor } from "./generation";
 import { effortFor } from "../../shared/chat/models";
 import { compactionFor, contextBudgetOf, estimateModelMessageTokens } from "./compaction";
@@ -89,14 +88,12 @@ export async function handleChat(
   }
   // A Run on Host credentials is refused once its Quota's window has spent the budget (ADR 0007).
   // The Quota banner explains it, so the body carries only the code and the reset time.
-  if (call.hostModel) {
-    const refusal = await quotaRefusal(deps, userId);
-    if (refusal) {
-      return Response.json(
-        { code: quotaExceededCode, params: { resetsAt: refusal.resetsAt.toISOString() } },
-        { status: 402 },
-      );
-    }
+  const quota = await call.meter.mayRun();
+  if (!quota.ok) {
+    return Response.json(
+      { code: quotaExceededCode, params: { resetsAt: quota.resetsAt.toISOString() } },
+      { status: 402 },
+    );
   }
   // The Web tools are offered only when asked for and the Model has tools. `web_search` also needs a
   // usable Tavily key: the user's own, else the Host's (ADR 0007). `fetch_url` needs none.
@@ -176,7 +173,7 @@ export async function handleChat(
       phase: "input",
       userId,
       conversationId: owned.id,
-      onHostCredentials: Boolean(call.hostModel),
+      onHostCredentials: call.meter.onHost,
       text: command.text,
       attachments: attachments.added
         .filter((file) => {
@@ -234,13 +231,8 @@ export async function handleChat(
           request: (aspectRatio: AspectRatio) =>
             imageRequestFor(image.id, aspectRatio, image.hostModel),
           edit: { maxInputImages: image.maxInputImages, sources: editSources },
-          // Only a Host Image Model has a price, so a BYOK image records its usage with no Host cost.
-          meter: {
-            userId,
-            model: image.id,
-            price: image.hostModel,
-            cancelsUpstream: imageCancelsUpstream(image.provider),
-          },
+          meter: image.meter,
+          model: image.id,
         }
       : undefined;
   const userParts =
@@ -379,11 +371,11 @@ export async function handleChat(
     provider: model.provider,
     adapter,
     messages,
-    webSearch: searchCall?.credentials,
+    webSearch: searchCall ?? undefined,
     pastChats,
     fetchUrl: web,
     knowledgeSearch: knowledge
-      ? { userId, projectId: owned.projectId!, model: knowledge.model }
+      ? { projectId: owned.projectId!, model: knowledge.model }
       : undefined,
     image: imageTool,
     artifacts,
@@ -403,12 +395,7 @@ export async function handleChat(
     compaction:
       budget === null ? undefined : compactionFor({ budget, owners, reply: assistantMessageId }),
     // A Run on Host credentials is recorded against the user's Quota (ADR 0007).
-    meter: call.hostModel ? { userId, model: model.id, price: call.hostModel } : undefined,
-    // Each search on the Host's Tavily key is recorded at its price (ADR 0007).
-    searchMeter:
-      searchCall?.pricePerSearchUsd === undefined
-        ? undefined
-        : { userId, pricePerSearchUsd: searchCall.pricePerSearchUsd },
+    meter: call.meter,
   });
   // The response reads the Run's log from the start, like any joiner (ADR 0006).
   return resumeServerSentEventsResponse({

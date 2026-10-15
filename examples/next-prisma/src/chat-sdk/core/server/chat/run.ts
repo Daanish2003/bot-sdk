@@ -12,9 +12,9 @@ import {
 } from "@tanstack/ai";
 import { and, eq, isNull, lt, or, type SQL } from "drizzle-orm";
 
-import type { AppDeps, Credentials } from "../deps";
+import type { AppDeps } from "../deps";
 import { cancelRunningCalls, createPartsBuilder, searchTextOf } from "../../shared/chat/parts";
-import { resolveModelCall } from "../credentials/resolve";
+import { resolveModelCall, type ToolCall } from "../credentials/resolve";
 import type { RunEndEvent, RunEnding } from "./hooks";
 import { enqueueMemories } from "../memory/make";
 import { titleConversation } from "./title";
@@ -29,7 +29,6 @@ import type { McpTools } from "../mcp/tools";
 import { artifactCutOff, createArtifactTool, updateArtifactTool } from "./artifact-tool";
 import { createWebSearchTool } from "./web-search-tool";
 import { createSearchPastChatsTool } from "./past-chats-tool";
-import { paidCallAllowed } from "./quota";
 import { createFetchUrlTool } from "./fetch-url-tool";
 import { createKnowledgeSearchTool } from "./knowledge-search-tool";
 import type { ResolvedEmbeddingModel } from "./embedding-models";
@@ -39,13 +38,7 @@ import type { ImageRequest } from "./adapters";
 import type { AspectRatio } from "../../shared/chat/generated-image";
 import { cancelChannel, heartbeatExpired, listenForStop, stopRequested } from "./stop";
 import { addUsage, messageUsage, normalizeUsage, promptCharactersOf, type RunUsage } from "./usage";
-import {
-  recordHostUsage,
-  type ImageMeter,
-  recordSearchUsage,
-  type SearchMeter,
-  type UsageMeter,
-} from "./host-usage";
+import type { ImageMeter, ModelMeter } from "./meter";
 
 type MessageUpdate = Partial<typeof message.$inferInsert>;
 type MessageErrorReason = NonNullable<MessageUpdate["errorReason"]>;
@@ -83,7 +76,6 @@ export async function startRun(
     modelOptions,
     compaction,
     meter,
-    searchMeter,
     mcp,
   }: {
     messageId: string;
@@ -102,8 +94,8 @@ export async function startRun(
     provider: string;
     adapter: AnyTextAdapter;
     messages: ModelMessage[];
-    /** The user's Tavily Tool credential, when this reply offers the `web_search` tool. */
-    webSearch?: Credentials;
+    /** The Tavily Tool credential and its meter, when this reply offers the `web_search` tool. */
+    webSearch?: ToolCall;
     /**
      * Set when this reply offers the `search_past_chats` tool: Memory is on and the Conversation is
      * not Temporary (spec #263). `projectId` is the Conversation's Project, which sets its scope.
@@ -112,17 +104,18 @@ export async function startRun(
     /** Whether this reply offers the `fetch_url` tool, which needs no credential. */
     fetchUrl?: boolean;
     /**
-     * Set when this reply offers the `search_knowledge` tool: the Conversation's Project, the user
-     * who owns it, and the embedding Model its files are searched with (spec #357).
+     * Set when this reply offers the `search_knowledge` tool: the Conversation's Project and the
+     * embedding Model its files are searched with, whose meter the queries go through (spec #357).
      */
-    knowledgeSearch?: { userId: string; projectId: string; model: ResolvedEmbeddingModel };
+    knowledgeSearch?: { projectId: string; model: ResolvedEmbeddingModel };
     /**
      * Set when this reply offers the `generate_image` tool: the Image Model's adapter, each call's
-     * request, and whose usage each image is (spec #278).
+     * request, its `"provider:model"` id and its meter (spec #278).
      */
     image?: {
       adapter: AnyImageAdapter;
       meter: ImageMeter;
+      model: string;
       request: (aspectRatio: AspectRatio) => ImageRequest;
       /** The Image Model's input-image limit, and the path's images an edit may read (spec #278). */
       edit?: {
@@ -145,10 +138,8 @@ export async function startRun(
      * context start is saved on the Message when the Run ends.
      */
     compaction?: { middleware: ChatMiddleware; contextStartId: () => string | null };
-    /** Set on a Run on Host credentials: the Run is recorded in `chat.usage` (ADR 0007). */
-    meter?: UsageMeter;
-    /** Set when the search runs on the Host's Tavily key: each search is recorded (ADR 0007). */
-    searchMeter?: SearchMeter;
+    /** The Model call's meter: on Host credentials it records the Run in `chat.usage` (ADR 0007). */
+    meter: ModelMeter;
     /**
      * The MCP tools this Run offers, opened by the caller (spec #91). The Run closes them when it
      * ends, Stop included. `undefined` when no Connection is switched on.
@@ -251,17 +242,10 @@ export async function startRun(
           ? [
               createWebSearchTool({
                 searchClient: deps.searchClient,
-                credentials: webSearch,
+                credentials: webSearch.credentials,
+                meter: webSearch.meter,
                 parts,
                 onChange: () => (changed = true),
-                recordSearch: searchMeter
-                  ? () =>
-                      recordSearchUsage(deps, searchMeter).catch((caught: unknown) =>
-                        deps.logger.error(`Recording a search of ${messageId} failed`, caught),
-                      )
-                  : undefined,
-                // A search on Host credentials is checked against the Quota first (ADR 0007).
-                mayRun: () => paidCallAllowed(deps, searchMeter),
               }),
             ]
           : []),
@@ -291,20 +275,11 @@ export async function startRun(
           ? [
               createKnowledgeSearchTool({
                 deps,
-                userId: knowledgeSearch.userId,
                 projectId: knowledgeSearch.projectId,
                 model: knowledgeSearch.model,
                 parts,
                 onChange: () => (changed = true),
                 budget,
-                // The query is embedded on Host credentials, so it's checked against the Quota first (ADR 0007).
-                mayRun: () =>
-                  paidCallAllowed(
-                    deps,
-                    knowledgeSearch.model.onHostCredentials
-                      ? { userId: knowledgeSearch.userId }
-                      : undefined,
-                  ),
               }),
             ]
           : []),
@@ -313,6 +288,8 @@ export async function startRun(
               createGenerateImageTool({
                 adapter: image.adapter,
                 meter: image.meter,
+                userId: context.userId,
+                model: image.model,
                 request: image.request,
                 edit: image.edit,
                 messageId,
@@ -322,12 +299,6 @@ export async function startRun(
                 parts,
                 onChange: () => (changed = true),
                 budget,
-                // An image on Host credentials is checked against the Quota first (ADR 0007, spec #278).
-                mayRun: () =>
-                  paidCallAllowed(
-                    deps,
-                    image.meter.price ? { userId: image.meter.userId } : undefined,
-                  ),
               }),
             ]
           : []),
@@ -492,7 +463,7 @@ export async function startRun(
                 conversationId: context.conversationId,
                 messageId,
                 runId: logId,
-                onHostCredentials: meter !== undefined,
+                onHostCredentials: meter.onHost,
                 text: runText,
               });
         if (verdict?.allow === false || (await isHidden(deps, messageId))) {
@@ -507,17 +478,11 @@ export async function startRun(
         }
       }
       // Recorded before the log closes, so a reader that has seen the end also sees the usage row.
-      if (meter) {
-        await recordHostUsage(
-          deps,
-          "run",
-          meter,
-          usage,
-          costComplete ? reportedCost : undefined,
-        ).catch((caught: unknown) =>
-          deps.logger.error(`Recording usage of ${messageId} failed`, caught),
-        );
-      }
+      await meter.record({
+        kind: "run",
+        usage,
+        reportedCost: costComplete ? reportedCost : undefined,
+      });
       void unsubscribeStop().catch((error: unknown) =>
         deps.logger.error(`Unsubscribing Stop of ${messageId} failed`, error),
       );
@@ -557,7 +522,7 @@ export async function startRun(
           ending: outcome.ending,
           ...(outcome.reason !== undefined && { reason: outcome.reason }),
           model,
-          onHostCredentials: meter !== undefined,
+          onHostCredentials: meter.onHost,
           hidden,
         });
       }
@@ -853,7 +818,7 @@ async function runEndedWithoutOwner(
     ending,
     ...(reason !== undefined && { reason }),
     model,
-    onHostCredentials: Boolean(call?.hostModel),
+    onHostCredentials: call?.meter.onHost === true,
     hidden: false,
   };
 }

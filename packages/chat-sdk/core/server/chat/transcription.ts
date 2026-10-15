@@ -8,10 +8,9 @@ import { createGroqTranscription, type GroqTranscriptionModel } from "@tanstack/
 import { createOpenaiTranscription, type OpenAITranscriptionModel } from "@tanstack/ai-openai";
 
 import type { AppDeps, Credentials } from "../deps";
-import { resolveCredentials } from "../credentials/resolve";
+import { type ResolveDeps, resolvePayer } from "../credentials/resolve";
 import type { DictationErrorReason } from "../../shared/chat/voice";
-import { recordTranscriptionUsage } from "./host-usage";
-import { quotaRefusal } from "./quota";
+import { freeMeter, hostTranscriptionMeter, type TranscriptionMeter } from "./meter";
 
 /** The transcription Models a user's own keys pick from, in order (spec #249). */
 export const dictationEngines = [
@@ -46,89 +45,75 @@ export class DictationError extends Error {
   }
 }
 
-/** The engine a dictation runs on: its `"provider:model"` id and the credentials it uses. */
-type EngineCall = { provider: string; id: string; credentials: Credentials };
-
 /**
- * The engine a dictation uses (spec #249): the user's own key first, then the Host's first
- * transcription Model (ADR 0007, amended for transcription). `onHost` says the Host pays, so the
- * call is checked against the Quota and metered at `pricePerMinuteUsd`. `null` when neither applies.
+ * The engine a dictation runs on (spec #249): its Provider, its `"provider:model"` id, the
+ * credentials it uses, and its meter, which checks the Quota and prices the call when the Host pays.
  */
-export type DictationEngine =
-  | (EngineCall & { onHost: false })
-  | (EngineCall & { onHost: true; pricePerMinuteUsd: number });
-
-/**
- * The first of the user's own Provider keys that transcribes, in `dictationEngines` order, with
- * its Model id (`"provider:model"`). `null` with `byok` off or with none of those keys. Own keys
- * are never metered.
- */
-export async function ownDictationEngine(
-  deps: Pick<AppDeps, "db" | "keyEncryptionSecrets" | "byok">,
-  userId: string,
-): Promise<EngineCall | null> {
-  if (!deps.byok) return null;
-  for (const engine of dictationEngines) {
-    const credentials = await resolveCredentials(deps, userId, engine.provider);
-    if (credentials) {
-      return {
-        provider: engine.provider,
-        id: `${engine.provider}:${engine.modelId}`,
-        credentials,
-      };
-    }
-  }
-  return null;
-}
+export type DictationEngine = {
+  provider: string;
+  id: string;
+  credentials: Credentials;
+  meter: TranscriptionMeter;
+};
 
 /**
  * The Host's first transcription Model: the first Provider entry that offers one, and its first
- * Model, with the Host's credentials. `null` when the Host offers none.
+ * Model, with the Host's credentials. `undefined` when the Host offers none.
  */
-export function hostDictationEngine(
-  deps: Pick<AppDeps, "hostProviders">,
-): (EngineCall & { pricePerMinuteUsd: number }) | null {
+function hostTranscriptionOffer(deps: Pick<AppDeps, "hostProviders">) {
   for (const entry of deps.hostProviders) {
     const first = entry.transcriptionModels?.[0];
-    if (first) {
-      return {
-        provider: entry.provider,
-        id: `${entry.provider}:${first.model}`,
-        credentials: entry.credentials,
-        pricePerMinuteUsd: first.pricePerMinuteUsd,
-      };
-    }
+    if (first) return { entry, first };
   }
-  return null;
+  return undefined;
 }
 
-/** The engine a dictation uses: the user's own key, else the Host's transcription Model (ADR 0007). */
+/**
+ * The engine a dictation uses (`resolvePayer`, ADR 0007 amended for transcription): the first of
+ * the user's own Provider keys that transcribes, in `dictationEngines` order, else the Host's first
+ * transcription Model. `null` when neither applies.
+ */
 export async function dictationEngine(
-  deps: Pick<AppDeps, "db" | "keyEncryptionSecrets" | "byok" | "hostProviders">,
+  deps: ResolveDeps,
   userId: string,
 ): Promise<DictationEngine | null> {
-  const own = await ownDictationEngine(deps, userId);
-  if (own) return { ...own, onHost: false };
-  const host = hostDictationEngine(deps);
-  return host ? { ...host, onHost: true } : null;
+  const resolved = await resolvePayer(
+    deps,
+    userId,
+    dictationEngines.map((engine) => engine.provider),
+    () => hostTranscriptionOffer(deps),
+  );
+  if (!resolved) return null;
+  if (resolved.payer === "user") {
+    const engine = dictationEngines.find((entry) => entry.provider === resolved.service)!;
+    return {
+      provider: engine.provider,
+      id: `${engine.provider}:${engine.modelId}`,
+      credentials: resolved.credentials,
+      meter: freeMeter,
+    };
+  }
+  const { entry, first } = resolved.offer;
+  const id = `${entry.provider}:${first.model}`;
+  return {
+    provider: entry.provider,
+    id,
+    credentials: entry.credentials,
+    meter: hostTranscriptionMeter(deps, userId, {
+      provider: entry.provider,
+      model: id,
+      pricePerMinuteUsd: first.pricePerMinuteUsd,
+    }),
+  };
 }
 
 /**
  * Transcribes one recording with the user's engine, through TanStack AI's `generateTranscription`.
- * The audio is passed on and never kept. On the Host's Model the Quota is checked first and the
- * call is metered after it succeeds (ADR 0007). A Provider failure becomes a `DictationError`.
+ * The audio is passed on and never kept. The engine's meter checks the Quota first and records the
+ * call after it succeeds (ADR 0007). A Provider failure becomes a `DictationError`.
  */
 export async function transcribeRecording(
-  deps: Pick<
-    AppDeps,
-    | "db"
-    | "hooks"
-    | "keyEncryptionSecrets"
-    | "byok"
-    | "hostProviders"
-    | "getQuota"
-    | "transcriptionAdapterFor"
-  >,
+  deps: ResolveDeps & Pick<AppDeps, "transcriptionAdapterFor">,
   userId: string,
   {
     bytes,
@@ -146,15 +131,13 @@ export async function transcribeRecording(
   if (!engine) {
     throw new DictationError("unavailable", "Dictation needs an OpenAI, Groq or Grok key of yours");
   }
-  if (engine.onHost) {
-    const refusal = await quotaRefusal(deps, userId);
-    if (refusal) {
-      throw new DictationError(
-        "quota_exceeded",
-        "You've used this window's Quota; try again after it resets",
-        refusal.resetsAt,
-      );
-    }
+  const check = await engine.meter.mayRun();
+  if (!check.ok) {
+    throw new DictationError(
+      "quota_exceeded",
+      "You've used this window's Quota; try again after it resets",
+      check.resetsAt,
+    );
   }
   const adapter = deps.transcriptionAdapterFor(engine.id, engine.credentials);
   let result: TranscriptionResult;
@@ -168,18 +151,7 @@ export async function transcribeRecording(
   } catch (caught) {
     throw new DictationError(reasonOf(caught), "The transcription failed");
   }
-  if (engine.onHost) {
-    await recordTranscriptionUsage(
-      deps,
-      {
-        userId,
-        provider: engine.provider,
-        model: engine.id,
-        pricePerMinuteUsd: engine.pricePerMinuteUsd,
-      },
-      { durationSeconds, reportedSeconds: reportedSecondsOf(result) },
-    );
-  }
+  await engine.meter.record({ durationSeconds, reportedSeconds: reportedSecondsOf(result) });
   return result.text;
 }
 

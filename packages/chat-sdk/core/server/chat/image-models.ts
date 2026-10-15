@@ -1,8 +1,9 @@
 import { eq } from "drizzle-orm";
 
 import { userSettings } from "../db/schema/settings";
-import { resolveCredentials } from "../credentials/resolve";
+import { type ResolveDeps, resolvePayer } from "../credentials/resolve";
 import type { AppDeps, Credentials, HostImageModel } from "../deps";
+import { type ImageMeter, imageMeter } from "./meter";
 import {
   type ImageModel,
   type ListedImageModel,
@@ -11,18 +12,15 @@ import {
 } from "../../shared/chat/image-models";
 import { parseModelId } from "../../shared/chat/models";
 
-type Deps = Pick<
-  AppDeps,
-  "db" | "keyEncryptionSecrets" | "hostProviders" | "byok" | "defaultImageModel"
->;
+type Deps = ResolveDeps & Pick<AppDeps, "defaultImageModel">;
 
 /** An Image Model the call runs on, with the credentials it uses (spec #278). */
 export type ResolvedImageModel = ImageModel & {
-  /** A Host pays for it (ADR 0007). */
-  onHostCredentials: boolean;
   credentials: Credentials;
-  /** Set on a Host Image Model: its pinned size and quality, and its price per image. */
+  /** Set on a Host Image Model: its pinned size and quality. */
   hostModel?: HostImageModel;
+  /** Checks the Quota before each image and records it; `onHost` when a Host pays (ADR 0007). */
+  meter: ImageMeter;
 };
 
 /**
@@ -75,23 +73,34 @@ export async function resolveImageModel(
 ): Promise<ResolvedImageModel | undefined> {
   const provider = parseModelId(id)?.provider;
   if (!provider) return undefined;
-  const own = deps.byok ? await resolveCredentials(deps, userId, provider) : null;
-  if (own) {
+  const resolved = await resolvePayer(deps, userId, [provider], () => hostImageEntry(deps, id));
+  if (!resolved) return undefined;
+  if (resolved.payer === "user") {
     const curated = findImageModel(id);
-    return curated ? { ...curated, onHostCredentials: false, credentials: own } : undefined;
+    return curated
+      ? {
+          ...curated,
+          credentials: resolved.credentials,
+          meter: imageMeter(deps, userId, { model: id, provider }),
+        }
+      : undefined;
   }
+  const { hostProvider, hostModel } = resolved.offer;
+  return {
+    ...hostImageModel(hostProvider.provider, hostModel.modelId),
+    credentials: hostProvider.credentials,
+    hostModel,
+    meter: imageMeter(deps, userId, { model: id, provider, price: hostModel }),
+  };
+}
+
+/** The Host's Image Model with a `"provider:model"` id, and the Provider it sits under. */
+function hostImageEntry(deps: Pick<Deps, "hostProviders">, id: string) {
   for (const hostProvider of deps.hostProviders) {
     const hostModel = hostProvider.imageModels?.find(
       (model) => `${hostProvider.provider}:${model.modelId}` === id,
     );
-    if (hostModel) {
-      return {
-        ...hostImageModel(hostProvider.provider, hostModel.modelId),
-        onHostCredentials: true,
-        credentials: hostProvider.credentials,
-        hostModel,
-      };
-    }
+    if (hostModel) return { hostProvider, hostModel };
   }
   return undefined;
 }
