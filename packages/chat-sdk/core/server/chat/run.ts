@@ -1,151 +1,59 @@
 import { type StoredPart, storedPartsSchema } from "../../shared/message-parts";
 import { conversation, message } from "../db/schema/chat";
 import {
-  type AnyImageAdapter,
-  type AnyTextAdapter,
   type ChatMiddleware,
   chat,
   EventType,
   fromSpecTokenUsage,
-  type ModelMessage,
   type StreamChunk,
 } from "@tanstack/ai";
 import { and, eq, isNull, lt, or, type SQL } from "drizzle-orm";
 
 import type { AppDeps } from "../deps";
-import type { ToolCall } from "../credentials/resolve";
 import { createPartsBuilder, searchTextOf } from "../../shared/chat/parts";
 import type { RunEndEvent } from "./hooks";
 import { endRun, type Ending, type EndingRun } from "./end-run";
-import {
-  createToolBudget,
-  spentCalls,
-  trackTools,
-  type HostServerTool,
-  type HostToolContext,
-} from "./host-tools";
-import type { McpTools } from "../mcp/tools";
-import { artifactCutOff, createArtifactTool, updateArtifactTool } from "./artifact-tool";
-import { createWebSearchTool } from "./web-search-tool";
-import { createSearchPastChatsTool } from "./past-chats-tool";
-import { createFetchUrlTool } from "./fetch-url-tool";
-import { createKnowledgeSearchTool } from "./knowledge-search-tool";
-import type { ResolvedEmbeddingModel } from "./embedding-models";
-import { createGenerateImageTool } from "./generate-image-tool";
-import type { EditSource } from "./edit-sources";
-import type { ImageRequest } from "./adapters";
-import type { AspectRatio } from "../../shared/chat/generated-image";
+import { createToolBudget, spentCalls } from "./host-tools";
+import { artifactCutOff } from "./artifact-tool";
+import type { RunPlan } from "./run-plan";
 import { cancelChannel, heartbeatExpired, listenForStop, stopRequested } from "./stop";
 import { addUsage, messageUsage, normalizeUsage, promptCharactersOf, type RunUsage } from "./usage";
-import type { ImageMeter, ModelMeter } from "./meter";
 
 type MessageUpdate = Partial<typeof message.$inferInsert>;
 type MessageErrorReason = NonNullable<MessageUpdate["errorReason"]>;
 type ProviderError = { message: string; code?: string };
 
+/** Which Run of its Message this is, beyond what the plan says. A send's first Run needs none. */
+export type RunOf = {
+  /** The Run's number on its Message: a decision on a waiting call starts the next one (ADR 0008). */
+  runNumber?: number;
+  /** The parts the Message holds before this Run, which a resumed Run's reply continues. */
+  initialParts?: StoredPart[];
+  /**
+   * Set on a Run that answers a call waiting for Approval: the thread and the Run that ended
+   * waiting, and the user's decision (ADR 0008).
+   */
+  resume?: ResumeOf;
+};
+
 /**
- * Runs one assistant Message (ADR 0002). The run drains `chat()` to the end on its own,
- * whether or not anyone reads the returned chunks: it snapshots the streaming Message's parts
- * every `deps.limits.snapshotIntervalMs`, and finishes the row in `finally`. A Stop aborts it, from
- * the pub/sub signal or from `cancel_requested_at` read back on a snapshot tick (ADR 0006).
+ * Runs one assistant Message (ADR 0002) from its plan (`planRun`, the only caller). The run drains
+ * `chat()` to the end on its own, whether or not anyone reads the returned chunks: it snapshots the
+ * streaming Message's parts every `deps.limits.snapshotIntervalMs`, and finishes the row in
+ * `finally`. A Stop aborts it, from the pub/sub signal or from `cancel_requested_at` read back on a
+ * snapshot tick (ADR 0006). The Run closes the plan's MCP clients when it ends, Stop included.
  *
  * Every chunk goes to the Run's log before anyone reads it (ADR 0006). The POST response and any
  * joiner read that log, so a reader that goes away only stops reading.
  */
 export async function startRun(
   deps: AppDeps,
-  {
-    messageId,
-    runNumber = 1,
-    initialParts = [],
-    resume,
-    model,
-    provider,
-    adapter,
-    messages,
-    webSearch,
-    pastChats,
-    fetchUrl = false,
-    knowledgeSearch,
-    image,
-    artifacts = false,
-    hostTools = [],
-    context,
-    systemPrompts,
-    modelOptions,
-    compaction,
-    meter,
-    mcp,
-  }: {
-    messageId: string;
-    /** The Run's number on its Message: a decision on a waiting call starts the next one (ADR 0008). */
-    runNumber?: number;
-    /** The parts the Message holds before this Run, which a resumed Run's reply continues. */
-    initialParts?: StoredPart[];
-    /**
-     * Set on a Run that answers a call waiting for Approval: the thread and the Run that ended
-     * waiting, and the user's decision (ADR 0008).
-     */
-    resume?: ResumeOf;
-    /** The `"provider:model"` id the Run uses; `onRunEnd` reports it. */
-    model: string;
-    /** The Provider of the Model, which decides how its usage is normalised. */
-    provider: string;
-    adapter: AnyTextAdapter;
-    messages: ModelMessage[];
-    /** The Tavily Tool credential and its meter, when this reply offers the `web_search` tool. */
-    webSearch?: ToolCall;
-    /**
-     * Set when this reply offers the `search_past_chats` tool: Memory is on and the Conversation is
-     * not Temporary (spec #263). `projectId` is the Conversation's Project, which sets its scope.
-     */
-    pastChats?: { projectId: string | null };
-    /** Whether this reply offers the `fetch_url` tool, which needs no credential. */
-    fetchUrl?: boolean;
-    /**
-     * Set when this reply offers the `search_knowledge` tool: the Conversation's Project and the
-     * embedding Model its files are searched with, whose meter the queries go through (spec #357).
-     */
-    knowledgeSearch?: { projectId: string; model: ResolvedEmbeddingModel };
-    /**
-     * Set when this reply offers the `generate_image` tool: the Image Model's adapter, each call's
-     * request, its `"provider:model"` id and its meter (spec #278).
-     */
-    image?: {
-      adapter: AnyImageAdapter;
-      meter: ImageMeter;
-      model: string;
-      request: (aspectRatio: AspectRatio) => ImageRequest;
-      /** The Image Model's input-image limit, and the path's images an edit may read (spec #278). */
-      edit?: {
-        maxInputImages: number;
-        sources: (ids: string[]) => Promise<EditSource[] | undefined>;
-      };
-    };
-    /** Whether this reply offers the `create_artifact` and `update_artifact` tools (`createChat({ artifacts })`, ADR 0016). */
-    artifacts?: boolean;
-    /** The Host tools this reply offers (none when its Model has no tools). */
-    hostTools?: HostServerTool[];
-    /** The user and Conversation the Host tools are called for, passed to them as their context. */
-    context: HostToolContext;
-    /** The reply's system prompts, from `systemPromptsFor` when the Run starts. */
-    systemPrompts: string[];
-    /** The Provider's options for the Run, from `generationOptionsFor` (max output, reasoning). */
-    modelOptions?: Record<string, unknown>;
-    /**
-     * Drops the oldest Messages a model call would send past the window (`compactionFor`). Its
-     * context start is saved on the Message when the Run ends.
-     */
-    compaction?: { middleware: ChatMiddleware; contextStartId: () => string | null };
-    /** The Model call's meter: on Host credentials it records the Run in `chat.usage` (ADR 0007). */
-    meter: ModelMeter;
-    /**
-     * The MCP tools this Run offers, opened by the caller (spec #91). The Run closes them when it
-     * ends, Stop included. `undefined` when no Connection is switched on.
-     */
-    mcp?: McpTools;
-  },
+  plan: RunPlan,
+  { runNumber = 1, initialParts = [], resume }: RunOf,
 ): Promise<void> {
+  const { replyId: messageId, context, messages, compaction, meter } = plan;
+  const { id: model, provider } = plan.model;
+  const { mcp } = plan.offered;
   const abortController = new AbortController();
   const logId = runLogId(messageId, runNumber);
   let unsubscribeStop: Awaited<ReturnType<typeof listenForStop>>;
@@ -216,116 +124,19 @@ export async function startRun(
     let error: ProviderError | undefined;
     try {
       const mcpNames = new Set((mcp?.tools ?? []).map((tool) => tool.name));
-      const tools = [
-        ...(webSearch
-          ? [
-              createWebSearchTool({
-                searchClient: deps.searchClient,
-                credentials: webSearch.credentials,
-                meter: webSearch.meter,
-                parts,
-                onChange: () => (changed = true),
-              }),
-            ]
-          : []),
-        ...(pastChats
-          ? [
-              createSearchPastChatsTool({
-                deps,
-                userId: context.userId,
-                conversationId: context.conversationId,
-                projectId: pastChats.projectId,
-                parts,
-                onChange: () => (changed = true),
-              }),
-            ]
-          : []),
-        ...(fetchUrl
-          ? [
-              createFetchUrlTool({
-                fetch: deps.fetch,
-                timeoutMs: deps.limits.fetchTimeoutMs,
-                parts,
-                onChange: () => (changed = true),
-              }),
-            ]
-          : []),
-        ...(knowledgeSearch
-          ? [
-              createKnowledgeSearchTool({
-                deps,
-                projectId: knowledgeSearch.projectId,
-                model: knowledgeSearch.model,
-                parts,
-                onChange: () => (changed = true),
-                budget,
-              }),
-            ]
-          : []),
-        ...(image
-          ? [
-              createGenerateImageTool({
-                adapter: image.adapter,
-                meter: image.meter,
-                userId: context.userId,
-                model: image.model,
-                request: image.request,
-                edit: image.edit,
-                messageId,
-                deps,
-                fetch: deps.fetch,
-                timeoutMs: deps.limits.imageTimeoutMs,
-                parts,
-                onChange: () => (changed = true),
-                budget,
-              }),
-            ]
-          : []),
-        ...(artifacts
-          ? [
-              createArtifactTool({
-                deps,
-                messageId,
-                conversationId: context.conversationId,
-                parts,
-                onChange: () => (changed = true),
-                budget,
-              }),
-              updateArtifactTool({
-                deps,
-                messageId,
-                conversationId: context.conversationId,
-                parts,
-                onChange: () => (changed = true),
-                budget,
-              }),
-            ]
-          : []),
-        ...trackTools(hostTools, {
-          source: "host",
-          parts,
-          onChange: () => (changed = true),
-          budget,
-        }),
-        ...trackTools(mcp?.tools ?? [], {
-          source: "mcp",
-          parts,
-          onChange: () => (changed = true),
-          budget,
-        }),
-      ];
+      const tools = plan.tools({ parts, onChange: () => (changed = true), budget });
       const middleware: ChatMiddleware[] = [
-        ...(artifacts ? [artifactCutOff] : []),
+        ...(plan.offered.artifacts ? [artifactCutOff] : []),
         ...(compaction ? [compaction.middleware] : []),
       ];
       const stream = chat({
-        adapter,
+        adapter: plan.adapter,
         messages,
         abortController,
         context,
         ...(tools.length > 0 && { tools }),
-        ...(systemPrompts.length > 0 && { systemPrompts }),
-        modelOptions,
+        ...(plan.systemPrompts.length > 0 && { systemPrompts: plan.systemPrompts }),
+        modelOptions: plan.modelOptions,
         // The Artifact cut-off override runs first, so compaction sees the rewritten messages.
         ...(middleware.length > 0 && { middleware }),
         // A resumed Run continues the thread and the Run that ended waiting (ADR 0008, spike #154).
