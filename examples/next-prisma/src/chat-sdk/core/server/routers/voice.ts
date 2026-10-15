@@ -20,7 +20,10 @@ export const voiceRouter = {
   status: protectedProcedure.handler(async ({ context }) => {
     const engine = await dictationEngine(context.deps, context.user.id);
     return {
-      transcription: { available: engine !== null, onHostCredentials: engine?.onHost === true },
+      transcription: {
+        available: engine !== null,
+        onHostCredentials: engine?.meter.onHost === true,
+      },
     };
   }),
 

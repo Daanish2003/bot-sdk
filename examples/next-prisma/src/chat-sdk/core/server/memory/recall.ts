@@ -141,7 +141,6 @@ async function similarMemories(
     const model = await defaultEmbeddingModel(deps, userId);
     if (!model) return [];
     const [vector] = await embedTexts(deps, {
-      userId,
       model,
       texts: [latestText],
       purpose: "query",

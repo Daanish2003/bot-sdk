@@ -13,7 +13,6 @@ import type { AppDeps } from "../deps";
 import { parseStoredParts, toModelMessages } from "../../shared/chat/parts";
 import { resolveModel } from "./available-models";
 import { generationOptionsFor } from "./generation";
-import { quotaRefusal } from "./quota";
 import { approvalPrefix, startRun } from "./run";
 import { allowTools } from "./host-tools";
 import { findConversation, findMessage, loadPath } from "./store";
@@ -73,7 +72,7 @@ export async function decideApproval(
   const call = await resolveModelCall(deps, userId, model.id);
   if (!call) return "unavailable";
   // A Run on Host credentials is refused once its Quota's window has spent the budget (ADR 0007).
-  if (call.hostModel && (await quotaRefusal(deps, userId))) return "quota";
+  if (!(await call.meter.mayRun()).ok) return "quota";
 
   const history = await loadPath(deps, owned.conversationId, owned.id);
   const attachments = await attachmentsForSend(deps, {
@@ -208,7 +207,7 @@ export async function decideApproval(
       maxOutputTokens: model.maxOutputTokens,
       effort: owned.reasoningEffort ?? undefined,
     }),
-    meter: call.hostModel ? { userId, model: model.id, price: call.hostModel } : undefined,
+    meter: call.meter,
   });
   return "started";
 }

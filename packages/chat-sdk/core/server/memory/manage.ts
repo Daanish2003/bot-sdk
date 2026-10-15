@@ -2,7 +2,6 @@ import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { defaultEmbeddingModel, embedTexts } from "../chat/embedding-models";
-import { quotaRefusal } from "../chat/quota";
 import { conversation, project } from "../db/schema/chat";
 import { memory } from "../db/schema/memory";
 import { userSettings } from "../db/schema/settings";
@@ -134,7 +133,6 @@ export async function editMemory(deps: AppDeps, userId: string, id: string, text
   const embedding = await defaultEmbeddingModel(deps, userId);
   if (!embedding) throw noEmbeddingModel();
   const [vector] = await embedTexts(deps, {
-    userId,
     model: embedding,
     texts: [text],
     purpose: "document",
@@ -178,7 +176,7 @@ export const reembedMemoriesJob = defineJob<z.infer<typeof reembedPayload>>({
   run: async ({ userId }, { deps }) => {
     const embedding = await defaultEmbeddingModel(deps, userId);
     if (!embedding) return;
-    if (embedding.onHostCredentials && (await quotaRefusal(deps, userId))) return;
+    if (!(await embedding.meter.mayRun()).ok) return;
     await deps.db.transaction(async (tx) => {
       await tx.execute(
         sql`select pg_advisory_xact_lock(hashtextextended(${`memory:${userId}`}, 0))`,
@@ -195,7 +193,6 @@ export const reembedMemoriesJob = defineJob<z.infer<typeof reembedPayload>>({
         );
       if (stale.length === 0) return;
       const vectors = await embedTexts(deps, {
-        userId,
         model: embedding,
         texts: stale.map((row) => row.text),
         purpose: "document",

@@ -9,7 +9,7 @@ import { resolveModelCall } from "../credentials/resolve";
 import type { RunEndEvent } from "./hooks";
 import { enqueueMemories } from "../memory/make";
 import { titleConversation } from "./title";
-import { recordHostUsage, type UsageMeter } from "./host-usage";
+import type { ModelMeter } from "./meter";
 import type { MessageUsage } from "../../shared/chat/message-record";
 import type { Executor } from "./run";
 
@@ -51,8 +51,8 @@ export type EndingRun = {
     contextStartId?: string | null;
     /** The reply text this Run produced, for the output check (#268). */
     text: string;
-    /** Set on a Run on Host credentials: its usage is recorded in `chat.usage` (ADR 0007). */
-    meter?: UsageMeter;
+    /** The Model call's meter: on Host credentials it records the Run in `chat.usage` (ADR 0007). */
+    meter: ModelMeter;
     /** The Provider-reported cost in USD, when every iteration reported one. */
     reportedCost?: number;
     /** Whether the log already holds the Run's own RUN_FINISHED or RUN_ERROR. */
@@ -113,7 +113,7 @@ export async function endRun(
             conversationId: run.conversationId,
             messageId,
             runId: run.runId,
-            onHostCredentials: owner.meter !== undefined,
+            onHostCredentials: owner.meter.onHost,
             text: owner.text,
           });
     if (verdict?.allow === false || (await isHidden(deps, messageId))) {
@@ -130,11 +130,11 @@ export async function endRun(
     }
   }
   // Recorded before the log closes, so a reader that has seen the end also sees the usage row.
-  if (owner?.meter) {
-    await recordHostUsage(deps, "run", owner.meter, owner.usage, owner.reportedCost).catch(
-      (caught: unknown) => deps.logger.error(`Recording usage of ${messageId} failed`, caught),
-    );
-  }
+  await owner?.meter.record({
+    kind: "run",
+    usage: owner.usage,
+    reportedCost: owner.reportedCost,
+  });
 
   if (saved || owner) {
     await endLog(deps, run, ending, hidden);
@@ -145,9 +145,9 @@ export async function endRun(
     // The owner knows whether it ran on Host credentials. Without it, that is read as the Model
     // resolves for its user now.
     const onHostCredentials = owner
-      ? owner.meter !== undefined
+      ? owner.meter.onHost
       : run.model !== "" &&
-        Boolean((await resolveModelCall(deps, run.userId, run.model))?.hostModel);
+        (await resolveModelCall(deps, run.userId, run.model))?.meter.onHost === true;
     event = {
       userId: run.userId,
       conversationId: run.conversationId,

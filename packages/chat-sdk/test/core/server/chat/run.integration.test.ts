@@ -7,6 +7,7 @@ import { insertConversation, insertMessage } from "../../../support/conversation
 import { createTestDeps } from "../../../support/deps";
 import { insertUser } from "../../../support/users";
 import { reapStaleRuns, startRun } from "../../../../core/server/chat/run";
+import { freeMeter } from "../../../../core/server/chat/meter";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { START } from "../../../../core/server/chat/run-streams";
 import { EventType, type StreamChunk } from "@tanstack/ai";
@@ -198,6 +199,7 @@ describe("startRun", () => {
       model: "anthropic:claude-sonnet-5-5",
       context: { userId: "user", conversationId: "conversation" },
       systemPrompts: [],
+      meter: freeMeter,
     });
     // Nothing is released, so no chunk arrives: only the timer can write the heartbeat.
     await expect

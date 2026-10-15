@@ -3,9 +3,9 @@ import { GEMINI_EMBEDDING_MODELS } from "@tanstack/ai-gemini";
 import { OPENAI_EMBEDDING_MODELS } from "@tanstack/ai-openai";
 
 import { parseModelId } from "../../shared/chat/models";
-import { resolveCredentials } from "../credentials/resolve";
+import { type ResolveDeps, resolvePayer } from "../credentials/resolve";
 import type { AppDeps, Credentials, HostProvider } from "../deps";
-import { recordEmbeddingUsage } from "./host-usage";
+import { type EmbeddingMeter, freeMeter, hostEmbeddingMeter } from "./meter";
 
 /**
  * The vector size every embedding Model is asked for, so one column holds them all (ADR 0014).
@@ -58,9 +58,11 @@ export type ResolvedEmbeddingModel = {
   modelId: string;
   /** The credentials the call runs with. */
   credentials: Credentials;
-} & ({ onHostCredentials: false } | { onHostCredentials: true; pricePerMillionTokensUsd: number });
+  /** Checks the Quota and records each request: the free meter on the user's own key (ADR 0007). */
+  meter: EmbeddingMeter;
+};
 
-type Deps = Pick<AppDeps, "db" | "keyEncryptionSecrets" | "hostProviders" | "byok">;
+type Deps = ResolveDeps;
 
 /** The Host's embedding Models, in the order the Host listed them, with the credentials to use. */
 function hostOffers(deps: Pick<AppDeps, "hostProviders">) {
@@ -90,23 +92,23 @@ export async function defaultEmbeddingModel(
   deps: Deps,
   userId: string,
 ): Promise<ResolvedEmbeddingModel | null> {
-  if (deps.byok) {
-    for (const provider of ["openai", "gemini"] as const) {
-      const own = await resolveCredentials(deps, userId, provider);
-      if (own) {
-        const modelId = defaultModelOf[provider];
-        return {
-          id: `${provider}:${modelId}`,
-          provider,
-          modelId,
-          credentials: own,
-          onHostCredentials: false,
-        };
-      }
-    }
-  }
-  const [offer] = hostOffers(deps);
-  return offer ? hostModel(offer) : null;
+  const resolved = await resolvePayer(
+    deps,
+    userId,
+    ["openai", "gemini"] as const,
+    () => hostOffers(deps)[0],
+  );
+  if (!resolved) return null;
+  if (resolved.payer === "host") return hostModel(deps, userId, resolved.offer);
+  const provider = resolved.service as EmbeddingProvider;
+  const modelId = defaultModelOf[provider];
+  return {
+    id: `${provider}:${modelId}`,
+    provider,
+    modelId,
+    credentials: resolved.credentials,
+    meter: freeMeter,
+  };
 }
 
 /**
@@ -122,23 +124,30 @@ export async function resolveEmbeddingModel(
   if (!parsed || !isEmbeddingProvider(parsed.provider)) return null;
   const { provider, modelId } = parsed;
   if (!embeddingModelsOf[provider].includes(modelId)) return null;
-  const own = deps.byok ? await resolveCredentials(deps, userId, provider) : null;
-  if (own) return { id, provider, modelId, credentials: own, onHostCredentials: false };
-  const offer = hostOffers(deps).find(
-    (entry) => entry.provider === provider && entry.modelId === modelId,
+  const resolved = await resolvePayer(deps, userId, [provider], () =>
+    hostOffers(deps).find((entry) => entry.provider === provider && entry.modelId === modelId),
   );
-  return offer ? hostModel(offer) : null;
+  if (!resolved) return null;
+  if (resolved.payer === "host") return hostModel(deps, userId, resolved.offer);
+  return { id, provider, modelId, credentials: resolved.credentials, meter: freeMeter };
 }
 
-/** A Host's offer as a Model on the Host's credentials. */
-function hostModel(offer: ReturnType<typeof hostOffers>[number]): ResolvedEmbeddingModel {
+/** A Host's offer as a Model on the Host's credentials, metered at its price. */
+function hostModel(
+  deps: Deps,
+  userId: string,
+  offer: ReturnType<typeof hostOffers>[number],
+): ResolvedEmbeddingModel {
+  const id = `${offer.provider}:${offer.modelId}`;
   return {
-    id: `${offer.provider}:${offer.modelId}`,
+    id,
     provider: offer.provider,
     modelId: offer.modelId,
     credentials: offer.credentials,
-    onHostCredentials: true,
-    pricePerMillionTokensUsd: offer.pricePerMillionTokensUsd,
+    meter: hostEmbeddingMeter(deps, userId, {
+      model: id,
+      pricePerMillionTokensUsd: offer.pricePerMillionTokensUsd,
+    }),
   };
 }
 
@@ -191,19 +200,17 @@ function unitLength(vector: number[]): number[] {
 
 /**
  * Embeds the texts with an embedding Model, `embeddingDimensions` long and unit length (ADR 0014).
- * The texts are split into the Provider's requests, one TanStack AI `embed()` each. A request on
- * Host credentials is metered once it succeeds, so a failed one is not billed.
+ * The texts are split into the Provider's requests, one TanStack AI `embed()` each. Each request is
+ * recorded by the Model's meter once it succeeds, so a failed one is not billed.
  * `purpose` tells Gemini whether the texts are documents or a query.
  */
 export async function embedTexts(
-  deps: Pick<AppDeps, "db" | "hooks" | "embeddingAdapterFor">,
+  deps: Pick<AppDeps, "embeddingAdapterFor">,
   {
-    userId,
     model,
     texts,
     purpose,
   }: {
-    userId: string;
     model: ResolvedEmbeddingModel;
     texts: string[];
     purpose: "document" | "query";
@@ -219,18 +226,11 @@ export async function embedTexts(
       ...(model.provider === "gemini" && { modelOptions: { taskType: taskTypeOf[purpose] } }),
     });
     vectors.push(...result.embeddings.map(({ vector }) => unitLength(vector)));
-    if (model.onHostCredentials) {
-      // Gemini reports no usage, so its tokens are the characters ÷ 4, and the row says so.
-      const reported = model.provider === "openai" ? result.usage?.promptTokens : undefined;
-      await recordEmbeddingUsage(
-        deps,
-        { userId, model: model.id, pricePerMillionTokensUsd: model.pricePerMillionTokensUsd },
-        {
-          tokens: reported ?? Math.ceil(request.join("").length / 4),
-          estimated: reported === undefined,
-        },
-      );
-    }
+    // Gemini reports no usage, so the meter estimates its tokens from the characters.
+    await model.meter.record({
+      characters: request.join("").length,
+      reportedTokens: model.provider === "openai" ? result.usage?.promptTokens : undefined,
+    });
   }
   return vectors;
 }

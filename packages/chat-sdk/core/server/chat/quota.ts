@@ -65,6 +65,7 @@ export async function quotaState(
 /**
  * Why a Run on Host credentials must not start: the reset time, once the window's spend reaches
  * the budget. `null` when the Run may start (ADR 0007). Checked before the Run, never mid-stream.
+ * Paid calls reach it only through their meter's `mayRun` (chat/meter.ts).
  */
 export async function quotaRefusal(
   deps: Pick<AppDeps, "db" | "getQuota">,
@@ -73,19 +74,6 @@ export async function quotaRefusal(
   const state = await quotaState(deps, userId);
   if (!state || state.spentMicros < state.budgetMicros) return null;
   return { resetsAt: state.resetsAt };
-}
-
-/**
- * May a paid tool call go ahead (ADR 0007)? `meter` is set for a call on Host credentials, whose
- * user's Quota it counts against; a call on the user's own key has none and is never refused.
- * Checked before each call, so a Run's later calls see the spend of its earlier ones.
- */
-export async function paidCallAllowed(
-  deps: Pick<AppDeps, "db" | "getQuota">,
-  meter: { userId: string } | undefined,
-): Promise<boolean> {
-  if (!meter) return true;
-  return (await quotaRefusal(deps, meter.userId)) === null;
 }
 
 /** The Quota read: the used percentage, the window and its reset time, never money (ADR 0007). */

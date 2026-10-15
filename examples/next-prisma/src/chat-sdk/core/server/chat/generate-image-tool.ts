@@ -29,7 +29,7 @@ import type { ToolBudget } from "./host-tools";
 import { toolCallLimitError } from "./host-tools";
 import type { ImageRequest } from "./adapters";
 import { imageInfo } from "./image-info";
-import { type ImageMeter, recordImageUsage, usageReported } from "./host-usage";
+import type { ImageMeter } from "./meter";
 
 /**
  * The bytes of one image a Provider made (spec #278): a `b64Json` result is decoded; a `url` result
@@ -103,16 +103,18 @@ const editImagePart = (source: EditSource) => ({
  * in the reply's `parts`, calling `onChange` when they change. A failure is the call's error state
  * and an `{ error, reason }` result, so the Run continues; `ImageRefusedError` is `refused`. Past
  * `maxImagesPerRun` in one Run, or past the reply's shared tool budget, a call is `limit_reached` and
- * makes no image. `mayRun` is checked before each call, and a call it refuses is `quota_exceeded`
- * (ADR 0007). A call cut off by the run ending (its signal aborts) stays running, and the run
- * closes it as cancelled, with no row.
+ * makes no image. `meter` checks the Quota before each call, and a call it refuses is
+ * `quota_exceeded` (ADR 0007). A call cut off by the run ending (its signal aborts) stays running,
+ * and the run closes it as cancelled, with no row.
  *
- * Its usage is recorded in `chat.usage` (ADR 0007) when the Provider reported any, or the image was
- * made; a call stopped on an adapter that doesn't cancel upstream is recorded at its flat price.
+ * Each call ends by telling `meter` how far it got, which records its usage in `chat.usage` when it
+ * is billed (ADR 0007).
  */
 export function createGenerateImageTool({
   adapter,
   meter,
+  userId,
+  model,
   request,
   messageId,
   deps,
@@ -121,26 +123,27 @@ export function createGenerateImageTool({
   parts,
   onChange,
   budget,
-  mayRun,
   edit,
 }: {
   adapter: AnyImageAdapter;
-  /** Whose usage the image is, and the Host's price for it when the call is on Host credentials. */
+  /** Checks the Quota before each call and records its usage (ADR 0007). */
   meter: ImageMeter;
+  /** The user the image is made for. */
+  userId: string;
+  /** The Image Model's `"provider:model"` id, which the image's row records. */
+  model: string;
   /** The size and provider options of one call, for its aspect ratio (spec #278). */
   request: (aspectRatio: AspectRatio) => ImageRequest;
   /** The assistant Message whose reply this call belongs to; the image's row is owned by it. */
   messageId: string;
   /** The rows and the blob store the finished image is kept in (ADR 0015). */
-  deps: Pick<AppDeps, "db" | "hooks" | "blobStore" | "logger">;
+  deps: Pick<AppDeps, "db" | "blobStore" | "logger">;
   /** The SSRF-guarded `fetch`, for an image the Provider returns as a URL. */
   fetch: AppDeps["fetch"];
   timeoutMs: number;
   parts: ReturnType<typeof createPartsBuilder>;
   onChange: () => void;
   budget: ToolBudget;
-  /** Whether a paid call may run now (the Quota, on Host credentials); checked before each call. */
-  mayRun: () => Promise<boolean>;
   /**
    * The Image Model's input-image limit, and how a call's `editImageIds` resolve to the images it
    * reads (spec #278). Unset, or a limit of 0, the tool takes no edits.
@@ -169,7 +172,7 @@ export function createGenerateImageTool({
       // The Provider's answer, once it has given one: its usage is billed even when no image is kept.
       let answer: ImageGenerationResult | undefined;
       // Whether the call reached the Provider: a Stop during it may leave the Provider's request running.
-      let inFlight = false;
+      let reached = false;
       let stored = false;
       try {
         // The slot is taken before the Quota is awaited, so parallel calls in one Run can't pass the cap.
@@ -183,11 +186,11 @@ export function createGenerateImageTool({
         // An id that isn't an image on this Branch, or the user's, fails the call before any paid call.
         const sources = edit && ids.length > 0 ? await edit.sources(ids) : [];
         if (!sources) return fail("failed", imageUnavailableError);
-        if (!(await mayRun())) {
+        if (!(await meter.mayRun()).ok) {
           return fail("quota_exceeded", generatedImageErrorLabels.quota_exceeded);
         }
         const signal = context?.abortSignal;
-        inFlight = true;
+        reached = true;
         answer = await generateImage({
           adapter,
           // An edit's prompt is its text, then each source image, in the order the call named them.
@@ -213,13 +216,13 @@ export function createGenerateImageTool({
         try {
           await deps.db.insert(generatedImage).values({
             id,
-            userId: meter.userId,
+            userId,
             messageId,
             mediaType: info.mediaType,
             width: info.width,
             height: info.height,
             size: bytes.byteLength,
-            model: meter.model,
+            model,
             createdAt: new Date(),
           });
         } catch (error) {
@@ -238,19 +241,13 @@ export function createGenerateImageTool({
         if (caught instanceof ImageRefusedError) return fail("refused", caught.message);
         return fail("failed", caught instanceof Error ? caught.message : String(caught));
       } finally {
-        const stopped = context?.abortSignal?.aborted === true;
-        // A Stop during the call on an adapter that doesn't cancel upstream is billed at the flat
-        // price, estimated: the Provider runs the request on to the end. Otherwise a call bills when
-        // its image was kept or the Provider reported usage (a stopped call on a cancelling adapter
-        // that already answered with usage bills that usage); a refusal or error with no usage bills nothing.
-        const billed =
-          (stopped && inFlight && !meter.cancelsUpstream) ||
-          (answer !== undefined && (stored || usageReported(answer.usage)));
-        if (billed) {
-          await recordImageUsage(deps, meter, answer?.usage, stopped).catch((caught: unknown) =>
-            console.error(`Recording an image of ${messageId} failed`, caught),
-          );
-        }
+        await meter.record({
+          reached,
+          answered: answer !== undefined,
+          usage: answer?.usage,
+          stored,
+          stopped: context?.abortSignal?.aborted === true,
+        });
         onChange();
       }
     },

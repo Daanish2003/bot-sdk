@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { type Credentials, type SearchClient, SearchError } from "../deps";
 import type { createPartsBuilder } from "../../shared/chat/parts";
+import type { SearchMeter } from "./meter";
 import {
   maxSearchesPerReply,
   searchErrorMessages,
@@ -26,24 +27,22 @@ const webSearchDefinition = toolDefinition({
  * Tavily Tool credential and records each search in the reply's `parts`, calling `onChange` when
  * they change. Failures become the search's error state and an `{ error }` result, so the reply
  * continues. After `maxSearchesPerReply` searches, a call gets `searchLimitError` and searches nothing.
- * `recordSearch` runs after each search that returns results, when the search is on Host credentials
- * (ADR 0007); it is awaited, so the usage row exists before the Run ends. `mayRun` is checked before
- * each search: when it refuses, the search is not run and is stored as `quota_exceeded` (ADR 0007).
+ * `meter` checks the Quota before each search: when it refuses, the search is not run and is stored
+ * as `quota_exceeded` (ADR 0007). It records each search that returns results; that is awaited, so
+ * the usage row exists before the Run ends.
  */
 export function createWebSearchTool({
   searchClient,
   credentials,
+  meter,
   parts,
   onChange,
-  recordSearch,
-  mayRun,
 }: {
   searchClient: SearchClient;
   credentials: Credentials;
+  meter: SearchMeter;
   parts: ReturnType<typeof createPartsBuilder>;
   onChange: () => void;
-  recordSearch?: () => Promise<void>;
-  mayRun: () => Promise<boolean>;
 }) {
   let searches = 0;
   return webSearchDefinition.server(async ({ query }, context): Promise<WebSearchOutput> => {
@@ -55,7 +54,7 @@ export function createWebSearchTool({
     parts.startSearch(toolCallId, query);
     onChange();
     try {
-      if (!(await mayRun())) {
+      if (!(await meter.mayRun()).ok) {
         parts.finishSearch(toolCallId, { errorReason: "quota_exceeded" });
         return { error: searchErrorMessages.quota_exceeded, reason: "quota_exceeded" };
       }
@@ -63,7 +62,7 @@ export function createWebSearchTool({
         signal: context?.abortSignal,
       });
       parts.finishSearch(toolCallId, { results });
-      await recordSearch?.();
+      await meter.record();
       return { results };
     } catch (caught) {
       // A search cut off by the run ending stays running; the run closes it as cancelled.
