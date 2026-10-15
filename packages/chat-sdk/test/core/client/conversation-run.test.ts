@@ -169,7 +169,7 @@ afterEach(() => {
 /** Mounts the hook on `conversation`; `procedures` replace the fake server's defaults. */
 function renderRun(
   conversation: ConversationData,
-  options: Pick<Partial<ConversationRunOptions>, "connections"> = {},
+  options: Pick<Partial<ConversationRunOptions>, "connections" | "webSearchAvailable"> = {},
   procedures: Partial<Server> = {},
 ) {
   const ok = () => vi.fn(async (_input: unknown): Promise<unknown> => ({}));
@@ -345,11 +345,26 @@ describe("useConversationRun", () => {
       messageId: "a1",
       approved: true,
       allowForConversation: true,
+      webSearch: false,
     });
     expect(callbacks.onDecided).toHaveBeenCalledOnce();
     expect(callbacks.onDecided.mock.calls[0]?.[0]).toMatchObject({
       messages: [{ id: "u1" }, { id: "a1", status: "streaming" }],
     });
+  });
+
+  it("decides with the user's web search choice, as a send does", async () => {
+    const waitingReply = message("a1", "assistant", "", {
+      parentId: "u1",
+      status: "awaiting_approval",
+    });
+    const { result } = renderRun(conversationWith([question, waitingReply]), {
+      webSearchAvailable: true,
+    });
+
+    await act(() => result.current.decide("a1", true));
+
+    expect(server.decide).toHaveBeenCalledWith(expect.objectContaining({ webSearch: true }));
   });
 
   it("shows a refused decision as a toast and keeps the page as it was", async () => {

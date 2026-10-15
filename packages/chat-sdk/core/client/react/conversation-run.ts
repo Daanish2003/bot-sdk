@@ -188,7 +188,13 @@ export function useConversationRun(
     // A second click while the first decision is in flight would be refused as stale.
     if (decideCall.isPending) return;
     try {
-      await decideCall.mutateAsync({ messageId, approved, allowForConversation });
+      await decideCall.mutateAsync({
+        messageId,
+        approved,
+        allowForConversation,
+        // The resumed Run offers the Web tools as a send would (ADR 0008).
+        webSearch: webSearchAvailable && readSearchPreference(),
+      });
     } catch (caught) {
       toast.error(t("chat.decideFailed", { message: serverErrorText(i18n, caught) }));
       return;
