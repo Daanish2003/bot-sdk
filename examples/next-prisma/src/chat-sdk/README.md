@@ -26,7 +26,7 @@ The destination is resolved from the folder you ran `pnpm` in. The script:
 ### Updating
 
 1. Run the copy script again. `core/VERSION` shows the commit you now run.
-2. Your `ui/` is untouched. If the release changed a component you also edited, merge that by hand: diff the new SDK's `ui/` against yours.
+2. Your `ui/` is untouched. If the release changed a component you also edited, merge that by hand: diff the new SDK's `ui/` against yours. The client side of a Run (sending, joining a streaming reply, Stop, a moderated refusal, Approval decisions, Ratings and Memory events) lives in `core/client/react/conversation-run.ts` as `useConversationRun`, which `ui/chat/chat-view.tsx` calls, so fixes to it come with the copy of `core/`.
 3. Install any new dependencies listed below, then run your type check.
 
 ### Updating to generation control
@@ -50,6 +50,8 @@ New components to copy: `chat/context-ring.tsx`, `chat/usage-info.tsx`, `setting
 They need no new shadcn components: `button`, `label`, `popover`, `select`, `textarea` and `tooltip` are already in the list above.
 
 Later `ui/` changes a Host that copied an older SDK also needs to port: the Web toggle and the fetched-page Source chip (#157, `chat/search-toggle.tsx` and `chat/source-chips.tsx`), the context ring (#123, `chat/context-ring.tsx`), the approval choice "Allow for this Conversation" (#159, `chat/tool-call-row.tsx`), Connections (#160, `settings/connections-section.tsx` and `pages/key-settings.tsx`) and the tools menu (#161, `chat/tools-menu.tsx`). Compare each against the SDK's `ui/` with the diff in step 2 of Updating.
+
+From #378 on, Run-protocol fixes ship in `core/` (`useConversationRun`) and need no porting. A `ui/chat/chat-view.tsx` copied before #378 holds that logic itself: port the SDK's `ChatThread` once so it calls `useConversationRun`, and later protocol fixes reach it with the copy.
 
 ## Dependencies
 
