@@ -83,9 +83,9 @@ describe("generated images from a stream", () => {
     const builder = createPartsBuilder();
     builder.startGeneratedImage("call-1", "a red bicycle", "square");
 
-    builder.cancelRunningCalls();
-
-    expect(builder.parts().parts).toEqual([image({ state: "cancelled", imageId: undefined })]);
+    expect(cancelRunningCalls(builder.parts()).parts).toEqual([
+      image({ state: "cancelled", imageId: undefined }),
+    ]);
   });
 
   it("cancelRunningCalls closes a stored running image too", () => {

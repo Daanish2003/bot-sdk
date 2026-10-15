@@ -70,16 +70,16 @@ describe("web searches in stored parts from a stream", () => {
     ]);
   });
 
-  it("closes a search still running as cancelled, and a cancelled search stays cancelled", () => {
+  it("closes a search still running as cancelled, and a search that finishes after the end stays cancelled", () => {
     const builder = createPartsBuilder();
     builder.startSearch("call-1", "first");
     builder.finishSearch("call-1", { results: [result(1)] });
     builder.startSearch("call-2", "second");
 
-    builder.cancelRunningCalls();
+    const ended = builder.parts();
     builder.finishSearch("call-2", { results: [result(2)] });
 
-    expect(builder.parts().parts).toEqual([
+    expect(cancelRunningCalls(ended).parts).toEqual([
       search({ query: "first" }),
       search({ toolCallId: "call-2", query: "second", state: "cancelled", results: [] }),
     ]);

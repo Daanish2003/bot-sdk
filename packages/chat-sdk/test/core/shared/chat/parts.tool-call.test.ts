@@ -56,9 +56,7 @@ describe("tool calls in stored parts from a stream", () => {
     builder.startToolCall({ toolCallId: "call-2", name: "server_time", source: "host", args: {} });
     builder.finishToolCall("call-2", { state: "error", result: { error: "boom" } });
 
-    builder.cancelRunningCalls();
-
-    expect(builder.parts().parts).toEqual([
+    expect(cancelRunningCalls(builder.parts()).parts).toEqual([
       hostCall({ toolCallId: "call-1", args: {}, result: undefined, state: "cancelled" }),
       hostCall({ toolCallId: "call-2", args: {}, result: { error: "boom" }, state: "error" }),
     ]);

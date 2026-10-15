@@ -1,4 +1,4 @@
-import { type StoredPart, storedParts, storedPartsSchema } from "../../shared/message-parts";
+import { type StoredPart, storedPartsSchema } from "../../shared/message-parts";
 import { conversation, message } from "../db/schema/chat";
 import {
   type AnyImageAdapter,
@@ -13,11 +13,10 @@ import {
 import { and, eq, isNull, lt, or, type SQL } from "drizzle-orm";
 
 import type { AppDeps } from "../deps";
-import { cancelRunningCalls, createPartsBuilder, searchTextOf } from "../../shared/chat/parts";
-import { resolveModelCall, type ToolCall } from "../credentials/resolve";
-import type { RunEndEvent, RunEnding } from "./hooks";
-import { enqueueMemories } from "../memory/make";
-import { titleConversation } from "./title";
+import type { ToolCall } from "../credentials/resolve";
+import { createPartsBuilder, searchTextOf } from "../../shared/chat/parts";
+import type { RunEndEvent } from "./hooks";
+import { endRun, type Ending, type EndingRun } from "./end-run";
 import {
   createToolBudget,
   spentCalls,
@@ -175,29 +174,13 @@ export async function startRun(
   const promptCharacters = promptCharactersOf(messages);
 
   let writes = Promise.resolve();
-  /**
-   * Saves `fields` on the Message. Resolves to whether a row was saved: false when the write failed
-   * or the Message is gone (its Conversation was deleted). With `whileStreaming`, a Message that
-   * already ended (stopped by another process) is left as it is, and so is false.
-   */
-  const write = (fields: MessageUpdate, { whileStreaming = false } = {}): Promise<boolean> => {
-    let saved = false;
+  /** Saves a snapshot's `fields` on the Message, after the snapshots already queued. */
+  const write = (fields: MessageUpdate) => {
     writes = writes
       .then(async () => {
-        const rows = await deps.db
-          .update(message)
-          .set(fields)
-          .where(
-            and(
-              eq(message.id, messageId),
-              whileStreaming ? eq(message.status, "streaming") : undefined,
-            ),
-          )
-          .returning({ id: message.id });
-        saved = rows.length > 0;
+        await deps.db.update(message).set(fields).where(eq(message.id, messageId));
       })
       .catch((error: unknown) => deps.logger.error(`Saving Message ${messageId} failed`, error));
-    return writes.then(() => saved);
   };
   const withParts = (fields: MessageUpdate = {}): MessageUpdate => {
     const snapshot = parts.parts();
@@ -208,7 +191,7 @@ export async function startRun(
   const snapshotTimer = setInterval(() => {
     // Every tick writes the heartbeat, even when nothing changed: it is the Run's lease (ADR 0006).
     const heartbeat = { heartbeatAt: new Date() };
-    void write(changed ? withParts(heartbeat) : heartbeat);
+    write(changed ? withParts(heartbeat) : heartbeat);
     changed = false;
     // The Stop signal is at most once, so a Stop it missed is found in the column.
     void stopRequested(deps, messageId)
@@ -222,10 +205,6 @@ export async function startRun(
   let logEnded = false;
   let ids: { threadId: string; runId: string } | undefined;
   let timedOut = false;
-  /** Whether this Run's own ending was saved: only then does it fire `onRunEnd` (#265). */
-  let endingSaved = false;
-  /** Whether the reply is hidden by the output check (#268). */
-  let hidden = false;
   const capTimer = setTimeout(() => {
     // A run that was stopped but hasn't ended yet stays stopped.
     if (abortController.signal.aborted) return;
@@ -400,160 +379,84 @@ export async function startRun(
     } finally {
       clearInterval(snapshotTimer);
       clearTimeout(capTimer);
-      parts.cancelRunningCalls();
+      // The parts as the stream ended: a call that finishes after this stays cancelled.
+      const ended = parts.parts();
       // The MCP clients close with the Run, Stop included (spec #91).
       await mcp?.close();
-      const interrupted = abortController.signal.reason === shutdownAbort;
-      const outcome: { ending: RunEnding; reason?: string; update: MessageUpdate } = timedOut
-        ? { ending: "error", reason: "timed_out", update: { status: "error", error: "timed_out" } }
-        : interrupted
-          ? {
-              ending: "error",
-              reason: "interrupted",
-              update: { status: "error", error: "interrupted" },
-            }
-          : abortController.signal.aborted
-            ? { ending: "stopped", update: { status: "stopped" } }
-            : error !== undefined
-              ? {
-                  ending: "error",
-                  reason: errorReasonOf(error.code),
-                  update: {
-                    status: "error",
-                    error: error.message,
-                    errorReason: errorReasonOf(error.code),
-                  },
-                }
-              : awaiting
-                ? {
-                    ending: "awaiting_approval",
-                    update: {
-                      status: "awaiting_approval",
-                      threadId: awaiting.threadId,
-                      interruptedRunId: awaiting.runId,
-                    },
-                  }
-                : { ending: "complete", update: { status: "complete" } };
-      const ending = outcome.update;
-      // Stored whatever the ending: the Provider's usage for a finished model call, else an estimate.
-      const usage = messageUsage(
-        outcome.ending === "complete" || outcome.ending === "awaiting_approval" ? total : undefined,
-        {
-          promptCharacters,
-          parts: parts.parts().parts,
-        },
-      );
-      endingSaved = await write(
-        withParts({
-          ...ending,
-          usage,
-          ...(compaction && { contextStartId: compaction.contextStartId() }),
-        }),
-        { whileStreaming: true },
-      );
-      // The output check (#268), after the ending is saved and before anything else is reported. A
-      // reply that an earlier Run of its Message already hid stays hidden, so this Run's text is erased too.
-      if (endingSaved) {
-        const verdict =
-          runText === ""
-            ? undefined
-            : await deps.hooks.moderate({
-                phase: "output",
-                userId: context.userId,
-                conversationId: context.conversationId,
-                messageId,
-                runId: logId,
-                onHostCredentials: meter.onHost,
-                text: runText,
-              });
-        if (verdict?.allow === false || (await isHidden(deps, messageId))) {
-          hidden = await write({
-            parts: storedParts([]),
-            searchText: "",
-            ...(verdict?.allow === false && {
-              hiddenAt: new Date(),
-              hiddenReason: verdict.reason ?? null,
-            }),
-          });
-        }
-      }
-      // Recorded before the log closes, so a reader that has seen the end also sees the usage row.
-      await meter.record({
-        kind: "run",
-        usage,
-        reportedCost: costComplete ? reportedCost : undefined,
-      });
       void unsubscribeStop().catch((error: unknown) =>
         deps.logger.error(`Unsubscribing Stop of ${messageId} failed`, error),
       );
-      // A Run that was stopped, timed out or threw has no terminal chunk of its own. A reader that
-      // sees its log end without one takes the stream as cut off and reconnects, which starts the
-      // Run again, so the log is ended explicitly.
-      if (!logEnded) {
-        void deps.runStreams
-          .append(
-            logId,
-            endingChunk(
-              ids ?? { threadId: messageId, runId: messageId },
-              timedOut ? "timed_out" : interrupted ? "interrupted" : error?.message,
-            ),
-          )
-          .catch((caught: unknown) =>
-            deps.logger.error(`Logging Message ${messageId} failed`, caught),
-          );
-      }
-      // A hidden reply's log ends with the `moderated` chunk, so every reader drops its text (#269).
-      if (hidden) {
-        await deps.runStreams
-          .append(logId, moderatedChunk())
-          .catch((caught: unknown) =>
-            deps.logger.error(`Logging Message ${messageId} failed`, caught),
-          );
-      }
-      await deps.runStreams.close(logId);
-      deps.lifecycle.runs.delete(messageId);
-      // Last: the ending, the usage row and the log's end are all written by now (#265).
-      if (endingSaved) {
-        deps.hooks.fire("onRunEnd", {
-          userId: context.userId,
-          conversationId: context.conversationId,
-          messageId,
-          runId: logId,
-          ending: outcome.ending,
-          ...(outcome.reason !== undefined && { reason: outcome.reason }),
-          model,
-          onHostCredentials: meter.onHost,
-          hidden,
-        });
-      }
-      // The run ended `complete`: title its Conversation, fire-and-forget. A reply waiting for
-      // Approval is titled once its resumed Run completes.
-      if (
-        !timedOut &&
-        !abortController.signal.aborted &&
-        error === undefined &&
-        awaiting === undefined
-      ) {
-        void titleConversation(deps, messageId);
-      }
-      // A Run that ended `complete` or `stopped` makes Memories from its user Message, in a background
-      // job (ADR 0013). `error`, a hidden reply (owner decision on #286) and a Run waiting for
-      // Approval make none; the resumed Run does.
-      if (
-        endingSaved &&
-        !hidden &&
-        (outcome.ending === "complete" || outcome.ending === "stopped")
-      ) {
-        void enqueueMemories(deps, {
-          userId: context.userId,
-          conversationId: context.conversationId,
-          replyId: messageId,
-        }).catch((caught: unknown) =>
-          deps.logger.error(`Queuing the Memories of ${messageId} failed`, caught),
+      const ending = endingOf({
+        timedOut,
+        interrupted: abortController.signal.reason === shutdownAbort,
+        stopped: abortController.signal.aborted,
+        error,
+        awaiting,
+      });
+      // Stored whatever the ending: the Provider's usage for a finished model call, else an estimate.
+      const usage = messageUsage(
+        ending.status === "complete" || ending.status === "awaiting_approval" ? total : undefined,
+        { promptCharacters, parts: ended.parts },
+      );
+      // The ending is saved after every snapshot write already queued.
+      await writes;
+      try {
+        await endRun(
+          deps,
+          {
+            messageId,
+            runId: logId,
+            userId: context.userId,
+            conversationId: context.conversationId,
+            model,
+            parts: ended,
+            owner: {
+              usage,
+              ...(compaction && { contextStartId: compaction.contextStartId() }),
+              text: runText,
+              meter,
+              reportedCost: costComplete ? reportedCost : undefined,
+              logEnded,
+              ids,
+            },
+          },
+          ending,
         );
+      } finally {
+        deps.lifecycle.runs.delete(messageId);
       }
     }
   })();
+}
+
+/** How the owner's Run ended, from what stopped its stream. A cap or a shutdown wins over a Stop. */
+function endingOf({
+  timedOut,
+  interrupted,
+  stopped,
+  error,
+  awaiting,
+}: {
+  timedOut: boolean;
+  interrupted: boolean;
+  stopped: boolean;
+  error: ProviderError | undefined;
+  awaiting: { threadId: string; runId: string } | undefined;
+}): Ending {
+  if (timedOut) return { status: "error", error: "timed_out" };
+  if (interrupted) return { status: "error", error: "interrupted" };
+  if (stopped) return { status: "stopped" };
+  if (error !== undefined) {
+    return { status: "error", error: error.message, errorReason: errorReasonOf(error.code) };
+  }
+  if (awaiting) {
+    return {
+      status: "awaiting_approval",
+      threadId: awaiting.threadId,
+      interruptedRunId: awaiting.runId,
+    };
+  }
+  return { status: "complete" };
 }
 
 /**
@@ -562,29 +465,6 @@ export async function startRun(
  */
 export function runLogId(messageId: string, runNumber: number) {
   return runNumber <= 1 ? messageId : `${messageId}:${runNumber}`;
-}
-
-/**
- * The custom chunk a hidden reply's Run log ends with (#269). The client drops the reply's text
- * when it reads it, so a reader that joins or reloads mid-Run hides it too.
- */
-export function moderatedChunk(): StreamChunk {
-  return { type: EventType.CUSTOM, name: "moderated", value: {}, timestamp: Date.now() };
-}
-
-/** Whether an earlier Run of the Message already hid its reply (#268). */
-async function isHidden(deps: AppDeps, messageId: string): Promise<boolean> {
-  try {
-    const [row] = await deps.db
-      .select({ hiddenAt: message.hiddenAt })
-      .from(message)
-      .where(eq(message.id, messageId));
-    return row?.hiddenAt != null;
-  } catch (caught) {
-    // The Run's ending is saved by now, so a failed read must not stop the Run's other steps.
-    deps.logger.error(`Reading whether Message ${messageId} is hidden failed`, caught);
-    return false;
-  }
 }
 
 /** What a decision on a waiting call resumes: the thread, the Run that ended waiting, and the answer. */
@@ -619,17 +499,6 @@ function runIdsOf(chunk: StreamChunk) {
   return typeof threadId === "string" && typeof runId === "string"
     ? { threadId, runId }
     : undefined;
-}
-
-/** The chunk that ends a Run's log: a `RUN_ERROR` when it failed or timed out, else a `RUN_FINISHED`. */
-function endingChunk(
-  ids: { threadId: string; runId: string },
-  errorMessage: string | undefined,
-): StreamChunk {
-  const timestamp = Date.now();
-  return errorMessage === undefined
-    ? { type: EventType.RUN_FINISHED, ...ids, finishReason: "stop", timestamp }
-    : { type: EventType.RUN_ERROR, ...ids, message: errorMessage, timestamp };
 }
 
 /**
@@ -750,9 +619,9 @@ async function stopLiveRuns(deps: AppDeps, where: SQL, db: Executor): Promise<Ru
 }
 
 /**
- * Saves a streaming Message whose owner is gone as `stopped`, cancels its running searches and
- * ends its log, so a reader does not reconnect and start it again (the #71 lesson). Answers the
- * Run's `onRunEnd` event, or none when the Message had already ended.
+ * Saves a streaming Message whose owner is gone as `stopped`, cancels its running calls and ends
+ * its log, so a reader does not reconnect and start it again (the #71 lesson). Answers the Run's
+ * `onRunEnd` event for the caller to fire, or none when the Message had already ended.
  */
 async function endOrphanedRun(
   deps: AppDeps,
@@ -760,66 +629,42 @@ async function endOrphanedRun(
   db: Executor,
 ): Promise<RunEndEvent[]> {
   const [row] = await db
-    .select({
-      parts: message.parts,
-      runNumber: message.runNumber,
-      model: message.model,
-      conversationId: message.conversationId,
-      userId: conversation.userId,
-    })
+    .select(ownerlessRunColumns)
     .from(message)
     .innerJoin(conversation, eq(conversation.id, message.conversationId))
     .where(and(eq(message.id, messageId), eq(message.status, "streaming")));
   if (!row) return [];
-  const parsed = storedPartsSchema.safeParse(row.parts);
-  const ended = await db
-    .update(message)
-    .set({
-      status: "stopped",
-      ...(parsed.success && { parts: cancelRunningCalls(parsed.data) }),
-    })
-    .where(and(eq(message.id, messageId), eq(message.status, "streaming")))
-    .returning({ id: message.id });
-  if (ended.length === 0) return [];
-  const logId = runLogId(messageId, row.runNumber);
-  await deps.runStreams.open(logId);
-  await deps.runStreams.append(
-    logId,
-    endingChunk({ threadId: messageId, runId: messageId }, undefined),
-  );
-  await deps.runStreams.close(logId);
-  return [await runEndedWithoutOwner(deps, { ...row, messageId }, "stopped")];
+  const event = await endRun(deps, ownerlessRun(row), { status: "stopped" }, { db, fire: false });
+  return event ? [event] : [];
 }
 
-/**
- * The `onRunEnd` event of a Run whose owner process is gone: stopped from another process, or
- * reaped. The owner that started it can't say whether it ran on Host credentials, so that is read
- * as the Model resolves for its user now.
- */
-async function runEndedWithoutOwner(
-  deps: AppDeps,
-  run: {
-    messageId: string;
-    runNumber: number;
-    model: string | null;
-    userId: string;
-    conversationId: string;
-  },
-  ending: RunEnding,
-  reason?: string,
-): Promise<RunEndEvent> {
-  const model = run.model ?? "";
-  const call = model === "" ? null : await resolveModelCall(deps, run.userId, model);
+/** The columns a Run ended without its owner (stopped from another process, or reaped) is read from. */
+const ownerlessRunColumns = {
+  id: message.id,
+  parts: message.parts,
+  runNumber: message.runNumber,
+  model: message.model,
+  conversationId: message.conversationId,
+  userId: conversation.userId,
+};
+
+function ownerlessRun(row: {
+  id: string;
+  parts: unknown;
+  runNumber: number;
+  model: string | null;
+  conversationId: string;
+  userId: string;
+}): EndingRun {
+  // A row that doesn't parse holds no running call, and mustn't stop its Run from ending.
+  const parsed = storedPartsSchema.safeParse(row.parts);
   return {
-    userId: run.userId,
-    conversationId: run.conversationId,
-    messageId: run.messageId,
-    runId: runLogId(run.messageId, run.runNumber),
-    ending,
-    ...(reason !== undefined && { reason }),
-    model,
-    onHostCredentials: call?.meter.onHost === true,
-    hidden: false,
+    messageId: row.id,
+    runId: runLogId(row.id, row.runNumber),
+    userId: row.userId,
+    conversationId: row.conversationId,
+    model: row.model ?? "",
+    ...(parsed.success && { parts: parsed.data }),
   };
 }
 
@@ -832,70 +677,28 @@ export const shutdownAbort = new Error("The chat SDK is stopping");
 /**
  * Reaps the Runs whose owner has stopped heartbeating (ADR 0006), from any process: every
  * `streaming` Message whose heartbeat is older than the lease, or was never written, ends as
- * `error` "interrupted". A search it left running is `cancelled`, and its log ends with a
+ * `error` "interrupted". A call it left running is `cancelled`, and its log ends with a
  * `RUN_ERROR` and closes, so a reader doesn't reconnect into a Run that is gone.
  */
 export async function reapStaleRuns(deps: AppDeps, now = new Date()) {
   const cutoff = new Date(now.getTime() - deps.limits.leaseMs);
-  const reaped = await deps.db
-    .update(message)
-    .set({ status: "error", error: "interrupted" })
+  const stale = await deps.db
+    .select(ownerlessRunColumns)
+    .from(message)
+    .innerJoin(conversation, eq(conversation.id, message.conversationId))
     .where(
       and(
         eq(message.status, "streaming"),
         or(isNull(message.heartbeatAt), lt(message.heartbeatAt, cutoff)),
       ),
-    )
-    .returning({
-      id: message.id,
-      conversationId: message.conversationId,
-      model: message.model,
-      parts: message.parts,
-      runNumber: message.runNumber,
-    });
-  for (const row of reaped) {
-    // A row that doesn't parse holds no running call, and mustn't stop the reaper.
-    const parsed = storedPartsSchema.safeParse(row.parts);
-    if (
-      parsed.success &&
-      parsed.data.parts.some(
-        (part) =>
-          (part.type === "web_search" ||
-            part.type === "tool_call" ||
-            part.type === "generated_image") &&
-          part.state === "running",
-      )
-    ) {
-      await deps.db
-        .update(message)
-        .set({ parts: cancelRunningCalls(parsed.data) })
-        .where(eq(message.id, row.id));
-    }
-    const ids = { threadId: row.id, runId: row.id };
-    const logId = runLogId(row.id, row.runNumber);
-    await deps.runStreams.open(logId);
-    await deps.runStreams.append(logId, endingChunk(ids, "interrupted"));
-    await deps.runStreams.close(logId);
-    const [owner] = await deps.db
-      .select({ userId: conversation.userId })
-      .from(conversation)
-      .where(eq(conversation.id, row.conversationId));
-    if (owner) {
-      deps.hooks.fire(
-        "onRunEnd",
-        await runEndedWithoutOwner(
-          deps,
-          {
-            messageId: row.id,
-            runNumber: row.runNumber,
-            model: row.model,
-            userId: owner.userId,
-            conversationId: row.conversationId,
-          },
-          "error",
-          "interrupted",
-        ),
-      );
-    }
+    );
+  for (const row of stale) {
+    // Still past the lease when it is saved, so an owner that has just heartbeated keeps its Run.
+    await endRun(
+      deps,
+      ownerlessRun(row),
+      { status: "error", error: "interrupted" },
+      { staleBefore: cutoff },
+    );
   }
 }
