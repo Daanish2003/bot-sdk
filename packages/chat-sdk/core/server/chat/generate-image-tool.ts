@@ -11,7 +11,6 @@ import { generatedImage } from "../db/schema/generated-image";
 import type { AppDeps } from "../deps";
 import { ImageRefusedError } from "../deps";
 import { uuidv7 } from "../lib/uuidv7";
-import type { createPartsBuilder } from "../../shared/chat/parts";
 import {
   type AspectRatio,
   aspectRatios,
@@ -25,11 +24,10 @@ import {
   maxImagesPerRun,
 } from "../../shared/chat/generated-image";
 import type { EditSource } from "./edit-sources";
-import type { ToolBudget } from "./host-tools";
-import { toolCallLimitError } from "./host-tools";
 import type { ImageRequest } from "./adapters";
 import { imageInfo } from "./image-info";
 import type { ImageMeter } from "./meter";
+import { type RunToolState, toolCallLimitError, trackedTool } from "./tracked-tool";
 
 /**
  * The bytes of one image a Provider made (spec #278): a `b64Json` result is decoded; a `url` result
@@ -100,15 +98,15 @@ const editImagePart = (source: EditSource) => ({
 /**
  * The `generate_image` server tool for one Run (spec #278). Each call makes one image through
  * `adapter`, copies it into `generated_image` (its row is what `imageId` names) and records the call
- * in the reply's `parts`, calling `onChange` when they change. A failure is the call's error state
- * and an `{ error, reason }` result, so the Run continues; `ImageRefusedError` is `refused`. Past
- * `maxImagesPerRun` in one Run, or past the reply's shared tool budget, a call is `limit_reached` and
- * makes no image. `meter` checks the Quota before each call, and a call it refuses is
- * `quota_exceeded` (ADR 0007). A call cut off by the run ending (its signal aborts) stays running,
- * and the run closes it as cancelled, with no row.
+ * in the reply's `parts` (`trackedTool`). A failure is the call's error state and an
+ * `{ error, reason }` result, so the Run continues; `ImageRefusedError` is `refused`. Past
+ * `maxImagesPerRun` in one Run (which takes no call from the budget), or past the reply's shared
+ * tool budget, a call is `limit_reached` and makes no image. `meter` checks the Quota once the
+ * call's edit sources are found, and a call it refuses is `quota_exceeded` and keeps its image slot
+ * (ADR 0007). A call cut off by the run ending keeps no row.
  *
- * Each call ends by telling `meter` how far it got, which records its usage in `chat.usage` when it
- * is billed (ADR 0007).
+ * Each call that gets past those two limits ends by telling `meter` how far it got, which records
+ * its usage in `chat.usage` when it is billed (ADR 0007).
  */
 export function createGenerateImageTool({
   adapter,
@@ -120,11 +118,9 @@ export function createGenerateImageTool({
   deps,
   fetch,
   timeoutMs,
-  parts,
-  onChange,
-  budget,
   edit,
-}: {
+  ...run
+}: RunToolState & {
   adapter: AnyImageAdapter;
   /** Checks the Quota before each call and records its usage (ADR 0007). */
   meter: ImageMeter;
@@ -141,9 +137,6 @@ export function createGenerateImageTool({
   /** The SSRF-guarded `fetch`, for an image the Provider returns as a URL. */
   fetch: AppDeps["fetch"];
   timeoutMs: number;
-  parts: ReturnType<typeof createPartsBuilder>;
-  onChange: () => void;
-  budget: ToolBudget;
   /**
    * The Image Model's input-image limit, and how a call's `editImageIds` resolve to the images it
    * reads (spec #278). Unset, or a limit of 0, the tool takes no edits.
@@ -153,103 +146,122 @@ export function createGenerateImageTool({
     sources: (ids: string[]) => Promise<EditSource[] | undefined>;
   };
 }) {
+  const { parts } = run;
   let images = 0;
   const editLimit = edit ? editLimitOf(edit.maxInputImages) : 0;
+  const fail = (
+    toolCallId: string,
+    errorReason: GeneratedImageErrorReason,
+    error: string,
+  ): GenerateImageOutput => {
+    parts.finishGeneratedImage(toolCallId, { errorReason });
+    return { error, reason: errorReason };
+  };
   return generateImageDefinition(editLimit).server(
-    async (
-      { prompt, aspectRatio = "square", editImageIds }: CallInput,
-      context,
-    ): Promise<GenerateImageOutput> => {
-      // TanStack AI passes the call's id to every server tool; the stored part is keyed by it.
-      const toolCallId = context?.toolCallId;
-      if (!toolCallId) throw new Error("generate_image was called without a tool call id");
-      parts.startGeneratedImage(toolCallId, prompt, aspectRatio);
-      onChange();
-      const fail = (errorReason: GeneratedImageErrorReason, error: string): GenerateImageOutput => {
-        parts.finishGeneratedImage(toolCallId, { errorReason });
-        return { error, reason: errorReason };
-      };
-      // The Provider's answer, once it has given one: its usage is billed even when no image is kept.
-      let answer: ImageGenerationResult | undefined;
-      // Whether the call reached the Provider: a Stop during it may leave the Provider's request running.
-      let reached = false;
-      let stored = false;
-      try {
-        // The slot is taken before the Quota is awaited, so parallel calls in one Run can't pass the cap.
-        if (images >= maxImagesPerRun) return fail("limit_reached", imageLimitError);
-        if (!budget.take()) return fail("limit_reached", toolCallLimitError);
-        // The edit's ids are the distinct ones the call named; the Model can't go past the limit.
-        const ids = editLimit > 0 ? [...new Set(idsOf(editImageIds))] : [];
-        if (ids.length > editLimit)
-          return fail("too_many_images", generatedImageErrorLabels.too_many_images);
-        images++;
-        // An id that isn't an image on this Branch, or the user's, fails the call before any paid call.
-        const sources = edit && ids.length > 0 ? await edit.sources(ids) : [];
-        if (!sources) return fail("failed", imageUnavailableError);
-        if (!(await meter.mayRun()).ok) {
-          return fail("quota_exceeded", generatedImageErrorLabels.quota_exceeded);
-        }
-        const signal = context?.abortSignal;
-        reached = true;
-        answer = await generateImage({
-          adapter,
-          // An edit's prompt is its text, then each source image, in the order the call named them.
-          prompt:
-            sources.length > 0
-              ? [{ type: "text" as const, content: prompt }, ...sources.map(editImagePart)]
-              : prompt,
-          ...request(aspectRatio),
-          timeout: timeoutMs,
-          ...(signal && { abortSignal: signal }),
-        });
-        const first = answer.images[0];
-        if (!first) return fail("failed", "The Provider returned no image");
-        const bytes = await imageBytes(first, fetch, signal);
-        // A run ended while the Provider answered keeps no image (the call is cancelled).
-        if (signal?.aborted) throw new Error("The reply was stopped");
-        const info = imageInfo(bytes);
-        if (!info) return fail("failed", "The Provider returned an image in an unknown format");
-        const id = uuidv7();
-        // The bytes go first, so a row never points at nothing; a failed insert takes them back.
-        const key = generatedImageBlobKey(id);
-        await deps.blobStore.put(key, bytes, { contentType: info.mediaType });
+    trackedTool(
+      generateImageToolName,
+      run,
+      {
+        // Checked before anything is awaited, so parallel calls in one Run can't pass the cap.
+        capReached: () => images >= maxImagesPerRun,
+        part: {
+          start: (toolCallId, { prompt, aspectRatio = "square" }: CallInput) =>
+            parts.startGeneratedImage(toolCallId, prompt, aspectRatio),
+          refused: (toolCallId, why) =>
+            fail(toolCallId, "limit_reached", why === "cap" ? imageLimitError : toolCallLimitError),
+          failed: (toolCallId, caught) =>
+            caught instanceof ImageRefusedError
+              ? fail(toolCallId, "refused", caught.message)
+              : fail(
+                  toolCallId,
+                  "failed",
+                  caught instanceof Error ? caught.message : String(caught),
+                ),
+        },
+      },
+      async (
+        { prompt, aspectRatio = "square", editImageIds },
+        { toolCallId, signal },
+      ): Promise<GenerateImageOutput> => {
+        // The Provider's answer, once it has given one: its usage is billed even when no image is kept.
+        let answer: ImageGenerationResult | undefined;
+        // Whether the call reached the Provider: a Stop during it may leave the Provider's request running.
+        let reached = false;
+        let stored = false;
         try {
-          await deps.db.insert(generatedImage).values({
-            id,
-            userId,
-            messageId,
-            mediaType: info.mediaType,
-            width: info.width,
-            height: info.height,
-            size: bytes.byteLength,
-            model,
-            createdAt: new Date(),
+          // The edit's ids are the distinct ones the call named; the Model can't go past the limit.
+          const ids = editLimit > 0 ? [...new Set(idsOf(editImageIds))] : [];
+          if (ids.length > editLimit) {
+            return fail(toolCallId, "too_many_images", generatedImageErrorLabels.too_many_images);
+          }
+          images++;
+          // An id that isn't an image on this Branch, or the user's, fails the call before any paid call.
+          const sources = edit && ids.length > 0 ? await edit.sources(ids) : [];
+          if (!sources) return fail(toolCallId, "failed", imageUnavailableError);
+          if (!(await meter.mayRun()).ok) {
+            return fail(toolCallId, "quota_exceeded", generatedImageErrorLabels.quota_exceeded);
+          }
+          reached = true;
+          answer = await generateImage({
+            adapter,
+            // An edit's prompt is its text, then each source image, in the order the call named them.
+            prompt:
+              sources.length > 0
+                ? [{ type: "text" as const, content: prompt }, ...sources.map(editImagePart)]
+                : prompt,
+            ...request(aspectRatio),
+            timeout: timeoutMs,
+            ...(signal && { abortSignal: signal }),
           });
-        } catch (error) {
-          await deleteBlobsBestEffort(deps, [key]);
-          throw error;
+          const first = answer.images[0];
+          if (!first) return fail(toolCallId, "failed", "The Provider returned no image");
+          const bytes = await imageBytes(first, fetch, signal);
+          // A run ended while the Provider answered keeps no image (the call is cancelled).
+          if (signal?.aborted) throw new Error("The reply was stopped");
+          const info = imageInfo(bytes);
+          if (!info) {
+            return fail(
+              toolCallId,
+              "failed",
+              "The Provider returned an image in an unknown format",
+            );
+          }
+          const id = uuidv7();
+          // The bytes go first, so a row never points at nothing; a failed insert takes them back.
+          const key = generatedImageBlobKey(id);
+          await deps.blobStore.put(key, bytes, { contentType: info.mediaType });
+          try {
+            await deps.db.insert(generatedImage).values({
+              id,
+              userId,
+              messageId,
+              mediaType: info.mediaType,
+              width: info.width,
+              height: info.height,
+              size: bytes.byteLength,
+              model,
+              createdAt: new Date(),
+            });
+          } catch (error) {
+            await deleteBlobsBestEffort(deps, [key]);
+            throw error;
+          }
+          stored = true;
+          parts.finishGeneratedImage(toolCallId, {
+            imageId: id,
+            ...(ids.length > 0 && { editedFrom: ids }),
+          });
+          return { imageId: id, prompt, aspectRatio: aspectRatio as AspectRatio };
+        } finally {
+          await meter.record({
+            reached,
+            answered: answer !== undefined,
+            usage: answer?.usage,
+            stored,
+            stopped: signal?.aborted === true,
+          });
         }
-        stored = true;
-        parts.finishGeneratedImage(toolCallId, {
-          imageId: id,
-          ...(ids.length > 0 && { editedFrom: ids }),
-        });
-        return { imageId: id, prompt, aspectRatio: aspectRatio as AspectRatio };
-      } catch (caught) {
-        // A call cut off by the run ending stays running; the run closes it as cancelled.
-        if (context?.abortSignal?.aborted) throw caught;
-        if (caught instanceof ImageRefusedError) return fail("refused", caught.message);
-        return fail("failed", caught instanceof Error ? caught.message : String(caught));
-      } finally {
-        await meter.record({
-          reached,
-          answered: answer !== undefined,
-          usage: answer?.usage,
-          stored,
-          stopped: context?.abortSignal?.aborted === true,
-        });
-        onChange();
-      }
-    },
+      },
+    ),
   );
 }

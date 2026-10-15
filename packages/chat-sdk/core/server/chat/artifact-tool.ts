@@ -7,11 +7,16 @@ import {
   maxArtifactContent,
   updateArtifactToolName,
 } from "../../shared/chat/artifact";
-import type { createPartsBuilder } from "../../shared/chat/parts";
 import { applyEdits } from "../artifact/edits";
 import { createArtifact, updateArtifact } from "../artifact/store";
 import type { AppDeps } from "../deps";
-import { toolCallLimitError, type ToolBudget } from "./host-tools";
+import {
+  type CallPart,
+  endToolCall,
+  type RunToolState,
+  toolCallLimitError,
+  trackedTool,
+} from "./tracked-tool";
 
 const createArtifactDefinition = toolDefinition({
   name: createArtifactToolName,
@@ -41,9 +46,9 @@ const createArtifactDefinition = toolDefinition({
 
 /**
  * The `create_artifact` tool for one Run. Like `fetch_url`, it records its call in the reply's
- * `parts` as a `builtin` tool call, with the title and kind but never the content, and calls
- * `onChange` as it changes. A saved Artifact is stored with its version 1 in one transaction
- * (ADR 0016), and the reply also keeps a slim `artifact` part for it. The call counts against the
+ * `parts` as a `builtin` tool call (`trackedTool`), with the title and kind but never the
+ * content. A saved Artifact is stored with its version 1 in one transaction (ADR 0016), and the
+ * reply also keeps a slim `artifact` part for it. The call counts against the
  * reply's tool budget. A call the Run's signal cuts off stays running (the Run closes it as
  * cancelled) and saves nothing. A write that fails is an error result, and the reply continues.
  * An argument the schema refuses (an unknown kind, content over the cap) is an error result from
@@ -53,64 +58,69 @@ export function createArtifactTool({
   deps,
   messageId,
   conversationId,
-  parts,
-  onChange,
-  budget,
-}: {
+  ...run
+}: RunToolState & {
   deps: Pick<AppDeps, "db">;
   messageId: string;
   conversationId: string;
-  parts: ReturnType<typeof createPartsBuilder>;
-  onChange: () => void;
-  budget: ToolBudget;
 }) {
-  return createArtifactDefinition.server(async (input, context) => {
-    // TanStack AI passes the call's id to every server tool; the stored part is keyed by it.
-    const toolCallId = context?.toolCallId;
-    if (!toolCallId) throw new Error("create_artifact was called without a tool call id");
-    const { kind, title, content } = input;
-    const language = kind === "code" ? (input.language ?? null) : null;
-    parts.startToolCall({
-      toolCallId,
-      name: createArtifactToolName,
-      source: "builtin",
-      args: { kind, title, ...(language !== null && { language }) },
-    });
-    onChange();
-    const signal = context?.abortSignal;
-    try {
-      if (!budget.take()) {
-        const error = { error: toolCallLimitError };
-        parts.finishToolCall(toolCallId, { state: "error", result: error });
-        return error;
-      }
-      if (signal?.aborted) throw new Error("The reply was stopped");
-      const artifactId = await createArtifact(
-        deps,
-        {
-          conversationId,
-          messageId,
-          kind,
-          title,
-          language,
-          content,
-          createdAt: new Date(),
-        },
-        signal,
-      );
-      const output = { artifactId, version: 1 };
-      parts.addArtifact({ artifactId, version: 1, title, kind });
-      parts.finishToolCall(toolCallId, { state: "done", result: output });
-      return output;
-    } catch (caught) {
-      if (signal?.aborted) throw caught;
-      const error = { error: caught instanceof Error ? caught.message : String(caught) };
-      parts.finishToolCall(toolCallId, { state: "error", result: error });
-      return error;
-    } finally {
-      onChange();
-    }
-  });
+  const { parts } = run;
+  type Input = z.infer<typeof createArtifactDefinition.inputSchema>;
+  const languageOf = ({ kind, language }: Input) => (kind === "code" ? (language ?? null) : null);
+  return createArtifactDefinition.server(
+    trackedTool(
+      createArtifactToolName,
+      run,
+      {
+        part: artifactCallPart(parts, createArtifactToolName, (input: Input) => {
+          const language = languageOf(input);
+          return { kind: input.kind, title: input.title, ...(language !== null && { language }) };
+        }),
+      },
+      async (input, { toolCallId, signal }): Promise<ArtifactOutput> => {
+        const { kind, title, content } = input;
+        if (signal?.aborted) throw new Error("The reply was stopped");
+        const artifactId = await createArtifact(
+          deps,
+          {
+            conversationId,
+            messageId,
+            kind,
+            title,
+            language: languageOf(input),
+            content,
+            createdAt: new Date(),
+          },
+          signal,
+        );
+        parts.addArtifact({ artifactId, version: 1, title, kind });
+        return endToolCall(parts, toolCallId, "done", { artifactId, version: 1 });
+      },
+    ),
+  );
+}
+
+/** What the Model reads back for an Artifact call: the version it saved, or why it saved none. */
+type ArtifactOutput = { artifactId: string; version: number } | { error: string };
+
+/**
+ * The `tool_call` part of an Artifact call: `builtin`, with the arguments `argsOf` keeps (never the
+ * content). A call refused or failed ends as an error result the Model reads.
+ */
+function artifactCallPart<Input>(
+  parts: RunToolState["parts"],
+  name: string,
+  argsOf: (input: Input) => Record<string, unknown>,
+): CallPart<Input, ArtifactOutput, void> {
+  return {
+    start: (toolCallId, input) =>
+      parts.startToolCall({ toolCallId, name, source: "builtin", args: argsOf(input) }),
+    refused: (toolCallId) => endToolCall(parts, toolCallId, "error", { error: toolCallLimitError }),
+    failed: (toolCallId, caught) =>
+      endToolCall(parts, toolCallId, "error", {
+        error: caught instanceof Error ? caught.message : String(caught),
+      }),
+  };
 }
 
 const updateArtifactDefinition = toolDefinition({
@@ -162,99 +172,80 @@ export function updateArtifactTool({
   deps,
   messageId,
   conversationId,
-  parts,
-  onChange,
-  budget,
-}: {
+  ...run
+}: RunToolState & {
   deps: Pick<AppDeps, "db">;
   messageId: string;
   conversationId: string;
-  parts: ReturnType<typeof createPartsBuilder>;
-  onChange: () => void;
-  budget: ToolBudget;
 }) {
-  return updateArtifactDefinition.server(async (input, context) => {
-    const toolCallId = context?.toolCallId;
-    if (!toolCallId) throw new Error("update_artifact was called without a tool call id");
-    const { artifactId, title } = input;
-    parts.startToolCall({
-      toolCallId,
-      name: updateArtifactToolName,
-      source: "builtin",
-      args: { artifactId, ...(title !== undefined && { title }) },
-    });
-    onChange();
-    const signal = context?.abortSignal;
-    try {
-      if (!budget.take()) {
-        const error = { error: toolCallLimitError };
-        parts.finishToolCall(toolCallId, { state: "error", result: error });
-        return error;
-      }
-      const given = [input.edits, input.content, input.restoreVersion].filter(
-        (value) => value !== undefined,
-      ).length;
-      if (given !== 1) {
-        const error = { error: "Give exactly one of edits, content or restoreVersion" };
-        parts.finishToolCall(toolCallId, { state: "error", result: error });
-        return error;
-      }
-      if (signal?.aborted) throw new Error("The reply was stopped");
-      const outcome = await updateArtifact(
-        deps,
-        {
-          conversationId,
-          messageId,
+  const { parts } = run;
+  type Input = z.infer<typeof updateArtifactDefinition.inputSchema>;
+  return updateArtifactDefinition.server(
+    trackedTool(
+      updateArtifactToolName,
+      run,
+      {
+        part: artifactCallPart(parts, updateArtifactToolName, ({ artifactId, title }: Input) => ({
           artifactId,
-          createdAt: new Date(),
-          change: async (latest, versionAt) => {
-            let content = latest.content;
-            let language = latest.language;
-            if (input.edits) {
-              const applied = applyEdits(latest.content, input.edits);
-              if ("error" in applied) return applied;
-              content = applied.content;
-            } else if (input.content !== undefined) {
-              content = input.content;
-            } else {
-              const restored = await versionAt(input.restoreVersion!);
-              if (!restored) {
-                return { error: `Version ${input.restoreVersion} isn't on this Branch` };
+          ...(title !== undefined && { title }),
+        })),
+      },
+      async (input, { toolCallId, signal }): Promise<ArtifactOutput> => {
+        const { artifactId, title } = input;
+        const given = [input.edits, input.content, input.restoreVersion].filter(
+          (value) => value !== undefined,
+        ).length;
+        if (given !== 1) {
+          return endToolCall(parts, toolCallId, "error", {
+            error: "Give exactly one of edits, content or restoreVersion",
+          });
+        }
+        if (signal?.aborted) throw new Error("The reply was stopped");
+        const outcome = await updateArtifact(
+          deps,
+          {
+            conversationId,
+            messageId,
+            artifactId,
+            createdAt: new Date(),
+            change: async (latest, versionAt) => {
+              let content = latest.content;
+              let language = latest.language;
+              if (input.edits) {
+                const applied = applyEdits(latest.content, input.edits);
+                if ("error" in applied) return applied;
+                content = applied.content;
+              } else if (input.content !== undefined) {
+                content = input.content;
+              } else {
+                const restored = await versionAt(input.restoreVersion!);
+                if (!restored) {
+                  return { error: `Version ${input.restoreVersion} isn't on this Branch` };
+                }
+                content = restored.content;
+                language = restored.language;
               }
-              content = restored.content;
-              language = restored.language;
-            }
-            if (content.length > maxArtifactContent) {
-              return { error: `The Artifact would be over ${maxArtifactContent / 1024} KB` };
-            }
-            return { title: title ?? latest.title, language, content };
+              if (content.length > maxArtifactContent) {
+                return { error: `The Artifact would be over ${maxArtifactContent / 1024} KB` };
+              }
+              return { title: title ?? latest.title, language, content };
+            },
           },
-        },
-        signal,
-      );
-      if (!outcome.saved) {
-        const error = { error: outcome.error };
-        parts.finishToolCall(toolCallId, { state: "error", result: error });
-        return error;
-      }
-      const output = { artifactId, version: outcome.number };
-      parts.addArtifact({
-        artifactId,
-        version: outcome.number,
-        title: outcome.title,
-        kind: outcome.kind,
-      });
-      parts.finishToolCall(toolCallId, { state: "done", result: output });
-      return output;
-    } catch (caught) {
-      if (signal?.aborted) throw caught;
-      const error = { error: caught instanceof Error ? caught.message : String(caught) };
-      parts.finishToolCall(toolCallId, { state: "error", result: error });
-      return error;
-    } finally {
-      onChange();
-    }
-  });
+          signal,
+        );
+        if (!outcome.saved) {
+          return endToolCall(parts, toolCallId, "error", { error: outcome.error });
+        }
+        parts.addArtifact({
+          artifactId,
+          version: outcome.number,
+          title: outcome.title,
+          kind: outcome.kind,
+        });
+        return endToolCall(parts, toolCallId, "done", { artifactId, version: outcome.number });
+      },
+    ),
+  );
 }
 
 /** What the Model reads back for an Artifact call whose arguments were cut off or not valid JSON. */

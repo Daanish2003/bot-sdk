@@ -13,7 +13,7 @@ import type { AppDeps } from "../deps";
 import { createPartsBuilder, searchTextOf } from "../../shared/chat/parts";
 import type { RunEndEvent } from "./hooks";
 import { endRun, type Ending, type EndingRun } from "./end-run";
-import { createToolBudget, spentCalls } from "./host-tools";
+import { createToolBudget, spentCalls } from "./tracked-tool";
 import { artifactCutOff } from "./artifact-tool";
 import type { RunPlan } from "./run-plan";
 import { cancelChannel, heartbeatExpired, listenForStop, stopRequested } from "./stop";

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { freeMeter, type SearchMeter } from "../../../../core/server/chat/meter";
+import { createToolBudget } from "../../../../core/server/chat/tracked-tool";
 import { createWebSearchTool } from "../../../../core/server/chat/web-search-tool";
 import { createPartsBuilder } from "../../../../core/shared/chat/parts";
 import { createFakeSearchClient } from "../../../support/fake-search-client";
@@ -16,6 +17,7 @@ function toolWith(meter: SearchMeter) {
     meter,
     parts,
     onChange: () => {},
+    budget: createToolBudget(0),
   });
   const call = (query: string) => tool.execute!({ query }, { toolCallId: "call-1" } as never);
   return { searchClient, parts, call };
