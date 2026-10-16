@@ -140,6 +140,36 @@ describe("every path that deletes Conversations runs the delete hooks", () => {
     expect(recorder.after).toEqual([{ conversationIds: ids, userId: user.id, collected: 2 }]);
   });
 
+  it("leaves no matching Conversation behind when one is committed between the select and the delete", async () => {
+    const user = await insertUser();
+    const first = await insertConversation(user);
+    let late: string | undefined;
+    const seen: string[][] = [];
+    const plugin: BotSdkPlugin = {
+      id: "racer",
+      databaseHooks: {
+        conversation: {
+          delete: {
+            before: async (_sdk, { conversationIds }) => {
+              seen.push([...conversationIds]);
+              // Another connection commits a Conversation for the user mid-delete.
+              late ??= (await insertConversation(user)).id;
+            },
+            after: async () => {},
+          },
+        },
+      },
+    };
+    const deps = createTestSdk({ plugins: [plugin] });
+
+    await deleteAllConversations(deps, user.id);
+
+    expect(await conversationExists(first.id)).toBe(false);
+    expect(await conversationExists(late!)).toBe(false);
+    // The late Conversation's hooks ran too, before it went.
+    expect(seen).toEqual([[first.id], [late]]);
+  });
+
   it("runs no hook when there is nothing to delete", async () => {
     const user = await insertUser();
     const recorder = recordingPlugin();
