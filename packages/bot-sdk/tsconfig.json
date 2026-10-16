@@ -1,0 +1,24 @@
+{
+  "extends": "@ai-chat/config/tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "paths": {
+      "@/components/ui/*": ["../ui/src/components/*"],
+      "@/lib/utils": ["../ui/src/lib/utils"],
+      "@e2e-types/playwright-test": ["../../apps/web/node_modules/@playwright/test"]
+    }
+  },
+  "include": [
+    "core/**/*.ts",
+    "core/**/*.tsx",
+    "ui/**/*.ts",
+    "ui/**/*.tsx",
+    "test/**/*.ts",
+    "test/**/*.tsx",
+    "scripts/**/*.ts",
+    "eval/**/*.ts"
+  ],
+  "exclude": ["node_modules"]
+}
