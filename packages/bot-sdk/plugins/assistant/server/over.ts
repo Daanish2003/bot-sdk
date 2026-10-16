@@ -5,7 +5,7 @@ import {
   type ChatHandler,
   type GivenContext,
 } from "../../../core/server/create-chat";
-import type { BotSdkContext } from "../../../core/server/plugin";
+import type { BotSdkContext, BotSdkPlugin } from "../../../core/server/plugin";
 import { modelsOver } from "../../models/server/plugin";
 import type { ModelsDeps } from "../../models/server/types";
 import { assistantOver } from "./plugin";
@@ -25,7 +25,13 @@ export type SdkOver = BotSdkContext & ModelsDeps;
  * context with the `models` bundle.
  */
 export function createBotSdkOver(
-  given: { context: GivenContext; models: ModelsDeps; assistant: Partial<AssistantState> },
+  given: {
+    context: GivenContext;
+    models: ModelsDeps;
+    assistant: Partial<AssistantState>;
+    /** More plugins, enabled after `models` and the assistant. */
+    plugins?: readonly BotSdkPlugin[];
+  },
   options: OverOptions,
 ): { instance: BotSdk; sdk: SdkOver } {
   const { instance, context } = buildBotSdk(
@@ -33,7 +39,7 @@ export function createBotSdkOver(
       ...options,
       databaseUrl: "",
       keyEncryptionSecrets: given.context.keyring ?? given.models.keyEncryptionSecrets,
-      plugins: [modelsOver(given.models), assistantOver(given.assistant)],
+      plugins: [modelsOver(given.models), assistantOver(given.assistant), ...(given.plugins ?? [])],
     },
     given.context,
   );

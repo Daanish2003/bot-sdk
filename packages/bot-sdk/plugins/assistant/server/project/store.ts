@@ -1,15 +1,7 @@
-import {
-  conversation,
-  message,
-  project,
-  generatedImage,
-  knowledgeFile,
-} from "../../../../core/server/db/schema";
-import { and, count, desc, eq, inArray, sql } from "drizzle-orm";
+import { conversation, project, knowledgeFile } from "../../../../core/server/db/schema";
+import { and, count, desc, eq, sql } from "drizzle-orm";
 
-import { deleteBlobsBestEffort } from "../../../../core/server/blob/store";
-import { generatedImageKeysWhere, imagesOfMessages } from "../chat/generated-image-store";
-import { stopProjectRuns } from "../chat/run";
+import { deleteConversations } from "../../../../core/server/chat/delete-conversations";
 import type { BotSdkContext } from "../../../../core/server/plugin";
 import { discardKnowledgeFiles, knowledgeFileIdsWhere } from "../knowledge/cascade";
 
@@ -73,10 +65,9 @@ export async function countProjectConversations(deps: Deps, userId: string, id: 
 }
 
 /**
- * Deletes the user's Project and, by cascade, its Conversations with their Messages, Shared links
- * and Message–Attachment links. Live Runs in those Conversations stop first, as in `deleteUser`.
- * Answers how many Conversations went, or `undefined` when the Project doesn't exist or belongs to
- * someone else.
+ * Deletes the user's Project with its Conversations, through the core's Conversation delete first
+ * (their live Runs stop, through the delete hooks), then the Project. Answers how many
+ * Conversations went, or `undefined` when the Project doesn't exist or belongs to someone else.
  */
 export async function deleteProject(deps: BotSdkContext, userId: string, id: string) {
   const result = await deps.db.transaction(async (tx) => {
@@ -85,43 +76,23 @@ export async function deleteProject(deps: BotSdkContext, userId: string, id: str
       .from(project)
       .where(and(eq(project.id, id), eq(project.userId, userId)))
       // Locks the Project row: a Conversation inserted into it waits for this commit (its foreign
-      // key takes a shared lock), so the count below and the cascade see the same rows.
+      // key takes a shared lock), so the delete below sees every row and the cascade finds none left.
       .for("update");
     if (!owned) return undefined;
-    const ended = await stopProjectRuns(deps, id, tx);
-    const gone = await tx
-      .select({ id: conversation.id })
-      .from(conversation)
-      .where(eq(conversation.projectId, id));
-    // The Generated images of the Project's Conversations: their rows go by cascade, their bytes after the commit.
-    const blobKeys = await generatedImageKeysWhere(
-      tx,
-      and(
-        eq(generatedImage.userId, userId),
-        imagesOfMessages(
-          tx,
-          inArray(
-            message.conversationId,
-            tx
-              .select({ id: conversation.id })
-              .from(conversation)
-              .where(eq(conversation.projectId, id)),
-          ),
-        ),
-      ),
-    );
+    // The Project's Conversations go through the core's delete; the cascade is only a safety net.
+    const { deleted, afterCommit } = await deleteConversations(deps, tx, {
+      where: eq(conversation.projectId, id),
+      userId,
+      announce: { projectId: conversation.projectId },
+    });
     // The Knowledge files: their rows and passages go by cascade, their bytes and jobs after the commit.
     const knowledgeIds = await knowledgeFileIdsWhere(tx, eq(knowledgeFile.projectId, id));
     await tx.delete(project).where(eq(project.id, id));
-    return { gone, ended, blobKeys, knowledgeIds };
+    return { deleted, afterCommit, knowledgeIds };
   });
   if (!result) return undefined;
-  await deleteBlobsBestEffort(deps, result.blobKeys);
-  await discardKnowledgeFiles(deps, result.knowledgeIds);
   // After the commit: a rolled-back delete fires nothing (#265, #266).
-  for (const run of result.ended) deps.events.fire("onRunEnd", run);
-  for (const row of result.gone) {
-    deps.events.fire("onConversationDeleted", { userId, conversationId: row.id, projectId: id });
-  }
-  return result.gone.length;
+  await result.afterCommit();
+  await discardKnowledgeFiles(deps, result.knowledgeIds);
+  return result.deleted.length;
 }

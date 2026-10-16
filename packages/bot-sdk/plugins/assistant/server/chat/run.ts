@@ -7,7 +7,7 @@ import {
   fromSpecTokenUsage,
   type StreamChunk,
 } from "@tanstack/ai";
-import { and, eq, isNull, lt, or, type SQL } from "drizzle-orm";
+import { and, eq, inArray, isNull, lt, or, type SQL } from "drizzle-orm";
 
 import type { BotSdkContext } from "../../../../core/server/plugin";
 import { createPartsBuilder, searchTextOf } from "../../shared/chat/parts";
@@ -411,15 +411,15 @@ export async function stopUserRuns(
 }
 
 /**
- * Stops every live Run in one Project's Conversations, inside the caller's transaction. As
- * `stopUserRuns`, for `project.delete`.
+ * Stops every live Run in the given Conversations, inside the caller's transaction. As
+ * `stopUserRuns`, for the assistant's Conversation delete hook.
  */
-export async function stopProjectRuns(
+export async function stopConversationRuns(
   deps: BotSdkContext,
-  projectId: string,
-  db: Executor = deps.db,
+  conversationIds: string[],
+  db: Executor,
 ): Promise<RunEndEvent[]> {
-  return stopLiveRuns(deps, eq(conversation.projectId, projectId), db);
+  return stopLiveRuns(deps, inArray(conversation.id, conversationIds), db);
 }
 
 /** Stops the live Runs whose Conversation matches `where`. */

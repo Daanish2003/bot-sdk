@@ -4,6 +4,7 @@ import { RPCHandler } from "@orpc/server/fetch";
 import type { UserExport } from "../../plugins/assistant/server/export-user";
 import { postgresBlobStore } from "./blob/postgres";
 import type { BlobStore } from "./blob/store";
+import { bindDeleteHooks } from "./chat/delete-conversations";
 import { createHookEmitter } from "./chat/hooks";
 import type { ChatUser, Context } from "./context";
 import { createDb } from "./db/index";
@@ -191,6 +192,7 @@ export function buildBotSdk(
   });
   // In dependency order, so a plugin's `init` can call the plugins it requires.
   for (const plugin of plugins) apis.set(plugin.id, plugin.init?.(sdk)?.api ?? {});
+  bindDeleteHooks(sdk, plugins);
 
   const instance: BotSdk = {
     handler: createHandler(options, router, routes, sdk),

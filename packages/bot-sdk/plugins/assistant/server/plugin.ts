@@ -9,6 +9,7 @@ import { webSearchToolName } from "../shared/chat/web-search";
 import type { SharedConversation } from "../shared/share/conversation";
 import { ratingTotals, type RatingTotal } from "./admin/ratings";
 import { generatedImageBlobKey } from "./blob-keys";
+import { assistantConversationDelete } from "./chat/conversation-delete";
 import { handleChat } from "./chat/handle-chat";
 import type { HostServerTool } from "./chat/host-tools";
 import { handleJoin } from "./chat/join-run";
@@ -152,6 +153,7 @@ function assistantPlugin(buildState: (sdk: BotSdkContext) => AssistantState): As
       lifecycles.set(sdk, createLifecycle(sdk, sdk.logger));
       return { api };
     },
+    databaseHooks: { conversation: { delete: assistantConversationDelete } },
     deleteUser: (sdk, userId) => deleteUserData(sdk, userId),
     exportUser: (sdk, userId) => exportUserData(sdk, userId),
     // The reaper, then the jobs runner.

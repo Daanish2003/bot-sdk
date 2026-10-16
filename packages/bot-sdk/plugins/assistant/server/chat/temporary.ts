@@ -1,6 +1,6 @@
 import { and, eq, gte, inArray, lt, notExists, or } from "drizzle-orm";
 
-import { deleteBlobsBestEffort } from "../../../../core/server/blob/store";
+import { deleteConversations } from "../../../../core/server/chat/delete-conversations";
 import {
   attachment,
   messageAttachment,
@@ -8,7 +8,6 @@ import {
   message,
 } from "../../../../core/server/db/schema";
 import type { BotSdkContext } from "../../../../core/server/plugin";
-import { generatedImageKeysWhere, imagesOfMessages } from "./generated-image-store";
 
 /** How long a Temporary Conversation lasts after its last Message (spec #262). */
 const temporaryRetentionMs = 30 * 24 * 60 * 60_000;
@@ -26,20 +25,21 @@ export const liveConversation = (now: Date) =>
 /**
  * Deletes the Temporary Conversations whose last Message is past their 30 days, in one
  * transaction. Their Messages go by cascade. Their Attachments go too, unless another Message still
- * uses one. Takes `now` as an argument, as the reaper does.
+ * uses one. Their live Runs stop, through the delete hooks. Takes `now` as an argument, as the
+ * reaper does.
  */
 export async function sweepExpiredTemporaryConversations(
-  deps: Pick<BotSdkContext, "db" | "blobStore" | "logger">,
+  deps: BotSdkContext,
   now = new Date(),
 ): Promise<void> {
-  const blobKeys = await deps.db.transaction(async (tx) => {
+  const afterCommit = await deps.db.transaction(async (tx) => {
     const expired = await tx
       .select({ id: conversation.id })
       .from(conversation)
       .where(
         and(eq(conversation.temporary, true), lt(conversation.lastMessageAt, expiryCutoff(now))),
       );
-    if (expired.length === 0) return [];
+    if (expired.length === 0) return async () => {};
     const conversationIds = expired.map((row) => row.id);
 
     const linked = await tx
@@ -48,13 +48,10 @@ export async function sweepExpiredTemporaryConversations(
       .innerJoin(message, eq(message.id, messageAttachment.messageId))
       .where(inArray(message.conversationId, conversationIds));
 
-    // The Generated images of these Conversations: their rows go by cascade, their bytes after the commit.
-    const keys = await generatedImageKeysWhere(
-      tx,
-      imagesOfMessages(tx, inArray(message.conversationId, conversationIds)),
-    );
-
-    await tx.delete(conversation).where(inArray(conversation.id, conversationIds));
+    const deleted = await deleteConversations(deps, tx, {
+      where: inArray(conversation.id, conversationIds),
+      userId: null,
+    });
 
     const attachmentIds = linked.map((row) => row.attachmentId);
     if (attachmentIds.length > 0) {
@@ -72,7 +69,7 @@ export async function sweepExpiredTemporaryConversations(
           ),
         );
     }
-    return keys;
+    return deleted.afterCommit;
   });
-  await deleteBlobsBestEffort(deps, blobKeys);
+  await afterCommit();
 }
