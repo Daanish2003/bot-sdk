@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { deleteUnusedAttachments } from "./attachments/store";
 import { attachment } from "./db/schema";
 import { deleteBlobsBestEffort } from "./blob/store";
-import { deleteConversations } from "./chat/delete-conversations";
+import { deleteConversations, muted } from "./chat/delete-conversations";
 import { enabledPlugins, type BotSdkContext } from "./plugin";
 
 /**
@@ -14,9 +14,11 @@ import { enabledPlugins, type BotSdkContext } from "./plugin";
  * hooks, the attachments' bytes in the store, then each plugin's `after`. Calling it again, or for
  * an unknown id, does nothing.
  *
- * Muted: a Host's user delete emits nothing, not even `onRunEnd` (#265).
+ * Muted: a Host's user delete emits nothing, not even `onRunEnd` (#265). The plugins' hooks get an
+ * sdk whose events fire nothing.
  */
-export async function deleteUserData(sdk: BotSdkContext, userId: string): Promise<void> {
+export async function deleteUserData(given: BotSdkContext, userId: string): Promise<void> {
+  const sdk = { ...given, events: muted(given.events) };
   const plugins = [...enabledPlugins(sdk)]
     .reverse()
     .flatMap((plugin) => (plugin.deleteUser ? [plugin.deleteUser] : []));

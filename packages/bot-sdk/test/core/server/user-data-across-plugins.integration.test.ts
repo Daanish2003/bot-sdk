@@ -5,6 +5,7 @@ import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
 import { describe, expect, it, vi } from "vitest";
 
 import { attachmentBlobKey, type BlobStore } from "../../../core/server/blob/store";
+import { createHookEmitter } from "../../../core/server/chat/hooks";
 import { createBotSdk } from "../../../core/server/create-chat";
 import * as schema from "../../../core/server/db/schema";
 import {
@@ -255,6 +256,28 @@ describe("deleteUser across plugins", () => {
     await deleteUserData(createTestSdk({ plugins: [extra] }), owner.id);
 
     expect(seen).toEqual(["before: settings 1", "after: collected, settings 0"]);
+  });
+
+  it("gives each plugin's hooks muted events, so a user delete reaches no Host hook (#265)", async () => {
+    const owner = await insertUser();
+    const onConversationDeleted = vi.fn();
+    const announce: BotSdkPlugin["deleteUser"] = {
+      before: async (sdk, { userId }) => {
+        sdk.events.fire("onConversationDeleted", { userId, conversationId: "before" });
+      },
+      after: async (sdk, { userId }) => {
+        sdk.events.fire("onConversationDeleted", { userId, conversationId: "after" });
+      },
+    };
+    const hooks = createHookEmitter({ onConversationDeleted }, { error: () => {} });
+
+    await deleteUserData(
+      createTestSdk({ hooks, plugins: [{ id: "announcer", deleteUser: announce }] }),
+      owner.id,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(onConversationDeleted).not.toHaveBeenCalled();
   });
 
   it("rolls everything back when a plugin's before throws, and logs an after that throws", async () => {
