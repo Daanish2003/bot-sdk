@@ -20,13 +20,14 @@ import { assistantConversation, withModel } from "./chat/kind";
 import { liveConversation } from "./chat/temporary";
 import type { ArtifactKind } from "../shared/chat/artifact";
 import type { StoredParts } from "../shared/message-parts";
+import type { BotExport } from "../../bot/server/store";
 
 /**
  * Everything the SDK keeps for one user, as one JSON-ready document (`chat.exportUser`). Provider
  * and Tool credentials are never in it, and an Attachment appears by name and type only. Usage
- * rows are left out: they are the Quota's record, not the user's data.
+ * rows are left out: they are the Quota's record, not the user's data. The `bot` plugin adds `bots`.
  */
-export type UserExport = {
+export type UserExport = BotExport & {
   /** The format version. Bumped only when a reader would misread the document. */
   version: 1;
   exportedAt: Date;
@@ -111,8 +112,8 @@ export type UserExport = {
   }[];
 };
 
-/** The assistant's part of the export: every key but the core's `version` and `exportedAt`. */
-export type AssistantExport = Omit<UserExport, "version" | "exportedAt">;
+/** The assistant's part of the export: every key but the core's `version` and `exportedAt`, and the `bot` plugin's. */
+export type AssistantExport = Omit<UserExport, "version" | "exportedAt" | keyof BotExport>;
 
 /**
  * The assistant's part of `sdk.exportUser`, read in the export's snapshot `tx` and built in memory.

@@ -2,6 +2,7 @@
 @source ".";
 @source "../plugins/assistant/ui";
 @source "../plugins/models/ui";
+@source "../plugins/bot/ui";
 
 /*
  * Printing a Conversation (#253): the browser's print dialog makes the PDF, so the page prints

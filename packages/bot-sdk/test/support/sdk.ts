@@ -1,6 +1,7 @@
 import type { TestDeps } from "./deps";
 import { createBotSdkClient, type BotSdkClient } from "../../core/client/chat-client";
 import { assistantClient } from "../../plugins/assistant/client/index";
+import { botClient } from "../../plugins/bot/client/index";
 import { modelsClient } from "../../plugins/models/client/index";
 import { createChatHandler } from "../../plugins/assistant/server/over";
 import { createTestSdk } from "./deps";
@@ -23,7 +24,7 @@ export function createTestChat({
     logger: { error: () => {} },
   });
   return createBotSdkClient({
-    plugins: [modelsClient(), assistantClient()],
+    plugins: [modelsClient(), assistantClient(), botClient()],
     baseUrl: `http://localhost${basePath}`,
     fetch: handler,
   });

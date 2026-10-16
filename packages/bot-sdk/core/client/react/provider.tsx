@@ -19,7 +19,9 @@ export type ChatPage =
   | { to: "new"; model?: string; projectId?: string }
   | { to: "conversation"; id: string; message?: string }
   | { to: "project"; id: string }
-  | { to: "keys" };
+  | { to: "keys" }
+  /** The Bots app; `id` opens that Bot's Conversation. */
+  | { to: "bots"; id?: string };
 
 export type ChatLinkProps = {
   page: ChatPage;
