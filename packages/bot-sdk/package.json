@@ -18,6 +18,7 @@
     "check-types": "tsc --noEmit",
     "copy": "node scripts/copy.ts",
     "eval:memory": "node --import ./eval/memory/register-ts.mjs eval/memory/run.ts",
+    "eval:turn": "node --import ./eval/memory/register-ts.mjs eval/turn/run.ts",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio"

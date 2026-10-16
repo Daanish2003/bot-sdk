@@ -1,12 +1,18 @@
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 
 import { deleteConversations } from "../../../core/server/chat/delete-conversations";
-import { bot, conversation, message, type MessageRow } from "../../../core/server/db/schema";
+import {
+  bot,
+  botTurn,
+  conversation,
+  message,
+  type MessageRow,
+} from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { Transaction, UserDeleteHooks } from "../../../core/server/plugin";
 import { searchTextOf } from "../../../core/shared/message-parts";
-import type { BotMessage } from "../shared/turn";
+import type { BotMessage, BotTurnStatus } from "../shared/turn";
 
 /** The `kind` of every Bot's Conversation: the plugin's id. */
 export const botKind = "bot";
@@ -15,6 +21,12 @@ const botColumns = { id: bot.id, name: bot.name, model: bot.model, createdAt: bo
 
 /** A Bot as the client sees it. */
 export type Bot = { id: string; name: string; model: string; createdAt: Date };
+
+/** A Bot with the status of its latest Turn (`null` before its first). */
+export type BotWithStatus = Bot & { turnStatus: BotTurnStatus | null };
+
+/** A Bot in the list: its last sent Message's text and time (`null` before it has sent one). */
+export type ListedBot = BotWithStatus & { lastMessage: { text: string; at: Date } | null };
 
 export type { BotMessage };
 
@@ -48,14 +60,62 @@ export async function createBot(
   });
 }
 
-/** The user's Bots, the newest activity in their Conversation first. */
-export async function listBots(db: Database, userId: string): Promise<Bot[]> {
-  return db
-    .select(botColumns)
+/** The status of each Bot's latest Turn; a Bot with no Turn has no entry. */
+async function latestTurnStatuses(db: Database | Transaction, botIds: string[]) {
+  if (botIds.length === 0) return new Map<string, BotTurnStatus>();
+  const rows = await db
+    .selectDistinctOn([botTurn.botId], { botId: botTurn.botId, status: botTurn.status })
+    .from(botTurn)
+    .where(inArray(botTurn.botId, botIds))
+    .orderBy(botTurn.botId, desc(botTurn.startedAt), desc(botTurn.id));
+  return new Map(rows.map((row) => [row.botId, row.status]));
+}
+
+/** The latest Turn's status of one Bot, `null` before its first Turn. */
+export async function latestTurnStatus(db: Database | Transaction, botId: string) {
+  return (await latestTurnStatuses(db, [botId])).get(botId) ?? null;
+}
+
+/**
+ * The user's Bots, the newest activity in their Conversation first, each with its last sent Message
+ * and its latest Turn's status.
+ */
+export async function listBots(db: Database, userId: string): Promise<ListedBot[]> {
+  const rows = await db
+    .select({ ...botColumns, conversationId: bot.conversationId })
     .from(bot)
     .innerJoin(conversation, eq(conversation.id, bot.conversationId))
     .where(eq(bot.userId, userId))
     .orderBy(desc(conversation.lastMessageAt), desc(bot.id));
+  const conversationIds = rows.map((row) => row.conversationId);
+  const [statuses, sent] = await Promise.all([
+    latestTurnStatuses(
+      db,
+      rows.map((row) => row.id),
+    ),
+    conversationIds.length === 0
+      ? []
+      : db
+          .selectDistinctOn([message.conversationId], {
+            conversationId: message.conversationId,
+            parts: message.parts,
+            createdAt: message.createdAt,
+          })
+          .from(message)
+          .where(
+            and(inArray(message.conversationId, conversationIds), eq(message.role, "assistant")),
+          )
+          .orderBy(message.conversationId, desc(message.createdAt), desc(message.id)),
+  ]);
+  const lastSent = new Map(sent.map((row) => [row.conversationId, row]));
+  return rows.map(({ conversationId, ...row }) => {
+    const last = lastSent.get(conversationId);
+    return {
+      ...row,
+      turnStatus: statuses.get(row.id) ?? null,
+      lastMessage: last ? { text: searchTextOf(last.parts), at: last.createdAt } : null,
+    };
+  });
 }
 
 /** One of the user's Bots with its Conversation's id, or `undefined` when it isn't theirs. */

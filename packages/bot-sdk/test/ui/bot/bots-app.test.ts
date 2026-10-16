@@ -16,6 +16,7 @@ afterEach(cleanup);
 const createdAt = new Date("2026-10-17T09:00:00.000Z");
 const inbox = { id: "b1", name: "Inbox Manager", model: "openai:gpt-5.6", createdAt };
 const ada = { id: "b2", name: "Ada", model: "openai:gpt-5.6", createdAt };
+const idle = { turnStatus: null, lastMessage: null };
 
 const listed = (id: string, label: string): ListedModel => ({
   id,
@@ -32,7 +33,10 @@ const listed = (id: string, label: string): ListedModel => ({
 });
 
 function seed(queryClient: QueryClient, client: BotSdkClient) {
-  queryClient.setQueryData(client.orpc.bot.list.queryKey(), [inbox, ada]);
+  queryClient.setQueryData(client.orpc.bot.list.queryKey(), [
+    { ...inbox, ...idle },
+    { ...ada, ...idle },
+  ]);
   queryClient.setQueryData(client.orpc.models.list.queryKey(), {
     models: [listed("openai:gpt-5.5", "GPT-5.5"), listed("openai:gpt-5.6", "GPT-5.6")],
     defaultModel: "openai:gpt-5.6",
@@ -42,7 +46,7 @@ function seed(queryClient: QueryClient, client: BotSdkClient) {
     webSearchOnHost: false,
   });
   queryClient.setQueryData(client.orpc.bot.get.queryKey({ input: { botId: ada.id } }), {
-    bot: ada,
+    bot: { ...ada, turnStatus: null },
     messages: [],
   });
 }

@@ -13,5 +13,6 @@ export const botsMessages = {
   "bots.send": "Send",
   "bots.typing": "Typing",
   "bots.seen": "Seen ✓",
-  "bots.couldNotReply": "Couldn't reply",
+  "bots.couldntReply": "Couldn't reply",
+  "bots.working": "Working…",
 };
