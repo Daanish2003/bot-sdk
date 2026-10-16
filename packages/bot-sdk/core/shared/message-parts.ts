@@ -57,12 +57,6 @@ export type ToolCallPart = z.infer<typeof toolCallPartSchema>;
 /** The parts every plugin's union has. */
 export type BasePart = TextPart | ThinkingPart | ToolCallPart;
 
-/**
- * The stored shape of a Message's `parts` as the core sees it: a versioned list whose parts it
- * knows only by `type`, so the core never imports a plugin's parts.
- */
-export type PartsEnvelope = { schemaVersion: number; parts: { type: string }[] };
-
 /** The plain text `message.searchText` holds: the text parts only. */
 export function searchTextOf(envelope: {
   parts: readonly { type: string; text?: string }[];
