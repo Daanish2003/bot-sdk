@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 import { sql } from "drizzle-orm";
@@ -15,10 +16,19 @@ const DEFAULT_TEST_DATABASE_URL = "postgresql://postgres:password@localhost:5432
 const baseTestDatabaseUrl = (process.env.TEST_DATABASE_BASE_URL ??=
   process.env.TEST_DATABASE_URL || DEFAULT_TEST_DATABASE_URL);
 
-/** `<test database>_w<n>`: worker n's copy of the migrated test database. */
+// Global setup evaluates this module first, in the main process, and the workers it starts inherit
+// the environment, so every worker of one run sees the same id. Another run against the same
+// TEST_DATABASE_URL gets its own id, so neither drops the other's copies.
+/** Names this test run's worker copies. */
+const runId = (process.env.TEST_DATABASE_RUN_ID ??= randomBytes(3).toString("hex"));
+
+/** `<test database>_r<run>_w`: the prefix of this run's worker copies. */
+const workerPrefix = `${databaseName(baseTestDatabaseUrl)}_r${runId}_w`;
+
+/** `<test database>_r<run>_w<n>`: worker n's copy of the migrated test database. */
 function workerDatabaseUrl(poolId: number | string) {
   const url = new URL(baseTestDatabaseUrl);
-  url.pathname = `/${databaseName(baseTestDatabaseUrl)}_w${poolId}`;
+  url.pathname = `/${workerPrefix}${poolId}`;
   return url.toString();
 }
 
@@ -35,7 +45,7 @@ const authMigrationsFolder = fileURLToPath(new URL("../../../db/src/migrations",
 
 /**
  * Creates the configured test database if it is missing and applies every migration, then makes
- * one copy of it per worker (`<test database>_w1` … `_w<workers>`), replacing leftover copies.
+ * one copy of it per worker (`<test database>_r<run>_w1` … `_w<workers>`).
  */
 export async function prepareTestDatabases(workers: number) {
   await createDatabaseIfMissing(baseTestDatabaseUrl);
@@ -47,7 +57,6 @@ export async function prepareTestDatabases(workers: number) {
   }
   await migrateChatSchema(baseTestDatabaseUrl);
 
-  await dropWorkerDatabases();
   const template = quoteIdentifier(databaseName(baseTestDatabaseUrl));
   const client = await serverClient(baseTestDatabaseUrl);
   try {
@@ -61,11 +70,11 @@ export async function prepareTestDatabases(workers: number) {
 }
 
 /**
- * Drops every worker copy of the configured test database, and any scratch database a killed run
- * left behind (`<test database>_w<n>_<suffix>`), so they never pile up.
+ * Drops this run's worker copies and any scratch database its tests left behind
+ * (`<test database>_r<run>_w<n>_<suffix>`). Other runs' copies are theirs to drop.
  */
 export async function dropWorkerDatabases() {
-  const prefix = `${databaseName(baseTestDatabaseUrl)}_w`;
+  const prefix = workerPrefix;
   const client = await serverClient(baseTestDatabaseUrl);
   try {
     const { rows } = await client.query<{ datname: string }>("select datname from pg_database");
