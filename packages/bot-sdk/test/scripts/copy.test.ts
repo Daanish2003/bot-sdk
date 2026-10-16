@@ -54,6 +54,9 @@ describe("copySdk", () => {
     write(join(source, "ui", "chat", "composer.tsx"), "export const Composer = 1;");
     write(join(source, "ui", "theme.css"), '@source ".";');
     write(join(source, "ui", "chat", "composer.test.tsx"), "test");
+    write(join(source, "plugins", "assistant", "server", "index.ts"), "export const a = 1;");
+    write(join(source, "plugins", "assistant", "server", "index.test.ts"), "test");
+    write(join(source, "plugins", "assistant", "ui", "panel.tsx"), "export const Panel = 1;");
     write(join(source, "extras", "trigger", "runner.ts"), "export const runner = 1;");
     write(join(source, "package.json"), "{}");
     write(join(source, "README.md"), "# readme");
@@ -83,6 +86,8 @@ describe("copySdk", () => {
       "core/server/index.ts",
       "extras/trigger/runner.ts",
       "package.json",
+      "plugins/assistant/server/index.ts",
+      "plugins/assistant/ui/panel.tsx",
       "ui/chat/composer.tsx",
       "ui/theme.css",
     ]);
@@ -117,6 +122,34 @@ describe("copySdk", () => {
     copySdk(dest, { source, version });
 
     expect(readFileSync(join(dest, "extras", "trigger", "runner.ts"), "utf8")).toBe("host edit");
+  });
+
+  it("replaces plugins server code on a second run but leaves an edited plugin ui untouched", () => {
+    copySdk(dest, { source, version });
+
+    write(join(dest, "plugins", "assistant", "ui", "panel.tsx"), "host edit");
+    write(join(dest, "plugins", "gone", "server", "x.ts"), "stale");
+    write(join(source, "plugins", "assistant", "server", "index.ts"), "export const a = 2;");
+    copySdk(dest, { source, version });
+
+    expect(readFileSync(join(dest, "plugins", "assistant", "server", "index.ts"), "utf8")).toBe(
+      "export const a = 2;",
+    );
+    expect(readFileSync(join(dest, "plugins", "assistant", "ui", "panel.tsx"), "utf8")).toBe(
+      "host edit",
+    );
+    expect(existsSync(join(dest, "plugins", "gone"))).toBe(false);
+  });
+
+  it("keeps each theme.css @source line resolving to a copied plugin ui folder", () => {
+    write(join(source, "ui", "theme.css"), '@source ".";\n@source "../plugins/assistant/ui";');
+
+    copySdk(dest, { source, version });
+
+    const css = readFileSync(join(dest, "ui", "theme.css"), "utf8");
+    const targets = [...css.matchAll(/@source "([^"]+)"/g)].map((m) => join(dest, "ui", m[1]!));
+    expect(targets).toHaveLength(2);
+    for (const target of targets) expect(existsSync(target)).toBe(true);
   });
 
   it("never copies an eval folder, so the Memory eval stays in the canonical repo", () => {
