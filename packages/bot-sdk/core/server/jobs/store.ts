@@ -1,7 +1,7 @@
 import { and, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
 
 import type { Database } from "../db/index";
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 import { job } from "../db/schema";
 import { uuidv7 } from "../lib/uuidv7";
 import { JOB_TIMING, PermanentJobError, backoffAfter, registeredJob } from "./define";
@@ -120,7 +120,7 @@ async function recordOutcome(
   db: Database,
   claimed: ClaimedJob,
   failure: { error: unknown } | undefined,
-  { now, logger, deps }: { now: Date; logger: Logger; deps: AppDeps },
+  { now, logger, deps }: { now: Date; logger: Logger; deps: BotSdkContext },
 ): Promise<void> {
   if (!failure) {
     await db.update(job).set({ status: "succeeded", updatedAt: now }).where(ownAttempt(claimed));
@@ -175,7 +175,7 @@ export async function runClaimedJob(
     logger,
     deps,
     shutdown,
-  }: { clock: JobClock; logger: Logger; deps: () => AppDeps; shutdown?: AbortSignal },
+  }: { clock: JobClock; logger: Logger; deps: () => BotSdkContext; shutdown?: AbortSignal },
 ): Promise<void> {
   const definition = registeredJob(claimed.name);
   const attempt = new AbortController();
@@ -257,7 +257,7 @@ export async function reapStaleJobs(
   db: Database,
   now: Date,
   logger: Logger,
-  deps: AppDeps,
+  deps: BotSdkContext,
 ): Promise<void> {
   const cutoff = new Date(now.getTime() - JOB_TIMING.leaseMs);
   const expired = and(

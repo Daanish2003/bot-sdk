@@ -30,7 +30,7 @@ async function listItems(client: ReturnType<typeof chatRpc>) {
  */
 function signedOutRouter() {
   const deps = createTestSdk();
-  return createRouterClient(appRouter, { context: { user: null, deps, plugin: deps.plugin } });
+  return createRouterClient(appRouter, { context: { user: null, sdk: deps } });
 }
 
 describe("conversation.create", () => {

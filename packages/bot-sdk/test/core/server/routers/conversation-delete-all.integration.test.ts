@@ -12,6 +12,7 @@ import { chatRpc, createTestChat } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
 import { EventType } from "@tanstack/ai";
+import { assistantState } from "../../../../plugins/assistant/server/state";
 
 async function conversationsOf(userId: string) {
   return getTestDb().select().from(conversation).where(eq(conversation.userId, userId));
@@ -138,7 +139,8 @@ describe("conversation.deleteAll", () => {
 
       // The log ends with a terminal chunk, so a reader does not reconnect and start the Run again.
       const chunks = [];
-      for await (const entry of deps.runStreams.read(reply.id, START)) chunks.push(entry.chunk);
+      for await (const entry of assistantState(deps).runStreams.read(reply.id, START))
+        chunks.push(entry.chunk);
       expect(chunks.at(-1)?.type).toBe(EventType.RUN_FINISHED);
       expect(await getTestDb().select().from(message).where(eq(message.id, reply.id))).toEqual([]);
       expect(await conversationsOf(owner.id)).toEqual([]);

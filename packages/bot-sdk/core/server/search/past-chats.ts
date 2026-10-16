@@ -8,9 +8,10 @@ import {
 } from "../../shared/chat/past-chats";
 import { snippetAround } from "../../shared/search/text";
 import { userSettings } from "../db/schema";
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
+import { assistantState } from "../../../plugins/assistant/server/state";
 
-type Deps = Pick<AppDeps, "db" | "memory">;
+type Deps = Pick<BotSdkContext, "db" | "plugin">;
 
 /** The Conversations a `search_past_chats` call found, each with its snippets (spec #263). */
 export type PastChatHit = PastChatsSearchPart["conversations"][number];
@@ -24,7 +25,7 @@ export async function pastChatsOffered(
   userId: string,
   temporary: boolean,
 ): Promise<boolean> {
-  if (!deps.memory || temporary) return false;
+  if (!assistantState(deps).memory || temporary) return false;
   const [row] = await deps.db
     .select({ memoryEnabled: userSettings.memoryEnabled })
     .from(userSettings)

@@ -47,7 +47,7 @@ export const attachmentRouter = {
           },
         );
       }
-      return saveAttachment(context.deps, context.user.id, {
+      return saveAttachment(context.sdk, context.user.id, {
         filename: file.name,
         mediaType: normalizedMediaType(file.type, file.name),
         bytes,

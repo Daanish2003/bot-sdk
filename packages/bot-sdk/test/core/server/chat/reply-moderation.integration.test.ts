@@ -28,6 +28,7 @@ import {
 import { chatRpc, sendAs } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
+import { assistantState } from "../../../../plugins/assistant/server/state";
 
 const basePath = "/api/chat";
 /** A Host tool that needs Approval, so a Run ends waiting for it (ADR 0008). */
@@ -108,7 +109,8 @@ async function replyOf(conversationId: string) {
 /** The chunks a Run's log holds, from its first entry (ADR 0006). */
 async function logChunks(deps: ReturnType<typeof createTestSdk>, runId: string) {
   const chunks: StreamChunk[] = [];
-  for await (const entry of deps.runStreams.read(runId, START)) chunks.push(entry.chunk);
+  for await (const entry of assistantState(deps).runStreams.read(runId, START))
+    chunks.push(entry.chunk);
   return chunks;
 }
 

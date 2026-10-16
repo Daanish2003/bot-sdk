@@ -1,4 +1,4 @@
-/** One Model's 👍 and 👎 Ratings over the window, as `chat.admin.ratingTotals` returns them. */
+/** One Model's 👍 and 👎 Ratings over the window, as `sdk.plugin("assistant").ratingTotals` returns them. */
 export type RatingTotal = { model: string; up: number; down: number };
 
 /** One row of the Admin's Ratings section: a Model's 👍, 👎 and share of 👎 (spec #277). */

@@ -2,7 +2,7 @@ import { and, count, desc, eq } from "drizzle-orm";
 
 import { knowledgeBlobKey, deleteBlobsBestEffort } from "../blob/store";
 import { project, knowledgeChunk, knowledgeFile } from "../db/schema";
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 import { uuidv7 } from "../lib/uuidv7";
 import { findProject } from "../project/store";
 import { rpcError } from "../rpc-error";
@@ -13,6 +13,7 @@ import {
 } from "../../shared/knowledge/kinds";
 // Imported for its side effect: the job must be defined before the first upload enqueues it.
 import { knowledgeJobKey, knowledgeProcessJob } from "./process";
+import { assistantState } from "../../../plugins/assistant/server/state";
 
 /** What the Knowledge tab shows of a file. The bytes are never part of it. */
 export type KnowledgeFileInfo = {
@@ -27,7 +28,7 @@ export type KnowledgeFileInfo = {
 };
 
 /** How many Knowledge files the Project holds. */
-async function countFiles(db: Pick<AppDeps["db"], "select">, projectId: string) {
+async function countFiles(db: Pick<BotSdkContext["db"], "select">, projectId: string) {
   const [row] = await db
     .select({ total: count() })
     .from(knowledgeFile)
@@ -51,7 +52,7 @@ const infoColumns = {
  * first upload), the embedding Models the user can use now, and its files. `undefined` when the
  * Project isn't the user's.
  */
-export async function knowledgeOf(deps: AppDeps, userId: string, projectId: string) {
+export async function knowledgeOf(deps: BotSdkContext, userId: string, projectId: string) {
   const row = await findProject(deps, userId, projectId);
   if (!row) return undefined;
   const files: KnowledgeFileInfo[] = await deps.db
@@ -82,7 +83,7 @@ export async function knowledgeOf(deps: AppDeps, userId: string, projectId: stri
  * that also checks the file limit; the job is queued after the commit, so it finds the row.
  */
 export async function uploadKnowledgeFile(
-  deps: AppDeps,
+  deps: BotSdkContext,
   userId: string,
   projectId: string,
   file: { name: string; mediaType: KnowledgeMediaType; bytes: Uint8Array },
@@ -141,7 +142,7 @@ export async function uploadKnowledgeFile(
       if (!created) throw new Error("Saving the Knowledge file returned no row");
       return created;
     });
-    await deps.jobs.enqueue(
+    await assistantState(deps).jobs.enqueue(
       knowledgeProcessJob.name,
       { fileId: id },
       { idempotencyKey: knowledgeJobKey(id) },
@@ -158,7 +159,7 @@ export async function uploadKnowledgeFile(
  * and only to a Model the user can use now (ADR 0014).
  */
 export async function setKnowledgeModel(
-  deps: AppDeps,
+  deps: BotSdkContext,
   userId: string,
   projectId: string,
   model: string,
@@ -192,7 +193,12 @@ export async function setKnowledgeModel(
 }
 
 /** The file's status, once the Project is the user's and the file is in it. */
-async function ownedFileStatus(deps: AppDeps, userId: string, projectId: string, fileId: string) {
+async function ownedFileStatus(
+  deps: BotSdkContext,
+  userId: string,
+  projectId: string,
+  fileId: string,
+) {
   if (!(await findProject(deps, userId, projectId))) {
     throw rpcError("NOT_FOUND", "error.projectNotFound", "Project not found");
   }
@@ -209,7 +215,7 @@ async function ownedFileStatus(deps: AppDeps, userId: string, projectId: string,
  * nothing is re-uploaded, and the job starts with fresh attempts.
  */
 export async function retryKnowledgeFile(
-  deps: AppDeps,
+  deps: BotSdkContext,
   userId: string,
   projectId: string,
   fileId: string,
@@ -228,7 +234,7 @@ export async function retryKnowledgeFile(
     .where(and(eq(knowledgeFile.id, fileId), eq(knowledgeFile.status, "failed")))
     .returning({ id: knowledgeFile.id });
   if (reset.length === 0) throw notFailed();
-  await deps.jobs.enqueue(
+  await assistantState(deps).jobs.enqueue(
     knowledgeProcessJob.name,
     { fileId },
     { idempotencyKey: knowledgeJobKey(fileId) },
@@ -241,13 +247,13 @@ export async function retryKnowledgeFile(
  * row and its passages go in one transaction, then the bytes (best-effort, after the commit).
  */
 export async function deleteKnowledgeFile(
-  deps: AppDeps,
+  deps: BotSdkContext,
   userId: string,
   projectId: string,
   fileId: string,
 ): Promise<void> {
   await ownedFileStatus(deps, userId, projectId, fileId);
-  await deps.jobs.cancel(knowledgeJobKey(fileId));
+  await assistantState(deps).jobs.cancel(knowledgeJobKey(fileId));
   await deps.db.transaction(async (tx) => {
     // Locks the file row, so a passage write in progress finishes before its passages go.
     await tx

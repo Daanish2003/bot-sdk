@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 
 import { message } from "../db/schema";
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 
 /**
  * How long a Run may go without a heartbeat before it counts as ended (ADR 0006). Until the owner
@@ -26,7 +26,7 @@ export function heartbeatExpired(
  * also reads the column (`stopRequested`). Resolves to the unsubscribe.
  */
 export function listenForStop(
-  deps: Pick<AppDeps, "pubsub">,
+  deps: Pick<BotSdkContext, "pubsub">,
   runId: string,
   onStop: () => void,
 ): Promise<() => Promise<void>> {
@@ -37,7 +37,10 @@ export function listenForStop(
  * Whether a Stop has been saved on the Run's Message. The owner reads this on each snapshot tick,
  * so a Stop whose signal never reached it still lands within one snapshot interval.
  */
-export async function stopRequested(deps: Pick<AppDeps, "db">, runId: string): Promise<boolean> {
+export async function stopRequested(
+  deps: Pick<BotSdkContext, "db">,
+  runId: string,
+): Promise<boolean> {
   const [row] = await deps.db
     .select({ cancelRequestedAt: message.cancelRequestedAt })
     .from(message)

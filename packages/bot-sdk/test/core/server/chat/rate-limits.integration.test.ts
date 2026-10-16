@@ -251,7 +251,7 @@ describe("Shared link view rate limits, per client IP", () => {
     const chat = chatWith({ rateLimits: { sharedLinkView: { limit: 0, windowSeconds: 60 } } });
 
     for (let attempt = 0; attempt < 5; attempt++) {
-      expect(await chat.getSharedConversation("no-such-token")).toBeNull();
+      expect(await chat.plugin("assistant").getSharedConversation("no-such-token")).toBeNull();
     }
   });
 

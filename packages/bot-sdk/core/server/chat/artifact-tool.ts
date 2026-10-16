@@ -9,7 +9,7 @@ import {
 } from "../../shared/chat/artifact";
 import { applyEdits } from "../artifact/edits";
 import { createArtifact, updateArtifact } from "../artifact/store";
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 import {
   type CallPart,
   endToolCall,
@@ -60,7 +60,7 @@ export function createArtifactTool({
   conversationId,
   ...run
 }: RunToolState & {
-  deps: Pick<AppDeps, "db">;
+  deps: Pick<BotSdkContext, "db">;
   messageId: string;
   conversationId: string;
 }) {
@@ -174,7 +174,7 @@ export function updateArtifactTool({
   conversationId,
   ...run
 }: RunToolState & {
-  deps: Pick<AppDeps, "db">;
+  deps: Pick<BotSdkContext, "db">;
   messageId: string;
   conversationId: string;
 }) {

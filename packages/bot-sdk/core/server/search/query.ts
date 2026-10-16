@@ -2,10 +2,10 @@ import { conversation, message } from "../db/schema";
 import { and, desc, eq, ilike, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 import { escapeLike, snippetAround } from "../../shared/search/text";
 
-type Deps = Pick<AppDeps, "db">;
+type Deps = Pick<BotSdkContext, "db">;
 
 /** Hits per page. */
 export const searchPageSize = 50;

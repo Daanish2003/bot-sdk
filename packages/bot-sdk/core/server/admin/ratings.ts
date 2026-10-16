@@ -1,7 +1,7 @@
 import { and, gte, isNotNull, sql } from "drizzle-orm";
 
 import { message } from "../db/schema";
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 
 /** One Model's 👍 and 👎 Ratings over a range (spec #277). Never per user, never per Message. */
 export type RatingTotal = {
@@ -15,7 +15,7 @@ export type RatingTotal = {
  * #277). Live counts: a deleted Message drops out. A Model with no Rating in range has no row.
  */
 export async function ratingTotals(
-  deps: Pick<AppDeps, "db">,
+  deps: Pick<BotSdkContext, "db">,
   { since }: { since: Date },
 ): Promise<RatingTotal[]> {
   const rows = await deps.db

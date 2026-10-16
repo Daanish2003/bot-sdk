@@ -2,14 +2,15 @@ import { and, eq } from "drizzle-orm";
 
 import { mcpConnection } from "../db/schema";
 import { decryptCredentials, encryptCredentials } from "../credentials/encryption";
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 import type { TokenSet } from "./oauth";
+import { assistantState } from "../../../plugins/assistant/server/state";
 
 /**
  * A user's Connections to the Host's MCP servers (spec #91, ADR 0010 for their key). A Connection's
  * tokens and its pending sign-in are encrypted; the client only ever sees the summary below.
  */
-type Deps = Pick<AppDeps, "db" | "keyEncryptionSecrets" | "mcpServers">;
+type Deps = Pick<BotSdkContext, "db" | "keyring" | "plugin">;
 
 export type ConnectionSummary = {
   key: string;
@@ -23,13 +24,13 @@ export type ConnectionSummary = {
 const signInTtlMs = 10 * 60_000;
 
 const tokenOptions = (deps: Deps, userId: string, key: string) => ({
-  secrets: deps.keyEncryptionSecrets,
+  secrets: deps.keyring,
   kind: "connection" as const,
   context: `${userId}:mcp:${key}`,
 });
 
 const pendingOptions = (deps: Deps, userId: string, key: string) => ({
-  secrets: deps.keyEncryptionSecrets,
+  secrets: deps.keyring,
   kind: "connection" as const,
   context: `${userId}:mcp-pending:${key}`,
 });
@@ -83,7 +84,7 @@ export async function readTokens(
 /** One entry per server the Host lists, in the Host's order. */
 export async function listConnections(deps: Deps, userId: string): Promise<ConnectionSummary[]> {
   const rows = await deps.db.select().from(mcpConnection).where(eq(mcpConnection.userId, userId));
-  return deps.mcpServers.map(({ key, name }) => {
+  return assistantState(deps).mcpServers.map(({ key, name }) => {
     const row = rows.find((candidate) => candidate.serverKey === key);
     if (!row?.encrypted) return { key, name, state: "disconnected", scopes: [] };
     const decrypted = decryptCredentials(row.encrypted, tokenOptions(deps, userId, key));

@@ -167,7 +167,7 @@ await chat.deleteUser(String(user.id));
 const copy = await chat.exportUser(String(user.id));
 
 // your own route for a Shared link page
-const data = await chat.getSharedConversation(token);
+const data = await chat.plugin("assistant").getSharedConversation(token);
 ```
 
 - `getUser(request)` returns `{ id } | null`. The handler answers 401 when it returns `null`.
@@ -195,7 +195,7 @@ import { chat } from "@/lib/chat";
 export const chatJob = task({
   id: "chat-job",
   run: async ({ name, payload }: { name: string; payload: unknown }) => {
-    await chat.runJob(name, payload);
+    await chat.plugin("assistant").runJob(name, payload);
   },
 });
 
@@ -206,7 +206,7 @@ export const chat = createBotSdk({
 });
 ```
 
-`chat.runJob(name, payload)` runs a job's handler in the calling process, after validating the payload with the job's schema. It rejects an unknown name or a bad payload, and a handler's error reaches the task, so Trigger.dev's retries apply. The Trigger.dev runner supports `enqueue` only: `cancel`, `status` and `schedule` throw until they are needed. Trigger.dev's idempotency keys also match runs that have finished, so unlike the in-process runner, an `idempotencyKey` can't be reused after its job ends.
+`chat.plugin("assistant").runJob(name, payload)` runs a job's handler in the calling process, after validating the payload with the job's schema. It rejects an unknown name or a bad payload, and a handler's error reaches the task, so Trigger.dev's retries apply. The Trigger.dev runner supports `enqueue` only: `cancel`, `status` and `schedule` throw until they are needed. Trigger.dev's idempotency keys also match runs that have finished, so unlike the in-process runner, an `idempotencyKey` can't be reused after its job ends.
 
 ## Host hooks
 
@@ -519,7 +519,7 @@ const chat = createBotSdk({
 });
 ```
 
-The server-side `chat.getSharedConversation(token)` is not limited: it is your own server-rendered page, and it has no request.
+The server-side `chat.plugin("assistant").getSharedConversation(token)` is not limited: it is your own server-rendered page, and it has no request.
 
 The other limits are per user: Run starts, Attachment uploads, credential saves and checks, and Conversation search. Sign-up, sign-in and password reset stay with your own auth.
 

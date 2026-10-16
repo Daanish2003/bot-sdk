@@ -4,10 +4,10 @@ import { and, count, desc, eq, inArray, sql } from "drizzle-orm";
 import { deleteBlobsBestEffort } from "../blob/store";
 import { generatedImageKeysWhere, imagesOfMessages } from "../chat/generated-image-store";
 import { stopProjectRuns } from "../chat/run";
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 import { discardKnowledgeFiles, knowledgeFileIdsWhere } from "../knowledge/cascade";
 
-type Deps = Pick<AppDeps, "db">;
+type Deps = Pick<BotSdkContext, "db">;
 
 /** How many Projects one user may have. */
 export const projectLimit = 100;
@@ -72,7 +72,7 @@ export async function countProjectConversations(deps: Deps, userId: string, id: 
  * Answers how many Conversations went, or `undefined` when the Project doesn't exist or belongs to
  * someone else.
  */
-export async function deleteProject(deps: AppDeps, userId: string, id: string) {
+export async function deleteProject(deps: BotSdkContext, userId: string, id: string) {
   const result = await deps.db.transaction(async (tx) => {
     const [owned] = await tx
       .select({ id: project.id })
@@ -113,9 +113,9 @@ export async function deleteProject(deps: AppDeps, userId: string, id: string) {
   await deleteBlobsBestEffort(deps, result.blobKeys);
   await discardKnowledgeFiles(deps, result.knowledgeIds);
   // After the commit: a rolled-back delete fires nothing (#265, #266).
-  for (const run of result.ended) deps.hooks.fire("onRunEnd", run);
+  for (const run of result.ended) deps.events.fire("onRunEnd", run);
   for (const row of result.gone) {
-    deps.hooks.fire("onConversationDeleted", { userId, conversationId: row.id, projectId: id });
+    deps.events.fire("onConversationDeleted", { userId, conversationId: row.id, projectId: id });
   }
   return result.gone.length;
 }

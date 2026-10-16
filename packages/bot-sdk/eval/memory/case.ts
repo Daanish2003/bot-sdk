@@ -6,12 +6,11 @@ import { randomUUID } from "node:crypto";
 import { user as userTable } from "@ai-chat/db/schema/auth";
 import { and, eq } from "drizzle-orm";
 
-import { createChatHandler } from "../../core/server/create-chat";
+import { createChatHandler, type SdkOver } from "../../core/server/create-chat";
 import { saveCredentials } from "../../plugins/models/server/credentials/store";
 import { conversation, message, type MessageRow } from "../../core/server/db/schema";
 import type { Database } from "../../core/server/db/index";
-import type { AppDeps, Credentials } from "../../core/server/deps";
-import type { ModelsDeps } from "../../plugins/models/server/types";
+import type { Credentials } from "../../core/server/deps";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
 import { makeMemoriesJob } from "../../core/server/memory/make";
 import { storedParts } from "../../core/shared/message-parts";
@@ -34,8 +33,8 @@ export type CaseResult = {
 };
 
 /** Everything a case needs that is shared by the whole run. */
-/** The assistant's bundle and the models plugin's, as the handler takes them. */
-export type EvalDeps = AppDeps & ModelsDeps;
+/** The core context with the models plugin's bundle, as the handler takes them. */
+export type EvalDeps = SdkOver;
 
 export type EvalEnv = {
   db: Database;

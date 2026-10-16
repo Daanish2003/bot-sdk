@@ -7,7 +7,7 @@ import {
 import { conversation, message } from "../db/schema";
 import { and, eq } from "drizzle-orm";
 
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 import { fetchUrlToolName } from "../../shared/chat/fetch-url";
 import { approvalPrefix } from "./run";
 import { planRun, quotaExceededCode } from "./run-plan";
@@ -55,7 +55,7 @@ function webAsked(parts: StoredPart[]) {
  * resumed Run offers the Web tools when the reply already used them.
  */
 export async function decideApproval(
-  deps: AppDeps,
+  deps: BotSdkContext,
   userId: string,
   messageId: string,
   approved: boolean,

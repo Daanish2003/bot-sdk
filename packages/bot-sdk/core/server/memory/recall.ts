@@ -1,7 +1,8 @@
 import { and, desc, eq, isNull, notInArray, or, sql } from "drizzle-orm";
 
 import { conversation, memory, userSettings } from "../db/schema";
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
+import { assistantState } from "../../../plugins/assistant/server/state";
 
 /** With this many valid Memories in scope or fewer, all are sent and nothing is embedded (ADR 0013). */
 const allCount = 30;
@@ -63,7 +64,7 @@ const recalledColumns = {
  * fails, or there is none, the Run goes ahead with the profile only.
  */
 export async function recalledMemoriesPrompt(
-  deps: AppDeps,
+  deps: BotSdkContext,
   {
     userId,
     projectId,
@@ -78,7 +79,7 @@ export async function recalledMemoriesPrompt(
     latestText: string | null;
   },
 ): Promise<string | null> {
-  if (!deps.memory || temporary) return null;
+  if (!assistantState(deps).memory || temporary) return null;
   const [settings] = await deps.db
     .select({ memoryEnabled: userSettings.memoryEnabled })
     .from(userSettings)
@@ -121,7 +122,7 @@ export async function recalledMemoriesPrompt(
  * Any failure to embed the text gives none, so the Run keeps its profile.
  */
 async function similarMemories(
-  deps: AppDeps,
+  deps: BotSdkContext,
   {
     userId,
     scope,

@@ -192,7 +192,7 @@ describe("conversation.exportMarkdown", () => {
     const conv = await insertConversation(owner, { title: "Private" });
     const deps = createTestSdk();
     const signedOut = createRouterClient(appRouter, {
-      context: { user: null, deps, plugin: deps.plugin },
+      context: { user: null, sdk: deps },
     });
 
     await expect(signedOut.conversation.exportMarkdown({ id: conv.id })).rejects.toMatchObject({

@@ -7,7 +7,7 @@ import type { ResolvedEmbeddingModel } from "../../../plugins/models/server/embe
 import { loadPath } from "../chat/store";
 import { promptCharactersOf, reportedUsageOf } from "../chat/usage";
 import { conversation, type MessageRow, memory, userSettings } from "../db/schema";
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 import type { ModelCall } from "../../../plugins/models/server/credentials/resolve";
 import { uuidv7 } from "../lib/uuidv7";
 import { defineJob } from "../jobs/define";
@@ -20,6 +20,7 @@ import {
   memoryDecisionMessage,
   memoryDecisionPrompt,
 } from "./prompt";
+import { assistantState } from "../../../plugins/assistant/server/state";
 
 /** The Messages of a Run the job reads: its reply and the Conversation it is in. */
 const makeMemoriesPayload = z.object({
@@ -66,7 +67,7 @@ type MemoryPlan = {
   projectId: string | null;
 };
 
-type Tx = Parameters<Parameters<AppDeps["db"]["transaction"]>[0]>[0];
+type Tx = Parameters<Parameters<BotSdkContext["db"]["transaction"]>[0]>[0];
 
 /** One decision on a fact: what it does, and the old Memory it changes (none for ADD). */
 type Decision = { event: "ADD" | "UPDATE" | "DELETE" | "NONE"; text: string; of?: string };
@@ -78,11 +79,11 @@ type Decision = { event: "ADD" | "UPDATE" | "DELETE" | "NONE"; text: string; of?
  * Model. `null` when it may not run.
  */
 async function memoryPlanOf(
-  deps: AppDeps,
+  deps: BotSdkContext,
   userId: string,
   conversationId: string,
 ): Promise<MemoryPlan | null> {
-  if (!deps.memory) return null;
+  if (!assistantState(deps).memory) return null;
   const [row] = await deps.db
     .select({ temporary: conversation.temporary, projectId: conversation.projectId })
     .from(conversation)
@@ -116,16 +117,19 @@ export const makeMemoriesJob = defineJob<MakeMemoriesPayload>({
  * Queues the job for a Run that ended `complete` or `stopped`, when Memory may run for it. Called
  * from the Run-end hook, fire-and-forget, so a reply never waits for it.
  */
-export async function enqueueMemories(deps: AppDeps, payload: MakeMemoriesPayload): Promise<void> {
+export async function enqueueMemories(
+  deps: BotSdkContext,
+  payload: MakeMemoriesPayload,
+): Promise<void> {
   const plan = await memoryPlanOf(deps, payload.userId, payload.conversationId);
   if (!plan) return;
   // Once per embedding Model, the user's Memories made with another Model are embedded again (#289).
-  await deps.jobs.enqueue(
+  await assistantState(deps).jobs.enqueue(
     reembedMemoriesJob.name,
     { userId: payload.userId },
     { idempotencyKey: `memory-reembed:${payload.userId}:${plan.embedding.id}` },
   );
-  await deps.jobs.enqueue(makeMemoriesJob.name, payload, {
+  await assistantState(deps).jobs.enqueue(makeMemoriesJob.name, payload, {
     idempotencyKey: `memory:${payload.replyId}`,
   });
 }
@@ -139,7 +143,7 @@ export async function enqueueMemories(deps: AppDeps, payload: MakeMemoriesPayloa
  * regenerated reply, adds nothing new. Ends quietly, with no error, when the user is over Quota or
  * the Models are gone.
  */
-async function makeMemories(payload: MakeMemoriesPayload, deps: AppDeps): Promise<void> {
+async function makeMemories(payload: MakeMemoriesPayload, deps: BotSdkContext): Promise<void> {
   const { userId, conversationId, replyId } = payload;
   const plan = await memoryPlanOf(deps, userId, conversationId);
   if (!plan) return;
@@ -230,7 +234,7 @@ const numbered = (rows: Array<{ id: string; text: string }>) =>
 
 /** Saves each text as a new Memory of `origin`, with its embedding. */
 async function insertMemories(
-  deps: AppDeps,
+  deps: BotSdkContext,
   {
     texts,
     origin,
@@ -266,7 +270,7 @@ async function insertMemories(
  * the union of the facts' top matches decides ADD, UPDATE, DELETE or NONE for each fact.
  */
 async function decideFacts(
-  deps: AppDeps,
+  deps: BotSdkContext,
   { facts, scope, ...write }: Write & { facts: string[]; scope: Scope },
 ): Promise<void> {
   const { plan, tx, now, changes } = write;
@@ -343,7 +347,7 @@ async function decideFacts(
 
 /** The decide call's events, with each one's old Memory's id (for UPDATE, DELETE and NONE). */
 async function decideWith(
-  deps: AppDeps,
+  deps: BotSdkContext,
   {
     plan,
     old,
@@ -371,7 +375,7 @@ async function decideWith(
  * 0013). The Background Model says which of them the request means; the rest stay.
  */
 async function forgetMatching(
-  deps: AppDeps,
+  deps: BotSdkContext,
   { request, scope, ...write }: Write & { request: string; scope: Scope },
 ): Promise<void> {
   const { plan, tx, changes } = write;
@@ -401,7 +405,7 @@ async function forgetMatching(
 
 /** The facts and requests the Background Model reads in the transcript (ADR 0013). */
 async function extractMemories(
-  deps: AppDeps,
+  deps: BotSdkContext,
   { plan, transcript, now }: { plan: MemoryPlan; transcript: string; now: Date },
 ): Promise<z.infer<typeof extracted>> {
   const reply = await askBackground(deps, {
@@ -421,7 +425,7 @@ async function extractMemories(
 
 /** One call on the Background Model, recorded against the Quota when it is on Host credentials (ADR 0007). */
 async function askBackground(
-  deps: AppDeps,
+  deps: BotSdkContext,
   { plan, system, user }: { plan: MemoryPlan; system: string; user: string },
 ): Promise<string> {
   const messages: ModelMessage[] = [{ role: "user", content: user }];

@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { knowledgeBlobKey } from "../blob/store";
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 import { project, knowledgeChunk, knowledgeFile } from "../db/schema";
 import { defineJob, PermanentJobError } from "../jobs/define";
 import type { KnowledgeFailureCode } from "../../shared/knowledge/kinds";
@@ -116,7 +116,7 @@ export const knowledgeProcessJob = defineJob({
  * written, and the job stops quietly.
  */
 async function storePassages(
-  deps: Pick<AppDeps, "db">,
+  deps: Pick<BotSdkContext, "db">,
   fileId: string,
   passages: (typeof knowledgeChunk.$inferInsert)[],
   { replace }: { replace: boolean },
@@ -135,7 +135,11 @@ async function storePassages(
 }
 
 /** Marks a file failed, unless it has already left `processing` (or was deleted). */
-async function markFailed(deps: Pick<AppDeps, "db">, fileId: string, code: KnowledgeFailureCode) {
+async function markFailed(
+  deps: Pick<BotSdkContext, "db">,
+  fileId: string,
+  code: KnowledgeFailureCode,
+) {
   await deps.db
     .update(knowledgeFile)
     .set({ status: "failed", failureCode: code })

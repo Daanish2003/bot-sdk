@@ -35,14 +35,14 @@ export const chatRouter = {
   stop: protectedProcedure
     .input(z.object({ messageId: z.uuid() }))
     .handler(async ({ context, input }) => {
-      const owned = await findMessage(context.deps, context.user.id, input.messageId);
+      const owned = await findMessage(context.sdk, context.user.id, input.messageId);
       if (!owned) throw rpcError("NOT_FOUND", "error.messageNotFound", "Message not found");
       if (owned.status === "awaiting_approval") {
-        refuseDecision(await decideApproval(context.deps, context.user.id, owned.id, false));
+        refuseDecision(await decideApproval(context.sdk, context.user.id, owned.id, false));
         return;
       }
-      for (const run of await stopRun(context.deps, owned.id)) {
-        context.deps.hooks.fire("onRunEnd", run);
+      for (const run of await stopRun(context.sdk, owned.id)) {
+        context.sdk.events.fire("onRunEnd", run);
       }
     }),
   /**
@@ -52,12 +52,7 @@ export const chatRouter = {
   rate: protectedProcedure
     .input(z.object({ messageId: z.uuid(), rating: z.enum(["up", "down"]).nullable() }))
     .handler(async ({ context, input }) => {
-      const result = await rateMessage(
-        context.deps,
-        context.user.id,
-        input.messageId,
-        input.rating,
-      );
+      const result = await rateMessage(context.sdk, context.user.id, input.messageId, input.rating);
       if (result === "not_found")
         throw rpcError("NOT_FOUND", "error.messageNotFound", "Message not found");
       if (result === "not_assistant") {
@@ -96,7 +91,7 @@ export const chatRouter = {
     .handler(async ({ context, input }) => {
       refuseDecision(
         await decideApproval(
-          context.deps,
+          context.sdk,
           context.user.id,
           input.messageId,
           input.approved,

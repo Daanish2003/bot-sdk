@@ -17,12 +17,13 @@ import {
 } from "../../../../core/server/db/schema";
 import type { HostProvider } from "../../../../core/server/deps";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestSdk, type TestDeps } from "../../../support/deps";
+import { createTestSdk, type TestDeps, type TestDepsOverrides } from "../../../support/deps";
 import { createFakeAdapter, round, runError, text } from "../../../support/fake-adapter";
 import { drainJobs } from "../../../support/jobs";
 import { chatRpc, sendAs } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
+import { assistantState } from "../../../../plugins/assistant/server/state";
 
 const replyModel = "anthropic:claude-sonnet-5-5";
 const backgroundModel = "anthropic:claude-haiku-4-5";
@@ -63,7 +64,7 @@ async function setup({
   facts?: Rounds;
   ownEmbeddingKey?: boolean;
   conversation?: Partial<typeof conversation.$inferInsert>;
-  deps?: Partial<TestDeps>;
+  deps?: TestDepsOverrides;
 } = {}) {
   const user = await insertUser();
   const replyFake = createFakeAdapter({ rounds: reply, manual: replyManual });
@@ -317,7 +318,7 @@ describe("making Memories after a Run", () => {
 
     // A replayed job, or a regenerated reply, on the same user Message.
     const key = `memory-replay:${replyId}`;
-    await deps.jobs.enqueue(
+    await assistantState(deps).jobs.enqueue(
       "memory.make",
       { userId: user.id, conversationId: conv.id, replyId },
       { idempotencyKey: key },

@@ -12,6 +12,8 @@ import { sdk } from "@/services";
 export const listRatingTotals = createServerFn({ method: "GET" })
   .middleware([adminMiddleware])
   .handler(async (): Promise<RatingRow[]> => {
-    const totals = await sdk.admin.ratingTotals({ since: spendRange(new Date()).since });
+    const totals = await sdk
+      .plugin("assistant")
+      .ratingTotals({ since: spendRange(new Date()).since });
     return ratingRows(totals);
   });

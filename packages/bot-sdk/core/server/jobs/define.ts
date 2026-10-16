@@ -1,6 +1,6 @@
 import type { z } from "zod";
 
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 
 /**
  * A failure retrying can't fix, such as a PDF with no text layer. It fails the job at once
@@ -18,7 +18,7 @@ export class PermanentJobError extends Error {
  * `deps` are the SDK's dependencies, since a job's models, adapters and clock are only known once
  * `createBotSdk` has built them.
  */
-export type JobContext = { signal: AbortSignal; deps: AppDeps };
+export type JobContext = { signal: AbortSignal; deps: BotSdkContext };
 
 /** A job as internal code declares it. Jobs are internal: a Host can't register its own. */
 export type JobDefinition<P> = {
@@ -26,7 +26,7 @@ export type JobDefinition<P> = {
   payload: z.ZodType<P>;
   run: (payload: P, context: JobContext) => Promise<void>;
   /** Runs once, after the final failure (the last attempt, or a `PermanentJobError`). */
-  onFailed?: (payload: P, error: unknown, deps: AppDeps) => Promise<void> | void;
+  onFailed?: (payload: P, error: unknown, deps: BotSdkContext) => Promise<void> | void;
 };
 
 /** A definition as the runner holds it, with its payload type erased. */
@@ -34,7 +34,7 @@ export type RegisteredJob = {
   name: string;
   payload: z.ZodType<unknown>;
   run: (payload: unknown, context: JobContext) => Promise<void>;
-  onFailed?: (payload: unknown, error: unknown, deps: AppDeps) => Promise<void> | void;
+  onFailed?: (payload: unknown, error: unknown, deps: BotSdkContext) => Promise<void> | void;
 };
 
 const registry = new Map<string, RegisteredJob>();
@@ -60,7 +60,7 @@ export function registeredJob(name: string): RegisteredJob | undefined {
 export async function runRegisteredJob(
   name: string,
   payload: unknown,
-  deps: AppDeps,
+  deps: BotSdkContext,
 ): Promise<void> {
   const job = registry.get(name);
   if (!job) throw new Error(`Unknown job "${name}"`);

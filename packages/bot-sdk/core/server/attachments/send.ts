@@ -2,7 +2,7 @@ import type { MessageRow } from "../db/schema";
 
 import type { StoredAttachment } from "../../shared/chat/parts";
 import type { CuratedModel } from "../../shared/chat/models";
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 import {
   acceptedKinds,
   attachmentKind,
@@ -13,7 +13,7 @@ import type { ErrorCode } from "../../shared/i18n";
 import type { ErrorParams } from "../rpc-error";
 import { attachmentsOfMessages, findOwnedAttachments, loadAttachmentBytes } from "./store";
 
-type Deps = Pick<AppDeps, "db" | "blobStore">;
+type Deps = Pick<BotSdkContext, "db" | "blobStore">;
 
 export type SendAttachments =
   | { error: { status: number; code: ErrorCode; params: ErrorParams } }

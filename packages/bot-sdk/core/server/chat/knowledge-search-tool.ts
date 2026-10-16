@@ -1,7 +1,7 @@
 import { toolDefinition } from "@tanstack/ai";
 import { z } from "zod";
 
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 import { searchPassages } from "../knowledge/search";
 import {
   type KnowledgeSearchOutput,
@@ -40,7 +40,7 @@ export function createKnowledgeSearchTool({
   model,
   ...run
 }: RunToolState & {
-  deps: Pick<AppDeps, "db" | "plugin">;
+  deps: Pick<BotSdkContext, "db" | "plugin">;
   projectId: string;
   model: ResolvedEmbeddingModel;
 }) {

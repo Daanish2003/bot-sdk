@@ -2,7 +2,7 @@ import { and, asc, eq, sql } from "drizzle-orm";
 
 import { project, knowledgeChunk, knowledgeFile } from "../db/schema";
 import type { ResolvedEmbeddingModel } from "../../../plugins/models/server/embedding-models";
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 import { maxExcerptsPerSearch } from "../../shared/chat/knowledge-search";
 
 /** Passages each leg of the hybrid search takes before fusion (spec #357, ticket #206). */
@@ -23,7 +23,7 @@ export type Excerpt = { fileId: string; fileName: string; chunkIndex: number; te
  * no ready file) or no working credential for its Model, so the tool isn't offered (spec #357).
  */
 export async function knowledgeSearchFor(
-  deps: Pick<AppDeps, "db" | "plugin">,
+  deps: Pick<BotSdkContext, "db" | "plugin">,
   userId: string,
   projectId: string,
 ): Promise<{ fileNames: string[]; model: ResolvedEmbeddingModel } | null> {
@@ -50,7 +50,7 @@ export async function knowledgeSearchFor(
  * query is embedded with the Project's Model, and recorded by its meter.
  */
 export async function searchPassages(
-  deps: Pick<AppDeps, "db" | "plugin">,
+  deps: Pick<BotSdkContext, "db" | "plugin">,
   { projectId, model, query }: { projectId: string; model: ResolvedEmbeddingModel; query: string },
 ): Promise<Excerpt[]> {
   const [vector] = await deps

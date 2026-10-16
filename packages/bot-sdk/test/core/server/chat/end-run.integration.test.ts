@@ -10,6 +10,7 @@ import { insertUser } from "../../../support/users";
 import { type Ending, endRun } from "../../../../core/server/chat/end-run";
 import { createHookEmitter, type RunEndEvent } from "../../../../core/server/chat/hooks";
 import { START } from "../../../../core/server/chat/run-streams";
+import { assistantState } from "../../../../plugins/assistant/server/state";
 
 /** A running call of each kind a Run's end cancels. */
 const runningCalls: StoredPart[] = [
@@ -132,7 +133,8 @@ describe("endRun", () => {
         ]),
       });
       const chunks: StreamChunk[] = [];
-      for await (const entry of deps.runStreams.read(reply.id, START)) chunks.push(entry.chunk);
+      for await (const entry of assistantState(deps).runStreams.read(reply.id, START))
+        chunks.push(entry.chunk);
       expect(chunks.at(-1)).toMatchObject(lastChunk);
       const expected = {
         messageId: reply.id,

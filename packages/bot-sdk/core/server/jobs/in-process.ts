@@ -1,5 +1,5 @@
 import type { Database } from "../db/index";
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 import { cancelJob, claimJob, enqueueJob, readJob, runClaimedJob } from "./store";
 import type { JobRunner } from "./runner";
 
@@ -31,8 +31,8 @@ export type InProcessRunnerOptions = {
   /** How long `stop()` lets running jobs finish before it aborts them. */
   drainMs?: number;
   clock?: JobClock;
-  /** The SDK's dependencies, read when a job runs. `createAppDeps` passes the finished object. */
-  deps: () => AppDeps;
+  /** The core context, read when a job runs. The `assistant` plugin passes its instance's. */
+  deps: () => BotSdkContext;
 };
 
 /** Resolves when `promise` settles or after `ms`, whichever comes first, and clears its timer. */

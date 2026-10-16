@@ -11,6 +11,7 @@ import {
   shareStatus,
   upsertSharedLink,
 } from "../share/store";
+import { assistantState } from "../../../plugins/assistant/server/state";
 
 const conversationInput = z.object({ conversationId: z.uuid() });
 
@@ -33,7 +34,7 @@ function sharedLinkNotFound() {
 export const shareRouter = {
   /** Creates the link, or moves it to the current Active Branch under the same token. */
   upsert: protectedProcedure.input(conversationInput).handler(async ({ context, input }) => {
-    const result = await upsertSharedLink(context.deps, context.user.id, input.conversationId);
+    const result = await upsertSharedLink(context.sdk, context.user.id, input.conversationId);
     if (result.error === "not_found") throw conversationNotFound();
     if (result.error === "temporary") {
       throw rpcError(
@@ -51,18 +52,18 @@ export const shareRouter = {
 
   /** Revokes the link; its URL then answers 404. */
   delete: protectedProcedure.input(conversationInput).handler(async ({ context, input }) => {
-    const owned = await deleteSharedLink(context.deps, context.user.id, input.conversationId);
+    const owned = await deleteSharedLink(context.sdk, context.user.id, input.conversationId);
     if (!owned) throw conversationNotFound();
   }),
 
   /** The caller's Shared links, newest share first, for the settings page. */
-  list: protectedProcedure.handler(({ context }) => listSharedLinks(context.deps, context.user.id)),
+  list: protectedProcedure.handler(({ context }) => listSharedLinks(context.sdk, context.user.id)),
 
   /** The share dialog's state: the link, whether it's stale, and why sharing is blocked. */
   forConversation: protectedProcedure
     .input(conversationInput)
     .handler(async ({ context, input }) => {
-      const status = await shareStatus(context.deps, context.user.id, input.conversationId);
+      const status = await shareStatus(context.sdk, context.user.id, input.conversationId);
       if (!status) throw conversationNotFound();
       return status;
     }),
@@ -71,7 +72,7 @@ export const shareRouter = {
   continue: protectedProcedure
     .input(z.object({ token: z.string().max(64) }))
     .handler(async ({ context, input }) => {
-      const result = await continueSharedConversation(context.deps, context.user.id, input.token);
+      const result = await continueSharedConversation(context.sdk, context.user.id, input.token);
       if (result === "not_found") {
         throw sharedLinkNotFound();
       }
@@ -89,7 +90,7 @@ export const shareRouter = {
   get: publicProcedure
     .input(z.object({ token: z.string().max(64) }))
     .handler(async ({ context, input }) => {
-      const shared = await loadSharedConversation(context.deps, input.token);
+      const shared = await loadSharedConversation(context.sdk, input.token);
       if (!shared) throw sharedLinkNotFound();
       return shared;
     }),
@@ -107,8 +108,8 @@ export const shareRouter = {
       }),
     )
     .handler(async ({ context, input }) => {
-      const version = context.deps.artifacts
-        ? await loadSharedArtifactVersion(context.deps, input.token, input)
+      const version = assistantState(context.sdk).artifacts
+        ? await loadSharedArtifactVersion(context.sdk, input.token, input)
         : null;
       if (!version)
         throw rpcError("NOT_FOUND", "error.artifactVersionNotFound", "Artifact version not found");

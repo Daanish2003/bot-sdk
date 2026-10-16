@@ -1,7 +1,8 @@
 import { reapStaleRuns, shutdownAbort } from "./chat/run";
 import { sweepExpiredTemporaryConversations } from "./chat/temporary";
-import type { AppDeps } from "./deps";
+import type { BotSdkContext } from "./plugin";
 import { pruneFinishedJobs, reapStaleJobs } from "./jobs/store";
+import { assistantState } from "../../plugins/assistant/server/state";
 
 /** How often `stop()` checks whether the local Runs have ended. */
 const DRAIN_POLL_MS = 50;
@@ -26,7 +27,7 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 
 /** The SDK's background work: the reaper, and the drain that `stop()` runs. Nothing runs before `start()`. */
 export function createLifecycle(
-  deps: AppDeps,
+  deps: BotSdkContext,
   logger: Pick<Console, "error"> = console,
 ): Lifecycle {
   let timer: ReturnType<typeof setInterval> | undefined;
@@ -55,9 +56,9 @@ export function createLifecycle(
   return {
     async start() {
       clearInterval(timer);
-      timer = setInterval(() => void reap(), deps.limits.reapIntervalMs);
+      timer = setInterval(() => void reap(), assistantState(deps).limits.reapIntervalMs);
       await reap();
-      await deps.jobs.start();
+      await assistantState(deps).jobs.start();
     },
 
     async stop() {
@@ -65,13 +66,13 @@ export function createLifecycle(
       clearInterval(timer);
       timer = undefined;
 
-      const deadline = Date.now() + deps.limits.drainMs;
-      const { runs } = deps.lifecycle;
+      const deadline = Date.now() + assistantState(deps).limits.drainMs;
+      const { runs } = assistantState(deps);
       while (runs.size > 0 && Date.now() < deadline) await sleep(DRAIN_POLL_MS);
       for (const run of runs.values()) run.abort(shutdownAbort);
       // An aborted Run leaves the registry only once it has saved itself and closed its log.
       while (runs.size > 0) await sleep(DRAIN_POLL_MS);
-      await deps.jobs.stop();
+      await assistantState(deps).jobs.stop();
     },
   };
 }

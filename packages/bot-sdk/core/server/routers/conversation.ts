@@ -29,6 +29,7 @@ import { findProject } from "../project/store";
 import { protectedProcedure } from "../procedures";
 import { rpcError, unusableModelError } from "../rpc-error";
 import { uuidv7 } from "../lib/uuidv7";
+import { assistantState } from "../../../plugins/assistant/server/state";
 
 export const conversationRouter = {
   /** Starts an empty Conversation, with its reasoning effort if one is chosen; the first Message is sent through `/api/chat`. */
@@ -44,7 +45,7 @@ export const conversationRouter = {
       }),
     )
     .handler(async ({ context, input }) => {
-      if (!(await context.deps.plugin("models").resolveModel(context.user.id, input.model))) {
+      if (!(await context.sdk.plugin("models").resolveModel(context.user.id, input.model))) {
         throw rpcError(
           "BAD_REQUEST",
           "error.modelNotAvailable",
@@ -61,11 +62,11 @@ export const conversationRouter = {
           "A Temporary Conversation can't be in a Project",
         );
       }
-      if (input.projectId && !(await findProject(context.deps, context.user.id, input.projectId))) {
+      if (input.projectId && !(await findProject(context.sdk, context.user.id, input.projectId))) {
         throw rpcError("NOT_FOUND", "error.projectNotFound", "Project not found");
       }
       const id = uuidv7();
-      await context.deps.db.insert(conversation).values({
+      await context.sdk.db.insert(conversation).values({
         id,
         userId: context.user.id,
         model: input.model,
@@ -73,7 +74,7 @@ export const conversationRouter = {
         projectId: input.projectId ?? null,
         temporary: input.temporary ?? false,
       });
-      context.deps.hooks.fire("onConversationCreated", {
+      context.sdk.events.fire("onConversationCreated", {
         userId: context.user.id,
         conversationId: id,
         ...withProjectId(input.projectId),
@@ -95,17 +96,17 @@ export const conversationRouter = {
       if (input.cursor !== undefined && !cursor) {
         throw rpcError("BAD_REQUEST", "error.invalidCursor", "Invalid cursor");
       }
-      if (input.projectId && !(await findProject(context.deps, context.user.id, input.projectId))) {
+      if (input.projectId && !(await findProject(context.sdk, context.user.id, input.projectId))) {
         throw rpcError("NOT_FOUND", "error.projectNotFound", "Project not found");
       }
-      return listConversations(context.deps, context.user.id, cursor, input.projectId);
+      return listConversations(context.sdk, context.user.id, cursor, input.projectId);
     }),
 
   /** The Conversation with its Active Branch, oldest Message first. */
   get: protectedProcedure.input(z.object({ id: z.uuid() })).handler(async ({ context, input }) => {
-    const row = await findConversation(context.deps, context.user.id, input.id);
+    const row = await findConversation(context.sdk, context.user.id, input.id);
     if (!row) throw rpcError("NOT_FOUND", "error.conversationNotFound", "Conversation not found");
-    const messages = await loadActiveBranch(context.deps, row.id, row.activeLeafId);
+    const messages = await loadActiveBranch(context.sdk, row.id, row.activeLeafId);
     return {
       id: row.id,
       title: row.title,
@@ -125,9 +126,9 @@ export const conversationRouter = {
   exportMarkdown: protectedProcedure
     .input(z.object({ id: z.uuid() }))
     .handler(async ({ context, input }) => {
-      const row = await findConversation(context.deps, context.user.id, input.id);
+      const row = await findConversation(context.sdk, context.user.id, input.id);
       if (!row) throw rpcError("NOT_FOUND", "error.conversationNotFound", "Conversation not found");
-      const messages = await loadActiveBranch(context.deps, row.id, row.activeLeafId);
+      const messages = await loadActiveBranch(context.sdk, row.id, row.activeLeafId);
       return renderConversationMarkdown({ title: row.title, messages, exportedAt: new Date() });
     }),
 
@@ -138,7 +139,7 @@ export const conversationRouter = {
   switchBranch: protectedProcedure
     .input(z.object({ messageId: z.uuid() }))
     .handler(async ({ context, input }) => {
-      const result = await switchBranch(context.deps, context.user.id, input.messageId);
+      const result = await switchBranch(context.sdk, context.user.id, input.messageId);
       if (result === "not_found")
         throw rpcError("NOT_FOUND", "error.messageNotFound", "Message not found");
       if (result === "streaming") {
@@ -154,12 +155,7 @@ export const conversationRouter = {
   rename: protectedProcedure
     .input(z.object({ id: z.uuid(), title: z.string().trim().min(1).max(200) }))
     .handler(async ({ context, input }) => {
-      const renamed = await renameConversation(
-        context.deps,
-        context.user.id,
-        input.id,
-        input.title,
-      );
+      const renamed = await renameConversation(context.sdk, context.user.id, input.id, input.title);
       if (!renamed)
         throw rpcError("NOT_FOUND", "error.conversationNotFound", "Conversation not found");
     }),
@@ -169,10 +165,10 @@ export const conversationRouter = {
     .input(z.object({ id: z.uuid(), model: z.string() }))
     .handler(async ({ context, input }) => {
       const userId = context.user.id;
-      if (!(await findConversation(context.deps, userId, input.id))) {
+      if (!(await findConversation(context.sdk, userId, input.id))) {
         throw rpcError("NOT_FOUND", "error.conversationNotFound", "Conversation not found");
       }
-      const model = await context.deps.plugin("models").resolveModel(userId, input.model);
+      const model = await context.sdk.plugin("models").resolveModel(userId, input.model);
       if (!model) {
         throw rpcError(
           "BAD_REQUEST",
@@ -183,10 +179,10 @@ export const conversationRouter = {
           },
         );
       }
-      if (!(await context.deps.plugin("models").resolveModelCall(userId, model.id))) {
-        throw unusableModelError(model.provider, context.deps.plugin("models").byok);
+      if (!(await context.sdk.plugin("models").resolveModelCall(userId, model.id))) {
+        throw unusableModelError(model.provider, context.sdk.plugin("models").byok);
       }
-      const updated = await setConversationModel(context.deps, userId, input.id, model.id);
+      const updated = await setConversationModel(context.sdk, userId, input.id, model.id);
       if (!updated)
         throw rpcError("NOT_FOUND", "error.conversationNotFound", "Conversation not found");
     }),
@@ -199,11 +195,11 @@ export const conversationRouter = {
   setConnections: protectedProcedure
     .input(z.object({ id: z.uuid(), connections: z.array(z.string()) }))
     .handler(async ({ context, input }) => {
-      const known = new Set(context.deps.mcpServers.map((server) => server.key));
+      const known = new Set(assistantState(context.sdk).mcpServers.map((server) => server.key));
       if (input.connections.some((key) => !known.has(key))) {
         throw rpcError("BAD_REQUEST", "error.unknownMcpServer", "Unknown MCP server");
       }
-      const updated = await setConversationConnections(context.deps, context.user.id, input.id, [
+      const updated = await setConversationConnections(context.sdk, context.user.id, input.id, [
         ...new Set(input.connections),
       ]);
       if (!updated)
@@ -219,7 +215,7 @@ export const conversationRouter = {
     )
     .handler(async ({ context, input }) => {
       const updated = await setConversationReasoningEffort(
-        context.deps,
+        context.sdk,
         context.user.id,
         input.id,
         input.reasoningEffort,
@@ -233,12 +229,12 @@ export const conversationRouter = {
    * Conversation is listed only here, not in the main list. At most `maxPinnedConversations`.
    */
   pinned: protectedProcedure.handler(({ context }) =>
-    listPinnedConversations(context.deps, context.user.id),
+    listPinnedConversations(context.sdk, context.user.id),
   ),
 
   /** Pins the Conversation, so it shows under Pinned. Doesn't bump `lastMessageAt`. */
   pin: protectedProcedure.input(z.object({ id: z.uuid() })).handler(async ({ context, input }) => {
-    const result = await pinConversation(context.deps, context.user.id, input.id);
+    const result = await pinConversation(context.sdk, context.user.id, input.id);
     if (result === "not_found")
       throw rpcError("NOT_FOUND", "error.conversationNotFound", "Conversation not found");
     if (result === "temporary") {
@@ -264,7 +260,7 @@ export const conversationRouter = {
   unpin: protectedProcedure
     .input(z.object({ id: z.uuid() }))
     .handler(async ({ context, input }) => {
-      const unpinned = await unpinConversation(context.deps, context.user.id, input.id);
+      const unpinned = await unpinConversation(context.sdk, context.user.id, input.id);
       if (!unpinned)
         throw rpcError("NOT_FOUND", "error.conversationNotFound", "Conversation not found");
     }),
@@ -276,7 +272,7 @@ export const conversationRouter = {
   archive: protectedProcedure
     .input(z.object({ id: z.uuid() }))
     .handler(async ({ context, input }) => {
-      const archived = await archiveConversation(context.deps, context.user.id, input.id);
+      const archived = await archiveConversation(context.sdk, context.user.id, input.id);
       if (!archived)
         throw rpcError("NOT_FOUND", "error.conversationNotFound", "Conversation not found");
     }),
@@ -285,7 +281,7 @@ export const conversationRouter = {
   unarchive: protectedProcedure
     .input(z.object({ id: z.uuid() }))
     .handler(async ({ context, input }) => {
-      const unarchived = await unarchiveConversation(context.deps, context.user.id, input.id);
+      const unarchived = await unarchiveConversation(context.sdk, context.user.id, input.id);
       if (!unarchived)
         throw rpcError("NOT_FOUND", "error.conversationNotFound", "Conversation not found");
     }),
@@ -302,7 +298,7 @@ export const conversationRouter = {
       if (input.cursor !== undefined && !cursor) {
         throw rpcError("BAD_REQUEST", "error.invalidCursor", "Invalid cursor");
       }
-      return listArchivedConversations(context.deps, context.user.id, cursor);
+      return listArchivedConversations(context.sdk, context.user.id, cursor);
     }),
 
   /**
@@ -310,7 +306,7 @@ export const conversationRouter = {
    * archived yet. Returns how many it archived.
    */
   archiveAll: protectedProcedure.handler(async ({ context }) => ({
-    count: await archiveAllConversations(context.deps, context.user.id),
+    count: await archiveAllConversations(context.sdk, context.user.id),
   })),
 
   /**
@@ -320,12 +316,12 @@ export const conversationRouter = {
   move: protectedProcedure
     .input(z.object({ id: z.uuid(), projectId: z.uuid().nullable() }))
     .handler(async ({ context, input }) => {
-      if (input.projectId && !(await findProject(context.deps, context.user.id, input.projectId))) {
+      if (input.projectId && !(await findProject(context.sdk, context.user.id, input.projectId))) {
         throw rpcError("NOT_FOUND", "error.projectNotFound", "Project not found");
       }
       if (
         input.projectId &&
-        (await findConversation(context.deps, context.user.id, input.id))?.temporary
+        (await findConversation(context.sdk, context.user.id, input.id))?.temporary
       ) {
         throw rpcError(
           "BAD_REQUEST",
@@ -333,12 +329,7 @@ export const conversationRouter = {
           "A Temporary Conversation can't be moved into a Project",
         );
       }
-      const moved = await moveConversation(
-        context.deps,
-        context.user.id,
-        input.id,
-        input.projectId,
-      );
+      const moved = await moveConversation(context.sdk, context.user.id, input.id, input.projectId);
       if (!moved)
         throw rpcError("NOT_FOUND", "error.conversationNotFound", "Conversation not found");
     }),
@@ -347,7 +338,7 @@ export const conversationRouter = {
   delete: protectedProcedure
     .input(z.object({ id: z.uuid() }))
     .handler(async ({ context, input }) => {
-      const deleted = await deleteConversation(context.deps, context.user.id, input.id);
+      const deleted = await deleteConversation(context.sdk, context.user.id, input.id);
       if (!deleted)
         throw rpcError("NOT_FOUND", "error.conversationNotFound", "Conversation not found");
     }),
@@ -357,6 +348,6 @@ export const conversationRouter = {
    * empty. Shared links go with their Conversations.
    */
   deleteAll: protectedProcedure.handler(({ context }) =>
-    deleteAllConversations(context.deps, context.user.id),
+    deleteAllConversations(context.sdk, context.user.id),
   ),
 };

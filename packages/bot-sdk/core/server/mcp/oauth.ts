@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 import { isAllowListed } from "../lib/guarded-fetch";
 import type { McpServerConfig } from "./servers";
 
@@ -18,7 +18,7 @@ export type TokenSet = {
   scope: string;
 };
 
-type Fetch = AppDeps["fetch"];
+type Fetch = BotSdkContext["fetch"];
 
 const random = (bytes: number) => randomBytes(bytes).toString("base64url");
 

@@ -2,7 +2,7 @@ import { type SQL, inArray } from "drizzle-orm";
 
 import { message, generatedImage } from "../db/schema";
 import { generatedImageBlobKey } from "../blob/store";
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 
 /**
  * The blob keys of the Generated images `where` matches (spec #278). A delete's cascade removes
@@ -10,7 +10,7 @@ import type { AppDeps } from "../deps";
  * transaction, and their bytes deleted from the blob store after its commit (ADR 0015).
  */
 export async function generatedImageKeysWhere(
-  db: Pick<AppDeps["db"], "select">,
+  db: Pick<BotSdkContext["db"], "select">,
   where: SQL | undefined,
 ): Promise<string[]> {
   const rows = await db.select({ id: generatedImage.id }).from(generatedImage).where(where);
@@ -18,7 +18,7 @@ export async function generatedImageKeysWhere(
 }
 
 /** Matches the Generated images of the Messages `where` matches (a condition on `message`). */
-export function imagesOfMessages(db: Pick<AppDeps["db"], "select">, where: SQL) {
+export function imagesOfMessages(db: Pick<BotSdkContext["db"], "select">, where: SQL) {
   return inArray(
     generatedImage.messageId,
     db.select({ id: message.id }).from(message).where(where),

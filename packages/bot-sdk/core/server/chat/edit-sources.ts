@@ -2,7 +2,7 @@ import { and, eq, inArray } from "drizzle-orm";
 
 import { generatedImageBlobKey } from "../blob/store";
 import { generatedImage } from "../db/schema";
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 import { attachmentKind } from "../../shared/attachments/kinds";
 import type { StoredAttachment } from "../../shared/chat/parts";
 
@@ -16,7 +16,7 @@ export type EditSource = { id: string; mediaType: string; bytes: Uint8Array };
  * call fails rather than reading an image off another Branch or from another user.
  */
 export function editSourcesOf(
-  deps: Pick<AppDeps, "db" | "blobStore">,
+  deps: Pick<BotSdkContext, "db" | "blobStore">,
   {
     userId,
     pathMessageIds,

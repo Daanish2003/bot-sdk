@@ -1,11 +1,11 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 
 import { artifact, artifactVersion, conversation } from "../db/schema";
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 import { loadPath } from "../chat/store";
 import type { ArtifactKind } from "../../shared/chat/artifact";
 
-type Deps = Pick<AppDeps, "db">;
+type Deps = Pick<BotSdkContext, "db">;
 
 /** An id of 10 characters from the URL-safe alphabet: short enough for the Model to copy. */
 const alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";

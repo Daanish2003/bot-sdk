@@ -13,6 +13,7 @@ import { createTestSdk } from "../../../support/deps";
 import { createFakeAdapter, text } from "../../../support/fake-adapter";
 import { insertUser } from "../../../support/users";
 import { chatRpc, createTestChat } from "../../../support/sdk";
+import { assistantState } from "../../../../plugins/assistant/server/state";
 
 async function signedIn() {
   const user = await insertUser();
@@ -442,7 +443,8 @@ describe("project.delete", () => {
 
       // The log ends with a terminal chunk, so a reader does not reconnect and start the Run again.
       const chunks = [];
-      for await (const entry of deps.runStreams.read(reply.id, START)) chunks.push(entry.chunk);
+      for await (const entry of assistantState(deps).runStreams.read(reply.id, START))
+        chunks.push(entry.chunk);
       expect(chunks.at(-1)?.type).toBe(EventType.RUN_FINISHED);
       // The owner's last writes landed on deleted rows, so no Message came back and nothing failed.
       expect(await getTestDb().select().from(message).where(eq(message.id, reply.id))).toEqual([]);

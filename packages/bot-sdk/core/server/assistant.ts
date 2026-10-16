@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
-import type { ModelsRule } from "../../plugins/models/server/plugin";
+import { bindAssistantState, type AssistantState } from "../../plugins/assistant/server/state";
 import { createArtifactToolName, updateArtifactToolName } from "../shared/chat/artifact";
 import { fetchUrlToolName } from "../shared/chat/fetch-url";
 import { searchKnowledgeToolName } from "../shared/chat/knowledge-search";
@@ -14,17 +14,18 @@ import type { HostServerTool } from "./chat/host-tools";
 import { handleJoin } from "./chat/join-run";
 import { stopUserRuns } from "./chat/run";
 import { generatedImage } from "./db/schema";
-import { deleteUserData } from "./delete-user";
-import { createAppDeps, type AppDeps } from "./deps";
-import { exportUserData, type UserExport } from "./export-user";
+import { createTavilyClient } from "./chat/tavily";
+import { defaultLimits } from "./deps";
+import { exportUserData } from "./export-user";
 import { runRegisteredJob } from "./jobs/define";
+import { inProcessRunner } from "./jobs/in-process";
 import type { JobRunner } from "./jobs/runner";
-import { createLifecycle } from "./lifecycle";
+import { createLifecycle, type Lifecycle } from "./lifecycle";
 import { callbackRoute, connectRoute } from "./mcp/routes";
 import { checkMcpServers, type McpServerConfig } from "./mcp/servers";
 import { handleConversationEvents } from "./memory/notice";
 import type { BotSdkContext, BotSdkPlugin, Route } from "./plugin";
-import { defaultRateLimits, type RateLimit, type ResolvedRateLimits } from "./rate-limits";
+import { defaultRateLimits, type RateLimit } from "./rate-limits";
 import { appRouter } from "./routers/index";
 import { loadSharedGeneratedImage, loadSharedConversation } from "./share/store";
 
@@ -58,18 +59,26 @@ export type AssistantOptions = {
   memory?: boolean;
 };
 
-/** The temporary `assistant` plugin's API: today's SDK but `models`, until the rest is carved out. */
+/**
+ * The `assistant` plugin's API (`sdk.plugin("assistant")`): the server-only actions a Host calls.
+ * `stopRuns` and `ratingTotals` serve the Host's Admin views (spec #277); they have no HTTP route,
+ * so the Host decides who may call them.
+ */
 export type AssistantApi = {
-  /** The dependency bundle every module still reads (until the core context replaces it). */
-  deps: AppDeps;
+  /**
+   * Stops every live Run of the user's, through the same path as Stop (spec #277). A Run whose
+   * owner is gone ends `stopped` here; the others end when their owner sees the Stop.
+   */
+  stopRuns: (userId: string) => Promise<void>;
+  /** 👍 and 👎 counts per Model over Ratings stamped at or after `since` (spec #277). */
+  ratingTotals: (range: { since: Date }) => Promise<RatingTotal[]>;
+  /** The public Shared link snapshot for a token, or `null` for an unknown or removed link. */
   getSharedConversation: (token: string) => Promise<SharedConversation | null>;
+  /**
+   * Runs a job's handler in this process, with the payload validated against the job's schema.
+   * Rejects an unknown name or a bad payload. A Host's worker (such as a Trigger.dev task) calls it.
+   */
   runJob: (name: string, payload: unknown) => Promise<void>;
-  deleteUser: (userId: string) => Promise<void>;
-  exportUser: (userId: string) => Promise<UserExport>;
-  admin: {
-    stopRuns: (userId: string) => Promise<void>;
-    ratingTotals: (range: { since: Date }) => Promise<RatingTotal[]>;
-  };
 };
 
 declare module "./plugin" {
@@ -78,31 +87,22 @@ declare module "./plugin" {
   }
 }
 
-/** Every event hook but `models`'s `onUsage`: the temporary plugin is the rest of the SDK. */
-type AssistantEvent =
-  | "onRunEnd"
-  | "onConversationCreated"
-  | "onConversationDeleted"
-  | "onSharedLinkChanged"
-  | "moderate";
+type AssistantEvent = "onRunEnd" | "onSharedLinkChanged" | "moderate";
 
-type AssistantRule = Exclude<keyof ResolvedRateLimits, ModelsRule>;
+type AssistantRule = "runStart" | "sharedLinkView" | "rating";
 
 export type AssistantPlugin = BotSdkPlugin<"assistant", AssistantRule, AssistantEvent>;
 
-/** The rate-limit rules the assistant declares: every rule but the `models` plugin's. */
+/** The rate-limit rules the assistant declares, and their defaults. */
 const assistantRateLimits: Record<AssistantRule, RateLimit> = {
   runStart: defaultRateLimits.runStart,
-  attachmentUpload: defaultRateLimits.attachmentUpload,
-  conversationSearch: defaultRateLimits.conversationSearch,
   sharedLinkView: defaultRateLimits.sharedLinkView,
   rating: defaultRateLimits.rating,
 };
 
 /**
- * The `assistant` plugin. For now it is today's SDK but the `models` plugin, still on `AppDeps`
- * inside; the core is carved out of it ticket by ticket (spec #439). It reaches `models` only
- * through `plugin("models")`.
+ * The `assistant` plugin (ADR 0020): Runs and their streams, tools, MCP servers, Artifacts, Memory,
+ * Knowledge, background jobs and the reaper. It reaches `models` only through `plugin("models")`.
  */
 export function assistant(options: AssistantOptions = {}): AssistantPlugin {
   const builtIns = [
@@ -116,166 +116,135 @@ export function assistant(options: AssistantOptions = {}): AssistantPlugin {
       throw new Error(`A Host tool can't be named "${builtIn}": the SDK's tool has it`);
     }
   }
-  return assistantPlugin((sdk) => assistantDeps(sdk, options));
+  return assistantPlugin((sdk) => {
+    // At construction, so a misconfigured server fails the Host's boot (spec #91).
+    checkMcpServers(options.mcpServers ?? [], sdk.fetchAllowHosts);
+    return productionState(sdk, options);
+  });
 }
 
 /**
- * The `assistant` plugin over a ready dependency bundle: the test seam (`createTestSdk`) and the
- * handler the tests drive. The bundle's `plugin` becomes the instance's.
+ * The `assistant` plugin with any `given` part of its state in place of the built one: the test
+ * seam (`createTestSdk`). Nothing is checked.
  */
-export function assistantOver(deps: AppDeps): AssistantPlugin {
-  return assistantPlugin((sdk) => Object.assign(deps, { plugin: sdk.plugin }));
+export function assistantOver(given: Partial<AssistantState>): AssistantPlugin {
+  return assistantPlugin((sdk) => ({ ...productionState(sdk, {}), ...given }));
 }
 
-function assistantPlugin(buildDeps: (sdk: BotSdkContext) => AppDeps): AssistantPlugin {
-  // One bundle per instance, built by `init`.
-  const states = new WeakMap<
-    BotSdkContext,
-    { deps: AppDeps; lifecycle: ReturnType<typeof createLifecycle> }
-  >();
-  const ready = (sdk: BotSdkContext) => {
-    let state = states.get(sdk);
-    if (!state) {
-      const deps = buildDeps(sdk);
-      state = { deps, lifecycle: createLifecycle(deps, deps.logger) };
-      states.set(sdk, state);
-    }
-    return state;
+function assistantPlugin(buildState: (sdk: BotSdkContext) => AssistantState): AssistantPlugin {
+  // One lifecycle per instance, built by `init`.
+  const lifecycles = new WeakMap<BotSdkContext, Lifecycle>();
+  const lifecycleOf = (sdk: BotSdkContext) => {
+    const lifecycle = lifecycles.get(sdk);
+    if (!lifecycle) throw new Error("The assistant plugin wasn't initialised");
+    return lifecycle;
   };
   return {
     id: "assistant",
     requires: ["models"],
     router: appRouter,
-    routes: assistantRoutes((sdk) => ready(sdk).deps),
+    routes: assistantRoutes,
     rateLimits: assistantRateLimits,
-    init: (sdk) => ({ api: assistantApi(ready(sdk).deps) }),
-    start: async (sdk) => {
-      await ready(sdk).lifecycle.start();
+    init: (sdk) => {
+      const api = assistantApi(sdk);
+      bindAssistantState(api, buildState(sdk));
+      lifecycles.set(sdk, createLifecycle(sdk, sdk.logger));
+      return { api };
     },
-    stop: async (sdk) => {
-      await ready(sdk).lifecycle.stop();
-    },
+    // The reaper, then the jobs runner.
+    start: (sdk) => lifecycleOf(sdk).start(),
+    // Drains the Runs, then the jobs.
+    stop: (sdk) => lifecycleOf(sdk).stop(),
   };
 }
 
-/** The production `AppDeps`, over the core context. Throws on a misconfigured MCP server. */
-function assistantDeps(sdk: BotSdkContext, options: AssistantOptions): AppDeps {
-  checkMcpServers(options.mcpServers ?? [], sdk.fetchAllowHosts);
-  const resolved = Object.fromEntries(
-    Object.keys(defaultRateLimits).map((rule) => [rule, sdk.rateLimits[rule] ?? false]),
-  ) as ResolvedRateLimits;
-  const deps = createAppDeps({
-    db: sdk.db,
-    plugin: sdk.plugin,
-    blobStore: sdk.blobStore,
-    isUserBlocked: sdk.isUserBlocked,
-    keyEncryptionSecrets: sdk.keyring,
-    runtime: sdk.runtime,
-    rateLimits: resolved,
-    tools: options.tools ?? [],
-    fetchAllowHosts: sdk.fetchAllowHosts,
-    mcpServers: options.mcpServers ?? [],
-    logger: sdk.logger,
-    artifacts: options.artifacts,
-    jobs: options.jobs,
-    memory: options.memory,
-  });
-  // The core's emitter, fetch and clock; `stopping` is the core's flag, `runs` the assistant's.
-  const runs: AppDeps["lifecycle"]["runs"] = new Map();
-  return Object.assign(deps, {
-    hooks: sdk.events,
-    fetch: sdk.fetch,
-    clock: sdk.clock,
-    lifecycle: {
-      get stopping() {
-        return sdk.lifecycle.stopping;
-      },
-      set stopping(stopping: boolean) {
-        sdk.lifecycle.stopping = stopping;
-      },
-      runs,
-    },
-  });
-}
-
-function assistantApi(deps: AppDeps): AssistantApi {
+/** The production state, over the core context. */
+function productionState(sdk: BotSdkContext, options: AssistantOptions): AssistantState {
   return {
-    deps,
-    getSharedConversation: async (token) => (await loadSharedConversation(deps, token)) ?? null,
-    runJob: (name, payload) => runRegisteredJob(name, payload, deps),
-    deleteUser: (userId) => deleteUserData(deps, userId),
-    exportUser: (userId) => exportUserData(deps, userId),
-    admin: {
-      stopRuns: async (userId) => {
-        // As Stop does, each ended Run fires `onRunEnd` (#265).
-        for (const run of await stopUserRuns(deps, userId)) deps.hooks.fire("onRunEnd", run);
-      },
-      ratingTotals: (range) => ratingTotals(deps, range),
-    },
+    tools: options.tools ?? [],
+    mcpServers: options.mcpServers ?? [],
+    artifacts: options.artifacts ?? false,
+    memory: options.memory ?? true,
+    jobs:
+      options.jobs ??
+      inProcessRunner({
+        db: sdk.db,
+        logger: sdk.logger,
+        drainMs: defaultLimits.drainMs,
+        deps: () => sdk,
+      }),
+    searchClient: createTavilyClient(globalThis.fetch),
+    runStreams: sdk.runtime.runStreams,
+    runs: new Map(),
+    limits: defaultLimits,
   };
 }
-/** The assistant's non-RPC routes, under `basePath`. */
-function assistantRoutes(getDeps: (sdk: BotSdkContext) => AppDeps): Route[] {
-  return [
-    {
-      // A Generated image on a Shared link is public: the link's token is the only key (ADR 0004).
-      method: "GET",
-      path: "/shared/:token/generated-images/:id",
-      public: true,
-      handle: async (request, { sdk, params }) =>
-        sharedGeneratedImageResponse(
-          getDeps(sdk),
-          params.token!,
-          params.id!,
-          wantsDownload(request),
-        ),
+
+function assistantApi(sdk: BotSdkContext): AssistantApi {
+  return {
+    stopRuns: async (userId) => {
+      // As Stop does, each ended Run fires `onRunEnd` (#265).
+      for (const run of await stopUserRuns(sdk, userId)) sdk.events.fire("onRunEnd", run);
     },
-    {
-      method: "POST",
-      path: "/run",
-      handle: async (request, { user, sdk }) => {
-        const deps = getDeps(sdk);
-        return deps.lifecycle.stopping ? shuttingDown() : handleChat(request, user, deps);
-      },
-    },
-    {
-      method: "GET",
-      path: "/run",
-      handle: (request, { user, sdk }) => handleJoin(request, user, getDeps(sdk)),
-    },
-    {
-      method: "GET",
-      path: "/events",
-      handle: (request, { user, sdk }) => handleConversationEvents(request, user, getDeps(sdk)),
-    },
-    {
-      method: "GET",
-      path: "/export",
-      handle: async (_request, { user, sdk }) => exportResponse(getDeps(sdk), user.id),
-    },
-    {
-      method: "GET",
-      path: "/generated-images/:id",
-      handle: async (request, { user, sdk, params }) =>
-        generatedImageResponse(getDeps(sdk), user.id, params.id!, wantsDownload(request)),
-    },
-    ...(["connect", "callback"] as const).map((step): Route => ({
-      method: "GET",
-      path: `/mcp/${step}`,
-      handle: (request, { user, sdk, basePath }) => {
-        const redirectUri = `${new URL(request.url).origin}${basePath}/mcp/callback`;
-        const route = step === "connect" ? connectRoute : callbackRoute;
-        return route(request, user.id, getDeps(sdk), redirectUri);
-      },
-    })),
-  ];
+    ratingTotals: (range) => ratingTotals(sdk, range),
+    getSharedConversation: async (token) => (await loadSharedConversation(sdk, token)) ?? null,
+    runJob: (name, payload) => runRegisteredJob(name, payload, sdk),
+  };
 }
+
+/** The assistant's non-RPC routes, under `basePath`. */
+const assistantRoutes: Route[] = [
+  {
+    // A Generated image on a Shared link is public: the link's token is the only key (ADR 0004).
+    method: "GET",
+    path: "/shared/:token/generated-images/:id",
+    public: true,
+    handle: async (request, { sdk, params }) =>
+      sharedGeneratedImageResponse(sdk, params.token!, params.id!, wantsDownload(request)),
+  },
+  {
+    method: "POST",
+    path: "/run",
+    handle: async (request, { user, sdk }) =>
+      sdk.lifecycle.stopping ? shuttingDown() : handleChat(request, user, sdk),
+  },
+  {
+    method: "GET",
+    path: "/run",
+    handle: (request, { user, sdk }) => handleJoin(request, user, sdk),
+  },
+  {
+    method: "GET",
+    path: "/events",
+    handle: (request, { user, sdk }) => handleConversationEvents(request, user, sdk),
+  },
+  {
+    method: "GET",
+    path: "/export",
+    handle: async (_request, { user, sdk }) => exportResponse(sdk, user.id),
+  },
+  {
+    method: "GET",
+    path: "/generated-images/:id",
+    handle: async (request, { user, sdk, params }) =>
+      generatedImageResponse(sdk, user.id, params.id!, wantsDownload(request)),
+  },
+  ...(["connect", "callback"] as const).map((step): Route => ({
+    method: "GET",
+    path: `/mcp/${step}`,
+    handle: (request, { user, sdk, basePath }) => {
+      const redirectUri = `${new URL(request.url).origin}${basePath}/mcp/callback`;
+      const route = step === "connect" ? connectRoute : callbackRoute;
+      return route(request, user.id, sdk, redirectUri);
+    },
+  })),
+];
 
 const wantsDownload = (request: Request) =>
   new URL(request.url).searchParams.get("download") === "1";
 
 /** The user's export as a JSON download; the file is named by the date the export was taken. */
-async function exportResponse(deps: AppDeps, userId: string) {
+async function exportResponse(deps: BotSdkContext, userId: string) {
   const document = await exportUserData(deps, userId);
   const date = document.exportedAt.toISOString().slice(0, 10);
   return Response.json(document, {
@@ -289,7 +258,7 @@ async function exportResponse(deps: AppDeps, userId: string) {
  * cached for good; `?download=1` names the file for saving.
  */
 async function generatedImageResponse(
-  deps: AppDeps,
+  deps: BotSdkContext,
   userId: string,
   id: string,
   download: boolean,
@@ -309,7 +278,7 @@ async function generatedImageResponse(
  * removed links, a blocked owner, and an image off the shared Branch are all 404.
  */
 async function sharedGeneratedImageResponse(
-  deps: AppDeps,
+  deps: BotSdkContext,
   token: string,
   id: string,
   download: boolean,

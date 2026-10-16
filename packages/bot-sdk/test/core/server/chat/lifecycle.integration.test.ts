@@ -10,6 +10,7 @@ import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { insertUser } from "../../../support/users";
 import { createTestChat } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
+import { assistantState } from "../../../../plugins/assistant/server/state";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -32,7 +33,9 @@ function staleReply(conversationId: string, ageMs = 60_000) {
 
 describe("the lifecycle timer", () => {
   it("reaps as it starts, and again on every interval", async () => {
-    const deps = createTestSdk({ limits: { ...createTestSdk().limits, reapIntervalMs: 20 } });
+    const deps = createTestSdk({
+      limits: { ...assistantState(createTestSdk()).limits, reapIntervalMs: 20 },
+    });
     const conv = await insertConversation(await insertUser());
     const first = await staleReply(conv.id);
     const lifecycle = createLifecycle(deps);
@@ -46,7 +49,9 @@ describe("the lifecycle timer", () => {
   });
 
   it("clears the timer on stop", async () => {
-    const deps = createTestSdk({ limits: { ...createTestSdk().limits, reapIntervalMs: 20 } });
+    const deps = createTestSdk({
+      limits: { ...assistantState(createTestSdk()).limits, reapIntervalMs: 20 },
+    });
     const conv = await insertConversation(await insertUser());
     const lifecycle = createLifecycle(deps);
     await lifecycle.start();
@@ -118,7 +123,7 @@ describe("stop()", () => {
     const held = createFakeAdapter({ rounds: [round(text("Never."))], manual: true });
     const deps = createTestSdk({
       adapterFor: () => held.adapter,
-      limits: { ...createTestSdk().limits, drainMs: 100 },
+      limits: { ...assistantState(createTestSdk()).limits, drainMs: 100 },
     });
     const lifecycle = createLifecycle(deps);
     const client = createTestChat({ user, deps });

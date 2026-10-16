@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import type { ChatUser } from "../context";
 import { conversation, memory } from "../db/schema";
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 import type { MemoryUpdatedEvent, TurnChange } from "../../shared/memory/changes";
 
 /** The pub/sub channel of a Conversation: its Memory jobs publish here (#290). */
@@ -17,7 +17,7 @@ const heartbeatMs = 25_000;
  * the Memories are already saved, and a missed notice only means the chip shows on reload.
  */
 export async function publishMemoryUpdated(
-  deps: Pick<AppDeps, "pubsub" | "logger">,
+  deps: Pick<BotSdkContext, "pubsub" | "logger">,
   conversationId: string,
   event: MemoryUpdatedEvent,
 ): Promise<void> {
@@ -34,7 +34,7 @@ export async function publishMemoryUpdated(
  * Forgets leave no row, so they are not derived. Keyed by the user Message's id.
  */
 export async function turnChangesOf(
-  deps: Pick<AppDeps, "db">,
+  deps: Pick<BotSdkContext, "db">,
   userMessageIds: string[],
 ): Promise<Map<string, TurnChange[]>> {
   const changes = new Map<string, TurnChange[]>();
@@ -73,7 +73,7 @@ export async function turnChangesOf(
 export async function handleConversationEvents(
   request: Request,
   user: ChatUser,
-  deps: AppDeps,
+  deps: BotSdkContext,
 ): Promise<Response> {
   const id = z.uuid().safeParse(new URL(request.url).searchParams.get("conversationId"));
   const [owned] = id.success

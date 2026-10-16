@@ -3,43 +3,32 @@ import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { checkCredentials } from "../../../plugins/models/server/credentials/check";
-import { postgresBlobStore } from "../../../core/server/blob/postgres";
-import { createAppDeps } from "../../../core/server/deps";
+import { createBotSdk } from "../../../core/server/create-chat";
 import { ollamaModels } from "../../../plugins/models/server/live-models";
 import { productionDeps } from "../../../plugins/models/server/plugin";
 import type { BotSdkContext } from "../../../core/server/plugin";
-import { memoryRuntime } from "../../../core/server/runtime";
 import { BlockedAddressError } from "../../../core/server/lib/guarded-fetch";
-import type { Database } from "../../../core/server/db";
-import { resolveRateLimits } from "../../../core/server/rate-limits";
 
-function buildDeps() {
-  const db = {} as Database;
-  return createAppDeps({
-    db,
-    blobStore: postgresBlobStore(db),
-    logger: { error: () => {} },
+/** The core context of a real instance, caught by a plugin's `init`. Nothing connects. */
+function buildDeps(): BotSdkContext {
+  let context: BotSdkContext | undefined;
+  createBotSdk({
+    databaseUrl: "postgresql://unused@127.0.0.1:9/unused",
+    basePath: "/api/chat",
+    getUser: () => null,
     keyEncryptionSecrets: ["test-secret"],
-    runtime: memoryRuntime(),
-    plugin: () => {
-      throw new Error("No plugins here");
-    },
-    tools: [],
-    rateLimits: resolveRateLimits(),
-    mcpServers: [],
+    logger: { error: () => {} },
+    plugins: [{ id: "probe", init: (sdk) => void (context = sdk) }],
   });
+  return context!;
 }
 
-/** The models plugin's production bundle, over an app bundle standing in for the core context. */
+/** The models plugin's production bundle, over a real core context. */
 function buildModelsDeps() {
-  const app = buildDeps();
-  return productionDeps(
-    { ...app, keyring: app.keyEncryptionSecrets } as unknown as BotSdkContext,
-    {},
-  );
+  return productionDeps(buildDeps(), {});
 }
 
-describe("createAppDeps", () => {
+describe("the core context", () => {
   it("builds the bundle's fetch with the SSRF guard", async () => {
     const deps = buildDeps();
 

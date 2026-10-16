@@ -13,6 +13,7 @@ import { createFakeAdapter, round, runError, text, thinking } from "../../../sup
 import { insertUser, type TestUser } from "../../../support/users";
 import { chatRpc, sendAs } from "../../../support/sdk";
 import type { ChatCommand } from "../../../../core/shared/chat/command";
+import { assistantState } from "../../../../plugins/assistant/server/state";
 
 const anthropicModel = "anthropic:claude-sonnet-5-5";
 const keyA = "key-a-of-at-least-32-characters-long!!";
@@ -458,7 +459,7 @@ describe("chat.stop", () => {
       status: "stopped",
       parts: { parts: [{ type: "text", text: "Half" }] },
     });
-    const log = await collect(deps.runStreams.read(reply.id, START));
+    const log = await collect(assistantState(deps).runStreams.read(reply.id, START));
     expect(log.at(-1)?.chunk.type).toBe(EventType.RUN_FINISHED);
   });
 

@@ -5,16 +5,16 @@ import { and, eq } from "drizzle-orm";
 
 import { linkAttachments, lockAttachments } from "../attachments/store";
 import type { ErrorParams } from "../rpc-error";
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 import type { ChatUser } from "../context";
 import { uuidv7 } from "../lib/uuidv7";
-import { rateLimitedFor } from "../rate-limits";
 import { searchTextOf } from "../../shared/chat/parts";
 import { chatCommandSchema } from "../../shared/chat/command";
 import { runStreamDurability, START } from "./run-streams";
 import { type PlanRefusal, planRun } from "./run-plan";
 import { findConversation } from "./store";
 import { attachmentKind } from "../../shared/attachments/kinds";
+import { assistantState } from "../../../plugins/assistant/server/state";
 
 /** A refusal: its HTTP status, and a body of the dictionary code and its params (spec #256). */
 const refuse = (status: number, code: PlanRefusal["code"], params: ErrorParams = {}) =>
@@ -27,15 +27,11 @@ export const moderatedCode = "moderated";
 export async function handleChat(
   request: Request,
   user: ChatUser,
-  deps: AppDeps,
+  deps: BotSdkContext,
 ): Promise<Response> {
   const userId = user.id;
 
-  const retryAfter = await rateLimitedFor(
-    deps.counters,
-    deps.rateLimits.runStart,
-    `run-start:${userId}`,
-  );
+  const retryAfter = await deps.rateLimit("runStart", `run-start:${userId}`);
   if (retryAfter !== null) {
     return Response.json(
       { code: "error.tooManyMessages", params: {} },
@@ -82,7 +78,7 @@ export async function handleChat(
       // The Host's input check (`moderate`, #267): after the Message is validated and before
       // anything is written. A regenerate writes no Message, so it has no input to check.
       if (command.text !== undefined) {
-        const verdict = await deps.hooks.moderate({
+        const verdict = await deps.events.moderate({
           phase: "input",
           userId,
           conversationId: owned.id,
@@ -179,7 +175,7 @@ export async function handleChat(
       await start();
       // The response reads the Run's log from the start, like any joiner (ADR 0006).
       return resumeServerSentEventsResponse({
-        adapter: runStreamDurability(deps.runStreams, assistantMessageId, START),
+        adapter: runStreamDurability(assistantState(deps).runStreams, assistantMessageId, START),
       });
     },
   );

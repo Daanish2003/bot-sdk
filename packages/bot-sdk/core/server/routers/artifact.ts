@@ -3,6 +3,7 @@ import { z } from "zod";
 import { readArtifactVersion } from "../artifact/store";
 import { protectedProcedure } from "../procedures";
 import { rpcError } from "../rpc-error";
+import { assistantState } from "../../../plugins/assistant/server/state";
 
 export const artifactRouter = {
   /**
@@ -21,8 +22,8 @@ export const artifactRouter = {
     )
     .handler(async ({ context, input }) => {
       // Off, there is no route: a Host that doesn't turn Artifacts on sees none of them.
-      const version = context.deps.artifacts
-        ? await readArtifactVersion(context.deps, context.user.id, input)
+      const version = assistantState(context.sdk).artifacts
+        ? await readArtifactVersion(context.sdk, context.user.id, input)
         : null;
       if (!version)
         throw rpcError("NOT_FOUND", "error.artifactVersionNotFound", "Artifact version not found");

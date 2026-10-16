@@ -14,13 +14,13 @@ import { generatedImageBlobKey } from "../blob/store";
 import { loadPath } from "../chat/store";
 import { liveConversation } from "../chat/temporary";
 import { attachmentsOfMessages } from "../attachments/store";
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 import { uuidv7 } from "../lib/uuidv7";
 import { storedParts } from "../../shared/message-parts";
 import { toSharedConversation } from "../../shared/share/conversation";
 
-type Deps = Pick<AppDeps, "db" | "isUserBlocked">;
-type EventDeps = Pick<AppDeps, "db" | "hooks">;
+type Deps = Pick<BotSdkContext, "db" | "isUserBlocked">;
+type EventDeps = Pick<BotSdkContext, "db" | "events">;
 type Db = Deps["db"];
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
@@ -135,7 +135,7 @@ export async function upsertSharedLink(
     return { error: null, link, change };
   });
   if (result.error === null) {
-    deps.hooks.fire("onSharedLinkChanged", { userId, conversationId, change: result.change });
+    deps.events.fire("onSharedLinkChanged", { userId, conversationId, change: result.change });
   }
   return result;
 }
@@ -171,7 +171,7 @@ export async function deleteSharedLink(deps: EventDeps, userId: string, conversa
     .where(eq(sharedLink.conversationId, owned.id))
     .returning({ token: sharedLink.token });
   if (removed.length > 0) {
-    deps.hooks.fire("onSharedLinkChanged", { userId, conversationId, change: "removed" });
+    deps.events.fire("onSharedLinkChanged", { userId, conversationId, change: "removed" });
   }
   return true;
 }
@@ -208,7 +208,11 @@ export async function loadSharedConversation(deps: Deps, token: string) {
  * Message is on the path up from its leaf (ADR 0004). `undefined` for anything else, including an
  * image on a sibling Branch or after the leaf.
  */
-export async function loadSharedGeneratedImage(deps: AppDeps, token: string, imageId: string) {
+export async function loadSharedGeneratedImage(
+  deps: BotSdkContext,
+  token: string,
+  imageId: string,
+) {
   const link = await findVisibleLink(deps, token);
   if (!link) return undefined;
   const [row] = await deps.db
@@ -275,7 +279,7 @@ export async function loadSharedArtifactVersion(
  * `no_model` when there is no Model to start on.
  */
 export async function continueSharedConversation(
-  deps: AppDeps,
+  deps: BotSdkContext,
   userId: string,
   token: string,
 ): Promise<{ id: string } | "not_found" | "no_model"> {
@@ -319,6 +323,6 @@ export async function continueSharedConversation(
       .where(eq(conversation.id, id));
   });
   // After the commit: the copy exists, so the Host hears of it (#266).
-  deps.hooks.fire("onConversationCreated", { userId, conversationId: id, fromSharedLink: true });
+  deps.events.fire("onConversationCreated", { userId, conversationId: id, fromSharedLink: true });
   return { id };
 }

@@ -13,7 +13,7 @@ const deps = createTestSdk();
 
 /** The router called directly with no user, so the auth middleware is what refuses. */
 function signedOutRouter() {
-  return createRouterClient(appRouter, { context: { user: null, deps, plugin: deps.plugin } });
+  return createRouterClient(appRouter, { context: { user: null, sdk: deps } });
 }
 
 async function signedIn() {

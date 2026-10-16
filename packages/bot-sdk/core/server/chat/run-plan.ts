@@ -11,7 +11,7 @@ import { parseStoredParts, type StoredAttachment, toModelMessages } from "../../
 import { type CuratedModel, effortFor, type ReasoningChoice } from "../../shared/chat/models";
 import type { ToolCall } from "../../../plugins/models/server/credentials/resolve";
 import { unusableModelCode, type ErrorParams } from "../rpc-error";
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 import { userSettings, type conversation } from "../db/schema";
 import { pastChatsOffered } from "../search/past-chats";
 import { mcpToolsFor, type McpTools } from "../mcp/tools";
@@ -38,6 +38,7 @@ import { createKnowledgeSearchTool } from "./knowledge-search-tool";
 import { createGenerateImageTool } from "./generate-image-tool";
 import { loadPath } from "./store";
 import { type RunOf, startRun } from "./run";
+import { assistantState } from "../../../plugins/assistant/server/state";
 
 /** What a Run is planned for. A send writes a new reply; a resume continues a waiting one (ADR 0008). */
 export type RunPlanInput = {
@@ -141,7 +142,7 @@ export type StartPlanned = (run?: RunOf) => Promise<void>;
  * a throw. Answers the refusal, or what `use` returned.
  */
 export async function planRun<T>(
-  deps: AppDeps,
+  deps: BotSdkContext,
   input: RunPlanInput,
   use: (plan: RunPlan, start: StartPlanned) => Promise<T>,
 ): Promise<{ refused: PlanRefusal } | { done: T }> {
@@ -165,7 +166,7 @@ const refusal = (status: number, code: PlanRefusal["code"], params: ErrorParams 
 });
 
 async function buildPlan(
-  deps: AppDeps,
+  deps: BotSdkContext,
   input: RunPlanInput,
   opened: { mcp?: McpTools },
 ): Promise<{ refused: PlanRefusal } | { plan: RunPlan }> {
@@ -309,7 +310,7 @@ async function buildPlan(
 
 /** Decides which tools the Run offers. Every tool needs a Model with tools. */
 async function offeredFor(
-  deps: AppDeps,
+  deps: BotSdkContext,
   { userId, conversation: owned, web: webAsked, toolSettings }: RunPlanInput,
   model: CuratedModel,
   opened: { mcp?: McpTools },
@@ -355,9 +356,9 @@ async function offeredFor(
     knowledge,
     image: await imageToolFor(deps, userId, path),
     // The Artifact tools are offered only when the Host turned them on (ADR 0016).
-    artifacts: deps.artifacts,
+    artifacts: assistantState(deps).artifacts,
     // The Host's tools (`createBotSdk({ tools })`). A tool the Conversation allows runs without Approval (#159).
-    hostTools: allowTools(deps.tools, toolSettings.allowedTools),
+    hostTools: allowTools(assistantState(deps).tools, toolSettings.allowedTools),
     mcp: opened.mcp,
   };
 }
@@ -368,7 +369,7 @@ async function offeredFor(
  * (its key was removed) gives none too; the Host default isn't used in its place.
  */
 export async function resolveImageModelFor(
-  deps: Pick<AppDeps, "db" | "plugin">,
+  deps: Pick<BotSdkContext, "db" | "plugin">,
   userId: string,
 ): Promise<ResolvedImageModel | null> {
   const [row] = await deps.db
@@ -387,7 +388,7 @@ export async function resolveImageModelFor(
  * Run chats with no image tool rather than failing.
  */
 async function imageToolFor(
-  deps: AppDeps,
+  deps: BotSdkContext,
   userId: string,
   {
     pathMessageIds,
@@ -434,13 +435,13 @@ function replayFlagsOf(offered: Offered) {
  * The tools of one Run of the plan, each writing its calls to the Run's parts (ADR 0008). This is
  * the one place a Run's tools are built.
  */
-function toolsOf(deps: AppDeps, plan: RunPlan, run: RunToolState): AnyServerTool[] {
+function toolsOf(deps: BotSdkContext, plan: RunPlan, run: RunToolState): AnyServerTool[] {
   const { offered, context, replyId: messageId } = plan;
   return [
     ...(offered.webSearch
       ? [
           createWebSearchTool({
-            searchClient: deps.searchClient,
+            searchClient: assistantState(deps).searchClient,
             credentials: offered.webSearch.credentials,
             meter: offered.webSearch.meter,
             ...run,
@@ -462,7 +463,7 @@ function toolsOf(deps: AppDeps, plan: RunPlan, run: RunToolState): AnyServerTool
       ? [
           createFetchUrlTool({
             fetch: deps.fetch,
-            timeoutMs: deps.limits.fetchTimeoutMs,
+            timeoutMs: assistantState(deps).limits.fetchTimeoutMs,
             ...run,
           }),
         ]
@@ -489,7 +490,7 @@ function toolsOf(deps: AppDeps, plan: RunPlan, run: RunToolState): AnyServerTool
             messageId,
             deps,
             fetch: deps.fetch,
-            timeoutMs: deps.limits.imageTimeoutMs,
+            timeoutMs: assistantState(deps).limits.imageTimeoutMs,
             ...run,
           }),
         ]

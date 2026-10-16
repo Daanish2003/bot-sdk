@@ -52,7 +52,7 @@ async function setup({
   deps: overrides = {},
 }: {
   rounds: Parameters<typeof createFakeAdapter>[0]["rounds"];
-  tools: TestDeps["tools"];
+  tools: NonNullable<TestDepsOverrides["tools"]>;
   deps?: TestDepsOverrides;
 }) {
   const user: TestUser = await insertUser();

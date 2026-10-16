@@ -30,7 +30,7 @@ export const searchRouter = {
       if (input.cursor !== undefined && !cursor) {
         throw rpcError("BAD_REQUEST", "error.invalidCursor", "Invalid cursor");
       }
-      return searchMessages(context.deps, context.user.id, input.q, cursor, {
+      return searchMessages(context.sdk, context.user.id, input.q, cursor, {
         model: input.model,
         provider: input.provider,
         from: input.from === undefined ? undefined : new Date(input.from),

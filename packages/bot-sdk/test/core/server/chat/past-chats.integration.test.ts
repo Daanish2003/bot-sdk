@@ -8,7 +8,7 @@ import { loadSharedConversation } from "../../../../core/server/share/store";
 import type { ChatCommand } from "../../../../core/shared/chat/command";
 import { storedParts } from "../../../../core/shared/message-parts";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestSdk, type TestDeps } from "../../../support/deps";
+import { createTestSdk, type TestDeps, type TestDepsOverrides } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { chatRpc, sendAs } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
@@ -22,7 +22,7 @@ const searchCall = (id: string, query: string) =>
   toolCall({ id, name: "search_past_chats", input: { query } });
 
 /** A user with an Anthropic key and a scripted reply adapter. */
-async function setup(rounds: Rounds, overrides: Partial<TestDeps> = {}) {
+async function setup(rounds: Rounds, overrides: TestDepsOverrides = {}) {
   const user = await insertUser();
   const fake = createFakeAdapter({ rounds });
   const deps = createTestSdk({ adapterFor: () => fake.adapter, ...overrides });

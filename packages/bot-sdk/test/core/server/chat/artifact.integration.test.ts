@@ -486,10 +486,10 @@ describe("the artifact.version read", () => {
   });
 
   it("does not exist while Artifacts are off", async () => {
-    const { user, deps, artifactId, messageId } = await savedArtifact();
+    const { user, artifactId, messageId } = await savedArtifact();
 
     await expect(
-      chatRpc({ user, deps: { ...deps, artifacts: false } }).artifact.version({
+      chatRpc({ user, deps: createTestSdk({ artifacts: false }) }).artifact.version({
         artifactId,
         number: 1,
         messageId,

@@ -1,8 +1,7 @@
 import { toolDefinition } from "@tanstack/ai";
 import { z } from "zod";
 
-import type { AppDeps } from "../deps";
-import { rateLimitedFor } from "../rate-limits";
+import type { BotSdkContext } from "../plugin";
 import {
   type SearchPastChatsOutput,
   searchPastChatsError,
@@ -37,7 +36,7 @@ export function createSearchPastChatsTool({
   projectId,
   ...run
 }: RunToolState & {
-  deps: AppDeps;
+  deps: BotSdkContext;
   userId: string;
   conversationId: string;
   /** The current Conversation's Project, or null for a general Conversation. */
@@ -64,9 +63,8 @@ export function createSearchPastChatsTool({
         },
       },
       async ({ query }, { toolCallId }): Promise<SearchPastChatsOutput> => {
-        const retryAfter = await rateLimitedFor(
-          deps.counters,
-          deps.rateLimits.conversationSearch,
+        const retryAfter = await deps.rateLimit(
+          "conversationSearch",
           `conversationSearch:${userId}`,
         );
         if (retryAfter !== null) return failed(toolCallId);

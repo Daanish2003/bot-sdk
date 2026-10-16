@@ -37,6 +37,7 @@ import { createFakeAdapter, round, runError, text, toolCall } from "../../../sup
 import { chatRpc, sendAs } from "../../../support/sdk";
 import { getTestDb, testDatabaseUrl } from "../../../support/test-database";
 import { insertUser, type TestUser } from "../../../support/users";
+import { assistantState } from "../../../../plugins/assistant/server/state";
 
 // The Run's adapter: the handler's `createBotSdk` builds its adapters itself, so the module hands
 // it the scripted fake for each test.
@@ -561,7 +562,7 @@ describe("the onRunEnd hook", () => {
     // The owner wakes and tries to save its own ending; the Message has ended, so nothing fires.
     await held.releaseAll();
     await response.text();
-    await vi.waitFor(() => expect(deps.lifecycle.runs.size).toBe(0));
+    await vi.waitFor(() => expect(assistantState(deps).runs.size).toBe(0));
 
     expect(onRunEnd).toHaveBeenCalledTimes(1);
     expect(onRunEnd).toHaveBeenCalledWith(
@@ -587,7 +588,7 @@ describe("the onRunEnd hook", () => {
     // The owner's ending matches no row, yet its Run was on Host credentials and spent tokens.
     await held.releaseAll();
     await response.text();
-    await vi.waitFor(() => expect(deps.lifecycle.runs.size).toBe(0));
+    await vi.waitFor(() => expect(assistantState(deps).runs.size).toBe(0));
 
     const rows = await getTestDb().select().from(usage).where(eq(usage.userId, user.id));
     expect(rows).toHaveLength(1);
@@ -605,7 +606,7 @@ describe("the onRunEnd hook", () => {
     const response = await sendAs(runRequest(conv.id), user, deps);
     // The heartbeat is fresh, so the delete leaves the Run to its owner, which ends it after the commit.
     await deleteUserData(deps, user.id);
-    await vi.waitFor(() => expect(deps.lifecycle.runs.size).toBe(0));
+    await vi.waitFor(() => expect(assistantState(deps).runs.size).toBe(0));
     await response.text();
 
     expect(onRunEnd).not.toHaveBeenCalled();

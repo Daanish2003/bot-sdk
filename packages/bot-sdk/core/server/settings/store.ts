@@ -1,9 +1,9 @@
 import { userSettings } from "../db/schema";
 import { eq } from "drizzle-orm";
 
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 
-type Deps = Pick<AppDeps, "db">;
+type Deps = Pick<BotSdkContext, "db">;
 
 export type UserSettings = {
   backgroundModel: string | null;

@@ -49,7 +49,7 @@ describe("chat.getSharedConversation", () => {
     const { client } = chatFor(owner);
     const link = await client.rpc.share.upsert({ conversationId: conv.id });
 
-    const shared = await chatFor(null).chat.getSharedConversation(link.token);
+    const shared = await chatFor(null).chat.plugin("assistant").getSharedConversation(link.token);
 
     expect(shared).toMatchObject({ title: "Recursive CTEs" });
     expect(shared?.messages.map(({ role }) => role)).toEqual(["user", "assistant"]);
@@ -70,7 +70,7 @@ describe("chat.getSharedConversation", () => {
     const { client } = chatFor(owner);
     const link = await client.rpc.share.upsert({ conversationId: conv.id });
 
-    const shared = await chatFor(null).chat.getSharedConversation(link.token);
+    const shared = await chatFor(null).chat.plugin("assistant").getSharedConversation(link.token);
 
     expect(shared?.messages).toHaveLength(2);
     for (const shownMessage of shared?.messages ?? []) {
@@ -93,7 +93,7 @@ describe("chat.getSharedConversation", () => {
     await client.rpc.settings.setInstructions({ instructions: "Always mention my cat." });
     const link = await client.rpc.share.upsert({ conversationId: conv.id });
 
-    const shared = await chatFor(null).chat.getSharedConversation(link.token);
+    const shared = await chatFor(null).chat.plugin("assistant").getSharedConversation(link.token);
 
     expect(JSON.stringify(shared)).not.toContain("Always mention my cat.");
   });
@@ -111,7 +111,7 @@ describe("chat.getSharedConversation", () => {
     });
     const { chat, client } = chatFor(owner);
     const link = await client.rpc.share.upsert({ conversationId: conv.id });
-    const before = await chat.getSharedConversation(link.token);
+    const before = await chat.plugin("assistant").getSharedConversation(link.token);
     expect(before?.messages).toHaveLength(2);
 
     const second = await insertMessage({
@@ -128,7 +128,7 @@ describe("chat.getSharedConversation", () => {
       active: true,
     });
     const reshared = await client.rpc.share.upsert({ conversationId: conv.id });
-    const after = await chat.getSharedConversation(link.token);
+    const after = await chat.plugin("assistant").getSharedConversation(link.token);
 
     expect(reshared.token).toBe(link.token);
     expect(after?.messages.map(({ id }) => id)).toEqual([first.id, second.id, expect.any(String)]);
@@ -138,7 +138,7 @@ describe("chat.getSharedConversation", () => {
   it("returns null for an unknown token", async () => {
     const { chat } = chatFor(null);
 
-    expect(await chat.getSharedConversation("no-such-token")).toBeNull();
+    expect(await chat.plugin("assistant").getSharedConversation("no-such-token")).toBeNull();
   });
 
   it("returns null once the owner removes the link", async () => {
@@ -150,7 +150,7 @@ describe("chat.getSharedConversation", () => {
 
     await client.rpc.share.delete({ conversationId: conv.id });
 
-    expect(await chat.getSharedConversation(link.token)).toBeNull();
+    expect(await chat.plugin("assistant").getSharedConversation(link.token)).toBeNull();
   });
 
   it("returns null once the Conversation is deleted", async () => {
@@ -167,7 +167,7 @@ describe("chat.getSharedConversation", () => {
 
     await getTestDb().delete(conversation).where(eq(conversation.id, conv.id));
 
-    expect(await chat.getSharedConversation(link.token)).toBeNull();
+    expect(await chat.plugin("assistant").getSharedConversation(link.token)).toBeNull();
   });
 });
 
@@ -201,7 +201,7 @@ describe("chat.getSharedConversation with tool calls", () => {
     const { client } = chatFor(owner);
     const link = await client.rpc.share.upsert({ conversationId: conv.id });
 
-    const shared = await chatFor(null).chat.getSharedConversation(link.token);
+    const shared = await chatFor(null).chat.plugin("assistant").getSharedConversation(link.token);
     const [, reply] = shared?.messages ?? [];
 
     expect(reply?.parts).toEqual([
@@ -248,7 +248,7 @@ describe("chat.getSharedConversation with tool calls", () => {
     const { client } = chatFor(owner);
     const link = await client.rpc.share.upsert({ conversationId: conv.id });
 
-    const shared = await chatFor(null).chat.getSharedConversation(link.token);
+    const shared = await chatFor(null).chat.plugin("assistant").getSharedConversation(link.token);
     const [, reply] = shared?.messages ?? [];
 
     expect(reply?.parts).toEqual([
@@ -303,7 +303,7 @@ describe("chat.isUserBlocked", () => {
 
     const { chat, client } = chatBanning(owner, null);
 
-    expect(await chat.getSharedConversation(link.token)).toBeNull();
+    expect(await chat.plugin("assistant").getSharedConversation(link.token)).toBeNull();
     await expect(client.rpc.share.get({ token: link.token })).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
@@ -326,6 +326,8 @@ describe("chat.isUserBlocked", () => {
 
     const { chat } = chatBanning(someoneElse, null);
 
-    expect(await chat.getSharedConversation(link.token)).toMatchObject({ title: "Banned later" });
+    expect(await chat.plugin("assistant").getSharedConversation(link.token)).toMatchObject({
+      title: "Banned later",
+    });
   });
 });

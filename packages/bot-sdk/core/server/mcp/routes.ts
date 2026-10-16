@@ -1,4 +1,4 @@
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 import { beginSignIn, claimSignIn, saveTokens } from "./connections";
 import {
   authorizeUrl,
@@ -8,11 +8,9 @@ import {
   newState,
   SignInError,
 } from "./oauth";
+import { assistantState } from "../../../plugins/assistant/server/state";
 
-type Deps = Pick<
-  AppDeps,
-  "db" | "keyEncryptionSecrets" | "mcpServers" | "fetch" | "fetchAllowHosts"
->;
+type Deps = Pick<BotSdkContext, "db" | "keyring" | "plugin" | "fetch" | "fetchAllowHosts">;
 
 const text = (message: string, status: number) =>
   new Response(message, { status, headers: { "content-type": "text/plain; charset=utf-8" } });
@@ -35,7 +33,7 @@ export async function connectRoute(
   redirectUri: string,
 ) {
   const url = new URL(request.url);
-  const server = deps.mcpServers.find(
+  const server = assistantState(deps).mcpServers.find(
     (candidate) => candidate.key === url.searchParams.get("server"),
   );
   if (!server) return text("Unknown MCP server", 404);
@@ -79,7 +77,9 @@ export async function callbackRoute(
       400,
     );
   }
-  const server = deps.mcpServers.find((candidate) => candidate.key === pending.serverKey);
+  const server = assistantState(deps).mcpServers.find(
+    (candidate) => candidate.key === pending.serverKey,
+  );
   if (!server) return text("Unknown MCP server", 404);
   if (url.searchParams.has("error") || !code) {
     return text("The server didn't complete the sign-in", 400);

@@ -7,7 +7,7 @@ import { saveCredentials } from "../../../../plugins/models/server/credentials/s
 import { createLifecycle } from "../../../../core/server/lifecycle";
 import { redisRuntime, type BotSdkRuntime } from "../../../../core/server/runtime";
 import { insertConversation } from "../../../support/conversations";
-import { createTestSdk, type TestDeps } from "../../../support/deps";
+import { createTestSdk, type TestDeps, type TestDepsOverrides } from "../../../support/deps";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { chatRpc, sendAs } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
@@ -23,7 +23,7 @@ const redisUrl = process.env.TEST_REDIS_URL;
 const keyPrefix = "ai-chat-96:";
 const anthropicModel = "anthropic:claude-sonnet-5-5";
 
-type Limits = Partial<TestDeps["limits"]>;
+type Limits = NonNullable<TestDepsOverrides["limits"]>;
 
 type Instance = {
   deps: TestDeps;

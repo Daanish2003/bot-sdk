@@ -1,4 +1,4 @@
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 import { type LatestOnBranch, latestOnBranch } from "../artifact/store";
 
 /**
@@ -7,7 +7,7 @@ import { type LatestOnBranch, latestOnBranch } from "../artifact/store";
  * are never sent. Nothing when the Branch that ends at `leafId` has no Artifact.
  */
 export async function artifactContextPrompts(
-  deps: Pick<AppDeps, "db">,
+  deps: Pick<BotSdkContext, "db">,
   conversationId: string,
   leafId: string | null,
 ): Promise<string[]> {

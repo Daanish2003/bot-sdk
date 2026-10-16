@@ -13,6 +13,7 @@ import { findModel } from "../../../../core/shared/chat/models";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { START } from "../../../../core/server/chat/run-streams";
 import { EventType, type StreamChunk } from "@tanstack/ai";
+import { assistantState } from "../../../../plugins/assistant/server/state";
 
 async function rowOf(deps: ReturnType<typeof createTestSdk>, id: string) {
   const [row] = await deps.db.select().from(message).where(eq(message.id, id));
@@ -21,7 +22,8 @@ async function rowOf(deps: ReturnType<typeof createTestSdk>, id: string) {
 
 async function logOf(deps: ReturnType<typeof createTestSdk>, id: string) {
   const chunks: StreamChunk[] = [];
-  for await (const entry of deps.runStreams.read(id, START)) chunks.push(entry.chunk);
+  for await (const entry of assistantState(deps).runStreams.read(id, START))
+    chunks.push(entry.chunk);
   return chunks;
 }
 

@@ -3,19 +3,17 @@ import { createMCPClient } from "@tanstack/ai-mcp";
 
 import type { ConversationTools } from "../../shared/chat/conversation-tools";
 import { allowTools } from "../chat/host-tools";
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 import { isExpired, readTokens, saveTokens } from "./connections";
 import { discoverEndpoints, refreshAccess } from "./oauth";
 import type { McpServerConfig } from "./servers";
+import { assistantState } from "../../../plugins/assistant/server/state";
 
 /**
  * The MCP tools a Run offers (spec #91): one client per Connection switched on in the
  * Conversation, opened when the Run starts and closed when it ends.
  */
-type Deps = Pick<
-  AppDeps,
-  "db" | "keyEncryptionSecrets" | "mcpServers" | "fetch" | "fetchAllowHosts"
->;
+type Deps = Pick<BotSdkContext, "db" | "keyring" | "plugin" | "fetch" | "fetchAllowHosts">;
 
 export type McpTools = { tools: AnyServerTool[]; close: () => Promise<void> };
 
@@ -60,7 +58,7 @@ async function accessTokenFor(deps: Deps, userId: string, server: McpServerConfi
 export async function openMcpTools(deps: Deps, userId: string, keys: string[]): Promise<McpTools> {
   const tools: AnyServerTool[] = [];
   const clients: Array<{ close: () => Promise<void> }> = [];
-  for (const server of deps.mcpServers) {
+  for (const server of assistantState(deps).mcpServers) {
     if (!keys.includes(server.key)) continue;
     try {
       const accessToken = await accessTokenFor(deps, userId, server);
@@ -103,7 +101,7 @@ export async function mcpToolsFor(
   settings: ConversationTools,
 ): Promise<McpTools | undefined> {
   const keys = settings.connections.filter((key) =>
-    deps.mcpServers.some((server) => server.key === key),
+    assistantState(deps).mcpServers.some((server) => server.key === key),
   );
   if (keys.length === 0) return undefined;
   const opened = await openMcpTools(deps, userId, keys);

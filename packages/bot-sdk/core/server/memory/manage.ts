@@ -2,9 +2,10 @@ import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { conversation, project, memory, userSettings } from "../db/schema";
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 import { defineJob } from "../jobs/define";
 import { rpcError } from "../rpc-error";
+import { assistantState } from "../../../plugins/assistant/server/state";
 
 /** What the Memory page shows about the user's Memories and whether Memory can work. */
 export type MemoryStatus = {
@@ -35,26 +36,29 @@ export type MemoryGroup = {
 };
 
 /** Refuses the procedures when the Host has turned Memory off, so the page can't reach them. */
-export function requireHostMemory(deps: Pick<AppDeps, "memory">) {
-  if (!deps.memory) throw rpcError("NOT_FOUND", "error.memoryOff", "Memory is off for this Host");
+export function requireHostMemory(deps: Pick<BotSdkContext, "plugin">) {
+  if (!assistantState(deps).memory)
+    throw rpcError("NOT_FOUND", "error.memoryOff", "Memory is off for this Host");
 }
 
 /** The user's Memory switch and whether an embedding Model is there for it. */
-export async function memoryStatus(deps: AppDeps, userId: string): Promise<MemoryStatus> {
+export async function memoryStatus(deps: BotSdkContext, userId: string): Promise<MemoryStatus> {
   const [settings] = await deps.db
     .select({ memoryEnabled: userSettings.memoryEnabled })
     .from(userSettings)
     .where(eq(userSettings.userId, userId));
-  const embedding = deps.memory ? await deps.plugin("models").defaultEmbeddingModel(userId) : null;
+  const embedding = assistantState(deps).memory
+    ? await deps.plugin("models").defaultEmbeddingModel(userId)
+    : null;
   return {
-    hostEnabled: deps.memory,
+    hostEnabled: assistantState(deps).memory,
     enabled: settings?.memoryEnabled ?? true,
     embeddingAvailable: embedding !== null,
   };
 }
 
 /** Saves the "Use and make Memories" switch. Off keeps every Memory; it only stops using and making them. */
-export async function setMemoryEnabled(deps: AppDeps, userId: string, enabled: boolean) {
+export async function setMemoryEnabled(deps: BotSdkContext, userId: string, enabled: boolean) {
   await deps.db
     .insert(userSettings)
     .values({ userId, memoryEnabled: enabled })
@@ -65,7 +69,7 @@ export async function setMemoryEnabled(deps: AppDeps, userId: string, enabled: b
  * The user's valid Memories, grouped General first and then by Project, the newest first in each
  * group. Outdated Memories are left out.
  */
-export async function listMemories(deps: AppDeps, userId: string): Promise<MemoryGroup[]> {
+export async function listMemories(deps: BotSdkContext, userId: string): Promise<MemoryGroup[]> {
   const rows = await deps.db
     .select({
       id: memory.id,
@@ -121,7 +125,7 @@ const noEmbeddingModel = () =>
  * Changes a valid Memory's text. It is embedded again with the user's embedding Model and keeps
  * its source Message and Conversation.
  */
-export async function editMemory(deps: AppDeps, userId: string, id: string, text: string) {
+export async function editMemory(deps: BotSdkContext, userId: string, id: string, text: string) {
   const [row] = await deps.db
     .select({ id: memory.id })
     .from(memory)
@@ -146,7 +150,7 @@ export async function editMemory(deps: AppDeps, userId: string, id: string, text
 }
 
 /** Hard-deletes one of the user's Memories, valid or outdated. */
-export async function deleteMemory(deps: AppDeps, userId: string, id: string) {
+export async function deleteMemory(deps: BotSdkContext, userId: string, id: string) {
   const removed = await deps.db
     .delete(memory)
     .where(and(eq(memory.id, id), eq(memory.userId, userId)))
@@ -155,7 +159,7 @@ export async function deleteMemory(deps: AppDeps, userId: string, id: string) {
 }
 
 /** Hard-deletes every Memory the user has, valid or outdated. */
-export async function deleteAllMemories(deps: AppDeps, userId: string) {
+export async function deleteAllMemories(deps: BotSdkContext, userId: string) {
   await deps.db.delete(memory).where(eq(memory.userId, userId));
 }
 

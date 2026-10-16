@@ -11,10 +11,10 @@ export function bindModelsDeps(api: object, deps: ModelsDeps): void {
 
 /**
  * The `models` plugin's own `ModelsDeps`, for its procedures, found through the request context's
- * `plugin("models")`.
+ * `sdk.plugin("models")`.
  */
-export function modelsDeps(context: Pick<Context, "plugin">): ModelsDeps {
-  const state = states.get(context.plugin("models"));
+export function modelsDeps(context: Pick<Context, "sdk">): ModelsDeps {
+  const state = states.get(context.sdk.plugin("models"));
   if (!state) throw new Error("The models plugin isn't enabled");
   return state;
 }

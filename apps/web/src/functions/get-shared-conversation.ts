@@ -9,4 +9,7 @@ import { sdk } from "@/services";
  */
 export const getSharedConversation = createServerFn({ method: "GET" })
   .inputValidator((token: string) => token)
-  .handler(async ({ data: token }) => (await sdk.getSharedConversation(token)) as never);
+  .handler(
+    async ({ data: token }) =>
+      (await sdk.plugin("assistant").getSharedConversation(token)) as never,
+  );

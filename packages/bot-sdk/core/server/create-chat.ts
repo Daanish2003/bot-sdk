@@ -1,8 +1,7 @@
 import { onError } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 
-import type { SharedConversation } from "../shared/share/conversation";
-import type { RatingTotal } from "./admin/ratings";
+import { assistantState, type AssistantState } from "../../plugins/assistant/server/state";
 import { modelsOver } from "../../plugins/models/server/plugin";
 import type { ModelsDeps } from "../../plugins/models/server/types";
 import { assistantOver } from "./assistant";
@@ -11,8 +10,8 @@ import type { BlobStore } from "./blob/store";
 import { createHookEmitter } from "./chat/hooks";
 import type { ChatUser, Context } from "./context";
 import { createDb } from "./db/index";
-import type { AppDeps } from "./deps";
-import type { UserExport } from "./export-user";
+import { deleteUserData } from "./delete-user";
+import { exportUserData, type UserExport } from "./export-user";
 import { createGuardedFetch } from "./lib/guarded-fetch";
 import { assertMigrated, migrate as migrateSchema } from "./migrate";
 import {
@@ -23,12 +22,13 @@ import {
   orderPlugins,
   type BotSdkContext,
   type BotSdkPlugin,
+  type CoreRule,
   type HooksOf,
   type PluginApis,
   type RateLimitsOf,
   type Route,
 } from "./plugin";
-import { rateLimitedFor, rpcRateLimits, type RateLimit } from "./rate-limits";
+import { defaultRateLimits, rateLimitedFor, rpcRateLimits, type RateLimit } from "./rate-limits";
 import { memoryRuntime, type BotSdkRuntime } from "./runtime";
 
 export type ChatHandler = (request: Request) => Promise<Response>;
@@ -101,23 +101,17 @@ export type BotSdk = {
   migrate: () => Promise<void>;
   /**
    * Refuses (throws) while the `chat` schema is behind the bundled migrations; then starts each
-   * plugin, in dependency order. The assistant refuses with neither `hostProviders` nor `byok` on,
-   * then starts the reaper: now, and every 30 s (ADR 0006).
+   * plugin, in dependency order. `models` refuses with neither `hostProviders` nor `byok` on; the
+   * assistant starts the reaper (now, and every 30 s, ADR 0006) and the
+   * jobs runner.
    */
   start: () => Promise<void>;
   /**
    * Sets `stopping`, stops each plugin in reverse dependency order, then closes the runtime's
    * connections. The assistant refuses new Runs with 503 and lets local Runs finish for up to
-   * `drainMs` (250 s), then ends the rest as interrupted. Call it on SIGTERM.
+   * `drainMs` (250 s), then ends the rest as interrupted, then drains its jobs. Call it on SIGTERM.
    */
   stop: () => Promise<void>;
-  /** The public Shared link snapshot for a token, or `null` for an unknown or removed link. */
-  getSharedConversation: (token: string) => Promise<SharedConversation | null>;
-  /**
-   * Runs a job's handler in this process, with the payload validated against the job's schema.
-   * Rejects an unknown name or a bad payload. A Host's worker (such as a Trigger.dev task) calls it.
-   */
-  runJob: (name: string, payload: unknown) => Promise<void>;
   /** Deletes everything the SDK holds for a user, in one transaction. Idempotent. */
   deleteUser: (userId: string) => Promise<void>;
   /** Everything the SDK keeps for a user, as one document (`version: 1`). Empty for an unknown id. */
@@ -128,23 +122,16 @@ export type BotSdk = {
    * as a one-off command, never in the pre-deploy step.
    */
   rotateKeys: () => Promise<{ reencrypted: number; unreadable: number }>;
-  /**
-   * Server-only actions for the Host's Admin views (spec #277). No HTTP route: the Host decides
-   * who may call them. Usage and Quota reads are the `models` plugin's (`plugin("models")`).
-   */
-  admin: {
-    /**
-     * Stops every live Run of the user's, through the same path as Stop (spec #277). A Run whose
-     * owner is gone ends `stopped` here; the others end when their owner sees the Stop.
-     */
-    stopRuns: (userId: string) => Promise<void>;
-    /** 👍 and 👎 counts per Model over Ratings stamped at or after `since` (spec #277). */
-    ratingTotals: (range: { since: Date }) => Promise<RatingTotal[]>;
-  };
+};
+
+/** The rate-limit rules the core declares itself, and their defaults. */
+const coreRateLimits: Record<CoreRule, RateLimit> = {
+  attachmentUpload: defaultRateLimits.attachmentUpload,
+  conversationSearch: defaultRateLimits.conversationSearch,
 };
 
 /** The parts of the core context a test may give instead of having them built. */
-type GivenContext = Partial<Omit<BotSdkContext, "plugin" | "rateLimit">>;
+export type GivenContext = Partial<Omit<BotSdkContext, "plugin" | "rateLimit">>;
 
 /**
  * The Bot SDK for a Host: one instance over its plugins (ADR 0020). Construction checks each
@@ -155,10 +142,13 @@ type GivenContext = Partial<Omit<BotSdkContext, "plugin" | "rateLimit">>;
 export function createBotSdk<const Plugins extends readonly BotSdkPlugin[]>(
   options: BotSdkOptions<Plugins>,
 ): BotSdk {
-  return buildBotSdk(options, {});
+  return buildBotSdk(options, {}).instance;
 }
 
-function buildBotSdk(options: BotSdkOptions, given: GivenContext): BotSdk {
+function buildBotSdk(
+  options: BotSdkOptions,
+  given: GivenContext,
+): { instance: BotSdk; context: BotSdkContext } {
   if (options.keyEncryptionSecrets.length === 0) {
     throw new Error("keyEncryptionSecrets must hold at least one secret");
   }
@@ -168,7 +158,7 @@ function buildBotSdk(options: BotSdkOptions, given: GivenContext): BotSdk {
   const plugins = orderPlugins(options.plugins);
   const router = mergeRouters(plugins);
   const routes = mergeRoutes(plugins);
-  const ruleDefaults = mergeRateLimits(plugins);
+  const ruleDefaults = mergeRateLimits([{ id: "core", rateLimits: coreRateLimits }, ...plugins]);
 
   const apis = new Map<string, object>();
   // Building the context opens nothing: the pool and the runtime connect on first use.
@@ -180,10 +170,8 @@ function buildBotSdk(options: BotSdkOptions, given: GivenContext): BotSdk {
   // In dependency order, so a plugin's `init` can call the plugins it requires.
   for (const plugin of plugins) apis.set(plugin.id, plugin.init?.(sdk)?.api ?? {});
 
-  // Until the core carves them out (spec #439), these are the temporary assistant plugin's.
-  const assistantApi = () => sdk.plugin("assistant");
-  return {
-    handler: createHandler(options, plugins, router, routes, sdk),
+  const instance: BotSdk = {
+    handler: createHandler(options, router, routes, sdk),
     plugin: sdk.plugin,
     migrate: () => migrateSchema(options.databaseUrl),
     start: async () => {
@@ -199,10 +187,9 @@ function buildBotSdk(options: BotSdkOptions, given: GivenContext): BotSdk {
         await options.runtime?.close?.();
       }
     },
-    getSharedConversation: (token) => assistantApi().getSharedConversation(token),
-    runJob: (name, payload) => assistantApi().runJob(name, payload),
-    deleteUser: (userId) => assistantApi().deleteUser(userId),
-    exportUser: (userId) => assistantApi().exportUser(userId),
+    // The assistant's tables until each plugin deletes and exports its own (#449).
+    deleteUser: (userId) => deleteUserData(sdk, userId),
+    exportUser: (userId) => exportUserData(sdk, userId),
     rotateKeys: async () => {
       const total = { reencrypted: 0, unreadable: 0 };
       for (const plugin of plugins) {
@@ -212,11 +199,8 @@ function buildBotSdk(options: BotSdkOptions, given: GivenContext): BotSdk {
       }
       return total;
     },
-    admin: {
-      stopRuns: (userId) => assistantApi().admin.stopRuns(userId),
-      ratingTotals: (range) => assistantApi().admin.ratingTotals(range),
-    },
   };
+  return { instance, context: sdk };
 }
 
 /** The core context: the infrastructure from the options, with any `given` part in its place. */
@@ -231,11 +215,13 @@ function buildContext(
   const runtime = given.runtime ?? options.runtime ?? memoryRuntime();
   const counters = given.counters ?? runtime.counters;
   const overrides: Partial<Record<string, RateLimit | false>> = options.rateLimits ?? {};
-  const rateLimits =
-    given.rateLimits ??
-    Object.fromEntries(
+  // A given rule replaces its default; the rest keep theirs, so `rateLimit` finds every rule.
+  const rateLimits = {
+    ...Object.fromEntries(
       Object.entries(ruleDefaults).map(([rule, limit]) => [rule, overrides[rule] ?? limit]),
-    );
+    ),
+    ...given.rateLimits,
+  };
   const fetchAllowHosts = given.fetchAllowHosts ?? options.fetchAllowHosts ?? [];
   return {
     db,
@@ -266,44 +252,45 @@ function buildContext(
 type OverOptions = Pick<BotSdkOptions, "basePath" | "getUser" | "getClientIp" | "logger">;
 
 /**
- * A real instance whose `models` and `assistant` plugins and core context run on `deps`: the seam
- * the tests and evals drive with fakes.
+ * What the tests and evals drive: the core context of an instance over fakes, with its `models`
+ * plugin's bundle. The `assistant` plugin's state is `assistantState(sdk)`.
  */
-export function createBotSdkOver(deps: AppDeps & ModelsDeps, options: OverOptions): BotSdk {
-  return buildBotSdk(
+export type SdkOver = BotSdkContext & ModelsDeps;
+
+/**
+ * A real instance whose core context, `models` and `assistant` plugins take the given parts in place
+ * of built ones: the seam the tests and evals drive with fakes. Returns the instance and its
+ * context with the `models` bundle.
+ */
+export function createBotSdkOver(
+  given: { context: GivenContext; models: ModelsDeps; assistant: Partial<AssistantState> },
+  options: OverOptions,
+): { instance: BotSdk; sdk: SdkOver } {
+  const { instance, context } = buildBotSdk(
     {
       ...options,
       databaseUrl: "",
-      keyEncryptionSecrets: deps.keyEncryptionSecrets,
-      plugins: [modelsOver(deps), assistantOver(deps)],
+      keyEncryptionSecrets: given.context.keyring ?? given.models.keyEncryptionSecrets,
+      plugins: [modelsOver(given.models), assistantOver(given.assistant)],
     },
-    {
-      db: deps.db,
-      blobStore: deps.blobStore,
-      pubsub: deps.pubsub,
-      counters: deps.counters,
-      logger: deps.logger,
-      events: deps.hooks,
-      fetch: deps.fetch,
-      fetchAllowHosts: deps.fetchAllowHosts,
-      clock: deps.clock,
-      keyring: deps.keyEncryptionSecrets,
-      lifecycle: deps.lifecycle,
-      runtime: { runStreams: deps.runStreams, pubsub: deps.pubsub, counters: deps.counters },
-      isUserBlocked: deps.isUserBlocked,
-      rateLimits: deps.rateLimits,
-    },
+    given.context,
   );
+  return { instance, sdk: { ...given.models, ...context } };
 }
 
-/** The handler of `createBotSdkOver(deps, options)`. */
-export function createChatHandler(deps: AppDeps & ModelsDeps, options: OverOptions): ChatHandler {
-  return createBotSdkOver(deps, options).handler;
+/**
+ * The handler of a new instance over `sdk`'s parts (a `createBotSdkOver` context, or a copy of one
+ * with some parts replaced): its core context, `models` bundle and `assistant` state.
+ */
+export function createChatHandler(sdk: SdkOver, options: OverOptions): ChatHandler {
+  const { plugin: _plugin, rateLimit: _rateLimit, ...context } = sdk;
+  const models = { ...sdk, hooks: sdk.events, keyEncryptionSecrets: sdk.keyring };
+  return createBotSdkOver({ context, models, assistant: assistantState(sdk) }, options).instance
+    .handler;
 }
 
 function createHandler(
   { basePath, getUser, getClientIp, logger = console }: BotSdkOptions,
-  plugins: readonly BotSdkPlugin[],
   router: ReturnType<typeof mergeRouters>,
   routes: readonly Route[],
   sdk: BotSdkContext,
@@ -315,11 +302,6 @@ function createHandler(
   const rpc = new RPCHandler(router, {
     interceptors: [onError((error) => logger.error(error))],
   });
-  // Until the core context replaces `AppDeps` (spec #439), the procedures read the assistant's;
-  // an instance without it serves only procedures that don't.
-  const assistantDeps = plugins.some((plugin) => plugin.id === "assistant")
-    ? sdk.plugin("assistant").deps
-    : undefined;
   const matchRoute = (request: Request, path: string | null, isPublic: boolean) => {
     if (path === null) return null;
     for (const route of routes) {
@@ -351,7 +333,7 @@ function createHandler(
         const refused = await rpcRateLimitRefusal(sdk, user.id, pathname.slice(rpcPrefix.length));
         if (refused) return refused;
       }
-      const context: Context = { user, deps: assistantDeps as AppDeps, plugin: sdk.plugin };
+      const context: Context = { user, sdk };
       const result = await rpc.handle(request, { prefix: rpcPrefix, context });
       return result.matched ? result.response : notFound();
     }

@@ -263,7 +263,7 @@ describe("chat.admin.stopRuns", () => {
       plugins: [models(), assistant()],
     });
 
-    await chat.admin.stopRuns(owner.id);
+    await chat.plugin("assistant").stopRuns(owner.id);
 
     const [ended] = await getTestDb().select().from(message).where(eq(message.id, orphan.id));
     expect(ended).toMatchObject({ status: "stopped", cancelRequestedAt: expect.any(Date) });
@@ -289,7 +289,7 @@ describe("chat.admin.stopRuns", () => {
       plugins: [models(), assistant()],
     });
 
-    await chat.admin.stopRuns(owner.id);
+    await chat.plugin("assistant").stopRuns(owner.id);
 
     const [row] = await getTestDb().select().from(message).where(eq(message.id, live.id));
     expect(row).toMatchObject({ status: "streaming", cancelRequestedAt: expect.any(Date) });
@@ -326,7 +326,7 @@ describe("chat.admin.ratingTotals", () => {
       plugins: [models(), assistant()],
     });
 
-    const totals = await chat.admin.ratingTotals({ since });
+    const totals = await chat.plugin("assistant").ratingTotals({ since });
 
     expect(totals.sort((a, b) => a.model.localeCompare(b.model))).toEqual([
       { model: haiku, up: 0, down: 1 },
@@ -361,10 +361,14 @@ describe("chat.admin.ratingTotals", () => {
       basePath,
       plugins: [models(), assistant()],
     });
-    expect(await chat.admin.ratingTotals({ since })).toEqual([{ model: sonnet, up: 1, down: 1 }]);
+    expect(await chat.plugin("assistant").ratingTotals({ since })).toEqual([
+      { model: sonnet, up: 1, down: 1 },
+    ]);
 
     await getTestDb().delete(message).where(eq(message.id, gone.id));
 
-    expect(await chat.admin.ratingTotals({ since })).toEqual([{ model: sonnet, up: 1, down: 0 }]);
+    expect(await chat.plugin("assistant").ratingTotals({ since })).toEqual([
+      { model: sonnet, up: 1, down: 0 },
+    ]);
   });
 });

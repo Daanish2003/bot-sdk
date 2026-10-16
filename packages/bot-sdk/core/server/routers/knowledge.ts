@@ -25,7 +25,7 @@ export const knowledgeRouter = {
   list: protectedProcedure
     .input(z.object({ projectId: z.uuid() }))
     .handler(async ({ context, input }) => {
-      const knowledge = await knowledgeOf(context.deps, context.user.id, input.projectId);
+      const knowledge = await knowledgeOf(context.sdk, context.user.id, input.projectId);
       if (!knowledge) throw rpcError("NOT_FOUND", "error.projectNotFound", "Project not found");
       return knowledge;
     }),
@@ -64,7 +64,7 @@ export const knowledgeRouter = {
           { name: file.name },
         );
       }
-      return uploadKnowledgeFile(context.deps, context.user.id, projectId, {
+      return uploadKnowledgeFile(context.sdk, context.user.id, projectId, {
         name: file.name,
         mediaType,
         bytes,
@@ -75,21 +75,21 @@ export const knowledgeRouter = {
   retry: protectedProcedure
     .input(z.object({ projectId: z.uuid(), fileId: z.uuid() }))
     .handler(async ({ context, input }) => {
-      await retryKnowledgeFile(context.deps, context.user.id, input.projectId, input.fileId);
+      await retryKnowledgeFile(context.sdk, context.user.id, input.projectId, input.fileId);
     }),
 
   /** Deletes a Knowledge file, its passages and its bytes, whatever its status. */
   delete: protectedProcedure
     .input(z.object({ projectId: z.uuid(), fileId: z.uuid() }))
     .handler(async ({ context, input }) => {
-      await deleteKnowledgeFile(context.deps, context.user.id, input.projectId, input.fileId);
+      await deleteKnowledgeFile(context.sdk, context.user.id, input.projectId, input.fileId);
     }),
 
   /** Sets the Project's embedding Model; refused once the Project has files. */
   setModel: protectedProcedure
     .input(z.object({ projectId: z.uuid(), model: z.string().min(1) }))
     .handler(async ({ context, input }) => {
-      await setKnowledgeModel(context.deps, context.user.id, input.projectId, input.model);
+      await setKnowledgeModel(context.sdk, context.user.id, input.projectId, input.model);
     }),
 };
 

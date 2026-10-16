@@ -3,11 +3,12 @@ import { resumeServerSentEventsResponse } from "@tanstack/ai";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 import type { ChatUser } from "../context";
 import { runLogId } from "./run";
 import { liveConversation } from "./temporary";
 import { runStreamDurability, START } from "./run-streams";
+import { assistantState } from "../../../plugins/assistant/server/state";
 
 /** A refusal: its HTTP status, and a body of the dictionary code and its params (spec #256). */
 const refuse = (status: number, code: "error.invalidRunId" | "error.runNotFound") =>
@@ -23,7 +24,7 @@ const runIdSchema = z.uuid();
 export async function handleJoin(
   request: Request,
   user: ChatUser,
-  deps: AppDeps,
+  deps: BotSdkContext,
 ): Promise<Response> {
   const url = new URL(request.url);
   const runId = runIdSchema.safeParse(url.searchParams.get("runId"));
@@ -48,6 +49,10 @@ export async function handleJoin(
   const resumeFrom =
     request.headers.get("Last-Event-ID") ?? url.searchParams.get("offset") ?? START;
   return resumeServerSentEventsResponse({
-    adapter: runStreamDurability(deps.runStreams, runLogId(owned.id, owned.runNumber), resumeFrom),
+    adapter: runStreamDurability(
+      assistantState(deps).runStreams,
+      runLogId(owned.id, owned.runNumber),
+      resumeFrom,
+    ),
   });
 }

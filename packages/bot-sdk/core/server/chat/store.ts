@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import { attachmentsOfMessages } from "../attachments/store";
 import { deleteBlobsBestEffort } from "../blob/store";
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 import { generatedImageKeysWhere, imagesOfMessages } from "./generated-image-store";
 import { withProjectId } from "./hooks";
 import { turnChangesOf } from "../memory/notice";
@@ -14,7 +14,7 @@ import { type ActiveBranchMessage, toClientMessage } from "../../shared/chat/cli
 import type { ReasoningChoice } from "../../shared/chat/models";
 import { liveConversation } from "./temporary";
 
-type Deps = Pick<AppDeps, "db">;
+type Deps = Pick<BotSdkContext, "db">;
 
 /**
  * Matches the Conversation `id` only when `userId` owns it and it is live: an expired Temporary
@@ -112,7 +112,7 @@ export async function setConversationConnections(
  * isn't theirs. Fires `onConversationDeleted` after the delete (#266).
  */
 export async function deleteConversation(
-  deps: Pick<AppDeps, "db" | "hooks" | "blobStore" | "logger">,
+  deps: Pick<BotSdkContext, "db" | "events" | "blobStore" | "logger">,
   userId: string,
   id: string,
 ) {
@@ -130,7 +130,7 @@ export async function deleteConversation(
   });
   await deleteBlobsBestEffort(deps, blobKeys);
   if (!row) return false;
-  deps.hooks.fire("onConversationDeleted", {
+  deps.events.fire("onConversationDeleted", {
     userId,
     conversationId: row.id,
     ...withProjectId(row.projectId),

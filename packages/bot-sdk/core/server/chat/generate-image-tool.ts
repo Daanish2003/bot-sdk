@@ -8,7 +8,7 @@ import { z } from "zod";
 
 import { deleteBlobsBestEffort, generatedImageBlobKey } from "../blob/store";
 import { generatedImage } from "../db/schema";
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 import { ImageRefusedError } from "../deps";
 import { uuidv7 } from "../lib/uuidv7";
 import {
@@ -133,9 +133,9 @@ export function createGenerateImageTool({
   /** The assistant Message whose reply this call belongs to; the image's row is owned by it. */
   messageId: string;
   /** The rows and the blob store the finished image is kept in (ADR 0015). */
-  deps: Pick<AppDeps, "db" | "blobStore" | "logger">;
+  deps: Pick<BotSdkContext, "db" | "blobStore" | "logger">;
   /** The SSRF-guarded `fetch`, for an image the Provider returns as a URL. */
-  fetch: AppDeps["fetch"];
+  fetch: BotSdkContext["fetch"];
   timeoutMs: number;
   /**
    * The Image Model's input-image limit, and how a call's `editImageIds` resolve to the images it

@@ -18,12 +18,12 @@ import { uuidv7 } from "../lib/uuidv7";
 export const projectRouter = {
   /** The caller's Projects, newest activity first. */
   list: protectedProcedure.handler(async ({ context }) => ({
-    items: await listProjects(context.deps, context.user.id),
+    items: await listProjects(context.sdk, context.user.id),
   })),
 
   /** One of the caller's Projects; `defaultModel` and `instructions` are null when it has none. */
   get: protectedProcedure.input(z.object({ id: z.uuid() })).handler(async ({ context, input }) => {
-    const row = await findProject(context.deps, context.user.id, input.id);
+    const row = await findProject(context.sdk, context.user.id, input.id);
     if (!row) throw rpcError("NOT_FOUND", "error.projectNotFound", "Project not found");
     return {
       id: row.id,
@@ -50,7 +50,7 @@ export const projectRouter = {
     )
     .handler(async ({ context, input }) => {
       const userId = context.user.id;
-      if (!(await findProject(context.deps, userId, input.id))) {
+      if (!(await findProject(context.sdk, userId, input.id))) {
         throw rpcError("NOT_FOUND", "error.projectNotFound", "Project not found");
       }
       if (input.instructions && input.instructions.length > instructionsMaxChars) {
@@ -72,7 +72,7 @@ export const projectRouter = {
         changes.instructions = input.instructions?.trim() || null;
       }
       if (typeof input.defaultModel === "string") {
-        const model = await context.deps.plugin("models").resolveModel(userId, input.defaultModel);
+        const model = await context.sdk.plugin("models").resolveModel(userId, input.defaultModel);
         if (!model) {
           throw rpcError(
             "BAD_REQUEST",
@@ -83,14 +83,14 @@ export const projectRouter = {
             },
           );
         }
-        if (!(await context.deps.plugin("models").resolveModelCall(userId, model.id))) {
-          throw unusableModelError(model.provider, context.deps.plugin("models").byok);
+        if (!(await context.sdk.plugin("models").resolveModelCall(userId, model.id))) {
+          throw unusableModelError(model.provider, context.sdk.plugin("models").byok);
         }
         changes.defaultModel = model.id;
       } else if (input.defaultModel === null) {
         changes.defaultModel = null;
       }
-      await context.deps.db
+      await context.sdk.db
         .update(project)
         .set(changes)
         .where(and(eq(project.id, input.id), eq(project.userId, userId)));
@@ -100,7 +100,7 @@ export const projectRouter = {
   create: protectedProcedure
     .input(z.object({ name: z.string().trim().min(1).max(100) }))
     .handler(async ({ context, input }) => {
-      if ((await countProjects(context.deps, context.user.id)) >= projectLimit) {
+      if ((await countProjects(context.sdk, context.user.id)) >= projectLimit) {
         throw rpcError(
           "BAD_REQUEST",
           "error.projectLimit",
@@ -111,7 +111,7 @@ export const projectRouter = {
         );
       }
       const id = uuidv7();
-      await context.deps.db
+      await context.sdk.db
         .insert(project)
         .values({ id, userId: context.user.id, name: input.name });
       return { id };
@@ -121,7 +121,7 @@ export const projectRouter = {
   conversationCount: protectedProcedure
     .input(z.object({ id: z.uuid() }))
     .handler(async ({ context, input }) => {
-      const count = await countProjectConversations(context.deps, context.user.id, input.id);
+      const count = await countProjectConversations(context.sdk, context.user.id, input.id);
       if (count === undefined)
         throw rpcError("NOT_FOUND", "error.projectNotFound", "Project not found");
       return { count };
@@ -134,7 +134,7 @@ export const projectRouter = {
   delete: protectedProcedure
     .input(z.object({ id: z.uuid() }))
     .handler(async ({ context, input }) => {
-      const count = await deleteProject(context.deps, context.user.id, input.id);
+      const count = await deleteProject(context.sdk, context.user.id, input.id);
       if (count === undefined)
         throw rpcError("NOT_FOUND", "error.projectNotFound", "Project not found");
       return { count };

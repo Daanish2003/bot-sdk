@@ -59,7 +59,7 @@ function isNameClashViolation(error: unknown): boolean {
 export const savedPromptRouter = {
   /** The caller's Saved prompts, by name. */
   list: protectedProcedure.handler(async ({ context }) => {
-    const items = await context.deps.db
+    const items = await context.sdk.db
       .select({
         id: savedPrompt.id,
         name: savedPrompt.name,
@@ -77,7 +77,7 @@ export const savedPromptRouter = {
    * prompts.
    */
   create: protectedProcedure.input(savedPromptInput).handler(async ({ context, input }) => {
-    const { db } = context.deps;
+    const { db } = context.sdk;
     const userId = context.user.id;
     checkSavedPrompt(input);
     const [clash] = await db
@@ -111,7 +111,7 @@ export const savedPromptRouter = {
   update: protectedProcedure
     .input(savedPromptInput.extend({ id: z.uuid() }))
     .handler(async ({ context, input }) => {
-      const { db } = context.deps;
+      const { db } = context.sdk;
       const userId = context.user.id;
       checkSavedPrompt(input);
       const [owned] = await db
@@ -146,7 +146,7 @@ export const savedPromptRouter = {
   delete: protectedProcedure
     .input(z.object({ id: z.uuid() }))
     .handler(async ({ context, input }) => {
-      const removed = await context.deps.db
+      const removed = await context.sdk.db
         .delete(savedPrompt)
         .where(and(eq(savedPrompt.id, input.id), eq(savedPrompt.userId, context.user.id)))
         .returning({ id: savedPrompt.id });

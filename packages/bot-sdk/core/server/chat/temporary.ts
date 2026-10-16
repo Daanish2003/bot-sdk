@@ -2,7 +2,7 @@ import { and, eq, gte, inArray, lt, notExists, or } from "drizzle-orm";
 
 import { deleteBlobsBestEffort } from "../blob/store";
 import { attachment, messageAttachment, conversation, message } from "../db/schema";
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 import { generatedImageKeysWhere, imagesOfMessages } from "./generated-image-store";
 
 /** How long a Temporary Conversation lasts after its last Message (spec #262). */
@@ -24,7 +24,7 @@ export const liveConversation = (now: Date) =>
  * uses one. Takes `now` as an argument, as the reaper does.
  */
 export async function sweepExpiredTemporaryConversations(
-  deps: Pick<AppDeps, "db" | "blobStore" | "logger">,
+  deps: Pick<BotSdkContext, "db" | "blobStore" | "logger">,
   now = new Date(),
 ): Promise<void> {
   const blobKeys = await deps.db.transaction(async (tx) => {

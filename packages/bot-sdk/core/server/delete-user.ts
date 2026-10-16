@@ -16,7 +16,7 @@ import {
   usage,
   knowledgeFile,
 } from "./db/schema";
-import type { AppDeps } from "./deps";
+import type { BotSdkContext } from "./plugin";
 import { discardKnowledgeFiles, knowledgeFileIdsWhere } from "./knowledge/cascade";
 import { withProjectId } from "./chat/hooks";
 
@@ -27,7 +27,7 @@ import { withProjectId } from "./chat/hooks";
  * Order matters: Runs stop first so their owners write nothing more; Conversations go before
  * Attachments, because a Message's link to an Attachment does not cascade.
  */
-export async function deleteUserData(deps: AppDeps, userId: string): Promise<void> {
+export async function deleteUserData(deps: BotSdkContext, userId: string): Promise<void> {
   const { blobKeys, knowledgeIds } = await deps.db.transaction(async (tx) => {
     // 1. Stop the user's live Runs through the Stop path. The Run's owner aborts and, its row gone,
     // its later writes match nothing. No `onRunEnd` fires for them: a Host's user delete emits nothing (#265).
@@ -75,7 +75,7 @@ export async function deleteUserData(deps: AppDeps, userId: string): Promise<voi
  * so do the Attachments, which a Conversation's delete never removed (the reaper takes unused ones).
  * Live Runs in them stop first, as in `deleteUserData`.
  */
-export async function deleteAllConversations(deps: AppDeps, userId: string): Promise<void> {
+export async function deleteAllConversations(deps: BotSdkContext, userId: string): Promise<void> {
   const { ended, gone, blobKeys } = await deps.db.transaction(async (tx) => {
     const ended = await stopUserRuns(deps, userId, tx);
     // The Generated images of these Conversations: their rows go by cascade, their bytes after the commit.
@@ -88,9 +88,9 @@ export async function deleteAllConversations(deps: AppDeps, userId: string): Pro
   });
   await deleteBlobsBestEffort(deps, blobKeys);
   // After the commit: a rolled-back delete fires nothing (#265, #266).
-  for (const run of ended) deps.hooks.fire("onRunEnd", run);
+  for (const run of ended) deps.events.fire("onRunEnd", run);
   for (const row of gone) {
-    deps.hooks.fire("onConversationDeleted", {
+    deps.events.fire("onConversationDeleted", {
       userId,
       conversationId: row.id,
       ...withProjectId(row.projectId),

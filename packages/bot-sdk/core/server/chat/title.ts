@@ -2,7 +2,7 @@ import { conversation, message } from "../db/schema";
 import { chat, type ModelMessage } from "@tanstack/ai";
 import { and, eq, isNull } from "drizzle-orm";
 
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 import { loadSettings } from "../settings/store";
 import { isKnownModel, parseModelId } from "../../shared/chat/models";
 import { loadPath } from "./store";
@@ -25,7 +25,7 @@ const maxTitleChars = 100;
  * credentials, or when the call fails, the title is the start of the first Message. A title set meanwhile (a manual rename) is never overwritten.
  * Never throws: it runs fire-and-forget at the end of a run.
  */
-export async function titleConversation(deps: AppDeps, replyId: string): Promise<void> {
+export async function titleConversation(deps: BotSdkContext, replyId: string): Promise<void> {
   try {
     const [row] = await deps.db
       .select({
@@ -59,7 +59,7 @@ export async function titleConversation(deps: AppDeps, replyId: string): Promise
 
 /** The Background Model's title, or `""` when there are no credentials or the call fails. */
 async function generateTitle(
-  deps: AppDeps,
+  deps: BotSdkContext,
   userId: string,
   replyModel: string | null,
   first: string,

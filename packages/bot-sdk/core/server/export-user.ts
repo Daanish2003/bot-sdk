@@ -15,7 +15,7 @@ import {
   memory,
   userSettings,
 } from "./db/schema";
-import type { AppDeps } from "./deps";
+import type { BotSdkContext } from "./plugin";
 import { liveConversation } from "./chat/temporary";
 import type { ArtifactKind } from "../shared/chat/artifact";
 import type { StoredParts } from "../shared/message-parts";
@@ -114,7 +114,7 @@ export type UserExport = {
  * Reads the user's data in one repeatable-read snapshot and builds the document in memory. An
  * unknown user id gives an empty document, not an error.
  */
-export async function exportUserData(deps: AppDeps, userId: string): Promise<UserExport> {
+export async function exportUserData(deps: BotSdkContext, userId: string): Promise<UserExport> {
   return deps.db.transaction(
     async (tx) => {
       const [settings] = await tx

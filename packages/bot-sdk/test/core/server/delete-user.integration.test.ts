@@ -38,6 +38,7 @@ import { createFakeAdapter, text } from "../../support/fake-adapter";
 import { createTestChat } from "../../support/sdk";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 import { insertUser, type TestUser } from "../../support/users";
+import { assistantState } from "../../../plugins/assistant/server/state";
 
 const testKey = "test-key-encryption-secret-not-for-production";
 
@@ -356,7 +357,8 @@ describe("deleteUserData", () => {
 
       // The log ends with a terminal chunk, so a reader does not reconnect and start the Run again.
       const chunks = [];
-      for await (const entry of deps.runStreams.read(reply.id, START)) chunks.push(entry.chunk);
+      for await (const entry of assistantState(deps).runStreams.read(reply.id, START))
+        chunks.push(entry.chunk);
       expect(chunks.at(-1)?.type).toBe(EventType.RUN_FINISHED);
       // The owner's last writes landed on deleted rows, so no Message came back and nothing failed.
       expect(await getTestDb().select().from(message).where(eq(message.id, reply.id))).toEqual([]);
@@ -447,7 +449,7 @@ describe("deleteUserData, Knowledge files", () => {
     const bytes = new Uint8Array([1]);
     await deps.blobStore.put(knowledgeBlobKey(ownFile), bytes, { contentType: "text/markdown" });
     await deps.blobStore.put(knowledgeBlobKey(otherFile), bytes, { contentType: "text/markdown" });
-    await deps.jobs.enqueue(
+    await assistantState(deps).jobs.enqueue(
       "knowledge.process",
       { fileId: ownFile },
       { idempotencyKey: knowledgeJobKey(ownFile) },

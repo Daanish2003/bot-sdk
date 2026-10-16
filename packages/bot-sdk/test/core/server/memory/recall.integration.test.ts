@@ -16,7 +16,7 @@ import {
 import type { HostProvider } from "../../../../core/server/deps";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { insertConversation } from "../../../support/conversations";
-import { createTestSdk, type TestDeps } from "../../../support/deps";
+import { createTestSdk, type TestDepsOverrides } from "../../../support/deps";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { sendAs } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
@@ -79,7 +79,7 @@ async function setup({
   reply?: Parameters<typeof createFakeAdapter>[0]["rounds"];
   conversation?: Partial<typeof conversation.$inferInsert>;
   ownEmbeddingKey?: boolean;
-  deps?: Partial<TestDeps>;
+  deps?: TestDepsOverrides;
 } = {}) {
   const user = await insertUser();
   const replyFake = createFakeAdapter({ rounds: reply });

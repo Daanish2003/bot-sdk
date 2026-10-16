@@ -102,19 +102,25 @@ export type BotSdkPlugin<
   readonly "~events"?: Event;
 };
 
+/** The rate-limit rules the core declares itself, beside the plugins' (spec #439). */
+export type CoreRule = "attachmentUpload" | "conversationSearch";
+
+/** The event hooks the core fires itself, beside the plugins' (spec #439). */
+export type CoreEvent = "onConversationCreated" | "onConversationDeleted";
+
 type RuleOf<Plugin> =
   Plugin extends BotSdkPlugin<string, infer Rule, keyof EventHooks> ? Rule : never;
 type EventOf<Plugin> = Plugin extends BotSdkPlugin<string, string, infer Event> ? Event : never;
 
-/** The root `rateLimits`: any enabled plugin's rule, overridden or turned off with `false`. */
+/** The root `rateLimits`: any core or enabled plugin's rule, overridden or turned off with `false`. */
 export type RateLimitsOf<Plugins extends readonly BotSdkPlugin[]> = Partial<
-  Record<RuleOf<Plugins[number]>, RateLimit | false>
+  Record<CoreRule | RuleOf<Plugins[number]>, RateLimit | false>
 >;
 
-/** The root `hooks`: the event hooks the enabled plugins fire. */
+/** The root `hooks`: the event hooks the core and the enabled plugins fire. */
 export type HooksOf<Plugins extends readonly BotSdkPlugin[]> = Pick<
   EventHooks,
-  EventOf<Plugins[number]>
+  CoreEvent | EventOf<Plugins[number]>
 >;
 
 /**

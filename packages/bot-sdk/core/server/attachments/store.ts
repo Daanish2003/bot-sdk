@@ -2,7 +2,7 @@ import { attachment, messageAttachment, blob } from "../db/schema";
 import { and, asc, eq, inArray, lt, notExists } from "drizzle-orm";
 
 import { attachmentBlobKey, deleteBlobsBestEffort } from "../blob/store";
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 import { uuidv7 } from "../lib/uuidv7";
 import type { AttachmentInfo } from "../../shared/attachments/kinds";
 
@@ -12,11 +12,11 @@ import type { AttachmentInfo } from "../../shared/attachments/kinds";
  * `loadAttachmentBytes` ever reads bytes.
  */
 
-type Db = AppDeps["db"];
+type Db = BotSdkContext["db"];
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
-type Deps = Pick<AppDeps, "db">;
+type Deps = Pick<BotSdkContext, "db">;
 /** What uploads and the reaper need: the rows, and the store their bytes go to. */
-type WriteDeps = Pick<AppDeps, "db" | "blobStore" | "logger">;
+type WriteDeps = Pick<BotSdkContext, "db" | "blobStore" | "logger">;
 
 const infoColumns = {
   id: attachment.id,
@@ -142,7 +142,7 @@ export async function attachmentsOfMessages(
 
 /** The bytes of each attachment, by id. */
 export async function loadAttachmentBytes(
-  deps: Pick<AppDeps, "blobStore">,
+  deps: Pick<BotSdkContext, "blobStore">,
   ids: string[],
 ): Promise<Map<string, Uint8Array>> {
   const loaded = await Promise.all(

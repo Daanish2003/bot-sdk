@@ -6,13 +6,13 @@ import { tasks } from "@trigger.dev/sdk";
 import type { EnqueueOptions, JobRunner } from "../../core/server/index";
 
 export type TriggerJobRunnerOptions = {
-  /** The id of the Host's Trigger.dev task that calls `chat.runJob(name, payload)`. */
+  /** The id of the Host's Trigger.dev task that calls `chat.plugin("assistant").runJob(name, payload)`. */
   taskId: string;
 };
 
 /**
  * A JobRunner that hands each job to Trigger.dev. The Host's task receives `{ name, payload }` and
- * calls `chat.runJob(name, payload)`. Trigger.dev runs the attempts and retries, so `start()` and
+ * calls `chat.plugin("assistant").runJob(name, payload)`. Trigger.dev runs the attempts and retries, so `start()` and
  * `stop()` do nothing here.
  *
  * Only `enqueue` works. `cancel`, `status` and `schedule` throw until a ticket needs them.

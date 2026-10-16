@@ -17,7 +17,9 @@ import { postgresBlobStore } from "../../core/server/blob/postgres";
 import { fakeEmbeddingAdapter } from "../../plugins/models/server/fake-embedding-adapter";
 import { createDb, type Database } from "../../core/server/db/index";
 import { createBotSdkOver } from "../../core/server/create-chat";
-import { createAppDeps } from "../../core/server/deps";
+import { createHookEmitter } from "../../core/server/chat/hooks";
+import { createGuardedFetch } from "../../core/server/lib/guarded-fetch";
+import type { ModelsDeps } from "../../plugins/models/server/types";
 import type { BotSdkContext } from "../../core/server/plugin";
 import { productionDeps } from "../../plugins/models/server/plugin";
 import { migrate as migrateChatSchema } from "../../core/server/migrate";
@@ -25,7 +27,7 @@ import { resolveRateLimits } from "../../core/server/rate-limits";
 import { memoryRuntime } from "../../core/server/runtime";
 import type { JobRunner } from "../../core/server/jobs/runner";
 import { createFakeAdapter, round, text } from "../../test/support/fake-adapter";
-import { type CaseResult, type EvalDeps, type EvalEnv, runCase } from "./case";
+import { type CaseResult, type EvalEnv, runCase } from "./case";
 import { categories, selectCases, tally } from "./cases";
 import { datasetRevision, loadDataset } from "./dataset";
 
@@ -159,31 +161,17 @@ async function main() {
   const chosen = limit === undefined ? cases : cases.slice(0, limit);
 
   const db = await prepareSchema(databaseUrl);
-  const app = createAppDeps({
-    db,
-    // `createBotSdkOver` below sets it to its instance's.
-    plugin: () => {
-      throw new Error("Not built yet: createBotSdkOver sets plugin");
-    },
-    runtime: memoryRuntime(),
-    rateLimits: resolveRateLimits(),
-    tools: [],
-    mcpServers: [],
-    blobStore: postgresBlobStore(db),
-    keyEncryptionSecrets: [evalKeySecret],
-    jobs: noJobs,
-    memory: true,
-  });
-  const context = { ...app, keyring: app.keyEncryptionSecrets, events: app.hooks };
-  const real: EvalDeps = {
-    ...app,
-    ...productionDeps(context as unknown as BotSdkContext, {
-      defaultBackgroundModel: models.background,
-    }),
-  };
-  const base: EvalDeps = fake
+  const logger: Pick<Console, "error"> = console;
+  const events = createHookEmitter(undefined, logger);
+  const fetch = createGuardedFetch({ schemes: "http-and-https" });
+  const keyring = [evalKeySecret];
+  const realModels = productionDeps(
+    { db, keyring, events, logger, fetch } as unknown as BotSdkContext,
+    { defaultBackgroundModel: models.background },
+  );
+  const modelsDeps: ModelsDeps = fake
     ? {
-        ...real,
+        ...realModels,
         // One reply serves every Background Model call: the extract call reads `facts`, and the
         // decide and forget calls read `memory` and `ids` (their keys are all there, each empty).
         adapterFor: (model) =>
@@ -200,13 +188,25 @@ async function main() {
           }).adapter,
         embeddingAdapterFor: () => fakeEmbeddingAdapter(),
       }
-    : real;
-  // An instance over the bundle binds its `plugin`, which the jobs `runCase` runs directly need.
-  createBotSdkOver(base, {
-    basePath: "/api/chat",
-    getUser: () => null,
-    logger: { error: () => {} },
-  });
+    : realModels;
+  // An instance over the parts: the jobs `runCase` runs directly reach `models` through its `plugin`.
+  const { sdk: base } = createBotSdkOver(
+    {
+      context: {
+        db,
+        blobStore: postgresBlobStore(db),
+        runtime: memoryRuntime(),
+        logger,
+        events,
+        fetch,
+        keyring,
+        rateLimits: resolveRateLimits(),
+      },
+      models: modelsDeps,
+      assistant: { jobs: noJobs, memory: true },
+    },
+    { basePath: "/api/chat", getUser: () => null, logger: { error: () => {} } },
+  );
 
   const env: EvalEnv = {
     db,

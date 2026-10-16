@@ -12,7 +12,7 @@ import {
 } from "../settings/store";
 
 export const settingsRouter = {
-  get: protectedProcedure.handler(({ context }) => loadSettings(context.deps, context.user.id)),
+  get: protectedProcedure.handler(({ context }) => loadSettings(context.sdk, context.user.id)),
 
   /**
    * Chooses the Model that writes automatic titles; `null` is "Same as first reply". Credentials
@@ -31,7 +31,7 @@ export const settingsRouter = {
           },
         );
       }
-      await saveBackgroundModel(context.deps, context.user.id, input.backgroundModel);
+      await saveBackgroundModel(context.sdk, context.user.id, input.backgroundModel);
     }),
 
   /**
@@ -44,7 +44,7 @@ export const settingsRouter = {
     .handler(async ({ context, input }) => {
       if (
         input.imageModel !== null &&
-        !(await context.deps.plugin("models").resolveImageModel(context.user.id, input.imageModel))
+        !(await context.sdk.plugin("models").resolveImageModel(context.user.id, input.imageModel))
       ) {
         throw rpcError(
           "BAD_REQUEST",
@@ -53,7 +53,7 @@ export const settingsRouter = {
           { model: input.imageModel },
         );
       }
-      await saveImageModel(context.deps, context.user.id, input.imageModel);
+      await saveImageModel(context.sdk, context.user.id, input.imageModel);
     }),
 
   /** Saves the Instructions sent with every Run from the next one; blank or `null` clears them. */
@@ -70,6 +70,6 @@ export const settingsRouter = {
           },
         );
       }
-      await saveInstructions(context.deps, context.user.id, input.instructions);
+      await saveInstructions(context.sdk, context.user.id, input.instructions);
     }),
 };

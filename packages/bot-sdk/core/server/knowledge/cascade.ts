@@ -2,8 +2,9 @@ import type { SQL } from "drizzle-orm";
 
 import { knowledgeBlobKey, deleteBlobsBestEffort } from "../blob/store";
 import { knowledgeFile } from "../db/schema";
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 import { knowledgeJobKey } from "./process";
+import { assistantState } from "../../../plugins/assistant/server/state";
 
 /**
  * The ids of the Knowledge files `where` matches. A delete's cascade removes their rows and leaves
@@ -11,7 +12,7 @@ import { knowledgeJobKey } from "./process";
  * are, ADR 0015).
  */
 export async function knowledgeFileIdsWhere(
-  db: Pick<AppDeps["db"], "select">,
+  db: Pick<BotSdkContext["db"], "select">,
   where: SQL | undefined,
 ): Promise<string[]> {
   const rows = await db.select({ id: knowledgeFile.id }).from(knowledgeFile).where(where);
@@ -22,7 +23,7 @@ export async function knowledgeFileIdsWhere(
  * After a delete's commit: cancels the processing jobs of these files, then deletes their original
  * bytes (best-effort). Same order as `deleteKnowledgeFile`.
  */
-export async function discardKnowledgeFiles(deps: AppDeps, fileIds: string[]): Promise<void> {
-  for (const fileId of fileIds) await deps.jobs.cancel(knowledgeJobKey(fileId));
+export async function discardKnowledgeFiles(deps: BotSdkContext, fileIds: string[]): Promise<void> {
+  for (const fileId of fileIds) await assistantState(deps).jobs.cancel(knowledgeJobKey(fileId));
   await deleteBlobsBestEffort(deps, fileIds.map(knowledgeBlobKey));
 }

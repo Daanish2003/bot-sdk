@@ -9,7 +9,7 @@ import {
 } from "@tanstack/ai";
 import { and, eq, isNull, lt, or, type SQL } from "drizzle-orm";
 
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 import { createPartsBuilder, searchTextOf } from "../../shared/chat/parts";
 import type { RunEndEvent } from "./hooks";
 import { endRun, type Ending, type EndingRun } from "./end-run";
@@ -18,6 +18,7 @@ import { artifactCutOff } from "./artifact-tool";
 import type { RunPlan } from "./run-plan";
 import { cancelChannel, heartbeatExpired, listenForStop, stopRequested } from "./stop";
 import { addUsage, normalizeUsage, promptCharactersOf, type RunUsage } from "./usage";
+import { assistantState } from "../../../plugins/assistant/server/state";
 
 type MessageUpdate = Partial<typeof message.$inferInsert>;
 type MessageErrorReason = NonNullable<MessageUpdate["errorReason"]>;
@@ -39,7 +40,7 @@ export type RunOf = {
 /**
  * Runs one assistant Message (ADR 0002) from its plan (`planRun`, the only caller). The run drains
  * `chat()` to the end on its own, whether or not anyone reads the returned chunks: it snapshots the
- * streaming Message's parts every `deps.limits.snapshotIntervalMs`, and finishes the row in
+ * streaming Message's parts every `limits.snapshotIntervalMs`, and finishes the row in
  * `finally`. A Stop aborts it, from the pub/sub signal or from `cancel_requested_at` read back on a
  * snapshot tick (ADR 0006). The Run closes the plan's MCP clients when it ends, Stop included.
  *
@@ -47,7 +48,7 @@ export type RunOf = {
  * joiner read that log, so a reader that goes away only stops reading.
  */
 export async function startRun(
-  deps: AppDeps,
+  deps: BotSdkContext,
   plan: RunPlan,
   { runNumber = 1, initialParts = [], resume }: RunOf,
 ): Promise<void> {
@@ -58,7 +59,7 @@ export async function startRun(
   const logId = runLogId(messageId, runNumber);
   let unsubscribeStop: Awaited<ReturnType<typeof listenForStop>>;
   try {
-    await deps.runStreams.open(logId);
+    await assistantState(deps).runStreams.open(logId);
     unsubscribeStop = await listenForStop(deps, messageId, () => abortController.abort());
   } catch (caught) {
     // The Run never started, so nothing else will close the clients it was given.
@@ -66,7 +67,7 @@ export async function startRun(
     throw caught;
   }
   // Registered once nothing before the Run's own `finally` can throw, so it always leaves again.
-  deps.lifecycle.runs.set(messageId, abortController);
+  assistantState(deps).runs.set(messageId, abortController);
   const parts = createPartsBuilder(initialParts);
   // One budget for the reply's Host and MCP calls, across its Runs (spec #91).
   const budget = createToolBudget(spentCalls(initialParts));
@@ -107,7 +108,7 @@ export async function startRun(
         if (requested) abortController.abort();
       })
       .catch((error: unknown) => deps.logger.error(`Reading Stop of ${messageId} failed`, error));
-  }, deps.limits.snapshotIntervalMs);
+  }, assistantState(deps).limits.snapshotIntervalMs);
 
   /** Whether the log already holds its own RUN_FINISHED or RUN_ERROR. */
   let logEnded = false;
@@ -118,7 +119,7 @@ export async function startRun(
     if (abortController.signal.aborted) return;
     timedOut = true;
     abortController.abort();
-  }, deps.limits.runCapMs);
+  }, assistantState(deps).limits.runCapMs);
 
   void (async () => {
     let error: ProviderError | undefined;
@@ -179,8 +180,8 @@ export async function startRun(
           logEnded = true;
         }
         ids ??= runIdsOf(chunk);
-        void deps.runStreams
-          .append(logId, chunk)
+        void assistantState(deps)
+          .runStreams.append(logId, chunk)
           .catch((error: unknown) =>
             deps.logger.error(`Logging Message ${messageId} failed`, error),
           );
@@ -236,7 +237,7 @@ export async function startRun(
           ending,
         );
       } finally {
-        deps.lifecycle.runs.delete(messageId);
+        assistantState(deps).runs.delete(messageId);
       }
     }
   })();
@@ -375,7 +376,7 @@ function errorReasonOf(code: string | undefined): MessageErrorReason {
  * marked `stopped` here and its log is ended. Ended Messages stay as they are.
  */
 export async function stopRun(
-  deps: AppDeps,
+  deps: BotSdkContext,
   messageId: string,
   db: Executor = deps.db,
 ): Promise<RunEndEvent[]> {
@@ -391,7 +392,9 @@ export async function stopRun(
 }
 
 /** The database, or the transaction a caller is in (`deleteUser` stops Runs inside its own). */
-export type Executor = AppDeps["db"] | Parameters<Parameters<AppDeps["db"]["transaction"]>[0]>[0];
+export type Executor =
+  | BotSdkContext["db"]
+  | Parameters<Parameters<BotSdkContext["db"]["transaction"]>[0]>[0];
 
 /**
  * Stops every live Run in the user's Conversations through the Stop path, inside the caller's
@@ -400,7 +403,7 @@ export type Executor = AppDeps["db"] | Parameters<Parameters<AppDeps["db"]["tran
  * transaction commits (#265).
  */
 export async function stopUserRuns(
-  deps: AppDeps,
+  deps: BotSdkContext,
   userId: string,
   db: Executor = deps.db,
 ): Promise<RunEndEvent[]> {
@@ -412,7 +415,7 @@ export async function stopUserRuns(
  * `stopUserRuns`, for `project.delete`.
  */
 export async function stopProjectRuns(
-  deps: AppDeps,
+  deps: BotSdkContext,
   projectId: string,
   db: Executor = deps.db,
 ): Promise<RunEndEvent[]> {
@@ -420,7 +423,7 @@ export async function stopProjectRuns(
 }
 
 /** Stops the live Runs whose Conversation matches `where`. */
-async function stopLiveRuns(deps: AppDeps, where: SQL, db: Executor): Promise<RunEndEvent[]> {
+async function stopLiveRuns(deps: BotSdkContext, where: SQL, db: Executor): Promise<RunEndEvent[]> {
   const live = await db
     .select({ id: message.id })
     .from(message)
@@ -437,7 +440,7 @@ async function stopLiveRuns(deps: AppDeps, where: SQL, db: Executor): Promise<Ru
  * `onRunEnd` event for the caller to fire, or none when the Message had already ended.
  */
 async function endOrphanedRun(
-  deps: AppDeps,
+  deps: BotSdkContext,
   messageId: string,
   db: Executor,
 ): Promise<RunEndEvent[]> {
@@ -493,8 +496,8 @@ export const shutdownAbort = new Error("The chat SDK is stopping");
  * `error` "interrupted". A call it left running is `cancelled`, and its log ends with a
  * `RUN_ERROR` and closes, so a reader doesn't reconnect into a Run that is gone.
  */
-export async function reapStaleRuns(deps: AppDeps, now = new Date()) {
-  const cutoff = new Date(now.getTime() - deps.limits.leaseMs);
+export async function reapStaleRuns(deps: BotSdkContext, now = new Date()) {
+  const cutoff = new Date(now.getTime() - assistantState(deps).limits.leaseMs);
   const stale = await deps.db
     .select(ownerlessRunColumns)
     .from(message)

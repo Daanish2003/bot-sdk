@@ -3,7 +3,7 @@ import { message } from "../db/schema";
 import { EventType, type StreamChunk } from "@tanstack/ai";
 import { and, eq, isNull, lt, or } from "drizzle-orm";
 
-import type { AppDeps } from "../deps";
+import type { BotSdkContext } from "../plugin";
 import { cancelRunningCalls, searchTextOf } from "../../shared/chat/parts";
 import type { RunEndEvent } from "./hooks";
 import { enqueueMemories } from "../memory/make";
@@ -11,6 +11,7 @@ import { titleConversation } from "./title";
 import type { ModelMeter } from "../../../plugins/models/server/meter";
 import type { MessageUsage } from "../../shared/chat/message-record";
 import type { Executor } from "./run";
+import { assistantState } from "../../../plugins/assistant/server/state";
 
 type MessageErrorReason = NonNullable<(typeof message.$inferInsert)["errorReason"]>;
 
@@ -77,7 +78,7 @@ export type EndingRun = {
  * `fire: false` the event isn't fired: a caller inside a transaction fires it once it commits.
  */
 export async function endRun(
-  deps: AppDeps,
+  deps: BotSdkContext,
   run: EndingRun,
   ending: Ending,
   {
@@ -106,7 +107,7 @@ export async function endRun(
     const verdict =
       owner.text === ""
         ? undefined
-        : await deps.hooks.moderate({
+        : await deps.events.moderate({
             phase: "output",
             userId: run.userId,
             conversationId: run.conversationId,
@@ -162,7 +163,7 @@ export async function endRun(
       hidden,
     };
     // Last: the ending, the usage row and the log's end are all written by now (#265).
-    if (fire) deps.hooks.fire("onRunEnd", event);
+    if (fire) deps.events.fire("onRunEnd", event);
   }
 
   if (owner) {
@@ -191,7 +192,7 @@ export async function endRun(
  * `staleBefore`, so is one whose heartbeat is newer.
  */
 async function save(
-  deps: AppDeps,
+  deps: BotSdkContext,
   db: Executor,
   messageId: string,
   {
@@ -231,15 +232,15 @@ async function save(
  * reconnects, which starts the Run again (the #71 lesson), so the log is ended explicitly. A
  * hidden reply's log ends with the `moderated` chunk, so every reader drops its text (#269).
  */
-async function endLog(deps: AppDeps, run: EndingRun, ending: Ending, hidden: boolean) {
+async function endLog(deps: BotSdkContext, run: EndingRun, ending: Ending, hidden: boolean) {
   const append = (chunk: StreamChunk) =>
-    deps.runStreams
-      .append(run.runId, chunk)
+    assistantState(deps)
+      .runStreams.append(run.runId, chunk)
       .catch((caught: unknown) =>
         deps.logger.error(`Logging Message ${run.messageId} failed`, caught),
       );
   // A no-op for the owner's log, which is open already.
-  await deps.runStreams.open(run.runId);
+  await assistantState(deps).runStreams.open(run.runId);
   if (!run.owner?.logEnded) {
     await append(
       endingChunk(
@@ -249,7 +250,7 @@ async function endLog(deps: AppDeps, run: EndingRun, ending: Ending, hidden: boo
     );
   }
   if (hidden) await append(moderatedChunk());
-  await deps.runStreams.close(run.runId);
+  await assistantState(deps).runStreams.close(run.runId);
 }
 
 /**
@@ -261,7 +262,7 @@ export function moderatedChunk(): StreamChunk {
 }
 
 /** Whether an earlier Run of the Message already hid its reply (#268). */
-async function isHidden(deps: AppDeps, messageId: string): Promise<boolean> {
+async function isHidden(deps: BotSdkContext, messageId: string): Promise<boolean> {
   try {
     const [row] = await deps.db
       .select({ hiddenAt: message.hiddenAt })
