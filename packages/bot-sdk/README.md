@@ -42,7 +42,7 @@ Your imports then read exactly like this repo's: `@ai-chat/bot-sdk/core/server`,
 
 ### Updating
 
-1. Run the copy script again. `VERSION` shows the commit you now run.
+1. Run the copy script again. `VERSION` shows the commit you now run. A copy from before plugins kept every screen in the root `ui/`. Your `ui/` and `theme.css` are not replaced, so move the screens that now live in `plugins/*/ui/` out of your root `ui/` and add the SDK's `@source "../plugins/<name>/ui";` lines to your `theme.css`.
 2. Your `ui/` is untouched. If the release changed a component you also edited, merge that by hand: diff the new SDK's `ui/` against yours. The client side of a Run (sending, joining a streaming reply, Stop, a moderated refusal, Approval decisions, Ratings and Memory events) lives in `plugins/assistant/client/react/conversation-run.ts` as `useConversationRun`, which `ui/chat/chat-view.tsx` calls, so fixes to it come with the copy.
 3. Install any new dependencies listed below, then run your type check.
 
@@ -77,7 +77,7 @@ Install these in the Host. There is one `package.json` for the whole SDK, and ve
 **What `core/` needs:**
 
 - `@tanstack/ai`
-- `@tanstack/react-query`, `react`, `react-dom`, `sonner`
+- `@tanstack/react-query`, `react`, `sonner`
 - `drizzle-orm` and `pg` (the Postgres driver it uses)
 - `redis` (the Redis client, used by `redisRuntime()`)
 - `undici` and `ipaddr.js`, for the SSRF-guarded `fetch` (`core/server/lib/guarded-fetch.ts`). `undici` pins each connection to the address that was checked, and `ipaddr.js` classifies that address. Install `undici` at the major your Node bundles (7.x on Node 24): undici 8's dispatcher is rejected by Node's built-in `fetch`.

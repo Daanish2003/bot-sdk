@@ -70,7 +70,7 @@ function copyPlugins(source: string, target: string) {
       copyTree(join(from, plugin.name, entry), dest);
     }
   }
-  // Drop plugin folders that no longer exist in the SDK or hold nothing.
+  // Drop plugin folders left empty. A plugin removed from the SDK keeps its ui/, which is the Host's.
   if (existsSync(to)) {
     for (const plugin of readdirSync(to, { withFileTypes: true })) {
       const dir = join(to, plugin.name);
