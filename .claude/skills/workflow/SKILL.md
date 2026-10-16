@@ -17,6 +17,8 @@ Tell the user which skill fits their situation, using the map below. Recommend o
 
 Small, clear change? Skip to `implement` (or just `tdd`) in the current session.
 
+A whole spec's tickets at once? **`/ship-spec <spec>`** instead of steps 4–5: parallel implementers in worktrees, a model picked per ticket, merged into one `feature/<spec-slug>` branch, then one PR to main.
+
 ## Other situations
 
 - Something is broken, flaky or slow: **`diagnosing-bugs`** (no fix before a repro that goes red).
