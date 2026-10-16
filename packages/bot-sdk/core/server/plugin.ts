@@ -66,6 +66,16 @@ export type ConversationDeleteHooks<Collected = unknown> = {
   ): Promise<void>;
 };
 
+/**
+ * A plugin's hooks on a user's delete (`sdk.deleteUser`, spec #439). `before` runs in the delete's
+ * transaction and returns what it collected; a throw rolls the whole delete back. `after` runs after
+ * the commit with that value; a throw is logged and swallowed.
+ */
+export type UserDeleteHooks<Collected = unknown> = {
+  before(sdk: BotSdkContext, args: { userId: string; tx: Transaction }): Promise<Collected>;
+  after(sdk: BotSdkContext, args: { userId: string; collected: Collected }): Promise<void>;
+};
+
 type RouteArgs<User> = {
   user: User;
   sdk: BotSdkContext;
@@ -122,12 +132,20 @@ export type BotSdkPlugin<
   /** Hooks on deletes of core rows, run by the core's delete (`deleteConversations`). */
   databaseHooks?: { conversation?: { delete?: ConversationDeleteHooks } };
   /**
-   * Deletes this plugin's data for a user (`sdk.deleteUser`). The assistant's does it for every
-   * `chat` table until each plugin deletes its own (#449).
+   * Deletes this plugin's data for a user (`sdk.deleteUser`): `before` in the delete's transaction,
+   * in reverse dependency order, ahead of the core's Conversation and Attachment deletes; `after`
+   * once it commits.
    */
-  deleteUser?: (sdk: BotSdkContext, userId: string) => Promise<void>;
-  /** This plugin's part of a user's export (`sdk.exportUser`); the parts are merged (#449). */
-  exportUser?: (sdk: BotSdkContext, userId: string) => Promise<Partial<UserExport>>;
+  deleteUser?: UserDeleteHooks;
+  /**
+   * This plugin's part of a user's export (`sdk.exportUser`), read in the export's snapshot `tx`.
+   * The core gives `version` and `exportedAt`; two plugins giving one key throws.
+   */
+  exportUser?: (
+    sdk: BotSdkContext,
+    userId: string,
+    tx: Transaction,
+  ) => Promise<Partial<Omit<UserExport, "version" | "exportedAt">>>;
   /** Type only: the event hooks this plugin fires. */
   readonly "~events"?: Event;
 };
@@ -152,6 +170,19 @@ export type HooksOf<Plugins extends readonly BotSdkPlugin[]> = Pick<
   EventHooks,
   CoreEvent | EventOf<Plugins[number]>
 >;
+
+// Each instance's plugins, keyed by its context's `plugin`, which every copy of the context shares.
+const pluginsOf = new WeakMap<BotSdkContext["plugin"], readonly BotSdkPlugin[]>();
+
+/** Records an instance's plugins, in dependency order, for the core's work across plugins. */
+export function bindPlugins(sdk: BotSdkContext, plugins: readonly BotSdkPlugin[]): void {
+  pluginsOf.set(sdk.plugin, plugins);
+}
+
+/** The instance's plugins, in dependency order. */
+export function enabledPlugins(sdk: Pick<BotSdkContext, "plugin">): readonly BotSdkPlugin[] {
+  return pluginsOf.get(sdk.plugin) ?? [];
+}
 
 /**
  * The plugins in dependency order: each after the plugins it requires, otherwise as listed.

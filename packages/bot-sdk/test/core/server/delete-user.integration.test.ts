@@ -7,10 +7,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createBotSdk } from "../../../core/server/create-chat";
 import { assistant } from "../../../plugins/assistant/server/plugin";
 import { models } from "../../../plugins/models/server/plugin";
-import {
-  deleteAllConversations,
-  deleteUserData,
-} from "../../../plugins/assistant/server/delete-user";
+import { deleteAllConversations } from "../../../plugins/assistant/server/delete-user";
+import { deleteUserData } from "../../../core/server/user-data";
 import { deleteConversation } from "../../../plugins/assistant/server/chat/store";
 import { saveCredentials } from "../../../plugins/models/server/credentials/store";
 import { START } from "../../../core/server/chat/run-streams";

@@ -4,13 +4,13 @@ import { RPCHandler } from "@orpc/server/fetch";
 import type { UserExport } from "../../plugins/assistant/server/export-user";
 import { postgresBlobStore } from "./blob/postgres";
 import type { BlobStore } from "./blob/store";
-import { bindDeleteHooks } from "./chat/delete-conversations";
 import { createHookEmitter } from "./chat/hooks";
 import type { ChatUser, Context } from "./context";
 import { createDb } from "./db/index";
 import { createGuardedFetch } from "./lib/guarded-fetch";
 import { assertMigrated, migrate as migrateSchema } from "./migrate";
 import {
+  bindPlugins,
   matchPath,
   mergeRateLimits,
   mergeRouters,
@@ -27,6 +27,7 @@ import {
 import { defaultRateLimits, rateLimitedFor, rpcRateLimits, type RateLimit } from "./rate-limits";
 import { coreRouter } from "./routers/index";
 import { memoryRuntime, type BotSdkRuntime } from "./runtime";
+import { deleteUserData, exportUserData } from "./user-data";
 
 export type ChatHandler = (request: Request) => Promise<Response>;
 
@@ -109,9 +110,12 @@ export type BotSdk = {
    * `drainMs` (250 s), then ends the rest as interrupted, then drains its jobs. Call it on SIGTERM.
    */
   stop: () => Promise<void>;
-  /** Deletes everything the SDK holds for a user, in one transaction. Idempotent. */
+  /** Deletes everything every plugin holds for a user, in one transaction. Idempotent. */
   deleteUser: (userId: string) => Promise<void>;
-  /** Everything the SDK keeps for a user, as one document (`version: 1`). Empty for an unknown id. */
+  /**
+   * Everything the SDK keeps for a user, as one document (`version: 1`), merged from every plugin's
+   * part. Empty for an unknown id.
+   */
   exportUser: (userId: string) => Promise<UserExport>;
   /**
    * Re-encrypts every stored secret under the keyring's first secret (ADR 0010). Batched and safe
@@ -192,7 +196,7 @@ export function buildBotSdk(
   });
   // In dependency order, so a plugin's `init` can call the plugins it requires.
   for (const plugin of plugins) apis.set(plugin.id, plugin.init?.(sdk)?.api ?? {});
-  bindDeleteHooks(sdk, plugins);
+  bindPlugins(sdk, plugins);
 
   const instance: BotSdk = {
     handler: createHandler(options, router, routes, sdk),
@@ -211,15 +215,8 @@ export function buildBotSdk(
         await options.runtime?.close?.();
       }
     },
-    // The assistant's tables until each plugin deletes and exports its own (#449).
-    deleteUser: async (userId) => {
-      for (const plugin of [...plugins].reverse()) await plugin.deleteUser?.(sdk, userId);
-    },
-    exportUser: async (userId) => {
-      const document: Partial<UserExport> = {};
-      for (const plugin of plugins) Object.assign(document, await plugin.exportUser?.(sdk, userId));
-      return document as UserExport;
-    },
+    deleteUser: (userId) => deleteUserData(sdk, userId),
+    exportUser: (userId) => exportUserData(sdk, userId),
     rotateKeys: async () => {
       const total = { reencrypted: 0, unreadable: 0 };
       for (const plugin of plugins) {

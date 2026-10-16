@@ -1,16 +1,8 @@
 import { and, eq, inArray, sql, type AnyColumn, type SQL } from "drizzle-orm";
 
 import { conversation } from "../db/schema";
-import type { BotSdkContext, BotSdkPlugin, Transaction } from "../plugin";
+import { enabledPlugins, type BotSdkContext, type Transaction } from "../plugin";
 import { withProjectId, type HookEmitter } from "./hooks";
-
-// Each instance's plugins, keyed by its context's `plugin`, which every copy of the context shares.
-const pluginsOf = new WeakMap<BotSdkContext["plugin"], readonly BotSdkPlugin[]>();
-
-/** Records the plugins whose delete hooks an instance's `deleteConversations` runs. */
-export function bindDeleteHooks(sdk: BotSdkContext, plugins: readonly BotSdkPlugin[]): void {
-  pluginsOf.set(sdk.plugin, plugins);
-}
 
 /** An emitter that fires nothing, for a delete the Host hears nothing about. */
 const muted = (events: HookEmitter): HookEmitter => ({ fire: () => {}, moderate: events.moderate });
@@ -50,7 +42,7 @@ export async function deleteConversations(
   const conversationIds = rows.map((row) => row.id);
   if (conversationIds.length === 0) return { deleted: [], afterCommit: async () => {} };
 
-  const hooks = (pluginsOf.get(sdk.plugin) ?? []).flatMap((plugin) => {
+  const hooks = enabledPlugins(sdk).flatMap((plugin) => {
     const hook = plugin.databaseHooks?.conversation?.delete;
     return hook ? [hook] : [];
   });

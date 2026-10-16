@@ -5,7 +5,7 @@ import { deleteOrphanAttachments, saveAttachment } from "../../../../core/server
 import { s3BlobStore } from "../../../../core/server/blob/s3";
 import { attachmentBlobKey, type BlobStore } from "../../../../core/server/blob/store";
 import { attachment, blob } from "../../../../core/server/db/schema";
-import { deleteUserData } from "../../../../plugins/assistant/server/delete-user";
+import { deleteUserData } from "../../../../core/server/user-data";
 import { insertAttachment } from "../../../support/attachments";
 import { createTestSdk } from "../../../support/deps";
 import { getTestDb } from "../../../support/test-database";
