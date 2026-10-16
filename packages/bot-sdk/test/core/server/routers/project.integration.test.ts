@@ -290,6 +290,7 @@ describe("conversation.list in a Project", () => {
         Array.from({ length: 60 }, (_, i) => ({
           id: uuidv7(),
           userId: user.id,
+          kind: "assistant",
           model: "openai:gpt-5.6",
           projectId,
           lastMessageAt: new Date(Date.UTC(2026, 9, 1, 9, i)),

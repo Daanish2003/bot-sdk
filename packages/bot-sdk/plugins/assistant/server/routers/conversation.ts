@@ -26,6 +26,7 @@ import {
   unpinConversation,
 } from "../chat/store";
 import { findProject } from "../project/store";
+import { assistantKind } from "../chat/kind";
 import { protectedProcedure } from "../../../../core/server/procedures";
 import { rpcError } from "../../../../core/server/rpc-error";
 import { unusableModelError } from "../../../models/server/unusable-model";
@@ -70,6 +71,7 @@ export const conversationRouter = {
       await context.sdk.db.insert(conversation).values({
         id,
         userId: context.user.id,
+        kind: assistantKind,
         model: input.model,
         reasoningEffort: input.reasoningEffort ?? null,
         projectId: input.projectId ?? null,

@@ -88,6 +88,25 @@ describe("models.list", () => {
     expect(defaultModel).toBe("anthropic:claude-opus-5-5");
   });
 
+  it("passes over a newer Conversation that has no Model, such as a Bot's", async () => {
+    const { user, client } = await signedIn();
+    await addCredentials(user, "openai");
+    await addCredentials(user, "anthropic");
+    await insertConversation(user, {
+      model: "anthropic:claude-opus-5-5",
+      lastMessageAt: new Date("2026-10-01T10:00:00Z"),
+    });
+    await insertConversation(user, {
+      kind: "bot",
+      model: null,
+      lastMessageAt: new Date("2026-10-02T10:00:00Z"),
+    });
+
+    const { defaultModel } = await client.models.list();
+
+    expect(defaultModel).toBe("anthropic:claude-opus-5-5");
+  });
+
   it("skips the most recent Conversation's Model when its Provider has no credentials any more", async () => {
     const { user, client } = await signedIn();
     await addCredentials(user, "anthropic");

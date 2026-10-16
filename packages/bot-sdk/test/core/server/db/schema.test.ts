@@ -112,7 +112,7 @@ describe("composing the chat schema", () => {
   it("types ConversationRow and MessageRow as the composed tables' rows", () => {
     expectTypeOf<ConversationRow>().toEqualTypeOf<typeof conversation.$inferSelect>();
     expectTypeOf<MessageRow>().toEqualTypeOf<typeof message.$inferSelect>();
-    expectTypeOf<ConversationRow["model"]>().toEqualTypeOf<string>();
+    expectTypeOf<ConversationRow["model"]>().toEqualTypeOf<string | null>();
     expectTypeOf<MessageRow["runNumber"]>().toEqualTypeOf<number>();
   });
 });

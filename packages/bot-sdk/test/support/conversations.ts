@@ -8,14 +8,14 @@ import type { TestUser } from "./users";
 
 export const testModel = "anthropic:claude-sonnet-5-5";
 
-/** Inserts a Conversation for `user` straight into the test database. */
+/** Inserts a Conversation for `user` straight into the test database: an assistant one by default. */
 export async function insertConversation(
   user: TestUser,
-  fields: Partial<typeof conversation.$inferInsert> = {},
+  { kind = "assistant", ...fields }: Partial<typeof conversation.$inferInsert> = {},
 ) {
   const [row] = await getTestDb()
     .insert(conversation)
-    .values({ id: uuidv7(), userId: user.id, model: testModel, ...fields })
+    .values({ id: uuidv7(), userId: user.id, kind, model: testModel, ...fields })
     .returning();
   if (!row) throw new Error("Inserting the test Conversation returned no row");
   return row;

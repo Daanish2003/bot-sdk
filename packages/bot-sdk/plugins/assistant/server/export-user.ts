@@ -16,6 +16,7 @@ import {
   userSettings,
 } from "../../../core/server/db/schema";
 import type { Transaction } from "../../../core/server/plugin";
+import { assistantConversation, withModel } from "./chat/kind";
 import { liveConversation } from "./chat/temporary";
 import type { ArtifactKind } from "../shared/chat/artifact";
 import type { StoredParts } from "../shared/message-parts";
@@ -143,18 +144,24 @@ export async function exportAssistantData(
     .where(eq(project.userId, userId))
     .orderBy(asc(project.createdAt), asc(project.id));
 
-  const conversations = await tx
-    .select()
-    .from(conversation)
-    .where(and(eq(conversation.userId, userId), liveConversation(new Date())))
-    .orderBy(asc(conversation.createdAt), asc(conversation.id));
+  const conversations = (
+    await tx
+      .select()
+      .from(conversation)
+      .where(
+        and(eq(conversation.userId, userId), assistantConversation(), liveConversation(new Date())),
+      )
+      .orderBy(asc(conversation.createdAt), asc(conversation.id))
+  ).map(withModel);
 
   const messages = (
     await tx
       .select({ message })
       .from(message)
       .innerJoin(conversation, eq(conversation.id, message.conversationId))
-      .where(and(eq(conversation.userId, userId), liveConversation(new Date())))
+      .where(
+        and(eq(conversation.userId, userId), assistantConversation(), liveConversation(new Date())),
+      )
       .orderBy(asc(message.createdAt), asc(message.id))
   ).map((row) => row.message);
 
@@ -180,7 +187,9 @@ export async function exportAssistantData(
     })
     .from(sharedLink)
     .innerJoin(conversation, eq(conversation.id, sharedLink.conversationId))
-    .where(and(eq(conversation.userId, userId), liveConversation(new Date())));
+    .where(
+      and(eq(conversation.userId, userId), assistantConversation(), liveConversation(new Date())),
+    );
 
   const images = messageIds.length
     ? await tx
@@ -236,7 +245,9 @@ export async function exportAssistantData(
     })
     .from(artifact)
     .innerJoin(conversation, eq(conversation.id, artifact.conversationId))
-    .where(and(eq(conversation.userId, userId), liveConversation(new Date())))
+    .where(
+      and(eq(conversation.userId, userId), assistantConversation(), liveConversation(new Date())),
+    )
     .orderBy(asc(artifact.createdAt), asc(artifact.id));
 
   const knowledgeFiles = await tx
@@ -262,7 +273,9 @@ export async function exportAssistantData(
     .from(artifactVersion)
     .innerJoin(artifact, eq(artifact.id, artifactVersion.artifactId))
     .innerJoin(conversation, eq(conversation.id, artifact.conversationId))
-    .where(and(eq(conversation.userId, userId), liveConversation(new Date())))
+    .where(
+      and(eq(conversation.userId, userId), assistantConversation(), liveConversation(new Date())),
+    )
     .orderBy(
       asc(artifactVersion.createdAt),
       asc(artifactVersion.messageId),

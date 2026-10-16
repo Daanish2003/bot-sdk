@@ -12,6 +12,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 
 import { generatedImageBlobKey } from "../blob-keys";
 import { loadPath } from "../../../../core/server/chat/message-tree";
+import { assistantConversation, assistantKind } from "../chat/kind";
 import { liveConversation } from "../chat/temporary";
 import { attachmentsOfMessages } from "../../../../core/server/attachments/store";
 import type { BotSdkContext } from "../../../../core/server/plugin";
@@ -53,6 +54,7 @@ async function findShareState(db: Db | Tx, userId: string, conversationId: strin
       and(
         eq(conversation.id, conversationId),
         eq(conversation.userId, userId),
+        assistantConversation(),
         liveConversation(new Date()),
       ),
     );
@@ -105,7 +107,13 @@ export async function upsertSharedLink(
     await tx
       .select({ id: conversation.id })
       .from(conversation)
-      .where(and(eq(conversation.id, conversationId), eq(conversation.userId, userId)))
+      .where(
+        and(
+          eq(conversation.id, conversationId),
+          eq(conversation.userId, userId),
+          assistantConversation(),
+        ),
+      )
       .for("update");
     const state = await findShareState(tx, userId, conversationId);
     if (!state) return { error: "not_found" };
@@ -151,7 +159,7 @@ export async function listSharedLinks(deps: Deps, userId: string) {
     })
     .from(sharedLink)
     .innerJoin(conversation, eq(conversation.id, sharedLink.conversationId))
-    .where(eq(conversation.userId, userId))
+    .where(and(eq(conversation.userId, userId), assistantConversation()))
     .orderBy(desc(sharedLink.updatedAt));
   return rows;
 }
@@ -164,7 +172,13 @@ export async function deleteSharedLink(deps: EventDeps, userId: string, conversa
   const [owned] = await deps.db
     .select({ id: conversation.id })
     .from(conversation)
-    .where(and(eq(conversation.id, conversationId), eq(conversation.userId, userId)));
+    .where(
+      and(
+        eq(conversation.id, conversationId),
+        eq(conversation.userId, userId),
+        assistantConversation(),
+      ),
+    );
   if (!owned) return false;
   const removed = await deps.db
     .delete(sharedLink)
@@ -299,7 +313,9 @@ export async function continueSharedConversation(
   const id = uuidv7();
   const newIds = new Map(path.map((row) => [row.id, uuidv7()]));
   await deps.db.transaction(async (tx) => {
-    await tx.insert(conversation).values({ id, userId, title: link.title, model });
+    await tx
+      .insert(conversation)
+      .values({ id, userId, kind: assistantKind, title: link.title, model });
     // Parents come before their children in `path`, so one insert satisfies the parent foreign keys.
     await tx.insert(message).values(
       path.map((row) => ({
