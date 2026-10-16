@@ -16,18 +16,21 @@ import { turnChangesOf } from "../memory/notice";
 import { newestLeaf, pathTo, siblingPosition } from "../../../../core/shared/chat/branches";
 import { type ActiveBranchMessage, toClientMessage } from "../../shared/chat/client-message";
 import type { ReasoningChoice } from "../../../models/shared/models";
+import { assistantConversation, withModel } from "./kind";
 import { liveConversation } from "./temporary";
 
 type Deps = Pick<BotSdkContext, "db">;
 
 /**
- * Matches the Conversation `id` only when `userId` owns it and it is live: an expired Temporary
- * Conversation is gone to every read and write until the sweep deletes it (spec #262).
+ * Matches the Conversation `id` only when `userId` owns it, it is the assistant's and it is live:
+ * another plugin's Conversation (a Bot's) is never the assistant's to touch, and an expired
+ * Temporary Conversation is gone to every read and write until the sweep deletes it (spec #262).
  */
 function ownConversation(userId: string, id: string) {
   return and(
     eq(conversation.id, id),
     eq(conversation.userId, userId),
+    assistantConversation(),
     liveConversation(new Date()),
   );
 }
@@ -35,7 +38,7 @@ function ownConversation(userId: string, id: string) {
 /** The user's Conversation, or `undefined` when it doesn't exist or belongs to someone else. */
 export async function findConversation(deps: Deps, userId: string, id: string) {
   const [row] = await deps.db.select().from(conversation).where(ownConversation(userId, id));
-  return row;
+  return row && withModel(row);
 }
 
 /** Sets the user's Conversation title; `false` when it isn't theirs. Doesn't bump `lastMessageAt`. */
@@ -149,7 +152,13 @@ export async function pinConversation(
   const [counted] = await deps.db
     .select({ count: sql<number>`count(*)::int` })
     .from(conversation)
-    .where(and(eq(conversation.userId, userId), isNotNull(conversation.pinnedAt)));
+    .where(
+      and(
+        eq(conversation.userId, userId),
+        assistantConversation(),
+        isNotNull(conversation.pinnedAt),
+      ),
+    );
   if ((counted?.count ?? 0) >= maxPinnedConversations) return "limit";
   await deps.db
     .update(conversation)
@@ -196,6 +205,7 @@ export async function archiveAllConversations(deps: Deps, userId: string) {
     .where(
       and(
         eq(conversation.userId, userId),
+        assistantConversation(),
         eq(conversation.temporary, false),
         isNull(conversation.projectId),
         isNull(conversation.pinnedAt),
@@ -238,16 +248,14 @@ const conversationSummaryFields = {
 };
 
 /** A sidebar row without the query's helper columns, with its preview on one line. */
-function summarize<T extends { preview: string | null; lastStatus: string | null }>({
-  preview,
-  lastStatus,
-  ...row
-}: T) {
-  return {
+function summarize<
+  T extends { model: string | null; preview: string | null; lastStatus: string | null },
+>({ preview, lastStatus, ...row }: T) {
+  return withModel({
     ...row,
     preview: (preview ?? "").replace(/\s+/g, " ").trim(),
     hasError: lastStatus === "error",
-  };
+  });
 }
 
 /** Conversations per page of the main Conversation list. */
@@ -294,6 +302,7 @@ export async function listConversations(
     deps,
     and(
       eq(conversation.userId, userId),
+      assistantConversation(),
       eq(conversation.temporary, false),
       isNull(conversation.archivedAt),
       projectId
@@ -317,6 +326,7 @@ export async function listArchivedConversations(
     deps,
     and(
       eq(conversation.userId, userId),
+      assistantConversation(),
       eq(conversation.temporary, false),
       isNotNull(conversation.archivedAt),
     ),
@@ -368,6 +378,7 @@ export async function listPinnedConversations(deps: Deps, userId: string) {
     .where(
       and(
         eq(conversation.userId, userId),
+        assistantConversation(),
         isNotNull(conversation.pinnedAt),
         eq(conversation.temporary, false),
         isNull(conversation.archivedAt),
@@ -383,7 +394,14 @@ export async function findMessage(deps: Deps, userId: string, id: string) {
     .select({ message })
     .from(message)
     .innerJoin(conversation, eq(conversation.id, message.conversationId))
-    .where(and(eq(message.id, id), eq(conversation.userId, userId), liveConversation(new Date())));
+    .where(
+      and(
+        eq(message.id, id),
+        eq(conversation.userId, userId),
+        assistantConversation(),
+        liveConversation(new Date()),
+      ),
+    );
   return row?.message;
 }
 

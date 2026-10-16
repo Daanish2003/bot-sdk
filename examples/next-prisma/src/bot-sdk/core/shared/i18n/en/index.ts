@@ -1,3 +1,4 @@
+import { botsMessages } from "./bots";
 import { chatMessages } from "./chat";
 import { errorMessages } from "./errors";
 import { knowledgeMessages } from "./knowledge";
@@ -19,5 +20,6 @@ export const en = {
   ...pagesMessages,
   ...settingsMessages,
   ...knowledgeMessages,
+  ...botsMessages,
   ...errorMessages,
 };

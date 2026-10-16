@@ -1,5 +1,5 @@
 import { conversation } from "../../../core/server/db/schema";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNotNull } from "drizzle-orm";
 
 import { resolvedServices, hostModelList } from "./credentials/resolve";
 import { loadCredentials } from "./credentials/store";
@@ -68,10 +68,11 @@ export async function listAvailableModels(
     ...hosted.map((model) => ({ ...model, onHostCredentials: true })),
   ];
 
+  // The newest Conversation that has a Model: a Bot's Conversation has none.
   const [recent] = await deps.db
     .select({ model: conversation.model })
     .from(conversation)
-    .where(eq(conversation.userId, userId))
+    .where(and(eq(conversation.userId, userId), isNotNull(conversation.model)))
     .orderBy(desc(conversation.lastMessageAt), desc(conversation.id))
     .limit(1);
   const recentModel = models.find((model) => model.id === recent?.model)?.id;

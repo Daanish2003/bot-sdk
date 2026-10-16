@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import type { BotSdkContext } from "../../../../core/server/plugin";
 import { escapeLike, snippetAround } from "../../../../core/shared/search/text";
+import { assistantConversation } from "../chat/kind";
 
 type Deps = Pick<BotSdkContext, "db">;
 
@@ -78,6 +79,7 @@ export async function searchMessages(
     .where(
       and(
         eq(conversation.userId, userId),
+        assistantConversation(),
         eq(conversation.temporary, false),
         ilike(message.searchText, `%${escapeLike(q)}%`),
         cursor &&

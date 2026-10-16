@@ -43,6 +43,8 @@ function hrefOf(page: ChatPage): string {
       return `/p/${encodeURIComponent(page.id)}`;
     case "keys":
       return "/settings/keys";
+    case "bots":
+      return page.id ? `/bots/${encodeURIComponent(page.id)}` : "/bots";
   }
 }
 

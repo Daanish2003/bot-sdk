@@ -34,6 +34,8 @@ const conversationColumns = {
   id: uuid("id").primaryKey(),
   /** The Host's user id. The SDK trusts `getUser` and keeps no foreign key to the user. */
   userId: text("user_id").notNull(),
+  /** The id of the plugin that owns the Conversation (`"assistant"`, `"bot"`). Each plugin reads only its own. */
+  kind: text("kind").notNull(),
   title: text("title"),
   /** The newest Message of the Active Branch. */
   activeLeafId: uuid("active_leaf_id").references((): AnyPgColumn => message.id, {
