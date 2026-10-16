@@ -1,6 +1,6 @@
 // Copies the Bot SDK into a Host's source tree: `pnpm -F @ai-chat/bot-sdk copy <dest>`.
 //
-// - core/ is always replaced, and core/VERSION records the commit and date copied.
+// - core/ is always replaced, and <dest>/VERSION records the commit and date copied.
 // - plugins/ is replaced like core/, except each plugin's ui/ folder, which is the Host's once copied
 //   (theme.css names those folders, so they keep the same layout under <dest>/).
 // - ui/ and extras/ are copied only when their destination folder does not exist, so a Host's
@@ -89,10 +89,7 @@ export function copySdk(dest: string, options: CopyOptions = {}): void {
 
   rmSync(join(target, "core"), { recursive: true, force: true });
   copyTree(join(source, "core"), join(target, "core"));
-  writeFileSync(
-    join(target, "core", "VERSION"),
-    `commit: ${version.commit}\ndate: ${version.date}\n`,
-  );
+  writeFileSync(join(target, "VERSION"), `commit: ${version.commit}\ndate: ${version.date}\n`);
 
   copyPlugins(source, target);
 

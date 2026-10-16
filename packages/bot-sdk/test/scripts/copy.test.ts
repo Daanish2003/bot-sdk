@@ -57,6 +57,8 @@ describe("copySdk", () => {
     write(join(source, "plugins", "assistant", "server", "index.ts"), "export const a = 1;");
     write(join(source, "plugins", "assistant", "server", "index.test.ts"), "test");
     write(join(source, "plugins", "assistant", "ui", "panel.tsx"), "export const Panel = 1;");
+    write(join(source, "plugins", "models", "client", "index.ts"), "export const m = 1;");
+    write(join(source, "plugins", "models", "ui", "keys.tsx"), "export const Keys = 1;");
     write(join(source, "extras", "trigger", "runner.ts"), "export const runner = 1;");
     write(join(source, "package.json"), "{}");
     write(join(source, "README.md"), "# readme");
@@ -67,13 +69,11 @@ describe("copySdk", () => {
     rmSync(tmp, { recursive: true, force: true });
   });
 
-  it("copies core with VERSION, ui, and no test files into an empty folder", () => {
+  it("copies core, every plugin, ui, a root VERSION and no test files into an empty folder", () => {
     copySdk(dest, { source, version });
 
-    expect(readFileSync(join(dest, "core", "VERSION"), "utf8")).toContain("abc1234def");
-    expect(readFileSync(join(dest, "core", "VERSION"), "utf8")).toContain(
-      "2026-10-09T10:00:00.000Z",
-    );
+    expect(readFileSync(join(dest, "VERSION"), "utf8")).toContain("abc1234def");
+    expect(readFileSync(join(dest, "VERSION"), "utf8")).toContain("2026-10-09T10:00:00.000Z");
     expect(readFileSync(join(dest, "ui", "chat", "composer.tsx"), "utf8")).toBe(
       "export const Composer = 1;",
     );
@@ -81,13 +81,15 @@ describe("copySdk", () => {
     expect(listFiles(dest)).toEqual([
       "NOTICE",
       "README.md",
-      "core/VERSION",
+      "VERSION",
       "core/client/index.ts",
       "core/server/index.ts",
       "extras/trigger/runner.ts",
       "package.json",
       "plugins/assistant/server/index.ts",
       "plugins/assistant/ui/panel.tsx",
+      "plugins/models/client/index.ts",
+      "plugins/models/ui/keys.tsx",
       "ui/chat/composer.tsx",
       "ui/theme.css",
     ]);
@@ -108,7 +110,7 @@ describe("copySdk", () => {
       "export const server = 2;",
     );
     expect(existsSync(join(dest, "core", "client", "index.ts"))).toBe(false);
-    expect(readFileSync(join(dest, "core", "VERSION"), "utf8")).toContain("fff9999");
+    expect(readFileSync(join(dest, "VERSION"), "utf8")).toContain("fff9999");
     expect(readFileSync(join(dest, "ui", "chat", "composer.tsx"), "utf8")).toBe("host edit");
   });
 
@@ -141,6 +143,46 @@ describe("copySdk", () => {
     expect(existsSync(join(dest, "plugins", "gone"))).toBe(false);
   });
 
+  it("checks each ui folder on its own: a missing one is copied while the others stay", () => {
+    copySdk(dest, { source, version });
+
+    write(join(dest, "ui", "chat", "composer.tsx"), "host edit");
+    write(join(dest, "plugins", "assistant", "ui", "panel.tsx"), "host edit");
+    rmSync(join(dest, "plugins", "models", "ui"), { recursive: true });
+    copySdk(dest, { source, version });
+
+    expect(readFileSync(join(dest, "ui", "chat", "composer.tsx"), "utf8")).toBe("host edit");
+    expect(readFileSync(join(dest, "plugins", "assistant", "ui", "panel.tsx"), "utf8")).toBe(
+      "host edit",
+    );
+    expect(readFileSync(join(dest, "plugins", "models", "ui", "keys.tsx"), "utf8")).toBe(
+      "export const Keys = 1;",
+    );
+
+    rmSync(join(dest, "ui"), { recursive: true });
+    copySdk(dest, { source, version });
+
+    expect(readFileSync(join(dest, "ui", "chat", "composer.tsx"), "utf8")).toBe(
+      "export const Composer = 1;",
+    );
+    expect(readFileSync(join(dest, "plugins", "assistant", "ui", "panel.tsx"), "utf8")).toBe(
+      "host edit",
+    );
+  });
+
+  it("copies package.json, README and NOTICE on every run", () => {
+    copySdk(dest, { source, version });
+
+    write(join(dest, "package.json"), "host edit");
+    write(join(source, "README.md"), "# readme v2");
+    write(join(source, "NOTICE"), "Sim Studio v2");
+    copySdk(dest, { source, version });
+
+    expect(readFileSync(join(dest, "package.json"), "utf8")).toBe("{}");
+    expect(readFileSync(join(dest, "README.md"), "utf8")).toBe("# readme v2");
+    expect(readFileSync(join(dest, "NOTICE"), "utf8")).toBe("Sim Studio v2");
+  });
+
   it("keeps each theme.css @source line resolving to a copied plugin ui folder", () => {
     write(join(source, "ui", "theme.css"), '@source ".";\n@source "../plugins/assistant/ui";');
 
@@ -154,10 +196,12 @@ describe("copySdk", () => {
 
   it("never copies an eval folder, so the Memory eval stays in the canonical repo", () => {
     write(join(source, "core", "eval", "memory", "run.ts"), "eval");
+    write(join(source, "plugins", "assistant", "eval", "run.ts"), "eval");
 
     copySdk(dest, { source, version });
 
     expect(existsSync(join(dest, "core", "eval"))).toBe(false);
+    expect(existsSync(join(dest, "plugins", "assistant", "eval"))).toBe(false);
   });
 
   it("gives a Host core and ui only, so the shared e2e scenarios never reach it", () => {

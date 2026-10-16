@@ -54,13 +54,13 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # The example's copy of the SDK must match packages/bot-sdk. core/VERSION is excluded: it
+      # The example's copy of the SDK must match packages/bot-sdk. The root VERSION is excluded: it
       # records the commit and time of each copy, so it differs on every run.
       - name: Copy drift
         run: |
           pnpm -F @ai-chat/bot-sdk copy examples/next-prisma/src/chat-sdk
           dir=examples/next-prisma/src/chat-sdk
-          changed="$(git diff --name-only -- "$dir" ":!$dir/core/VERSION")"
+          changed="$(git diff --name-only -- "$dir" ":!$dir/VERSION")"
           untracked="$(git ls-files --others --exclude-standard -- "$dir")"
           if [ -n "$changed$untracked" ]; then
             echo "$changed$untracked"

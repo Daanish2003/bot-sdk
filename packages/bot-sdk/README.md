@@ -1,10 +1,12 @@
 # Bot SDK
 
-A chat feature a Host copies into its own source tree. The SDK is one folder with three parts:
+A chat feature a Host copies into its own source tree. The SDK is one folder with these parts:
 
 - `core/` (`shared`, `server`, `client`, including `client/react`): runtime code the Host never edits. Updating means copying it again.
-- `ui/`: React components the Host owns and may change. They sit on the Host's own shadcn primitives.
-- `package.json` and `README.md`: copied alongside, for reference. The Host installs the dependencies listed here.
+- `plugins/<name>/` (`assistant`, `models`): each plugin's `shared`, `server` and `client` are runtime code like `core/`; its `ui/` is the Host's.
+- `ui/`, and each plugin's `ui/`: React components the Host owns and may change. They sit on the Host's own shadcn primitives.
+- `extras/`: optional adapters (the Trigger.dev runner) the Host owns once copied.
+- `package.json`, `README.md` and `NOTICE`: copied alongside, for reference. The Host installs the dependencies listed here.
 
 The SDK assumes nothing about the Host's stack beyond the npm packages below. It knows users only by an opaque id.
 
@@ -18,14 +20,29 @@ pnpm -F @ai-chat/bot-sdk copy ../my-host/src/lib/bot-sdk
 
 The destination is resolved from the folder you ran `pnpm` in. The script:
 
-- replaces `core/` on every run and writes `core/VERSION` with the commit hash and the date it was copied (`commit:` and `date:` lines);
-- copies `ui/` only when the destination has no `ui/` folder, so your edits to components and `theme.css` survive updates;
-- copies `package.json` and `README.md` to the destination root on every run;
-- never copies tests or test helpers (`*.test.*` files and `test`, `tests`, `testing`, `__tests__` folders).
+- replaces `core/` and every plugin's folders except `ui/` on every run, and writes `VERSION` at the destination root with the commit hash and the date it was copied (`commit:` and `date:` lines);
+- copies every plugin, whether or not your Host enables it;
+- copies each `ui/` folder (the root one and each plugin's) and `extras/` only when that folder is missing at the destination, checked folder by folder, so your edits to components and `theme.css` survive updates;
+- copies `package.json`, `README.md` and `NOTICE` to the destination root on every run;
+- never copies tests, test helpers or evals (`*.test.*` files and `test`, `tests`, `testing`, `__tests__`, `eval` folders).
+
+Then add one alias to your `tsconfig.json`, pointing at the destination folder:
+
+```json
+{
+  "compilerOptions": {
+    "paths": {
+      "@ai-chat/bot-sdk/*": ["./src/lib/bot-sdk/*"]
+    }
+  }
+}
+```
+
+Your imports then read exactly like this repo's: `@ai-chat/bot-sdk/core/server`, `@ai-chat/bot-sdk/plugins/models/server`, `@ai-chat/bot-sdk/plugins/assistant/ui`, and so on.
 
 ### Updating
 
-1. Run the copy script again. `core/VERSION` shows the commit you now run.
+1. Run the copy script again. `VERSION` shows the commit you now run.
 2. Your `ui/` is untouched. If the release changed a component you also edited, merge that by hand: diff the new SDK's `ui/` against yours. The client side of a Run (sending, joining a streaming reply, Stop, a moderated refusal, Approval decisions, Ratings and Memory events) lives in `plugins/assistant/client/react/conversation-run.ts` as `useConversationRun`, which `ui/chat/chat-view.tsx` calls, so fixes to it come with the copy.
 3. Install any new dependencies listed below, then run your type check.
 
@@ -55,27 +72,33 @@ From #378 on, Run-protocol fixes ship in `core/` (`useConversationRun`) and need
 
 ## Dependencies
 
-Install these in the Host. Versions come from `package.json` in this folder.
+Install these in the Host. There is one `package.json` for the whole SDK, and versions come from it. The copy script copies every plugin, so a Host installs every group below.
 
 **What `core/` needs:**
 
-- `@tanstack/ai` and the provider packages it uses: `@tanstack/ai-anthropic`, `@tanstack/ai-bedrock`, `@tanstack/ai-byteplus`, `@tanstack/ai-client`, `@tanstack/ai-cloudflare`, `@tanstack/ai-gemini`, `@tanstack/ai-grok`, `@tanstack/ai-groq`, `@tanstack/ai-llmgateway`, `@tanstack/ai-lovable`, `@tanstack/ai-mistral`, `@tanstack/ai-ollama`, `@tanstack/ai-openai`, `@tanstack/ai-openrouter`, `@tanstack/ai-vercel-gateway`
-- `@tanstack/react-query`, `react`, `sonner`
+- `@tanstack/ai`
+- `@tanstack/react-query`, `react`, `react-dom`, `sonner`
 - `drizzle-orm` and `pg` (the Postgres driver it uses)
 - `redis` (the Redis client, used by `redisRuntime()`)
-- `html-to-text` (pinned at 10.0.1), which the `fetch_url` tool uses to turn an HTML page into text. Maintained, MIT, about 15M weekly downloads; the other candidates were `turndown` (converts to Markdown, not text), `@mozilla/readability` (needs a DOM, e.g. `linkedom`) and `node-html-parser`.
 - `undici` and `ipaddr.js`, for the SSRF-guarded `fetch` (`core/server/lib/guarded-fetch.ts`). `undici` pins each connection to the address that was checked, and `ipaddr.js` classifies that address. Install `undici` at the major your Node bundles (7.x on Node 24): undici 8's dispatcher is rejected by Node's built-in `fetch`.
-- `@tanstack/ai-mcp`, pinned at 0.8.1 (the release whose `@tanstack/ai` range matches), the MCP client (`mcpServers` below). The sign-in itself is the SDK's own: the library exports no OAuth helpers. It brings `@modelcontextprotocol/*` and `jose`.
-- `@orpc/server`, `@orpc/tanstack-query`
+- `aws4fetch`, which signs requests for `s3BlobStore`
+- `@orpc/client`, `@orpc/server`, `@orpc/tanstack-query`
 - `zod`
 
-**What `ui/` needs (on top of `core/`):**
+The root `ui/` needs nothing beyond `core/`'s packages.
 
-- `@tanstack/ai-react`
-- `lucide-react`
-- `sonner`, `react`, `@tanstack/react-query` (already listed above)
+**What the `models` plugin needs (on top of `core/`):**
 
-**What the `prompt-kit` components need** (they are copied in with `ui/`, see below): `class-variance-authority`, `marked`, `react-markdown`, `remark-breaks`, `remark-gfm`, `shiki`, `use-stick-to-bottom`, `@tailwindcss/typography`.
+- the provider packages: `@tanstack/ai-anthropic`, `@tanstack/ai-bedrock`, `@tanstack/ai-byteplus`, `@tanstack/ai-cloudflare`, `@tanstack/ai-gemini`, `@tanstack/ai-grok`, `@tanstack/ai-groq`, `@tanstack/ai-llmgateway`, `@tanstack/ai-lovable`, `@tanstack/ai-mistral`, `@tanstack/ai-ollama`, `@tanstack/ai-openai`, `@tanstack/ai-openrouter`, `@tanstack/ai-vercel-gateway`
+- for its `ui/`: `@tanstack/ai-react`, `lucide-react`
+
+**What the `assistant` plugin needs (on top of `core/`):**
+
+- `@tanstack/ai-client`, `@tanstack/ai-compaction`
+- `@tanstack/ai-mcp`, pinned at 0.8.1 (the release whose `@tanstack/ai` range matches), the MCP client (`mcpServers` below). The sign-in itself is the SDK's own: the library exports no OAuth helpers. It brings `@modelcontextprotocol/*` and `jose`.
+- `html-to-text` (pinned at 10.0.1), which the `fetch_url` tool uses to turn an HTML page into text. Maintained, MIT, about 15M weekly downloads; the other candidates were `turndown` (converts to Markdown, not text), `@mozilla/readability` (needs a DOM, e.g. `linkedom`) and `node-html-parser`.
+- for Knowledge's text extraction: `cheerio`, `htmlparser2`, `csv-parse`, `mammoth`, `pdfjs-dist`, `@thednp/dommatrix`
+- for its `ui/`: `@tanstack/ai-react`, `lucide-react`, and what the `prompt-kit` components need (see below): `class-variance-authority`, `marked`, `react-markdown`, `remark-breaks`, `remark-gfm`, `shiki`, `use-stick-to-bottom`, `@tailwindcss/typography`.
 
 `core/` imports only npm packages and its own files, so a Host outside this repo can copy and compile it. `examples/next-prisma` is a Host outside this repo that runs it.
 
