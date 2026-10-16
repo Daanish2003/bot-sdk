@@ -1,5 +1,5 @@
 ---
-Status: accepted
+Status: superseded by ADR 0020
 ---
 
 # A family of copied SDKs, each with its own package, schema and factory
