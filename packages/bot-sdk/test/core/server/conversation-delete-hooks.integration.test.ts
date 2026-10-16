@@ -1,10 +1,11 @@
 import { eq, inArray } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
+import { deleteConversations } from "../../../core/server/chat/delete-conversations";
 import { createHookEmitter, type RunEndEvent } from "../../../core/server/chat/hooks";
 import { conversation, project } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
-import type { BotSdkPlugin } from "../../../core/server/plugin";
+import type { BotSdkContext, BotSdkPlugin } from "../../../core/server/plugin";
 import { deleteConversation } from "../../../plugins/assistant/server/chat/store";
 import { sweepExpiredTemporaryConversations } from "../../../plugins/assistant/server/chat/temporary";
 import { deleteAllConversations } from "../../../plugins/assistant/server/delete-user";
@@ -168,6 +169,76 @@ describe("every path that deletes Conversations runs the delete hooks", () => {
     expect(await conversationExists(late!)).toBe(false);
     // The late Conversation's hooks ran too, before it went.
     expect(seen).toEqual([[first.id], [late]]);
+  });
+
+  it("reports the Conversation deleted to only one of two concurrent deletes", async () => {
+    const user = await insertUser();
+    const conv = await insertConversation(user);
+    // Both deletes have selected the row before either deletes it.
+    let arrived = 0;
+    let release!: () => void;
+    const bothSelected = new Promise<void>((resolve) => (release = resolve));
+    const plugin: BotSdkPlugin = {
+      id: "barrier",
+      databaseHooks: {
+        conversation: {
+          delete: {
+            before: async () => {
+              arrived += 1;
+              if (arrived === 2) release();
+              await bothSelected;
+            },
+            after: async () => {},
+          },
+        },
+      },
+    };
+    const onConversationDeleted = vi.fn();
+    const deps = createTestSdk({
+      plugins: [plugin],
+      hooks: createHookEmitter({ onConversationDeleted }, { error: () => {} }),
+    });
+
+    const results = await Promise.all([
+      deleteConversation(deps, user.id, conv.id),
+      deleteConversation(deps, user.id, conv.id),
+    ]);
+
+    expect(results.sort()).toEqual([false, true]);
+    await vi.waitFor(() => expect(onConversationDeleted).toHaveBeenCalledOnce());
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(onConversationDeleted).toHaveBeenCalledOnce();
+  });
+
+  it("gives the hooks muted events, `before` too, on a muted delete", async () => {
+    const user = await insertUser();
+    await insertConversation(user);
+    const fire = (sdk: BotSdkContext, id: string) =>
+      sdk.events.fire("onConversationDeleted", { userId: user.id, conversationId: id });
+    const plugin: BotSdkPlugin = {
+      id: "announcer",
+      databaseHooks: {
+        conversation: {
+          delete: {
+            before: async (sdk) => fire(sdk, "before"),
+            after: async (sdk) => fire(sdk, "after"),
+          },
+        },
+      },
+    };
+    const onConversationDeleted = vi.fn();
+    const deps = createTestSdk({
+      plugins: [plugin],
+      hooks: createHookEmitter({ onConversationDeleted }, { error: () => {} }),
+    });
+
+    const { afterCommit } = await deps.db.transaction((tx) =>
+      deleteConversations(deps, tx, { userId: user.id, mute: true }),
+    );
+    await afterCommit();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(onConversationDeleted).not.toHaveBeenCalled();
   });
 
   it("runs no hook when there is nothing to delete", async () => {

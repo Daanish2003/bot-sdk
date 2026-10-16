@@ -15,7 +15,8 @@ export const muted = (events: HookEmitter): HookEmitter => ({
  * requires a `where`) inside the caller's transaction (spec #439). Every path that removes Conversations calls it before deleting
  * any parent. It selects the ids, runs every plugin's `before`, then deletes the rows; their Messages
  * and the rest go by cascade. It repeats until the select finds none, so a Conversation committed
- * between a select and its delete goes too, through the hooks.
+ * between a select and its delete goes too, through the hooks. Only the rows this delete removed
+ * count as deleted, so of two concurrent deletes of one row only one reports it.
  *
  * Call `afterCommit` once the transaction commits: it runs every plugin's `after` (once per pass),
  * then fires `onConversationDeleted` for each Conversation when `announce` is given (with the
@@ -39,6 +40,7 @@ export async function deleteConversations(
     const hook = plugin.databaseHooks?.conversation?.delete;
     return hook ? [hook] : [];
   });
+  const hookSdk = mute ? { ...sdk, events: muted(sdk.events) } : sdk;
   const rows: { id: string; userId: string; projectId: string | null }[] = [];
   const passes: { conversationIds: string[]; collected: unknown[] }[] = [];
   for (;;) {
@@ -57,15 +59,20 @@ export async function deleteConversations(
     const conversationIds = found.map((row) => row.id);
     const collected: unknown[] = [];
     for (const hook of hooks) {
-      collected.push(await hook.before(sdk, { conversationIds, userId, tx }));
+      collected.push(await hook.before(hookSdk, { conversationIds, userId, tx }));
     }
-    await tx.delete(conversation).where(inArray(conversation.id, conversationIds));
-    rows.push(...found);
-    passes.push({ conversationIds, collected });
+    // A concurrent delete may have taken some rows since the select: they are its to report.
+    const gone = await tx
+      .delete(conversation)
+      .where(inArray(conversation.id, conversationIds))
+      .returning({ id: conversation.id });
+    const deleted = new Set(gone.map((row) => row.id));
+    if (deleted.size === 0) continue;
+    rows.push(...found.filter((row) => deleted.has(row.id)));
+    passes.push({ conversationIds: conversationIds.filter((id) => deleted.has(id)), collected });
   }
   if (rows.length === 0) return { deleted: [], afterCommit: async () => {} };
 
-  const hookSdk = mute ? { ...sdk, events: muted(sdk.events) } : sdk;
   return {
     deleted: rows.map((row) => row.id),
     afterCommit: async () => {
