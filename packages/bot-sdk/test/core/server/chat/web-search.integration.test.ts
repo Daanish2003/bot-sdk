@@ -3,10 +3,10 @@ import { message, usage } from "../../../../core/server/db/schema";
 import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { saveCredentials } from "../../../../core/server/credentials/store";
-import type { AppDeps, HostTool, SearchClient } from "../../../../core/server/deps";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
+import type { HostTool, SearchClient } from "../../../../core/server/deps";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestSdk, type TestDepsOverrides } from "../../../support/deps";
+import { createTestSdk, type TestDepsOverrides, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { createFakeSearchClient } from "../../../support/fake-search-client";
 import { insertUser } from "../../../support/users";
@@ -15,7 +15,7 @@ import { citationPrompt } from "../../../../core/shared/chat/citations";
 import type { ChatCommand } from "../../../../core/shared/chat/command";
 import { curatedModels } from "../../../../core/shared/chat/models";
 import { searchErrorMessages } from "../../../../core/shared/chat/web-search";
-import { quotaLookup } from "../../../../core/server/chat/quota";
+import { quotaLookup } from "../../../../plugins/models/server/quota";
 import { reapStaleRuns } from "../../../../core/server/chat/run";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { getTestDb } from "../../../support/test-database";
@@ -96,7 +96,7 @@ async function setup({
   return { user, deps, fake, conv, send };
 }
 
-async function replyOf(deps: AppDeps, conversationId: string) {
+async function replyOf(deps: TestDeps, conversationId: string) {
   const rows = await deps.db
     .select()
     .from(message)

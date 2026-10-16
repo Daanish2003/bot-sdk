@@ -21,10 +21,11 @@ import {
   createChatHandler,
   type BotSdkOptions,
 } from "../../../../core/server/create-chat";
-import { assistant, type AssistantOptions } from "../../../../core/server/assistant";
+import { assistant } from "../../../../core/server/assistant";
+import { models, type ModelsOptions } from "../../../../plugins/models/server/plugin";
 import { deleteAllConversations, deleteUserData } from "../../../../core/server/delete-user";
 import { deleteProject } from "../../../../core/server/project/store";
-import { saveCredentials } from "../../../../core/server/credentials/store";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { conversation, message, project, usage } from "../../../../core/server/db/schema";
 import type { HostProvider } from "../../../../core/server/deps";
 import { createLifecycle } from "../../../../core/server/lifecycle";
@@ -40,8 +41,8 @@ import { insertUser, type TestUser } from "../../../support/users";
 // The Run's adapter: the handler's `createBotSdk` builds its adapters itself, so the module hands
 // it the scripted fake for each test.
 const scripted = vi.hoisted(() => ({ adapter: undefined as unknown as AnyTextAdapter }));
-vi.mock("../../../../core/server/chat/adapters", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../../../core/server/chat/adapters")>()),
+vi.mock("../../../../plugins/models/server/adapters", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../../plugins/models/server/adapters")>()),
   adapterFor: () => scripted.adapter,
 }));
 
@@ -62,7 +63,7 @@ const hostProvider: HostProvider = {
 
 /** A `createBotSdk` over the test database, with the Host's hooks and logger. */
 function chatWith(
-  options: Partial<BotSdkOptions> & Pick<AssistantOptions, "hostProviders"> & { userId: string },
+  options: Partial<BotSdkOptions> & Pick<ModelsOptions, "hostProviders"> & { userId: string },
 ): ReturnType<typeof createBotSdk> {
   const { userId, hostProviders = [hostProvider], ...rest } = options;
   return createBotSdk({
@@ -72,7 +73,7 @@ function chatWith(
     basePath,
     logger: { error: () => {} },
     ...rest,
-    plugins: [assistant({ hostProviders })],
+    plugins: [models({ hostProviders }), assistant()],
   });
 }
 

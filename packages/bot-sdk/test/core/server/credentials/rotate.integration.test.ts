@@ -2,12 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createBotSdk } from "../../../../core/server/create-chat";
 import { assistant } from "../../../../core/server/assistant";
+import { models } from "../../../../plugins/models/server/plugin";
 import { encryptCredentials } from "../../../../core/server/credentials/encryption";
 import {
   listCredentials,
   rotateCredentialKeys,
   saveCredentials,
-} from "../../../../core/server/credentials/store";
+} from "../../../../plugins/models/server/credentials/store";
 import { createTestSdk } from "../../../support/deps";
 import { userCredentials } from "../../../../core/server/db/schema";
 import { insertUser } from "../../../support/users";
@@ -37,7 +38,7 @@ describe("chat.rotateKeys()", () => {
       keyEncryptionSecrets: [keyB, keyA],
       basePath: "/api/chat",
       logger: { error: vi.fn() },
-      plugins: [assistant()],
+      plugins: [models(), assistant()],
     });
 
     await expect(chat.rotateKeys()).resolves.toEqual({ reencrypted: 2, unreadable: 0 });
@@ -95,7 +96,7 @@ describe("chat.rotateKeys()", () => {
       keyEncryptionSecrets: [keyB, keyA],
       basePath: "/api/chat",
       logger,
-      plugins: [assistant()],
+      plugins: [models(), assistant()],
     });
 
     await expect(chat.rotateKeys()).resolves.toEqual({ reencrypted: 1, unreadable: 1 });
@@ -113,7 +114,7 @@ describe("chat.rotateKeys()", () => {
       keyEncryptionSecrets: [keyB],
       basePath: "/api/chat",
       logger,
-      plugins: [assistant()],
+      plugins: [models(), assistant()],
     });
     await onlyNew.start();
     await onlyNew.stop();

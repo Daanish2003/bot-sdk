@@ -6,8 +6,11 @@ import {
   imageBytes,
 } from "../../../../core/server/chat/generate-image-tool";
 import { imageInfo } from "../../../../core/server/chat/image-info";
-import { fakeImageAdapter, fakePngBase64 } from "../../../../core/server/chat/fake-image-adapter";
-import type { ImageMeter } from "../../../../core/server/chat/meter";
+import {
+  fakeImageAdapter,
+  fakePngBase64,
+} from "../../../../plugins/models/server/fake-image-adapter";
+import type { ImageMeter } from "../../../../plugins/models/server/meter";
 import { createToolBudget } from "../../../../core/server/chat/tracked-tool";
 import { createPartsBuilder } from "../../../../core/shared/chat/parts";
 import {

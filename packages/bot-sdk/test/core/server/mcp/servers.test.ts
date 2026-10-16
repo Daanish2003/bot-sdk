@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import type { AppDeps } from "../../../../core/server/deps";
 import { discoverEndpoints, SignInError } from "../../../../core/server/mcp/oauth";
 import { checkMcpServers, type McpServerConfig } from "../../../../core/server/mcp/servers";
+import type { TestDeps } from "../../../support/deps";
 
 const server = (url: string): McpServerConfig => ({
   key: "linear",
@@ -12,7 +12,7 @@ const server = (url: string): McpServerConfig => ({
 });
 
 /** A fetch that serves the given JSON documents by URL, and 404s the rest. */
-function metadataFetch(documents: Record<string, unknown>): AppDeps["fetch"] {
+function metadataFetch(documents: Record<string, unknown>): TestDeps["fetch"] {
   return async (input) => {
     const url = new URL(new Request(input).url).href;
     const body = documents[url];

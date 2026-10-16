@@ -8,13 +8,13 @@ import { z } from "zod";
 import type { HostToolContext } from "../../../../core/server/chat/host-tools";
 import { reapStaleRuns, stopRun } from "../../../../core/server/chat/run";
 import { deleteUserData } from "../../../../core/server/delete-user";
-import { saveCredentials } from "../../../../core/server/credentials/store";
-import type { AppDeps, HostProvider } from "../../../../core/server/deps";
-import { fakeImageAdapter } from "../../../../core/server/chat/fake-image-adapter";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
+import type { HostProvider } from "../../../../core/server/deps";
+import { fakeImageAdapter } from "../../../../plugins/models/server/fake-image-adapter";
 import { citationPrompt } from "../../../../core/shared/chat/citations";
 import { knowledgePromptOf } from "../../../../core/shared/chat/knowledge-search";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestSdk, type TestDepsOverrides } from "../../../support/deps";
+import { createTestSdk, type TestDepsOverrides, type TestDeps } from "../../../support/deps";
 import {
   createFakeAdapter,
   type FakeAdapter,
@@ -115,7 +115,7 @@ async function setup({
 }
 
 /** Joins a Message's Run from its log, and reads the log until it closes. */
-async function join(messageId: string, user: TestUser, deps: AppDeps) {
+async function join(messageId: string, user: TestUser, deps: TestDeps) {
   const response = await sendAs(
     new Request(`${basePath}/run?runId=${messageId}`, { method: "GET" }),
     user,
@@ -124,7 +124,7 @@ async function join(messageId: string, user: TestUser, deps: AppDeps) {
   return response.text();
 }
 
-async function repliesOf(deps: AppDeps, conversationId: string) {
+async function repliesOf(deps: TestDeps, conversationId: string) {
   const rows = await deps.db
     .select()
     .from(message)
@@ -133,7 +133,7 @@ async function repliesOf(deps: AppDeps, conversationId: string) {
   return rows.filter((row) => row.role === "assistant");
 }
 
-const replyOf = async (deps: AppDeps, conversationId: string) =>
+const replyOf = async (deps: TestDeps, conversationId: string) =>
   (await repliesOf(deps, conversationId)).at(-1)!;
 
 describe("a Host tool that needs Approval", () => {
@@ -379,7 +379,7 @@ const postNote = toolDefinition({
 }).server<HostToolContext>(async (args) => ({ posted: args.note }));
 
 /** Answers a waiting call with "allow this tool for this Conversation" and joins the new Run. */
-async function decideAllowing(user: TestUser, deps: AppDeps, messageId: string) {
+async function decideAllowing(user: TestUser, deps: TestDeps, messageId: string) {
   await chatRpc({ user, deps }).chat.decide({
     messageId,
     approved: true,
@@ -389,7 +389,7 @@ async function decideAllowing(user: TestUser, deps: AppDeps, messageId: string) 
 }
 
 /** Sends a Message to another Conversation of the same user. */
-const sendIn = (user: TestUser, deps: AppDeps, conversationId: string) =>
+const sendIn = (user: TestUser, deps: TestDeps, conversationId: string) =>
   sendAs(
     new Request(`${basePath}/run`, {
       method: "POST",

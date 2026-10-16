@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
 import { assistant } from "../../../core/server/assistant";
+import { models } from "../../../plugins/models/server/plugin";
 import { LATEST_MIGRATION } from "../../../core/server/migrate";
 import {
   dropScratchDatabase,
@@ -23,7 +24,7 @@ function chatFor(databaseUrl: string) {
     getUser: () => null,
     keyEncryptionSecrets,
     basePath: "/api/chat",
-    plugins: [assistant()],
+    plugins: [models(), assistant()],
   });
 }
 

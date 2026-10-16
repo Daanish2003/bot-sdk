@@ -10,16 +10,19 @@ import {
 import { asc, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
-import { saveCredentials } from "../../../../core/server/credentials/store";
-import type { AppDeps, HostProvider } from "../../../../core/server/deps";
-import { fakeImageAdapter, fakePngBase64 } from "../../../../core/server/chat/fake-image-adapter";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
+import type { HostProvider } from "../../../../core/server/deps";
+import {
+  fakeImageAdapter,
+  fakePngBase64,
+} from "../../../../plugins/models/server/fake-image-adapter";
 import { like } from "drizzle-orm";
-import { quotaLookup, readQuota } from "../../../../core/server/chat/quota";
+import { quotaLookup, readQuota } from "../../../../plugins/models/server/quota";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { insertConversation, insertMessage } from "../../../support/conversations";
 import { insertGeneratedImage } from "../../../support/generated-images";
 import { insertAttachment, linkTestAttachments } from "../../../support/attachments";
-import { createTestSdk, type TestDepsOverrides } from "../../../support/deps";
+import { createTestSdk, type TestDepsOverrides, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { insertUser } from "../../../support/users";
 import { chatRpc, sendAs } from "../../../support/sdk";
@@ -105,7 +108,7 @@ async function setup({
 }
 
 /** The Conversation's Messages, oldest first. */
-async function messagesOf(deps: AppDeps, conversationId: string) {
+async function messagesOf(deps: TestDeps, conversationId: string) {
   return deps.db
     .select()
     .from(message)
@@ -113,7 +116,7 @@ async function messagesOf(deps: AppDeps, conversationId: string) {
     .orderBy(asc(message.createdAt));
 }
 
-async function replyOf(deps: AppDeps, conversationId: string) {
+async function replyOf(deps: TestDeps, conversationId: string) {
   const rows = await messagesOf(deps, conversationId);
   return rows.findLast((row) => row.role === "assistant")!;
 }

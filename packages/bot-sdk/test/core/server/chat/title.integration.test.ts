@@ -4,7 +4,7 @@ import type { AnyTextAdapter } from "@tanstack/ai";
 import { eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
-import { saveCredentials } from "../../../../core/server/credentials/store";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { saveBackgroundModel } from "../../../../core/server/settings/store";
 import { insertConversation, insertMessage } from "../../../support/conversations";
 import { createTestSdk } from "../../../support/deps";

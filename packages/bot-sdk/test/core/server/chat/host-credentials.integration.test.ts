@@ -1,11 +1,11 @@
 import { asc, eq, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
-import { saveCredentials } from "../../../../core/server/credentials/store";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { message } from "../../../../core/server/db/schema";
-import type { AppDeps, HostProvider } from "../../../../core/server/deps";
+import type { HostProvider } from "../../../../core/server/deps";
 import { insertConversation } from "../../../support/conversations";
-import { createTestSdk, type TestDepsOverrides } from "../../../support/deps";
+import { createTestSdk, type TestDepsOverrides, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { insertUser, type TestUser } from "../../../support/users";
 import { sendAs } from "../../../support/sdk";
@@ -55,7 +55,7 @@ async function setup({
     credentials: Record<string, string>;
     options?: { maxOutputTokens?: number };
   }> = [];
-  const deps: AppDeps = createTestSdk({
+  const deps: TestDeps = createTestSdk({
     adapterFor: (adapterModel, credentials, options) => {
       adapterCalls.push({ model: adapterModel, credentials, options });
       return fake.adapter;

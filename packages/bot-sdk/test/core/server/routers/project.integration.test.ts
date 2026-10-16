@@ -6,7 +6,7 @@ import { getTestDb } from "../../../support/test-database";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { START } from "../../../../core/server/chat/run-streams";
-import { saveCredentials } from "../../../../core/server/credentials/store";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { insertConversation, insertMessage } from "../../../support/conversations";
 import { createTestSdk } from "../../../support/deps";

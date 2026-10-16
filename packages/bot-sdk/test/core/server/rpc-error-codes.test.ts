@@ -5,7 +5,13 @@ import { describe, expect, it } from "vitest";
 
 import { en } from "../../../core/shared/i18n";
 
-const serverDir = join(dirname(fileURLToPath(import.meta.url)), "../../../core/server");
+const sdkDir = join(dirname(fileURLToPath(import.meta.url)), "../../..");
+const serverDir = join(sdkDir, "core/server");
+// The server code: the core's, and each plugin's.
+const serverDirs = [
+  serverDir,
+  ...readdirSync(join(sdkDir, "plugins")).map((name) => join(sdkDir, "plugins", name, "server")),
+];
 
 /** Every `.ts` file under `dir`, relative to the Bot SDK's `core/server`. */
 function sourceFiles(dir: string): string[] {
@@ -16,7 +22,7 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
-const files = sourceFiles(serverDir).map((file) => ({
+const files = serverDirs.flatMap(sourceFiles).map((file) => ({
   file,
   source: readFileSync(join(serverDir, file), "utf8"),
 }));

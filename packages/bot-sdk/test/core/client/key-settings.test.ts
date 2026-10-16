@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { providerRows } from "../../../core/client/key-settings";
+import { providerRows } from "../../../plugins/models/client/key-settings";
 
 describe("providerRows", () => {
   it("lists all 14 Providers, every one available", () => {

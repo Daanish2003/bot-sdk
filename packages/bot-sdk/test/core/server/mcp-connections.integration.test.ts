@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { createBotSdk, type BotSdkOptions } from "../../../core/server/create-chat";
 import { assistant } from "../../../core/server/assistant";
+import { models } from "../../../plugins/models/server/plugin";
 import { deleteUserData } from "../../../core/server/delete-user";
 import { mcpConnection } from "../../../core/server/db/schema";
 import type { McpServerConfig } from "../../../core/server/mcp/servers";
@@ -53,7 +54,7 @@ describe("createBotSdk's mcpServers", () => {
       getUser: () => null,
       keyEncryptionSecrets: [testKeyEncryptionSecret],
       basePath: "/api/chat",
-      plugins: [assistant({ mcpServers: [{ ...linear, url: "http://mcp.test/mcp" }] })],
+      plugins: [models(), assistant({ mcpServers: [{ ...linear, url: "http://mcp.test/mcp" }] })],
     };
 
     expect(() => createBotSdk(options)).toThrow(/HTTPS/);

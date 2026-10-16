@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EventHooks } from "../../../../core/server/index";
 import { createBotSdk } from "../../../../core/server/create-chat";
 import { assistant } from "../../../../core/server/assistant";
+import { models } from "../../../../plugins/models/server/plugin";
 import type { HostProvider } from "../../../../core/server/deps";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { testKeyEncryptionSecret } from "../../../support/deps";
@@ -18,8 +19,8 @@ import { insertUser } from "../../../support/users";
 // The Run's adapter: the handler's `createBotSdk` builds its adapters itself, so the module hands
 // it the scripted fake for each test.
 const scripted = vi.hoisted(() => ({ adapter: undefined as unknown as AnyTextAdapter }));
-vi.mock("../../../../core/server/chat/adapters", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../../../core/server/chat/adapters")>()),
+vi.mock("../../../../plugins/models/server/adapters", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../../plugins/models/server/adapters")>()),
   adapterFor: () => scripted.adapter,
 }));
 
@@ -116,9 +117,10 @@ function chatWith(userId: string, hooks: EventHooks): ReturnType<typeof createBo
     logger: { error: () => {} },
     hooks,
     plugins: [
-      assistant({
+      models({
         hostProviders: [hostProvider],
       }),
+      assistant(),
     ],
   });
 }

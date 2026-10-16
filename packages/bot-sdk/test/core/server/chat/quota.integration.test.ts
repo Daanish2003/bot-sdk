@@ -1,13 +1,13 @@
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { saveCredentials } from "../../../../core/server/credentials/store";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { usage } from "../../../../core/server/db/schema";
-import type { AppDeps, HostProvider, QuotaSetting } from "../../../../core/server/deps";
-import { quotaLookup } from "../../../../core/server/chat/quota";
+import type { HostProvider, QuotaSetting } from "../../../../core/server/deps";
+import { quotaLookup } from "../../../../plugins/models/server/quota";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { insertConversation } from "../../../support/conversations";
-import { createTestSdk } from "../../../support/deps";
+import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text, withUsage } from "../../../support/fake-adapter";
 import { insertUser, type TestUser } from "../../../support/users";
 import { chatRpc, sendAs } from "../../../support/sdk";
@@ -59,7 +59,7 @@ async function setup({
   const owner = user ?? (await insertUser());
   const fake = createFakeAdapter({ rounds });
   const adapterCredentials: Array<Record<string, string>> = [];
-  const deps: AppDeps = createTestSdk({
+  const deps: TestDeps = createTestSdk({
     hostProviders,
     adapterFor: (_model, credentials) => {
       adapterCredentials.push(credentials);

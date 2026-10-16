@@ -4,7 +4,7 @@ import {
   adapterFor,
   imageAdapterFor,
   imageRequestFor,
-} from "../../../../core/server/chat/adapters";
+} from "../../../../plugins/models/server/adapters";
 
 describe("adapterFor", () => {
   it("builds the Anthropic adapter for an Anthropic Model", () => {

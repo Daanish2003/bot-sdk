@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { conversation, message } from "../../../../core/server/db/schema";
-import { saveCredentials } from "../../../../core/server/credentials/store";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { createTestSdk } from "../../../support/deps";
 import { insertConversation, insertMessage } from "../../../support/conversations";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";

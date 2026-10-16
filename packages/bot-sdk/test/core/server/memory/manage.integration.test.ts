@@ -1,11 +1,10 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
-import { saveCredentials } from "../../../../core/server/credentials/store";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { project, memory, userSettings } from "../../../../core/server/db/schema";
-import type { AppDeps } from "../../../../core/server/deps";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestSdk } from "../../../support/deps";
+import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { drainJobs } from "../../../support/jobs";
 import { chatRpc, sendAs } from "../../../support/sdk";
@@ -49,7 +48,7 @@ async function insertMemory(
 }
 
 /** A user with a general Conversation holding one user Message, and the RPC client for them. */
-async function setup(deps: AppDeps = createTestSdk()) {
+async function setup(deps: TestDeps = createTestSdk()) {
   const user = await insertUser();
   const conv = await insertConversation(user, { title: "Diet chat" });
   const message = await insertMessage({ conversationId: conv.id, role: "user", text: "Hi" });

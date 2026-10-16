@@ -3,7 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { getTestDb } from "../../../support/test-database";
 import { describe, expect, it } from "vitest";
 
-import { saveCredentials } from "../../../../core/server/credentials/store";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { insertConversation } from "../../../support/conversations";
 import { createTestSdk } from "../../../support/deps";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";

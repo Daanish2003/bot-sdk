@@ -2,10 +2,10 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { conversation, message, usage } from "../../../../core/server/db/schema";
-import { saveCredentials } from "../../../../core/server/credentials/store";
-import type { AppDeps, HostProvider } from "../../../../core/server/deps";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
+import type { HostProvider } from "../../../../core/server/deps";
 import { insertConversation } from "../../../support/conversations";
-import { createTestSdk, type TestDepsOverrides } from "../../../support/deps";
+import { createTestSdk, type TestDepsOverrides, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, runError, text, withUsage } from "../../../support/fake-adapter";
 import { insertUser, type TestUser } from "../../../support/users";
 import { chatRpc, sendAs } from "../../../support/sdk";
@@ -51,7 +51,7 @@ async function setup({
 }) {
   const owner = user ?? (await insertUser());
   const fake = createFakeAdapter({ rounds, manual });
-  const deps: AppDeps = createTestSdk({
+  const deps: TestDeps = createTestSdk({
     hostProviders,
     adapterFor: () => fake.adapter,
     ...overrides,

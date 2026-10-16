@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { toolRows } from "../../../core/client/key-settings";
+import { toolRows } from "../../../plugins/models/client/key-settings";
 
 describe("toolRows", () => {
   it("lists Tavily for web search, missing until a key is saved", () => {

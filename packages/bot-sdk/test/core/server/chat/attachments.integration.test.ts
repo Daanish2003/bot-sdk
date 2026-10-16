@@ -3,11 +3,10 @@ import { asc, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { maxAttachmentBytes } from "../../../../core/shared/attachments/kinds";
-import { saveCredentials } from "../../../../core/server/credentials/store";
-import type { AppDeps } from "../../../../core/server/deps";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { insertAttachment, linkTestAttachments } from "../../../support/attachments";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestSdk } from "../../../support/deps";
+import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { insertUser, type TestUser } from "../../../support/users";
 import { chatRpc, sendAs } from "../../../support/sdk";
@@ -57,7 +56,7 @@ async function setup() {
   return { user, deps, fake, conv, send, client: chatRpc({ user, deps }) };
 }
 
-async function messagesOf(deps: AppDeps, conversationId: string) {
+async function messagesOf(deps: TestDeps, conversationId: string) {
   return deps.db
     .select()
     .from(message)
@@ -65,7 +64,7 @@ async function messagesOf(deps: AppDeps, conversationId: string) {
     .orderBy(asc(message.createdAt), asc(message.role));
 }
 
-async function linksOf(deps: AppDeps, messageId: string) {
+async function linksOf(deps: TestDeps, messageId: string) {
   const rows = await deps.db
     .select()
     .from(messageAttachment)

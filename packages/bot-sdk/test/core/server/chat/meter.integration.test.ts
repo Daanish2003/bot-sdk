@@ -9,7 +9,7 @@ import {
   hostSearchMeter,
   hostTranscriptionMeter,
   imageMeter,
-} from "../../../../core/server/chat/meter";
+} from "../../../../plugins/models/server/meter";
 import { createTestSdk } from "../../../support/deps";
 import { usage } from "../../../../core/server/db/schema";
 import { getTestDb } from "../../../support/test-database";

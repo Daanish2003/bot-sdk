@@ -5,7 +5,8 @@ import { describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
 import { assistant } from "../../../core/server/assistant";
-import { saveCredentials } from "../../../core/server/credentials/store";
+import { models } from "../../../plugins/models/server/plugin";
+import { saveCredentials } from "../../../plugins/models/server/credentials/store";
 import {
   artifact,
   artifactVersion,
@@ -18,7 +19,7 @@ import {
 } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { insertAttachment, linkTestAttachments } from "../../support/attachments";
-import { fakePngBase64 } from "../../../core/server/chat/fake-image-adapter";
+import { fakePngBase64 } from "../../../plugins/models/server/fake-image-adapter";
 import { insertConversation, insertMessage } from "../../support/conversations";
 import { insertMemory } from "../../support/memories";
 import { insertGeneratedImage } from "../../support/generated-images";
@@ -36,7 +37,7 @@ function chatFor() {
     getUser: () => null,
     keyEncryptionSecrets: [testKey],
     basePath: "/api/chat",
-    plugins: [assistant()],
+    plugins: [models(), assistant()],
   });
 }
 

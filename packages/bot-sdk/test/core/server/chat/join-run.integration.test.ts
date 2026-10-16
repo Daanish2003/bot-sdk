@@ -2,10 +2,9 @@ import { message } from "../../../../core/server/db/schema";
 import { asc, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
-import { saveCredentials } from "../../../../core/server/credentials/store";
-import type { AppDeps } from "../../../../core/server/deps";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { insertConversation } from "../../../support/conversations";
-import { createTestSdk } from "../../../support/deps";
+import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { insertUser, type TestUser } from "../../../support/users";
 import { sendAs } from "../../../support/sdk";
@@ -57,7 +56,7 @@ function joinRequest(runId: string, headers: Record<string, string> = {}) {
   return new Request(`http://localhost/api/chat/run?offset=-1&runId=${runId}`, { headers });
 }
 
-async function assistantIdOf(deps: AppDeps, conversationId: string) {
+async function assistantIdOf(deps: TestDeps, conversationId: string) {
   const rows = await deps.db
     .select()
     .from(message)

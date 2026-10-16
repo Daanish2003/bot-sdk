@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import type { BotSdkClient } from "../../../core/client/chat-client";
 import type { ListedModel } from "../../../core/shared/chat/models";
-import { KeySettingsPage } from "../../../ui/pages/key-settings";
+import { KeySettingsPage } from "../../../plugins/models/ui/key-settings";
 import { ProjectPage } from "../../../ui/pages/project";
 import { SharedConversationPage, SharedLinkNotFound } from "../../../ui/pages/shared-conversation";
 import { renderWrapped, untranslated } from "../fake-dictionary";

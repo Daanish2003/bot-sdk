@@ -3,10 +3,9 @@ import { asc, eq } from "drizzle-orm";
 import { EventType } from "@tanstack/ai";
 import { describe, expect, it } from "vitest";
 
-import { saveCredentials } from "../../../../core/server/credentials/store";
-import type { AppDeps } from "../../../../core/server/deps";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { insertConversation } from "../../../support/conversations";
-import { createTestSdk } from "../../../support/deps";
+import { createTestSdk, type TestDeps } from "../../../support/deps";
 import {
   createFakeAdapter,
   round,
@@ -82,7 +81,7 @@ async function setup({
   return { user, deps, fake, conv, send };
 }
 
-async function replyOf(deps: AppDeps, conversationId: string) {
+async function replyOf(deps: TestDeps, conversationId: string) {
   const rows = await deps.db
     .select()
     .from(message)

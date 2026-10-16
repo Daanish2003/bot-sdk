@@ -7,7 +7,7 @@ import { insertConversation, insertMessage } from "../../../support/conversation
 import { createTestSdk } from "../../../support/deps";
 import { insertUser } from "../../../support/users";
 import { reapStaleRuns, startRun } from "../../../../core/server/chat/run";
-import { freeMeter } from "../../../../core/server/chat/meter";
+import { freeMeter } from "../../../../plugins/models/server/meter";
 import type { RunPlan } from "../../../../core/server/chat/run-plan";
 import { findModel } from "../../../../core/shared/chat/models";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";

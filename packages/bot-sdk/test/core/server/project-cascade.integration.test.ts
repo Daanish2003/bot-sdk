@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
-import { fakeEmbeddingAdapter } from "../../../core/server/chat/fake-embedding-adapter";
+import { fakeEmbeddingAdapter } from "../../../plugins/models/server/fake-embedding-adapter";
 import { knowledgeBlobKey } from "../../../core/server/blob/store";
 import {
   conversation,

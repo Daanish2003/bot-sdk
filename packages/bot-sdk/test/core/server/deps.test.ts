@@ -2,10 +2,12 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { checkCredentials } from "../../../core/server/credentials/check";
+import { checkCredentials } from "../../../plugins/models/server/credentials/check";
 import { postgresBlobStore } from "../../../core/server/blob/postgres";
 import { createAppDeps } from "../../../core/server/deps";
-import { ollamaModels } from "../../../core/server/chat/live-models";
+import { ollamaModels } from "../../../plugins/models/server/live-models";
+import { productionDeps } from "../../../plugins/models/server/plugin";
+import type { BotSdkContext } from "../../../core/server/plugin";
 import { memoryRuntime } from "../../../core/server/runtime";
 import { BlockedAddressError } from "../../../core/server/lib/guarded-fetch";
 import type { Database } from "../../../core/server/db";
@@ -19,14 +21,22 @@ function buildDeps() {
     logger: { error: () => {} },
     keyEncryptionSecrets: ["test-secret"],
     runtime: memoryRuntime(),
-    hostProviders: [],
-    hostTools: [],
+    plugin: () => {
+      throw new Error("No plugins here");
+    },
     tools: [],
-    byok: true,
-    getQuota: async () => null,
     rateLimits: resolveRateLimits(),
     mcpServers: [],
   });
+}
+
+/** The models plugin's production bundle, over an app bundle standing in for the core context. */
+function buildModelsDeps() {
+  const app = buildDeps();
+  return productionDeps(
+    { ...app, keyring: app.keyEncryptionSecrets } as unknown as BotSdkContext,
+    {},
+  );
 }
 
 describe("createAppDeps", () => {
@@ -59,7 +69,7 @@ describe("createAppDeps", () => {
     });
 
     it("lets the Ollama credential check and live list reach the user's own host", async () => {
-      const deps = buildDeps();
+      const deps = buildModelsDeps();
 
       await expect(checkCredentials("ollama", { host }, deps.ollamaFetch)).resolves.toEqual({
         status: "verified",

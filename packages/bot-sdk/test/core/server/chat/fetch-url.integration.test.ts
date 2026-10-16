@@ -5,11 +5,11 @@ import { describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../../core/server/create-chat";
 import { assistant } from "../../../../core/server/assistant";
+import { models } from "../../../../plugins/models/server/plugin";
 import { createGuardedFetch } from "../../../../core/server/lib/guarded-fetch";
-import { saveCredentials } from "../../../../core/server/credentials/store";
-import type { AppDeps } from "../../../../core/server/deps";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestSdk, type TestDepsOverrides } from "../../../support/deps";
+import { createTestSdk, type TestDepsOverrides, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { insertUser } from "../../../support/users";
 import { chatRpc, sendAs } from "../../../support/sdk";
@@ -123,7 +123,7 @@ async function setup({
   return { user, deps, fake, conv, send, requests: scripted.requests };
 }
 
-async function replyOf(deps: AppDeps, conversationId: string) {
+async function replyOf(deps: TestDeps, conversationId: string) {
   const rows = await deps.db
     .select()
     .from(message)
@@ -376,7 +376,7 @@ describe("the Host's tools", () => {
       basePath: "/api/chat",
     };
 
-    const tools = (name: string) => [assistant({ tools: [tool(name)] })];
+    const tools = (name: string) => [models(), assistant({ tools: [tool(name)] })];
 
     expect(() => createBotSdk({ ...options, plugins: tools("fetch_url") })).toThrow(
       `A Host tool can't be named "fetch_url"`,

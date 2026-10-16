@@ -3,12 +3,11 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import { createChatHandler } from "../../../../core/server/create-chat";
-import { saveCredentials } from "../../../../core/server/credentials/store";
-import type { AppDeps } from "../../../../core/server/deps";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { resolveRateLimits } from "../../../../core/server/rate-limits";
 import type { ChatCommand } from "../../../../core/shared/chat/command";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestSdk } from "../../../support/deps";
+import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { sendAs } from "../../../support/sdk";
 import { insertUser } from "../../../support/users";
@@ -22,7 +21,7 @@ async function setup({
 }: { byok?: boolean; rateLimits?: ReturnType<typeof resolveRateLimits> } = {}) {
   const user = await insertUser();
   const fake = createFakeAdapter({ rounds: [round(text("Hello"))] });
-  const deps: AppDeps = createTestSdk({
+  const deps: TestDeps = createTestSdk({
     adapterFor: () => fake.adapter,
     ...(byok === undefined ? {} : { byok }),
     ...(rateLimits ? { rateLimits } : {}),

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { checkCredentials } from "../../../../core/server/credentials/check";
+import { checkCredentials } from "../../../../plugins/models/server/credentials/check";
 
 function stubFetch(status: number) {
   const calls: Array<{ url: string; headers: Headers }> = [];

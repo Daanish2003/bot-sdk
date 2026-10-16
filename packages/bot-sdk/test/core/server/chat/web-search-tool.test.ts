@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { freeMeter, type SearchMeter } from "../../../../core/server/chat/meter";
+import { freeMeter, type SearchMeter } from "../../../../plugins/models/server/meter";
 import { createToolBudget } from "../../../../core/server/chat/tracked-tool";
 import { createWebSearchTool } from "../../../../core/server/chat/web-search-tool";
 import { createPartsBuilder } from "../../../../core/shared/chat/parts";

@@ -1,13 +1,13 @@
 import { desc, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
-import { fakeEmbeddingAdapter } from "../../../../core/server/chat/fake-embedding-adapter";
+import { fakeEmbeddingAdapter } from "../../../../plugins/models/server/fake-embedding-adapter";
 import { conversation, message } from "../../../../core/server/db/schema";
-import { saveCredentials } from "../../../../core/server/credentials/store";
-import type { AppDeps, HostProvider } from "../../../../core/server/deps";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
+import type { HostProvider } from "../../../../core/server/deps";
 import type { ChatCommand } from "../../../../core/shared/chat/command";
 import { insertConversation } from "../../../support/conversations";
-import { createTestSdk } from "../../../support/deps";
+import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { drainJobs } from "../../../support/jobs";
 import { chatRpc, sendAs } from "../../../support/sdk";
@@ -84,7 +84,7 @@ async function setup(rounds: Parameters<typeof createFakeAdapter>[0]["rounds"]) 
 /** Uploads a Markdown Knowledge file to a Project and drains its processing, so it is Ready. */
 async function uploadReady(
   rpc: ReturnType<typeof chatRpc>,
-  deps: AppDeps,
+  deps: TestDeps,
   projectId: string,
   name: string,
   body: string,
@@ -97,7 +97,7 @@ async function uploadReady(
 }
 
 /** The newest assistant Message of a Conversation: the reply the last send wrote. */
-async function latestReply(deps: AppDeps, conversationId: string) {
+async function latestReply(deps: TestDeps, conversationId: string) {
   const rows = await deps.db
     .select()
     .from(message)

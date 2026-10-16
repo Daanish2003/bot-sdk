@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
 import { assistant } from "../../../core/server/assistant";
+import { models } from "../../../plugins/models/server/plugin";
 import { message, usage } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { insertConversation, insertMessage } from "../../support/conversations";
@@ -45,7 +46,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("chat.admin.usageTotals", () => {
+describe('chat.plugin("models").usageTotals', () => {
   it("sums each user's calls in the range, and leaves out calls outside it", async () => {
     const heavy: TestUser = await insertUser();
     const light: TestUser = await insertUser();
@@ -83,9 +84,9 @@ describe("chat.admin.usageTotals", () => {
       getUser: () => null,
       keyEncryptionSecrets,
       basePath,
-      plugins: [assistant()],
+      plugins: [models(), assistant()],
     });
-    const totals = await chat.admin.usageTotals({ since, until });
+    const totals = await chat.plugin("models").usageTotals({ since, until });
 
     expect(totals.find((row) => row.userId === heavy.id)).toEqual({
       userId: heavy.id,
@@ -104,7 +105,7 @@ describe("chat.admin.usageTotals", () => {
   });
 });
 
-describe("chat.admin.usage", () => {
+describe('chat.plugin("models").usage', () => {
   it("groups one user's calls by UTC day and Model, in range, and leaves out other users", async () => {
     const owner = await insertUser();
     const other = await insertUser();
@@ -153,10 +154,10 @@ describe("chat.admin.usage", () => {
       getUser: () => null,
       keyEncryptionSecrets,
       basePath,
-      plugins: [assistant()],
+      plugins: [models(), assistant()],
     });
 
-    expect(await chat.admin.usage({ userId: owner.id, since, until })).toEqual([
+    expect(await chat.plugin("models").usage({ userId: owner.id, since, until })).toEqual([
       { day: "2040-01-01", model: haiku, costMicros: 7, inputTokens: 1, outputTokens: 2, calls: 1 },
       {
         day: "2040-01-01",
@@ -178,7 +179,7 @@ describe("chat.admin.usage", () => {
   });
 });
 
-describe("chat.admin.quota", () => {
+describe('chat.plugin("models").quota', () => {
   it("reports the budget and this window's spend in micros, with the reset time", async () => {
     vi.setSystemTime(new Date("2026-10-10T18:00:00Z"));
     const owner = await insertUser();
@@ -199,13 +200,14 @@ describe("chat.admin.quota", () => {
       keyEncryptionSecrets,
       basePath,
       plugins: [
-        assistant({
+        models({
           getQuota: (userId) => (userId === owner.id ? { budgetUsd: 1, window: "day" } : null),
         }),
+        assistant(),
       ],
     });
 
-    expect(await chat.admin.quota(owner.id)).toEqual({
+    expect(await chat.plugin("models").quota(owner.id)).toEqual({
       budgetMicros: 1_000_000,
       spentMicros: 300_000,
       window: "day",
@@ -221,13 +223,14 @@ describe("chat.admin.quota", () => {
       keyEncryptionSecrets,
       basePath,
       plugins: [
-        assistant({
+        models({
           getQuota: () => null,
         }),
+        assistant(),
       ],
     });
 
-    expect(await chat.admin.quota(free.id)).toBeNull();
+    expect(await chat.plugin("models").quota(free.id)).toBeNull();
   });
 });
 
@@ -257,7 +260,7 @@ describe("chat.admin.stopRuns", () => {
       getUser: () => null,
       keyEncryptionSecrets,
       basePath,
-      plugins: [assistant()],
+      plugins: [models(), assistant()],
     });
 
     await chat.admin.stopRuns(owner.id);
@@ -283,7 +286,7 @@ describe("chat.admin.stopRuns", () => {
       getUser: () => null,
       keyEncryptionSecrets,
       basePath,
-      plugins: [assistant()],
+      plugins: [models(), assistant()],
     });
 
     await chat.admin.stopRuns(owner.id);
@@ -320,7 +323,7 @@ describe("chat.admin.ratingTotals", () => {
       getUser: () => null,
       keyEncryptionSecrets,
       basePath,
-      plugins: [assistant()],
+      plugins: [models(), assistant()],
     });
 
     const totals = await chat.admin.ratingTotals({ since });
@@ -356,7 +359,7 @@ describe("chat.admin.ratingTotals", () => {
       getUser: () => null,
       keyEncryptionSecrets,
       basePath,
-      plugins: [assistant()],
+      plugins: [models(), assistant()],
     });
     expect(await chat.admin.ratingTotals({ since })).toEqual([{ model: sonnet, up: 1, down: 1 }]);
 

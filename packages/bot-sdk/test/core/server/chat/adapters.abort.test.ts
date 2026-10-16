@@ -11,7 +11,7 @@ import { createMistralText } from "@tanstack/ai-mistral";
 import { createOllamaChat } from "@tanstack/ai-ollama";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createAbortableBedrockText } from "../../../../core/server/chat/adapters";
+import { createAbortableBedrockText } from "../../../../plugins/models/server/adapters";
 
 /**
  * A Provider that takes a request and never answers it. `connectionClosed` settles when the

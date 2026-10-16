@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ollamaModels, openRouterModels } from "../../../../core/server/chat/live-models";
+import { ollamaModels, openRouterModels } from "../../../../plugins/models/server/live-models";
 
 function stubFetch(respond: () => Response | Promise<Response>) {
   const urls: string[] = [];

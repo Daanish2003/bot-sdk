@@ -190,8 +190,9 @@ describe("conversation.exportMarkdown", () => {
   it("refuses a signed-out caller", async () => {
     const owner = await insertUser();
     const conv = await insertConversation(owner, { title: "Private" });
+    const deps = createTestSdk();
     const signedOut = createRouterClient(appRouter, {
-      context: { user: null, deps: createTestSdk() },
+      context: { user: null, deps, plugin: deps.plugin },
     });
 
     await expect(signedOut.conversation.exportMarkdown({ id: conv.id })).rejects.toMatchObject({

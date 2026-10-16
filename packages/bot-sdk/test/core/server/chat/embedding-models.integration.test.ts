@@ -5,12 +5,13 @@ import {
   defaultEmbeddingModel,
   embedTexts,
   resolveEmbeddingModel,
-} from "../../../../core/server/chat/embedding-models";
-import { fakeEmbeddingAdapter } from "../../../../core/server/chat/fake-embedding-adapter";
+} from "../../../../plugins/models/server/embedding-models";
+import { fakeEmbeddingAdapter } from "../../../../plugins/models/server/fake-embedding-adapter";
 import { createHookEmitter } from "../../../../core/server/chat/hooks";
 import { createBotSdk } from "../../../../core/server/create-chat";
 import { assistant } from "../../../../core/server/assistant";
-import { saveCredentials } from "../../../../core/server/credentials/store";
+import { models } from "../../../../plugins/models/server/plugin";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { usage } from "../../../../core/server/db/schema";
 import type { HostProvider } from "../../../../core/server/deps";
 import { createTestSdk, testKeyEncryptionSecret } from "../../../support/deps";
@@ -324,7 +325,7 @@ describe("hostProviders embeddingModels", () => {
       basePath: "/api/chat",
       logger: { error: () => {} },
       plugins: [
-        assistant({
+        models({
           hostProviders: [
             {
               provider: "anthropic",
@@ -336,6 +337,7 @@ describe("hostProviders embeddingModels", () => {
             },
           ],
         }),
+        assistant(),
       ],
     });
 
@@ -350,7 +352,7 @@ describe("hostProviders embeddingModels", () => {
       basePath: "/api/chat",
       logger: { error: () => {} },
       plugins: [
-        assistant({
+        models({
           hostProviders: [
             {
               provider: "openai",
@@ -360,6 +362,7 @@ describe("hostProviders embeddingModels", () => {
             },
           ],
         }),
+        assistant(),
       ],
     });
 

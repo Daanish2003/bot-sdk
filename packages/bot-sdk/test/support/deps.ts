@@ -2,36 +2,44 @@ import { getTestDb } from "./test-database";
 
 import { postgresBlobStore } from "../../core/server/blob/postgres";
 import { createMemoryCounters } from "../../core/server/chat/counters";
-import { fakeEmbeddingAdapter } from "../../core/server/chat/fake-embedding-adapter";
+import { fakeEmbeddingAdapter } from "../../plugins/models/server/fake-embedding-adapter";
 import { createHookEmitter } from "../../core/server/chat/hooks";
 import { createMemoryPubSub } from "../../core/server/chat/pubsub";
 import { createMemoryRunStreams } from "../../core/server/chat/run-streams";
 import { createBotSdkOver } from "../../core/server/create-chat";
 import { inProcessRunner } from "../../core/server/jobs/in-process";
 import type { AppDeps, Limits } from "../../core/server/deps";
+import type { ModelsDeps } from "../../plugins/models/server/types";
 import { resolveRateLimits } from "../../core/server/rate-limits";
 import { createFakeSearchClient } from "./fake-search-client";
 
 /** The `test` value of `KEY_ENCRYPTION_SECRET` in `apps/web/.env.schema`. */
 export const testKeyEncryptionSecret = "test-key-encryption-secret-not-for-production";
 
+/** What the tests run on: the `assistant` plugin's bundle, which is also the `models` plugin's. */
+export type TestDeps = AppDeps & ModelsDeps;
+
 /**
  * A real `createBotSdk` instance for tests, over the test database and fakes, with nothing that
- * reaches the network; it returns the dependency bundle its `assistant` plugin runs on. Pass
- * overrides for the parts a test scripts (for example `adapterFor` returning a fake adapter).
+ * reaches the network; it returns the dependency bundle its `assistant` and `models` plugins run
+ * on. Pass overrides for the parts a test scripts (for example `adapterFor` returning a fake
+ * adapter).
  */
 export function createTestSdk({
   limits,
   ...overrides
-}: Partial<Omit<AppDeps, "limits">> & { limits?: Partial<Limits> } = {}): AppDeps {
-  // Ollama's host shares the test fake unless a test gives it one (see `AppDeps.ollamaFetch`).
-  const fetch: AppDeps["fetch"] =
+}: Partial<Omit<TestDeps, "limits">> & { limits?: Partial<Limits> } = {}): TestDeps {
+  // Ollama's host shares the test fake unless a test gives it one (see `ModelsDeps.ollamaFetch`).
+  const fetch: TestDeps["fetch"] =
     overrides.fetch ??
     (async (input) => {
       throw new Error(`Unexpected network call in a test: ${String(input)}`);
     });
-  const deps: AppDeps = {
+  const deps: TestDeps = {
     db: getTestDb(),
+    plugin: () => {
+      throw new Error("Not built yet: createBotSdkOver sets plugin");
+    },
     blobStore: postgresBlobStore(getTestDb()),
     isUserBlocked: async () => false,
     adapterFor: (model) => {
@@ -89,8 +97,9 @@ export function createTestSdk({
     getUser: () => null,
     logger: { error: () => {} },
   });
-  return sdk.plugin("assistant").deps;
+  // The same object: `assistantOver` set its `plugin` to the instance's.
+  return sdk.plugin("assistant").deps as TestDeps;
 }
 
-/** What a test may override in `createTestSdk`: any part of `AppDeps`, and any part of its limits. */
+/** What a test may override in `createTestSdk`: any part of `TestDeps`, and any part of its limits. */
 export type TestDepsOverrides = Parameters<typeof createTestSdk>[0];

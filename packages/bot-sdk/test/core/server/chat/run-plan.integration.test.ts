@@ -2,11 +2,11 @@ import { toolDefinition } from "@tanstack/ai";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { fakeImageAdapter } from "../../../../core/server/chat/fake-image-adapter";
+import { fakeImageAdapter } from "../../../../plugins/models/server/fake-image-adapter";
 import { createToolBudget } from "../../../../core/server/chat/tracked-tool";
 import { planRun, type RunPlan } from "../../../../core/server/chat/run-plan";
 import { findConversation } from "../../../../core/server/chat/store";
-import { saveCredentials } from "../../../../core/server/credentials/store";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import type { HostProvider } from "../../../../core/server/deps";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { createPartsBuilder } from "../../../../core/shared/chat/parts";

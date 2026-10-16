@@ -4,8 +4,8 @@ import { embed } from "@tanstack/ai";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
-import { fakeEmbeddingAdapter } from "../../../../core/server/chat/fake-embedding-adapter";
-import { saveCredentials } from "../../../../core/server/credentials/store";
+import { fakeEmbeddingAdapter } from "../../../../plugins/models/server/fake-embedding-adapter";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
   conversation,
   project,
@@ -13,10 +13,10 @@ import {
   userSettings,
   usage,
 } from "../../../../core/server/db/schema";
-import type { AppDeps, HostProvider } from "../../../../core/server/deps";
+import type { HostProvider } from "../../../../core/server/deps";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { insertConversation } from "../../../support/conversations";
-import { createTestSdk } from "../../../support/deps";
+import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { sendAs } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
@@ -79,7 +79,7 @@ async function setup({
   reply?: Parameters<typeof createFakeAdapter>[0]["rounds"];
   conversation?: Partial<typeof conversation.$inferInsert>;
   ownEmbeddingKey?: boolean;
-  deps?: Partial<AppDeps>;
+  deps?: Partial<TestDeps>;
 } = {}) {
   const user = await insertUser();
   const replyFake = createFakeAdapter({ rounds: reply });

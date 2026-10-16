@@ -4,13 +4,13 @@ import { z } from "zod";
 
 import { createBotSdk } from "../../../../core/server/create-chat";
 import { assistant } from "../../../../core/server/assistant";
+import { models } from "../../../../plugins/models/server/plugin";
 import { job } from "../../../../core/server/db/schema";
 import { defineJob, PermanentJobError } from "../../../../core/server/jobs/define";
 import { inProcessRunner, type JobClock } from "../../../../core/server/jobs/in-process";
 import type { JobRunner } from "../../../../core/server/jobs/runner";
 import { claimJob, pruneFinishedJobs, reapStaleJobs } from "../../../../core/server/jobs/store";
-import type { AppDeps } from "../../../../core/server/deps";
-import { createTestSdk } from "../../../support/deps";
+import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { drainJobs } from "../../../support/jobs";
 import { getTestDb, testDatabaseUrl } from "../../../support/test-database";
 
@@ -18,7 +18,7 @@ const start = new Date("2026-10-14T10:00:00Z");
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const silent = { error: () => {} };
 /** The jobs in this file take no SDK dependencies, so their runners get fresh test deps. */
-let testDeps: AppDeps | undefined;
+let testDeps: TestDeps | undefined;
 const jobDeps = () => (testDeps ??= createTestSdk({ db: getTestDb() }));
 const DAY = 86_400_000;
 
@@ -715,6 +715,7 @@ describe("createBotSdk({ jobs })", () => {
       basePath: "/api/chat",
       logger: silent,
       plugins: [
+        models(),
         assistant({
           jobs,
         }),

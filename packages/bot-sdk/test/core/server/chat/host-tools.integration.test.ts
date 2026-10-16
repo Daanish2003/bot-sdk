@@ -2,10 +2,10 @@ import { conversation, usage as usageRows } from "../../../../core/server/db/sch
 import { asc, eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
-import { saveCredentials } from "../../../../core/server/credentials/store";
-import type { AppDeps, HostProvider, HostTool } from "../../../../core/server/deps";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
+import type { HostProvider, HostTool } from "../../../../core/server/deps";
 import { insertConversation } from "../../../support/conversations";
-import { createTestSdk, type TestDepsOverrides } from "../../../support/deps";
+import { createTestSdk, type TestDepsOverrides, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall, withUsage } from "../../../support/fake-adapter";
 import { createFakeSearchClient, type FakeSearchClient } from "../../../support/fake-search-client";
 import { insertUser, type TestUser } from "../../../support/users";
@@ -62,7 +62,7 @@ async function setup({
 }) {
   const fakes = scripts.map((rounds) => createFakeAdapter({ rounds }));
   const pending = [...fakes];
-  const deps: AppDeps = createTestSdk({
+  const deps: TestDeps = createTestSdk({
     adapterFor: () => {
       const next = pending.shift();
       if (!next) throw new Error("No more fake adapters");

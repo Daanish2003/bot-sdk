@@ -6,9 +6,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
 import { assistant } from "../../../core/server/assistant";
+import { models } from "../../../plugins/models/server/plugin";
 import { deleteAllConversations, deleteUserData } from "../../../core/server/delete-user";
 import { deleteConversation } from "../../../core/server/chat/store";
-import { saveCredentials } from "../../../core/server/credentials/store";
+import { saveCredentials } from "../../../plugins/models/server/credentials/store";
 import { START } from "../../../core/server/chat/run-streams";
 import {
   artifact,
@@ -375,7 +376,7 @@ describe("createBotSdk().deleteUser", () => {
       getUser: () => null,
       keyEncryptionSecrets: [testKey],
       basePath: "/api/chat",
-      plugins: [assistant()],
+      plugins: [models(), assistant()],
     });
 
     await chat.deleteUser(owner.id);

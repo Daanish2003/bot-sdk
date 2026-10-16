@@ -5,8 +5,8 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { knowledgeBlobKey } from "../../../../core/server/blob/store";
-import { fakeEmbeddingAdapter } from "../../../../core/server/chat/fake-embedding-adapter";
-import { saveCredentials } from "../../../../core/server/credentials/store";
+import { fakeEmbeddingAdapter } from "../../../../plugins/models/server/fake-embedding-adapter";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
   blob,
   project,
@@ -15,14 +15,14 @@ import {
   knowledgeFile,
   usage,
 } from "../../../../core/server/db/schema";
-import type { AppDeps, HostProvider } from "../../../../core/server/deps";
+import type { HostProvider } from "../../../../core/server/deps";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import {
   maxKnowledgeFileBytes,
   pdfMediaType,
   wordMediaType,
 } from "../../../../core/shared/knowledge/kinds";
-import { createTestSdk } from "../../../support/deps";
+import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { drainJobs } from "../../../support/jobs";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
@@ -68,7 +68,7 @@ const markdown = (text: string, name = "notes.md") =>
 const codeOf = (error: unknown) => (error as { data?: { code?: string } }).data?.code;
 
 /** Gives the user their own OpenAI key, which the Project's Model then runs on. */
-async function saveOwnOpenAIKey(deps: AppDeps, userId: string) {
+async function saveOwnOpenAIKey(deps: TestDeps, userId: string) {
   await saveCredentials(deps, userId, {
     service: "openai",
     fields: { apiKey: "sk-own-openai" },

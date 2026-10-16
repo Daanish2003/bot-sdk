@@ -1,7 +1,7 @@
 import { embed } from "@tanstack/ai";
 import { describe, expect, it } from "vitest";
 
-import { fakeEmbeddingAdapter } from "../../../../core/server/chat/fake-embedding-adapter";
+import { fakeEmbeddingAdapter } from "../../../../plugins/models/server/fake-embedding-adapter";
 
 /** The cosine of two unit vectors: their dot product. */
 function cosine(a: number[], b: number[]): number {

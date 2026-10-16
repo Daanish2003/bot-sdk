@@ -2,10 +2,9 @@ import { conversation, message } from "../../../../core/server/db/schema";
 import { asc, eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
-import { saveCredentials } from "../../../../core/server/credentials/store";
-import type { AppDeps } from "../../../../core/server/deps";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { insertConversation } from "../../../support/conversations";
-import { createTestSdk } from "../../../support/deps";
+import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { createFakeSearchClient } from "../../../support/fake-search-client";
 import { insertUser, type TestUser } from "../../../support/users";
@@ -75,11 +74,11 @@ async function setup({
   return { user, deps, fakes, conv, send };
 }
 
-async function saveInstructions(deps: AppDeps, user: TestUser, value: string | null) {
+async function saveInstructions(deps: TestDeps, user: TestUser, value: string | null) {
   await chatRpc({ user, deps }).settings.setInstructions({ instructions: value });
 }
 
-async function messagesOf(deps: AppDeps, conversationId: string) {
+async function messagesOf(deps: TestDeps, conversationId: string) {
   return deps.db
     .select()
     .from(message)

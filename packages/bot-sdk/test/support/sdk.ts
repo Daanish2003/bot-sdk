@@ -1,4 +1,4 @@
-import type { AppDeps } from "../../core/server/deps";
+import type { TestDeps } from "./deps";
 import { createBotSdkClient, type BotSdkClient } from "../../core/client/chat-client";
 import { createChatHandler } from "../../core/server/create-chat";
 import { createTestSdk } from "./deps";
@@ -14,7 +14,7 @@ const basePath = "/api/chat";
 export function createTestChat({
   user,
   deps = createTestSdk(),
-}: { user?: TestUser | null; deps?: AppDeps } = {}): BotSdkClient {
+}: { user?: TestUser | null; deps?: TestDeps } = {}): BotSdkClient {
   const handler = createChatHandler(deps, {
     basePath,
     getUser: () => (user ? { id: user.id } : null),
@@ -24,7 +24,7 @@ export function createTestChat({
 }
 
 /** The typed RPC client of `createTestChat`, for the procedures. */
-export function chatRpc(options: { user?: TestUser | null; deps?: AppDeps } = {}) {
+export function chatRpc(options: { user?: TestUser | null; deps?: TestDeps } = {}) {
   return createTestChat(options).rpc;
 }
 
@@ -32,6 +32,6 @@ export function chatRpc(options: { user?: TestUser | null; deps?: AppDeps } = {}
  * Sends a raw request (a Run POST or a join GET) to the handler, signed in as `user`. The request
  * must target the handler's paths, for example `http://localhost/api/chat/run`.
  */
-export function sendAs(request: Request, user: TestUser, deps: AppDeps): Promise<Response> {
+export function sendAs(request: Request, user: TestUser, deps: TestDeps): Promise<Response> {
   return createTestChat({ user, deps }).fetch(request);
 }

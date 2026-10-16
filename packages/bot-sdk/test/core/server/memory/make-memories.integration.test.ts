@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createHookEmitter } from "../../../../core/server/chat/hooks";
 import { conversationChannel } from "../../../../core/server/memory/notice";
-import { saveCredentials } from "../../../../core/server/credentials/store";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
   conversation,
   message,
@@ -15,9 +15,9 @@ import {
   userSettings,
   usage,
 } from "../../../../core/server/db/schema";
-import type { AppDeps, HostProvider } from "../../../../core/server/deps";
+import type { HostProvider } from "../../../../core/server/deps";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestSdk } from "../../../support/deps";
+import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, runError, text } from "../../../support/fake-adapter";
 import { drainJobs } from "../../../support/jobs";
 import { chatRpc, sendAs } from "../../../support/sdk";
@@ -63,7 +63,7 @@ async function setup({
   facts?: Rounds;
   ownEmbeddingKey?: boolean;
   conversation?: Partial<typeof conversation.$inferInsert>;
-  deps?: Partial<AppDeps>;
+  deps?: Partial<TestDeps>;
 } = {}) {
   const user = await insertUser();
   const replyFake = createFakeAdapter({ rounds: reply, manual: replyManual });
@@ -116,12 +116,12 @@ async function setup({
 }
 
 /** The Memory job a Run queues is fire-and-forget, so this waits for it, then runs it. */
-async function drainMemory(deps: AppDeps) {
+async function drainMemory(deps: TestDeps) {
   await vi.waitFor(async () => expect(await drainJobs({ deps })).toBeGreaterThan(0));
 }
 
 /** For a test where no Memory job should run: lets the Run's enqueue settle, then checks none ran. */
-async function expectNoMemoryJob(deps: AppDeps) {
+async function expectNoMemoryJob(deps: TestDeps) {
   await new Promise((resolve) => setTimeout(resolve, 200));
   expect(await drainJobs({ deps })).toBe(0);
 }

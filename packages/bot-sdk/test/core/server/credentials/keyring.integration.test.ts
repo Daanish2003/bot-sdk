@@ -2,12 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createBotSdk } from "../../../../core/server/create-chat";
 import { assistant } from "../../../../core/server/assistant";
-import { resolvedServices } from "../../../../core/server/credentials/resolve";
+import { models } from "../../../../plugins/models/server/plugin";
+import { resolvedServices } from "../../../../plugins/models/server/credentials/resolve";
 import {
   listCredentials,
   loadCredentials,
   saveCredentials,
-} from "../../../../core/server/credentials/store";
+} from "../../../../plugins/models/server/credentials/store";
 import { createTestSdk } from "../../../support/deps";
 import { userCredentials } from "../../../../core/server/db/schema";
 import { insertUser } from "../../../support/users";
@@ -72,7 +73,7 @@ describe("the keyring", () => {
       keyEncryptionSecrets: [keyB],
       basePath: "/api/chat",
       logger,
-      plugins: [assistant()],
+      plugins: [models(), assistant()],
     });
 
     await chat.start();

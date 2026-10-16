@@ -7,10 +7,9 @@ import { z } from "zod";
 
 import type { HostToolContext } from "../../../../core/server/chat/host-tools";
 import { stopRun } from "../../../../core/server/chat/run";
-import { saveCredentials } from "../../../../core/server/credentials/store";
-import type { AppDeps } from "../../../../core/server/deps";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { insertConversation } from "../../../support/conversations";
-import { createTestSdk, type TestDepsOverrides } from "../../../support/deps";
+import { createTestSdk, type TestDepsOverrides, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { sendAs } from "../../../support/sdk";
 import { insertUser, type TestUser } from "../../../support/users";
@@ -53,7 +52,7 @@ async function setup({
   deps: overrides = {},
 }: {
   rounds: Parameters<typeof createFakeAdapter>[0]["rounds"];
-  tools: AppDeps["tools"];
+  tools: TestDeps["tools"];
   deps?: TestDepsOverrides;
 }) {
   const user: TestUser = await insertUser();
@@ -95,7 +94,7 @@ async function setup({
   return { user, deps, fake, conv, send };
 }
 
-async function repliesOf(deps: AppDeps, conversationId: string) {
+async function repliesOf(deps: TestDeps, conversationId: string) {
   const rows = await deps.db
     .select()
     .from(message)
@@ -104,7 +103,7 @@ async function repliesOf(deps: AppDeps, conversationId: string) {
   return rows.filter((row) => row.role === "assistant");
 }
 
-const replyOf = async (deps: AppDeps, conversationId: string) =>
+const replyOf = async (deps: TestDeps, conversationId: string) =>
   (await repliesOf(deps, conversationId)).at(-1)!;
 
 const hostCall = (fields: Partial<Extract<StoredPart, { type: "tool_call" }>>) =>

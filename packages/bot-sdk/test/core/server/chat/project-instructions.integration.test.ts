@@ -5,13 +5,12 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import type { HostToolContext } from "../../../../core/server/chat/host-tools";
-import { saveCredentials } from "../../../../core/server/credentials/store";
-import type { AppDeps } from "../../../../core/server/deps";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { citationPrompt } from "../../../../core/shared/chat/citations";
 import type { ChatCommand } from "../../../../core/shared/chat/command";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestSdk } from "../../../support/deps";
+import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { getTestDb } from "../../../support/test-database";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { createFakeSearchClient } from "../../../support/fake-search-client";
@@ -99,7 +98,7 @@ async function setup({
   return { user, deps, fakes, conv, projectId, send };
 }
 
-async function messagesOf(deps: AppDeps, conversationId: string) {
+async function messagesOf(deps: TestDeps, conversationId: string) {
   return deps.db
     .select()
     .from(message)

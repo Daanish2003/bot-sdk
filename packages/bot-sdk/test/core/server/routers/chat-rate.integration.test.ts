@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
-import { saveCredentials } from "../../../../core/server/credentials/store";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { loadSharedConversation } from "../../../../core/server/share/store";
 import { message } from "../../../../core/server/db/schema";
 import { insertConversation, insertMessage } from "../../../support/conversations";

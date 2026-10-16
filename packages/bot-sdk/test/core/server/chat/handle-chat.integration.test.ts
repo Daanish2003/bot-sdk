@@ -3,12 +3,11 @@ import { asc, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { EventType } from "@tanstack/ai";
 
-import { saveCredentials } from "../../../../core/server/credentials/store";
-import type { AppDeps } from "../../../../core/server/deps";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import type { PubSub } from "../../../../core/server/chat/pubsub";
 import { START, type RunEntry } from "../../../../core/server/chat/run-streams";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestSdk, type TestDepsOverrides } from "../../../support/deps";
+import { createTestSdk, type TestDepsOverrides, type TestDeps } from "../../../support/deps";
 import { liveModelsFetch } from "../../../support/live-models";
 import { createFakeAdapter, round, runError, text, thinking } from "../../../support/fake-adapter";
 import { insertUser, type TestUser } from "../../../support/users";
@@ -85,7 +84,7 @@ async function setup({
   return { user, deps, fake, adapterCalls, conv, send };
 }
 
-async function messagesOf(deps: AppDeps, conversationId: string) {
+async function messagesOf(deps: TestDeps, conversationId: string) {
   return deps.db
     .select()
     .from(message)
@@ -93,7 +92,7 @@ async function messagesOf(deps: AppDeps, conversationId: string) {
     .orderBy(asc(message.createdAt), asc(message.role));
 }
 
-async function conversationRow(deps: AppDeps, id: string) {
+async function conversationRow(deps: TestDeps, id: string) {
   const [row] = await deps.db.select().from(conversation).where(eq(conversation.id, id));
   return row!;
 }

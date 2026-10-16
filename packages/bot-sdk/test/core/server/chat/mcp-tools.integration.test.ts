@@ -5,12 +5,11 @@ import { describe, expect, it } from "vitest";
 
 import { createHookEmitter } from "../../../../core/server/chat/hooks";
 import { stopRun } from "../../../../core/server/chat/run";
-import { saveCredentials } from "../../../../core/server/credentials/store";
-import type { AppDeps } from "../../../../core/server/deps";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { listConnections, readTokens, saveTokens } from "../../../../core/server/mcp/connections";
 import type { McpServerConfig } from "../../../../core/server/mcp/servers";
 import { insertConversation } from "../../../support/conversations";
-import { createTestSdk, type TestDepsOverrides } from "../../../support/deps";
+import { createTestSdk, type TestDepsOverrides, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { createFakeMcpAuth, fakeMcpResource } from "../../../support/fake-mcp-auth";
 import { createFakeMcpServer, type FakeMcpTool } from "../../../support/fake-mcp-server";
@@ -121,7 +120,7 @@ async function setup({
 /** Signs `user` in to the Linear server through the Host's OAuth routes (the redirect and callback). */
 async function connectLinear(
   user: TestUser,
-  deps: AppDeps,
+  deps: TestDeps,
   auth: ReturnType<typeof createFakeMcpAuth>,
 ) {
   const client = createTestChat({ user, deps });
@@ -136,7 +135,7 @@ async function connectLinear(
 }
 
 /** Joins a Message's Run from its log, and reads the log until it closes. */
-async function join(messageId: string, user: TestUser, deps: AppDeps) {
+async function join(messageId: string, user: TestUser, deps: TestDeps) {
   const response = await sendAs(
     new Request(`${basePath}/run?runId=${messageId}`, { method: "GET" }),
     user,
@@ -145,7 +144,7 @@ async function join(messageId: string, user: TestUser, deps: AppDeps) {
   return response.text();
 }
 
-async function replyOf(deps: AppDeps, conversationId: string) {
+async function replyOf(deps: TestDeps, conversationId: string) {
   const rows = await deps.db
     .select()
     .from(message)

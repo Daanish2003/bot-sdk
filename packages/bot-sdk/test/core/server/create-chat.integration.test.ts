@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
 import { assistant } from "../../../core/server/assistant";
-import { saveCredentials } from "../../../core/server/credentials/store";
+import { models } from "../../../plugins/models/server/plugin";
+import { saveCredentials } from "../../../plugins/models/server/credentials/store";
 import { message } from "../../../core/server/db/schema";
 import { eq } from "drizzle-orm";
 import { insertConversation, insertMessage } from "../../support/conversations";
@@ -23,7 +24,7 @@ describe("createBotSdk", () => {
         getUser: () => null,
         keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
         basePath,
-        plugins: [assistant()],
+        plugins: [models(), assistant()],
       }),
     ).not.toThrow();
   });
@@ -35,7 +36,7 @@ describe("createBotSdk", () => {
         getUser: () => null,
         keyEncryptionSecrets: [],
         basePath,
-        plugins: [assistant()],
+        plugins: [models(), assistant()],
       }),
     ).toThrow(/at least one/);
   });
@@ -50,9 +51,10 @@ describe("createBotSdk start", () => {
       keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
       basePath,
       plugins: [
-        assistant({
+        models({
           byok: false,
         }),
+        assistant(),
       ],
     });
 
@@ -66,7 +68,7 @@ describe("createBotSdk start", () => {
       keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
       basePath,
       plugins: [
-        assistant({
+        models({
           hostProviders: [
             {
               provider: "anthropic",
@@ -76,6 +78,7 @@ describe("createBotSdk start", () => {
             },
           ],
         }),
+        assistant(),
       ],
     });
 
@@ -89,7 +92,7 @@ describe("createBotSdk start", () => {
       keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
       basePath,
       plugins: [
-        assistant({
+        models({
           hostProviders: [
             {
               provider: "ollama",
@@ -106,6 +109,7 @@ describe("createBotSdk start", () => {
           ],
           defaultBackgroundModel: "ollama:mistral",
         }),
+        assistant(),
       ],
     });
 
@@ -119,7 +123,7 @@ describe("createBotSdk start", () => {
       keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
       basePath,
       plugins: [
-        assistant({
+        models({
           hostProviders: [
             {
               provider: "openai",
@@ -137,6 +141,7 @@ describe("createBotSdk start", () => {
           ],
           defaultImageModel: "openai:gpt-image-2",
         }),
+        assistant(),
       ],
     });
 
@@ -150,7 +155,7 @@ describe("createBotSdk start", () => {
       keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
       basePath,
       plugins: [
-        assistant({
+        models({
           hostProviders: [
             {
               provider: "openai",
@@ -163,10 +168,31 @@ describe("createBotSdk start", () => {
             },
           ],
         }),
+        assistant(),
       ],
     });
 
     await expect(chat.start()).rejects.toThrow(/pricePerImageUsd/);
+  });
+});
+
+describe("an instance with only the models plugin", () => {
+  it("serves the models procedures", async () => {
+    const user = await insertUser();
+    const chat = createBotSdk({
+      databaseUrl: testDatabaseUrl,
+      getUser: () => ({ id: user.id }),
+      keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
+      basePath,
+      plugins: [models()],
+    });
+
+    const response = await chat.handler(
+      new Request(`${baseUrl}/rpc/credentials/mode`, { method: "POST", body: "{}" }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ json: { byok: true } });
   });
 });
 

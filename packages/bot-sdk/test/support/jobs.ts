@@ -1,8 +1,7 @@
-import type { AppDeps } from "../../core/server/deps";
 import type { Database } from "../../core/server/db/index";
 import { systemClock } from "../../core/server/jobs/in-process";
 import { claimJob, runClaimedJob } from "../../core/server/jobs/store";
-import { createTestSdk } from "./deps";
+import { createTestSdk, type TestDeps } from "./deps";
 import { getTestDb } from "./test-database";
 
 export type DrainJobsOptions = {
@@ -11,7 +10,7 @@ export type DrainJobsOptions = {
    * The dependencies the jobs run with. A test that drains a job which calls models passes the
    * deps its Run used, so the fakes are the same. Defaults to fresh test deps.
    */
-  deps?: AppDeps;
+  deps?: TestDeps;
   /**
    * `false` (the default) runs every queued job now, even one in its retry backoff, so a test
    * need not move a clock. `true` runs only the jobs due at the real time, then returns.

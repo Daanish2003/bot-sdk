@@ -3,12 +3,12 @@ import { describe, expect, it } from "vitest";
 
 import { RateLimitedError } from "../../../../core/client/rate-limit";
 import { attachment, usage } from "../../../../core/server/db/schema";
-import { saveCredentials } from "../../../../core/server/credentials/store";
-import type { AppDeps, Credentials, HostProvider } from "../../../../core/server/deps";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
+import type { Credentials, HostProvider } from "../../../../core/server/deps";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { resolveRateLimits } from "../../../../core/server/rate-limits";
 import { maxDictationBytes } from "../../../../core/shared/chat/voice";
-import { createTestSdk } from "../../../support/deps";
+import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeTranscription } from "../../../support/fake-transcription-adapter";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
@@ -18,7 +18,7 @@ const audio = Buffer.from("not really webm").toString("base64");
 const recording = { audio, mimeType: "audio/webm;codecs=opus", durationSeconds: 4 };
 
 /** Own Provider keys for a user, by Provider. */
-async function saveOwnKeys(deps: AppDeps, user: TestUser, services: string[]) {
+async function saveOwnKeys(deps: TestDeps, user: TestUser, services: string[]) {
   for (const service of services) {
     await saveCredentials(deps, user.id, {
       service,
@@ -40,7 +40,7 @@ function setup({
   billedSeconds,
   byok = true,
   ...overrides
-}: Partial<AppDeps> & {
+}: Partial<TestDeps> & {
   error?: Error;
   text?: string;
   duration?: number;

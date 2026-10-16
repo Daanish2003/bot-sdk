@@ -1,11 +1,11 @@
 import { generatedImage } from "../../core/server/db/schema";
 import { storedParts } from "../../core/shared/message-parts";
-import type { AppDeps } from "../../core/server/deps";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
 import { insertMessage } from "./conversations";
 import { getTestDb } from "./test-database";
 import type { TestUser } from "./users";
-import { fakePngBase64 } from "../../core/server/chat/fake-image-adapter";
+import { fakePngBase64 } from "../../plugins/models/server/fake-image-adapter";
+import type { TestDeps } from "./deps";
 
 type ImageOptions = { prompt?: string; parentId?: string | null; active?: boolean };
 
@@ -15,7 +15,7 @@ type ImageOptions = { prompt?: string; parentId?: string | null; active?: boolea
  * `generated-image/<id>` in the test's blob store (spec #278). Returns the image's id.
  */
 export async function insertGeneratedImage(
-  deps: AppDeps,
+  deps: TestDeps,
   user: TestUser,
   conversationId: string,
   { prompt = "a red bicycle", parentId = null, active = false }: ImageOptions = {},

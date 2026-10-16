@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { fakePngBase64 } from "../../../core/server/chat/fake-image-adapter";
+import { fakePngBase64 } from "../../../plugins/models/server/fake-image-adapter";
 import { insertConversation } from "../../support/conversations";
 import { createTestSdk } from "../../support/deps";
 import { insertGeneratedImage } from "../../support/generated-images";

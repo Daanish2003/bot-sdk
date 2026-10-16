@@ -1,15 +1,14 @@
 import { asc, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
-import { saveCredentials } from "../../../../core/server/credentials/store";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { conversation, message, project, userSettings } from "../../../../core/server/db/schema";
-import type { AppDeps } from "../../../../core/server/deps";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { loadSharedConversation } from "../../../../core/server/share/store";
 import type { ChatCommand } from "../../../../core/shared/chat/command";
 import { storedParts } from "../../../../core/shared/message-parts";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestSdk } from "../../../support/deps";
+import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { chatRpc, sendAs } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
@@ -23,7 +22,7 @@ const searchCall = (id: string, query: string) =>
   toolCall({ id, name: "search_past_chats", input: { query } });
 
 /** A user with an Anthropic key and a scripted reply adapter. */
-async function setup(rounds: Rounds, overrides: Partial<AppDeps> = {}) {
+async function setup(rounds: Rounds, overrides: Partial<TestDeps> = {}) {
   const user = await insertUser();
   const fake = createFakeAdapter({ rounds });
   const deps = createTestSdk({ adapterFor: () => fake.adapter, ...overrides });
@@ -38,7 +37,7 @@ async function setup(rounds: Rounds, overrides: Partial<AppDeps> = {}) {
 
 /** Sends one Message in `conversationId` and drains its Run. */
 async function sendIn(
-  deps: AppDeps,
+  deps: TestDeps,
   user: TestUser,
   conversationId: string,
   command: Partial<ChatCommand> = {},
@@ -66,7 +65,7 @@ async function sendIn(
 }
 
 /** The assistant reply a Run wrote in a Conversation. */
-async function replyOf(deps: AppDeps, conversationId: string) {
+async function replyOf(deps: TestDeps, conversationId: string) {
   const rows = await deps.db
     .select()
     .from(message)

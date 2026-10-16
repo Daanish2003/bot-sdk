@@ -11,7 +11,7 @@ import {
 } from "../../core/client/react/provider";
 import { MissingCredentialsBanner } from "../../ui/chat/missing-credentials-banner";
 import { NoCredentials } from "../../ui/chat/no-credentials";
-import { KeySettingsPage } from "../../ui/pages/key-settings";
+import { KeySettingsPage } from "../../plugins/models/ui/key-settings";
 
 const client = createBotSdkClient({
   baseUrl: "http://localhost/api/chat",

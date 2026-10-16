@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
-import { saveCredentials } from "../../../../core/server/credentials/store";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { moveConversation, deleteConversation } from "../../../../core/server/chat/store";
 import { project, memory } from "../../../../core/server/db/schema";
 import { deleteUserData } from "../../../../core/server/delete-user";

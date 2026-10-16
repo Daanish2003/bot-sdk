@@ -3,8 +3,9 @@ import { describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
 import { assistant } from "../../../core/server/assistant";
+import { models } from "../../../plugins/models/server/plugin";
 import { sweepExpiredTemporaryConversations } from "../../../core/server/chat/temporary";
-import { saveCredentials } from "../../../core/server/credentials/store";
+import { saveCredentials } from "../../../plugins/models/server/credentials/store";
 import {
   attachment,
   messageAttachment,
@@ -249,7 +250,7 @@ describe("an expired Temporary Conversation's other reads", () => {
       getUser: () => null,
       keyEncryptionSecrets: [testKey],
       basePath: "/api/chat",
-      plugins: [assistant()],
+      plugins: [models(), assistant()],
     }).exportUser(user.id);
 
     expect(exported.conversations.map((row) => row.id)).toEqual([ordinary.id]);

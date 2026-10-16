@@ -6,11 +6,11 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import type { HostToolContext } from "../../../../core/server/chat/host-tools";
-import { fakeImageAdapter } from "../../../../core/server/chat/fake-image-adapter";
-import { saveCredentials } from "../../../../core/server/credentials/store";
-import type { AppDeps, HostProvider } from "../../../../core/server/deps";
+import { fakeImageAdapter } from "../../../../plugins/models/server/fake-image-adapter";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
+import type { HostProvider } from "../../../../core/server/deps";
 import { insertConversation } from "../../../support/conversations";
-import { createTestSdk } from "../../../support/deps";
+import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { createFakeSearchClient } from "../../../support/fake-search-client";
 import { drainJobs } from "../../../support/jobs";
@@ -146,7 +146,7 @@ async function timeCallsLeft(
   ).length;
 }
 
-async function replyOf(deps: AppDeps, conversationId: string) {
+async function replyOf(deps: TestDeps, conversationId: string) {
   const rows = await deps.db
     .select()
     .from(message)

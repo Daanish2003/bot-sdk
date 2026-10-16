@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import { appRouter } from "../../../../core/server/routers/index";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { saveCredentials } from "../../../../core/server/credentials/store";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { insertConversation, insertMessage, testModel } from "../../../support/conversations";
 import { createTestSdk } from "../../../support/deps";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
@@ -29,7 +29,8 @@ async function listItems(client: ReturnType<typeof chatRpc>) {
  * answers 401 first, so only a direct call proves the procedure's own auth check.
  */
 function signedOutRouter() {
-  return createRouterClient(appRouter, { context: { user: null, deps: createTestSdk() } });
+  const deps = createTestSdk();
+  return createRouterClient(appRouter, { context: { user: null, deps, plugin: deps.plugin } });
 }
 
 describe("conversation.create", () => {

@@ -7,8 +7,7 @@ import {
 } from "../../../../core/server/chat/artifact-tool";
 import { createPartsBuilder, parseStoredParts } from "../../../../core/shared/chat/parts";
 import { createToolBudget } from "../../../../core/server/chat/tracked-tool";
-import { saveCredentials } from "../../../../core/server/credentials/store";
-import type { AppDeps } from "../../../../core/server/deps";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { toolDefinition } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
@@ -16,7 +15,7 @@ import { z } from "zod";
 
 import { curatedModels } from "../../../../core/shared/chat/models";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestSdk, type TestDepsOverrides } from "../../../support/deps";
+import { createTestSdk, type TestDepsOverrides, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { sendAs, chatRpc } from "../../../support/sdk";
 import { insertUser, type TestUser } from "../../../support/users";
@@ -54,7 +53,7 @@ async function setup({
   const conv = await insertConversation(user, { title: "Artifacts" });
   const send = (
     command: { text?: string; model?: string; parentId?: string | null } = {},
-    runDeps: AppDeps = deps,
+    runDeps: TestDeps = deps,
   ) =>
     sendAs(
       new Request("http://localhost/api/chat/run", {
@@ -83,7 +82,7 @@ async function setup({
 const toolResult = (fake: ReturnType<typeof createFakeAdapter>, round: number) =>
   fake.calls[round]!.messages.at(-1);
 
-async function repliesOf(deps: AppDeps, conversationId: string) {
+async function repliesOf(deps: TestDeps, conversationId: string) {
   const rows = await deps.db
     .select()
     .from(message)
@@ -92,7 +91,7 @@ async function repliesOf(deps: AppDeps, conversationId: string) {
   return rows.filter((row) => row.role === "assistant");
 }
 
-const replyOf = async (deps: AppDeps, conversationId: string) =>
+const replyOf = async (deps: TestDeps, conversationId: string) =>
   (await repliesOf(deps, conversationId)).at(-1)!;
 
 /**
@@ -100,10 +99,10 @@ const replyOf = async (deps: AppDeps, conversationId: string) =>
  * is inserted, inside its transaction. A throw there fails the write, and the transaction rolls back.
  */
 function withArtifactInsertHook(
-  db: AppDeps["db"],
+  db: TestDeps["db"],
   onArtifactInsert: () => void,
   watched: unknown = artifact,
-): AppDeps["db"] {
+): TestDeps["db"] {
   return new Proxy(db, {
     get(target, key, receiver) {
       if (key !== "transaction") return Reflect.get(target, key, receiver);
@@ -122,13 +121,13 @@ function withArtifactInsertHook(
           ),
         );
     },
-  }) as AppDeps["db"];
+  }) as TestDeps["db"];
 }
 
-const artifactRowsOf = (deps: AppDeps, conversationId: string) =>
+const artifactRowsOf = (deps: TestDeps, conversationId: string) =>
   deps.db.select().from(artifact).where(eq(artifact.conversationId, conversationId));
 
-const versionRowsOf = (deps: AppDeps) => deps.db.select().from(artifactVersion);
+const versionRowsOf = (deps: TestDeps) => deps.db.select().from(artifactVersion);
 
 describe("create_artifact in a reply", () => {
   it("stores one artifact and its version 1, and answers with the id and version", async () => {
@@ -405,7 +404,7 @@ describe("create_artifact in a reply", () => {
           return target.transaction(...args);
         };
       },
-    }) as AppDeps["db"];
+    }) as TestDeps["db"];
 
     await (await send({}, { ...deps, db })).text();
 
@@ -506,16 +505,16 @@ describe("update_artifact in a reply", () => {
   };
   const updateCall = (id: string, input: Record<string, unknown>) =>
     toolCall({ id, name: "update_artifact", input });
-  const versionsOf = (deps: AppDeps, artifactId: string) =>
+  const versionsOf = (deps: TestDeps, artifactId: string) =>
     deps.db
       .select()
       .from(artifactVersion)
       .where(eq(artifactVersion.artifactId, artifactId))
       .orderBy(asc(artifactVersion.number));
-  const onlyArtifactId = async (deps: AppDeps, conversationId: string) =>
+  const onlyArtifactId = async (deps: TestDeps, conversationId: string) =>
     (await artifactRowsOf(deps, conversationId))[0]!.id;
   /** The Active Branch's last reply, which the next send continues from. */
-  const tip = (deps: AppDeps, conversationId: string) => replyOf(deps, conversationId);
+  const tip = (deps: TestDeps, conversationId: string) => replyOf(deps, conversationId);
 
   it("makes v2 by edits, with the full edited content, and says it was saved as v2", async () => {
     let artifactId = "";
