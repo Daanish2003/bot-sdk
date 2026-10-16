@@ -1,4 +1,4 @@
-import type { McpServerConfig } from "@ai-chat/chat-sdk/server";
+import type { McpServerConfig } from "@ai-chat/bot-sdk/server";
 
 /**
  * The one optional MCP server `apps/web` offers, from its `MCP_SERVER_*` variables (`.env.schema`).

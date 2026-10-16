@@ -4,7 +4,7 @@ import {
   knowledgeFileName,
   knowledgeMarker,
   knowledgePassage,
-} from "../../../packages/chat-sdk/test/e2e/fake-ollama";
+} from "../../../packages/bot-sdk/test/e2e/fake-ollama";
 import { messageRows, signInAsSeededUserWithModel } from "./helpers";
 
 test("a Knowledge file reaches Ready, and the assistant's answer cites its passage", async ({

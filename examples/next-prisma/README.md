@@ -3,7 +3,7 @@
 A second Host for the Chat SDK, deliberately different from `apps/web`: Next.js App Router, Prisma
 for `public` (Auth.js users), Auth.js v5 with the Credentials provider, and its own shadcn theme.
 The chat lives in `src/chat-sdk/`, a committed copy made by the SDK's copy script. Do not edit its
-`core/`; change `packages/chat-sdk` and re-copy.
+`core/`; change `packages/bot-sdk` and re-copy.
 
 ## Layout
 
@@ -58,7 +58,7 @@ refuses to boot against an unmigrated `chat` schema.
   in `SMOKE_ADMIN_URL` (default `localhost:5434`), runs `db:migrate` on it, then sends a Run through
   the SDK handler to the fake Provider and checks the streamed reply and the saved Message. Start
   the fake Provider first; the script waits 10 s for it, then fails.
-- The copy drift check (CI runs it): `pnpm -F @ai-chat/chat-sdk copy examples/next-prisma/src/chat-sdk`
+- The copy drift check (CI runs it): `pnpm -F @ai-chat/bot-sdk copy examples/next-prisma/src/chat-sdk`
   and then fail if `git diff`/untracked files show a change under `src/chat-sdk`, except
   `core/VERSION`, which records each copy's commit and time.
 

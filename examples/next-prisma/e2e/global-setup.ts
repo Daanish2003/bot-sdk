@@ -1,4 +1,4 @@
-import { startFakeOllama } from "../../../packages/chat-sdk/test/e2e/fake-ollama";
+import { startFakeOllama } from "../../../packages/bot-sdk/test/e2e/fake-ollama";
 
 import { fakeOllamaPort } from "./env";
 

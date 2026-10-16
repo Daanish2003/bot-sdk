@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { artifactMarker, dataPath } from "../../../packages/chat-sdk/test/e2e/fake-ollama";
+import { artifactMarker, dataPath } from "../../../packages/bot-sdk/test/e2e/fake-ollama";
 
 import { fakeOllamaHost } from "./env";
 import { messageRows, signInAsSeededUserWithModel } from "./helpers";

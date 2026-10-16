@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import { banEndsAt, isCalendarDate } from "@/admin/ban";
 import { adminMiddleware } from "@/middleware/admin";
-import { auth, chat, db } from "@/services";
+import { auth, db, sdk } from "@/services";
 
 const reason = z.string().trim().min(1, "Give a reason").max(500);
 
@@ -60,7 +60,7 @@ export const banUser = createServerFn({ method: "POST" })
       reason: data.reason,
       endsAt: endsAt?.toISOString() ?? null,
     });
-    await chat.admin.stopRuns(data.userId);
+    await sdk.admin.stopRuns(data.userId);
 
     return { endsAt: endsAt?.toISOString() ?? null };
   });

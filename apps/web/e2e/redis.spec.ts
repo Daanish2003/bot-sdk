@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { slowMarker } from "../../../packages/chat-sdk/test/e2e/fake-ollama";
+import { slowMarker } from "../../../packages/bot-sdk/test/e2e/fake-ollama";
 import { messageRows, signInAsSeededUserWithModel } from "./helpers";
 
 // Runs only when the e2e run has REDIS_URL (playwright.config.ts), so the server shares its Runs

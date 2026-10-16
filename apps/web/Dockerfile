@@ -29,7 +29,7 @@ ENV PORT=3001
 EXPOSE 3001
 
 # SSR chunks require workspace dependencies at runtime.
-# One-off migrations: `node scripts/migrate.ts` (Better Auth, then the Chat SDK schema).
+# One-off migrations: `node scripts/migrate.ts` (Better Auth, then the Bot SDK schema).
 # One-off key rotation, never in pre-deploy: `node scripts/rotate-keys.ts` (ADR 0010).
 WORKDIR /app/apps/web
 CMD ["node", ".output/server/index.mjs"]

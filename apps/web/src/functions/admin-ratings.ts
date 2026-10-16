@@ -3,7 +3,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { ratingRows, type RatingRow } from "@/admin/ratings";
 import { spendRange } from "@/admin/spend";
 import { adminMiddleware } from "@/middleware/admin";
-import { chat } from "@/services";
+import { sdk } from "@/services";
 
 /**
  * The Admin's Ratings section (spec #277): 👍, 👎 and % 👎 per Model over the last 30 UTC days.
@@ -12,6 +12,6 @@ import { chat } from "@/services";
 export const listRatingTotals = createServerFn({ method: "GET" })
   .middleware([adminMiddleware])
   .handler(async (): Promise<RatingRow[]> => {
-    const totals = await chat.admin.ratingTotals({ since: spendRange(new Date()).since });
+    const totals = await sdk.admin.ratingTotals({ since: spendRange(new Date()).since });
     return ratingRows(totals);
   });

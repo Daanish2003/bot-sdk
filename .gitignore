@@ -62,6 +62,6 @@ temp
 # Claude Code: personal settings stay local
 .claude/settings.local.json
 
-# Memory eval (packages/chat-sdk/eval/memory): the downloaded dataset and the answers it writes
-packages/chat-sdk/eval/memory/cache/
-packages/chat-sdk/eval/memory/results/
+# Memory eval (packages/bot-sdk/eval/memory): the downloaded dataset and the answers it writes
+packages/bot-sdk/eval/memory/cache/
+packages/bot-sdk/eval/memory/results/

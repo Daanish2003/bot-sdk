@@ -8,7 +8,7 @@ import {
   type EmailSender,
 } from "@ai-chat/email";
 
-import { redisStore } from "@ai-chat/chat-sdk/server";
+import { redisStore } from "@ai-chat/bot-sdk/server";
 
 import { ENV } from "./env.server";
 

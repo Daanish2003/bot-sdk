@@ -1,9 +1,9 @@
-import type { BlobStore } from "@ai-chat/chat-sdk/server";
-import { s3BlobStore } from "@ai-chat/chat-sdk/server";
+import type { BlobStore } from "@ai-chat/bot-sdk/server";
+import { s3BlobStore } from "@ai-chat/bot-sdk/server";
 
 /**
  * The file store `apps/web` offers, from its `S3_*` variables (`.env.schema`). Set all five or none:
- * with none, `createChat` keeps file bytes in Postgres.
+ * with none, `createBotSdk` keeps file bytes in Postgres.
  */
 const variables = [
   "S3_ENDPOINT",

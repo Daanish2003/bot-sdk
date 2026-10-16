@@ -1,6 +1,6 @@
 # TanStack AI voice and the Web Speech API
 
-Research for issue #234 (child of the map #229, "Wayfinder: Chat extras"). Researched on 2026-10-12 against the packages installed in `packages/chat-sdk/package.json`: `@tanstack/ai` 0.66.0 (with `@tanstack/ai-event-client` 0.13.1), `ai-openai` 0.28.0, `ai-gemini` 0.37.0, `ai-groq` 0.8.5, `ai-grok` 0.21.2, `ai-mistral` 0.6.15, `ai-openrouter` 0.21.2, `ai-cloudflare` 0.2.5, `ai-byteplus` 0.6.2, `ai-lovable` 0.5.2, `ai-anthropic` 0.20.0, `ai-bedrock` 0.4.5, `ai-ollama` 0.11.14, `ai-llmgateway` 0.2.5, `ai-vercel-gateway` 0.3.7, `ai-react` 0.30.1.
+Research for issue #234 (child of the map #229, "Wayfinder: Chat extras"). Researched on 2026-10-12 against the packages installed in `packages/bot-sdk/package.json`: `@tanstack/ai` 0.66.0 (with `@tanstack/ai-event-client` 0.13.1), `ai-openai` 0.28.0, `ai-gemini` 0.37.0, `ai-groq` 0.8.5, `ai-grok` 0.21.2, `ai-mistral` 0.6.15, `ai-openrouter` 0.21.2, `ai-cloudflare` 0.2.5, `ai-byteplus` 0.6.2, `ai-lovable` 0.5.2, `ai-anthropic` 0.20.0, `ai-bedrock` 0.4.5, `ai-ollama` 0.11.14, `ai-llmgateway` 0.2.5, `ai-vercel-gateway` 0.3.7, `ai-react` 0.30.1.
 
 How to read the sources:
 

@@ -2,7 +2,7 @@
 
 Research for issue #200 (child of the Wayfinder map #197). Researched on 2026-10-12.
 
-**Versions checked** (installed in `packages/chat-sdk/node_modules/@tanstack`, resolved from the lockfile):
+**Versions checked** (installed in `packages/bot-sdk/node_modules/@tanstack`, resolved from the lockfile):
 
 | Package                     | Version | Underlying SDK         |
 | --------------------------- | ------- | ---------------------- |

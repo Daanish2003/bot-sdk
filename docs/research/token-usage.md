@@ -288,7 +288,7 @@ On the Provider-side options:
 
 **Verdict: use the middleware (`evictOldest`), not the SDK's own pre-`chat()` fallback.** The middleware runs before every model call, so a tool iteration inside one Run evicts again. The fallback runs once and would let a tool-heavy Run grow past the budget. The cost is that the middleware reports counts, not ids, so the SDK derives the context start itself.
 
-Tested in `packages/chat-sdk/test/core/server/chat/compaction-tracer.test.ts` (5 tests, against `chat()` with the fake adapter, `@tanstack/ai-compaction` 0.1.14, `@tanstack/ai` 0.66.0):
+Tested in `packages/bot-sdk/test/core/server/chat/compaction-tracer.test.ts` (5 tests, against `chat()` with the fake adapter, `@tanstack/ai-compaction` 0.1.14, `@tanstack/ai` 0.66.0):
 
 - **Eviction.** With six stored Messages and `maxTokens: 40`, the Model is sent the marker and the newest Messages. The oldest are missing.
 - **Context start.** `onCompact` reports `{ before, after, messagesBefore, messagesAfter }` and no ids. `evictOldest` prepends one marker, so the first Message the Model saw is at index `messagesBefore - (messagesAfter - 1)` of the sent list. Map that index back to a stored Message through the per-Message list the SDK built (one Message can yield several ModelMessages, for example web search tool calls).

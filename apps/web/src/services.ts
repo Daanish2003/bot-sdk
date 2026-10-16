@@ -1,13 +1,13 @@
 import { createAuth } from "@ai-chat/auth";
 import { createDb } from "@ai-chat/db";
 import {
-  createChat,
+  createBotSdk,
   fakeEmbeddingAdapter,
   fakeImageAdapter,
   memoryRuntime,
   redisRuntime,
   redisStore,
-} from "@ai-chat/chat-sdk/server";
+} from "@ai-chat/bot-sdk/server";
 import { log } from "evlog";
 
 import { isBanActive } from "./admin/ban";
@@ -43,7 +43,7 @@ export const auth = createAuth(
   log,
   {
     // Runs before the user is deleted: a failure aborts the account delete, so the user can retry.
-    deleteChatData: (userId) => chat.deleteUser(userId),
+    deleteChatData: (userId) => sdk.deleteUser(userId),
   },
   {
     // Limits are on, as in production; counted in Redis when REDIS_URL is set, so both processes share them.
@@ -57,10 +57,10 @@ export const auth = createAuth(
 // The Host's default Quota is parsed at boot, so a bad HOST_QUOTA_* fails the start, not a Run.
 void quotaOf(ENV);
 // The Nitro lifecycle plugin is bundled apart from the routes, so it loads its own copy of this
-// module. Both share one chat, so the jobs the plugin's runner runs publish on the pub/sub the
+// module. Both share one Bot SDK, so the jobs the plugin's runner runs publish on the pub/sub the
 // routes subscribe to (#290).
-const shared = globalThis as typeof globalThis & { aiChat?: ReturnType<typeof createChat> };
-export const chat = (shared.aiChat ??= createChat({
+const shared = globalThis as typeof globalThis & { botSdk?: ReturnType<typeof createBotSdk> };
+export const sdk = (shared.botSdk ??= createBotSdk({
   databaseUrl: ENV.DATABASE_URL,
   keyEncryptionSecrets: [ENV.KEY_ENCRYPTION_SECRET, ENV.KEY_ENCRYPTION_SECRET_PREVIOUS].filter(
     (secret): secret is string => Boolean(secret),

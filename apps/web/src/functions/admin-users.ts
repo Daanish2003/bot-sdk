@@ -7,7 +7,7 @@ import { type AdminUser, selectUsers, windowStart } from "@/admin/users";
 import { ENV } from "@/env.server";
 import { quotaOf } from "@/host-models";
 import { adminMiddleware } from "@/middleware/admin";
-import { chat, db } from "@/services";
+import { db, sdk } from "@/services";
 
 const querySchema = z.object({
   search: z.string().optional(),
@@ -49,8 +49,8 @@ export const listAdminUsers = createServerFn({ method: "GET" })
     const now = new Date();
     const window = quotaOf(ENV)?.window ?? "day";
     const [totals, quotas] = await Promise.all([
-      chat.admin.usageTotals({ since: windowStart(window, now), until: now }),
-      Promise.all(users.map((row) => chat.admin.quota(row.id))),
+      sdk.admin.usageTotals({ since: windowStart(window, now), until: now }),
+      Promise.all(users.map((row) => sdk.admin.quota(row.id))),
     ]);
     const spentBy = new Map(totals.map((total) => [total.userId, total.costMicros]));
 

@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "@ai-chat/auth": "workspace:*",
-    "@ai-chat/chat-sdk": "workspace:*",
+    "@ai-chat/bot-sdk": "workspace:*",
     "@ai-chat/db": "workspace:*",
     "@ai-chat/email": "workspace:*",
     "@ai-chat/ui": "workspace:*",

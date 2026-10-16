@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 
-import { chat } from "@/services";
+import { sdk } from "@/services";
 
 /**
  * A Shared link's snapshot, read on the server so the Host's route renders it (ADR 0005). The
@@ -9,4 +9,4 @@ import { chat } from "@/services";
  */
 export const getSharedConversation = createServerFn({ method: "GET" })
   .inputValidator((token: string) => token)
-  .handler(async ({ data: token }) => (await chat.getSharedConversation(token)) as never);
+  .handler(async ({ data: token }) => (await sdk.getSharedConversation(token)) as never);

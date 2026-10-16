@@ -50,7 +50,7 @@ function verificationPurpose(token: string): string | undefined {
   return payload.requestType;
 }
 
-// What the Host does when a user is deleted, injected so this package never depends on the Chat SDK
+// What the Host does when a user is deleted, injected so this package never depends on the Bot SDK
 // (ADR 0005). It runs before the user's rows go: if it throws, the account delete is aborted and
 // the user can ask again, so it must be idempotent.
 export type AuthHooks = {

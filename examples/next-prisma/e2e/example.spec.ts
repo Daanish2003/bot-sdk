@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import pg from "pg";
 
-import { chatPage } from "../../../packages/chat-sdk/test/e2e/chat-page";
+import { chatPage } from "../../../packages/bot-sdk/test/e2e/chat-page";
 
 import { e2eDatabaseUrl } from "./env";
 import { exampleHost } from "./host";
