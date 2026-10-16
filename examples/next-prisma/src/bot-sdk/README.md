@@ -43,32 +43,32 @@ Your imports then read exactly like this repo's: `@ai-chat/bot-sdk/core/server`,
 ### Updating
 
 1. Run the copy script again. `VERSION` shows the commit you now run. A copy from before plugins kept every screen in the root `ui/`. Your `ui/` and `theme.css` are not replaced, so move the screens that now live in `plugins/*/ui/` out of your root `ui/` and add the SDK's `@source "../plugins/<name>/ui";` lines to your `theme.css`.
-2. Your `ui/` is untouched. If the release changed a component you also edited, merge that by hand: diff the new SDK's `ui/` against yours. The client side of a Run (sending, joining a streaming reply, Stop, a moderated refusal, Approval decisions, Ratings and Memory events) lives in `plugins/assistant/client/react/conversation-run.ts` as `useConversationRun`, which `ui/chat/chat-view.tsx` calls, so fixes to it come with the copy.
+2. Your `ui/` is untouched. If the release changed a component you also edited, merge that by hand: diff the new SDK's `ui/` against yours. The client side of a Run (sending, joining a streaming reply, Stop, a moderated refusal, Approval decisions, Ratings and Memory events) lives in `plugins/assistant/client/react/conversation-run.ts` as `useConversationRun`, which `plugins/assistant/ui/chat/chat-view.tsx` calls, so fixes to it come with the copy.
 3. Install any new dependencies listed below, then run your type check.
 
 ### Updating to generation control
 
 Generation control adds the Instructions field, the reasoning effort control, the context ring, the per-Message token popover and the context marker. No `createBotSdk` options changed. A Host copies `core/` again and runs `chat.migrate()`, which applies the new migration (the example's `db:migrate` runs it).
 
-If your `ui/` matches the SDK's, the copy is all you need. If it has drifted, port these by hand: copy the SDK's file and reapply your own edits.
+If your `ui/` folders match the SDK's, the copy is all you need. If it has drifted, port these by hand: copy the SDK's file and reapply your own edits.
 
-Changed components:
+Changed components (from before plugins, each at its path today):
 
-- `chat/chat-view.tsx`: the context ring and its overflow notice, the context marker, and "Allow for this Conversation" in the approval call.
-- `chat/message-row.tsx`: the context marker, the per-Message `UsageInfo`, and the approval choice.
-- `chat/tool-call-row.tsx`: "Allow for this Conversation" next to Approve and Deny.
-- `chat/search-toggle.tsx`: the composer's toggle is labelled Web (see The Web toggle).
-- `pages/key-settings.tsx` (now `plugins/models/ui/key-settings.tsx`): `InstructionsField`, and the credential sections shown only with `byok` on.
-- `pages/new-conversation.tsx`: the reasoning effort chosen before the first Message.
-- `shell/top-bar.tsx`: `ConversationReasoningEffort` and `NewConversationReasoningEffort` next to the Model picker.
+- `plugins/assistant/ui/chat/chat-view.tsx`: the context ring and its overflow notice, the context marker, and "Allow for this Conversation" in the approval call.
+- `plugins/assistant/ui/chat/message-row.tsx`: the context marker, the per-Message `UsageInfo`, and the approval choice.
+- `plugins/assistant/ui/chat/tool-call-row.tsx`: "Allow for this Conversation" next to Approve and Deny.
+- `plugins/assistant/ui/chat/search-toggle.tsx`: the composer's toggle is labelled Web (see The Web toggle).
+- `plugins/models/ui/key-settings.tsx` (was `pages/key-settings.tsx`): `InstructionsField`, and the credential sections shown only with `byok` on.
+- `plugins/assistant/ui/pages/new-conversation.tsx`: the reasoning effort chosen before the first Message.
+- `plugins/assistant/ui/shell/top-bar.tsx`: `ConversationReasoningEffort` and `NewConversationReasoningEffort` next to the Model picker.
 
-New components to copy: `chat/context-ring.tsx`, `chat/usage-info.tsx`, `settings/instructions-field.tsx`, `shell/reasoning-effort-select.tsx`.
+New components to copy: `plugins/assistant/ui/chat/context-ring.tsx`, `plugins/models/ui/chat/usage-info.tsx`, `plugins/assistant/ui/settings/instructions-field.tsx`, `plugins/assistant/ui/shell/reasoning-effort-select.tsx`.
 
 They need no new shadcn components: `button`, `label`, `popover`, `select`, `textarea` and `tooltip` are already in the list above.
 
-Later `ui/` changes a Host that copied an older SDK also needs to port: the Web toggle and the fetched-page Source chip (#157, `chat/search-toggle.tsx` and `chat/source-chips.tsx`), the context ring (#123, `chat/context-ring.tsx`), the approval choice "Allow for this Conversation" (#159, `chat/tool-call-row.tsx`), Connections (#160, `settings/connections-section.tsx` and `pages/key-settings.tsx`) and the tools menu (#161, `chat/tools-menu.tsx`). Compare each against the SDK's `ui/` with the diff in step 2 of Updating.
+Later `ui/` changes a Host that copied an older SDK also needs to port: the Web toggle and the fetched-page Source chip (#157, `plugins/assistant/ui/chat/search-toggle.tsx` and `plugins/assistant/ui/chat/source-chips.tsx`), the context ring (#123, `plugins/assistant/ui/chat/context-ring.tsx`), the approval choice "Allow for this Conversation" (#159, `plugins/assistant/ui/chat/tool-call-row.tsx`), Connections (#160, `plugins/assistant/ui/settings/connections-section.tsx` and `plugins/models/ui/key-settings.tsx`) and the tools menu (#161, `plugins/assistant/ui/chat/tools-menu.tsx`). Compare each against the SDK's copy with the diff in step 2 of Updating.
 
-From #378 on, Run-protocol fixes ship in `core/` (`useConversationRun`) and need no porting. A `ui/chat/chat-view.tsx` copied before #378 holds that logic itself: port the SDK's `ChatThread` once so it calls `useConversationRun`, and later protocol fixes reach it with the copy.
+From #378 on, Run-protocol fixes ship in `plugins/assistant/client/` (`useConversationRun`) and need no porting. A `chat-view.tsx` copied before #378 holds that logic itself: port the SDK's `ChatThread` once so it calls `useConversationRun`, and later protocol fixes reach it with the copy.
 
 ## Dependencies
 
@@ -104,7 +104,7 @@ The root `ui/` needs nothing beyond `core/`'s packages.
 
 ## shadcn components
 
-`ui/` imports these from the Host's `@/components/ui/*` (and `@/lib/utils` for `cn`). Add them with the shadcn CLI, which also installs each component's own dependencies:
+`ui/` and each plugin's `ui/` import these from the Host's `@/components/ui/*` (and `@/lib/utils` for `cn`). Add them with the shadcn CLI, which also installs each component's own dependencies:
 
 - `button`, `dialog`, `input`, `label`, `popover`, `select`, `textarea`, `tooltip`, `attachment`, `hover-card`
 
@@ -112,7 +112,7 @@ The `prompt-kit` components (`chat-container`, `loader`, `markdown`, `prompt-inp
 
 ## Tailwind v4
 
-`ui/` uses Tailwind v4 classes. In your global stylesheet, import Tailwind and then the SDK's `theme.css`:
+`ui/` and each plugin's `ui/` use Tailwind v4 classes. In your global stylesheet, import Tailwind and then the SDK's `theme.css`:
 
 ```css
 @import "tailwindcss";
@@ -120,7 +120,7 @@ The `prompt-kit` components (`chat-container`, `loader`, `markdown`, `prompt-inp
 @import "./lib/bot-sdk/ui/theme.css";
 ```
 
-`theme.css` holds one line, `@source ".";`, which tells Tailwind to scan the `ui/` folder wherever it sits. Your shadcn theme variables (`--background`, `--primary`, and so on) must also be defined in your stylesheet. The `prompt-kit` message and reasoning components use the `prose` classes, so add `@plugin "@tailwindcss/typography";` as well.
+`theme.css` starts with three `@source` lines, `@source ".";`, `@source "../plugins/assistant/ui";` and `@source "../plugins/models/ui";`, which tell Tailwind to scan the root `ui/` folder and each plugin's `ui/` wherever the copy sits. Your shadcn theme variables (`--background`, `--primary`, and so on) must also be defined in your stylesheet. The `prompt-kit` message and reasoning components use the `prose` classes, so add `@plugin "@tailwindcss/typography";` as well.
 
 ## Postgres
 
@@ -194,7 +194,7 @@ const data = await chat.plugin("assistant").getSharedConversation(token);
 ```
 
 - `getUser(request)` returns `{ id } | null`. The handler answers 401 when it returns `null`.
-- `GET <basePath>/export` answers the signed-in user's export as a JSON download (`chat-export-<date>.json`), the same document as `exportUser`. The `ExportDataButton` in `ui/` calls it.
+- `GET <basePath>/export` answers the signed-in user's export as a JSON download (`chat-export-<date>.json`), the same document as `exportUser`. The `ExportDataButton` in `ui/settings/export-data-button.tsx` calls it.
 - `start()` refuses to run while the `chat` schema is behind the bundled migrations.
 - `stop()` refuses new Runs with 503 while it drains, then closes the runtime's connections.
 
@@ -510,7 +510,7 @@ const sendMail = toolDefinition({
 }).server<HostToolContext>(async (args) => sendEmail(args));
 ```
 
-To give a tool its own look in the chat, edit `ui/chat/tool-call-row.tsx` in your copy: the copy never overwrites `ui/`.
+To give a tool its own look in the chat, edit `plugins/assistant/ui/chat/tool-call-row.tsx` in your copy: the copy never overwrites a `ui/` folder.
 
 ## Connections to MCP servers
 
@@ -588,7 +588,7 @@ const messages: Partial<Messages> = {
 
 ## Phones and installing
 
-`ui/` is built for phones: safe areas around the top bar, drawer, composer and full-screen surfaces; tap targets at least 44px on small screens; a 16px composer that doesn't zoom on iOS and stays above the keyboard; code blocks and tables that scroll sideways inside the reply; an Artifact that opens full screen; and full-width Approval buttons. Your Host needs a `viewport-fit=cover` viewport meta for the safe-area insets to be non-zero.
+The `ui/` folders are built for phones: safe areas around the top bar, drawer, composer and full-screen surfaces; tap targets at least 44px on small screens; a 16px composer that doesn't zoom on iOS and stays above the keyboard; code blocks and tables that scroll sideways inside the reply; an Artifact that opens full screen; and full-width Approval buttons. Your Host needs a `viewport-fit=cover` viewport meta for the safe-area insets to be non-zero.
 
 The signed-in shell takes an `installPrompt` node for your app's install UI, shown at the bottom of the drawer. `apps/web` fills it with a row that offers Install on Chromium and the Share steps on iOS, and goes once installed or dismissed:
 
