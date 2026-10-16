@@ -126,7 +126,11 @@ export function orderPlugins<Plugin extends BotSdkPlugin>(plugins: readonly Plug
   const visiting = new Set<string>();
   const visit = (plugin: Plugin) => {
     if (ordered.includes(plugin)) return;
-    if (visiting.has(plugin.id)) throw new Error(`Plugin "${plugin.id}" requires itself`);
+    if (visiting.has(plugin.id)) {
+      throw new Error(
+        `Plugin "${plugin.id}" is in a requires cycle: ${[...visiting, plugin.id].join(" → ")}`,
+      );
+    }
     visiting.add(plugin.id);
     for (const id of plugin.requires ?? []) {
       const required = byId.get(id);
@@ -157,6 +161,26 @@ export function mergeRouters(plugins: readonly BotSdkPlugin[]): Record<string, A
     }
   }
   return merged;
+}
+
+/**
+ * Every plugin's routes in one list. Throws when two routes share a method and path, or when a
+ * route sits under `/rpc`, where the routers are served.
+ */
+export function mergeRoutes(plugins: readonly BotSdkPlugin[]): Route[] {
+  const owners = new Map<string, string>();
+  return plugins.flatMap((plugin) =>
+    (plugin.routes ?? []).map((route) => {
+      if (route.path === "/rpc" || route.path.startsWith("/rpc/")) {
+        throw new Error(`Plugin "${plugin.id}" has a route under /rpc: ${route.path}`);
+      }
+      const key = `${route.method} ${route.path}`;
+      const owner = owners.get(key);
+      if (owner) throw new Error(`Route "${key}" is claimed by both "${owner}" and "${plugin.id}"`);
+      owners.set(key, plugin.id);
+      return route;
+    }),
+  );
 }
 
 /** Every plugin's rate-limit defaults in one, by rule. Throws when two plugins declare one rule. */

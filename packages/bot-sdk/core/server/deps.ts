@@ -196,7 +196,7 @@ export type AppDeps = {
   /** A user's Quota on Host credentials, `null` when unlimited (ADR 0007). */
   getQuota: (userId: string) => Promise<Quota | null>;
   searchClient: SearchClient;
-  /** The Host's own tools, offered to every reply whose Model has tools (`createBotSdk({ tools })`). */
+  /** The Host's own tools, offered to every reply whose Model has tools (`assistant({ tools })`). */
   tools: HostServerTool[];
   /** Every Run's chunk log, which its POST response and any joiner read (ADR 0006). */
   runStreams: RunStreams;
@@ -224,7 +224,7 @@ export type AppDeps = {
   ollamaFetch: typeof fetch;
   /** The keyring (ADR 0010): the first secret encrypts Provider and Tool credentials, every entry decrypts. */
   keyEncryptionSecrets: string[];
-  /** The remote MCP servers the Host offers (`createBotSdk({ mcpServers })`, spec #91). */
+  /** The remote MCP servers the Host offers (`assistant({ mcpServers })`, spec #91). */
   mcpServers: McpServerConfig[];
   /** Where file bytes are kept (`createBotSdk({ blobStore })`, ADR 0015). */
   blobStore: BlobStore;
@@ -234,11 +234,11 @@ export type AppDeps = {
   logger: Pick<Console, "error">;
   /** Fires the Host's `hooks` after each change the SDK writes (`createBotSdk({ hooks })`). */
   hooks: HookEmitter;
-  /** Whether Artifacts are on: the `create_artifact` tool, the panel and the version route (`createBotSdk({ artifacts })`). */
+  /** Whether Artifacts are on: the `create_artifact` tool, the panel and the version route (`assistant({ artifacts })`). */
   artifacts: boolean;
-  /** Background jobs (ADR 0011): `createBotSdk({ jobs })`, the in-process runner by default. */
+  /** Background jobs (ADR 0011): `assistant({ jobs })`, the in-process runner by default. */
   jobs: JobRunner;
-  /** Whether Memory is on for the Host (`createBotSdk({ memory })`, ADR 0013). */
+  /** Whether Memory is on for the Host (`assistant({ memory })`, ADR 0013). */
   memory: boolean;
   /** The time as a job reads it, so the Memory job's dates are testable (ADR 0013). */
   clock: () => Date;

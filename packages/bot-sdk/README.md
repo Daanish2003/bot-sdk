@@ -139,7 +139,14 @@ The server API below is the spec for the SDK (spec #70). Some of it lands in lat
 
 ```ts
 // server: construct at module load (no side effects)
-const chat = createBotSdk({ databaseUrl, getUser, keyEncryptionSecrets, basePath: "/api/chat" });
+// the assistant's options (models, tools, jobs, MCP servers, ...) go to `assistant(...)`
+const chat = createBotSdk({
+  databaseUrl,
+  getUser,
+  keyEncryptionSecrets,
+  basePath: "/api/chat",
+  plugins: [assistant()],
+});
 
 // one catch-all route on your framework, for every chat call and the Shared link read
 export const handler = (request: Request) => chat.handler(request);
@@ -169,7 +176,7 @@ const data = await chat.getSharedConversation(token);
 
 ## Background jobs: `jobs`
 
-`createBotSdk({ jobs })` takes the runner for background work (ADR 0011). The default is the in-process runner: it keeps jobs in the `chat.job` table, which the `chat` schema already has, polls it every 2 s, runs two jobs at once and retries a failed job up to three times, after about 10 s and 1 min. `start()` starts it, and `stop()` takes no new jobs and waits for the running ones. Nothing else to configure, and no second database.
+`assistant({ jobs })` takes the runner for background work (ADR 0011). The default is the in-process runner: it keeps jobs in the `chat.job` table, which the `chat` schema already has, polls it every 2 s, runs two jobs at once and retries a failed job up to three times, after about 10 s and 1 min. `start()` starts it, and `stop()` takes no new jobs and waits for the running ones. Nothing else to configure, and no second database.
 
 A custom runner is any object with `enqueue(name, payload, options?)`, `start()` and `stop()`, and it takes the place of the default. Jobs are internal to the SDK: a Host can't declare its own.
 
@@ -193,7 +200,8 @@ export const chatJob = task({
 
 // src/lib/chat.ts (where createBotSdk is called)
 export const chat = createBotSdk({
-  /* ...as before */ jobs: triggerJobRunner({ taskId: "chat-job" }),
+  /* ...as before */
+  plugins: [assistant({ jobs: triggerJobRunner({ taskId: "chat-job" }) })],
 });
 ```
 
@@ -403,7 +411,7 @@ Stored Provider and Tool credentials are encrypted under `keyEncryptionSecrets`:
 ```ts
 const chat = createBotSdk({
   // ...
-  getQuota: async (userId) => ({ budgetUsd: 0.5, window: "day" }),
+  plugins: [assistant({ getQuota: async (userId) => ({ budgetUsd: 0.5, window: "day" }) })],
 });
 ```
 
@@ -419,27 +427,31 @@ const chat = createBotSdk({
   getUser,
   keyEncryptionSecrets,
   basePath: "/api/chat",
-  hostProviders: [
-    {
-      provider: "anthropic",
-      credentials: { apiKey: process.env.ANTHROPIC_API_KEY! },
-      models: [
+  plugins: [
+    assistant({
+      hostProviders: [
         {
-          modelId: "claude-haiku-4-5",
-          maxOutputTokens: 1024,
-          inputUsdPerMillion: 1,
-          outputUsdPerMillion: 5,
+          provider: "anthropic",
+          credentials: { apiKey: process.env.ANTHROPIC_API_KEY! },
+          models: [
+            {
+              modelId: "claude-haiku-4-5",
+              maxOutputTokens: 1024,
+              inputUsdPerMillion: 1,
+              outputUsdPerMillion: 5,
+            },
+          ],
         },
       ],
-    },
+      byok: true,
+    }),
   ],
-  byok: true,
 });
 ```
 
 ## The Host's tools
 
-`tools` lets the Model call your own code on your server. Write each tool with TanStack AI's `toolDefinition(...).server(fn)` and pass the list to `createBotSdk`. `fn` gets the call's arguments, and `context.context` holds `{ userId, conversationId }`, typed by passing `HostToolContext` to `.server<HostToolContext>(...)`. Every call shows in the reply as one collapsible row, and a Shared link shows only that the tool was used, never its arguments or result. A tool that throws fails only its own call. A reply makes at most 10 tool calls across the Host's tools. A tool's name must not be `web_search` or `fetch_url`, the SDK's own web tools.
+`tools` lets the Model call your own code on your server. Write each tool with TanStack AI's `toolDefinition(...).server(fn)` and pass the list to `assistant({ tools })`. `fn` gets the call's arguments, and `context.context` holds `{ userId, conversationId }`, typed by passing `HostToolContext` to `.server<HostToolContext>(...)`. Every call shows in the reply as one collapsible row, and a Shared link shows only that the tool was used, never its arguments or result. A tool that throws fails only its own call. A reply makes at most 10 tool calls across the Host's tools. A tool's name must not be `web_search` or `fetch_url`, the SDK's own web tools.
 
 ## The Web toggle
 
@@ -454,7 +466,7 @@ const serverTime = toolDefinition({
   inputSchema: z.object({}),
 }).server<HostToolContext>(() => ({ now: new Date().toISOString() }));
 
-createBotSdk({ /* ... */ tools: [serverTime] });
+createBotSdk({ /* ... */ plugins: [assistant({ tools: [serverTime] })] });
 ```
 
 A tool that sets `needsApproval: true` in its `toolDefinition` asks the user first. The reply ends at the call and shows the tool's name, its full arguments, and Approve and Deny. Approving runs the tool; denying never runs it, and the Model is told the user declined. The reply then continues in a new Run on the same Message, so the wait takes no server process and survives a restart. While a call waits, the composer waits too, and Stop counts as Deny. A Shared link shows a waiting call as waiting, without its arguments.
@@ -472,7 +484,7 @@ To give a tool its own look in the chat, edit `ui/chat/tool-call-row.tsx` in you
 
 ## Connections to MCP servers
 
-`mcpServers` lists remote MCP servers your users may sign in to: `createBotSdk({ mcpServers: [{ key, name, url, oauth: { clientId, clientSecret } }] })`. Only Streamable HTTP servers on HTTPS are accepted; a `url` that isn't HTTPS throws when `createBotSdk` runs. `key` names the server in storage (letters, digits, `_` and `-`). Register your OAuth client with each server ahead of time: the SDK doesn't use Dynamic Client Registration.
+`mcpServers` lists remote MCP servers your users may sign in to: `assistant({ mcpServers: [{ key, name, url, oauth: { clientId, clientSecret } }] })`. Only Streamable HTTP servers on HTTPS are accepted; a `url` that isn't HTTPS throws when `createBotSdk` runs. `key` names the server in storage (letters, digits, `_` and `-`). Register your OAuth client with each server ahead of time: the SDK doesn't use Dynamic Client Registration.
 
 Register this redirect URI with each server, with your app's origin in place of the host: `https://<your-app>/<basePath>/mcp/callback`, for example `https://app.example/api/chat/mcp/callback`. The SDK serves the sign-in start (`<basePath>/mcp/connect`) and this callback through the same handler, so the Host mounts no new route.
 

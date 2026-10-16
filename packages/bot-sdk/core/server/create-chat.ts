@@ -19,12 +19,14 @@ import {
   matchPath,
   mergeRateLimits,
   mergeRouters,
+  mergeRoutes,
   orderPlugins,
   type BotSdkContext,
   type BotSdkPlugin,
   type HooksOf,
   type PluginApis,
   type RateLimitsOf,
+  type Route,
 } from "./plugin";
 import { rateLimitedFor, rpcRateLimits, type RateLimit } from "./rate-limits";
 import { memoryRuntime, type BotSdkRuntime } from "./runtime";
@@ -171,6 +173,7 @@ function buildBotSdk(options: BotSdkOptions, given: GivenContext): BotSdk {
   }
   const plugins = orderPlugins(options.plugins);
   const router = mergeRouters(plugins);
+  const routes = mergeRoutes(plugins);
   const ruleDefaults = mergeRateLimits(plugins);
 
   const apis = new Map<string, object>();
@@ -186,7 +189,7 @@ function buildBotSdk(options: BotSdkOptions, given: GivenContext): BotSdk {
   // Until the core carves them out (spec #439), these are the temporary assistant plugin's.
   const assistantApi = () => sdk.plugin("assistant");
   return {
-    handler: createHandler(options, plugins, router, sdk),
+    handler: createHandler(options, plugins, router, routes, sdk),
     plugin: sdk.plugin,
     migrate: () => migrateSchema(options.databaseUrl),
     start: async () => {
@@ -195,8 +198,12 @@ function buildBotSdk(options: BotSdkOptions, given: GivenContext): BotSdk {
     },
     stop: async () => {
       sdk.lifecycle.stopping = true;
-      for (const plugin of [...plugins].reverse()) await plugin.stop?.(sdk);
-      await options.runtime?.close?.();
+      try {
+        for (const plugin of [...plugins].reverse()) await plugin.stop?.(sdk);
+      } finally {
+        // Closed even when a plugin's stop throws, so the process can still exit.
+        await options.runtime?.close?.();
+      }
     },
     getSharedConversation: (token) => assistantApi().getSharedConversation(token),
     runJob: (name, payload) => assistantApi().runJob(name, payload),
@@ -247,7 +254,12 @@ function buildContext(
     lifecycle: given.lifecycle ?? { stopping: false },
     isUserBlocked: given.isUserBlocked ?? options.isUserBlocked ?? (() => false),
     rateLimits,
-    rateLimit: (rule, key) => rateLimitedFor(counters, rateLimits[rule] ?? false, key),
+    rateLimit: (rule, key) => {
+      const limit = rateLimits[rule];
+      if (limit === undefined)
+        throw new Error(`No enabled plugin declares the rate limit "${rule}"`);
+      return rateLimitedFor(counters, limit, key);
+    },
     plugin: <Id extends keyof PluginApis>(id: Id) => plugin(id) as PluginApis[Id],
   };
 }
@@ -278,6 +290,7 @@ export function createBotSdkOver(deps: AppDeps, options: OverOptions): BotSdk {
       clock: deps.clock,
       keyring: deps.keyEncryptionSecrets,
       lifecycle: deps.lifecycle,
+      runtime: { runStreams: deps.runStreams, pubsub: deps.pubsub, counters: deps.counters },
       isUserBlocked: deps.isUserBlocked,
       rateLimits: deps.rateLimits,
     },
@@ -293,6 +306,7 @@ function createHandler(
   { basePath, getUser, getClientIp, logger = console }: BotSdkOptions,
   plugins: readonly BotSdkPlugin[],
   router: ReturnType<typeof mergeRouters>,
+  routes: readonly Route[],
   sdk: BotSdkContext,
 ): ChatHandler {
   const prefix = basePath.replace(/\/+$/, "");
@@ -302,7 +316,6 @@ function createHandler(
   const rpc = new RPCHandler(router, {
     interceptors: [onError((error) => logger.error(error))],
   });
-  const routes = plugins.flatMap((plugin) => plugin.routes ?? []);
   // Until the core context replaces `AppDeps` (spec #439), the procedures read the assistant's;
   // an instance without it serves only procedures that don't.
   const assistantDeps = plugins.some((plugin) => plugin.id === "assistant")
@@ -359,7 +372,7 @@ async function rpcRateLimitRefusal(
   route: string,
 ): Promise<Response | null> {
   const rule = rpcRateLimits[route];
-  if (!rule) return null;
+  if (!rule || !(rule in sdk.rateLimits)) return null;
   return tooManyRequests(await sdk.rateLimit(rule, `${rule}:${userId}`));
 }
 
@@ -368,7 +381,7 @@ async function rpcRateLimitRefusal(
  * is over its limit. With no IP (the Host gave none), nothing is counted.
  */
 async function sharedLinkRefusal(sdk: BotSdkContext, ip: string | null): Promise<Response | null> {
-  if (!ip) return null;
+  if (!ip || !("sharedLinkView" in sdk.rateLimits)) return null;
   return tooManyRequests(await sdk.rateLimit("sharedLinkView", `sharedLinkView:${ip}`));
 }
 

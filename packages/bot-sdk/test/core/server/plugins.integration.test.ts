@@ -33,6 +33,19 @@ describe("createBotSdk plugins", () => {
     ).toThrow(/shared.*first.*second/);
   });
 
+  it("throws when two plugins claim the same route", () => {
+    const route = { method: "GET", path: "/thing", handle: async () => new Response() } as const;
+    expect(() =>
+      createBotSdk({
+        ...core,
+        plugins: [
+          { id: "first", routes: [route] },
+          { id: "second", routes: [route] },
+        ],
+      }),
+    ).toThrow(/GET \/thing.*first.*second/);
+  });
+
   it("serves each plugin's router under <basePath>/rpc/<key>", async () => {
     const sdk = createBotSdk({
       ...core,
