@@ -1,16 +1,29 @@
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { useQuery } from "@tanstack/react-query";
+import { SendIcon } from "lucide-react";
+import { type FormEvent, Fragment, type KeyboardEvent, useState } from "react";
 
-import { useChatAdapter, useI18n } from "../../../core/client/react/provider";
+import { useI18n } from "../../../core/client/react/provider";
 import { serverErrorText } from "../../../core/client/rpc-error";
+import { useBotTurn } from "../client/react/bot-turn";
 import { BotAvatar } from "./bot-avatar";
 
-/** A Bot's Conversation: the Messages sent in it, the user's on the right and the Bot's on the left. */
+/**
+ * A Bot's Conversation: the Messages sent in it, the user's on the right and the Bot's on the left,
+ * ••• while a Turn runs, and "Seen ✓" under the user's last Message when the Bot stayed quiet.
+ */
 export function BotConversation({ botId }: { botId: string }) {
-  const { orpc } = useChatAdapter();
+  // One instance per Bot, so a Turn's state never shows on another Bot.
+  return <BotConversationView key={botId} botId={botId} />;
+}
+
+function BotConversationView({ botId }: { botId: string }) {
   const i18n = useI18n();
   const { t } = i18n;
-  const { data, error } = useQuery(orpc.bot.get.queryOptions({ input: { botId } }));
+  const { bot, error, messages, running, seenMessageId, send } = useBotTurn(botId);
+  const [draft, setDraft] = useState("");
+
   if (error) {
     return (
       <p className="m-auto p-4 text-sm text-muted-foreground">
@@ -18,8 +31,18 @@ export function BotConversation({ botId }: { botId: string }) {
       </p>
     );
   }
-  if (!data) return null;
-  const { bot, messages } = data;
+  if (!bot) return null;
+
+  const submit = (event?: FormEvent) => {
+    event?.preventDefault();
+    const text = draft.trim();
+    if (!text || running) return;
+    setDraft("");
+    void send(text);
+  };
+  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) submit(event);
+  };
 
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -32,19 +55,55 @@ export function BotConversation({ botId }: { botId: string }) {
           <p className="m-auto text-sm text-muted-foreground">{t("bots.noMessages")}</p>
         )}
         {messages.map((message) => (
-          <div
-            key={message.id}
-            className={cn(
-              "max-w-[70%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap",
-              message.role === "user"
-                ? "self-end bg-primary text-primary-foreground"
-                : "self-start bg-muted",
+          <Fragment key={message.id}>
+            <div
+              data-bot-message
+              data-id={message.id}
+              data-role={message.role}
+              className={cn(
+                "max-w-[70%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap",
+                message.role === "user"
+                  ? "self-end bg-primary text-primary-foreground"
+                  : "self-start bg-muted",
+                message.pending && "opacity-70",
+              )}
+            >
+              {message.text}
+            </div>
+            {message.id === seenMessageId && (
+              <p className="self-end text-xs text-muted-foreground">{t("bots.seen")}</p>
             )}
-          >
-            {message.text}
-          </div>
+          </Fragment>
         ))}
+        {running && (
+          <div
+            role="status"
+            aria-label={t("bots.typing")}
+            className="self-start rounded-2xl bg-muted px-3 py-2 text-sm tracking-widest text-muted-foreground"
+          >
+            •••
+          </div>
+        )}
       </div>
+      <form onSubmit={submit} className="flex items-end gap-2 border-t p-3">
+        <Textarea
+          aria-label={t("bots.message")}
+          placeholder={t("bots.message")}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={onKeyDown}
+          rows={1}
+          className="max-h-40 min-h-10 resize-none"
+        />
+        <Button
+          type="submit"
+          size="icon"
+          aria-label={t("bots.send")}
+          disabled={!draft.trim() || running}
+        >
+          <SendIcon />
+        </Button>
+      </form>
     </section>
   );
 }

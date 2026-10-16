@@ -1,8 +1,12 @@
 import { eq } from "drizzle-orm";
 
 import { pathTo } from "../../shared/chat/branches";
-import { message, type MessageRow } from "../db/schema";
-import type { BotSdkContext } from "../plugin";
+import { searchTextOf } from "../../shared/message-parts";
+import { conversation, message, type MessageRow } from "../db/schema";
+import { uuidv7 } from "../lib/uuidv7";
+import type { BotSdkContext, Transaction } from "../plugin";
+
+type MessageInsert = typeof message.$inferInsert;
 
 type Deps = Pick<BotSdkContext, "db">;
 
@@ -19,4 +23,37 @@ export async function loadPath(
 ): Promise<MessageRow[]> {
   if (!leafId) return [];
   return pathTo(await loadMessages(deps, conversationId), leafId);
+}
+
+/**
+ * Appends one Message at the Conversation's `activeLeafId`, under the Conversation's row lock, and
+ * makes it the new leaf. Call it inside a transaction, so the lock holds until the commit.
+ */
+export async function appendMessage(
+  tx: Transaction,
+  conversationId: string,
+  fields: Pick<MessageInsert, "role" | "parts" | "status" | "createdAt">,
+): Promise<MessageRow> {
+  const [owner] = await tx
+    .select({ activeLeafId: conversation.activeLeafId })
+    .from(conversation)
+    .where(eq(conversation.id, conversationId))
+    .for("update");
+  if (!owner) throw new Error(`Conversation ${conversationId} not found`);
+  const [row] = await tx
+    .insert(message)
+    .values({
+      id: uuidv7(),
+      conversationId,
+      parentId: owner.activeLeafId,
+      searchText: searchTextOf(fields.parts),
+      ...fields,
+    })
+    .returning();
+  if (!row) throw new Error("Appending the Message returned no row");
+  await tx
+    .update(conversation)
+    .set({ activeLeafId: row.id, lastMessageAt: row.createdAt })
+    .where(eq(conversation.id, conversationId));
+  return row;
 }

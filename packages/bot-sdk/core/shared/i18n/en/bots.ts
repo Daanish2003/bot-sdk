@@ -9,4 +9,8 @@ export const botsMessages = {
   "bots.noBots": "No Bots yet. Create one to start talking.",
   "bots.pickABot": "Pick a Bot, or create a new one.",
   "bots.noMessages": "No messages yet",
+  "bots.message": "Message",
+  "bots.send": "Send",
+  "bots.typing": "Typing",
+  "bots.seen": "Seen ✓",
 };

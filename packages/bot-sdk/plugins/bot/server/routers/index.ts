@@ -1,8 +1,11 @@
+import { eventIterator } from "@orpc/server";
 import { z } from "zod";
 
 import { protectedProcedure } from "../../../../core/server/procedures";
 import { rpcError } from "../../../../core/server/rpc-error";
 import { botMessages, createBot, findBot, listBots } from "../store";
+import { botSendEventSchema } from "../../shared/turn";
+import { sendToBot } from "../turn";
 
 const botRouter = {
   /**
@@ -36,6 +39,17 @@ const botRouter = {
       const { conversationId, ...bot } = found;
       return { bot, messages: await botMessages(context.sdk.db, conversationId) };
     }),
+
+  /**
+   * Sends the caller's Message to their Bot and streams its Turn: the saved user Message, each
+   * Message the Bot sends as it is appended, then `turnEnded`. The request's signal stops the Turn.
+   */
+  send: protectedProcedure
+    .input(z.object({ botId: z.uuid(), text: z.string().trim().min(1) }))
+    .output(eventIterator(botSendEventSchema))
+    .handler(({ context, input, signal }) =>
+      sendToBot(context.sdk, { userId: context.user.id, ...input, signal }),
+    ),
 };
 
 /** The `bot` plugin's routers, served under `<basePath>/rpc/<key>`. */

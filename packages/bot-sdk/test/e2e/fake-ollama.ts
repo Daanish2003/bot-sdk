@@ -68,6 +68,15 @@ export function knowledgeReply(toolResult: string): string {
   return `The launch is on 14 March, according to [${result.excerpts[0]?.fileName}](excerpt:1).`;
 }
 
+/**
+ * A Bot's prompt with this marker makes the fake Model call `send_to_user` with `botReply` and
+ * `endTurn: true`, so the Turn ends on that one Message. Without it, a Bot's Turn gets plain text
+ * and stays quiet.
+ */
+export const sendMarker = "[send]";
+const sendToUserToolName = "send_to_user";
+export const botReply = "Hello from your Bot.";
+
 /** The JSON the fake host serves for the Artifact's fetch, with the CORS header a read would need. */
 export const dataPath = "/e2e/data";
 
@@ -281,6 +290,10 @@ export function startFakeOllama(port: number): Promise<Server> {
       };
       if (stream && !answering && link && offers(fetchToolName) && prompt.includes(fetchMarker)) {
         calls(fetchToolName, { url: link });
+        return;
+      }
+      if (stream && !answering && offers(sendToUserToolName) && prompt.includes(sendMarker)) {
+        calls(sendToUserToolName, { text: botReply, endTurn: true });
         return;
       }
       if (stream && !answering && offers(mcpToolName) && prompt.includes(mcpMarker)) {

@@ -1,11 +1,12 @@
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 
 import { deleteConversations } from "../../../core/server/chat/delete-conversations";
-import { bot, conversation, message } from "../../../core/server/db/schema";
+import { bot, conversation, message, type MessageRow } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { Transaction, UserDeleteHooks } from "../../../core/server/plugin";
 import { searchTextOf } from "../../../core/shared/message-parts";
+import type { BotMessage } from "../shared/turn";
 
 /** The `kind` of every Bot's Conversation: the plugin's id. */
 export const botKind = "bot";
@@ -15,13 +16,19 @@ const botColumns = { id: bot.id, name: bot.name, model: bot.model, createdAt: bo
 /** A Bot as the client sees it. */
 export type Bot = { id: string; name: string; model: string; createdAt: Date };
 
-/** A Message of a Bot's Conversation: its text, never the Bot's private transcript. */
-export type BotMessage = {
-  id: string;
-  role: "user" | "assistant";
-  text: string;
-  createdAt: Date;
-};
+export type { BotMessage };
+
+/** A Bot Conversation Message's stored parts: one base `text` part. */
+export function textParts(text: string): MessageRow["parts"] {
+  return { schemaVersion: 1, parts: [{ type: "text", text }] };
+}
+
+/** A Message row as the client sees it. */
+export function toBotMessage(
+  row: Pick<MessageRow, "id" | "role" | "parts" | "createdAt">,
+): BotMessage {
+  return { id: row.id, role: row.role, text: searchTextOf(row.parts), createdAt: row.createdAt };
+}
 
 /** Creates a Bot and its empty Conversation (kind `bot`, no title) in one transaction. */
 export async function createBot(
@@ -75,7 +82,7 @@ export async function botMessages(
     .from(message)
     .where(eq(message.conversationId, conversationId))
     .orderBy(asc(message.createdAt), asc(message.id));
-  return rows.map(({ parts, ...row }) => ({ ...row, text: searchTextOf(parts) }));
+  return rows.map(toBotMessage);
 }
 
 /**
@@ -127,14 +134,7 @@ export async function exportBots(tx: Transaction, userId: string): Promise<BotEx
   return {
     bots: rows.map(({ conversationId, ...row }) => ({
       ...row,
-      messages: messages
-        .filter((sent) => sent.conversationId === conversationId)
-        .map((sent) => ({
-          id: sent.id,
-          role: sent.role,
-          text: searchTextOf(sent.parts),
-          createdAt: sent.createdAt,
-        })),
+      messages: messages.filter((sent) => sent.conversationId === conversationId).map(toBotMessage),
     })),
   };
 }
