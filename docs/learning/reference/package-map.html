@@ -8,119 +8,119 @@
   </head>
   <body>
     <main>
-      <p class="kicker">ai-chat architecture · Reference · from Lesson 1</p>
+      <p class="kicker">ai-chat Chat SDK · Reference · from Lesson 1</p>
       <h1>Package map</h1>
-      <p class="subtitle">Seven packages. Imports point down.</p>
+      <p class="subtitle">One Host, four SDK parts, four Host packages. Imports point down.</p>
 
-      <figure id="map"><div class="toy-out" id="out">Click a package to see its job.</div></figure>
+      <figure id="map"><div class="toy-out" id="out">Click a box to see its job.</div></figure>
 
       <div class="rule-box">
-        <strong>The rule</strong>A new import edge from A to B is safe only if B can't already reach
-        A.
+        <strong>The rule</strong>An import is allowed when it goes down the map.
+        <code>client</code> or <code>ui</code> may reach up to <code>server</code> only with
+        <code>import type</code>. Nothing imports the Host, and <code>core/</code> imports no
+        <code>@ai-chat/*</code> package.
       </div>
 
+      <h2>The four SDK parts</h2>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>Package</th>
+              <th>Part</th>
               <th>Owns</th>
               <th>Imports</th>
-              <th>Start reading at</th>
+              <th>Entry point</th>
+              <th>Who edits it</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td><code>apps/web</code></td>
-              <td>Routes, server entry points, wiring</td>
-              <td>chat-react, api, auth, db, ui</td>
+              <td><code>ui/</code></td>
+              <td>React components: chat view, shell, pages, settings</td>
+              <td>client, shared, <code>@/components/ui/*</code>; server (type only)</td>
+              <td><code>@ai-chat/chat-sdk/ui</code></td>
+              <td>The Host (copied once)</td>
+            </tr>
+            <tr>
+              <td><code>core/client</code></td>
               <td>
-                <code>src/services.ts</code>, <code>src/routes/api/chat.ts</code>,
-                <code>src/lib/chat-provider.tsx</code>
+                <code>createChatClient</code>, <code>ChatProvider</code>, hooks in
+                <code>client/react</code>
               </td>
+              <td>shared; server (type only)</td>
+              <td><code>@ai-chat/chat-sdk/client</code></td>
+              <td>Nobody (replaced on copy)</td>
             </tr>
             <tr>
-              <td><code>@ai-chat/chat-react</code></td>
-              <td>Chat screens (React); gets routing through <code>ChatAdapter</code></td>
-              <td>chat-core, api, db, ui</td>
-              <td><code>src/chat/chat-view.tsx</code>, <code>src/provider.tsx</code></td>
-            </tr>
-            <tr>
-              <td><code>@ai-chat/chat-core</code></td>
-              <td>Client logic, no React, unit-tested</td>
-              <td>api, db</td>
-              <td><code>src/chat.ts</code></td>
-            </tr>
-            <tr>
-              <td><code>@ai-chat/ui</code></td>
-              <td>Generic UI parts (shadcn, prompt-kit)</td>
-              <td>nothing</td>
-              <td><code>src/components/</code></td>
-            </tr>
-            <tr>
-              <td><code>@ai-chat/api</code></td>
-              <td>Every server rule: oRPC routers, the run, credentials, search, share</td>
-              <td>auth, db</td>
+              <td><code>core/server</code></td>
               <td>
-                <code>src/chat/handle-chat.ts</code>, <code>src/routers/index.ts</code>,
-                <code>src/deps.ts</code>
+                <code>createChat</code>, the handler, <code>handleChat</code>, the Run, routers,
+                chat tables
               </td>
+              <td>shared</td>
+              <td><code>@ai-chat/chat-sdk/server</code></td>
+              <td>Nobody (replaced on copy)</td>
             </tr>
             <tr>
-              <td><code>@ai-chat/auth</code></td>
-              <td>Better Auth: users, sessions</td>
-              <td>db</td>
-              <td><code>src/index.ts</code></td>
-            </tr>
-            <tr>
-              <td><code>@ai-chat/db</code></td>
-              <td>Drizzle tables, stored Message parts shape</td>
-              <td>nothing</td>
-              <td><code>src/schema/chat.ts</code>, <code>src/message-parts.ts</code></td>
+              <td><code>core/shared</code></td>
+              <td>Message parts, Models, Sources, error codes</td>
+              <td>npm only (<code>zod</code>, <code>@tanstack/ai</code>)</td>
+              <td>(through the others)</td>
+              <td>Nobody (replaced on copy)</td>
             </tr>
           </tbody>
         </table>
       </div>
 
-      <h2>Two server doors</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>Door</th>
-            <th>Route file (apps/web)</th>
-            <th>Hands to (api)</th>
-            <th>Used for</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td><code>POST /api/chat</code></td>
-            <td><code>routes/api/chat.ts</code></td>
-            <td><code>handleChat(request, session, deps)</code></td>
-            <td>Send, edit, regenerate; streams SSE</td>
-          </tr>
-          <tr>
-            <td><code>/api/rpc/*</code></td>
-            <td><code>routes/api/rpc/$.ts</code></td>
-            <td><code>appRouter</code> (oRPC)</td>
-            <td>Everything else: list, get, switchBranch, chat.stop, share, …</td>
-          </tr>
-        </tbody>
-      </table>
+      <h2>What the Host gives</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Thing</th>
+              <th>In apps/web</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Who the user is: <code>getUser(request) → { id } | null</code></td>
+              <td><code>src/services.ts</code> (asks Better Auth)</td>
+            </tr>
+            <tr>
+              <td>One catch-all route → <code>chat.handler(request)</code></td>
+              <td><code>src/routes/api/chat/$.ts</code></td>
+            </tr>
+            <tr>
+              <td>Postgres: <code>databaseUrl</code> (SDK tables in schema <code>chat</code>)</td>
+              <td><code>src/services.ts</code></td>
+            </tr>
+            <tr>
+              <td>Client wiring: <code>ChatProvider</code> with a router adapter</td>
+              <td><code>src/lib/chat-provider.tsx</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
 
       <h2>Review checks</h2>
       <ul>
         <li>
-          Is the new code in the package that owns that kind of decision? Rules → api. Drawing →
-          chat-react. Pure client logic → chat-core.
+          Does a file in <code>core/</code> import the Host, <code>@/…</code>, or an
+          <code>@ai-chat/*</code> package?
         </li>
-        <li>Does any new import point up, or close a cycle?</li>
         <li>
-          Does an api file that the browser imports (<code>chat/sources.ts</code>,
-          <code>chat/models.ts</code>, <code>credentials/services.ts</code>,
-          <code>attachments/kinds.ts</code>) now import db or Node-only code?
+          Does <code>client</code> or <code>ui</code> import a <em>value</em> from
+          <code>server</code>? Only <code>import type</code> is allowed.
         </li>
-        <li>Does a route in apps/web contain logic that belongs in api?</li>
+        <li>
+          Does <code>shared</code> import <code>server</code>, <code>client</code> or anything with
+          Node or Postgres?
+        </li>
+        <li>Does a Host route hold logic that belongs in <code>core/server</code>?</li>
+        <li>
+          Is a fix made in a Host's copied <code>core/</code>? It belongs in
+          <code>packages/chat-sdk</code>.
+        </li>
       </ul>
     </main>
     <script src="../assets/diagrams.js"></script>
@@ -130,8 +130,8 @@
       PackageMap.render("#map", {
         onPick(id) {
           const p = PackageMap.byId[id],
-            by = PackageMap.importedBy(id);
-          out.innerHTML = `<strong>${p.label}</strong>: ${p.job} Imported by: ${by.length ? by.join(", ") : "nobody"}.`;
+            by = PackageMap.importedBy(id).map((f) => PackageMap.byId[f].label);
+          out.innerHTML = `<strong>${p.path}</strong>: ${p.job} Imported by: ${by.length ? by.join(", ") : "nobody"}.`;
         },
       });
     </script>

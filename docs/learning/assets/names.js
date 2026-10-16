@@ -6,529 +6,462 @@
 window.NAMES = [
   {
     lesson: 1,
-    name: "@ai-chat/db",
+    name: "packages/chat-sdk",
     kind: "package",
     meaning:
-      "The Drizzle tables and the stored shape of Message parts. It imports no other package.",
-    example: "packages/db/src/schema/chat.ts defines the conversation and message tables",
+      "The Chat SDK: one folder a Host copies in, in four parts (core/shared, core/server, core/client, ui/).",
+    example: "pnpm -F @ai-chat/chat-sdk copy ../my-host/src/lib/chat-sdk",
   },
   {
     lesson: 1,
-    name: "@ai-chat/auth",
-    kind: "package",
-    meaning: "Better Auth set up on top of the db package: users and sessions.",
-    example: "createAuth(ENV, db) in apps/web/src/services.ts",
-  },
-  {
-    lesson: 1,
-    name: "@ai-chat/api",
-    kind: "package",
-    meaning: "All server logic: the oRPC routers, the chat run, credentials, search, sharing.",
-    example: "packages/api/src/chat/handle-chat.ts answers POST /api/chat",
-  },
-  {
-    lesson: 1,
-    name: "@ai-chat/chat-core",
-    kind: "package",
-    meaning: "Client logic with no React: pure functions the chat UI calls.",
-    example: "branchFrom(messages, id) in packages/chat-core/src/chat.ts",
-  },
-  {
-    lesson: 1,
-    name: "@ai-chat/chat-react",
-    kind: "package",
+    name: "core/shared",
+    kind: "folder",
     meaning:
-      "The chat UI as React components, with no idea which router or URL scheme the host app uses.",
-    example: "<ChatView conversation={data} /> in packages/chat-react/src/chat/chat-view.tsx",
+      "Code both sides use: Message parts, Models, Sources, error codes. Imports only npm packages.",
+    example: "core/shared/chat/parts.ts",
   },
   {
     lesson: 1,
-    name: "@ai-chat/ui",
-    kind: "package",
-    meaning: "Generic UI parts (shadcn and prompt-kit) with no chat knowledge.",
-    example: "Button, Markdown, ChatContainerRoot",
-  },
-  {
-    lesson: 1,
-    name: "apps/web",
-    kind: "package",
-    meaning: "The host app: TanStack Start routes and the wiring that joins every package.",
-    example: "apps/web/src/routes/api/chat.ts is 16 lines and calls handleChat",
-  },
-  {
-    lesson: 1,
-    name: "AppDeps (deps)",
-    kind: "type",
+    name: "core/server",
+    kind: "folder",
     meaning:
-      "One object with everything the server needs from outside: database, adapters, run registry, limits. Built once at start.",
-    example: "createAppDeps({ db, keyEncryptionSecret }) in apps/web/src/services.ts",
+      "All server code: createChat, the handler, handleChat, the Run, routers, the chat tables. Imports only shared.",
+    example: "core/server/create-chat.ts",
   },
   {
     lesson: 1,
-    name: "ChatAdapter",
-    kind: "type",
+    name: "core/client",
+    kind: "folder",
     meaning:
-      "What the host app gives chat-react: the oRPC client, the chat URL, a Link component and navigate().",
-    example:
-      'WebChatProvider in apps/web/src/lib/chat-provider.tsx maps { to: "keys" } to /settings/keys',
+      "The browser side: createChatClient, plus ChatProvider and hooks in client/react. Reaches server only with import type.",
+    example: "core/client/chat-client.ts",
   },
   {
     lesson: 1,
-    name: "appRouter",
+    name: "ui/",
+    kind: "folder",
+    meaning:
+      "The SDK's React components. The Host owns them; the copy script copies ui/ only once.",
+    example: "ChatView from @ai-chat/chat-sdk/ui in routes/_auth/c/$id.tsx",
+  },
+  {
+    lesson: 1,
+    name: "@ai-chat/chat-sdk/server · /client · /ui",
+    kind: "package",
+    meaning: "The three entry points in the SDK's package.json; a Host imports nothing else.",
+    example: 'import { createChat } from "@ai-chat/chat-sdk/server" in apps/web/src/services.ts',
+  },
+  {
+    lesson: 1,
+    name: "chat.handler",
     kind: "function",
     meaning:
-      "The tree of oRPC procedures (conversation, chat, models, share, …) served at /api/rpc.",
-    example: "orpc.conversation.get({ id }) on the client calls conversationRouter.get",
+      "The one web-standard handler (Request → Response) the Host mounts under basePath; it routes /rpc/*, /run and the rest.",
+    example: "routes/api/chat/$.ts passes every method to chat.handler(request)",
+  },
+  {
+    lesson: 1,
+    name: "routes/api/chat/$.ts",
+    kind: "route",
+    meaning: "apps/web's catch-all route for /api/chat/*; it holds no chat logic.",
+    example: "GET, POST, PUT, PATCH, DELETE, HEAD → chat.handler(request)",
+  },
+  {
+    lesson: 1,
+    name: "import type",
+    kind: "type",
+    meaning:
+      "A TypeScript import that is erased at build, so no code moves. The only way client or ui may reach server.",
+    example:
+      'import type { AppRouterClient } from "../server/routers/index" in core/client/chat-client.ts',
   },
   {
     lesson: 2,
+    name: "createChat",
+    kind: "function",
+    meaning:
+      "Builds the Chat SDK for a Host from its options; returns the handler, migrate/start/stop and server-only calls. Builds nothing until first use.",
+    example:
+      'export const chat = createChat({ databaseUrl, getUser, keyEncryptionSecrets, basePath: "/api/chat" }) in apps/web/src/services.ts',
+  },
+  {
+    lesson: 2,
+    name: "getUser",
+    kind: "option",
+    meaning:
+      "The Host's function from a Request to { id } or null. null answers 401, except for the two public Shared link RPCs.",
+    example: "apps/web asks Better Auth for the session and returns { id: session.user.id }",
+  },
+  {
+    lesson: 2,
+    name: "basePath",
+    kind: "option",
+    meaning: "Where the Host mounts the handler; every SDK route sits under it.",
+    example: '"/api/chat", so a Run is POST /api/chat/run',
+  },
+  {
+    lesson: 2,
+    name: "createChatHandler",
+    kind: "function",
+    meaning:
+      "Makes the one handler over an AppDeps bundle; it picks who answers a request from its path, top rung first.",
+    example: "createChatHandler(createTestDeps(), { basePath, getUser }) in test/support/sdk.ts",
+  },
+  {
+    lesson: 2,
+    name: "AppDeps",
+    kind: "type",
+    meaning:
+      "The bundle of everything the server code uses: db, adapters, runtime, hooks, jobs, limits. It is the test seam.",
+    example: "deps.adapterFor(model.id, credentials) in handle-chat.ts",
+  },
+  {
+    lesson: 2,
+    name: "createAppDeps",
+    kind: "function",
+    meaning:
+      "Builds the production AppDeps from the createChat options; getDeps() calls it once, on first use.",
+    example: "packages/chat-sdk/core/server/deps.ts",
+  },
+  {
+    lesson: 2,
+    name: "createTestDeps",
+    kind: "function",
+    meaning:
+      "AppDeps for tests: the test database and fakes, with nothing that reaches the network.",
+    example: "packages/chat-sdk/test/support/deps.ts",
+  },
+  {
+    lesson: 2,
+    name: "migrate / start / stop",
+    kind: "function",
+    meaning:
+      "The lifecycle: migrate() at deploy, start() at boot (checks the setup, starts the reaper and jobs), stop() on SIGTERM (503 for new Runs, 250 s drain).",
+    example: "apps/web/server/plugins/chat-lifecycle.ts calls start() and stop()",
+  },
+  {
+    lesson: 2,
+    name: "chat-lifecycle.ts",
+    kind: "file",
+    meaning: "apps/web's Nitro plugin that calls chat.start() at boot and chat.stop() on SIGTERM.",
+    example: "apps/web/server/plugins/chat-lifecycle.ts",
+  },
+  {
+    lesson: 3,
+    name: "chatCommandSchema",
+    kind: "function",
+    meaning:
+      "The zod schema of the command the browser posts to start a Run. It lives in core/shared, so the browser builds it and the server checks it.",
+    example:
+      "handleChat parses body.forwardedProps with it; a bad body is 400 error.invalidCommand",
+  },
+  {
+    lesson: 3,
     name: "ChatCommand",
     kind: "type",
     meaning:
-      "What the client posts to /api/chat: conversationId, parentId, text?, attachmentIds, model, webSearch. Never the history.",
-    example: 'a regenerate of a2 is { conversationId, parentId: "u2", model, … } with no text',
+      "The command: conversationId, parentId, text (left out for a regenerate), model, attachmentIds, webSearch, tools.",
+    example: '{ conversationId: "c7…", parentId: "a2", text: "Thanks", model: "anthropic:…" }',
   },
   {
-    lesson: 2,
+    lesson: 3,
     name: "forwardedProps",
     kind: "type",
     meaning:
-      "The field of useChat's request body that carries our own data; handleChat parses only this.",
+      "The field in TanStack AI's request body that carries the app's own data. The server reads only this field.",
     example:
-      "fetchServerSentEvents(chatUrl, () => ({ body: command.current })) → body becomes forwardedProps",
+      "fetchServerSentEvents(chatUrl, () => ({ body: command.current })) puts the command there",
   },
   {
-    lesson: 2,
-    name: "branchFrom(messages, id)",
-    kind: "function",
-    meaning:
-      "Finds the parent for an edit or regenerate: the Message just before id on screen, plus the Messages above it.",
-    example: 'branchFrom([u1, a1, u2, a2], "u2").parentId → "a1"',
+    lesson: 3,
+    name: "parentId (command)",
+    kind: "type",
+    meaning: "The Message the new one continues; null starts a new root.",
+    example: "send → a2 · edit q2 → a1 · regenerate a2 → q2",
   },
   {
-    lesson: 2,
-    name: "setPendingFirstMessage / takePendingFirstMessage",
+    lesson: 3,
+    name: "branchFrom",
     kind: "function",
     meaning:
-      "Hands the first typed text from the new Conversation page to ChatView across the page change, once.",
+      "Gives the Messages above messageId (history) and the last of them as parentId, for an edit or a regenerate.",
     example:
-      "create → setPendingFirstMessage(id, { text, attachments }) → navigate /c/$id → ChatView sends it",
+      'branchFrom([q1,a1,q2,a2], "q2") → { parentId: "a1", history: [q1, a1] } (core/client/chat.ts)',
   },
   {
     lesson: 3,
-    name: "handleChat(request, session, deps)",
+    name: "fetchServerSentEvents",
     kind: "function",
     meaning:
-      "The /api/chat handler: every check first, then one locked transaction, then startRun and the SSE response.",
-    example: 'another user\'s conversationId → refuse(404, "Conversation not found")',
+      "TanStack AI's connection that POSTs a Run to chatUrl and reads the reply as server-sent events.",
+    example: "built once in ui/chat/chat-view.tsx, with fetchClient: runFetch",
   },
   {
     lesson: 3,
-    name: "refuse(status, message)",
+    name: "run (chat-view)",
     kind: "function",
-    meaning: "Builds an early JSON error Response; nothing has been written when it runs.",
-    example: 'refuse(409, "A reply is still streaming in this Conversation")',
+    meaning:
+      "Sets command.current, then calls sendMessage (with text) or reload (without). When the Run ends, it reloads the Active Branch from the server.",
+    example: "send → run(lastId, text); startBranch → run(parentId, text?, history)",
   },
   {
     lesson: 3,
+    name: "chatUrl",
+    kind: "route",
+    meaning:
+      "Where a Run is posted (POST) and joined (GET ?runId=), made by createChatClient from the Host's baseUrl.",
+    example: "createChatClient({ baseUrl: origin + '/api/chat' }).chatUrl → …/api/chat/run",
+  },
+  {
+    lesson: 3,
+    name: "loadPath(deps, conversationId, leafId)",
+    kind: "function",
+    meaning:
+      "Loads all of a Conversation's Messages and walks up from a leaf to a root, to rebuild the history on the server. handleChat, titles, Memory, Shared links and Artifacts use it.",
+    example: "handleChat: loadPath(deps, owned.id, command.parentId) → the history for the Model",
+  },
+  {
+    lesson: 4,
+    name: "handleChat",
+    kind: "function",
+    meaning:
+      "Answers POST /api/chat/run: runs every check that can refuse, then writes the Messages in one transaction and starts the Run.",
+    example: "packages/chat-sdk/core/server/chat/handle-chat.ts",
+  },
+  {
+    lesson: 4,
+    name: "refuse(status, code, params)",
+    kind: "function",
+    meaning: "Builds a refusal: an HTTP status and a body { code, params }. Nothing is written.",
+    example: 'refuse(404, "error.conversationNotFound")',
+  },
+  {
+    lesson: 4,
+    name: "errorMessages",
+    kind: "file",
+    meaning: "The English text for each error code; the client looks a code up here.",
+    example:
+      '"error.replyStreaming" → "A reply is still streaming in this Conversation" (core/shared/i18n/en/errors.ts)',
+  },
+  {
+    lesson: 4,
+    name: "runFetch",
+    kind: "function",
+    meaning:
+      "The client's fetch for a send: turns a refused response into RateLimitedError, ModeratedError or RefusedError.",
+    example: "core/client/rate-limit.ts",
+  },
+  {
+    lesson: 4,
     name: '.for("update")',
     kind: "function",
     meaning: "Drizzle's SELECT … FOR UPDATE: locks the Conversation row so concurrent sends queue.",
-    example: "tab B waits for tab A's commit, then sees A's streaming row → 409",
+    example: "handleChat locks the conversation row before it looks for a streaming Message",
   },
   {
-    lesson: 3,
-    name: "message.status",
-    kind: "table/column",
+    lesson: 4,
+    name: "error.replyStreaming",
+    kind: "route",
     meaning:
-      "streaming, complete, stopped or error. The assistant row starts as streaming with empty parts.",
-    example: '{ role: "assistant", status: "streaming", parts: { schemaVersion: 1, parts: [] } }',
+      "The 409 code when a Message in the Conversation is still streaming (one Run per Conversation, ADR 0002).",
+    example: "a second tab sends while the first reply streams → 409",
   },
   {
     lesson: 4,
     name: "startRun",
     kind: "function",
     meaning:
-      "Starts the run for one assistant Message: drains chat() on its own, snapshots the parts, and saves the final status in finally. Returns the chunks for the SSE response at once.",
-    example: "startRun(deps, { messageId, adapter, messages }) at the end of handleChat",
+      "Runs one assistant Message after the transaction commits: reads chat() to the end, appends each chunk to the run log, snapshots parts to Postgres and saves the final status in finally.",
+    example: "core/server/chat/run.ts, called at the end of handleChat",
   },
   {
-    lesson: 4,
-    name: "createChunkChannel",
+    lesson: 5,
+    name: "chat()",
+    kind: "function",
+    meaning: "TanStack AI's call to the Model. It returns an async stream of chunks.",
+    example: "chat({ adapter, messages, abortController, tools, systemPrompts }) in run.ts",
+  },
+  {
+    lesson: 5,
+    name: "RunStreams",
+    kind: "type",
+    meaning:
+      "One append-only, replayable chunk log per Run: open, append, close, read(runId, offset).",
+    example:
+      "createMemoryRunStreams() in run-streams.ts; createRedisRunStreams() in redis-run-streams.ts",
+  },
+  {
+    lesson: 5,
+    name: "START",
+    kind: "option",
+    meaning: "The offset that reads a run log from its first entry.",
+    example: 'START = "-1"; read(runId, START) gives every chunk',
+  },
+  {
+    lesson: 5,
+    name: "runStreamDurability",
     kind: "function",
     meaning:
-      "Hands the run's chunks to at most one reader; once the reader calls return(), it empties its buffer and drops every later chunk.",
-    example: "listener.push(chunk) in run.ts; the SSE response is the reader",
+      "Adapts one Run's log to TanStack AI's StreamDurability so resumeServerSentEventsResponse can read it. Only read works.",
+    example: "runStreamDurability(deps.runStreams, assistantMessageId, START) in handle-chat.ts",
   },
   {
-    lesson: 4,
-    name: "createPartsBuilder",
+    lesson: 5,
+    name: "resumeServerSentEventsResponse",
     kind: "function",
-    meaning:
-      "Collects a run's stream chunks into stored parts (text, thinking, web_search); the same messageId appends, a new one starts a part. parts() returns a copy for a snapshot.",
-    example: 'a: "Hel", a: "lo", b: "Bye" → ["Hello", "Bye"] (packages/api/src/chat/parts.ts)',
+    meaning: "TanStack AI helper that turns a log read into a server-sent events Response.",
+    example: "the POST /run response in handleChat",
   },
   {
-    lesson: 4,
+    lesson: 5,
     name: "snapshotIntervalMs",
-    kind: "type",
-    meaning:
-      "Least time between two snapshots of a streaming Message; a tick saves only if a chunk arrived since the last one.",
-    example: "1,000 ms in defaultLimits (deps.ts); 20 ms in the integration tests",
-  },
-  {
-    lesson: 4,
-    name: "errorReasonOf",
-    kind: "function",
-    meaning: "Turns a Provider's error code or HTTP status into the Message's errorReason.",
-    example: '"401" → invalid_key, "429" → rate_limited, anything else → provider_error',
+    kind: "option",
+    meaning: "How often the Run writes heartbeatAt, and the parts if they changed.",
+    example: "1_000 in deps.ts limits",
   },
   {
     lesson: 5,
-    name: "message.parentId",
-    kind: "table/column",
-    meaning: "The Message this one continues; null for a root. The only link in the tree.",
-    example: 'q2b.parentId = "a1"',
-  },
-  {
-    lesson: 5,
-    name: "conversation.activeLeafId",
+    name: "heartbeatAt",
     kind: "table/column",
     meaning:
-      "The leaf of the Active Branch. handleChat sets it to the new reply; switchBranch sets it to newestLeaf.",
-    example: 'activeLeafId = "a2b" shows q1 → a1 → q2b → a2b',
+      "The Run's lease: the last sign of life from the process running a streaming Message, written on every snapshot tick even with no new chunk.",
+    example: "last beat 40 s, lease 30 s → reaped once now − 30 > 40",
   },
   {
     lesson: 5,
-    name: "pathTo(nodes, leafId)",
-    kind: "function",
-    meaning:
-      "Walks parentId up from the leaf, then reverses: the Messages from a root to the leaf, oldest first. [] without a leaf.",
-    example: 'pathTo(tree, "a2b") → [q1, a1, q2b, a2b] (api/src/chat/branches.ts)',
+    name: "runCapMs",
+    kind: "option",
+    meaning: 'The hard time limit of one Run; hitting it ends the Run as error "timed_out".',
+    example: "5 * 60_000 in deps.ts limits",
   },
   {
     lesson: 5,
-    name: "loadActiveBranch / loadPath",
+    name: "shutdownAbort",
     kind: "function",
-    meaning:
-      "store.ts helpers that load every Message of a Conversation and call pathTo: for conversation.get, and for handleChat's history.",
-    example: "loadPath(deps, conversationId, command.parentId)",
+    meaning: 'The abort reason stop() uses; a Run aborted with it ends as error "interrupted".',
+    example: "run.abort(shutdownAbort) in lifecycle.ts",
   },
   {
     lesson: 6,
-    name: "siblingPosition(nodes, node)",
+    name: "handleJoin",
     kind: "function",
     meaning:
-      "Where a Message sits among Messages with the same parentId, oldest first: { index, count, previousId, nextId }. Drives ‹ n/m ›.",
-    example: 'q2b → { index: 1, count: 2, previousId: "q2", nextId: null }',
+      "Answers GET /run?runId=…: checks that the user owns the Run's Conversation, then replays the Run's log from the start (or Last-Event-ID) and follows it until it closes.",
+    example:
+      "packages/chat-sdk/core/server/chat/join-run.ts; a reloaded tab joins the streaming Message whose id is the runId",
   },
   {
     lesson: 6,
-    name: "compareAge",
-    kind: "function",
-    meaning: "Orders Messages by createdAt, then by id (uuidv7 ids sort by creation time).",
-    example: 'two siblings at the same ms: "a…" before "b…"',
-  },
-  {
-    lesson: 6,
-    name: "newestLeaf(nodes, id)",
-    kind: "function",
-    meaning:
-      "The newest leaf anywhere below id (id itself if it has no children). switchBranch makes it activeLeafId.",
-    example: 'newestLeaf(tree, "q1") → "a2b" (m6), not a1b (m4)',
-  },
-  {
-    lesson: 6,
-    name: "conversation.switchBranch",
-    kind: "route",
-    meaning:
-      "oRPC procedure behind the arrows: locks the Conversation row, refuses with CONFLICT while a reply streams, else sets activeLeafId = newestLeaf.",
-    example: 'orpc.conversation.switchBranch({ messageId: "q1" })',
-  },
-  {
-    lesson: 7,
-    name: "deps.runs",
-    kind: "type",
-    meaning:
-      "The run registry: a Map from a streaming assistant Message id to its run's AbortController, in one server process only.",
-    example: "stopRun calls deps.runs.get(messageId)?.abort()",
-  },
-  {
-    lesson: 7,
     name: "stopRun",
     kind: "function",
     meaning:
-      "Aborts the run when it is in this process; otherwise marks the row stopped, but only if it is still streaming.",
-    example: "chat.stop({ messageId }) in packages/api/src/routers/chat.ts calls it",
+      'Stops a Run from any process: writes cancel_requested_at and publishes "stop" on run:<id>:cancel. It never writes status, unless the lease has run out.',
+    example: "chat.stop({ messageId }) in routers/chat.ts calls stopRun(deps, id)",
   },
   {
-    lesson: 7,
-    name: "untilAborted",
-    kind: "function",
-    meaning:
-      "Yields a stream's chunks until the abort signal fires, racing each next() against it, so adapters that ignore the signal can't hold the run.",
-    example: "Ollama's adapter ignores the signal; the loop still stops at once",
-  },
-  {
-    lesson: 7,
-    name: "runCapMs",
-    kind: "type",
-    meaning:
-      'Longest a run may take; when it fires, the run is aborted and saved as error "timed out".',
-    example: "5 × 60,000 ms in defaultLimits (deps.ts)",
-  },
-  {
-    lesson: 7,
-    name: "sweepInterruptedRuns",
-    kind: "function",
-    meaning:
-      'At server start, ends every streaming Message created before boot as error "interrupted" and cancels its running searches.',
-    example: "called from apps/web/server/plugins/sweep-interrupted-runs.ts",
-  },
-  {
-    lesson: 8,
-    name: "StoredParts",
-    kind: "type",
-    meaning:
-      "Our own versioned shape of a Message's content in message.parts: { schemaVersion: 1, parts: [text | thinking | web_search] }.",
-    example: 'storedParts([{ type: "text", text: "Hi" }]) in packages/db/src/message-parts.ts',
-  },
-  {
-    lesson: 8,
-    name: "parseStoredParts",
-    kind: "function",
-    meaning: "Validates a row's parts with zod; throws on an unknown schemaVersion or part type.",
-    example: "parseStoredParts(row.parts) in packages/api/src/chat/parts.ts",
-  },
-  {
-    lesson: 8,
-    name: "toUIParts",
-    kind: "function",
-    meaning: "Stored parts → the UIMessage parts useChat draws; drops the thinking signature.",
-    example: "web_search part → a tool-call part",
-  },
-  {
-    lesson: 8,
-    name: "toModelMessages",
-    kind: "function",
-    meaning:
-      "Stored history → ModelMessage[] for one Provider; thinking only for the Provider that wrote it.",
-    example: 'toModelMessages(history, { provider: "openai" }) leaves out Anthropic thinking',
-  },
-  {
-    lesson: 9,
-    name: "user_credentials",
+    lesson: 6,
+    name: "cancel_requested_at",
     kind: "table/column",
-    meaning: "One row per user and service: encrypted fields, hint, verified.",
-    example: '(user-1, "anthropic", "v1.…", "…1234", true)',
+    meaning:
+      "The Stop note on chat.message. The owner reads it on each 1 s tick, so it catches a Stop whose signal was missed.",
+    example: "stopRequested(deps, runId) → true, so the owner aborts and saves stopped",
   },
   {
-    lesson: 9,
-    name: "encryptCredentials / decryptCredentials",
+    lesson: 6,
+    name: "reapStaleRuns",
     kind: "function",
     meaning:
-      "AES-256-GCM as v1.<iv>.<tag>.<ciphertext>, bound to userId:service; decrypt returns null on any failure.",
+      'Ends every streaming Message whose heartbeat is empty or older than now − leaseMs as error "interrupted", cancels its running calls and ends its log.',
+    example: "run.ts; lifecycle.ts runs it in start() and every 30 s",
+  },
+  {
+    lesson: 6,
+    name: "HEARTBEAT_LEASE_MS",
+    kind: "option",
+    meaning:
+      "How long a Run may go without a heartbeat before it counts as ended (30 000 ms). defaultLimits.leaseMs holds the same value for the reaper.",
+    example: "heartbeatExpired(row) in stop.ts",
+  },
+  {
+    lesson: 6,
+    name: "memoryRuntime / redisRuntime",
+    kind: "function",
+    meaning:
+      "The two ChatRuntimes: runStreams (the logs), pubsub (signals) and counters, kept in process memory or shared through Redis.",
+    example: "apps/web/src/services.ts picks redisRuntime when REDIS_URL is set",
+  },
+  {
+    lesson: 6,
+    name: "drainMs",
+    kind: "option",
+    meaning:
+      'How long stop() lets local Runs finish (250 000 ms) before it aborts them as error "interrupted". New Runs get 503 meanwhile.',
+    example: "defaultLimits in deps.ts; chat.stop() on SIGTERM",
+  },
+  {
+    lesson: 7,
+    name: "message.parentId",
+    kind: "table/column",
+    meaning:
+      "The Message this one continues; null for a root. The only link in the tree, and it points up.",
+    example: 'q2b.parentId = "a1" in packages/chat-sdk/core/server/db/schema/chat.ts',
+  },
+  {
+    lesson: 7,
+    name: "conversation.activeLeafId",
+    kind: "table/column",
+    meaning:
+      "The leaf of the Conversation's Active Branch. It becomes null if that Message is deleted (set null).",
+    example: 'activeLeafId = "a2b" shows q1, a1, q2b, a2b',
+  },
+  {
+    lesson: 7,
+    name: "pathTo(nodes, leafId)",
+    kind: "function",
+    meaning:
+      "Walks parentId up from a leaf and reverses, giving the Branch oldest first. It returns [] for a null or unknown leaf.",
+    example: 'pathTo(TREE, "a2b") → q1, a1, q2b, a2b (core/shared/chat/branches.ts)',
+  },
+  {
+    lesson: 7,
+    name: "loadActiveBranch(deps, conversationId, leafId)",
+    kind: "function",
+    meaning:
+      "Gives the Active Branch for the client: pathTo from activeLeafId, plus each Message's sibling position and Attachments.",
+    example: "the conversation.get RPC in core/server/routers/conversation.ts",
+  },
+  {
+    lesson: 8,
+    name: "siblingPosition(nodes, node)",
+    kind: "function",
+    meaning:
+      "Where a Message sits among the Messages with the same parentId, oldest first; drives the ‹ n/m › arrows.",
     example:
-      'decryptCredentials(v, { secret, context: "user-2:anthropic" }) → null for user-1\'s row',
+      'q2b → { index: 1, count: 2, previousId: "q2", nextId: null } (core/shared/chat/branches.ts)',
   },
   {
-    lesson: 9,
-    name: "loadCredentials",
+    lesson: 8,
+    name: "newestLeaf(nodes, id)",
     kind: "function",
-    meaning:
-      "The user's decrypted credentials for a service, or null when missing or undecryptable.",
-    example: "loadCredentials(deps, userId, model.provider) in handleChat",
+    meaning: "The newest leaf anywhere below a Message; a Branch switch makes it the activeLeafId.",
+    example: 'newestLeaf(TREE, "q1") → "a2b" (m6), not a1b (m4)',
   },
   {
-    lesson: 9,
-    name: "credentialHint",
-    kind: "function",
-    meaning: 'What the client may see: "…" plus the key\'s last 4 characters, or the Ollama host.',
-    example: '{ apiKey: "sk-ant-EXAMPLE-1234" } → "…1234"',
-  },
-  {
-    lesson: 10,
-    name: "web_search part",
-    kind: "type",
-    meaning:
-      "One web_search tool call stored in a reply's parts, with its query, state (running, done, error, cancelled) and up to 5 results.",
-    example: '{ type: "web_search", query: "tanstack ai", state: "done", results: [...] }',
-  },
-  {
-    lesson: 10,
-    name: "createWebSearchTool",
-    kind: "function",
-    meaning:
-      "Builds the web_search server tool for one reply. It records each search in the parts, turns a failure into the error state, and allows at most 3 searches.",
-    example:
-      "packages/api/src/chat/web-search-tool.ts, called in startRun when webSearch credentials exist",
-  },
-  {
-    lesson: 10,
-    name: "numberSources",
-    kind: "function",
-    meaning:
-      "Numbers a Message's Sources in order of first appearance across all its searches, dropping repeats by sourceKey. Computed, never stored.",
-    example: "two searches with 4 results, one repeated → Sources 1, 2, 3",
-  },
-  {
-    lesson: 10,
-    name: "sourceKey",
-    kind: "function",
-    meaning:
-      "A URL without its #fragment and trailing slash. Two URLs with the same key are the same Source.",
-    example: "https://a.dev/x#top and https://a.dev/x/ → https://a.dev/x",
-  },
-  {
-    lesson: 10,
-    name: "citationFor",
-    kind: "function",
-    meaning:
-      "The Source a link in a reply points at, or null. A match renders as that Source's numbered citation chip.",
-    example: 'citationFor("https://tanstack.com/ai/latest", sources) → Source 1',
-  },
-  {
-    lesson: 11,
-    name: "attachment.upload",
+    lesson: 8,
+    name: "conversation.switchBranch",
     kind: "route",
     meaning:
-      "The oRPC procedure that stores one picked file (5 MB at most; image, PDF or UTF-8 text) and returns its AttachmentInfo.",
-    example: 'returns { id, filename: "photo.png", mediaType: "image/png", size: 3145728 }',
-  },
-  {
-    lesson: 11,
-    name: "message_attachment",
-    kind: "table/column",
-    meaning:
-      "Join table that links a Message to its Attachments in order (messageId, attachmentId, position). Deleting the Message removes its link rows.",
-    example: "an edit inserts (M1′, photo, 0); M1's rows stay",
-  },
-  {
-    lesson: 11,
-    name: "lockAttachments",
-    kind: "function",
-    meaning:
-      "Inside the send transaction, locks the user's Attachments FOR KEY SHARE so the orphan cleanup skips them. Returns false if one is gone, and the send answers 404.",
-    example: "packages/api/src/attachments/store.ts, called before linkAttachments",
-  },
-  {
-    lesson: 11,
-    name: "attachmentsForSend",
-    kind: "function",
-    meaning:
-      "Before any write, checks a send's attachments (owned, readable by the Model, 5 MB each, 20 MB per Branch) and loads their bytes for the Provider.",
-    example: 'a PDF to a GPT Model → 400 "<label> can\'t read PDFs"',
-  },
-  {
-    lesson: 12,
-    name: "shared_link",
-    kind: "table/column",
-    meaning:
-      "One row per Conversation: token, unique conversationId, leafMessageId of the shared Branch, frozen title. A pointer, never a copy.",
-    example: "packages/db/src/schema/share.ts; both foreign keys cascade on delete",
-  },
-  {
-    lesson: 12,
-    name: "upsertSharedLink",
-    kind: "function",
-    meaning:
-      "Creates the Shared link, or moves leafMessageId to the current Active Branch under the same token. Refused while the newest Message is streaming or error.",
-    example: "onConflictDoUpdate on conversationId in packages/api/src/share/store.ts",
-  },
-  {
-    lesson: 12,
-    name: "loadSharedConversation",
-    kind: "function",
-    meaning:
-      "What a viewer gets for a token: loadPath up from leafMessageId, with parts and attachments redacted.",
-    example: "share.get (a publicProcedure) → /share/$token page",
-  },
-  {
-    lesson: 12,
-    name: "redactForShare",
-    kind: "function",
-    meaning:
-      "Allowlist filter: keeps text, tool-call and tool-result parts; thinking, file contents and any new part type are removed.",
-    example: "[thinking, text] → [text] in packages/api/src/share/redact.ts",
-  },
-  {
-    lesson: 12,
-    name: "redactAttachmentsForShare",
-    kind: "function",
-    meaning:
-      "Turns each attachment into a { filename, mediaType } chip; id, size and bytes stay private.",
+      "RPC that sets activeLeafId to newestLeaf under a Message; CONFLICT while a reply streams; doesn't bump lastMessageAt.",
     example:
-      '{ id, filename: "cat.png", mediaType: "image/png", size: 1234 } → { filename: "cat.png", mediaType: "image/png" }',
+      "orpc.conversation.switchBranch({ messageId }) (core/server/routers/conversation.ts → store.ts switchBranch)",
   },
   {
-    lesson: 13,
-    name: "titleConversation",
-    kind: "function",
+    lesson: 8,
+    name: "siblings",
+    kind: "type",
     meaning:
-      "Titles an untitled Conversation after a complete run; fire-and-forget, never throws, writes only where title is null.",
-    example: "void titleConversation(deps, messageId) in startRun's finally",
-  },
-  {
-    lesson: 13,
-    name: "user_settings.titleModel",
-    kind: "table/column",
-    meaning: "The Model that writes titles; null means the Model that wrote the reply.",
-    example: 'settings.setTitleModel({ titleModel: "anthropic:claude-haiku-4-5" })',
-  },
-  {
-    lesson: 13,
-    name: "fallbackTitle",
-    kind: "function",
-    meaning:
-      'First ~50 characters of the first Message, cut at a word after character 25, plus "…".',
-    example: '"Explain how the Message tree stores Branches when…"',
-  },
-  {
-    lesson: 13,
-    name: "awaitingTitle",
-    kind: "function",
-    meaning:
-      "True when untitled, nothing streaming and an assistant Message is complete; drives the top bar's polling.",
-    example: "polls conversation.get every 1 s for up to titleWaitMs (30 s)",
-  },
-  {
-    lesson: 14,
-    name: "createTestDeps",
-    kind: "function",
-    meaning:
-      "AppDeps for tests: the test database, a fake search client, adapterFor and fetch that throw, and tiny limits. Pass overrides for what a test scripts.",
-    example:
-      "createTestDeps({ adapterFor: () => fake.adapter }) in packages/api/src/testing/deps.ts",
-  },
-  {
-    lesson: 14,
-    name: "createFakeAdapter",
-    kind: "function",
-    meaning:
-      "A scripted TanStack AI adapter: each chatStream call plays the next round; with manual: true each chunk waits for release(n).",
-    example: 'createFakeAdapter({ rounds: [round(text("Hello", " there!"))], manual: true })',
-  },
-  {
-    lesson: 14,
-    name: "round",
-    kind: "function",
-    meaning:
-      "One scripted model call: RUN_STARTED, the parts' chunks, then RUN_FINISHED (tool_calls or stop); no RUN_FINISHED after a RUN_ERROR.",
-    example: 'round(toolCall({ name: "web_search", input })) ends with finishReason "tool_calls"',
-  },
-  {
-    lesson: 14,
-    name: "createTestClient",
-    kind: "function",
-    meaning: "Calls appRouter in the same process, signed in as a test user, with test deps.",
-    example: "createTestClient({ user }).share.upsert({ conversationId })",
-  },
-  {
-    lesson: 14,
-    name: "TEST_DATABASE_URL",
-    kind: "table/column",
-    meaning: "The Postgres database integration tests use; tables are truncated before each test.",
-    example: "packages/db/src/testing/test-database.ts; set in .github/workflows/ci.yml",
+      "The SiblingPosition loadActiveBranch adds to each Active Branch Message; 1 of 1 on the client while a reply streams.",
+    example: 'messageSiblings(message) → { index: 0, count: 2, previousId: null, nextId: "a1b" }',
   },
 ];
 

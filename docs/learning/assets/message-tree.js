@@ -4,7 +4,7 @@
 // A node is { id, parentId, at } where `at` is the minute it was created (the real code uses
 // `createdAt`, a Date). Ids starting with "q" are user Messages; the rest are assistant Messages.
 //
-//   MessageTree.SAMPLE                       the tree from packages/api/src/chat/branches.test.ts
+//   MessageTree.SAMPLE                       the tree from packages/chat-sdk/test/core/shared/chat/branches.test.ts
 //   MessageTree.draw(nodes, opts) → svg inner string
 //   MessageTree.render(selector, nodes, opts) → { update(nodes?, opts?) }
 //

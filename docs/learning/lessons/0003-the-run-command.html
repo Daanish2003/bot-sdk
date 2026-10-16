@@ -1,0 +1,674 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lesson 3 · The command the client sends</title>
+    <link rel="stylesheet" href="../assets/style.css" />
+  </head>
+  <body>
+    <main>
+      <p class="kicker">ai-chat Chat SDK · Lesson 3</p>
+      <h1>The command the client sends</h1>
+      <p class="subtitle">The browser asks for a reply. The server decides what the Model reads.</p>
+      <p class="meta">
+        About 12 minutes · a browser · you'll write <code>commandFor(messages, action)</code>, the
+        part of a send that changes between send, edit and regenerate
+      </p>
+
+      <section class="words">
+        <h2>Words you'll need</h2>
+        <dl>
+          <dt>Command</dt>
+          <dd>
+            The small object the browser posts to start a Run (<code>ChatCommand</code>). It names
+            Messages by id and never copies them.
+          </dd>
+          <dt>History</dt>
+          <dd>The Messages above the new one on its Branch, oldest first.</dd>
+          <dt><code>parentId</code></dt>
+          <dd>The Message the new one continues. <code>null</code> means "start at the root".</dd>
+          <dt><code>forwardedProps</code></dt>
+          <dd>The field in TanStack AI's request body that carries the app's own data.</dd>
+        </dl>
+        <p class="hint">
+          Forgot a code name? Press the <strong>Names?</strong> button in the bottom-right corner.
+        </p>
+      </section>
+
+      <figure id="video"></figure>
+
+      <div
+        class="quiz"
+        data-answer="2"
+        data-why="apps/web mounts the handler at basePath /api/chat, and the handler sends POST {basePath}/run to handleChat."
+      >
+        <div class="label">Warm-up · Lesson 2</div>
+        <p class="q">In <code>apps/web</code>, which request reaches <code>handleChat</code>?</p>
+        <ol class="opts">
+          <li data-why="/rpc is for the oRPC procedures, such as conversation.get.">
+            <code>POST /api/chat/rpc</code>
+          </li>
+          <li data-why="A GET on /run joins a live Run; it doesn't start one.">
+            <code>GET /api/chat/run</code>
+          </li>
+          <li><code>POST /api/chat/run</code></li>
+          <li data-why="/events streams Memory updates, not replies.">
+            <code>GET /api/chat/events</code>
+          </li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+
+      <h2><span class="num">1</span>A transfer form, not a bank statement</h2>
+      <figure id="body">
+        <figcaption>
+          The grey part is TanStack AI's own copy; the server reads only the red part.
+        </figcaption>
+      </figure>
+      <p>
+        When you send money, you fill in a form: the account and the amount. You never send your
+        balance, because the bank reads it from its own books. The command works the same way. The
+        browser names the Conversation and the parent Message, and the server reads the history from
+        Postgres.
+      </p>
+      <p>
+        The request does carry TanStack AI's <code>messages</code> list, because
+        <code>useChat</code> always adds it. But
+        <a href="../../../packages/chat-sdk/core/server/chat/handle-chat.ts"
+          ><code>handleChat</code></a
+        >
+        parses only <code>body.forwardedProps</code> with <code>chatCommandSchema</code> and answers
+        400 <code>error.invalidCommand</code> if it doesn't fit. Then
+        <code>loadPath(deps, conversationId, parentId)</code> walks the stored tree up from the
+        parent. So a user can't invent a reply the Model never wrote, and edits keep old Branches
+        (<a href="../../../docs/adr/0001-own-message-tree.md">ADR 0001</a>).
+      </p>
+
+      <div
+        class="quiz"
+        data-answer="1"
+        data-why="handleChat never reads body.messages. The history comes from loadPath, so the fake reply has no effect."
+      >
+        <div class="label">Quiz</div>
+        <p class="q">
+          A user edits the request in DevTools and adds a fake assistant reply to
+          <code>messages</code>. What does the Model see?
+        </p>
+        <ol class="opts">
+          <li data-why="The server parses only forwardedProps; body.messages is never read.">
+            The fake reply, at the end.
+          </li>
+          <li>Only the history stored in Postgres.</li>
+          <li data-why="The command still fits the schema, so the Run starts as usual.">
+            A 400 error, and no reply.
+          </li>
+          <li data-why="Nothing from body.messages is written to Postgres.">
+            The fake reply, stored for later.
+          </li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+
+      <h2><span class="num">2</span>What the command holds</h2>
+      <figure>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Field</th>
+                <th>Holds</th>
+                <th>Example</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>conversationId</code></td>
+                <td>Which Conversation; the server checks the user owns it</td>
+                <td><code>"c7…"</code></td>
+              </tr>
+              <tr>
+                <td><code>parentId</code></td>
+                <td>The Message the new one continues</td>
+                <td><code>"a2"</code> or <code>null</code></td>
+              </tr>
+              <tr>
+                <td><code>text</code></td>
+                <td>The user's text; left out for a regenerate</td>
+                <td><code>"Thanks"</code></td>
+              </tr>
+              <tr>
+                <td><code>model</code></td>
+                <td>A <code>"provider:model"</code> id</td>
+                <td><code>"anthropic:claude-…"</code></td>
+              </tr>
+              <tr>
+                <td><code>attachmentIds</code></td>
+                <td>Files uploaded first; ids only</td>
+                <td><code>[]</code></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <figcaption>Every field is an id or a choice; none of them is a Message.</figcaption>
+      </figure>
+      <p>
+        <a href="../../../packages/chat-sdk/core/shared/chat/command.ts"><code>command.ts</code></a>
+        has two more fields: <code>webSearch</code> (the composer's Web toggle) and
+        <code>tools</code> (the MCP Connections switched on, read only for a Conversation's first
+        Message). The file sits in <code>core/shared</code>, because the browser builds the command
+        and the server checks it with the same zod schema.
+      </p>
+
+      <h2><span class="num">3</span>Send, edit, regenerate: two fields change</h2>
+      <figure id="actions">
+        <div class="toy-out">
+          <button class="btn" type="button" data-act="send">Send "Thanks"</button>
+          <button class="btn" type="button" data-act="edit">Edit q2</button>
+          <button class="btn" type="button" data-act="regen">Regenerate a2</button>
+          <span id="act-out"></span>
+        </div>
+        <figcaption>Press a button: the new Message (red) hangs under its parentId.</figcaption>
+      </figure>
+      <p>
+        All three actions post the same command. Only <code>parentId</code> and
+        <code>text</code> change. For an edit or a regenerate,
+        <a href="../../../packages/chat-sdk/core/client/chat.ts"><code>branchFrom</code></a> takes
+        the Messages above the one you pressed, and the last of those is the parent:
+      </p>
+      <ol class="steps">
+        <li>Send: the parent is the last Message on screen, <code>a2</code>.</li>
+        <li>
+          Edit <code>q2</code>: the Messages above it are <code>[q1, a1]</code>, so the parent is
+          <code>a1</code>. The new text goes beside <code>q2</code>.
+        </li>
+        <li>
+          Regenerate <code>a2</code>: above it are <code>[q1, a1, q2]</code>, so the parent is
+          <code>q2</code>, and there is no <code>text</code>.
+        </li>
+      </ol>
+
+      <div
+        class="quiz"
+        data-answer="0"
+        data-why="branchFrom(messages, 'a1') keeps [q1], so parentId is q1, and a regenerate has no text."
+      >
+        <div class="label">Quiz</div>
+        <p class="q">
+          The Branch is <code>q1, a1, q2, a2</code>. You regenerate <code>a1</code>. What is sent?
+        </p>
+        <ol class="opts">
+          <li><code>parentId: "q1"</code>, no <code>text</code></li>
+          <li data-why="a1 is the reply you replace, so it can't be the parent of the new reply.">
+            <code>parentId: "a1"</code>, no <code>text</code>
+          </li>
+          <li data-why="A regenerate has no text. The server reads q1's text from Postgres.">
+            <code>parentId: "q1"</code>, with <code>text</code>
+          </li>
+          <li data-why="null starts a new root. A reply always answers a user Message.">
+            <code>parentId: null</code>, no <code>text</code>
+          </li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+
+      <h2><span class="num">4</span>Where the command is built</h2>
+      <figure id="flow">
+        <figcaption>Follow the red path from the button to the server.</figcaption>
+      </figure>
+      <p>
+        In
+        <a href="../../../packages/chat-sdk/ui/chat/chat-view.tsx"><code>chat-view.tsx</code></a
+        >, <code>send</code> and <code>startBranch</code> both call
+        <code>run(parentId, text)</code>. <code>run</code> writes the command into a ref, then calls
+        <code>sendMessage</code> (with text) or <code>reload</code> (without).
+        <code>reload</code> takes no body, so the command rides in the connection instead:
+        <code>fetchServerSentEvents(chatUrl, () =&gt; ({ body: command.current }))</code>, and
+        TanStack AI copies that body into <code>forwardedProps</code>.
+      </p>
+      <p>
+        When the Run ends, <code>run</code> fetches <code>conversation.get</code> and replaces
+        <code>useChat</code>'s messages with the server's Active Branch. The server stays the source
+        of truth.
+      </p>
+
+      <h2>Try it</h2>
+      <div id="ex1"></div>
+      <figure id="payoff">
+        <div class="toy-out">
+          <select id="pay-act" aria-label="Action">
+            <option value="send">send "Thanks"</option>
+            <option value="edit:q1">edit q1</option>
+            <option value="edit:q2">edit q2</option>
+            <option value="regenerate:a1">regenerate a1</option>
+            <option value="regenerate:a2">regenerate a2</option>
+          </select>
+          <span id="pay-note"
+            >Pass the tests first. Then your function fills in the POST body.</span
+          >
+        </div>
+        <pre><code id="pay-json"></code></pre>
+        <figcaption>The request body, built with your <code>commandFor</code>.</figcaption>
+      </figure>
+
+      <section class="takeaways">
+        <h2>Key takeaways</h2>
+        <p class="one-thing">
+          <strong>If you remember only one thing:</strong> the browser sends ids and choices in
+          <code>forwardedProps</code>; the server rebuilds the history from Postgres with
+          <code>loadPath</code>.
+        </p>
+        <ul>
+          <li>
+            <strong>A form, not a statement.</strong> <code>handleChat</code> ignores
+            <code>body.messages</code>, so a client can't forge history.
+          </li>
+          <li>
+            <strong>Two fields change.</strong> Send, edit and regenerate differ only in
+            <code>parentId</code> and whether <code>text</code> is there.
+          </li>
+          <li>
+            <strong>One schema, both sides.</strong> <code>chatCommandSchema</code> lives in
+            <code>core/shared</code>; the browser builds it and the server checks it.
+          </li>
+        </ul>
+        <p class="selftest">
+          Self-test: cover this box, then say the command for "edit <code>q1</code>" out loud.
+        </p>
+      </section>
+
+      <details class="deeper">
+        <summary>Go deeper: sources, side notes and a challenge</summary>
+        <h3>The decision, in the code</h3>
+        <blockquote>
+          "What the client asks for: a command, never history (ADR 0001). History is rebuilt from
+          the database by walking up from <code>parentId</code>. <code>useChat</code> sends it as
+          the AG-UI <code>forwardedProps</code>." (<a
+            href="../../../packages/chat-sdk/core/shared/chat/command.ts"
+            ><code>command.ts</code></a
+          >)
+        </blockquote>
+        <h3>What TanStack AI puts in the body</h3>
+        <p>
+          In the installed <code>@tanstack/ai-client</code> 0.39.0,
+          <code>buildRunAgentInputBody</code> (in
+          <code>node_modules/@tanstack/ai-client/dist/esm/connection-adapters.js</code>) builds
+          <code>{ threadId, runId, state, messages, tools, context, forwardedProps, data }</code>.
+          <code>forwardedProps</code> merges the connection's <code>body</code> with the send's
+          data, and <code>data</code> is a copy of it. The shape is the AG-UI protocol's
+          <code>RunAgentInput</code>.
+        </p>
+        <h3>Side notes</h3>
+        <ul>
+          <li>
+            The URL comes from the Host: <code>apps/web/src/utils/orpc.ts</code> calls
+            <code>createChatClient({ baseUrl: origin + "/api/chat" })</code>, and
+            <a href="../../../packages/chat-sdk/core/client/chat-client.ts"
+              ><code>chat-client.ts</code></a
+            >
+            makes <code>chatUrl</code> from it: <code>…/api/chat/run</code>.
+          </li>
+          <li>
+            The connection's <code>fetchClient</code> is <code>runFetch</code> (<a
+              href="../../../packages/chat-sdk/core/client/rate-limit.ts"
+              ><code>rate-limit.ts</code></a
+            >). It turns a 429, a moderated 422 and any <code>{ code }</code> refusal into typed
+            errors.
+          </li>
+          <li>
+            An edit sends the full list of <code>attachmentIds</code> it keeps; a regenerate sends
+            none, and <code>handleChat</code> refuses one that does
+            (<code>error.regenerateAttachments</code>).
+          </li>
+          <li>
+            The server also checks the parent: an unknown <code>parentId</code> is
+            <code>error.parentNotFound</code>, and a regenerate whose parent isn't a user Message is
+            <code>error.regenerateNeedsMessage</code>. Lesson 4 walks through every check.
+          </li>
+        </ul>
+        <h3>Challenge</h3>
+        <p>
+          Open DevTools, send a Message and look at the POST to <code>/api/chat/run</code>. Find
+          <code>forwardedProps</code>, then find the same values in <code>data</code>. Tell your
+          teacher which fields of the command you saw.
+        </p>
+      </details>
+
+      <div class="footer-box">
+        <p>
+          <strong>Primary source:</strong>
+          <a href="../../../packages/chat-sdk/core/shared/chat/command.ts"
+            ><code>command.ts</code></a
+          >
+          (31 lines), then
+          <a href="../../../docs/adr/0001-own-message-tree.md">ADR 0001: We own the Message tree</a
+          >.
+        </p>
+        <p>
+          <strong>Cheat sheets:</strong> <a href="../reference/package-map.html">Package map</a> ·
+          <a href="../reference/names.html">Names</a>
+        </p>
+        <p>
+          <strong>Stuck or curious?</strong> Ask your teacher (Claude) anything: "why does
+          <code>useChat</code> still send <code>messages</code>?", "show me where
+          <code>loadPath</code> runs", or "quiz me again".
+        </p>
+        <div class="nav">
+          <a href="0002-create-chat.html">← Lesson 2: createChat</a
+          ><a href="0004-handle-chat-checks-then-writes.html"
+            >Lesson 4: handleChat: check, then write →</a
+          >
+        </div>
+      </div>
+    </main>
+
+    <script src="../assets/diagrams.js"></script>
+    <script src="../assets/names.js" data-upto="3"></script>
+    <script src="../assets/explainer.js"></script>
+    <script src="../assets/quiz.js"></script>
+    <script src="../assets/exercise.js"></script>
+    <script>
+      const D = Diagrams;
+      const BRANCH = [
+        { id: "q1", role: "user" },
+        { id: "a1", role: "assistant" },
+        { id: "q2", role: "user" },
+        { id: "a2", role: "assistant" },
+      ];
+      const colX = (i) => 40 + i * 175;
+
+      // The Active Branch in a row, plus an optional new Message under its parent.
+      function branchSvg({ parent = undefined, label = "", faded = [] } = {}) {
+        let s = BRANCH.map((m, i) =>
+          D.box(colX(i), 30, 140, 44, m.id, {
+            mono: true,
+            tone: m.role === "user" ? "blue" : "",
+            opacity: faded.includes(m.id) ? 0.35 : 1,
+          }),
+        ).join("");
+        s += BRANCH.slice(1)
+          .map((_, i) => D.arrow(colX(i + 1), 52, colX(i) + 140, 52, { tone: "faint" }))
+          .join("");
+        if (parent !== undefined) {
+          const i = parent === null ? 0 : BRANCH.findIndex((m) => m.id === parent);
+          const x = colX(i);
+          s += D.box(x, 150, 140, 44, label, { tone: "accent", mono: true });
+          s +=
+            parent === null
+              ? D.text(x + 70, 214, "parentId: null (a new root)", {
+                  tone: "accent",
+                  anchor: "middle",
+                  size: 12,
+                })
+              : D.arrow(x + 70, 150, x + 70, 76, { tone: "accent", label: `parentId: ${parent}` });
+        }
+        return s;
+      }
+
+      // Section 1: the request body.
+      function bodySvg(highlight = 1) {
+        const lines = [
+          ["{", ""],
+          ['  "threadId": "…", "runId": "…",', "faint"],
+          ['  "messages": [ …useChat\'s copy… ],', "faint"],
+          ['  "forwardedProps": {', "accent"],
+          ['    "conversationId": "c7…", "parentId": "a2",', "accent"],
+          ['    "text": "Thanks", "model": "anthropic:…", …', "accent"],
+          ["  },", "accent"],
+          ['  "data": { …a copy of forwardedProps… }', "faint"],
+          ["}", ""],
+        ];
+        let s = lines
+          .map(([l, tone], i) =>
+            D.text(30, 24 + i * 24, l, {
+              mono: true,
+              size: 13,
+              tone: tone === "accent" && highlight ? "accent" : tone === "faint" ? "muted" : "",
+            }),
+          )
+          .join("");
+        s += D.box(560, 80, 170, 50, "handleChat", { mono: true, sub: "reads forwardedProps" });
+        s += D.arrow(470, 120, 558, 108, { tone: "accent" });
+        s += D.text(560, 160, "body.messages: never read", { tone: "muted", size: 12 });
+        return s;
+      }
+      document
+        .getElementById("body")
+        .insertAdjacentHTML(
+          "afterbegin",
+          D.svg(760, 240, bodySvg(), { label: "The POST body, with forwardedProps in red" }),
+        );
+
+      // Section 3: the three-action toy.
+      const ACTS = {
+        send: {
+          parent: "a2",
+          label: '"Thanks"',
+          cmd: '{ parentId: "a2", text: "Thanks" }',
+        },
+        edit: {
+          parent: "a1",
+          label: "q2′ (new text)",
+          cmd: '{ parentId: "a1", text: "…new text…" }',
+        },
+        regen: { parent: "q2", label: "a2′ (new reply)", cmd: '{ parentId: "q2" }  // no text' },
+      };
+      const actFig = document.getElementById("actions");
+      const actHolder = document.createElement("div");
+      actFig.prepend(actHolder);
+      function showAct(key) {
+        const a = key ? ACTS[key] : undefined;
+        actHolder.innerHTML = D.svg(
+          760,
+          230,
+          branchSvg(a ? { parent: a.parent, label: a.label } : {}),
+          { label: "The Active Branch q1, a1, q2, a2 and where a new Message goes" },
+        );
+        document.getElementById("act-out").innerHTML = a
+          ? `Command: <code>${D.esc(a.cmd)}</code>`
+          : "";
+      }
+      actFig
+        .querySelectorAll("[data-act]")
+        .forEach((b) => b.addEventListener("click", () => showAct(b.dataset.act)));
+      showAct("send");
+
+      // Section 4: where the command is built.
+      function flowSvg(upto = 6) {
+        const steps = [
+          [20, 30, "Send / Edit / Regen", "the buttons"],
+          [210, 30, "run(parentId, text)", "chat-view.tsx"],
+          [400, 30, "command.current", "a React ref"],
+          [590, 30, "sendMessage / reload", "useChat"],
+          [590, 150, "POST chatUrl", "forwardedProps"],
+          [400, 150, "handleChat", "parses the command"],
+          [210, 150, "loadPath", "history from Postgres"],
+        ];
+        let s = "";
+        steps.forEach(([x, y, l, sub], i) => {
+          if (i > upto) return;
+          s += D.box(x, y, 160, 50, l, { mono: true, sub, tone: i === upto ? "accent" : "" });
+        });
+        const arrows = [
+          [180, 55, 208, 55],
+          [370, 55, 398, 55],
+          [560, 55, 588, 55],
+          [670, 80, 670, 148],
+          [590, 175, 562, 175],
+          [400, 175, 372, 175],
+        ];
+        arrows.forEach(([a, b, c, d], i) => {
+          if (i < upto) s += D.arrow(a, b, c, d, { tone: "accent" });
+        });
+        return s;
+      }
+      document
+        .getElementById("flow")
+        .insertAdjacentHTML(
+          "afterbegin",
+          D.svg(770, 220, flowSvg(), { label: "From the button to loadPath, in seven steps" }),
+        );
+
+      // Video.
+      Explainer.mount("#video", {
+        title: "Lesson 3 in about 1 minute",
+        width: 760,
+        height: 240,
+        scenes: [
+          {
+            say: "When you send a Message, the browser doesn't send the chat so far. It sends a short command, like a bank transfer form.",
+            draw: (t, A) =>
+              D.box(30, 90, 150, 50, "browser", {}) +
+              D.box(580, 90, 150, 50, "server", {}) +
+              A.fade(
+                t,
+                0.2,
+                0.5,
+                D.box(A.lerp(200, 400, A.step(t, 0.3, 0.9)), 95, 150, 40, "command", {
+                  tone: "accent",
+                  mono: true,
+                }),
+              ),
+          },
+          {
+            say: "TanStack AI adds its own messages list to the request, but handleChat reads only forwardedProps.",
+            show: "body.messages → ignored · body.forwardedProps → the command",
+            draw: (t, A) => bodySvg(t > 0.4 ? 1 : 0),
+          },
+          {
+            say: "The command names the parent Message. The server walks up the stored tree from it to rebuild the history.",
+            show: "loadPath(deps, conversationId, parentId)",
+            draw: (t, A) =>
+              branchSvg({
+                faded: BRANCH.slice(0, 4 - Math.floor(A.step(t, 0.1, 0.9) * 4.99)).map((m) => m.id),
+              }) +
+              D.text(380, 150, "walk up from a2 → q1", {
+                tone: "accent",
+                anchor: "middle",
+                weight: 600,
+              }),
+          },
+          {
+            say: "Send, edit and regenerate post the same command. Only the parent and the text change.",
+            show: "send → a2 · edit q2 → a1 · regenerate a2 → q2, no text",
+            draw: (t, A) => {
+              const k = ["send", "edit", "regen"][Math.min(2, Math.floor(t * 3))];
+              return branchSvg({ parent: ACTS[k].parent, label: ACTS[k].label });
+            },
+          },
+          {
+            say: "Now press the three buttons in section three, then write commandFor yourself.",
+            show: "Next: write commandFor(messages, action).",
+            draw: (t, A) => flowSvg(Math.floor(A.step(t, 0, 0.9) * 6.99)),
+          },
+        ],
+      });
+
+      // Try it: commandFor.
+      const HELPERS = `// The Active Branch on screen, oldest first.
+const BRANCH = [
+  { id: "q1", role: "user" },
+  { id: "a1", role: "assistant" },
+  { id: "q2", role: "user" },
+  { id: "a2", role: "assistant" },
+];
+
+// From core/client/chat.ts: the Messages above messageId, and the last of them as the parent.
+function branchFrom(messages, messageId) {
+  const history = messages.slice(0, messages.findIndex((m) => m.id === messageId));
+  return { parentId: history.at(-1)?.id ?? null, history };
+}`;
+      const sol = `${HELPERS}
+
+function commandFor(messages, action) {
+  if (action.type === "send") {
+    return { parentId: messages.at(-1)?.id ?? null, text: action.text };
+  }
+  const { parentId } = branchFrom(messages, action.messageId);
+  return action.type === "edit" ? { parentId, text: action.text } : { parentId };
+}`;
+      let learnerFn = null;
+      Exercise.mount("#ex1", {
+        title: "Write commandFor(messages, action)",
+        task: 'Return the two fields that change: <code>{ parentId, text }</code>. <code>action</code> is <code>{ type: "send", text }</code>, <code>{ type: "edit", messageId, text }</code> or <code>{ type: "regenerate", messageId }</code>. A regenerate has no <code>text</code>.',
+        storageKey: "ai-chat-sdk-l3-commandFor",
+        fnName: "commandFor",
+        starter: `${HELPERS}
+
+// Example: commandFor(BRANCH, { type: "edit", messageId: "q2", text: "Hi" })
+//          → { parentId: "a1", text: "Hi" }
+// Hint: a send continues the last Message on screen. An edit and a regenerate
+// both use branchFrom; only the edit keeps the text.
+function commandFor(messages, action) {
+  return { parentId: null };
+}`,
+        solution: sol,
+        tests: [
+          {
+            name: 'send "Thanks" → parentId a2, with the text',
+            args: [BRANCH, { type: "send", text: "Thanks" }],
+            expect: { parentId: "a2", text: "Thanks" },
+          },
+          {
+            name: 'send "Hi" in an empty Conversation → parentId null',
+            args: [[], { type: "send", text: "Hi" }],
+            expect: { parentId: null, text: "Hi" },
+          },
+          {
+            name: "edit q2 → parentId a1, with the new text",
+            args: [BRANCH, { type: "edit", messageId: "q2", text: "Shorter, please" }],
+            expect: { parentId: "a1", text: "Shorter, please" },
+          },
+          {
+            name: "edit q1 (the first Message) → parentId null",
+            args: [BRANCH, { type: "edit", messageId: "q1", text: "Hello again" }],
+            expect: { parentId: null, text: "Hello again" },
+          },
+          {
+            name: "regenerate a2 → parentId q2, no text",
+            args: [BRANCH, { type: "regenerate", messageId: "a2" }],
+            expect: { parentId: "q2" },
+          },
+          {
+            name: "regenerate a1 → parentId q1, no text",
+            args: [BRANCH, { type: "regenerate", messageId: "a1" }],
+            expect: { parentId: "q1" },
+          },
+        ],
+        onResult(fn, all) {
+          learnerFn = all ? fn : null;
+          drawPayoff();
+        },
+      });
+
+      const paySel = document.getElementById("pay-act");
+      function drawPayoff() {
+        const out = document.getElementById("pay-json");
+        const note = document.getElementById("pay-note");
+        if (!learnerFn) {
+          out.textContent = "{ …pass the tests to fill this in… }";
+          return;
+        }
+        const [type, messageId] = paySel.value.split(":");
+        const text = type === "send" ? "Thanks" : type === "edit" ? "New text" : undefined;
+        const fields = learnerFn(BRANCH, { type, messageId, text });
+        const command = {
+          conversationId: "c7a1…",
+          ...fields,
+          attachmentIds: [],
+          model: "anthropic:claude-…",
+          webSearch: false,
+          tools: { connections: [], allowedTools: [] },
+        };
+        note.innerHTML = "Your <code>commandFor</code> filled in the red part:";
+        out.textContent = JSON.stringify(
+          { threadId: "…", runId: "…", messages: ["…ignored…"], forwardedProps: command },
+          null,
+          2,
+        );
+      }
+      paySel.addEventListener("change", drawPayoff);
+      drawPayoff();
+    </script>
+  </body>
+</html>

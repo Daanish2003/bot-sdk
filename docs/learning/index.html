@@ -35,85 +35,184 @@
         color: var(--muted);
         margin: 28px 0 0;
       }
+      ol.course li.soon {
+        color: var(--muted);
+      }
     </style>
   </head>
   <body>
     <main>
       <p class="kicker">ai-chat architecture</p>
-      <h1>Own the chat feature</h1>
-      <p class="subtitle">Fourteen short lessons, from the package map to the test seams.</p>
+      <h1>Own the Chat SDK</h1>
+      <p class="subtitle">30 short lessons, from the Host and the SDK to the test seams.</p>
       <p class="meta">
-        10–15 minutes each · take them in order · ask your teacher (Claude) about anything unclear
+        10–15 minutes each · take them in order · grey lessons come in the next batch · ask your
+        teacher (Claude) about anything unclear
       </p>
 
-      <p class="part">Part 1 · The send path</p>
-      <ol class="course">
+      <p class="part">Part 1 · The shape</p>
+      <ol class="course" style="counter-reset: l 0">
         <li>
-          <a href="lessons/0001-the-package-map.html">The package map</a
-          ><span class="why">Seven packages, one rule: imports point down.</span>
+          <a href="lessons/0001-the-host-and-the-sdk.html">The Host and the SDK</a
+          ><span class="why">A copied folder in four parts, and one Host that plugs in.</span>
         </li>
         <li>
-          <a href="lessons/0002-the-chat-command.html">The chat command</a
-          ><span class="why">The client sends a command, never the history.</span>
-        </li>
-        <li>
-          <a href="lessons/0003-handle-chat-checks-then-writes.html"
-            >handleChat: check, then write</a
-          ><span class="why">Every check before any write, then one locked transaction.</span>
-        </li>
-        <li>
-          <a href="lessons/0004-the-run.html">The run</a
-          ><span class="why">How a reply streams, snapshots and decides how it ended.</span>
+          <a href="lessons/0002-create-chat.html">createChat</a
+          ><span class="why">One handler, a lazy bundle of deps, and migrate → start → stop.</span>
         </li>
       </ol>
-      <p class="part">Part 2 · The Message tree</p>
-      <ol class="course" start="5" style="counter-reset: l 4">
+      <p class="part">Part 2 · One Message, end to end</p>
+      <ol class="course" style="counter-reset: l 2">
         <li>
-          <a href="lessons/0005-the-message-tree.html">The Message tree</a
-          ><span class="why">parentId, activeLeafId and walking up to a root.</span>
+          <a href="lessons/0003-the-run-command.html">The command the client sends</a
+          ><span class="why">The browser sends a small command, never the history.</span>
         </li>
         <li>
-          <a href="lessons/0006-branches.html">Branches</a
+          <a href="lessons/0004-handle-chat-checks-then-writes.html"
+            >handleChat: check, then write</a
+          ><span class="why">Every refusal before any write, then one locked transaction.</span>
+        </li>
+        <li>
+          <a href="lessons/0005-the-run.html">The Run and its log</a
+          ><span class="why">chat() streams into a log; every reader replays it.</span>
+        </li>
+        <li>
+          <a href="lessons/0006-runs-outlive-the-client.html">Runs outlive the client</a
+          ><span class="why">Join, Stop, the lease and the reaper.</span>
+        </li>
+      </ol>
+      <p class="part">Part 3 · The Message tree</p>
+      <ol class="course" style="counter-reset: l 6">
+        <li>
+          <a href="lessons/0007-the-message-tree.html">The Message tree</a
+          ><span class="why">parentId, activeLeafId and the walk up to a root.</span>
+        </li>
+        <li>
+          <a href="lessons/0008-branches.html">Branches</a
           ><span class="why"
-            >Edit and regenerate add siblings; switching picks the newest leaf.</span
+            >Edit and regenerate add siblings; a switch picks the newest leaf.</span
           >
         </li>
-        <li>
-          <a href="lessons/0007-runs-outlive-the-client.html">Runs outlive the client</a
-          ><span class="why">Reload, poll, Stop, the cap and the boot sweep.</span>
+      </ol>
+      <p class="part">Part 4 · What the Model sees (next batch)</p>
+      <ol class="course" style="counter-reset: l 8">
+        <li class="soon">
+          The parts boundary<span class="why"
+            >Our stored parts vs TanStack AI's messages, converted in one module.</span
+          >
+        </li>
+        <li class="soon">
+          System prompts and context<span class="why"
+            >Instructions, Project, recalled Memories, compaction.</span
+          >
+        </li>
+        <li class="soon">
+          Tools in a Run<span class="why"
+            >Built-in tools, Host tools and MCP tools, and the tool loop.</span
+          >
+        </li>
+        <li class="soon">
+          Approval<span class="why">A tool call that waits ends the Run (ADR 0008).</span>
+        </li>
+        <li class="soon">
+          Web search, fetch_url and Sources<span class="why"
+            >Numbered Sources and the SSRF-guarded fetch.</span
+          >
         </li>
       </ol>
-      <p class="part">Part 3 · Boundaries and features</p>
-      <ol class="course" style="counter-reset: l 7">
-        <li>
-          <a href="lessons/0008-the-parts-boundary.html">The parts boundary</a
-          ><span class="why">Our stored shape vs TanStack AI's, converted in one module.</span>
+      <p class="part">Part 5 · Keys and money</p>
+      <ol class="course" style="counter-reset: l 13">
+        <li class="soon">
+          Provider credentials and the keyring<span class="why"
+            >Encrypted at rest, write-only to the client (ADR 0003, 0010).</span
+          >
         </li>
-        <li>
-          <a href="lessons/0009-provider-credentials.html">Provider credentials</a
-          ><span class="why">Encrypted on the server, write-only to the client.</span>
+        <li class="soon">
+          Host credentials, Quota and usage<span class="why"
+            >Who pays, and the checks before each paid call (ADR 0007).</span
+          >
         </li>
-        <li>
-          <a href="lessons/0010-web-search-and-sources.html">Web search and Sources</a
-          ><span class="why">A tool call recorded as a part, with numbered Sources.</span>
-        </li>
-        <li>
-          <a href="lessons/0011-attachments.html">Attachments</a
-          ><span class="why">Uploaded first, linked by a join table, never parts.</span>
-        </li>
-        <li>
-          <a href="lessons/0012-shared-links.html">Shared links</a
-          ><span class="why">A pointer into the tree, not a copy.</span>
-        </li>
-        <li>
-          <a href="lessons/0013-automatic-titles.html">Automatic titles</a
-          ><span class="why">The Title Model names a Conversation after its first run.</span>
-        </li>
-        <li>
-          <a href="lessons/0014-testing-seams.html">Testing seams</a
-          ><span class="why">AppDeps, the fake adapter and how to test a change.</span>
+        <li class="soon">
+          Rate limits and moderation<span class="why"
+            >Counters, 429s and the Host's moderate hook.</span
+          >
         </li>
       </ol>
+      <p class="part">Part 6 · Files the assistant makes or reads</p>
+      <ol class="course" style="counter-reset: l 16">
+        <li class="soon">
+          Attachments and the blob store<span class="why"
+            >Uploaded, linked, never copied (ADR 0015).</span
+          >
+        </li>
+        <li class="soon">
+          Generated images<span class="why"
+            >The Image Model, the image tool and edits on the Branch.</span
+          >
+        </li>
+        <li class="soon">
+          Artifacts<span class="why">Versions that follow the Message tree (ADR 0016).</span>
+        </li>
+      </ol>
+      <p class="part">Part 7 · Projects, Knowledge and Memory</p>
+      <ol class="course" style="counter-reset: l 19">
+        <li class="soon">
+          Projects and Knowledge files<span class="why"
+            >Embeddings, pgvector and search_knowledge (ADR 0014).</span
+          >
+        </li>
+        <li class="soon">Background jobs<span class="why">The durable runner (ADR 0011).</span></li>
+        <li class="soon">
+          Synced sources<span class="why">GitHub repositories kept in step (ADR 0012).</span>
+        </li>
+        <li class="soon">
+          Memory<span class="why"
+            >Facts extracted after a Run, recalled before the next (ADR 0013).</span
+          >
+        </li>
+        <li class="soon">
+          Temporary Conversations<span class="why"
+            >What a Conversation gives up to leave no trace.</span
+          >
+        </li>
+      </ol>
+      <p class="part">Part 8 · Around the chat</p>
+      <ol class="course" style="counter-reset: l 24">
+        <li class="soon">
+          Shared links<span class="why">A pointer into the tree, not a copy (ADR 0004).</span>
+        </li>
+        <li class="soon">
+          Titles and the Background Model<span class="why"
+            >Work done around a Message, not in it.</span
+          >
+        </li>
+        <li class="soon">
+          oRPC routers and error codes<span class="why"
+            >Procedures, the typed client and i18n codes.</span
+          >
+        </li>
+        <li class="soon">
+          Host hooks and Admin<span class="why"
+            >Events, webhooks (ADR 0018) and the Admin reads.</span
+          >
+        </li>
+        <li class="soon">
+          The client and ui/ layers<span class="why"
+            >The React provider, hooks and the components a Host owns.</span
+          >
+        </li>
+        <li class="soon">
+          Testing seams<span class="why"
+            >AppDeps fakes, the test database and how to test a change.</span
+          >
+        </li>
+      </ol>
+
+      <p class="meta">
+        The first course (2026-10-08, before the code moved into <code>packages/chat-sdk</code>) is
+        in <a href="lessons/archive-2026-10-08/">lessons/archive-2026-10-08/</a>. Its source links
+        are out of date.
+      </p>
 
       <div class="footer-box">
         <p>

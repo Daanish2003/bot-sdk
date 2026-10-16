@@ -1,0 +1,716 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lesson 2 · createChat</title>
+    <link rel="stylesheet" href="../assets/style.css" />
+  </head>
+  <body>
+    <main>
+      <p class="kicker">ai-chat architecture · Lesson 2</p>
+      <h1>createChat</h1>
+      <p class="subtitle">
+        One call gives the Host a handler and a lifecycle, and it builds nothing until the first
+        request.
+      </p>
+      <p class="meta">
+        About 13 minutes · a browser · you'll write <code>routeFor(method, path, signedIn)</code>,
+        the order in which the handler picks who answers a request
+      </p>
+
+      <section class="words">
+        <h2>Words you'll need</h2>
+        <dl>
+          <dt>Handler</dt>
+          <dd>
+            One function from a <code>Request</code> to a <code>Response</code>. The Host mounts it
+            on one catch-all route.
+          </dd>
+          <dt>AppDeps</dt>
+          <dd>
+            The bundle of everything the server code uses: the database, the adapters, the runtime,
+            the hooks, the jobs.
+          </dd>
+          <dt>Lifecycle</dt>
+          <dd>
+            The three calls around the handler: <code>migrate()</code> at deploy,
+            <code>start()</code> at boot, <code>stop()</code> at shutdown.
+          </dd>
+        </dl>
+        <p class="hint">
+          Forgot a code name? Press the <strong>Names?</strong> button in the bottom-right corner.
+        </p>
+      </section>
+
+      <figure id="video"></figure>
+
+      <div
+        class="quiz"
+        data-answer="1"
+        data-why="ADR 0005: the Host never edits core/ and updates it by copying it again; ui/ is the Host's to change."
+      >
+        <div class="label">Warm-up · Lesson 1</div>
+        <p class="q">A Host wants a different button label. Which SDK folder may it edit?</p>
+        <ol class="opts">
+          <li data-why="core/ is copied again on every update, so an edit there is lost.">
+            <code>core/server</code>
+          </li>
+          <li><code>ui/</code></li>
+          <li data-why="core/ is copied again on every update, so an edit there is lost.">
+            <code>core/client</code>
+          </li>
+          <li data-why="shared holds types and parts for both sides. It is part of core/.">
+            <code>core/shared</code>
+          </li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+
+      <h2><span class="num">1</span>One call, everything back</h2>
+      <figure id="returns">
+        <figcaption>Left: what the Host gives. Right: what it gets back from one call.</figcaption>
+      </figure>
+      <p>
+        Think of <code>createChat</code> as a shop fitted into a building that the Host owns. The
+        Host gives the address (<code>databaseUrl</code>), the doorman who knows the visitors
+        (<code>getUser</code>), the keys to the safe (<code>keyEncryptionSecrets</code>) and the
+        door the shop sits behind (<code>basePath</code>). Every other option is optional.
+      </p>
+      <p>
+        Look at <code>apps/web</code>'s call in
+        <a href="../../../apps/web/src/services.ts"><code>services.ts</code></a
+        >: its <code>getUser</code> asks Better Auth for the session and returns only
+        <code>{ id }</code>. That id is all the SDK ever knows about a user.
+      </p>
+
+      <h2><span class="num">2</span>Nothing is built until the first request</h2>
+      <figure id="lazy">
+        <div class="toy-out">
+          <button class="btn" type="button" id="lazy-send">Send a request</button>
+          <button class="btn" type="button" id="lazy-reset">Reset</button>
+          <span id="lazy-out"></span>
+        </div>
+        <figcaption>Press Send twice: only the first request builds AppDeps.</figcaption>
+      </figure>
+      <p>
+        In
+        <a href="../../../packages/chat-sdk/core/server/create-chat.ts"
+          ><code>create-chat.ts</code></a
+        >, <code>createChat</code> only stores the options. Its inner <code>getDeps()</code> calls
+        <code>createAppDeps</code> in
+        <a href="../../../packages/chat-sdk/core/server/deps.ts"><code>deps.ts</code></a> the first
+        time something needs it, then keeps the result. So the Host can build the chat at import
+        time, and no database pool opens in a build step.
+      </p>
+      <p>
+        <code>AppDeps</code> is also the test seam. The handler is made by
+        <code>createChatHandler(deps, …)</code>, and the tests call it with
+        <code>createTestDeps()</code>
+        (<a href="../../../packages/chat-sdk/test/support/deps.ts"
+          ><code>test/support/deps.ts</code></a
+        >): the test database and fakes, so nothing reaches the network.
+      </p>
+      <figure id="seam">
+        <figcaption>Two roads into one createChatHandler: real AppDeps or test AppDeps.</figcaption>
+      </figure>
+
+      <h2><span class="num">3</span>One handler, one ladder</h2>
+      <figure id="ladder">
+        <div class="toy-out">
+          <span id="ladder-pick"></span>
+          <div id="ladder-out"></div>
+        </div>
+        <figcaption>Pick a request: the ladder lights the first rung that matches it.</figcaption>
+      </figure>
+      <p>
+        The Host mounts one route,
+        <a href="../../../apps/web/src/routes/api/chat/$.ts"><code>/api/chat/$</code></a
+        >, for every method. The handler then reads the path and goes down the ladder from the top;
+        the first rung that matches answers:
+      </p>
+      <ol class="steps">
+        <li>
+          A Generated image on a Shared link (<code
+            >GET /shared/&lt;token&gt;/generated-images/&lt;id&gt;</code
+          >) answers before anyone asks who you are. The token is the only key.
+        </li>
+        <li>
+          <code>getUser(request)</code>. With no user, everything gets <code>401</code> except the
+          two public RPCs, <code>share/get</code> and <code>share/artifactVersion</code>.
+        </li>
+        <li>
+          <code>/rpc/…</code> goes to oRPC. <code>/run</code> is <code>POST</code> →
+          <code>handleChat</code> and <code>GET</code> → <code>handleJoin</code>.
+        </li>
+        <li>
+          Then <code>GET</code> only: <code>/events</code>, <code>/export</code>,
+          <code>/generated-images/…</code> and the MCP <code>connect</code>/<code>callback</code>.
+          Anything else is <code>404</code>.
+        </li>
+      </ol>
+
+      <div
+        class="quiz"
+        data-answer="2"
+        data-why="Rung 2: no user and not one of the two public RPCs, so 401 before oRPC ever sees it."
+      >
+        <div class="label">Quiz</div>
+        <p class="q">
+          A signed-out visitor calls <code>POST /api/chat/rpc/conversation/list</code>. What
+          answers?
+        </p>
+        <ol class="opts">
+          <li data-why="The RPC rung comes after the user check, and only two RPCs are public.">
+            oRPC answers an empty list
+          </li>
+          <li data-why="404 is the last rung. The user check refuses it much earlier.">
+            The handler answers a 404
+          </li>
+          <li>The handler answers a 401</li>
+          <li data-why="handleJoin answers only GET /run, and only for a signed-in user.">
+            handleJoin answers the request
+          </li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+
+      <h2><span class="num">4</span>Deploy, boot, shut down</h2>
+      <figure id="life">
+        <figcaption>Each call has one moment; start() refuses to boot on a bad setup.</figcaption>
+      </figure>
+      <ol class="steps">
+        <li>
+          <strong>Deploy:</strong> <code>migrate()</code> creates the <code>chat</code> schema and
+          applies the bundled migrations. <code>apps/web</code> runs it from
+          <a href="../../../apps/web/scripts/migrate.ts"><code>scripts/migrate.ts</code></a>
+          (<code>pnpm db:migrate</code>).
+        </li>
+        <li>
+          <strong>Boot:</strong> <code>start()</code> throws if <code>byok</code> is
+          <code>false</code> with no <code>hostProviders</code>, if a default Model isn't one of the
+          Host's Models, or if the schema is behind the migrations. Then it starts the reaper (now,
+          then every 30 s) and the job runner.
+        </li>
+        <li>
+          <strong>Shutdown:</strong> <code>stop()</code> answers new Runs with <code>503</code>,
+          gives local Runs up to 250 s to finish, ends the rest as interrupted, and closes the
+          connections.
+        </li>
+      </ol>
+      <p>
+        <code>apps/web</code> calls <code>start()</code> and <code>stop()</code> from one Nitro
+        plugin,
+        <a href="../../../apps/web/server/plugins/chat-lifecycle.ts"
+          ><code>chat-lifecycle.ts</code></a
+        >: <code>start()</code> when the server boots, <code>stop()</code> on <code>SIGTERM</code>.
+      </p>
+
+      <div
+        class="quiz"
+        data-answer="0"
+        data-why="start() checks the Host's setup and refuses: with byok false and no hostProviders, no one could chat."
+      >
+        <div class="label">Quiz</div>
+        <p class="q">
+          A Host sets <code>byok: false</code> and no <code>hostProviders</code>. When does it fail?
+        </p>
+        <ol class="opts">
+          <li>When start() runs at boot</li>
+          <li data-why="createChat only stores options; it checks secrets, tools and MCP servers.">
+            When createChat() is called
+          </li>
+          <li data-why="migrate() only touches the schema; it never looks at Providers.">
+            When migrate() runs at deploy
+          </li>
+          <li data-why="It fails earlier: start() refuses, so no user ever reaches a Run.">
+            When the first Run is sent
+          </li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+
+      <h2>Try it</h2>
+      <div id="ex1"></div>
+      <figure id="payoff">
+        <div class="toy-out">
+          <span id="pay-pick"></span>
+          <div id="pay-out">Pass the tests first. Then your routeFor answers each request.</div>
+        </div>
+        <figcaption>
+          Your routeFor answers each sample request; compare it with the ladder above.
+        </figcaption>
+      </figure>
+
+      <section class="takeaways">
+        <h2>Key takeaways</h2>
+        <p class="one-thing">
+          <strong>If you remember only one thing:</strong> <code>createChat</code> returns one
+          handler and three lifecycle calls, and it builds <code>AppDeps</code> only on first use.
+        </p>
+        <ul>
+          <li>
+            <strong>The Host gives four things.</strong> <code>databaseUrl</code>,
+            <code>getUser</code>, <code>keyEncryptionSecrets</code>, <code>basePath</code>; the user
+            is only an id.
+          </li>
+          <li>
+            <strong>One ladder.</strong> Shared image, then <code>getUser</code> (401), then
+            <code>/rpc</code>, <code>/run</code>, the <code>GET</code> routes, then 404.
+          </li>
+          <li>
+            <strong>Three moments.</strong> <code>migrate()</code> at deploy,
+            <code>start()</code> at boot (it can refuse), <code>stop()</code> on SIGTERM (503 and
+            drain).
+          </li>
+        </ul>
+        <p class="selftest">
+          Self-test: cover this box, then say which rung answers
+          <code>GET /api/chat/run?runId=…</code> for a signed-in user.
+        </p>
+      </section>
+
+      <details class="deeper">
+        <summary>Go deeper: sources, side notes and a challenge</summary>
+        <h3>The README's lifecycle</h3>
+        <blockquote>
+          "server: construct at module load (no side effects) … one catch-all route on your
+          framework, for every chat call and the Shared link read … deploy step, once per deploy …
+          boot and shutdown" (<a href="../../../packages/chat-sdk/README.md">Chat SDK README</a>,
+          "Host lifecycle")
+        </blockquote>
+        <h3>Side notes</h3>
+        <ul>
+          <li>
+            <code>services.ts</code> keeps the chat on <code>globalThis.aiChat</code>. The Nitro
+            plugin is bundled apart from the routes and loads its own copy of the module, so without
+            the shared slot there would be two chats, and jobs run by the plugin's runner would
+            publish on a pub/sub that the routes don't listen to (#290).
+          </li>
+          <li>
+            <code>scripts/migrate.ts</code> imports <code>migrate</code> from
+            <code>core/server/migrate.ts</code> directly, not <code>chat.migrate()</code>, because
+            it also migrates Better Auth's tables first and drops the old <code>public</code> chat
+            tables after.
+          </li>
+          <li>
+            <code>createChat</code> itself throws early for only a few things: an empty
+            <code>keyEncryptionSecrets</code>, bad <code>mcpServers</code>, and a Host tool named
+            like a built-in one (<code>web_search</code>, <code>fetch_url</code>,
+            <code>search_knowledge</code>, and the Artifact tools when <code>artifacts</code> is
+            on).
+          </li>
+          <li>
+            While <code>stop()</code> drains, <code>deps.lifecycle.stopping</code> is
+            <code>true</code>, and only <code>POST /run</code> checks it. Joins and RPCs still work,
+            so a reader can watch a Run finish.
+          </li>
+          <li>
+            The returned object also has server-only calls with no route: <code>admin.*</code>,
+            <code>deleteUser</code>, <code>exportUser</code>, <code>rotateKeys</code> and
+            <code>runJob</code>. The Host decides who may call them.
+          </li>
+        </ul>
+        <h3>Challenge</h3>
+        <p>
+          Open
+          <a href="../../../packages/chat-sdk/test/support/sdk.ts"
+            ><code>test/support/sdk.ts</code></a
+          >. The test client's <code>fetch</code> is the handler itself. What does that let a test
+          skip that a real browser needs? Tell your teacher.
+        </p>
+      </details>
+
+      <div class="footer-box">
+        <p>
+          <strong>Primary source:</strong>
+          <a href="../../../packages/chat-sdk/core/server/create-chat.ts"
+            ><code>create-chat.ts</code></a
+          >
+          (read <code>createChatHandler</code> and <code>createChat</code>), then the README's
+          <a href="../../../packages/chat-sdk/README.md">"Host lifecycle"</a> section.
+        </p>
+        <p>
+          <strong>Cheat sheets:</strong> <a href="../reference/package-map.html">Package map</a> ·
+          <a href="../reference/names.html">Names</a>
+        </p>
+        <p>
+          <strong>Stuck or curious?</strong> Ask your teacher (Claude) anything: "why lazy?", "show
+          me createTestDeps", or "quiz me on the ladder again".
+        </p>
+        <div class="nav">
+          <a href="0001-the-host-and-the-sdk.html">← Lesson 1: The Host and the SDK</a
+          ><a href="0003-the-run-command.html">Lesson 3: The command the client sends →</a>
+        </div>
+      </div>
+    </main>
+
+    <script src="../assets/diagrams.js"></script>
+    <script src="../assets/names.js" data-upto="2"></script>
+    <script src="../assets/explainer.js"></script>
+    <script src="../assets/quiz.js"></script>
+    <script src="../assets/exercise.js"></script>
+    <script>
+      const D = Diagrams;
+
+      // ---- Section 1: what goes in, what comes out.
+      const IN = ["databaseUrl", "getUser", "keyEncryptionSecrets", "basePath", "…optional"];
+      const OUT = [
+        ["handler", "accent"],
+        ["migrate()", "blue"],
+        ["start()", "blue"],
+        ["stop()", "blue"],
+        ["admin, deleteUser, exportUser, …", "faint"],
+      ];
+      function returnsFig(t = 1, A = { step: (x) => 1 }) {
+        let s = D.box(290, 120, 180, 56, "createChat(options)", { tone: "accent", mono: true });
+        IN.forEach((name, i) => {
+          const y = 22 + i * 52;
+          s += D.box(20, y, 190, 36, name, { mono: true, tone: i === 4 ? "faint" : "" });
+          s += D.arrow(210, y + 18, 290, 148, { tone: "faint", width: 1.2 });
+        });
+        OUT.forEach(([name, tone], i) => {
+          const y = 22 + i * 52;
+          const o = A.step(t, 0.3 + i * 0.12, 0.45 + i * 0.12);
+          s += D.arrow(470, 148, 550, y + 18, { tone: "faint", width: 1.2, opacity: o });
+          s += D.box(550, y, 220, 36, name, { mono: true, tone, opacity: o });
+        });
+        return s;
+      }
+      D.render(
+        "#returns",
+        D.svg(790, 290, returnsFig(), {
+          label: "createChat: four options in, a handler and a lifecycle out",
+        }),
+      );
+
+      // ---- Section 2: lazy deps toy.
+      const lazy = document.querySelector("#lazy");
+      let sent = 0;
+      function lazyFig(n) {
+        let s = D.box(20, 30, 200, 50, "import services.ts", {
+          sub: "createChat(options)",
+          mono: true,
+        });
+        s += D.text(120, 105, "nothing connects", { tone: "muted", anchor: "middle", size: 12 });
+        s += D.box(290, 30, 180, 50, `request #${Math.max(n, 1)}`, {
+          mono: true,
+          tone: n ? "accent" : "faint",
+        });
+        s += D.arrow(470, 55, 540, 55, { tone: n ? "accent" : "faint" });
+        const built = n >= 1;
+        s += D.box(540, 20, 230, 70, built ? "AppDeps" : "AppDeps (not yet)", {
+          tone: built ? (n === 1 ? "warn" : "ok") : "faint",
+          sub: built ? (n === 1 ? "built now by createAppDeps" : "reused, built once") : "",
+          mono: true,
+        });
+        return s;
+      }
+      const lazyHolder = document.createElement("div");
+      lazy.prepend(lazyHolder);
+      const lazyOut = document.getElementById("lazy-out");
+      const drawLazy = () => {
+        lazyHolder.innerHTML = D.svg(790, 120, lazyFig(sent), {
+          label: "AppDeps is built on the first request only",
+        });
+        lazyOut.innerHTML = !sent
+          ? "No request yet: <code>deps</code> is <code>undefined</code>."
+          : sent === 1
+            ? "<code>getDeps()</code> sees no deps, so it calls <code>createAppDeps</code> and keeps the result."
+            : `Request #${sent}: <code>getDeps()</code> returns the same deps. Nothing new is built.`;
+      };
+      document.getElementById("lazy-send").addEventListener("click", () => {
+        sent += 1;
+        drawLazy();
+      });
+      document.getElementById("lazy-reset").addEventListener("click", () => {
+        sent = 0;
+        drawLazy();
+      });
+      drawLazy();
+
+      // Two roads into createChatHandler.
+      D.render(
+        "#seam",
+        D.svg(
+          790,
+          170,
+          D.box(20, 20, 230, 50, "createChat → getDeps()", {
+            mono: true,
+            sub: "real db, adapters, Redis",
+          }) +
+            D.box(20, 100, 230, 50, "createTestDeps()", {
+              mono: true,
+              tone: "blue",
+              sub: "test db, fake adapters",
+            }) +
+            D.arrow(250, 45, 330, 80) +
+            D.arrow(250, 125, 330, 95, { tone: "blue" }) +
+            D.box(330, 60, 220, 50, "createChatHandler(deps)", { mono: true, tone: "accent" }) +
+            D.arrow(550, 85, 610, 85) +
+            D.box(610, 60, 160, 50, "handler", { mono: true, sub: "Request → Response" }),
+          { label: "Production and tests build the same handler over different AppDeps" },
+        ),
+      );
+
+      // ---- Section 3: the ladder.
+      const RUNGS = [
+        ["sharedImage", "GET /shared/<token>/generated-images/<id>", "public image"],
+        ["unauthorized", "no user, and not share/get or share/artifactVersion", "401"],
+        ["rpc", "/rpc or /rpc/…", "oRPC router"],
+        ["run", "POST /run", "handleChat"],
+        ["join", "GET /run", "handleJoin"],
+        ["events", "GET /events", "Conversation events"],
+        ["export", "GET /export", "the user's export"],
+        ["image", "GET /generated-images/<id>", "own image"],
+        ["mcp", "GET /mcp/connect or /mcp/callback", "MCP sign-in"],
+        ["notFound", "anything else", "404"],
+      ];
+      const SAMPLES = [
+        ["POST", "/api/chat/run", true],
+        ["GET", "/api/chat/run?runId=0192…", true],
+        ["POST", "/api/chat/rpc/share/get", false],
+        ["POST", "/api/chat/rpc/conversation/list", false],
+        ["GET", "/api/chat/shared/tok123/generated-images/0192…", false],
+        ["GET", "/api/chat/export", true],
+        ["PUT", "/api/chat/run", true],
+        ["GET", "/api/chat/mcp/callback", true],
+      ];
+      // The reference answer, used by the ladder toy and the tests.
+      function solutionRouteFor(method, path, signedIn) {
+        const base = "/api/chat";
+        const p = path.split("?")[0];
+        if (method === "GET" && /^\/api\/chat\/shared\/[^/]+\/generated-images\/[^/]+$/.test(p))
+          return "sharedImage";
+        const publicRead =
+          p === `${base}/rpc/share/get` || p === `${base}/rpc/share/artifactVersion`;
+        if (!signedIn && !publicRead) return "unauthorized";
+        if (p === `${base}/rpc` || p.startsWith(`${base}/rpc/`)) return "rpc";
+        if (p === `${base}/run` && method === "POST") return "run";
+        if (p === `${base}/run` && method === "GET") return "join";
+        if (method !== "GET") return "notFound";
+        if (p === `${base}/events`) return "events";
+        if (p === `${base}/export`) return "export";
+        if (p.startsWith(`${base}/generated-images/`)) return "image";
+        if (p === `${base}/mcp/connect` || p === `${base}/mcp/callback`) return "mcp";
+        return "notFound";
+      }
+      function ladderFig(hit) {
+        const idx = RUNGS.findIndex((r) => r[0] === hit);
+        return RUNGS.map(([id, when, who], i) => {
+          const y = 8 + i * 34;
+          const tone = i === idx ? "accent" : i < idx ? "faint" : "";
+          return (
+            D.box(20, y, 470, 28, when, { mono: true, tone }) +
+            D.text(505, y + 14, `→ ${who}`, {
+              tone: i === idx ? "accent" : "muted",
+              size: 13,
+              weight: i === idx ? 600 : 400,
+            })
+          );
+        }).join("");
+      }
+      function pickerInto(spanId, onPick) {
+        const span = document.getElementById(spanId);
+        span.innerHTML = SAMPLES.map(
+          ([m, p, s], i) =>
+            `<button class="btn" type="button" data-i="${i}">${m} ${p.replace("/api/chat", "")}${s ? "" : " (signed out)"}</button>`,
+        ).join(" ");
+        span
+          .querySelectorAll("button")
+          .forEach((b) => b.addEventListener("click", () => onPick(SAMPLES[b.dataset.i])));
+      }
+      const ladder = document.querySelector("#ladder");
+      const ladderHolder = document.createElement("div");
+      ladder.prepend(ladderHolder);
+      function showLadder(sample) {
+        const hit = solutionRouteFor(...sample);
+        ladderHolder.innerHTML = D.svg(790, 350, ladderFig(hit), {
+          label: "The handler's ladder of routes",
+        });
+        document.getElementById("ladder-out").innerHTML =
+          `<code>${sample[0]} ${sample[1]}</code>${sample[2] ? "" : " (signed out)"} → <strong>${hit}</strong>`;
+      }
+      pickerInto("ladder-pick", showLadder);
+      showLadder(SAMPLES[0]);
+
+      // ---- Section 4: the lifecycle timeline.
+      function lifeFig(t = 1, A = { step: () => 1 }) {
+        const steps = [
+          ["migrate()", "deploy step", "blue"],
+          ["start()", "boot: checks, reaper", "blue"],
+          ["handler", "serving requests", "accent"],
+          ["stop()", "SIGTERM: 503, drain 250 s", "warn"],
+        ];
+        let s = D.arrow(20, 110, 770, 110, { tone: "faint" });
+        steps.forEach(([name, sub, tone], i) => {
+          const x = 20 + i * 190;
+          const o = A.step(t, i * 0.2, i * 0.2 + 0.15);
+          s += D.box(x, 40, 170, 50, name, { mono: true, tone, sub, opacity: o });
+          s += `<g opacity="${o}">${D.dot(x + 85, 110, 6, { tone })}</g>`;
+        });
+        return s;
+      }
+      D.render("#life", D.svg(790, 130, lifeFig(), { label: "migrate, start, serve, stop" }));
+
+      // ---- Video.
+      Explainer.mount("#video", {
+        title: "Lesson 2 in about 1 minute",
+        width: 790,
+        height: 290,
+        scenes: [
+          {
+            say: "The Host gives createChat four things: a database address, a way to find the user, the secrets, and the path to mount on.",
+            show: "createChat({ databaseUrl, getUser, keyEncryptionSecrets, basePath })",
+            draw: (t, A) => returnsFig(Math.min(t, 0.25), A),
+          },
+          {
+            say: "It gives back one handler, three lifecycle calls, and a few server-only tools.",
+            draw: (t, A) => returnsFig(A.lerp(0.25, 1, t), A),
+          },
+          {
+            say: "Nothing is built yet. The first request builds AppDeps, and every later request reuses it.",
+            draw: (t, A) => lazyFig(t < 0.3 ? 0 : t < 0.7 ? 1 : 2),
+          },
+          {
+            say: "Each request goes down one ladder. Without a user, almost every rung answers four oh one.",
+            show: "shared image → getUser (401) → /rpc → /run → GET routes → 404",
+            draw: (t, A) =>
+              ladderFig(
+                RUNGS[Math.min(RUNGS.length - 1, Math.floor(A.step(t, 0, 0.95) * RUNGS.length))][0],
+              ),
+          },
+          {
+            say: "Migrate at deploy, start at boot, stop at shutdown. Now write the ladder yourself.",
+            show: "Next: write routeFor(method, path, signedIn).",
+            draw: (t, A) => lifeFig(t, A),
+          },
+        ],
+      });
+
+      // ---- Try it: routeFor.
+      Exercise.mount("#ex1", {
+        title: "Write routeFor(method, path, signedIn)",
+        task: 'Return who answers the request, in the handler\'s order: <code>"sharedImage"</code>, <code>"unauthorized"</code>, <code>"rpc"</code>, <code>"run"</code>, <code>"join"</code>, <code>"events"</code>, <code>"export"</code>, <code>"image"</code>, <code>"mcp"</code> or <code>"notFound"</code>. The base path is <code>/api/chat</code>.',
+        storageKey: "ai-chat-v2-l2-routeFor",
+        fnName: "routeFor",
+        starter: `// Example: routeFor("POST", "/api/chat/run", true) → "run"
+// Hint: drop the "?…" part first. Then test the rungs from the top, and
+// return at the first match. Only two RPCs are public when signedIn is false.
+const BASE = "/api/chat";
+const PUBLIC_RPCS = [BASE + "/rpc/share/get", BASE + "/rpc/share/artifactVersion"];
+
+function routeFor(method, path, signedIn) {
+  const p = path.split("?")[0];
+  if (method === "GET" && /^\\/api\\/chat\\/shared\\/[^/]+\\/generated-images\\/[^/]+$/.test(p)) {
+    return "sharedImage";
+  }
+  // Your rungs here: unauthorized, rpc, run, join, then the GET-only routes.
+  return "notFound";
+}`,
+        solution: `const BASE = "/api/chat";
+const PUBLIC_RPCS = [BASE + "/rpc/share/get", BASE + "/rpc/share/artifactVersion"];
+
+function routeFor(method, path, signedIn) {
+  const p = path.split("?")[0];
+  if (method === "GET" && /^\\/api\\/chat\\/shared\\/[^/]+\\/generated-images\\/[^/]+$/.test(p)) {
+    return "sharedImage";
+  }
+  if (!signedIn && !PUBLIC_RPCS.includes(p)) return "unauthorized";
+  if (p === BASE + "/rpc" || p.startsWith(BASE + "/rpc/")) return "rpc";
+  if (p === BASE + "/run") {
+    if (method === "POST") return "run";
+    if (method === "GET") return "join";
+  }
+  if (method !== "GET") return "notFound";
+  if (p === BASE + "/events") return "events";
+  if (p === BASE + "/export") return "export";
+  if (p.startsWith(BASE + "/generated-images/")) return "image";
+  if (p === BASE + "/mcp/connect" || p === BASE + "/mcp/callback") return "mcp";
+  return "notFound";
+}`,
+        tests: [
+          {
+            name: "POST /run, signed in → run",
+            args: ["POST", "/api/chat/run", true],
+            expect: "run",
+          },
+          {
+            name: "GET /run?runId=…, signed in → join",
+            args: ["GET", "/api/chat/run?runId=abc", true],
+            expect: "join",
+          },
+          {
+            name: "signed out, rpc/conversation/list → unauthorized",
+            args: ["POST", "/api/chat/rpc/conversation/list", false],
+            expect: "unauthorized",
+          },
+          {
+            name: "signed out, rpc/share/get (public) → rpc",
+            args: ["POST", "/api/chat/rpc/share/get", false],
+            expect: "rpc",
+          },
+          {
+            name: "signed out, shared Generated image → sharedImage",
+            args: ["GET", "/api/chat/shared/tok/generated-images/img1", false],
+            expect: "sharedImage",
+          },
+          {
+            name: "signed out, POST /run → unauthorized",
+            args: ["POST", "/api/chat/run", false],
+            expect: "unauthorized",
+          },
+          {
+            name: "PUT /run, signed in → notFound",
+            args: ["PUT", "/api/chat/run", true],
+            expect: "notFound",
+          },
+          {
+            name: "GET /export, signed in → export",
+            args: ["GET", "/api/chat/export", true],
+            expect: "export",
+          },
+          {
+            name: "GET /generated-images/img1, signed in → image",
+            args: ["GET", "/api/chat/generated-images/img1", true],
+            expect: "image",
+          },
+          {
+            name: "GET /mcp/callback, signed in → mcp",
+            args: ["GET", "/api/chat/mcp/callback", true],
+            expect: "mcp",
+          },
+          {
+            name: "POST /export, signed in → notFound",
+            args: ["POST", "/api/chat/export", true],
+            expect: "notFound",
+          },
+        ],
+        onResult(fn, all) {
+          learnerRouteFor = all ? fn : null;
+          showPayoff(SAMPLES[0]);
+        },
+      });
+      let learnerRouteFor = null;
+      const payoff = document.querySelector("#payoff");
+      const payHolder = document.createElement("div");
+      payoff.prepend(payHolder);
+      function showPayoff(sample) {
+        if (!learnerRouteFor) {
+          payHolder.innerHTML = D.svg(790, 350, ladderFig(null), {
+            label: "The ladder, waiting for your routeFor",
+          });
+          return;
+        }
+        const hit = learnerRouteFor(...sample);
+        payHolder.innerHTML = D.svg(790, 350, ladderFig(hit), {
+          label: "The ladder lit by your routeFor",
+        });
+        document.getElementById("pay-out").innerHTML =
+          `Your <code>routeFor("${sample[0]}", "${sample[1]}", ${sample[2]})</code> → <strong>${hit}</strong>`;
+      }
+      pickerInto("pay-pick", showPayoff);
+      showPayoff(SAMPLES[0]);
+    </script>
+  </body>
+</html>
