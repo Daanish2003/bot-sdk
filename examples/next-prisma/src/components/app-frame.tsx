@@ -1,6 +1,6 @@
 "use client";
 
-import { AppShell } from "@/chat-sdk/ui";
+import { AppShell } from "@ai-chat/bot-sdk/plugins/assistant/ui";
 import { Button } from "@/components/ui/button";
 import { signOut } from "next-auth/react";
 import Link from "next/link";

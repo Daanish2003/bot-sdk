@@ -24,7 +24,11 @@ export class ChunkLimitExceededError extends Error {
 class ChunkBudget {
   private produced = 0;
 
-  constructor(private readonly maxChunks: number) {}
+  private readonly maxChunks: number;
+
+  constructor(maxChunks: number) {
+    this.maxChunks = maxChunks;
+  }
 
   add(target: string[], value: string): void {
     if (this.produced >= this.maxChunks) throw new ChunkLimitExceededError(this.maxChunks);

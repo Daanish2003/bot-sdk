@@ -58,14 +58,14 @@ jobs:
       # records the commit and time of each copy, so it differs on every run.
       - name: Copy drift
         run: |
-          pnpm -F @ai-chat/bot-sdk copy examples/next-prisma/src/chat-sdk
-          dir=examples/next-prisma/src/chat-sdk
+          pnpm -F @ai-chat/bot-sdk copy examples/next-prisma/src/bot-sdk
+          dir=examples/next-prisma/src/bot-sdk
           changed="$(git diff --name-only -- "$dir" ":!$dir/VERSION")"
           untracked="$(git ls-files --others --exclude-standard -- "$dir")"
           if [ -n "$changed$untracked" ]; then
             echo "$changed$untracked"
             git --no-pager diff -- "$dir"
-            echo "::error::examples/next-prisma/src/chat-sdk differs from packages/bot-sdk. Run: pnpm -F @ai-chat/bot-sdk copy examples/next-prisma/src/chat-sdk"
+            echo "::error::examples/next-prisma/src/bot-sdk differs from packages/bot-sdk. Run: pnpm -F @ai-chat/bot-sdk copy examples/next-prisma/src/bot-sdk"
             exit 1
           fi
 

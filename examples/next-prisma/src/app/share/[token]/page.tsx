@@ -9,7 +9,7 @@ import { chat } from "@/lib/chat";
 export const dynamic = "force-dynamic";
 
 // One read per request: generateMetadata and the page share it.
-const loadShared = cache((token: string) => chat.getSharedConversation(token));
+const loadShared = cache((token: string) => chat.plugin("assistant").getSharedConversation(token));
 
 export async function generateMetadata({
   params,
