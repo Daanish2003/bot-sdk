@@ -1,7 +1,6 @@
 import { type SQL, inArray } from "drizzle-orm";
 
-import { message } from "../db/schema/chat";
-import { generatedImage } from "../db/schema/generated-image";
+import { message, generatedImage } from "../db/schema";
 import { generatedImageBlobKey } from "../blob/store";
 import type { AppDeps } from "../deps";
 

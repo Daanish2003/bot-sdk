@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { index, integer, jsonb, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 
-import { chatSchema } from "./chat-schema";
+import { chatSchema } from "../../../../core/server/db/chat-schema";
 
 /** Where a background job is. `queued` and `running` are active (ADR 0011). */
 export const jobStatus = chatSchema.enum("job_status", [

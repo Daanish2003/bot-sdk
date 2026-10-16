@@ -1,4 +1,4 @@
-import { conversation } from "../../../../core/server/db/schema/chat";
+import { conversation } from "../../../../core/server/db/schema";
 import { getTestDb } from "../../../support/test-database";
 import type { AnyTextAdapter } from "@tanstack/ai";
 import { eq } from "drizzle-orm";

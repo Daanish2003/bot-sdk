@@ -2,8 +2,7 @@ import { asc, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { saveCredentials } from "../../../../core/server/credentials/store";
-import { conversation, message, project } from "../../../../core/server/db/schema/chat";
-import { userSettings } from "../../../../core/server/db/schema/settings";
+import { conversation, message, project, userSettings } from "../../../../core/server/db/schema";
 import type { AppDeps } from "../../../../core/server/deps";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { loadSharedConversation } from "../../../../core/server/share/store";

@@ -1,6 +1,5 @@
 import { storedParts, type WebSearchPart } from "../../../../core/shared/message-parts";
-import { message } from "../../../../core/server/db/schema/chat";
-import { usage } from "../../../../core/server/db/schema/usage";
+import { message, usage } from "../../../../core/server/db/schema";
 import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 

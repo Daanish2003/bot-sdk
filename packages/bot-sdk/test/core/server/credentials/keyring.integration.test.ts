@@ -7,7 +7,7 @@ import {
   loadCredentials,
   saveCredentials,
 } from "../../../../core/server/credentials/store";
-import { userCredentials } from "../../../../core/server/db/schema/credentials";
+import { userCredentials } from "../../../../core/server/db/schema";
 import { createTestDeps } from "../../../support/deps";
 import { insertUser } from "../../../support/users";
 import { getTestDb, testDatabaseUrl } from "../../../support/test-database";

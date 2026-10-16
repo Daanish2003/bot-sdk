@@ -1,7 +1,7 @@
 import { eq, inArray } from "drizzle-orm";
 
 import type { Database } from "../db/index";
-import { blob } from "../db/schema/blob";
+import { blob } from "../db/schema";
 import type { BlobStore } from "./store";
 
 /**

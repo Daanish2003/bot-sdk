@@ -1,4 +1,4 @@
-import { conversation, message } from "../db/schema/chat";
+import { conversation, message } from "../db/schema";
 import { resumeServerSentEventsResponse } from "@tanstack/ai";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";

@@ -1,5 +1,4 @@
-import { conversation } from "../../../../core/server/db/schema/chat";
-import { usage as usageRows } from "../../../../core/server/db/schema/usage";
+import { conversation, usage as usageRows } from "../../../../core/server/db/schema";
 import { asc, eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 

@@ -1,6 +1,6 @@
 import { EventType } from "@tanstack/ai";
 import { and, eq } from "drizzle-orm";
-import { conversation, message, project } from "../../../../core/server/db/schema/chat";
+import { conversation, message, project } from "../../../../core/server/db/schema";
 import { getTestDb } from "../../../support/test-database";
 
 import { afterEach, describe, expect, it, vi } from "vitest";

@@ -1,4 +1,4 @@
-import { conversation, message, project } from "../../../../core/server/db/schema/chat";
+import { conversation, message, project } from "../../../../core/server/db/schema";
 import { toolDefinition } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";

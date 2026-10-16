@@ -2,7 +2,7 @@ import { asc, eq, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { saveCredentials } from "../../../../core/server/credentials/store";
-import { message } from "../../../../core/server/db/schema/chat";
+import { message } from "../../../../core/server/db/schema";
 import type { AppDeps, HostProvider } from "../../../../core/server/deps";
 import { insertConversation } from "../../../support/conversations";
 import { createTestDeps, type TestDepsOverrides } from "../../../support/deps";

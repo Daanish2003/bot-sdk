@@ -1,9 +1,13 @@
 import { randomBytes } from "node:crypto";
 
-import { conversation, message } from "../db/schema/chat";
-import { generatedImage } from "../db/schema/generated-image";
-import { sharedLink } from "../db/schema/share";
-import { artifact, artifactVersion } from "../db/schema/artifact";
+import {
+  conversation,
+  message,
+  generatedImage,
+  sharedLink,
+  artifact,
+  artifactVersion,
+} from "../db/schema";
 import { and, desc, eq, inArray } from "drizzle-orm";
 
 import { generatedImageBlobKey } from "../blob/store";

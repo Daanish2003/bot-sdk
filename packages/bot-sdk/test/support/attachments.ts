@@ -1,5 +1,4 @@
-import { attachment, messageAttachment } from "../../core/server/db/schema/attachment";
-import { blob } from "../../core/server/db/schema/blob";
+import { attachment, messageAttachment, blob } from "../../core/server/db/schema";
 import { getTestDb } from "./test-database";
 
 import { attachmentBlobKey } from "../../core/server/blob/store";

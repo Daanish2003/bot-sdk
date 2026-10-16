@@ -1,4 +1,4 @@
-import { conversation, message, project } from "../../../../core/server/db/schema/chat";
+import { conversation, message, project } from "../../../../core/server/db/schema";
 import { getTestDb } from "../../../support/test-database";
 import { eq } from "drizzle-orm";
 import { createRouterClient } from "@orpc/server";

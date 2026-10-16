@@ -1,6 +1,5 @@
 import { storedParts } from "../../../../core/shared/message-parts";
-import { artifact, artifactVersion } from "../../../../core/server/db/schema/artifact";
-import { message } from "../../../../core/server/db/schema/chat";
+import { artifact, artifactVersion, message } from "../../../../core/server/db/schema";
 import {
   createArtifactTool,
   cutOffArtifactResult,

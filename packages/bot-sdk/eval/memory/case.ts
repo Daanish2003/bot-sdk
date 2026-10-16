@@ -8,7 +8,7 @@ import { and, eq } from "drizzle-orm";
 
 import { createChatHandler } from "../../core/server/create-chat";
 import { saveCredentials } from "../../core/server/credentials/store";
-import { conversation, message, type MessageRow } from "../../core/server/db/schema/chat";
+import { conversation, message, type MessageRow } from "../../core/server/db/schema";
 import type { Database } from "../../core/server/db/index";
 import type { AppDeps, Credentials } from "../../core/server/deps";
 import { uuidv7 } from "../../core/server/lib/uuidv7";

@@ -10,9 +10,7 @@ import {
 } from "../chat/embedding-models";
 import { loadPath } from "../chat/store";
 import { messageUsage, promptCharactersOf, reportedUsageOf } from "../chat/usage";
-import { conversation, type MessageRow } from "../db/schema/chat";
-import { memory } from "../db/schema/memory";
-import { userSettings } from "../db/schema/settings";
+import { conversation, type MessageRow, memory, userSettings } from "../db/schema";
 import type { AppDeps } from "../deps";
 import { resolveModelCall, type ModelCall } from "../credentials/resolve";
 import { uuidv7 } from "../lib/uuidv7";

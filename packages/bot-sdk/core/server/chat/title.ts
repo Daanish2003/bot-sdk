@@ -1,4 +1,4 @@
-import { conversation, message } from "../db/schema/chat";
+import { conversation, message } from "../db/schema";
 import { chat, type ModelMessage } from "@tanstack/ai";
 import { and, eq, isNull } from "drizzle-orm";
 

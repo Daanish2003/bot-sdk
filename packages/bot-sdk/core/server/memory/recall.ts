@@ -1,9 +1,7 @@
 import { and, desc, eq, isNull, notInArray, or, sql } from "drizzle-orm";
 
 import { defaultEmbeddingModel, embedTexts } from "../chat/embedding-models";
-import { conversation } from "../db/schema/chat";
-import { memory } from "../db/schema/memory";
-import { userSettings } from "../db/schema/settings";
+import { conversation, memory, userSettings } from "../db/schema";
 import type { AppDeps } from "../deps";
 
 /** With this many valid Memories in scope or fewer, all are sent and nothing is embedded (ADR 0013). */

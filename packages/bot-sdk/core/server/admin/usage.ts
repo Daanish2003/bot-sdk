@@ -1,6 +1,6 @@
 import { and, eq, gte, lt, sql } from "drizzle-orm";
 
-import { usage } from "../db/schema/usage";
+import { usage } from "../db/schema";
 import type { AppDeps } from "../deps";
 
 /** One user's calls on Host credentials over a range, in micros and tokens (spec #277). */

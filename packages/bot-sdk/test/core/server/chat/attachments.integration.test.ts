@@ -1,5 +1,4 @@
-import { attachment, messageAttachment } from "../../../../core/server/db/schema/attachment";
-import { message } from "../../../../core/server/db/schema/chat";
+import { attachment, messageAttachment, message } from "../../../../core/server/db/schema";
 import { asc, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 

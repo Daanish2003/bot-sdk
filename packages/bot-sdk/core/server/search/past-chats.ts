@@ -7,7 +7,7 @@ import {
   pastChatSnippetLength,
 } from "../../shared/chat/past-chats";
 import { snippetAround } from "../../shared/search/text";
-import { userSettings } from "../db/schema/settings";
+import { userSettings } from "../db/schema";
 import type { AppDeps } from "../deps";
 
 type Deps = Pick<AppDeps, "db" | "memory">;

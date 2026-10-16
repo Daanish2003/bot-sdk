@@ -2,8 +2,7 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import type { ChatUser } from "../context";
-import { conversation } from "../db/schema/chat";
-import { memory } from "../db/schema/memory";
+import { conversation, memory } from "../db/schema";
 import type { AppDeps } from "../deps";
 import type { MemoryUpdatedEvent, TurnChange } from "../../shared/memory/changes";
 

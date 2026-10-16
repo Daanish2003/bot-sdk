@@ -1,4 +1,4 @@
-import { message } from "../../../../core/server/db/schema/chat";
+import { message } from "../../../../core/server/db/schema";
 import { storedParts } from "../../../../core/shared/message-parts";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";

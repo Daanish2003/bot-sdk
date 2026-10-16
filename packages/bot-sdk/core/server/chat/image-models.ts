@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 
-import { userSettings } from "../db/schema/settings";
+import { userSettings } from "../db/schema";
 import { type ResolveDeps, resolvePayer } from "../credentials/resolve";
 import type { AppDeps, Credentials, HostImageModel } from "../deps";
 import { type ImageMeter, imageMeter } from "./meter";

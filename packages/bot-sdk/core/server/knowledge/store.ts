@@ -6,8 +6,7 @@ import {
   embeddingModelIds,
   resolveEmbeddingModel,
 } from "../chat/embedding-models";
-import { project } from "../db/schema/chat";
-import { knowledgeChunk, knowledgeFile } from "../db/schema/knowledge";
+import { project, knowledgeChunk, knowledgeFile } from "../db/schema";
 import type { AppDeps } from "../deps";
 import { uuidv7 } from "../lib/uuidv7";
 import { findProject } from "../project/store";

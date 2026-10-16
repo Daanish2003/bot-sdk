@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 
-import { mcpConnection } from "../db/schema/connection";
+import { mcpConnection } from "../db/schema";
 import { decryptCredentials, encryptCredentials } from "../credentials/encryption";
 import type { AppDeps } from "../deps";
 import type { TokenSet } from "./oauth";

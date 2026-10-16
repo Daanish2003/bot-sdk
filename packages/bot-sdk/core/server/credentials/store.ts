@@ -1,4 +1,4 @@
-import { userCredentials } from "../db/schema/credentials";
+import { userCredentials } from "../db/schema";
 import { and, asc, eq, gt, or } from "drizzle-orm";
 
 import type { AppDeps, Credentials } from "../deps";

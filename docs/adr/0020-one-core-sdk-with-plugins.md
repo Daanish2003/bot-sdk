@@ -17,6 +17,8 @@ Supersedes ADR 0019. ADR 0019 split chat-sdk into a family of SDKs, each with it
 
 The build order (#409) still sets when each plugin is extracted. Step 0 carves chat-sdk into the core, a `models` plugin and an `assistant` plugin, and builds the field DSL and `generate`; runner, memory and knowledge stay inside `assistant` until their own steps.
 
+_Amended 2026-10-16 ([#437](https://github.com/Daanish2003/ai-chat/issues/437), [#441](https://github.com/Daanish2003/ai-chat/issues/441)): the field DSL is Drizzle itself. Each plugin's static schema module gives Drizzle column builders plus an index callback for each core table it extends, and one hand-written module composes the core and every plugin into the `chat` schema. `generate` is deferred until a Host enables a subset of plugins; until then every Host enables them all, so it would write a fixed file. Plugin export paths end in `/server`, `/client` and `/ui` (for example `@ai-chat/bot-sdk/plugins/memory/server`), not the bare plugin path above._
+
 ## Considered Options
 
 - **A family of SDKs, each with its own Postgres schema (ADR 0019)**: rejected. Cross-schema references can't use foreign keys, so every cascade becomes hand-wired clean-up, plugin columns become one-to-one tables, and every table has to move schema.

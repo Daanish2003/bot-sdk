@@ -6,7 +6,7 @@ import { z } from "zod";
 import { handleChat } from "./chat/handle-chat";
 import type { HostServerTool } from "./chat/host-tools";
 import { type BlobStore, generatedImageBlobKey } from "./blob/store";
-import { generatedImage } from "./db/schema/generated-image";
+import { generatedImage } from "./db/schema";
 import { postgresBlobStore } from "./blob/postgres";
 import { webSearchToolName } from "../shared/chat/web-search";
 import { fetchUrlToolName } from "../shared/chat/fetch-url";

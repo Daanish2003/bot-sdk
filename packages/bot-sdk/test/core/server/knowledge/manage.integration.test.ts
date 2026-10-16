@@ -3,9 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { fakeEmbeddingAdapter } from "../../../../core/server/chat/fake-embedding-adapter";
 import { knowledgeBlobKey } from "../../../../core/server/blob/store";
-import { blob } from "../../../../core/server/db/schema/blob";
-import { job } from "../../../../core/server/db/schema/job";
-import { knowledgeChunk, knowledgeFile } from "../../../../core/server/db/schema/knowledge";
+import { blob, job, knowledgeChunk, knowledgeFile } from "../../../../core/server/db/schema";
 import type { HostProvider } from "../../../../core/server/deps";
 import { createTestDeps } from "../../../support/deps";
 import { drainJobs } from "../../../support/jobs";

@@ -1,4 +1,4 @@
-import { memory } from "../../core/server/db/schema/memory";
+import { memory } from "../../core/server/db/schema";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
 import { getTestDb } from "./test-database";
 import type { TestUser } from "./users";

@@ -1,5 +1,4 @@
-import { attachment, messageAttachment } from "../db/schema/attachment";
-import { blob } from "../db/schema/blob";
+import { attachment, messageAttachment, blob } from "../db/schema";
 import { and, asc, eq, inArray, lt, notExists } from "drizzle-orm";
 
 import { attachmentBlobKey, deleteBlobsBestEffort } from "../blob/store";

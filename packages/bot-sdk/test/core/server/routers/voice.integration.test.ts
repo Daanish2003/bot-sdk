@@ -2,8 +2,7 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { RateLimitedError } from "../../../../core/client/rate-limit";
-import { attachment } from "../../../../core/server/db/schema/attachment";
-import { usage } from "../../../../core/server/db/schema/usage";
+import { attachment, usage } from "../../../../core/server/db/schema";
 import { saveCredentials } from "../../../../core/server/credentials/store";
 import type { AppDeps, Credentials, HostProvider } from "../../../../core/server/deps";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";

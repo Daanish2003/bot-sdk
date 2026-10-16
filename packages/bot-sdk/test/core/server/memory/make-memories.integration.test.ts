@@ -6,11 +6,15 @@ import { describe, expect, it, vi } from "vitest";
 import { createHookEmitter } from "../../../../core/server/chat/hooks";
 import { conversationChannel } from "../../../../core/server/memory/notice";
 import { saveCredentials } from "../../../../core/server/credentials/store";
-import { conversation, message, project } from "../../../../core/server/db/schema/chat";
-import { job } from "../../../../core/server/db/schema/job";
-import { memory } from "../../../../core/server/db/schema/memory";
-import { userSettings } from "../../../../core/server/db/schema/settings";
-import { usage } from "../../../../core/server/db/schema/usage";
+import {
+  conversation,
+  message,
+  project,
+  job,
+  memory,
+  userSettings,
+  usage,
+} from "../../../../core/server/db/schema";
 import type { AppDeps, HostProvider } from "../../../../core/server/deps";
 import { insertConversation, insertMessage } from "../../../support/conversations";
 import { createTestDeps } from "../../../support/deps";

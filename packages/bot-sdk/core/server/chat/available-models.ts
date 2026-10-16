@@ -1,4 +1,4 @@
-import { conversation } from "../db/schema/chat";
+import { conversation } from "../db/schema";
 import { desc, eq } from "drizzle-orm";
 
 import { resolvedServices, hostModelList } from "../credentials/resolve";

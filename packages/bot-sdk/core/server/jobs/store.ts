@@ -2,7 +2,7 @@ import { and, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
 
 import type { Database } from "../db/index";
 import type { AppDeps } from "../deps";
-import { job } from "../db/schema/job";
+import { job } from "../db/schema";
 import { uuidv7 } from "../lib/uuidv7";
 import { JOB_TIMING, PermanentJobError, backoffAfter, registeredJob } from "./define";
 import type { JobClock } from "./in-process";

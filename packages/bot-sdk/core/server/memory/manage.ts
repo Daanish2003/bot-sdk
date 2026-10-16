@@ -2,9 +2,7 @@ import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { defaultEmbeddingModel, embedTexts } from "../chat/embedding-models";
-import { conversation, project } from "../db/schema/chat";
-import { memory } from "../db/schema/memory";
-import { userSettings } from "../db/schema/settings";
+import { conversation, project, memory, userSettings } from "../db/schema";
 import type { AppDeps } from "../deps";
 import { defineJob } from "../jobs/define";
 import { rpcError } from "../rpc-error";

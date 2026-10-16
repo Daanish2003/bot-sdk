@@ -7,7 +7,7 @@ import {
   savedPromptNamePattern,
   savedPromptTextMaxChars,
 } from "../../shared/chat/saved-prompt";
-import { savedPrompt } from "../db/schema/saved-prompt";
+import { savedPrompt } from "../db/schema";
 import { uuidv7 } from "../lib/uuidv7";
 import { protectedProcedure } from "../procedures";
 import { rpcError } from "../rpc-error";

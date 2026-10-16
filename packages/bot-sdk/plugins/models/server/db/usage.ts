@@ -1,6 +1,6 @@
 import { bigint, boolean, index, integer, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
-import { chatSchema } from "./chat-schema";
+import { chatSchema } from "../../../../core/server/db/chat-schema";
 
 /**
  * What a call on Host credentials was for. Each kind is written by the call it names: a Run, a

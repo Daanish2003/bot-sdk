@@ -1,7 +1,15 @@
-import { index, integer, primaryKey, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import {
+  type AnyPgColumn,
+  index,
+  integer,
+  primaryKey,
+  text,
+  timestamp,
+  uuid,
+} from "drizzle-orm/pg-core";
 
 import { chatSchema } from "./chat-schema";
-import { message } from "./chat";
+import { message } from "./schema";
 
 /**
  * A file a user uploaded to attach to Messages. Immutable once uploaded; Messages reference it
@@ -33,7 +41,7 @@ export const messageAttachment = chatSchema.table(
   {
     messageId: uuid("message_id")
       .notNull()
-      .references(() => message.id, { onDelete: "cascade" }),
+      .references((): AnyPgColumn => message.id, { onDelete: "cascade" }),
     attachmentId: uuid("attachment_id")
       .notNull()
       .references(() => attachment.id),

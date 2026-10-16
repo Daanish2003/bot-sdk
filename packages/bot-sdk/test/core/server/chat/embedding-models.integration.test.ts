@@ -10,7 +10,7 @@ import { fakeEmbeddingAdapter } from "../../../../core/server/chat/fake-embeddin
 import { createHookEmitter } from "../../../../core/server/chat/hooks";
 import { createBotSdk } from "../../../../core/server/create-chat";
 import { saveCredentials } from "../../../../core/server/credentials/store";
-import { usage } from "../../../../core/server/db/schema/usage";
+import { usage } from "../../../../core/server/db/schema";
 import type { HostProvider } from "../../../../core/server/deps";
 import { createTestDeps, testKeyEncryptionSecret } from "../../../support/deps";
 import { getTestDb, testDatabaseUrl } from "../../../support/test-database";

@@ -10,9 +10,12 @@ import {
   vector,
 } from "drizzle-orm/pg-core";
 
-import { chatSchema } from "./chat-schema";
-import type { KnowledgeFailureCode, KnowledgeMediaType } from "../../../shared/knowledge/kinds";
-import { project } from "./chat";
+import { chatSchema } from "../../../../core/server/db/chat-schema";
+import type {
+  KnowledgeFailureCode,
+  KnowledgeMediaType,
+} from "../../../../core/shared/knowledge/kinds";
+import { project } from "./project";
 
 /** Postgres full-text search vector, generated from a chunk's text. */
 const tsvector = customType<{ data: string }>({ dataType: () => "tsvector" });

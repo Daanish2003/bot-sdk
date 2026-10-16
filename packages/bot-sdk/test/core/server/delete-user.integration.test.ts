@@ -9,19 +9,25 @@ import { deleteAllConversations, deleteUserData } from "../../../core/server/del
 import { deleteConversation } from "../../../core/server/chat/store";
 import { saveCredentials } from "../../../core/server/credentials/store";
 import { START } from "../../../core/server/chat/run-streams";
-import { artifact, artifactVersion } from "../../../core/server/db/schema/artifact";
-import { attachment, messageAttachment } from "../../../core/server/db/schema/attachment";
+import {
+  artifact,
+  artifactVersion,
+  attachment,
+  messageAttachment,
+  blob,
+  conversation,
+  message,
+  project,
+  job,
+  knowledgeFile,
+  userCredentials,
+  savedPrompt,
+  sharedLink,
+  userSettings,
+  usage,
+} from "../../../core/server/db/schema";
 import { knowledgeBlobKey } from "../../../core/server/blob/store";
-import { blob } from "../../../core/server/db/schema/blob";
-import { conversation, message, project } from "../../../core/server/db/schema/chat";
-import { job } from "../../../core/server/db/schema/job";
-import { knowledgeFile } from "../../../core/server/db/schema/knowledge";
 import { knowledgeJobKey } from "../../../core/server/knowledge/process";
-import { userCredentials } from "../../../core/server/db/schema/credentials";
-import { savedPrompt } from "../../../core/server/db/schema/saved-prompt";
-import { sharedLink } from "../../../core/server/db/schema/share";
-import { userSettings } from "../../../core/server/db/schema/settings";
-import { usage } from "../../../core/server/db/schema/usage";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { insertAttachment, linkTestAttachments } from "../../support/attachments";
 import { insertConversation, insertMessage } from "../../support/conversations";

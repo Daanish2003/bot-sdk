@@ -1,4 +1,4 @@
-import type { MessageRow } from "../db/schema/chat";
+import type { MessageRow } from "../db/schema";
 
 import type { StoredAttachment } from "../../shared/chat/parts";
 import type { CuratedModel } from "../../shared/chat/models";

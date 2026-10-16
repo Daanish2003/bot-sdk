@@ -3,8 +3,7 @@ import { z } from "zod";
 
 import { knowledgeBlobKey } from "../blob/store";
 import type { AppDeps } from "../deps";
-import { project } from "../db/schema/chat";
-import { knowledgeChunk, knowledgeFile } from "../db/schema/knowledge";
+import { project, knowledgeChunk, knowledgeFile } from "../db/schema";
 import { embedTexts, resolveEmbeddingModel } from "../chat/embedding-models";
 import { defineJob, PermanentJobError } from "../jobs/define";
 import type { KnowledgeFailureCode } from "../../shared/knowledge/kinds";

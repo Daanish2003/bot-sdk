@@ -1,5 +1,5 @@
 import type { StoredPart } from "../../../../core/shared/message-parts";
-import { message } from "../../../../core/server/db/schema/chat";
+import { message } from "../../../../core/server/db/schema";
 import { toolDefinition } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";

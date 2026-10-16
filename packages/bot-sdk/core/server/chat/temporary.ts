@@ -1,8 +1,7 @@
 import { and, eq, gte, inArray, lt, notExists, or } from "drizzle-orm";
 
 import { deleteBlobsBestEffort } from "../blob/store";
-import { attachment, messageAttachment } from "../db/schema/attachment";
-import { conversation, message } from "../db/schema/chat";
+import { attachment, messageAttachment, conversation, message } from "../db/schema";
 import type { AppDeps } from "../deps";
 import { generatedImageKeysWhere, imagesOfMessages } from "./generated-image-store";
 

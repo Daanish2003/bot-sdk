@@ -1,15 +1,18 @@
 import { storedParts, type GeneratedImagePart } from "../../../../core/shared/message-parts";
-import { generatedImage } from "../../../../core/server/db/schema/generated-image";
-import { conversation, message } from "../../../../core/server/db/schema/chat";
-import { usage } from "../../../../core/server/db/schema/usage";
-import { userSettings } from "../../../../core/server/db/schema/settings";
+import {
+  generatedImage,
+  conversation,
+  message,
+  usage,
+  userSettings,
+  blob,
+} from "../../../../core/server/db/schema";
 import { asc, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { saveCredentials } from "../../../../core/server/credentials/store";
 import type { AppDeps, HostProvider } from "../../../../core/server/deps";
 import { fakeImageAdapter, fakePngBase64 } from "../../../../core/server/chat/fake-image-adapter";
-import { blob } from "../../../../core/server/db/schema/blob";
 import { like } from "drizzle-orm";
 import { quotaLookup, readQuota } from "../../../../core/server/chat/quota";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";

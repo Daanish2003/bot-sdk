@@ -1,4 +1,4 @@
-import { conversation, reasoningEffort } from "../db/schema/chat";
+import { conversation, reasoningEffort } from "../db/schema";
 import { z } from "zod";
 
 import { resolveModel } from "../chat/available-models";
