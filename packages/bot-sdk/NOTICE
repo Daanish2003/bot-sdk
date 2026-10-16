@@ -1,0 +1,9 @@
+Sim Studio
+Copyright 2026 Sim Studio
+
+This product includes software developed for the Sim project.
+
+The Bot SDK includes code ported from Sim Studio (https://github.com/simstudioai/sim)
+at commit 22c3de1f7d02fdb6fc925ad858abb555c20f5493, licensed under the Apache License, Version 2.0:
+
+- core/server/knowledge/chunker.ts, from apps/sim/lib/chunkers/text-chunker.ts, chunk-budget.ts and utils.ts

@@ -5,7 +5,7 @@ import { defineConfig } from "vitest/config";
 const testFiles = ["{apps,packages}/*/{src,test}/**/*.test.ts"];
 const integrationTestFiles = ["{apps,packages}/*/{src,test}/**/*.integration.test.ts"];
 
-// The Chat SDK's `ui/` imports shadcn primitives as `@/components/ui/*` and `@/lib/utils`.
+// The Bot SDK's `ui/` imports shadcn primitives as `@/components/ui/*` and `@/lib/utils`.
 // In this repo those live in packages/ui.
 const uiSource = fileURLToPath(new URL("./packages/ui/src", import.meta.url));
 const webSource = fileURLToPath(new URL("./apps/web/src", import.meta.url));
@@ -48,8 +48,8 @@ export default defineConfig({
           // so their files run one at a time.
           include: integrationTestFiles,
           fileParallelism: false,
-          globalSetup: ["packages/chat-sdk/test/support/global-setup.ts"],
-          setupFiles: ["packages/chat-sdk/test/support/setup.ts"],
+          globalSetup: ["packages/bot-sdk/test/support/global-setup.ts"],
+          setupFiles: ["packages/bot-sdk/test/support/setup.ts"],
         },
       },
     ],
