@@ -6,26 +6,26 @@
 window.NAMES = [
   {
     lesson: 1,
-    name: "packages/chat-sdk",
+    name: "packages/bot-sdk",
     kind: "package",
     meaning:
-      "The Chat SDK: one folder a Host copies in, in four parts (core/shared, core/server, core/client, ui/).",
-    example: "pnpm -F @ai-chat/chat-sdk copy ../my-host/src/lib/chat-sdk",
+      "The Bot SDK: one folder a Host copies in: a core (core/shared, core/server, core/client), plugins (assistant, models), ui/ and extras/.",
+    example: "pnpm -F @ai-chat/bot-sdk copy ../my-host/src/lib/bot-sdk",
   },
   {
     lesson: 1,
     name: "core/shared",
     kind: "folder",
     meaning:
-      "Code both sides use: Message parts, Models, Sources, error codes. Imports only npm packages.",
-    example: "core/shared/chat/parts.ts",
+      "Code both sides use: base Message parts, Attachments, error codes. Imports only npm packages.",
+    example: "core/shared/message-parts.ts",
   },
   {
     lesson: 1,
     name: "core/server",
     kind: "folder",
     meaning:
-      "All server code: createChat, the handler, handleChat, the Run, routers, the chat tables. Imports only shared.",
+      "The core's server code: createBotSdk, the handler, the core routers and tables. Plugins (handleChat, the Run) sit in plugins/*/server. Imports only shared.",
     example: "core/server/create-chat.ts",
   },
   {
@@ -33,7 +33,7 @@ window.NAMES = [
     name: "core/client",
     kind: "folder",
     meaning:
-      "The browser side: createChatClient, plus ChatProvider and hooks in client/react. Reaches server only with import type.",
+      "The browser side: createBotSdkClient, plus ChatProvider and hooks in client/react. Reaches server only with import type.",
     example: "core/client/chat-client.ts",
   },
   {
@@ -41,30 +41,32 @@ window.NAMES = [
     name: "ui/",
     kind: "folder",
     meaning:
-      "The SDK's React components. The Host owns them; the copy script copies ui/ only once.",
-    example: "ChatView from @ai-chat/chat-sdk/ui in routes/_auth/c/$id.tsx",
+      "The SDK's React components (ui/ and each plugin's ui/). The Host owns them; the copy script copies them only once.",
+    example: "ChatView from @ai-chat/bot-sdk/plugins/assistant/ui in routes/_auth/c/$id.tsx",
   },
   {
     lesson: 1,
-    name: "@ai-chat/chat-sdk/server · /client · /ui",
+    name: "@ai-chat/bot-sdk/core/server · /core/client · /plugins/*",
     kind: "package",
-    meaning: "The three entry points in the SDK's package.json; a Host imports nothing else.",
-    example: 'import { createChat } from "@ai-chat/chat-sdk/server" in apps/web/src/services.ts',
+    meaning:
+      "The entry points in the SDK's package.json (core/server, core/client, and server, client and ui for each plugin); a Host imports nothing else.",
+    example:
+      'import { createBotSdk } from "@ai-chat/bot-sdk/core/server" in apps/web/src/services.ts',
   },
   {
     lesson: 1,
-    name: "chat.handler",
+    name: "sdk.handler",
     kind: "function",
     meaning:
       "The one web-standard handler (Request → Response) the Host mounts under basePath; it routes /rpc/*, /run and the rest.",
-    example: "routes/api/chat/$.ts passes every method to chat.handler(request)",
+    example: "routes/api/chat/$.ts passes every method to sdk.handler(request)",
   },
   {
     lesson: 1,
     name: "routes/api/chat/$.ts",
     kind: "route",
     meaning: "apps/web's catch-all route for /api/chat/*; it holds no chat logic.",
-    example: "GET, POST, PUT, PATCH, DELETE, HEAD → chat.handler(request)",
+    example: "GET, POST, PUT, PATCH, DELETE, HEAD → sdk.handler(request)",
   },
   {
     lesson: 1,
@@ -73,16 +75,16 @@ window.NAMES = [
     meaning:
       "A TypeScript import that is erased at build, so no code moves. The only way client or ui may reach server.",
     example:
-      'import type { AppRouterClient } from "../server/routers/index" in core/client/chat-client.ts',
+      'import type { CoreRouter } from "../server/routers/index" in core/client/chat-client.ts',
   },
   {
     lesson: 2,
-    name: "createChat",
+    name: "createBotSdk",
     kind: "function",
     meaning:
-      "Builds the Chat SDK for a Host from its options; returns the handler, migrate/start/stop and server-only calls. Builds nothing until first use.",
+      "Builds the Bot SDK for a Host from its options; returns the handler, migrate/start/stop and server-only calls. Builds nothing until first use.",
     example:
-      'export const chat = createChat({ databaseUrl, getUser, keyEncryptionSecrets, basePath: "/api/chat" }) in apps/web/src/services.ts',
+      'export const sdk = createBotSdk({ databaseUrl, getUser, keyEncryptionSecrets, basePath: "/api/chat", plugins }) in apps/web/src/services.ts',
   },
   {
     lesson: 2,
@@ -104,32 +106,33 @@ window.NAMES = [
     name: "createChatHandler",
     kind: "function",
     meaning:
-      "Makes the one handler over an AppDeps bundle; it picks who answers a request from its path, top rung first.",
-    example: "createChatHandler(createTestDeps(), { basePath, getUser }) in test/support/sdk.ts",
+      "Makes the one handler over a test SDK context (SdkOver); it picks who answers a request from its path, top rung first.",
+    example:
+      "createChatHandler(deps, { basePath, getUser }) in test/support/sdk.ts (defined in plugins/assistant/server/over.ts)",
   },
   {
     lesson: 2,
-    name: "AppDeps",
+    name: "BotSdkContext",
     kind: "type",
     meaning:
-      "The bundle of everything the server code uses: db, adapters, runtime, hooks, jobs, limits. It is the test seam.",
-    example: "deps.adapterFor(model.id, credentials) in handle-chat.ts",
+      "The bundle of everything the server code uses: db, runtime, hooks, plugin(id) and more; each plugin keeps its own state (assistantState). It is the test seam.",
+    example: 'deps.plugin("models").adapterFor(model.id, credentials, …) in run-plan.ts',
   },
   {
     lesson: 2,
-    name: "createAppDeps",
-    kind: "function",
+    name: "defaultLimits",
+    kind: "option",
     meaning:
-      "Builds the production AppDeps from the createChat options; getDeps() calls it once, on first use.",
-    example: "packages/chat-sdk/core/server/deps.ts",
+      "The assistant plugin's default limits (snapshot interval, Run cap, lease, reaper interval, drain); createBotSdk builds the rest of the context from its options on first use.",
+    example: "packages/bot-sdk/plugins/assistant/server/deps.ts",
   },
   {
     lesson: 2,
-    name: "createTestDeps",
+    name: "createTestSdk",
     kind: "function",
     meaning:
-      "AppDeps for tests: the test database and fakes, with nothing that reaches the network.",
-    example: "packages/chat-sdk/test/support/deps.ts",
+      "The SDK context for tests: the test database and fakes, with nothing that reaches the network.",
+    example: "packages/bot-sdk/test/support/deps.ts",
   },
   {
     lesson: 2,
@@ -137,13 +140,13 @@ window.NAMES = [
     kind: "function",
     meaning:
       "The lifecycle: migrate() at deploy, start() at boot (checks the setup, starts the reaper and jobs), stop() on SIGTERM (503 for new Runs, 250 s drain).",
-    example: "apps/web/server/plugins/chat-lifecycle.ts calls start() and stop()",
+    example: "apps/web/server/plugins/chat-lifecycle.ts calls sdk.start() and sdk.stop()",
   },
   {
     lesson: 2,
     name: "chat-lifecycle.ts",
     kind: "file",
-    meaning: "apps/web's Nitro plugin that calls chat.start() at boot and chat.stop() on SIGTERM.",
+    meaning: "apps/web's Nitro plugin that calls sdk.start() at boot and sdk.stop() on SIGTERM.",
     example: "apps/web/server/plugins/chat-lifecycle.ts",
   },
   {
@@ -151,7 +154,7 @@ window.NAMES = [
     name: "chatCommandSchema",
     kind: "function",
     meaning:
-      "The zod schema of the command the browser posts to start a Run. It lives in core/shared, so the browser builds it and the server checks it.",
+      "The zod schema of the command the browser posts to start a Run. It lives in plugins/assistant/shared, so the browser builds it and the server checks it.",
     example:
       "handleChat parses body.forwardedProps with it; a bad body is 400 error.invalidCommand",
   },
@@ -186,7 +189,7 @@ window.NAMES = [
     meaning:
       "Gives the Messages above messageId (history) and the last of them as parentId, for an edit or a regenerate.",
     example:
-      'branchFrom([q1,a1,q2,a2], "q2") → { parentId: "a1", history: [q1, a1] } (core/client/chat.ts)',
+      'branchFrom([q1,a1,q2,a2], "q2") → { parentId: "a1", history: [q1, a1] } (plugins/assistant/client/chat.ts)',
   },
   {
     lesson: 3,
@@ -194,11 +197,12 @@ window.NAMES = [
     kind: "function",
     meaning:
       "TanStack AI's connection that POSTs a Run to chatUrl and reads the reply as server-sent events.",
-    example: "built once in ui/chat/chat-view.tsx, with fetchClient: runFetch",
+    example:
+      "built once in plugins/assistant/client/react/conversation-run.ts, with fetchClient: runFetch",
   },
   {
     lesson: 3,
-    name: "run (chat-view)",
+    name: "run (useConversationRun)",
     kind: "function",
     meaning:
       "Sets command.current, then calls sendMessage (with text) or reload (without). When the Run ends, it reloads the Active Branch from the server.",
@@ -209,8 +213,9 @@ window.NAMES = [
     name: "chatUrl",
     kind: "route",
     meaning:
-      "Where a Run is posted (POST) and joined (GET ?runId=), made by createChatClient from the Host's baseUrl.",
-    example: "createChatClient({ baseUrl: origin + '/api/chat' }).chatUrl → …/api/chat/run",
+      "Where a Run is posted (POST) and joined (GET ?runId=), made by createBotSdkClient (the assistant plugin adds it) from the Host's baseUrl.",
+    example:
+      "createBotSdkClient({ baseUrl: origin + '/api/chat', plugins }).chatUrl → …/api/chat/run",
   },
   {
     lesson: 3,
@@ -218,7 +223,8 @@ window.NAMES = [
     kind: "function",
     meaning:
       "Loads all of a Conversation's Messages and walks up from a leaf to a root, to rebuild the history on the server. handleChat, titles, Memory, Shared links and Artifacts use it.",
-    example: "handleChat: loadPath(deps, owned.id, command.parentId) → the history for the Model",
+    example:
+      "run-plan.ts: loadPath(deps, owned.id, input.leafId) → the history for the Model (core/server/chat/message-tree.ts)",
   },
   {
     lesson: 4,
@@ -226,7 +232,7 @@ window.NAMES = [
     kind: "function",
     meaning:
       "Answers POST /api/chat/run: runs every check that can refuse, then writes the Messages in one transaction and starts the Run.",
-    example: "packages/chat-sdk/core/server/chat/handle-chat.ts",
+    example: "packages/bot-sdk/plugins/assistant/server/chat/handle-chat.ts",
   },
   {
     lesson: 4,
@@ -272,14 +278,14 @@ window.NAMES = [
     kind: "function",
     meaning:
       "Runs one assistant Message after the transaction commits: reads chat() to the end, appends each chunk to the run log, snapshots parts to Postgres and saves the final status in finally.",
-    example: "core/server/chat/run.ts, called at the end of handleChat",
+    example: "plugins/assistant/server/chat/run.ts, called at the end of handleChat",
   },
   {
     lesson: 5,
     name: "chat()",
     kind: "function",
     meaning: "TanStack AI's call to the Model. It returns an async stream of chunks.",
-    example: "chat({ adapter, messages, abortController, tools, systemPrompts }) in run.ts",
+    example: "chat({ adapter, messages, abortController, tools, systemPrompts }) in run-plan.ts",
   },
   {
     lesson: 5,
@@ -317,7 +323,7 @@ window.NAMES = [
     name: "snapshotIntervalMs",
     kind: "option",
     meaning: "How often the Run writes heartbeatAt, and the parts if they changed.",
-    example: "1_000 in deps.ts limits",
+    example: "1_000 in defaultLimits (plugins/assistant/server/deps.ts)",
   },
   {
     lesson: 5,
@@ -332,7 +338,7 @@ window.NAMES = [
     name: "runCapMs",
     kind: "option",
     meaning: 'The hard time limit of one Run; hitting it ends the Run as error "timed_out".',
-    example: "5 * 60_000 in deps.ts limits",
+    example: "5 * 60_000 in defaultLimits (deps.ts)",
   },
   {
     lesson: 5,
@@ -348,7 +354,7 @@ window.NAMES = [
     meaning:
       "Answers GET /run?runId=…: checks that the user owns the Run's Conversation, then replays the Run's log from the start (or Last-Event-ID) and follows it until it closes.",
     example:
-      "packages/chat-sdk/core/server/chat/join-run.ts; a reloaded tab joins the streaming Message whose id is the runId",
+      "packages/bot-sdk/plugins/assistant/server/chat/join-run.ts; a reloaded tab joins the streaming Message whose id is the runId",
   },
   {
     lesson: 6,
@@ -356,7 +362,7 @@ window.NAMES = [
     kind: "function",
     meaning:
       'Stops a Run from any process: writes cancel_requested_at and publishes "stop" on run:<id>:cancel. It never writes status, unless the lease has run out.',
-    example: "chat.stop({ messageId }) in routers/chat.ts calls stopRun(deps, id)",
+    example: "chat.stop({ messageId }) in routers/chat.ts calls stopRun(context.sdk, id)",
   },
   {
     lesson: 6,
@@ -372,7 +378,7 @@ window.NAMES = [
     kind: "function",
     meaning:
       'Ends every streaming Message whose heartbeat is empty or older than now − leaseMs as error "interrupted", cancels its running calls and ends its log.',
-    example: "run.ts; lifecycle.ts runs it in start() and every 30 s",
+    example: "plugins/assistant/server/chat/run.ts; lifecycle.ts runs it in start() and every 30 s",
   },
   {
     lesson: 6,
@@ -387,7 +393,7 @@ window.NAMES = [
     name: "memoryRuntime / redisRuntime",
     kind: "function",
     meaning:
-      "The two ChatRuntimes: runStreams (the logs), pubsub (signals) and counters, kept in process memory or shared through Redis.",
+      "The two BotSdkRuntime values: runStreams (the logs), pubsub (signals) and counters, kept in process memory or shared through Redis.",
     example: "apps/web/src/services.ts picks redisRuntime when REDIS_URL is set",
   },
   {
@@ -396,7 +402,7 @@ window.NAMES = [
     kind: "option",
     meaning:
       'How long stop() lets local Runs finish (250 000 ms) before it aborts them as error "interrupted". New Runs get 503 meanwhile.',
-    example: "defaultLimits in deps.ts; chat.stop() on SIGTERM",
+    example: "defaultLimits in deps.ts; sdk.stop() on SIGTERM",
   },
   {
     lesson: 7,
@@ -404,7 +410,7 @@ window.NAMES = [
     kind: "table/column",
     meaning:
       "The Message this one continues; null for a root. The only link in the tree, and it points up.",
-    example: 'q2b.parentId = "a1" in packages/chat-sdk/core/server/db/schema/chat.ts',
+    example: 'q2b.parentId = "a1" in packages/bot-sdk/core/server/db/core-schema.ts',
   },
   {
     lesson: 7,
@@ -428,7 +434,8 @@ window.NAMES = [
     kind: "function",
     meaning:
       "Gives the Active Branch for the client: pathTo from activeLeafId, plus each Message's sibling position and Attachments.",
-    example: "the conversation.get RPC in core/server/routers/conversation.ts",
+    example:
+      "the conversation.get RPC in plugins/assistant/server/routers/conversation.ts (loadActiveBranch in chat/store.ts)",
   },
   {
     lesson: 8,
@@ -453,7 +460,7 @@ window.NAMES = [
     meaning:
       "RPC that sets activeLeafId to newestLeaf under a Message; CONFLICT while a reply streams; doesn't bump lastMessageAt.",
     example:
-      "orpc.conversation.switchBranch({ messageId }) (core/server/routers/conversation.ts → store.ts switchBranch)",
+      "orpc.conversation.switchBranch({ messageId }) (plugins/assistant/server/routers/conversation.ts → chat/store.ts switchBranch)",
   },
   {
     lesson: 8,

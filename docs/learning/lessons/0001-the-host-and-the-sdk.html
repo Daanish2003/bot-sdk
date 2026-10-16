@@ -73,7 +73,7 @@
       </figure>
       <p>
         The SDK is never published to npm. A Host runs
-        <code>pnpm -F @ai-chat/chat-sdk copy &lt;dest&gt;</code> (<a
+        <code>pnpm -F @ai-chat/bot-sdk copy &lt;dest&gt;</code> (<a
           href="../../../packages/bot-sdk/scripts/copy.ts"
           ><code>scripts/copy.ts</code></a
         >). Because <code>core/</code> is replaced every time, an edit there is lost on the next
@@ -92,18 +92,18 @@
             </thead>
             <tbody>
               <tr>
-                <td><code>@ai-chat/chat-sdk/server</code></td>
+                <td><code>@ai-chat/bot-sdk/core/server</code></td>
                 <td><code>core/server/index.ts</code></td>
-                <td><code>createChat</code> in <code>services.ts</code></td>
+                <td><code>createBotSdk</code> in <code>services.ts</code></td>
               </tr>
               <tr>
-                <td><code>@ai-chat/chat-sdk/client</code></td>
+                <td><code>@ai-chat/bot-sdk/core/client</code></td>
                 <td><code>core/client/index.ts</code></td>
                 <td><code>ChatProvider</code> in <code>lib/chat-provider.tsx</code></td>
               </tr>
               <tr>
-                <td><code>@ai-chat/chat-sdk/ui</code></td>
-                <td><code>ui/index.ts</code></td>
+                <td><code>@ai-chat/bot-sdk/plugins/assistant/ui</code></td>
+                <td><code>plugins/assistant/ui/index.ts</code></td>
                 <td><code>ChatView</code> in <code>routes/_auth/c/$id.tsx</code></td>
               </tr>
             </tbody>
@@ -121,8 +121,8 @@
       >
         <div class="label">Quiz</div>
         <p class="q">
-          A Host finds a bug in <code>core/server/chat/run.ts</code> in its copy. Where does the fix
-          go?
+          A Host finds a bug in <code>plugins/assistant/server/chat/run.ts</code> in its copy. Where
+          does the fix go?
         </p>
         <ol class="opts">
           <li data-why="The next copy replaces core/, so this edit disappears.">
@@ -132,7 +132,7 @@
             In the Host's own ui folder.
           </li>
           <li>In packages/bot-sdk, then copy.</li>
-          <li data-why="apps/web holds no Run code. The Run lives in core/server.">
+          <li data-why="apps/web holds no Run code. The Run lives in the assistant plugin.">
             In the apps/web route file.
           </li>
         </ol>
@@ -152,14 +152,15 @@
         Better Auth for the session and returns <code>{ id }</code> or <code>null</code>. The third
         is one catch-all route,
         <a href="../../../apps/web/src/routes/api/chat/$.ts"><code>routes/api/chat/$.ts</code></a
-        >, which passes every method to <code>chat.handler(request)</code>.
+        >, which passes every method to <code>sdk.handler(request)</code>.
       </p>
       <p>
         Look at the picture: the handler, not the Host, decides what a path means. It sends
         <code>/api/chat/rpc/*</code> to the oRPC routers and <code>POST /api/chat/run</code> to
-        <code>handleChat</code> (<a href="../../../packages/bot-sdk/core/server/create-chat.ts"
-          ><code>create-chat.ts</code></a
-        >). Lesson 2 opens <code>createChat</code> itself.
+        <code>handleChat</code> (<a
+          href="../../../packages/bot-sdk/plugins/assistant/server/chat/handle-chat.ts"
+          ><code>handle-chat.ts</code></a
+        >). Lesson 2 opens <code>createBotSdk</code> itself.
       </p>
 
       <h2><span class="num">4</span>Stairs go down; types may look up</h2>
@@ -169,7 +170,7 @@
       <p>
         There is one exception to "only down". <code>client</code> and <code>ui</code> import the
         <em>type</em> of the server's router, so their calls are type-checked:
-        <code>import type { AppRouterClient } from "../server/routers/index"</code> in
+        <code>import type { CoreRouter } from "../server/routers/index"</code> in
         <a href="../../../packages/bot-sdk/core/client/chat-client.ts"
           ><code>chat-client.ts</code></a
         >. TypeScript erases <code>import type</code> lines, so no server code reaches the browser.
@@ -273,7 +274,8 @@
           <li>
             The copy script never copies tests (<code>test</code>, <code>eval</code>,
             <code>*.test.*</code>), and it also copies <code>extras/</code> only once, like
-            <code>ui/</code>. <code>core/VERSION</code> records the commit that was copied.
+            <code>ui/</code>. <code>VERSION</code> in the destination records the commit that was
+            copied.
           </li>
           <li>
             <code>packages/bot-sdk/package.json</code> lists <code>@ai-chat/db</code>, but only the
@@ -282,15 +284,16 @@
           </li>
           <li>
             ADR 0005 says "the client never imports the server". The code does reach the server with
-            <code>import type</code> (in <code>chat-client.ts</code>, <code>search.ts</code> and
-            three <code>ui/</code> files), which keeps the spirit: no server code is bundled.
+            <code>import type</code> (in <code>chat-client.ts</code>, the plugins' client files such
+            as <code>search.ts</code>, and <code>ui/</code> files such as
+            <code>conversation-panel.tsx</code>), which keeps the spirit: no server code is bundled.
           </li>
         </ul>
         <h3>Challenge</h3>
         <p>
           Run <code>grep -rn "from \"\.\./server" packages/bot-sdk/core/client</code>. Is every hit
-          an <code>import type</code>? Then find where apps/web calls <code>chat.start()</code>.
-          Tell your teacher what you found.
+          an <code>import type</code>? Then find where apps/web calls <code>sdk.start()</code>. Tell
+          your teacher what you found.
         </p>
       </details>
 
@@ -312,7 +315,7 @@
         </p>
         <div class="nav">
           <a href="../index.html">← Course contents</a
-          ><a href="0002-create-chat.html">Lesson 2: createChat →</a>
+          ><a href="0002-create-chat.html">Lesson 2: createBotSdk →</a>
         </div>
       </div>
     </main>
@@ -346,7 +349,7 @@
           D.box(40, 100, 80, 36, "core/", { mono: true }) +
           D.box(130, 100, 80, 36, "ui/", { mono: true }) +
           D.arrow(240, 53, 330, 53, { label: "copy" }) +
-          D.box(340, 30, 400, 46, "a Host: src/lib/chat-sdk", { mono: true }) +
+          D.box(340, 30, 400, 46, "a Host: src/lib/bot-sdk", { mono: true }) +
           D.box(360, 100, 170, 36, "core/  replaced", {
             mono: true,
             tone: "accent",
@@ -366,7 +369,7 @@
       const seamSvg = (t = 1, A = { step: () => 1 }) =>
         D.box(10, 70, 100, 46, "Browser", { tone: "blue" }) +
         D.box(150, 70, 190, 46, "routes/api/chat/$.ts", { mono: true, sub: "Host" }) +
-        D.box(380, 70, 170, 46, "chat.handler", { mono: true, tone: "accent", sub: "SDK" }) +
+        D.box(380, 70, 170, 46, "sdk.handler", { mono: true, tone: "accent", sub: "SDK" }) +
         D.box(590, 10, 160, 40, "/rpc/* → routers", { mono: true }) +
         D.box(590, 73, 160, 40, "POST /run", { mono: true, sub: "handleChat" }) +
         D.box(590, 136, 160, 40, "Postgres", { mono: true, sub: "databaseUrl" }) +
@@ -383,7 +386,7 @@
         D.arrow(465, 116, 465, 150, { tone: "ok", dashed: true, label: "who?" });
       D.render(
         "#seam",
-        D.svg(760, 200, seamSvg(), { label: "The Host route hands the request to chat.handler" }),
+        D.svg(760, 200, seamSvg(), { label: "The Host route hands the request to sdk.handler" }),
       );
 
       // Section 4: up-arrows.
@@ -448,7 +451,7 @@
           },
           {
             say: "The Host gives the SDK three things: who the user is, one catch-all route, and a Postgres database.",
-            show: "getUser · routes/api/chat/$.ts → chat.handler · databaseUrl",
+            show: "getUser · routes/api/chat/$.ts → sdk.handler · databaseUrl",
             draw: (t, A) => seamSvg(t, A),
           },
           {
@@ -548,35 +551,35 @@ function allowed(from, to, typeOnly) {
       const PROBES = [
         {
           file: "core/client/chat-client.ts",
-          line: 'import type { AppRouterClient } from "../server/routers/index"',
+          line: 'import type { CoreRouter } from "../server/routers/index"',
           from: "client",
           to: "server",
           typeOnly: true,
         },
         {
-          file: "ui/chat/chat-view.tsx",
-          line: 'import { useChatAdapter } from "../../core/client/react/provider"',
+          file: "plugins/assistant/ui/chat/chat-view.tsx",
+          line: 'import { useChatAdapter } from "../../../../core/client/react/provider"',
           from: "ui",
           to: "client",
           typeOnly: false,
         },
         {
-          file: "core/server/chat/run.ts (a PR)",
+          file: "plugins/assistant/server/chat/run.ts (a PR)",
           line: 'import { db } from "@ai-chat/db"',
           from: "server",
           to: "db",
           typeOnly: false,
         },
         {
-          file: "core/client/chat.ts (a PR)",
-          line: 'import { loadPath } from "../server/chat/store"',
+          file: "core/client/title.ts (a PR)",
+          line: 'import { loadPath } from "../server/chat/message-tree"',
           from: "client",
           to: "server",
           typeOnly: false,
         },
         {
-          file: "core/shared/chat/parts.ts (a PR)",
-          line: 'import { ChatView } from "../../../ui"',
+          file: "core/shared/message-parts.ts (a PR)",
+          line: 'import { ChatView } from "../../ui"',
           from: "shared",
           to: "ui",
           typeOnly: false,
