@@ -3,16 +3,29 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowLeftIcon, PlusIcon } from "lucide-react";
 import { useState } from "react";
 
+import { dateFormat } from "../../../core/client/intl";
 import { useChatAdapter, useI18n } from "../../../core/client/react/provider";
+import { useSendingBotIds } from "../client/react/bot-turn";
 import { BotAvatar } from "./bot-avatar";
 import { NewBotDialog } from "./new-bot-dialog";
 
 /** The Bots app's sidebar: the user's Bots, "+ New Bot", and a link back to the assistant. */
 export function BotSidebar() {
   const { orpc, Link } = useChatAdapter();
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const sending = useSendingBotIds();
   const [creating, setCreating] = useState(false);
-  const bots = useQuery(orpc.bot.list.queryOptions());
+  const bots = useQuery({
+    ...orpc.bot.list.queryOptions(),
+    // A Turn running in another tab shows its end only by asking again.
+    refetchInterval: (state) =>
+      state.state.data?.some((bot) => bot.turnStatus === "running" && !sending.has(bot.id))
+        ? 2000
+        : false,
+  });
+
+  const working = (bot: { id: string; turnStatus: string | null }) =>
+    sending.has(bot.id) || bot.turnStatus === "running";
 
   return (
     <aside
@@ -41,7 +54,32 @@ export function BotSidebar() {
               activeClassName="bg-muted"
             >
               <BotAvatar name={bot.name} />
-              <span className="min-w-0 flex-1 truncate text-sm font-medium">{bot.name}</span>
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="flex items-baseline justify-between gap-2">
+                  <span className="truncate text-sm font-medium">{bot.name}</span>
+                  {bot.lastMessage && (
+                    <time
+                      dateTime={bot.lastMessage.at.toISOString()}
+                      className="shrink-0 text-xs text-muted-foreground"
+                    >
+                      {dateFormat(locale, { hour: "numeric", minute: "2-digit" }).format(
+                        bot.lastMessage.at,
+                      )}
+                    </time>
+                  )}
+                </span>
+                {working(bot) ? (
+                  <span className="truncate text-xs text-muted-foreground">
+                    {t("bots.working")}
+                  </span>
+                ) : (
+                  bot.lastMessage && (
+                    <span className="truncate text-xs text-muted-foreground">
+                      {bot.lastMessage.text}
+                    </span>
+                  )
+                )}
+              </span>
             </Link>
           </li>
         ))}

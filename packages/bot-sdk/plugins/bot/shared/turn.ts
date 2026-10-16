@@ -15,6 +15,9 @@ export const turnStatusSchema = z.enum(["complete", "error", "stopped"]);
 
 export type TurnStatus = z.infer<typeof turnStatusSchema>;
 
+/** A Turn's status as the server holds it: `running` until it ends. */
+export type BotTurnStatus = TurnStatus | "running";
+
 /** What `bot.send` streams: each Message as it's saved, then how the Turn ended. */
 export const botSendEventSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("message"), message: botMessageSchema }),

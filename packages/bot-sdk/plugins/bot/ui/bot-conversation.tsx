@@ -11,7 +11,8 @@ import { BotAvatar } from "./bot-avatar";
 
 /**
  * A Bot's Conversation: the Messages sent in it, the user's on the right and the Bot's on the left,
- * ••• while a Turn runs, and "Seen ✓" under the user's last Message when the Bot stayed quiet.
+ * ••• while a Turn runs, and "Seen ✓" under the user's last Message when the Bot stayed quiet, or "Couldn't reply" when the
+ * Turn failed.
  */
 export function BotConversation({ botId }: { botId: string }) {
   // One instance per Bot, so a Turn's state never shows on another Bot.
@@ -21,7 +22,8 @@ export function BotConversation({ botId }: { botId: string }) {
 function BotConversationView({ botId }: { botId: string }) {
   const i18n = useI18n();
   const { t } = i18n;
-  const { bot, error, messages, running, seenMessageId, send } = useBotTurn(botId);
+  const { bot, error, messages, running, working, seenMessageId, failedMessageId, send } =
+    useBotTurn(botId);
   const [draft, setDraft] = useState("");
 
   if (error) {
@@ -73,9 +75,12 @@ function BotConversationView({ botId }: { botId: string }) {
             {message.id === seenMessageId && (
               <p className="self-end text-xs text-muted-foreground">{t("bots.seen")}</p>
             )}
+            {message.id === failedMessageId && (
+              <p className="self-end text-xs text-muted-foreground">{t("bots.couldntReply")}</p>
+            )}
           </Fragment>
         ))}
-        {running && (
+        {working && (
           <div
             role="status"
             aria-label={t("bots.typing")}

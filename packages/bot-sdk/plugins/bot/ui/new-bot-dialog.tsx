@@ -40,7 +40,10 @@ export function NewBotDialog({
     orpc.bot.create.mutationOptions({
       onSuccess: async (created) => {
         // The new Bot has the newest activity, so it goes first.
-        queryClient.setQueryData(orpc.bot.list.queryKey(), (bots) => [created, ...(bots ?? [])]);
+        queryClient.setQueryData(orpc.bot.list.queryKey(), (bots) => [
+          { ...created, turnStatus: null, lastMessage: null },
+          ...(bots ?? []),
+        ]);
         close();
         await navigate({ to: "bots", id: created.id });
       },
