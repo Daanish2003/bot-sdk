@@ -23,4 +23,4 @@ Agents wrote most of the chat feature. The goal is to own it end to end: to chan
 
 - Better Auth and Passkey internals beyond "who is the user" (`getUser`).
 - UI styling, shadcn and the generic `@ai-chat/ui` components; the PWA and i18n wording.
-- Deployment (Render, Docker) and Redis operations beyond what a Run needs from them.
+- Deployment and Redis operations beyond what a Run needs from them.
