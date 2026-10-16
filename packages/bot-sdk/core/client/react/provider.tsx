@@ -82,8 +82,8 @@ export function ChatProvider({
 }) {
   const [ownQueryClient] = useState(() => new QueryClient());
   const adapter = useMemo<ChatAdapter>(() => {
-    const { rpc: _rpc, fetch: _fetch, ...urls } = client;
-    return { ...router, ...urls, i18n: createI18n(messages, locale) };
+    const { rpc: _rpc, fetch: _fetch, ...orpcAndUrls } = client;
+    return { ...router, ...orpcAndUrls, i18n: createI18n(messages, locale) };
   }, [client, router, messages, locale]);
   return (
     <QueryClientProvider client={queryClient ?? ownQueryClient}>
