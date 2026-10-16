@@ -5,7 +5,11 @@ export {
   type GetUser,
   type Logger,
 } from "./create-chat";
-export { assistant, type AssistantApi, type AssistantOptions } from "./assistant";
+export {
+  assistant,
+  type AssistantApi,
+  type AssistantOptions,
+} from "../../plugins/assistant/server/plugin";
 // The `models` plugin, served from here until the exports split by owner (spec #439).
 export * from "../../plugins/models/server/index";
 export type { BotSdkContext, BotSdkPlugin, PluginApis, Route } from "./plugin";
@@ -29,13 +33,20 @@ export {
   type RedisRuntimeOptions,
 } from "./runtime";
 export { redisStore, type RedisStore } from "./chat/redis-store";
-export type { HostServerTool, HostToolContext } from "./chat/host-tools";
-export { ImageRefusedError } from "./deps";
+export type {
+  HostServerTool,
+  HostToolContext,
+} from "../../plugins/assistant/server/chat/host-tools";
+export { ImageRefusedError } from "../../plugins/assistant/server/deps";
 export type { PubSub } from "./chat/pubsub";
 export type { RateLimit, RateLimits } from "./rate-limits";
 export { createDb, type Database } from "./db";
 export type { BlobStore } from "./blob/store";
 export { postgresBlobStore } from "./blob/postgres";
 export { s3BlobStore, type S3BlobStoreOptions } from "./blob/s3";
-export type { McpServerConfig } from "./mcp/servers";
-export type { JobRunner, JobStatus, EnqueueOptions } from "./jobs/runner";
+export type { McpServerConfig } from "../../plugins/assistant/server/mcp/servers";
+export type {
+  JobRunner,
+  JobStatus,
+  EnqueueOptions,
+} from "../../plugins/assistant/server/jobs/runner";

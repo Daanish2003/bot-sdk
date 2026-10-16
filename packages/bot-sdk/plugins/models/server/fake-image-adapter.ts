@@ -1,6 +1,6 @@
 import type { AnyImageAdapter, ImageGenerationResult, TokenUsage } from "@tanstack/ai";
 
-import { ImageRefusedError } from "../../../core/server/deps";
+import { ImageRefusedError } from "../../assistant/server/deps";
 
 /**
  * A fixed 1 x 1 PNG, the picture every fake image adapter returns. A test checks its size, not

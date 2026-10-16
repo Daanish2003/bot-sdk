@@ -14,7 +14,7 @@ import { chatSchema } from "../../../core/server/db/chat-schema";
 import type { coreSchema } from "../../../core/server/db/core-schema";
 import type { IndexColumns, PluginSchema } from "../../../core/server/db/plugin-schema";
 import { message } from "../../../core/server/db/schema";
-import type { ConversationTools } from "../../../core/shared/chat/conversation-tools";
+import type { ConversationTools } from "../shared/chat/conversation-tools";
 import type { MessageUsage } from "../../../core/shared/chat/message-record";
 import { artifact, artifactKind, artifactVersion } from "./db/artifact";
 import { mcpConnection } from "./db/connection";

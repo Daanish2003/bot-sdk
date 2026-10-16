@@ -1,17 +1,12 @@
 import { onError } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 
-import { assistantState, type AssistantState } from "../../plugins/assistant/server/state";
-import { modelsOver } from "../../plugins/models/server/plugin";
-import type { ModelsDeps } from "../../plugins/models/server/types";
-import { assistantOver } from "./assistant";
+import type { UserExport } from "../../plugins/assistant/server/export-user";
 import { postgresBlobStore } from "./blob/postgres";
 import type { BlobStore } from "./blob/store";
 import { createHookEmitter } from "./chat/hooks";
 import type { ChatUser, Context } from "./context";
 import { createDb } from "./db/index";
-import { deleteUserData } from "./delete-user";
-import { exportUserData, type UserExport } from "./export-user";
 import { createGuardedFetch } from "./lib/guarded-fetch";
 import { assertMigrated, migrate as migrateSchema } from "./migrate";
 import {
@@ -145,7 +140,7 @@ export function createBotSdk<const Plugins extends readonly BotSdkPlugin[]>(
   return buildBotSdk(options, {}).instance;
 }
 
-function buildBotSdk(
+export function buildBotSdk(
   options: BotSdkOptions,
   given: GivenContext,
 ): { instance: BotSdk; context: BotSdkContext } {
@@ -188,8 +183,14 @@ function buildBotSdk(
       }
     },
     // The assistant's tables until each plugin deletes and exports its own (#449).
-    deleteUser: (userId) => deleteUserData(sdk, userId),
-    exportUser: (userId) => exportUserData(sdk, userId),
+    deleteUser: async (userId) => {
+      for (const plugin of [...plugins].reverse()) await plugin.deleteUser?.(sdk, userId);
+    },
+    exportUser: async (userId) => {
+      const document: Partial<UserExport> = {};
+      for (const plugin of plugins) Object.assign(document, await plugin.exportUser?.(sdk, userId));
+      return document as UserExport;
+    },
     rotateKeys: async () => {
       const total = { reencrypted: 0, unreadable: 0 };
       for (const plugin of plugins) {
@@ -247,46 +248,6 @@ function buildContext(
     },
     plugin: <Id extends keyof PluginApis>(id: Id) => plugin(id) as PluginApis[Id],
   };
-}
-
-type OverOptions = Pick<BotSdkOptions, "basePath" | "getUser" | "getClientIp" | "logger">;
-
-/**
- * What the tests and evals drive: the core context of an instance over fakes, with its `models`
- * plugin's bundle. The `assistant` plugin's state is `assistantState(sdk)`.
- */
-export type SdkOver = BotSdkContext & ModelsDeps;
-
-/**
- * A real instance whose core context, `models` and `assistant` plugins take the given parts in place
- * of built ones: the seam the tests and evals drive with fakes. Returns the instance and its
- * context with the `models` bundle.
- */
-export function createBotSdkOver(
-  given: { context: GivenContext; models: ModelsDeps; assistant: Partial<AssistantState> },
-  options: OverOptions,
-): { instance: BotSdk; sdk: SdkOver } {
-  const { instance, context } = buildBotSdk(
-    {
-      ...options,
-      databaseUrl: "",
-      keyEncryptionSecrets: given.context.keyring ?? given.models.keyEncryptionSecrets,
-      plugins: [modelsOver(given.models), assistantOver(given.assistant)],
-    },
-    given.context,
-  );
-  return { instance, sdk: { ...given.models, ...context } };
-}
-
-/**
- * The handler of a new instance over `sdk`'s parts (a `createBotSdkOver` context, or a copy of one
- * with some parts replaced): its core context, `models` bundle and `assistant` state.
- */
-export function createChatHandler(sdk: SdkOver, options: OverOptions): ChatHandler {
-  const { plugin: _plugin, rateLimit: _rateLimit, ...context } = sdk;
-  const models = { ...sdk, hooks: sdk.events, keyEncryptionSecrets: sdk.keyring };
-  return createBotSdkOver({ context, models, assistant: assistantState(sdk) }, options).instance
-    .handler;
 }
 
 function createHandler(

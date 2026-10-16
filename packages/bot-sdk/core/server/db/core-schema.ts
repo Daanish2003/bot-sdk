@@ -1,7 +1,8 @@
 import { sql } from "drizzle-orm";
 import { type AnyPgColumn, index, jsonb, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
-import type { StoredParts } from "../../shared/message-parts";
+// Type only: the column's type is the assistant's parts union until the row types are composed from the plugins.
+import type { StoredParts } from "../../../plugins/assistant/shared/message-parts";
 import { attachment, messageAttachment } from "./attachment";
 import { blob } from "./blob";
 import { chatSchema } from "./chat-schema";

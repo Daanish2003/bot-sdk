@@ -8,7 +8,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-import { artifactKinds } from "../../../../core/shared/chat/artifact";
+import { artifactKinds } from "../../shared/chat/artifact";
 import { chatSchema } from "../../../../core/server/db/chat-schema";
 import { conversation, message } from "../../../../core/server/db/schema";
 

@@ -1,9 +1,8 @@
 import { and, eq, gte, lt, sql } from "drizzle-orm";
 
 import { usage } from "../../../core/server/db/schema";
-import type { RunUsage } from "../../../core/server/chat/usage";
+import type { RunUsage } from "../../assistant/server/chat/usage";
 import type { MessageUsage } from "../../../core/shared/chat/message-record";
-import type { StoredPart } from "../../../core/shared/message-parts";
 import type { ModelsDeps } from "./types";
 
 /** One user's calls on Host credentials over a range, in micros and tokens (spec #277). */
@@ -94,14 +93,17 @@ export async function usageByDay(
  */
 export function messageUsage(
   reported: RunUsage | undefined,
-  { promptCharacters, parts }: { promptCharacters: number; parts: StoredPart[] },
+  {
+    promptCharacters,
+    parts,
+  }: { promptCharacters: number; parts: { type: string; text?: string }[] },
 ): MessageUsage {
   if (reported) return { ...reported, estimated: false };
   let thinking = 0;
   let text = 0;
   for (const part of parts) {
-    if (part.type === "text") text += part.text.length;
-    if (part.type === "thinking") thinking += part.text.length;
+    if (part.type === "text") text += part.text?.length ?? 0;
+    if (part.type === "thinking") thinking += part.text?.length ?? 0;
   }
   return {
     input: tokensOf(promptCharacters),

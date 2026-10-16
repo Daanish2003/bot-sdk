@@ -1,0 +1,524 @@
+import {
+  conversation,
+  message,
+  type MessageRow,
+  sharedLink,
+  generatedImage,
+} from "../../../../core/server/db/schema";
+import { and, desc, eq, inArray, isNotNull, isNull, type SQL, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
+import { z } from "zod";
+
+import { attachmentsOfMessages } from "../../../../core/server/attachments/store";
+import { deleteBlobsBestEffort } from "../../../../core/server/blob/store";
+import type { BotSdkContext } from "../../../../core/server/plugin";
+import { generatedImageKeysWhere, imagesOfMessages } from "./generated-image-store";
+import { withProjectId } from "../../../../core/server/chat/hooks";
+import { turnChangesOf } from "../memory/notice";
+import { newestLeaf, pathTo, siblingPosition } from "../../../../core/shared/chat/branches";
+import { type ActiveBranchMessage, toClientMessage } from "../../shared/chat/client-message";
+import type { ReasoningChoice } from "../../../../core/shared/chat/models";
+import { liveConversation } from "./temporary";
+
+type Deps = Pick<BotSdkContext, "db">;
+
+/**
+ * Matches the Conversation `id` only when `userId` owns it and it is live: an expired Temporary
+ * Conversation is gone to every read and write until the sweep deletes it (spec #262).
+ */
+function ownConversation(userId: string, id: string) {
+  return and(
+    eq(conversation.id, id),
+    eq(conversation.userId, userId),
+    liveConversation(new Date()),
+  );
+}
+
+/** The user's Conversation, or `undefined` when it doesn't exist or belongs to someone else. */
+export async function findConversation(deps: Deps, userId: string, id: string) {
+  const [row] = await deps.db.select().from(conversation).where(ownConversation(userId, id));
+  return row;
+}
+
+/** Sets the user's Conversation title; `false` when it isn't theirs. Doesn't bump `lastMessageAt`. */
+export async function renameConversation(deps: Deps, userId: string, id: string, title: string) {
+  const rows = await deps.db
+    .update(conversation)
+    .set({ title })
+    .where(ownConversation(userId, id))
+    .returning({ id: conversation.id });
+  return rows.length > 0;
+}
+
+/** Selects the user's Conversation's Model; `false` when it isn't theirs. Doesn't bump `lastMessageAt`. */
+export async function setConversationModel(deps: Deps, userId: string, id: string, model: string) {
+  const rows = await deps.db
+    .update(conversation)
+    .set({ model })
+    .where(ownConversation(userId, id))
+    .returning({ id: conversation.id });
+  return rows.length > 0;
+}
+
+/**
+ * Moves the user's Conversation into `projectId` (`null` takes it out of its Project). Only
+ * `projectId` changes: the Model, Messages, pin and `lastMessageAt` stay. `false` when it isn't theirs.
+ */
+export async function moveConversation(
+  deps: Deps,
+  userId: string,
+  id: string,
+  projectId: string | null,
+) {
+  const rows = await deps.db
+    .update(conversation)
+    .set({ projectId })
+    .where(ownConversation(userId, id))
+    .returning({ id: conversation.id });
+  return rows.length > 0;
+}
+
+/** Sets the user's Conversation's reasoning effort (`null` for the Model's default); `false` when it isn't theirs. */
+export async function setConversationReasoningEffort(
+  deps: Deps,
+  userId: string,
+  id: string,
+  reasoningEffort: ReasoningChoice | null,
+) {
+  const rows = await deps.db
+    .update(conversation)
+    .set({ reasoningEffort })
+    .where(ownConversation(userId, id))
+    .returning({ id: conversation.id });
+  return rows.length > 0;
+}
+
+/**
+ * Sets which MCP Connections the user's Conversation has switched on (spec #91). The Conversation's
+ * other tool setting is kept. `false` when it isn't theirs.
+ */
+export async function setConversationConnections(
+  deps: Deps,
+  userId: string,
+  id: string,
+  connections: string[],
+) {
+  const row = await findConversation(deps, userId, id);
+  if (!row) return false;
+  const rows = await deps.db
+    .update(conversation)
+    .set({ toolSettings: { ...row.toolSettings, connections } })
+    .where(ownConversation(userId, id))
+    .returning({ id: conversation.id });
+  return rows.length > 0;
+}
+
+/**
+ * Deletes the user's Conversation and, by cascade, its Messages and Shared link; `false` when it
+ * isn't theirs. Fires `onConversationDeleted` after the delete (#266).
+ */
+export async function deleteConversation(
+  deps: Pick<BotSdkContext, "db" | "events" | "blobStore" | "logger">,
+  userId: string,
+  id: string,
+) {
+  const { row, blobKeys } = await deps.db.transaction(async (tx) => {
+    // The Generated images of this Conversation: their rows go by cascade, their bytes after the commit.
+    const blobKeys = await generatedImageKeysWhere(
+      tx,
+      and(eq(generatedImage.userId, userId), imagesOfMessages(tx, eq(message.conversationId, id))),
+    );
+    const [row] = await tx
+      .delete(conversation)
+      .where(ownConversation(userId, id))
+      .returning({ id: conversation.id, projectId: conversation.projectId });
+    return { row, blobKeys };
+  });
+  await deleteBlobsBestEffort(deps, blobKeys);
+  if (!row) return false;
+  deps.events.fire("onConversationDeleted", {
+    userId,
+    conversationId: row.id,
+    ...withProjectId(row.projectId),
+  });
+  return true;
+}
+
+/** How many Conversations a user can have pinned at once. */
+export const maxPinnedConversations = 20;
+
+/**
+ * Pins the user's Conversation (a Project one too); `"not_found"` when it isn't theirs, `"limit"`
+ * when they already have `maxPinnedConversations` pinned. Pinning a pinned Conversation keeps its
+ * pin time. A Temporary Conversation is never pinned (`"temporary"`). Pinning an archived Conversation
+ * unarchives it. Doesn't bump `lastMessageAt`.
+ */
+export async function pinConversation(
+  deps: Deps,
+  userId: string,
+  id: string,
+): Promise<"pinned" | "not_found" | "limit" | "temporary"> {
+  const row = await findConversation(deps, userId, id);
+  if (!row) return "not_found";
+  if (row.temporary) return "temporary";
+  if (row.pinnedAt) return "pinned";
+  const [counted] = await deps.db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(conversation)
+    .where(and(eq(conversation.userId, userId), isNotNull(conversation.pinnedAt)));
+  if ((counted?.count ?? 0) >= maxPinnedConversations) return "limit";
+  await deps.db
+    .update(conversation)
+    .set({ pinnedAt: new Date(), archivedAt: null })
+    .where(ownConversation(userId, id));
+  return "pinned";
+}
+
+/** Unpins the user's Conversation; `false` when it isn't theirs. Doesn't bump `lastMessageAt`. */
+export async function unpinConversation(deps: Deps, userId: string, id: string) {
+  const rows = await deps.db
+    .update(conversation)
+    .set({ pinnedAt: null })
+    .where(ownConversation(userId, id))
+    .returning({ id: conversation.id });
+  return rows.length > 0;
+}
+
+/**
+ * Archives the user's Conversation, which also unpins it: a Conversation is never both. It leaves
+ * the lists but nothing else changes. Archiving an archived one keeps its archive time. `false`
+ * when it isn't theirs. Doesn't bump `lastMessageAt`.
+ */
+export async function archiveConversation(deps: Deps, userId: string, id: string) {
+  const row = await findConversation(deps, userId, id);
+  if (!row) return false;
+  if (!row.archivedAt) {
+    await deps.db
+      .update(conversation)
+      .set({ archivedAt: new Date(), pinnedAt: null })
+      .where(ownConversation(userId, id));
+  }
+  return true;
+}
+
+/**
+ * Archives every Conversation of the user that is in no Project, isn't pinned, Temporary or archived
+ * yet, and returns how many. Doesn't bump `lastMessageAt`.
+ */
+export async function archiveAllConversations(deps: Deps, userId: string) {
+  const rows = await deps.db
+    .update(conversation)
+    .set({ archivedAt: new Date() })
+    .where(
+      and(
+        eq(conversation.userId, userId),
+        eq(conversation.temporary, false),
+        isNull(conversation.projectId),
+        isNull(conversation.pinnedAt),
+        isNull(conversation.archivedAt),
+      ),
+    )
+    .returning({ id: conversation.id });
+  return rows.length;
+}
+
+/** Brings the user's archived Conversation back to the lists; `false` when it isn't theirs. */
+export async function unarchiveConversation(deps: Deps, userId: string, id: string) {
+  const rows = await deps.db
+    .update(conversation)
+    .set({ archivedAt: null })
+    .where(ownConversation(userId, id))
+    .returning({ id: conversation.id });
+  return rows.length > 0;
+}
+
+/** How much of the Active Branch's last Message the Conversation panel previews. */
+const previewLength = 160;
+
+const leaf = alias(message, "leaf");
+const leafParent = alias(message, "leaf_parent");
+
+/** The columns of a Conversation row in the sidebar: its Active Branch's preview and error flag. */
+const conversationSummaryFields = {
+  id: conversation.id,
+  title: conversation.title,
+  model: conversation.model,
+  lastMessageAt: conversation.lastMessageAt,
+  pinnedAt: conversation.pinnedAt,
+  projectId: conversation.projectId,
+  preview: sql<
+    string | null
+  >`left(coalesce(nullif(${leaf.searchText}, ''), ${leafParent.searchText}), ${previewLength})`,
+  lastStatus: leaf.status,
+  shared: sql<boolean>`${sharedLink.token} is not null`,
+};
+
+/** A sidebar row without the query's helper columns, with its preview on one line. */
+function summarize<T extends { preview: string | null; lastStatus: string | null }>({
+  preview,
+  lastStatus,
+  ...row
+}: T) {
+  return {
+    ...row,
+    preview: (preview ?? "").replace(/\s+/g, " ").trim(),
+    hasError: lastStatus === "error",
+  };
+}
+
+/** Conversations per page of the main Conversation list. */
+export const conversationPageSize = 50;
+
+/**
+ * Where the next page starts: the last row's `lastMessageAt` as Postgres prints it (full
+ * precision, which a JS `Date` would lose) and its id.
+ */
+const conversationCursorShape = z.object({
+  lastMessageAt: z.string().regex(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d{1,6})?$/),
+  id: z.uuid(),
+});
+type ConversationCursor = z.infer<typeof conversationCursorShape>;
+
+function encodeConversationCursor(cursor: ConversationCursor) {
+  return Buffer.from(JSON.stringify(cursor)).toString("base64url");
+}
+
+/** The decoded cursor, or `undefined` when it isn't one this module wrote. */
+export function decodeConversationCursor(cursor: string): ConversationCursor | undefined {
+  try {
+    return conversationCursorShape.parse(JSON.parse(Buffer.from(cursor, "base64url").toString()));
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * One page of the user's Conversations for the Conversation panel: the ones in no Project, or the
+ * ones in `projectId`. Newest Message first, ties broken by id, `conversationPageSize` at a time.
+ * Each row has a one-line preview of its Active Branch's last Message and whether that Message
+ * ended in an error. A reply that hasn't written any text yet previews the Message it answers.
+ * `shared` says whether the Conversation has a Shared link. Pass the previous page's `nextCursor`
+ * for the next one.
+ */
+export async function listConversations(
+  deps: Deps,
+  userId: string,
+  cursor?: ConversationCursor,
+  projectId?: string,
+) {
+  return pageConversations(
+    deps,
+    and(
+      eq(conversation.userId, userId),
+      eq(conversation.temporary, false),
+      isNull(conversation.archivedAt),
+      projectId
+        ? eq(conversation.projectId, projectId)
+        : and(isNull(conversation.projectId), isNull(conversation.pinnedAt)),
+    ),
+    cursor,
+  );
+}
+
+/**
+ * One page of the user's archived Conversations for the Archived list in settings, Project ones
+ * too. Newest Message first, `conversationPageSize` at a time, like `listConversations`.
+ */
+export async function listArchivedConversations(
+  deps: Deps,
+  userId: string,
+  cursor?: ConversationCursor,
+) {
+  return pageConversations(
+    deps,
+    and(
+      eq(conversation.userId, userId),
+      eq(conversation.temporary, false),
+      isNotNull(conversation.archivedAt),
+    ),
+    cursor,
+  );
+}
+
+/** Newest Message first, ties broken by id: one page of the rows `where` matches. */
+async function pageConversations(deps: Deps, where: SQL | undefined, cursor?: ConversationCursor) {
+  const lastMessageAtText = sql<string>`${conversation.lastMessageAt}::text`;
+  const rows = await deps.db
+    .select({ ...conversationSummaryFields, lastMessageAtText })
+    .from(conversation)
+    .leftJoin(leaf, eq(leaf.id, conversation.activeLeafId))
+    .leftJoin(leafParent, eq(leafParent.id, leaf.parentId))
+    .leftJoin(sharedLink, eq(sharedLink.conversationId, conversation.id))
+    .where(
+      and(
+        where,
+        cursor &&
+          sql`(${conversation.lastMessageAt}, ${conversation.id}) < (${cursor.lastMessageAt}::timestamp, ${cursor.id}::uuid)`,
+      ),
+    )
+    .orderBy(desc(conversation.lastMessageAt), desc(conversation.id))
+    .limit(conversationPageSize + 1);
+
+  const page = rows.slice(0, conversationPageSize);
+  const last = page.at(-1);
+  return {
+    items: page.map(({ lastMessageAtText: _text, ...row }) => summarize(row)),
+    nextCursor:
+      rows.length > conversationPageSize && last
+        ? encodeConversationCursor({ lastMessageAt: last.lastMessageAtText, id: last.id })
+        : null,
+  };
+}
+
+/**
+ * The user's pinned Conversations, Project ones too, most recently pinned first. Not paged: the
+ * pin cap keeps it short.
+ */
+export async function listPinnedConversations(deps: Deps, userId: string) {
+  const rows = await deps.db
+    .select(conversationSummaryFields)
+    .from(conversation)
+    .leftJoin(leaf, eq(leaf.id, conversation.activeLeafId))
+    .leftJoin(leafParent, eq(leafParent.id, leaf.parentId))
+    .leftJoin(sharedLink, eq(sharedLink.conversationId, conversation.id))
+    .where(
+      and(
+        eq(conversation.userId, userId),
+        isNotNull(conversation.pinnedAt),
+        eq(conversation.temporary, false),
+        isNull(conversation.archivedAt),
+      ),
+    )
+    .orderBy(desc(conversation.pinnedAt), desc(conversation.id));
+  return rows.map(summarize);
+}
+
+/** The Message, or `undefined` when it doesn't exist or is in someone else's Conversation. */
+export async function findMessage(deps: Deps, userId: string, id: string) {
+  const [row] = await deps.db
+    .select({ message })
+    .from(message)
+    .innerJoin(conversation, eq(conversation.id, message.conversationId))
+    .where(and(eq(message.id, id), eq(conversation.userId, userId), liveConversation(new Date())));
+  return row?.message;
+}
+
+/** The statuses whose Run has ended, so the reply can be rated (see **Rating** in CONTEXT.md). */
+const endedStatuses = ["complete", "stopped", "error"] as const;
+
+/**
+ * Sets the owner's Rating of an ended assistant reply, or clears it with null. Only the latest is
+ * kept. `live` covers a reply whose Run hasn't ended, checked again in the update so a Run that
+ * starts in between can't be rated. `hidden` covers a Hidden reply, which is never ratable (#330).
+ */
+export async function rateMessage(
+  deps: Deps,
+  userId: string,
+  id: string,
+  rating: "up" | "down" | null,
+): Promise<"rated" | "not_found" | "not_assistant" | "hidden" | "live"> {
+  const owned = await findMessage(deps, userId, id);
+  if (!owned) return "not_found";
+  if (owned.role !== "assistant") return "not_assistant";
+  if (owned.hiddenAt !== null) return "hidden";
+  if (!(endedStatuses as readonly string[]).includes(owned.status)) return "live";
+  const updated = await deps.db
+    .update(message)
+    .set({ rating, ratedAt: rating ? new Date() : null })
+    .where(and(eq(message.id, id), inArray(message.status, endedStatuses)))
+    .returning({ id: message.id });
+  return updated.length ? "rated" : "live";
+}
+
+/** The Messages from a root down to `leafId`, oldest first. Empty without a leaf. */
+export async function loadPath(
+  deps: Deps,
+  conversationId: string,
+  leafId: string | null,
+): Promise<MessageRow[]> {
+  if (!leafId) return [];
+  return pathTo(await loadMessages(deps, conversationId), leafId);
+}
+
+function loadMessages(deps: Deps, conversationId: string) {
+  return deps.db.select().from(message).where(eq(message.conversationId, conversationId));
+}
+
+/** The Active Branch for the client, each Message with where it sits among its siblings. */
+export async function loadActiveBranch(
+  deps: Deps,
+  conversationId: string,
+  leafId: string | null,
+): Promise<ActiveBranchMessage[]> {
+  if (!leafId) return [];
+  const rows = await loadMessages(deps, conversationId);
+  const path = pathTo(rows, leafId);
+  const attachments = await attachmentsOfMessages(
+    deps,
+    path.map((row) => row.id),
+  );
+  const owners = memoryOwnerReplies(rows);
+  const changes = await turnChangesOf(
+    deps,
+    path.filter((row) => row.role === "user").map((row) => row.id),
+  );
+  return path.map((row) => ({
+    ...toClientMessage(row, attachments.get(row.id)),
+    siblings: siblingPosition(rows, row),
+    memoryChanges:
+      row.parentId !== null && owners.get(row.parentId) === row.id
+        ? (changes.get(row.parentId) ?? [])
+        : [],
+  }));
+}
+
+/**
+ * The reply that owns each user Message's Memory changes (#290): the first of its replies that
+ * ended `complete` or `stopped`, since a regenerated reply makes no Memories of its own.
+ */
+function memoryOwnerReplies(rows: MessageRow[]): Map<string, string> {
+  const owners = new Map<string, string>();
+  const oldestFirst = [...rows].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  for (const row of oldestFirst) {
+    if (row.role !== "assistant" || row.parentId === null || row.hiddenAt !== null) continue;
+    if (row.status !== "complete" && row.status !== "stopped") continue;
+    if (!owners.has(row.parentId)) owners.set(row.parentId, row.id);
+  }
+  return owners;
+}
+
+/**
+ * Makes the newest leaf under the user's Message the Active Branch. Doesn't bump
+ * `lastMessageAt`. Refused while a reply streams, like every other change to the Branch.
+ */
+export async function switchBranch(
+  deps: Deps,
+  userId: string,
+  messageId: string,
+): Promise<"switched" | "not_found" | "streaming"> {
+  const target = await findMessage(deps, userId, messageId);
+  if (!target) return "not_found";
+  return deps.db.transaction(async (tx) => {
+    // Queues behind a send's transaction, which holds the same lock (see `handleChat`).
+    await tx
+      .select({ id: conversation.id })
+      .from(conversation)
+      .where(eq(conversation.id, target.conversationId))
+      .for("update");
+    const nodes = await tx
+      .select({
+        id: message.id,
+        parentId: message.parentId,
+        createdAt: message.createdAt,
+        status: message.status,
+      })
+      .from(message)
+      .where(eq(message.conversationId, target.conversationId));
+    if (nodes.some((node) => node.status === "streaming")) return "streaming";
+    await tx
+      .update(conversation)
+      .set({ activeLeafId: newestLeaf(nodes, target.id) })
+      .where(eq(conversation.id, target.conversationId));
+    return "switched";
+  });
+}

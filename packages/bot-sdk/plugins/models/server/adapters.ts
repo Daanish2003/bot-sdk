@@ -34,7 +34,7 @@ import { createVercelGatewayImage, createVercelGatewayText } from "@tanstack/ai-
 import { createBytePlusImage } from "@tanstack/ai-byteplus";
 
 import type { Credentials } from "./types";
-import type { AspectRatio } from "../../../core/shared/chat/generated-image";
+import type { AspectRatio } from "../../assistant/shared/chat/generated-image";
 import { isKnownModel, parseModelId } from "../../../core/shared/chat/models";
 
 /** The model id type of an adapter factory. The ids are checked in `models.test.ts`. */

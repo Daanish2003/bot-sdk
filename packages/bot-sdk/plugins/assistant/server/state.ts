@@ -1,8 +1,8 @@
-import type { HostServerTool } from "../../../core/server/chat/host-tools";
+import type { HostServerTool } from "./chat/host-tools";
 import type { RunStreams } from "../../../core/server/chat/run-streams";
-import type { Limits, SearchClient } from "../../../core/server/deps";
-import type { JobRunner } from "../../../core/server/jobs/runner";
-import type { McpServerConfig } from "../../../core/server/mcp/servers";
+import type { Limits, SearchClient } from "./deps";
+import type { JobRunner } from "./jobs/runner";
+import type { McpServerConfig } from "./mcp/servers";
 import type { BotSdkContext } from "../../../core/server/plugin";
 
 /** What the `assistant` plugin owns beside the core context: its options and its Run machinery. */

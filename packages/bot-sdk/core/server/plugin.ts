@@ -6,6 +6,7 @@ import type { EventHooks, HookEmitter } from "./chat/hooks";
 import type { PubSub } from "./chat/pubsub";
 import type { ChatUser } from "./context";
 import type { Database } from "./db/index";
+import type { UserExport } from "../../plugins/assistant/server/export-user";
 import type { RateLimit } from "./rate-limits";
 import type { BotSdkRuntime } from "./runtime";
 
@@ -98,6 +99,13 @@ export type BotSdkPlugin<
    * `unreadable` counts rows no key can read. `rotateKeys()` sums every plugin's counts.
    */
   rotateKeys?: (sdk: BotSdkContext) => Promise<{ reencrypted: number; unreadable: number }>;
+  /**
+   * Deletes this plugin's data for a user (`sdk.deleteUser`). The assistant's does it for every
+   * `chat` table until each plugin deletes its own (#449).
+   */
+  deleteUser?: (sdk: BotSdkContext, userId: string) => Promise<void>;
+  /** This plugin's part of a user's export (`sdk.exportUser`); the parts are merged (#449). */
+  exportUser?: (sdk: BotSdkContext, userId: string) => Promise<Partial<UserExport>>;
   /** Type only: the event hooks this plugin fires. */
   readonly "~events"?: Event;
 };

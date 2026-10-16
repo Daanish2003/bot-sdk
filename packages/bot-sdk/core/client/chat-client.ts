@@ -2,7 +2,7 @@ import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import { createTanstackQueryUtils, type RouterUtils } from "@orpc/tanstack-query";
 
-import type { AppRouterClient } from "../server/routers/index";
+import type { AppRouterClient } from "../../plugins/assistant/server/routers/index";
 import { throwIfRateLimited } from "./rate-limit";
 
 /** The oRPC TanStack Query utils for the app router. */
