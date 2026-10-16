@@ -463,6 +463,70 @@ window.NAMES = [
       "The SiblingPosition loadActiveBranch adds to each Active Branch Message; 1 of 1 on the client while a reply streams.",
     example: 'messageSiblings(message) → { index: 0, count: 2, previousId: null, nextId: "a1b" }',
   },
+  {
+    lesson: 9,
+    name: "core",
+    kind: "folder",
+    meaning:
+      "The base every Bot SDK has: infrastructure, Conversation, Message, the message tree, base parts and attachments.",
+    example: "core/server/db/core-schema.ts",
+  },
+  {
+    lesson: 9,
+    name: "plugins/<name>/",
+    kind: "folder",
+    meaning:
+      "One plugin's folder, in shared, server, client and ui. Today there are two: models and assistant.",
+    example: "plugins/assistant/server/plugin.ts",
+  },
+  {
+    lesson: 9,
+    name: "BotSdkPlugin",
+    kind: "type",
+    meaning:
+      "A plugin's plain object: id, requires, router, routes, rateLimits, init, start, stop, databaseHooks, deleteUser, exportUser and rotateKeys.",
+    example: 'assistant() returns one with id "assistant" and requires ["models"]',
+  },
+  {
+    lesson: 9,
+    name: "plugin(id)",
+    kind: "function",
+    meaning:
+      "Returns an enabled plugin's API from the context, typed through PluginApis. It throws when the plugin is not enabled.",
+    example: 'sdk.plugin("models").quota(userId)',
+  },
+  {
+    lesson: 9,
+    name: "PluginApis",
+    kind: "type",
+    meaning:
+      "The interface each plugin extends by declaration merging, so plugin(id) knows the type of its API.",
+    example: "interface PluginApis { models: ModelsApi }",
+  },
+  {
+    lesson: 9,
+    name: "orderPlugins",
+    kind: "function",
+    meaning:
+      "Sorts the plugins so that each comes after the plugins it requires. Throws on a missing requirement, a duplicate id or a cycle.",
+    example: "orderPlugins([assistant, models]) → models, assistant",
+  },
+  {
+    lesson: 9,
+    name: "fields",
+    kind: "table/column",
+    meaning:
+      "A plugin's part of a core table: Drizzle column builders and an index callback, composed into conversation or message.",
+    example: "plugins/assistant/server/schema.ts → fields.conversation.columns.model",
+  },
+  {
+    lesson: 9,
+    name: "deleteConversations",
+    kind: "function",
+    meaning:
+      "The one core function that deletes Conversations. It runs each plugin's before hook in the transaction and each after hook after the commit.",
+    example: "core/server/chat/delete-conversations.ts",
+  },
 ];
 
 (function () {
