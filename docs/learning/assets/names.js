@@ -534,6 +534,62 @@ window.NAMES = [
       "The one core function that deletes Conversations. It runs each plugin's before hook in the transaction and each after hook after the commit.",
     example: "core/server/chat/delete-conversations.ts",
   },
+  {
+    lesson: 10,
+    name: "runTurn",
+    kind: "function",
+    meaning:
+      "The Bot's Turn loop: chat() with send_to_user as its only tool. It streams each sent Message, then ends the Turn row with its transcript and usage.",
+    example: "plugins/bot/server/turn.ts",
+  },
+  {
+    lesson: 10,
+    name: "send_to_user",
+    kind: "function",
+    meaning:
+      "SendToUser, the Bot's only tool in step 1. Takes { text, endTurn }; each call appends one Message. Empty text returns emptyTextError.",
+    example: 'send_to_user({ text: "On it…", endTurn: false })',
+  },
+  {
+    lesson: 10,
+    name: "endTurn",
+    kind: "type",
+    meaning:
+      "The boolean on every send_to_user call. true on the last message ends the Turn with no further Model call.",
+    example: 'send_to_user({ text: "Done.", endTurn: true })',
+  },
+  {
+    lesson: 10,
+    name: "botSystemPrompt",
+    kind: "function",
+    meaning:
+      "The fixed Bot system prompt: the user sees only send_to_user messages, and a reply with no tool call is quiet.",
+    example: "plugins/bot/server/turn.ts",
+  },
+  {
+    lesson: 10,
+    name: "turnStepLimit · turnTimeLimitMs",
+    kind: "function",
+    meaning:
+      "A Turn's limits: 10 Steps and 5 minutes. Past either, the Turn ends error with step_limit or timed_out.",
+    example: "turnStepLimit = 10",
+  },
+  {
+    lesson: 10,
+    name: "bot_turn",
+    kind: "table/column",
+    meaning:
+      "One row per Turn: status (running, complete, error, stopped), error, usage, and the private transcript, written once when the Turn ends.",
+    example: "bot_turn.transcript",
+  },
+  {
+    lesson: 10,
+    name: "BotSendEvent",
+    kind: "type",
+    meaning:
+      "What bot.send streams: { type: 'message', message } for each Message, then { type: 'turnEnded', status }.",
+    example: "plugins/bot/shared/turn.ts",
+  },
 ];
 
 (function () {
