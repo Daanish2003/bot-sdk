@@ -9,22 +9,70 @@ import { migrate as migrateChatSchema } from "../../core/server/migrate";
 
 const DEFAULT_TEST_DATABASE_URL = "postgresql://postgres:password@localhost:5432/ai-chat_test";
 
-/** The integration test database. Override with `TEST_DATABASE_URL`. */
-export const testDatabaseUrl = process.env.TEST_DATABASE_URL || DEFAULT_TEST_DATABASE_URL;
+// `setup.ts` repoints TEST_DATABASE_URL at the worker's database, and this module may be evaluated
+// again in the same worker, so the configured URL is kept in TEST_DATABASE_BASE_URL.
+/** The configured database (`TEST_DATABASE_URL`): migrated once, then copied for each worker. */
+const baseTestDatabaseUrl = (process.env.TEST_DATABASE_BASE_URL ??=
+  process.env.TEST_DATABASE_URL || DEFAULT_TEST_DATABASE_URL);
+
+/** `<test database>_w<n>`: worker n's copy of the migrated test database. */
+function workerDatabaseUrl(poolId: number | string) {
+  const url = new URL(baseTestDatabaseUrl);
+  url.pathname = `/${databaseName(baseTestDatabaseUrl)}_w${poolId}`;
+  return url.toString();
+}
+
+/**
+ * The integration test database: this worker's copy (`VITEST_POOL_ID`), or outside a worker the
+ * configured one.
+ */
+export const testDatabaseUrl = process.env.VITEST_POOL_ID
+  ? workerDatabaseUrl(process.env.VITEST_POOL_ID)
+  : baseTestDatabaseUrl;
 
 /** Better Auth's tables are in `public`; the chat tables reference none of them. */
 const authMigrationsFolder = fileURLToPath(new URL("../../../db/src/migrations", import.meta.url));
 
-/** Creates the test database if it is missing, then applies every migration. */
-export async function prepareTestDatabase() {
-  await createDatabaseIfMissing(testDatabaseUrl);
-  const db = createDb({ DATABASE_URL: testDatabaseUrl });
+/**
+ * Creates the configured test database if it is missing and applies every migration, then makes
+ * one copy of it per worker (`<test database>_w1` … `_w<workers>`), replacing leftover copies.
+ */
+export async function prepareTestDatabases(workers: number) {
+  await createDatabaseIfMissing(baseTestDatabaseUrl);
+  const db = createDb({ DATABASE_URL: baseTestDatabaseUrl });
   try {
     await migrate(db, { migrationsFolder: authMigrationsFolder });
   } finally {
     await db.$client.end();
   }
-  await migrateChatSchema(testDatabaseUrl);
+  await migrateChatSchema(baseTestDatabaseUrl);
+
+  await dropWorkerDatabases();
+  const template = quoteIdentifier(databaseName(baseTestDatabaseUrl));
+  const client = await serverClient(baseTestDatabaseUrl);
+  try {
+    for (let poolId = 1; poolId <= workers; poolId++) {
+      const name = quoteIdentifier(databaseName(workerDatabaseUrl(poolId)));
+      await client.query(`create database "${name}" template "${template}"`);
+    }
+  } finally {
+    await client.end();
+  }
+}
+
+/** Drops every worker copy of the configured test database, so they never pile up. */
+export async function dropWorkerDatabases() {
+  const prefix = `${databaseName(baseTestDatabaseUrl)}_w`;
+  const client = await serverClient(baseTestDatabaseUrl);
+  try {
+    const { rows } = await client.query<{ datname: string }>("select datname from pg_database");
+    for (const { datname } of rows) {
+      if (!datname.startsWith(prefix) || !/^\d+$/.test(datname.slice(prefix.length))) continue;
+      await client.query(`drop database "${quoteIdentifier(datname)}" with (force)`);
+    }
+  } finally {
+    await client.end();
+  }
 }
 
 async function createDatabaseIfMissing(url: string) {
