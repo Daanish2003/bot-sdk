@@ -107,7 +107,9 @@ export type BotSdk = {
   /**
    * Sets `stopping`, stops each plugin in reverse dependency order, then closes the runtime's
    * connections. The assistant refuses new Runs with 503 and lets local Runs finish for up to
-   * `drainMs` (250 s), then ends the rest as interrupted, then drains its jobs. Call it on SIGTERM.
+   * `drainMs` (250 s), then ends the rest as interrupted, then drains its jobs. A plugin whose stop
+   * throws doesn't stop the others; its error is rethrown once the runtime closes. Call it on
+   * SIGTERM.
    */
   stop: () => Promise<void>;
   /** Deletes everything every plugin holds for a user, in one transaction. Idempotent. */
@@ -208,12 +210,19 @@ export function buildBotSdk(
     },
     stop: async () => {
       sdk.lifecycle.stopping = true;
-      try {
-        for (const plugin of [...plugins].reverse()) await plugin.stop?.(sdk);
-      } finally {
-        // Closed even when a plugin's stop throws, so the process can still exit.
-        await options.runtime?.close?.();
+      // Every plugin stops even when one throws, and the runtime closes after them all, so the
+      // process can still exit. The failures are thrown once it has.
+      const errors: unknown[] = [];
+      for (const plugin of [...plugins].reverse()) {
+        try {
+          await plugin.stop?.(sdk);
+        } catch (error) {
+          errors.push(error);
+        }
       }
+      await options.runtime?.close?.();
+      if (errors.length === 1) throw errors[0];
+      if (errors.length > 1) throw new AggregateError(errors, "Several plugins failed to stop");
     },
     deleteUser: (userId) => deleteUserData(sdk, userId),
     exportUser: (userId) => exportUserData(sdk, userId),

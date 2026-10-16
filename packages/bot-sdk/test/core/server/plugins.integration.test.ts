@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
 import type { BotSdkPlugin } from "../../../core/server/plugin";
+import { memoryRuntime } from "../../../core/server/runtime";
 import { testDatabaseUrl } from "../../support/test-database";
 
 const basePath = "/api/chat";
@@ -93,6 +94,26 @@ describe("createBotSdk plugins", () => {
     await sdk.stop();
 
     expect(calls).toEqual(["start a", "start b", "start c", "stop c", "stop b", "stop a"]);
+  });
+
+  it("stops every plugin and closes the runtime when one plugin's stop throws, then rethrows", async () => {
+    const calls: string[] = [];
+    const plugin = (id: string, fails = false): BotSdkPlugin => ({
+      id,
+      stop: async () => {
+        calls.push(`stop ${id}`);
+        if (fails) throw new Error(`${id} failed`);
+      },
+    });
+    const sdk = createBotSdk({
+      ...core,
+      runtime: { ...memoryRuntime(), close: async () => void calls.push("close") },
+      plugins: [plugin("a"), plugin("b", true), plugin("c")],
+    });
+
+    await expect(sdk.stop()).rejects.toThrow("b failed");
+
+    expect(calls).toEqual(["stop c", "stop b", "stop a", "close"]);
   });
 
   it("gives each plugin the APIs of the plugins it requires", async () => {
