@@ -4,12 +4,12 @@ A personal ChatGPT-style chat app: signed-in users talk to LLMs and keep their h
 
 ## Language
 
-**Chat SDK**:
-The reusable chat feature (Conversations, runs, settings, Shared links) a Host embeds. It knows users only by id.
-_Avoid_: Library, package, chat module
+**Bot SDK**:
+The one reusable SDK a Host embeds: Conversations at its core, and every feature (the assistant, Bots, Memory, Knowledge, the Computer, Channels) a plugin the Host turns on. It knows users only by id.
+_Avoid_: Chat SDK, agent SDK, library, chat module
 
 **Host**:
-An app that embeds the Chat SDK and supplies its users, its routes and a Postgres database. The web app in this repo is one Host.
+An app that embeds the Bot SDK and supplies its users, its routes and a Postgres database. The web app in this repo is one Host.
 _Avoid_: Consumer, client app, integrator
 
 **Conversation**:
