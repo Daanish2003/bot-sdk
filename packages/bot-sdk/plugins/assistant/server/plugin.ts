@@ -17,8 +17,9 @@ import { stopUserRuns } from "./chat/run";
 import { generatedImage } from "../../../core/server/db/schema";
 import { createTavilyClient } from "./chat/tavily";
 import { defaultLimits } from "./deps";
-import { deleteUserData } from "./delete-user";
-import { exportUserData } from "./export-user";
+import { assistantUserDelete } from "./delete-user";
+import { exportAssistantData } from "./export-user";
+import { rotateConnectionKeys } from "./mcp/connections";
 import { runRegisteredJob } from "./jobs/define";
 import { inProcessRunner } from "./jobs/in-process";
 import type { JobRunner } from "./jobs/runner";
@@ -154,8 +155,15 @@ function assistantPlugin(buildState: (sdk: BotSdkContext) => AssistantState): As
       return { api };
     },
     databaseHooks: { conversation: { delete: assistantConversationDelete } },
-    deleteUser: (sdk, userId) => deleteUserData(sdk, userId),
-    exportUser: (sdk, userId) => exportUserData(sdk, userId),
+    deleteUser: assistantUserDelete,
+    exportUser: (_sdk, userId, tx) => exportAssistantData(tx, userId),
+    rotateKeys: async (sdk) => {
+      const { reencrypted, unreadable } = await rotateConnectionKeys(sdk);
+      if (unreadable > 0) {
+        sdk.logger.error("Stored MCP tokens can't be read; left in place", { unreadable });
+      }
+      return { reencrypted, unreadable };
+    },
     // The reaper, then the jobs runner.
     start: (sdk) => lifecycleOf(sdk).start(),
     // Drains the Runs, then the jobs.

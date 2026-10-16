@@ -7,7 +7,7 @@ import { z } from "zod";
 
 import type { HostToolContext } from "../../../../plugins/assistant/server/chat/host-tools";
 import { reapStaleRuns, stopRun } from "../../../../plugins/assistant/server/chat/run";
-import { deleteUserData } from "../../../../plugins/assistant/server/delete-user";
+import { deleteUserData } from "../../../../core/server/user-data";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import type { HostProvider } from "../../../../plugins/assistant/server/deps";
 import { fakeImageAdapter } from "../../../../plugins/models/server/fake-image-adapter";

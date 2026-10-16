@@ -1,7 +1,7 @@
 import { like, eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
-import { deleteUserData } from "../../../plugins/assistant/server/delete-user";
+import { deleteUserData } from "../../../core/server/user-data";
 import { sweepExpiredTemporaryConversations } from "../../../plugins/assistant/server/chat/temporary";
 import { blob, generatedImage, project } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";

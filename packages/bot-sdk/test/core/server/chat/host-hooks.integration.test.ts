@@ -22,10 +22,8 @@ import { createBotSdk, type BotSdkOptions } from "../../../../core/server/create
 import { createChatHandler } from "../../../../plugins/assistant/server/over";
 import { assistant } from "../../../../plugins/assistant/server/plugin";
 import { models, type ModelsOptions } from "../../../../plugins/models/server/plugin";
-import {
-  deleteAllConversations,
-  deleteUserData,
-} from "../../../../plugins/assistant/server/delete-user";
+import { deleteAllConversations } from "../../../../plugins/assistant/server/delete-user";
+import { deleteUserData } from "../../../../core/server/user-data";
 import { deleteProject } from "../../../../plugins/assistant/server/project/store";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { conversation, message, project, usage } from "../../../../core/server/db/schema";

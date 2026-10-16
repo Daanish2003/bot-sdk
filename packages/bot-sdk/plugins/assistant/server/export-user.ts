@@ -15,7 +15,7 @@ import {
   memory,
   userSettings,
 } from "../../../core/server/db/schema";
-import type { BotSdkContext } from "../../../core/server/plugin";
+import type { Transaction } from "../../../core/server/plugin";
 import { liveConversation } from "./chat/temporary";
 import type { ArtifactKind } from "../shared/chat/artifact";
 import type { StoredParts } from "../shared/message-parts";
@@ -110,237 +110,232 @@ export type UserExport = {
   }[];
 };
 
+/** The assistant's part of the export: every key but the core's `version` and `exportedAt`. */
+export type AssistantExport = Omit<UserExport, "version" | "exportedAt">;
+
 /**
- * Reads the user's data in one repeatable-read snapshot and builds the document in memory. An
- * unknown user id gives an empty document, not an error.
+ * The assistant's part of `sdk.exportUser`, read in the export's snapshot `tx` and built in memory.
+ * An unknown user id gives empty lists and the default settings.
  */
-export async function exportUserData(deps: BotSdkContext, userId: string): Promise<UserExport> {
-  return deps.db.transaction(
-    async (tx) => {
-      const [settings] = await tx
+export async function exportAssistantData(
+  tx: Transaction,
+  userId: string,
+): Promise<AssistantExport> {
+  const [settings] = await tx
+    .select({
+      backgroundModel: userSettings.backgroundModel,
+      imageModel: userSettings.imageModel,
+      instructions: userSettings.instructions,
+      memoryEnabled: userSettings.memoryEnabled,
+    })
+    .from(userSettings)
+    .where(eq(userSettings.userId, userId));
+
+  const projects = await tx
+    .select({
+      id: project.id,
+      name: project.name,
+      instructions: project.instructions,
+      defaultModel: project.defaultModel,
+      createdAt: project.createdAt,
+    })
+    .from(project)
+    .where(eq(project.userId, userId))
+    .orderBy(asc(project.createdAt), asc(project.id));
+
+  const conversations = await tx
+    .select()
+    .from(conversation)
+    .where(and(eq(conversation.userId, userId), liveConversation(new Date())))
+    .orderBy(asc(conversation.createdAt), asc(conversation.id));
+
+  const messages = (
+    await tx
+      .select({ message })
+      .from(message)
+      .innerJoin(conversation, eq(conversation.id, message.conversationId))
+      .where(and(eq(conversation.userId, userId), liveConversation(new Date())))
+      .orderBy(asc(message.createdAt), asc(message.id))
+  ).map((row) => row.message);
+
+  const messageIds = messages.map((row) => row.id);
+  const attachments = messageIds.length
+    ? await tx
         .select({
-          backgroundModel: userSettings.backgroundModel,
-          imageModel: userSettings.imageModel,
-          instructions: userSettings.instructions,
-          memoryEnabled: userSettings.memoryEnabled,
+          messageId: messageAttachment.messageId,
+          filename: attachment.filename,
+          mediaType: attachment.mediaType,
         })
-        .from(userSettings)
-        .where(eq(userSettings.userId, userId));
+        .from(messageAttachment)
+        .innerJoin(attachment, eq(attachment.id, messageAttachment.attachmentId))
+        .where(and(inArray(messageAttachment.messageId, messageIds), eq(attachment.userId, userId)))
+        .orderBy(asc(messageAttachment.position))
+    : [];
 
-      const projects = await tx
+  const links = await tx
+    .select({
+      token: sharedLink.token,
+      conversationId: sharedLink.conversationId,
+      createdAt: sharedLink.createdAt,
+    })
+    .from(sharedLink)
+    .innerJoin(conversation, eq(conversation.id, sharedLink.conversationId))
+    .where(and(eq(conversation.userId, userId), liveConversation(new Date())));
+
+  const images = messageIds.length
+    ? await tx
         .select({
-          id: project.id,
-          name: project.name,
-          instructions: project.instructions,
-          defaultModel: project.defaultModel,
-          createdAt: project.createdAt,
+          id: generatedImage.id,
+          messageId: generatedImage.messageId,
+          model: generatedImage.model,
         })
-        .from(project)
-        .where(eq(project.userId, userId))
-        .orderBy(asc(project.createdAt), asc(project.id));
-
-      const conversations = await tx
-        .select()
-        .from(conversation)
-        .where(and(eq(conversation.userId, userId), liveConversation(new Date())))
-        .orderBy(asc(conversation.createdAt), asc(conversation.id));
-
-      const messages = (
-        await tx
-          .select({ message })
-          .from(message)
-          .innerJoin(conversation, eq(conversation.id, message.conversationId))
-          .where(and(eq(conversation.userId, userId), liveConversation(new Date())))
-          .orderBy(asc(message.createdAt), asc(message.id))
-      ).map((row) => row.message);
-
-      const messageIds = messages.map((row) => row.id);
-      const attachments = messageIds.length
-        ? await tx
-            .select({
-              messageId: messageAttachment.messageId,
-              filename: attachment.filename,
-              mediaType: attachment.mediaType,
-            })
-            .from(messageAttachment)
-            .innerJoin(attachment, eq(attachment.id, messageAttachment.attachmentId))
-            .where(
-              and(inArray(messageAttachment.messageId, messageIds), eq(attachment.userId, userId)),
-            )
-            .orderBy(asc(messageAttachment.position))
-        : [];
-
-      const links = await tx
-        .select({
-          token: sharedLink.token,
-          conversationId: sharedLink.conversationId,
-          createdAt: sharedLink.createdAt,
-        })
-        .from(sharedLink)
-        .innerJoin(conversation, eq(conversation.id, sharedLink.conversationId))
-        .where(and(eq(conversation.userId, userId), liveConversation(new Date())));
-
-      const images = messageIds.length
-        ? await tx
-            .select({
-              id: generatedImage.id,
-              messageId: generatedImage.messageId,
-              model: generatedImage.model,
-            })
-            .from(generatedImage)
-            .where(
-              and(inArray(generatedImage.messageId, messageIds), eq(generatedImage.userId, userId)),
-            )
-        : [];
-      const promptsByImage = new Map(
-        messages.flatMap((row) =>
-          row.parts.parts.flatMap((part) =>
-            part.type === "generated_image" && part.imageId
-              ? [[part.imageId, part.prompt] as const]
-              : [],
-          ),
-        ),
-      );
-      const memories = await tx
-        .select({
-          id: memory.id,
-          text: memory.text,
-          origin: memory.origin,
-          conversationId: memory.conversationId,
-          replacedById: memory.replacedById,
-          invalidAt: memory.invalidAt,
-          createdAt: memory.createdAt,
-          updatedAt: memory.updatedAt,
-        })
-        .from(memory)
-        .where(eq(memory.userId, userId))
-        .orderBy(asc(memory.createdAt), asc(memory.id));
-
-      const savedPrompts = await tx
-        .select({
-          name: savedPrompt.name,
-          text: savedPrompt.text,
-          createdAt: savedPrompt.createdAt,
-        })
-        .from(savedPrompt)
-        .where(eq(savedPrompt.userId, userId))
-        .orderBy(asc(savedPrompt.name));
-
-      const artifacts = await tx
-        .select({
-          id: artifact.id,
-          conversationId: artifact.conversationId,
-          kind: artifact.kind,
-        })
-        .from(artifact)
-        .innerJoin(conversation, eq(conversation.id, artifact.conversationId))
-        .where(and(eq(conversation.userId, userId), liveConversation(new Date())))
-        .orderBy(asc(artifact.createdAt), asc(artifact.id));
-
-      const knowledgeFiles = await tx
-        .select({
-          name: knowledgeFile.name,
-          mediaType: knowledgeFile.mediaType,
-          projectId: knowledgeFile.projectId,
-        })
-        .from(knowledgeFile)
-        .where(eq(knowledgeFile.userId, userId))
-        .orderBy(asc(knowledgeFile.createdAt), asc(knowledgeFile.id));
-
-      const versions = await tx
-        .select({
-          artifactId: artifactVersion.artifactId,
-          number: artifactVersion.number,
-          messageId: artifactVersion.messageId,
-          title: artifactVersion.title,
-          language: artifactVersion.language,
-          content: artifactVersion.content,
-          createdAt: artifactVersion.createdAt,
-        })
-        .from(artifactVersion)
-        .innerJoin(artifact, eq(artifact.id, artifactVersion.artifactId))
-        .innerJoin(conversation, eq(conversation.id, artifact.conversationId))
-        .where(and(eq(conversation.userId, userId), liveConversation(new Date())))
-        .orderBy(
-          asc(artifactVersion.createdAt),
-          asc(artifactVersion.messageId),
-          asc(artifactVersion.number),
-        );
-
-      const attachmentsByMessage = groupBy(attachments, (row) => row.messageId);
-      const imagesByMessage = groupBy(images, (row) => row.messageId);
-      const messagesByConversation = groupBy(messages, (row) => row.conversationId);
-      const versionsByArtifact = groupBy(versions, (row) => row.artifactId);
-
-      return {
-        version: 1,
-        exportedAt: new Date(),
-        settings: {
-          backgroundModel: settings?.backgroundModel ?? null,
-          imageModel: settings?.imageModel ?? null,
-          instructions: settings?.instructions ?? null,
-          memoryEnabled: settings?.memoryEnabled ?? true,
-        },
-        projects,
-        conversations: conversations.map((conv) => ({
-          id: conv.id,
-          title: conv.title,
-          model: conv.model,
-          reasoningEffort: conv.reasoningEffort,
-          projectId: conv.projectId,
-          pinnedAt: conv.pinnedAt,
-          temporary: conv.temporary,
-          archivedAt: conv.archivedAt,
-          activeLeafId: conv.activeLeafId,
-          lastMessageAt: conv.lastMessageAt,
-          createdAt: conv.createdAt,
-          messages: (messagesByConversation.get(conv.id) ?? []).map((row) => ({
-            id: row.id,
-            parentId: row.parentId,
-            role: row.role,
-            parts: row.parts,
-            model: row.model,
-            status: row.status,
-            // A Hidden reply can't be rated, so its Rating is left out too (#330).
-            rating: row.hiddenAt === null ? row.rating : null,
-            hidden: row.hiddenAt !== null,
-            createdAt: row.createdAt,
-            attachments: (attachmentsByMessage.get(row.id) ?? []).map(
-              ({ filename, mediaType }) => ({
-                filename,
-                mediaType,
-              }),
-            ),
-            generatedImages: (imagesByMessage.get(row.id) ?? []).map((image) => ({
-              id: image.id,
-              model: image.model,
-              prompt: promptsByImage.get(image.id) ?? null,
-            })),
-          })),
-        })),
-        memories,
-        sharedLinks: links,
-        savedPrompts,
-        knowledgeFiles,
-        artifacts: artifacts.map((row) => ({
-          id: row.id,
-          conversationId: row.conversationId,
-          kind: row.kind,
-          versions: (versionsByArtifact.get(row.id) ?? []).map(
-            ({ number, messageId, title, language, content, createdAt }) => ({
-              number,
-              messageId,
-              title,
-              language,
-              content,
-              createdAt,
-            }),
-          ),
-        })),
-      };
-    },
-    { isolationLevel: "repeatable read" },
+        .from(generatedImage)
+        .where(
+          and(inArray(generatedImage.messageId, messageIds), eq(generatedImage.userId, userId)),
+        )
+    : [];
+  const promptsByImage = new Map(
+    messages.flatMap((row) =>
+      row.parts.parts.flatMap((part) =>
+        part.type === "generated_image" && part.imageId
+          ? [[part.imageId, part.prompt] as const]
+          : [],
+      ),
+    ),
   );
+  const memories = await tx
+    .select({
+      id: memory.id,
+      text: memory.text,
+      origin: memory.origin,
+      conversationId: memory.conversationId,
+      replacedById: memory.replacedById,
+      invalidAt: memory.invalidAt,
+      createdAt: memory.createdAt,
+      updatedAt: memory.updatedAt,
+    })
+    .from(memory)
+    .where(eq(memory.userId, userId))
+    .orderBy(asc(memory.createdAt), asc(memory.id));
+
+  const savedPrompts = await tx
+    .select({
+      name: savedPrompt.name,
+      text: savedPrompt.text,
+      createdAt: savedPrompt.createdAt,
+    })
+    .from(savedPrompt)
+    .where(eq(savedPrompt.userId, userId))
+    .orderBy(asc(savedPrompt.name));
+
+  const artifacts = await tx
+    .select({
+      id: artifact.id,
+      conversationId: artifact.conversationId,
+      kind: artifact.kind,
+    })
+    .from(artifact)
+    .innerJoin(conversation, eq(conversation.id, artifact.conversationId))
+    .where(and(eq(conversation.userId, userId), liveConversation(new Date())))
+    .orderBy(asc(artifact.createdAt), asc(artifact.id));
+
+  const knowledgeFiles = await tx
+    .select({
+      name: knowledgeFile.name,
+      mediaType: knowledgeFile.mediaType,
+      projectId: knowledgeFile.projectId,
+    })
+    .from(knowledgeFile)
+    .where(eq(knowledgeFile.userId, userId))
+    .orderBy(asc(knowledgeFile.createdAt), asc(knowledgeFile.id));
+
+  const versions = await tx
+    .select({
+      artifactId: artifactVersion.artifactId,
+      number: artifactVersion.number,
+      messageId: artifactVersion.messageId,
+      title: artifactVersion.title,
+      language: artifactVersion.language,
+      content: artifactVersion.content,
+      createdAt: artifactVersion.createdAt,
+    })
+    .from(artifactVersion)
+    .innerJoin(artifact, eq(artifact.id, artifactVersion.artifactId))
+    .innerJoin(conversation, eq(conversation.id, artifact.conversationId))
+    .where(and(eq(conversation.userId, userId), liveConversation(new Date())))
+    .orderBy(
+      asc(artifactVersion.createdAt),
+      asc(artifactVersion.messageId),
+      asc(artifactVersion.number),
+    );
+
+  const attachmentsByMessage = groupBy(attachments, (row) => row.messageId);
+  const imagesByMessage = groupBy(images, (row) => row.messageId);
+  const messagesByConversation = groupBy(messages, (row) => row.conversationId);
+  const versionsByArtifact = groupBy(versions, (row) => row.artifactId);
+
+  return {
+    settings: {
+      backgroundModel: settings?.backgroundModel ?? null,
+      imageModel: settings?.imageModel ?? null,
+      instructions: settings?.instructions ?? null,
+      memoryEnabled: settings?.memoryEnabled ?? true,
+    },
+    projects,
+    conversations: conversations.map((conv) => ({
+      id: conv.id,
+      title: conv.title,
+      model: conv.model,
+      reasoningEffort: conv.reasoningEffort,
+      projectId: conv.projectId,
+      pinnedAt: conv.pinnedAt,
+      temporary: conv.temporary,
+      archivedAt: conv.archivedAt,
+      activeLeafId: conv.activeLeafId,
+      lastMessageAt: conv.lastMessageAt,
+      createdAt: conv.createdAt,
+      messages: (messagesByConversation.get(conv.id) ?? []).map((row) => ({
+        id: row.id,
+        parentId: row.parentId,
+        role: row.role,
+        parts: row.parts,
+        model: row.model,
+        status: row.status,
+        // A Hidden reply can't be rated, so its Rating is left out too (#330).
+        rating: row.hiddenAt === null ? row.rating : null,
+        hidden: row.hiddenAt !== null,
+        createdAt: row.createdAt,
+        attachments: (attachmentsByMessage.get(row.id) ?? []).map(({ filename, mediaType }) => ({
+          filename,
+          mediaType,
+        })),
+        generatedImages: (imagesByMessage.get(row.id) ?? []).map((image) => ({
+          id: image.id,
+          model: image.model,
+          prompt: promptsByImage.get(image.id) ?? null,
+        })),
+      })),
+    })),
+    memories,
+    sharedLinks: links,
+    savedPrompts,
+    knowledgeFiles,
+    artifacts: artifacts.map((row) => ({
+      id: row.id,
+      conversationId: row.conversationId,
+      kind: row.kind,
+      versions: (versionsByArtifact.get(row.id) ?? []).map(
+        ({ number, messageId, title, language, content, createdAt }) => ({
+          number,
+          messageId,
+          title,
+          language,
+          content,
+          createdAt,
+        }),
+      ),
+    })),
+  };
 }
 
 // `Map.groupBy` is ES2024, newer than some Hosts' TypeScript lib.

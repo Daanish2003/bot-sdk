@@ -1,9 +1,11 @@
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, gt, isNotNull, or } from "drizzle-orm";
 
 import { mcpConnection } from "../../../../core/server/db/schema";
 import {
   decryptCredentials,
   encryptCredentials,
+  encryptionKid,
+  kidOf,
 } from "../../../../core/server/credentials/encryption";
 import type { BotSdkContext } from "../../../../core/server/plugin";
 import type { TokenSet } from "./oauth";
@@ -183,4 +185,81 @@ export async function deleteConnection(deps: Deps, userId: string, key: string) 
   await deps.db
     .delete(mcpConnection)
     .where(and(eq(mcpConnection.userId, userId), eq(mcpConnection.serverKey, key)));
+}
+
+/**
+ * Re-encrypts every Connection's tokens whose key isn't the keyring's first (ADR 0010), in batches
+ * ordered by row key. Tokens no key can read stay in place and are counted. A row a concurrent
+ * write changed between the read and the update (perhaps an instance still on the old keyring) is
+ * caught by another scan, up to three, as for credentials. A pending sign-in is left alone; it
+ * expires within minutes.
+ */
+export async function rotateConnectionKeys(
+  deps: Deps,
+  { batchSize = 100 }: { batchSize?: number } = {},
+): Promise<{ reencrypted: number; unreadable: number }> {
+  let reencrypted = 0;
+  for (let pass = 1; ; pass += 1) {
+    const scan = await rotateConnectionsOnce(deps, batchSize);
+    reencrypted += scan.reencrypted;
+    // The last scan saw every row, so its unreadable count is the whole picture.
+    if (scan.raced === 0 || pass === 3) return { reencrypted, unreadable: scan.unreadable };
+  }
+}
+
+/** One scan over every Connection; `raced` counts updates that found the row already changed. */
+async function rotateConnectionsOnce(deps: Deps, batchSize: number) {
+  const result = { reencrypted: 0, raced: 0, unreadable: 0 };
+  const firstKid = encryptionKid(deps.keyring, "connection");
+  let after: { userId: string; serverKey: string } | undefined;
+  for (;;) {
+    const rows = await deps.db
+      .select({
+        userId: mcpConnection.userId,
+        serverKey: mcpConnection.serverKey,
+        encrypted: mcpConnection.encrypted,
+      })
+      .from(mcpConnection)
+      .where(
+        and(
+          isNotNull(mcpConnection.encrypted),
+          after &&
+            or(
+              gt(mcpConnection.userId, after.userId),
+              and(
+                eq(mcpConnection.userId, after.userId),
+                gt(mcpConnection.serverKey, after.serverKey),
+              ),
+            ),
+        ),
+      )
+      .orderBy(asc(mcpConnection.userId), asc(mcpConnection.serverKey))
+      .limit(batchSize);
+    for (const row of rows) {
+      if (!row.encrypted) continue;
+      const options = tokenOptions(deps, row.userId, row.serverKey);
+      const decrypted = decryptCredentials(row.encrypted, options);
+      if (!decrypted.ok) {
+        result.unreadable += 1;
+        continue;
+      }
+      if (kidOf(row.encrypted) === firstKid) continue;
+      const updated = await deps.db
+        .update(mcpConnection)
+        .set({ encrypted: encryptCredentials(decrypted.credentials, options) })
+        .where(
+          and(
+            eq(mcpConnection.userId, row.userId),
+            eq(mcpConnection.serverKey, row.serverKey),
+            eq(mcpConnection.encrypted, row.encrypted),
+          ),
+        )
+        .returning({ serverKey: mcpConnection.serverKey });
+      if (updated.length === 0) result.raced += 1;
+      result.reencrypted += updated.length;
+    }
+    const last = rows.at(-1);
+    if (!last || rows.length < batchSize) return result;
+    after = { userId: last.userId, serverKey: last.serverKey };
+  }
 }

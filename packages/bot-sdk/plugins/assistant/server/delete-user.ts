@@ -1,66 +1,46 @@
-import { eq, inArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
-import { attachmentBlobKey, deleteBlobsBestEffort } from "../../../core/server/blob/store";
 import { deleteConversations } from "../../../core/server/chat/delete-conversations";
 import {
-  attachment,
-  blob,
   conversation,
   project,
   mcpConnection,
-  userCredentials,
   savedPrompt,
   userSettings,
-  usage,
   knowledgeFile,
 } from "../../../core/server/db/schema";
-import type { BotSdkContext } from "../../../core/server/plugin";
+import type { BotSdkContext, UserDeleteHooks } from "../../../core/server/plugin";
 import { discardKnowledgeFiles, knowledgeFileIdsWhere } from "./knowledge/cascade";
 
 /**
- * Deletes everything the SDK holds for a user, in one transaction (spec #70). The Host calls it
- * when it deletes the user, and calling it again, or for an unknown id, does nothing.
+ * The assistant's part of `sdk.deleteUser` (spec #439). `before` deletes the user's Projects, MCP
+ * connections, settings and Saved prompts. The Knowledge files' ids are read first, since their rows
+ * go with the Projects by cascade. `after` runs the Conversation delete's hooks, then cancels the
+ * Knowledge files' jobs and deletes their bytes.
  *
- * Order matters: Conversations go first, before their Projects and before Attachments, because a
- * Message's link to an Attachment does not cascade.
+ * Every Conversation of the user goes first, in one call of the core's delete, so its hooks see the
+ * whole set and no Project's Conversation goes by cascade alone. The core's own Conversation step
+ * then finds none left.
  */
-export async function deleteUserData(deps: BotSdkContext, userId: string): Promise<void> {
-  const { blobKeys, knowledgeIds, afterCommit } = await deps.db.transaction(async (tx) => {
-    // 1. Conversations, through the delete hooks, which stop their live Runs and collect their
-    // Generated images' keys; their Messages, Shared links and Message–Attachment links go by cascade.
-    // Muted: a Host's user delete emits nothing, not even `onRunEnd` (#265).
-    const { afterCommit } = await deleteConversations(deps, tx, { userId, mute: true });
-
-    // 2. Knowledge files: their rows and passages go with their Projects; their bytes and jobs go after the commit.
+export const assistantUserDelete: UserDeleteHooks<{
+  afterCommit: () => Promise<void>;
+  knowledgeIds: string[];
+}> = {
+  before: async (sdk, { userId, tx }) => {
+    // Muted, as the rest of the user delete is (#265).
+    const { afterCommit } = await deleteConversations(sdk, tx, { userId, mute: true });
     const knowledgeIds = await knowledgeFileIdsWhere(tx, eq(knowledgeFile.userId, userId));
-
-    // 2b. Projects, after their Conversations; a Project's own Conversations are already gone.
     await tx.delete(project).where(eq(project.userId, userId));
-
-    // 3. Attachments and their bytes. The keys are collected here and their bytes deleted after the
-    // commit. The Postgres bytes also go in this transaction, so the default store stays atomic.
-    const ownAttachments = await tx
-      .select({ id: attachment.id })
-      .from(attachment)
-      .where(eq(attachment.userId, userId));
-    const keys = ownAttachments.map((row) => attachmentBlobKey(row.id));
-    if (keys.length > 0) await tx.delete(blob).where(inArray(blob.key, keys));
-    await tx.delete(attachment).where(eq(attachment.userId, userId));
-
-    // 4. Credentials and settings.
-    await tx.delete(userCredentials).where(eq(userCredentials.userId, userId));
     await tx.delete(mcpConnection).where(eq(mcpConnection.userId, userId));
     await tx.delete(userSettings).where(eq(userSettings.userId, userId));
     await tx.delete(savedPrompt).where(eq(savedPrompt.userId, userId));
-    // 5. Usage rows, which no Conversation cascades to: a deleted account keeps no Quota history.
-    await tx.delete(usage).where(eq(usage.userId, userId));
-    return { blobKeys: keys, knowledgeIds, afterCommit };
-  });
-  // 6. After the commit and best-effort: the delete hooks' work, then the store's own bytes.
-  await afterCommit();
-  await deleteBlobsBestEffort(deps, blobKeys);
-  await discardKnowledgeFiles(deps, knowledgeIds);
-}
+    return { afterCommit, knowledgeIds };
+  },
+  after: async (sdk, { collected }) => {
+    await collected.afterCommit();
+    await discardKnowledgeFiles(sdk, collected.knowledgeIds);
+  },
+};
 
 /**
  * Deletes every Conversation the user owns, Project ones included, in one transaction. Their
