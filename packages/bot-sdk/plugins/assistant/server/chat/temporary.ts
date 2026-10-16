@@ -1,12 +1,9 @@
-import { and, eq, gte, inArray, lt, notExists, or } from "drizzle-orm";
+import { and, eq, gte, inArray, lt, or } from "drizzle-orm";
 
 import { deleteConversations } from "../../../../core/server/chat/delete-conversations";
-import {
-  attachment,
-  messageAttachment,
-  conversation,
-  message,
-} from "../../../../core/server/db/schema";
+import { deleteUnusedAttachments } from "../../../../core/server/attachments/store";
+import { deleteBlobsBestEffort } from "../../../../core/server/blob/store";
+import { messageAttachment, conversation, message } from "../../../../core/server/db/schema";
 import type { BotSdkContext } from "../../../../core/server/plugin";
 
 /** How long a Temporary Conversation lasts after its last Message (spec #262). */
@@ -53,23 +50,14 @@ export async function sweepExpiredTemporaryConversations(
       userId: null,
     });
 
-    const attachmentIds = linked.map((row) => row.attachmentId);
-    if (attachmentIds.length > 0) {
-      await tx
-        .delete(attachment)
-        .where(
-          and(
-            inArray(attachment.id, attachmentIds),
-            notExists(
-              tx
-                .select({ id: messageAttachment.attachmentId })
-                .from(messageAttachment)
-                .where(eq(messageAttachment.attachmentId, attachment.id)),
-            ),
-          ),
-        );
-    }
-    return deleted.afterCommit;
+    const blobKeys = await deleteUnusedAttachments(
+      tx,
+      linked.map((row) => row.attachmentId),
+    );
+    return async () => {
+      await deleted.afterCommit();
+      await deleteBlobsBestEffort(deps, blobKeys);
+    };
   });
   await afterCommit();
 }

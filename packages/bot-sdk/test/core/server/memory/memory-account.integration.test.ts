@@ -7,7 +7,7 @@ import {
   deleteConversation,
 } from "../../../../plugins/assistant/server/chat/store";
 import { project, memory } from "../../../../core/server/db/schema";
-import { deleteUserData } from "../../../../plugins/assistant/server/delete-user";
+import { deleteUserData } from "../../../../core/server/user-data";
 import { deleteProject } from "../../../../plugins/assistant/server/project/store";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { insertConversation } from "../../../support/conversations";

@@ -94,6 +94,32 @@ export async function deleteOrphanAttachments(deps: WriteDeps, before: Date) {
 }
 
 /**
+ * Deletes the ones of `attachmentIds` that no Message uses any more, with their Postgres bytes,
+ * inside the caller's transaction (call it after the Messages are gone). Returns the blob keys;
+ * pass them to `deleteBlobsBestEffort` once the transaction commits.
+ */
+export async function deleteUnusedAttachments(tx: Tx, attachmentIds: string[]): Promise<string[]> {
+  if (attachmentIds.length === 0) return [];
+  const removed = await tx
+    .delete(attachment)
+    .where(
+      and(
+        inArray(attachment.id, attachmentIds),
+        notExists(
+          tx
+            .select({ id: messageAttachment.attachmentId })
+            .from(messageAttachment)
+            .where(eq(messageAttachment.attachmentId, attachment.id)),
+        ),
+      ),
+    )
+    .returning({ id: attachment.id });
+  const keys = removed.map((row) => attachmentBlobKey(row.id));
+  if (keys.length > 0) await tx.delete(blob).where(inArray(blob.key, keys));
+  return keys;
+}
+
+/**
  * Locks the user's attachments against the orphan cleanup for the rest of the send's
  * transaction; `false` when one is gone (deleted, or never theirs).
  */

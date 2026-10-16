@@ -7,10 +7,8 @@ import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkPlugin } from "../../../core/server/plugin";
 import { deleteConversation } from "../../../plugins/assistant/server/chat/store";
 import { sweepExpiredTemporaryConversations } from "../../../plugins/assistant/server/chat/temporary";
-import {
-  deleteAllConversations,
-  deleteUserData,
-} from "../../../plugins/assistant/server/delete-user";
+import { deleteAllConversations } from "../../../plugins/assistant/server/delete-user";
+import { deleteUserData } from "../../../core/server/user-data";
 import { deleteProject } from "../../../plugins/assistant/server/project/store";
 import { insertConversation, insertMessage } from "../../support/conversations";
 import { createTestSdk } from "../../support/deps";

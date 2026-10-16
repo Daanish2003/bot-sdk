@@ -20,6 +20,7 @@ import {
   loadCredentials,
   rotateCredentialKeys,
 } from "./credentials/store";
+import { modelsUserDelete } from "./delete-user";
 import {
   defaultEmbeddingModel,
   embeddingModelIds,
@@ -196,6 +197,7 @@ function modelsPlugin(
     start: async (sdk) => {
       await start?.(sdk, ready(sdk));
     },
+    deleteUser: modelsUserDelete,
     rotateKeys: async (sdk) => {
       const deps = ready(sdk);
       const { reencrypted, unreadable } = await rotateCredentialKeys(deps);
