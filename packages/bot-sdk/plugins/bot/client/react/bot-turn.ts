@@ -74,6 +74,7 @@ async function runSend(
   setLocalTurn(queryClient, botId, {
     pending: { id: "pending", role: "user", text, createdAt: new Date(), pending: true },
   });
+  let ended = false;
   try {
     for await (const event of await orpc.bot.send.call({ botId, text })) {
       if (event.type === "message") {
@@ -87,12 +88,15 @@ async function runSend(
         if (event.message.role === "user")
           void queryClient.invalidateQueries({ queryKey: listKey });
       } else {
+        ended = true;
         update((data) => ({ ...data, bot: { ...data.bot, turnStatus: event.status } }));
       }
     }
   } catch {
     // A refused or failed send leaves the server's state to show.
   } finally {
+    // A stream that never ended leaves the cached Turn status stale, so ask the server.
+    if (!ended) void queryClient.invalidateQueries({ queryKey: getKey });
     setLocalTurn(queryClient, botId, undefined);
     void queryClient.invalidateQueries({ queryKey: listKey });
   }
