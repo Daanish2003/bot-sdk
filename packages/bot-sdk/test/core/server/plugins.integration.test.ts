@@ -33,6 +33,17 @@ describe("createBotSdk plugins", () => {
     ).toThrow(/shared.*first.*second/);
   });
 
+  it("throws when a plugin claims the core's router key or route", () => {
+    const procedure = os.handler(() => "ok");
+    expect(() =>
+      createBotSdk({ ...core, plugins: [{ id: "first", router: { attachment: procedure } }] }),
+    ).toThrow(/attachment.*core.*first/);
+    const route = { method: "GET", path: "/export", handle: async () => new Response() } as const;
+    expect(() => createBotSdk({ ...core, plugins: [{ id: "first", routes: [route] }] })).toThrow(
+      /GET \/export.*core.*first/,
+    );
+  });
+
   it("throws when two plugins claim the same route", () => {
     const route = { method: "GET", path: "/thing", handle: async () => new Response() } as const;
     expect(() =>

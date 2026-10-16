@@ -59,8 +59,7 @@ export type BasePart = TextPart | ThinkingPart | ToolCallPart;
 
 /**
  * The stored shape of a Message's `parts` as the core sees it: a versioned list whose parts it
- * knows only by `type`. Accepted kinds take this structural shape, so the core never imports a
- * plugin's parts.
+ * knows only by `type`, so the core never imports a plugin's parts.
  */
 export type PartsEnvelope = { schemaVersion: number; parts: { type: string }[] };
 

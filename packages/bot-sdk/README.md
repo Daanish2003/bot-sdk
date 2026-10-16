@@ -26,7 +26,7 @@ The destination is resolved from the folder you ran `pnpm` in. The script:
 ### Updating
 
 1. Run the copy script again. `core/VERSION` shows the commit you now run.
-2. Your `ui/` is untouched. If the release changed a component you also edited, merge that by hand: diff the new SDK's `ui/` against yours. The client side of a Run (sending, joining a streaming reply, Stop, a moderated refusal, Approval decisions, Ratings and Memory events) lives in `core/client/react/conversation-run.ts` as `useConversationRun`, which `ui/chat/chat-view.tsx` calls, so fixes to it come with the copy of `core/`.
+2. Your `ui/` is untouched. If the release changed a component you also edited, merge that by hand: diff the new SDK's `ui/` against yours. The client side of a Run (sending, joining a streaming reply, Stop, a moderated refusal, Approval decisions, Ratings and Memory events) lives in `plugins/assistant/client/react/conversation-run.ts` as `useConversationRun`, which `ui/chat/chat-view.tsx` calls, so fixes to it come with the copy.
 3. Install any new dependencies listed below, then run your type check.
 
 ### Updating to generation control
