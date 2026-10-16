@@ -4,7 +4,7 @@ import { resolveImageModelFor } from "../../../../core/server/chat/image-models"
 import { saveCredentials } from "../../../../core/server/credentials/store";
 import { userSettings } from "../../../../core/server/db/schema/settings";
 import type { HostProvider } from "../../../../core/server/deps";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { insertUser, type TestUser } from "../../../support/users";
 import { getTestDb } from "../../../support/test-database";
 
@@ -24,7 +24,7 @@ const hostProviders: HostProvider[] = [
   },
 ];
 
-async function addCredentials(deps: ReturnType<typeof createTestDeps>, user: TestUser) {
+async function addCredentials(deps: ReturnType<typeof createTestSdk>, user: TestUser) {
   await saveCredentials(deps, user.id, {
     service: "openai",
     fields: { apiKey: "openai-test-key" },
@@ -35,7 +35,7 @@ async function addCredentials(deps: ReturnType<typeof createTestDeps>, user: Tes
 
 describe("resolveImageModelFor", () => {
   it("uses the user's pick on their own credentials over the Host's default", async () => {
-    const deps = createTestDeps({
+    const deps = createTestSdk({
       hostProviders,
       defaultImageModel: "gemini:gemini-3.1-flash-image",
     });
@@ -56,7 +56,7 @@ describe("resolveImageModelFor", () => {
   });
 
   it("falls back to the Host's default, pinned and priced, when the user picks none", async () => {
-    const deps = createTestDeps({
+    const deps = createTestSdk({
       hostProviders,
       defaultImageModel: "gemini:gemini-3.1-flash-image",
     });
@@ -73,14 +73,14 @@ describe("resolveImageModelFor", () => {
   });
 
   it("resolves to none with no pick and no Host default", async () => {
-    const deps = createTestDeps({ hostProviders });
+    const deps = createTestSdk({ hostProviders });
     const user = await insertUser();
 
     await expect(resolveImageModelFor(deps, user.id)).resolves.toBeNull();
   });
 
   it("resolves to none, not the Host's default, when the user's pick has lost its credentials", async () => {
-    const deps = createTestDeps({
+    const deps = createTestSdk({
       hostProviders,
       defaultImageModel: "gemini:gemini-3.1-flash-image",
     });
@@ -93,7 +93,7 @@ describe("resolveImageModelFor", () => {
   });
 
   it("ignores the user's own credentials when byok is off", async () => {
-    const deps = createTestDeps({
+    const deps = createTestSdk({
       hostProviders,
       defaultImageModel: "gemini:gemini-3.1-flash-image",
       byok: false,

@@ -2,13 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import { resolvedServices } from "../../../../core/server/credentials/resolve";
 import { loadCredentials, saveCredentials } from "../../../../core/server/credentials/store";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { insertUser } from "../../../support/users";
 
 describe("credential resolution", () => {
   it("answers with the user's own credentials for the service", async () => {
     const user = await insertUser();
-    const deps = createTestDeps();
+    const deps = createTestSdk();
     await saveCredentials(deps, user.id, {
       service: "openai",
       fields: { apiKey: "sk-proj-abcd" },
@@ -24,7 +24,7 @@ describe("credential resolution", () => {
   it("answers nothing for a service the user has no credentials for", async () => {
     const user = await insertUser();
     const other = await insertUser();
-    const deps = createTestDeps();
+    const deps = createTestSdk();
     await saveCredentials(deps, other.id, {
       service: "openai",
       fields: { apiKey: "sk-proj-abcd" },
@@ -37,7 +37,7 @@ describe("credential resolution", () => {
 
   it("lists the services the user has credentials for", async () => {
     const user = await insertUser();
-    const deps = createTestDeps();
+    const deps = createTestSdk();
     await saveCredentials(deps, user.id, {
       service: "anthropic",
       fields: { apiKey: "sk-ant-api03-secret-good-1234" },

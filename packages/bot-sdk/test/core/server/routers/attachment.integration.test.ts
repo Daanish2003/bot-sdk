@@ -11,7 +11,7 @@ import {
   lockAttachments,
 } from "../../../../core/server/attachments/store";
 import { insertAttachment, linkTestAttachments } from "../../../support/attachments";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { insertConversation, insertMessage } from "../../../support/conversations";
 import { insertUser } from "../../../support/users";
 import { chatRpc } from "../../../support/sdk";
@@ -118,7 +118,7 @@ describe("attachment.upload", () => {
     });
     await lockTaken;
 
-    await deleteOrphanAttachments(createTestDeps(), new Date());
+    await deleteOrphanAttachments(createTestSdk(), new Date());
     finishSend();
     await send;
 

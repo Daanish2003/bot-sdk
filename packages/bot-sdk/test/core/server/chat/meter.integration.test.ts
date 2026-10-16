@@ -11,7 +11,7 @@ import {
   imageMeter,
 } from "../../../../core/server/chat/meter";
 import { usage } from "../../../../core/server/db/schema/usage";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
 
@@ -25,9 +25,9 @@ async function rowsOf(userId: string) {
 }
 
 /** Deps whose `onUsage` hook collects every usage event, and a $1-a-day Quota. */
-function depsWithHook(overrides: Parameters<typeof createTestDeps>[0] = {}) {
+function depsWithHook(overrides: Parameters<typeof createTestSdk>[0] = {}) {
   const events: UsageEvent[] = [];
-  const deps = createTestDeps({
+  const deps = createTestSdk({
     getQuota: async () => ({ budgetUsd: 1, window: "day" }),
     hooks: createHookEmitter({ onUsage: (event) => void events.push(event) }, { error: () => {} }),
     ...overrides,
@@ -65,7 +65,7 @@ describe("a Host meter", () => {
 
   it("takes the Provider's reported cost over the token price", async () => {
     const user = await insertUser();
-    const meter = hostModelMeter(createTestDeps(), user.id, sonnet, price);
+    const meter = hostModelMeter(createTestSdk(), user.id, sonnet, price);
 
     await meter.record({ kind: "run", usage: usageOf, reportedCost: 0.25 });
 
@@ -110,7 +110,7 @@ describe("a Host meter", () => {
 
   it("estimates an embedding's tokens from its characters when the Provider counts none", async () => {
     const user = await insertUser();
-    const meter = hostEmbeddingMeter(createTestDeps(), user.id, {
+    const meter = hostEmbeddingMeter(createTestSdk(), user.id, {
       model: "gemini:gemini-embedding-001",
       pricePerMillionTokensUsd: 2,
     });
@@ -134,7 +134,7 @@ describe("a Host meter", () => {
 
   it("bills a Groq transcription for at least its minimum seconds", async () => {
     const user = await insertUser();
-    const meter = hostTranscriptionMeter(createTestDeps(), user.id, {
+    const meter = hostTranscriptionMeter(createTestSdk(), user.id, {
       provider: "groq",
       model: "groq:whisper-large-v3-turbo",
       pricePerMinuteUsd: 0.06,
@@ -168,7 +168,7 @@ describe("an image meter", () => {
 
   it("bills a Stop on an adapter that runs on at the flat price, and an unanswered refusal not at all", async () => {
     const user = await insertUser();
-    const meter = imageMeter(createTestDeps(), user.id, {
+    const meter = imageMeter(createTestSdk(), user.id, {
       model: "openai:gpt-image-1",
       provider: "openai",
       price: imagePrice,

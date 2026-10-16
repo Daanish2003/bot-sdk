@@ -6,6 +6,7 @@ import { fakeEmbeddingAdapter } from "../../core/server/chat/fake-embedding-adap
 import { createHookEmitter } from "../../core/server/chat/hooks";
 import { createMemoryPubSub } from "../../core/server/chat/pubsub";
 import { createMemoryRunStreams } from "../../core/server/chat/run-streams";
+import { createBotSdkOver } from "../../core/server/create-chat";
 import { inProcessRunner } from "../../core/server/jobs/in-process";
 import type { AppDeps, Limits } from "../../core/server/deps";
 import { resolveRateLimits } from "../../core/server/rate-limits";
@@ -15,10 +16,11 @@ import { createFakeSearchClient } from "./fake-search-client";
 export const testKeyEncryptionSecret = "test-key-encryption-secret-not-for-production";
 
 /**
- * `AppDeps` for tests: the test database and fakes, with nothing that reaches the network.
- * Pass overrides for the parts a test scripts (for example `adapterFor` returning a fake adapter).
+ * A real `createBotSdk` instance for tests, over the test database and fakes, with nothing that
+ * reaches the network; it returns the dependency bundle its `assistant` plugin runs on. Pass
+ * overrides for the parts a test scripts (for example `adapterFor` returning a fake adapter).
  */
-export function createTestDeps({
+export function createTestSdk({
   limits,
   ...overrides
 }: Partial<Omit<AppDeps, "limits">> & { limits?: Partial<Limits> } = {}): AppDeps {
@@ -33,16 +35,16 @@ export function createTestDeps({
     blobStore: postgresBlobStore(getTestDb()),
     isUserBlocked: async () => false,
     adapterFor: (model) => {
-      throw new Error(`No fake adapter for model "${model}"; pass adapterFor to createTestDeps`);
+      throw new Error(`No fake adapter for model "${model}"; pass adapterFor to createTestSdk`);
     },
     imageAdapterFor: (model) => {
       throw new Error(
-        `No fake image adapter for model "${model}"; pass imageAdapterFor to createTestDeps`,
+        `No fake image adapter for model "${model}"; pass imageAdapterFor to createTestSdk`,
       );
     },
     embeddingAdapterFor: () => fakeEmbeddingAdapter(),
     transcriptionAdapterFor: (model) => {
-      throw new Error(`No fake transcription adapter for "${model}"; pass one to createTestDeps`);
+      throw new Error(`No fake transcription adapter for "${model}"; pass one to createTestSdk`);
     },
     searchClient: createFakeSearchClient(),
     tools: [],
@@ -82,8 +84,13 @@ export function createTestDeps({
     fetch,
     ollamaFetch: overrides.ollamaFetch ?? fetch,
   };
-  return deps;
+  const sdk = createBotSdkOver(deps, {
+    basePath: "/api/chat",
+    getUser: () => null,
+    logger: { error: () => {} },
+  });
+  return sdk.plugin("assistant").deps;
 }
 
-/** What a test may override in `createTestDeps`: any part of `AppDeps`, and any part of its limits. */
-export type TestDepsOverrides = Parameters<typeof createTestDeps>[0];
+/** What a test may override in `createTestSdk`: any part of `AppDeps`, and any part of its limits. */
+export type TestDepsOverrides = Parameters<typeof createTestSdk>[0];

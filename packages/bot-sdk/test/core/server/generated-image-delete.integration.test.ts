@@ -8,7 +8,7 @@ import { generatedImage } from "../../../core/server/db/schema/generated-image";
 import { project } from "../../../core/server/db/schema/chat";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { insertConversation } from "../../support/conversations";
-import { createTestDeps } from "../../support/deps";
+import { createTestSdk } from "../../support/deps";
 import { insertGeneratedImage } from "../../support/generated-images";
 import { chatRpc } from "../../support/sdk";
 import { getTestDb } from "../../support/test-database";
@@ -30,7 +30,7 @@ async function remainingOf(userId: string) {
 
 /** Two of the user's images, in two Conversations, so a delete can be told apart from the rest. */
 async function twoImagesOf(user: TestUser) {
-  const deps = createTestDeps();
+  const deps = createTestSdk();
   const first = await insertConversation(user, { title: "First" });
   const second = await insertConversation(user, { title: "Second" });
   const firstImage = await insertGeneratedImage(deps, user, first.id);
@@ -62,8 +62,8 @@ describe("deleting a Conversation removes its Generated images", () => {
   it("logs a failing blob delete and still deletes the rows", async () => {
     const owner = await insertUser();
     const logged = vi.fn();
-    const base = createTestDeps();
-    const deps = createTestDeps({
+    const base = createTestSdk();
+    const deps = createTestSdk({
       logger: { error: logged },
       blobStore: {
         ...base.blobStore,
@@ -87,7 +87,7 @@ describe("deleting a Conversation removes its Generated images", () => {
 describe("deleting a Project removes its Conversations' Generated images", () => {
   it("deletes the rows and the bytes", async () => {
     const owner = await insertUser();
-    const deps = createTestDeps();
+    const deps = createTestSdk();
     const [projectRow] = await getTestDb()
       .insert(project)
       .values({ id: uuidv7(), userId: owner.id, name: "Images" })
@@ -109,7 +109,7 @@ describe("deleting a user removes their Generated images", () => {
   it("deletes the rows and the bytes, and leaves other users' images alone", async () => {
     const owner = await insertUser();
     const other = await insertUser();
-    const deps = createTestDeps();
+    const deps = createTestSdk();
     const conv = await insertConversation(owner, { title: "Mine" });
     const ownImage = await insertGeneratedImage(deps, owner, conv.id);
     const otherConv = await insertConversation(other, { title: "Theirs" });
@@ -127,7 +127,7 @@ describe("deleting a user removes their Generated images", () => {
 describe("sweeping an expired Temporary Conversation removes its Generated images", () => {
   it("deletes the rows and the bytes", async () => {
     const owner = await insertUser();
-    const deps = createTestDeps();
+    const deps = createTestSdk();
     const conv = await insertConversation(owner, {
       title: "Gone",
       temporary: true,

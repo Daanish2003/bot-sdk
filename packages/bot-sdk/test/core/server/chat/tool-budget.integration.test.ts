@@ -10,7 +10,7 @@ import { fakeImageAdapter } from "../../../../core/server/chat/fake-image-adapte
 import { saveCredentials } from "../../../../core/server/credentials/store";
 import type { AppDeps, HostProvider } from "../../../../core/server/deps";
 import { insertConversation } from "../../../support/conversations";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { createFakeSearchClient } from "../../../support/fake-search-client";
 import { drainJobs } from "../../../support/jobs";
@@ -75,7 +75,7 @@ async function timeCallsLeft(
       round(text("Done.")),
     ],
   });
-  const deps = createTestDeps({
+  const deps = createTestSdk({
     adapterFor: () => fake.adapter,
     tools: [sendMail(approval), serverTime],
     hostProviders: [hostOpenAI],

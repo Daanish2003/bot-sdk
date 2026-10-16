@@ -21,6 +21,7 @@ import {
   createChatHandler,
   type BotSdkOptions,
 } from "../../../../core/server/create-chat";
+import { assistant, type AssistantOptions } from "../../../../core/server/assistant";
 import { deleteAllConversations, deleteUserData } from "../../../../core/server/delete-user";
 import { deleteProject } from "../../../../core/server/project/store";
 import { saveCredentials } from "../../../../core/server/credentials/store";
@@ -29,7 +30,7 @@ import { usage } from "../../../../core/server/db/schema/usage";
 import type { HostProvider } from "../../../../core/server/deps";
 import { createLifecycle } from "../../../../core/server/lifecycle";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { createTestDeps, testKeyEncryptionSecret } from "../../../support/deps";
+import { createTestSdk, testKeyEncryptionSecret } from "../../../support/deps";
 import { insertAttachment } from "../../../support/attachments";
 import { insertConversation, insertMessage } from "../../../support/conversations";
 import { createFakeAdapter, round, runError, text, toolCall } from "../../../support/fake-adapter";
@@ -62,17 +63,17 @@ const hostProvider: HostProvider = {
 
 /** A `createBotSdk` over the test database, with the Host's hooks and logger. */
 function chatWith(
-  options: Partial<BotSdkOptions> & { userId: string },
+  options: Partial<BotSdkOptions> & Pick<AssistantOptions, "hostProviders"> & { userId: string },
 ): ReturnType<typeof createBotSdk> {
-  const { userId, ...rest } = options;
+  const { userId, hostProviders = [hostProvider], ...rest } = options;
   return createBotSdk({
     databaseUrl: testDatabaseUrl,
     getUser: () => ({ id: userId }),
     keyEncryptionSecrets: [testKeyEncryptionSecret],
     basePath,
-    hostProviders: [hostProvider],
     logger: { error: () => {} },
     ...rest,
+    plugins: [assistant({ hostProviders })],
   });
 }
 
@@ -129,7 +130,7 @@ describe("the onUsage hook", () => {
 
   it("never fires for a Run on the user's own credentials", async () => {
     const user = await insertUser();
-    const deps = createTestDeps();
+    const deps = createTestSdk();
     await saveCredentials(deps, user.id, {
       service: "anthropic",
       fields: { apiKey: "sk-ant-own-key" },
@@ -204,11 +205,8 @@ describe("the onUsage hook", () => {
 
 /** A Host's `onRunEnd` mock, and test deps whose emitter calls it. */
 type RunEndMock = ReturnType<typeof vi.fn<(run: RunEndEvent) => unknown>>;
-function depsWithRunEnd(
-  onRunEnd: RunEndMock,
-  overrides: Parameters<typeof createTestDeps>[0] = {},
-) {
-  return createTestDeps({
+function depsWithRunEnd(onRunEnd: RunEndMock, overrides: Parameters<typeof createTestSdk>[0] = {}) {
+  return createTestSdk({
     hostProviders: [hostProvider],
     hooks: createHookEmitter({ onRunEnd }, { error: () => {} }),
     ...overrides,
@@ -630,7 +628,7 @@ describe("the SDK's failures", () => {
             : target.insert(table as never);
       },
     });
-    const deps = createTestDeps({
+    const deps = createTestSdk({
       db: failingUsageDb,
       adapterFor: () => createFakeAdapter({ rounds: [round(text("Hello"))] }).adapter,
       hostProviders: [hostProvider],
@@ -659,7 +657,7 @@ describe("the SDK's failures", () => {
     const error = vi.fn();
     // One shared adapter: the Run uses its only round, so the title call finds none.
     const fake = createFakeAdapter({ rounds: [round(text("Hello"))] });
-    const deps = createTestDeps({
+    const deps = createTestSdk({
       adapterFor: () => fake.adapter,
       hostProviders: [hostProvider],
       logger: { error },
@@ -828,7 +826,7 @@ describe("the Conversation and Shared link hooks", () => {
     };
     await rpcOf(chatWith({ userId: user.id, hooks })).share.upsert({ conversationId: conv.id });
     hooks.onSharedLinkChanged.mockClear();
-    const deps = createTestDeps({
+    const deps = createTestSdk({
       hostProviders: [hostProvider],
       hooks: createHookEmitter(hooks, { error: () => {} }),
     });
@@ -875,7 +873,7 @@ describe("the Conversation and Shared link hooks", () => {
     await getTestDb().insert(project).values({ id: projectId, userId: user.id, name: "Thesis" });
     await insertConversation(user, { projectId });
     const onConversationDeleted = vi.fn<(event: ConversationDeletedEvent) => unknown>();
-    const deps = createTestDeps({
+    const deps = createTestSdk({
       db: failingDeleteOf(getTestDb(), project),
       hooks: createHookEmitter({ onConversationDeleted }, { error: () => {} }),
     });
@@ -1037,7 +1035,7 @@ describe("the moderate hook on the user's Message", () => {
 
   it("tells the hook a Run on the user's own credentials is not on Host credentials", async () => {
     const user = await insertUser();
-    const deps = createTestDeps();
+    const deps = createTestSdk();
     await saveCredentials(deps, user.id, {
       service: "anthropic",
       fields: { apiKey: "sk-ant-own-key" },

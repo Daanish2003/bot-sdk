@@ -7,6 +7,7 @@ import { Client } from "pg";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
+import { assistant } from "../../../core/server/assistant";
 import { LATEST_MIGRATION } from "../../../core/server/migrate";
 import {
   dropScratchDatabase,
@@ -22,6 +23,7 @@ function chatFor(databaseUrl: string) {
     getUser: () => null,
     keyEncryptionSecrets,
     basePath: "/api/chat",
+    plugins: [assistant()],
   });
 }
 

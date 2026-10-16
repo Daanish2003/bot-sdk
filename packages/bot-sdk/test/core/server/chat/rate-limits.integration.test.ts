@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../../core/server/create-chat";
+import { assistant } from "../../../../core/server/assistant";
 import { memoryRuntime } from "../../../../core/server/runtime";
 import { resolveRateLimits, type RateLimits } from "../../../../core/server/rate-limits";
 import { RateLimitedError } from "../../../../core/client/rate-limit";
 import { chatRpc, sendAs } from "../../../support/sdk";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { testDatabaseUrl } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
 import type { TestUser } from "../../../support/users";
@@ -29,7 +30,7 @@ describe("Run start rate limits", () => {
   it("answers 429 with Retry-After once a user passes the limit, and another user is unaffected", async () => {
     const user = await insertUser();
     const other = await insertUser();
-    const deps = createTestDeps({
+    const deps = createTestSdk({
       rateLimits: resolveRateLimits({ runStart: { limit: 2, windowSeconds: 60 } }),
     });
 
@@ -48,7 +49,7 @@ describe("Run start rate limits", () => {
 
   it("allows 20 Run starts a minute by default, then refuses the 21st", async () => {
     const user = await insertUser();
-    const deps = createTestDeps();
+    const deps = createTestSdk();
 
     const statuses: number[] = [];
     for (let attempt = 0; attempt < 21; attempt++) {
@@ -68,6 +69,7 @@ describe("Run start rate limits", () => {
       basePath: "/api/chat",
       runtime: memoryRuntime(),
       rateLimits: { runStart: { limit: 1, windowSeconds: 60 } },
+      plugins: [assistant()],
     });
 
     const first = await chat.handler(runStart(user)!);
@@ -79,7 +81,7 @@ describe("Run start rate limits", () => {
 
   it("never refuses a Run start when its limit is turned off with false", async () => {
     const user = await insertUser();
-    const deps = createTestDeps({ rateLimits: resolveRateLimits({ runStart: false }) });
+    const deps = createTestSdk({ rateLimits: resolveRateLimits({ runStart: false }) });
 
     const statuses: number[] = [];
     for (let attempt = 0; attempt < 25; attempt++) {
@@ -127,7 +129,7 @@ describe.each(rpcCases)("$name rate limits", ({ route, rateLimits }) => {
   it("answers 429 with Retry-After once a user passes the limit, and another user is unaffected", async () => {
     const user = await insertUser();
     const other = await insertUser();
-    const deps = createTestDeps({ rateLimits: resolveRateLimits(rateLimits) });
+    const deps = createTestSdk({ rateLimits: resolveRateLimits(rateLimits) });
 
     const first = await sendAs(rpcCall(route), user, deps);
     const limited = await sendAs(rpcCall(route), user, deps);
@@ -146,7 +148,7 @@ describe.each(rpcCases)("$name rate limits", ({ route, rateLimits }) => {
     const off = Object.fromEntries(
       Object.keys(rateLimits).map((key) => [key, false]),
     ) as RateLimits;
-    const deps = createTestDeps({ rateLimits: resolveRateLimits(off) });
+    const deps = createTestSdk({ rateLimits: resolveRateLimits(off) });
 
     const statuses: number[] = [];
     for (let attempt = 0; attempt < 5; attempt++) {
@@ -169,7 +171,7 @@ it("surfaces the limit to the typed client as a RateLimitedError with the retry 
   const user = await insertUser();
   const client = chatRpc({
     user,
-    deps: createTestDeps({
+    deps: createTestSdk({
       rateLimits: resolveRateLimits({ attachmentUpload: { limit: 0, windowSeconds: 60 } }),
     }),
   });
@@ -201,6 +203,7 @@ describe("Shared link view rate limits, per client IP", () => {
       rateLimits: options.rateLimits,
       getClientIp:
         options.withIp === false ? undefined : (request) => request.headers.get("x-test-ip"),
+      plugins: [assistant()],
     });
 
   it("answers 429 with Retry-After for the IP over its limit, and another IP is unaffected", async () => {

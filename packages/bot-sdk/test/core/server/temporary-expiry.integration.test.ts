@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
+import { assistant } from "../../../core/server/assistant";
 import { sweepExpiredTemporaryConversations } from "../../../core/server/chat/temporary";
 import { saveCredentials } from "../../../core/server/credentials/store";
 import { attachment, messageAttachment } from "../../../core/server/db/schema/attachment";
@@ -10,7 +11,7 @@ import { sharedLink } from "../../../core/server/db/schema/share";
 import { createLifecycle } from "../../../core/server/lifecycle";
 import { insertAttachment, linkTestAttachments } from "../../support/attachments";
 import { insertConversation, insertMessage, testModel } from "../../support/conversations";
-import { createTestDeps } from "../../support/deps";
+import { createTestSdk } from "../../support/deps";
 import { createFakeAdapter, round, text } from "../../support/fake-adapter";
 import { chatRpc, sendAs } from "../../support/sdk";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
@@ -132,7 +133,7 @@ describe("a Temporary Conversation past its 30 days", () => {
 /** Test deps whose Model answers a short reply, with Anthropic credentials saved for `user`. */
 async function sendDeps(user: TestUser) {
   const fake = createFakeAdapter({ rounds: [round(text("Hello"))] });
-  const deps = createTestDeps({ adapterFor: () => fake.adapter });
+  const deps = createTestSdk({ adapterFor: () => fake.adapter });
   await saveCredentials(deps, user.id, {
     service: "anthropic",
     fields: { apiKey: "sk-ant-test-key" },
@@ -145,7 +146,7 @@ async function sendDeps(user: TestUser) {
 describe("sweepExpiredTemporaryConversations", () => {
   it("deletes an expired Temporary Conversation with its Messages and Attachments, and leaves a younger one", async () => {
     const user = await insertUser();
-    const deps = createTestDeps();
+    const deps = createTestSdk();
     const expired = await insertConversation(user, { temporary: true, lastMessageAt: daysAgo(31) });
     const expiredMessage = await insertMessage({
       conversationId: expired.id,
@@ -168,7 +169,7 @@ describe("sweepExpiredTemporaryConversations", () => {
 
   it("takes its now as an argument", async () => {
     const user = await insertUser();
-    const deps = createTestDeps();
+    const deps = createTestSdk();
     const younger = await insertConversation(user, { temporary: true, lastMessageAt: daysAgo(29) });
 
     await sweepExpiredTemporaryConversations(deps, new Date());
@@ -180,7 +181,7 @@ describe("sweepExpiredTemporaryConversations", () => {
 
   it("keeps an Attachment that a Message in a live Conversation still uses", async () => {
     const user = await insertUser();
-    const deps = createTestDeps();
+    const deps = createTestSdk();
     const expired = await insertConversation(user, { temporary: true, lastMessageAt: daysAgo(31) });
     const expiredMessage = await insertMessage({
       conversationId: expired.id,
@@ -206,7 +207,7 @@ describe("sweepExpiredTemporaryConversations", () => {
 
   it("never deletes an ordinary Conversation, however old", async () => {
     const user = await insertUser();
-    const deps = createTestDeps();
+    const deps = createTestSdk();
     const ordinary = await insertConversation(user, { lastMessageAt: daysAgo(400) });
 
     await sweepExpiredTemporaryConversations(deps);
@@ -218,7 +219,7 @@ describe("sweepExpiredTemporaryConversations", () => {
 describe("the reaper's sweep", () => {
   it("runs with start(), then not again until an hour has passed", async () => {
     const user = await insertUser();
-    const deps = createTestDeps();
+    const deps = createTestSdk();
     const lifecycle = createLifecycle(deps);
     const first = await insertConversation(user, { temporary: true, lastMessageAt: daysAgo(31) });
 
@@ -244,6 +245,7 @@ describe("an expired Temporary Conversation's other reads", () => {
       getUser: () => null,
       keyEncryptionSecrets: [testKey],
       basePath: "/api/chat",
+      plugins: [assistant()],
     }).exportUser(user.id);
 
     expect(exported.conversations.map((row) => row.id)).toEqual([ordinary.id]);

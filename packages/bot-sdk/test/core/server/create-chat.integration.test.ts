@@ -1,15 +1,16 @@
 import { describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
+import { assistant } from "../../../core/server/assistant";
 import { saveCredentials } from "../../../core/server/credentials/store";
 import { message } from "../../../core/server/db/schema/chat";
 import { eq } from "drizzle-orm";
 import { insertConversation, insertMessage } from "../../support/conversations";
-import { createTestDeps } from "../../support/deps";
+import { createTestSdk } from "../../support/deps";
 import { createFakeAdapter, round, text } from "../../support/fake-adapter";
 import { insertUser } from "../../support/users";
 import { createTestChat } from "../../support/sdk";
-import { getTestDb } from "../../support/test-database";
+import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 
 const basePath = "/api/chat";
 const baseUrl = `http://localhost${basePath}`;
@@ -22,6 +23,7 @@ describe("createBotSdk", () => {
         getUser: () => null,
         keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
         basePath,
+        plugins: [assistant()],
       }),
     ).not.toThrow();
   });
@@ -33,19 +35,25 @@ describe("createBotSdk", () => {
         getUser: () => null,
         keyEncryptionSecrets: [],
         basePath,
+        plugins: [assistant()],
       }),
     ).toThrow(/at least one/);
   });
 });
 
+// start() checks the schema before any plugin, so these run on the migrated test database.
 describe("createBotSdk start", () => {
   it("refuses to start with neither Host credentials nor BYOK", async () => {
     const chat = createBotSdk({
-      databaseUrl: "postgresql://nobody:nothing@127.0.0.1:1/unreachable",
+      databaseUrl: testDatabaseUrl,
       getUser: () => null,
       keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
       basePath,
-      byok: false,
+      plugins: [
+        assistant({
+          byok: false,
+        }),
+      ],
     });
 
     await expect(chat.start()).rejects.toThrow(/hostProviders|byok/);
@@ -53,17 +61,21 @@ describe("createBotSdk start", () => {
 
   it("refuses transcription Models on a Provider with no transcription adapter", async () => {
     const chat = createBotSdk({
-      databaseUrl: "postgresql://nobody:nothing@127.0.0.1:1/unreachable",
+      databaseUrl: testDatabaseUrl,
       getUser: () => null,
       keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
       basePath,
-      hostProviders: [
-        {
-          provider: "anthropic",
-          credentials: { apiKey: "sk-host" },
-          models: [],
-          transcriptionModels: [{ model: "some-model", pricePerMinuteUsd: 0.01 }],
-        },
+      plugins: [
+        assistant({
+          hostProviders: [
+            {
+              provider: "anthropic",
+              credentials: { apiKey: "sk-host" },
+              models: [],
+              transcriptionModels: [{ model: "some-model", pricePerMinuteUsd: 0.01 }],
+            },
+          ],
+        }),
       ],
     });
 
@@ -72,25 +84,29 @@ describe("createBotSdk start", () => {
 
   it("refuses a defaultBackgroundModel that is not one of the Host's Models", async () => {
     const chat = createBotSdk({
-      databaseUrl: "postgresql://nobody:nothing@127.0.0.1:1/unreachable",
+      databaseUrl: testDatabaseUrl,
       getUser: () => null,
       keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
       basePath,
-      hostProviders: [
-        {
-          provider: "ollama",
-          credentials: { host: "http://localhost:11434" },
-          models: [
+      plugins: [
+        assistant({
+          hostProviders: [
             {
-              modelId: "llama",
-              maxOutputTokens: 512,
-              inputUsdPerMillion: 0,
-              outputUsdPerMillion: 0,
+              provider: "ollama",
+              credentials: { host: "http://localhost:11434" },
+              models: [
+                {
+                  modelId: "llama",
+                  maxOutputTokens: 512,
+                  inputUsdPerMillion: 0,
+                  outputUsdPerMillion: 0,
+                },
+              ],
             },
           ],
-        },
+          defaultBackgroundModel: "ollama:mistral",
+        }),
       ],
-      defaultBackgroundModel: "ollama:mistral",
     });
 
     await expect(chat.start()).rejects.toThrow(/defaultBackgroundModel/);
@@ -98,26 +114,30 @@ describe("createBotSdk start", () => {
 
   it("refuses a defaultImageModel that is not one of the Host's Image Models", async () => {
     const chat = createBotSdk({
-      databaseUrl: "postgresql://nobody:nothing@127.0.0.1:1/unreachable",
+      databaseUrl: testDatabaseUrl,
       getUser: () => null,
       keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
       basePath,
-      hostProviders: [
-        {
-          provider: "openai",
-          credentials: { apiKey: "host-key" },
-          models: [],
-          imageModels: [
+      plugins: [
+        assistant({
+          hostProviders: [
             {
-              modelId: "gpt-image-1-mini",
-              size: "1024x1024",
-              quality: "medium",
-              pricePerImageUsd: 0.01,
+              provider: "openai",
+              credentials: { apiKey: "host-key" },
+              models: [],
+              imageModels: [
+                {
+                  modelId: "gpt-image-1-mini",
+                  size: "1024x1024",
+                  quality: "medium",
+                  pricePerImageUsd: 0.01,
+                },
+              ],
             },
           ],
-        },
+          defaultImageModel: "openai:gpt-image-2",
+        }),
       ],
-      defaultImageModel: "openai:gpt-image-2",
     });
 
     await expect(chat.start()).rejects.toThrow(/defaultImageModel/);
@@ -125,20 +145,24 @@ describe("createBotSdk start", () => {
 
   it("refuses a Host Image Model without a pricePerImageUsd", async () => {
     const chat = createBotSdk({
-      databaseUrl: "postgresql://nobody:nothing@127.0.0.1:1/unreachable",
+      databaseUrl: testDatabaseUrl,
       getUser: () => null,
       keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
       basePath,
-      hostProviders: [
-        {
-          provider: "openai",
-          credentials: { apiKey: "host-key" },
-          models: [],
-          imageModels: [
-            // Left unpriced on purpose: a JavaScript Host can omit what TypeScript requires.
-            { modelId: "gpt-image-1-mini", size: "1024x1024", quality: "medium" } as never,
+      plugins: [
+        assistant({
+          hostProviders: [
+            {
+              provider: "openai",
+              credentials: { apiKey: "host-key" },
+              models: [],
+              imageModels: [
+                // Left unpriced on purpose: a JavaScript Host can omit what TypeScript requires.
+                { modelId: "gpt-image-1-mini", size: "1024x1024", quality: "medium" } as never,
+              ],
+            },
           ],
-        },
+        }),
       ],
     });
 
@@ -171,7 +195,7 @@ describe("the chat handler", () => {
   it("streams a Run through the handler and saves its reply", async () => {
     const user = await insertUser();
     const fake = createFakeAdapter({ rounds: [round(text("Hello", " there!"))] });
-    const deps = createTestDeps({ adapterFor: () => fake.adapter });
+    const deps = createTestSdk({ adapterFor: () => fake.adapter });
     await saveCredentials(deps, user.id, {
       service: "anthropic",
       fields: { apiKey: "sk-ant-test-key" },
@@ -217,7 +241,7 @@ describe("the chat handler", () => {
 
   it("serves a Shared link to a caller without a user", async () => {
     const owner = await insertUser();
-    const deps = createTestDeps();
+    const deps = createTestSdk();
     const conv = await insertConversation(owner, { title: "Recursive CTEs" });
     await insertMessage({ conversationId: conv.id, role: "user", text: "Hi", active: true });
     const link = await createTestChat({ user: owner, deps }).rpc.share.upsert({

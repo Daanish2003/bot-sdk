@@ -1,7 +1,7 @@
 import type { AppDeps } from "../../core/server/deps";
 import { createBotSdkClient, type BotSdkClient } from "../../core/client/chat-client";
 import { createChatHandler } from "../../core/server/create-chat";
-import { createTestDeps } from "./deps";
+import { createTestSdk } from "./deps";
 import type { TestUser } from "./users";
 
 const basePath = "/api/chat";
@@ -13,7 +13,7 @@ const basePath = "/api/chat";
  */
 export function createTestChat({
   user,
-  deps = createTestDeps(),
+  deps = createTestSdk(),
 }: { user?: TestUser | null; deps?: AppDeps } = {}): BotSdkClient {
   const handler = createChatHandler(deps, {
     basePath,

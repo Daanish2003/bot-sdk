@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
+import { assistant } from "../../../core/server/assistant";
 import { message } from "../../../core/server/db/schema/chat";
 import { usage } from "../../../core/server/db/schema/usage";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
@@ -83,6 +84,7 @@ describe("chat.admin.usageTotals", () => {
       getUser: () => null,
       keyEncryptionSecrets,
       basePath,
+      plugins: [assistant()],
     });
     const totals = await chat.admin.usageTotals({ since, until });
 
@@ -152,6 +154,7 @@ describe("chat.admin.usage", () => {
       getUser: () => null,
       keyEncryptionSecrets,
       basePath,
+      plugins: [assistant()],
     });
 
     expect(await chat.admin.usage({ userId: owner.id, since, until })).toEqual([
@@ -196,7 +199,11 @@ describe("chat.admin.quota", () => {
       getUser: () => null,
       keyEncryptionSecrets,
       basePath,
-      getQuota: (userId) => (userId === owner.id ? { budgetUsd: 1, window: "day" } : null),
+      plugins: [
+        assistant({
+          getQuota: (userId) => (userId === owner.id ? { budgetUsd: 1, window: "day" } : null),
+        }),
+      ],
     });
 
     expect(await chat.admin.quota(owner.id)).toEqual({
@@ -214,7 +221,11 @@ describe("chat.admin.quota", () => {
       getUser: () => null,
       keyEncryptionSecrets,
       basePath,
-      getQuota: () => null,
+      plugins: [
+        assistant({
+          getQuota: () => null,
+        }),
+      ],
     });
 
     expect(await chat.admin.quota(free.id)).toBeNull();
@@ -247,6 +258,7 @@ describe("chat.admin.stopRuns", () => {
       getUser: () => null,
       keyEncryptionSecrets,
       basePath,
+      plugins: [assistant()],
     });
 
     await chat.admin.stopRuns(owner.id);
@@ -272,6 +284,7 @@ describe("chat.admin.stopRuns", () => {
       getUser: () => null,
       keyEncryptionSecrets,
       basePath,
+      plugins: [assistant()],
     });
 
     await chat.admin.stopRuns(owner.id);
@@ -308,6 +321,7 @@ describe("chat.admin.ratingTotals", () => {
       getUser: () => null,
       keyEncryptionSecrets,
       basePath,
+      plugins: [assistant()],
     });
 
     const totals = await chat.admin.ratingTotals({ since });
@@ -343,6 +357,7 @@ describe("chat.admin.ratingTotals", () => {
       getUser: () => null,
       keyEncryptionSecrets,
       basePath,
+      plugins: [assistant()],
     });
     expect(await chat.admin.ratingTotals({ since })).toEqual([{ model: sonnet, up: 1, down: 1 }]);
 

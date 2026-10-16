@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { createBotSdk } from "../../../../core/server/create-chat";
+import { assistant } from "../../../../core/server/assistant";
 import { defineJob } from "../../../../core/server/jobs/define";
 import { testDatabaseUrl } from "../../../support/test-database";
 
@@ -21,6 +22,7 @@ function chatWithTestDb() {
     keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
     basePath: "/api/chat",
     logger: silent,
+    plugins: [assistant()],
   });
 }
 

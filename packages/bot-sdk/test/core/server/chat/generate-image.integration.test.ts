@@ -16,7 +16,7 @@ import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { insertConversation, insertMessage } from "../../../support/conversations";
 import { insertGeneratedImage } from "../../../support/generated-images";
 import { insertAttachment, linkTestAttachments } from "../../../support/attachments";
-import { createTestDeps, type TestDepsOverrides } from "../../../support/deps";
+import { createTestSdk, type TestDepsOverrides } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { insertUser } from "../../../support/users";
 import { chatRpc, sendAs } from "../../../support/sdk";
@@ -63,7 +63,7 @@ async function setup({
 }) {
   const user = await insertUser();
   const fake = createFakeAdapter({ rounds });
-  const deps = createTestDeps({
+  const deps = createTestSdk({
     adapterFor: () => fake.adapter,
     imageAdapterFor: () => imageAdapter,
     hostProviders: hostImage ? hostProviders : [],

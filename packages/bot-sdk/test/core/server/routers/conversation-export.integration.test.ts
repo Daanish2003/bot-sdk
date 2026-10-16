@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { appRouter } from "../../../../core/server/routers/index";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { insertAttachment, linkTestAttachments } from "../../../support/attachments";
 import { insertUser } from "../../../support/users";
 import { chatRpc } from "../../../support/sdk";
@@ -171,7 +171,7 @@ describe("conversation.exportMarkdown", () => {
     const owner = await insertUser();
     const stranger = await insertUser();
     const conv = await insertConversation(owner, { title: "Private" });
-    const deps = createTestDeps();
+    const deps = createTestSdk();
     const asStranger = chatRpc({ user: stranger, deps });
 
     await expect(
@@ -191,7 +191,7 @@ describe("conversation.exportMarkdown", () => {
     const owner = await insertUser();
     const conv = await insertConversation(owner, { title: "Private" });
     const signedOut = createRouterClient(appRouter, {
-      context: { user: null, deps: createTestDeps() },
+      context: { user: null, deps: createTestSdk() },
     });
 
     await expect(signedOut.conversation.exportMarkdown({ id: conv.id })).rejects.toMatchObject({

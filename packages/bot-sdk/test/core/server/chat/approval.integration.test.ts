@@ -14,7 +14,7 @@ import { fakeImageAdapter } from "../../../../core/server/chat/fake-image-adapte
 import { citationPrompt } from "../../../../core/shared/chat/citations";
 import { knowledgePromptOf } from "../../../../core/shared/chat/knowledge-search";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestDeps, type TestDepsOverrides } from "../../../support/deps";
+import { createTestSdk, type TestDepsOverrides } from "../../../support/deps";
 import {
   createFakeAdapter,
   type FakeAdapter,
@@ -72,7 +72,7 @@ async function setup({
 }) {
   const user: TestUser = await insertUser();
   const fake = createFakeAdapter({ rounds, manual });
-  const deps = createTestDeps({
+  const deps = createTestSdk({
     adapterFor: () => fake.adapter,
     tools: [sendMail(runs)],
     ...overrides,
@@ -549,7 +549,7 @@ async function askAfterEveryFeature() {
       round(text("Sent.")),
     ],
   });
-  const deps = createTestDeps({
+  const deps = createTestSdk({
     adapterFor: () => fake.adapter,
     tools: [sendMail(runs)],
     hostProviders: [hostOpenAI],
@@ -645,7 +645,7 @@ describe("a Run resumed after an Approval is planned like the Run that asked (AD
     const novaPro = "bedrock:us.amazon.nova-pro-v1:0";
     const user = await insertUser();
     const fake = createFakeAdapter({ rounds: [round(mailCall("call-1")), round(text("Sent."))] });
-    const deps = createTestDeps({ adapterFor: () => fake.adapter, tools: [sendMail([])] });
+    const deps = createTestSdk({ adapterFor: () => fake.adapter, tools: [sendMail([])] });
     await saveCredentials(deps, user.id, {
       service: "bedrock",
       fields: { apiKey: "test-key" },

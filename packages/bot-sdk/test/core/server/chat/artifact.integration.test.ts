@@ -17,7 +17,7 @@ import { z } from "zod";
 
 import { curatedModels } from "../../../../core/shared/chat/models";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestDeps, type TestDepsOverrides } from "../../../support/deps";
+import { createTestSdk, type TestDepsOverrides } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { sendAs, chatRpc } from "../../../support/sdk";
 import { insertUser, type TestUser } from "../../../support/users";
@@ -44,7 +44,7 @@ async function setup({
 }) {
   const user: TestUser = await insertUser();
   const fake = createFakeAdapter({ rounds });
-  const deps = createTestDeps({ adapterFor: () => fake.adapter, artifacts, ...overrides });
+  const deps = createTestSdk({ adapterFor: () => fake.adapter, artifacts, ...overrides });
   await saveCredentials(deps, user.id, {
     service: "anthropic",
     fields: { apiKey: "sk-ant-test-key" },

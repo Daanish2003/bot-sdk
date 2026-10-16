@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { saveCredentials } from "../../../../core/server/credentials/store";
 import type { AppDeps } from "../../../../core/server/deps";
 import { insertConversation } from "../../../support/conversations";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { insertUser, type TestUser } from "../../../support/users";
 import { sendAs } from "../../../support/sdk";
@@ -19,7 +19,7 @@ async function setup() {
     rounds: [round(text("Hello", " there", "!"))],
     manual: true,
   });
-  const deps = createTestDeps({ adapterFor: () => fake.adapter });
+  const deps = createTestSdk({ adapterFor: () => fake.adapter });
   await saveCredentials(deps, user.id, {
     service: "anthropic",
     fields: { apiKey: "sk-ant-test-key" },

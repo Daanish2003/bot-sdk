@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { loadCredentials, saveCredentials } from "../../../../core/server/credentials/store";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { insertUser } from "../../../support/users";
 import { chatRpc } from "../../../support/sdk";
 
@@ -20,7 +20,7 @@ function providerAnswering(status: number) {
 async function signedIn(status = 200) {
   const user = await insertUser();
   const provider = providerAnswering(status);
-  const deps = createTestDeps({ fetch: provider.fetch });
+  const deps = createTestSdk({ fetch: provider.fetch });
   return { user, deps, provider, client: chatRpc({ user, deps }) };
 }
 
@@ -118,11 +118,11 @@ describe("credentials", () => {
     const user = await insertUser();
     const accepting = chatRpc({
       user,
-      deps: createTestDeps({ fetch: providerAnswering(200).fetch }),
+      deps: createTestSdk({ fetch: providerAnswering(200).fetch }),
     });
     const rejecting = chatRpc({
       user,
-      deps: createTestDeps({ fetch: providerAnswering(401).fetch }),
+      deps: createTestSdk({ fetch: providerAnswering(401).fetch }),
     });
     await accepting.credentials.save({ service: "anthropic", fields: { apiKey: goodKey } });
 
@@ -212,7 +212,7 @@ describe("credentials", () => {
   it("treats credentials that no longer decrypt as missing", async () => {
     const { client, user } = await signedIn(200);
     await client.credentials.save({ service: "anthropic", fields: { apiKey: goodKey } });
-    const rotated = createTestDeps({
+    const rotated = createTestSdk({
       keyEncryptionSecrets: ["a-different-secret-of-32-characters!"],
     });
 
@@ -251,7 +251,7 @@ describe("credentials with byok off (ADR 0007)", () => {
   async function byokOff() {
     const user = await insertUser();
     const provider = providerAnswering(200);
-    const deps = createTestDeps({ fetch: provider.fetch, byok: false });
+    const deps = createTestSdk({ fetch: provider.fetch, byok: false });
     await saveCredentials(deps, user.id, {
       service: "openai",
       hint: "…abcd",

@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { saveCredentials } from "../../../../core/server/credentials/store";
 import type { AppDeps } from "../../../../core/server/deps";
 import { insertConversation } from "../../../support/conversations";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { sendAs } from "../../../support/sdk";
 import { insertUser, type TestUser } from "../../../support/users";
@@ -28,7 +28,7 @@ async function setup() {
     ],
     manual: true,
   });
-  const deps: AppDeps = createTestDeps({ adapterFor: () => fake.adapter, artifacts: true });
+  const deps: AppDeps = createTestSdk({ adapterFor: () => fake.adapter, artifacts: true });
   await saveCredentials(deps, user.id, {
     service: "anthropic",
     fields: { apiKey: "sk-ant-test-key" },

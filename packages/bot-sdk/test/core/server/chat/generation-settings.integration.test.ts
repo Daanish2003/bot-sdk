@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { saveCredentials } from "../../../../core/server/credentials/store";
 import { insertConversation } from "../../../support/conversations";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { insertUser } from "../../../support/users";
 import { liveModelsFetch } from "../../../support/live-models";
@@ -46,7 +46,7 @@ const everyMaxKey = [...new Set(providers.map((provider) => provider.key))];
 async function runOn(model: string, service: string) {
   const user = await insertUser();
   const fake = createFakeAdapter({ rounds: [round(text("Hi."))] });
-  const deps = createTestDeps({ adapterFor: () => fake.adapter });
+  const deps = createTestSdk({ adapterFor: () => fake.adapter });
   await saveCredentials(deps, user.id, {
     service,
     fields: { apiKey: "test-key" },
@@ -108,7 +108,7 @@ describe("reasoning effort on a Run", () => {
   ) {
     const user = await insertUser();
     const fake = createFakeAdapter({ rounds: [round(text("Hi."))] });
-    const deps = createTestDeps({ adapterFor: () => fake.adapter, ...(fetch && { fetch }) });
+    const deps = createTestSdk({ adapterFor: () => fake.adapter, ...(fetch && { fetch }) });
     await saveCredentials(deps, user.id, {
       service,
       fields: { apiKey: "test-key" },

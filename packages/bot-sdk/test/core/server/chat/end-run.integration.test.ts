@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { insertUser } from "../../../support/users";
 import { type Ending, endRun } from "../../../../core/server/chat/end-run";
 import { createHookEmitter, type RunEndEvent } from "../../../../core/server/chat/hooks";
@@ -86,7 +86,7 @@ const endings: Array<{
 
 function setup() {
   const events: RunEndEvent[] = [];
-  const deps = createTestDeps({
+  const deps = createTestSdk({
     hooks: createHookEmitter({ onRunEnd: (event) => void events.push(event) }, { error: () => {} }),
   });
   return { deps, events };

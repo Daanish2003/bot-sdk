@@ -65,7 +65,7 @@ docker compose up -d --force-recreate postgres
 
 - `*.test.ts` files are unit tests. `*.integration.test.ts` files run one at a time against a real Postgres database: it is created if missing, migrated once per run, and every table is truncated before each test.
 - The test database defaults to `postgresql://postgres:password@localhost:5432/ai-chat_test`. Point `TEST_DATABASE_URL` at another one, for example to give parallel runs their own database: `TEST_DATABASE_URL=postgresql://postgres:password@localhost:5434/ai-chat_test_2 pnpm test`.
-- Tests never call a Provider, Tavily or the network. Build `AppDeps` with `createTestDeps` and use the fakes in `packages/bot-sdk/test/support/` (scripted text adapter, search client, in-process router client).
+- Tests never call a Provider, Tavily or the network. Build a real instance with `createTestSdk`, over the fakes in `packages/bot-sdk/test/support/` (scripted text adapter, search client, in-process router client).
 
 CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every pull request.
 

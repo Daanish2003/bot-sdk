@@ -5,6 +5,7 @@ import type { StreamChunk } from "@tanstack/ai";
 import { afterAll, describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../../core/server/create-chat";
+import { assistant } from "../../../../core/server/assistant";
 import {
   createRedisConnection,
   type RedisConnection,
@@ -97,6 +98,7 @@ describe("redisRuntime without Redis", () => {
         keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
         basePath: "/api/chat",
         runtime,
+        plugins: [assistant()],
       });
       await sleep(50);
 
@@ -116,6 +118,7 @@ describe("redisRuntime without Redis", () => {
         keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
         basePath: "/api/chat",
         runtime,
+        plugins: [assistant()],
       });
 
       // Never resolves: the server never answers the handshake. It must still be closable.

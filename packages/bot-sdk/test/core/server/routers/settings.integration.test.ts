@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { instructionsMaxChars } from "../../../../core/shared/chat/instructions";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { insertUser } from "../../../support/users";
 import { chatRpc } from "../../../support/sdk";
 
-const deps = createTestDeps();
+const deps = createTestSdk();
 
 async function signedIn() {
   const user = await insertUser();

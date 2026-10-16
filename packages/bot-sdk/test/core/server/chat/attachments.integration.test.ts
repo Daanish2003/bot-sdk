@@ -8,7 +8,7 @@ import { saveCredentials } from "../../../../core/server/credentials/store";
 import type { AppDeps } from "../../../../core/server/deps";
 import { insertAttachment, linkTestAttachments } from "../../../support/attachments";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { insertUser, type TestUser } from "../../../support/users";
 import { chatRpc, sendAs } from "../../../support/sdk";
@@ -23,7 +23,7 @@ const base64 = (contents: string) => Buffer.from(contents).toString("base64");
 async function setup() {
   const user = await insertUser();
   const fake = createFakeAdapter({ rounds: [round(text("Got it."))] });
-  const deps = createTestDeps({ adapterFor: () => fake.adapter });
+  const deps = createTestSdk({ adapterFor: () => fake.adapter });
   for (const service of ["anthropic", "openai"] as const) {
     await saveCredentials(deps, user.id, {
       service,

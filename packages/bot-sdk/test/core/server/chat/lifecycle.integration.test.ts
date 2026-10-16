@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { createLifecycle } from "../../../../core/server/lifecycle";
 import { saveCredentials } from "../../../../core/server/credentials/store";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { insertUser } from "../../../support/users";
 import { createTestChat } from "../../../support/sdk";
@@ -32,7 +32,7 @@ function staleReply(conversationId: string, ageMs = 60_000) {
 
 describe("the lifecycle timer", () => {
   it("reaps as it starts, and again on every interval", async () => {
-    const deps = createTestDeps({ limits: { ...createTestDeps().limits, reapIntervalMs: 20 } });
+    const deps = createTestSdk({ limits: { ...createTestSdk().limits, reapIntervalMs: 20 } });
     const conv = await insertConversation(await insertUser());
     const first = await staleReply(conv.id);
     const lifecycle = createLifecycle(deps);
@@ -46,7 +46,7 @@ describe("the lifecycle timer", () => {
   });
 
   it("clears the timer on stop", async () => {
-    const deps = createTestDeps({ limits: { ...createTestDeps().limits, reapIntervalMs: 20 } });
+    const deps = createTestSdk({ limits: { ...createTestSdk().limits, reapIntervalMs: 20 } });
     const conv = await insertConversation(await insertUser());
     const lifecycle = createLifecycle(deps);
     await lifecycle.start();
@@ -62,7 +62,7 @@ describe("the lifecycle timer", () => {
 describe("stop()", () => {
   async function signedInWithKey() {
     const user = await insertUser();
-    await saveCredentials(createTestDeps(), user.id, {
+    await saveCredentials(createTestSdk(), user.id, {
       service: "anthropic",
       fields: { apiKey: "sk-ant-test-key" },
       hint: "…-key",
@@ -92,7 +92,7 @@ describe("stop()", () => {
     const user = await signedInWithKey();
     const conv = await insertConversation(user, { title: "Titled" });
     const held = createFakeAdapter({ rounds: [round(text("Done."))], manual: true });
-    const deps = createTestDeps({ adapterFor: () => held.adapter });
+    const deps = createTestSdk({ adapterFor: () => held.adapter });
     const lifecycle = createLifecycle(deps);
     const client = createTestChat({ user, deps });
     const running = await client.fetch(runPost(client.chatUrl, conv.id));
@@ -116,9 +116,9 @@ describe("stop()", () => {
     const user = await signedInWithKey();
     const conv = await insertConversation(user, { title: "Titled" });
     const held = createFakeAdapter({ rounds: [round(text("Never."))], manual: true });
-    const deps = createTestDeps({
+    const deps = createTestSdk({
       adapterFor: () => held.adapter,
-      limits: { ...createTestDeps().limits, drainMs: 100 },
+      limits: { ...createTestSdk().limits, drainMs: 100 },
     });
     const lifecycle = createLifecycle(deps);
     const client = createTestChat({ user, deps });

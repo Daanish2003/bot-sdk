@@ -13,7 +13,7 @@ import { userSettings } from "../../../../core/server/db/schema/settings";
 import { usage } from "../../../../core/server/db/schema/usage";
 import type { AppDeps, HostProvider } from "../../../../core/server/deps";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { createFakeAdapter, round, runError, text } from "../../../support/fake-adapter";
 import { drainJobs } from "../../../support/jobs";
 import { chatRpc, sendAs } from "../../../support/sdk";
@@ -64,7 +64,7 @@ async function setup({
   const user = await insertUser();
   const replyFake = createFakeAdapter({ rounds: reply, manual: replyManual });
   const memoryFake = createFakeAdapter({ rounds: facts });
-  const deps = createTestDeps({
+  const deps = createTestSdk({
     defaultBackgroundModel: backgroundModel,
     clock: () => today,
     adapterFor: (model) => (model === replyModel ? replyFake.adapter : memoryFake.adapter),

@@ -1,4 +1,12 @@
-export { createBotSdk, type BotSdkOptions, type GetUser, type Logger } from "./create-chat";
+export {
+  createBotSdk,
+  type BotSdk,
+  type BotSdkOptions,
+  type GetUser,
+  type Logger,
+} from "./create-chat";
+export { assistant, type AssistantApi, type AssistantOptions } from "./assistant";
+export type { BotSdkContext, BotSdkPlugin, PluginApis, Route } from "./plugin";
 export type {
   EventHooks,
   ConversationCreatedEvent,

@@ -1,49 +1,33 @@
 import { onError } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
-import { and, eq } from "drizzle-orm";
-import { z } from "zod";
 
-import { handleChat } from "./chat/handle-chat";
-import type { HostServerTool } from "./chat/host-tools";
-import { type BlobStore, generatedImageBlobKey } from "./blob/store";
-import { generatedImage } from "./db/schema/generated-image";
+import type { SharedConversation } from "../shared/share/conversation";
+import type { RatingTotal } from "./admin/ratings";
+import type { UsageByDay, UsageTotal } from "./admin/usage";
+import { assistantOver } from "./assistant";
 import { postgresBlobStore } from "./blob/postgres";
-import { webSearchToolName } from "../shared/chat/web-search";
-import { fetchUrlToolName } from "../shared/chat/fetch-url";
-import { searchKnowledgeToolName } from "../shared/chat/knowledge-search";
-import { createArtifactToolName, updateArtifactToolName } from "../shared/chat/artifact";
-import { handleJoin } from "./chat/join-run";
-import { handleConversationEvents } from "./memory/notice";
-import { transcriptionProviders } from "./chat/transcription";
-import { embeddingModelsProblem } from "./chat/embedding-models";
+import type { BlobStore } from "./blob/store";
+import { createHookEmitter } from "./chat/hooks";
+import type { QuotaState } from "./chat/quota";
 import type { ChatUser, Context } from "./context";
 import { createDb } from "./db/index";
-import { quotaLookup, quotaState, type QuotaState } from "./chat/quota";
-import { ratingTotals, type RatingTotal } from "./admin/ratings";
-import { usageByDay, usageTotals, type UsageByDay, type UsageTotal } from "./admin/usage";
-import {
-  createAppDeps,
-  type AppDeps,
-  type HostProvider,
-  type HostTool,
-  type QuotaSetting,
-} from "./deps";
-import { createLifecycle } from "./lifecycle";
-import type { JobRunner } from "./jobs/runner";
-import { runRegisteredJob } from "./jobs/define";
-import type { EventHooks } from "./chat/hooks";
-import { deleteUserData } from "./delete-user";
-import { type McpServerConfig, checkMcpServers } from "./mcp/servers";
-import { callbackRoute, connectRoute } from "./mcp/routes";
-import { exportUserData, type UserExport } from "./export-user";
-import { stopUserRuns } from "./chat/run";
-import { countUnreadableCredentials, rotateCredentialKeys } from "./credentials/store";
+import type { AppDeps } from "./deps";
+import type { UserExport } from "./export-user";
+import { createGuardedFetch } from "./lib/guarded-fetch";
 import { assertMigrated, migrate as migrateSchema } from "./migrate";
-import { rateLimitedFor, resolveRateLimits, rpcRateLimits, type RateLimits } from "./rate-limits";
+import {
+  matchPath,
+  mergeRateLimits,
+  mergeRouters,
+  orderPlugins,
+  type BotSdkContext,
+  type BotSdkPlugin,
+  type HooksOf,
+  type PluginApis,
+  type RateLimitsOf,
+} from "./plugin";
+import { rateLimitedFor, rpcRateLimits, type RateLimit } from "./rate-limits";
 import { memoryRuntime, type BotSdkRuntime } from "./runtime";
-import { appRouter } from "./routers/index";
-import { loadSharedConversation, loadSharedGeneratedImage } from "./share/store";
-import type { SharedConversation } from "../shared/share/conversation";
 
 export type ChatHandler = (request: Request) => Promise<Response>;
 
@@ -52,7 +36,7 @@ export type Logger = Pick<Console, "error">;
 
 export type GetUser = (request: Request) => ChatUser | null | Promise<ChatUser | null>;
 
-export type BotSdkOptions = {
+export type BotSdkOptions<Plugins extends readonly BotSdkPlugin[] = readonly BotSdkPlugin[]> = {
   databaseUrl: string;
   /** Who the request is from. `null` answers 401, except for the public Shared link read. */
   getUser: GetUser;
@@ -64,8 +48,11 @@ export type BotSdkOptions = {
   /** Where the handler is mounted, for example `/api/chat`. */
   basePath: string;
   runtime?: BotSdkRuntime;
-  /** Overrides for the default rate limits (spec 87). Each action is optional; `false` turns it off. */
-  rateLimits?: RateLimits;
+  /**
+   * Overrides for the enabled plugins' rate limits (spec 87). Each rule is optional; `false` turns
+   * it off.
+   */
+  rateLimits?: RateLimitsOf<Plugins>;
   /**
    * The client's IP, for the per-IP limit on Shared link views. The Host reads it from its own
    * request (for example, a header its proxy sets). The SDK trusts no forwarded header by default,
@@ -78,63 +65,17 @@ export type BotSdkOptions = {
    */
   logger?: Logger;
   /**
-   * The Host's callbacks into the SDK. Each hook is optional and runs after its change is written,
-   * never awaited, at most once and without retries (README, "Host hooks").
+   * The Host's callbacks into the SDK, for the events the enabled plugins fire. Each hook is
+   * optional and runs after its change is written, never awaited, at most once and without retries
+   * (README, "Host hooks").
    */
-  hooks?: EventHooks;
-  /**
-   * The Host's own credentials (ADR 0007). A Provider entry carries its Models; a Tool entry (`tool:
-   * "tavily"`) carries its price per search. Never stored.
-   */
-  hostProviders?: Array<HostProvider | HostTool>;
-  /** Whether users may use their own Provider credentials. Defaults to `true` (ADR 0007). */
-  byok?: boolean;
-  /**
-   * The Host's default Background Model: a `"provider:model"` id of one of the `hostProviders`
-   * Models. Titles use it when a user picks none; `start()` refuses any other id.
-   */
-  defaultBackgroundModel?: string;
-  /**
-   * The Host's default Image Model: a `"provider:model"` id of one of the `hostProviders`'s Image
-   * Models. Image generation uses it when a user picks none; with none, there are no Host images.
-   * `start()` refuses any other id.
-   */
-  defaultImageModel?: string;
-  /**
-   * The image adapter for an Image Model's `(model, credentials)`, or `undefined` for none. Defaults
-   * to the production adapters, which are not wired yet (spec #278, ticket #311), so no Image Model
-   * offers the image tool until they are. A Host passes a fake here to try the tool.
-   */
-  imageAdapterFor?: AppDeps["imageAdapterFor"];
-  /**
-   * The embedding adapter for an embedding Model's `(model, credentials)`. Defaults to the
-   * production adapters (OpenAI and Gemini). A Host passes a fake here to run Knowledge without a
-   * paid call (spec #357, ticket #370).
-   */
-  embeddingAdapterFor?: AppDeps["embeddingAdapterFor"];
-  /**
-   * A user's Quota on Host credentials, or one fixed Quota for everyone; `null` or unset is
-   * unlimited (ADR 0007).
-   */
-  getQuota?: QuotaSetting;
-  /**
-   * The Host's own tools, written with TanStack AI's `toolDefinition(...).server(fn)`. The Model
-   * can call them in any reply whose Model has tools; each call runs on this server. Their names
-   * must not be `web_search`, `fetch_url` or `search_knowledge`, the SDK's own tools.
-   */
-  tools?: HostServerTool[];
+  hooks?: HooksOf<Plugins>;
   /**
    * Test-only: `host` or `host:port` entries that `fetch_url` may reach over plain HTTP and at a
    * private address (the end-to-end tests' fake page). Never set it in production; `apps/web` sets
    * it only from `SSRF_ALLOW_HOSTS`, which needs a localhost `BETTER_AUTH_URL`.
    */
   fetchAllowHosts?: string[];
-  /**
-   * Remote MCP servers the users may connect to (spec #91). Streamable HTTP over HTTPS only. Each
-   * server needs an OAuth client the Host registered with it ahead of time; the README says which
-   * redirect URI to register.
-   */
-  mcpServers?: McpServerConfig[];
   /**
    * Where file bytes are kept (ADR 0015). Defaults to a `chat.blob` table in the same database;
    * a Host with object storage passes its store, and then the bytes of files already stored
@@ -146,134 +87,30 @@ export type BotSdkOptions = {
    * they can't be read or continued. Unset, nobody is blocked.
    */
   isUserBlocked?: (userId: string) => boolean | Promise<boolean>;
-  /**
-   * Turns Artifacts on (ADR 0016): the `create_artifact` tool for a Model with tools, the side
-   * panel and the version route. Off by default, and then none of them exist.
-   */
-  artifacts?: boolean;
-  /**
-   * Runs the background jobs (ADR 0011). Defaults to the in-process runner, which polls the
-   * `chat` schema and needs nothing beyond Postgres. `start()` and `stop()` start and stop it.
-   */
-  jobs?: JobRunner;
-  /**
-   * Turns Memory on or off for the whole Host (ADR 0013). On by default: the assistant learns facts
-   * from what users say, in the background, on the Background Model. `false` makes no Memories.
-   */
-  memory?: boolean;
+  /** The features this instance serves (ADR 0020), such as `assistant()`. */
+  plugins: Plugins;
 };
 
-/**
- * Builds the handler over a dependency bundle. `createBotSdk` passes it the production bundle; tests
- * pass one with fakes.
- */
-export function createChatHandler(
-  deps: AppDeps,
-  {
-    basePath,
-    getUser,
-    getClientIp,
-    logger = console,
-  }: Pick<BotSdkOptions, "basePath" | "getUser" | "getClientIp" | "logger">,
-): ChatHandler {
-  if (!basePath.startsWith("/")) throw new Error(`basePath must start with "/": ${basePath}`);
-  const prefix = basePath.replace(/\/+$/, "");
-  const rpcPrefix = `${prefix}/rpc` as `/${string}`;
-  const runPath = `${prefix}/run`;
-  const exportPath = `${prefix}/export`;
-  const mcpConnectPath = `${prefix}/mcp/connect`;
-  const mcpCallbackPath = `${prefix}/mcp/callback`;
-  const eventsPath = `${prefix}/events`;
-  const generatedImagesPath = `${prefix}/generated-images/`;
-  const sharedPath = `${prefix}/shared/`;
-  // The RPCs a signed-out visitor of a Shared link may call (ADR 0004, ADR 0016).
-  const sharedReadPaths = [`${rpcPrefix}/share/get`, `${rpcPrefix}/share/artifactVersion`];
-  const rpc = new RPCHandler(appRouter, {
-    interceptors: [onError((error) => logger.error(error))],
-  });
-
-  return async (request) => {
-    const { pathname } = new URL(request.url);
-    // A Generated image on a Shared link is public: the link's token is the only key (ADR 0004).
-    const sharedImage = /^([^/]+)\/generated-images\/([^/]+)$/.exec(
-      pathname.startsWith(sharedPath) ? pathname.slice(sharedPath.length) : "",
-    );
-    if (sharedImage && request.method === "GET") {
-      const download = new URL(request.url).searchParams.get("download") === "1";
-      const [, token, id] = sharedImage;
-      return sharedGeneratedImageResponse(deps, token!, id!, download);
-    }
-    const user = await getUser(request);
-    const sharedRead = sharedReadPaths.includes(pathname);
-    if (!user && !sharedRead) return unauthorized();
-
-    if (pathname === rpcPrefix || pathname.startsWith(`${rpcPrefix}/`)) {
-      if (sharedRead && getClientIp) {
-        const refused = await sharedLinkRefusal(deps, await getClientIp(request));
-        if (refused) return refused;
-      }
-      if (user) {
-        const refused = await rpcRateLimitRefusal(deps, user.id, pathname.slice(rpcPrefix.length));
-        if (refused) return refused;
-      }
-      const context: Context = { user, deps };
-      const result = await rpc.handle(request, { prefix: rpcPrefix, context });
-      return result.matched ? result.response : notFound();
-    }
-    if (user && pathname === runPath) {
-      if (request.method === "POST") {
-        return deps.lifecycle.stopping ? shuttingDown() : handleChat(request, user, deps);
-      }
-      if (request.method === "GET") return handleJoin(request, user, deps);
-    }
-    if (user && pathname === eventsPath && request.method === "GET") {
-      return handleConversationEvents(request, user, deps);
-    }
-    if (user && pathname === exportPath && request.method === "GET") {
-      return exportResponse(deps, user.id);
-    }
-    if (user && request.method === "GET" && pathname.startsWith(generatedImagesPath)) {
-      const download = new URL(request.url).searchParams.get("download") === "1";
-      return generatedImageResponse(
-        deps,
-        user.id,
-        pathname.slice(generatedImagesPath.length),
-        download,
-      );
-    }
-    if (
-      user &&
-      request.method === "GET" &&
-      (pathname === mcpConnectPath || pathname === mcpCallbackPath)
-    ) {
-      const redirectUri = `${new URL(request.url).origin}${mcpCallbackPath}`;
-      const route = pathname === mcpConnectPath ? connectRoute : callbackRoute;
-      return route(request, user.id, deps, redirectUri);
-    }
-    return notFound();
-  };
-}
-
-/**
- * The Bot SDK for a Host. Nothing connects, starts or queries until the first request, so the
- * Host can build it at import time.
- */
-export function createBotSdk(options: BotSdkOptions): {
+export type BotSdk = {
   handler: ChatHandler;
-  /** The public Shared link snapshot for a token, or `null` for an unknown or removed link. */
-  getSharedConversation: (token: string) => Promise<SharedConversation | null>;
+  /** An enabled plugin's API. Throws for a plugin that isn't enabled. */
+  plugin: BotSdkContext["plugin"];
   /** Creates the `chat` schema and applies the bundled migrations. Run it at deploy time. */
   migrate: () => Promise<void>;
   /**
-   * Refuses (throws) with neither `hostProviders` nor `byok` on, or while the `chat` schema is
-   * behind the bundled migrations; then starts the reaper: now, and every 30 s (ADR 0006).
+   * Refuses (throws) while the `chat` schema is behind the bundled migrations; then starts each
+   * plugin, in dependency order. The assistant refuses with neither `hostProviders` nor `byok` on,
+   * then starts the reaper: now, and every 30 s (ADR 0006).
    */
   start: () => Promise<void>;
   /**
-   * Refuses new Runs with 503, lets local Runs finish for up to `drainMs` (250 s), then ends the
-   * rest as interrupted, stops the reaper and closes the runtime's connections. Call it on SIGTERM.
+   * Sets `stopping`, stops each plugin in reverse dependency order, then closes the runtime's
+   * connections. The assistant refuses new Runs with 503 and lets local Runs finish for up to
+   * `drainMs` (250 s), then ends the rest as interrupted. Call it on SIGTERM.
    */
   stop: () => Promise<void>;
+  /** The public Shared link snapshot for a token, or `null` for an unknown or removed link. */
+  getSharedConversation: (token: string) => Promise<SharedConversation | null>;
   /**
    * Runs a job's handler in this process, with the payload validated against the job's schema.
    * Rejects an unknown name or a bad payload. A Host's worker (such as a Trigger.dev task) calls it.
@@ -308,190 +145,234 @@ export function createBotSdk(options: BotSdkOptions): {
     /** 👍 and 👎 counts per Model over Ratings stamped at or after `since` (spec #277). */
     ratingTotals: (range: { since: Date }) => Promise<RatingTotal[]>;
   };
-} {
+};
+
+/** The parts of the core context a test may give instead of having them built. */
+type GivenContext = Partial<Omit<BotSdkContext, "plugin" | "rateLimit">>;
+
+/**
+ * The Bot SDK for a Host: one instance over its plugins (ADR 0020). Construction checks each
+ * plugin's `requires` and the router keys, then runs each plugin's `init` in dependency order.
+ * Nothing connects, starts or queries until the first request, so the Host can build it at import
+ * time.
+ */
+export function createBotSdk<const Plugins extends readonly BotSdkPlugin[]>(
+  options: BotSdkOptions<Plugins>,
+): BotSdk {
+  return buildBotSdk(options, {});
+}
+
+function buildBotSdk(options: BotSdkOptions, given: GivenContext): BotSdk {
   if (options.keyEncryptionSecrets.length === 0) {
     throw new Error("keyEncryptionSecrets must hold at least one secret");
   }
-  checkMcpServers(options.mcpServers ?? [], options.fetchAllowHosts);
-  const builtIns = [
-    webSearchToolName,
-    fetchUrlToolName,
-    searchKnowledgeToolName,
-    ...(options.artifacts ? [createArtifactToolName, updateArtifactToolName] : []),
-  ];
-  for (const builtIn of builtIns) {
-    if (options.tools?.some((tool) => tool.name === builtIn)) {
-      throw new Error(`A Host tool can't be named "${builtIn}": the SDK's tool has it`);
-    }
+  if (!options.basePath.startsWith("/")) {
+    throw new Error(`basePath must start with "/": ${options.basePath}`);
   }
-  const logger = options.logger ?? console;
-  let deps: AppDeps | undefined;
-  const getDeps = () => {
-    if (deps) return deps;
-    const db = createDb({ DATABASE_URL: options.databaseUrl }, logger);
-    deps = createAppDeps({
-      db,
-      blobStore: options.blobStore ?? postgresBlobStore(db),
-      isUserBlocked: options.isUserBlocked,
-      keyEncryptionSecrets: options.keyEncryptionSecrets,
-      runtime: options.runtime ?? memoryRuntime(),
-      hostProviders: (options.hostProviders ?? []).filter(isHostProvider),
-      hostTools: (options.hostProviders ?? []).filter(isHostTool),
-      byok: options.byok ?? true,
-      defaultBackgroundModel: options.defaultBackgroundModel,
-      defaultImageModel: options.defaultImageModel,
-      imageAdapterFor: options.imageAdapterFor,
-      embeddingAdapterFor: options.embeddingAdapterFor,
-      getQuota: quotaLookup(options.getQuota),
-      rateLimits: resolveRateLimits(options.rateLimits),
-      tools: options.tools ?? [],
-      fetchAllowHosts: options.fetchAllowHosts,
-      mcpServers: options.mcpServers ?? [],
-      logger,
-      hooks: options.hooks,
-      artifacts: options.artifacts,
-      jobs: options.jobs,
-      memory: options.memory,
-    });
-    return deps;
-  };
-  let lifecycle: ReturnType<typeof createLifecycle> | undefined;
-  const getLifecycle = () => (lifecycle ??= createLifecycle(getDeps(), logger));
-  let handler: ChatHandler | undefined;
+  const plugins = orderPlugins(options.plugins);
+  const router = mergeRouters(plugins);
+  const ruleDefaults = mergeRateLimits(plugins);
+
+  const apis = new Map<string, object>();
+  // Building the context opens nothing: the pool and the runtime connect on first use.
+  const sdk = buildContext(options, given, ruleDefaults, (id) => {
+    const api = apis.get(id);
+    if (!api) throw new Error(`Plugin "${id}" isn't enabled`);
+    return api;
+  });
+  // In dependency order, so a plugin's `init` can call the plugins it requires.
+  for (const plugin of plugins) apis.set(plugin.id, plugin.init?.(sdk)?.api ?? {});
+
+  // Until the core carves them out (spec #439), these are the temporary assistant plugin's.
+  const assistantApi = () => sdk.plugin("assistant");
   return {
-    handler: (request) => {
-      handler ??= createChatHandler(getDeps(), options);
-      return handler(request);
-    },
-    getSharedConversation: async (token) =>
-      (await loadSharedConversation(getDeps(), token)) ?? null,
+    handler: createHandler(options, plugins, router, sdk),
+    plugin: sdk.plugin,
     migrate: () => migrateSchema(options.databaseUrl),
     start: async () => {
-      if (options.byok === false && !options.hostProviders?.length) {
-        throw new Error("Configure hostProviders, byok, or both: with neither, no one can chat");
-      }
-      for (const entry of options.hostProviders ?? []) {
-        if (isHostProvider(entry) && entry.transcriptionModels?.length) {
-          if (!transcriptionProviders.includes(entry.provider)) {
-            throw new Error(
-              `hostProviders: ${entry.provider} has no transcription adapter, so it can't list transcriptionModels`,
-            );
-          }
-        }
-      }
-      const hostProviders = (options.hostProviders ?? []).filter(isHostProvider);
-      for (const entry of hostProviders) {
-        const problem = embeddingModelsProblem(entry);
-        if (problem) throw new Error(problem);
-      }
-      const defaultBackground = options.defaultBackgroundModel;
-      if (
-        defaultBackground !== undefined &&
-        !hostProviders.some(({ provider, models }) =>
-          models.some((model) => `${provider}:${model.modelId}` === defaultBackground),
-        )
-      ) {
-        throw new Error(
-          `defaultBackgroundModel "${defaultBackground}" is not one of the hostProviders' Models`,
-        );
-      }
-      for (const { provider, imageModels = [] } of hostProviders) {
-        for (const model of imageModels) {
-          // A Host Image Model is priced per image; without a price its spend isn't recorded.
-          if (!(model.pricePerImageUsd >= 0)) {
-            throw new Error(
-              `Host Image Model "${provider}:${model.modelId}" needs a pricePerImageUsd`,
-            );
-          }
-        }
-      }
-      const defaultImage = options.defaultImageModel;
-      if (
-        defaultImage !== undefined &&
-        !hostProviders.some(({ provider, imageModels = [] }) =>
-          imageModels.some((model) => `${provider}:${model.modelId}` === defaultImage),
-        )
-      ) {
-        throw new Error(
-          `defaultImageModel "${defaultImage}" is not one of the hostProviders' Image Models`,
-        );
-      }
       await assertMigrated(options.databaseUrl);
-      // Unreadable rows are reported, never a reason to refuse to boot (ADR 0010).
-      const unreadable = await countUnreadableCredentials(getDeps());
-      if (unreadable.unknownKey + unreadable.corrupt > 0) {
-        (options.logger ?? console).error("Stored credentials can't be read", unreadable);
-      }
-      await getLifecycle().start();
+      for (const plugin of plugins) await plugin.start?.(sdk);
     },
     stop: async () => {
-      await getLifecycle().stop();
+      sdk.lifecycle.stopping = true;
+      for (const plugin of [...plugins].reverse()) await plugin.stop?.(sdk);
       await options.runtime?.close?.();
     },
-    /** Runs a job's handler in this process (ADR 0011). A Host's worker calls it; see extras/trigger. */
-    runJob: (name: string, payload: unknown) => runRegisteredJob(name, payload, getDeps()),
+    getSharedConversation: (token) => assistantApi().getSharedConversation(token),
+    runJob: (name, payload) => assistantApi().runJob(name, payload),
+    deleteUser: (userId) => assistantApi().deleteUser(userId),
+    exportUser: (userId) => assistantApi().exportUser(userId),
+    rotateKeys: () => assistantApi().rotateKeys(),
     admin: {
-      usageTotals: (range) => usageTotals(getDeps(), range),
-      usage: ({ userId, since, until }) => usageByDay(getDeps(), userId, { since, until }),
-      quota: (userId) => quotaState(getDeps(), userId),
-      stopRuns: async (userId) => {
-        // As Stop does, each ended Run fires `onRunEnd` (#265).
-        const deps = getDeps();
-        for (const run of await stopUserRuns(deps, userId)) deps.hooks.fire("onRunEnd", run);
-      },
-      ratingTotals: (range) => ratingTotals(getDeps(), range),
-    },
-    deleteUser: (userId) => deleteUserData(getDeps(), userId),
-    exportUser: (userId) => exportUserData(getDeps(), userId),
-    rotateKeys: async () => {
-      const { reencrypted, unreadable } = await rotateCredentialKeys(getDeps());
-      const unreadableCount = unreadable.unknownKey + unreadable.corrupt;
-      if (unreadableCount > 0) {
-        (options.logger ?? console).error(
-          "Stored credentials can't be read; left in place",
-          unreadable,
-        );
-      }
-      return { reencrypted, unreadable: unreadableCount };
+      usageTotals: (range) => assistantApi().admin.usageTotals(range),
+      usage: (args) => assistantApi().admin.usage(args),
+      quota: (userId) => assistantApi().admin.quota(userId),
+      stopRuns: (userId) => assistantApi().admin.stopRuns(userId),
+      ratingTotals: (range) => assistantApi().admin.ratingTotals(range),
     },
   };
 }
 
-const isHostTool = (entry: HostProvider | HostTool): entry is HostTool => "tool" in entry;
-const isHostProvider = (entry: HostProvider | HostTool): entry is HostProvider =>
-  !isHostTool(entry);
+/** The core context: the infrastructure from the options, with any `given` part in its place. */
+function buildContext(
+  options: BotSdkOptions,
+  given: GivenContext,
+  ruleDefaults: ReturnType<typeof mergeRateLimits>,
+  plugin: (id: string) => object,
+): BotSdkContext {
+  const logger = options.logger ?? console;
+  const db = given.db ?? createDb({ DATABASE_URL: options.databaseUrl }, logger);
+  const runtime = given.runtime ?? options.runtime ?? memoryRuntime();
+  const counters = given.counters ?? runtime.counters;
+  const overrides: Partial<Record<string, RateLimit | false>> = options.rateLimits ?? {};
+  const rateLimits =
+    given.rateLimits ??
+    Object.fromEntries(
+      Object.entries(ruleDefaults).map(([rule, limit]) => [rule, overrides[rule] ?? limit]),
+    );
+  const fetchAllowHosts = given.fetchAllowHosts ?? options.fetchAllowHosts ?? [];
+  return {
+    db,
+    blobStore: given.blobStore ?? options.blobStore ?? postgresBlobStore(db),
+    runtime,
+    pubsub: given.pubsub ?? runtime.pubsub,
+    counters,
+    logger: given.logger ?? logger,
+    events: given.events ?? createHookEmitter(options.hooks, logger),
+    fetch:
+      given.fetch ?? createGuardedFetch({ schemes: "http-and-https", allowHosts: fetchAllowHosts }),
+    fetchAllowHosts,
+    clock: given.clock ?? (() => new Date()),
+    keyring: given.keyring ?? options.keyEncryptionSecrets,
+    lifecycle: given.lifecycle ?? { stopping: false },
+    isUserBlocked: given.isUserBlocked ?? options.isUserBlocked ?? (() => false),
+    rateLimits,
+    rateLimit: (rule, key) => rateLimitedFor(counters, rateLimits[rule] ?? false, key),
+    plugin: <Id extends keyof PluginApis>(id: Id) => plugin(id) as PluginApis[Id],
+  };
+}
+
+type OverOptions = Pick<BotSdkOptions, "basePath" | "getUser" | "getClientIp" | "logger">;
+
+/**
+ * A real instance whose `assistant` plugin and core context run on `deps`: the seam the tests and
+ * evals drive with fakes.
+ */
+export function createBotSdkOver(deps: AppDeps, options: OverOptions): BotSdk {
+  return buildBotSdk(
+    {
+      ...options,
+      databaseUrl: "",
+      keyEncryptionSecrets: deps.keyEncryptionSecrets,
+      plugins: [assistantOver(deps)],
+    },
+    {
+      db: deps.db,
+      blobStore: deps.blobStore,
+      pubsub: deps.pubsub,
+      counters: deps.counters,
+      logger: deps.logger,
+      events: deps.hooks,
+      fetch: deps.fetch,
+      fetchAllowHosts: deps.fetchAllowHosts,
+      clock: deps.clock,
+      keyring: deps.keyEncryptionSecrets,
+      lifecycle: deps.lifecycle,
+      isUserBlocked: deps.isUserBlocked,
+      rateLimits: deps.rateLimits,
+    },
+  );
+}
+
+/** The handler of `createBotSdkOver(deps, options)`. */
+export function createChatHandler(deps: AppDeps, options: OverOptions): ChatHandler {
+  return createBotSdkOver(deps, options).handler;
+}
+
+function createHandler(
+  { basePath, getUser, getClientIp, logger = console }: BotSdkOptions,
+  plugins: readonly BotSdkPlugin[],
+  router: ReturnType<typeof mergeRouters>,
+  sdk: BotSdkContext,
+): ChatHandler {
+  const prefix = basePath.replace(/\/+$/, "");
+  const rpcPrefix = `${prefix}/rpc` as `/${string}`;
+  // The RPCs a signed-out visitor of a Shared link may call (ADR 0004, ADR 0016).
+  const sharedReadPaths = [`${rpcPrefix}/share/get`, `${rpcPrefix}/share/artifactVersion`];
+  const rpc = new RPCHandler(router, {
+    interceptors: [onError((error) => logger.error(error))],
+  });
+  const routes = plugins.flatMap((plugin) => plugin.routes ?? []);
+  // Until the core context replaces `AppDeps` (spec #439), the procedures read the assistant's;
+  // an instance without it serves only procedures that don't.
+  const assistantDeps = plugins.some((plugin) => plugin.id === "assistant")
+    ? sdk.plugin("assistant").deps
+    : undefined;
+  const matchRoute = (request: Request, path: string | null, isPublic: boolean) => {
+    if (path === null) return null;
+    for (const route of routes) {
+      if (route.method !== request.method || Boolean(route.public) !== isPublic) continue;
+      const params = matchPath(route.path, path);
+      if (params) return { route, params };
+    }
+    return null;
+  };
+
+  return async (request) => {
+    const { pathname } = new URL(request.url);
+    const path = pathname.startsWith(`${prefix}/`) ? pathname.slice(prefix.length) : null;
+    const publicRoute = matchRoute(request, path, true);
+    if (publicRoute?.route.public) {
+      const { route, params } = publicRoute;
+      return route.handle(request, { user: null, sdk, params, basePath: prefix });
+    }
+    const user = await getUser(request);
+    const sharedRead = sharedReadPaths.includes(pathname);
+    if (!user && !sharedRead) return unauthorized();
+
+    if (pathname === rpcPrefix || pathname.startsWith(`${rpcPrefix}/`)) {
+      if (sharedRead && getClientIp) {
+        const refused = await sharedLinkRefusal(sdk, await getClientIp(request));
+        if (refused) return refused;
+      }
+      if (user) {
+        const refused = await rpcRateLimitRefusal(sdk, user.id, pathname.slice(rpcPrefix.length));
+        if (refused) return refused;
+      }
+      const context: Context = { user, deps: assistantDeps as AppDeps };
+      const result = await rpc.handle(request, { prefix: rpcPrefix, context });
+      return result.matched ? result.response : notFound();
+    }
+    const privateRoute = user ? matchRoute(request, path, false) : null;
+    if (user && privateRoute && !privateRoute.route.public) {
+      const { route, params } = privateRoute;
+      return route.handle(request, { user, sdk, params, basePath: prefix });
+    }
+    return notFound();
+  };
+}
 
 /** Counts a hit on a limited RPC route and answers 429 with `Retry-After` once it is over its limit. */
 async function rpcRateLimitRefusal(
-  deps: AppDeps,
+  sdk: BotSdkContext,
   userId: string,
   route: string,
 ): Promise<Response | null> {
   const rule = rpcRateLimits[route];
   if (!rule) return null;
-  const retryAfter = await rateLimitedFor(
-    deps.counters,
-    deps.rateLimits[rule],
-    `${rule}:${userId}`,
-  );
-  if (retryAfter === null) return null;
-  return Response.json(
-    { code: "error.tooManyRequests", params: {} },
-    { status: 429, headers: { "Retry-After": String(retryAfter) } },
-  );
+  return tooManyRequests(await sdk.rateLimit(rule, `${rule}:${userId}`));
 }
 
 /**
  * Counts a Shared link view against its client IP and answers 429 with `Retry-After` once that IP
  * is over its limit. With no IP (the Host gave none), nothing is counted.
  */
-async function sharedLinkRefusal(deps: AppDeps, ip: string | null): Promise<Response | null> {
+async function sharedLinkRefusal(sdk: BotSdkContext, ip: string | null): Promise<Response | null> {
   if (!ip) return null;
-  const retryAfter = await rateLimitedFor(
-    deps.counters,
-    deps.rateLimits.sharedLinkView,
-    `sharedLinkView:${ip}`,
-  );
+  return tooManyRequests(await sdk.rateLimit("sharedLinkView", `sharedLinkView:${ip}`));
+}
+
+function tooManyRequests(retryAfter: number | null): Response | null {
   if (retryAfter === null) return null;
   return Response.json(
     { code: "error.tooManyRequests", params: {} },
@@ -499,72 +380,8 @@ async function sharedLinkRefusal(deps: AppDeps, ip: string | null): Promise<Resp
   );
 }
 
-/** The user's export as a JSON download; the file is named by the date the export was taken. */
-async function exportResponse(deps: AppDeps, userId: string) {
-  const document = await exportUserData(deps, userId);
-  const date = document.exportedAt.toISOString().slice(0, 10);
-  return Response.json(document, {
-    headers: { "Content-Disposition": `attachment; filename="chat-export-${date}.json"` },
-  });
-}
-
-/**
- * One of the user's Generated images, its bytes straight from the blob store (spec #278). Another
- * user's image, an unknown id or an id that isn't one is 404. The bytes never change, so they are
- * cached for good; `?download=1` names the file for saving.
- */
-async function generatedImageResponse(
-  deps: AppDeps,
-  userId: string,
-  id: string,
-  download: boolean,
-): Promise<Response> {
-  if (!z.uuid().safeParse(id).success) return notFound();
-  const [row] = await deps.db
-    .select({ mediaType: generatedImage.mediaType })
-    .from(generatedImage)
-    .where(and(eq(generatedImage.id, id), eq(generatedImage.userId, userId)));
-  const bytes = row ? await deps.blobStore.get(generatedImageBlobKey(id)) : null;
-  if (!row || !bytes) return notFound();
-  return imageResponse(id, row.mediaType, bytes, download);
-}
-
-/**
- * One Generated image on a Shared link (spec #315), served to anyone with the token. Unknown or
- * removed links, a blocked owner, and an image off the shared Branch are all 404.
- */
-async function sharedGeneratedImageResponse(
-  deps: AppDeps,
-  token: string,
-  id: string,
-  download: boolean,
-): Promise<Response> {
-  if (!z.uuid().safeParse(id).success) return notFound();
-  const image = await loadSharedGeneratedImage(deps, token, id);
-  if (!image) return notFound();
-  return imageResponse(id, image.mediaType, image.bytes, download);
-}
-
-/** An image's bytes: immutable and cacheable, named for saving when `download` is set. */
-function imageResponse(id: string, mediaType: string, bytes: Uint8Array, download: boolean) {
-  const extension = mediaType === "image/jpeg" ? "jpg" : mediaType.split("/")[1];
-  return new Response(bytes as Uint8Array<ArrayBuffer>, {
-    headers: {
-      "Content-Type": mediaType,
-      "Cache-Control": "private, max-age=31536000, immutable",
-      ...(download && {
-        "Content-Disposition": `attachment; filename="generated-image-${id.slice(0, 8)}.${extension}"`,
-      }),
-    },
-  });
-}
-
 function unauthorized() {
   return Response.json({ code: "error.unauthorized", params: {} }, { status: 401 });
-}
-
-function shuttingDown() {
-  return Response.json({ code: "error.shuttingDown", params: {} }, { status: 503 });
 }
 
 function notFound() {

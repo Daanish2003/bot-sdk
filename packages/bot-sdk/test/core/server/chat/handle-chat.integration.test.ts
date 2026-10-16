@@ -8,7 +8,7 @@ import type { AppDeps } from "../../../../core/server/deps";
 import type { PubSub } from "../../../../core/server/chat/pubsub";
 import { START, type RunEntry } from "../../../../core/server/chat/run-streams";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestDeps, type TestDepsOverrides } from "../../../support/deps";
+import { createTestSdk, type TestDepsOverrides } from "../../../support/deps";
 import { liveModelsFetch } from "../../../support/live-models";
 import { createFakeAdapter, round, runError, text, thinking } from "../../../support/fake-adapter";
 import { insertUser, type TestUser } from "../../../support/users";
@@ -44,7 +44,7 @@ async function setup({
   const user = await insertUser();
   const fake = createFakeAdapter({ rounds, manual });
   const adapterCalls: Array<{ model: string; credentials: Record<string, string> }> = [];
-  const deps = createTestDeps({
+  const deps = createTestSdk({
     adapterFor: (model, credentials) => {
       adapterCalls.push({ model, credentials });
       return fake.adapter;

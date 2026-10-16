@@ -8,7 +8,7 @@ import { appRouter } from "../../../../core/server/routers/index";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { saveCredentials } from "../../../../core/server/credentials/store";
 import { insertConversation, insertMessage, testModel } from "../../../support/conversations";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { liveModelsFetch } from "../../../support/live-models";
 import { insertUser } from "../../../support/users";
@@ -29,7 +29,7 @@ async function listItems(client: ReturnType<typeof chatRpc>) {
  * answers 401 first, so only a direct call proves the procedure's own auth check.
  */
 function signedOutRouter() {
-  return createRouterClient(appRouter, { context: { user: null, deps: createTestDeps() } });
+  return createRouterClient(appRouter, { context: { user: null, deps: createTestSdk() } });
 }
 
 describe("conversation.create", () => {
@@ -351,7 +351,7 @@ describe("conversation.list paging", () => {
     expect((await listItems(client)).map((row) => row.id)).toEqual([newer.id, older.id]);
 
     const fake = createFakeAdapter({ rounds: [round(text("Sure"))] });
-    const deps = createTestDeps({ adapterFor: () => fake.adapter });
+    const deps = createTestSdk({ adapterFor: () => fake.adapter });
     await saveCredentials(deps, user.id, {
       service: "anthropic",
       fields: { apiKey: "sk-ant-test-key" },
@@ -472,7 +472,7 @@ describe("conversation.setModel", () => {
   async function withCredentials() {
     const { user, client } = await signedIn();
     for (const service of ["anthropic", "openai"] as const) {
-      await saveCredentials(createTestDeps(), user.id, {
+      await saveCredentials(createTestSdk(), user.id, {
         service,
         fields: { apiKey: `${service}-test-key` },
         hint: "…-key",
@@ -539,7 +539,7 @@ describe("conversation.setModel", () => {
       rounds: [round(text("From Claude")), round(text("From GPT"))],
     });
     const adapterModels: string[] = [];
-    const deps = createTestDeps({
+    const deps = createTestSdk({
       adapterFor: (model) => {
         adapterModels.push(model);
         return fake.adapter;
@@ -685,7 +685,7 @@ describe("conversation.switchBranch", () => {
 describe("live-listed Models", () => {
   async function withOpenRouter(openRouter: string[]) {
     const user = await insertUser();
-    const deps = createTestDeps({ fetch: liveModelsFetch({ openRouter }).fetch });
+    const deps = createTestSdk({ fetch: liveModelsFetch({ openRouter }).fetch });
     await saveCredentials(deps, user.id, {
       service: "openrouter",
       fields: { apiKey: "sk-or-test" },
@@ -717,7 +717,7 @@ describe("live-listed Models", () => {
 
   it("selects a Model installed on the user's Ollama host", async () => {
     const user = await insertUser();
-    const deps = createTestDeps({ fetch: liveModelsFetch({ ollama: ["qwen3:8b"] }).fetch });
+    const deps = createTestSdk({ fetch: liveModelsFetch({ ollama: ["qwen3:8b"] }).fetch });
     await saveCredentials(deps, user.id, {
       service: "ollama",
       fields: { host: "http://ollama.test:11434" },
@@ -1196,7 +1196,7 @@ describe("conversation.archive and conversation.unarchive", () => {
 
   it("keeps the archive through a rename, a Model change and a Branch switch", async () => {
     const user = await insertUser();
-    const deps = createTestDeps();
+    const deps = createTestSdk();
     await saveCredentials(deps, user.id, {
       service: "anthropic",
       fields: { apiKey: "sk-ant-test-key" },
@@ -1253,7 +1253,7 @@ describe("conversation.archive and conversation.unarchive", () => {
   it("unarchives an archived Conversation when a Message is sent in it", async () => {
     const user = await insertUser();
     const fake = createFakeAdapter({ rounds: [round(text("Sure."))] });
-    const deps = createTestDeps({ adapterFor: () => fake.adapter });
+    const deps = createTestSdk({ adapterFor: () => fake.adapter });
     await saveCredentials(deps, user.id, {
       service: "anthropic",
       fields: { apiKey: "sk-ant-test-key" },

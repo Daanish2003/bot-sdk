@@ -9,10 +9,11 @@ import {
 import { fakeEmbeddingAdapter } from "../../../../core/server/chat/fake-embedding-adapter";
 import { createHookEmitter } from "../../../../core/server/chat/hooks";
 import { createBotSdk } from "../../../../core/server/create-chat";
+import { assistant } from "../../../../core/server/assistant";
 import { saveCredentials } from "../../../../core/server/credentials/store";
 import { usage } from "../../../../core/server/db/schema/usage";
 import type { HostProvider } from "../../../../core/server/deps";
-import { createTestDeps, testKeyEncryptionSecret } from "../../../support/deps";
+import { createTestSdk, testKeyEncryptionSecret } from "../../../support/deps";
 import { getTestDb, testDatabaseUrl } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
 
@@ -32,7 +33,7 @@ const hostGemini: HostProvider = {
 
 /** Saves the user's own key for a Provider, as the keys page does. */
 async function saveOwnKey(userId: string, service: "openai" | "gemini") {
-  await saveCredentials(createTestDeps(), userId, {
+  await saveCredentials(createTestSdk(), userId, {
     service,
     fields: { apiKey: `${service}-own-key` },
     hint: "…-key",
@@ -49,7 +50,7 @@ describe("the default embedding Model", () => {
   it("is OpenAI's small Model on the user's own OpenAI key, which wins over the Host's", async () => {
     const user = await insertUser();
     await saveOwnKey(user.id, "openai");
-    const deps = createTestDeps({ hostProviders: [hostOpenAI] });
+    const deps = createTestSdk({ hostProviders: [hostOpenAI] });
 
     const model = await defaultEmbeddingModel(deps, user.id);
 
@@ -64,7 +65,7 @@ describe("the default embedding Model", () => {
     const user = await insertUser();
     await saveOwnKey(user.id, "gemini");
 
-    const model = await defaultEmbeddingModel(createTestDeps(), user.id);
+    const model = await defaultEmbeddingModel(createTestSdk(), user.id);
 
     expect(model).toMatchObject({
       id: "gemini:gemini-embedding-001",
@@ -74,7 +75,7 @@ describe("the default embedding Model", () => {
 
   it("is the Host's first embedding Model, priced, when the user has no key", async () => {
     const user = await insertUser();
-    const deps = createTestDeps({ hostProviders: [hostGemini, hostOpenAI] });
+    const deps = createTestSdk({ hostProviders: [hostGemini, hostOpenAI] });
 
     const model = await defaultEmbeddingModel(deps, user.id);
 
@@ -91,13 +92,13 @@ describe("the default embedding Model", () => {
   it("is none when there is no key and the Host offers no embedding Model", async () => {
     const user = await insertUser();
 
-    expect(await defaultEmbeddingModel(createTestDeps(), user.id)).toBeNull();
+    expect(await defaultEmbeddingModel(createTestSdk(), user.id)).toBeNull();
   });
 
   it("ignores the user's own key when the Host turns BYOK off", async () => {
     const user = await insertUser();
     await saveOwnKey(user.id, "openai");
-    const deps = createTestDeps({ hostProviders: [hostOpenAI], byok: false });
+    const deps = createTestSdk({ hostProviders: [hostOpenAI], byok: false });
 
     const model = await defaultEmbeddingModel(deps, user.id);
 
@@ -112,7 +113,7 @@ describe("the credentials for an embedding Model", () => {
   it("uses the user's own key for the Model, even when the Host offers it", async () => {
     const user = await insertUser();
     await saveOwnKey(user.id, "openai");
-    const deps = createTestDeps({ hostProviders: [hostOpenAI] });
+    const deps = createTestSdk({ hostProviders: [hostOpenAI] });
 
     const model = await resolveEmbeddingModel(deps, user.id, "openai:text-embedding-3-large");
 
@@ -124,7 +125,7 @@ describe("the credentials for an embedding Model", () => {
 
   it("uses the Host's credentials for a Model the Host offers, with its price", async () => {
     const user = await insertUser();
-    const deps = createTestDeps({ hostProviders: [hostOpenAI] });
+    const deps = createTestSdk({ hostProviders: [hostOpenAI] });
 
     const model = await resolveEmbeddingModel(deps, user.id, "openai:text-embedding-3-large");
 
@@ -139,7 +140,7 @@ describe("the credentials for an embedding Model", () => {
 
   it("is none for a Model the Host doesn't offer, or one that is not an embedding Model", async () => {
     const user = await insertUser();
-    const deps = createTestDeps({ hostProviders: [hostOpenAI] });
+    const deps = createTestSdk({ hostProviders: [hostOpenAI] });
 
     expect(await resolveEmbeddingModel(deps, user.id, "gemini:gemini-embedding-001")).toBeNull();
     expect(await resolveEmbeddingModel(deps, user.id, "openai:text-embedding-ada-002")).toBeNull();
@@ -156,7 +157,7 @@ describe("embedTexts", () => {
     const user = await insertUser();
     const onUsage = vi.fn();
     const adapter = fakeEmbeddingAdapter({ model: "text-embedding-3-large" });
-    const deps = createTestDeps({
+    const deps = createTestSdk({
       hostProviders: [hostOpenAI],
       embeddingAdapterFor: () => adapter,
       hooks: createHookEmitter({ onUsage }, { error: () => {} }),
@@ -192,7 +193,7 @@ describe("embedTexts", () => {
     const user = await insertUser();
     await saveOwnKey(user.id, "openai");
     const onUsage = vi.fn();
-    const deps = createTestDeps({
+    const deps = createTestSdk({
       hostProviders: [hostOpenAI],
       embeddingAdapterFor: () => fakeEmbeddingAdapter(),
       hooks: createHookEmitter({ onUsage }, { error: () => {} }),
@@ -212,7 +213,7 @@ describe("embedTexts", () => {
   it("estimates Gemini's tokens from characters, marks them estimated, and asks for the task type", async () => {
     const user = await insertUser();
     const adapter = fakeEmbeddingAdapter({ model: "gemini-embedding-001" });
-    const deps = createTestDeps({
+    const deps = createTestSdk({
       hostProviders: [hostGemini],
       embeddingAdapterFor: () => adapter,
     });
@@ -254,7 +255,7 @@ describe("embedTexts", () => {
         };
       },
     } as unknown as typeof fake;
-    const deps = createTestDeps({ hostProviders: [hostGemini], embeddingAdapterFor: () => scaled });
+    const deps = createTestSdk({ hostProviders: [hostGemini], embeddingAdapterFor: () => scaled });
     const model = await resolveEmbeddingModel(deps, user.id, "gemini:gemini-embedding-001");
 
     const [vector] = await embedTexts(deps, {
@@ -270,7 +271,7 @@ describe("embedTexts", () => {
     const user = await insertUser();
     const openAIAdapter = fakeEmbeddingAdapter({ model: "text-embedding-3-large" });
     const geminiAdapter = fakeEmbeddingAdapter({ model: "gemini-embedding-001" });
-    const deps = createTestDeps({
+    const deps = createTestSdk({
       hostProviders: [hostOpenAI, hostGemini],
       embeddingAdapterFor: (model) => (model.startsWith("openai") ? openAIAdapter : geminiAdapter),
     });
@@ -297,7 +298,7 @@ describe("embedTexts", () => {
   it("meters nothing when the Provider refuses the call", async () => {
     const user = await insertUser();
     const adapter = fakeEmbeddingAdapter({ model: "text-embedding-3-large", fail: "rate limited" });
-    const deps = createTestDeps({
+    const deps = createTestSdk({
       hostProviders: [hostOpenAI],
       embeddingAdapterFor: () => adapter,
     });
@@ -322,13 +323,19 @@ describe("hostProviders embeddingModels", () => {
       keyEncryptionSecrets: [testKeyEncryptionSecret],
       basePath: "/api/chat",
       logger: { error: () => {} },
-      hostProviders: [
-        {
-          provider: "anthropic",
-          credentials: { apiKey: "sk-ant" },
-          models: [],
-          embeddingModels: [{ model: "text-embedding-3-small", pricePerMillionTokensUsd: 0.02 }],
-        },
+      plugins: [
+        assistant({
+          hostProviders: [
+            {
+              provider: "anthropic",
+              credentials: { apiKey: "sk-ant" },
+              models: [],
+              embeddingModels: [
+                { model: "text-embedding-3-small", pricePerMillionTokensUsd: 0.02 },
+              ],
+            },
+          ],
+        }),
       ],
     });
 
@@ -342,13 +349,17 @@ describe("hostProviders embeddingModels", () => {
       keyEncryptionSecrets: [testKeyEncryptionSecret],
       basePath: "/api/chat",
       logger: { error: () => {} },
-      hostProviders: [
-        {
-          provider: "openai",
-          credentials: { apiKey: "sk-openai" },
-          models: [],
-          embeddingModels: [{ model: "text-embedding-ada-002", pricePerMillionTokensUsd: 0.1 }],
-        },
+      plugins: [
+        assistant({
+          hostProviders: [
+            {
+              provider: "openai",
+              credentials: { apiKey: "sk-openai" },
+              models: [],
+              embeddingModels: [{ model: "text-embedding-ada-002", pricePerMillionTokensUsd: 0.1 }],
+            },
+          ],
+        }),
       ],
     });
 

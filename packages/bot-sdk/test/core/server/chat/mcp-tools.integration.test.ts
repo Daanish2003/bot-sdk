@@ -10,7 +10,7 @@ import type { AppDeps } from "../../../../core/server/deps";
 import { listConnections, readTokens, saveTokens } from "../../../../core/server/mcp/connections";
 import type { McpServerConfig } from "../../../../core/server/mcp/servers";
 import { insertConversation } from "../../../support/conversations";
-import { createTestDeps, type TestDepsOverrides } from "../../../support/deps";
+import { createTestSdk, type TestDepsOverrides } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { createFakeMcpAuth, fakeMcpResource } from "../../../support/fake-mcp-auth";
 import { createFakeMcpServer, type FakeMcpTool } from "../../../support/fake-mcp-server";
@@ -72,7 +72,7 @@ async function setup({
     return (isEndpoint ? mcp.fetch : auth.fetch)(input, init);
   }) as typeof globalThis.fetch;
   const fake = createFakeAdapter({ rounds, manual });
-  const deps = createTestDeps({
+  const deps = createTestSdk({
     fetch,
     adapterFor: () => fake.adapter,
     mcpServers: servers,

@@ -12,7 +12,7 @@ import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { createPartsBuilder } from "../../../../core/shared/chat/parts";
 import { storedParts, type StoredPart } from "../../../../core/shared/message-parts";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { createFakeAdapter } from "../../../support/fake-adapter";
 import { drainJobs } from "../../../support/jobs";
 import { chatRpc } from "../../../support/sdk";
@@ -61,7 +61,7 @@ function summaryOf(plan: RunPlan) {
  */
 async function waitingConversation() {
   const user = await insertUser();
-  const deps = createTestDeps({
+  const deps = createTestSdk({
     adapterFor: () => createFakeAdapter({ rounds: [] }).adapter,
     tools: [sendMail],
     hostProviders: [hostOpenAI],

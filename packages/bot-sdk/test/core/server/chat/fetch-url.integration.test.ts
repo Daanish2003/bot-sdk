@@ -4,11 +4,12 @@ import { asc, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../../core/server/create-chat";
+import { assistant } from "../../../../core/server/assistant";
 import { createGuardedFetch } from "../../../../core/server/lib/guarded-fetch";
 import { saveCredentials } from "../../../../core/server/credentials/store";
 import type { AppDeps } from "../../../../core/server/deps";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestDeps, type TestDepsOverrides } from "../../../support/deps";
+import { createTestSdk, type TestDepsOverrides } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { insertUser } from "../../../support/users";
 import { chatRpc, sendAs } from "../../../support/sdk";
@@ -77,7 +78,7 @@ async function setup({
   const user = await insertUser();
   const fake = createFakeAdapter({ rounds });
   const scripted = scriptedFetch(pages);
-  const deps = createTestDeps({
+  const deps = createTestSdk({
     adapterFor: () => fake.adapter,
     fetch: fetch ?? scripted.fetch,
     ...overrides,
@@ -375,10 +376,12 @@ describe("the Host's tools", () => {
       basePath: "/api/chat",
     };
 
-    expect(() => createBotSdk({ ...options, tools: [tool("fetch_url")] })).toThrow(
+    const tools = (name: string) => [assistant({ tools: [tool(name)] })];
+
+    expect(() => createBotSdk({ ...options, plugins: tools("fetch_url") })).toThrow(
       `A Host tool can't be named "fetch_url"`,
     );
-    expect(() => createBotSdk({ ...options, tools: [tool("web_search")] })).toThrow(
+    expect(() => createBotSdk({ ...options, plugins: tools("web_search") })).toThrow(
       `A Host tool can't be named "web_search"`,
     );
   });

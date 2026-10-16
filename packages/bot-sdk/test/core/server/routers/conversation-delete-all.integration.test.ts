@@ -6,7 +6,7 @@ import { saveCredentials } from "../../../../core/server/credentials/store";
 import { conversation, message, project } from "../../../../core/server/db/schema/chat";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { createFakeAdapter, text } from "../../../support/fake-adapter";
 import { chatRpc, createTestChat } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
@@ -21,7 +21,7 @@ describe("conversation.deleteAll", () => {
   it("deletes every Conversation the caller owns, in and out of Projects, with what hangs off them", async () => {
     const owner = await insertUser();
     const other = await insertUser();
-    const deps = createTestDeps();
+    const deps = createTestSdk();
     const client = chatRpc({ user: owner, deps });
     const otherClient = chatRpc({ user: other, deps });
 
@@ -99,7 +99,7 @@ describe("conversation.deleteAll", () => {
       const owner = await insertUser();
       const conv = await insertConversation(owner, { title: "Live" });
       const question = await insertMessage({ conversationId: conv.id, role: "user", text: "Hi" });
-      await saveCredentials(createTestDeps(), owner.id, {
+      await saveCredentials(createTestSdk(), owner.id, {
         service: "anthropic",
         fields: { apiKey: "sk-ant-test-key" },
         hint: "…-key",
@@ -107,7 +107,7 @@ describe("conversation.deleteAll", () => {
       });
       // Held until the test releases it, so the Run is still live when the Conversations go.
       const fake = createFakeAdapter({ rounds: [text("Hel", "lo")], manual: true });
-      const deps = createTestDeps({ adapterFor: () => fake.adapter });
+      const deps = createTestSdk({ adapterFor: () => fake.adapter });
       const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
       const client = createTestChat({ user: owner, deps });
       const started = await client.fetch(

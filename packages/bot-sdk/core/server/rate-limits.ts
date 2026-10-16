@@ -34,7 +34,7 @@ export type ResolvedRateLimits = {
   rating: RateLimit | false;
 };
 
-export const defaultRateLimits: ResolvedRateLimits = {
+export const defaultRateLimits: Record<keyof ResolvedRateLimits, RateLimit> = {
   runStart: { limit: 20, windowSeconds: 60 },
   attachmentUpload: { limit: 30, windowSeconds: 600 },
   transcription: { limit: 30, windowSeconds: 600 },

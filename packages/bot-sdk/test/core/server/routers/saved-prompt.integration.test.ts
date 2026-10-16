@@ -4,12 +4,12 @@ import { describe, expect, it } from "vitest";
 import { appRouter } from "../../../../core/server/routers/index";
 import { savedPrompt } from "../../../../core/server/db/schema/saved-prompt";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { getTestDb } from "../../../support/test-database";
 import { chatRpc } from "../../../support/sdk";
 import { insertUser, type TestUser } from "../../../support/users";
 
-const deps = createTestDeps();
+const deps = createTestSdk();
 
 /** The router called directly with no user, so the auth middleware is what refuses. */
 function signedOutRouter() {
@@ -62,7 +62,7 @@ function clashingWriteClient(
       };
     },
   });
-  return chatRpc({ user, deps: createTestDeps({ db: racing }) });
+  return chatRpc({ user, deps: createTestSdk({ db: racing }) });
 }
 
 /** Wraps a query builder so that awaiting it runs `beforeAwait` first. */

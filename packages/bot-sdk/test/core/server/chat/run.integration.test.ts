@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { insertUser } from "../../../support/users";
 import { reapStaleRuns, startRun } from "../../../../core/server/chat/run";
 import { freeMeter } from "../../../../core/server/chat/meter";
@@ -14,12 +14,12 @@ import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { START } from "../../../../core/server/chat/run-streams";
 import { EventType, type StreamChunk } from "@tanstack/ai";
 
-async function rowOf(deps: ReturnType<typeof createTestDeps>, id: string) {
+async function rowOf(deps: ReturnType<typeof createTestSdk>, id: string) {
   const [row] = await deps.db.select().from(message).where(eq(message.id, id));
   return row!;
 }
 
-async function logOf(deps: ReturnType<typeof createTestDeps>, id: string) {
+async function logOf(deps: ReturnType<typeof createTestSdk>, id: string) {
   const chunks: StreamChunk[] = [];
   for await (const entry of deps.runStreams.read(id, START)) chunks.push(entry.chunk);
   return chunks;
@@ -27,7 +27,7 @@ async function logOf(deps: ReturnType<typeof createTestDeps>, id: string) {
 
 describe("reapStaleRuns", () => {
   it("ends a streaming Message with a stale heartbeat as error, interrupted, keeping its text", async () => {
-    const deps = createTestDeps();
+    const deps = createTestSdk();
     const user = await insertUser();
     const first = await insertConversation(user);
     const second = await insertConversation(await insertUser());
@@ -64,7 +64,7 @@ describe("reapStaleRuns", () => {
   });
 
   it("leaves a streaming Message with a fresh heartbeat, and Messages that ended, alone", async () => {
-    const deps = createTestDeps();
+    const deps = createTestSdk();
     const user = await insertUser();
     const conv = await insertConversation(user);
     const now = new Date("2026-10-09T12:00:00Z");
@@ -93,7 +93,7 @@ describe("reapStaleRuns", () => {
   });
 
   it("closes the log of a reaped Message with a terminal error chunk", async () => {
-    const deps = createTestDeps();
+    const deps = createTestSdk();
     const conv = await insertConversation(await insertUser());
     const now = new Date("2026-10-09T12:00:00Z");
     const row = await insertMessage({
@@ -111,7 +111,7 @@ describe("reapStaleRuns", () => {
   });
 
   it("closes a Knowledge search or a past-chats search still running in a reaped reply as cancelled", async () => {
-    const deps = createTestDeps();
+    const deps = createTestSdk();
     const conv = await insertConversation(await insertUser());
     const now = new Date("2026-10-09T12:00:00Z");
     const stale = { status: "streaming" as const, heartbeatAt: new Date(now.getTime() - 60_000) };
@@ -159,7 +159,7 @@ describe("reapStaleRuns", () => {
   });
 
   it("still reaps a reply whose stored parts don't parse", async () => {
-    const deps = createTestDeps();
+    const deps = createTestSdk();
     const conv = await insertConversation(await insertUser());
     const now = new Date("2026-10-09T12:00:00Z");
     const row = await insertMessage({
@@ -183,7 +183,7 @@ describe("startRun", () => {
     // Titled, so the finished Run doesn't ask the scripted adapter for a title.
     const conv = await insertConversation(user, { title: "Titled" });
     const held = createFakeAdapter({ rounds: [round(text("Hi"))], manual: true });
-    const deps = createTestDeps({ limits: { snapshotIntervalMs: 20, runCapMs: 5_000 } });
+    const deps = createTestSdk({ limits: { snapshotIntervalMs: 20, runCapMs: 5_000 } });
     const row = await insertMessage({
       conversationId: conv.id,
       role: "assistant",

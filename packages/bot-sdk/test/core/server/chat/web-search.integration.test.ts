@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { saveCredentials } from "../../../../core/server/credentials/store";
 import type { AppDeps, HostTool, SearchClient } from "../../../../core/server/deps";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestDeps, type TestDepsOverrides } from "../../../support/deps";
+import { createTestSdk, type TestDepsOverrides } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { createFakeSearchClient } from "../../../support/fake-search-client";
 import { insertUser } from "../../../support/users";
@@ -56,7 +56,7 @@ async function setup({
 }) {
   const user = await insertUser();
   const fake = createFakeAdapter({ rounds });
-  const deps = createTestDeps({ adapterFor: () => fake.adapter, searchClient, ...overrides });
+  const deps = createTestSdk({ adapterFor: () => fake.adapter, searchClient, ...overrides });
   await saveCredentials(deps, user.id, {
     service: "anthropic",
     fields: { apiKey: "sk-ant-test-key" },
@@ -348,9 +348,9 @@ describe("reapStaleRuns", () => {
       ]),
     });
 
-    await reapStaleRuns(createTestDeps(), now);
+    await reapStaleRuns(createTestSdk(), now);
 
-    const [after] = await createTestDeps().db.select().from(message).where(eq(message.id, row.id));
+    const [after] = await createTestSdk().db.select().from(message).where(eq(message.id, row.id));
     expect(after).toMatchObject({
       status: "error",
       error: "interrupted",

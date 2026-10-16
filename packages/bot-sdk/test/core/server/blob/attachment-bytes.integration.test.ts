@@ -8,7 +8,7 @@ import { attachment } from "../../../../core/server/db/schema/attachment";
 import { blob } from "../../../../core/server/db/schema/blob";
 import { deleteUserData } from "../../../../core/server/delete-user";
 import { insertAttachment } from "../../../support/attachments";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
 import { fakeS3 } from "./fake-s3";
@@ -74,7 +74,7 @@ describe("saveAttachment", () => {
   it("stores the bytes under attachment/<id> in the Host's blob store", async () => {
     const user = await insertUser();
     const { store, held } = memoryBlobStore();
-    const deps = createTestDeps({ blobStore: store });
+    const deps = createTestSdk({ blobStore: store });
 
     const saved = await saveAttachment(deps, user.id, upload("hello"));
 
@@ -87,7 +87,7 @@ describe("deleteOrphanAttachments", () => {
     const user = await insertUser();
     const orphan = await insertAttachment(user, { createdAt: longAgo() });
 
-    await deleteOrphanAttachments(createTestDeps(), new Date());
+    await deleteOrphanAttachments(createTestSdk(), new Date());
 
     const left = await getTestDb()
       .select({ key: blob.key })
@@ -99,7 +99,7 @@ describe("deleteOrphanAttachments", () => {
   it("removes the orphans' bytes from a Host's blob store after the commit", async () => {
     const user = await insertUser();
     const { store, held } = memoryBlobStore();
-    const deps = createTestDeps({ blobStore: store });
+    const deps = createTestSdk({ blobStore: store });
     const orphan = await saveAttachment(deps, user.id, upload("old"));
     await getTestDb()
       .update(attachment)
@@ -115,7 +115,7 @@ describe("deleteOrphanAttachments", () => {
     const user = await insertUser();
     const logger = { error: vi.fn() };
     const orphan = await insertAttachment(user, { createdAt: longAgo() });
-    const deps = createTestDeps({ blobStore: failingDeletes, logger });
+    const deps = createTestSdk({ blobStore: failingDeletes, logger });
 
     await expect(deleteOrphanAttachments(deps, new Date())).resolves.toBeUndefined();
 
@@ -140,7 +140,7 @@ describe("an S3 blob store", () => {
         secretAccessKey: "secret",
       });
       const user = await insertUser();
-      const deps = createTestDeps({ blobStore: store });
+      const deps = createTestSdk({ blobStore: store });
       const saved = await saveAttachment(deps, user.id, upload("hello s3"));
       expect(s3.objects.has(attachmentBlobKey(saved.id))).toBe(true);
       await getTestDb()
@@ -161,7 +161,7 @@ describe("deleteUserData", () => {
   it("removes the bytes of the user's Attachments from a Host's blob store", async () => {
     const user = await insertUser();
     const { store, held } = memoryBlobStore();
-    const deps = createTestDeps({ blobStore: store });
+    const deps = createTestSdk({ blobStore: store });
     const saved = await saveAttachment(deps, user.id, upload("bye"));
 
     await deleteUserData(deps, user.id);
@@ -173,7 +173,7 @@ describe("deleteUserData", () => {
     const user = await insertUser();
     const logger = { error: vi.fn() };
     const kept = await insertAttachment(user);
-    const deps = createTestDeps({ blobStore: failingDeletes, logger });
+    const deps = createTestSdk({ blobStore: failingDeletes, logger });
 
     await expect(deleteUserData(deps, user.id)).resolves.toBeUndefined();
 

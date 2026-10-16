@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
+import { assistant } from "../../../core/server/assistant";
 import { saveCredentials } from "../../../core/server/credentials/store";
 import { artifact, artifactVersion } from "../../../core/server/db/schema/artifact";
 import { project } from "../../../core/server/db/schema/chat";
@@ -18,7 +19,7 @@ import { fakePngBase64 } from "../../../core/server/chat/fake-image-adapter";
 import { insertConversation, insertMessage } from "../../support/conversations";
 import { insertMemory } from "../../support/memories";
 import { insertGeneratedImage } from "../../support/generated-images";
-import { createTestDeps } from "../../support/deps";
+import { createTestSdk } from "../../support/deps";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 import { insertUser } from "../../support/users";
 
@@ -32,6 +33,7 @@ function chatFor() {
     getUser: () => null,
     keyEncryptionSecrets: [testKey],
     basePath: "/api/chat",
+    plugins: [assistant()],
   });
 }
 
@@ -91,7 +93,7 @@ describe("createBotSdk().exportUser", () => {
       imageModel: "openai:gpt-image-2",
       instructions: "Answer in French.",
     });
-    const deps = createTestDeps();
+    const deps = createTestSdk();
     await saveCredentials(deps, owner.id, {
       service: "anthropic",
       fields: { apiKey: providerKey },
@@ -388,7 +390,7 @@ describe("createBotSdk().exportUser, Temporary Conversations", () => {
 describe("createBotSdk().exportUser, Generated images", () => {
   it("lists each image by id, Model and prompt, with no bytes", async () => {
     const owner = await insertUser();
-    const deps = createTestDeps();
+    const deps = createTestSdk();
     const conv = await insertConversation(owner, { title: "Pictures" });
     const imageId = await insertGeneratedImage(deps, owner, conv.id, { prompt: "a red bicycle" });
 

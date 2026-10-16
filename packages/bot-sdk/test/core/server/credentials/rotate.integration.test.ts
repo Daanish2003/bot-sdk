@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createBotSdk } from "../../../../core/server/create-chat";
+import { assistant } from "../../../../core/server/assistant";
 import { encryptCredentials } from "../../../../core/server/credentials/encryption";
 import {
   listCredentials,
@@ -8,7 +9,7 @@ import {
   saveCredentials,
 } from "../../../../core/server/credentials/store";
 import { userCredentials } from "../../../../core/server/db/schema/credentials";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { insertUser } from "../../../support/users";
 import { getTestDb, testDatabaseUrl } from "../../../support/test-database";
 
@@ -20,12 +21,12 @@ const summary = { hint: "…abcd", verified: true };
 describe("chat.rotateKeys()", () => {
   it("re-encrypts rows under the old key with the new one, and a second run changes nothing", async () => {
     const user = await insertUser();
-    await saveCredentials(createTestDeps({ keyEncryptionSecrets: [keyA] }), user.id, {
+    await saveCredentials(createTestSdk({ keyEncryptionSecrets: [keyA] }), user.id, {
       service: "openai",
       fields,
       ...summary,
     });
-    await saveCredentials(createTestDeps({ keyEncryptionSecrets: [keyA] }), user.id, {
+    await saveCredentials(createTestSdk({ keyEncryptionSecrets: [keyA] }), user.id, {
       service: "tavily",
       fields,
       ...summary,
@@ -36,13 +37,14 @@ describe("chat.rotateKeys()", () => {
       keyEncryptionSecrets: [keyB, keyA],
       basePath: "/api/chat",
       logger: { error: vi.fn() },
+      plugins: [assistant()],
     });
 
     await expect(chat.rotateKeys()).resolves.toEqual({ reencrypted: 2, unreadable: 0 });
     await expect(chat.rotateKeys()).resolves.toEqual({ reencrypted: 0, unreadable: 0 });
 
     // Only the new key is needed once the rows are rotated.
-    const onlyNew = createTestDeps({ keyEncryptionSecrets: [keyB] });
+    const onlyNew = createTestSdk({ keyEncryptionSecrets: [keyB] });
     await expect(listCredentials(onlyNew, user.id)).resolves.toHaveLength(2);
   });
 
@@ -50,25 +52,25 @@ describe("chat.rotateKeys()", () => {
     const user = await insertUser();
     const services = ["openai", "anthropic", "groq", "mistral", "tavily"];
     for (const service of services) {
-      await saveCredentials(createTestDeps({ keyEncryptionSecrets: [keyA] }), user.id, {
+      await saveCredentials(createTestSdk({ keyEncryptionSecrets: [keyA] }), user.id, {
         service,
         fields,
         ...summary,
       });
     }
-    const deps = createTestDeps({ keyEncryptionSecrets: [keyB, keyA] });
+    const deps = createTestSdk({ keyEncryptionSecrets: [keyB, keyA] });
 
     const result = await rotateCredentialKeys(deps, { batchSize: 2 });
 
     expect(result).toEqual({ reencrypted: 5, unreadable: { unknownKey: 0, corrupt: 0 } });
     await expect(
-      listCredentials(createTestDeps({ keyEncryptionSecrets: [keyB] }), user.id),
+      listCredentials(createTestSdk({ keyEncryptionSecrets: [keyB] }), user.id),
     ).resolves.toHaveLength(5);
   });
 
   it("leaves a row no key can read in place, counts it, and logs it; unrotated rows read as missing once the old key is removed", async () => {
     const user = await insertUser();
-    await saveCredentials(createTestDeps({ keyEncryptionSecrets: [keyA] }), user.id, {
+    await saveCredentials(createTestSdk({ keyEncryptionSecrets: [keyA] }), user.id, {
       service: "openai",
       fields,
       ...summary,
@@ -93,6 +95,7 @@ describe("chat.rotateKeys()", () => {
       keyEncryptionSecrets: [keyB, keyA],
       basePath: "/api/chat",
       logger,
+      plugins: [assistant()],
     });
 
     await expect(chat.rotateKeys()).resolves.toEqual({ reencrypted: 1, unreadable: 1 });
@@ -110,11 +113,12 @@ describe("chat.rotateKeys()", () => {
       keyEncryptionSecrets: [keyB],
       basePath: "/api/chat",
       logger,
+      plugins: [assistant()],
     });
     await onlyNew.start();
     await onlyNew.stop();
     await expect(
-      listCredentials(createTestDeps({ keyEncryptionSecrets: [keyB] }), user.id),
+      listCredentials(createTestSdk({ keyEncryptionSecrets: [keyB] }), user.id),
     ).resolves.toEqual([{ service: "openai", hint: "…abcd", verified: true }]);
   });
 });

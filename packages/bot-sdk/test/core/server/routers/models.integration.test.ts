@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import { saveCredentials } from "../../../../core/server/credentials/store";
 import { insertConversation } from "../../../support/conversations";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { liveModelsFetch } from "../../../support/live-models";
 import { insertUser, type TestUser } from "../../../support/users";
 import { chatRpc } from "../../../support/sdk";
 
-const deps = createTestDeps();
+const deps = createTestSdk();
 
 async function addCredentials(user: TestUser, service: "anthropic" | "openai") {
   await saveCredentials(deps, user.id, {
@@ -119,7 +119,7 @@ describe("models.list", () => {
 describe("models.list with live lists", () => {
   async function signedInWith(fetch: typeof globalThis.fetch) {
     const user = await insertUser();
-    const liveDeps = createTestDeps({ fetch });
+    const liveDeps = createTestSdk({ fetch });
     return { user, deps: liveDeps, client: chatRpc({ user, deps: liveDeps }) };
   }
 
@@ -211,7 +211,7 @@ describe("models.list with Host credentials", () => {
 
   it("lists the Host Models marked as Host Models for a user without credentials, and defaults to one", async () => {
     const user = await insertUser();
-    const deps = createTestDeps({ hostProviders });
+    const deps = createTestSdk({ hostProviders });
 
     const { models, defaultModel } = await chatRpc({ user, deps }).models.list();
 
@@ -236,7 +236,7 @@ describe("models.list with Host credentials", () => {
 
   it("merges the Host Models with the user's own Models, and the user's own Provider wins", async () => {
     const user = await insertUser();
-    const deps = createTestDeps({ hostProviders });
+    const deps = createTestSdk({ hostProviders });
     await addCredentials(user, "openai");
     await saveCredentials(deps, user.id, {
       service: "anthropic",
@@ -254,7 +254,7 @@ describe("models.list with Host credentials", () => {
 
   it("lists a Host Model of a Provider the user has no key for, beside the user's own Models", async () => {
     const user = await insertUser();
-    const deps = createTestDeps({ hostProviders });
+    const deps = createTestSdk({ hostProviders });
     await addCredentials(user, "openai");
 
     const { models } = await chatRpc({ user, deps }).models.list();
@@ -269,7 +269,7 @@ describe("models.list with Host credentials", () => {
 
   it("says web search is on the Host when the Host offers a Tavily key", async () => {
     const user = await insertUser();
-    const hosted = createTestDeps({
+    const hosted = createTestSdk({
       hostTools: [
         { tool: "tavily", credentials: { apiKey: "tvly-host" }, pricePerSearchUsd: 0.008 },
       ],

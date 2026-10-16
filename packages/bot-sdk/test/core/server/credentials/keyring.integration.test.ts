@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createBotSdk } from "../../../../core/server/create-chat";
+import { assistant } from "../../../../core/server/assistant";
 import { resolvedServices } from "../../../../core/server/credentials/resolve";
 import {
   listCredentials,
@@ -8,7 +9,7 @@ import {
   saveCredentials,
 } from "../../../../core/server/credentials/store";
 import { userCredentials } from "../../../../core/server/db/schema/credentials";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { insertUser } from "../../../support/users";
 import { getTestDb, testDatabaseUrl } from "../../../support/test-database";
 
@@ -20,12 +21,12 @@ const summary = { hint: "…abcd", verified: true };
 describe("the keyring", () => {
   it("reads a credential saved under an older key of the keyring", async () => {
     const user = await insertUser();
-    await saveCredentials(createTestDeps({ keyEncryptionSecrets: [keyA] }), user.id, {
+    await saveCredentials(createTestSdk({ keyEncryptionSecrets: [keyA] }), user.id, {
       service: "openai",
       fields,
       ...summary,
     });
-    const keyring = createTestDeps({ keyEncryptionSecrets: [keyB, keyA] });
+    const keyring = createTestSdk({ keyEncryptionSecrets: [keyB, keyA] });
 
     await expect(loadCredentials(keyring, user.id, "openai")).resolves.toEqual(fields);
     await expect(resolvedServices(keyring, user.id)).resolves.toEqual(["openai"]);
@@ -33,12 +34,12 @@ describe("the keyring", () => {
 
   it("reads a credential under a removed key as missing and not listed", async () => {
     const user = await insertUser();
-    await saveCredentials(createTestDeps({ keyEncryptionSecrets: [keyA] }), user.id, {
+    await saveCredentials(createTestSdk({ keyEncryptionSecrets: [keyA] }), user.id, {
       service: "openai",
       fields,
       ...summary,
     });
-    const keyring = createTestDeps({ keyEncryptionSecrets: [keyB] });
+    const keyring = createTestSdk({ keyEncryptionSecrets: [keyB] });
 
     await expect(loadCredentials(keyring, user.id, "openai")).resolves.toBeNull();
     await expect(listCredentials(keyring, user.id)).resolves.toEqual([]);
@@ -46,8 +47,8 @@ describe("the keyring", () => {
 
   it("counts unreadable rows by kind of failure at start, and still boots", async () => {
     const user = await insertUser();
-    const keyring = createTestDeps({ keyEncryptionSecrets: [keyB] });
-    await saveCredentials(createTestDeps({ keyEncryptionSecrets: [keyA] }), user.id, {
+    const keyring = createTestSdk({ keyEncryptionSecrets: [keyB] });
+    await saveCredentials(createTestSdk({ keyEncryptionSecrets: [keyA] }), user.id, {
       service: "openai",
       fields,
       ...summary,
@@ -71,6 +72,7 @@ describe("the keyring", () => {
       keyEncryptionSecrets: [keyB],
       basePath: "/api/chat",
       logger,
+      plugins: [assistant()],
     });
 
     await chat.start();

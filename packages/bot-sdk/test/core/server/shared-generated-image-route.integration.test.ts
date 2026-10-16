@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { fakePngBase64 } from "../../../core/server/chat/fake-image-adapter";
-import { createTestDeps } from "../../support/deps";
+import { createTestSdk } from "../../support/deps";
 import { insertConversation, insertMessage } from "../../support/conversations";
 import { insertGeneratedImage } from "../../support/generated-images";
 import { createTestChat } from "../../support/sdk";
@@ -17,7 +17,7 @@ const sharedImagePath = (token: string, id: string) =>
  * A Conversation of `owner` with a question and a reply that carries an image. The reply is the
  * Active Branch's leaf, so a Shared link taken now shows it. Returns the link's token and the image.
  */
-async function sharedImageOf(owner: TestUser, deps = createTestDeps()) {
+async function sharedImageOf(owner: TestUser, deps = createTestSdk()) {
   const conv = await insertConversation(owner, { title: "Pictures" });
   const question = await insertMessage({ conversationId: conv.id, role: "user", text: "Draw" });
   const id = await insertGeneratedImage(deps, owner, conv.id, {
@@ -33,7 +33,7 @@ async function sharedImageOf(owner: TestUser, deps = createTestDeps()) {
 describe("GET /api/chat/shared/:token/generated-images/:id", () => {
   it("serves an image on the shared path to anyone, immutable and cacheable", async () => {
     const owner = await insertUser();
-    const deps = createTestDeps();
+    const deps = createTestSdk();
     const { id, token } = await sharedImageOf(owner, deps);
 
     const response = await createTestChat({ user: null, deps }).fetch(
@@ -49,7 +49,7 @@ describe("GET /api/chat/shared/:token/generated-images/:id", () => {
 
   it("names the file by its short id and extension when downloaded", async () => {
     const owner = await insertUser();
-    const deps = createTestDeps();
+    const deps = createTestSdk();
     const { id, token } = await sharedImageOf(owner, deps);
 
     const response = await createTestChat({ user: null, deps }).fetch(
@@ -64,7 +64,7 @@ describe("GET /api/chat/shared/:token/generated-images/:id", () => {
 
   it("answers 404 for an image on a sibling Branch of the shared one", async () => {
     const owner = await insertUser();
-    const deps = createTestDeps();
+    const deps = createTestSdk();
     const conv = await insertConversation(owner, { title: "Branches" });
     const question = await insertMessage({ conversationId: conv.id, role: "user", text: "Draw" });
     const sibling = await insertGeneratedImage(deps, owner, conv.id, { parentId: question.id });
@@ -89,7 +89,7 @@ describe("GET /api/chat/shared/:token/generated-images/:id", () => {
 
   it("answers 404 for an image after the shared leaf", async () => {
     const owner = await insertUser();
-    const deps = createTestDeps();
+    const deps = createTestSdk();
     const conv = await insertConversation(owner, { title: "Later" });
     const question = await insertMessage({ conversationId: conv.id, role: "user", text: "Hi" });
     const reply = await insertMessage({
@@ -117,7 +117,7 @@ describe("GET /api/chat/shared/:token/generated-images/:id", () => {
 
   it("answers 404 for an unknown token", async () => {
     const owner = await insertUser();
-    const deps = createTestDeps();
+    const deps = createTestSdk();
     const { id } = await sharedImageOf(owner, deps);
 
     const response = await createTestChat({ user: null, deps }).fetch(
@@ -129,7 +129,7 @@ describe("GET /api/chat/shared/:token/generated-images/:id", () => {
 
   it("answers 404 once the owner removes the link", async () => {
     const owner = await insertUser();
-    const deps = createTestDeps();
+    const deps = createTestSdk();
     const { conv, id, token } = await sharedImageOf(owner, deps);
     await createTestChat({ user: owner, deps }).rpc.share.delete({ conversationId: conv.id });
 
@@ -143,7 +143,7 @@ describe("GET /api/chat/shared/:token/generated-images/:id", () => {
   it("answers 404 for a blocked owner's link", async () => {
     const owner = await insertUser();
     const { id, token } = await sharedImageOf(owner);
-    const blockedDeps = createTestDeps({ isUserBlocked: (userId) => userId === owner.id });
+    const blockedDeps = createTestSdk({ isUserBlocked: (userId) => userId === owner.id });
 
     const response = await createTestChat({ user: null, deps: blockedDeps }).fetch(
       new Request(sharedImagePath(token, id)),

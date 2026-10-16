@@ -11,7 +11,7 @@ import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { citationPrompt } from "../../../../core/shared/chat/citations";
 import type { ChatCommand } from "../../../../core/shared/chat/command";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { getTestDb } from "../../../support/test-database";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { createFakeSearchClient } from "../../../support/fake-search-client";
@@ -45,7 +45,7 @@ async function setup({
   const user = await insertUser();
   const fakes = scripts.map((rounds) => createFakeAdapter({ rounds, manual }));
   const adapters = fakes.map((fake) => fake.adapter);
-  const deps = createTestDeps({
+  const deps = createTestSdk({
     adapterFor: () => {
       const next = adapters.shift();
       if (!next) throw new Error("No more fake adapters");

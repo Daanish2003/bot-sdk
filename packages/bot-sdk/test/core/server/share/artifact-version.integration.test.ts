@@ -4,11 +4,11 @@ import { artifact, artifactVersion } from "../../../../core/server/db/schema/art
 import { storedParts } from "../../../../core/shared/message-parts";
 import { chatRpc } from "../../../support/sdk";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser, type TestUser } from "../../../support/users";
 
-const deps = createTestDeps({ artifacts: true });
+const deps = createTestSdk({ artifacts: true });
 
 /** An `artifact` part as a saved version's reply stores it (no content). */
 const artifactPart = (artifactId: string, version: number) => ({
@@ -283,7 +283,7 @@ describe("a Shared link's Artifact versions (ADR 0004, ADR 0016)", () => {
 
   it("refuses a banned owner's link, as share.get does", async () => {
     const { owner, token } = await setup();
-    const bannedDeps = createTestDeps({ artifacts: true, isUserBlocked: (id) => id === owner.id });
+    const bannedDeps = createTestSdk({ artifacts: true, isUserBlocked: (id) => id === owner.id });
 
     await expect(
       chatRpc({ deps: bannedDeps }).share.artifactVersion({
@@ -309,7 +309,7 @@ describe("a Shared link's Artifact versions (ADR 0004, ADR 0016)", () => {
     const { token } = await setup();
 
     await expect(
-      chatRpc({ deps: createTestDeps({ artifacts: false }) }).share.artifactVersion({
+      chatRpc({ deps: createTestSdk({ artifacts: false }) }).share.artifactVersion({
         token,
         artifactId: "art-page",
         number: 1,

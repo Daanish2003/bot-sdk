@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { newConversationModel } from "../../../core/client/models";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { saveCredentials } from "../../../core/server/credentials/store";
-import { createTestDeps } from "../../support/deps";
+import { createTestSdk } from "../../support/deps";
 import { createTestChat } from "../../support/sdk";
 import { insertUser } from "../../support/users";
 
@@ -21,7 +21,7 @@ async function startingModelFor({
   picked?: string;
   projectDefault?: string | null;
 }) {
-  const deps = createTestDeps();
+  const deps = createTestSdk();
   const user = await insertUser();
   await saveCredentials(deps, user.id, {
     service: "openai",

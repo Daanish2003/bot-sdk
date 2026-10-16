@@ -11,7 +11,7 @@ import type { HostProvider } from "../../../core/server/deps";
 import { knowledgeJobKey } from "../../../core/server/knowledge/process";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { insertConversation, insertMessage } from "../../support/conversations";
-import { createTestDeps } from "../../support/deps";
+import { createTestSdk } from "../../support/deps";
 import { drainJobs } from "../../support/jobs";
 import { chatRpc } from "../../support/sdk";
 import { getTestDb } from "../../support/test-database";
@@ -90,7 +90,7 @@ describe("deleting a Project's Knowledge files", () => {
 
   it("deletes the files, their passages and their bytes, and cancels a queued job", async () => {
     const user = await insertUser();
-    const deps = createTestDeps({
+    const deps = createTestSdk({
       hostProviders: [hostOpenAI],
       embeddingAdapterFor: () => fakeEmbeddingAdapter(),
     });

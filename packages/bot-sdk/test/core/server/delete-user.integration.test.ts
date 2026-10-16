@@ -5,6 +5,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
+import { assistant } from "../../../core/server/assistant";
 import { deleteAllConversations, deleteUserData } from "../../../core/server/delete-user";
 import { deleteConversation } from "../../../core/server/chat/store";
 import { saveCredentials } from "../../../core/server/credentials/store";
@@ -25,7 +26,7 @@ import { usage } from "../../../core/server/db/schema/usage";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { insertAttachment, linkTestAttachments } from "../../support/attachments";
 import { insertConversation, insertMessage } from "../../support/conversations";
-import { createTestDeps } from "../../support/deps";
+import { createTestSdk } from "../../support/deps";
 import { createFakeAdapter, text } from "../../support/fake-adapter";
 import { createTestChat } from "../../support/sdk";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
@@ -46,7 +47,7 @@ async function seedOwner(user: TestUser) {
   });
   const file = await insertAttachment(user, { filename: "notes.txt" });
   await linkTestAttachments(question.id, [file.id]);
-  const deps = createTestDeps();
+  const deps = createTestSdk();
   const link = await createTestChat({ user, deps }).rpc.share.upsert({ conversationId: conv.id });
   await saveCredentials(deps, user.id, {
     service: "anthropic",
@@ -202,7 +203,7 @@ describe("Artifacts go with the Message, Conversation or user that owns them", (
     await seedOwner(other);
     const before = await ownedRows(other.id);
 
-    expect(await deleteConversation(createTestDeps(), owner.id, conv.id)).toBe(true);
+    expect(await deleteConversation(createTestSdk(), owner.id, conv.id)).toBe(true);
 
     expect(await ownedRows(owner.id)).toMatchObject({ artifacts: 0, artifactVersions: 0 });
     expect(await ownedRows(other.id)).toEqual(before);
@@ -215,7 +216,7 @@ describe("Artifacts go with the Message, Conversation or user that owns them", (
     await seedOwner(other);
     const before = await ownedRows(other.id);
 
-    await deleteAllConversations(createTestDeps(), owner.id);
+    await deleteAllConversations(createTestSdk(), owner.id);
 
     expect(await ownedRows(owner.id)).toMatchObject({ artifacts: 0, artifactVersions: 0 });
     expect(await ownedRows(other.id)).toEqual(before);
@@ -231,7 +232,7 @@ describe("deleteUserData", () => {
     const kept = await seedOwner(other);
     const before = await ownedRows(other.id);
 
-    await deleteUserData(createTestDeps(), owner.id);
+    await deleteUserData(createTestSdk(), owner.id);
 
     expect(await ownedRows(owner.id)).toEqual(emptyRows);
     expect(await ownedRows(other.id)).toEqual(before);
@@ -246,7 +247,7 @@ describe("deleteUserData", () => {
   it("is idempotent, and an unknown id succeeds", async () => {
     const owner = await insertUser();
     await seedOwner(owner);
-    const deps = createTestDeps();
+    const deps = createTestSdk();
 
     await deleteUserData(deps, owner.id);
     await deleteUserData(deps, owner.id);
@@ -277,7 +278,7 @@ describe("deleteUserData", () => {
       create trigger fail_settings_delete before delete on chat.user_settings
       for each row execute function chat.fail_settings_delete()`);
     try {
-      await expect(deleteUserData(createTestDeps(), owner.id)).rejects.toMatchObject({
+      await expect(deleteUserData(createTestSdk(), owner.id)).rejects.toMatchObject({
         cause: { message: expect.stringContaining("injected failure") },
       });
     } finally {
@@ -308,7 +309,7 @@ describe("deleteUserData", () => {
       const owner = await insertUser();
       const conv = await insertConversation(owner, { title: "Live" });
       const question = await insertMessage({ conversationId: conv.id, role: "user", text: "Hi" });
-      await saveCredentials(createTestDeps(), owner.id, {
+      await saveCredentials(createTestSdk(), owner.id, {
         service: "anthropic",
         fields: { apiKey: "sk-ant-test-key" },
         hint: "…-key",
@@ -316,7 +317,7 @@ describe("deleteUserData", () => {
       });
       // Held until the test releases it, so the Run is still live when the user is deleted.
       const fake = createFakeAdapter({ rounds: [text("Hel", "lo")], manual: true });
-      const deps = createTestDeps({ adapterFor: () => fake.adapter });
+      const deps = createTestSdk({ adapterFor: () => fake.adapter });
       const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
       const client = createTestChat({ user: owner, deps });
       // A regenerate starts the Run through the handler, as a Host's POST does. The reply is not read.
@@ -368,6 +369,7 @@ describe("createBotSdk().deleteUser", () => {
       getUser: () => null,
       keyEncryptionSecrets: [testKey],
       basePath: "/api/chat",
+      plugins: [assistant()],
     });
 
     await chat.deleteUser(owner.id);
@@ -389,7 +391,7 @@ describe("deleteUserData, Temporary Conversations", () => {
     const temporary = await insertConversation(owner, { temporary: true });
     await insertMessage({ conversationId: temporary.id, role: "user", text: "Private" });
 
-    await deleteUserData(createTestDeps(), owner.id);
+    await deleteUserData(createTestSdk(), owner.id);
 
     expect(
       await getTestDb().select().from(conversation).where(eq(conversation.id, temporary.id)),
@@ -404,7 +406,7 @@ describe("deleteUserData, Knowledge files", () => {
   it("deletes the user's Knowledge files, their bytes, and cancels their queued jobs", async () => {
     const user = await insertUser();
     const other = await insertUser();
-    const deps = createTestDeps();
+    const deps = createTestSdk();
     const ownProject = uuidv7();
     const otherProject = uuidv7();
     await getTestDb()

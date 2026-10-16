@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { exportUserData } from "../../../core/server/export-user";
 import { insertConversation, insertMessage } from "../../support/conversations";
-import { createTestDeps } from "../../support/deps";
+import { createTestSdk } from "../../support/deps";
 import { createTestChat } from "../../support/sdk";
 import { insertUser } from "../../support/users";
 
@@ -16,7 +16,7 @@ function withoutTimestamp(document: object) {
 
 describe("GET /api/chat/export", () => {
   it("answers the signed-in caller's export as a JSON attachment named by the export date", async () => {
-    const deps = createTestDeps();
+    const deps = createTestSdk();
     const owner = await insertUser();
     const conv = await insertConversation(owner, { title: "Exported" });
     await insertMessage({ conversationId: conv.id, role: "user", text: "Hi", active: true });

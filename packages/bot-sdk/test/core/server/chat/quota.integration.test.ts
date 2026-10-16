@@ -7,7 +7,7 @@ import type { AppDeps, HostProvider, QuotaSetting } from "../../../../core/serve
 import { quotaLookup } from "../../../../core/server/chat/quota";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { insertConversation } from "../../../support/conversations";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { createFakeAdapter, round, text, withUsage } from "../../../support/fake-adapter";
 import { insertUser, type TestUser } from "../../../support/users";
 import { chatRpc, sendAs } from "../../../support/sdk";
@@ -59,7 +59,7 @@ async function setup({
   const owner = user ?? (await insertUser());
   const fake = createFakeAdapter({ rounds });
   const adapterCredentials: Array<Record<string, string>> = [];
-  const deps: AppDeps = createTestDeps({
+  const deps: AppDeps = createTestSdk({
     hostProviders,
     adapterFor: (_model, credentials) => {
       adapterCredentials.push(credentials);

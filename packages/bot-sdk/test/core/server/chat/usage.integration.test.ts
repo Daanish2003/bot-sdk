@@ -6,7 +6,7 @@ import { usage } from "../../../../core/server/db/schema/usage";
 import { saveCredentials } from "../../../../core/server/credentials/store";
 import type { AppDeps, HostProvider } from "../../../../core/server/deps";
 import { insertConversation } from "../../../support/conversations";
-import { createTestDeps, type TestDepsOverrides } from "../../../support/deps";
+import { createTestSdk, type TestDepsOverrides } from "../../../support/deps";
 import { createFakeAdapter, round, runError, text, withUsage } from "../../../support/fake-adapter";
 import { insertUser, type TestUser } from "../../../support/users";
 import { chatRpc, sendAs } from "../../../support/sdk";
@@ -52,7 +52,7 @@ async function setup({
 }) {
   const owner = user ?? (await insertUser());
   const fake = createFakeAdapter({ rounds, manual });
-  const deps: AppDeps = createTestDeps({
+  const deps: AppDeps = createTestSdk({
     hostProviders,
     adapterFor: () => fake.adapter,
     ...overrides,

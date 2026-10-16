@@ -5,7 +5,7 @@ import { saveCredentials } from "../../../../core/server/credentials/store";
 import { message } from "../../../../core/server/db/schema/chat";
 import type { AppDeps, HostProvider } from "../../../../core/server/deps";
 import { insertConversation } from "../../../support/conversations";
-import { createTestDeps, type TestDepsOverrides } from "../../../support/deps";
+import { createTestSdk, type TestDepsOverrides } from "../../../support/deps";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { insertUser, type TestUser } from "../../../support/users";
 import { sendAs } from "../../../support/sdk";
@@ -55,7 +55,7 @@ async function setup({
     credentials: Record<string, string>;
     options?: { maxOutputTokens?: number };
   }> = [];
-  const deps: AppDeps = createTestDeps({
+  const deps: AppDeps = createTestSdk({
     adapterFor: (adapterModel, credentials, options) => {
       adapterCalls.push({ model: adapterModel, credentials, options });
       return fake.adapter;

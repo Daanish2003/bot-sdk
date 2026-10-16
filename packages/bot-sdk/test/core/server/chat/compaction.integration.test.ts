@@ -6,7 +6,7 @@ import { saveCredentials } from "../../../../core/server/credentials/store";
 import { loadActiveBranch } from "../../../../core/server/chat/store";
 import { getTestDb } from "../../../support/test-database";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { insertUser } from "../../../support/users";
 import { sendAs } from "../../../support/sdk";
@@ -60,7 +60,7 @@ async function runOn({
 }) {
   const user = await insertUser();
   const fake = createFakeAdapter({ rounds: [round(text("Ok."))] });
-  const deps = createTestDeps({ adapterFor: () => fake.adapter });
+  const deps = createTestSdk({ adapterFor: () => fake.adapter });
   await saveCredentials(deps, user.id, {
     service,
     fields: { apiKey: "test-key" },

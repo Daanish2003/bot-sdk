@@ -7,7 +7,7 @@ import { blob } from "../../../../core/server/db/schema/blob";
 import { job } from "../../../../core/server/db/schema/job";
 import { knowledgeChunk, knowledgeFile } from "../../../../core/server/db/schema/knowledge";
 import type { HostProvider } from "../../../../core/server/deps";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { drainJobs } from "../../../support/jobs";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
@@ -25,7 +25,7 @@ const hostOpenAI: HostProvider = {
 async function setup() {
   const user = await insertUser();
   const embeddings = fakeEmbeddingAdapter();
-  const deps = createTestDeps({
+  const deps = createTestSdk({
     hostProviders: [hostOpenAI],
     embeddingAdapterFor: () => embeddings,
   });
@@ -97,13 +97,13 @@ describe("a failed Knowledge file", () => {
     const { user, rpc, projectId } = await setup();
     const added = await rpc.knowledge.upload({ projectId, file: markdown(paragraphs(3)) });
     // Without a key the Model can't embed, so the file fails for 'no credentials'.
-    await drainJobs({ deps: createTestDeps({ hostProviders: [] }) });
+    await drainJobs({ deps: createTestSdk({ hostProviders: [] }) });
     expect((await rpc.knowledge.list({ projectId })).files[0]).toMatchObject({
       status: "failed",
       failureCode: "no_credentials",
     });
 
-    const retryDeps = createTestDeps({ hostProviders: [hostOpenAI] });
+    const retryDeps = createTestSdk({ hostProviders: [hostOpenAI] });
     await chatRpc({ user, deps: retryDeps }).knowledge.retry({ projectId, fileId: added.id });
 
     expect((await rpc.knowledge.list({ projectId })).files[0]).toMatchObject({

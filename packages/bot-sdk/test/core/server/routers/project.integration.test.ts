@@ -9,7 +9,7 @@ import { START } from "../../../../core/server/chat/run-streams";
 import { saveCredentials } from "../../../../core/server/credentials/store";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { createFakeAdapter, text } from "../../../support/fake-adapter";
 import { insertUser } from "../../../support/users";
 import { chatRpc, createTestChat } from "../../../support/sdk";
@@ -83,7 +83,7 @@ describe("project.create", () => {
 describe("project.update", () => {
   async function withOpenAiCredentials() {
     const { user, client } = await signedIn();
-    await saveCredentials(createTestDeps(), user.id, {
+    await saveCredentials(createTestSdk(), user.id, {
       service: "openai",
       fields: { apiKey: "openai-test-key" },
       hint: "…-key",
@@ -403,7 +403,7 @@ describe("project.delete", () => {
       const { id: projectId } = await client.project.create({ name: "Work" });
       const conv = await insertConversation(user, { projectId });
       const question = await insertMessage({ conversationId: conv.id, role: "user", text: "Hi" });
-      await saveCredentials(createTestDeps(), user.id, {
+      await saveCredentials(createTestSdk(), user.id, {
         service: "anthropic",
         fields: { apiKey: "sk-ant-test-key" },
         hint: "…-key",
@@ -411,7 +411,7 @@ describe("project.delete", () => {
       });
       // Held until the test releases it, so the Run is still live when the Project is deleted.
       const fake = createFakeAdapter({ rounds: [text("Hel", "lo")], manual: true });
-      const deps = createTestDeps({ adapterFor: () => fake.adapter });
+      const deps = createTestSdk({ adapterFor: () => fake.adapter });
       const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
       const chat = createTestChat({ user, deps });
       const started = await chat.fetch(
@@ -454,7 +454,7 @@ describe("project.delete", () => {
 describe("project.update Instructions", () => {
   async function withOpenAiCredentials() {
     const { user, client } = await signedIn();
-    await saveCredentials(createTestDeps(), user.id, {
+    await saveCredentials(createTestSdk(), user.id, {
       service: "openai",
       fields: { apiKey: "openai-test-key" },
       hint: "…-key",

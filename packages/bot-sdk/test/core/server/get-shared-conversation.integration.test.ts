@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { createBotSdkClient } from "../../../core/client/chat-client";
 import { createBotSdk } from "../../../core/server/create-chat";
+import { assistant } from "../../../core/server/assistant";
 import { conversation } from "../../../core/server/db/schema/chat";
 import { storedParts } from "../../../core/shared/message-parts";
 import { insertConversation, insertMessage } from "../../support/conversations";
@@ -19,6 +20,7 @@ function chatFor(user: TestUser | null) {
     getUser: () => (user ? { id: user.id } : null),
     keyEncryptionSecrets: [testKeyEncryptionSecret],
     basePath,
+    plugins: [assistant()],
   });
   const client = createBotSdkClient({
     baseUrl: `http://localhost${basePath}`,
@@ -286,6 +288,7 @@ describe("chat.isUserBlocked", () => {
       keyEncryptionSecrets: [testKeyEncryptionSecret],
       basePath,
       isUserBlocked: (userId) => userId === blocked.id,
+      plugins: [assistant()],
     });
     const client = createBotSdkClient({
       baseUrl: `http://localhost${basePath}`,

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { conversation, message } from "../../../../core/server/db/schema/chat";
 import { saveCredentials } from "../../../../core/server/credentials/store";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { insertConversation, insertMessage } from "../../../support/conversations";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { getTestDb } from "../../../support/test-database";
@@ -47,7 +47,7 @@ describe("share.continue", () => {
   it("copies the shared Branch into a new Conversation owned by the caller", async () => {
     const { conv, question, reply, link } = await sharedConversation();
     const viewer = await insertUser();
-    await saveCredentials(createTestDeps(), viewer.id, {
+    await saveCredentials(createTestSdk(), viewer.id, {
       service: "openai",
       fields: { apiKey: "openai-test-key" },
       hint: "…-key",
@@ -87,7 +87,7 @@ describe("share.continue", () => {
     const { owner, conv, link } = await sharedConversation();
     const viewer = await insertUser();
     const before = await messagesOf(conv.id);
-    await saveCredentials(createTestDeps(), viewer.id, {
+    await saveCredentials(createTestSdk(), viewer.id, {
       service: "openai",
       fields: { apiKey: "openai-test-key" },
       hint: "…-key",
@@ -136,7 +136,7 @@ describe("share.continue", () => {
   it("falls back to the viewer's default Model when the shared one isn't usable", async () => {
     const { link } = await sharedConversation();
     const viewer = await insertUser();
-    const deps = createTestDeps({ adapterFor: () => createFakeAdapter({ rounds: [] }).adapter });
+    const deps = createTestSdk({ adapterFor: () => createFakeAdapter({ rounds: [] }).adapter });
     await saveCredentials(deps, viewer.id, {
       service: "anthropic",
       fields: { apiKey: "sk-ant-test-key" },
@@ -154,7 +154,7 @@ describe("share.continue", () => {
     const { link } = await sharedConversation();
     const viewer = await insertUser();
     const fake = createFakeAdapter({ rounds: [round(text("Sure"))] });
-    const deps = createTestDeps({ adapterFor: () => fake.adapter });
+    const deps = createTestSdk({ adapterFor: () => fake.adapter });
     await saveCredentials(deps, viewer.id, {
       service: "openai",
       fields: { apiKey: "openai-test-key" },

@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { EventHooks } from "../../../../core/server/index";
 import { createBotSdk } from "../../../../core/server/create-chat";
+import { assistant } from "../../../../core/server/assistant";
 import type { HostProvider } from "../../../../core/server/deps";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { testKeyEncryptionSecret } from "../../../support/deps";
@@ -112,9 +113,13 @@ function chatWith(userId: string, hooks: EventHooks): ReturnType<typeof createBo
     getUser: () => ({ id: userId }),
     keyEncryptionSecrets: [testKeyEncryptionSecret],
     basePath,
-    hostProviders: [hostProvider],
     logger: { error: () => {} },
     hooks,
+    plugins: [
+      assistant({
+        hostProviders: [hostProvider],
+      }),
+    ],
   });
 }
 

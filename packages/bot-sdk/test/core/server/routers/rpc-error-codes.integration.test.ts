@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { en } from "../../../../core/shared/i18n";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { chatRpc } from "../../../support/sdk";
 import { insertUser } from "../../../support/users";
 
@@ -73,7 +73,7 @@ describe("oRPC errors through chat.handler", () => {
 
   it("sends the code for credentials when the Host has turned the user's own keys off", async () => {
     const user = await insertUser();
-    const client = chatRpc({ user, deps: createTestDeps({ byok: false }) });
+    const client = chatRpc({ user, deps: createTestSdk({ byok: false }) });
 
     await expect(
       dataOf(client.credentials.save({ service: "openai", fields: { apiKey: "sk-test" } })),

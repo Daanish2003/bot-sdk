@@ -13,7 +13,7 @@ import { usage } from "../../../../core/server/db/schema/usage";
 import type { AppDeps, HostProvider } from "../../../../core/server/deps";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { insertConversation } from "../../../support/conversations";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { sendAs } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
@@ -80,7 +80,7 @@ async function setup({
 } = {}) {
   const user = await insertUser();
   const replyFake = createFakeAdapter({ rounds: reply });
-  const deps = createTestDeps({
+  const deps = createTestSdk({
     clock: () => today,
     adapterFor: () => replyFake.adapter,
     ...overrides,

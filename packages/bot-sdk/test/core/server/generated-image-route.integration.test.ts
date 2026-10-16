@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { fakePngBase64 } from "../../../core/server/chat/fake-image-adapter";
 import { insertConversation } from "../../support/conversations";
-import { createTestDeps } from "../../support/deps";
+import { createTestSdk } from "../../support/deps";
 import { insertGeneratedImage } from "../../support/generated-images";
 import { createTestChat } from "../../support/sdk";
 import { insertUser } from "../../support/users";
@@ -10,7 +10,7 @@ import { insertUser } from "../../support/users";
 const pngBytes = new Uint8Array(Buffer.from(fakePngBase64, "base64"));
 
 /** A Generated image of `owner` in a new Conversation, and the request for its bytes. */
-async function imageOf(owner: Awaited<ReturnType<typeof insertUser>>, deps = createTestDeps()) {
+async function imageOf(owner: Awaited<ReturnType<typeof insertUser>>, deps = createTestSdk()) {
   const conv = await insertConversation(owner, { title: "Images" });
   const id = await insertGeneratedImage(deps, owner, conv.id);
   return { deps, id, path: `http://localhost/api/chat/generated-images/${id}` };
@@ -57,7 +57,7 @@ describe("GET /api/chat/generated-images/:id", () => {
 
   it("answers 404 for an id that names no image, or is not an id", async () => {
     const owner = await insertUser();
-    const deps = createTestDeps();
+    const deps = createTestSdk();
     const chat = createTestChat({ user: owner, deps });
 
     const missing = await chat.fetch(

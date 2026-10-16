@@ -17,7 +17,7 @@ import { usage } from "../../../../core/server/db/schema/usage";
 import { exportUserData } from "../../../../core/server/export-user";
 import { START } from "../../../../core/server/chat/run-streams";
 import { insertConversation } from "../../../support/conversations";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import {
   createFakeAdapter,
   round,
@@ -66,7 +66,7 @@ function moderatedDeps(
   fake: { adapter: AnyTextAdapter },
   logger: { error: (...args: unknown[]) => void } = { error: () => {} },
 ) {
-  return createTestDeps({
+  return createTestSdk({
     hostProviders: [hostProvider],
     hooks: createHookEmitter(hooks, logger),
     adapterFor: () => fake.adapter,
@@ -107,7 +107,7 @@ async function replyOf(conversationId: string) {
 }
 
 /** The chunks a Run's log holds, from its first entry (ADR 0006). */
-async function logChunks(deps: ReturnType<typeof createTestDeps>, runId: string) {
+async function logChunks(deps: ReturnType<typeof createTestSdk>, runId: string) {
   const chunks: StreamChunk[] = [];
   for await (const entry of deps.runStreams.read(runId, START)) chunks.push(entry.chunk);
   return chunks;
@@ -130,7 +130,7 @@ describe("the moderate hook on the reply", () => {
         round(text("Next")),
       ],
     });
-    const deps = createTestDeps({
+    const deps = createTestSdk({
       hostProviders: [hostProvider],
       hooks: createHookEmitter({ moderate: flags("Forbidden") }, { error: () => {} }),
       adapterFor: () => fake.adapter,
@@ -383,7 +383,7 @@ describe("the moderate hook on the reply", () => {
     const user = await insertUser();
     const conv = await insertConversation(user, { title: "No hook log" });
     const fake = createFakeAdapter({ rounds: [round(text("Forbidden", " words"))] });
-    const deps = createTestDeps({ hostProviders: [hostProvider], adapterFor: () => fake.adapter });
+    const deps = createTestSdk({ hostProviders: [hostProvider], adapterFor: () => fake.adapter });
 
     await (await sendAs(commandRequest(conv.id), user, deps)).text();
 
@@ -403,7 +403,7 @@ describe("the moderate hook on the reply", () => {
         round(text("Forbidden", " words")),
       ],
     });
-    const deps = createTestDeps({
+    const deps = createTestSdk({
       hostProviders: [hostProvider],
       hooks: createHookEmitter({ moderate: flags("Forbidden") }, { error: () => {} }),
       adapterFor: () => fake.adapter,

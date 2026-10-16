@@ -8,7 +8,7 @@ import type { AppDeps } from "../../../../core/server/deps";
 import { createLifecycle } from "../../../../core/server/lifecycle";
 import { redisRuntime, type BotSdkRuntime } from "../../../../core/server/runtime";
 import { insertConversation } from "../../../support/conversations";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { chatRpc, sendAs } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
@@ -39,7 +39,7 @@ async function twoInstances({ a = {}, b = {} }: { a?: Limits; b?: Limits } = {})
   const instance = (limits: Limits): Instance => {
     const runtime = redisRuntime({ url: redisUrl!, prefix });
     const fake = createFakeAdapter({ rounds: [round(text("Hello", " there", "!"))], manual: true });
-    const deps = createTestDeps({
+    const deps = createTestSdk({
       adapterFor: () => fake.adapter,
       runStreams: runtime.runStreams,
       pubsub: runtime.pubsub,

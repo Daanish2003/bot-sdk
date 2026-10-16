@@ -2,7 +2,7 @@ import type { AppDeps } from "../../core/server/deps";
 import type { Database } from "../../core/server/db/index";
 import { systemClock } from "../../core/server/jobs/in-process";
 import { claimJob, runClaimedJob } from "../../core/server/jobs/store";
-import { createTestDeps } from "./deps";
+import { createTestSdk } from "./deps";
 import { getTestDb } from "./test-database";
 
 export type DrainJobsOptions = {
@@ -30,7 +30,7 @@ export async function drainJobs({
   deps,
 }: DrainJobsOptions = {}): Promise<number> {
   const silent = { error: () => {} };
-  const jobDeps = deps ?? createTestDeps({ db });
+  const jobDeps = deps ?? createTestSdk({ db });
   let ran = 0;
   for (;;) {
     const claimed = await claimJob(db, new Date(), { respectRunAfter });

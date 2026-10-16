@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import { saveCredentials } from "../../../../core/server/credentials/store";
 import { saveBackgroundModel } from "../../../../core/server/settings/store";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { createFakeAdapter, round, runError, text } from "../../../support/fake-adapter";
 import { insertUser } from "../../../support/users";
 import { chatRpc, sendAs } from "../../../support/sdk";
@@ -20,7 +20,7 @@ const cheapModel = "openai:gpt-5.4-mini";
 type Rounds = Parameters<typeof createFakeAdapter>[0]["rounds"];
 
 function addAnthropicKey(userId: string) {
-  return saveCredentials(createTestDeps(), userId, {
+  return saveCredentials(createTestSdk(), userId, {
     service: "anthropic",
     fields: { apiKey: "sk-ant-test-key" },
     hint: "…-key",
@@ -48,7 +48,7 @@ async function setup({
   const fakes = scripts.map((rounds) => createFakeAdapter({ rounds }));
   const adapterCalls: Array<{ model: string; credentials: Record<string, string> }> = [];
   const adapters: AnyTextAdapter[] = fakes.map((fake) => fake.adapter);
-  const deps = createTestDeps({
+  const deps = createTestSdk({
     defaultBackgroundModel,
     adapterFor: (model, credentials) => {
       adapterCalls.push({ model, credentials });
@@ -222,7 +222,7 @@ describe("titleConversation", () => {
   async function seeded({ manual = false, title = null as string | null, temporary = false } = {}) {
     const user = await insertUser();
     const titleAdapter = createFakeAdapter({ rounds: [round(text("Generated title"))], manual });
-    const deps = createTestDeps({ adapterFor: () => titleAdapter.adapter });
+    const deps = createTestSdk({ adapterFor: () => titleAdapter.adapter });
     await addAnthropicKey(user.id);
     const conv = await insertConversation(user, { model: replyModel, title, temporary });
     const question = await insertMessage({

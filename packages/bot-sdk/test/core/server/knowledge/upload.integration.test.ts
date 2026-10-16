@@ -19,7 +19,7 @@ import {
   pdfMediaType,
   wordMediaType,
 } from "../../../../core/shared/knowledge/kinds";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { drainJobs } from "../../../support/jobs";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
@@ -38,10 +38,10 @@ const hostOpenAI: HostProvider = {
 };
 
 /** A signed-in user with a Project, on a test deps whose embeddings are the fake adapter. */
-async function setup(overrides: Parameters<typeof createTestDeps>[0] = {}) {
+async function setup(overrides: Parameters<typeof createTestSdk>[0] = {}) {
   const user = await insertUser();
   const embeddings = fakeEmbeddingAdapter();
-  const deps = createTestDeps({
+  const deps = createTestSdk({
     hostProviders: [hostOpenAI],
     embeddingAdapterFor: () => embeddings,
     ...overrides,
@@ -164,7 +164,7 @@ describe("uploading a Knowledge file", () => {
     const added = await rpc.knowledge.upload({ projectId, file: markdown(paragraphs(3)) });
 
     // The job runs on deps that no longer offer the Model, as after the Host drops its key.
-    await drainJobs({ deps: createTestDeps({ hostProviders: [] }) });
+    await drainJobs({ deps: createTestSdk({ hostProviders: [] }) });
 
     const { files } = await rpc.knowledge.list({ projectId });
     expect(files).toEqual([
@@ -260,7 +260,7 @@ describe("uploading a Knowledge file", () => {
     const added = await rpc.knowledge.upload({ projectId, file: markdown(paragraphs(3)) });
     await drainJobs({ deps });
 
-    const withoutKey = chatRpc({ user, deps: createTestDeps({ hostProviders: [] }) });
+    const withoutKey = chatRpc({ user, deps: createTestSdk({ hostProviders: [] }) });
     const after = await withoutKey.knowledge.list({ projectId });
 
     expect(after).toMatchObject({

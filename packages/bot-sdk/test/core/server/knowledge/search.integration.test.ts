@@ -7,7 +7,7 @@ import { saveCredentials } from "../../../../core/server/credentials/store";
 import type { AppDeps, HostProvider } from "../../../../core/server/deps";
 import type { ChatCommand } from "../../../../core/shared/chat/command";
 import { insertConversation } from "../../../support/conversations";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { drainJobs } from "../../../support/jobs";
 import { chatRpc, sendAs } from "../../../support/sdk";
@@ -34,7 +34,7 @@ async function setup(rounds: Parameters<typeof createFakeAdapter>[0]["rounds"]) 
   let failing = false;
   const working = fakeEmbeddingAdapter();
   const broken = fakeEmbeddingAdapter({ fail: "embedding service down" });
-  const deps = createTestDeps({
+  const deps = createTestSdk({
     adapterFor: () => fake.adapter,
     hostProviders: [hostOpenAI],
     embeddingAdapterFor: () => (failing ? broken : working),

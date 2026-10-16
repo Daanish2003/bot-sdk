@@ -5,7 +5,7 @@ import { saveCredentials } from "../../../../core/server/credentials/store";
 import { loadSharedConversation } from "../../../../core/server/share/store";
 import { message } from "../../../../core/server/db/schema/chat";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { chatRpc, sendAs } from "../../../support/sdk";
 import { insertUser, type TestUser } from "../../../support/users";
@@ -17,7 +17,7 @@ async function setup(
   replyStatus: "complete" | "stopped" | "error" | "streaming" | "awaiting_approval" = "complete",
 ) {
   const user: TestUser = await insertUser();
-  const deps = createTestDeps();
+  const deps = createTestSdk();
   const conv = await insertConversation(user, { title: "Ratings" });
   const question = await insertMessage({ conversationId: conv.id, role: "user", text: "Hi" });
   const reply = await insertMessage({
@@ -118,7 +118,7 @@ describe("a Rating's privacy", () => {
     const { user, deps, conv, reply } = await setup();
     await chatRpc({ user, deps }).chat.rate({ messageId: reply.id, rating: "down" });
     const fake = createFakeAdapter({ rounds: [round(text("Follow-up"))] });
-    const followDeps = createTestDeps({ adapterFor: () => fake.adapter });
+    const followDeps = createTestSdk({ adapterFor: () => fake.adapter });
     await saveCredentials(followDeps, user.id, {
       service: "anthropic",
       fields: { apiKey: "sk-ant-test-key" },
@@ -170,7 +170,7 @@ describe("a Rating and the next reply", () => {
     const { user, deps, conv, question, reply, rate, row } = await setup();
     await rate(reply.id, "up");
     const fake = createFakeAdapter({ rounds: [round(text("Second", " try"))] });
-    const regenDeps = createTestDeps({ adapterFor: () => fake.adapter });
+    const regenDeps = createTestSdk({ adapterFor: () => fake.adapter });
     await saveCredentials(regenDeps, user.id, {
       service: "anthropic",
       fields: { apiKey: "sk-ant-test-key" },

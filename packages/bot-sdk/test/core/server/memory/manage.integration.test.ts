@@ -7,7 +7,7 @@ import { memory } from "../../../../core/server/db/schema/memory";
 import { userSettings } from "../../../../core/server/db/schema/settings";
 import type { AppDeps } from "../../../../core/server/deps";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { drainJobs } from "../../../support/jobs";
 import { chatRpc, sendAs } from "../../../support/sdk";
@@ -51,7 +51,7 @@ async function insertMemory(
 }
 
 /** A user with a general Conversation holding one user Message, and the RPC client for them. */
-async function setup(deps: AppDeps = createTestDeps()) {
+async function setup(deps: AppDeps = createTestSdk()) {
   const user = await insertUser();
   const conv = await insertConversation(user, { title: "Diet chat" });
   const message = await insertMessage({ conversationId: conv.id, role: "user", text: "Hi" });
@@ -180,7 +180,7 @@ describe("the Memory page procedures", () => {
 
   it("refuses every procedure when the Host has Memory off, and says so in status", async () => {
     const { user, conv, message } = await setup();
-    const deps = createTestDeps({ memory: false });
+    const deps = createTestSdk({ memory: false });
     await insertMemory(user, conv.id, message.id);
     const rpc = chatRpc({ user, deps });
 
@@ -205,7 +205,7 @@ describe("re-embedding Memories when the embedding Model changes", () => {
     const replyFake = createFakeAdapter({ rounds: [round(text("Noted."))] });
     // No new facts, so the Memory job only re-embeds.
     const memoryFake = createFakeAdapter({ rounds: [round(text('{"facts": []}'))] });
-    const deps = createTestDeps({
+    const deps = createTestSdk({
       defaultBackgroundModel: backgroundModel,
       clock: () => now,
       adapterFor: (model) => (model === replyModel ? replyFake.adapter : memoryFake.adapter),

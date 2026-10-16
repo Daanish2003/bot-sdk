@@ -10,7 +10,7 @@ import { loadSharedConversation } from "../../../../core/server/share/store";
 import type { ChatCommand } from "../../../../core/shared/chat/command";
 import { storedParts } from "../../../../core/shared/message-parts";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { chatRpc, sendAs } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
@@ -27,7 +27,7 @@ const searchCall = (id: string, query: string) =>
 async function setup(rounds: Rounds, overrides: Partial<AppDeps> = {}) {
   const user = await insertUser();
   const fake = createFakeAdapter({ rounds });
-  const deps = createTestDeps({ adapterFor: () => fake.adapter, ...overrides });
+  const deps = createTestSdk({ adapterFor: () => fake.adapter, ...overrides });
   await saveCredentials(deps, user.id, {
     service: "anthropic",
     fields: { apiKey: "sk-ant-test-key" },

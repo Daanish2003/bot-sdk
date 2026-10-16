@@ -9,7 +9,7 @@ import { deleteUserData } from "../../../../core/server/delete-user";
 import { deleteProject } from "../../../../core/server/project/store";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { insertConversation } from "../../../support/conversations";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { insertMemory } from "../../../support/memories";
 import { chatRpc, sendAs } from "../../../support/sdk";
@@ -32,7 +32,7 @@ describe("deleting a Conversation takes its Memories", () => {
     await insertMemory(owner, { conversationId: gone.id });
     const keptMemory = await insertMemory(owner, { conversationId: kept.id });
 
-    expect(await deleteConversation(createTestDeps(), owner.id, gone.id)).toBe(true);
+    expect(await deleteConversation(createTestSdk(), owner.id, gone.id)).toBe(true);
 
     expect(await memoryIds(owner.id)).toEqual([keptMemory.id]);
   });
@@ -55,7 +55,7 @@ describe("deleting a Conversation takes its Memories", () => {
       .set({ replacedById: replacing.id })
       .where(eq(memory.id, outdated.id));
 
-    await deleteConversation(createTestDeps(), owner.id, newer.id);
+    await deleteConversation(createTestSdk(), owner.id, newer.id);
 
     const [row] = await getTestDb().select().from(memory).where(eq(memory.id, outdated.id));
     expect(row).toMatchObject({
@@ -75,7 +75,7 @@ describe("deleting a Project takes the Memories of its Conversations", () => {
     await insertMemory(owner, { conversationId: inProject.id });
     const generalMemory = await insertMemory(owner, { conversationId: general.id });
 
-    await deleteProject(createTestDeps(), owner.id, projectId);
+    await deleteProject(createTestSdk(), owner.id, projectId);
 
     expect(await memoryIds(owner.id)).toEqual([generalMemory.id]);
   });
@@ -87,7 +87,7 @@ describe("moving a Conversation moves its Memories", () => {
     const replyFake = createFakeAdapter({
       rounds: [round(text("Noted.")), round(text("Noted.")), round(text("Noted."))],
     });
-    const deps = createTestDeps({
+    const deps = createTestSdk({
       clock: () => new Date("2026-10-14T10:00:00Z"),
       adapterFor: () => replyFake.adapter,
     });
@@ -155,7 +155,7 @@ describe("deleting an account takes every Memory", () => {
     await insertMemory(owner, { conversationId: ownerConv.id, invalidAt: new Date() });
     const theirs = await insertMemory(other, { conversationId: otherConv.id });
 
-    await deleteUserData(createTestDeps(), owner.id);
+    await deleteUserData(createTestSdk(), owner.id);
 
     expect(await memoryIds(owner.id)).toEqual([]);
     expect(await memoryIds(other.id)).toEqual([theirs.id]);

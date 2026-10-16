@@ -8,7 +8,7 @@ import type { AppDeps } from "../../../../core/server/deps";
 import { resolveRateLimits } from "../../../../core/server/rate-limits";
 import type { ChatCommand } from "../../../../core/shared/chat/command";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { sendAs } from "../../../support/sdk";
 import { insertUser } from "../../../support/users";
@@ -22,7 +22,7 @@ async function setup({
 }: { byok?: boolean; rateLimits?: ReturnType<typeof resolveRateLimits> } = {}) {
   const user = await insertUser();
   const fake = createFakeAdapter({ rounds: [round(text("Hello"))] });
-  const deps: AppDeps = createTestDeps({
+  const deps: AppDeps = createTestSdk({
     adapterFor: () => fake.adapter,
     ...(byok === undefined ? {} : { byok }),
     ...(rateLimits ? { rateLimits } : {}),

@@ -10,7 +10,7 @@ import { stopRun } from "../../../../core/server/chat/run";
 import { saveCredentials } from "../../../../core/server/credentials/store";
 import type { AppDeps } from "../../../../core/server/deps";
 import { insertConversation } from "../../../support/conversations";
-import { createTestDeps, type TestDepsOverrides } from "../../../support/deps";
+import { createTestSdk, type TestDepsOverrides } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { sendAs } from "../../../support/sdk";
 import { insertUser, type TestUser } from "../../../support/users";
@@ -58,7 +58,7 @@ async function setup({
 }) {
   const user: TestUser = await insertUser();
   const fake = createFakeAdapter({ rounds });
-  const deps = createTestDeps({
+  const deps = createTestSdk({
     adapterFor: () => fake.adapter,
     tools,
     ...overrides,

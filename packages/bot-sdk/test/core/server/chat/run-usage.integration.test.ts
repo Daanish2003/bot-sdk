@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { saveCredentials } from "../../../../core/server/credentials/store";
 import type { AppDeps } from "../../../../core/server/deps";
 import { insertConversation } from "../../../support/conversations";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import {
   createFakeAdapter,
   round,
@@ -34,7 +34,7 @@ async function setup({
 }) {
   const user = await insertUser();
   const fake = createFakeAdapter({ rounds, manual });
-  const deps = createTestDeps({
+  const deps = createTestSdk({
     adapterFor: () => fake.adapter,
     searchClient: createFakeSearchClient({ results: [result] }),
   });

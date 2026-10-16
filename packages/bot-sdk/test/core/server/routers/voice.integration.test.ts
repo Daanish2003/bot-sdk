@@ -9,7 +9,7 @@ import type { AppDeps, Credentials, HostProvider } from "../../../../core/server
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { resolveRateLimits } from "../../../../core/server/rate-limits";
 import { maxDictationBytes } from "../../../../core/shared/chat/voice";
-import { createTestDeps } from "../../../support/deps";
+import { createTestSdk } from "../../../support/deps";
 import { createFakeTranscription } from "../../../support/fake-transcription-adapter";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
@@ -49,7 +49,7 @@ function setup({
 } = {}) {
   const fake = createFakeTranscription({ text, error, duration, billedSeconds });
   const engines: Array<{ model: string; credentials: Credentials }> = [];
-  const deps = createTestDeps({
+  const deps = createTestSdk({
     byok,
     transcriptionAdapterFor: (model, credentials) => {
       engines.push({ model, credentials });
