@@ -1,1 +1,0 @@
-CREATE INDEX "message_search_text_fts_idx" ON "chat"."message" USING gin (to_tsvector('simple', "search_text"));
