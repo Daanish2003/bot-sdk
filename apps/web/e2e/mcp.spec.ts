@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { mcpMarker, mcpToolName } from "../../../packages/chat-sdk/test/e2e/fake-ollama";
+import { mcpMarker, mcpToolName } from "../../../packages/bot-sdk/test/e2e/fake-ollama";
 
 import { messageRows, send, signInAsSeededUserWithModel } from "./helpers";
 

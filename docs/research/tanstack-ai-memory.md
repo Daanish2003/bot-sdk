@@ -152,4 +152,4 @@ A Postgres adapter must provide the following:
 - Changelog: https://github.com/TanStack/ai/blob/main/packages/ai-memory/CHANGELOG.md.
 - Docs: https://github.com/TanStack/ai/tree/main/docs/memory (`overview.md`, `custom-adapter.md`, `operating.md`). Package skill: `skills/tanstack-ai-memory/SKILL.md` in the tarball.
 - `@tanstack/ai` 0.66.0: `src/scope.ts`, `src/activities/chat/index.ts` (lines 1090 and 1494-1497), `src/activities/chat/middleware/types.ts` (lines 240-243 and 520-529).
-- This repo: `packages/chat-sdk/core/server/chat/run.ts`, `packages/chat-sdk/core/server/chat/compaction.ts`, `docs/adr/0011-background-jobs-through-durable-runner.md`, `docs/adr/0013-memories-as-extracted-facts.md`.
+- This repo: `packages/bot-sdk/core/server/chat/run.ts`, `packages/bot-sdk/core/server/chat/compaction.ts`, `docs/adr/0011-background-jobs-through-durable-runner.md`, `docs/adr/0013-memories-as-extracted-facts.md`.

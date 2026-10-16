@@ -1,4 +1,4 @@
-/** One user's spend on one Model on one UTC day, as `chat.admin.usage` returns it. */
+/** One user's spend on one Model on one UTC day, as `chat.plugin("models").usage` returns it. */
 export type DaySpendRow = { day: string; model: string; costMicros: number };
 
 /** One day of the spend chart: its total, and each Model's share, in micros. */

@@ -1,4 +1,4 @@
-import type { CreateChatOptions } from "@ai-chat/chat-sdk/server";
+import type { ModelsOptions } from "@ai-chat/bot-sdk/plugins/models/server";
 import { z } from "zod";
 
 /**
@@ -20,7 +20,7 @@ export type HostEnv = {
   HOST_EMBEDDING_PROVIDER?: string | undefined;
 };
 
-type HostProviders = NonNullable<CreateChatOptions["hostProviders"]>;
+type HostProviders = NonNullable<ModelsOptions["hostProviders"]>;
 type HostProvider = Extract<HostProviders[number], { models: unknown }>;
 type ProviderId = HostProvider["provider"];
 type Quota = { budgetUsd: number; window: "day" | "month" };

@@ -1,16 +1,16 @@
 "use client";
 
-import { useChatAdapter } from "@/chat-sdk/core/client";
-import type { SharedConversation as SharedSnapshot } from "@/chat-sdk/core/shared/share/conversation";
+import { useChatAdapter } from "@ai-chat/bot-sdk/core/client";
+import type { SharedConversation as SharedSnapshot } from "@ai-chat/bot-sdk/plugins/assistant/shared/share/conversation";
 import {
   ChatView,
-  KeySettingsPage,
   NewConversationPage,
   ProjectPage,
   SharedConversationPage,
   type SharedViewer,
   SharedLinkNotFound as SdkSharedLinkNotFound,
-} from "@/chat-sdk/ui";
+} from "@ai-chat/bot-sdk/plugins/assistant/ui";
+import { KeySettingsPage } from "@ai-chat/bot-sdk/plugins/models/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 

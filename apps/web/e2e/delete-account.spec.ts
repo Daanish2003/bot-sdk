@@ -13,7 +13,7 @@ function deletionLink(mail: CapturedMail): string {
   return match[0];
 }
 
-/** How many rows the e2e database holds for a Conversation id, in a Chat SDK table. */
+/** How many rows the e2e database holds for a Conversation id, in a Bot SDK table. */
 async function countRows(table: "conversation" | "shared_link", id: string): Promise<number> {
   const db = createDb({ DATABASE_URL: e2eDatabaseUrl() });
   const column = table === "conversation" ? "id" : "conversation_id";
@@ -61,7 +61,7 @@ test("deleting the account removes its Conversation and Shared link, and the ema
   await page.goto("/settings/account");
   await expect(page).toHaveURL(/\/login$/);
 
-  // The Chat SDK's rows went with the account, and the Shared link no longer opens.
+  // The Bot SDK's rows went with the account, and the Shared link no longer opens.
   expect(await countRows("conversation", conversationId)).toBe(0);
   expect(await countRows("shared_link", conversationId)).toBe(0);
   await visitor.goto(sharedUrl);

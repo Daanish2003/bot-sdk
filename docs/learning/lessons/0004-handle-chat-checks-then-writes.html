@@ -91,7 +91,7 @@
         gates, before you sit down. Nobody takes you off the plane later to check your ticket.
       </p>
       <p>
-        <a href="../../../packages/chat-sdk/core/server/chat/handle-chat.ts"
+        <a href="../../../packages/bot-sdk/plugins/assistant/server/chat/handle-chat.ts"
           ><code>handleChat</code></a
         >
         answers <code>POST /api/chat/run</code> the same way. It runs every check that can fail
@@ -157,17 +157,13 @@ refuse(400, "error.modelNotAvailable", { model: "openai:gpt-x" });
       </figure>
       <p>
         The server never sends a sentence. It sends a code, and
-        <a href="../../../packages/chat-sdk/core/shared/i18n/en/errors.ts"
-          ><code>errors.ts</code></a
-        >
+        <a href="../../../packages/bot-sdk/core/shared/i18n/en/errors.ts"><code>errors.ts</code></a>
         holds the English text for each code. A Host can give other text for the same codes, so the
         SDK works in any language.
       </p>
       <p>
         On the client, <code>runFetch</code> in
-        <a href="../../../packages/chat-sdk/core/client/rate-limit.ts"
-          ><code>rate-limit.ts</code></a
-        >
+        <a href="../../../packages/bot-sdk/core/client/rate-limit.ts"><code>rate-limit.ts</code></a>
         reads the body of a refused send. A 429 becomes a <code>RateLimitedError</code> with its
         <code>Retry-After</code>, a 422 from moderation becomes a <code>ModeratedError</code>, and
         any other <code>{ code }</code> body becomes a <code>RefusedError</code>.
@@ -317,7 +313,7 @@ refuse(400, "error.modelNotAvailable", { model: "openai:gpt-x" });
 
       <details class="deeper">
         <summary>Go deeper: the full list, sources and a challenge</summary>
-        <h3>Every refusal, in the order of handle-chat.ts</h3>
+        <h3>Every refusal, in the order of handle-chat.ts and run-plan.ts</h3>
         <ol>
           <li>429 <code>error.tooManyMessages</code> (with <code>Retry-After</code>)</li>
           <li>
@@ -331,7 +327,7 @@ refuse(400, "error.modelNotAvailable", { model: "openai:gpt-x" });
           <li>
             400 <code>error.modelNotAvailable</code>, then 400 <code>error.addKey</code> or
             <code>error.pickAnotherModel</code> (no usable credentials;
-            <code>unusableModelCode</code> in <code>rpc-error.ts</code>)
+            <code>unusableModelCode</code> in <code>unusable-model.ts</code>)
           </li>
           <li>
             402 <code>quota_exceeded</code> with <code>resetsAt</code>, only on Host credentials
@@ -391,12 +387,12 @@ refuse(400, "error.modelNotAvailable", { model: "openai:gpt-x" });
           <li>
             The tests that pin each refusal are in
             <a
-              href="../../../packages/chat-sdk/test/core/server/chat/error-codes.integration.test.ts"
+              href="../../../packages/bot-sdk/test/core/server/chat/error-codes.integration.test.ts"
               ><code>error-codes.integration.test.ts</code></a
             >
             and
             <a
-              href="../../../packages/chat-sdk/test/core/server/chat/handle-chat.integration.test.ts"
+              href="../../../packages/bot-sdk/test/core/server/chat/handle-chat.integration.test.ts"
               ><code>handle-chat.integration.test.ts</code></a
             >
             ("a Model whose adapter can't be built, before writing anything").
@@ -413,7 +409,7 @@ refuse(400, "error.modelNotAvailable", { model: "openai:gpt-x" });
       <div class="footer-box">
         <p>
           <strong>Primary source:</strong>
-          <a href="../../../packages/chat-sdk/core/server/chat/handle-chat.ts"
+          <a href="../../../packages/bot-sdk/plugins/assistant/server/chat/handle-chat.ts"
             ><code>handle-chat.ts</code></a
           >
           (417 lines; read it top to bottom with the ladder beside you), then

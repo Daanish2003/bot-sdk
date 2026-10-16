@@ -14,7 +14,7 @@ Shared by the orchestrator and every implementer. Each bullet cost a past run a 
 ## Databases and services
 
 - **Postgres:** port 5435 (5432 is another project's). Use `127.0.0.1`, never `localhost`: Node tries `::1` first and Docker's IPv6 forwarding hangs the handshake. The image must be `pgvector/pgvector:0.8.7-pg18-trixie`.
-- **Test databases:** one per ticket, `TEST_DATABASE_URL=postgresql://postgres:password@127.0.0.1:5435/ai-chat_test_<N>`. The integration verify uses its own database (`ai-chat_test_int_<spec>`); a shared one breaks once one branch's migration has run on it. Drop the run's test databases at the end.
+- **Test databases:** one per ticket, `TEST_DATABASE_URL=postgresql://postgres:password@127.0.0.1:5435/ai-chat_test_<N>`. The integration verify uses its own database (`ai-chat_test_int_<spec>`); a shared one breaks once one branch's migration has run on it. Drop the run's test databases at the end. Each run copies the migrated database once per vitest worker (`<database>_w1` … `_w<workers>`) and drops the copies when it ends; a run killed midway leaves them, and the next run on that database replaces them.
 - **Redis:** 6379 is another project's and needs auth. Tests use ai-chat's compose Redis, `ai-chat-redis`, on `127.0.0.1:6380`, with one database number per ticket (`TEST_REDIS_URL=redis://127.0.0.1:6380/<1–15>`). The integration verify uses 0.
 - **Starting the services:** `pnpm db:start` for Postgres (`ai-chat-postgres`) and `docker compose up -d redis` for Redis. Run both from the **main checkout**, never a worktree: the gitignored root `.env` there sets `POSTGRES_PORT=5435` and `REDIS_PORT=6380`, and a worktree has no `.env`, so it would publish on the wrong ports.
 - **Memory:** this is a 16 GB machine. Run only one heavy job at a time (a verify, an e2e run, or an agent's suite). Hundreds of leftover test databases once made Postgres hold 2.4 GB and got e2e killed. At the end of the run, drop every `ai-chat_test%` and `ai-chat_e2e%` database except `ai-chat`.
@@ -23,6 +23,7 @@ Shared by the orchestrator and every implementer. Each bullet cost a past run a 
 ## Checks
 
 - **Where vitest runs:** always from the **repo root**. From a package, it skips the root `globalSetup`, and tests fail with "database does not exist".
+- **Integration files run in parallel**, one database copy per worker, with the module graph shared per worker (`isolate: false`). A file that calls `vi.mock` runs in the `integration-mocked` project instead (vitest.config.ts finds them). Other global state a file changes (fake timers, stubbed globals, env) must be restored by that file.
 - **Read the exit code**, not only the summary. Vitest exits 1 on unhandled errors while every test passes. Also read the **skip count**: turbo's strict env drops variables missing from `passThroughEnv`, and the suites gated on them skip silently.
 - **Runs stay in the foreground:** agents hand back with background runs still going, and those runs die with them. Stop an old verify (TaskStop) before starting a new one.
 - **Timestamps:** tests that compare a Postgres-default timestamp (the Docker clock) with a JS one (the host clock) are flaky. Set timestamps explicitly.

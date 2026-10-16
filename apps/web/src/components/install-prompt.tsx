@@ -1,4 +1,4 @@
-import { useI18n } from "@ai-chat/chat-sdk/client";
+import { useI18n } from "@ai-chat/bot-sdk/core/client";
 import { Button } from "@ai-chat/ui/components/button";
 import { useEffect, useState, useSyncExternalStore } from "react";
 

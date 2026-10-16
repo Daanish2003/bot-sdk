@@ -14,8 +14,12 @@ import { fileURLToPath } from "node:url";
 import { PrismaClient } from "@prisma/client";
 import pg from "pg";
 
-import { createChatClient } from "../src/chat-sdk/core/client/chat-client.ts";
-import { createChat } from "../src/chat-sdk/core/server/create-chat.ts";
+import { createBotSdkClient } from "../src/bot-sdk/core/client/chat-client.ts";
+import { assistantClient } from "../src/bot-sdk/plugins/assistant/client/index.ts";
+import { modelsClient } from "../src/bot-sdk/plugins/models/client/index.ts";
+import { createBotSdk } from "../src/bot-sdk/core/server/create-chat.ts";
+import { assistant } from "../src/bot-sdk/plugins/assistant/server/index.ts";
+import { models } from "../src/bot-sdk/plugins/models/server/index.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const adminUrl =
@@ -78,16 +82,21 @@ async function main() {
   const user = await prisma.user.create({
     data: { email: "smoke@example.test", passwordHash: "smoke-no-sign-in" },
   });
-  const chat = createChat({
+  const chat = createBotSdk({
     databaseUrl,
     keyEncryptionSecrets,
     basePath: "/api/chat",
     getUser: () => ({ id: user.id }),
+    plugins: [models(), assistant()],
   });
   await chat.start();
 
   try {
-    const client = createChatClient({ baseUrl: "http://localhost/api/chat", fetch: chat.handler });
+    const client = createBotSdkClient({
+      baseUrl: "http://localhost/api/chat",
+      plugins: [modelsClient(), assistantClient()],
+      fetch: chat.handler,
+    });
     await client.rpc.credentials.save({ service: "ollama", fields: { host: providerUrl } });
     const { id: conversationId } = await client.rpc.conversation.create({ model });
 

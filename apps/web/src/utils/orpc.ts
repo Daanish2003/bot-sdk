@@ -1,10 +1,12 @@
-import { type ChatClient, createChatClient } from "@ai-chat/chat-sdk/client";
+import { type BotSdkClient, createBotSdkClient } from "@ai-chat/bot-sdk/core/client";
+import { assistantClient } from "@ai-chat/bot-sdk/plugins/assistant/client";
+import { modelsClient } from "@ai-chat/bot-sdk/plugins/models/client";
 import { QueryCache, QueryClient } from "@tanstack/react-query";
 import { createIsomorphicFn } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
 import { toast } from "sonner";
 
-import { chat } from "../services";
+import { sdk } from "../services";
 
 export function createQueryClient() {
   return new QueryClient({
@@ -26,21 +28,23 @@ export function createQueryClient() {
 
 // On the server the client calls the chat handler in process; in the browser it calls the route.
 const getChatClient = createIsomorphicFn()
-  .server((): ChatClient =>
-    createChatClient({
+  .server((): BotSdkClient =>
+    createBotSdkClient({
       baseUrl: "http://localhost/api/chat",
+      plugins: [modelsClient(), assistantClient()],
       fetch: (request) => {
         // A call made while rendering carries the page request's cookies, so `getUser` sees the session.
         const headers = new Headers(request.headers);
         const cookie = getRequest().headers.get("cookie");
         if (cookie) headers.set("cookie", cookie);
-        return chat.handler(new Request(request, { headers }));
+        return sdk.handler(new Request(request, { headers }));
       },
     }),
   )
-  .client((): ChatClient =>
-    createChatClient({
+  .client((): BotSdkClient =>
+    createBotSdkClient({
       baseUrl: `${window.location.origin}/api/chat`,
+      plugins: [modelsClient(), assistantClient()],
     }),
   );
 

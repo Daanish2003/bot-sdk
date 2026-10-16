@@ -7,7 +7,7 @@
     "serve": "vite preview",
     "test:e2e": "playwright test",
     "dev": "vite dev",
-    "check-types": "vite build && tsc --noEmit",
+    "check-types": "node scripts/generate-route-tree.ts && tsc --noEmit",
     "env:generate": "varlock codegen",
     "db:migrate": "varlock run -- node scripts/migrate.ts",
     "admin:grant": "varlock run -- node scripts/admin-role.ts grant",
@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "@ai-chat/auth": "workspace:*",
-    "@ai-chat/chat-sdk": "workspace:*",
+    "@ai-chat/bot-sdk": "workspace:*",
     "@ai-chat/db": "workspace:*",
     "@ai-chat/email": "workspace:*",
     "@ai-chat/ui": "workspace:*",

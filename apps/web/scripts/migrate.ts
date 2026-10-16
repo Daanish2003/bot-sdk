@@ -1,6 +1,6 @@
 /// <reference types="node" />
 /**
- * Migrates the app's database: Better Auth's tables first, then the Chat SDK's `chat` schema
+ * Migrates the app's database: Better Auth's tables first, then the Bot SDK's `chat` schema
  * through its `migrate()`, then drops the chat tables and enums the app used to keep in `public`.
  * That data was development data only, so nothing is copied.
  *
@@ -10,7 +10,7 @@
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
-import { migrate as migrateChatSchema } from "../../../packages/chat-sdk/core/server/migrate.ts";
+import { migrate as migrateChatSchema } from "../../../packages/bot-sdk/core/server/migrate.ts";
 
 // Drizzle is the db package's dependency, not the web app's.
 const dbRequire = createRequire(new URL("../../../packages/db/package.json", import.meta.url));

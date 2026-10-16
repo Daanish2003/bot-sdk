@@ -4,7 +4,7 @@ import { baseURL, serverEnv } from "./e2e/env";
 
 /**
  * End-to-end tests against the production build, the example's own database (`e2e/prepare-database.ts`)
- * and a fake Ollama host (`packages/chat-sdk/test/e2e/fake-ollama.ts`), so no Provider key is needed.
+ * and a fake Ollama host (`packages/bot-sdk/test/e2e/fake-ollama.ts`), so no Provider key is needed.
  */
 export default defineConfig({
   testDir: "./e2e",

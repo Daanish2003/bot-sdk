@@ -16,7 +16,7 @@ The Chat SDK runs its own migrations with `chat.migrate()` in its own Postgres s
 
 ## Why `pg_trgm` works anywhere and `vector` doesn't
 
-- `chat.migrate()` already runs `create extension if not exists pg_trgm` before the Drizzle migrations, and wraps a failure in "chat.migrate() needs the pg_trgm extension… run migrate as a role allowed to create extensions" (`packages/chat-sdk/core/server/migrate.ts`, `createTrigramExtension`).
+- `chat.migrate()` already runs `create extension if not exists pg_trgm` before the Drizzle migrations, and wraps a failure in "chat.migrate() needs the pg_trgm extension… run migrate as a role allowed to create extensions" (`packages/bot-sdk/core/server/migrate.ts`, `createTrigramExtension`).
 - Postgres: "Loading an extension ordinarily requires the same privileges that would be required to create its component objects. For many extensions this means superuser privileges are needed. However, if the extension is marked _trusted_ in its control file, then it can be installed by any user who has `CREATE` privilege on the current database." ([CREATE EXTENSION, PG 18](https://www.postgresql.org/docs/18/sql-createextension.html))
 - `pg_trgm.control` has `trusted = true` ([source, REL_18_STABLE](https://github.com/postgres/postgres/blob/REL_18_STABLE/contrib/pg_trgm/pg_trgm.control)).
 - `vector.control` has only `comment`, `default_version = '0.8.7'`, `module_pathname` and `relocatable = true`. There is **no `trusted` line** ([source](https://github.com/pgvector/pgvector/blob/master/vector.control)). On vanilla Postgres, only a superuser can create it.

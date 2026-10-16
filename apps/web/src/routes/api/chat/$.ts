@@ -1,9 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { chat } from "../../../services";
+import { sdk } from "../../../services";
 
-/** The Chat SDK's handler: RPC calls, the Run POST and join GET, and the public Shared link read. */
-const handle = ({ request }: { request: Request }) => chat.handler(request);
+/** The Bot SDK's handler: RPC calls, the Run POST and join GET, and the public Shared link read. */
+const handle = ({ request }: { request: Request }) => sdk.handler(request);
 
 export const Route = createFileRoute("/api/chat/$")({
   server: {

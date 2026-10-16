@@ -82,7 +82,8 @@
       <p>
         Think of a road that forks: the old road stays, and a sign shows which road you are on. Both
         actions use <code>branchFrom(messages, messageId)</code> in
-        <a href="../../../packages/chat-sdk/core/client/chat.ts"><code>core/client/chat.ts</code></a
+        <a href="../../../packages/bot-sdk/plugins/assistant/client/chat.ts"
+          ><code>plugins/assistant/client/chat.ts</code></a
         >. It returns the parent of <code>messageId</code> on the screen, and that becomes the
         command's <code>parentId</code>, so the new Message goes under the same parent. Follow
         Regenerate on <code>a2</code>:
@@ -114,7 +115,7 @@
       </figure>
       <p>
         <code>siblingPosition(nodes, node)</code> in
-        <a href="../../../packages/chat-sdk/core/shared/chat/branches.ts"
+        <a href="../../../packages/bot-sdk/core/shared/chat/branches.ts"
           ><code>branches.ts</code></a
         >
         finds every Message with the same <code>parentId</code>, sorts them oldest first, and
@@ -124,9 +125,11 @@
       </p>
       <p>
         The server does this count: <code>loadActiveBranch</code> in
-        <a href="../../../packages/chat-sdk/core/server/chat/store.ts"><code>store.ts</code></a>
+        <a href="../../../packages/bot-sdk/plugins/assistant/server/chat/store.ts"
+          ><code>store.ts</code></a
+        >
         adds <code>siblings</code> to each Message it returns. Then <code>BranchArrows</code> in
-        <a href="../../../packages/chat-sdk/ui/chat/message-row.tsx"
+        <a href="../../../packages/bot-sdk/plugins/assistant/ui/chat/message-row.tsx"
           ><code>message-row.tsx</code></a
         >
         shows <code>index + 1</code>/<code>count</code>, and nothing when <code>count</code> is less
@@ -184,10 +187,12 @@
       </ol>
       <p>
         A switch is refused while a reply streams. <code>switchBranch</code> in
-        <a href="../../../packages/chat-sdk/core/server/chat/store.ts"><code>store.ts</code></a>
+        <a href="../../../packages/bot-sdk/plugins/assistant/server/chat/store.ts"
+          ><code>store.ts</code></a
+        >
         locks the Conversation row, like <code>handleChat</code>, and returns
         <code>"streaming"</code>, which the router in
-        <a href="../../../packages/chat-sdk/core/server/routers/conversation.ts"
+        <a href="../../../packages/bot-sdk/plugins/assistant/server/routers/conversation.ts"
           ><code>conversation.ts</code></a
         >
         turns into <code>CONFLICT</code>. The screen also turns off the arrows while
@@ -269,7 +274,7 @@
           </li>
           <li>
             The tests in
-            <a href="../../../packages/chat-sdk/test/core/shared/chat/branches.test.ts"
+            <a href="../../../packages/bot-sdk/test/core/shared/chat/branches.test.ts"
               ><code>branches.test.ts</code></a
             >
             use the same tree as this lesson, including the test "is the newest leaf anywhere in the
@@ -293,9 +298,9 @@
           </li>
           <li>
             While a reply streams, <code>messageSiblings</code> in
-            <code>core/client/chat.ts</code> says 1 of 1, because <code>useChat</code>'s new Message
-            has no server data yet. The real position comes back when the Active Branch is fetched
-            again.
+            <code>plugins/assistant/client/chat.ts</code> says 1 of 1, because
+            <code>useChat</code>'s new Message has no server data yet. The real position comes back
+            when the Active Branch is fetched again.
           </li>
         </ul>
         <h3>What stays with each Message</h3>
@@ -334,11 +339,11 @@
           <strong>Primary source:</strong>
           <a href="../../../docs/adr/0001-own-message-tree.md">ADR 0001: We own the Message tree</a
           >, then
-          <a href="../../../packages/chat-sdk/core/shared/chat/branches.ts"
+          <a href="../../../packages/bot-sdk/core/shared/chat/branches.ts"
             ><code>branches.ts</code></a
           >
           (66 lines) and
-          <a href="../../../packages/chat-sdk/test/core/shared/chat/branches.test.ts">its tests</a>.
+          <a href="../../../packages/bot-sdk/test/core/shared/chat/branches.test.ts">its tests</a>.
         </p>
         <p>
           <strong>Cheat sheets:</strong> <a href="../reference/package-map.html">Package map</a> ·

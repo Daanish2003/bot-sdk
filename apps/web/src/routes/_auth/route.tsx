@@ -1,4 +1,4 @@
-import { AppShell } from "@ai-chat/chat-sdk/ui";
+import { AppShell } from "@ai-chat/bot-sdk/plugins/assistant/ui";
 import { Outlet, createFileRoute, redirect } from "@tanstack/react-router";
 
 import { InstallPrompt } from "@/components/install-prompt";

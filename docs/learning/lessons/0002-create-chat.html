@@ -3,16 +3,16 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Lesson 2 · createChat</title>
+    <title>Lesson 2 · createBotSdk</title>
     <link rel="stylesheet" href="../assets/style.css" />
   </head>
   <body>
     <main>
       <p class="kicker">ai-chat architecture · Lesson 2</p>
-      <h1>createChat</h1>
+      <h1>createBotSdk</h1>
       <p class="subtitle">
-        One call gives the Host a handler and a lifecycle, and it builds nothing until the first
-        request.
+        One call gives the Host a handler and a lifecycle, and it connects to nothing until the
+        first request.
       </p>
       <p class="meta">
         About 13 minutes · a browser · you'll write <code>routeFor(method, path, signedIn)</code>,
@@ -27,10 +27,10 @@
             One function from a <code>Request</code> to a <code>Response</code>. The Host mounts it
             on one catch-all route.
           </dd>
-          <dt>AppDeps</dt>
+          <dt>BotSdkContext</dt>
           <dd>
-            The bundle of everything the server code uses: the database, the adapters, the runtime,
-            the hooks, the jobs.
+            The bundle of everything the server code uses: the database, the blob store, the
+            runtime, the hooks, the keyring.
           </dd>
           <dt>Lifecycle</dt>
           <dd>
@@ -72,7 +72,7 @@
         <figcaption>Left: what the Host gives. Right: what it gets back from one call.</figcaption>
       </figure>
       <p>
-        Think of <code>createChat</code> as a shop fitted into a building that the Host owns. The
+        Think of <code>createBotSdk</code> as a shop fitted into a building that the Host owns. The
         Host gives the address (<code>databaseUrl</code>), the doorman who knows the visitors
         (<code>getUser</code>), the keys to the safe (<code>keyEncryptionSecrets</code>) and the
         door the shop sits behind (<code>basePath</code>). Every other option is optional.
@@ -84,35 +84,35 @@
         <code>{ id }</code>. That id is all the SDK ever knows about a user.
       </p>
 
-      <h2><span class="num">2</span>Nothing is built until the first request</h2>
+      <h2><span class="num">2</span>Nothing connects until the first request</h2>
       <figure id="lazy">
         <div class="toy-out">
           <button class="btn" type="button" id="lazy-send">Send a request</button>
           <button class="btn" type="button" id="lazy-reset">Reset</button>
           <span id="lazy-out"></span>
         </div>
-        <figcaption>Press Send twice: only the first request builds AppDeps.</figcaption>
+        <figcaption>Press Send twice: only the first request opens the database pool.</figcaption>
       </figure>
       <p>
         In
-        <a href="../../../packages/chat-sdk/core/server/create-chat.ts"
+        <a href="../../../packages/bot-sdk/core/server/create-chat.ts"
           ><code>create-chat.ts</code></a
-        >, <code>createChat</code> only stores the options. Its inner <code>getDeps()</code> calls
-        <code>createAppDeps</code> in
-        <a href="../../../packages/chat-sdk/core/server/deps.ts"><code>deps.ts</code></a> the first
-        time something needs it, then keeps the result. So the Host can build the chat at import
-        time, and no database pool opens in a build step.
+        >, <code>createBotSdk</code> checks the options and the plugins and builds the
+        <code>BotSdkContext</code>, but the database pool connects on first use. So the Host can
+        build the Bot SDK at import time, and no connection opens in a build step.
       </p>
       <p>
-        <code>AppDeps</code> is also the test seam. The handler is made by
-        <code>createChatHandler(deps, …)</code>, and the tests call it with
-        <code>createTestDeps()</code>
-        (<a href="../../../packages/chat-sdk/test/support/deps.ts"
+        The context is also the test seam. The tests build a fake one with
+        <code>createTestSdk()</code>
+        (<a href="../../../packages/bot-sdk/test/support/deps.ts"
           ><code>test/support/deps.ts</code></a
-        >): the test database and fakes, so nothing reaches the network.
+        >): the test database and fakes, so nothing reaches the network. They turn it into a handler
+        with <code>createChatHandler(sdk, …)</code> in
+        <a href="../../../packages/bot-sdk/plugins/assistant/server/over.ts"><code>over.ts</code></a
+        >.
       </p>
       <figure id="seam">
-        <figcaption>Two roads into one createChatHandler: real AppDeps or test AppDeps.</figcaption>
+        <figcaption>Two roads into one handler: the real BotSdkContext or a test one.</figcaption>
       </figure>
 
       <h2><span class="num">3</span>One handler, one ladder</h2>
@@ -217,8 +217,10 @@
         </p>
         <ol class="opts">
           <li>When start() runs at boot</li>
-          <li data-why="createChat only stores options; it checks secrets, tools and MCP servers.">
-            When createChat() is called
+          <li
+            data-why="createBotSdk only checks secrets, tools and MCP servers; it connects to nothing."
+          >
+            When createBotSdk() is called
           </li>
           <li data-why="migrate() only touches the schema; it never looks at Providers.">
             When migrate() runs at deploy
@@ -245,8 +247,8 @@
       <section class="takeaways">
         <h2>Key takeaways</h2>
         <p class="one-thing">
-          <strong>If you remember only one thing:</strong> <code>createChat</code> returns one
-          handler and three lifecycle calls, and it builds <code>AppDeps</code> only on first use.
+          <strong>If you remember only one thing:</strong> <code>createBotSdk</code> returns one
+          handler and three lifecycle calls, and it opens no connection until first use.
         </p>
         <ul>
           <li>
@@ -276,45 +278,46 @@
         <blockquote>
           "server: construct at module load (no side effects) … one catch-all route on your
           framework, for every chat call and the Shared link read … deploy step, once per deploy …
-          boot and shutdown" (<a href="../../../packages/chat-sdk/README.md">Chat SDK README</a>,
+          boot and shutdown" (<a href="../../../packages/bot-sdk/README.md">Bot SDK README</a>,
           "Host lifecycle")
         </blockquote>
         <h3>Side notes</h3>
         <ul>
           <li>
-            <code>services.ts</code> keeps the chat on <code>globalThis.aiChat</code>. The Nitro
+            <code>services.ts</code> keeps the Bot SDK on <code>globalThis.botSdk</code>. The Nitro
             plugin is bundled apart from the routes and loads its own copy of the module, so without
-            the shared slot there would be two chats, and jobs run by the plugin's runner would
+            the shared slot there would be two Bot SDKs, and jobs run by the plugin's runner would
             publish on a pub/sub that the routes don't listen to (#290).
           </li>
           <li>
             <code>scripts/migrate.ts</code> imports <code>migrate</code> from
-            <code>core/server/migrate.ts</code> directly, not <code>chat.migrate()</code>, because
-            it also migrates Better Auth's tables first and drops the old <code>public</code> chat
+            <code>core/server/migrate.ts</code> directly, not <code>sdk.migrate()</code>, because it
+            also migrates Better Auth's tables first and drops the old <code>public</code> chat
             tables after.
           </li>
           <li>
-            <code>createChat</code> itself throws early for only a few things: an empty
-            <code>keyEncryptionSecrets</code>, bad <code>mcpServers</code>, and a Host tool named
-            like a built-in one (<code>web_search</code>, <code>fetch_url</code>,
+            <code>createBotSdk</code> and the plugin calls throw early for only a few things: an
+            empty <code>keyEncryptionSecrets</code>, bad <code>mcpServers</code>, and a Host tool
+            named like a built-in one (<code>web_search</code>, <code>fetch_url</code>,
             <code>search_knowledge</code>, and the Artifact tools when <code>artifacts</code> is
             on).
           </li>
           <li>
-            While <code>stop()</code> drains, <code>deps.lifecycle.stopping</code> is
+            While <code>stop()</code> drains, <code>sdk.lifecycle.stopping</code> is
             <code>true</code>, and only <code>POST /run</code> checks it. Joins and RPCs still work,
             so a reader can watch a Run finish.
           </li>
           <li>
-            The returned object also has server-only calls with no route: <code>admin.*</code>,
-            <code>deleteUser</code>, <code>exportUser</code>, <code>rotateKeys</code> and
-            <code>runJob</code>. The Host decides who may call them.
+            The returned object also has server-only calls with no route: <code>deleteUser</code>,
+            <code>exportUser</code>, <code>rotateKeys</code> and <code>plugin(id)</code>, which
+            reaches a plugin's API (the assistant's <code>runJob</code>, the models' usage and quota
+            reads). The Host decides who may call them.
           </li>
         </ul>
         <h3>Challenge</h3>
         <p>
           Open
-          <a href="../../../packages/chat-sdk/test/support/sdk.ts"
+          <a href="../../../packages/bot-sdk/test/support/sdk.ts"
             ><code>test/support/sdk.ts</code></a
           >. The test client's <code>fetch</code> is the handler itself. What does that let a test
           skip that a real browser needs? Tell your teacher.
@@ -324,11 +327,11 @@
       <div class="footer-box">
         <p>
           <strong>Primary source:</strong>
-          <a href="../../../packages/chat-sdk/core/server/create-chat.ts"
+          <a href="../../../packages/bot-sdk/core/server/create-chat.ts"
             ><code>create-chat.ts</code></a
           >
-          (read <code>createChatHandler</code> and <code>createChat</code>), then the README's
-          <a href="../../../packages/chat-sdk/README.md">"Host lifecycle"</a> section.
+          (read <code>createHandler</code> and <code>buildBotSdk</code>), then the README's
+          <a href="../../../packages/bot-sdk/README.md">"Host lifecycle"</a> section.
         </p>
         <p>
           <strong>Cheat sheets:</strong> <a href="../reference/package-map.html">Package map</a> ·
@@ -336,7 +339,7 @@
         </p>
         <p>
           <strong>Stuck or curious?</strong> Ask your teacher (Claude) anything: "why lazy?", "show
-          me createTestDeps", or "quiz me on the ladder again".
+          me createTestSdk", or "quiz me on the ladder again".
         </p>
         <div class="nav">
           <a href="0001-the-host-and-the-sdk.html">← Lesson 1: The Host and the SDK</a
@@ -360,10 +363,10 @@
         ["migrate()", "blue"],
         ["start()", "blue"],
         ["stop()", "blue"],
-        ["admin, deleteUser, exportUser, …", "faint"],
+        ["deleteUser, exportUser, plugin(id), …", "faint"],
       ];
       function returnsFig(t = 1, A = { step: (x) => 1 }) {
-        let s = D.box(290, 120, 180, 56, "createChat(options)", { tone: "accent", mono: true });
+        let s = D.box(290, 120, 180, 56, "createBotSdk(options)", { tone: "accent", mono: true });
         IN.forEach((name, i) => {
           const y = 22 + i * 52;
           s += D.box(20, y, 190, 36, name, { mono: true, tone: i === 4 ? "faint" : "" });
@@ -380,16 +383,16 @@
       D.render(
         "#returns",
         D.svg(790, 290, returnsFig(), {
-          label: "createChat: four options in, a handler and a lifecycle out",
+          label: "createBotSdk: four options in, a handler and a lifecycle out",
         }),
       );
 
-      // ---- Section 2: lazy deps toy.
+      // ---- Section 2: lazy connection toy.
       const lazy = document.querySelector("#lazy");
       let sent = 0;
       function lazyFig(n) {
         let s = D.box(20, 30, 200, 50, "import services.ts", {
-          sub: "createChat(options)",
+          sub: "createBotSdk(options)",
           mono: true,
         });
         s += D.text(120, 105, "nothing connects", { tone: "muted", anchor: "middle", size: 12 });
@@ -399,9 +402,9 @@
         });
         s += D.arrow(470, 55, 540, 55, { tone: n ? "accent" : "faint" });
         const built = n >= 1;
-        s += D.box(540, 20, 230, 70, built ? "AppDeps" : "AppDeps (not yet)", {
+        s += D.box(540, 20, 230, 70, built ? "BotSdkContext" : "BotSdkContext (idle)", {
           tone: built ? (n === 1 ? "warn" : "ok") : "faint",
-          sub: built ? (n === 1 ? "built now by createAppDeps" : "reused, built once") : "",
+          sub: built ? (n === 1 ? "first query opens the pool" : "same pool, reused") : "",
           mono: true,
         });
         return s;
@@ -411,13 +414,13 @@
       const lazyOut = document.getElementById("lazy-out");
       const drawLazy = () => {
         lazyHolder.innerHTML = D.svg(790, 120, lazyFig(sent), {
-          label: "AppDeps is built on the first request only",
+          label: "The database pool opens on the first request only",
         });
         lazyOut.innerHTML = !sent
-          ? "No request yet: <code>deps</code> is <code>undefined</code>."
+          ? "No request yet: the context exists, but no connection is open."
           : sent === 1
-            ? "<code>getDeps()</code> sees no deps, so it calls <code>createAppDeps</code> and keeps the result."
-            : `Request #${sent}: <code>getDeps()</code> returns the same deps. Nothing new is built.`;
+            ? "The first query makes the pool connect, and the pool is kept."
+            : `Request #${sent}: the same pool answers. Nothing new is opened.`;
       };
       document.getElementById("lazy-send").addEventListener("click", () => {
         sent += 1;
@@ -429,27 +432,27 @@
       });
       drawLazy();
 
-      // Two roads into createChatHandler.
+      // Two roads into one handler.
       D.render(
         "#seam",
         D.svg(
           790,
           170,
-          D.box(20, 20, 230, 50, "createChat → getDeps()", {
+          D.box(20, 20, 230, 50, "createBotSdk → buildContext()", {
             mono: true,
             sub: "real db, adapters, Redis",
           }) +
-            D.box(20, 100, 230, 50, "createTestDeps()", {
+            D.box(20, 100, 230, 50, "createTestSdk()", {
               mono: true,
               tone: "blue",
               sub: "test db, fake adapters",
             }) +
             D.arrow(250, 45, 330, 80) +
             D.arrow(250, 125, 330, 95, { tone: "blue" }) +
-            D.box(330, 60, 220, 50, "createChatHandler(deps)", { mono: true, tone: "accent" }) +
+            D.box(330, 60, 220, 50, "createChatHandler(sdk)", { mono: true, tone: "accent" }) +
             D.arrow(550, 85, 610, 85) +
             D.box(610, 60, 160, 50, "handler", { mono: true, sub: "Request → Response" }),
-          { label: "Production and tests build the same handler over different AppDeps" },
+          { label: "Production and tests build the same handler over different contexts" },
         ),
       );
 
@@ -560,8 +563,8 @@
         height: 290,
         scenes: [
           {
-            say: "The Host gives createChat four things: a database address, a way to find the user, the secrets, and the path to mount on.",
-            show: "createChat({ databaseUrl, getUser, keyEncryptionSecrets, basePath })",
+            say: "The Host gives createBotSdk four things: a database address, a way to find the user, the secrets, and the path to mount on.",
+            show: "createBotSdk({ databaseUrl, getUser, keyEncryptionSecrets, basePath, plugins })",
             draw: (t, A) => returnsFig(Math.min(t, 0.25), A),
           },
           {
@@ -569,7 +572,7 @@
             draw: (t, A) => returnsFig(A.lerp(0.25, 1, t), A),
           },
           {
-            say: "Nothing is built yet. The first request builds AppDeps, and every later request reuses it.",
+            say: "Nothing is connected yet. The first request opens the database pool, and every later request reuses it.",
             draw: (t, A) => lazyFig(t < 0.3 ? 0 : t < 0.7 ? 1 : 2),
           },
           {

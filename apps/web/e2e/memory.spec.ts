@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { rememberedFact } from "../../../packages/chat-sdk/test/e2e/fake-ollama";
+import { rememberedFact } from "../../../packages/bot-sdk/test/e2e/fake-ollama";
 import { appWebHost } from "./host";
 import { messageRows, send, signInAsSeededUserWithModel } from "./helpers";
 

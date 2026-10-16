@@ -4,7 +4,7 @@ import {
   imageMarker,
   imagePrompt,
   imageReply,
-} from "../../../packages/chat-sdk/test/e2e/fake-ollama";
+} from "../../../packages/bot-sdk/test/e2e/fake-ollama";
 import { messageRows, signInAsSeededUserWithModel } from "./helpers";
 import { appWebHost } from "./host";
 

@@ -1,7 +1,7 @@
 import type { Server } from "node:http";
 
-import { startFakeMcp } from "../../../packages/chat-sdk/test/e2e/fake-mcp";
-import { startFakeOllama } from "../../../packages/chat-sdk/test/e2e/fake-ollama";
+import { startFakeMcp } from "../../../packages/bot-sdk/test/e2e/fake-mcp";
+import { startFakeOllama } from "../../../packages/bot-sdk/test/e2e/fake-ollama";
 
 import {
   fakeMcpClientId,

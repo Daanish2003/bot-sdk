@@ -5,7 +5,7 @@ import {
   fetchedPagePath,
   fetchedPageText,
   fetchMarker,
-} from "../../../packages/chat-sdk/test/e2e/fake-ollama";
+} from "../../../packages/bot-sdk/test/e2e/fake-ollama";
 import { messageRows, signInAsSeededUserWithModel } from "./helpers";
 
 test("a linked page is read with the Web toggle on, and the reply cites it", async ({ page }) => {

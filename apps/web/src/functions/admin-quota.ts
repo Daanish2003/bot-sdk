@@ -8,7 +8,7 @@ import { lastDays, spendByDay, spendRange, type DaySpend } from "@/admin/spend";
 import { ENV } from "@/env.server";
 import { quotaOf, quotaWindowOf } from "@/host-models";
 import { adminMiddleware } from "@/middleware/admin";
-import { chat, db } from "@/services";
+import { db, sdk } from "@/services";
 
 /** A user's Quota as the detail page shows it: an Admin's override, or the Host's default. */
 export type AdminQuota = {
@@ -66,7 +66,7 @@ export const getAdminUserDetail = createServerFn({ method: "GET" })
         where: { userId: data.userId },
         columns: { budgetUsd: true },
       }),
-      chat.admin.usage({ userId: data.userId, ...spendRange(now) }),
+      sdk.plugin("models").usage({ userId: data.userId, ...spendRange(now) }),
     ]);
     const days = spendByDay(usage, lastDays(now, 30));
     const models = [...new Set(usage.map((row) => row.model))].sort();

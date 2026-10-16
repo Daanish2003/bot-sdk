@@ -3,11 +3,14 @@ import { expect, type Page, test } from "@playwright/test";
 
 import { randomBytes } from "node:crypto";
 
-import { conversation, message } from "../../../packages/chat-sdk/core/server/db/schema/chat";
-import { sharedLink } from "../../../packages/chat-sdk/core/server/db/schema/share";
-import { usage } from "../../../packages/chat-sdk/core/server/db/schema/usage";
-import { uuidv7 } from "../../../packages/chat-sdk/core/server/lib/uuidv7";
-import { storedParts } from "../../../packages/chat-sdk/core/shared/message-parts";
+import {
+  conversation,
+  message,
+  sharedLink,
+  usage,
+} from "../../../packages/bot-sdk/core/server/db/schema";
+import { uuidv7 } from "../../../packages/bot-sdk/core/server/lib/uuidv7";
+import { storedParts } from "../../../packages/bot-sdk/plugins/assistant/shared/message-parts";
 
 import { e2eDatabaseUrl } from "./database";
 import { appWebHost } from "./host";

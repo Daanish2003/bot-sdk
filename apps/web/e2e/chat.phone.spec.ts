@@ -1,6 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
 
-import { mcpMarker, wideMarker } from "../../../packages/chat-sdk/test/e2e/fake-ollama";
+import { mcpMarker, wideMarker } from "../../../packages/bot-sdk/test/e2e/fake-ollama";
 
 import { mcpBaseURL } from "./env";
 import { messageRows, send, signInAsSeededUser, signInAsSeededUserWithModel } from "./helpers";

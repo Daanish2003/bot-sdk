@@ -7,7 +7,11 @@
   "rules": {},
   "overrides": [
     {
-      "files": ["packages/chat-sdk/core/client/**", "packages/chat-sdk/ui/**"],
+      "files": [
+        "packages/bot-sdk/core/client/**",
+        "packages/bot-sdk/plugins/*/client/**",
+        "packages/bot-sdk/ui/**"
+      ],
       "rules": {
         "no-restricted-imports": [
           "error",

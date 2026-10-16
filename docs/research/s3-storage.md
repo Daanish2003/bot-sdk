@@ -5,7 +5,7 @@ Researched: 2026-10-12. Versions, prices and counts were read that day.
 
 ## Question
 
-What should the Chat SDK (`packages/chat-sdk`, copied and stack-agnostic, ADR 0005) use to talk to S3-compatible storage, and which store backs it in dev, CI and production? This note covers three things: the client libraries, RustFS as a `docker compose` store, and Cloudflare R2.
+What should the Chat SDK (`packages/bot-sdk`, copied and stack-agnostic, ADR 0005) use to talk to S3-compatible storage, and which store backs it in dev, CI and production? This note covers three things: the client libraries, RustFS as a `docker compose` store, and Cloudflare R2.
 
 This note gives facts and implications only. The choice belongs to #170 and the owner: new dependencies and infrastructure are human decisions (AGENTS.md §6).
 

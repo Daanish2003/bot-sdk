@@ -45,7 +45,7 @@
       <div
         class="quiz"
         data-answer="1"
-        data-why="handleChat calls loadPath(deps, owned.id, command.parentId), so the history comes from Postgres. The client sends only a command."
+        data-why="handleChat plans the Run in run-plan.ts, which calls loadPath(deps, owned.id, input.leafId), so the history comes from Postgres. The client sends only a command."
       >
         <div class="label">Warm-up · Lesson 4</div>
         <p class="q">Where does <code>handleChat</code> get the history it sends to the Model?</p>
@@ -73,7 +73,7 @@
       <p>
         Think of a family tree where each person writes down only one thing: who their parent is.
         The picture is the test tree from
-        <a href="../../../packages/chat-sdk/test/core/shared/chat/branches.test.ts"
+        <a href="../../../packages/bot-sdk/test/core/shared/chat/branches.test.ts"
           ><code>branches.test.ts</code></a
         >. Blue boxes are user Messages, grey boxes are replies, and <code>m5</code> means "created
         at minute 5".
@@ -121,8 +121,8 @@
       </figure>
       <p>
         Look at
-        <a href="../../../packages/chat-sdk/core/server/db/schema/chat.ts"
-          ><code>schema/chat.ts</code></a
+        <a href="../../../packages/bot-sdk/core/server/db/core-schema.ts"
+          ><code>core-schema.ts</code></a
         >: those two columns are the whole tree, in the <code>chat</code> Postgres schema. To find
         children, the code loads every Message of the Conversation and groups them by
         <code>parentId</code>.
@@ -169,7 +169,7 @@
       </figure>
       <p>
         To show the Active Branch, <code>pathTo</code> in
-        <a href="../../../packages/chat-sdk/core/shared/chat/branches.ts"
+        <a href="../../../packages/bot-sdk/core/shared/chat/branches.ts"
           ><code>branches.ts</code></a
         >
         starts at the leaf and follows <code>parentId</code> up, then turns the list around so the
@@ -186,12 +186,16 @@
         <li>Reverse it: <code>[q1, a1, q2b, a2b]</code>. That is what the screen shows.</li>
       </ol>
       <p>
-        Two callers in
-        <a href="../../../packages/chat-sdk/core/server/chat/store.ts"><code>store.ts</code></a> use
-        it. <code>loadActiveBranch</code> walks up from <code>activeLeafId</code> for the
-        <code>conversation.get</code> call. <code>loadPath</code> walks up from any leaf you give
-        it: <code>handleChat</code> gives the new Message's parent, so it rebuilds the history for
-        the Model from the database.
+        Two callers use it. <code>loadActiveBranch</code> in
+        <a href="../../../packages/bot-sdk/plugins/assistant/server/chat/store.ts"
+          ><code>store.ts</code></a
+        >
+        walks up from <code>activeLeafId</code> for the <code>conversation.get</code> call.
+        <code>loadPath</code>, in
+        <a href="../../../packages/bot-sdk/core/server/chat/message-tree.ts"
+          ><code>message-tree.ts</code></a
+        >, walks up from any leaf you give it: the run plan for <code>handleChat</code> gives the
+        new Message's parent, so it rebuilds the history for the Model from the database.
       </p>
 
       <h2>Try it</h2>
@@ -293,7 +297,7 @@
         <h3>Challenge</h3>
         <p>
           Read the tests in
-          <a href="../../../packages/chat-sdk/test/core/shared/chat/branches.test.ts"
+          <a href="../../../packages/bot-sdk/test/core/shared/chat/branches.test.ts"
             ><code>branches.test.ts</code></a
           >. Which <code>pathTo</code> test would fail if you forgot <code>.reverse()</code>? Tell
           your teacher.
@@ -305,7 +309,7 @@
           <strong>Primary source:</strong>
           <a href="../../../docs/adr/0001-own-message-tree.md">ADR 0001: We own the Message tree</a
           >, then
-          <a href="../../../packages/chat-sdk/core/shared/chat/branches.ts"
+          <a href="../../../packages/bot-sdk/core/shared/chat/branches.ts"
             ><code>branches.ts</code></a
           >
           (59 lines).

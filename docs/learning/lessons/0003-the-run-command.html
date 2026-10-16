@@ -75,14 +75,16 @@
       <p>
         The request does carry TanStack AI's <code>messages</code> list, because
         <code>useChat</code> always adds it. But
-        <a href="../../../packages/chat-sdk/core/server/chat/handle-chat.ts"
+        <a href="../../../packages/bot-sdk/plugins/assistant/server/chat/handle-chat.ts"
           ><code>handleChat</code></a
         >
         parses only <code>body.forwardedProps</code> with <code>chatCommandSchema</code> and answers
         400 <code>error.invalidCommand</code> if it doesn't fit. Then
-        <code>loadPath(deps, conversationId, parentId)</code> walks the stored tree up from the
-        parent. So a user can't invent a reply the Model never wrote, and edits keep old Branches
-        (<a href="../../../docs/adr/0001-own-message-tree.md">ADR 0001</a>).
+        <code>loadPath(deps, conversationId, parentId)</code> (in <code>message-tree.ts</code>)
+        walks the stored tree up from the parent. So a user can't invent a reply the Model never
+        wrote, and edits keep old Branches (<a href="../../../docs/adr/0001-own-message-tree.md"
+          >ADR 0001</a
+        >).
       </p>
 
       <div
@@ -153,11 +155,13 @@
         <figcaption>Every field is an id or a choice; none of them is a Message.</figcaption>
       </figure>
       <p>
-        <a href="../../../packages/chat-sdk/core/shared/chat/command.ts"><code>command.ts</code></a>
+        <a href="../../../packages/bot-sdk/plugins/assistant/shared/chat/command.ts"
+          ><code>command.ts</code></a
+        >
         has two more fields: <code>webSearch</code> (the composer's Web toggle) and
         <code>tools</code> (the MCP Connections switched on, read only for a Conversation's first
-        Message). The file sits in <code>core/shared</code>, because the browser builds the command
-        and the server checks it with the same zod schema.
+        Message). The file sits in <code>shared</code>, because the browser builds the command and
+        the server checks it with the same zod schema.
       </p>
 
       <h2><span class="num">3</span>Send, edit, regenerate: two fields change</h2>
@@ -173,8 +177,10 @@
       <p>
         All three actions post the same command. Only <code>parentId</code> and
         <code>text</code> change. For an edit or a regenerate,
-        <a href="../../../packages/chat-sdk/core/client/chat.ts"><code>branchFrom</code></a> takes
-        the Messages above the one you pressed, and the last of those is the parent:
+        <a href="../../../packages/bot-sdk/plugins/assistant/client/chat.ts"
+          ><code>branchFrom</code></a
+        >
+        takes the Messages above the one you pressed, and the last of those is the parent:
       </p>
       <ol class="steps">
         <li>Send: the parent is the last Message on screen, <code>a2</code>.</li>
@@ -218,7 +224,8 @@
       </figure>
       <p>
         In
-        <a href="../../../packages/chat-sdk/ui/chat/chat-view.tsx"><code>chat-view.tsx</code></a
+        <a href="../../../packages/bot-sdk/plugins/assistant/ui/chat/chat-view.tsx"
+          ><code>chat-view.tsx</code></a
         >, <code>send</code> and <code>startBranch</code> both call
         <code>run(parentId, text)</code>. <code>run</code> writes the command into a ref, then calls
         <code>sendMessage</code> (with text) or <code>reload</code> (without).
@@ -269,7 +276,7 @@
           </li>
           <li>
             <strong>One schema, both sides.</strong> <code>chatCommandSchema</code> lives in
-            <code>core/shared</code>; the browser builds it and the server checks it.
+            <code>shared</code>; the browser builds it and the server checks it.
           </li>
         </ul>
         <p class="selftest">
@@ -284,7 +291,7 @@
           "What the client asks for: a command, never history (ADR 0001). History is rebuilt from
           the database by walking up from <code>parentId</code>. <code>useChat</code> sends it as
           the AG-UI <code>forwardedProps</code>." (<a
-            href="../../../packages/chat-sdk/core/shared/chat/command.ts"
+            href="../../../packages/bot-sdk/plugins/assistant/shared/chat/command.ts"
             ><code>command.ts</code></a
           >)
         </blockquote>
@@ -302,15 +309,15 @@
         <ul>
           <li>
             The URL comes from the Host: <code>apps/web/src/utils/orpc.ts</code> calls
-            <code>createChatClient({ baseUrl: origin + "/api/chat" })</code>, and
-            <a href="../../../packages/chat-sdk/core/client/chat-client.ts"
+            <code>createBotSdkClient({ baseUrl: origin + "/api/chat" })</code>, and
+            <a href="../../../packages/bot-sdk/core/client/chat-client.ts"
               ><code>chat-client.ts</code></a
             >
             makes <code>chatUrl</code> from it: <code>…/api/chat/run</code>.
           </li>
           <li>
             The connection's <code>fetchClient</code> is <code>runFetch</code> (<a
-              href="../../../packages/chat-sdk/core/client/rate-limit.ts"
+              href="../../../packages/bot-sdk/core/client/rate-limit.ts"
               ><code>rate-limit.ts</code></a
             >). It turns a 429, a moderated 422 and any <code>{ code }</code> refusal into typed
             errors.
@@ -337,7 +344,7 @@
       <div class="footer-box">
         <p>
           <strong>Primary source:</strong>
-          <a href="../../../packages/chat-sdk/core/shared/chat/command.ts"
+          <a href="../../../packages/bot-sdk/plugins/assistant/shared/chat/command.ts"
             ><code>command.ts</code></a
           >
           (31 lines), then
@@ -354,7 +361,7 @@
           <code>loadPath</code> runs", or "quiz me again".
         </p>
         <div class="nav">
-          <a href="0002-create-chat.html">← Lesson 2: createChat</a
+          <a href="0002-create-chat.html">← Lesson 2: createBotSdk</a
           ><a href="0004-handle-chat-checks-then-writes.html"
             >Lesson 4: handleChat: check, then write →</a
           >
@@ -573,7 +580,7 @@ const BRANCH = [
   { id: "a2", role: "assistant" },
 ];
 
-// From core/client/chat.ts: the Messages above messageId, and the last of them as the parent.
+// From plugins/assistant/client/chat.ts: the Messages above messageId, and the last of them as the parent.
 function branchFrom(messages, messageId) {
   const history = messages.slice(0, messages.findIndex((m) => m.id === messageId));
   return { parentId: history.at(-1)?.id ?? null, history };

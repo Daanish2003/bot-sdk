@@ -30,7 +30,9 @@ registerHooks({
   },
 });
 
-const { createChat } = await import("@ai-chat/chat-sdk/server");
+const { createBotSdk } = await import("@ai-chat/bot-sdk/core/server");
+const { models } = await import("@ai-chat/bot-sdk/plugins/models/server");
+const { assistant } = await import("@ai-chat/bot-sdk/plugins/assistant/server");
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("Set DATABASE_URL");
@@ -38,7 +40,7 @@ const newest = process.env.KEY_ENCRYPTION_SECRET;
 if (!newest) throw new Error("Set KEY_ENCRYPTION_SECRET");
 
 // The keyring as apps/web/src/services.ts builds it: the newest secret first, then the previous one.
-const chat = createChat({
+const sdk = createBotSdk({
   databaseUrl,
   keyEncryptionSecrets: [newest, process.env.KEY_ENCRYPTION_SECRET_PREVIOUS].filter(
     (secret): secret is string => Boolean(secret),
@@ -46,9 +48,10 @@ const chat = createChat({
   basePath: "/api/chat",
   getUser: () => null,
   logger: log,
+  plugins: [models(), assistant()],
 });
 
-const result = await chat.rotateKeys();
+const result = await sdk.rotateKeys();
 console.log(JSON.stringify(result));
 // The database pool has no public close; a one-off command exits once it has printed.
 process.exit(0);
