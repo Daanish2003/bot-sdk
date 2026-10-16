@@ -1,4 +1,5 @@
 import type { AnyServerTool, AnyTextAdapter, ChatMiddleware, ModelMessage } from "@tanstack/ai";
+import { eq } from "drizzle-orm";
 
 import { storedParts, type StoredParts } from "../../shared/message-parts";
 import { attachmentsForSend } from "../attachments/send";
@@ -8,29 +9,27 @@ import type { ConversationTools } from "../../shared/chat/conversation-tools";
 import type { AspectRatio } from "../../shared/chat/generated-image";
 import { parseStoredParts, type StoredAttachment, toModelMessages } from "../../shared/chat/parts";
 import { type CuratedModel, effortFor, type ReasoningChoice } from "../../shared/chat/models";
-import { resolveModelCall, resolveToolCall, type ToolCall } from "../credentials/resolve";
+import type { ToolCall } from "../../../plugins/models/server/credentials/resolve";
 import { unusableModelCode, type ErrorParams } from "../rpc-error";
 import type { AppDeps } from "../deps";
-import type { conversation } from "../db/schema";
+import { userSettings, type conversation } from "../db/schema";
 import { pastChatsOffered } from "../search/past-chats";
 import { mcpToolsFor, type McpTools } from "../mcp/tools";
 import { projectInstructionsOf } from "../project/store";
 import { loadSettings } from "../settings/store";
 import { recalledMemoriesPrompt } from "../memory/recall";
 import { knowledgeSearchFor } from "../knowledge/search";
-import { resolveModel } from "./available-models";
-import { resolveImageModelFor, type ResolvedImageModel } from "./image-models";
-import { imageRequestFor } from "./adapters";
+import type { ResolvedImageModel } from "../../../plugins/models/server/image-models";
+import type { ModelsApi } from "../../../plugins/models/server/plugin";
 import { editSourcesOf } from "./edit-sources";
-import type { ResolvedEmbeddingModel } from "./embedding-models";
+import type { ResolvedEmbeddingModel } from "../../../plugins/models/server/embedding-models";
 import { allowTools, trackTools, type HostToolContext } from "./host-tools";
 import type { RunToolState } from "./tracked-tool";
 import { systemPromptsFor } from "./system-prompts";
 import { artifactContextPrompts } from "./artifact-context";
-import { quotaExceededCode } from "./quota";
 import { generationOptionsFor } from "./generation";
 import { compactionFor, contextBudgetOf, estimateModelMessageTokens } from "./compaction";
-import type { ModelMeter } from "./meter";
+import type { ModelMeter } from "../../../plugins/models/server/meter";
 import { createArtifactTool, updateArtifactTool } from "./artifact-tool";
 import { createWebSearchTool } from "./web-search-tool";
 import { createSearchPastChatsTool } from "./past-chats-tool";
@@ -87,10 +86,10 @@ export type Offered = {
 };
 
 type ImageTool = {
-  adapter: NonNullable<ReturnType<AppDeps["imageAdapterFor"]>>;
+  adapter: NonNullable<ReturnType<ModelsApi["imageAdapterFor"]>>;
   meter: ResolvedImageModel["meter"];
   model: string;
-  request: (aspectRatio: AspectRatio) => ReturnType<typeof imageRequestFor>;
+  request: (aspectRatio: AspectRatio) => ReturnType<ModelsApi["imageRequestFor"]>;
   /** The Image Model's input-image limit, and the path's images an edit may read (spec #278). */
   edit: { maxInputImages: number; sources: ReturnType<typeof editSourcesOf> };
 };
@@ -118,6 +117,9 @@ export type RunPlan = {
   /** The tools of one Run of the plan (`toolsOf`), each writing its calls to that Run's parts. */
   tools: (state: RunToolState) => AnyServerTool[];
 };
+
+/** The error code a refused Run answers with (HTTP 402), so a client can tell it from other refusals. */
+export const quotaExceededCode = "quota_exceeded";
 
 /** Why a Run could not be planned: an HTTP status, and the dictionary code and its params. */
 export type PlanRefusal = {
@@ -168,11 +170,11 @@ async function buildPlan(
   opened: { mcp?: McpTools },
 ): Promise<{ refused: PlanRefusal } | { plan: RunPlan }> {
   const { userId, conversation: owned, send } = input;
-  const model = await resolveModel(deps, userId, input.model);
+  const model = await deps.plugin("models").resolveModel(userId, input.model);
   if (!model) return refusal(400, "error.modelNotAvailable", { model: input.model });
-  const call = await resolveModelCall(deps, userId, model.id);
+  const call = await deps.plugin("models").resolveModelCall(userId, model.id);
   if (!call) {
-    const unusable = unusableModelCode(model.provider, deps.byok);
+    const unusable = unusableModelCode(model.provider, deps.plugin("models").byok);
     return refusal(400, unusable.code, unusable.params);
   }
   // A Run on Host credentials is refused once its Quota's window has spent the budget (ADR 0007).
@@ -267,7 +269,7 @@ async function buildPlan(
     context: { userId, conversationId: owned.id },
     effort,
     offered,
-    adapter: deps.adapterFor(model.id, call.credentials, {
+    adapter: deps.plugin("models").adapterFor(model.id, call.credentials, {
       maxOutputTokens: call.maxOutputTokens,
     }),
     messages: sent.flatMap((entry) => entry.messages),
@@ -327,7 +329,9 @@ async function offeredFor(
   }
   // The Web tools are offered only when asked for. `web_search` also needs a usable Tavily key: the
   // user's own, else the Host's (ADR 0007). `fetch_url` needs none.
-  const webSearch = webAsked ? await resolveToolCall(deps, userId, tavilyService) : null;
+  const webSearch = webAsked
+    ? await deps.plugin("models").resolveToolCall(userId, tavilyService)
+    : null;
   // The past-chats search is offered while Memory is on for the Host and the user and the
   // Conversation is not Temporary (spec #263).
   const pastChats = (await pastChatsOffered(deps, userId, owned.temporary))
@@ -359,6 +363,25 @@ async function offeredFor(
 }
 
 /**
+ * The Image Model a call on the user's behalf uses: their saved pick, else the Host's default
+ * Image Model, else none (`null`, so no image tool is offered). A pick the user can no longer use
+ * (its key was removed) gives none too; the Host default isn't used in its place.
+ */
+export async function resolveImageModelFor(
+  deps: Pick<AppDeps, "db" | "plugin">,
+  userId: string,
+): Promise<ResolvedImageModel | null> {
+  const [row] = await deps.db
+    .select({ imageModel: userSettings.imageModel })
+    .from(userSettings)
+    .where(eq(userSettings.userId, userId));
+  const models = deps.plugin("models");
+  const id = row?.imageModel ?? models.defaultImageModel;
+  if (!id) return null;
+  return (await models.resolveImageModel(userId, id)) ?? null;
+}
+
+/**
  * The image tool, when the user has a usable Image Model (their pick, else the Host's default) and
  * an adapter serves it (spec #278). A Provider with no image adapter throws from the factory; that
  * Run chats with no image tool rather than failing.
@@ -373,16 +396,17 @@ async function imageToolFor(
 ): Promise<ImageTool | null> {
   const image = await resolveImageModelFor(deps, userId);
   if (!image) return null;
-  let adapter: ReturnType<AppDeps["imageAdapterFor"]>;
+  let adapter: ReturnType<ModelsApi["imageAdapterFor"]>;
   try {
-    adapter = deps.imageAdapterFor(image.id, image.credentials);
+    adapter = deps.plugin("models").imageAdapterFor(image.id, image.credentials);
   } catch {
     adapter = undefined;
   }
   if (!adapter) return null;
   return {
     adapter,
-    request: (aspectRatio) => imageRequestFor(image.id, aspectRatio, image.hostModel),
+    request: (aspectRatio) =>
+      deps.plugin("models").imageRequestFor(image.id, aspectRatio, image.hostModel),
     // The images an edit may name: the image Attachments and Generated images on this Branch.
     edit: {
       maxInputImages: image.maxInputImages,

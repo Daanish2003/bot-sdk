@@ -1,10 +1,10 @@
 import type { TokenUsage } from "@tanstack/ai";
 
-import type { MessageUsage } from "../../shared/chat/message-record";
-import { usage as usageRows } from "../db/schema";
-import type { AppDeps, HostImageModel, HostModel } from "../deps";
-import { uuidv7 } from "../lib/uuidv7";
-import type { UsageEvent } from "./hooks";
+import type { MessageUsage } from "../../../core/shared/chat/message-record";
+import { usage as usageRows } from "../../../core/server/db/schema";
+import type { ModelsDeps, HostImageModel, HostModel } from "./types";
+import { uuidv7 } from "../../../core/server/lib/uuidv7";
+import type { UsageEvent } from "../../../core/server/chat/hooks";
 import { quotaRefusal } from "./quota";
 
 /** What a Quota check answers: the call may run, or not until the window resets (ADR 0007). */
@@ -69,7 +69,7 @@ export const freeMeter: Meter<unknown> = {
   record: async () => {},
 };
 
-type MeterDeps = Pick<AppDeps, "db" | "hooks" | "getQuota" | "logger">;
+type MeterDeps = Pick<ModelsDeps, "db" | "hooks" | "getQuota" | "logger">;
 
 /** The fields of a usage row that a kind of call works out. */
 type UsageRow = Pick<

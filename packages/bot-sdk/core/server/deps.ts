@@ -1,18 +1,8 @@
 import type { Database } from "./db/index";
-import type {
-  AnyEmbeddingAdapter,
-  AnyImageAdapter,
-  AnyTextAdapter,
-  AnyTranscriptionAdapter,
-} from "@tanstack/ai";
 import type { BlobStore } from "./blob/store";
+import type { Credentials } from "../../plugins/models/server/types";
+import type { BotSdkContext } from "./plugin";
 
-import {
-  adapterFor,
-  embeddingAdapterFor as productionEmbeddingAdapterFor,
-  imageAdapterFor as productionImageAdapterFor,
-} from "./chat/adapters";
-import { transcriptionAdapterFor } from "./chat/transcription";
 import type { CounterStore } from "./chat/counters";
 import type { PubSub } from "./chat/pubsub";
 import type { HostServerTool } from "./chat/host-tools";
@@ -23,15 +13,23 @@ import { createGuardedFetch } from "./lib/guarded-fetch";
 import type { SearchErrorReason, SearchResult } from "../shared/chat/web-search";
 import type { ResolvedRateLimits } from "./rate-limits";
 import type { BotSdkRuntime } from "./runtime";
-import type { ProviderId } from "../shared/credentials/services";
 import type { McpServerConfig } from "./mcp/servers";
 import { inProcessRunner } from "./jobs/in-process";
 import type { JobRunner } from "./jobs/runner";
 
 export type { SearchErrorReason, SearchResult };
-
-/** Decrypted Provider credentials or Tool credential fields, keyed by field name. */
-export type Credentials = Record<string, string>;
+// The `models` plugin's types, where the assistant's modules still read them from (spec #439).
+export type {
+  Credentials,
+  HostEmbeddingModel,
+  HostImageModel,
+  HostModel,
+  HostProvider,
+  HostTool,
+  HostTranscriptionModel,
+  Quota,
+  QuotaSetting,
+} from "../../plugins/models/server/types";
 
 /**
  * An image the Provider's safety filter refused (spec #278). An image adapter throws it, so the
@@ -80,121 +78,14 @@ export type Limits = {
   imageTimeoutMs: number;
 };
 
-/**
- * A Model the Host pays for (ADR 0007). Prices are per 1M tokens, kept with the Model so a
- * third-party price snapshot never changes the Host's spending. Capability flags default to off.
- */
-export type HostModel = {
-  modelId: string;
-  label?: string;
-  images?: boolean;
-  pdfs?: boolean;
-  tools?: boolean;
-  /** Bounds one Run's output (ADR 0007). */
-  maxOutputTokens: number;
-  inputUsdPerMillion: number;
-  outputUsdPerMillion: number;
-};
-
-/** A user's Quota on Host credentials (ADR 0007): a budget in USD over a fixed UTC day or calendar month. */
-export type Quota = { budgetUsd: number; window: "day" | "month" };
-
-/** `getQuota` as a Host passes it: a function of the user, or one fixed Quota for everyone. */
-export type QuotaSetting =
-  | Quota
-  | null
-  | ((userId: string) => Quota | null | Promise<Quota | null>);
-
-/**
- * A transcription Model the Host pays for, for dictation (spec #249). Its price is per minute of
- * audio, since the Providers' transcription APIs report no cost.
- */
-export type HostTranscriptionModel = { model: string; pricePerMinuteUsd: number };
-
-/**
- * An embedding Model the Host pays for (ADR 0014): its price per 1M tokens. Its id is one of the
- * OpenAI or Gemini embedding Models the SDK serves.
- */
-export type HostEmbeddingModel = { model: string; pricePerMillionTokensUsd: number };
-
-/** The Host's own credentials for a Provider, and the Models they pay for. */
-export type HostProvider = {
-  provider: ProviderId;
-  credentials: Credentials;
-  models: HostModel[];
-  /** The Host's Image Models of this Provider (spec #278). */
-  imageModels?: HostImageModel[];
-  /** Transcription Models for dictation, on OpenAI, Groq or Grok only (spec #249). */
-  transcriptionModels?: HostTranscriptionModel[];
-  /** Embedding Models for Knowledge, on OpenAI or Gemini only (ADR 0014). */
-  embeddingModels?: HostEmbeddingModel[];
-};
-
-/**
- * A Host Image Model (spec #278): the Model with its size and quality pinned, and what one image
- * costs. `pricePerImageUsd` is required, as `maxOutputTokens` is for a chat Model. The token prices
- * are for Providers that report tokens (ADR 0007).
- */
-export type HostImageModel = {
-  modelId: string;
-  size: string;
-  quality: string;
-  pricePerImageUsd: number;
-  imageInputPerMTok?: number;
-  imageOutputPerMTok?: number;
-  textInputPerMTok?: number;
-};
-
-/**
- * A Tool the Host pays for (ADR 0007): the Host's Tavily key, with a fixed price per search. A
- * search on it is recorded in `chat.usage`, so it counts against the user's Quota.
- */
-export type HostTool = {
-  tool: "tavily";
-  credentials: Credentials;
-  pricePerSearchUsd: number;
-};
-
 /** Everything the server entry points need from the outside world, built once at server start. */
 export type AppDeps = {
   db: Database;
   /**
-   * Builds the TanStack AI image adapter for an Image Model (spec #278), from the credentials it
-   * runs on, or `undefined` when no adapter serves that Model (the reply then offers no image tool).
-   * Injected so tests and CI can pass a fake.
+   * An enabled plugin's API (`BotSdkContext.plugin`): the assistant reaches the `models` plugin
+   * only through `plugin("models")`.
    */
-  imageAdapterFor: (model: string, credentials: Credentials) => AnyImageAdapter | undefined;
-  /**
-   * Builds the TanStack AI text adapter for a `"provider:model"` id. `options.maxOutputTokens` is
-   * set for a Host Model (ADR 0007); a user's own Model is uncapped.
-   */
-  adapterFor: (
-    model: string,
-    credentials: Credentials,
-    options?: { maxOutputTokens?: number },
-  ) => AnyTextAdapter;
-  /**
-   * Builds the TanStack AI transcription adapter for a `"provider:model"` id (spec #249), from the
-   * user's own key for that Provider.
-   */
-  transcriptionAdapterFor: (model: string, credentials: Credentials) => AnyTranscriptionAdapter;
-  /**
-   * Builds the TanStack AI embedding adapter for an embedding Model's `(model, credentials)` (ADR
-   * 0014). Injected so tests and CI can pass a fake.
-   */
-  embeddingAdapterFor: (model: string, credentials: Credentials) => AnyEmbeddingAdapter;
-  /** The Host credentials (`hostProviders`, ADR 0007). Never stored. */
-  hostProviders: HostProvider[];
-  /** The Host's Tools, such as a Tavily key for web search (`hostProviders`, ADR 0007). Never stored. */
-  hostTools: HostTool[];
-  /** Whether users may use their own Provider credentials (`byok`, ADR 0007). */
-  byok: boolean;
-  /** The Host's default Background Model, a Host Model's id, or `null` (`defaultBackgroundModel`). */
-  defaultBackgroundModel: string | null;
-  /** The Host's default Image Model, a Host Image Model's id, or `null` (`defaultImageModel`). */
-  defaultImageModel: string | null;
-  /** A user's Quota on Host credentials, `null` when unlimited (ADR 0007). */
-  getQuota: (userId: string) => Promise<Quota | null>;
+  plugin: BotSdkContext["plugin"];
   searchClient: SearchClient;
   /** The Host's own tools, offered to every reply whose Model has tools (`assistant({ tools })`). */
   tools: HostServerTool[];
@@ -216,13 +107,7 @@ export type AppDeps = {
   fetch: typeof fetch;
   /** The hosts the test allowance lists (`createBotSdk({ fetchAllowHosts })`); empty in production. */
   fetchAllowHosts: string[];
-  /**
-   * `fetch` for the user's own Ollama host (its credential check and live Model list). Not
-   * guarded: Ollama runs on the user's machine or LAN on purpose, and the Ollama chat adapter
-   * already calls that host unguarded, so the guard would add nothing here.
-   */
-  ollamaFetch: typeof fetch;
-  /** The keyring (ADR 0010): the first secret encrypts Provider and Tool credentials, every entry decrypts. */
+  /** The keyring (ADR 0010): the first secret encrypts secrets at rest, every entry decrypts. */
   keyEncryptionSecrets: string[];
   /** The remote MCP servers the Host offers (`assistant({ mcpServers })`, spec #91). */
   mcpServers: McpServerConfig[];
@@ -257,16 +142,9 @@ export const defaultLimits: Limits = {
 /** The production `AppDeps`. */
 export function createAppDeps({
   db,
-  imageAdapterFor,
-  embeddingAdapterFor,
+  plugin,
   keyEncryptionSecrets,
   runtime,
-  hostProviders,
-  hostTools,
-  byok,
-  defaultBackgroundModel,
-  defaultImageModel,
-  getQuota,
   rateLimits,
   tools,
   fetchAllowHosts,
@@ -280,18 +158,9 @@ export function createAppDeps({
   memory,
 }: {
   db: Database;
-  /** The image adapter factory; the production one is `imageAdapterFor` in `chat/adapters.ts`. */
-  imageAdapterFor?: AppDeps["imageAdapterFor"];
-  /** The embedding adapter factory; the production one is `embeddingAdapterFor` in `chat/adapters.ts`. */
-  embeddingAdapterFor?: AppDeps["embeddingAdapterFor"];
+  plugin: AppDeps["plugin"];
   keyEncryptionSecrets: string[];
   runtime: BotSdkRuntime;
-  hostProviders: HostProvider[];
-  hostTools: HostTool[];
-  byok: boolean;
-  defaultBackgroundModel?: string;
-  defaultImageModel?: string;
-  getQuota: AppDeps["getQuota"];
   rateLimits: ResolvedRateLimits;
   tools: HostServerTool[];
   fetchAllowHosts?: string[];
@@ -308,18 +177,9 @@ export function createAppDeps({
     logger,
     hooks: createHookEmitter(hooks, logger),
     db,
+    plugin,
     blobStore,
     isUserBlocked,
-    adapterFor,
-    imageAdapterFor: imageAdapterFor ?? productionImageAdapterFor,
-    transcriptionAdapterFor,
-    embeddingAdapterFor: embeddingAdapterFor ?? productionEmbeddingAdapterFor,
-    hostProviders,
-    hostTools,
-    byok,
-    defaultBackgroundModel: defaultBackgroundModel ?? null,
-    defaultImageModel: defaultImageModel ?? null,
-    getQuota,
     searchClient: createTavilyClient(globalThis.fetch),
     tools,
     runStreams: runtime.runStreams,
@@ -330,7 +190,6 @@ export function createAppDeps({
     lifecycle: { stopping: false, runs: new Map() },
     fetch: createGuardedFetch({ schemes: "http-and-https", allowHosts: fetchAllowHosts }),
     fetchAllowHosts: fetchAllowHosts ?? [],
-    ollamaFetch: globalThis.fetch,
     keyEncryptionSecrets,
     mcpServers,
     artifacts: artifacts ?? false,

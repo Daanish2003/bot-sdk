@@ -1,5 +1,7 @@
 import type { RouterClient } from "@orpc/server";
 
+import type { ModelsRouter } from "../../../plugins/models/server/routers/index";
+
 import { protectedProcedure, publicProcedure } from "../procedures";
 import { artifactRouter } from "./artifact";
 import { attachmentRouter } from "./attachment";
@@ -7,16 +9,12 @@ import { chatRouter } from "./chat";
 import { connectionsRouter } from "./connections";
 import { conversationRouter } from "./conversation";
 import { knowledgeRouter } from "./knowledge";
-import { credentialsRouter } from "./credentials";
 import { memoryRouter } from "./memory";
-import { modelsRouter } from "./models";
 import { projectRouter } from "./project";
 import { savedPromptRouter } from "./saved-prompt";
-import { quotaRouter } from "./quota";
 import { settingsRouter } from "./settings";
 import { searchRouter } from "./search";
 import { shareRouter } from "./share";
-import { voiceRouter } from "./voice";
 
 export const appRouter = {
   artifact: artifactRouter,
@@ -24,17 +22,13 @@ export const appRouter = {
   chat: chatRouter,
   connections: connectionsRouter,
   conversation: conversationRouter,
-  credentials: credentialsRouter,
   knowledge: knowledgeRouter,
   memory: memoryRouter,
-  models: modelsRouter,
   project: projectRouter,
   savedPrompt: savedPromptRouter,
-  quota: quotaRouter,
   settings: settingsRouter,
   search: searchRouter,
   share: shareRouter,
-  voice: voiceRouter,
   healthCheck: publicProcedure.handler(() => {
     return "OK";
   }),
@@ -46,4 +40,5 @@ export const appRouter = {
   }),
 };
 export type AppRouter = typeof appRouter;
-export type AppRouterClient = RouterClient<typeof appRouter>;
+/** The client of every enabled plugin's routers: the assistant's and the `models` plugin's. */
+export type AppRouterClient = RouterClient<typeof appRouter & ModelsRouter>;

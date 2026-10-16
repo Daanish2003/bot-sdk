@@ -93,6 +93,11 @@ export type BotSdkPlugin<
   start?: (sdk: BotSdkContext) => Promise<void>;
   /** Runs in reverse dependency order, after `stopping` is set. */
   stop?: (sdk: BotSdkContext) => Promise<void>;
+  /**
+   * Re-encrypts this plugin's stored secrets under the keyring's first secret (ADR 0010).
+   * `unreadable` counts rows no key can read. `rotateKeys()` sums every plugin's counts.
+   */
+  rotateKeys?: (sdk: BotSdkContext) => Promise<{ reencrypted: number; unreadable: number }>;
   /** Type only: the event hooks this plugin fires. */
   readonly "~events"?: Event;
 };

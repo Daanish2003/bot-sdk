@@ -7,10 +7,11 @@ import { user as userTable } from "@ai-chat/db/schema/auth";
 import { and, eq } from "drizzle-orm";
 
 import { createChatHandler } from "../../core/server/create-chat";
-import { saveCredentials } from "../../core/server/credentials/store";
+import { saveCredentials } from "../../plugins/models/server/credentials/store";
 import { conversation, message, type MessageRow } from "../../core/server/db/schema";
 import type { Database } from "../../core/server/db/index";
 import type { AppDeps, Credentials } from "../../core/server/deps";
+import type { ModelsDeps } from "../../plugins/models/server/types";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
 import { makeMemoriesJob } from "../../core/server/memory/make";
 import { storedParts } from "../../core/shared/message-parts";
@@ -33,10 +34,13 @@ export type CaseResult = {
 };
 
 /** Everything a case needs that is shared by the whole run. */
+/** The assistant's bundle and the models plugin's, as the handler takes them. */
+export type EvalDeps = AppDeps & ModelsDeps;
+
 export type EvalEnv = {
   db: Database;
   /** The SDK's dependencies, with the Models and the clock left for each case to set. */
-  base: AppDeps;
+  base: EvalDeps;
   answerModel: string;
   /** The Providers the run's Models use, plus OpenAI for embeddings; each gets the user's key. */
   providers: string[];
@@ -69,7 +73,7 @@ async function insertConversation(
  * Messages at that date. After each assistant reply the Memory job runs inline, with the clock at
  * the session date, as it would after the Run.
  */
-async function ingest(env: EvalEnv, deps: AppDeps, userId: string, item: EvalCase["item"]) {
+async function ingest(env: EvalEnv, deps: EvalDeps, userId: string, item: EvalCase["item"]) {
   const sessions = historyOf(item);
   for (const session of sessions) {
     const conv = await insertConversation(env.db, {
@@ -121,7 +125,7 @@ async function replyText(db: Database, conversationId: string): Promise<string> 
 }
 
 /** Saves the user's own API key for each Provider the run uses (BYOK), so the SDK resolves them. */
-async function saveKeys(env: EvalEnv, deps: AppDeps, userId: string) {
+async function saveKeys(env: EvalEnv, deps: EvalDeps, userId: string) {
   for (const provider of env.providers) {
     await saveCredentials(deps, userId, {
       service: provider,
@@ -133,7 +137,7 @@ async function saveKeys(env: EvalEnv, deps: AppDeps, userId: string) {
 }
 
 /** Asks the question as a Run in a new Conversation dated at the question date, then reads the reply. */
-async function ask(env: EvalEnv, deps: AppDeps, userId: string, item: EvalCase["item"]) {
+async function ask(env: EvalEnv, deps: EvalDeps, userId: string, item: EvalCase["item"]) {
   const questionDate = parseDate(item.question_date);
   const conv = await insertConversation(env.db, {
     userId,
@@ -185,7 +189,7 @@ export async function runCase(env: EvalEnv, evalCase: EvalCase): Promise<CaseRes
   };
   try {
     const userId = await insertUser(env.db);
-    const deps: AppDeps = { ...env.base };
+    const deps: EvalDeps = { ...env.base };
     await saveKeys(env, deps, userId);
     await ingest(env, deps, userId, item);
     const hypothesis = await ask(env, deps, userId, item);

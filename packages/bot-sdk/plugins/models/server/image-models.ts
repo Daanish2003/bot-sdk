@@ -1,18 +1,15 @@
-import { eq } from "drizzle-orm";
-
-import { userSettings } from "../db/schema";
-import { type ResolveDeps, resolvePayer } from "../credentials/resolve";
-import type { AppDeps, Credentials, HostImageModel } from "../deps";
+import { type ResolveDeps, resolvePayer } from "./credentials/resolve";
+import type { Credentials, HostImageModel } from "./types";
 import { type ImageMeter, imageMeter } from "./meter";
 import {
   type ImageModel,
   type ListedImageModel,
   curatedImageModels,
   findImageModel,
-} from "../../shared/chat/image-models";
-import { parseModelId } from "../../shared/chat/models";
+} from "../../../core/shared/chat/image-models";
+import { parseModelId } from "../../../core/shared/chat/models";
 
-type Deps = ResolveDeps & Pick<AppDeps, "defaultImageModel">;
+type Deps = ResolveDeps;
 
 /** An Image Model the call runs on, with the credentials it uses (spec #278). */
 export type ResolvedImageModel = ImageModel & {
@@ -103,22 +100,4 @@ function hostImageEntry(deps: Pick<Deps, "hostProviders">, id: string) {
     if (hostModel) return { hostProvider, hostModel };
   }
   return undefined;
-}
-
-/**
- * The Image Model a call on the user's behalf uses: their saved pick, else the Host's default
- * Image Model, else none (`null`, so no image tool is offered). A pick the user can no longer use
- * (its key was removed) gives none too; the Host default isn't used in its place.
- */
-export async function resolveImageModelFor(
-  deps: Deps,
-  userId: string,
-): Promise<ResolvedImageModel | null> {
-  const [row] = await deps.db
-    .select({ imageModel: userSettings.imageModel })
-    .from(userSettings)
-    .where(eq(userSettings.userId, userId));
-  const id = row?.imageModel ?? deps.defaultImageModel;
-  if (!id) return null;
-  return (await resolveImageModel(deps, userId, id)) ?? null;
 }

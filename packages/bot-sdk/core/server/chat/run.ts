@@ -17,7 +17,7 @@ import { createToolBudget, spentCalls } from "./tracked-tool";
 import { artifactCutOff } from "./artifact-tool";
 import type { RunPlan } from "./run-plan";
 import { cancelChannel, heartbeatExpired, listenForStop, stopRequested } from "./stop";
-import { addUsage, messageUsage, normalizeUsage, promptCharactersOf, type RunUsage } from "./usage";
+import { addUsage, normalizeUsage, promptCharactersOf, type RunUsage } from "./usage";
 
 type MessageUpdate = Partial<typeof message.$inferInsert>;
 type MessageErrorReason = NonNullable<MessageUpdate["errorReason"]>;
@@ -205,10 +205,12 @@ export async function startRun(
         awaiting,
       });
       // Stored whatever the ending: the Provider's usage for a finished model call, else an estimate.
-      const usage = messageUsage(
-        ending.status === "complete" || ending.status === "awaiting_approval" ? total : undefined,
-        { promptCharacters, parts: ended.parts },
-      );
+      const usage = deps
+        .plugin("models")
+        .messageUsage(
+          ending.status === "complete" || ending.status === "awaiting_approval" ? total : undefined,
+          { promptCharacters, parts: ended.parts },
+        );
       // The ending is saved after every snapshot write already queued.
       await writes;
       try {

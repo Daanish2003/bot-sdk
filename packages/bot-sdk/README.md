@@ -41,7 +41,7 @@ Changed components:
 - `chat/message-row.tsx`: the context marker, the per-Message `UsageInfo`, and the approval choice.
 - `chat/tool-call-row.tsx`: "Allow for this Conversation" next to Approve and Deny.
 - `chat/search-toggle.tsx`: the composer's toggle is labelled Web (see The Web toggle).
-- `pages/key-settings.tsx`: `InstructionsField`, and the credential sections shown only with `byok` on.
+- `pages/key-settings.tsx` (now `plugins/models/ui/key-settings.tsx`): `InstructionsField`, and the credential sections shown only with `byok` on.
 - `pages/new-conversation.tsx`: the reasoning effort chosen before the first Message.
 - `shell/top-bar.tsx`: `ConversationReasoningEffort` and `NewConversationReasoningEffort` next to the Model picker.
 
@@ -139,13 +139,14 @@ The server API below is the spec for the SDK (spec #70). Some of it lands in lat
 
 ```ts
 // server: construct at module load (no side effects)
-// the assistant's options (models, tools, jobs, MCP servers, ...) go to `assistant(...)`
+// the Model options (Host Providers, BYOK, Quota, ...) go to `models(...)`, and the assistant's
+// (tools, jobs, MCP servers, ...) to `assistant(...)`
 const chat = createBotSdk({
   databaseUrl,
   getUser,
   keyEncryptionSecrets,
   basePath: "/api/chat",
-  plugins: [assistant()],
+  plugins: [models(), assistant()],
 });
 
 // one catch-all route on your framework, for every chat call and the Shared link read
@@ -201,7 +202,7 @@ export const chatJob = task({
 // src/lib/chat.ts (where createBotSdk is called)
 export const chat = createBotSdk({
   /* ...as before */
-  plugins: [assistant({ jobs: triggerJobRunner({ taskId: "chat-job" }) })],
+  plugins: [models(), assistant({ jobs: triggerJobRunner({ taskId: "chat-job" }) })],
 });
 ```
 
@@ -399,6 +400,8 @@ Stored Provider and Tool credentials are encrypted under `keyEncryptionSecrets`:
 
 ## Who pays for Runs
 
+These options go to the `models` plugin, `models({ hostProviders, byok, defaultBackgroundModel, defaultImageModel, getQuota })`. It also answers an Admin's spend questions: `chat.plugin("models").usage({ userId, since, until })`, `.usageTotals({ since, until })` and `.quota(userId)`.
+
 - `hostProviders` are the Host's own credentials, from your environment (never stored): `[{ provider, credentials, models: [...] }]`. Each model is `{ modelId, label?, images?, pdfs?, tools?, maxOutputTokens, inputUsdPerMillion, outputUsdPerMillion }`. `maxOutputTokens` is required: the Host's output cap for a Run on that model, handed to `adapterFor` (the production adapters don't apply it yet). The prices are per 1M tokens and kept with the model. Capability flags default to off unless the model is curated, in which case its curated flags apply. A Tool goes in the same list as `{ tool: "tavily", credentials, pricePerSearchUsd }`: a Host Tavily key that searches for users with no Tavily key of their own, each search recorded at that fixed price.
 - `defaultBackgroundModel` (optional) is a `"provider:model"` id of one of your `hostProviders` Models. Titles use it for users who pick no Background Model; without it they use the Model that wrote the reply. `start()` throws when it isn't one of your Models.
 - `defaultImageModel` (optional) is a `"provider:model"` id of one of your `hostProviders` `imageModels`. Generated images use it for users who pick no Image Model; without it they get no Host images. `start()` throws when it isn't one of your Image Models, or when an Image Model has no `pricePerImageUsd`.
@@ -411,7 +414,10 @@ Stored Provider and Tool credentials are encrypted under `keyEncryptionSecrets`:
 ```ts
 const chat = createBotSdk({
   // ...
-  plugins: [assistant({ getQuota: async (userId) => ({ budgetUsd: 0.5, window: "day" }) })],
+  plugins: [
+    models({ getQuota: async (userId) => ({ budgetUsd: 0.5, window: "day" }) }),
+    assistant(),
+  ],
 });
 ```
 
@@ -428,7 +434,7 @@ const chat = createBotSdk({
   keyEncryptionSecrets,
   basePath: "/api/chat",
   plugins: [
-    assistant({
+    models({
       hostProviders: [
         {
           provider: "anthropic",
@@ -445,6 +451,7 @@ const chat = createBotSdk({
       ],
       byok: true,
     }),
+    assistant(),
   ],
 });
 ```
@@ -466,7 +473,7 @@ const serverTime = toolDefinition({
   inputSchema: z.object({}),
 }).server<HostToolContext>(() => ({ now: new Date().toISOString() }));
 
-createBotSdk({ /* ... */ plugins: [assistant({ tools: [serverTime] })] });
+createBotSdk({ /* ... */ plugins: [models(), assistant({ tools: [serverTime] })] });
 ```
 
 A tool that sets `needsApproval: true` in its `toolDefinition` asks the user first. The reply ends at the call and shows the tool's name, its full arguments, and Approve and Deny. Approving runs the tool; denying never runs it, and the Model is told the user declined. The reply then continues in a new Run on the same Message, so the wait takes no server process and survives a restart. While a call waits, the composer waits too, and Stop counts as Deny. A Shared link shows a waiting call as waiting, without its arguments.

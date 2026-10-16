@@ -1,18 +1,18 @@
-import { userCredentials } from "../db/schema";
+import { userCredentials } from "../../../../core/server/db/schema";
 import { and, asc, eq, gt, or } from "drizzle-orm";
 
-import type { AppDeps, Credentials } from "../deps";
-import type { CredentialSummary } from "../../shared/credentials/services";
-import { tavilyService } from "../../shared/credentials/services";
+import type { ModelsDeps, Credentials } from "../types";
+import type { CredentialSummary } from "../../../../core/shared/credentials/services";
+import { tavilyService } from "../../../../core/shared/credentials/services";
 import {
   decryptCredentials,
   encryptCredentials,
   encryptionKid,
   kidOf,
   type CredentialKind,
-} from "./encryption";
+} from "../../../../core/server/credentials/encryption";
 
-type Deps = Pick<AppDeps, "db" | "keyEncryptionSecrets">;
+type Deps = Pick<ModelsDeps, "db" | "keyEncryptionSecrets">;
 
 /** Tool credentials and Provider credentials are encrypted under different keys (ADR 0010). */
 const kindOf = (service: string): CredentialKind =>

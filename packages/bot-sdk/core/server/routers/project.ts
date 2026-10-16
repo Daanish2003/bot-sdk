@@ -2,8 +2,6 @@ import { project } from "../db/schema";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { resolveModel } from "../chat/available-models";
-import { resolveModelCall } from "../credentials/resolve";
 import { rpcError, unusableModelError } from "../rpc-error";
 import {
   countProjectConversations,
@@ -74,7 +72,7 @@ export const projectRouter = {
         changes.instructions = input.instructions?.trim() || null;
       }
       if (typeof input.defaultModel === "string") {
-        const model = await resolveModel(context.deps, userId, input.defaultModel);
+        const model = await context.deps.plugin("models").resolveModel(userId, input.defaultModel);
         if (!model) {
           throw rpcError(
             "BAD_REQUEST",
@@ -85,8 +83,8 @@ export const projectRouter = {
             },
           );
         }
-        if (!(await resolveModelCall(context.deps, userId, model.id))) {
-          throw unusableModelError(model.provider, context.deps.byok);
+        if (!(await context.deps.plugin("models").resolveModelCall(userId, model.id))) {
+          throw unusableModelError(model.provider, context.deps.plugin("models").byok);
         }
         changes.defaultModel = model.id;
       } else if (input.defaultModel === null) {

@@ -7,7 +7,6 @@ import {
 } from "@tanstack/ai";
 
 import type { MessageUsage } from "../../shared/chat/message-record";
-import type { StoredPart } from "../../shared/message-parts";
 
 /** Providers that report input without its cache reads and writes, so those are added back. */
 const cacheApartProviders = new Set(["anthropic", "bedrock"]);
@@ -74,31 +73,3 @@ export function promptCharactersOf(messages: ModelMessage[]): number {
     );
   }, 0);
 }
-
-/**
- * The usage a Run stores when it ends: what the Provider reported for a Run that completed, or,
- * when it didn't (stopped, failed or no usage reported), a characters ÷ 4 estimate of the prompt
- * and the reply's streamed text and thinking, flagged `estimated`.
- */
-export function messageUsage(
-  reported: RunUsage | undefined,
-  { promptCharacters, parts }: { promptCharacters: number; parts: StoredPart[] },
-): MessageUsage {
-  if (reported) return { ...reported, estimated: false };
-  let thinking = 0;
-  let text = 0;
-  for (const part of parts) {
-    if (part.type === "text") text += part.text.length;
-    if (part.type === "thinking") thinking += part.text.length;
-  }
-  return {
-    input: tokensOf(promptCharacters),
-    output: tokensOf(text + thinking),
-    reasoning: tokensOf(thinking),
-    cached: 0,
-    estimated: true,
-  };
-}
-
-/** A quarter of a token per character, rounded up. */
-const tokensOf = (characters: number) => Math.ceil(characters / 4);

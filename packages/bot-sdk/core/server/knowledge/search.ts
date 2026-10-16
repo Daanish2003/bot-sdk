@@ -1,12 +1,7 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 
 import { project, knowledgeChunk, knowledgeFile } from "../db/schema";
-import {
-  type ResolvedEmbeddingModel,
-  embedTexts,
-  resolveEmbeddingModel,
-} from "../chat/embedding-models";
-import type { ResolveDeps } from "../credentials/resolve";
+import type { ResolvedEmbeddingModel } from "../../../plugins/models/server/embedding-models";
 import type { AppDeps } from "../deps";
 import { maxExcerptsPerSearch } from "../../shared/chat/knowledge-search";
 
@@ -28,7 +23,7 @@ export type Excerpt = { fileId: string; fileName: string; chunkIndex: number; te
  * no ready file) or no working credential for its Model, so the tool isn't offered (spec #357).
  */
 export async function knowledgeSearchFor(
-  deps: ResolveDeps,
+  deps: Pick<AppDeps, "db" | "plugin">,
   userId: string,
   projectId: string,
 ): Promise<{ fileNames: string[]; model: ResolvedEmbeddingModel } | null> {
@@ -44,7 +39,7 @@ export async function knowledgeSearchFor(
     .orderBy(asc(knowledgeFile.createdAt), asc(knowledgeFile.id))
     .limit(maxFileNames);
   if (files.length === 0) return null;
-  const model = await resolveEmbeddingModel(deps, userId, row.embeddingModel);
+  const model = await deps.plugin("models").resolveEmbeddingModel(userId, row.embeddingModel);
   if (!model) return null;
   return { fileNames: files.map((file) => file.name), model };
 }
@@ -55,10 +50,12 @@ export async function knowledgeSearchFor(
  * query is embedded with the Project's Model, and recorded by its meter.
  */
 export async function searchPassages(
-  deps: Pick<AppDeps, "db" | "embeddingAdapterFor">,
+  deps: Pick<AppDeps, "db" | "plugin">,
   { projectId, model, query }: { projectId: string; model: ResolvedEmbeddingModel; query: string },
 ): Promise<Excerpt[]> {
-  const [vector] = await embedTexts(deps, { model, texts: [query], purpose: "query" });
+  const [vector] = await deps
+    .plugin("models")
+    .embedTexts({ model, texts: [query], purpose: "query" });
   const literal = JSON.stringify(vector);
   const scope = and(eq(knowledgeFile.projectId, projectId), eq(knowledgeFile.status, "ready"));
   const columns = {

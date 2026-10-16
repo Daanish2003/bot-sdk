@@ -6,6 +6,7 @@ import {
   fakeEmbeddingAdapter,
   fakeImageAdapter,
   memoryRuntime,
+  models,
   redisRuntime,
   redisStore,
 } from "@ai-chat/bot-sdk/server";
@@ -85,10 +86,7 @@ export const sdk = (shared.botSdk ??= createBotSdk({
     return session?.user ? { id: session.user.id } : null;
   },
   plugins: [
-    assistant({
-      mcpServers: mcpServersOf(ENV),
-      // Artifacts (spec #304): the assistant's create_artifact tool, the side panel and its version route.
-      artifacts: true,
+    models({
       // The Host's Models and their Quota (ADR 0007); unset, users chat only on their own keys.
       // The Host's Image Models (`HOST_IMAGE_*`) come as one more Provider entry beside its chat Models.
       // The embedding Models (`HOST_EMBEDDING_PROVIDER`) come beside them, offered for Knowledge (ADR 0014).
@@ -111,6 +109,11 @@ export const sdk = (shared.botSdk ??= createBotSdk({
       }),
       // A user's Quota: an Admin's override, else the Host's default (spec #277).
       getQuota: (userId) => getQuota(db, ENV, userId),
+    }),
+    assistant({
+      mcpServers: mcpServersOf(ENV),
+      // Artifacts (spec #304): the assistant's create_artifact tool, the side panel and its version route.
+      artifacts: true,
     }),
   ],
 }));

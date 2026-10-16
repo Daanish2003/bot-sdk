@@ -3,12 +3,12 @@ import { RPCHandler } from "@orpc/server/fetch";
 
 import type { SharedConversation } from "../shared/share/conversation";
 import type { RatingTotal } from "./admin/ratings";
-import type { UsageByDay, UsageTotal } from "./admin/usage";
+import { modelsOver } from "../../plugins/models/server/plugin";
+import type { ModelsDeps } from "../../plugins/models/server/types";
 import { assistantOver } from "./assistant";
 import { postgresBlobStore } from "./blob/postgres";
 import type { BlobStore } from "./blob/store";
 import { createHookEmitter } from "./chat/hooks";
-import type { QuotaState } from "./chat/quota";
 import type { ChatUser, Context } from "./context";
 import { createDb } from "./db/index";
 import type { AppDeps } from "./deps";
@@ -129,16 +129,10 @@ export type BotSdk = {
    */
   rotateKeys: () => Promise<{ reencrypted: number; unreadable: number }>;
   /**
-   * Server-only reads for the Host's Admin views (spec #277). No HTTP route: the Host decides
-   * who may call them. They never return Conversation content.
+   * Server-only actions for the Host's Admin views (spec #277). No HTTP route: the Host decides
+   * who may call them. Usage and Quota reads are the `models` plugin's (`plugin("models")`).
    */
   admin: {
-    /** Every user's calls on Host credentials created in `[since, until)`. */
-    usageTotals: (range: { since: Date; until: Date }) => Promise<UsageTotal[]>;
-    /** One user's calls per UTC day and Model in `[since, until)` (spec #277). */
-    usage: (args: { userId: string; since: Date; until: Date }) => Promise<UsageByDay[]>;
-    /** A user's budget and spend in micros, with its window's reset time; `null` when unlimited. */
-    quota: (userId: string) => Promise<QuotaState | null>;
     /**
      * Stops every live Run of the user's, through the same path as Stop (spec #277). A Run whose
      * owner is gone ends `stopped` here; the others end when their owner sees the Stop.
@@ -209,11 +203,16 @@ function buildBotSdk(options: BotSdkOptions, given: GivenContext): BotSdk {
     runJob: (name, payload) => assistantApi().runJob(name, payload),
     deleteUser: (userId) => assistantApi().deleteUser(userId),
     exportUser: (userId) => assistantApi().exportUser(userId),
-    rotateKeys: () => assistantApi().rotateKeys(),
+    rotateKeys: async () => {
+      const total = { reencrypted: 0, unreadable: 0 };
+      for (const plugin of plugins) {
+        const counts = await plugin.rotateKeys?.(sdk);
+        total.reencrypted += counts?.reencrypted ?? 0;
+        total.unreadable += counts?.unreadable ?? 0;
+      }
+      return total;
+    },
     admin: {
-      usageTotals: (range) => assistantApi().admin.usageTotals(range),
-      usage: (args) => assistantApi().admin.usage(args),
-      quota: (userId) => assistantApi().admin.quota(userId),
       stopRuns: (userId) => assistantApi().admin.stopRuns(userId),
       ratingTotals: (range) => assistantApi().admin.ratingTotals(range),
     },
@@ -267,16 +266,16 @@ function buildContext(
 type OverOptions = Pick<BotSdkOptions, "basePath" | "getUser" | "getClientIp" | "logger">;
 
 /**
- * A real instance whose `assistant` plugin and core context run on `deps`: the seam the tests and
- * evals drive with fakes.
+ * A real instance whose `models` and `assistant` plugins and core context run on `deps`: the seam
+ * the tests and evals drive with fakes.
  */
-export function createBotSdkOver(deps: AppDeps, options: OverOptions): BotSdk {
+export function createBotSdkOver(deps: AppDeps & ModelsDeps, options: OverOptions): BotSdk {
   return buildBotSdk(
     {
       ...options,
       databaseUrl: "",
       keyEncryptionSecrets: deps.keyEncryptionSecrets,
-      plugins: [assistantOver(deps)],
+      plugins: [modelsOver(deps), assistantOver(deps)],
     },
     {
       db: deps.db,
@@ -298,7 +297,7 @@ export function createBotSdkOver(deps: AppDeps, options: OverOptions): BotSdk {
 }
 
 /** The handler of `createBotSdkOver(deps, options)`. */
-export function createChatHandler(deps: AppDeps, options: OverOptions): ChatHandler {
+export function createChatHandler(deps: AppDeps & ModelsDeps, options: OverOptions): ChatHandler {
   return createBotSdkOver(deps, options).handler;
 }
 
@@ -352,7 +351,7 @@ function createHandler(
         const refused = await rpcRateLimitRefusal(sdk, user.id, pathname.slice(rpcPrefix.length));
         if (refused) return refused;
       }
-      const context: Context = { user, deps: assistantDeps as AppDeps };
+      const context: Context = { user, deps: assistantDeps as AppDeps, plugin: sdk.plugin };
       const result = await rpc.handle(request, { prefix: rpcPrefix, context });
       return result.matched ? result.response : notFound();
     }

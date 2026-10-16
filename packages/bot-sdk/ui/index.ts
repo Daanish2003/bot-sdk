@@ -2,7 +2,7 @@ export { ChatView, type ConversationData } from "./chat/chat-view";
 export { MessageRow } from "./chat/message-row";
 export { MemorySection } from "./settings/memory-section";
 export { AppShell } from "./shell/app-shell";
-export { KeySettingsPage } from "./pages/key-settings";
+export { KeySettingsPage } from "../plugins/models/ui/key-settings";
 export { DeleteAllConversationsSection } from "./settings/delete-all-conversations";
 export { ExportDataButton } from "./settings/export-data-button";
 export { NewConversationPage } from "./pages/new-conversation";

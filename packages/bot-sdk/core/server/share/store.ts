@@ -11,11 +11,9 @@ import {
 import { and, desc, eq, inArray } from "drizzle-orm";
 
 import { generatedImageBlobKey } from "../blob/store";
-import { listAvailableModels, resolveModel } from "../chat/available-models";
 import { loadPath } from "../chat/store";
 import { liveConversation } from "../chat/temporary";
 import { attachmentsOfMessages } from "../attachments/store";
-import { resolveModelCall } from "../credentials/resolve";
 import type { AppDeps } from "../deps";
 import { uuidv7 } from "../lib/uuidv7";
 import { storedParts } from "../../shared/message-parts";
@@ -285,11 +283,13 @@ export async function continueSharedConversation(
   if (!link) return "not_found";
   const path = await loadPath(deps, link.conversationId, link.leafMessageId);
   const lastModel = path.filter((row) => row.role === "assistant").at(-1)?.model;
-  const usable = lastModel ? await resolveModel(deps, userId, lastModel) : undefined;
+  const usable = lastModel
+    ? await deps.plugin("models").resolveModel(userId, lastModel)
+    : undefined;
   const model =
-    usable && (await resolveModelCall(deps, userId, usable.id))
+    usable && (await deps.plugin("models").resolveModelCall(userId, usable.id))
       ? usable.id
-      : (await listAvailableModels(deps, userId)).defaultModel;
+      : (await deps.plugin("models").listAvailableModels(userId)).defaultModel;
   if (!model) return "no_model";
 
   const id = uuidv7();

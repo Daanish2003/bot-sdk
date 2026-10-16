@@ -4,10 +4,11 @@ import {
   isDictationAudioType,
   maxDictationBytes,
   maxDictationSeconds,
-} from "../../shared/chat/voice";
-import { DictationError, dictationEngine, transcribeRecording } from "../chat/transcription";
-import { protectedProcedure } from "../procedures";
-import { rpcError } from "../rpc-error";
+} from "../../../../core/shared/chat/voice";
+import { DictationError, dictationEngine, transcribeRecording } from "../transcription";
+import { protectedProcedure } from "../../../../core/server/procedures";
+import { modelsDeps } from "../state";
+import { rpcError } from "../../../../core/server/rpc-error";
 
 /** A base64 string of `maxDictationBytes` decodes to at most that many bytes. */
 const maxAudioChars = Math.ceil(maxDictationBytes / 3) * 4;
@@ -18,7 +19,7 @@ export const voiceRouter = {
    * else the Host's transcription Model. `onHostCredentials` says the Host pays, so the Quota applies.
    */
   status: protectedProcedure.handler(async ({ context }) => {
-    const engine = await dictationEngine(context.deps, context.user.id);
+    const engine = await dictationEngine(modelsDeps(context), context.user.id);
     return {
       transcription: {
         available: engine !== null,
@@ -65,7 +66,7 @@ export const voiceRouter = {
         );
       }
       try {
-        const text = await transcribeRecording(context.deps, context.user.id, {
+        const text = await transcribeRecording(modelsDeps(context), context.user.id, {
           bytes,
           mimeType: input.mimeType,
           durationSeconds: input.durationSeconds,

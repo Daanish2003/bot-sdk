@@ -30,7 +30,7 @@ registerHooks({
   },
 });
 
-const { assistant, createBotSdk } = await import("@ai-chat/bot-sdk/server");
+const { assistant, createBotSdk, models } = await import("@ai-chat/bot-sdk/server");
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("Set DATABASE_URL");
@@ -46,7 +46,7 @@ const sdk = createBotSdk({
   basePath: "/api/chat",
   getUser: () => null,
   logger: log,
-  plugins: [assistant()],
+  plugins: [models(), assistant()],
 });
 
 const result = await sdk.rotateKeys();

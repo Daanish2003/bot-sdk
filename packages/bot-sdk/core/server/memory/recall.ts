@@ -1,6 +1,5 @@
 import { and, desc, eq, isNull, notInArray, or, sql } from "drizzle-orm";
 
-import { defaultEmbeddingModel, embedTexts } from "../chat/embedding-models";
 import { conversation, memory, userSettings } from "../db/schema";
 import type { AppDeps } from "../deps";
 
@@ -136,9 +135,9 @@ async function similarMemories(
   },
 ): Promise<Recalled[]> {
   try {
-    const model = await defaultEmbeddingModel(deps, userId);
+    const model = await deps.plugin("models").defaultEmbeddingModel(userId);
     if (!model) return [];
-    const [vector] = await embedTexts(deps, {
+    const [vector] = await deps.plugin("models").embedTexts({
       model,
       texts: [latestText],
       purpose: "query",

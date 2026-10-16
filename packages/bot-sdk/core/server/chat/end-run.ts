@@ -5,11 +5,10 @@ import { and, eq, isNull, lt, or } from "drizzle-orm";
 
 import type { AppDeps } from "../deps";
 import { cancelRunningCalls, searchTextOf } from "../../shared/chat/parts";
-import { resolveModelCall } from "../credentials/resolve";
 import type { RunEndEvent } from "./hooks";
 import { enqueueMemories } from "../memory/make";
 import { titleConversation } from "./title";
-import type { ModelMeter } from "./meter";
+import type { ModelMeter } from "../../../plugins/models/server/meter";
 import type { MessageUsage } from "../../shared/chat/message-record";
 import type { Executor } from "./run";
 
@@ -147,7 +146,8 @@ export async function endRun(
     const onHostCredentials = owner
       ? owner.meter.onHost
       : run.model !== "" &&
-        (await resolveModelCall(deps, run.userId, run.model))?.meter.onHost === true;
+        (await deps.plugin("models").resolveModelCall(run.userId, run.model))?.meter.onHost ===
+          true;
     event = {
       userId: run.userId,
       conversationId: run.conversationId,

@@ -1,7 +1,6 @@
 import { conversation, reasoningEffort } from "../db/schema";
 import { z } from "zod";
 
-import { resolveModel } from "../chat/available-models";
 import { withProjectId } from "../chat/hooks";
 import { deleteAllConversations } from "../delete-user";
 import { renderConversationMarkdown } from "../export-markdown";
@@ -26,7 +25,6 @@ import {
   unarchiveConversation,
   unpinConversation,
 } from "../chat/store";
-import { resolveModelCall } from "../credentials/resolve";
 import { findProject } from "../project/store";
 import { protectedProcedure } from "../procedures";
 import { rpcError, unusableModelError } from "../rpc-error";
@@ -46,7 +44,7 @@ export const conversationRouter = {
       }),
     )
     .handler(async ({ context, input }) => {
-      if (!(await resolveModel(context.deps, context.user.id, input.model))) {
+      if (!(await context.deps.plugin("models").resolveModel(context.user.id, input.model))) {
         throw rpcError(
           "BAD_REQUEST",
           "error.modelNotAvailable",
@@ -174,7 +172,7 @@ export const conversationRouter = {
       if (!(await findConversation(context.deps, userId, input.id))) {
         throw rpcError("NOT_FOUND", "error.conversationNotFound", "Conversation not found");
       }
-      const model = await resolveModel(context.deps, userId, input.model);
+      const model = await context.deps.plugin("models").resolveModel(userId, input.model);
       if (!model) {
         throw rpcError(
           "BAD_REQUEST",
@@ -185,8 +183,8 @@ export const conversationRouter = {
           },
         );
       }
-      if (!(await resolveModelCall(context.deps, userId, model.id))) {
-        throw unusableModelError(model.provider, context.deps.byok);
+      if (!(await context.deps.plugin("models").resolveModelCall(userId, model.id))) {
+        throw unusableModelError(model.provider, context.deps.plugin("models").byok);
       }
       const updated = await setConversationModel(context.deps, userId, input.id, model.id);
       if (!updated)

@@ -2,9 +2,9 @@ import { embed } from "@tanstack/ai";
 import { GEMINI_EMBEDDING_MODELS } from "@tanstack/ai-gemini";
 import { OPENAI_EMBEDDING_MODELS } from "@tanstack/ai-openai";
 
-import { parseModelId } from "../../shared/chat/models";
-import { type ResolveDeps, resolvePayer } from "../credentials/resolve";
-import type { AppDeps, Credentials, HostProvider } from "../deps";
+import { parseModelId } from "../../../core/shared/chat/models";
+import { type ResolveDeps, resolvePayer } from "./credentials/resolve";
+import type { ModelsDeps, Credentials, HostProvider } from "./types";
 import { type EmbeddingMeter, freeMeter, hostEmbeddingMeter } from "./meter";
 
 /**
@@ -65,7 +65,7 @@ export type ResolvedEmbeddingModel = {
 type Deps = ResolveDeps;
 
 /** The Host's embedding Models, in the order the Host listed them, with the credentials to use. */
-function hostOffers(deps: Pick<AppDeps, "hostProviders">) {
+function hostOffers(deps: Pick<ModelsDeps, "hostProviders">) {
   return deps.hostProviders.flatMap((hostProvider: HostProvider) =>
     (hostProvider.embeddingModels ?? []).flatMap(({ model, pricePerMillionTokensUsd }) =>
       isEmbeddingProvider(hostProvider.provider) &&
@@ -205,7 +205,7 @@ function unitLength(vector: number[]): number[] {
  * `purpose` tells Gemini whether the texts are documents or a query.
  */
 export async function embedTexts(
-  deps: Pick<AppDeps, "embeddingAdapterFor">,
+  deps: Pick<ModelsDeps, "embeddingAdapterFor">,
   {
     model,
     texts,

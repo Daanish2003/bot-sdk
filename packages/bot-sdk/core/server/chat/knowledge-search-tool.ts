@@ -11,7 +11,7 @@ import {
   maxExcerptsPerSearch,
   searchKnowledgeToolName,
 } from "../../shared/chat/knowledge-search";
-import type { ResolvedEmbeddingModel } from "./embedding-models";
+import type { ResolvedEmbeddingModel } from "../../../plugins/models/server/embedding-models";
 import { type RunToolState, toolCallLimitError, trackedTool } from "./tracked-tool";
 
 const knowledgeDefinition = toolDefinition({
@@ -40,7 +40,7 @@ export function createKnowledgeSearchTool({
   model,
   ...run
 }: RunToolState & {
-  deps: Pick<AppDeps, "db" | "embeddingAdapterFor">;
+  deps: Pick<AppDeps, "db" | "plugin">;
   projectId: string;
   model: ResolvedEmbeddingModel;
 }) {

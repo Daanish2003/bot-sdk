@@ -6,6 +6,8 @@ export {
   type Logger,
 } from "./create-chat";
 export { assistant, type AssistantApi, type AssistantOptions } from "./assistant";
+// The `models` plugin, served from here until the exports split by owner (spec #439).
+export * from "../../plugins/models/server/index";
 export type { BotSdkContext, BotSdkPlugin, PluginApis, Route } from "./plugin";
 export type {
   EventHooks,
@@ -28,8 +30,6 @@ export {
 } from "./runtime";
 export { redisStore, type RedisStore } from "./chat/redis-store";
 export type { HostServerTool, HostToolContext } from "./chat/host-tools";
-export { fakeImageAdapter, type FakeImageOptions } from "./chat/fake-image-adapter";
-export { fakeEmbeddingAdapter, type FakeEmbeddingOptions } from "./chat/fake-embedding-adapter";
 export { ImageRefusedError } from "./deps";
 export type { PubSub } from "./chat/pubsub";
 export type { RateLimit, RateLimits } from "./rate-limits";

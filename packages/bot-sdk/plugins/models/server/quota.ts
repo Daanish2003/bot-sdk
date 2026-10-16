@@ -1,10 +1,7 @@
 import { and, eq, gte, lt, sql } from "drizzle-orm";
 
-import { usage } from "../db/schema";
-import type { AppDeps, Quota, QuotaSetting } from "../deps";
-
-/** The error code a refused Run answers with (HTTP 402), so a client can tell it from other refusals. */
-export const quotaExceededCode = "quota_exceeded";
+import { usage } from "../../../core/server/db/schema";
+import type { ModelsDeps, Quota, QuotaSetting } from "./types";
 
 /** The `getQuota` a Host passed, as the one function the SDK calls per user (ADR 0007). */
 export function quotaLookup(
@@ -41,7 +38,7 @@ export type QuotaState = {
 
 /** A user's Quota as it stands now: its budget and spend in micros, and when its window resets. */
 export async function quotaState(
-  deps: Pick<AppDeps, "db" | "getQuota">,
+  deps: Pick<ModelsDeps, "db" | "getQuota">,
   userId: string,
 ): Promise<QuotaState | null> {
   const quota = await deps.getQuota(userId);
@@ -68,7 +65,7 @@ export async function quotaState(
  * Paid calls reach it only through their meter's `mayRun` (chat/meter.ts).
  */
 export async function quotaRefusal(
-  deps: Pick<AppDeps, "db" | "getQuota">,
+  deps: Pick<ModelsDeps, "db" | "getQuota">,
   userId: string,
 ): Promise<{ resetsAt: Date } | null> {
   const state = await quotaState(deps, userId);
@@ -78,7 +75,7 @@ export async function quotaRefusal(
 
 /** The Quota read: the used percentage, the window and its reset time, never money (ADR 0007). */
 export async function readQuota(
-  deps: Pick<AppDeps, "db" | "getQuota">,
+  deps: Pick<ModelsDeps, "db" | "getQuota">,
   userId: string,
 ): Promise<{ usedPercent: number; window: Quota["window"]; resetsAt: Date } | null> {
   const state = await quotaState(deps, userId);

@@ -4,7 +4,6 @@ import { z } from "zod";
 import { knowledgeBlobKey } from "../blob/store";
 import type { AppDeps } from "../deps";
 import { project, knowledgeChunk, knowledgeFile } from "../db/schema";
-import { embedTexts, resolveEmbeddingModel } from "../chat/embedding-models";
 import { defineJob, PermanentJobError } from "../jobs/define";
 import type { KnowledgeFailureCode } from "../../shared/knowledge/kinds";
 import { ChunkLimitExceededError, chunkText } from "./chunker";
@@ -73,7 +72,7 @@ export const knowledgeProcessJob = defineJob({
       .from(project)
       .where(eq(project.id, file.projectId));
     const model = owner?.embeddingModel
-      ? await resolveEmbeddingModel(deps, file.userId, owner.embeddingModel)
+      ? await deps.plugin("models").resolveEmbeddingModel(file.userId, owner.embeddingModel)
       : null;
     if (!model) throw new KnowledgeFailure("no_credentials");
 
@@ -81,7 +80,7 @@ export const knowledgeProcessJob = defineJob({
     for (let start = 0; start < chunks.length; start += passageBatch) {
       if (signal.aborted) return;
       const batch = chunks.slice(start, start + passageBatch);
-      const vectors = await embedTexts(deps, {
+      const vectors = await deps.plugin("models").embedTexts({
         model,
         texts: batch.map((chunk) => chunk.text),
         purpose: "document",

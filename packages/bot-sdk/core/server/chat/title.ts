@@ -2,12 +2,11 @@ import { conversation, message } from "../db/schema";
 import { chat, type ModelMessage } from "@tanstack/ai";
 import { and, eq, isNull } from "drizzle-orm";
 
-import { resolveModelCall } from "../credentials/resolve";
 import type { AppDeps } from "../deps";
 import { loadSettings } from "../settings/store";
 import { isKnownModel, parseModelId } from "../../shared/chat/models";
 import { loadPath } from "./store";
-import { messageUsage, promptCharactersOf, reportedUsageOf } from "./usage";
+import { promptCharactersOf, reportedUsageOf } from "./usage";
 
 const titlePrompt =
   "Write a short title (at most 6 words) for the conversation below. Reply with the title only: " +
@@ -67,9 +66,9 @@ async function generateTitle(
   reply: string,
 ) {
   const { backgroundModel } = await loadSettings(deps, userId);
-  const model = backgroundModel ?? deps.defaultBackgroundModel ?? replyModel ?? "";
+  const model = backgroundModel ?? deps.plugin("models").defaultBackgroundModel ?? replyModel ?? "";
   if (!isKnownModel(model)) return "";
-  const call = await resolveModelCall(deps, userId, model);
+  const call = await deps.plugin("models").resolveModelCall(userId, model);
   if (!call) return "";
   try {
     const messages: ModelMessage[] = [
@@ -79,7 +78,9 @@ async function generateTitle(
       },
     ];
     const result = await chat({
-      adapter: deps.adapterFor(model, call.credentials, { maxOutputTokens: call.maxOutputTokens }),
+      adapter: deps
+        .plugin("models")
+        .adapterFor(model, call.credentials, { maxOutputTokens: call.maxOutputTokens }),
       systemPrompts: [titlePrompt],
       messages,
       stream: false,
@@ -88,7 +89,7 @@ async function generateTitle(
     const reported = reportedUsageOf(parseModelId(model)?.provider ?? "", result.chunks);
     await call.meter.record({
       kind: "title",
-      usage: messageUsage(reported.usage, {
+      usage: deps.plugin("models").messageUsage(reported.usage, {
         promptCharacters: promptCharactersOf(messages),
         parts: [{ type: "text", text: result.text }],
       }),

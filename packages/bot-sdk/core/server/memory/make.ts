@@ -3,16 +3,12 @@ import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { isKnownModel, parseModelId } from "../../shared/chat/models";
-import {
-  defaultEmbeddingModel,
-  embedTexts,
-  type ResolvedEmbeddingModel,
-} from "../chat/embedding-models";
+import type { ResolvedEmbeddingModel } from "../../../plugins/models/server/embedding-models";
 import { loadPath } from "../chat/store";
-import { messageUsage, promptCharactersOf, reportedUsageOf } from "../chat/usage";
+import { promptCharactersOf, reportedUsageOf } from "../chat/usage";
 import { conversation, type MessageRow, memory, userSettings } from "../db/schema";
 import type { AppDeps } from "../deps";
-import { resolveModelCall, type ModelCall } from "../credentials/resolve";
+import type { ModelCall } from "../../../plugins/models/server/credentials/resolve";
 import { uuidv7 } from "../lib/uuidv7";
 import { defineJob } from "../jobs/define";
 import type { TurnChange } from "../../shared/memory/changes";
@@ -100,11 +96,11 @@ async function memoryPlanOf(
     .from(userSettings)
     .where(eq(userSettings.userId, userId));
   if (settings && !settings.memoryEnabled) return null;
-  const model = settings?.backgroundModel ?? deps.defaultBackgroundModel;
+  const model = settings?.backgroundModel ?? deps.plugin("models").defaultBackgroundModel;
   if (!model || !isKnownModel(model)) return null;
-  const call = await resolveModelCall(deps, userId, model);
+  const call = await deps.plugin("models").resolveModelCall(userId, model);
   if (!call) return null;
-  const embedding = await defaultEmbeddingModel(deps, userId);
+  const embedding = await deps.plugin("models").defaultEmbeddingModel(userId);
   if (!embedding) return null;
   return { model, call, embedding, projectId: row.projectId };
 }
@@ -244,7 +240,8 @@ async function insertMemories(
 ): Promise<string[]> {
   const { userId, plan, tx, now, conversationId, sourceMessageId } = write;
   const embedded =
-    vectors ?? (await embedTexts(deps, { model: plan.embedding, texts, purpose: "document" }));
+    vectors ??
+    (await deps.plugin("models").embedTexts({ model: plan.embedding, texts, purpose: "document" }));
   const ids = texts.map(() => uuidv7(now.getTime()));
   await tx.insert(memory).values(
     texts.map((text, i) => ({
@@ -273,7 +270,7 @@ async function decideFacts(
   { facts, scope, ...write }: Write & { facts: string[]; scope: Scope },
 ): Promise<void> {
   const { plan, tx, now, changes } = write;
-  const vectors = await embedTexts(deps, {
+  const vectors = await deps.plugin("models").embedTexts({
     model: plan.embedding,
     texts: facts,
     purpose: "document",
@@ -295,7 +292,7 @@ async function decideFacts(
   const vectorOf = new Map(facts.map((text, i) => [text, vectors[i]!]));
   const missing = [...new Set(writes.map((e) => e.text))].filter((text) => !vectorOf.has(text));
   if (missing.length > 0) {
-    const embedded = await embedTexts(deps, {
+    const embedded = await deps.plugin("models").embedTexts({
       model: plan.embedding,
       texts: missing,
       purpose: "document",
@@ -378,7 +375,7 @@ async function forgetMatching(
   { request, scope, ...write }: Write & { request: string; scope: Scope },
 ): Promise<void> {
   const { plan, tx, changes } = write;
-  const [vector] = await embedTexts(deps, {
+  const [vector] = await deps.plugin("models").embedTexts({
     model: plan.embedding,
     texts: [request],
     purpose: "query",
@@ -429,7 +426,7 @@ async function askBackground(
 ): Promise<string> {
   const messages: ModelMessage[] = [{ role: "user", content: user }];
   const result = await chat({
-    adapter: deps.adapterFor(plan.model, plan.call.credentials, {
+    adapter: deps.plugin("models").adapterFor(plan.model, plan.call.credentials, {
       maxOutputTokens: plan.call.maxOutputTokens,
     }),
     systemPrompts: [system],
@@ -439,7 +436,7 @@ async function askBackground(
   const reported = reportedUsageOf(parseModelId(plan.model)?.provider ?? "", result.chunks);
   await plan.call.meter.record({
     kind: "memory",
-    usage: messageUsage(reported.usage, {
+    usage: deps.plugin("models").messageUsage(reported.usage, {
       promptCharacters: promptCharactersOf(messages),
       parts: [{ type: "text", text: result.text }],
     }),

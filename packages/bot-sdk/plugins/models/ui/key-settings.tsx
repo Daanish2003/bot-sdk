@@ -2,14 +2,14 @@ import {
   type CredentialService,
   credentialForms,
   type SaveCredentialsInput,
-} from "../../core/shared/credentials/services";
+} from "../../../core/shared/credentials/services";
 import {
   type ProviderRow,
   type ProviderRowStatus,
   providerRows,
   type ToolRow,
   toolRows,
-} from "../../core/client/key-settings";
+} from "../client/key-settings";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,20 +18,20 @@ import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tansta
 import { useState } from "react";
 import { toast } from "sonner";
 
-import type { MessageKey } from "../../core/shared/i18n";
-import { useByok } from "../../core/client/react/byok";
-import { type BotSdkOrpc, useI18n, useOrpc } from "../../core/client/react/provider";
-import { serverErrorText } from "../../core/client/rpc-error";
-import { ArchivedConversationsSection } from "../settings/archived-conversations";
-import { ConnectionsSection } from "../settings/connections-section";
-import { DeleteAllConversationsSection } from "../settings/delete-all-conversations";
-import { ExportDataButton } from "../settings/export-data-button";
-import { InstructionsField } from "../settings/instructions-field";
-import { MemorySection } from "../settings/memory-section";
-import { SavedPromptsSection } from "../settings/saved-prompts";
-import { SharedLinksSection } from "../settings/shared-links";
-import { BackgroundModelSelect } from "../settings/background-model-select";
-import { ImageModelSelect } from "../settings/image-model-select";
+import type { MessageKey } from "../../../core/shared/i18n";
+import { useByok } from "../../../core/client/react/byok";
+import { type BotSdkOrpc, useI18n, useOrpc } from "../../../core/client/react/provider";
+import { serverErrorText } from "../../../core/client/rpc-error";
+import { ArchivedConversationsSection } from "../../../ui/settings/archived-conversations";
+import { ConnectionsSection } from "../../../ui/settings/connections-section";
+import { DeleteAllConversationsSection } from "../../../ui/settings/delete-all-conversations";
+import { ExportDataButton } from "../../../ui/settings/export-data-button";
+import { InstructionsField } from "../../../ui/settings/instructions-field";
+import { MemorySection } from "../../../ui/settings/memory-section";
+import { SavedPromptsSection } from "../../../ui/settings/saved-prompts";
+import { SharedLinksSection } from "../../../ui/settings/shared-links";
+import { BackgroundModelSelect } from "../../../ui/settings/background-model-select";
+import { ImageModelSelect } from "../../../ui/settings/image-model-select";
 
 /**
  * Keys & settings: the user's Provider and Tool credentials, the Background Model and the Instructions.

@@ -7,9 +7,9 @@ import { createGrokTranscription, type GrokTranscriptionModel } from "@tanstack/
 import { createGroqTranscription, type GroqTranscriptionModel } from "@tanstack/ai-groq";
 import { createOpenaiTranscription, type OpenAITranscriptionModel } from "@tanstack/ai-openai";
 
-import type { AppDeps, Credentials } from "../deps";
-import { type ResolveDeps, resolvePayer } from "../credentials/resolve";
-import type { DictationErrorReason } from "../../shared/chat/voice";
+import type { ModelsDeps, Credentials } from "./types";
+import { type ResolveDeps, resolvePayer } from "./credentials/resolve";
+import type { DictationErrorReason } from "../../../core/shared/chat/voice";
 import { freeMeter, hostTranscriptionMeter, type TranscriptionMeter } from "./meter";
 
 /** The transcription Models a user's own keys pick from, in order (spec #249). */
@@ -60,7 +60,7 @@ export type DictationEngine = {
  * The Host's first transcription Model: the first Provider entry that offers one, and its first
  * Model, with the Host's credentials. `undefined` when the Host offers none.
  */
-function hostTranscriptionOffer(deps: Pick<AppDeps, "hostProviders">) {
+function hostTranscriptionOffer(deps: Pick<ModelsDeps, "hostProviders">) {
   for (const entry of deps.hostProviders) {
     const first = entry.transcriptionModels?.[0];
     if (first) return { entry, first };
@@ -113,7 +113,7 @@ export async function dictationEngine(
  * call after it succeeds (ADR 0007). A Provider failure becomes a `DictationError`.
  */
 export async function transcribeRecording(
-  deps: ResolveDeps & Pick<AppDeps, "transcriptionAdapterFor">,
+  deps: ResolveDeps & Pick<ModelsDeps, "transcriptionAdapterFor">,
   userId: string,
   {
     bytes,

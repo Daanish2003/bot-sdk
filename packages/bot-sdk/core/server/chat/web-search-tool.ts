@@ -2,7 +2,7 @@ import { toolDefinition } from "@tanstack/ai";
 import { z } from "zod";
 
 import { type Credentials, type SearchClient, SearchError } from "../deps";
-import type { SearchMeter } from "./meter";
+import type { SearchMeter } from "../../../plugins/models/server/meter";
 import { type RunToolState, trackedTool } from "./tracked-tool";
 import {
   maxSearchesPerReply,

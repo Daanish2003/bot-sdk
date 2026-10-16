@@ -24,9 +24,9 @@ import {
   maxImagesPerRun,
 } from "../../shared/chat/generated-image";
 import type { EditSource } from "./edit-sources";
-import type { ImageRequest } from "./adapters";
+import type { ImageRequest } from "../../../plugins/models/server/adapters";
 import { imageInfo } from "./image-info";
-import type { ImageMeter } from "./meter";
+import type { ImageMeter } from "../../../plugins/models/server/meter";
 import { type RunToolState, toolCallLimitError, trackedTool } from "./tracked-tool";
 
 /**

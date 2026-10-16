@@ -14,15 +14,18 @@ import { type OpenAIChatModel, createOpenaiChat } from "@tanstack/ai-openai";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 
 import { postgresBlobStore } from "../../core/server/blob/postgres";
-import { fakeEmbeddingAdapter } from "../../core/server/chat/fake-embedding-adapter";
+import { fakeEmbeddingAdapter } from "../../plugins/models/server/fake-embedding-adapter";
 import { createDb, type Database } from "../../core/server/db/index";
-import { createAppDeps, type AppDeps } from "../../core/server/deps";
+import { createBotSdkOver } from "../../core/server/create-chat";
+import { createAppDeps } from "../../core/server/deps";
+import type { BotSdkContext } from "../../core/server/plugin";
+import { productionDeps } from "../../plugins/models/server/plugin";
 import { migrate as migrateChatSchema } from "../../core/server/migrate";
 import { resolveRateLimits } from "../../core/server/rate-limits";
 import { memoryRuntime } from "../../core/server/runtime";
 import type { JobRunner } from "../../core/server/jobs/runner";
 import { createFakeAdapter, round, text } from "../../test/support/fake-adapter";
-import { type CaseResult, type EvalEnv, runCase } from "./case";
+import { type CaseResult, type EvalDeps, type EvalEnv, runCase } from "./case";
 import { categories, selectCases, tally } from "./cases";
 import { datasetRevision, loadDataset } from "./dataset";
 
@@ -156,14 +159,13 @@ async function main() {
   const chosen = limit === undefined ? cases : cases.slice(0, limit);
 
   const db = await prepareSchema(databaseUrl);
-  const real = createAppDeps({
+  const app = createAppDeps({
     db,
+    // `createBotSdkOver` below sets it to its instance's.
+    plugin: () => {
+      throw new Error("Not built yet: createBotSdkOver sets plugin");
+    },
     runtime: memoryRuntime(),
-    hostProviders: [],
-    hostTools: [],
-    byok: true,
-    defaultBackgroundModel: models.background,
-    getQuota: async () => null,
     rateLimits: resolveRateLimits(),
     tools: [],
     mcpServers: [],
@@ -172,7 +174,14 @@ async function main() {
     jobs: noJobs,
     memory: true,
   });
-  const base: AppDeps = fake
+  const context = { ...app, keyring: app.keyEncryptionSecrets, events: app.hooks };
+  const real: EvalDeps = {
+    ...app,
+    ...productionDeps(context as unknown as BotSdkContext, {
+      defaultBackgroundModel: models.background,
+    }),
+  };
+  const base: EvalDeps = fake
     ? {
         ...real,
         // One reply serves every Background Model call: the extract call reads `facts`, and the
@@ -192,6 +201,12 @@ async function main() {
         embeddingAdapterFor: () => fakeEmbeddingAdapter(),
       }
     : real;
+  // An instance over the bundle binds its `plugin`, which the jobs `runCase` runs directly need.
+  createBotSdkOver(base, {
+    basePath: "/api/chat",
+    getUser: () => null,
+    logger: { error: () => {} },
+  });
 
   const env: EvalEnv = {
     db,

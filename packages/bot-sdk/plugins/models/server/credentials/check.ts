@@ -1,7 +1,7 @@
-import type { CredentialService } from "../../shared/credentials/services";
-import { providerLabel } from "../../shared/credentials/services";
-import type { ErrorCode } from "../../shared/i18n";
-import type { ErrorParams } from "../rpc-error";
+import type { CredentialService } from "../../../../core/shared/credentials/services";
+import { providerLabel } from "../../../../core/shared/credentials/services";
+import type { ErrorCode } from "../../../../core/shared/i18n";
+import type { ErrorParams } from "../../../../core/server/rpc-error";
 
 export type CheckRejectionReason = "invalid_key" | "provider_error";
 

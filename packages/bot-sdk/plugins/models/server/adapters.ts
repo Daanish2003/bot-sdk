@@ -33,9 +33,9 @@ import { createOpenRouterImage, createOpenRouterText } from "@tanstack/ai-openro
 import { createVercelGatewayImage, createVercelGatewayText } from "@tanstack/ai-vercel-gateway";
 import { createBytePlusImage } from "@tanstack/ai-byteplus";
 
-import type { Credentials } from "../deps";
-import type { AspectRatio } from "../../shared/chat/generated-image";
-import { isKnownModel, parseModelId } from "../../shared/chat/models";
+import type { Credentials } from "./types";
+import type { AspectRatio } from "../../../core/shared/chat/generated-image";
+import { isKnownModel, parseModelId } from "../../../core/shared/chat/models";
 
 /** The model id type of an adapter factory. The ids are checked in `models.test.ts`. */
 type ModelOf<Factory extends (model: never, ...rest: never[]) => unknown> = Parameters<Factory>[0];

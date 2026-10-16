@@ -7,7 +7,7 @@ import { searchKnowledgeToolName } from "../../shared/chat/knowledge-search";
 import { searchPastChatsToolName } from "../../shared/chat/past-chats";
 import { webSearchToolName } from "../../shared/chat/web-search";
 import type { StoredPart, ToolError } from "../../shared/message-parts";
-import type { QuotaCheck } from "./meter";
+import type { QuotaCheck } from "../../../plugins/models/server/meter";
 
 /** Tool calls one reply may make across the tools that count against its budget (spec #91). */
 export const maxToolCallsPerReply = 10;

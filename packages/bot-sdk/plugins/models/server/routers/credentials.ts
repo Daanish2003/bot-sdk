@@ -5,24 +5,28 @@ import {
   credentialHint,
   credentialServices,
   saveCredentialsInput,
-} from "../../shared/credentials/services";
+} from "../../../../core/shared/credentials/services";
 import { deleteCredentials, listCredentials, saveCredentials } from "../credentials/store";
-import { protectedProcedure } from "../procedures";
-import { rpcError } from "../rpc-error";
+import { protectedProcedure } from "../../../../core/server/procedures";
+import { modelsDeps } from "../state";
+import { rpcError } from "../../../../core/server/rpc-error";
 
 /** Provider credentials and Tool credentials. Write-only: the client only ever sees hints (ADR 0003). */
 export const credentialsRouter = {
-  list: protectedProcedure.handler(({ context }) => listCredentials(context.deps, context.user.id)),
+  list: protectedProcedure.handler(({ context }) =>
+    listCredentials(modelsDeps(context), context.user.id),
+  ),
 
   /** Whether the user may bring their own Provider credentials (`byok`, ADR 0007). */
-  mode: protectedProcedure.handler(({ context }) => ({ byok: context.deps.byok })),
+  mode: protectedProcedure.handler(({ context }) => ({ byok: modelsDeps(context).byok })),
 
   save: protectedProcedure.input(saveCredentialsInput).handler(async ({ context, input }) => {
-    if (!context.deps.byok) {
+    const deps = modelsDeps(context);
+    if (!deps.byok) {
       throw rpcError("FORBIDDEN", "error.byokOff", "Your own keys are turned off on this app");
     }
-    // The user's Ollama host is not guarded (see `AppDeps.ollamaFetch`).
-    const fetch = input.service === "ollama" ? context.deps.ollamaFetch : context.deps.fetch;
+    // The user's Ollama host is not guarded (see `ModelsDeps.ollamaFetch`).
+    const fetch = input.service === "ollama" ? deps.ollamaFetch : deps.fetch;
     const result = await checkCredentials(input.service, input.fields, fetch);
     if (result.status === "rejected") {
       throw rpcError("BAD_REQUEST", result.code, result.message, result.params, {
@@ -34,7 +38,7 @@ export const credentialsRouter = {
       hint: credentialHint(input.fields),
       verified: result.status === "verified",
     };
-    await saveCredentials(context.deps, context.user.id, {
+    await saveCredentials(deps, context.user.id, {
       ...summary,
       fields: input.fields,
     });
@@ -44,6 +48,6 @@ export const credentialsRouter = {
   delete: protectedProcedure
     .input(z.object({ service: z.enum(credentialServices) }))
     .handler(async ({ context, input }) => {
-      await deleteCredentials(context.deps, context.user.id, input.service);
+      await deleteCredentials(modelsDeps(context), context.user.id, input.service);
     }),
 };

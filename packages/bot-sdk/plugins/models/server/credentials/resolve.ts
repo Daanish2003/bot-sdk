@@ -3,20 +3,20 @@ import {
   parseModelId,
   type CuratedModel,
   unknownReasoning,
-} from "../../shared/chat/models";
+} from "../../../../core/shared/chat/models";
 import {
   freeMeter,
   hostModelMeter,
   hostSearchMeter,
   type ModelMeter,
   type SearchMeter,
-} from "../chat/meter";
-import type { AppDeps, Credentials, HostModel, HostProvider, HostTool } from "../deps";
+} from "../meter";
+import type { ModelsDeps, Credentials, HostModel, HostProvider, HostTool } from "../types";
 import { listCredentials, loadCredentials } from "./store";
 
 /** What resolving a paid call reads: the user's keys and the Host's offers, and what a meter writes. */
 export type ResolveDeps = Pick<
-  AppDeps,
+  ModelsDeps,
   | "db"
   | "keyEncryptionSecrets"
   | "byok"
@@ -29,7 +29,7 @@ export type ResolveDeps = Pick<
 
 /** The services the user has usable credentials for, in the order they were added. */
 export async function resolvedServices(
-  deps: Pick<AppDeps, "db" | "keyEncryptionSecrets">,
+  deps: Pick<ModelsDeps, "db" | "keyEncryptionSecrets">,
   userId: string,
 ): Promise<string[]> {
   return (await listCredentials(deps, userId)).map((credential) => credential.service);
@@ -47,7 +47,7 @@ export type Payer<Offer> =
  * `hostOffer` looks up for each kind of call. `null` when neither applies.
  */
 export async function resolvePayer<Offer>(
-  deps: Pick<AppDeps, "db" | "keyEncryptionSecrets" | "byok">,
+  deps: Pick<ModelsDeps, "db" | "keyEncryptionSecrets" | "byok">,
   userId: string,
   services: readonly string[],
   hostOffer: () => Offer | null | undefined,
@@ -121,7 +121,7 @@ export async function resolveToolCall(
  * The Host's Models as Models. A Model whose id is curated takes its label and capability flags
  * from the curated list, unless the Host states its own.
  */
-export function hostModelList(deps: Pick<AppDeps, "hostProviders">): CuratedModel[] {
+export function hostModelList(deps: Pick<ModelsDeps, "hostProviders">): CuratedModel[] {
   return deps.hostProviders.flatMap(({ provider, models }) =>
     models.map((model): CuratedModel => {
       const id = `${provider}:${model.modelId}`;
@@ -145,7 +145,7 @@ export function hostModelList(deps: Pick<AppDeps, "hostProviders">): CuratedMode
 
 /** The Host's entry for a `"provider:model"` id, and the Provider it sits under. */
 function hostEntry(
-  deps: Pick<AppDeps, "hostProviders">,
+  deps: Pick<ModelsDeps, "hostProviders">,
   id: string,
 ): { hostProvider: HostProvider; model: HostModel } | undefined {
   for (const hostProvider of deps.hostProviders) {

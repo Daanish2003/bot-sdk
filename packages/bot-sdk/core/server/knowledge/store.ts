@@ -1,11 +1,6 @@
 import { and, count, desc, eq } from "drizzle-orm";
 
 import { knowledgeBlobKey, deleteBlobsBestEffort } from "../blob/store";
-import {
-  defaultEmbeddingModel,
-  embeddingModelIds,
-  resolveEmbeddingModel,
-} from "../chat/embedding-models";
 import { project, knowledgeChunk, knowledgeFile } from "../db/schema";
 import type { AppDeps } from "../deps";
 import { uuidv7 } from "../lib/uuidv7";
@@ -65,12 +60,12 @@ export async function knowledgeOf(deps: AppDeps, userId: string, projectId: stri
     .where(eq(knowledgeFile.projectId, projectId))
     .orderBy(desc(knowledgeFile.createdAt), desc(knowledgeFile.id));
   const models: string[] = [];
-  for (const id of embeddingModelIds()) {
-    if (await resolveEmbeddingModel(deps, userId, id)) models.push(id);
+  for (const id of deps.plugin("models").embeddingModelIds()) {
+    if (await deps.plugin("models").resolveEmbeddingModel(userId, id)) models.push(id);
   }
   const current = row.embeddingModel
-    ? await resolveEmbeddingModel(deps, userId, row.embeddingModel)
-    : await defaultEmbeddingModel(deps, userId);
+    ? await deps.plugin("models").resolveEmbeddingModel(userId, row.embeddingModel)
+    : await deps.plugin("models").defaultEmbeddingModel(userId);
   return {
     /** The stored Model, or null before the first upload. */
     embeddingModel: row.embeddingModel,
@@ -95,8 +90,8 @@ export async function uploadKnowledgeFile(
   const row = await findProject(deps, userId, projectId);
   if (!row) throw rpcError("NOT_FOUND", "error.projectNotFound", "Project not found");
   const model = row.embeddingModel
-    ? await resolveEmbeddingModel(deps, userId, row.embeddingModel)
-    : await defaultEmbeddingModel(deps, userId);
+    ? await deps.plugin("models").resolveEmbeddingModel(userId, row.embeddingModel)
+    : await deps.plugin("models").defaultEmbeddingModel(userId);
   if (!model) {
     throw rpcError(
       "BAD_REQUEST",
@@ -171,7 +166,7 @@ export async function setKnowledgeModel(
   if (!(await findProject(deps, userId, projectId))) {
     throw rpcError("NOT_FOUND", "error.projectNotFound", "Project not found");
   }
-  if (!(await resolveEmbeddingModel(deps, userId, model))) {
+  if (!(await deps.plugin("models").resolveEmbeddingModel(userId, model))) {
     throw rpcError(
       "BAD_REQUEST",
       "error.knowledgeModelNotAvailable",

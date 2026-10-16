@@ -2,7 +2,6 @@ import { z } from "zod";
 
 import { instructionsMaxChars } from "../../shared/chat/instructions";
 import { isKnownModel } from "../../shared/chat/models";
-import { resolveImageModel } from "../chat/image-models";
 import { protectedProcedure } from "../procedures";
 import { rpcError } from "../rpc-error";
 import {
@@ -45,7 +44,7 @@ export const settingsRouter = {
     .handler(async ({ context, input }) => {
       if (
         input.imageModel !== null &&
-        !(await resolveImageModel(context.deps, context.user.id, input.imageModel))
+        !(await context.deps.plugin("models").resolveImageModel(context.user.id, input.imageModel))
       ) {
         throw rpcError(
           "BAD_REQUEST",

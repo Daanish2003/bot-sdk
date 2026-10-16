@@ -1,5 +1,6 @@
-/* Tailwind v4 Hosts: import this after `@import "tailwindcss";` so Tailwind compiles ui/'s classes. */
+/* Tailwind v4 Hosts: import this after `@import "tailwindcss";` so Tailwind compiles the screens' classes. */
 @source ".";
+@source "../plugins/*/ui";
 
 /*
  * Printing a Conversation (#253): the browser's print dialog makes the PDF, so the page prints

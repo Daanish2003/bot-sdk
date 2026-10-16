@@ -1,7 +1,6 @@
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { defaultEmbeddingModel, embedTexts } from "../chat/embedding-models";
 import { conversation, project, memory, userSettings } from "../db/schema";
 import type { AppDeps } from "../deps";
 import { defineJob } from "../jobs/define";
@@ -46,7 +45,7 @@ export async function memoryStatus(deps: AppDeps, userId: string): Promise<Memor
     .select({ memoryEnabled: userSettings.memoryEnabled })
     .from(userSettings)
     .where(eq(userSettings.userId, userId));
-  const embedding = deps.memory ? await defaultEmbeddingModel(deps, userId) : null;
+  const embedding = deps.memory ? await deps.plugin("models").defaultEmbeddingModel(userId) : null;
   return {
     hostEnabled: deps.memory,
     enabled: settings?.memoryEnabled ?? true,
@@ -128,9 +127,9 @@ export async function editMemory(deps: AppDeps, userId: string, id: string, text
     .from(memory)
     .where(and(eq(memory.id, id), eq(memory.userId, userId), isNull(memory.invalidAt)));
   if (!row) throw rpcError("NOT_FOUND", "error.memoryNotFound", "Memory not found");
-  const embedding = await defaultEmbeddingModel(deps, userId);
+  const embedding = await deps.plugin("models").defaultEmbeddingModel(userId);
   if (!embedding) throw noEmbeddingModel();
-  const [vector] = await embedTexts(deps, {
+  const [vector] = await deps.plugin("models").embedTexts({
     model: embedding,
     texts: [text],
     purpose: "document",
@@ -172,7 +171,7 @@ export const reembedMemoriesJob = defineJob<z.infer<typeof reembedPayload>>({
   name: "memory.reembed",
   payload: reembedPayload,
   run: async ({ userId }, { deps }) => {
-    const embedding = await defaultEmbeddingModel(deps, userId);
+    const embedding = await deps.plugin("models").defaultEmbeddingModel(userId);
     if (!embedding) return;
     if (!(await embedding.meter.mayRun()).ok) return;
     await deps.db.transaction(async (tx) => {
@@ -190,7 +189,7 @@ export const reembedMemoriesJob = defineJob<z.infer<typeof reembedPayload>>({
           ),
         );
       if (stale.length === 0) return;
-      const vectors = await embedTexts(deps, {
+      const vectors = await deps.plugin("models").embedTexts({
         model: embedding,
         texts: stale.map((row) => row.text),
         purpose: "document",

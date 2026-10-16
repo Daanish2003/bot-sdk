@@ -1,7 +1,10 @@
 import { and, eq, gte, lt, sql } from "drizzle-orm";
 
-import { usage } from "../db/schema";
-import type { AppDeps } from "../deps";
+import { usage } from "../../../core/server/db/schema";
+import type { RunUsage } from "../../../core/server/chat/usage";
+import type { MessageUsage } from "../../../core/shared/chat/message-record";
+import type { StoredPart } from "../../../core/shared/message-parts";
+import type { ModelsDeps } from "./types";
 
 /** One user's calls on Host credentials over a range, in micros and tokens (spec #277). */
 export type UsageTotal = {
@@ -17,7 +20,7 @@ export type UsageTotal = {
  * too, as they do against a Quota. A user with no calls in the range has no row.
  */
 export async function usageTotals(
-  deps: Pick<AppDeps, "db">,
+  deps: Pick<ModelsDeps, "db">,
   { since, until }: { since: Date; until: Date },
 ): Promise<UsageTotal[]> {
   const rows = await deps.db
@@ -56,7 +59,7 @@ export type UsageByDay = {
  * and ordered by day then Model (spec #277). A day or Model with no calls has no row.
  */
 export async function usageByDay(
-  deps: Pick<AppDeps, "db">,
+  deps: Pick<ModelsDeps, "db">,
   userId: string,
   { since, until }: { since: Date; until: Date },
 ): Promise<UsageByDay[]> {
@@ -83,3 +86,31 @@ export async function usageByDay(
     calls: row.calls,
   }));
 }
+
+/**
+ * The usage a Run stores when it ends: what the Provider reported for a Run that completed, or,
+ * when it didn't (stopped, failed or no usage reported), a characters ÷ 4 estimate of the prompt
+ * and the reply's streamed text and thinking, flagged `estimated`.
+ */
+export function messageUsage(
+  reported: RunUsage | undefined,
+  { promptCharacters, parts }: { promptCharacters: number; parts: StoredPart[] },
+): MessageUsage {
+  if (reported) return { ...reported, estimated: false };
+  let thinking = 0;
+  let text = 0;
+  for (const part of parts) {
+    if (part.type === "text") text += part.text.length;
+    if (part.type === "thinking") thinking += part.text.length;
+  }
+  return {
+    input: tokensOf(promptCharacters),
+    output: tokensOf(text + thinking),
+    reasoning: tokensOf(thinking),
+    cached: 0,
+    estimated: true,
+  };
+}
+
+/** A quarter of a token per character, rounded up. */
+const tokensOf = (characters: number) => Math.ceil(characters / 4);

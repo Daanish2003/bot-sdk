@@ -16,3 +16,5 @@ export {
   useChatAdapter,
   useI18n,
 } from "./react/provider";
+export type { BotSdkClientPlugin } from "./plugin";
+export { modelsClient, type ModelsClientPlugin } from "../../plugins/models/client/index";

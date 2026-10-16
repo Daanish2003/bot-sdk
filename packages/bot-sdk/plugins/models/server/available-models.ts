@@ -1,10 +1,10 @@
-import { conversation } from "../db/schema";
+import { conversation } from "../../../core/server/db/schema";
 import { desc, eq } from "drizzle-orm";
 
-import { resolvedServices, hostModelList } from "../credentials/resolve";
-import { loadCredentials } from "../credentials/store";
-import { tavilyService } from "../../shared/credentials/services";
-import type { AppDeps } from "../deps";
+import { resolvedServices, hostModelList } from "./credentials/resolve";
+import { loadCredentials } from "./credentials/store";
+import { tavilyService } from "../../../core/shared/credentials/services";
+import type { ModelsDeps } from "./types";
 import { ollamaModels, openRouterModels } from "./live-models";
 import { listImageModels } from "./image-models";
 import {
@@ -15,11 +15,11 @@ import {
   findModel,
   isLiveListProvider,
   parseModelId,
-} from "../../shared/chat/models";
-import type { ListedImageModel } from "../../shared/chat/image-models";
+} from "../../../core/shared/chat/models";
+import type { ListedImageModel } from "../../../core/shared/chat/image-models";
 
 type Deps = Pick<
-  AppDeps,
+  ModelsDeps,
   | "db"
   | "keyEncryptionSecrets"
   | "fetch"
