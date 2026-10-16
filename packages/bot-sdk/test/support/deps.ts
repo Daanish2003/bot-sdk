@@ -8,6 +8,7 @@ import { createHookEmitter, type HookEmitter } from "../../core/server/chat/hook
 import { createMemoryPubSub } from "../../core/server/chat/pubsub";
 import { createMemoryRunStreams } from "../../core/server/chat/run-streams";
 import type { GivenContext } from "../../core/server/create-chat";
+import type { BotSdkPlugin } from "../../core/server/plugin";
 import { createBotSdkOver, type SdkOver } from "../../plugins/assistant/server/over";
 import type { Limits } from "../../plugins/assistant/server/deps";
 import type { ModelsDeps } from "../../plugins/models/server/types";
@@ -31,6 +32,8 @@ export type TestDepsOverrides = Partial<
       /** The core's event emitter (`BotSdkContext.events`). */
       hooks: HookEmitter;
       limits: Partial<Limits>;
+      /** More plugins, enabled after `models` and the assistant. */
+      plugins: readonly BotSdkPlugin[];
     }
 >;
 
@@ -39,7 +42,7 @@ export type TestDepsOverrides = Partial<
  * reaches the network; it returns the instance's core context with its `models` bundle. Pass
  * overrides for the parts a test scripts (for example `adapterFor` returning a fake adapter).
  */
-export function createTestSdk({ limits, ...overrides }: TestDepsOverrides = {}): TestDeps {
+export function createTestSdk({ limits, plugins, ...overrides }: TestDepsOverrides = {}): TestDeps {
   const db = overrides.db ?? getTestDb();
   // Silent, like the handler's logger in `support/sdk.ts`: the tests assert on rows, not logs.
   const logger = overrides.logger ?? { error: () => {} };
@@ -125,7 +128,7 @@ export function createTestSdk({ limits, ...overrides }: TestDepsOverrides = {}):
     ...(overrides.jobs && { jobs: overrides.jobs }),
   };
   return createBotSdkOver(
-    { context, models, assistant },
+    { context, models, assistant, ...(plugins && { plugins }) },
     { basePath: "/api/chat", getUser: () => null, logger: { error: () => {} } },
   ).sdk;
 }

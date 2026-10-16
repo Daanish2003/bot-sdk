@@ -46,6 +46,26 @@ export type BotSdkContext = {
   plugin: <Id extends keyof PluginApis>(id: Id) => PluginApis[Id];
 };
 
+/** A transaction on the core's database. */
+export type Transaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
+
+/**
+ * A plugin's hooks on a Conversation delete (spec #439), called once per set of Conversations on
+ * every path that deletes them. `before` runs in the transaction, before the rows go, and returns
+ * what it collected; a throw rolls the delete back. `after` runs after the commit with that value;
+ * a throw is logged and swallowed. `userId` is `null` only for the Temporary sweep, which spans users.
+ */
+export type ConversationDeleteHooks<Collected = unknown> = {
+  before(
+    sdk: BotSdkContext,
+    args: { conversationIds: string[]; userId: string | null; tx: Transaction },
+  ): Promise<Collected>;
+  after(
+    sdk: BotSdkContext,
+    args: { conversationIds: string[]; userId: string | null; collected: Collected },
+  ): Promise<void>;
+};
+
 type RouteArgs<User> = {
   user: User;
   sdk: BotSdkContext;
@@ -99,6 +119,8 @@ export type BotSdkPlugin<
    * `unreadable` counts rows no key can read. `rotateKeys()` sums every plugin's counts.
    */
   rotateKeys?: (sdk: BotSdkContext) => Promise<{ reencrypted: number; unreadable: number }>;
+  /** Hooks on deletes of core rows, run by the core's delete (`deleteConversations`). */
+  databaseHooks?: { conversation?: { delete?: ConversationDeleteHooks } };
   /**
    * Deletes this plugin's data for a user (`sdk.deleteUser`). The assistant's does it for every
    * `chat` table until each plugin deletes its own (#449).

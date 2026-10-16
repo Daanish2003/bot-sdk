@@ -3,7 +3,6 @@ import {
   message,
   type MessageRow,
   sharedLink,
-  generatedImage,
 } from "../../../../core/server/db/schema";
 import { and, desc, eq, inArray, isNotNull, isNull, type SQL, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
@@ -11,10 +10,8 @@ import { z } from "zod";
 
 import { attachmentsOfMessages } from "../../../../core/server/attachments/store";
 import { loadMessages } from "../../../../core/server/chat/message-tree";
-import { deleteBlobsBestEffort } from "../../../../core/server/blob/store";
 import type { BotSdkContext } from "../../../../core/server/plugin";
-import { generatedImageKeysWhere, imagesOfMessages } from "./generated-image-store";
-import { withProjectId } from "../../../../core/server/chat/hooks";
+import { deleteConversations } from "../../../../core/server/chat/delete-conversations";
 import { turnChangesOf } from "../memory/notice";
 import { newestLeaf, pathTo, siblingPosition } from "../../../../core/shared/chat/branches";
 import { type ActiveBranchMessage, toClientMessage } from "../../shared/chat/client-message";
@@ -116,33 +113,19 @@ export async function setConversationConnections(
 
 /**
  * Deletes the user's Conversation and, by cascade, its Messages and Shared link; `false` when it
- * isn't theirs. Fires `onConversationDeleted` after the delete (#266).
+ * isn't theirs. Its live Runs stop, through the delete hooks. Fires `onConversationDeleted` after
+ * the commit (#266).
  */
-export async function deleteConversation(
-  deps: Pick<BotSdkContext, "db" | "events" | "blobStore" | "logger">,
-  userId: string,
-  id: string,
-) {
-  const { row, blobKeys } = await deps.db.transaction(async (tx) => {
-    // The Generated images of this Conversation: their rows go by cascade, their bytes after the commit.
-    const blobKeys = await generatedImageKeysWhere(
-      tx,
-      and(eq(generatedImage.userId, userId), imagesOfMessages(tx, eq(message.conversationId, id))),
-    );
-    const [row] = await tx
-      .delete(conversation)
-      .where(ownConversation(userId, id))
-      .returning({ id: conversation.id, projectId: conversation.projectId });
-    return { row, blobKeys };
-  });
-  await deleteBlobsBestEffort(deps, blobKeys);
-  if (!row) return false;
-  deps.events.fire("onConversationDeleted", {
-    userId,
-    conversationId: row.id,
-    ...withProjectId(row.projectId),
-  });
-  return true;
+export async function deleteConversation(deps: BotSdkContext, userId: string, id: string) {
+  const { deleted, afterCommit } = await deps.db.transaction((tx) =>
+    deleteConversations(deps, tx, {
+      where: ownConversation(userId, id),
+      userId,
+      announce: { projectId: conversation.projectId },
+    }),
+  );
+  await afterCommit();
+  return deleted.length > 0;
 }
 
 /** How many Conversations a user can have pinned at once. */
