@@ -1,8 +1,9 @@
 // Copies the Bot SDK into a Host's source tree: `pnpm -F @ai-chat/bot-sdk copy <dest>`.
 //
 // - core/ is always replaced, and <dest>/VERSION records the commit and date copied.
-// - plugins/ is replaced like core/, except each plugin's ui/ folder, which is the Host's once copied
-//   (theme.css names those folders, so they keep the same layout under <dest>/).
+// - Each plugin the SDK ships is replaced like core/, except its ui/ folder, which is the Host's once
+//   copied (theme.css names those folders, so they keep the same layout under <dest>/). A Host's own
+//   folders under <dest>/plugins are never touched.
 // - ui/ and extras/ are copied only when their destination folder does not exist, so a Host's
 //   edits survive updates.
 // - package.json, README.md and NOTICE (the credit for ported code) are copied to <dest>/ on
@@ -50,31 +51,23 @@ function copyTree(from: string, to: string) {
 }
 
 // core's barrels value-import plugins/, so a Host gets them too. Server and client code is replaced
-// each run; a plugin's ui/ is copied only when absent, so Host edits survive.
+// each run; a plugin's ui/ is copied only when absent, so Host edits survive. Only the plugins the
+// SDK ships are touched, so a Host's own plugin folders under <dest>/plugins stay as they are.
 function copyPlugins(source: string, target: string) {
   const from = join(source, "plugins");
   const to = join(target, "plugins");
-  if (existsSync(to)) {
-    for (const plugin of readdirSync(to, { withFileTypes: true })) {
-      if (!plugin.isDirectory()) continue;
-      for (const entry of readdirSync(join(to, plugin.name))) {
-        if (entry !== "ui") rmSync(join(to, plugin.name, entry), { recursive: true, force: true });
-      }
-    }
-  }
   for (const plugin of readdirSync(from, { withFileTypes: true })) {
     if (!plugin.isDirectory()) continue;
+    const pluginDest = join(to, plugin.name);
+    if (existsSync(pluginDest)) {
+      for (const entry of readdirSync(pluginDest)) {
+        if (entry !== "ui") rmSync(join(pluginDest, entry), { recursive: true, force: true });
+      }
+    }
     for (const entry of readdirSync(join(from, plugin.name))) {
-      const dest = join(to, plugin.name, entry);
+      const dest = join(pluginDest, entry);
       if (entry === "ui" && existsSync(dest)) continue;
       copyTree(join(from, plugin.name, entry), dest);
-    }
-  }
-  // Drop plugin folders left empty. A plugin removed from the SDK keeps its ui/, which is the Host's.
-  if (existsSync(to)) {
-    for (const plugin of readdirSync(to, { withFileTypes: true })) {
-      const dir = join(to, plugin.name);
-      if (plugin.isDirectory() && readdirSync(dir).length === 0) rmSync(dir, { recursive: true });
     }
   }
 }

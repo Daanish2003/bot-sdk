@@ -130,7 +130,6 @@ describe("copySdk", () => {
     copySdk(dest, { source, version });
 
     write(join(dest, "plugins", "assistant", "ui", "panel.tsx"), "host edit");
-    write(join(dest, "plugins", "gone", "server", "x.ts"), "stale");
     write(join(dest, "plugins", "assistant", "server", "removed.ts"), "stale");
     write(join(source, "plugins", "assistant", "server", "index.ts"), "export const a = 2;");
     copySdk(dest, { source, version });
@@ -141,8 +140,18 @@ describe("copySdk", () => {
     expect(readFileSync(join(dest, "plugins", "assistant", "ui", "panel.tsx"), "utf8")).toBe(
       "host edit",
     );
-    expect(existsSync(join(dest, "plugins", "gone"))).toBe(false);
     expect(existsSync(join(dest, "plugins", "assistant", "server", "removed.ts"))).toBe(false);
+  });
+
+  it("leaves a Host's own plugin folder alone, touching only the plugins the SDK ships", () => {
+    write(join(dest, "plugins", "billing", "server", "index.ts"), "host plugin");
+
+    copySdk(dest, { source, version });
+    copySdk(dest, { source, version });
+
+    expect(readFileSync(join(dest, "plugins", "billing", "server", "index.ts"), "utf8")).toBe(
+      "host plugin",
+    );
   });
 
   it("checks each ui folder on its own: a missing one is copied while the others stay", () => {
