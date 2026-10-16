@@ -1,9 +1,13 @@
+import { globSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 const testFiles = ["{apps,packages}/*/{src,test}/**/*.test.ts"];
 const integrationTestFiles = ["{apps,packages}/*/{src,test}/**/*.integration.test.ts"];
+
+const rootDir = fileURLToPath(new URL(".", import.meta.url));
 
 // The Bot SDK's `ui/` imports shadcn primitives as `@/components/ui/*` and `@/lib/utils`.
 // In this repo those live in packages/ui.
@@ -13,6 +17,22 @@ const shadcnAliases = [
   { find: /^@\/components\/ui\/(.*)$/, replacement: `${uiSource}/components/$1` },
   { find: /^@\/lib\/utils$/, replacement: `${uiSource}/lib/utils` },
 ];
+
+// Integration files share one module graph per worker (`isolate: false`), which a `vi.mock` would
+// leak into, so the files that mock a module (in their own text) run isolated in their own project.
+// Watch mode reruns files in reused workers, where a module-level registry (`defineJob`) would see
+// its file's definitions twice, so there every integration file is isolated.
+const watching = !process.argv.includes("run");
+const mockingIntegrationTestFiles = globSync(integrationTestFiles, { cwd: rootDir })
+  .filter((file) => /\bvi\.(mock|doMock)\(/.test(readFileSync(join(rootDir, file), "utf8")))
+  .map((file) => file.replaceAll("\\", "/"));
+
+// Each worker has its own copy of the test database (global setup), so integration files run in
+// parallel. Both projects name the global setup; it makes the copies once per run.
+const integrationTest = {
+  globalSetup: ["packages/bot-sdk/test/support/global-setup.ts"],
+  setupFiles: ["packages/bot-sdk/test/support/setup.ts"],
+};
 
 export default defineConfig({
   test: {
@@ -43,13 +63,19 @@ export default defineConfig({
       {
         resolve: { alias: shadcnAliases },
         test: {
+          ...integrationTest,
           name: "integration",
-          // Integration tests share one Postgres database (TEST_DATABASE_URL),
-          // so their files run one at a time.
           include: integrationTestFiles,
-          fileParallelism: false,
-          globalSetup: ["packages/bot-sdk/test/support/global-setup.ts"],
-          setupFiles: ["packages/bot-sdk/test/support/setup.ts"],
+          exclude: [...configDefaults.exclude, ...mockingIntegrationTestFiles],
+          isolate: watching,
+        },
+      },
+      {
+        resolve: { alias: shadcnAliases },
+        test: {
+          ...integrationTest,
+          name: "integration-mocked",
+          include: mockingIntegrationTestFiles,
         },
       },
     ],
