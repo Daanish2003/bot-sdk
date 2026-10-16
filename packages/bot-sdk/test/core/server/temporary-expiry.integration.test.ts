@@ -1,6 +1,8 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
+import { postgresBlobStore } from "../../../core/server/blob/postgres";
+import { attachmentBlobKey } from "../../../core/server/blob/store";
 import { createBotSdk } from "../../../core/server/create-chat";
 import { assistant } from "../../../plugins/assistant/server/plugin";
 import { models } from "../../../plugins/models/server/plugin";
@@ -8,6 +10,7 @@ import { sweepExpiredTemporaryConversations } from "../../../plugins/assistant/s
 import { saveCredentials } from "../../../plugins/models/server/credentials/store";
 import {
   attachment,
+  blob,
   messageAttachment,
   conversation,
   message,
@@ -170,6 +173,38 @@ describe("sweepExpiredTemporaryConversations", () => {
     expect(await attachmentExists(file.id)).toBe(false);
     expect(await conversationExists(younger.id)).toBe(true);
     expect(await messageCount(younger.id)).toBe(1);
+  });
+
+  it("deletes the bytes and blob rows of the Attachments it deletes, and keeps a shared one's", async () => {
+    const user = await insertUser();
+    const deleted: string[] = [];
+    const deps = createTestSdk({
+      blobStore: {
+        ...postgresBlobStore(getTestDb()),
+        delete: async (keys) => {
+          deleted.push(...keys);
+        },
+      },
+    });
+    const expired = await insertConversation(user, { temporary: true, lastMessageAt: daysAgo(31) });
+    const expiredMessage = await insertMessage({
+      conversationId: expired.id,
+      role: "user",
+      text: "A",
+    });
+    const live = await insertConversation(user, { lastMessageAt: new Date() });
+    const liveMessage = await insertMessage({ conversationId: live.id, role: "user", text: "B" });
+    const gone = await insertAttachment(user);
+    const shared = await insertAttachment(user);
+    await linkTestAttachments(expiredMessage.id, [gone.id, shared.id]);
+    await linkTestAttachments(liveMessage.id, [shared.id]);
+
+    await sweepExpiredTemporaryConversations(deps);
+
+    const blobKeys = (await getTestDb().select().from(blob)).map((row) => row.key);
+    expect(blobKeys).not.toContain(attachmentBlobKey(gone.id));
+    expect(blobKeys).toContain(attachmentBlobKey(shared.id));
+    expect(deleted).toEqual([attachmentBlobKey(gone.id)]);
   });
 
   it("takes its now as an argument", async () => {

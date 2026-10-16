@@ -94,14 +94,25 @@ export async function deleteOrphanAttachments(deps: WriteDeps, before: Date) {
 }
 
 /**
- * Deletes every attachment of the user's inside the caller's transaction, with their Postgres bytes,
- * and returns their blob keys for the store's own delete after the commit. Their Messages must be
- * gone first: a Message's link to an attachment does not cascade.
+ * Deletes the ones of `attachmentIds` that no Message uses any more, with their Postgres bytes,
+ * inside the caller's transaction (call it after the Messages are gone). Returns the blob keys;
+ * pass them to `deleteBlobsBestEffort` once the transaction commits.
  */
-export async function deleteUserAttachments(tx: Tx, userId: string): Promise<string[]> {
+export async function deleteUnusedAttachments(tx: Tx, attachmentIds: string[]): Promise<string[]> {
+  if (attachmentIds.length === 0) return [];
   const removed = await tx
     .delete(attachment)
-    .where(eq(attachment.userId, userId))
+    .where(
+      and(
+        inArray(attachment.id, attachmentIds),
+        notExists(
+          tx
+            .select({ id: messageAttachment.attachmentId })
+            .from(messageAttachment)
+            .where(eq(messageAttachment.attachmentId, attachment.id)),
+        ),
+      ),
+    )
     .returning({ id: attachment.id });
   const keys = removed.map((row) => attachmentBlobKey(row.id));
   if (keys.length > 0) await tx.delete(blob).where(inArray(blob.key, keys));

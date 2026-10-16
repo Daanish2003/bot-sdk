@@ -1,5 +1,8 @@
 import type { UserExport } from "../../plugins/assistant/server/export-user";
-import { deleteUserAttachments } from "./attachments/store";
+import { eq } from "drizzle-orm";
+
+import { deleteUnusedAttachments } from "./attachments/store";
+import { attachment } from "./db/schema";
 import { deleteBlobsBestEffort } from "./blob/store";
 import { deleteConversations } from "./chat/delete-conversations";
 import { enabledPlugins, type BotSdkContext } from "./plugin";
@@ -22,7 +25,16 @@ export async function deleteUserData(sdk: BotSdkContext, userId: string): Promis
     for (const hooks of plugins) collected.push(await hooks.before(sdk, { userId, tx }));
     // Before the attachments: a Message's link to an attachment does not cascade.
     const { afterCommit } = await deleteConversations(sdk, tx, { userId, mute: true });
-    return { collected, afterCommit, blobKeys: await deleteUserAttachments(tx, userId) };
+    // With their Messages gone, none of the user's attachments is used any more.
+    const own = await tx
+      .select({ id: attachment.id })
+      .from(attachment)
+      .where(eq(attachment.userId, userId));
+    const blobKeys = await deleteUnusedAttachments(
+      tx,
+      own.map((row) => row.id),
+    );
+    return { collected, afterCommit, blobKeys };
   });
   await afterCommit();
   await deleteBlobsBestEffort(sdk, blobKeys);
