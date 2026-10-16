@@ -11,6 +11,7 @@ import {
   kidOf,
   type CredentialKind,
 } from "../../../../core/server/credentials/encryption";
+import { rotateInPasses } from "../../../../core/server/credentials/rotation";
 
 type Deps = Pick<ModelsDeps, "db" | "keyEncryptionSecrets">;
 
@@ -78,27 +79,16 @@ export type RotationResult = {
   unreadable: { unknownKey: number; corrupt: number };
 };
 
-/** How many scans a rotation makes before it gives up on rows a concurrent write keeps changing. */
-const maxRotationPasses = 3;
-
 /**
  * Re-encrypts every stored credential whose key isn't the keyring's first (ADR 0010), in batches
  * ordered by row key. A row no key can read stays in place and is counted. A row a concurrent write
- * changed between the read and the update is caught by another scan, up to `maxRotationPasses`.
+ * changed between the read and the update is caught by another scan (`rotateInPasses`).
  */
 export async function rotateCredentialKeys(
   deps: Deps,
   { batchSize = 100 }: { batchSize?: number } = {},
 ): Promise<RotationResult> {
-  let reencrypted = 0;
-  for (let pass = 1; ; pass += 1) {
-    const scan = await rotateOnce(deps, batchSize);
-    reencrypted += scan.reencrypted;
-    // The last scan saw every row, so its unreadable count is the whole picture.
-    if (scan.raced === 0 || pass === maxRotationPasses) {
-      return { reencrypted, unreadable: scan.unreadable };
-    }
-  }
+  return rotateInPasses(() => rotateOnce(deps, batchSize));
 }
 
 /** One scan over every row; `raced` counts updates that found the row already changed. */

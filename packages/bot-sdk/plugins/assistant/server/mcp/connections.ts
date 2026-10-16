@@ -7,6 +7,7 @@ import {
   encryptionKid,
   kidOf,
 } from "../../../../core/server/credentials/encryption";
+import { rotateInPasses } from "../../../../core/server/credentials/rotation";
 import type { BotSdkContext } from "../../../../core/server/plugin";
 import type { TokenSet } from "./oauth";
 import { assistantState } from "../state";
@@ -191,20 +192,14 @@ export async function deleteConnection(deps: Deps, userId: string, key: string) 
  * Re-encrypts every Connection's tokens whose key isn't the keyring's first (ADR 0010), in batches
  * ordered by row key. Tokens no key can read stay in place and are counted. A row a concurrent
  * write changed between the read and the update (perhaps an instance still on the old keyring) is
- * caught by another scan, up to three, as for credentials. A pending sign-in is left alone; it
+ * caught by another scan (`rotateInPasses`), as for credentials. A pending sign-in is left alone; it
  * expires within minutes.
  */
 export async function rotateConnectionKeys(
   deps: Deps,
   { batchSize = 100 }: { batchSize?: number } = {},
 ): Promise<{ reencrypted: number; unreadable: number }> {
-  let reencrypted = 0;
-  for (let pass = 1; ; pass += 1) {
-    const scan = await rotateConnectionsOnce(deps, batchSize);
-    reencrypted += scan.reencrypted;
-    // The last scan saw every row, so its unreadable count is the whole picture.
-    if (scan.raced === 0 || pass === 3) return { reencrypted, unreadable: scan.unreadable };
-  }
+  return rotateInPasses(() => rotateConnectionsOnce(deps, batchSize));
 }
 
 /** One scan over every Connection; `raced` counts updates that found the row already changed. */
