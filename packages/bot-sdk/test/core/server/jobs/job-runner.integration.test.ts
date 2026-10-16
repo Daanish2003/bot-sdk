@@ -116,6 +116,12 @@ defineJob({
 /** Every `chat.job` row, read straight from the test database. */
 const jobRows = () => getTestDb().select().from(job);
 
+/** The first job's attempts and status as `"<attempts>:<status>"`, to poll on both at once. */
+async function attemptAndStatus() {
+  const [row] = await jobRows();
+  return row && `${row.attempts}:${row.status}`;
+}
+
 /** The status of the job with this name, or undefined when there is none. */
 async function statusOf(name: string) {
   const [row] = await getTestDb().select().from(job).where(eq(job.name, name));
@@ -321,7 +327,8 @@ describe("retries", () => {
     await runner.enqueue("test.fail", { label: "a" });
     await runner.start();
 
-    await expect.poll(async () => (await jobRows())[0]?.attempts).toBe(1);
+    // `attempts` goes up when the job is claimed, before the failure is written: wait for both.
+    await expect.poll(attemptAndStatus).toBe("1:queued");
     const [first] = await jobRows();
     expect(first).toMatchObject({ status: "queued", lastError: "boom" });
     expect(first!.runAfter.getTime() - timer.clock.now().getTime()).toBe(10_000);
@@ -332,7 +339,7 @@ describe("retries", () => {
 
     timer.advance(10_000);
     timer.tick();
-    await expect.poll(async () => (await jobRows())[0]?.attempts).toBe(2);
+    await expect.poll(attemptAndStatus).toBe("2:queued");
     const [second] = await jobRows();
     expect(second!.runAfter.getTime() - timer.clock.now().getTime()).toBe(60_000);
     expect(failedLabels).toEqual([]);
