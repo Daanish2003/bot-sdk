@@ -5,8 +5,11 @@ import { describe, expect, it } from "vitest";
 import type { BotSdkClient } from "../../../core/client/chat-client";
 import type { ListedModel } from "../../../plugins/models/shared/models";
 import { KeySettingsPage } from "../../../plugins/models/ui/key-settings";
-import { ProjectPage } from "../../../ui/pages/project";
-import { SharedConversationPage, SharedLinkNotFound } from "../../../ui/pages/shared-conversation";
+import { ProjectPage } from "../../../plugins/assistant/ui/pages/project";
+import {
+  SharedConversationPage,
+  SharedLinkNotFound,
+} from "../../../plugins/assistant/ui/pages/shared-conversation";
 import { renderWrapped, untranslated } from "../fake-dictionary";
 
 const projectId = "00000000-0000-4000-8000-000000000001";

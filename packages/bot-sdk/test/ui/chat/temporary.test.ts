@@ -2,8 +2,8 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { TemporaryBanner } from "../../../ui/chat/temporary-banner";
-import { TemporaryToggle } from "../../../ui/chat/temporary-toggle";
+import { TemporaryBanner } from "../../../plugins/assistant/ui/chat/temporary-banner";
+import { TemporaryToggle } from "../../../plugins/assistant/ui/chat/temporary-toggle";
 
 describe("the Temporary toggle", () => {
   it("is labelled Temporary and reports whether it is on", () => {

@@ -3,6 +3,8 @@ import { createElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { createBotSdkClient, type BotSdkClient } from "../../core/client/chat-client";
+import { assistantClient } from "../../plugins/assistant/client/index";
+import { modelsClient } from "../../plugins/models/client/index";
 import {
   type ChatLinkProps,
   ChatProvider,
@@ -97,6 +99,7 @@ export function providerFor(
   }: WrapOptions = {},
 ) {
   const client = createBotSdkClient({
+    plugins: [modelsClient(), assistantClient()],
     baseUrl: "http://localhost/api/chat",
     fetch,
   });

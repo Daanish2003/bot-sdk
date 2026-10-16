@@ -1,5 +1,7 @@
 import type { TestDeps } from "./deps";
 import { createBotSdkClient, type BotSdkClient } from "../../core/client/chat-client";
+import { assistantClient } from "../../plugins/assistant/client/index";
+import { modelsClient } from "../../plugins/models/client/index";
 import { createChatHandler } from "../../plugins/assistant/server/over";
 import { createTestSdk } from "./deps";
 import type { TestUser } from "./users";
@@ -20,7 +22,11 @@ export function createTestChat({
     getUser: () => (user ? { id: user.id } : null),
     logger: { error: () => {} },
   });
-  return createBotSdkClient({ baseUrl: `http://localhost${basePath}`, fetch: handler });
+  return createBotSdkClient({
+    plugins: [modelsClient(), assistantClient()],
+    baseUrl: `http://localhost${basePath}`,
+    fetch: handler,
+  });
 }
 
 /** The typed RPC client of `createTestChat`, for the procedures. */

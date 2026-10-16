@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderEnglish as renderToStaticMarkup } from "../fake-dictionary";
 import { describe, expect, it } from "vitest";
 
-import { SavedPromptFormView, SlashMenuList } from "../../../ui/chat/slash-menu";
+import { SavedPromptFormView, SlashMenuList } from "../../../plugins/assistant/ui/chat/slash-menu";
 
 const prompts = [
   { name: "review", text: "\n  Review this code for bugs first.\nThen readability." },

@@ -4,10 +4,13 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { createBotSdkClient } from "../../../core/client/chat-client";
+import { assistantClient } from "../../../plugins/assistant/client/index";
+import { modelsClient } from "../../../plugins/models/client/index";
 import { ChatProvider, type ChatRouter } from "../../../core/client/react/provider";
-import { SavedPromptsSection } from "../../../ui/settings/saved-prompts";
+import { SavedPromptsSection } from "../../../plugins/assistant/ui/settings/saved-prompts";
 
 const client = createBotSdkClient({
+  plugins: [modelsClient(), assistantClient()],
   baseUrl: "http://localhost/api/chat",
   fetch: async () => {
     throw new Error("Unexpected request in a render test");

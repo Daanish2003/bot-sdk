@@ -4,16 +4,19 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { createBotSdkClient } from "../../core/client/chat-client";
+import { assistantClient } from "../../plugins/assistant/client/index";
+import { modelsClient } from "../../plugins/models/client/index";
 import {
   ChatProvider,
   type ChatLinkProps,
   type ChatRouter,
 } from "../../core/client/react/provider";
-import { MissingCredentialsBanner } from "../../ui/chat/missing-credentials-banner";
-import { NoCredentials } from "../../ui/chat/no-credentials";
+import { MissingCredentialsBanner } from "../../plugins/models/ui/chat/missing-credentials-banner";
+import { NoCredentials } from "../../plugins/models/ui/chat/no-credentials";
 import { KeySettingsPage } from "../../plugins/models/ui/key-settings";
 
 const client = createBotSdkClient({
+  plugins: [modelsClient(), assistantClient()],
   baseUrl: "http://localhost/api/chat",
   fetch: async () => {
     throw new Error("Unexpected request in a render test");

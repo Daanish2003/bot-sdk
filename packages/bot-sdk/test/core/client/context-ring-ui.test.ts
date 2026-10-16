@@ -2,7 +2,10 @@ import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 
 import { contextFill } from "../../../plugins/assistant/client/context-ring";
-import { ContextOverflowNotice, ContextRing } from "../../../ui/chat/context-ring";
+import {
+  ContextOverflowNotice,
+  ContextRing,
+} from "../../../plugins/assistant/ui/chat/context-ring";
 import { renderInChat } from "../../support/chat-provider";
 
 const renderIn = (ui: ReturnType<typeof createElement>, locale?: string) =>

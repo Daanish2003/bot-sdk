@@ -7,7 +7,10 @@ import {
   type GeneratedImageErrorReason,
 } from "../../../plugins/assistant/shared/chat/generated-image";
 import { renderInChat } from "../../support/chat-provider";
-import { GeneratedImageBlock, GeneratedImageViewer } from "../../../ui/chat/generated-image-block";
+import {
+  GeneratedImageBlock,
+  GeneratedImageViewer,
+} from "../../../plugins/assistant/ui/chat/generated-image-block";
 
 const image = (fields: Partial<GeneratedImagePart> = {}): GeneratedImagePart => ({
   type: "generated_image",

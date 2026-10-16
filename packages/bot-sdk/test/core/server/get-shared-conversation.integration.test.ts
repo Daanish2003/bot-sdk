@@ -2,6 +2,8 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { createBotSdkClient } from "../../../core/client/chat-client";
+import { assistantClient } from "../../../plugins/assistant/client/index";
+import { modelsClient } from "../../../plugins/models/client/index";
 import { createBotSdk } from "../../../core/server/create-chat";
 import { assistant } from "../../../plugins/assistant/server/plugin";
 import { models } from "../../../plugins/models/server/plugin";
@@ -24,6 +26,7 @@ function chatFor(user: TestUser | null) {
     plugins: [models(), assistant()],
   });
   const client = createBotSdkClient({
+    plugins: [modelsClient(), assistantClient()],
     baseUrl: `http://localhost${basePath}`,
     fetch: chat.handler,
   });
@@ -292,6 +295,7 @@ describe("chat.isUserBlocked", () => {
       plugins: [models(), assistant()],
     });
     const client = createBotSdkClient({
+      plugins: [modelsClient(), assistantClient()],
       baseUrl: `http://localhost${basePath}`,
       fetch: chat.handler,
     });

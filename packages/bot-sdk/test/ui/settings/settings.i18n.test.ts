@@ -4,12 +4,12 @@ import { describe, expect, it } from "vitest";
 
 import type { BotSdkClient } from "../../../core/client/chat-client";
 import type { ListedModel } from "../../../plugins/models/shared/models";
-import { ConnectionsSection } from "../../../ui/settings/connections-section";
-import { DeleteAllConversationsSection } from "../../../ui/settings/delete-all-conversations";
+import { ConnectionsSection } from "../../../plugins/assistant/ui/settings/connections-section";
+import { DeleteAllConversationsSection } from "../../../plugins/assistant/ui/settings/delete-all-conversations";
 import { ExportDataButton } from "../../../ui/settings/export-data-button";
-import { InstructionsField } from "../../../ui/settings/instructions-field";
-import { SharedLinksSection } from "../../../ui/settings/shared-links";
-import { BackgroundModelSelect } from "../../../ui/settings/background-model-select";
+import { InstructionsField } from "../../../plugins/assistant/ui/settings/instructions-field";
+import { SharedLinksSection } from "../../../plugins/assistant/ui/settings/shared-links";
+import { BackgroundModelSelect } from "../../../plugins/assistant/ui/settings/background-model-select";
 import { renderWrapped, untranslated } from "../fake-dictionary";
 
 const model: ListedModel = {

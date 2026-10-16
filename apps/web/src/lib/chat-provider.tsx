@@ -4,7 +4,7 @@ import {
   type ChatPage,
   ChatProvider,
   type ChatRouter,
-} from "@ai-chat/bot-sdk/client";
+} from "@ai-chat/bot-sdk/core/client";
 import type { QueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useParams, useRouter, useSearch } from "@tanstack/react-router";
 import { type ReactNode, useMemo } from "react";

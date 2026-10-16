@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 
 import { mcpToolsMenu, switchConnection } from "../../../plugins/assistant/client/mcp-tools";
-import { ToolsMenu, ToolsMenuList } from "../../../ui/chat/tools-menu";
+import { ToolsMenu, ToolsMenuList } from "../../../plugins/assistant/ui/chat/tools-menu";
 
 const servers = [
   { key: "linear", name: "Linear", state: "connected" as const },

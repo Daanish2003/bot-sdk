@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { createBotSdkClient } from "../../../../core/client/chat-client";
+import { assistantClient } from "../../../../plugins/assistant/client/index";
+import { modelsClient } from "../../../../plugins/models/client/index";
 import {
   type EventHooks,
   createHookEmitter,
@@ -258,6 +260,7 @@ describe("the moderate hook on the reply", () => {
     await fake.release(3);
     const reply = await replyOf(conv.id);
     await createBotSdkClient({
+      plugins: [modelsClient(), assistantClient()],
       baseUrl: `http://localhost${basePath}`,
       fetch: chat,
     }).rpc.chat.stop({ messageId: reply.id });

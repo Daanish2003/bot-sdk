@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { createBotSdkClient } from "../../../../core/client/chat-client";
+import { assistantClient } from "../../../../plugins/assistant/client/index";
+import { modelsClient } from "../../../../plugins/models/client/index";
 import type { HostToolContext } from "../../../../plugins/assistant/server/chat/host-tools";
 import {
   createHookEmitter,
@@ -361,6 +363,7 @@ describe("the onRunEnd hook", () => {
     const response = await chat.handler(runRequest(conv.id));
     const reply = await replyOf(conv.id);
     await createBotSdkClient({
+      plugins: [modelsClient(), assistantClient()],
       baseUrl: `http://localhost${basePath}`,
       fetch: chat.handler,
     }).rpc.chat.stop({ messageId: reply.id });
@@ -680,7 +683,11 @@ describe("the SDK's failures", () => {
 });
 /** The typed RPC client of a `createBotSdk`'s handler, for the Conversation and Shared link procedures. */
 function rpcOf(chat: ReturnType<typeof createBotSdk>) {
-  return createBotSdkClient({ baseUrl: `http://localhost${basePath}`, fetch: chat.handler }).rpc;
+  return createBotSdkClient({
+    plugins: [modelsClient(), assistantClient()],
+    baseUrl: `http://localhost${basePath}`,
+    fetch: chat.handler,
+  }).rpc;
 }
 
 /** A Conversation whose Active Branch ends in a complete reply: ready to share. */

@@ -30,7 +30,9 @@ registerHooks({
   },
 });
 
-const { assistant, createBotSdk, models } = await import("@ai-chat/bot-sdk/server");
+const { createBotSdk } = await import("@ai-chat/bot-sdk/core/server");
+const { models } = await import("@ai-chat/bot-sdk/plugins/models/server");
+const { assistant } = await import("@ai-chat/bot-sdk/plugins/assistant/server");
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("Set DATABASE_URL");

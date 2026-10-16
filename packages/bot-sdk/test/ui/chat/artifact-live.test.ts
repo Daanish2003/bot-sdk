@@ -10,8 +10,8 @@ import {
   panelTargetOf,
   rememberSaved,
   startedArtifactCalls,
-} from "../../../ui/chat/artifact-live";
-import { LiveArtifactView } from "../../../ui/chat/artifact-panel";
+} from "../../../plugins/assistant/ui/chat/artifact-live";
+import { LiveArtifactView } from "../../../plugins/assistant/ui/chat/artifact-panel";
 
 /** A streamed Artifact call on a Message, as `useChat` holds it while its arguments arrive. */
 const callPart = (fields: Record<string, unknown> = {}) => ({

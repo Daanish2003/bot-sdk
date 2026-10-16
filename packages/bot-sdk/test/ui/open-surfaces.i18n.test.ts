@@ -8,12 +8,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BotSdkClient } from "../../core/client/chat-client";
 import type { ListedModel } from "../../plugins/models/shared/models";
 import { en } from "../../core/shared/i18n";
-import { ChatView, type ConversationData } from "../../ui/chat/chat-view";
-import { ProjectPage } from "../../ui/pages/project";
-import { CommandPalette } from "../../ui/shell/command-palette";
-import { TopBar } from "../../ui/shell/top-bar";
-import { ShareDialog } from "../../ui/share/share-dialog";
-import { DeleteAllConversationsSection } from "../../ui/settings/delete-all-conversations";
+import { ChatView, type ConversationData } from "../../plugins/assistant/ui/chat/chat-view";
+import { ProjectPage } from "../../plugins/assistant/ui/pages/project";
+import { CommandPalette } from "../../plugins/assistant/ui/shell/command-palette";
+import { TopBar } from "../../plugins/assistant/ui/shell/top-bar";
+import { ShareDialog } from "../../plugins/assistant/ui/share/share-dialog";
+import { DeleteAllConversationsSection } from "../../plugins/assistant/ui/settings/delete-all-conversations";
 import { providerFor, untranslated } from "./fake-dictionary";
 
 /*

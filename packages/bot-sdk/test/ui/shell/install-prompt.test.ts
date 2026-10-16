@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 
-import { AppShell } from "../../../ui/shell/app-shell";
+import { AppShell } from "../../../plugins/assistant/ui/shell/app-shell";
 import { renderWrapped } from "../fake-dictionary";
 
 describe("the install prompt slot", () => {

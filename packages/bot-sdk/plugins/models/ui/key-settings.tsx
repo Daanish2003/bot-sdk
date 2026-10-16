@@ -22,16 +22,16 @@ import type { MessageKey } from "../../../core/shared/i18n";
 import { useByok } from "../client/react/byok";
 import { type BotSdkOrpc, useI18n, useOrpc } from "../../../core/client/react/provider";
 import { serverErrorText } from "../../../core/client/rpc-error";
-import { ArchivedConversationsSection } from "../../../ui/settings/archived-conversations";
-import { ConnectionsSection } from "../../../ui/settings/connections-section";
-import { DeleteAllConversationsSection } from "../../../ui/settings/delete-all-conversations";
+import { ArchivedConversationsSection } from "../../assistant/ui/settings/archived-conversations";
+import { ConnectionsSection } from "../../assistant/ui/settings/connections-section";
+import { DeleteAllConversationsSection } from "../../assistant/ui/settings/delete-all-conversations";
 import { ExportDataButton } from "../../../ui/settings/export-data-button";
-import { InstructionsField } from "../../../ui/settings/instructions-field";
-import { MemorySection } from "../../../ui/settings/memory-section";
-import { SavedPromptsSection } from "../../../ui/settings/saved-prompts";
-import { SharedLinksSection } from "../../../ui/settings/shared-links";
-import { BackgroundModelSelect } from "../../../ui/settings/background-model-select";
-import { ImageModelSelect } from "../../../ui/settings/image-model-select";
+import { InstructionsField } from "../../assistant/ui/settings/instructions-field";
+import { MemorySection } from "../../assistant/ui/settings/memory-section";
+import { SavedPromptsSection } from "../../assistant/ui/settings/saved-prompts";
+import { SharedLinksSection } from "../../assistant/ui/settings/shared-links";
+import { BackgroundModelSelect } from "../../assistant/ui/settings/background-model-select";
+import { ImageModelSelect } from "../../assistant/ui/settings/image-model-select";
 
 /**
  * Keys & settings: the user's Provider and Tool credentials, the Background Model and the Instructions.
