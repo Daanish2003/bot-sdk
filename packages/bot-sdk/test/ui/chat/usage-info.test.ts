@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 
 import type { MessageUsage } from "../../../plugins/models/shared/usage";
-import { UsageBreakdown } from "../../../ui/chat/usage-info";
+import { UsageBreakdown } from "../../../plugins/models/ui/chat/usage-info";
 import { renderInChat } from "../../support/chat-provider";
 
 const render = (usage: MessageUsage) => renderInChat(createElement(UsageBreakdown, { usage }));

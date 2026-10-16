@@ -1,4 +1,4 @@
-import { SharedConversationPage, SharedLinkNotFound } from "@ai-chat/bot-sdk/ui";
+import { SharedConversationPage, SharedLinkNotFound } from "@ai-chat/bot-sdk/plugins/assistant/ui";
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import type { ComponentProps } from "react";
 

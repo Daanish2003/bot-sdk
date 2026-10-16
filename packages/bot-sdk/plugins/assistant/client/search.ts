@@ -1,7 +1,9 @@
-import type { AppRouterClient } from "../server/routers/index";
+import type { AssistantRouterClient } from "../server/routers/index";
 import type { I18n } from "../../../core/shared/i18n";
 
-export type SearchHit = Awaited<ReturnType<AppRouterClient["search"]["query"]>>["hits"][number];
+export type SearchHit = Awaited<
+  ReturnType<AssistantRouterClient["search"]["query"]>
+>["hits"][number];
 
 /** A hit's snippet cut into the text before, of and after the match, for a plain-text `<mark>`. */
 export function splitSnippet({ text, match }: SearchHit["snippet"]) {

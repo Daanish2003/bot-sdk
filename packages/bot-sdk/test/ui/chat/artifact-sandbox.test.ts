@@ -10,7 +10,7 @@ import {
   mermaidVersion,
   minFrameHeight,
   svgDataUrl,
-} from "../../../ui/chat/artifact-sandbox";
+} from "../../../plugins/assistant/ui/chat/artifact-sandbox";
 
 const headOf = (document: string) => document.slice(0, document.indexOf("</head>"));
 

@@ -2,7 +2,7 @@ import type { UIMessage } from "@tanstack/ai-react";
 import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 
-import { MessageRow } from "../../../ui/chat/message-row";
+import { MessageRow } from "../../../plugins/assistant/ui/chat/message-row";
 import { renderInChat } from "../../support/chat-provider";
 
 const actions = {

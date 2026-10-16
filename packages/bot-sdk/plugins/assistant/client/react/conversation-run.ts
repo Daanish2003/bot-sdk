@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import type { AppRouterClient } from "../../server/routers/index";
+import type { AssistantRouterClient } from "../../server/routers/index";
 import type { AttachmentInfo } from "../../../../core/shared/attachments/kinds";
 import type { ChatCommand } from "../../shared/chat/command";
 import type { MemoryUpdatedEvent } from "../../shared/memory/changes";
@@ -23,7 +23,7 @@ import { useChatAdapter } from "../../../../core/client/react/provider";
 import { readSearchPreference } from "./search-preference";
 
 /** A Conversation as `conversation.get` returns it: its settings and its Active Branch. */
-export type ConversationData = Awaited<ReturnType<AppRouterClient["conversation"]["get"]>>;
+export type ConversationData = Awaited<ReturnType<AssistantRouterClient["conversation"]["get"]>>;
 
 export type ConversationRunOptions = {
   /** Called with the refetched Conversation once a decision has started its Run. */

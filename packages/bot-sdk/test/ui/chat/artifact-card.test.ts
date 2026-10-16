@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { storedParts } from "../../../plugins/assistant/shared/message-parts";
 import { toUIParts } from "../../../plugins/assistant/shared/chat/parts";
 import { toolCallOf } from "../../../plugins/assistant/shared/chat/tool-call";
-import { ArtifactCard } from "../../../ui/chat/artifact-card";
+import { ArtifactCard } from "../../../plugins/assistant/ui/chat/artifact-card";
 
 const callOf = (fields: Record<string, unknown>) => {
   const call = toolCallOf({

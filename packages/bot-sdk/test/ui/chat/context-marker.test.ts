@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 
 import { contextCutIds } from "../../../plugins/assistant/client/chat";
-import { MessageRow } from "../../../ui/chat/message-row";
+import { MessageRow } from "../../../plugins/assistant/ui/chat/message-row";
 import { renderInChat } from "../../support/chat-provider";
 
 const marker = "Earlier messages are no longer in the model's context";

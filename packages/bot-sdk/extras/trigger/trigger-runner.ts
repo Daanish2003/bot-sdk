@@ -3,7 +3,7 @@
 // imports it, so @trigger.dev/sdk is a Host dependency only.
 import { tasks } from "@trigger.dev/sdk";
 
-import type { EnqueueOptions, JobRunner } from "../../core/server/index";
+import type { EnqueueOptions, JobRunner } from "../../plugins/assistant/server/index";
 
 export type TriggerJobRunnerOptions = {
   /** The id of the Host's Trigger.dev task that calls `chat.plugin("assistant").runJob(name, payload)`. */

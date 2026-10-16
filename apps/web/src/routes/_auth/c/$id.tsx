@@ -1,4 +1,4 @@
-import { ChatView } from "@ai-chat/bot-sdk/ui";
+import { ChatView } from "@ai-chat/bot-sdk/plugins/assistant/ui";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";

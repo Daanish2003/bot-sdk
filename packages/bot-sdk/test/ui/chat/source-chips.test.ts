@@ -7,8 +7,12 @@ import { toolCallOf } from "../../../plugins/assistant/shared/chat/tool-call";
 import { Markdown } from "@/components/ui/prompt-kit/markdown";
 import { describe, expect, it } from "vitest";
 
-import { replyComponents, ReplySources, SourceChips } from "../../../ui/chat/source-chips";
-import { ToolCallRow } from "../../../ui/chat/tool-call-row";
+import {
+  replyComponents,
+  ReplySources,
+  SourceChips,
+} from "../../../plugins/assistant/ui/chat/source-chips";
+import { ToolCallRow } from "../../../plugins/assistant/ui/chat/tool-call-row";
 
 const sources: Source[] = [
   { number: 1, url: "https://tanstack.com/ai", title: "TanStack AI", snippet: "Docs" },

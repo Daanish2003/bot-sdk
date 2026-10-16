@@ -8,7 +8,7 @@ import {
   type ArtifactVersionContent,
   codeLanguageOf,
   copyArtifact,
-} from "../../../ui/chat/artifact-panel";
+} from "../../../plugins/assistant/ui/chat/artifact-panel";
 
 const version: ArtifactVersionContent = {
   number: 1,

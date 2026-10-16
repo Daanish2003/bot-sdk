@@ -5,10 +5,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { quotaResetsAt } from "../../../plugins/models/client/quota";
 import { createBotSdkClient } from "../../../core/client/chat-client";
+import { assistantClient } from "../../../plugins/assistant/client/index";
+import { modelsClient } from "../../../plugins/models/client/index";
 import { ChatProvider, type ChatRouter } from "../../../core/client/react/provider";
-import { Composer } from "../../../ui/chat/composer";
+import { Composer } from "../../../plugins/assistant/ui/chat/composer";
 
 const client = createBotSdkClient({
+  plugins: [modelsClient(), assistantClient()],
   baseUrl: "http://localhost/api/chat",
   fetch: async () => {
     throw new Error("Unexpected request in a render test");

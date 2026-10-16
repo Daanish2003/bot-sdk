@@ -3,9 +3,9 @@ import { createElement } from "react";
 import { renderEnglish as renderToStaticMarkup } from "../fake-dictionary";
 import { describe, expect, it } from "vitest";
 
-import { MessageRow } from "../../../ui/chat/message-row";
+import { MessageRow } from "../../../plugins/assistant/ui/chat/message-row";
 import { renderInChat } from "../../support/chat-provider";
-import { ReadAloudButton } from "../../../ui/chat/read-aloud";
+import { ReadAloudButton } from "../../../plugins/assistant/ui/chat/read-aloud";
 
 const reply = (status: "complete" | "streaming") =>
   ({

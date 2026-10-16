@@ -1,15 +1,17 @@
 import { createAuth } from "@ai-chat/auth";
 import { createDb } from "@ai-chat/db";
 import {
-  assistant,
   createBotSdk,
-  fakeEmbeddingAdapter,
-  fakeImageAdapter,
   memoryRuntime,
-  models,
   redisRuntime,
   redisStore,
-} from "@ai-chat/bot-sdk/server";
+} from "@ai-chat/bot-sdk/core/server";
+import { assistant } from "@ai-chat/bot-sdk/plugins/assistant/server";
+import {
+  fakeEmbeddingAdapter,
+  fakeImageAdapter,
+  models,
+} from "@ai-chat/bot-sdk/plugins/models/server";
 import { log } from "evlog";
 
 import { isBanActive } from "./admin/ban";

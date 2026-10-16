@@ -1,4 +1,4 @@
-import { ProjectPage } from "@ai-chat/bot-sdk/ui";
+import { ProjectPage } from "@ai-chat/bot-sdk/plugins/assistant/ui";
 import { createFileRoute } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/_auth/p/$id")({

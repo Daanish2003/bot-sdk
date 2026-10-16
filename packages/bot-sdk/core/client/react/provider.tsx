@@ -56,17 +56,8 @@ export type ChatRouter = {
   shareUrl: (token: string) => string;
 };
 
-export type ChatAdapter = Pick<
-  BotSdkClient,
-  | "orpc"
-  | "chatUrl"
-  | "eventsUrl"
-  | "exportUrl"
-  | "connectionsUrl"
-  | "generatedImagesUrl"
-  | "sharedGeneratedImagesUrl"
-> &
-  ChatRouter & { i18n: I18n };
+/** The client without its transport (`orpc` and every URL), the Host's routing, and the dictionary. */
+export type ChatAdapter = Omit<BotSdkClient, "rpc" | "fetch"> & ChatRouter & { i18n: I18n };
 
 const ChatContext = createContext<ChatAdapter | null>(null);
 
@@ -90,20 +81,10 @@ export function ChatProvider({
   children: ReactNode;
 }) {
   const [ownQueryClient] = useState(() => new QueryClient());
-  const adapter = useMemo<ChatAdapter>(
-    () => ({
-      ...router,
-      orpc: client.orpc,
-      chatUrl: client.chatUrl,
-      eventsUrl: client.eventsUrl,
-      exportUrl: client.exportUrl,
-      connectionsUrl: client.connectionsUrl,
-      generatedImagesUrl: client.generatedImagesUrl,
-      sharedGeneratedImagesUrl: client.sharedGeneratedImagesUrl,
-      i18n: createI18n(messages, locale),
-    }),
-    [client, router, messages, locale],
-  );
+  const adapter = useMemo<ChatAdapter>(() => {
+    const { rpc: _rpc, fetch: _fetch, ...urls } = client;
+    return { ...router, ...urls, i18n: createI18n(messages, locale) };
+  }, [client, router, messages, locale]);
   return (
     <QueryClientProvider client={queryClient ?? ownQueryClient}>
       <ChatContext value={adapter}>{children}</ChatContext>

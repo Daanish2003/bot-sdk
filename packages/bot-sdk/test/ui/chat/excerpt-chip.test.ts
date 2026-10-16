@@ -4,10 +4,16 @@ import { createElement } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createBotSdkClient } from "../../../core/client/chat-client";
+import { assistantClient } from "../../../plugins/assistant/client/index";
+import { modelsClient } from "../../../plugins/models/client/index";
 import { ChatProvider, type ChatRouter } from "../../../core/client/react/provider";
 import type { Citation } from "../../../plugins/assistant/shared/chat/sources";
 import { Markdown } from "@/components/ui/prompt-kit/markdown";
-import { replyComponents, replyKeepUrl, ReplySources } from "../../../ui/chat/source-chips";
+import {
+  replyComponents,
+  replyKeepUrl,
+  ReplySources,
+} from "../../../plugins/assistant/ui/chat/source-chips";
 import { untranslated, wrappedDictionary } from "../fake-dictionary";
 
 /*
@@ -18,6 +24,7 @@ import { untranslated, wrappedDictionary } from "../fake-dictionary";
 afterEach(() => cleanup());
 
 const client = createBotSdkClient({
+  plugins: [modelsClient(), assistantClient()],
   baseUrl: "http://localhost/api/chat",
   fetch: async () => {
     throw new Error("Unexpected request in a render test");

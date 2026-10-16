@@ -5,7 +5,7 @@ import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { BotSdkClient } from "../../../core/client/chat-client";
-import { MemorySection } from "../../../ui/settings/memory-section";
+import { MemorySection } from "../../../plugins/assistant/ui/settings/memory-section";
 import { providerFor } from "../fake-dictionary";
 
 afterEach(() => {

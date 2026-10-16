@@ -2,7 +2,7 @@ import { renderInChat } from "../../support/chat-provider";
 import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 
-import { EffortLine } from "../../../ui/chat/usage-info";
+import { EffortLine } from "../../../plugins/models/ui/chat/usage-info";
 
 describe("the info popover's effort line", () => {
   it("shows the effort the reply ran with", () => {

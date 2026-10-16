@@ -4,16 +4,19 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { createBotSdkClient } from "../../../core/client/chat-client";
+import { assistantClient } from "../../../plugins/assistant/client/index";
+import { modelsClient } from "../../../plugins/models/client/index";
 import {
   ChatProvider,
   type ChatLinkProps,
   type ChatRouter,
 } from "../../../core/client/react/provider";
-import { QuotaBanner } from "../../../ui/chat/quota-banner";
-import { QuotaMeter } from "../../../ui/chat/quota-meter";
-import { QuotaSlotProvider } from "../../../ui/shell/quota-slot";
+import { QuotaBanner } from "../../../plugins/models/ui/chat/quota-banner";
+import { QuotaMeter } from "../../../plugins/models/ui/chat/quota-meter";
+import { QuotaSlotProvider } from "../../../plugins/models/ui/shell/quota-slot";
 
 const client = createBotSdkClient({
+  plugins: [modelsClient(), assistantClient()],
   baseUrl: "http://localhost/api/chat",
   fetch: async () => {
     throw new Error("Unexpected request in a render test");

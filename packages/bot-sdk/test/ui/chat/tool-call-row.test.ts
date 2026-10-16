@@ -4,7 +4,7 @@ import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 
 import { toolCallOf } from "../../../plugins/assistant/shared/chat/tool-call";
-import { ToolCallDetails, ToolCallRow } from "../../../ui/chat/tool-call-row";
+import { ToolCallDetails, ToolCallRow } from "../../../plugins/assistant/ui/chat/tool-call-row";
 
 const part = (fields: Partial<Extract<MessagePart, { type: "tool-call" }>>): MessagePart =>
   ({

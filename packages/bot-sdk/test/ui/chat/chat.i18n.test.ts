@@ -3,32 +3,35 @@ import { createElement, type ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { BotSdkClient } from "../../../core/client/chat-client";
-import { ChatView, type ConversationData } from "../../../ui/chat/chat-view";
-import { Composer } from "../../../ui/chat/composer";
-import { ContextRing, ContextOverflowNotice } from "../../../ui/chat/context-ring";
-import { MessageRow } from "../../../ui/chat/message-row";
-import { MissingCredentialsBanner } from "../../../ui/chat/missing-credentials-banner";
-import { NoCredentials } from "../../../ui/chat/no-credentials";
-import { AttachmentChips } from "../../../ui/chat/attachments";
-import { QuotaBanner } from "../../../ui/chat/quota-banner";
-import { QuotaMeter } from "../../../ui/chat/quota-meter";
-import { SearchToggle } from "../../../ui/chat/search-toggle";
-import { ToolsMenu } from "../../../ui/chat/tools-menu";
-import { UsageBreakdown, UsageInfo } from "../../../ui/chat/usage-info";
+import { ChatView, type ConversationData } from "../../../plugins/assistant/ui/chat/chat-view";
+import { Composer } from "../../../plugins/assistant/ui/chat/composer";
+import {
+  ContextRing,
+  ContextOverflowNotice,
+} from "../../../plugins/assistant/ui/chat/context-ring";
+import { MessageRow } from "../../../plugins/assistant/ui/chat/message-row";
+import { MissingCredentialsBanner } from "../../../plugins/models/ui/chat/missing-credentials-banner";
+import { NoCredentials } from "../../../plugins/models/ui/chat/no-credentials";
+import { AttachmentChips } from "../../../plugins/assistant/ui/chat/attachments";
+import { QuotaBanner } from "../../../plugins/models/ui/chat/quota-banner";
+import { QuotaMeter } from "../../../plugins/models/ui/chat/quota-meter";
+import { SearchToggle } from "../../../plugins/assistant/ui/chat/search-toggle";
+import { ToolsMenu } from "../../../plugins/assistant/ui/chat/tools-menu";
+import { UsageBreakdown, UsageInfo } from "../../../plugins/models/ui/chat/usage-info";
 import { Welcome } from "../../../ui/chat/welcome";
-import { ShareButton } from "../../../ui/share/share-dialog";
-import { ArtifactCard } from "../../../ui/chat/artifact-card";
+import { ShareButton } from "../../../plugins/assistant/ui/share/share-dialog";
+import { ArtifactCard } from "../../../plugins/assistant/ui/chat/artifact-card";
 import {
   ArtifactPanel,
   ArtifactPanelView,
   LiveArtifactView,
-} from "../../../ui/chat/artifact-panel";
-import { liveArtifactOf } from "../../../ui/chat/artifact-live";
-import { GeneratedImageBlock } from "../../../ui/chat/generated-image-block";
-import { Dictation } from "../../../ui/chat/dictation";
-import { ReadAloudButton } from "../../../ui/chat/read-aloud";
-import { SavedPromptFormView, SlashMenuList } from "../../../ui/chat/slash-menu";
-import { TemporaryHeaderActions } from "../../../ui/shell/conversation-header-actions";
+} from "../../../plugins/assistant/ui/chat/artifact-panel";
+import { liveArtifactOf } from "../../../plugins/assistant/ui/chat/artifact-live";
+import { GeneratedImageBlock } from "../../../plugins/assistant/ui/chat/generated-image-block";
+import { Dictation } from "../../../plugins/models/ui/chat/dictation";
+import { ReadAloudButton } from "../../../plugins/assistant/ui/chat/read-aloud";
+import { SavedPromptFormView, SlashMenuList } from "../../../plugins/assistant/ui/chat/slash-menu";
+import { TemporaryHeaderActions } from "../../../plugins/assistant/ui/shell/conversation-header-actions";
 import type { ListedModel } from "../../../plugins/models/shared/models";
 import { createI18n } from "../../../core/shared/i18n";
 import type { GeneratedImagePart } from "../../../plugins/assistant/shared/message-parts";

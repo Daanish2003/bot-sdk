@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 
 import type { ReasoningSupport } from "../../../plugins/models/shared/models";
-import { ReasoningEffortSelect } from "../../../ui/shell/reasoning-effort-select";
+import { ReasoningEffortSelect } from "../../../plugins/assistant/ui/shell/reasoning-effort-select";
 import { renderWrapped } from "../fake-dictionary";
 
 const sonnetLike: { provider: string; reasoning: ReasoningSupport } = {

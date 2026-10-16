@@ -6,11 +6,13 @@ import { describe, expect, it } from "vitest";
 import { renderEnglish } from "../fake-dictionary";
 
 import { createBotSdkClient } from "../../../core/client/chat-client";
+import { assistantClient } from "../../../plugins/assistant/client/index";
+import { modelsClient } from "../../../plugins/models/client/index";
 import { toolCallOf } from "../../../plugins/assistant/shared/chat/tool-call";
 import { ChatProvider, type ChatRouter } from "../../../core/client/react/provider";
-import { Composer } from "../../../ui/chat/composer";
-import { ToolCallRow } from "../../../ui/chat/tool-call-row";
-import { ConversationMenuItems, TopBar } from "../../../ui/shell/top-bar";
+import { Composer } from "../../../plugins/assistant/ui/chat/composer";
+import { ToolCallRow } from "../../../plugins/assistant/ui/chat/tool-call-row";
+import { ConversationMenuItems, TopBar } from "../../../plugins/assistant/ui/shell/top-bar";
 import { renderInChat } from "../../support/chat-provider";
 
 const router: ChatRouter = {
@@ -22,6 +24,7 @@ const router: ChatRouter = {
 
 /** The renders here make no requests; the Composer's Saved prompts query only runs when the menu opens. */
 const client = createBotSdkClient({
+  plugins: [modelsClient(), assistantClient()],
   baseUrl: "http://localhost/api/chat",
   fetch: async () => {
     throw new Error("Unexpected request in a render test");
