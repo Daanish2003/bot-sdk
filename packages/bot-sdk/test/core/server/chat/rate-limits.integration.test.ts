@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../../core/server/create-chat";
-import { assistant } from "../../../../core/server/assistant";
+import { assistant } from "../../../../plugins/assistant/server/plugin";
 import { models } from "../../../../plugins/models/server/plugin";
 import { memoryRuntime } from "../../../../core/server/runtime";
 import { resolveRateLimits, type RateLimits } from "../../../../core/server/rate-limits";

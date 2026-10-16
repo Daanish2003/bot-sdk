@@ -1,4 +1,4 @@
-import { instructionsMaxChars } from "../../core/shared/chat/instructions";
+import { instructionsMaxChars } from "../../plugins/assistant/shared/chat/instructions";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";

@@ -1,9 +1,9 @@
 import { renderInChat } from "../../support/chat-provider";
 import type { MessagePart } from "@tanstack/ai";
 import { createElement, Fragment } from "react";
-import type { Source } from "../../../core/shared/chat/sources";
-import { pageSourcesOf, sourcesOf } from "../../../core/shared/chat/sources";
-import { toolCallOf } from "../../../core/shared/chat/tool-call";
+import type { Source } from "../../../plugins/assistant/shared/chat/sources";
+import { pageSourcesOf, sourcesOf } from "../../../plugins/assistant/shared/chat/sources";
+import { toolCallOf } from "../../../plugins/assistant/shared/chat/tool-call";
 import { Markdown } from "@/components/ui/prompt-kit/markdown";
 import { describe, expect, it } from "vitest";
 

@@ -1,13 +1,17 @@
-import { storedParts, type StoredPart } from "../../../../core/shared/message-parts";
+import { storedParts, type StoredPart } from "../../../../plugins/assistant/shared/message-parts";
 import { message } from "../../../../core/server/db/schema";
 import { asc, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { createHookEmitter } from "../../../../core/server/chat/hooks";
-import { stopRun } from "../../../../core/server/chat/run";
+import { stopRun } from "../../../../plugins/assistant/server/chat/run";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
-import { listConnections, readTokens, saveTokens } from "../../../../core/server/mcp/connections";
-import type { McpServerConfig } from "../../../../core/server/mcp/servers";
+import {
+  listConnections,
+  readTokens,
+  saveTokens,
+} from "../../../../plugins/assistant/server/mcp/connections";
+import type { McpServerConfig } from "../../../../plugins/assistant/server/mcp/servers";
 import { insertConversation } from "../../../support/conversations";
 import { createTestSdk, type TestDepsOverrides, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";

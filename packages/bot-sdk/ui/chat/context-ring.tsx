@@ -1,4 +1,4 @@
-import type { ContextFill } from "../../core/client/context-ring";
+import type { ContextFill } from "../../plugins/assistant/client/context-ring";
 import { useI18n } from "../../core/client/react/provider";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";

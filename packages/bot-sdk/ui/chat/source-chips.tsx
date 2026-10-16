@@ -1,9 +1,9 @@
-import { excerptFor, citationFor } from "../../core/shared/chat/citations";
+import { excerptFor, citationFor } from "../../plugins/assistant/shared/chat/citations";
 import type {
   Citation,
   ExcerptCitation,
   Source as NumberedSource,
-} from "../../core/shared/chat/sources";
+} from "../../plugins/assistant/shared/chat/sources";
 import { useI18n } from "../../core/client/react/provider";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Source, SourceContent, SourceTrigger } from "@/components/ui/prompt-kit/source";

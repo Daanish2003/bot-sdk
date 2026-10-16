@@ -2,8 +2,11 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import { ExtractionFailure, extractKnowledgeText } from "../../../../core/server/knowledge/extract";
-import { pdfMediaType, wordMediaType } from "../../../../core/shared/knowledge/kinds";
+import {
+  ExtractionFailure,
+  extractKnowledgeText,
+} from "../../../../plugins/assistant/server/knowledge/extract";
+import { pdfMediaType, wordMediaType } from "../../../../plugins/assistant/shared/knowledge/kinds";
 
 const sampleDocx = readFileSync(new URL("./fixtures/sample.docx", import.meta.url));
 const samplePdf = readFileSync(new URL("./fixtures/sample-text.pdf", import.meta.url));

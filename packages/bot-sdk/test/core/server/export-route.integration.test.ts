@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { exportUserData } from "../../../core/server/export-user";
+import { exportUserData } from "../../../plugins/assistant/server/export-user";
 import { insertConversation, insertMessage } from "../../support/conversations";
 import { createTestSdk } from "../../support/deps";
 import { createTestChat } from "../../support/sdk";

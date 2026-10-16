@@ -1,7 +1,11 @@
 import { ChatContainerContent, ChatContainerRoot } from "@/components/ui/prompt-kit/chat-container";
 import { ScrollButton } from "@/components/ui/prompt-kit/scroll-button";
-import { contextCutIds, takePendingFirstMessage, toUIMessages } from "../../core/client/chat";
-import { contextFill, lastRunTokens } from "../../core/client/context-ring";
+import {
+  contextCutIds,
+  takePendingFirstMessage,
+  toUIMessages,
+} from "../../plugins/assistant/client/chat";
+import { contextFill, lastRunTokens } from "../../plugins/assistant/client/context-ring";
 import { missingCredentialsMessage } from "../../core/client/models";
 import { rateLimitedErrorOf } from "../../core/client/rate-limit";
 import type { UIMessage } from "@tanstack/ai-react";
@@ -13,7 +17,7 @@ import { useByok } from "../../core/client/react/byok";
 import {
   type ConversationData,
   useConversationRun,
-} from "../../core/client/react/conversation-run";
+} from "../../plugins/assistant/client/react/conversation-run";
 import { useChatAdapter, useI18n } from "../../core/client/react/provider";
 import { serverErrorText } from "../../core/client/rpc-error";
 import { useQuota } from "../../core/client/react/quota";
@@ -39,7 +43,7 @@ import { TemporaryBanner } from "./temporary-banner";
 import { QuotaMeter } from "./quota-meter";
 import { SearchToggle, useWebSearch } from "./search-toggle";
 import { ToolsMenu } from "./tools-menu";
-import { mcpToolsMenu, switchConnection } from "../../core/client/mcp-tools";
+import { mcpToolsMenu, switchConnection } from "../../plugins/assistant/client/mcp-tools";
 import { useFocusMessage } from "./use-focus-message";
 
 export type { ConversationData };

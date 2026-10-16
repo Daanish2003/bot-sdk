@@ -1,5 +1,5 @@
 import { createI18n } from "../../../core/shared/i18n";
-import type { WebSearchPart } from "../../../core/shared/message-parts";
+import type { WebSearchPart } from "../../../plugins/assistant/shared/message-parts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -7,7 +7,7 @@ import {
   describeSearches,
   domainOf,
   searchToggle,
-} from "../../../core/client/web-search";
+} from "../../../plugins/assistant/client/web-search";
 
 const search = (fields: Partial<WebSearchPart>): WebSearchPart => ({
   type: "web_search",

@@ -1,5 +1,5 @@
 import { message } from "../../../../core/server/db/schema";
-import { type StoredPart, storedParts } from "../../../../core/shared/message-parts";
+import { type StoredPart, storedParts } from "../../../../plugins/assistant/shared/message-parts";
 import { EventType, type StreamChunk } from "@tanstack/ai";
 import { eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import { insertConversation, insertMessage } from "../../../support/conversations";
 import { createTestSdk } from "../../../support/deps";
 import { insertUser } from "../../../support/users";
-import { type Ending, endRun } from "../../../../core/server/chat/end-run";
+import { type Ending, endRun } from "../../../../plugins/assistant/server/chat/end-run";
 import { createHookEmitter, type RunEndEvent } from "../../../../core/server/chat/hooks";
 import { START } from "../../../../core/server/chat/run-streams";
 import { assistantState } from "../../../../plugins/assistant/server/state";

@@ -4,11 +4,11 @@ import { asc, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import type { HostToolContext } from "../../../../core/server/chat/host-tools";
+import type { HostToolContext } from "../../../../plugins/assistant/server/chat/host-tools";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { citationPrompt } from "../../../../core/shared/chat/citations";
-import type { ChatCommand } from "../../../../core/shared/chat/command";
+import { citationPrompt } from "../../../../plugins/assistant/shared/chat/citations";
+import type { ChatCommand } from "../../../../plugins/assistant/shared/chat/command";
 import { insertConversation, insertMessage } from "../../../support/conversations";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { getTestDb } from "../../../support/test-database";

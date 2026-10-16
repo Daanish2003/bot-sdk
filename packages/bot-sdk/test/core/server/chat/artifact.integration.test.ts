@@ -1,12 +1,15 @@
-import { storedParts } from "../../../../core/shared/message-parts";
+import { storedParts } from "../../../../plugins/assistant/shared/message-parts";
 import { artifact, artifactVersion, message } from "../../../../core/server/db/schema";
 import {
   createArtifactTool,
   cutOffArtifactResult,
   updateArtifactTool,
-} from "../../../../core/server/chat/artifact-tool";
-import { createPartsBuilder, parseStoredParts } from "../../../../core/shared/chat/parts";
-import { createToolBudget } from "../../../../core/server/chat/tracked-tool";
+} from "../../../../plugins/assistant/server/chat/artifact-tool";
+import {
+  createPartsBuilder,
+  parseStoredParts,
+} from "../../../../plugins/assistant/shared/chat/parts";
+import { createToolBudget } from "../../../../plugins/assistant/server/chat/tracked-tool";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { toolDefinition } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
-import type { HostProvider } from "../../../../core/server/deps";
+import type { HostProvider } from "../../../../plugins/assistant/server/deps";
 import { createTestSdk } from "../../../support/deps";
 import { chatRpc } from "../../../support/sdk";
 import { insertUser, type TestUser } from "../../../support/users";

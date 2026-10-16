@@ -7,7 +7,7 @@ import {
   pickOnDeviceVoice,
   readAloudUtterances,
   utterancesOf,
-} from "../../../../core/shared/chat/read-aloud";
+} from "../../../../plugins/assistant/shared/chat/read-aloud";
 
 const textPart = (content: string): MessagePart => ({ type: "text", content });
 

@@ -3,7 +3,7 @@ import { asc, eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
-import type { HostProvider, HostTool } from "../../../../core/server/deps";
+import type { HostProvider, HostTool } from "../../../../plugins/assistant/server/deps";
 import { insertConversation } from "../../../support/conversations";
 import { createTestSdk, type TestDepsOverrides, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall, withUsage } from "../../../support/fake-adapter";

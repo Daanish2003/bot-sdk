@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { ChunkLimitExceededError, chunkText } from "../../../../core/server/knowledge/chunker";
+import {
+  ChunkLimitExceededError,
+  chunkText,
+} from "../../../../plugins/assistant/server/knowledge/chunker";
 
 /** The settings of spec #357: 1,024-token passages, 200 shared, at least 100 characters, 5,000 at most. */
 const settings = {

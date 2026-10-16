@@ -1,7 +1,7 @@
 import { buttonVariants } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import type { TurnChange } from "../../core/shared/memory/changes";
+import type { TurnChange } from "../../plugins/assistant/shared/memory/changes";
 import { useChatAdapter, useI18n } from "../../core/client/react/provider";
 
 /**

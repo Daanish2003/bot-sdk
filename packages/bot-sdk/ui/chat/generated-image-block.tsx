@@ -1,5 +1,5 @@
-import { type GeneratedImageErrorReason } from "../../core/shared/chat/generated-image";
-import type { GeneratedImagePart } from "../../core/shared/message-parts";
+import { type GeneratedImageErrorReason } from "../../plugins/assistant/shared/chat/generated-image";
+import type { GeneratedImagePart } from "../../plugins/assistant/shared/message-parts";
 import type { MessageKey } from "../../core/shared/i18n";
 import { useI18n } from "../../core/client/react/provider";
 import { Button, buttonVariants } from "@/components/ui/button";

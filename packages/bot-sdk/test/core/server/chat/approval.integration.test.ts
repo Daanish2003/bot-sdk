@@ -1,18 +1,18 @@
-import { storedParts, type StoredPart } from "../../../../core/shared/message-parts";
+import { storedParts, type StoredPart } from "../../../../plugins/assistant/shared/message-parts";
 import { conversation, message } from "../../../../core/server/db/schema";
 import { toolDefinition } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import type { HostToolContext } from "../../../../core/server/chat/host-tools";
-import { reapStaleRuns, stopRun } from "../../../../core/server/chat/run";
-import { deleteUserData } from "../../../../core/server/delete-user";
+import type { HostToolContext } from "../../../../plugins/assistant/server/chat/host-tools";
+import { reapStaleRuns, stopRun } from "../../../../plugins/assistant/server/chat/run";
+import { deleteUserData } from "../../../../plugins/assistant/server/delete-user";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
-import type { HostProvider } from "../../../../core/server/deps";
+import type { HostProvider } from "../../../../plugins/assistant/server/deps";
 import { fakeImageAdapter } from "../../../../plugins/models/server/fake-image-adapter";
-import { citationPrompt } from "../../../../core/shared/chat/citations";
-import { knowledgePromptOf } from "../../../../core/shared/chat/knowledge-search";
+import { citationPrompt } from "../../../../plugins/assistant/shared/chat/citations";
+import { knowledgePromptOf } from "../../../../plugins/assistant/shared/chat/knowledge-search";
 import { insertConversation, insertMessage } from "../../../support/conversations";
 import { createTestSdk, type TestDepsOverrides, type TestDeps } from "../../../support/deps";
 import {

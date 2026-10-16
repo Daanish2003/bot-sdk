@@ -1,9 +1,12 @@
 import type { MessagePart } from "@tanstack/ai";
 import { describe, expect, it } from "vitest";
 
-import { parseStoredParts, toUIParts } from "../../../../core/shared/chat/parts";
-import { storedParts } from "../../../../core/shared/message-parts";
-import { redactAttachmentsForShare, redactForShare } from "../../../../core/shared/share/redact";
+import { parseStoredParts, toUIParts } from "../../../../plugins/assistant/shared/chat/parts";
+import { storedParts } from "../../../../plugins/assistant/shared/message-parts";
+import {
+  redactAttachmentsForShare,
+  redactForShare,
+} from "../../../../plugins/assistant/shared/share/redact";
 
 describe("redactForShare", () => {
   it("keeps a fetch_url call in full: it is a builtin tool, read as a Source", () => {

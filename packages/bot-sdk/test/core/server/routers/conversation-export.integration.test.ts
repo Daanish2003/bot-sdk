@@ -1,8 +1,8 @@
-import { storedParts } from "../../../../core/shared/message-parts";
+import { storedParts } from "../../../../plugins/assistant/shared/message-parts";
 import { createRouterClient } from "@orpc/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { appRouter } from "../../../../core/server/routers/index";
+import { appRouter } from "../../../../plugins/assistant/server/routers/index";
 import { insertConversation, insertMessage } from "../../../support/conversations";
 import { createTestSdk } from "../../../support/deps";
 import { insertAttachment, linkTestAttachments } from "../../../support/attachments";

@@ -1,7 +1,7 @@
 import type { MessagePart } from "@tanstack/ai";
 import { describe, expect, it } from "vitest";
 
-import { toolCallOf } from "../../../../core/shared/chat/tool-call";
+import { toolCallOf } from "../../../../plugins/assistant/shared/chat/tool-call";
 
 const streaming = (arguments_: string): MessagePart =>
   ({

@@ -4,7 +4,7 @@ import {
   SearchError,
   type SearchErrorReason,
   type SearchResult,
-} from "../../core/server/deps";
+} from "../../plugins/assistant/server/deps";
 
 export type FakeSearchClient = SearchClient & {
   /** Every search made, in order. */

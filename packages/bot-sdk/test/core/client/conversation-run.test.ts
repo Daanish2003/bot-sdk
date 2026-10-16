@@ -5,14 +5,14 @@ import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 
-import { messageInfo } from "../../../core/client/chat";
+import { messageInfo } from "../../../plugins/assistant/client/chat";
 import {
   type ConversationData,
   type ConversationRunOptions,
   useConversationRun,
-} from "../../../core/client/react/conversation-run";
-import type { ActiveBranchMessage } from "../../../core/shared/chat/client-message";
-import type { TurnChange } from "../../../core/shared/memory/changes";
+} from "../../../plugins/assistant/client/react/conversation-run";
+import type { ActiveBranchMessage } from "../../../plugins/assistant/shared/chat/client-message";
+import type { TurnChange } from "../../../plugins/assistant/shared/memory/changes";
 import { providerFor } from "../../ui/fake-dictionary";
 
 /*

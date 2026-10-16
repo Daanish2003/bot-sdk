@@ -15,13 +15,13 @@ import {
   knowledgeFile,
   usage,
 } from "../../../../core/server/db/schema";
-import type { HostProvider } from "../../../../core/server/deps";
+import type { HostProvider } from "../../../../plugins/assistant/server/deps";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import {
   maxKnowledgeFileBytes,
   pdfMediaType,
   wordMediaType,
-} from "../../../../core/shared/knowledge/kinds";
+} from "../../../../plugins/assistant/shared/knowledge/kinds";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { drainJobs } from "../../../support/jobs";
 import { chatRpc } from "../../../support/sdk";

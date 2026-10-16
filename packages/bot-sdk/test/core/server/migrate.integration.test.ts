@@ -7,7 +7,7 @@ import { Client } from "pg";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
-import { assistant } from "../../../core/server/assistant";
+import { assistant } from "../../../plugins/assistant/server/plugin";
 import { models } from "../../../plugins/models/server/plugin";
 import { LATEST_MIGRATION } from "../../../core/server/migrate";
 import {

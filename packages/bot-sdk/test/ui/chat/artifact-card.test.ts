@@ -2,9 +2,9 @@ import { createElement } from "react";
 import { renderEnglish as renderToStaticMarkup } from "../fake-dictionary";
 import { describe, expect, it } from "vitest";
 
-import { storedParts } from "../../../core/shared/message-parts";
-import { toUIParts } from "../../../core/shared/chat/parts";
-import { toolCallOf } from "../../../core/shared/chat/tool-call";
+import { storedParts } from "../../../plugins/assistant/shared/message-parts";
+import { toUIParts } from "../../../plugins/assistant/shared/chat/parts";
+import { toolCallOf } from "../../../plugins/assistant/shared/chat/tool-call";
 import { ArtifactCard } from "../../../ui/chat/artifact-card";
 
 const callOf = (fields: Record<string, unknown>) => {

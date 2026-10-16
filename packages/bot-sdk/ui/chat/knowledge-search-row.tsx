@@ -1,4 +1,4 @@
-import type { KnowledgeSearchView } from "../../core/shared/chat/knowledge-search";
+import type { KnowledgeSearchView } from "../../plugins/assistant/shared/chat/knowledge-search";
 import type { MessageKey } from "../../core/shared/i18n";
 import { cn } from "@/lib/utils";
 import { BookOpenIcon, ChevronRightIcon, LoaderIcon } from "lucide-react";

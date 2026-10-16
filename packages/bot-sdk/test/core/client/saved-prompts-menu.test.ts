@@ -8,7 +8,7 @@ import {
   rankSavedPrompts,
   savedPromptDraftError,
   slashQuery,
-} from "../../../core/client/saved-prompts-menu";
+} from "../../../plugins/assistant/client/saved-prompts-menu";
 
 describe("slashQuery", () => {
   it("is the name typed after a leading slash, while the whole value is that", () => {

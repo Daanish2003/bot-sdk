@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { fakeEmbeddingAdapter } from "../../../../plugins/models/server/fake-embedding-adapter";
 import { knowledgeBlobKey } from "../../../../core/server/blob/store";
 import { blob, job, knowledgeChunk, knowledgeFile } from "../../../../core/server/db/schema";
-import type { HostProvider } from "../../../../core/server/deps";
+import type { HostProvider } from "../../../../plugins/assistant/server/deps";
 import { createTestSdk } from "../../../support/deps";
 import { drainJobs } from "../../../support/jobs";
 import { chatRpc } from "../../../support/sdk";

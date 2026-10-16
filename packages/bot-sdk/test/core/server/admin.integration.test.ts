@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
-import { assistant } from "../../../core/server/assistant";
+import { assistant } from "../../../plugins/assistant/server/plugin";
 import { models } from "../../../plugins/models/server/plugin";
 import { message, usage } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";

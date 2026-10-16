@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { generationOptionsFor } from "../../../../core/server/chat/generation";
+import { generationOptionsFor } from "../../../../plugins/assistant/server/chat/generation";
 
 /** The max output key each Provider's adapter reads from `modelOptions`. */
 const maxKeys: Record<string, string> = {

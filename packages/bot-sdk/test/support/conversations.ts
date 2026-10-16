@@ -1,4 +1,4 @@
-import { storedParts } from "../../core/shared/message-parts";
+import { storedParts } from "../../plugins/assistant/shared/message-parts";
 import { conversation, message } from "../../core/server/db/schema";
 import { getTestDb } from "./test-database";
 import { eq } from "drizzle-orm";

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { SearchError } from "../../../../core/server/deps";
-import { createTavilyClient } from "../../../../core/server/chat/tavily";
+import { SearchError } from "../../../../plugins/assistant/server/deps";
+import { createTavilyClient } from "../../../../plugins/assistant/server/chat/tavily";
 
 /** A trimmed Tavily `/search` response, written by hand from the API reference. */
 const tavilyResponse = {

@@ -2,9 +2,9 @@ import {
   type ArtifactKind,
   artifactKinds,
   updateArtifactToolName,
-} from "../../core/shared/chat/artifact";
+} from "../../plugins/assistant/shared/chat/artifact";
 import type { I18n, MessageKey } from "../../core/shared/i18n";
-import type { ToolCallView } from "../../core/shared/chat/tool-call";
+import type { ToolCallView } from "../../plugins/assistant/shared/chat/tool-call";
 import { useI18n } from "../../core/client/react/provider";
 import { cn } from "@/lib/utils";
 import { FileCodeIcon, Loader2Icon } from "lucide-react";

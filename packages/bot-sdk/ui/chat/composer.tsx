@@ -8,7 +8,11 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowUpIcon, SquareIcon } from "lucide-react";
 import { type KeyboardEvent, type ReactNode, useRef, useState } from "react";
 
-import { createName, rankSavedPrompts, slashQuery } from "../../core/client/saved-prompts-menu";
+import {
+  createName,
+  rankSavedPrompts,
+  slashQuery,
+} from "../../plugins/assistant/client/saved-prompts-menu";
 import { useI18n, useOrpc } from "../../core/client/react/provider";
 import { appendTranscript } from "../../core/client/voice";
 import { Dictation } from "./dictation";

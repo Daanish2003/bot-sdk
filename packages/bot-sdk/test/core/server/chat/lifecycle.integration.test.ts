@@ -2,7 +2,7 @@ import { message } from "../../../../core/server/db/schema";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
-import { createLifecycle } from "../../../../core/server/lifecycle";
+import { createLifecycle } from "../../../../plugins/assistant/server/lifecycle";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { insertConversation, insertMessage } from "../../../support/conversations";
 import { createTestSdk } from "../../../support/deps";

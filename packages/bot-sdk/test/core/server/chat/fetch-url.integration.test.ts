@@ -1,10 +1,10 @@
-import { storedParts, type ToolCallPart } from "../../../../core/shared/message-parts";
+import { storedParts, type ToolCallPart } from "../../../../plugins/assistant/shared/message-parts";
 import { message } from "../../../../core/server/db/schema";
 import { asc, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../../core/server/create-chat";
-import { assistant } from "../../../../core/server/assistant";
+import { assistant } from "../../../../plugins/assistant/server/plugin";
 import { models } from "../../../../plugins/models/server/plugin";
 import { createGuardedFetch } from "../../../../core/server/lib/guarded-fetch";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
@@ -13,9 +13,9 @@ import { createTestSdk, type TestDepsOverrides, type TestDeps } from "../../../s
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { insertUser } from "../../../support/users";
 import { chatRpc, sendAs } from "../../../support/sdk";
-import type { ChatCommand } from "../../../../core/shared/chat/command";
-import { fetchLimitError } from "../../../../core/shared/chat/fetch-url";
-import { citationPrompt } from "../../../../core/shared/chat/citations";
+import type { ChatCommand } from "../../../../plugins/assistant/shared/chat/command";
+import { fetchLimitError } from "../../../../plugins/assistant/shared/chat/fetch-url";
+import { citationPrompt } from "../../../../plugins/assistant/shared/chat/citations";
 
 const anthropicModel = "anthropic:claude-sonnet-5-5";
 

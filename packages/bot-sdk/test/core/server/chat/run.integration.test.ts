@@ -1,14 +1,14 @@
 import { message } from "../../../../core/server/db/schema";
-import { storedParts } from "../../../../core/shared/message-parts";
+import { storedParts } from "../../../../plugins/assistant/shared/message-parts";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { insertConversation, insertMessage } from "../../../support/conversations";
 import { createTestSdk } from "../../../support/deps";
 import { insertUser } from "../../../support/users";
-import { reapStaleRuns, startRun } from "../../../../core/server/chat/run";
+import { reapStaleRuns, startRun } from "../../../../plugins/assistant/server/chat/run";
 import { freeMeter } from "../../../../plugins/models/server/meter";
-import type { RunPlan } from "../../../../core/server/chat/run-plan";
+import type { RunPlan } from "../../../../plugins/assistant/server/chat/run-plan";
 import { findModel } from "../../../../core/shared/chat/models";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { START } from "../../../../core/server/chat/run-streams";

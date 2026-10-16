@@ -1,6 +1,6 @@
 import type { Database } from "../../core/server/db/index";
-import { systemClock } from "../../core/server/jobs/in-process";
-import { claimJob, runClaimedJob } from "../../core/server/jobs/store";
+import { systemClock } from "../../plugins/assistant/server/jobs/in-process";
+import { claimJob, runClaimedJob } from "../../plugins/assistant/server/jobs/store";
 import { createTestSdk, type TestDeps } from "./deps";
 import { getTestDb } from "./test-database";
 

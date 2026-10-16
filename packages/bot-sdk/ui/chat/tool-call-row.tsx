@@ -1,4 +1,4 @@
-import type { ToolCallStatus, ToolCallView } from "../../core/shared/chat/tool-call";
+import type { ToolCallStatus, ToolCallView } from "../../plugins/assistant/shared/chat/tool-call";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -13,7 +13,7 @@ import {
 import { useId, useState } from "react";
 
 import { useI18n } from "../../core/client/react/provider";
-import { toolErrorText } from "../../core/client/tool-error";
+import { toolErrorText } from "../../plugins/assistant/client/tool-error";
 
 const statusKeys = {
   running: "chat.toolRunning",

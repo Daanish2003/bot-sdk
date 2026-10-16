@@ -1,14 +1,14 @@
 import type { UIMessage } from "@tanstack/ai-react";
 
-import { messageInfo } from "../../core/client/chat";
+import { messageInfo } from "../../plugins/assistant/client/chat";
 import {
   artifactKinds,
   type ArtifactKind,
   createArtifactToolName,
   updateArtifactToolName,
-} from "../../core/shared/chat/artifact";
+} from "../../plugins/assistant/shared/chat/artifact";
 import type { I18n } from "../../core/shared/i18n";
-import { toolCallOf, type ToolCallView } from "../../core/shared/chat/tool-call";
+import { toolCallOf, type ToolCallView } from "../../plugins/assistant/shared/chat/tool-call";
 import { type ArtifactRef, artifactRefOf } from "./artifact-card";
 
 /**

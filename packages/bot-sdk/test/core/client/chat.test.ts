@@ -13,7 +13,7 @@ import {
   toUIMessages,
   setPendingFirstMessage,
   type MessageInfo,
-} from "../../../core/client/chat";
+} from "../../../plugins/assistant/client/chat";
 import type { UIMessage } from "@tanstack/ai-client";
 
 const createdAt = new Date("2026-10-06T12:00:00Z");

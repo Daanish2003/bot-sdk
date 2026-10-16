@@ -13,7 +13,7 @@ import {
   userSettings,
   usage,
 } from "../../../../core/server/db/schema";
-import type { HostProvider } from "../../../../core/server/deps";
+import type { HostProvider } from "../../../../plugins/assistant/server/deps";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { insertConversation } from "../../../support/conversations";
 import { createTestSdk, type TestDepsOverrides } from "../../../support/deps";

@@ -1,5 +1,5 @@
 import { generatedImage } from "../../core/server/db/schema";
-import { storedParts } from "../../core/shared/message-parts";
+import { storedParts } from "../../plugins/assistant/shared/message-parts";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
 import { insertMessage } from "./conversations";
 import { getTestDb } from "./test-database";

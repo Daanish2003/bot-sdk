@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { createBotSdkClient } from "../../../../core/client/chat-client";
-import type { HostToolContext } from "../../../../core/server/chat/host-tools";
+import type { HostToolContext } from "../../../../plugins/assistant/server/chat/host-tools";
 import {
   createHookEmitter,
   type ConversationCreatedEvent,
@@ -15,20 +15,20 @@ import {
   type RunEndEvent,
   type SharedLinkChangedEvent,
 } from "../../../../core/server/chat/hooks";
-import { reapStaleRuns } from "../../../../core/server/chat/run";
-import {
-  createBotSdk,
-  createChatHandler,
-  type BotSdkOptions,
-} from "../../../../core/server/create-chat";
-import { assistant } from "../../../../core/server/assistant";
+import { reapStaleRuns } from "../../../../plugins/assistant/server/chat/run";
+import { createBotSdk, type BotSdkOptions } from "../../../../core/server/create-chat";
+import { createChatHandler } from "../../../../plugins/assistant/server/over";
+import { assistant } from "../../../../plugins/assistant/server/plugin";
 import { models, type ModelsOptions } from "../../../../plugins/models/server/plugin";
-import { deleteAllConversations, deleteUserData } from "../../../../core/server/delete-user";
-import { deleteProject } from "../../../../core/server/project/store";
+import {
+  deleteAllConversations,
+  deleteUserData,
+} from "../../../../plugins/assistant/server/delete-user";
+import { deleteProject } from "../../../../plugins/assistant/server/project/store";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { conversation, message, project, usage } from "../../../../core/server/db/schema";
-import type { HostProvider } from "../../../../core/server/deps";
-import { createLifecycle } from "../../../../core/server/lifecycle";
+import type { HostProvider } from "../../../../plugins/assistant/server/deps";
+import { createLifecycle } from "../../../../plugins/assistant/server/lifecycle";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { createTestSdk, testKeyEncryptionSecret } from "../../../support/deps";
 import { insertAttachment } from "../../../support/attachments";

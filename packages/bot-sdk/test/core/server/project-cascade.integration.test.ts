@@ -12,8 +12,8 @@ import {
   knowledgeFile,
   sharedLink,
 } from "../../../core/server/db/schema";
-import type { HostProvider } from "../../../core/server/deps";
-import { knowledgeJobKey } from "../../../core/server/knowledge/process";
+import type { HostProvider } from "../../../plugins/assistant/server/deps";
+import { knowledgeJobKey } from "../../../plugins/assistant/server/knowledge/process";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { insertConversation, insertMessage } from "../../support/conversations";
 import { createTestSdk } from "../../support/deps";

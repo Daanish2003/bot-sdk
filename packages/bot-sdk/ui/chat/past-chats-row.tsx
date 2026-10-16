@@ -1,4 +1,4 @@
-import type { PastChatsView } from "../../core/shared/chat/past-chats";
+import type { PastChatsView } from "../../plugins/assistant/shared/chat/past-chats";
 import { relativeTime } from "../../core/client/relative-time";
 import { SearchIcon } from "lucide-react";
 

@@ -4,8 +4,8 @@ import { useState } from "react";
 
 import { Button, buttonVariants } from "@/components/ui/button";
 
-import type { SharedConversation } from "../../core/shared/share/conversation";
-import { sharedToUIMessages } from "../../core/client/chat";
+import type { SharedConversation } from "../../plugins/assistant/shared/share/conversation";
+import { sharedToUIMessages } from "../../plugins/assistant/client/chat";
 import { invalidateConversationList } from "../../core/client/react/conversation-list";
 import { useChatAdapter, useI18n } from "../../core/client/react/provider";
 import { serverErrorText } from "../../core/client/rpc-error";

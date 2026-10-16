@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { usage } from "../../../../core/server/db/schema";
-import type { HostProvider, QuotaSetting } from "../../../../core/server/deps";
+import type { HostProvider, QuotaSetting } from "../../../../plugins/assistant/server/deps";
 import { quotaLookup } from "../../../../plugins/models/server/quota";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { insertConversation } from "../../../support/conversations";

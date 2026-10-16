@@ -1,7 +1,11 @@
 import type { MessagePart } from "@tanstack/ai";
 import { describe, expect, it } from "vitest";
 
-import { type Source, replySegments, sourcesOf } from "../../../../core/shared/chat/sources";
+import {
+  type Source,
+  replySegments,
+  sourcesOf,
+} from "../../../../plugins/assistant/shared/chat/sources";
 
 const result = (n: number, url = `https://example.com/${n}`) => ({
   title: `Result ${n}`,

@@ -1,22 +1,25 @@
-import { storedParts, type WebSearchPart } from "../../../../core/shared/message-parts";
+import {
+  storedParts,
+  type WebSearchPart,
+} from "../../../../plugins/assistant/shared/message-parts";
 import { message, usage } from "../../../../core/server/db/schema";
 import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
-import type { HostTool, SearchClient } from "../../../../core/server/deps";
+import type { HostTool, SearchClient } from "../../../../plugins/assistant/server/deps";
 import { insertConversation, insertMessage } from "../../../support/conversations";
 import { createTestSdk, type TestDepsOverrides, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { createFakeSearchClient } from "../../../support/fake-search-client";
 import { insertUser } from "../../../support/users";
 import { chatRpc, sendAs } from "../../../support/sdk";
-import { citationPrompt } from "../../../../core/shared/chat/citations";
-import type { ChatCommand } from "../../../../core/shared/chat/command";
+import { citationPrompt } from "../../../../plugins/assistant/shared/chat/citations";
+import type { ChatCommand } from "../../../../plugins/assistant/shared/chat/command";
 import { curatedModels } from "../../../../core/shared/chat/models";
-import { searchErrorMessages } from "../../../../core/shared/chat/web-search";
+import { searchErrorMessages } from "../../../../plugins/assistant/shared/chat/web-search";
 import { quotaLookup } from "../../../../plugins/models/server/quota";
-import { reapStaleRuns } from "../../../../core/server/chat/run";
+import { reapStaleRuns } from "../../../../plugins/assistant/server/chat/run";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { getTestDb } from "../../../support/test-database";
 

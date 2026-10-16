@@ -1,12 +1,12 @@
 import { tavilyService } from "../../core/shared/credentials/services";
-import { searchToggle } from "../../core/client/web-search";
+import { searchToggle } from "../../plugins/assistant/client/web-search";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { GlobeIcon } from "lucide-react";
 
 import { useI18n, useOrpc } from "../../core/client/react/provider";
-import { useSearchPreference } from "../../core/client/react/search-preference";
+import { useSearchPreference } from "../../plugins/assistant/client/react/search-preference";
 
 /**
  * The Web toggle for `model`: available when the Model has tools (search also needs a Tavily key);

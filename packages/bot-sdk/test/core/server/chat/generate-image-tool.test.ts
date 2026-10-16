@@ -1,22 +1,22 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { EditSource } from "../../../../core/server/chat/edit-sources";
+import type { EditSource } from "../../../../plugins/assistant/server/chat/edit-sources";
 import {
   createGenerateImageTool,
   imageBytes,
-} from "../../../../core/server/chat/generate-image-tool";
-import { imageInfo } from "../../../../core/server/chat/image-info";
+} from "../../../../plugins/assistant/server/chat/generate-image-tool";
+import { imageInfo } from "../../../../plugins/assistant/server/chat/image-info";
 import {
   fakeImageAdapter,
   fakePngBase64,
 } from "../../../../plugins/models/server/fake-image-adapter";
 import type { ImageMeter } from "../../../../plugins/models/server/meter";
-import { createToolBudget } from "../../../../core/server/chat/tracked-tool";
-import { createPartsBuilder } from "../../../../core/shared/chat/parts";
+import { createToolBudget } from "../../../../plugins/assistant/server/chat/tracked-tool";
+import { createPartsBuilder } from "../../../../plugins/assistant/shared/chat/parts";
 import {
   imageLimitError,
   imageUnavailableError,
-} from "../../../../core/shared/chat/generated-image";
+} from "../../../../plugins/assistant/shared/chat/generated-image";
 
 const pngBytes = Buffer.from(fakePngBase64, "base64");
 

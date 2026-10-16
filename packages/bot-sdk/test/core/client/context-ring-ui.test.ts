@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 
-import { contextFill } from "../../../core/client/context-ring";
+import { contextFill } from "../../../plugins/assistant/client/context-ring";
 import { ContextOverflowNotice, ContextRing } from "../../../ui/chat/context-ring";
 import { renderInChat } from "../../support/chat-provider";
 

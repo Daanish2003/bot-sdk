@@ -10,7 +10,7 @@ import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { insertUser, type TestUser } from "../../../support/users";
 import { chatRpc, sendAs } from "../../../support/sdk";
-import type { ChatCommand } from "../../../../core/shared/chat/command";
+import type { ChatCommand } from "../../../../plugins/assistant/shared/chat/command";
 
 const anthropicModel = "anthropic:claude-sonnet-5-5";
 const openaiModel = "openai:gpt-5.6";

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { artifactFileName, extensionOf } from "../../../../core/shared/chat/artifact";
+import { artifactFileName, extensionOf } from "../../../../plugins/assistant/shared/chat/artifact";
 
 describe("an Artifact's download file name", () => {
   it.each([

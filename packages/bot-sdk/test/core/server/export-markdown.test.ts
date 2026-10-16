@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   type ExportMessage,
   renderConversationMarkdown,
-} from "../../../core/server/export-markdown";
+} from "../../../plugins/assistant/server/export-markdown";
 
 const exportedAt = new Date("2026-10-13T09:30:00Z");
 

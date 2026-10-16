@@ -1,4 +1,4 @@
-import type { McpMenuItem } from "../../core/client/mcp-tools";
+import type { McpMenuItem } from "../../plugins/assistant/client/mcp-tools";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { WrenchIcon } from "lucide-react";

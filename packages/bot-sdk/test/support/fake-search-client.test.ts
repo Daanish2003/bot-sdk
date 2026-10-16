@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { SearchError } from "../../core/server/deps";
+import { SearchError } from "../../plugins/assistant/server/deps";
 import { createFakeSearchClient } from "./fake-search-client";
 
 const result = {

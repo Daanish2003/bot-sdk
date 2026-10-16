@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { createBotSdkClient } from "../../../core/client/chat-client";
 import { ChatProvider, type ChatRouter } from "../../../core/client/react/provider";
-import type { Citation } from "../../../core/shared/chat/sources";
+import type { Citation } from "../../../plugins/assistant/shared/chat/sources";
 import { Markdown } from "@/components/ui/prompt-kit/markdown";
 import { replyComponents, replyKeepUrl, ReplySources } from "../../../ui/chat/source-chips";
 import { untranslated, wrappedDictionary } from "../fake-dictionary";

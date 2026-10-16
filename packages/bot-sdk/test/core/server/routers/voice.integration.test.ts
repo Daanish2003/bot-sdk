@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { RateLimitedError } from "../../../../core/client/rate-limit";
 import { attachment, usage } from "../../../../core/server/db/schema";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
-import type { Credentials, HostProvider } from "../../../../core/server/deps";
+import type { Credentials, HostProvider } from "../../../../plugins/assistant/server/deps";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { resolveRateLimits } from "../../../../core/server/rate-limits";
 import { maxDictationBytes } from "../../../../core/shared/chat/voice";

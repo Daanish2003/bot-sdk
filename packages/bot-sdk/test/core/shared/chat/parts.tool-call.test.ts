@@ -1,4 +1,4 @@
-import { type StoredPart, storedParts } from "../../../../core/shared/message-parts";
+import { type StoredPart, storedParts } from "../../../../plugins/assistant/shared/message-parts";
 import { EventType } from "@tanstack/ai";
 import { describe, expect, it } from "vitest";
 
@@ -8,7 +8,7 @@ import {
   parseStoredParts,
   toModelMessages,
   toUIParts,
-} from "../../../../core/shared/chat/parts";
+} from "../../../../plugins/assistant/shared/chat/parts";
 
 const hostCall = (
   fields: Partial<Extract<StoredPart, { type: "tool_call" }>> = {},

@@ -1,5 +1,5 @@
 import { modelGroups, modelLabel } from "../../core/client/models";
-import { instructionsMaxChars } from "../../core/shared/chat/instructions";
+import { instructionsMaxChars } from "../../plugins/assistant/shared/chat/instructions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";

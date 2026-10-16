@@ -2,11 +2,11 @@ import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { createBotSdk, type BotSdkOptions } from "../../../core/server/create-chat";
-import { assistant } from "../../../core/server/assistant";
+import { assistant } from "../../../plugins/assistant/server/plugin";
 import { models } from "../../../plugins/models/server/plugin";
-import { deleteUserData } from "../../../core/server/delete-user";
+import { deleteUserData } from "../../../plugins/assistant/server/delete-user";
 import { mcpConnection } from "../../../core/server/db/schema";
-import type { McpServerConfig } from "../../../core/server/mcp/servers";
+import type { McpServerConfig } from "../../../plugins/assistant/server/mcp/servers";
 import { createTestSdk, testKeyEncryptionSecret } from "../../support/deps";
 import { createFakeMcpAuth, fakeMcpResource } from "../../support/fake-mcp-auth";
 import { createTestChat } from "../../support/sdk";

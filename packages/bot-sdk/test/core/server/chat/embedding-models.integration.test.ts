@@ -9,11 +9,11 @@ import {
 import { fakeEmbeddingAdapter } from "../../../../plugins/models/server/fake-embedding-adapter";
 import { createHookEmitter } from "../../../../core/server/chat/hooks";
 import { createBotSdk } from "../../../../core/server/create-chat";
-import { assistant } from "../../../../core/server/assistant";
+import { assistant } from "../../../../plugins/assistant/server/plugin";
 import { models } from "../../../../plugins/models/server/plugin";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { usage } from "../../../../core/server/db/schema";
-import type { HostProvider } from "../../../../core/server/deps";
+import type { HostProvider } from "../../../../plugins/assistant/server/deps";
 import { createTestSdk, testKeyEncryptionSecret } from "../../../support/deps";
 import { getTestDb, testDatabaseUrl } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";

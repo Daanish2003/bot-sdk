@@ -14,7 +14,7 @@ import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-q
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import type { AppRouterClient } from "../../core/server/routers/index";
+import type { AppRouterClient } from "../../plugins/assistant/server/routers/index";
 import { relativeTime } from "../../core/client/relative-time";
 import { invalidateConversationList } from "../../core/client/react/conversation-list";
 import { useArchiveConversation } from "../../core/client/react/conversation-actions";

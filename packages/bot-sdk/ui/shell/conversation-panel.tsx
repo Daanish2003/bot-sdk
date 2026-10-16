@@ -1,4 +1,4 @@
-import type { AppRouterClient } from "../../core/server/routers/index";
+import type { AppRouterClient } from "../../plugins/assistant/server/routers/index";
 import { groupByDate } from "../../core/client/date-groups";
 import { modelLabel } from "../../core/client/models";
 import { relativeTime } from "../../core/client/relative-time";

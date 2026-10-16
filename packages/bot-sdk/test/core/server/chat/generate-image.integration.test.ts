@@ -1,4 +1,7 @@
-import { storedParts, type GeneratedImagePart } from "../../../../core/shared/message-parts";
+import {
+  storedParts,
+  type GeneratedImagePart,
+} from "../../../../plugins/assistant/shared/message-parts";
 import {
   generatedImage,
   conversation,
@@ -11,7 +14,7 @@ import { asc, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
-import type { HostProvider } from "../../../../core/server/deps";
+import type { HostProvider } from "../../../../plugins/assistant/server/deps";
 import {
   fakeImageAdapter,
   fakePngBase64,
@@ -26,7 +29,7 @@ import { createTestSdk, type TestDepsOverrides, type TestDeps } from "../../../s
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { insertUser } from "../../../support/users";
 import { chatRpc, sendAs } from "../../../support/sdk";
-import type { ChatCommand } from "../../../../core/shared/chat/command";
+import type { ChatCommand } from "../../../../plugins/assistant/shared/chat/command";
 import { getTestDb } from "../../../support/test-database";
 
 const anthropicModel = "anthropic:claude-sonnet-5-5";

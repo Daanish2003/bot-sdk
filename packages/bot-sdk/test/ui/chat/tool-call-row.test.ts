@@ -3,7 +3,7 @@ import type { MessagePart } from "@tanstack/ai";
 import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 
-import { toolCallOf } from "../../../core/shared/chat/tool-call";
+import { toolCallOf } from "../../../plugins/assistant/shared/chat/tool-call";
 import { ToolCallDetails, ToolCallRow } from "../../../ui/chat/tool-call-row";
 
 const part = (fields: Partial<Extract<MessagePart, { type: "tool-call" }>>): MessagePart =>

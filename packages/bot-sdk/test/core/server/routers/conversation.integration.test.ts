@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { createRouterClient } from "@orpc/server";
 import { describe, expect, it } from "vitest";
 
-import { appRouter } from "../../../../core/server/routers/index";
+import { appRouter } from "../../../../plugins/assistant/server/routers/index";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { insertConversation, insertMessage, testModel } from "../../../support/conversations";

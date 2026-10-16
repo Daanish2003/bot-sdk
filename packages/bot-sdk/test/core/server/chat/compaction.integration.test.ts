@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { conversation, message } from "../../../../core/server/db/schema";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
-import { loadActiveBranch } from "../../../../core/server/chat/store";
+import { loadActiveBranch } from "../../../../plugins/assistant/server/chat/store";
 import { getTestDb } from "../../../support/test-database";
 import { insertConversation, insertMessage } from "../../../support/conversations";
 import { createTestSdk } from "../../../support/deps";

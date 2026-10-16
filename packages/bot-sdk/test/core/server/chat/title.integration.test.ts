@@ -5,14 +5,14 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
-import { saveBackgroundModel } from "../../../../core/server/settings/store";
+import { saveBackgroundModel } from "../../../../plugins/assistant/server/settings/store";
 import { insertConversation, insertMessage } from "../../../support/conversations";
 import { createTestSdk } from "../../../support/deps";
 import { createFakeAdapter, round, runError, text } from "../../../support/fake-adapter";
 import { insertUser } from "../../../support/users";
 import { chatRpc, sendAs } from "../../../support/sdk";
-import type { ChatCommand } from "../../../../core/shared/chat/command";
-import { titleConversation } from "../../../../core/server/chat/title";
+import type { ChatCommand } from "../../../../plugins/assistant/shared/chat/command";
+import { titleConversation } from "../../../../plugins/assistant/server/chat/title";
 
 const replyModel = "anthropic:claude-sonnet-5-5";
 const cheapModel = "openai:gpt-5.4-mini";

@@ -1,6 +1,6 @@
 import type { TestDeps } from "./deps";
 import { createBotSdkClient, type BotSdkClient } from "../../core/client/chat-client";
-import { createChatHandler } from "../../core/server/create-chat";
+import { createChatHandler } from "../../plugins/assistant/server/over";
 import { createTestSdk } from "./deps";
 import type { TestUser } from "./users";
 

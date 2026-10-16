@@ -7,9 +7,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { EventHooks } from "../../../../core/server/index";
 import { createBotSdk } from "../../../../core/server/create-chat";
-import { assistant } from "../../../../core/server/assistant";
+import { assistant } from "../../../../plugins/assistant/server/plugin";
 import { models } from "../../../../plugins/models/server/plugin";
-import type { HostProvider } from "../../../../core/server/deps";
+import type { HostProvider } from "../../../../plugins/assistant/server/deps";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { testKeyEncryptionSecret } from "../../../support/deps";
 import { insertConversation } from "../../../support/conversations";

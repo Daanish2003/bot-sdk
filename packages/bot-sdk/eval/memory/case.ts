@@ -6,14 +6,14 @@ import { randomUUID } from "node:crypto";
 import { user as userTable } from "@ai-chat/db/schema/auth";
 import { and, eq } from "drizzle-orm";
 
-import { createChatHandler, type SdkOver } from "../../core/server/create-chat";
+import { createChatHandler, type SdkOver } from "../../plugins/assistant/server/over";
 import { saveCredentials } from "../../plugins/models/server/credentials/store";
 import { conversation, message, type MessageRow } from "../../core/server/db/schema";
 import type { Database } from "../../core/server/db/index";
-import type { Credentials } from "../../core/server/deps";
+import type { Credentials } from "../../plugins/assistant/server/deps";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
-import { makeMemoriesJob } from "../../core/server/memory/make";
-import { storedParts } from "../../core/shared/message-parts";
+import { makeMemoriesJob } from "../../plugins/assistant/server/memory/make";
+import { storedParts } from "../../plugins/assistant/shared/message-parts";
 import { type Category, type EvalCase, historyOf, parseDate } from "./cases";
 import { judge } from "./judge";
 

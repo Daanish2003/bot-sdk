@@ -1,6 +1,6 @@
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 
-import { focusStep } from "../../core/client/search";
+import { focusStep } from "../../plugins/assistant/client/search";
 
 /** How long an opened search hit stays highlighted. */
 const highlightMs = 2_500;

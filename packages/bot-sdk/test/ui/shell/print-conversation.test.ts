@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { renderEnglish } from "../fake-dictionary";
 
 import { createBotSdkClient } from "../../../core/client/chat-client";
-import { toolCallOf } from "../../../core/shared/chat/tool-call";
+import { toolCallOf } from "../../../plugins/assistant/shared/chat/tool-call";
 import { ChatProvider, type ChatRouter } from "../../../core/client/react/provider";
 import { Composer } from "../../../ui/chat/composer";
 import { ToolCallRow } from "../../../ui/chat/tool-call-row";

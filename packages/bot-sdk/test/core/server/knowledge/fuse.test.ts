@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { fuseByReciprocalRank } from "../../../../core/server/knowledge/search";
+import { fuseByReciprocalRank } from "../../../../plugins/assistant/server/knowledge/search";
 
 describe("fuseByReciprocalRank", () => {
   it("ranks an item found by both legs above one found by a single leg", () => {

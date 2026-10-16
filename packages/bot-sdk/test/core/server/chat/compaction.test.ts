@@ -8,7 +8,7 @@ import {
   contextBudgetOf,
   contextMarginTokens,
   estimateModelMessageTokens,
-} from "../../../../core/server/chat/compaction";
+} from "../../../../plugins/assistant/server/chat/compaction";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 
 /** One ModelMessage per stored Message, each 40 characters, so the budget below cuts a few. */

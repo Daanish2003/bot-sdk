@@ -7,7 +7,7 @@ import {
   localDayRange,
   recentConversations,
   splitSnippet,
-} from "../../../core/client/search";
+} from "../../../plugins/assistant/client/search";
 
 describe("splitSnippet", () => {
   it("splits a snippet around its match", () => {

@@ -1,4 +1,4 @@
-import { setPendingFirstMessage } from "../../core/client/chat";
+import { setPendingFirstMessage } from "../../plugins/assistant/client/chat";
 import { missingCredentialsMessage } from "../../core/client/models";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";

@@ -4,7 +4,10 @@ import { SquareIcon, Volume2Icon } from "lucide-react";
 import { useEffect, useState, useSyncExternalStore } from "react";
 
 import { useI18n } from "../../core/client/react/provider";
-import { pickOnDeviceVoice, readAloudUtterances } from "../../core/shared/chat/read-aloud";
+import {
+  pickOnDeviceVoice,
+  readAloudUtterances,
+} from "../../plugins/assistant/shared/chat/read-aloud";
 
 /**
  * Read-aloud (#257) with the browser's on-device voices. One Message reads at a time: the module

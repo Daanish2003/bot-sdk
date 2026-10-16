@@ -2,7 +2,7 @@ import {
   type StoredPart,
   storedParts,
   type WebSearchPart,
-} from "../../../../core/shared/message-parts";
+} from "../../../../plugins/assistant/shared/message-parts";
 import { EventType, type MessagePart } from "@tanstack/ai";
 import { describe, expect, it } from "vitest";
 
@@ -13,8 +13,8 @@ import {
   searchTextOf,
   toModelMessages,
   toUIParts,
-} from "../../../../core/shared/chat/parts";
-import { webSearchOf } from "../../../../core/shared/chat/web-search";
+} from "../../../../plugins/assistant/shared/chat/parts";
+import { webSearchOf } from "../../../../plugins/assistant/shared/chat/web-search";
 
 const result = (n: number) => ({
   title: `Result ${n}`,

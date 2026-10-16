@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { discoverEndpoints, SignInError } from "../../../../core/server/mcp/oauth";
-import { checkMcpServers, type McpServerConfig } from "../../../../core/server/mcp/servers";
+import { discoverEndpoints, SignInError } from "../../../../plugins/assistant/server/mcp/oauth";
+import {
+  checkMcpServers,
+  type McpServerConfig,
+} from "../../../../plugins/assistant/server/mcp/servers";
 import type { TestDeps } from "../../../support/deps";
 
 const server = (url: string): McpServerConfig => ({

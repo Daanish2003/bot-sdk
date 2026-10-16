@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveImageModelFor } from "../../../../core/server/chat/run-plan";
+import { resolveImageModelFor } from "../../../../plugins/assistant/server/chat/run-plan";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { userSettings } from "../../../../core/server/db/schema";
-import type { HostProvider } from "../../../../core/server/deps";
+import type { HostProvider } from "../../../../plugins/assistant/server/deps";
 import { createTestSdk } from "../../../support/deps";
 import { insertUser, type TestUser } from "../../../support/users";
 import { getTestDb } from "../../../support/test-database";

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { citationFor, excerptFor } from "../../../../core/shared/chat/citations";
-import type { Source } from "../../../../core/shared/chat/sources";
+import { citationFor, excerptFor } from "../../../../plugins/assistant/shared/chat/citations";
+import type { Source } from "../../../../plugins/assistant/shared/chat/sources";
 
 const sources: Source[] = [
   { number: 1, url: "https://tanstack.com/ai/latest", title: "TanStack AI", snippet: "…" },

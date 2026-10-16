@@ -9,8 +9,8 @@ import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { createFakeSearchClient } from "../../../support/fake-search-client";
 import { insertUser, type TestUser } from "../../../support/users";
 import { chatRpc, sendAs } from "../../../support/sdk";
-import { citationPrompt } from "../../../../core/shared/chat/citations";
-import type { ChatCommand } from "../../../../core/shared/chat/command";
+import { citationPrompt } from "../../../../plugins/assistant/shared/chat/citations";
+import type { ChatCommand } from "../../../../plugins/assistant/shared/chat/command";
 
 const anthropicModel = "anthropic:claude-sonnet-5-5";
 const instructions = "Answer briefly. Use British spelling.";

@@ -1,8 +1,8 @@
-import { storedParts } from "../../../../core/shared/message-parts";
+import { storedParts } from "../../../../plugins/assistant/shared/message-parts";
 import { describe, expect, it } from "vitest";
 
-import { citationFor } from "../../../../core/shared/chat/citations";
-import { replySegments, sourcesOf } from "../../../../core/shared/chat/sources";
+import { citationFor } from "../../../../plugins/assistant/shared/chat/citations";
+import { replySegments, sourcesOf } from "../../../../plugins/assistant/shared/chat/sources";
 import { insertAttachment, linkTestAttachments } from "../../../support/attachments";
 import { insertConversation, insertMessage } from "../../../support/conversations";
 import { insertUser } from "../../../support/users";

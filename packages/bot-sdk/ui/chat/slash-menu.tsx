@@ -12,7 +12,7 @@ import {
   lastRowLabel,
   rankSavedPrompts,
   savedPromptDraftError,
-} from "../../core/client/saved-prompts-menu";
+} from "../../plugins/assistant/client/saved-prompts-menu";
 import { useI18n, useOrpc } from "../../core/client/react/provider";
 
 type SavedPromptRow = { name: string; text: string };

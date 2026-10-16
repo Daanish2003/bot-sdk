@@ -1,4 +1,4 @@
-import { type StoredPart, storedParts } from "../../../../core/shared/message-parts";
+import { type StoredPart, storedParts } from "../../../../plugins/assistant/shared/message-parts";
 import { type MessagePart } from "@tanstack/ai";
 import { describe, expect, it } from "vitest";
 
@@ -8,8 +8,8 @@ import {
   parseStoredParts,
   toModelMessages,
   toUIParts,
-} from "../../../../core/shared/chat/parts";
-import { generatedImageOf } from "../../../../core/shared/chat/generated-image";
+} from "../../../../plugins/assistant/shared/chat/parts";
+import { generatedImageOf } from "../../../../plugins/assistant/shared/chat/generated-image";
 
 const image = (
   fields: Partial<Extract<StoredPart, { type: "generated_image" }>> = {},

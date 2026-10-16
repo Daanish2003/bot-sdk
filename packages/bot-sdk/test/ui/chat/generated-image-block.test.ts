@@ -1,11 +1,11 @@
 import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 
-import type { GeneratedImagePart } from "../../../core/shared/message-parts";
+import type { GeneratedImagePart } from "../../../plugins/assistant/shared/message-parts";
 import {
   generatedImageErrorLabels,
   type GeneratedImageErrorReason,
-} from "../../../core/shared/chat/generated-image";
+} from "../../../plugins/assistant/shared/chat/generated-image";
 import { renderInChat } from "../../support/chat-provider";
 import { GeneratedImageBlock, GeneratedImageViewer } from "../../../ui/chat/generated-image-block";
 

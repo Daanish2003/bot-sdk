@@ -3,13 +3,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { createBotSdk } from "../../../../core/server/create-chat";
-import { assistant } from "../../../../core/server/assistant";
+import { assistant } from "../../../../plugins/assistant/server/plugin";
 import { models } from "../../../../plugins/models/server/plugin";
 import { job } from "../../../../core/server/db/schema";
-import { defineJob, PermanentJobError } from "../../../../core/server/jobs/define";
-import { inProcessRunner, type JobClock } from "../../../../core/server/jobs/in-process";
-import type { JobRunner } from "../../../../core/server/jobs/runner";
-import { claimJob, pruneFinishedJobs, reapStaleJobs } from "../../../../core/server/jobs/store";
+import { defineJob, PermanentJobError } from "../../../../plugins/assistant/server/jobs/define";
+import {
+  inProcessRunner,
+  type JobClock,
+} from "../../../../plugins/assistant/server/jobs/in-process";
+import type { JobRunner } from "../../../../plugins/assistant/server/jobs/runner";
+import {
+  claimJob,
+  pruneFinishedJobs,
+  reapStaleJobs,
+} from "../../../../plugins/assistant/server/jobs/store";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { drainJobs } from "../../../support/jobs";
 import { getTestDb, testDatabaseUrl } from "../../../support/test-database";

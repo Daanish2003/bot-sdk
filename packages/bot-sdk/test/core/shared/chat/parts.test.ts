@@ -1,4 +1,4 @@
-import { storedParts } from "../../../../core/shared/message-parts";
+import { storedParts } from "../../../../plugins/assistant/shared/message-parts";
 import { EventType, type StreamChunk } from "@tanstack/ai";
 import { describe, expect, it } from "vitest";
 
@@ -8,7 +8,7 @@ import {
   searchTextOf,
   toModelMessages,
   toUIParts,
-} from "../../../../core/shared/chat/parts";
+} from "../../../../plugins/assistant/shared/chat/parts";
 
 const at = Date.now();
 const textStart = (messageId: string): StreamChunk => ({

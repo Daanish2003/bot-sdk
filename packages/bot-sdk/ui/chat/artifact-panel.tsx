@@ -2,11 +2,11 @@ import {
   artifactFileName,
   type ArtifactKind,
   updateArtifactToolName,
-} from "../../core/shared/chat/artifact";
+} from "../../plugins/assistant/shared/chat/artifact";
 import type { UIMessage } from "@tanstack/ai-react";
-import type { ToolCallView } from "../../core/shared/chat/tool-call";
+import type { ToolCallView } from "../../plugins/assistant/shared/chat/tool-call";
 import type { MessageKey } from "../../core/shared/i18n";
-import { messageInfo } from "../../core/client/chat";
+import { messageInfo } from "../../plugins/assistant/client/chat";
 import { useI18n, useOrpc } from "../../core/client/react/provider";
 import { CodeBlock, CodeBlockCode } from "@/components/ui/prompt-kit/code-block";
 import { Markdown } from "@/components/ui/prompt-kit/markdown";

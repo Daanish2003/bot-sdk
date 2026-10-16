@@ -31,8 +31,8 @@ import { SavedPromptFormView, SlashMenuList } from "../../../ui/chat/slash-menu"
 import { TemporaryHeaderActions } from "../../../ui/shell/conversation-header-actions";
 import type { ListedModel } from "../../../core/shared/chat/models";
 import { createI18n } from "../../../core/shared/i18n";
-import type { GeneratedImagePart } from "../../../core/shared/message-parts";
-import { toolCallOf, type ToolCallView } from "../../../core/shared/chat/tool-call";
+import type { GeneratedImagePart } from "../../../plugins/assistant/shared/message-parts";
+import { toolCallOf, type ToolCallView } from "../../../plugins/assistant/shared/chat/tool-call";
 import { renderWrapped, untranslated, wrappedDictionary } from "../fake-dictionary";
 
 const model: ListedModel = {

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { conversation, message, usage } from "../../../../core/server/db/schema";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
-import type { HostProvider } from "../../../../core/server/deps";
+import type { HostProvider } from "../../../../plugins/assistant/server/deps";
 import { insertConversation } from "../../../support/conversations";
 import { createTestSdk, type TestDepsOverrides, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, runError, text, withUsage } from "../../../support/fake-adapter";

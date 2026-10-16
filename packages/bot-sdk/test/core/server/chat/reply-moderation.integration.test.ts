@@ -9,11 +9,11 @@ import {
   createHookEmitter,
   type RunEndEvent,
 } from "../../../../core/server/chat/hooks";
-import { createChatHandler } from "../../../../core/server/create-chat";
-import type { HostToolContext } from "../../../../core/server/chat/host-tools";
-import type { HostProvider } from "../../../../core/server/deps";
+import { createChatHandler } from "../../../../plugins/assistant/server/over";
+import type { HostToolContext } from "../../../../plugins/assistant/server/chat/host-tools";
+import type { HostProvider } from "../../../../plugins/assistant/server/deps";
 import { message, usage } from "../../../../core/server/db/schema";
-import { exportUserData } from "../../../../core/server/export-user";
+import { exportUserData } from "../../../../plugins/assistant/server/export-user";
 import { START } from "../../../../core/server/chat/run-streams";
 import { insertConversation } from "../../../support/conversations";
 import { createTestSdk } from "../../../support/deps";

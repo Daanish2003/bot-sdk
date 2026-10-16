@@ -2,9 +2,9 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
-import { assistant } from "../../../core/server/assistant";
+import { assistant } from "../../../plugins/assistant/server/plugin";
 import { models } from "../../../plugins/models/server/plugin";
-import { sweepExpiredTemporaryConversations } from "../../../core/server/chat/temporary";
+import { sweepExpiredTemporaryConversations } from "../../../plugins/assistant/server/chat/temporary";
 import { saveCredentials } from "../../../plugins/models/server/credentials/store";
 import {
   attachment,
@@ -13,7 +13,7 @@ import {
   message,
   sharedLink,
 } from "../../../core/server/db/schema";
-import { createLifecycle } from "../../../core/server/lifecycle";
+import { createLifecycle } from "../../../plugins/assistant/server/lifecycle";
 import { insertAttachment, linkTestAttachments } from "../../support/attachments";
 import { insertConversation, insertMessage, testModel } from "../../support/conversations";
 import { createTestSdk } from "../../support/deps";
@@ -21,7 +21,7 @@ import { createFakeAdapter, round, text } from "../../support/fake-adapter";
 import { chatRpc, sendAs } from "../../support/sdk";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 import { insertUser, type TestUser } from "../../support/users";
-import type { ChatCommand } from "../../../core/shared/chat/command";
+import type { ChatCommand } from "../../../plugins/assistant/shared/chat/command";
 
 const testKey = "test-key-encryption-secret-not-for-production";
 const day = 24 * 60 * 60_000;

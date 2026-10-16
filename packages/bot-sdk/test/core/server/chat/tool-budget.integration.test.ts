@@ -1,14 +1,14 @@
-import type { StoredPart } from "../../../../core/shared/message-parts";
+import type { StoredPart } from "../../../../plugins/assistant/shared/message-parts";
 import { message } from "../../../../core/server/db/schema";
 import { toolDefinition } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import type { HostToolContext } from "../../../../core/server/chat/host-tools";
+import type { HostToolContext } from "../../../../plugins/assistant/server/chat/host-tools";
 import { fakeImageAdapter } from "../../../../plugins/models/server/fake-image-adapter";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
-import type { HostProvider } from "../../../../core/server/deps";
+import type { HostProvider } from "../../../../plugins/assistant/server/deps";
 import { insertConversation } from "../../../support/conversations";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";

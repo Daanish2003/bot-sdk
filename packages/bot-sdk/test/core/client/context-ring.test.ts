@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { contextFill, lastRunTokens } from "../../../core/client/context-ring";
+import { contextFill, lastRunTokens } from "../../../plugins/assistant/client/context-ring";
 
 const usage = { input: 1000, output: 200, reasoning: 0, cached: 0, estimated: false };
 

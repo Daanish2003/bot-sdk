@@ -1,16 +1,23 @@
 import { describe, expect, it } from "vitest";
 
-import { describeError } from "../../../core/client/chat";
+import { describeError } from "../../../plugins/assistant/client/chat";
 import { renamePromptText } from "../../../core/client/react/conversation-actions";
 import { deleteConfirmText } from "../../../core/client/react/delete-conversation";
-import { recentConversations } from "../../../core/client/search";
+import { recentConversations } from "../../../plugins/assistant/client/search";
 import { missingCredentialsMessage } from "../../../core/client/models";
 import { RateLimitedError } from "../../../core/client/rate-limit";
-import { lastRowLabel, savedPromptDraftError } from "../../../core/client/saved-prompts-menu";
+import {
+  lastRowLabel,
+  savedPromptDraftError,
+} from "../../../plugins/assistant/client/saved-prompts-menu";
 import { dictationFailureMessage } from "../../../core/client/voice";
-import { describeSearch, describeSearches, searchToggle } from "../../../core/client/web-search";
+import {
+  describeSearch,
+  describeSearches,
+  searchToggle,
+} from "../../../plugins/assistant/client/web-search";
 import { createI18n } from "../../../core/shared/i18n";
-import type { WebSearchPart } from "../../../core/shared/message-parts";
+import type { WebSearchPart } from "../../../plugins/assistant/shared/message-parts";
 import { reasoningChoiceLabel } from "../../../core/shared/chat/models";
 import { wrappedDictionary } from "../../ui/fake-dictionary";
 

@@ -1,12 +1,12 @@
-import { storedParts, type StoredPart } from "../../../../core/shared/message-parts";
+import { storedParts, type StoredPart } from "../../../../plugins/assistant/shared/message-parts";
 import { message } from "../../../../core/server/db/schema";
 import { toolDefinition } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import type { HostToolContext } from "../../../../core/server/chat/host-tools";
-import { stopRun } from "../../../../core/server/chat/run";
+import type { HostToolContext } from "../../../../plugins/assistant/server/chat/host-tools";
+import { stopRun } from "../../../../plugins/assistant/server/chat/run";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { insertConversation } from "../../../support/conversations";
 import { createTestSdk, type TestDepsOverrides, type TestDeps } from "../../../support/deps";

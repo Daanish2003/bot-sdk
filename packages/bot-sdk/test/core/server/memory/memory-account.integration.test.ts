@@ -2,10 +2,13 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
-import { moveConversation, deleteConversation } from "../../../../core/server/chat/store";
+import {
+  moveConversation,
+  deleteConversation,
+} from "../../../../plugins/assistant/server/chat/store";
 import { project, memory } from "../../../../core/server/db/schema";
-import { deleteUserData } from "../../../../core/server/delete-user";
-import { deleteProject } from "../../../../core/server/project/store";
+import { deleteUserData } from "../../../../plugins/assistant/server/delete-user";
+import { deleteProject } from "../../../../plugins/assistant/server/project/store";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { insertConversation } from "../../../support/conversations";
 import { createTestSdk } from "../../../support/deps";

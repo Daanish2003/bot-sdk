@@ -6,7 +6,7 @@ import {
   recentConversations,
   type SearchHit,
   splitSnippet,
-} from "../../core/client/search";
+} from "../../plugins/assistant/client/search";
 import { providers } from "../../core/shared/credentials/services";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";

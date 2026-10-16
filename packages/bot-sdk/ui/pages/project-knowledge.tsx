@@ -22,7 +22,7 @@ import {
   maxKnowledgeFileBytes,
   type KnowledgeFailureCode,
   type KnowledgeMediaType,
-} from "../../core/shared/knowledge/kinds";
+} from "../../plugins/assistant/shared/knowledge/kinds";
 
 const megabyte = 1024 * 1024;
 

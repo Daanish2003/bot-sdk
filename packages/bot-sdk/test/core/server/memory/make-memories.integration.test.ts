@@ -4,7 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
 import { createHookEmitter } from "../../../../core/server/chat/hooks";
-import { conversationChannel } from "../../../../core/server/memory/notice";
+import { conversationChannel } from "../../../../plugins/assistant/server/memory/notice";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
   conversation,
@@ -15,7 +15,7 @@ import {
   userSettings,
   usage,
 } from "../../../../core/server/db/schema";
-import type { HostProvider } from "../../../../core/server/deps";
+import type { HostProvider } from "../../../../plugins/assistant/server/deps";
 import { insertConversation, insertMessage } from "../../../support/conversations";
 import { createTestSdk, type TestDeps, type TestDepsOverrides } from "../../../support/deps";
 import { createFakeAdapter, round, runError, text } from "../../../support/fake-adapter";

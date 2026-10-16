@@ -1,16 +1,19 @@
 import type { AttachmentInfo } from "../../core/shared/attachments/kinds";
-import { createArtifactToolName, updateArtifactToolName } from "../../core/shared/chat/artifact";
+import {
+  createArtifactToolName,
+  updateArtifactToolName,
+} from "../../plugins/assistant/shared/chat/artifact";
 import {
   pageSourcesOf,
   replySegments,
   sourcesOf,
   webSourcesOf,
-} from "../../core/shared/chat/sources";
-import { generatedImageOf } from "../../core/shared/chat/generated-image";
-import { pastChatsOf } from "../../core/shared/chat/past-chats";
-import { toolCallOf, type ToolCallView } from "../../core/shared/chat/tool-call";
-import { knowledgeSearchOf } from "../../core/shared/chat/knowledge-search";
-import { webSearchOf } from "../../core/shared/chat/web-search";
+} from "../../plugins/assistant/shared/chat/sources";
+import { generatedImageOf } from "../../plugins/assistant/shared/chat/generated-image";
+import { pastChatsOf } from "../../plugins/assistant/shared/chat/past-chats";
+import { toolCallOf, type ToolCallView } from "../../plugins/assistant/shared/chat/tool-call";
+import { knowledgeSearchOf } from "../../plugins/assistant/shared/chat/knowledge-search";
+import { webSearchOf } from "../../plugins/assistant/shared/chat/web-search";
 import { Button } from "@/components/ui/button";
 import { Loader } from "@/components/ui/prompt-kit/loader";
 import { Markdown } from "@/components/ui/prompt-kit/markdown";
@@ -43,7 +46,7 @@ import {
   messageSiblings,
   messageInfo,
   type MessageInfo,
-} from "../../core/client/chat";
+} from "../../plugins/assistant/client/chat";
 import { modelLabel } from "../../core/client/models";
 
 import {

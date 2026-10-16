@@ -7,8 +7,9 @@ import { fakeEmbeddingAdapter } from "../../plugins/models/server/fake-embedding
 import { createHookEmitter, type HookEmitter } from "../../core/server/chat/hooks";
 import { createMemoryPubSub } from "../../core/server/chat/pubsub";
 import { createMemoryRunStreams } from "../../core/server/chat/run-streams";
-import { createBotSdkOver, type GivenContext, type SdkOver } from "../../core/server/create-chat";
-import type { Limits } from "../../core/server/deps";
+import type { GivenContext } from "../../core/server/create-chat";
+import { createBotSdkOver, type SdkOver } from "../../plugins/assistant/server/over";
+import type { Limits } from "../../plugins/assistant/server/deps";
 import type { ModelsDeps } from "../../plugins/models/server/types";
 import { resolveRateLimits } from "../../core/server/rate-limits";
 import { createFakeSearchClient } from "./fake-search-client";

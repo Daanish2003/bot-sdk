@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 
 import type { BotSdkClient } from "../../../core/client/chat-client";
-import type { KnowledgeMediaType } from "../../../core/shared/knowledge/kinds";
+import type { KnowledgeMediaType } from "../../../plugins/assistant/shared/knowledge/kinds";
 import { KnowledgeTab } from "../../../ui/pages/project-knowledge";
 import { renderWrapped, untranslated } from "../fake-dictionary";
 

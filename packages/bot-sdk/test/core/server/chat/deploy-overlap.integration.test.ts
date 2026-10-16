@@ -4,7 +4,7 @@ import { afterAll, describe, expect, it } from "vitest";
 
 import { createRedisConnection } from "../../../../core/server/chat/redis-connection";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
-import { createLifecycle } from "../../../../core/server/lifecycle";
+import { createLifecycle } from "../../../../plugins/assistant/server/lifecycle";
 import { redisRuntime, type BotSdkRuntime } from "../../../../core/server/runtime";
 import { insertConversation } from "../../../support/conversations";
 import { createTestSdk, type TestDeps, type TestDepsOverrides } from "../../../support/deps";

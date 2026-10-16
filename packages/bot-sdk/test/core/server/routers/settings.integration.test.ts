@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { instructionsMaxChars } from "../../../../core/shared/chat/instructions";
+import { instructionsMaxChars } from "../../../../plugins/assistant/shared/chat/instructions";
 import { createTestSdk } from "../../../support/deps";
 import { insertUser } from "../../../support/users";
 import { chatRpc } from "../../../support/sdk";

@@ -1,10 +1,14 @@
-import { sourceKey, type Source } from "../../core/shared/chat/sources";
-import type { WebSearchPart } from "../../core/shared/message-parts";
+import { sourceKey, type Source } from "../../plugins/assistant/shared/chat/sources";
+import type { WebSearchPart } from "../../plugins/assistant/shared/message-parts";
 import { cn } from "@/lib/utils";
 import { ChevronRightIcon, GlobeIcon, LoaderIcon } from "lucide-react";
 import { useId, useState } from "react";
 
-import { describeSearch, describeSearches, domainOf } from "../../core/client/web-search";
+import {
+  describeSearch,
+  describeSearches,
+  domainOf,
+} from "../../plugins/assistant/client/web-search";
 
 import { SourceChips } from "./source-chips";
 

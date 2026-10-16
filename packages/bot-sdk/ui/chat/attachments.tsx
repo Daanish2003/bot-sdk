@@ -6,7 +6,7 @@ import {
 } from "../../core/shared/attachments/kinds";
 import type { AttachmentInfo } from "../../core/shared/attachments/kinds";
 import { findModel } from "../../core/shared/chat/models";
-import type { AttachmentChip } from "../../core/client/chat";
+import type { AttachmentChip } from "../../plugins/assistant/client/chat";
 import {
   Attachment,
   AttachmentAction,

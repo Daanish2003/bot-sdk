@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { toolErrorText } from "../../../core/client/tool-error";
+import { toolErrorText } from "../../../plugins/assistant/client/tool-error";
 import { createI18n } from "../../../core/shared/i18n";
 
 const i18n = createI18n();

@@ -8,9 +8,9 @@ import {
   spentCalls,
   toolCallLimitError,
   trackedTool,
-} from "../../../../core/server/chat/tracked-tool";
-import { createPartsBuilder } from "../../../../core/shared/chat/parts";
-import type { StoredPart } from "../../../../core/shared/message-parts";
+} from "../../../../plugins/assistant/server/chat/tracked-tool";
+import { createPartsBuilder } from "../../../../plugins/assistant/shared/chat/parts";
+import type { StoredPart } from "../../../../plugins/assistant/shared/message-parts";
 
 type Body = (input: { n: number }, signal: AbortSignal | undefined) => Promise<unknown>;
 

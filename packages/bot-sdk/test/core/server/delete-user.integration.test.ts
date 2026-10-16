@@ -5,10 +5,13 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
-import { assistant } from "../../../core/server/assistant";
+import { assistant } from "../../../plugins/assistant/server/plugin";
 import { models } from "../../../plugins/models/server/plugin";
-import { deleteAllConversations, deleteUserData } from "../../../core/server/delete-user";
-import { deleteConversation } from "../../../core/server/chat/store";
+import {
+  deleteAllConversations,
+  deleteUserData,
+} from "../../../plugins/assistant/server/delete-user";
+import { deleteConversation } from "../../../plugins/assistant/server/chat/store";
 import { saveCredentials } from "../../../plugins/models/server/credentials/store";
 import { START } from "../../../core/server/chat/run-streams";
 import {
@@ -29,7 +32,7 @@ import {
   usage,
 } from "../../../core/server/db/schema";
 import { knowledgeBlobKey } from "../../../core/server/blob/store";
-import { knowledgeJobKey } from "../../../core/server/knowledge/process";
+import { knowledgeJobKey } from "../../../plugins/assistant/server/knowledge/process";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { insertAttachment, linkTestAttachments } from "../../support/attachments";
 import { insertConversation, insertMessage } from "../../support/conversations";
