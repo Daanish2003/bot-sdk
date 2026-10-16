@@ -10,7 +10,7 @@ The files are a throwaway cache, not stored data. A sync records in Postgres the
 
 Knowledge files, by contrast, are chunked and searched by meaning in Postgres. The two kinds answer different questions: code and docs reward exact names and whole files, while prose rewards meaning.
 
-_Amended 2026-10-12, the day it was accepted and before anything was built on it: it first put the files on a persistent disk. The [disks research](../research/render-persistent-disks.md) found that a disk on Render, Railway or Fly turns off overlapping deploys and pins the service to one instance ([#168](https://github.com/Daanish2003/ai-chat/issues/168))._
+_Amended 2026-10-12, the day it was accepted and before anything was built on it: it first put the files on a persistent disk, and a persistent disk turns off overlapping deploys and pins the service to one instance ([#168](https://github.com/Daanish2003/ai-chat/issues/168))._
 
 ## Considered Options
 

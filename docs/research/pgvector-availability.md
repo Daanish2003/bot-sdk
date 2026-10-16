@@ -1,16 +1,16 @@
 # Research: Making pgvector available to the Chat SDK
 
 Ticket: [#199 Making pgvector available to the Chat SDK](https://github.com/Daanish2003/ai-chat/issues/199) (child of map [#197](https://github.com/Daanish2003/ai-chat/issues/197)).
-Researched: 2026-10-12, from Postgres and pgvector source, Docker Hub, and Render, Neon and Supabase docs and source.
+Researched: 2026-10-12, from Postgres and pgvector source, Docker Hub, and Neon and Supabase docs and source.
 
 ## Question
 
-The Chat SDK runs its own migrations with `chat.migrate()` in its own Postgres schema ([ADR 0005](../adr/0005-copied-stack-agnostic-chat-sdk.md)). Can a migration run `CREATE EXTENSION IF NOT EXISTS vector` as a non-superuser on Render Postgres ([ADR 0009](../adr/0009-production-on-render.md)), Neon and Supabase, and which pgvector versions do they ship (HNSW, `halfvec`)? Which Docker image should replace `postgres:18` locally and in CI? What does a Host see if the extension can't be created, and how do other copy-in libraries handle that?
+The Chat SDK runs its own migrations with `chat.migrate()` in its own Postgres schema ([ADR 0005](../adr/0005-copied-stack-agnostic-chat-sdk.md)). Can a migration run `CREATE EXTENSION IF NOT EXISTS vector` as a non-superuser on Neon and Supabase, and which pgvector versions do they ship (HNSW, `halfvec`)? Which Docker image should replace `postgres:18` locally and in CI? What does a Host see if the extension can't be created, and how do other copy-in libraries handle that?
 
 ## Answer
 
-- **Yes on all three, but not because the extension is "trusted".** pgvector is **not** marked `trusted`, so plain Postgres needs a superuser to create it. Render, Neon and Supabase each let their default (non-superuser) database user run `CREATE EXTENSION vector` through a provider allow-list. A self-hosted Host whose migrate role isn't a superuser (or the database owner on a provider) will get `permission denied`.
-- **Versions**: HNSW needs pgvector ≥ 0.5.0 and `halfvec` ≥ 0.7.0. Neon ships 0.8.0 (PG 14–17) and 0.8.6 (PG 18); Supabase builds up to 0.8.2 (PG 15, 17); Render doesn't publish a version. All documented versions have both HNSW and `halfvec`.
+- **Yes on both, but not because the extension is "trusted".** pgvector is **not** marked `trusted`, so plain Postgres needs a superuser to create it. Neon and Supabase each let their default (non-superuser) database user run `CREATE EXTENSION vector` through a provider allow-list. A self-hosted Host whose migrate role isn't a superuser (or the database owner on a provider) will get `permission denied`.
+- **Versions**: HNSW needs pgvector ≥ 0.5.0 and `halfvec` ≥ 0.7.0. Neon ships 0.8.0 (PG 14–17) and 0.8.6 (PG 18); Supabase builds up to 0.8.2 (PG 15, 17). All documented versions have both HNSW and `halfvec`.
 - **Docker**: replace `postgres:18` with `pgvector/pgvector:0.8.7-pg18-trixie` (or the floating `pg18-trixie`), in `docker-compose.yml` and both `postgres` services in `.github/workflows/ci.yml`. Use the **`-trixie`** tag: `postgres:18` is Trixie, while pgvector's bare `pg18` tag is Bookworm.
 - **Failure**: Postgres raises `permission denied to create extension "vector"` with hint `Must be superuser to create this extension.`, or `extension "vector" is not available` if the server lacks the files. `chat.migrate()` should catch it and rethrow with a Host-facing message, exactly as it already does for `pg_trgm`. Sim fails hard; Mastra and LangChain.js try, then fall back or let the Host skip the step.
 
@@ -23,13 +23,6 @@ The Chat SDK runs its own migrations with `chat.migrate()` in its own Postgres s
 - Because it's `relocatable` and created without `SCHEMA`, it lands in the first schema on the role's `search_path` (usually `public`) ([CREATE EXTENSION](https://www.postgresql.org/docs/18/sql-createextension.html)). Extension names are unique per database, so `IF NOT EXISTS` is a no-op if the Host already installed `vector` in another schema (for example Supabase's `extensions`). The SDK's DDL must then resolve the `vector` type through `search_path` or schema-qualify it. **Not verified** what `search_path` the migrate role has on each provider.
 
 ## Providers
-
-### Render Postgres (ADR 0009)
-
-- Supported: pgvector is in the extension list for PostgreSQL 13+, "Enable this extension with `CREATE EXTENSION vector;`", run from the dashboard's **PSQL Command**, which connects as the database's default user ([extensions](https://render.com/docs/postgresql-extensions)).
-- No superuser: "Render Postgres does not provide superuser access to your database" ([pg_repack](https://render.com/docs/postgresql-pg-repack)). So the default user can create listed extensions without being a superuser. Render doesn't document the mechanism.
-- Version: **not documented.** Check on the instance with `select default_version from pg_available_extensions where name = 'vector';`.
-- Migrations run in the pre-deploy command as the same default user (ADR 0009), so `chat.migrate()` running `CREATE EXTENSION IF NOT EXISTS vector` should work there. **Not verified on a live Render database.**
 
 ### Neon
 
@@ -64,7 +57,7 @@ From Postgres 18's `extension.c` ([source](https://github.com/postgres/postgres/
 - Role not allowed: `ERROR: permission denied to create extension "vector"`, `HINT: Must be superuser to create this extension.` (because `vector` isn't trusted).
 - Files not installed (for example plain `postgres:18`): `ERROR: extension "vector" is not available`, `HINT: The extension must first be installed on the system where PostgreSQL is running.`
 
-If the extension isn't created, every later `vector(...)`/`halfvec(...)` column or HNSW index in a Drizzle migration fails with `type "vector" does not exist`. `chat.migrate()` stops, and so does ADR 0009's pre-deploy. The existing `createTrigramExtension` wrapper is the pattern to copy. Its message would add "install pgvector, or have a superuser run `CREATE EXTENSION vector` once, then rerun migrate". Pre-creating it works because `IF NOT EXISTS` then succeeds for any role.
+If the extension isn't created, every later `vector(...)`/`halfvec(...)` column or HNSW index in a Drizzle migration fails with `type "vector" does not exist`. `chat.migrate()` stops. The existing `createTrigramExtension` wrapper is the pattern to copy. Its message would add "install pgvector, or have a superuser run `CREATE EXTENSION vector` once, then rerun migrate". Pre-creating it works because `IF NOT EXISTS` then succeeds for any role.
 
 ## How other libraries handle it
 
@@ -74,13 +67,12 @@ If the extension isn't created, every later `vector(...)`/`halfvec(...)` column 
 
 ## Implications for the specs
 
-- `chat.migrate()` can create `vector` itself, next to `pg_trgm`, with a wrapped error. That works on Render, Neon (Console/API roles), Supabase, and in Docker with the pgvector image. The SDK README should say "pgvector ≥ 0.7.0 required. If your migrate role can't create it, run `CREATE EXTENSION vector` once as a superuser."
+- `chat.migrate()` can create `vector` itself, next to `pg_trgm`, with a wrapped error. That works on Neon (Console/API roles), Supabase, and in Docker with the pgvector image. The SDK README should say "pgvector ≥ 0.7.0 required. If your migrate role can't create it, run `CREATE EXTENSION vector` once as a superuser."
 - Decide (human, schema) whether to accept `vector` in any schema (Supabase's `extensions`) by detecting `pg_extension.extnamespace` and schema-qualifying the type, as Mastra and LangChain.js do, or to rely on `search_path`.
 - Switching the image in compose and CI is infrastructure (AGENTS.md §6). It should be a ticket, not done here.
 
 ## Not verified
 
-- pgvector version on Render, and whether a Render instance on PG 18 exists for this project (check `pg_available_extensions` on the instance).
-- The exact mechanism by which Render and Neon let a non-superuser create `vector`, and whether a SQL-created Neon role can.
+- The exact mechanism by which Neon lets a non-superuser create `vector`, and whether a SQL-created Neon role can.
 - Default `search_path` of the migrate role on each provider (matters if `vector` lives outside `public`).
 - Supabase PG 18 availability (no PG 18 build in `versions.json` at the time of reading).

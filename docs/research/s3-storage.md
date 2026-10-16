@@ -5,14 +5,14 @@ Researched: 2026-10-12. Versions, prices and counts were read that day.
 
 ## Question
 
-What should the Chat SDK (`packages/chat-sdk`, copied and stack-agnostic, ADR 0005) use to talk to S3-compatible storage, and which store backs it in dev, CI and production? This note covers three things: the client libraries, RustFS as a `docker compose` store (and possibly a production one on Render), and Cloudflare R2.
+What should the Chat SDK (`packages/chat-sdk`, copied and stack-agnostic, ADR 0005) use to talk to S3-compatible storage, and which store backs it in dev, CI and production? This note covers three things: the client libraries, RustFS as a `docker compose` store, and Cloudflare R2.
 
 This note gives facts and implications only. The choice belongs to #170 and the owner: new dependencies and infrastructure are human decisions (AGENTS.md §6).
 
 ## Summary
 
 - **Clients.** `@aws-sdk/client-s3` is complete: multipart through `@aws-sdk/lib-storage`, presigning through `@aws-sdk/s3-request-presigner`, and streams. It is also about 8–9 MB unpacked across roughly 26–40 packages. Against non-AWS stores, its default CRC32 checksums are a known source of failures, and `requestChecksumCalculation: "WHEN_REQUIRED"` is the usual opt-out. `aws4fetch` is a single 65 KB MIT package with no dependencies. It is only a SigV4 signer around `fetch`: presigned URLs come from `signQuery`, and you build multipart and XML parsing yourself. Its last release was in August 2024. `s3mini` sits in between: no dependencies, Node, Bun and Workers support, multipart and presigning built in, but a small user base.
-- **RustFS** went **GA at 1.0.0 on 2026-09-16** (1.0.1 on 2026-10-03), after alpha from July 2025, beta from April 2026 and RCs from August 2026. It is **Apache-2.0**. Its own test lists cover presigned GET/PUT, multipart and bucket CORS. It documents its gaps (no ACLs, POST-object checksums, bucket logging, ownership controls). The official image `rustfs/rustfs` runs single-node with no arguments. That fits a compose service and a GitHub Actions service container in place of MinIO. For production it is young: 35 security advisories were published between 2025-12-30 and 2026-09-08 (4 critical, 14 high), one of them about presigned uploads. On Render it needs a persistent disk, and a disk rules out zero-downtime deploys and more than one instance.
+- **RustFS** went **GA at 1.0.0 on 2026-09-16** (1.0.1 on 2026-10-03), after alpha from July 2025, beta from April 2026 and RCs from August 2026. It is **Apache-2.0**. Its own test lists cover presigned GET/PUT, multipart and bucket CORS. It documents its gaps (no ACLs, POST-object checksums, bucket logging, ownership controls). The official image `rustfs/rustfs` runs single-node with no arguments. That fits a compose service and a GitHub Actions service container in place of MinIO. For production it is young: 35 security advisories were published between 2025-12-30 and 2026-09-08 (4 critical, 14 high), one of them about presigned uploads.
 - **R2.** Egress is free. Storage costs $0.015/GB-month. The free tier is 10 GB-month, 1M Class A and 10M Class B operations. Presigned URLs allow GET/HEAD/PUT/DELETE, but **not POST form uploads**, last 1 s to 7 days, and work only on the S3 API domain, **not on custom domains**. Bucket CORS is needed for browser uploads. Public buckets run through a custom domain on a Cloudflare zone, with caching and WAF. `r2.dev` URLs are rate-limited and meant for development only.
 
 ## 1. Clients
@@ -103,13 +103,6 @@ Whether a fresh named volume inherits the image's `chown rustfs /data` is standa
 - RustFS fits both setups. It is one image that needs no command arguments, so it works as a GitHub Actions `services:` container, which takes no `command:`. It has an HTTP health endpoint for `--health-cmd`, the Apache-2.0 licence, and amd64 and arm64 images. CI would need a step to create the bucket and, for browser e2e, a bucket CORS rule.
 - Caveat: it differs from R2 in places. R2 has no presigned POST, accepts no presigned URLs on custom domains, and has its own checksum and ACL gaps. Passing e2e against RustFS doesn't prove the R2 path works.
 
-### Production on Render
-
-- It would run as a Docker private service or web service with a **persistent disk**. Render: "Adding a disk to a service prevents zero-downtime deploys", "You can't scale a service to multiple instances if it has a disk attached", and disks attach only to paid web services, private services and background workers. Render snapshots disks every 24 h and keeps them at least 7 days [render]. This is the same limit as [#167](https://github.com/Daanish2003/ai-chat/issues/167). Here it applies to the store's service rather than `apps/web`, so the app keeps zero-downtime deploys while every RustFS deploy causes a short outage.
-- A single-node single-drive (SNSD) setup "cannot expand in place or be added as a Pool". Growing means a new deployment and a migration through S3 [rfreadme]. The docs recommend multi-node, TLS, log rotation and backups before production [rfdocs]. A single drive also has no erasure coding.
-- Running your own store means owning patching (see the advisory record), credentials, TLS and backups. Render's disk snapshots are crash-consistent block snapshots. Render warns against disk restores for databases; whether that applies to RustFS metadata wasn't checked.
-- I didn't verify Render's per-GB disk price (the pricing page showed no figure).
-
 ## 3. Cloudflare R2
 
 - **Pricing** [r2price]. Standard storage is $0.015/GB-month (Infrequent Access $0.01). Class A operations cost $4.50 per million, Class B $0.36 per million. "There are no charges for egress bandwidth for any storage class." DeleteObject, DeleteBucket and AbortMultipartUpload are free.
@@ -142,13 +135,11 @@ Whether a fresh named volume inherits the image's `chown rustfs /data` is standa
 1. One S3 adapter can cover R2 in production and RustFS in dev and CI. It needs a configurable endpoint, path-style addressing (RustFS without `RUSTFS_SERVER_DOMAINS`), region `auto`, and AWS SDK checksum settings that both stores accept.
 2. Design browser uploads around **presigned PUT**. R2 has no presigned POST, so a `content-length-range` policy isn't available. Size limits must then be enforced another way, for example by signing `Content-Length` or checking with HEAD after the upload.
 3. R2 presigned URLs can't use a custom domain. Downloads served through a CDN would need a public custom-domain bucket with token auth. Otherwise the app streams or redirects to a presigned GET.
-4. RustFS in production on Render brings back the disk limits from #167 for the store service, plus self-hosting work, on software that went GA four weeks before this note.
 
 ## Not verified
 
 - AWS SDK v3 on Cloudflare Workers (not stated in the SDK README).
 - Total dependency sizes are an approximation from walking the npm registry (latest version of each dep), not a real install.
-- Render disk pricing.
 - Behaviour of RustFS 1.0.1 against R2-specific quirks. No interop test was run.
 - s3mini's streaming support.
 
@@ -176,7 +167,6 @@ Whether a fresh named volume inherits the image's `chown rustfs /data` is standa
 - [rfdocs] <https://docs.rustfs.com/installation/docker/>
 - [rfhub] <https://hub.docker.com/r/rustfs/rustfs/tags>
 - [rfsec] <https://github.com/rustfs/rustfs/security/advisories>
-- [render] <https://render.com/docs/disks>
 - [r2price] <https://developers.cloudflare.com/r2/pricing/>
 - [r2presign] <https://developers.cloudflare.com/r2/api/s3/presigned-urls/>
 - [r2cors] <https://developers.cloudflare.com/r2/buckets/cors/>
