@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 
-import type { ReasoningSupport } from "../../../core/shared/chat/models";
+import type { ReasoningSupport } from "../../../plugins/models/shared/models";
 import { ReasoningEffortSelect } from "../../../ui/shell/reasoning-effort-select";
 import { renderWrapped } from "../fake-dictionary";
 

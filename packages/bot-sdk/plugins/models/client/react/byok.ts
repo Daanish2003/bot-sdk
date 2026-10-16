@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { useOrpc } from "./provider";
+import { useOrpc } from "../../../../core/client/react/provider";
 
 /**
  * Whether the user may bring their own Provider credentials (`byok`, ADR 0007). `false` until the

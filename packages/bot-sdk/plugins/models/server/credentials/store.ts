@@ -2,8 +2,8 @@ import { userCredentials } from "../../../../core/server/db/schema";
 import { and, asc, eq, gt, or } from "drizzle-orm";
 
 import type { ModelsDeps, Credentials } from "../types";
-import type { CredentialSummary } from "../../../../core/shared/credentials/services";
-import { tavilyService } from "../../../../core/shared/credentials/services";
+import type { CredentialSummary } from "../../shared/credentials/services";
+import { tavilyService } from "../../shared/credentials/services";
 import {
   decryptCredentials,
   encryptCredentials,

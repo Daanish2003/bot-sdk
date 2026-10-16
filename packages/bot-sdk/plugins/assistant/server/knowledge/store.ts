@@ -1,6 +1,7 @@
 import { and, count, desc, eq } from "drizzle-orm";
 
-import { knowledgeBlobKey, deleteBlobsBestEffort } from "../../../../core/server/blob/store";
+import { deleteBlobsBestEffort } from "../../../../core/server/blob/store";
+import { knowledgeBlobKey } from "../blob-keys";
 import { project, knowledgeChunk, knowledgeFile } from "../../../../core/server/db/schema";
 import type { BotSdkContext } from "../../../../core/server/plugin";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";

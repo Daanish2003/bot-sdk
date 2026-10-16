@@ -2,9 +2,9 @@ import { chat, type ModelMessage } from "@tanstack/ai";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { isKnownModel, parseModelId } from "../../../../core/shared/chat/models";
+import { isKnownModel, parseModelId } from "../../../models/shared/models";
 import type { ResolvedEmbeddingModel } from "../../../models/server/embedding-models";
-import { loadPath } from "../chat/store";
+import { loadPath } from "../../../../core/server/chat/message-tree";
 import { promptCharactersOf, reportedUsageOf } from "../chat/usage";
 import {
   conversation,

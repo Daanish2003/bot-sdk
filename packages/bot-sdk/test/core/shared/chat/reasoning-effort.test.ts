@@ -4,7 +4,7 @@ import {
   effortFor,
   reasoningChoices,
   type ReasoningSupport,
-} from "../../../../core/shared/chat/models";
+} from "../../../../plugins/models/shared/models";
 
 const withEfforts: ReasoningSupport = {
   efforts: ["low", "medium", "high"],

@@ -2,7 +2,7 @@ import type { MessagePart } from "@tanstack/ai";
 
 import { attachmentKind } from "../../../core/shared/attachments/kinds";
 import { type ClientMessage } from "../shared/chat/client-message";
-import { findModel, parseModelId } from "../../../core/shared/chat/models";
+import { findModel, parseModelId } from "../../models/shared/models";
 import { citationFor, excerptFor } from "../shared/chat/citations";
 import { toolCallOf } from "../shared/chat/tool-call";
 import { type Citation, type Source, sourcesOf, webSourcesOf } from "../shared/chat/sources";

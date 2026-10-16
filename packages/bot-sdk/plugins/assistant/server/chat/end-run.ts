@@ -9,7 +9,7 @@ import type { RunEndEvent } from "../../../../core/server/chat/hooks";
 import { enqueueMemories } from "../memory/make";
 import { titleConversation } from "./title";
 import type { ModelMeter } from "../../../models/server/meter";
-import type { MessageUsage } from "../../../../core/shared/chat/message-record";
+import type { MessageUsage } from "../../../models/shared/usage";
 import type { Executor } from "./run";
 import { assistantState } from "../state";
 

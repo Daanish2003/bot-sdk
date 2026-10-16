@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, createHmac, hkdfSync, randomBytes } from "node:crypto";
 
-import type { Credentials } from "../../../plugins/assistant/server/deps";
+import type { Credentials } from "../../../plugins/models/server/types";
 
 /** Provider credentials, Tool credentials and Connection tokens each get their own key (ADR 0010). */
 export type CredentialKind = "provider" | "tool" | "connection";

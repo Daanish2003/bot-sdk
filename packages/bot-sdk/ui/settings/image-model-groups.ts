@@ -1,5 +1,5 @@
-import { providers } from "../../core/shared/credentials/services";
-import type { ListedImageModel } from "../../core/shared/chat/image-models";
+import { providers } from "../../plugins/models/shared/credentials/services";
+import type { ListedImageModel } from "../../plugins/models/shared/image-models";
 
 export type ImageModelGroup = {
   provider: string;

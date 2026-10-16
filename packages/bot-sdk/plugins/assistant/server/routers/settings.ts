@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { instructionsMaxChars } from "../../shared/chat/instructions";
-import { isKnownModel } from "../../../../core/shared/chat/models";
+import { isKnownModel } from "../../../models/shared/models";
 import { protectedProcedure } from "../../../../core/server/procedures";
 import { rpcError } from "../../../../core/server/rpc-error";
 import {

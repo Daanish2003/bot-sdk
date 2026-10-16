@@ -1,11 +1,6 @@
-import {
-  type CuratedModel,
-  findModel,
-  isLiveListProvider,
-  parseModelId,
-} from "../shared/chat/models";
+import { type CuratedModel, findModel, isLiveListProvider, parseModelId } from "../shared/models";
 import { providerLabel, providers } from "../shared/credentials/services";
-import type { I18n } from "../shared/i18n";
+import type { I18n } from "../../../core/shared/i18n";
 
 export type ModelGroup<T extends CuratedModel = CuratedModel> = {
   provider: CuratedModel["provider"];

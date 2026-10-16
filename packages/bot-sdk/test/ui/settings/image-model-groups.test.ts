@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { ListedImageModel } from "../../../core/shared/chat/image-models";
+import type { ListedImageModel } from "../../../plugins/models/shared/image-models";
 import { groupImageModels } from "../../../ui/settings/image-model-groups";
 
 function model(provider: string, modelId: string, onHostCredentials: boolean): ListedImageModel {

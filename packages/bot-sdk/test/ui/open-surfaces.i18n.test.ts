@@ -6,7 +6,7 @@ import { Toaster } from "sonner";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { BotSdkClient } from "../../core/client/chat-client";
-import type { ListedModel } from "../../core/shared/chat/models";
+import type { ListedModel } from "../../plugins/models/shared/models";
 import { en } from "../../core/shared/i18n";
 import { ChatView, type ConversationData } from "../../ui/chat/chat-view";
 import { ProjectPage } from "../../ui/pages/project";

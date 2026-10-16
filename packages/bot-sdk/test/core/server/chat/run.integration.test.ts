@@ -9,7 +9,7 @@ import { insertUser } from "../../../support/users";
 import { reapStaleRuns, startRun } from "../../../../plugins/assistant/server/chat/run";
 import { freeMeter } from "../../../../plugins/models/server/meter";
 import type { RunPlan } from "../../../../plugins/assistant/server/chat/run-plan";
-import { findModel } from "../../../../core/shared/chat/models";
+import { findModel } from "../../../../plugins/models/shared/models";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { START } from "../../../../core/server/chat/run-streams";
 import { EventType, type StreamChunk } from "@tanstack/ai";

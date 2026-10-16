@@ -1,8 +1,8 @@
 import { createI18n } from "../../../core/shared/i18n";
 import { describe, expect, it } from "vitest";
 
-import { quotaResetsAt } from "../../../core/client/quota";
-import { appendTranscript, dictationFailureMessage } from "../../../core/client/voice";
+import { quotaResetsAt } from "../../../plugins/models/client/quota";
+import { appendTranscript, dictationFailureMessage } from "../../../plugins/models/client/voice";
 
 describe("appendTranscript", () => {
   it("puts the transcript into an empty composer as it is", () => {

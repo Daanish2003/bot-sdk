@@ -3,7 +3,7 @@ import { desc, eq } from "drizzle-orm";
 
 import { resolvedServices, hostModelList } from "./credentials/resolve";
 import { loadCredentials } from "./credentials/store";
-import { tavilyService } from "../../../core/shared/credentials/services";
+import { tavilyService } from "../shared/credentials/services";
 import type { ModelsDeps } from "./types";
 import { ollamaModels, openRouterModels } from "./live-models";
 import { listImageModels } from "./image-models";
@@ -15,8 +15,8 @@ import {
   findModel,
   isLiveListProvider,
   parseModelId,
-} from "../../../core/shared/chat/models";
-import type { ListedImageModel } from "../../../core/shared/chat/image-models";
+} from "../shared/models";
+import type { ListedImageModel } from "../shared/image-models";
 
 type Deps = Pick<
   ModelsDeps,

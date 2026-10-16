@@ -4,13 +4,13 @@ import { describeError } from "../../../plugins/assistant/client/chat";
 import { renamePromptText } from "../../../core/client/react/conversation-actions";
 import { deleteConfirmText } from "../../../core/client/react/delete-conversation";
 import { recentConversations } from "../../../plugins/assistant/client/search";
-import { missingCredentialsMessage } from "../../../core/client/models";
+import { missingCredentialsMessage } from "../../../plugins/models/client/models";
 import { RateLimitedError } from "../../../core/client/rate-limit";
 import {
   lastRowLabel,
   savedPromptDraftError,
 } from "../../../plugins/assistant/client/saved-prompts-menu";
-import { dictationFailureMessage } from "../../../core/client/voice";
+import { dictationFailureMessage } from "../../../plugins/models/client/voice";
 import {
   describeSearch,
   describeSearches,
@@ -18,7 +18,7 @@ import {
 } from "../../../plugins/assistant/client/web-search";
 import { createI18n } from "../../../core/shared/i18n";
 import type { WebSearchPart } from "../../../plugins/assistant/shared/message-parts";
-import { reasoningChoiceLabel } from "../../../core/shared/chat/models";
+import { reasoningChoiceLabel } from "../../../plugins/models/shared/models";
 import { wrappedDictionary } from "../../ui/fake-dictionary";
 
 const wrapped = createI18n(wrappedDictionary(), "en");

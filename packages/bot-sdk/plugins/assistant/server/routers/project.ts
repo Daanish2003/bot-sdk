@@ -2,7 +2,8 @@ import { project } from "../../../../core/server/db/schema";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { rpcError, unusableModelError } from "../../../../core/server/rpc-error";
+import { rpcError } from "../../../../core/server/rpc-error";
+import { unusableModelError } from "../../../models/server/unusable-model";
 import {
   countProjectConversations,
   countProjects,

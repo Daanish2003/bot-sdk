@@ -5,7 +5,7 @@ import {
   credentialHint,
   credentialServices,
   saveCredentialsInput,
-} from "../../../../core/shared/credentials/services";
+} from "../../shared/credentials/services";
 import { deleteCredentials, listCredentials, saveCredentials } from "../credentials/store";
 import { protectedProcedure } from "../../../../core/server/procedures";
 import { modelsDeps } from "../state";

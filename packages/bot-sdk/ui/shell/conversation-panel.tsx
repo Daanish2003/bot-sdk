@@ -1,6 +1,6 @@
 import type { AppRouterClient } from "../../plugins/assistant/server/routers/index";
 import { groupByDate } from "../../core/client/date-groups";
-import { modelLabel } from "../../core/client/models";
+import { modelLabel } from "../../plugins/models/client/models";
 import { relativeTime } from "../../core/client/relative-time";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -21,10 +21,10 @@ import { ShareDialog } from "../share/share-dialog";
 import { useDeleteConversation } from "../../core/client/react/delete-conversation";
 import {
   useArchiveConversation,
-  useMoveConversation,
   usePinConversation,
   useRenameConversation,
 } from "../../core/client/react/conversation-actions";
+import { useMoveConversation } from "../../plugins/assistant/client/react/conversation-actions";
 import { useChatAdapter, useI18n, useOrpc } from "../../core/client/react/provider";
 import { ProjectsSection } from "./projects-section";
 

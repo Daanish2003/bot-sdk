@@ -1,11 +1,11 @@
-import type { CredentialSummary } from "../../../core/shared/credentials/services";
+import type { CredentialSummary } from "../shared/credentials/services";
 import {
   type CredentialService,
   isCredentialService,
   type ProviderId,
   providers,
   toolServices,
-} from "../../../core/shared/credentials/services";
+} from "../shared/credentials/services";
 
 export type ProviderRowStatus = "verified" | "unverified" | "missing" | "coming_soon";
 

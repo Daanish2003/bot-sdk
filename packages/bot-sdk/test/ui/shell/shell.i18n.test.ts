@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 
 import type { BotSdkClient } from "../../../core/client/chat-client";
-import type { ListedModel } from "../../../core/shared/chat/models";
+import type { ListedModel } from "../../../plugins/models/shared/models";
 import { AppShell } from "../../../ui/shell/app-shell";
 import { ConversationMenuItems, TopBar } from "../../../ui/shell/top-bar";
 import { renderWrapped, untranslated } from "../fake-dictionary";

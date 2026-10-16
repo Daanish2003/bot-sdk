@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { dictationAudioType, isDictationAudioType } from "../../../../core/shared/chat/voice";
+import { dictationAudioType, isDictationAudioType } from "../../../../plugins/models/shared/voice";
 
 describe("dictation audio types", () => {
   it("drops the codec parameters from a recorder's type", () => {

@@ -27,7 +27,8 @@ import {
 } from "../chat/store";
 import { findProject } from "../project/store";
 import { protectedProcedure } from "../../../../core/server/procedures";
-import { rpcError, unusableModelError } from "../../../../core/server/rpc-error";
+import { rpcError } from "../../../../core/server/rpc-error";
+import { unusableModelError } from "../../../models/server/unusable-model";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { assistantState } from "../state";
 

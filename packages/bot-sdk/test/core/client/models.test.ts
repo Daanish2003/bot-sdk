@@ -1,8 +1,12 @@
 import { createI18n } from "../../../core/shared/i18n";
-import { findModel, unknownReasoning } from "../../../core/shared/chat/models";
+import { findModel, unknownReasoning } from "../../../plugins/models/shared/models";
 import { describe, expect, it } from "vitest";
 
-import { missingCredentialsMessage, modelGroups, modelLabel } from "../../../core/client/models";
+import {
+  missingCredentialsMessage,
+  modelGroups,
+  modelLabel,
+} from "../../../plugins/models/client/models";
 
 const available = [
   "openai:gpt-5.6",

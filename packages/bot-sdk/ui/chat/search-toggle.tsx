@@ -1,4 +1,4 @@
-import { tavilyService } from "../../core/shared/credentials/services";
+import { tavilyService } from "../../plugins/models/shared/credentials/services";
 import { searchToggle } from "../../plugins/assistant/client/web-search";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";

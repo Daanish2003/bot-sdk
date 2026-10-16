@@ -1,6 +1,6 @@
-import { quotaMeterFrom } from "../../core/client/quota";
+import { quotaMeterFrom } from "../../plugins/models/client/quota";
 import { useI18n } from "../../core/client/react/provider";
-import { useQuota } from "../../core/client/react/quota";
+import { useQuota } from "../../plugins/models/client/react/quota";
 import { cn } from "@/lib/utils";
 
 /** The composer's Quota meter, once the user has used `quotaMeterFrom`% of it. Percentages only. */

@@ -1,5 +1,5 @@
-import type { ProviderId } from "../credentials/services";
-import type { I18n } from "../i18n";
+import type { ProviderId } from "./credentials/services";
+import type { I18n } from "../../../core/shared/i18n";
 import { modelsDevSnapshot } from "./models-snapshot";
 
 /**

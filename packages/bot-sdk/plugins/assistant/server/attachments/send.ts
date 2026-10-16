@@ -1,7 +1,7 @@
 import type { MessageRow } from "../../../../core/server/db/schema";
 
 import type { StoredAttachment } from "../../shared/chat/parts";
-import type { CuratedModel } from "../../../../core/shared/chat/models";
+import type { CuratedModel } from "../../../models/shared/models";
 import type { BotSdkContext } from "../../../../core/server/plugin";
 import {
   acceptedKinds,

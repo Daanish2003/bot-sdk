@@ -28,7 +28,7 @@ import {
 import { createArtifactToolName, updateArtifactToolName } from "./artifact";
 import { fetchUrlToolName } from "./fetch-url";
 import { knowledgeOutputOf, searchKnowledgeToolName } from "./knowledge-search";
-import { providerOf } from "../../../../core/shared/chat/models";
+import { providerOf } from "../../../models/shared/models";
 import { searchPastChatsToolName } from "./past-chats";
 import {
   type AspectRatio,

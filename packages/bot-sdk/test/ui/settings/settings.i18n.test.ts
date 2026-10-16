@@ -3,7 +3,7 @@ import { createElement, type ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 
 import type { BotSdkClient } from "../../../core/client/chat-client";
-import type { ListedModel } from "../../../core/shared/chat/models";
+import type { ListedModel } from "../../../plugins/models/shared/models";
 import { ConnectionsSection } from "../../../ui/settings/connections-section";
 import { DeleteAllConversationsSection } from "../../../ui/settings/delete-all-conversations";
 import { ExportDataButton } from "../../../ui/settings/export-data-button";

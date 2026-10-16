@@ -1,14 +1,5 @@
-import type { ReasoningChoice } from "./models";
-
-/** Tokens a Run used, summed over its model iterations (input includes cached tokens). */
-export type MessageUsage = {
-  input: number;
-  output: number;
-  reasoning: number;
-  cached: number;
-  /** True when the Provider reported no usage (a stopped or failed reply) and this is an estimate. */
-  estimated: boolean;
-};
+import type { ReasoningChoice } from "../../../models/shared/models";
+import type { MessageUsage } from "../../../models/shared/usage";
 
 /**
  * A stored Message, as the isomorphic code reads it. The server's row type is assignable to it,

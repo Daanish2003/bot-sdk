@@ -16,7 +16,7 @@ import { insertUser } from "../../../support/users";
 import { chatRpc, sendAs } from "../../../support/sdk";
 import { citationPrompt } from "../../../../plugins/assistant/shared/chat/citations";
 import type { ChatCommand } from "../../../../plugins/assistant/shared/chat/command";
-import { curatedModels } from "../../../../core/shared/chat/models";
+import { curatedModels } from "../../../../plugins/models/shared/models";
 import { searchErrorMessages } from "../../../../plugins/assistant/shared/chat/web-search";
 import { quotaLookup } from "../../../../plugins/models/server/quota";
 import { reapStaleRuns } from "../../../../plugins/assistant/server/chat/run";

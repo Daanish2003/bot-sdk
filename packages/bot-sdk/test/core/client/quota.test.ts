@@ -5,7 +5,7 @@ import {
   quotaExceeded,
   quotaMeterFrom,
   quotaResetsAt,
-} from "../../../core/client/quota";
+} from "../../../plugins/models/client/quota";
 
 const hostModel = { onHostCredentials: true };
 const ownModel = { onHostCredentials: false };

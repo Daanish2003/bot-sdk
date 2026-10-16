@@ -1,5 +1,5 @@
 import { setPendingFirstMessage } from "../../plugins/assistant/client/chat";
-import { missingCredentialsMessage } from "../../core/client/models";
+import { missingCredentialsMessage } from "../../plugins/models/client/models";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -12,12 +12,12 @@ import { SearchToggle, useWebSearch } from "../chat/search-toggle";
 import { TemporaryToggle } from "../chat/temporary-toggle";
 import { Welcome } from "../chat/welcome";
 import { invalidateConversationList } from "../../core/client/react/conversation-list";
-import { useByok } from "../../core/client/react/byok";
+import { useByok } from "../../plugins/models/client/react/byok";
 import {
   setNewConversationEffort,
   useNewConversationEffort,
-} from "../../core/client/react/new-conversation-effort";
-import { useNewConversationModel } from "../../core/client/react/new-conversation-model";
+} from "../../plugins/models/client/react/new-conversation-effort";
+import { useNewConversationModel } from "../../plugins/models/client/react/new-conversation-model";
 import { useChatAdapter, useChatLocation, useI18n } from "../../core/client/react/provider";
 import { serverErrorText } from "../../core/client/rpc-error";
 

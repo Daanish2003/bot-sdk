@@ -1,4 +1,4 @@
-import { missingCredentialsMessage } from "../../core/client/models";
+import { missingCredentialsMessage } from "../../plugins/models/client/models";
 import { awaitingTitle, titleWaitMs } from "../../core/client/title";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -16,10 +16,10 @@ import {
 import { type ReactNode, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 
-import { useExportConversation } from "../../core/client/react/conversation-actions";
+import { useExportConversation } from "../../plugins/assistant/client/react/conversation-actions";
 import { invalidateConversationList } from "../../core/client/react/conversation-list";
-import { useByok } from "../../core/client/react/byok";
-import { useNewConversationModel } from "../../core/client/react/new-conversation-model";
+import { useByok } from "../../plugins/models/client/react/byok";
+import { useNewConversationModel } from "../../plugins/models/client/react/new-conversation-model";
 import { useChatLocation, useI18n, useOrpc } from "../../core/client/react/provider";
 import { serverErrorText } from "../../core/client/rpc-error";
 import { ConversationHeaderActions } from "./conversation-header-actions";

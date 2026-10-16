@@ -6,7 +6,8 @@ import {
 } from "@tanstack/ai";
 import { z } from "zod";
 
-import { deleteBlobsBestEffort, generatedImageBlobKey } from "../../../../core/server/blob/store";
+import { deleteBlobsBestEffort } from "../../../../core/server/blob/store";
+import { generatedImageBlobKey } from "../blob-keys";
 import { generatedImage } from "../../../../core/server/db/schema";
 import type { BotSdkContext } from "../../../../core/server/plugin";
 import { ImageRefusedError } from "../deps";

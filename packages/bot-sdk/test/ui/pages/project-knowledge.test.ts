@@ -29,8 +29,9 @@ type KnowledgeData = {
 };
 
 /**
- * Strings the dictionary doesn't own: the user's file names, Model names from core/client/models,
- * and the locale's size and date formats (with the separators the table puts around them).
+ * Strings the dictionary doesn't own: the user's file names, Model names from
+ * plugins/models/client/models, and the locale's size and date formats (with the separators the
+ * table puts around them).
  */
 const owned = [
   "notes.md",

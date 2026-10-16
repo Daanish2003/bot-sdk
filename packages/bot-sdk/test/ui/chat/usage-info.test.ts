@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 
-import type { MessageUsage } from "../../../core/shared/chat/message-record";
+import type { MessageUsage } from "../../../plugins/models/shared/usage";
 import { UsageBreakdown } from "../../../ui/chat/usage-info";
 import { renderInChat } from "../../support/chat-provider";
 

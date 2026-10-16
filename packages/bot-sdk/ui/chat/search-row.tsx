@@ -12,7 +12,7 @@ import {
 
 import { SourceChips } from "./source-chips";
 
-import { useByok } from "../../core/client/react/byok";
+import { useByok } from "../../plugins/models/client/react/byok";
 import { useChatAdapter, useI18n } from "../../core/client/react/provider";
 
 /**

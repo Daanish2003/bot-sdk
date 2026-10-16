@@ -1,6 +1,6 @@
 import { KeyRoundIcon } from "lucide-react";
 
-import { useByok } from "../../core/client/react/byok";
+import { useByok } from "../../plugins/models/client/react/byok";
 import { useChatAdapter, useI18n } from "../../core/client/react/provider";
 
 /** Above the composer when the selected Model can't be sent to: its Provider has no credentials. */

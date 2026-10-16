@@ -6,22 +6,22 @@ import {
   toUIMessages,
 } from "../../plugins/assistant/client/chat";
 import { contextFill, lastRunTokens } from "../../plugins/assistant/client/context-ring";
-import { missingCredentialsMessage } from "../../core/client/models";
+import { missingCredentialsMessage } from "../../plugins/models/client/models";
 import { rateLimitedErrorOf } from "../../core/client/rate-limit";
 import type { UIMessage } from "@tanstack/ai-react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useEffectEvent, useState } from "react";
 import { toast } from "sonner";
 
-import { useByok } from "../../core/client/react/byok";
+import { useByok } from "../../plugins/models/client/react/byok";
 import {
   type ConversationData,
   useConversationRun,
 } from "../../plugins/assistant/client/react/conversation-run";
 import { useChatAdapter, useI18n } from "../../core/client/react/provider";
 import { serverErrorText } from "../../core/client/rpc-error";
-import { useQuota } from "../../core/client/react/quota";
-import { quotaBlocksModel } from "../../core/client/quota";
+import { useQuota } from "../../plugins/models/client/react/quota";
+import { quotaBlocksModel } from "../../plugins/models/client/quota";
 
 import { AttachButton, DraftAttachmentChips, useAttachmentDraft } from "./attachments";
 import { Composer } from "./composer";

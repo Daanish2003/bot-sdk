@@ -7,7 +7,7 @@ import {
   type SearchHit,
   splitSnippet,
 } from "../../plugins/assistant/client/search";
-import { providers } from "../../core/shared/credentials/services";
+import { providers } from "../../plugins/models/shared/credentials/services";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
@@ -35,10 +35,8 @@ import {
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import {
-  useArchiveConversation,
-  useExportConversation,
-} from "../../core/client/react/conversation-actions";
+import { useArchiveConversation } from "../../core/client/react/conversation-actions";
+import { useExportConversation } from "../../plugins/assistant/client/react/conversation-actions";
 import { invalidateConversationList } from "../../core/client/react/conversation-list";
 import { useDeleteConversation } from "../../core/client/react/delete-conversation";
 import {

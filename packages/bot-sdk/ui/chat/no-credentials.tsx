@@ -1,7 +1,7 @@
 import { buttonVariants } from "@/components/ui/button";
 import { KeyRoundIcon } from "lucide-react";
 
-import { useByok } from "../../core/client/react/byok";
+import { useByok } from "../../plugins/models/client/react/byok";
 import { useChatAdapter, useI18n } from "../../core/client/react/provider";
 
 /** The empty state for a user without any Provider credentials: nothing can be sent yet. */

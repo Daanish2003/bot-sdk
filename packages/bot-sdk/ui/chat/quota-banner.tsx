@@ -1,5 +1,5 @@
-import { quotaResetsAt } from "../../core/client/quota";
-import { useByok } from "../../core/client/react/byok";
+import { quotaResetsAt } from "../../plugins/models/client/quota";
+import { useByok } from "../../plugins/models/client/react/byok";
 import { useChatAdapter, useI18n } from "../../core/client/react/provider";
 import { useQuotaSlot } from "../shell/quota-slot";
 

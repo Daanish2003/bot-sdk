@@ -1,5 +1,5 @@
-import { reasoningChoiceLabel, type ReasoningChoice } from "../../core/shared/chat/models";
-import type { MessageUsage } from "../../core/shared/chat/message-record";
+import { reasoningChoiceLabel, type ReasoningChoice } from "../../plugins/models/shared/models";
+import type { MessageUsage } from "../../plugins/models/shared/usage";
 import { buttonVariants } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useI18n } from "../../core/client/react/provider";

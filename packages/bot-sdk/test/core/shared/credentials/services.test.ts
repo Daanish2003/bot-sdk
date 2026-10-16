@@ -8,7 +8,7 @@ import {
   credentialHint,
   isCredentialService,
   providers,
-} from "../../../../core/shared/credentials/services";
+} from "../../../../plugins/models/shared/credentials/services";
 
 describe("addKeyMessage", () => {
   it("asks for the Provider's key, with the right article", () => {

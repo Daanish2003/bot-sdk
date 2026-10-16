@@ -5,7 +5,7 @@ import {
   maxAttachmentBytes,
 } from "../../core/shared/attachments/kinds";
 import type { AttachmentInfo } from "../../core/shared/attachments/kinds";
-import { findModel } from "../../core/shared/chat/models";
+import { findModel } from "../../plugins/models/shared/models";
 import type { AttachmentChip } from "../../plugins/assistant/client/chat";
 import {
   Attachment,

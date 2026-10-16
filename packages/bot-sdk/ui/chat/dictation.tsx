@@ -5,11 +5,11 @@ import { Loader2Icon, MicIcon, MicOffIcon, SquareIcon, XIcon } from "lucide-reac
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { quotaExceeded, quotaResetsAt } from "../../core/client/quota";
-import { useQuota } from "../../core/client/react/quota";
-import { dictationFailureMessage } from "../../core/client/voice";
+import { quotaExceeded, quotaResetsAt } from "../../plugins/models/client/quota";
+import { useQuota } from "../../plugins/models/client/react/quota";
+import { dictationFailureMessage } from "../../plugins/models/client/voice";
 import { useI18n, useOrpc } from "../../core/client/react/provider";
-import { maxDictationSeconds } from "../../core/shared/chat/voice";
+import { maxDictationSeconds } from "../../plugins/models/shared/voice";
 
 /**
  * The mic beside Send (spec #249): shown only when the caller can dictate here, on their own key or

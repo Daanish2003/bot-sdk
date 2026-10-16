@@ -10,6 +10,7 @@ import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 
 import { attachmentsOfMessages } from "../../../../core/server/attachments/store";
+import { loadMessages } from "../../../../core/server/chat/message-tree";
 import { deleteBlobsBestEffort } from "../../../../core/server/blob/store";
 import type { BotSdkContext } from "../../../../core/server/plugin";
 import { generatedImageKeysWhere, imagesOfMessages } from "./generated-image-store";
@@ -17,7 +18,7 @@ import { withProjectId } from "../../../../core/server/chat/hooks";
 import { turnChangesOf } from "../memory/notice";
 import { newestLeaf, pathTo, siblingPosition } from "../../../../core/shared/chat/branches";
 import { type ActiveBranchMessage, toClientMessage } from "../../shared/chat/client-message";
-import type { ReasoningChoice } from "../../../../core/shared/chat/models";
+import type { ReasoningChoice } from "../../../models/shared/models";
 import { liveConversation } from "./temporary";
 
 type Deps = Pick<BotSdkContext, "db">;
@@ -428,20 +429,6 @@ export async function rateMessage(
     .where(and(eq(message.id, id), inArray(message.status, endedStatuses)))
     .returning({ id: message.id });
   return updated.length ? "rated" : "live";
-}
-
-/** The Messages from a root down to `leafId`, oldest first. Empty without a leaf. */
-export async function loadPath(
-  deps: Deps,
-  conversationId: string,
-  leafId: string | null,
-): Promise<MessageRow[]> {
-  if (!leafId) return [];
-  return pathTo(await loadMessages(deps, conversationId), leafId);
-}
-
-function loadMessages(deps: Deps, conversationId: string) {
-  return deps.db.select().from(message).where(eq(message.conversationId, conversationId));
 }
 
 /** The Active Branch for the client, each Message with where it sits among its siblings. */

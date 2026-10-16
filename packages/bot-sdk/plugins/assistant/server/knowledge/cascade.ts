@@ -1,6 +1,7 @@
 import type { SQL } from "drizzle-orm";
 
-import { knowledgeBlobKey, deleteBlobsBestEffort } from "../../../../core/server/blob/store";
+import { deleteBlobsBestEffort } from "../../../../core/server/blob/store";
+import { knowledgeBlobKey } from "../blob-keys";
 import { knowledgeFile } from "../../../../core/server/db/schema";
 import type { BotSdkContext } from "../../../../core/server/plugin";
 import { knowledgeJobKey } from "./process";

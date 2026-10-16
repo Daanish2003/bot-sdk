@@ -14,7 +14,7 @@ import {
   slashQuery,
 } from "../../plugins/assistant/client/saved-prompts-menu";
 import { useI18n, useOrpc } from "../../core/client/react/provider";
-import { appendTranscript } from "../../core/client/voice";
+import { appendTranscript } from "../../plugins/models/client/voice";
 import { Dictation } from "./dictation";
 import { SavedPromptForm, SlashMenuList } from "./slash-menu";
 

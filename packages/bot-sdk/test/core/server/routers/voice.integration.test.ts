@@ -7,7 +7,7 @@ import { saveCredentials } from "../../../../plugins/models/server/credentials/s
 import type { Credentials, HostProvider } from "../../../../plugins/assistant/server/deps";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { resolveRateLimits } from "../../../../core/server/rate-limits";
-import { maxDictationBytes } from "../../../../core/shared/chat/voice";
+import { maxDictationBytes } from "../../../../plugins/models/shared/voice";
 import { createTestSdk, type TestDeps, type TestDepsOverrides } from "../../../support/deps";
 import { createFakeTranscription } from "../../../support/fake-transcription-adapter";
 import { chatRpc } from "../../../support/sdk";

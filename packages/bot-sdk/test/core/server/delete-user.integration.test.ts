@@ -31,7 +31,7 @@ import {
   userSettings,
   usage,
 } from "../../../core/server/db/schema";
-import { knowledgeBlobKey } from "../../../core/server/blob/store";
+import { knowledgeBlobKey } from "../../../plugins/assistant/server/blob-keys";
 import { knowledgeJobKey } from "../../../plugins/assistant/server/knowledge/process";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { insertAttachment, linkTestAttachments } from "../../support/attachments";

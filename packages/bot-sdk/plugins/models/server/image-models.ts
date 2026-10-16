@@ -6,8 +6,8 @@ import {
   type ListedImageModel,
   curatedImageModels,
   findImageModel,
-} from "../../../core/shared/chat/image-models";
-import { parseModelId } from "../../../core/shared/chat/models";
+} from "../shared/image-models";
+import { parseModelId } from "../shared/models";
 
 type Deps = ResolveDeps;
 

@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { quotaResetsAt } from "../../../core/client/quota";
+import { quotaResetsAt } from "../../../plugins/models/client/quota";
 import { createBotSdkClient } from "../../../core/client/chat-client";
 import { ChatProvider, type ChatRouter } from "../../../core/client/react/provider";
 import { Composer } from "../../../ui/chat/composer";

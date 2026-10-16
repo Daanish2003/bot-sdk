@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 
-import type { ReasoningChoice } from "../../shared/chat/models";
+import type { ReasoningChoice } from "../../shared/models";
 
 /**
  * The reasoning effort a new Conversation will be created with, picked beside the top bar's Model

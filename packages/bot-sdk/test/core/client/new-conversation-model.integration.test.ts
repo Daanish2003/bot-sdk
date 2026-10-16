@@ -3,7 +3,7 @@ import { getTestDb } from "../../support/test-database";
 
 import { describe, expect, it } from "vitest";
 
-import { newConversationModel } from "../../../core/client/models";
+import { newConversationModel } from "../../../plugins/models/client/models";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { saveCredentials } from "../../../plugins/models/server/credentials/store";
 import { createTestSdk } from "../../support/deps";

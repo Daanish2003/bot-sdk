@@ -1,4 +1,4 @@
-import { modelGroups, modelLabel } from "../../core/client/models";
+import { modelGroups, modelLabel } from "../../plugins/models/client/models";
 import { instructionsMaxChars } from "../../plugins/assistant/shared/chat/instructions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

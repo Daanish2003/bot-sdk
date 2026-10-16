@@ -1,7 +1,7 @@
-import type { I18n, MessageKey } from "../shared/i18n";
-import type { DictationErrorReason } from "../shared/chat/voice";
+import type { I18n, MessageKey } from "../../../core/shared/i18n";
+import type { DictationErrorReason } from "../shared/voice";
 import { quotaResetsAt } from "./quota";
-import { RateLimitedError } from "./rate-limit";
+import { RateLimitedError } from "../../../core/client/rate-limit";
 
 /**
  * The composer's text once a transcript is in: after what is there, with a space between, so the

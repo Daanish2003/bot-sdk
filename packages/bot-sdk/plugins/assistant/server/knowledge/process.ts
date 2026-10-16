@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { knowledgeBlobKey } from "../../../../core/server/blob/store";
+import { knowledgeBlobKey } from "../blob-keys";
 import type { BotSdkContext } from "../../../../core/server/plugin";
 import { project, knowledgeChunk, knowledgeFile } from "../../../../core/server/db/schema";
 import { defineJob, PermanentJobError } from "../jobs/define";

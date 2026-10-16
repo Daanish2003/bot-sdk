@@ -1,5 +1,3 @@
-import type { CuratedModel } from "../chat/models";
-
 /**
  * Which files can be attached, and how big: plain data and pure functions, safe to import into
  * the browser. Images and PDFs go to the Provider as inline base64; text-like files as text, so
@@ -59,9 +57,12 @@ export function normalizedMediaType(mediaType: string, filename: string): string
   return "text/plain";
 }
 
-/** The kinds a Model reads: text always, images and PDFs by its capabilities. */
+/**
+ * The kinds a Model reads: text always, images and PDFs by its capabilities. A structural shape, so
+ * the core never imports `models`.
+ */
 export function acceptedKinds(
-  model: Pick<CuratedModel, "images" | "pdfs"> | undefined,
+  model: { images: boolean; pdfs: boolean } | undefined,
 ): AttachmentKind[] {
   if (!model) return [];
   return [

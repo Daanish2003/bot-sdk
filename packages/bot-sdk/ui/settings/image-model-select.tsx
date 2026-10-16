@@ -1,4 +1,4 @@
-import { findImageModel } from "../../core/shared/chat/image-models";
+import { findImageModel } from "../../plugins/models/shared/image-models";
 import { Label } from "@/components/ui/label";
 import {
   Select,

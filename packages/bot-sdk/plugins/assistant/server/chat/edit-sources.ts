@@ -1,6 +1,6 @@
 import { and, eq, inArray } from "drizzle-orm";
 
-import { generatedImageBlobKey } from "../../../../core/server/blob/store";
+import { generatedImageBlobKey } from "../blob-keys";
 import { generatedImage } from "../../../../core/server/db/schema";
 import type { BotSdkContext } from "../../../../core/server/plugin";
 import { attachmentKind } from "../../../../core/shared/attachments/kinds";

@@ -17,7 +17,7 @@ export function quotaBlocksModel(
   return model?.onHostCredentials === true && quotaExceeded(quota);
 }
 
-import { dateFormat } from "./intl";
+import { dateFormat } from "../../../core/client/intl";
 
 /** When a Quota window resets, in the viewer's time zone and locale: "Oct 11, 12:00 AM". */
 export function quotaResetsAt(at: Date | string, locale: string): string {

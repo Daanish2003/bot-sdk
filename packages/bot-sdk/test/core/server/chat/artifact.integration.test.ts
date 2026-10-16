@@ -16,7 +16,7 @@ import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { curatedModels } from "../../../../core/shared/chat/models";
+import { curatedModels } from "../../../../plugins/models/shared/models";
 import { insertConversation, insertMessage } from "../../../support/conversations";
 import { createTestSdk, type TestDepsOverrides, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";

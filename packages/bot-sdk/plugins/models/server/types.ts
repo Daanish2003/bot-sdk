@@ -7,7 +7,7 @@ import type {
 
 import type { HookEmitter } from "../../../core/server/chat/hooks";
 import type { Database } from "../../../core/server/db/index";
-import type { ProviderId } from "../../../core/shared/credentials/services";
+import type { ProviderId } from "../shared/credentials/services";
 
 /** Decrypted Provider credentials or Tool credential fields, keyed by field name. */
 export type Credentials = Record<string, string>;

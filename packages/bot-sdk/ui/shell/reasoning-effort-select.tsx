@@ -2,7 +2,7 @@ import {
   reasoningChoices,
   type ReasoningChoice,
   type ReasoningSupport,
-} from "../../core/shared/chat/models";
+} from "../../plugins/models/shared/models";
 import {
   Select,
   SelectContent,
@@ -13,8 +13,8 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
-import { useNewConversationModel } from "../../core/client/react/new-conversation-model";
-import { useNewConversationEffort } from "../../core/client/react/new-conversation-effort";
+import { useNewConversationModel } from "../../plugins/models/client/react/new-conversation-model";
+import { useNewConversationEffort } from "../../plugins/models/client/react/new-conversation-effort";
 import { useI18n, useOrpc } from "../../core/client/react/provider";
 import { serverErrorText } from "../../core/client/rpc-error";
 

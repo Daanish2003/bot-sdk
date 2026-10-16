@@ -4,10 +4,10 @@ import {
   attachmentKind,
   maxAttachmentBytes,
   normalizedMediaType,
-} from "../../../../core/shared/attachments/kinds";
-import { saveAttachment } from "../../../../core/server/attachments/store";
-import { protectedProcedure } from "../../../../core/server/procedures";
-import { rpcError } from "../../../../core/server/rpc-error";
+} from "../../shared/attachments/kinds";
+import { saveAttachment } from "../attachments/store";
+import { protectedProcedure } from "../procedures";
+import { rpcError } from "../rpc-error";
 
 export const attachmentRouter = {
   /**

@@ -47,7 +47,7 @@ import {
   messageInfo,
   type MessageInfo,
 } from "../../plugins/assistant/client/chat";
-import { modelLabel } from "../../core/client/models";
+import { modelLabel } from "../../plugins/models/client/models";
 
 import {
   AttachButton,
@@ -68,7 +68,7 @@ import { UsageInfo } from "./usage-info";
 
 import { PastChatsRow } from "./past-chats-row";
 
-import { useByok } from "../../core/client/react/byok";
+import { useByok } from "../../plugins/models/client/react/byok";
 import { useChatAdapter, useI18n } from "../../core/client/react/provider";
 
 function plainText(message: UIMessage) {

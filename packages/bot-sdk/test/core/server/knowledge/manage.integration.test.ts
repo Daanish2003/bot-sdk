@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { fakeEmbeddingAdapter } from "../../../../plugins/models/server/fake-embedding-adapter";
-import { knowledgeBlobKey } from "../../../../core/server/blob/store";
+import { knowledgeBlobKey } from "../../../../plugins/assistant/server/blob-keys";
 import { blob, job, knowledgeChunk, knowledgeFile } from "../../../../core/server/db/schema";
 import type { HostProvider } from "../../../../plugins/assistant/server/deps";
 import { createTestSdk } from "../../../support/deps";

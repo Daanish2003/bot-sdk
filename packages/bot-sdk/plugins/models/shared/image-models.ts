@@ -1,4 +1,4 @@
-import type { ProviderId } from "../credentials/services";
+import type { ProviderId } from "./credentials/services";
 
 /**
  * The curated Image Model list (spec #278): the Models the Generated image tool can run on, for

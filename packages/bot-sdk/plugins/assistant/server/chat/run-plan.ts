@@ -3,18 +3,15 @@ import { eq } from "drizzle-orm";
 
 import { storedParts, type StoredParts } from "../../shared/message-parts";
 import { attachmentsForSend } from "../attachments/send";
-import { tavilyService } from "../../../../core/shared/credentials/services";
+import { tavilyService } from "../../../models/shared/credentials/services";
 import type { ErrorCode } from "../../../../core/shared/i18n";
 import type { ConversationTools } from "../../shared/chat/conversation-tools";
 import type { AspectRatio } from "../../shared/chat/generated-image";
 import { parseStoredParts, type StoredAttachment, toModelMessages } from "../../shared/chat/parts";
-import {
-  type CuratedModel,
-  effortFor,
-  type ReasoningChoice,
-} from "../../../../core/shared/chat/models";
+import { type CuratedModel, effortFor, type ReasoningChoice } from "../../../models/shared/models";
 import type { ToolCall } from "../../../models/server/credentials/resolve";
-import { unusableModelCode, type ErrorParams } from "../../../../core/server/rpc-error";
+import type { ErrorParams } from "../../../../core/server/rpc-error";
+import { unusableModelCode } from "../../../models/server/unusable-model";
 import type { BotSdkContext } from "../../../../core/server/plugin";
 import { userSettings, type conversation } from "../../../../core/server/db/schema";
 import { pastChatsOffered } from "../search/past-chats";
@@ -40,7 +37,7 @@ import { createSearchPastChatsTool } from "./past-chats-tool";
 import { createFetchUrlTool } from "./fetch-url-tool";
 import { createKnowledgeSearchTool } from "./knowledge-search-tool";
 import { createGenerateImageTool } from "./generate-image-tool";
-import { loadPath } from "./store";
+import { loadPath } from "../../../../core/server/chat/message-tree";
 import { type RunOf, startRun } from "./run";
 import { assistantState } from "../state";
 

@@ -9,7 +9,7 @@ import { createOpenaiTranscription, type OpenAITranscriptionModel } from "@tanst
 
 import type { ModelsDeps, Credentials } from "./types";
 import { type ResolveDeps, resolvePayer } from "./credentials/resolve";
-import type { DictationErrorReason } from "../../../core/shared/chat/voice";
+import type { DictationErrorReason } from "../shared/voice";
 import { freeMeter, hostTranscriptionMeter, type TranscriptionMeter } from "./meter";
 
 /** The transcription Models a user's own keys pick from, in order (spec #249). */

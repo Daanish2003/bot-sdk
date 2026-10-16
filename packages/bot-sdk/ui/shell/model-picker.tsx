@@ -1,5 +1,5 @@
-import { type CuratedModel, findModel, type ListedModel } from "../../core/shared/chat/models";
-import { providerLabel } from "../../core/shared/credentials/services";
+import { type CuratedModel, findModel, type ListedModel } from "../../plugins/models/shared/models";
+import { providerLabel } from "../../plugins/models/shared/credentials/services";
 import { buttonVariants } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
@@ -14,12 +14,12 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
-import { modelGroups } from "../../core/client/models";
+import { modelGroups } from "../../plugins/models/client/models";
 
-import { useByok } from "../../core/client/react/byok";
+import { useByok } from "../../plugins/models/client/react/byok";
 import { useChatAdapter, useI18n } from "../../core/client/react/provider";
-import { useQuota } from "../../core/client/react/quota";
-import { quotaBlocksModel, quotaResetsAt } from "../../core/client/quota";
+import { useQuota } from "../../plugins/models/client/react/quota";
+import { quotaBlocksModel, quotaResetsAt } from "../../plugins/models/client/quota";
 
 /**
  * The top-bar Model picker: a popover with a search box, the available Models grouped by

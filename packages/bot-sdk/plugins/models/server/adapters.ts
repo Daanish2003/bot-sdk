@@ -35,7 +35,7 @@ import { createBytePlusImage } from "@tanstack/ai-byteplus";
 
 import type { Credentials } from "./types";
 import type { AspectRatio } from "../../assistant/shared/chat/generated-image";
-import { isKnownModel, parseModelId } from "../../../core/shared/chat/models";
+import { isKnownModel, parseModelId } from "../shared/models";
 
 /** The model id type of an adapter factory. The ids are checked in `models.test.ts`. */
 type ModelOf<Factory extends (model: never, ...rest: never[]) => unknown> = Parameters<Factory>[0];

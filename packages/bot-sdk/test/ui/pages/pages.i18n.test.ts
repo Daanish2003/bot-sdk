@@ -3,7 +3,7 @@ import { createElement, type ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 
 import type { BotSdkClient } from "../../../core/client/chat-client";
-import type { ListedModel } from "../../../core/shared/chat/models";
+import type { ListedModel } from "../../../plugins/models/shared/models";
 import { KeySettingsPage } from "../../../plugins/models/ui/key-settings";
 import { ProjectPage } from "../../../ui/pages/project";
 import { SharedConversationPage, SharedLinkNotFound } from "../../../ui/pages/shared-conversation";

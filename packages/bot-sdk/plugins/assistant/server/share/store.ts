@@ -10,8 +10,8 @@ import {
 } from "../../../../core/server/db/schema";
 import { and, desc, eq, inArray } from "drizzle-orm";
 
-import { generatedImageBlobKey } from "../../../../core/server/blob/store";
-import { loadPath } from "../chat/store";
+import { generatedImageBlobKey } from "../blob-keys";
+import { loadPath } from "../../../../core/server/chat/message-tree";
 import { liveConversation } from "../chat/temporary";
 import { attachmentsOfMessages } from "../../../../core/server/attachments/store";
 import type { BotSdkContext } from "../../../../core/server/plugin";

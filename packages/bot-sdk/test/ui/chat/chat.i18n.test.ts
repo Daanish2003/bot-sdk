@@ -29,7 +29,7 @@ import { Dictation } from "../../../ui/chat/dictation";
 import { ReadAloudButton } from "../../../ui/chat/read-aloud";
 import { SavedPromptFormView, SlashMenuList } from "../../../ui/chat/slash-menu";
 import { TemporaryHeaderActions } from "../../../ui/shell/conversation-header-actions";
-import type { ListedModel } from "../../../core/shared/chat/models";
+import type { ListedModel } from "../../../plugins/models/shared/models";
 import { createI18n } from "../../../core/shared/i18n";
 import type { GeneratedImagePart } from "../../../plugins/assistant/shared/message-parts";
 import { toolCallOf, type ToolCallView } from "../../../plugins/assistant/shared/chat/tool-call";

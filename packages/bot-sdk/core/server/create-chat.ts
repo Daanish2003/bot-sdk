@@ -24,6 +24,7 @@ import {
   type Route,
 } from "./plugin";
 import { defaultRateLimits, rateLimitedFor, rpcRateLimits, type RateLimit } from "./rate-limits";
+import { coreRouter } from "./routers/index";
 import { memoryRuntime, type BotSdkRuntime } from "./runtime";
 
 export type ChatHandler = (request: Request) => Promise<Response>;
@@ -125,6 +126,25 @@ const coreRateLimits: Record<CoreRule, RateLimit> = {
   conversationSearch: defaultRateLimits.conversationSearch,
 };
 
+/** The core's non-RPC routes, under `basePath`. */
+function coreRoutes(exportUser: BotSdk["exportUser"]): Route[] {
+  return [
+    {
+      method: "GET",
+      path: "/export",
+      handle: async (_request, { user }) => exportResponse(await exportUser(user.id)),
+    },
+  ];
+}
+
+/** The user's export as a JSON download; the file is named by the date the export was taken. */
+function exportResponse(document: UserExport) {
+  const date = document.exportedAt.toISOString().slice(0, 10);
+  return Response.json(document, {
+    headers: { "Content-Disposition": `attachment; filename="chat-export-${date}.json"` },
+  });
+}
+
 /** The parts of the core context a test may give instead of having them built. */
 export type GivenContext = Partial<Omit<BotSdkContext, "plugin" | "rateLimit">>;
 
@@ -151,9 +171,16 @@ export function buildBotSdk(
     throw new Error(`basePath must start with "/": ${options.basePath}`);
   }
   const plugins = orderPlugins(options.plugins);
-  const router = mergeRouters(plugins);
-  const routes = mergeRoutes(plugins);
-  const ruleDefaults = mergeRateLimits([{ id: "core", rateLimits: coreRateLimits }, ...plugins]);
+  // The core serves its own routers, routes and rules beside the plugins', so a plugin can't claim them.
+  const core: BotSdkPlugin = {
+    id: "core",
+    router: coreRouter,
+    routes: coreRoutes((userId) => instance.exportUser(userId)),
+    rateLimits: coreRateLimits,
+  };
+  const router = mergeRouters([core, ...plugins]);
+  const routes = mergeRoutes([core, ...plugins]);
+  const ruleDefaults = mergeRateLimits([core, ...plugins]);
 
   const apis = new Map<string, object>();
   // Building the context opens nothing: the pool and the runtime connect on first use.

@@ -1,9 +1,4 @@
-import {
-  findModel,
-  parseModelId,
-  type CuratedModel,
-  unknownReasoning,
-} from "../../../../core/shared/chat/models";
+import { findModel, parseModelId, type CuratedModel, unknownReasoning } from "../../shared/models";
 import {
   freeMeter,
   hostModelMeter,

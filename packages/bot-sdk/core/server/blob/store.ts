@@ -15,12 +15,6 @@ export type BlobStore = {
 /** The key of an Attachment's bytes. */
 export const attachmentBlobKey = (attachmentId: string) => `attachment/${attachmentId}`;
 
-/** The key of a Generated image's bytes (spec #278). */
-export const generatedImageBlobKey = (imageId: string) => `generated-image/${imageId}`;
-
-/** The key of a Knowledge file's original bytes (ADR 0014). */
-export const knowledgeBlobKey = (fileId: string) => `knowledge/${fileId}`;
-
 /**
  * Deletes `keys` from `blobStore` after their rows are gone. A failure is logged and never thrown:
  * a stray object costs storage but no data, and nothing sweeps it (ADR 0015).

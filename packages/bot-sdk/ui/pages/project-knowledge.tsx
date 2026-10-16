@@ -11,11 +11,11 @@ import { Lock } from "lucide-react";
 import { useRef } from "react";
 import { toast } from "sonner";
 
-import { modelLabel } from "../../core/client/models";
+import { modelLabel } from "../../plugins/models/client/models";
 import { useI18n, useOrpc } from "../../core/client/react/provider";
 import { serverErrorText } from "../../core/client/rpc-error";
-import { parseModelId } from "../../core/shared/chat/models";
-import { providerLabel } from "../../core/shared/credentials/services";
+import { parseModelId } from "../../plugins/models/shared/models";
+import { providerLabel } from "../../plugins/models/shared/credentials/services";
 import {
   knowledgeAcceptAttribute,
   knowledgeFileExtensions,

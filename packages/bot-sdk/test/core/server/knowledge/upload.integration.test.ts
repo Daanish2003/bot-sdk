@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
-import { knowledgeBlobKey } from "../../../../core/server/blob/store";
+import { knowledgeBlobKey } from "../../../../plugins/assistant/server/blob-keys";
 import { fakeEmbeddingAdapter } from "../../../../plugins/models/server/fake-embedding-adapter";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {

@@ -4,8 +4,8 @@ import { and, eq, isNull } from "drizzle-orm";
 
 import type { BotSdkContext } from "../../../../core/server/plugin";
 import { loadSettings } from "../settings/store";
-import { isKnownModel, parseModelId } from "../../../../core/shared/chat/models";
-import { loadPath } from "./store";
+import { isKnownModel, parseModelId } from "../../../models/shared/models";
+import { loadPath } from "../../../../core/server/chat/message-tree";
 import { promptCharactersOf, reportedUsageOf } from "./usage";
 
 const titlePrompt =

@@ -1,10 +1,6 @@
 import { z } from "zod";
 
-import {
-  isDictationAudioType,
-  maxDictationBytes,
-  maxDictationSeconds,
-} from "../../../../core/shared/chat/voice";
+import { isDictationAudioType, maxDictationBytes, maxDictationSeconds } from "../../shared/voice";
 import { DictationError, dictationEngine, transcribeRecording } from "../transcription";
 import { protectedProcedure } from "../../../../core/server/procedures";
 import { modelsDeps } from "../state";

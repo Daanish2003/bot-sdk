@@ -1,10 +1,10 @@
 import type { RouterClient } from "@orpc/server";
 
+import type { CoreRouter } from "../../../../core/server/routers/index";
 import type { ModelsRouter } from "../../../models/server/routers/index";
 
 import { protectedProcedure, publicProcedure } from "../../../../core/server/procedures";
 import { artifactRouter } from "./artifact";
-import { attachmentRouter } from "./attachment";
 import { chatRouter } from "./chat";
 import { connectionsRouter } from "./connections";
 import { conversationRouter } from "./conversation";
@@ -18,7 +18,6 @@ import { shareRouter } from "./share";
 
 export const appRouter = {
   artifact: artifactRouter,
-  attachment: attachmentRouter,
   chat: chatRouter,
   connections: connectionsRouter,
   conversation: conversationRouter,
@@ -40,5 +39,5 @@ export const appRouter = {
   }),
 };
 export type AppRouter = typeof appRouter;
-/** The client of every enabled plugin's routers: the assistant's and the `models` plugin's. */
-export type AppRouterClient = RouterClient<typeof appRouter & ModelsRouter>;
+/** The client of the core's routers and every enabled plugin's: the assistant's and the `models` plugin's. */
+export type AppRouterClient = RouterClient<CoreRouter & typeof appRouter & ModelsRouter>;

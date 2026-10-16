@@ -1,7 +1,7 @@
 import { type SQL, inArray } from "drizzle-orm";
 
 import { message, generatedImage } from "../../../../core/server/db/schema";
-import { generatedImageBlobKey } from "../../../../core/server/blob/store";
+import { generatedImageBlobKey } from "../blob-keys";
 import type { BotSdkContext } from "../../../../core/server/plugin";
 
 /**

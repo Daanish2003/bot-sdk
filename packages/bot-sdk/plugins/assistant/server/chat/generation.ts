@@ -1,4 +1,4 @@
-import { parseModelId, type ReasoningEffort } from "../../../../core/shared/chat/models";
+import { parseModelId, type ReasoningEffort } from "../../../models/shared/models";
 
 /**
  * The SDK's own generation settings for one Run. `effort` is `"off"` where the Model allows it,

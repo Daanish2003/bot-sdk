@@ -2,7 +2,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 
 import { artifact, artifactVersion, conversation } from "../../../../core/server/db/schema";
 import type { BotSdkContext } from "../../../../core/server/plugin";
-import { loadPath } from "../chat/store";
+import { loadPath } from "../../../../core/server/chat/message-tree";
 import type { ArtifactKind } from "../../shared/chat/artifact";
 
 type Deps = Pick<BotSdkContext, "db">;

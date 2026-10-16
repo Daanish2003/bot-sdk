@@ -1,4 +1,4 @@
-import type { MessageUsage } from "../../../core/shared/chat/message-record";
+import type { MessageUsage } from "../../models/shared/usage";
 
 /** How full the context is: neutral below 80%, amber from 80%, red from 95%. */
 export type ContextLevel = "neutral" | "amber" | "red";

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { findModel } from "../../../../core/shared/chat/models";
+import { findModel } from "../../../../plugins/models/shared/models";
 import {
   acceptAttribute,
   acceptedKinds,

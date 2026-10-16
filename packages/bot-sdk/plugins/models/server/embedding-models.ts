@@ -2,7 +2,7 @@ import { embed } from "@tanstack/ai";
 import { GEMINI_EMBEDDING_MODELS } from "@tanstack/ai-gemini";
 import { OPENAI_EMBEDDING_MODELS } from "@tanstack/ai-openai";
 
-import { parseModelId } from "../../../core/shared/chat/models";
+import { parseModelId } from "../shared/models";
 import { type ResolveDeps, resolvePayer } from "./credentials/resolve";
 import type { ModelsDeps, Credentials, HostProvider } from "./types";
 import { type EmbeddingMeter, freeMeter, hostEmbeddingMeter } from "./meter";

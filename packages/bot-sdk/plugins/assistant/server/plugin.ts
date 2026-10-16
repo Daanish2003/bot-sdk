@@ -8,7 +8,7 @@ import { searchKnowledgeToolName } from "../shared/chat/knowledge-search";
 import { webSearchToolName } from "../shared/chat/web-search";
 import type { SharedConversation } from "../shared/share/conversation";
 import { ratingTotals, type RatingTotal } from "./admin/ratings";
-import { generatedImageBlobKey } from "../../../core/server/blob/store";
+import { generatedImageBlobKey } from "./blob-keys";
 import { handleChat } from "./chat/handle-chat";
 import type { HostServerTool } from "./chat/host-tools";
 import { handleJoin } from "./chat/join-run";
@@ -223,11 +223,6 @@ const assistantRoutes: Route[] = [
   },
   {
     method: "GET",
-    path: "/export",
-    handle: async (_request, { user, sdk }) => exportResponse(sdk, user.id),
-  },
-  {
-    method: "GET",
     path: "/generated-images/:id",
     handle: async (request, { user, sdk, params }) =>
       generatedImageResponse(sdk, user.id, params.id!, wantsDownload(request)),
@@ -245,15 +240,6 @@ const assistantRoutes: Route[] = [
 
 const wantsDownload = (request: Request) =>
   new URL(request.url).searchParams.get("download") === "1";
-
-/** The user's export as a JSON download; the file is named by the date the export was taken. */
-async function exportResponse(deps: BotSdkContext, userId: string) {
-  const document = await exportUserData(deps, userId);
-  const date = document.exportedAt.toISOString().slice(0, 10);
-  return Response.json(document, {
-    headers: { "Content-Disposition": `attachment; filename="chat-export-${date}.json"` },
-  });
-}
 
 /**
  * One of the user's Generated images, its bytes straight from the blob store (spec #278). Another

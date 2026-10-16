@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { newConversationModel } from "../models";
-import { useChatAdapter, useChatLocation } from "./provider";
+import { useChatAdapter, useChatLocation } from "../../../../core/client/react/provider";
 
 /**
  * The Model a new Conversation will be created with: the one picked in the top bar (kept in the

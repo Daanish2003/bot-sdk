@@ -2,7 +2,7 @@ import {
   type CredentialService,
   credentialForms,
   type SaveCredentialsInput,
-} from "../../../core/shared/credentials/services";
+} from "../shared/credentials/services";
 import {
   type ProviderRow,
   type ProviderRowStatus,
@@ -19,7 +19,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import type { MessageKey } from "../../../core/shared/i18n";
-import { useByok } from "../../../core/client/react/byok";
+import { useByok } from "../client/react/byok";
 import { type BotSdkOrpc, useI18n, useOrpc } from "../../../core/client/react/provider";
 import { serverErrorText } from "../../../core/client/rpc-error";
 import { ArchivedConversationsSection } from "../../../ui/settings/archived-conversations";

@@ -10,7 +10,7 @@ import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { insertUser } from "../../../support/users";
 import { liveModelsFetch } from "../../../support/live-models";
 import { sendAs } from "../../../support/sdk";
-import { findModel } from "../../../../core/shared/chat/models";
+import { findModel } from "../../../../plugins/models/shared/models";
 
 /** One curated Model per Provider with a known max output, and the key its adapter reads. */
 const providers: Array<{ id: string; service: string; key: string }> = [

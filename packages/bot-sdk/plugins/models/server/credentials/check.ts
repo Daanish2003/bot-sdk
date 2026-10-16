@@ -1,5 +1,5 @@
-import type { CredentialService } from "../../../../core/shared/credentials/services";
-import { providerLabel } from "../../../../core/shared/credentials/services";
+import type { CredentialService } from "../../shared/credentials/services";
+import { providerLabel } from "../../shared/credentials/services";
 import type { ErrorCode } from "../../../../core/shared/i18n";
 import type { ErrorParams } from "../../../../core/server/rpc-error";
 

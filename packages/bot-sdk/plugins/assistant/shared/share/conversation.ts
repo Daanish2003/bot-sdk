@@ -1,5 +1,5 @@
 import type { AttachmentInfo } from "../../../../core/shared/attachments/kinds";
-import type { MessageRecord } from "../../../../core/shared/chat/message-record";
+import type { MessageRecord } from "../chat/message-record";
 import { parseStoredParts, toUIParts } from "../chat/parts";
 import { redactAttachmentsForShare, redactForShare } from "./redact";
 

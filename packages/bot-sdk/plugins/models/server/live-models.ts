@@ -6,7 +6,7 @@ import {
   type ReasoningEffort,
   type ReasoningSupport,
   unknownReasoning,
-} from "../../../core/shared/chat/models";
+} from "../shared/models";
 
 /**
  * The live Model lists of OpenRouter and Ollama, fetched through `deps.fetch`. A list that

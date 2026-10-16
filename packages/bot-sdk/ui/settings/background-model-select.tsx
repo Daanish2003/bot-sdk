@@ -1,4 +1,8 @@
-import { missingCredentialsMessage, modelGroups, modelLabel } from "../../core/client/models";
+import {
+  missingCredentialsMessage,
+  modelGroups,
+  modelLabel,
+} from "../../plugins/models/client/models";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -12,7 +16,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
-import { useByok } from "../../core/client/react/byok";
+import { useByok } from "../../plugins/models/client/react/byok";
 import { useI18n, useOrpc } from "../../core/client/react/provider";
 import { serverErrorText } from "../../core/client/rpc-error";
 
