@@ -1,7 +1,7 @@
 import type { SQL } from "drizzle-orm";
 
 import { knowledgeBlobKey, deleteBlobsBestEffort } from "../blob/store";
-import { knowledgeFile } from "../db/schema/knowledge";
+import { knowledgeFile } from "../db/schema";
 import type { AppDeps } from "../deps";
 import { knowledgeJobKey } from "./process";
 

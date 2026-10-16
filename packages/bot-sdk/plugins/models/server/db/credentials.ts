@@ -1,6 +1,6 @@
 import { boolean, primaryKey, text, timestamp } from "drizzle-orm/pg-core";
 
-import { chatSchema } from "./chat-schema";
+import { chatSchema } from "../../../../core/server/db/chat-schema";
 
 /**
  * A user's Provider credentials or Tool credential for one service (ADR 0003).

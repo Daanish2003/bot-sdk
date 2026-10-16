@@ -1,7 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 
 import { generatedImageBlobKey } from "../blob/store";
-import { generatedImage } from "../db/schema/generated-image";
+import { generatedImage } from "../db/schema";
 import type { AppDeps } from "../deps";
 import { attachmentKind } from "../../shared/attachments/kinds";
 import type { StoredAttachment } from "../../shared/chat/parts";

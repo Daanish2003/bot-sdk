@@ -1,5 +1,5 @@
 import { type StoredParts, storedParts } from "../../shared/message-parts";
-import { message } from "../db/schema/chat";
+import { message } from "../db/schema";
 import { EventType, type StreamChunk } from "@tanstack/ai";
 import { and, eq, isNull, lt, or } from "drizzle-orm";
 

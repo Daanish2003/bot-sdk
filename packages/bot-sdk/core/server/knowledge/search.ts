@@ -1,7 +1,6 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 
-import { project } from "../db/schema/chat";
-import { knowledgeChunk, knowledgeFile } from "../db/schema/knowledge";
+import { project, knowledgeChunk, knowledgeFile } from "../db/schema";
 import {
   type ResolvedEmbeddingModel,
   embedTexts,

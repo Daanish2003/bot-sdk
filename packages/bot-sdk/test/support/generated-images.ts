@@ -1,4 +1,4 @@
-import { generatedImage } from "../../core/server/db/schema/generated-image";
+import { generatedImage } from "../../core/server/db/schema";
 import { storedParts } from "../../core/shared/message-parts";
 import type { AppDeps } from "../../core/server/deps";
 import { uuidv7 } from "../../core/server/lib/uuidv7";

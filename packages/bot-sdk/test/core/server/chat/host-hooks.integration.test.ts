@@ -25,8 +25,7 @@ import { assistant, type AssistantOptions } from "../../../../core/server/assist
 import { deleteAllConversations, deleteUserData } from "../../../../core/server/delete-user";
 import { deleteProject } from "../../../../core/server/project/store";
 import { saveCredentials } from "../../../../core/server/credentials/store";
-import { conversation, message, project } from "../../../../core/server/db/schema/chat";
-import { usage } from "../../../../core/server/db/schema/usage";
+import { conversation, message, project, usage } from "../../../../core/server/db/schema";
 import type { HostProvider } from "../../../../core/server/deps";
 import { createLifecycle } from "../../../../core/server/lifecycle";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";

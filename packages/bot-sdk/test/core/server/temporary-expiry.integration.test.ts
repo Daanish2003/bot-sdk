@@ -5,9 +5,13 @@ import { createBotSdk } from "../../../core/server/create-chat";
 import { assistant } from "../../../core/server/assistant";
 import { sweepExpiredTemporaryConversations } from "../../../core/server/chat/temporary";
 import { saveCredentials } from "../../../core/server/credentials/store";
-import { attachment, messageAttachment } from "../../../core/server/db/schema/attachment";
-import { conversation, message } from "../../../core/server/db/schema/chat";
-import { sharedLink } from "../../../core/server/db/schema/share";
+import {
+  attachment,
+  messageAttachment,
+  conversation,
+  message,
+  sharedLink,
+} from "../../../core/server/db/schema";
 import { createLifecycle } from "../../../core/server/lifecycle";
 import { insertAttachment, linkTestAttachments } from "../../support/attachments";
 import { insertConversation, insertMessage, testModel } from "../../support/conversations";

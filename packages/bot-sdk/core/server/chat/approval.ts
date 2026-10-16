@@ -4,7 +4,7 @@ import {
   type StoredPart,
   type ToolCallPart,
 } from "../../shared/message-parts";
-import { conversation, message } from "../db/schema/chat";
+import { conversation, message } from "../db/schema";
 import { and, eq } from "drizzle-orm";
 
 import type { AppDeps } from "../deps";

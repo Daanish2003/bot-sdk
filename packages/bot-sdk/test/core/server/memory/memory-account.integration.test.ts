@@ -3,8 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { saveCredentials } from "../../../../core/server/credentials/store";
 import { moveConversation, deleteConversation } from "../../../../core/server/chat/store";
-import { project } from "../../../../core/server/db/schema/chat";
-import { memory } from "../../../../core/server/db/schema/memory";
+import { project, memory } from "../../../../core/server/db/schema";
 import { deleteUserData } from "../../../../core/server/delete-user";
 import { deleteProject } from "../../../../core/server/project/store";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";

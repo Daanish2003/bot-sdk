@@ -11,7 +11,7 @@ import { createHookEmitter } from "../../../../core/server/chat/hooks";
 import { createBotSdk } from "../../../../core/server/create-chat";
 import { assistant } from "../../../../core/server/assistant";
 import { saveCredentials } from "../../../../core/server/credentials/store";
-import { usage } from "../../../../core/server/db/schema/usage";
+import { usage } from "../../../../core/server/db/schema";
 import type { HostProvider } from "../../../../core/server/deps";
 import { createTestSdk, testKeyEncryptionSecret } from "../../../support/deps";
 import { getTestDb, testDatabaseUrl } from "../../../support/test-database";

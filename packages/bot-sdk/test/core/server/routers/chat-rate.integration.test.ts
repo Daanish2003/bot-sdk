@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { saveCredentials } from "../../../../core/server/credentials/store";
 import { loadSharedConversation } from "../../../../core/server/share/store";
-import { message } from "../../../../core/server/db/schema/chat";
+import { message } from "../../../../core/server/db/schema";
 import { insertConversation, insertMessage } from "../../../support/conversations";
 import { createTestSdk } from "../../../support/deps";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";

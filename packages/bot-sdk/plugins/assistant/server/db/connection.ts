@@ -1,6 +1,6 @@
 import { primaryKey, text, timestamp } from "drizzle-orm/pg-core";
 
-import { chatSchema } from "./chat-schema";
+import { chatSchema } from "../../../../core/server/db/chat-schema";
 
 /**
  * A user's OAuth sign-in to one Host MCP server (a Connection, spec #91). One row per user and

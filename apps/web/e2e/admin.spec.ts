@@ -3,9 +3,12 @@ import { expect, type Page, test } from "@playwright/test";
 
 import { randomBytes } from "node:crypto";
 
-import { conversation, message } from "../../../packages/bot-sdk/core/server/db/schema/chat";
-import { sharedLink } from "../../../packages/bot-sdk/core/server/db/schema/share";
-import { usage } from "../../../packages/bot-sdk/core/server/db/schema/usage";
+import {
+  conversation,
+  message,
+  sharedLink,
+  usage,
+} from "../../../packages/bot-sdk/core/server/db/schema";
 import { uuidv7 } from "../../../packages/bot-sdk/core/server/lib/uuidv7";
 import { storedParts } from "../../../packages/bot-sdk/core/shared/message-parts";
 

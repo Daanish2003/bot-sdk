@@ -3,8 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
 import { assistant } from "../../../core/server/assistant";
-import { message } from "../../../core/server/db/schema/chat";
-import { usage } from "../../../core/server/db/schema/usage";
+import { message, usage } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { insertConversation, insertMessage } from "../../support/conversations";
 import { insertUser, type TestUser } from "../../support/users";

@@ -1,4 +1,4 @@
-import { message } from "../../../../core/server/db/schema/chat";
+import { message } from "../../../../core/server/db/schema";
 import { type StoredPart, storedParts } from "../../../../core/shared/message-parts";
 import { EventType, type StreamChunk } from "@tanstack/ai";
 import { eq } from "drizzle-orm";

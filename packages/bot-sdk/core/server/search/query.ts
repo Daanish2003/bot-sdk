@@ -1,4 +1,4 @@
-import { conversation, message } from "../db/schema/chat";
+import { conversation, message } from "../db/schema";
 import { and, desc, eq, ilike, sql } from "drizzle-orm";
 import { z } from "zod";
 

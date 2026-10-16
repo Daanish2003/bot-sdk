@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { createBotSdk } from "../../../../core/server/create-chat";
 import { assistant } from "../../../../core/server/assistant";
-import { job } from "../../../../core/server/db/schema/job";
+import { job } from "../../../../core/server/db/schema";
 import { defineJob, PermanentJobError } from "../../../../core/server/jobs/define";
 import { inProcessRunner, type JobClock } from "../../../../core/server/jobs/in-process";
 import type { JobRunner } from "../../../../core/server/jobs/runner";

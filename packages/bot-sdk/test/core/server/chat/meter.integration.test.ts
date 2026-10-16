@@ -10,8 +10,8 @@ import {
   hostTranscriptionMeter,
   imageMeter,
 } from "../../../../core/server/chat/meter";
-import { usage } from "../../../../core/server/db/schema/usage";
 import { createTestSdk } from "../../../support/deps";
+import { usage } from "../../../../core/server/db/schema";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
 

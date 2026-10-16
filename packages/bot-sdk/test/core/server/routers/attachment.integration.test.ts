@@ -1,5 +1,4 @@
-import { attachment } from "../../../../core/server/db/schema/attachment";
-import { blob } from "../../../../core/server/db/schema/blob";
+import { attachment, blob } from "../../../../core/server/db/schema";
 import { getTestDb } from "../../../support/test-database";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";

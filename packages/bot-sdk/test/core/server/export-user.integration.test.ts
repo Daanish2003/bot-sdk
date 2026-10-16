@@ -6,13 +6,16 @@ import { describe, expect, it } from "vitest";
 import { createBotSdk } from "../../../core/server/create-chat";
 import { assistant } from "../../../core/server/assistant";
 import { saveCredentials } from "../../../core/server/credentials/store";
-import { artifact, artifactVersion } from "../../../core/server/db/schema/artifact";
-import { project } from "../../../core/server/db/schema/chat";
-import { knowledgeFile } from "../../../core/server/db/schema/knowledge";
-import { memory } from "../../../core/server/db/schema/memory";
-import { savedPrompt } from "../../../core/server/db/schema/saved-prompt";
-import { sharedLink } from "../../../core/server/db/schema/share";
-import { userSettings } from "../../../core/server/db/schema/settings";
+import {
+  artifact,
+  artifactVersion,
+  project,
+  knowledgeFile,
+  memory,
+  savedPrompt,
+  sharedLink,
+  userSettings,
+} from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { insertAttachment, linkTestAttachments } from "../../support/attachments";
 import { fakePngBase64 } from "../../../core/server/chat/fake-image-adapter";

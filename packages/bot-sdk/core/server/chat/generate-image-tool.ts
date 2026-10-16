@@ -7,7 +7,7 @@ import {
 import { z } from "zod";
 
 import { deleteBlobsBestEffort, generatedImageBlobKey } from "../blob/store";
-import { generatedImage } from "../db/schema/generated-image";
+import { generatedImage } from "../db/schema";
 import type { AppDeps } from "../deps";
 import { ImageRefusedError } from "../deps";
 import { uuidv7 } from "../lib/uuidv7";

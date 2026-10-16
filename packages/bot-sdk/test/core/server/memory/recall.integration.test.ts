@@ -6,10 +6,13 @@ import { describe, expect, it } from "vitest";
 
 import { fakeEmbeddingAdapter } from "../../../../core/server/chat/fake-embedding-adapter";
 import { saveCredentials } from "../../../../core/server/credentials/store";
-import { conversation, project } from "../../../../core/server/db/schema/chat";
-import { memory } from "../../../../core/server/db/schema/memory";
-import { userSettings } from "../../../../core/server/db/schema/settings";
-import { usage } from "../../../../core/server/db/schema/usage";
+import {
+  conversation,
+  project,
+  memory,
+  userSettings,
+  usage,
+} from "../../../../core/server/db/schema";
 import type { AppDeps, HostProvider } from "../../../../core/server/deps";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { insertConversation } from "../../../support/conversations";

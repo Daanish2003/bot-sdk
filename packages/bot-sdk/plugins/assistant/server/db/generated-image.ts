@@ -1,7 +1,7 @@
-import { index, integer, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { type AnyPgColumn, index, integer, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
-import { chatSchema } from "./chat-schema";
-import { message } from "./chat";
+import { chatSchema } from "../../../../core/server/db/chat-schema";
+import { message } from "../../../../core/server/db/schema";
 
 /**
  * An image the chat Model made with `generate_image` (spec #278). Each one belongs to the Message
@@ -17,7 +17,7 @@ export const generatedImage = chatSchema.table(
     userId: text("user_id").notNull(),
     messageId: uuid("message_id")
       .notNull()
-      .references(() => message.id, { onDelete: "cascade" }),
+      .references((): AnyPgColumn => message.id, { onDelete: "cascade" }),
     mediaType: text("media_type").notNull(),
     width: integer("width").notNull(),
     height: integer("height").notNull(),

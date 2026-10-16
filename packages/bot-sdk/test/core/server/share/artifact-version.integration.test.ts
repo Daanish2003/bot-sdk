@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { artifact, artifactVersion } from "../../../../core/server/db/schema/artifact";
+import { artifact, artifactVersion } from "../../../../core/server/db/schema";
 import { storedParts } from "../../../../core/shared/message-parts";
 import { chatRpc } from "../../../support/sdk";
 import { insertConversation, insertMessage } from "../../../support/conversations";

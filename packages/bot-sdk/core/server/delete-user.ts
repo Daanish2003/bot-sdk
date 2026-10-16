@@ -3,16 +3,19 @@ import { eq, inArray } from "drizzle-orm";
 import { attachmentBlobKey, deleteBlobsBestEffort } from "./blob/store";
 import { generatedImageKeysWhere } from "./chat/generated-image-store";
 import { stopUserRuns } from "./chat/run";
-import { attachment } from "./db/schema/attachment";
-import { blob } from "./db/schema/blob";
-import { conversation, project } from "./db/schema/chat";
-import { mcpConnection } from "./db/schema/connection";
-import { userCredentials } from "./db/schema/credentials";
-import { generatedImage } from "./db/schema/generated-image";
-import { savedPrompt } from "./db/schema/saved-prompt";
-import { userSettings } from "./db/schema/settings";
-import { usage } from "./db/schema/usage";
-import { knowledgeFile } from "./db/schema/knowledge";
+import {
+  attachment,
+  blob,
+  conversation,
+  project,
+  mcpConnection,
+  userCredentials,
+  generatedImage,
+  savedPrompt,
+  userSettings,
+  usage,
+  knowledgeFile,
+} from "./db/schema";
 import type { AppDeps } from "./deps";
 import { discardKnowledgeFiles, knowledgeFileIdsWhere } from "./knowledge/cascade";
 import { withProjectId } from "./chat/hooks";

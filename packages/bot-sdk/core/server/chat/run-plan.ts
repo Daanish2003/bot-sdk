@@ -11,7 +11,7 @@ import { type CuratedModel, effortFor, type ReasoningChoice } from "../../shared
 import { resolveModelCall, resolveToolCall, type ToolCall } from "../credentials/resolve";
 import { unusableModelCode, type ErrorParams } from "../rpc-error";
 import type { AppDeps } from "../deps";
-import type { conversation } from "../db/schema/chat";
+import type { conversation } from "../db/schema";
 import { pastChatsOffered } from "../search/past-chats";
 import { mcpToolsFor, type McpTools } from "../mcp/tools";
 import { projectInstructionsOf } from "../project/store";

@@ -1,8 +1,8 @@
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { index, text, timestamp, uuid, vector } from "drizzle-orm/pg-core";
 
-import { chatSchema } from "./chat-schema";
-import { conversation } from "./chat";
+import { chatSchema } from "../../../../core/server/db/chat-schema";
+import { conversation } from "../../../../core/server/db/schema";
 
 /** How a Memory was made: extracted from what the user said, or a thing they asked to remember (ADR 0013). */
 export const memoryOrigin = chatSchema.enum("memory_origin", ["extracted", "said"]);
@@ -26,7 +26,7 @@ export const memory = chatSchema.table(
     embeddingModel: text("embedding_model").notNull(),
     conversationId: uuid("conversation_id")
       .notNull()
-      .references(() => conversation.id, { onDelete: "cascade" }),
+      .references((): AnyPgColumn => conversation.id, { onDelete: "cascade" }),
     /** The user Message the fact came from. */
     sourceMessageId: uuid("source_message_id").notNull(),
     origin: memoryOrigin("origin").notNull(),

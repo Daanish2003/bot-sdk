@@ -1,6 +1,6 @@
 import { boolean, text } from "drizzle-orm/pg-core";
 
-import { chatSchema } from "./chat-schema";
+import { chatSchema } from "../../../../core/server/db/chat-schema";
 
 /** A user's settings; a user without a row has the defaults. */
 export const userSettings = chatSchema.table("user_settings", {

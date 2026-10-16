@@ -8,8 +8,8 @@ import {
   rotateCredentialKeys,
   saveCredentials,
 } from "../../../../core/server/credentials/store";
-import { userCredentials } from "../../../../core/server/db/schema/credentials";
 import { createTestSdk } from "../../../support/deps";
+import { userCredentials } from "../../../../core/server/db/schema";
 import { insertUser } from "../../../support/users";
 import { getTestDb, testDatabaseUrl } from "../../../support/test-database";
 

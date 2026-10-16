@@ -1,4 +1,4 @@
-import { project } from "../../../core/server/db/schema/chat";
+import { project } from "../../../core/server/db/schema";
 import { getTestDb } from "../../support/test-database";
 
 import { describe, expect, it } from "vitest";

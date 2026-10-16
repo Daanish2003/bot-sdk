@@ -1,4 +1,4 @@
-import { project } from "../db/schema/chat";
+import { project } from "../db/schema";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 

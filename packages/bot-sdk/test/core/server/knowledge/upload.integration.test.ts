@@ -7,11 +7,14 @@ import { describe, expect, it } from "vitest";
 import { knowledgeBlobKey } from "../../../../core/server/blob/store";
 import { fakeEmbeddingAdapter } from "../../../../core/server/chat/fake-embedding-adapter";
 import { saveCredentials } from "../../../../core/server/credentials/store";
-import { blob } from "../../../../core/server/db/schema/blob";
-import { project } from "../../../../core/server/db/schema/chat";
-import { userCredentials } from "../../../../core/server/db/schema/credentials";
-import { knowledgeChunk, knowledgeFile } from "../../../../core/server/db/schema/knowledge";
-import { usage } from "../../../../core/server/db/schema/usage";
+import {
+  blob,
+  project,
+  userCredentials,
+  knowledgeChunk,
+  knowledgeFile,
+  usage,
+} from "../../../../core/server/db/schema";
 import type { AppDeps, HostProvider } from "../../../../core/server/deps";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import {

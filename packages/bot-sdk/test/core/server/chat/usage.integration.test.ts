@@ -1,8 +1,7 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
-import { conversation, message } from "../../../../core/server/db/schema/chat";
-import { usage } from "../../../../core/server/db/schema/usage";
+import { conversation, message, usage } from "../../../../core/server/db/schema";
 import { saveCredentials } from "../../../../core/server/credentials/store";
 import type { AppDeps, HostProvider } from "../../../../core/server/deps";
 import { insertConversation } from "../../../support/conversations";

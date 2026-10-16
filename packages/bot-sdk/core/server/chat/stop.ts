@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 
-import { message } from "../db/schema/chat";
+import { message } from "../db/schema";
 import type { AppDeps } from "../deps";
 
 /**

@@ -1,6 +1,6 @@
 import { text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
 
-import { chatSchema } from "./chat-schema";
+import { chatSchema } from "../../../../core/server/db/chat-schema";
 
 /**
  * A Saved prompt: text a user keeps under a short name and inserts into the composer with `/name`

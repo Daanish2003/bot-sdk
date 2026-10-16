@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { createBotSdk, type BotSdkOptions } from "../../../core/server/create-chat";
 import { assistant } from "../../../core/server/assistant";
 import { deleteUserData } from "../../../core/server/delete-user";
-import { mcpConnection } from "../../../core/server/db/schema/connection";
+import { mcpConnection } from "../../../core/server/db/schema";
 import type { McpServerConfig } from "../../../core/server/mcp/servers";
 import { createTestSdk, testKeyEncryptionSecret } from "../../support/deps";
 import { createFakeMcpAuth, fakeMcpResource } from "../../support/fake-mcp-auth";

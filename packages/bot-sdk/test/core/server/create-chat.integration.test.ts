@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createBotSdk } from "../../../core/server/create-chat";
 import { assistant } from "../../../core/server/assistant";
 import { saveCredentials } from "../../../core/server/credentials/store";
-import { message } from "../../../core/server/db/schema/chat";
+import { message } from "../../../core/server/db/schema";
 import { eq } from "drizzle-orm";
 import { insertConversation, insertMessage } from "../../support/conversations";
 import { createTestSdk } from "../../support/deps";

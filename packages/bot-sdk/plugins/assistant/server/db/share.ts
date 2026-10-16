@@ -1,7 +1,7 @@
-import { text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { type AnyPgColumn, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
-import { chatSchema } from "./chat-schema";
-import { conversation, message } from "./chat";
+import { chatSchema } from "../../../../core/server/db/chat-schema";
+import { conversation, message } from "../../../../core/server/db/schema";
 
 /**
  * A Shared link: a pointer at a Conversation's Branch, not a copy of its Messages (ADR 0004).
@@ -13,11 +13,11 @@ export const sharedLink = chatSchema.table("shared_link", {
   conversationId: uuid("conversation_id")
     .notNull()
     .unique()
-    .references(() => conversation.id, { onDelete: "cascade" }),
+    .references((): AnyPgColumn => conversation.id, { onDelete: "cascade" }),
   /** The newest Message of the shared Branch. */
   leafMessageId: uuid("leaf_message_id")
     .notNull()
-    .references(() => message.id, { onDelete: "cascade" }),
+    .references((): AnyPgColumn => message.id, { onDelete: "cascade" }),
   /** The Conversation's title when it was shared ("Untitled" without one). */
   title: text("title").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),

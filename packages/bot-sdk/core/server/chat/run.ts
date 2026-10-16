@@ -1,5 +1,5 @@
 import { type StoredPart, storedPartsSchema } from "../../shared/message-parts";
-import { conversation, message } from "../db/schema/chat";
+import { conversation, message } from "../db/schema";
 import {
   type ChatMiddleware,
   chat,

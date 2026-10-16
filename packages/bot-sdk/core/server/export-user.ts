@@ -1,14 +1,20 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 
-import { artifact, artifactVersion } from "./db/schema/artifact";
-import { attachment, messageAttachment } from "./db/schema/attachment";
-import { conversation, message, project } from "./db/schema/chat";
-import { generatedImage } from "./db/schema/generated-image";
-import { knowledgeFile } from "./db/schema/knowledge";
-import { savedPrompt } from "./db/schema/saved-prompt";
-import { sharedLink } from "./db/schema/share";
-import { memory } from "./db/schema/memory";
-import { userSettings } from "./db/schema/settings";
+import {
+  artifact,
+  artifactVersion,
+  attachment,
+  messageAttachment,
+  conversation,
+  message,
+  project,
+  generatedImage,
+  knowledgeFile,
+  savedPrompt,
+  sharedLink,
+  memory,
+  userSettings,
+} from "./db/schema";
 import type { AppDeps } from "./deps";
 import { liveConversation } from "./chat/temporary";
 import type { ArtifactKind } from "../shared/chat/artifact";

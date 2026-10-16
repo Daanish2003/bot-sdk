@@ -1,6 +1,6 @@
 import { and, gte, isNotNull, sql } from "drizzle-orm";
 
-import { message } from "../db/schema/chat";
+import { message } from "../db/schema";
 import type { AppDeps } from "../deps";
 
 /** One Model's 👍 and 👎 Ratings over a range (spec #277). Never per user, never per Message. */

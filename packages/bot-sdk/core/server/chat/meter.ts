@@ -1,7 +1,7 @@
 import type { TokenUsage } from "@tanstack/ai";
 
 import type { MessageUsage } from "../../shared/chat/message-record";
-import { usage as usageRows } from "../db/schema/usage";
+import { usage as usageRows } from "../db/schema";
 import type { AppDeps, HostImageModel, HostModel } from "../deps";
 import { uuidv7 } from "../lib/uuidv7";
 import type { UsageEvent } from "./hooks";

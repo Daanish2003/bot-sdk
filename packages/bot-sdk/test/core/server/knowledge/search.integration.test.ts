@@ -2,7 +2,7 @@ import { desc, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { fakeEmbeddingAdapter } from "../../../../core/server/chat/fake-embedding-adapter";
-import { conversation, message } from "../../../../core/server/db/schema/chat";
+import { conversation, message } from "../../../../core/server/db/schema";
 import { saveCredentials } from "../../../../core/server/credentials/store";
 import type { AppDeps, HostProvider } from "../../../../core/server/deps";
 import type { ChatCommand } from "../../../../core/shared/chat/command";

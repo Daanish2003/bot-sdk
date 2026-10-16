@@ -2,9 +2,7 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
 import { saveCredentials } from "../../../../core/server/credentials/store";
-import { project } from "../../../../core/server/db/schema/chat";
-import { memory } from "../../../../core/server/db/schema/memory";
-import { userSettings } from "../../../../core/server/db/schema/settings";
+import { project, memory, userSettings } from "../../../../core/server/db/schema";
 import type { AppDeps } from "../../../../core/server/deps";
 import { insertConversation, insertMessage } from "../../../support/conversations";
 import { createTestSdk } from "../../../support/deps";

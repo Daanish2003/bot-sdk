@@ -3,10 +3,15 @@ import { describe, expect, it } from "vitest";
 
 import { fakeEmbeddingAdapter } from "../../../core/server/chat/fake-embedding-adapter";
 import { knowledgeBlobKey } from "../../../core/server/blob/store";
-import { conversation, message, project } from "../../../core/server/db/schema/chat";
-import { job } from "../../../core/server/db/schema/job";
-import { knowledgeChunk, knowledgeFile } from "../../../core/server/db/schema/knowledge";
-import { sharedLink } from "../../../core/server/db/schema/share";
+import {
+  conversation,
+  message,
+  project,
+  job,
+  knowledgeChunk,
+  knowledgeFile,
+  sharedLink,
+} from "../../../core/server/db/schema";
 import type { HostProvider } from "../../../core/server/deps";
 import { knowledgeJobKey } from "../../../core/server/knowledge/process";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";

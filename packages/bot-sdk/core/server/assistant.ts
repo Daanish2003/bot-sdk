@@ -17,7 +17,7 @@ import { quotaLookup, quotaState, type QuotaState } from "./chat/quota";
 import { stopUserRuns } from "./chat/run";
 import { transcriptionProviders } from "./chat/transcription";
 import { countUnreadableCredentials, rotateCredentialKeys } from "./credentials/store";
-import { generatedImage } from "./db/schema/generated-image";
+import { generatedImage } from "./db/schema";
 import { deleteUserData } from "./delete-user";
 import {
   createAppDeps,

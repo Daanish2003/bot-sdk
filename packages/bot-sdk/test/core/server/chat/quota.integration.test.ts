@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { saveCredentials } from "../../../../core/server/credentials/store";
-import { usage } from "../../../../core/server/db/schema/usage";
+import { usage } from "../../../../core/server/db/schema";
 import type { AppDeps, HostProvider, QuotaSetting } from "../../../../core/server/deps";
 import { quotaLookup } from "../../../../core/server/chat/quota";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";

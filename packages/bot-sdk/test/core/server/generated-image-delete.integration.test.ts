@@ -3,9 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { deleteUserData } from "../../../core/server/delete-user";
 import { sweepExpiredTemporaryConversations } from "../../../core/server/chat/temporary";
-import { blob } from "../../../core/server/db/schema/blob";
-import { generatedImage } from "../../../core/server/db/schema/generated-image";
-import { project } from "../../../core/server/db/schema/chat";
+import { blob, generatedImage, project } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { insertConversation } from "../../support/conversations";
 import { createTestSdk } from "../../support/deps";

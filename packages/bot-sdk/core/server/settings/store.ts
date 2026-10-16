@@ -1,4 +1,4 @@
-import { userSettings } from "../db/schema/settings";
+import { userSettings } from "../db/schema";
 import { eq } from "drizzle-orm";
 
 import type { AppDeps } from "../deps";

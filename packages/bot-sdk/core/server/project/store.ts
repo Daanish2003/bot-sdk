@@ -1,6 +1,4 @@
-import { conversation, message, project } from "../db/schema/chat";
-import { generatedImage } from "../db/schema/generated-image";
-import { knowledgeFile } from "../db/schema/knowledge";
+import { conversation, message, project, generatedImage, knowledgeFile } from "../db/schema";
 import { and, count, desc, eq, inArray, sql } from "drizzle-orm";
 
 import { deleteBlobsBestEffort } from "../blob/store";

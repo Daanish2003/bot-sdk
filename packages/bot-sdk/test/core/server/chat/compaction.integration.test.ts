@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
-import { conversation, message } from "../../../../core/server/db/schema/chat";
+import { conversation, message } from "../../../../core/server/db/schema";
 import { saveCredentials } from "../../../../core/server/credentials/store";
 import { loadActiveBranch } from "../../../../core/server/chat/store";
 import { getTestDb } from "../../../support/test-database";

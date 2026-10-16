@@ -2,7 +2,7 @@ import { createRouterClient } from "@orpc/server";
 import { describe, expect, it } from "vitest";
 
 import { appRouter } from "../../../../core/server/routers/index";
-import { savedPrompt } from "../../../../core/server/db/schema/saved-prompt";
+import { savedPrompt } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { createTestSdk } from "../../../support/deps";
 import { getTestDb } from "../../../support/test-database";

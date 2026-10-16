@@ -89,6 +89,15 @@ jobs:
       - name: Typecheck
         run: pnpm check-types
 
+      # The composed `chat` schema must equal the last migration's snapshot (spec #439): generate
+      # writes nothing, so the migrations folder stays unchanged.
+      - name: No unmigrated schema change
+        working-directory: packages/bot-sdk
+        run: |
+          pnpm exec drizzle-kit generate
+          git status --porcelain -- core/server/migrations
+          test -z "$(git status --porcelain -- core/server/migrations)"
+
       - name: Create the RustFS test bucket
         env:
           AWS_ACCESS_KEY_ID: rustfsadmin

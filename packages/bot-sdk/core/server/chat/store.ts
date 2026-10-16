@@ -1,12 +1,10 @@
-import { conversation, message, type MessageRow } from "../db/schema/chat";
-import { sharedLink } from "../db/schema/share";
+import { conversation, message, type MessageRow, sharedLink, generatedImage } from "../db/schema";
 import { and, desc, eq, inArray, isNotNull, isNull, type SQL, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 
 import { attachmentsOfMessages } from "../attachments/store";
 import { deleteBlobsBestEffort } from "../blob/store";
-import { generatedImage } from "../db/schema/generated-image";
 import type { AppDeps } from "../deps";
 import { generatedImageKeysWhere, imagesOfMessages } from "./generated-image-store";
 import { withProjectId } from "./hooks";

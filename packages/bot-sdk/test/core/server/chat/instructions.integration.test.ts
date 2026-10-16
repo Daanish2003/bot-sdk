@@ -1,4 +1,4 @@
-import { conversation, message } from "../../../../core/server/db/schema/chat";
+import { conversation, message } from "../../../../core/server/db/schema";
 import { asc, eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 

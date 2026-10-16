@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { createBotSdkClient } from "../../../core/client/chat-client";
 import { createBotSdk } from "../../../core/server/create-chat";
 import { assistant } from "../../../core/server/assistant";
-import { conversation } from "../../../core/server/db/schema/chat";
+import { conversation } from "../../../core/server/db/schema";
 import { storedParts } from "../../../core/shared/message-parts";
 import { insertConversation, insertMessage } from "../../support/conversations";
 import { testKeyEncryptionSecret } from "../../support/deps";

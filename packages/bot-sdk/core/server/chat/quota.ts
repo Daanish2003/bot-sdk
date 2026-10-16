@@ -1,6 +1,6 @@
 import { and, eq, gte, lt, sql } from "drizzle-orm";
 
-import { usage } from "../db/schema/usage";
+import { usage } from "../db/schema";
 import type { AppDeps, Quota, QuotaSetting } from "../deps";
 
 /** The error code a refused Run answers with (HTTP 402), so a client can tell it from other refusals. */

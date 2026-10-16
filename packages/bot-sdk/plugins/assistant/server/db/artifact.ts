@@ -1,8 +1,16 @@
-import { index, integer, primaryKey, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import {
+  type AnyPgColumn,
+  index,
+  integer,
+  primaryKey,
+  text,
+  timestamp,
+  uuid,
+} from "drizzle-orm/pg-core";
 
-import { artifactKinds } from "../../../shared/chat/artifact";
-import { chatSchema } from "./chat-schema";
-import { conversation, message } from "./chat";
+import { artifactKinds } from "../../../../core/shared/chat/artifact";
+import { chatSchema } from "../../../../core/server/db/chat-schema";
+import { conversation, message } from "../../../../core/server/db/schema";
 
 /** The kinds of Artifact (ADR 0016). */
 export const artifactKind = chatSchema.enum("artifact_kind", artifactKinds);
@@ -18,7 +26,7 @@ export const artifact = chatSchema.table(
     id: text("id").primaryKey(),
     conversationId: uuid("conversation_id")
       .notNull()
-      .references(() => conversation.id, { onDelete: "cascade" }),
+      .references((): AnyPgColumn => conversation.id, { onDelete: "cascade" }),
     kind: artifactKind("kind").notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
@@ -37,7 +45,7 @@ export const artifactVersion = chatSchema.table(
       .references(() => artifact.id, { onDelete: "cascade" }),
     messageId: uuid("message_id")
       .notNull()
-      .references(() => message.id, { onDelete: "cascade" }),
+      .references((): AnyPgColumn => message.id, { onDelete: "cascade" }),
     number: integer("number").notNull(),
     title: text("title").notNull(),
     /** The language of a `code` Artifact; null for the other kinds. */
