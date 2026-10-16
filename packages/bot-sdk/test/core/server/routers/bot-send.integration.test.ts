@@ -1,12 +1,23 @@
 import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { eq } from "drizzle-orm";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { botTurn } from "../../../../core/server/db/schema";
+import { botTurn, usage } from "../../../../core/server/db/schema";
+import { uuidv7 } from "../../../../core/server/lib/uuidv7";
+import type { HostProvider } from "../../../../plugins/assistant/server/deps";
 import { bot } from "../../../../plugins/bot/server/plugin";
+import { turnTimeLimitMs } from "../../../../plugins/bot/server/turn";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
-import { createTestSdk } from "../../../support/deps";
-import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
+import { quotaLookup } from "../../../../plugins/models/server/quota";
+import { createTestSdk, type TestDepsOverrides } from "../../../support/deps";
+import {
+  createFakeAdapter,
+  round,
+  runError,
+  text,
+  toolCall,
+  withUsage,
+} from "../../../support/fake-adapter";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
@@ -17,8 +28,8 @@ const sendToUser = "send_to_user";
 type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
 /** A user with an OpenAI key, a Bot on `model`, and a client over a Bot-enabled SDK whose Model plays `rounds`. */
-async function botWith(rounds: Round[]) {
-  const fake = createFakeAdapter({ rounds });
+async function botWith(rounds: Round[], { manual = false }: { manual?: boolean } = {}) {
+  const fake = createFakeAdapter({ rounds, manual });
   const deps = createTestSdk({ plugins: [bot()], adapterFor: () => fake.adapter });
   const user = await insertUser();
   await saveCredentials(deps, user.id, {
@@ -29,7 +40,71 @@ async function botWith(rounds: Round[]) {
   });
   const client = chatRpc({ user, deps });
   const created = await client.bot.create({ name: "Ada", model });
-  return { fake, deps, client, botId: created.id };
+  return { fake, deps, client, user, botId: created.id };
+}
+
+const hostModel = "anthropic:claude-sonnet-5-5";
+// $3 per 1M input tokens and $15 per 1M output tokens, so a token costs as many micros as its price.
+const hostProviders: HostProvider[] = [
+  {
+    provider: "anthropic",
+    credentials: { apiKey: "sk-host-secret-never-stored" },
+    models: [
+      {
+        modelId: "claude-sonnet-5-5",
+        maxOutputTokens: 512,
+        inputUsdPerMillion: 3,
+        outputUsdPerMillion: 15,
+      },
+    ],
+  },
+];
+
+/** A user with no key of their own, and a Bot on the Host's Model. */
+async function hostBotWith(rounds: Round[], overrides: Pick<TestDepsOverrides, "getQuota"> = {}) {
+  const fake = createFakeAdapter({ rounds });
+  const deps = createTestSdk({
+    plugins: [bot()],
+    hostProviders,
+    adapterFor: () => fake.adapter,
+    ...overrides,
+  });
+  const user = await insertUser();
+  const client = chatRpc({ user, deps });
+  const created = await client.bot.create({ name: "Ada", model: hostModel });
+  return { fake, client, user, botId: created.id };
+}
+
+const usageOf = (userId: string) =>
+  getTestDb().select().from(usage).where(eq(usage.userId, userId));
+
+/** A Turn row of `botId`, as a process left it. */
+async function insertTurn(botId: string, fields: { status: "running"; startedAt: Date }) {
+  const id = uuidv7();
+  await getTestDb()
+    .insert(botTurn)
+    .values({ id, botId, ...fields });
+  return id;
+}
+
+/** Reads `stream` until `until` holds for an event, and returns the events read. */
+async function readUntil<T>(stream: AsyncIterator<T>, until: (event: T) => boolean) {
+  const events: T[] = [];
+  for (let next = await stream.next(); !next.done; next = await stream.next()) {
+    events.push(next.value);
+    if (until(next.value)) break;
+  }
+  return events;
+}
+
+/** Waits for the Turn to leave `running`, and returns its row. */
+async function endedTurn(turnBotId: string) {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const [turn] = await turnsOf(turnBotId);
+    if (turn && turn.status !== "running") return turn;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error("The Turn never ended");
 }
 
 /** Sends `text` to the Bot and reads the whole stream. */
@@ -175,5 +250,198 @@ describe("bot.send", () => {
     await expect(other.bot.send({ botId, text: "hi" })).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
+  });
+});
+
+describe("a Turn's limits", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("stops after 10 Steps with error / step_limit, and its Messages stay", async () => {
+    // A Model that never ends its Turn: one more round is scripted than the limit allows.
+    const rounds = Array.from({ length: 11 }, (_, step) =>
+      round(sends({ text: `Step ${step + 1}`, endTurn: false })),
+    );
+    const { client, botId, fake } = await botWith(rounds);
+
+    const events = await send(client, botId, "go on forever");
+
+    expect(fake.calls).toHaveLength(10);
+    expect(events.at(-1)).toEqual({ type: "turnEnded", status: "error" });
+    const { messages } = await client.bot.get({ botId });
+    expect(messages.filter((row) => row.role === "assistant").map((row) => row.text)).toEqual(
+      Array.from({ length: 10 }, (_, step) => `Step ${step + 1}`),
+    );
+    const [turn] = await turnsOf(botId);
+    expect(turn).toMatchObject({ status: "error", error: "step_limit" });
+  });
+
+  it("ends a Turn past 5 minutes with error / timed_out, and its Messages stay", async () => {
+    const first = round(sends({ text: "On it…", endTurn: false }));
+    const { client, botId, fake } = await botWith([first, round(text("Never comes."))], {
+      manual: true,
+    });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+
+    const stream = await client.bot.send({ botId, text: "take your time" });
+    await fake.release(first.length);
+    const before = await readUntil(
+      stream,
+      (event) => event.type === "message" && event.message.role === "assistant",
+    );
+    // The second Step hangs; the clock passes the limit.
+    await vi.advanceTimersByTimeAsync(turnTimeLimitMs);
+    const after = await readUntil(stream, () => false);
+    vi.useRealTimers();
+
+    expect(shapes([...before, ...after]).at(-1)).toEqual({ type: "turnEnded", status: "error" });
+    expect((await client.bot.get({ botId })).messages.map((row) => row.text)).toEqual([
+      "take your time",
+      "On it…",
+    ]);
+    const [turn] = await turnsOf(botId);
+    expect(turn).toMatchObject({ status: "error", error: "timed_out" });
+  });
+
+  it("ends the Turn stopped when the client aborts, with its transcript saved", async () => {
+    const first = round(sends({ text: "On it…", endTurn: false }));
+    const { client, botId, fake } = await botWith([first, round(text("Never comes."))], {
+      manual: true,
+    });
+    const abort = new AbortController();
+
+    const stream = await client.bot.send({ botId, text: "hi" }, { signal: abort.signal });
+    await fake.release(first.length);
+    await readUntil(
+      stream,
+      (event) => event.type === "message" && event.message.role === "assistant",
+    );
+    abort.abort();
+    await stream.return?.(undefined).catch(() => {});
+
+    const turn = await endedTurn(botId);
+    expect(turn).toMatchObject({ status: "stopped", error: null });
+    // The Step that finished is in the transcript, so the next Turn sees what was sent.
+    expect(JSON.stringify(turn.transcript)).toContain("On it…");
+    expect((await client.bot.get({ botId })).messages.map((row) => row.text)).toEqual([
+      "hi",
+      "On it…",
+    ]);
+  });
+});
+
+describe("one Turn at a time", () => {
+  it("refuses a Message while a Turn is running with 409, and saves nothing", async () => {
+    const { client, botId } = await botWith([]);
+    await insertTurn(botId, { status: "running", startedAt: new Date() });
+
+    await expect(client.bot.send({ botId, text: "hello?" })).rejects.toMatchObject({
+      code: "CONFLICT",
+      status: 409,
+      data: { code: "error.turnRunning" },
+    });
+    expect((await client.bot.get({ botId })).messages).toEqual([]);
+    expect(await turnsOf(botId)).toHaveLength(1);
+  });
+
+  it("marks a running Turn left by a dead process error / interrupted when the next Turn starts", async () => {
+    const { client, botId } = await botWith([round(sends({ text: "Back.", endTurn: true }))]);
+    // Older than any live Turn can be: the time limit would have ended it.
+    const stale = await insertTurn(botId, {
+      status: "running",
+      startedAt: new Date(Date.now() - 2 * turnTimeLimitMs),
+    });
+
+    const events = await send(client, botId, "still there?");
+
+    expect(events.at(-1)).toEqual({ type: "turnEnded", status: "complete" });
+    const turns = await turnsOf(botId);
+    expect(turns.find((turn) => turn.id === stale)).toMatchObject({
+      status: "error",
+      error: "interrupted",
+    });
+    expect(turns.find((turn) => turn.id === stale)?.endedAt).toBeInstanceOf(Date);
+  });
+});
+
+describe("a Turn's Quota and usage", () => {
+  const oneTurn = withUsage(round(sends({ text: "Hello!", endTurn: true })), {
+    promptTokens: 100,
+    completionTokens: 10,
+    totalTokens: 110,
+  });
+
+  it("refuses a send out of Quota with 402, before the user's Message is saved", async () => {
+    // 200 micros a day; the user has already spent 300.
+    const { client, user, botId } = await hostBotWith([oneTurn], {
+      getQuota: quotaLookup({ budgetUsd: 0.0002, window: "day" }),
+    });
+    await getTestDb().insert(usage).values({
+      id: uuidv7(),
+      userId: user.id,
+      kind: "run",
+      model: hostModel,
+      inputTokens: 100,
+      outputTokens: 0,
+      costMicros: 300,
+      estimated: false,
+      createdAt: new Date(),
+    });
+
+    await expect(client.bot.send({ botId, text: "hi" })).rejects.toMatchObject({
+      status: 402,
+      data: { code: "error.quotaSpent" },
+    });
+    expect((await client.bot.get({ botId })).messages).toEqual([]);
+    expect(await turnsOf(botId)).toEqual([]);
+  });
+
+  it("records a Turn's usage as turn on Host credentials", async () => {
+    const { client, user, botId } = await hostBotWith([oneTurn]);
+
+    await send(client, botId, "hi");
+
+    const rows = await usageOf(user.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      kind: "turn",
+      model: hostModel,
+      inputTokens: 100,
+      outputTokens: 10,
+      costMicros: 100 * 3 + 10 * 15,
+      estimated: false,
+    });
+    const [turn] = await turnsOf(botId);
+    expect(turn?.usage).toMatchObject({ input: 100, output: 10, estimated: false });
+  });
+
+  it("records each finished Step's reported usage when the Turn fails", async () => {
+    const step = (sent: string) =>
+      withUsage(round(sends({ text: sent, endTurn: false })), {
+        promptTokens: 100,
+        completionTokens: 10,
+        totalTokens: 110,
+      });
+    const { client, user, botId } = await hostBotWith([
+      step("One"),
+      step("Two"),
+      round(runError("Provider down")),
+    ]);
+
+    const events = await send(client, botId, "hi");
+
+    expect(events.at(-1)).toEqual({ type: "turnEnded", status: "error" });
+    expect(await usageOf(user.id)).toMatchObject([
+      { kind: "turn", inputTokens: 200, outputTokens: 20, estimated: false },
+    ]);
+  });
+
+  it("records nothing on the user's own key", async () => {
+    const { client, user, botId } = await botWith([oneTurn]);
+
+    await send(client, botId, "hi");
+
+    expect(await usageOf(user.id)).toEqual([]);
   });
 });

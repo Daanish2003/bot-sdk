@@ -3,6 +3,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { SendIcon } from "lucide-react";
 import { type FormEvent, Fragment, type KeyboardEvent, useState } from "react";
+import { toast } from "sonner";
 
 import { useI18n } from "../../../core/client/react/provider";
 import { serverErrorText } from "../../../core/client/rpc-error";
@@ -11,7 +12,8 @@ import { BotAvatar } from "./bot-avatar";
 
 /**
  * A Bot's Conversation: the Messages sent in it, the user's on the right and the Bot's on the left,
- * ••• while a Turn runs, and "Seen ✓" under the user's last Message when the Bot stayed quiet.
+ * ••• while a Turn runs, "Seen ✓" under the user's last Message when the Bot stayed quiet, and
+ * "Couldn't reply" there when the Turn failed. A refused send puts its text back and says why.
  */
 export function BotConversation({ botId }: { botId: string }) {
   // One instance per Bot, so a Turn's state never shows on another Bot.
@@ -21,8 +23,16 @@ export function BotConversation({ botId }: { botId: string }) {
 function BotConversationView({ botId }: { botId: string }) {
   const i18n = useI18n();
   const { t } = i18n;
-  const { bot, error, messages, running, seenMessageId, send } = useBotTurn(botId);
   const [draft, setDraft] = useState("");
+  const { bot, error, messages, running, seenMessageId, failedMessageId, send } = useBotTurn(
+    botId,
+    {
+      onRefusedSend: (text, refusal) => {
+        setDraft(text);
+        toast.error(serverErrorText(i18n, refusal));
+      },
+    },
+  );
 
   if (error) {
     return (
@@ -72,6 +82,9 @@ function BotConversationView({ botId }: { botId: string }) {
             </div>
             {message.id === seenMessageId && (
               <p className="self-end text-xs text-muted-foreground">{t("bots.seen")}</p>
+            )}
+            {message.id === failedMessageId && (
+              <p className="self-end text-xs text-muted-foreground">{t("bots.couldNotReply")}</p>
             )}
           </Fragment>
         ))}

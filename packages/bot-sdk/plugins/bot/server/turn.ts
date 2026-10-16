@@ -4,19 +4,35 @@ import {
   chat,
   EventType,
   type ModelMessage,
+  type StreamChunk,
   toolDefinition,
 } from "@tanstack/ai";
-import { and, asc, eq, ne } from "drizzle-orm";
+import { and, asc, eq, inArray, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { appendMessage } from "../../../core/server/chat/message-tree";
-import { botTurn, message } from "../../../core/server/db/schema";
+import { botTurn, conversation, message } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkContext } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
 import { searchTextOf } from "../../../core/shared/message-parts";
+import { promptCharactersOf, reportedUsageOf } from "../../assistant/server/chat/usage";
+import type { ModelMeter } from "../../models/server/meter";
+import { parseModelId } from "../../models/shared/models";
 import type { BotMessage, BotSendEvent, TurnStatus } from "../shared/turn";
 import { findBot, textParts, toBotMessage } from "./store";
+
+/** The most Steps a Turn may take; one more ends it `error` with `step_limit`. */
+export const turnStepLimit = 10;
+
+/** The longest a Turn may run; past it, it ends `error` with `timed_out`. */
+export const turnTimeLimitMs = 5 * 60_000;
+
+/**
+ * A `running` Turn older than this was left by a dead process: a live one would have reached its
+ * time limit and ended. The minute after the limit leaves room for the ending to be written.
+ */
+const staleTurnMs = turnTimeLimitMs + 60_000;
 
 /** The Bot's one tool in step 1: the only way it reaches the user. */
 export const sendToUserToolName = "send_to_user";
@@ -76,9 +92,39 @@ export async function sendToBot(
     );
   }
 
+  // A Turn on Host credentials is refused once its Quota's window has spent the budget (ADR 0007),
+  // before the user's Message is saved.
+  if (!(await call.meter.mayRun()).ok) {
+    throw rpcError("PAYMENT_REQUIRED", "error.quotaSpent", "You've used this window's Quota");
+  }
+
   const now = new Date();
   const turnId = uuidv7();
   const userMessage = await deps.db.transaction(async (tx) => {
+    // The Conversation's row lock first, so two sends can't both find no Turn running.
+    await tx
+      .select({ id: conversation.id })
+      .from(conversation)
+      .where(eq(conversation.id, found.conversationId))
+      .for("update");
+    const running = await tx
+      .select({ id: botTurn.id, startedAt: botTurn.startedAt })
+      .from(botTurn)
+      .where(and(eq(botTurn.botId, botId), eq(botTurn.status, "running")));
+    if (running.some((turn) => now.getTime() - turn.startedAt.getTime() < staleTurnMs)) {
+      throw rpcError("CONFLICT", "error.turnRunning", "A Turn is still running for this Bot");
+    }
+    if (running.length > 0) {
+      await tx
+        .update(botTurn)
+        .set({ status: "error", error: "interrupted", endedAt: now })
+        .where(
+          inArray(
+            botTurn.id,
+            running.map((turn) => turn.id),
+          ),
+        );
+    }
     const row = await appendMessage(tx, found.conversationId, {
       role: "user",
       parts: textParts(text),
@@ -96,6 +142,8 @@ export async function sendToBot(
     conversationId: found.conversationId,
     turnId,
     userMessage,
+    provider: parseModelId(found.model)?.provider ?? "",
+    meter: call.meter,
     // Inside the Turn, so a failure here ends it `error` instead of leaving it running.
     prepare: async () => ({
       input: await modelInput(deps, { conversationId: found.conversationId, botId, turnId }),
@@ -142,8 +190,9 @@ async function modelInput(
 
 /**
  * The Turn's loop (slide 2): `chat()` with SendToUser as its only tool, streaming each sent Message
- * as it is appended. A Step with no tool call ends the Turn quiet. The Turn's row is ended, with its
- * transcript, however the loop stops.
+ * as it is appended. A Step with no tool call ends the Turn quiet; the Step and time limits end it
+ * `error`. The Turn's row is ended, with its transcript and usage, however the loop stops, and the
+ * usage is recorded against the Quota on Host credentials.
  */
 async function* runTurn(
   deps: BotSdkContext,
@@ -151,12 +200,18 @@ async function* runTurn(
     conversationId,
     turnId,
     userMessage,
+    provider,
+    meter,
     prepare,
     signal,
   }: {
     conversationId: string;
     turnId: string;
     userMessage: BotMessage;
+    /** The Model's Provider, for reading the usage it reports. */
+    provider: string;
+    /** The Model call's meter: on Host credentials it records the Turn in `chat.usage` (ADR 0007). */
+    meter: ModelMeter;
     /** The Turn's model input and the adapter it calls. */
     prepare: () => Promise<{ input: ModelMessage[]; adapter: AnyTextAdapter }>;
     signal?: AbortSignal;
@@ -165,10 +220,21 @@ async function* runTurn(
   const abortController = new AbortController();
   const onAbort = () => abortController.abort();
   signal?.addEventListener("abort", onAbort, { once: true });
+  let timedOut = false;
+  const timeLimit = setTimeout(() => {
+    // A Turn that was stopped but hasn't ended yet stays stopped.
+    if (abortController.signal.aborted) return;
+    timedOut = true;
+    abortController.abort();
+  }, turnTimeLimitMs);
   /** The Messages SendToUser appended that the stream hasn't yielded yet, in order. */
   const sent: BotMessage[] = [];
   let endTurn = false;
+  let stepLimit = false;
   let engine: ChatMiddlewareContext | undefined;
+  let input: ModelMessage[] = [];
+  /** Each Step's `RUN_FINISHED`, which carries the usage the Provider reported for it. */
+  const finishedSteps: StreamChunk[] = [];
   let error: string | undefined;
   let finished = false;
 
@@ -190,57 +256,114 @@ async function* runTurn(
   let status: TurnStatus = "stopped";
   try {
     yield { type: "message", message: userMessage };
-    const { input, adapter } = await prepare();
+    const prepared = await prepare();
+    input = prepared.input;
     const stream = chat({
-      adapter,
+      adapter: prepared.adapter,
       messages: input,
       systemPrompts: [botSystemPrompt],
       tools: [sendToUser],
       // One call at a time, so several sends of one Step are appended in the order they were made.
       toolExecution: "sequential",
       abortController,
+      // The Step limit is the middleware's, so the engine's default limit doesn't end the Turn first.
+      agentLoopStrategy: () => true,
       middleware: [
         {
           name: "bot-turn",
           onStart: (ctx) => {
             engine = ctx;
           },
-          // Any `endTurn: true` in the Step ends the Turn with no further model call.
-          onShouldContinue: () => !endTurn,
+          onShouldContinue: (_ctx, state) => {
+            // Any `endTurn: true` in the Step ends the Turn with no further model call.
+            if (endTurn) return false;
+            // A Step that called a tool would go on to another; past the limit, the Turn ends.
+            if (state.lastTurnToolCallCount > 0 && state.iterationCount >= turnStepLimit) {
+              stepLimit = true;
+              return false;
+            }
+            return true;
+          },
         },
       ],
     });
     for await (const chunk of stream) {
       if (chunk.type === EventType.RUN_ERROR) error = chunk.message;
+      if (chunk.type === EventType.RUN_FINISHED) finishedSteps.push(chunk);
       yield* drain(sent);
     }
+    // The loop is over: a client slow to read the last Messages doesn't make the Turn time out.
+    clearTimeout(timeLimit);
     yield* drain(sent);
     finished = true;
   } catch (caught) {
     error = caught instanceof Error ? caught.message : String(caught);
   } finally {
+    clearTimeout(timeLimit);
     signal?.removeEventListener("abort", onAbort);
     // A stream left before its end (the client went away) stops the Turn.
     if (!finished) abortController.abort();
-    // An abort wins: the adapter often reports the cancelled request as an error.
-    status = abortController.signal.aborted
-      ? "stopped"
-      : error !== undefined
-        ? "error"
-        : finished
-          ? "complete"
-          : "stopped";
+    const ending = endingOf({
+      timedOut,
+      stepLimit,
+      // An abort wins over an error: the adapter often reports the cancelled request as one.
+      stopped: abortController.signal.aborted,
+      error,
+      finished,
+    });
+    status = ending.status;
+    const transcript = answeredCalls(engine ? engine.messages.slice(engine.messageCount) : []);
+    // What the Provider reported for the Steps that finished, so a long Turn that hit a limit is
+    // billed for each of its Steps; an estimate only when no Step reported any.
+    const reported = reportedUsageOf(provider, finishedSteps);
+    const usage = engine
+      ? deps.plugin("models").messageUsage(reported.usage, {
+          promptCharacters: promptCharactersOf(input),
+          parts: transcript.flatMap(textOf),
+        })
+      : null;
     await deps.db
       .update(botTurn)
-      .set({
-        status,
-        error: status === "error" ? (error ?? null) : null,
-        endedAt: new Date(),
-        transcript: answeredCalls(engine ? engine.messages.slice(engine.messageCount) : []),
-      })
+      .set({ status, error: ending.error, usage, endedAt: new Date(), transcript })
       .where(eq(botTurn.id, turnId));
+    if (usage) {
+      await meter.record({
+        kind: "turn",
+        usage,
+        reportedCost: reported.cost,
+      });
+    }
   }
   yield { type: "turnEnded", status };
+}
+
+/** How a Turn ended, and why when it failed: a limit's code or the Provider's error. */
+function endingOf({
+  timedOut,
+  stepLimit,
+  stopped,
+  error,
+  finished,
+}: {
+  timedOut: boolean;
+  stepLimit: boolean;
+  stopped: boolean;
+  error: string | undefined;
+  finished: boolean;
+}): { status: TurnStatus; error: string | null } {
+  if (timedOut) return { status: "error", error: "timed_out" };
+  if (stopped) return { status: "stopped", error: null };
+  if (error !== undefined) return { status: "error", error };
+  if (stepLimit) return { status: "error", error: "step_limit" };
+  return finished ? { status: "complete", error: null } : { status: "stopped", error: null };
+}
+
+/** A transcript entry's text for a usage estimate: the Model's own text and its tool calls. */
+function textOf(entry: ModelMessage): { type: "text"; text: string }[] {
+  if (entry.role !== "assistant") return [];
+  const content = typeof entry.content === "string" ? entry.content : "";
+  const calls = (entry.toolCalls ?? []).map((call) => call.function.arguments).join("");
+  return [{ type: "text", text: content + calls }];
 }
 
 /**

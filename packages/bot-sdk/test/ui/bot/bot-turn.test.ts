@@ -2,10 +2,12 @@
 import { eventIterator, os } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { createElement } from "react";
+import { createElement, Fragment } from "react";
+import { Toaster } from "sonner";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
+import { rpcError } from "../../../core/server/rpc-error";
 import type { BotMessage, BotSendEvent } from "../../../plugins/bot/shared/turn";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
 import { providerFor } from "../fake-dictionary";
@@ -35,6 +37,8 @@ function fakeBotServer(messages: BotMessage[] = []) {
     wake();
   };
   const sends: unknown[] = [];
+  // The error the next send is refused with, before its stream starts.
+  let refusal: Error | undefined;
   const router = {
     bot: {
       get: os.handler(() => ({ bot: ada, messages })),
@@ -43,6 +47,11 @@ function fakeBotServer(messages: BotMessage[] = []) {
         .output(eventIterator(z.custom<BotSendEvent>()))
         .handler(async function* ({ input }) {
           sends.push(input);
+          if (refusal) {
+            const refused = refusal;
+            refusal = undefined;
+            throw refused;
+          }
           while (true) {
             if (queue.length === 0) await new Promise<void>((resolve) => (wake = resolve));
             const next = queue.shift()!;
@@ -59,6 +68,10 @@ function fakeBotServer(messages: BotMessage[] = []) {
   return {
     fetch,
     sends,
+    /** Refuses the next send with `error`, as the server does before saving the Message. */
+    refuseNext: (error: Error) => {
+      refusal = error;
+    },
     /** Streams `events` to the open send, then lets the client read them. */
     stream: async (...events: (BotSendEvent | "end")[]) => {
       await act(async () => {
@@ -71,10 +84,16 @@ function fakeBotServer(messages: BotMessage[] = []) {
 
 function mount(server: ReturnType<typeof fakeBotServer>) {
   return render(
-    providerFor(createElement(BotConversation, { botId: ada.id }), {
-      fetch: server.fetch,
-      messages: {},
-    }),
+    createElement(
+      Fragment,
+      null,
+      providerFor(createElement(BotConversation, { botId: ada.id }), {
+        fetch: server.fetch,
+        messages: {},
+      }),
+      // The toast shows in the Toaster, which the page mounts once.
+      createElement(Toaster),
+    ),
   );
 }
 
@@ -184,6 +203,71 @@ describe("talking to a Bot", () => {
     );
 
     expect(screen.getByText("Hello!")).toBeTruthy();
+    expect(screen.queryByText("Seen ✓")).toBeNull();
+  });
+});
+
+describe("a refused send", () => {
+  it.each([
+    [
+      "409, a Turn is running",
+      rpcError("CONFLICT", "error.turnRunning", "A Turn is still running"),
+      "Your Bot is still replying. Wait for it to finish, then send again.",
+    ],
+    [
+      "402, out of Quota",
+      rpcError("PAYMENT_REQUIRED", "error.quotaSpent", "Quota spent"),
+      "You've used this window's Quota",
+    ],
+  ])("on %s removes the bubble, puts the text back and says why", async (_, error, why) => {
+    const server = fakeBotServer([said("m0", "user", "earlier")]);
+    server.refuseNext(error);
+    const { container } = mount(server);
+    await screen.findByText("earlier");
+
+    await type("hello?");
+
+    await waitFor(() => expect(document.body.textContent).toContain(why));
+    expect(bubbles(container)).toEqual([["user", "earlier"]]);
+    expect(screen.getByRole<HTMLTextAreaElement>("textbox", { name: "Message" }).value).toBe(
+      "hello?",
+    );
+    expect(screen.queryByRole("status", { name: "Typing" })).toBeNull();
+  });
+});
+
+describe("a Turn that didn't reply", () => {
+  it("shows a muted Couldn't reply under the user's Message after an error Turn, with no retry", async () => {
+    const server = fakeBotServer();
+    const { container } = mount(server);
+
+    await type("hi");
+    await server.stream(
+      { type: "message", message: said("m1", "user", "hi") },
+      { type: "turnEnded", status: "error" },
+      "end",
+    );
+
+    const failed = screen.getByText("Couldn't reply");
+    expect(failed.className).toContain("text-muted-foreground");
+    const sent = container.querySelector("[data-bot-message][data-id=m1]")!;
+    expect(sent.compareDocumentPosition(failed) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByText("Seen ✓")).toBeNull();
+    expect(screen.queryByRole("button", { name: /retry|try again/i })).toBeNull();
+  });
+
+  it("shows nothing after a stopped Turn", async () => {
+    const server = fakeBotServer();
+    mount(server);
+
+    await type("hi");
+    await server.stream(
+      { type: "message", message: said("m1", "user", "hi") },
+      { type: "turnEnded", status: "stopped" },
+      "end",
+    );
+
+    expect(screen.queryByText("Couldn't reply")).toBeNull();
     expect(screen.queryByText("Seen ✓")).toBeNull();
   });
 });

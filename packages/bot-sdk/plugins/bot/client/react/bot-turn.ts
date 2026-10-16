@@ -13,9 +13,15 @@ export type ShownBotMessage = BotMessage & { pending?: true };
  * The user's Message shows at once, and the stream's first event (the saved Message) replaces it.
  * Each Message the Bot sends joins the Conversation as it arrives. `seenMessageId` is the last
  * Message when it is the user's and the Turn ended `complete`: the Bot read it and chose to stay
- * quiet.
+ * quiet. `failedMessageId` is the last user Message when the Turn ended `error`.
+ *
+ * A send the server refuses before saving the Message (402 Quota, 409 a Turn is running) removes the
+ * bubble and is handed to `onRefusedSend` with its text, so the composer can put it back.
  */
-export function useBotTurn(botId: string) {
+export function useBotTurn(
+  botId: string,
+  { onRefusedSend }: { onRefusedSend?: (text: string, error: unknown) => void } = {},
+) {
   const { orpc } = useChatAdapter();
   const queryClient = useQueryClient();
   const getOptions = orpc.bot.get.queryOptions({ input: { botId } });
@@ -36,17 +42,21 @@ export function useBotTurn(botId: string) {
     setPending({ id: "pending", role: "user", text, createdAt: new Date(), pending: true });
     setRunning(true);
     setEnded(undefined);
+    // The stream's first event is the saved user Message: an error before it is a refusal.
+    let saved = false;
     try {
       for await (const event of await orpc.bot.send.call({ botId, text })) {
         if (event.type === "message") {
+          saved = true;
           setPending(undefined);
           append(event.message);
         } else {
           setEnded(event.status);
         }
       }
-    } catch {
+    } catch (error) {
       setPending(undefined);
+      if (!saved) onRefusedSend?.(text, error);
     } finally {
       setRunning(false);
     }
@@ -57,12 +67,14 @@ export function useBotTurn(botId: string) {
     ...(pending ? [pending] : []),
   ];
   const last = messages.at(-1);
+  const lastUser = messages.findLast((message) => message.role === "user");
   return {
     bot: query.data?.bot,
     error: query.error,
     messages,
     running,
     seenMessageId: !running && ended === "complete" && last?.role === "user" ? last.id : undefined,
+    failedMessageId: !running && ended === "error" ? lastUser?.id : undefined,
     send,
   };
 }

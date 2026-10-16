@@ -13,4 +13,5 @@ export const botsMessages = {
   "bots.send": "Send",
   "bots.typing": "Typing",
   "bots.seen": "Seen ✓",
+  "bots.couldNotReply": "Couldn't reply",
 };
