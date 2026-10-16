@@ -60,14 +60,18 @@ export async function prepareTestDatabases(workers: number) {
   }
 }
 
-/** Drops every worker copy of the configured test database, so they never pile up. */
+/**
+ * Drops every worker copy of the configured test database, and any scratch database a killed run
+ * left behind (`<test database>_w<n>_<suffix>`), so they never pile up.
+ */
 export async function dropWorkerDatabases() {
   const prefix = `${databaseName(baseTestDatabaseUrl)}_w`;
   const client = await serverClient(baseTestDatabaseUrl);
   try {
     const { rows } = await client.query<{ datname: string }>("select datname from pg_database");
     for (const { datname } of rows) {
-      if (!datname.startsWith(prefix) || !/^\d+$/.test(datname.slice(prefix.length))) continue;
+      if (!datname.startsWith(prefix) || !/^\d+(_.+)?$/.test(datname.slice(prefix.length)))
+        continue;
       await client.query(`drop database "${quoteIdentifier(datname)}" with (force)`);
     }
   } finally {

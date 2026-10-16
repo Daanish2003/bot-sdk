@@ -2,7 +2,7 @@ import { globSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 const testFiles = ["{apps,packages}/*/{src,test}/**/*.test.ts"];
 const integrationTestFiles = ["{apps,packages}/*/{src,test}/**/*.integration.test.ts"];
@@ -19,13 +19,16 @@ const shadcnAliases = [
 ];
 
 // Integration files share one module graph per worker (`isolate: false`), which a `vi.mock` would
-// leak into, so the files that mock a module run isolated in their own project.
+// leak into, so the files that mock a module (in their own text) run isolated in their own project.
+// Watch mode reruns files in reused workers, where a module-level registry (`defineJob`) would see
+// its file's definitions twice, so there every integration file is isolated.
+const watching = !process.argv.includes("run");
 const mockingIntegrationTestFiles = globSync(integrationTestFiles, { cwd: rootDir })
   .filter((file) => /\bvi\.(mock|doMock)\(/.test(readFileSync(join(rootDir, file), "utf8")))
   .map((file) => file.replaceAll("\\", "/"));
 
 // Each worker has its own copy of the test database (global setup), so integration files run in
-// parallel. The global setup runs once per project, and the second run reuses the first's copies.
+// parallel. Both projects name the global setup; it makes the copies once per run.
 const integrationTest = {
   globalSetup: ["packages/bot-sdk/test/support/global-setup.ts"],
   setupFiles: ["packages/bot-sdk/test/support/setup.ts"],
@@ -63,8 +66,8 @@ export default defineConfig({
           ...integrationTest,
           name: "integration",
           include: integrationTestFiles,
-          exclude: mockingIntegrationTestFiles,
-          isolate: false,
+          exclude: [...configDefaults.exclude, ...mockingIntegrationTestFiles],
+          isolate: watching,
         },
       },
       {
