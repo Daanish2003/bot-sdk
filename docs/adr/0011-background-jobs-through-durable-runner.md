@@ -87,3 +87,13 @@ Step 2 lets a Turn survive a crash or a deploy by resuming from its last **Check
 - **Checkpoints looked up by name, with no replay checks.** This is simpler, but a changed workflow can silently take a different path on resume.
 - **A sandbox that enforces determinism, as Temporal's TypeScript SDK has.** It's the largest piece of Temporal and has no other use here.
 - **DBOS Transact as a dependency.** Its model is the same and it has been used in production, but the engine is meant to be in-house ([Durable runner SDK design](https://github.com/Daanish2003/ai-chat/issues/391)).
+
+## Amendment: a Turn is a workflow (2026-10-17, [#482](https://github.com/Daanish2003/ai-chat/issues/482))
+
+The `bot` plugin runs each Turn as one runner job, keyed by the Turn id, and requires `runner`. This settles the two points the history amendment left open.
+
+- **Exactly-once writes.** `ctx.activity(name, (tx) => …)` gives `fn` the transaction its history entry is saved in, so a same-database write commits with its Checkpoint or not at all. A Turn records an activity for each model call and one for each tool call. SendToUser appends its Message, and a model call records its usage, inside that transaction, so neither happens twice across a crash. Replay returns the recorded model output instead of calling the model again, so the tool calls that follow it replay in the same order.
+- **Limits stay out of replayed code.** The Step limit counts recorded model calls. The 5-minute limit runs from the Turn's start, wall clock, as a timer that aborts the live call, never as a branch the workflow takes, so a replay takes the recorded path.
+- **Turns need the in-process runner.** Under Trigger.dev nothing is recorded and a retry starts over, which would send Messages again, so `bot` refuses to start on that adapter. The knowledge and memory jobs still run on either.
+- **The job is the Turn's liveness.** `bot_turn` links to its job and loses `heartbeat_at` and its "interrupted" sweep. A job that uses up its attempts ends its Turn `error` with `interrupted`.
+- **The engine has no Bot SDK imports.** It's a module inside `plugins/runner/`, so it could become its own package later without a rewrite. It stays a plugin now (ADR 0020).
