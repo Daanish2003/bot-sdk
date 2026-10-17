@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
 import { assistant } from "../../../plugins/assistant/server/plugin";
+import { runner } from "../../../plugins/runner/server/plugin";
 import { models } from "../../../plugins/models/server/plugin";
 import { saveCredentials } from "../../../plugins/models/server/credentials/store";
 import { message } from "../../../core/server/db/schema";
@@ -24,7 +25,7 @@ describe("createBotSdk", () => {
         getUser: () => null,
         keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
         basePath,
-        plugins: [models(), assistant()],
+        plugins: [models(), runner(), assistant()],
       }),
     ).not.toThrow();
   });
@@ -36,9 +37,21 @@ describe("createBotSdk", () => {
         getUser: () => null,
         keyEncryptionSecrets: [],
         basePath,
-        plugins: [models(), assistant()],
+        plugins: [models(), runner(), assistant()],
       }),
     ).toThrow(/at least one/);
+  });
+
+  it("throws when the assistant is enabled without the runner", () => {
+    expect(() =>
+      createBotSdk({
+        databaseUrl: "postgresql://nobody:nothing@127.0.0.1:1/unreachable",
+        getUser: () => null,
+        keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
+        basePath,
+        plugins: [models(), assistant()],
+      }),
+    ).toThrow(/Plugin "assistant" requires plugin "runner"/);
   });
 });
 
@@ -54,6 +67,7 @@ describe("createBotSdk start", () => {
         models({
           byok: false,
         }),
+        runner(),
         assistant(),
       ],
     });
@@ -78,6 +92,7 @@ describe("createBotSdk start", () => {
             },
           ],
         }),
+        runner(),
         assistant(),
       ],
     });
@@ -109,6 +124,7 @@ describe("createBotSdk start", () => {
           ],
           defaultBackgroundModel: "ollama:mistral",
         }),
+        runner(),
         assistant(),
       ],
     });
@@ -141,6 +157,7 @@ describe("createBotSdk start", () => {
           ],
           defaultImageModel: "openai:gpt-image-2",
         }),
+        runner(),
         assistant(),
       ],
     });
@@ -168,6 +185,7 @@ describe("createBotSdk start", () => {
             },
           ],
         }),
+        runner(),
         assistant(),
       ],
     });

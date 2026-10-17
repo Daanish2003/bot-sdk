@@ -13,6 +13,7 @@ import type { Database } from "../../core/server/db/index";
 import type { Credentials } from "../../plugins/assistant/server/deps";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
 import { makeMemoriesJob } from "../../plugins/assistant/server/memory/make";
+import { runRegisteredJob } from "../../plugins/runner/server/jobs/define";
 import { storedParts } from "../../plugins/assistant/shared/message-parts";
 import { type Category, type EvalCase, historyOf, parseDate } from "./cases";
 import { judge } from "./judge";
@@ -104,9 +105,10 @@ async function ingest(env: EvalEnv, deps: EvalDeps, userId: string, item: EvalCa
         .set({ activeLeafId: row!.id })
         .where(eq(conversation.id, conv.id));
       if (turn.role === "assistant") {
-        await makeMemoriesJob.run(
+        await runRegisteredJob(
+          makeMemoriesJob.name,
           { userId, conversationId: conv.id, replyId: row!.id },
-          { deps: { ...deps, clock: () => session.date }, signal: new AbortController().signal },
+          { ...deps, clock: () => session.date },
         );
       }
     }

@@ -21,6 +21,7 @@ import { reapStaleRuns } from "../../../../plugins/assistant/server/chat/run";
 import { createBotSdk, type BotSdkOptions } from "../../../../core/server/create-chat";
 import { createChatHandler } from "../../../../plugins/assistant/server/over";
 import { assistant } from "../../../../plugins/assistant/server/plugin";
+import { runner } from "../../../../plugins/runner/server/plugin";
 import { models, type ModelsOptions } from "../../../../plugins/models/server/plugin";
 import { deleteAllConversations } from "../../../../plugins/assistant/server/delete-user";
 import { deleteUserData } from "../../../../core/server/user-data";
@@ -74,7 +75,7 @@ function chatWith(
     basePath,
     logger: { error: () => {} },
     ...rest,
-    plugins: [models({ hostProviders }), assistant()],
+    plugins: [models({ hostProviders }), runner(), assistant()],
   });
 }
 

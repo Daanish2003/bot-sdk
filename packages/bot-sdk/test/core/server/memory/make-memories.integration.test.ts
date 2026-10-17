@@ -23,7 +23,6 @@ import { drainJobs } from "../../../support/jobs";
 import { chatRpc, sendAs } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
-import { assistantState } from "../../../../plugins/assistant/server/state";
 
 const replyModel = "anthropic:claude-sonnet-5-5";
 const backgroundModel = "anthropic:claude-haiku-4-5";
@@ -318,11 +317,13 @@ describe("making Memories after a Run", () => {
 
     // A replayed job, or a regenerated reply, on the same user Message.
     const key = `memory-replay:${replyId}`;
-    await assistantState(deps).jobs.enqueue(
-      "memory.make",
-      { userId: user.id, conversationId: conv.id, replyId },
-      { idempotencyKey: key },
-    );
+    await deps
+      .plugin("runner")
+      .enqueue(
+        "memory.make",
+        { userId: user.id, conversationId: conv.id, replyId },
+        { idempotencyKey: key },
+      );
     await drainMemory(deps);
 
     expect(await memoriesOf(user.id)).toHaveLength(2);

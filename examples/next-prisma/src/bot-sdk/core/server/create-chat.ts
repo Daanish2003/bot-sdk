@@ -100,14 +100,15 @@ export type BotSdk = {
   /**
    * Refuses (throws) while the `chat` schema is behind the bundled migrations; then starts each
    * plugin, in dependency order. `models` refuses with neither `hostProviders` nor `byok` on; the
-   * assistant starts the reaper (now, and every 30 s, ADR 0006) and the
-   * jobs runner.
+   * runner starts its job reaper and the jobs runner (ADR 0011), and the assistant starts its Run
+   * reaper (now, and every 30 s, ADR 0006).
    */
   start: () => Promise<void>;
   /**
    * Sets `stopping`, stops each plugin in reverse dependency order, then closes the runtime's
    * connections. The assistant refuses new Runs with 503 and lets local Runs finish for up to
-   * `drainMs` (250 s), then ends the rest as interrupted, then drains its jobs. A plugin whose stop
+   * `drainMs` (250 s), then ends the rest as interrupted; after it, the runner drains its jobs for
+   * up to 250 s, then aborts the rest. A plugin whose stop
    * throws doesn't stop the others; its error is rethrown once the runtime closes. Call it on
    * SIGTERM.
    */

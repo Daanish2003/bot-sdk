@@ -4,7 +4,7 @@ import { z } from "zod";
 import { knowledgeBlobKey } from "../blob-keys";
 import type { BotSdkContext } from "../../../../core/server/plugin";
 import { project, knowledgeChunk, knowledgeFile } from "../../../../core/server/db/schema";
-import { defineJob, PermanentJobError } from "../jobs/define";
+import { defineJob, PermanentJobError } from "../../../runner/server/jobs/define";
 import type { KnowledgeFailureCode } from "../../shared/knowledge/kinds";
 import { ChunkLimitExceededError, chunkText } from "./chunker";
 import { ExtractionFailure, extractKnowledgeText } from "./extract";

@@ -5,6 +5,7 @@ import { postgresBlobStore } from "../../../core/server/blob/postgres";
 import { attachmentBlobKey } from "../../../core/server/blob/store";
 import { createBotSdk } from "../../../core/server/create-chat";
 import { assistant } from "../../../plugins/assistant/server/plugin";
+import { runner } from "../../../plugins/runner/server/plugin";
 import { models } from "../../../plugins/models/server/plugin";
 import { sweepExpiredTemporaryConversations } from "../../../plugins/assistant/server/chat/temporary";
 import { saveCredentials } from "../../../plugins/models/server/credentials/store";
@@ -285,7 +286,7 @@ describe("an expired Temporary Conversation's other reads", () => {
       getUser: () => null,
       keyEncryptionSecrets: [testKey],
       basePath: "/api/chat",
-      plugins: [models(), assistant()],
+      plugins: [models(), runner(), assistant()],
     }).exportUser(user.id);
 
     expect(exported.conversations.map((row) => row.id)).toEqual([ordinary.id]);

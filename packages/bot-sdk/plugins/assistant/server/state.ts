@@ -1,7 +1,6 @@
 import type { HostServerTool } from "./chat/host-tools";
 import type { RunStreams } from "../../../core/server/chat/run-streams";
 import type { Limits, SearchClient } from "./deps";
-import type { JobRunner } from "./jobs/runner";
 import type { McpServerConfig } from "./mcp/servers";
 import type { BotSdkContext } from "../../../core/server/plugin";
 
@@ -15,8 +14,6 @@ export type AssistantState = {
   artifacts: boolean;
   /** Whether Memory is on for the Host (`assistant({ memory })`, ADR 0013). */
   memory: boolean;
-  /** Background jobs (ADR 0011): `assistant({ jobs })`, the in-process runner by default. */
-  jobs: JobRunner;
   searchClient: SearchClient;
   /** Every Run's chunk log, which its POST response and any joiner read (ADR 0006). */
   runStreams: RunStreams;

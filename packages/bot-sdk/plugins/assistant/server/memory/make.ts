@@ -15,7 +15,7 @@ import {
 import type { BotSdkContext } from "../../../../core/server/plugin";
 import type { ModelCall } from "../../../models/server/credentials/resolve";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { defineJob } from "../jobs/define";
+import { defineJob } from "../../../runner/server/jobs/define";
 import type { TurnChange } from "../../shared/memory/changes";
 import { publishMemoryUpdated } from "./notice";
 import { reembedMemoriesJob } from "./manage";
@@ -129,12 +129,14 @@ export async function enqueueMemories(
   const plan = await memoryPlanOf(deps, payload.userId, payload.conversationId);
   if (!plan) return;
   // Once per embedding Model, the user's Memories made with another Model are embedded again (#289).
-  await assistantState(deps).jobs.enqueue(
-    reembedMemoriesJob.name,
-    { userId: payload.userId },
-    { idempotencyKey: `memory-reembed:${payload.userId}:${plan.embedding.id}` },
-  );
-  await assistantState(deps).jobs.enqueue(makeMemoriesJob.name, payload, {
+  await deps
+    .plugin("runner")
+    .enqueue(
+      reembedMemoriesJob.name,
+      { userId: payload.userId },
+      { idempotencyKey: `memory-reembed:${payload.userId}:${plan.embedding.id}` },
+    );
+  await deps.plugin("runner").enqueue(makeMemoriesJob.name, payload, {
     idempotencyKey: `memory:${payload.replyId}`,
   });
 }

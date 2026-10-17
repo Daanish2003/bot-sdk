@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { rpcError } from "../../../core/server/rpc-error";
-import type { BotMessage, BotSendEvent } from "../../../plugins/bot/shared/turn";
+import type { BotMessage, BotSendEvent, TurnStatus } from "../../../plugins/bot/shared/turn";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
 import { providerFor } from "../fake-dictionary";
 
@@ -26,18 +26,20 @@ const said = (id: string, role: BotMessage["role"], text: string): BotMessage =>
 });
 
 /**
- * A stand-in for the server's `bot` router: `bot.get` answers with `messages`, and each `bot.send`
- * streams the events the test pushes, until it ends the stream.
+ * A stand-in for the server's `bot` router: `bot.get` answers with `messages` and the latest Turn's
+ * status, and each `bot.send` streams the events the test pushes, until it ends or drops the stream.
  */
 function fakeBotServer(messages: BotMessage[] = []) {
   // Events pushed before the send's request arrives wait here for it.
-  const queue: (BotSendEvent | "end")[] = [];
+  const queue: (BotSendEvent | "end" | "drop")[] = [];
   let wake = () => {};
-  const push = (event: BotSendEvent | "end") => {
+  let turnStatus: TurnStatus | "running" | null = null;
+  const push = (event: BotSendEvent | "end" | "drop") => {
     queue.push(event);
     wake();
   };
   const sends: unknown[] = [];
+  const stops: unknown[] = [];
   // The error the next send is refused with, before its stream starts.
   let refusal: Error | undefined;
   // While set, each `bot.get` reads the Messages at once but answers only once it resolves.
@@ -45,9 +47,12 @@ function fakeBotServer(messages: BotMessage[] = []) {
   const router = {
     bot: {
       get: os.handler(async () => {
-        const read = { bot: ada, messages: [...messages] };
+        const read = { bot: { ...ada, turnStatus }, messages: [...messages] };
         await held;
         return read;
+      }),
+      stop: os.input(z.object({ botId: z.string() })).handler(({ input }) => {
+        stops.push(input);
       }),
       send: os
         .input(z.object({ botId: z.string(), text: z.string() }))
@@ -63,6 +68,7 @@ function fakeBotServer(messages: BotMessage[] = []) {
             if (queue.length === 0) await new Promise<void>((resolve) => (wake = resolve));
             const next = queue.shift()!;
             if (next === "end") return;
+            if (next === "drop") throw new Error("The connection dropped");
             yield next;
           }
         }),
@@ -75,6 +81,11 @@ function fakeBotServer(messages: BotMessage[] = []) {
   return {
     fetch,
     sends,
+    stops,
+    /** What `bot.get` says of the latest Turn from now on, as the server's Turn moves on. */
+    setTurnStatus: (status: TurnStatus | "running" | null) => {
+      turnStatus = status;
+    },
     /** Refuses the next send with `error`, as the server does before saving the Message. */
     refuseNext: (error: Error) => {
       refusal = error;
@@ -89,7 +100,7 @@ function fakeBotServer(messages: BotMessage[] = []) {
       };
     },
     /** Streams `events` to the open send, then lets the client read them. */
-    stream: async (...events: (BotSendEvent | "end")[]) => {
+    stream: async (...events: (BotSendEvent | "end" | "drop")[]) => {
       await act(async () => {
         for (const event of events) push(event);
         await new Promise((resolve) => setTimeout(resolve, 20));
@@ -319,5 +330,63 @@ describe("a Turn that didn't reply", () => {
 
     expect(screen.queryByText("Couldn't reply")).toBeNull();
     expect(screen.queryByText("Seen ✓")).toBeNull();
+  });
+});
+
+describe("stopping a Turn", () => {
+  it("shows ■ Stop while Working…, even for a Turn running in another tab, and calls bot.stop", async () => {
+    const server = fakeBotServer();
+    server.setTurnStatus("running");
+    mount(server);
+
+    fireEvent.click(await screen.findByRole("button", { name: "■ Stop" }));
+
+    await waitFor(() => expect(server.stops).toEqual([{ botId: ada.id }]));
+  });
+
+  it("shows ■ Stop for a send in flight, and not once the Turn has ended", async () => {
+    const server = fakeBotServer();
+    mount(server);
+    await screen.findByRole("textbox", { name: "Message" });
+    expect(screen.queryByRole("button", { name: "■ Stop" })).toBeNull();
+
+    await type("hi");
+    expect(screen.getByRole("button", { name: "■ Stop" })).toBeTruthy();
+
+    await server.stream(
+      { type: "message", message: said("m1", "user", "hi") },
+      { type: "turnEnded", status: "stopped" },
+      "end",
+    );
+    expect(screen.queryByRole("button", { name: "■ Stop" })).toBeNull();
+  });
+});
+
+describe("a send whose stream drops", () => {
+  it("follows the Turn by polling bot.get every 2 s while it runs, until it ends", async () => {
+    const messages: BotMessage[] = [];
+    const server = fakeBotServer(messages);
+    const { container } = mount(server);
+    await screen.findByRole("textbox", { name: "Message" });
+
+    await type("hi");
+    // The server saved the Message and runs the Turn off the request, so it goes on without the tab.
+    messages.push(said("m1", "user", "hi"));
+    server.setTurnStatus("running");
+    await server.stream({ type: "message", message: said("m1", "user", "hi") }, "drop");
+    expect(screen.getByRole("status", { name: "Typing" })).toBeTruthy();
+
+    // The Turn sends a Message and ends while the tab isn't streaming.
+    messages.push(said("m2", "assistant", "Hello!"));
+    server.setTurnStatus("complete");
+    await waitFor(() => expect(screen.getByText("Hello!")).toBeTruthy(), { timeout: 4_000 });
+
+    expect(bubbles(container)).toEqual([
+      ["user", "hi"],
+      ["assistant", "Hello!"],
+    ]);
+    expect(screen.queryByRole("status", { name: "Typing" })).toBeNull();
+    // A dropped stream isn't a refusal: the composer stays empty.
+    expect(screen.getByRole<HTMLTextAreaElement>("textbox", { name: "Message" }).value).toBe("");
   });
 });

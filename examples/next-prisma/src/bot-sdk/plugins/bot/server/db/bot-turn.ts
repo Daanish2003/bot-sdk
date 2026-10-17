@@ -2,6 +2,7 @@ import type { ModelMessage } from "@tanstack/ai";
 import { type AnyPgColumn, index, jsonb, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
 import { chatSchema } from "../../../../core/server/db/chat-schema";
+import { job } from "../../../runner/server/db/job";
 import type { MessageUsage } from "../../../models/shared/usage";
 import { bot } from "./bot";
 
@@ -14,9 +15,10 @@ export const botTurnStatus = chatSchema.enum("bot_turn_status", [
 ]);
 
 /**
- * One Turn of a Bot: what a user Message started, inside the request. Its `transcript` is the
- * Model's private side of the Turn (its plain text, its SendToUser calls and their results). It is
- * written once when the Turn ends, is replayed as the input of later Turns, and is never a Message.
+ * One Turn of a Bot: what a user Message started, run as one runner job (ADR 0011, the #482
+ * amendment). Its `transcript` is the Model's private side of the Turn (its plain text, its
+ * SendToUser calls and their results). It is written once when the Turn ends, is replayed as the
+ * input of later Turns, and is never a Message.
  */
 export const botTurn = chatSchema.table(
   "bot_turn",
@@ -33,10 +35,10 @@ export const botTurn = chatSchema.table(
     startedAt: timestamp("started_at").notNull(),
     endedAt: timestamp("ended_at"),
     /**
-     * Written when the Turn starts and every `turnHeartbeatMs` while it runs. A `running` Turn whose
-     * heartbeat is older than `turnLeaseMs`, or null, was left by a dead process.
+     * The job that runs the Turn, and its liveness. Null once the job is pruned, and for Turns from
+     * before Turns ran as jobs.
      */
-    heartbeatAt: timestamp("heartbeat_at", { withTimezone: true }),
+    jobId: uuid("job_id").references((): AnyPgColumn => job.id, { onDelete: "set null" }),
     /** The Turn's model messages, after its input. Null until the Turn ends. */
     transcript: jsonb("transcript").$type<ModelMessage[]>(),
   },

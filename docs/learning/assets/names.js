@@ -590,6 +590,70 @@ window.NAMES = [
       "What bot.send streams: { type: 'message', message } for each Message, then { type: 'turnEnded', status }.",
     example: "plugins/bot/shared/turn.ts",
   },
+  {
+    lesson: 11,
+    name: "ctx.activity",
+    kind: "function",
+    meaning:
+      "Runs fn once and saves its JSON result as a Checkpoint. A replay returns the saved result without running fn. With a (tx) parameter, fn writes in the transaction its Checkpoint is saved in.",
+    example: "ctx.activity('send_to_user', async (tx) => …)",
+  },
+  {
+    lesson: 11,
+    name: "chat.job_event",
+    kind: "table/column",
+    meaning:
+      "A job's history: one row per Checkpoint, keyed (job_id, seq), with kind, name and a JSON result. It goes when its job is pruned.",
+    example: "job_event.seq",
+  },
+  {
+    lesson: 11,
+    name: "createWorkflow",
+    kind: "function",
+    meaning:
+      "The workflow engine: replays a history, then records each new call through a fenced store. It imports nothing from the Bot SDK.",
+    example: "plugins/runner/server/workflow/engine.ts",
+  },
+  {
+    lesson: 11,
+    name: "NonDeterminismError",
+    kind: "type",
+    meaning:
+      "Thrown when a replayed call does not match the history entry at its seq. It fails the job for good and runs onFailed.",
+    example: "Non-deterministic workflow at seq 2",
+  },
+  {
+    lesson: 11,
+    name: "ctx.now · ctx.random · ctx.patched",
+    kind: "function",
+    meaning:
+      "Recorded calls. now and random replay their first values; patched(id) is true in a new run or a replay with the marker, false in an older replay.",
+    example: "await ctx.patched('v2')",
+  },
+  {
+    lesson: 11,
+    name: "ownAttempt",
+    kind: "function",
+    meaning:
+      "The fence on every history write: it matches the job row only while this attempt still owns it, so a lost attempt writes nothing.",
+    example: "plugins/runner/server/jobs/history.ts",
+  },
+  {
+    lesson: 11,
+    name: "reapStaleJobs",
+    kind: "function",
+    meaning:
+      "The 30 s reaper: re-queues a running job whose lease (60 s without a heartbeat) expired, or fails it if it is on its last attempt.",
+    example: "plugins/runner/server/jobs/store.ts",
+  },
+  {
+    lesson: 11,
+    name: "followTurn",
+    kind: "function",
+    meaning:
+      "How bot.send follows a Turn run by the runner: re-reads Postgres on each changed hint and every 2 s, yielding new Messages until the Turn ends.",
+    example: "plugins/bot/server/turn.ts",
+  },
 ];
 
 (function () {

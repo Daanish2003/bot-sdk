@@ -7,6 +7,7 @@
     "./plugins/models/server": "./plugins/models/server/index.ts",
     "./plugins/models/client": "./plugins/models/client/index.ts",
     "./plugins/models/ui": "./plugins/models/ui/index.ts",
+    "./plugins/runner/server": "./plugins/runner/server/index.ts",
     "./plugins/assistant/server": "./plugins/assistant/server/index.ts",
     "./plugins/assistant/client": "./plugins/assistant/client/index.ts",
     "./plugins/assistant/ui": "./plugins/assistant/ui/index.ts",

@@ -20,9 +20,9 @@ import { migrate as migrateChatSchema } from "../../core/server/migrate";
 import type { BotSdkContext } from "../../core/server/plugin";
 import { resolveRateLimits } from "../../core/server/rate-limits";
 import { memoryRuntime } from "../../core/server/runtime";
-import type { JobRunner } from "../../plugins/assistant/server/jobs/runner";
 import { createBotSdkOver } from "../../plugins/assistant/server/over";
 import { bot } from "../../plugins/bot/server/plugin";
+import { runnerJobs } from "../../plugins/runner/server/plugin";
 import { productionDeps } from "../../plugins/models/server/plugin";
 import type { ModelsDeps } from "../../plugins/models/server/types";
 import { createFakeAdapter, round, text, toolCall } from "../../test/support/fake-adapter";
@@ -42,16 +42,6 @@ const keyVariables: Record<string, string> = {
   openai: "OPENAI_API_KEY",
   gemini: "GEMINI_API_KEY",
   openrouter: "OPENROUTER_API_KEY",
-};
-
-/** A Turn runs inline, so nothing is queued. */
-const noJobs: JobRunner = {
-  enqueue: async () => "",
-  cancel: async () => {},
-  status: async () => undefined,
-  schedule: async () => {},
-  start: async () => {},
-  stop: async () => {},
 };
 
 function fail(message: string): never {
@@ -157,11 +147,15 @@ async function main() {
         rateLimits: resolveRateLimits(),
       },
       models: modelsDeps,
-      assistant: { jobs: noJobs, memory: false },
+      assistant: { memory: false },
       plugins: [bot()],
     },
     { basePath: "/api/chat", getUser: () => null, logger: { error: () => {} } },
   );
+
+  // A Turn runs as a job, on the default in-process runner.
+  const jobs = runnerJobs(sdk);
+  await jobs.start();
 
   const env = {
     db,
@@ -199,6 +193,8 @@ async function main() {
       return result;
     },
   );
+
+  await jobs.stop();
 
   const rates = tally(results.map((result) => result.score));
   console.log("");

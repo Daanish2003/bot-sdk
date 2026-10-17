@@ -156,6 +156,10 @@ _Avoid_: Run (that is the assistant's), step, session
 One model call within a Turn and the tools it calls. A Turn is one or more Steps; it ends when a Step calls no tool, or when a Message the Bot sends says it is the last.
 _Avoid_: Turn, iteration
 
+**Checkpoint**:
+The saved result of one piece of a Turn's or a background job's work. A Turn saves a Checkpoint after each Step's model call and after each tool call, so a Message it sends is sent once even across a crash; work resumed after a crash or a deploy starts after its last Checkpoint instead of from the beginning.
+_Avoid_: Step, activity, snapshot
+
 **Trigger**:
 One event that wakes a Bot to run a Turn: the user, a Routine, an outside service, another agent, background work finishing or a Check-in. It records where it came from, so the Bot can tell whether the user asked, a Routine ran or an outside service sent it.
 _Avoid_: Event, wake-up, input

@@ -4,21 +4,19 @@ import { z } from "zod";
 
 import { createBotSdk } from "../../../../core/server/create-chat";
 import { assistant } from "../../../../plugins/assistant/server/plugin";
+import { runner } from "../../../../plugins/runner/server/plugin";
 import { models } from "../../../../plugins/models/server/plugin";
 import { job } from "../../../../core/server/db/schema";
-import { defineJob, PermanentJobError } from "../../../../plugins/assistant/server/jobs/define";
-import {
-  inProcessRunner,
-  type JobClock,
-} from "../../../../plugins/assistant/server/jobs/in-process";
-import type { JobRunner } from "../../../../plugins/assistant/server/jobs/runner";
+import { defineJob, PermanentJobError } from "../../../../plugins/runner/server/jobs/define";
+import { inProcessRunner } from "../../../../plugins/runner/server/jobs/in-process";
+import type { JobRunner } from "../../../../plugins/runner/server/jobs/runner";
 import {
   claimJob,
   pruneFinishedJobs,
   reapStaleJobs,
-} from "../../../../plugins/assistant/server/jobs/store";
+} from "../../../../plugins/runner/server/jobs/store";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
-import { drainJobs } from "../../../support/jobs";
+import { drainJobs, fakeJobClock } from "../../../support/jobs";
 import { getTestDb, testDatabaseUrl } from "../../../support/test-database";
 
 const start = new Date("2026-10-14T10:00:00Z");
@@ -28,34 +26,6 @@ const silent = { error: () => {} };
 let testDeps: TestDeps | undefined;
 const jobDeps = () => (testDeps ??= createTestSdk({ db: getTestDb() }));
 const DAY = 86_400_000;
-
-/** A clock the test moves by hand; `tick()` fires every timer (poll and heartbeat). */
-function fakeClock() {
-  let current = start.getTime();
-  const timers = new Set<() => void>();
-  const intervals: number[] = [];
-  const clock: JobClock = {
-    now: () => new Date(current),
-    setInterval: (callback, ms) => {
-      intervals.push(ms);
-      timers.add(callback);
-      return callback;
-    },
-    clearInterval: (handle) => {
-      timers.delete(handle as () => void);
-    },
-  };
-  return {
-    clock,
-    intervals,
-    advance: (ms: number) => {
-      current += ms;
-    },
-    tick: () => {
-      for (const timer of timers) timer();
-    },
-  };
-}
 
 // Test-only jobs. Each test sets their behaviour through these variables.
 const ran: string[] = [];
@@ -151,7 +121,7 @@ describe("enqueue", () => {
       db: getTestDb(),
       logger: silent,
       deps: jobDeps,
-      clock: fakeClock().clock,
+      clock: fakeJobClock(start).clock,
     });
 
     await runner.enqueue("test.record", { label: "a" });
@@ -174,7 +144,7 @@ describe("enqueue", () => {
       db: getTestDb(),
       logger: silent,
       deps: jobDeps,
-      clock: fakeClock().clock,
+      clock: fakeJobClock(start).clock,
     });
 
     await runner.enqueue("test.record", { label: "a" }, { idempotencyKey: "k1" });
@@ -191,7 +161,7 @@ describe("enqueue", () => {
       db: getTestDb(),
       logger: silent,
       deps: jobDeps,
-      clock: fakeClock().clock,
+      clock: fakeJobClock(start).clock,
     });
     const later = new Date(start.getTime() + 60_000);
 
@@ -206,7 +176,7 @@ describe("enqueue", () => {
       db: getTestDb(),
       logger: silent,
       deps: jobDeps,
-      clock: fakeClock().clock,
+      clock: fakeJobClock(start).clock,
     });
 
     await expect(runner.enqueue("test.missing", {})).rejects.toThrow(/No job named/);
@@ -221,7 +191,7 @@ describe("the in-process runner", () => {
       db: getTestDb(),
       logger: silent,
       deps: jobDeps,
-      clock: fakeClock().clock,
+      clock: fakeJobClock(start).clock,
     });
     await runner.enqueue("test.record", { label: "a" });
 
@@ -237,7 +207,7 @@ describe("the in-process runner", () => {
       db: getTestDb(),
       logger: silent,
       deps: jobDeps,
-      clock: fakeClock().clock,
+      clock: fakeJobClock(start).clock,
     });
     await runner.start();
 
@@ -248,7 +218,7 @@ describe("the in-process runner", () => {
   });
 
   it("polls on its timer for a job another process queued", async () => {
-    const timer = fakeClock();
+    const timer = fakeJobClock(start);
     const runner = inProcessRunner({
       db: getTestDb(),
       logger: silent,
@@ -277,7 +247,7 @@ describe("the in-process runner", () => {
       db: getTestDb(),
       logger: silent,
       deps: jobDeps,
-      clock: fakeClock().clock,
+      clock: fakeJobClock(start).clock,
     });
     let release!: () => void;
     gate = new Promise((resolve) => {
@@ -296,7 +266,7 @@ describe("the in-process runner", () => {
   });
 
   it("never runs the same job twice when two runners share one database", async () => {
-    const { clock } = fakeClock();
+    const { clock } = fakeJobClock(start);
     const db = getTestDb();
     const runners: JobRunner[] = [
       inProcessRunner({ db, logger: silent, deps: jobDeps, clock, concurrency: 4 }),
@@ -316,7 +286,7 @@ describe("the in-process runner", () => {
 
 describe("retries", () => {
   it("retries after about 10 s, then after about 1 min, then fails the job and runs onFailed", async () => {
-    const timer = fakeClock();
+    const timer = fakeJobClock(start);
     const runner = inProcessRunner({
       db: getTestDb(),
       logger: silent,
@@ -355,7 +325,7 @@ describe("retries", () => {
   });
 
   it("fails a job at once on a PermanentJobError", async () => {
-    const timer = fakeClock();
+    const timer = fakeJobClock(start);
     const runner = inProcessRunner({
       db: getTestDb(),
       logger: silent,
@@ -380,7 +350,7 @@ describe("drainJobs", () => {
       db: getTestDb(),
       logger: silent,
       deps: jobDeps,
-      clock: fakeClock().clock,
+      clock: fakeJobClock(start).clock,
     });
     await runner.enqueue("test.record", { label: "a" });
     await runner.enqueue("test.record", { label: "b" });
@@ -396,7 +366,7 @@ describe("drainJobs", () => {
       db: getTestDb(),
       logger: silent,
       deps: jobDeps,
-      clock: fakeClock().clock,
+      clock: fakeJobClock(start).clock,
     });
     failure = new Error("boom");
     await runner.enqueue("test.fail", { label: "a" });
@@ -412,7 +382,7 @@ describe("drainJobs", () => {
       db: getTestDb(),
       logger: silent,
       deps: jobDeps,
-      clock: fakeClock().clock,
+      clock: fakeJobClock(start).clock,
     });
     failure = new Error("boom");
     // drainJobs compares run_after with the real time, so this job is due now.
@@ -426,7 +396,7 @@ describe("drainJobs", () => {
 
 describe("heartbeats and leases", () => {
   it("heartbeats every 10 s while a job runs", async () => {
-    const timer = fakeClock();
+    const timer = fakeJobClock(start);
     holding = true;
     const runner = inProcessRunner({
       db: getTestDb(),
@@ -450,7 +420,7 @@ describe("heartbeats and leases", () => {
   });
 
   it("re-queues a job whose lease expired after 60 s, and the attempt counts", async () => {
-    const timer = fakeClock();
+    const timer = fakeJobClock(start);
     holding = true;
     const crashed = inProcessRunner({
       db: getTestDb(),
@@ -482,7 +452,7 @@ describe("heartbeats and leases", () => {
   });
 
   it("fails a job whose lease expires on its last attempt, and runs onFailed", async () => {
-    const timer = fakeClock();
+    const timer = fakeJobClock(start);
     const db = getTestDb();
     const runner = inProcessRunner({ db, logger: silent, deps: jobDeps, clock: timer.clock });
     await runner.enqueue("test.fail", { label: "a" });
@@ -500,7 +470,7 @@ describe("heartbeats and leases", () => {
   });
 
   it("ignores a lost attempt that ends after another attempt has claimed its job", async () => {
-    const timer = fakeClock();
+    const timer = fakeJobClock(start);
     const db = getTestDb();
     holding = true;
     const lost = inProcessRunner({
@@ -524,7 +494,7 @@ describe("heartbeats and leases", () => {
   });
 
   it("ends an attempt that runs past 15 minutes as a failure, and retries it", async () => {
-    const timer = fakeClock();
+    const timer = fakeJobClock(start);
     holding = true;
     const runner = inProcessRunner({
       db: getTestDb(),
@@ -555,7 +525,7 @@ describe("cancel", () => {
       db: getTestDb(),
       logger: silent,
       deps: jobDeps,
-      clock: fakeClock().clock,
+      clock: fakeJobClock(start).clock,
     });
     await runner.enqueue("test.record", { label: "a" }, { idempotencyKey: "k" });
 
@@ -567,7 +537,7 @@ describe("cancel", () => {
   });
 
   it("aborts a running job at its next heartbeat, and the handler sees the signal", async () => {
-    const timer = fakeClock();
+    const timer = fakeJobClock(start);
     holding = true;
     const runner = inProcessRunner({
       db: getTestDb(),
@@ -599,7 +569,7 @@ describe("status", () => {
       db: getTestDb(),
       logger: silent,
       deps: jobDeps,
-      clock: fakeClock().clock,
+      clock: fakeJobClock(start).clock,
     });
     const id = await runner.enqueue("test.record", { label: "a" }, { idempotencyKey: "k" });
 
@@ -618,7 +588,7 @@ describe("status", () => {
 
 describe("stop", () => {
   it("waits up to drainMs for a running job, then aborts it and leaves its lease", async () => {
-    const timer = fakeClock();
+    const timer = fakeJobClock(start);
     holding = true;
     const runner = inProcessRunner({
       db: getTestDb(),
@@ -651,7 +621,7 @@ describe("stop", () => {
       db: getTestDb(),
       logger: silent,
       deps: jobDeps,
-      clock: fakeClock().clock,
+      clock: fakeJobClock(start).clock,
       drainMs: 2_000,
     });
     await runner.enqueue("test.record", { label: "a" });
@@ -670,7 +640,12 @@ describe("stop", () => {
 describe("retention", () => {
   it("deletes succeeded and cancelled jobs 7 days after they end, and failed jobs 30 days after", async () => {
     const db = getTestDb();
-    const runner = inProcessRunner({ db, logger: silent, deps: jobDeps, clock: fakeClock().clock });
+    const runner = inProcessRunner({
+      db,
+      logger: silent,
+      deps: jobDeps,
+      clock: fakeJobClock(start).clock,
+    });
     const endedAgo = async (
       status: "succeeded" | "cancelled" | "failed" | "queued",
       days: number,
@@ -703,7 +678,7 @@ describe("schedule", () => {
       db: getTestDb(),
       logger: silent,
       deps: jobDeps,
-      clock: fakeClock().clock,
+      clock: fakeJobClock(start).clock,
     });
 
     await expect(runner.schedule("test.record", { everyMs: 60_000 })).rejects.toThrow(
@@ -712,7 +687,7 @@ describe("schedule", () => {
   });
 });
 
-describe("createBotSdk({ jobs })", () => {
+describe("runner({ jobs })", () => {
   it("starts and stops the Host's runner with chat.start() and chat.stop()", async () => {
     const jobs: JobRunner = {
       enqueue: vi.fn(async () => "job-id"),
@@ -728,12 +703,7 @@ describe("createBotSdk({ jobs })", () => {
       keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
       basePath: "/api/chat",
       logger: silent,
-      plugins: [
-        models(),
-        assistant({
-          jobs,
-        }),
-      ],
+      plugins: [models(), runner({ jobs }), assistant()],
     });
 
     await chat.start();

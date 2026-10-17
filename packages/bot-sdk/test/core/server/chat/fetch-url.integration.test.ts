@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../../core/server/create-chat";
 import { assistant } from "../../../../plugins/assistant/server/plugin";
+import { runner } from "../../../../plugins/runner/server/plugin";
 import { models } from "../../../../plugins/models/server/plugin";
 import { createGuardedFetch } from "../../../../core/server/lib/guarded-fetch";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
@@ -376,7 +377,7 @@ describe("the Host's tools", () => {
       basePath: "/api/chat",
     };
 
-    const tools = (name: string) => [models(), assistant({ tools: [tool(name)] })];
+    const tools = (name: string) => [models(), runner(), assistant({ tools: [tool(name)] })];
 
     expect(() => createBotSdk({ ...options, plugins: tools("fetch_url") })).toThrow(
       `A Host tool can't be named "fetch_url"`,

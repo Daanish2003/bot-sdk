@@ -6,6 +6,7 @@ import { assistantClient } from "../../../plugins/assistant/client/index";
 import { modelsClient } from "../../../plugins/models/client/index";
 import { createBotSdk } from "../../../core/server/create-chat";
 import { assistant } from "../../../plugins/assistant/server/plugin";
+import { runner } from "../../../plugins/runner/server/plugin";
 import { models } from "../../../plugins/models/server/plugin";
 import { conversation } from "../../../core/server/db/schema";
 import { storedParts } from "../../../plugins/assistant/shared/message-parts";
@@ -23,7 +24,7 @@ function chatFor(user: TestUser | null) {
     getUser: () => (user ? { id: user.id } : null),
     keyEncryptionSecrets: [testKeyEncryptionSecret],
     basePath,
-    plugins: [models(), assistant()],
+    plugins: [models(), runner(), assistant()],
   });
   const client = createBotSdkClient({
     plugins: [modelsClient(), assistantClient()],
@@ -292,7 +293,7 @@ describe("chat.isUserBlocked", () => {
       keyEncryptionSecrets: [testKeyEncryptionSecret],
       basePath,
       isUserBlocked: (userId) => userId === blocked.id,
-      plugins: [models(), assistant()],
+      plugins: [models(), runner(), assistant()],
     });
     const client = createBotSdkClient({
       plugins: [modelsClient(), assistantClient()],

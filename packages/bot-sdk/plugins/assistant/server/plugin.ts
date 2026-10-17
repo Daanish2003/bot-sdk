@@ -20,9 +20,6 @@ import { defaultLimits } from "./deps";
 import { assistantUserDelete } from "./delete-user";
 import { exportAssistantData } from "./export-user";
 import { rotateConnectionKeys } from "./mcp/connections";
-import { runRegisteredJob } from "./jobs/define";
-import { inProcessRunner } from "./jobs/in-process";
-import type { JobRunner } from "./jobs/runner";
 import { createLifecycle, type Lifecycle } from "./lifecycle";
 import { callbackRoute, connectRoute } from "./mcp/routes";
 import { checkMcpServers, type McpServerConfig } from "./mcp/servers";
@@ -51,11 +48,6 @@ export type AssistantOptions = {
    */
   artifacts?: boolean;
   /**
-   * Runs the background jobs (ADR 0011). Defaults to the in-process runner, which polls the
-   * `chat` schema and needs nothing beyond Postgres. `start()` and `stop()` start and stop it.
-   */
-  jobs?: JobRunner;
-  /**
    * Turns Memory on or off for the whole Host (ADR 0013). On by default: the assistant learns facts
    * from what users say, in the background, on the Background Model. `false` makes no Memories.
    */
@@ -77,11 +69,6 @@ export type AssistantApi = {
   ratingTotals: (range: { since: Date }) => Promise<RatingTotal[]>;
   /** The public Shared link snapshot for a token, or `null` for an unknown or removed link. */
   getSharedConversation: (token: string) => Promise<SharedConversation | null>;
-  /**
-   * Runs a job's handler in this process, with the payload validated against the job's schema.
-   * Rejects an unknown name or a bad payload. A Host's worker (such as a Trigger.dev task) calls it.
-   */
-  runJob: (name: string, payload: unknown) => Promise<void>;
 };
 
 declare module "../../../core/server/plugin" {
@@ -105,7 +92,8 @@ const assistantRateLimits: Record<AssistantRule, RateLimit> = {
 
 /**
  * The `assistant` plugin (ADR 0020): Runs and their streams, tools, MCP servers, Artifacts, Memory,
- * Knowledge, background jobs and the reaper. It reaches `models` only through `plugin("models")`.
+ * Knowledge and the reaper. It reaches `models`, and `runner` for its background jobs, only
+ * through `plugin(id)`.
  */
 export function assistant(options: AssistantOptions = {}): AssistantPlugin {
   const builtIns = [
@@ -144,7 +132,7 @@ function assistantPlugin(buildState: (sdk: BotSdkContext) => AssistantState): As
   };
   return {
     id: "assistant",
-    requires: ["models"],
+    requires: ["models", "runner"],
     router: appRouter,
     routes: assistantRoutes,
     rateLimits: assistantRateLimits,
@@ -164,9 +152,9 @@ function assistantPlugin(buildState: (sdk: BotSdkContext) => AssistantState): As
       }
       return { reencrypted, unreadable };
     },
-    // The reaper, then the jobs runner.
+    // The reaper.
     start: (sdk) => lifecycleOf(sdk).start(),
-    // Drains the Runs, then the jobs.
+    // Drains the Runs; the runner drains the jobs after it.
     stop: (sdk) => lifecycleOf(sdk).stop(),
   };
 }
@@ -178,14 +166,6 @@ function productionState(sdk: BotSdkContext, options: AssistantOptions): Assista
     mcpServers: options.mcpServers ?? [],
     artifacts: options.artifacts ?? false,
     memory: options.memory ?? true,
-    jobs:
-      options.jobs ??
-      inProcessRunner({
-        db: sdk.db,
-        logger: sdk.logger,
-        drainMs: defaultLimits.drainMs,
-        deps: () => sdk,
-      }),
     searchClient: createTavilyClient(globalThis.fetch),
     runStreams: sdk.runtime.runStreams,
     runs: new Map(),
@@ -201,7 +181,6 @@ function assistantApi(sdk: BotSdkContext): AssistantApi {
     },
     ratingTotals: (range) => ratingTotals(sdk, range),
     getSharedConversation: async (token) => (await loadSharedConversation(sdk, token)) ?? null,
-    runJob: (name, payload) => runRegisteredJob(name, payload, sdk),
   };
 }
 

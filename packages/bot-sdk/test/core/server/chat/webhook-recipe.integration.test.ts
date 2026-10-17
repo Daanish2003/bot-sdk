@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EventHooks } from "../../../../core/server/index";
 import { createBotSdk } from "../../../../core/server/create-chat";
 import { assistant } from "../../../../plugins/assistant/server/plugin";
+import { runner } from "../../../../plugins/runner/server/plugin";
 import { models } from "../../../../plugins/models/server/plugin";
 import type { HostProvider } from "../../../../plugins/assistant/server/deps";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
@@ -120,6 +121,7 @@ function chatWith(userId: string, hooks: EventHooks): ReturnType<typeof createBo
       models({
         hostProviders: [hostProvider],
       }),
+      runner(),
       assistant(),
     ],
   });

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../../core/server/create-chat";
 import { assistant } from "../../../../plugins/assistant/server/plugin";
+import { runner } from "../../../../plugins/runner/server/plugin";
 import { models } from "../../../../plugins/models/server/plugin";
 import { memoryRuntime } from "../../../../core/server/runtime";
 import { resolveRateLimits, type RateLimits } from "../../../../core/server/rate-limits";
@@ -70,7 +71,7 @@ describe("Run start rate limits", () => {
       basePath: "/api/chat",
       runtime: memoryRuntime(),
       rateLimits: { runStart: { limit: 1, windowSeconds: 60 } },
-      plugins: [models(), assistant()],
+      plugins: [models(), runner(), assistant()],
     });
 
     const first = await chat.handler(runStart(user)!);
@@ -204,7 +205,7 @@ describe("Shared link view rate limits, per client IP", () => {
       rateLimits: options.rateLimits,
       getClientIp:
         options.withIp === false ? undefined : (request) => request.headers.get("x-test-ip"),
-      plugins: [models(), assistant()],
+      plugins: [models(), runner(), assistant()],
     });
 
   it("answers 429 with Retry-After for the IP over its limit, and another IP is unaffected", async () => {

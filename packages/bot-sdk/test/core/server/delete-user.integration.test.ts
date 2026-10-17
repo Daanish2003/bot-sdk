@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
 import { assistant } from "../../../plugins/assistant/server/plugin";
+import { runner } from "../../../plugins/runner/server/plugin";
 import { models } from "../../../plugins/models/server/plugin";
 import { deleteAllConversations } from "../../../plugins/assistant/server/delete-user";
 import { deleteUserData } from "../../../core/server/user-data";
@@ -379,7 +380,7 @@ describe("createBotSdk().deleteUser", () => {
       getUser: () => null,
       keyEncryptionSecrets: [testKey],
       basePath: "/api/chat",
-      plugins: [models(), assistant()],
+      plugins: [models(), runner(), assistant()],
     });
 
     await chat.deleteUser(owner.id);
@@ -450,11 +451,13 @@ describe("deleteUserData, Knowledge files", () => {
     const bytes = new Uint8Array([1]);
     await deps.blobStore.put(knowledgeBlobKey(ownFile), bytes, { contentType: "text/markdown" });
     await deps.blobStore.put(knowledgeBlobKey(otherFile), bytes, { contentType: "text/markdown" });
-    await assistantState(deps).jobs.enqueue(
-      "knowledge.process",
-      { fileId: ownFile },
-      { idempotencyKey: knowledgeJobKey(ownFile) },
-    );
+    await deps
+      .plugin("runner")
+      .enqueue(
+        "knowledge.process",
+        { fileId: ownFile },
+        { idempotencyKey: knowledgeJobKey(ownFile) },
+      );
 
     await deleteUserData(deps, user.id);
 
