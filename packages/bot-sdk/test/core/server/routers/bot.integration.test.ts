@@ -173,10 +173,17 @@ describe("a Bot's status from the server", () => {
       .where(eq(conversation.id, row!.id));
     return created;
   }
+  /** A Turn row; a `running` one has a fresh heartbeat, so it reads as live. */
   async function turn(botId: string, status: "running" | "complete" | "error", at: string) {
     await getTestDb()
       .insert(botTurn)
-      .values({ id: uuidv7(), botId, status, startedAt: new Date(at) });
+      .values({
+        id: uuidv7(),
+        botId,
+        status,
+        startedAt: new Date(at),
+        heartbeatAt: status === "running" ? new Date() : null,
+      });
   }
 
   it("lists Bots by newest activity with the last Bot Message and the latest Turn's status", async () => {

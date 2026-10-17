@@ -63,48 +63,50 @@ export async function createBot(
 /** The longest a Turn may run; past it, it ends `error` with `timed_out`. */
 export const turnTimeLimitMs = 5 * 60_000;
 
-/**
- * A `running` Turn older than this was left by a dead process: a live one would have reached its
- * time limit and ended. The minute after the limit leaves room for the ending to be written.
- */
-export const staleTurnMs = turnTimeLimitMs + 60_000;
+/** A running Turn writes its `heartbeat_at` this often (the same as a job's, ADR 0011). */
+export const turnHeartbeatMs = 10_000;
+
+/** A `running` Turn whose heartbeat is older than this, or null, was left by a dead process. */
+export const turnLeaseMs = 60_000;
+
+/** Whether a `running` Turn's process is dead at `now`: its heartbeat is null or past the lease. */
+export function isDeadTurn(heartbeatAt: Date | null, now: Date) {
+  return heartbeatAt === null || now.getTime() - heartbeatAt.getTime() > turnLeaseMs;
+}
 
 /**
- * The status of each Bot's latest Turn; a Bot with no Turn has no entry. A stale `running` Turn
+ * The status of each Bot's latest Turn; a Bot with no Turn has no entry. A dead `running` Turn
  * reads as `error`, so a client stops waiting on a Turn no process will end.
  */
-async function latestTurnStatuses(db: Database | Transaction, botIds: string[]) {
+async function latestTurnStatuses(db: Database | Transaction, botIds: string[], now: Date) {
   if (botIds.length === 0) return new Map<string, BotTurnStatus>();
   const rows = await db
     .selectDistinctOn([botTurn.botId], {
       botId: botTurn.botId,
       status: botTurn.status,
-      startedAt: botTurn.startedAt,
+      heartbeatAt: botTurn.heartbeatAt,
     })
     .from(botTurn)
     .where(inArray(botTurn.botId, botIds))
     .orderBy(botTurn.botId, desc(botTurn.startedAt), desc(botTurn.id));
-  const now = Date.now();
   return new Map(
     rows.map((row): [string, BotTurnStatus] => [
       row.botId,
-      row.status === "running" && now - row.startedAt.getTime() >= staleTurnMs
-        ? "error"
-        : row.status,
+      row.status === "running" && isDeadTurn(row.heartbeatAt, now) ? "error" : row.status,
     ]),
   );
 }
 
-/** The latest Turn's status of one Bot, `null` before its first Turn. */
-export async function latestTurnStatus(db: Database | Transaction, botId: string) {
-  return (await latestTurnStatuses(db, [botId])).get(botId) ?? null;
+/** The latest Turn's status of one Bot at `now`, `null` before its first Turn. */
+export async function latestTurnStatus(db: Database | Transaction, botId: string, now: Date) {
+  return (await latestTurnStatuses(db, [botId], now)).get(botId) ?? null;
 }
 
 /**
  * The user's Bots, the newest activity in their Conversation first, each with its last sent Message
- * and its latest Turn's status.
+ * and its latest Turn's status at `now`.
  */
-export async function listBots(db: Database, userId: string): Promise<ListedBot[]> {
+export async function listBots(db: Database, userId: string, now: Date): Promise<ListedBot[]> {
   const rows = await db
     .select({ ...botColumns, conversationId: bot.conversationId })
     .from(bot)
@@ -116,6 +118,7 @@ export async function listBots(db: Database, userId: string): Promise<ListedBot[
     latestTurnStatuses(
       db,
       rows.map((row) => row.id),
+      now,
     ),
     conversationIds.length === 0
       ? []

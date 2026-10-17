@@ -20,7 +20,14 @@ import { promptCharactersOf, reportedUsageOf } from "../../models/server/run-usa
 import type { ModelMeter } from "../../models/server/meter";
 import { parseModelId } from "../../models/shared/models";
 import type { BotMessage, BotSendEvent, TurnStatus } from "../shared/turn";
-import { findBot, staleTurnMs, textParts, toBotMessage, turnTimeLimitMs } from "./store";
+import {
+  findBot,
+  isDeadTurn,
+  textParts,
+  toBotMessage,
+  turnHeartbeatMs,
+  turnTimeLimitMs,
+} from "./store";
 
 /** The most Steps a Turn may take; one more ends it `error` with `step_limit`. */
 export const turnStepLimit = 10;
@@ -89,7 +96,7 @@ export async function sendToBot(
     throw rpcError("PAYMENT_REQUIRED", "error.quotaSpent", "You've used this window's Quota");
   }
 
-  const now = new Date();
+  const now = deps.clock();
   const turnId = uuidv7();
   const userMessage = await deps.db.transaction(async (tx) => {
     // The Conversation's row lock first, so two sends can't both find no Turn running.
@@ -99,10 +106,10 @@ export async function sendToBot(
       .where(eq(conversation.id, found.conversationId))
       .for("update");
     const running = await tx
-      .select({ id: botTurn.id, startedAt: botTurn.startedAt })
+      .select({ id: botTurn.id, heartbeatAt: botTurn.heartbeatAt })
       .from(botTurn)
       .where(and(eq(botTurn.botId, botId), eq(botTurn.status, "running")));
-    if (running.some((turn) => now.getTime() - turn.startedAt.getTime() < staleTurnMs)) {
+    if (running.some((turn) => !isDeadTurn(turn.heartbeatAt, now))) {
       throw rpcError("CONFLICT", "error.turnRunning", "A Turn is still running for this Bot");
     }
     if (running.length > 0) {
@@ -123,9 +130,13 @@ export async function sendToBot(
       createdAt: now,
     });
     // A ms after its Message, so the replayed history puts the Turn after the Message it answers.
-    await tx
-      .insert(botTurn)
-      .values({ id: turnId, botId, status: "running", startedAt: new Date(now.getTime() + 1) });
+    await tx.insert(botTurn).values({
+      id: turnId,
+      botId,
+      status: "running",
+      startedAt: new Date(now.getTime() + 1),
+      heartbeatAt: now,
+    });
     return toBotMessage(row);
   });
 
@@ -241,6 +252,16 @@ async function* runTurn(
     timedOut = true;
     abortController.abort();
   }, turnTimeLimitMs);
+  // Tells other requests this Turn's process is alive, until the Turn ends.
+  const heartbeat = setInterval(() => {
+    void deps.db
+      .update(botTurn)
+      .set({ heartbeatAt: deps.clock() })
+      .where(and(eq(botTurn.id, turnId), eq(botTurn.status, "running")))
+      .catch((caught: unknown) =>
+        deps.logger.error("Writing a Bot Turn's heartbeat failed", caught),
+      );
+  }, turnHeartbeatMs);
   /** The Messages SendToUser appended that the stream hasn't yielded yet, in order. */
   const sent: BotMessage[] = [];
   let endTurn = false;
@@ -314,6 +335,7 @@ async function* runTurn(
     error = caught instanceof Error ? caught.message : String(caught);
   } finally {
     clearTimeout(timeLimit);
+    clearInterval(heartbeat);
     signal?.removeEventListener("abort", onAbort);
     // A stream left before its end (the client went away) stops the Turn.
     if (!finished) abortController.abort();

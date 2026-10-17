@@ -32,6 +32,11 @@ export const botTurn = chatSchema.table(
     usage: jsonb("usage").$type<MessageUsage>(),
     startedAt: timestamp("started_at").notNull(),
     endedAt: timestamp("ended_at"),
+    /**
+     * Written when the Turn starts and every `turnHeartbeatMs` while it runs. A `running` Turn whose
+     * heartbeat is older than `turnLeaseMs`, or null, was left by a dead process.
+     */
+    heartbeatAt: timestamp("heartbeat_at", { withTimezone: true }),
     /** The Turn's model messages, after its input. Null until the Turn ends. */
     transcript: jsonb("transcript").$type<ModelMessage[]>(),
   },
