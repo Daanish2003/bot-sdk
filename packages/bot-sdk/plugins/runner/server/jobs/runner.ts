@@ -28,7 +28,11 @@ export type JobStatus = {
 export type JobRunner = {
   /** Queues a job and returns its id. With an active idempotency key, returns that job's id. */
   enqueue: (name: string, payload: unknown, options?: EnqueueOptions) => Promise<string>;
-  /** Drops the queued job with this key, or aborts the running one at its next heartbeat. */
+  /**
+   * Drops the queued job with this key, or aborts the running one at its next heartbeat or, sooner,
+   * at its next Checkpoint, whose save is fenced. A plain activity's side effect has run by then,
+   * and only its Checkpoint is dropped; a `(tx) =>` activity's write is rolled back.
+   */
   cancel: (idempotencyKey: string) => Promise<void>;
   status: (jobId: string) => Promise<JobStatus | undefined>;
   /** Recurring jobs. Built with Synced sources (spec 2); the in-process runner throws until then. */

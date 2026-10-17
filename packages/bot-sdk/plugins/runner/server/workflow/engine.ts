@@ -80,6 +80,18 @@ export class WorkflowLostError extends Error {
   }
 }
 
+/**
+ * The workflow saved a Checkpoint after its runner asked it to yield (a deploy's `stop()`), and
+ * stopped there so that another process can resume it. Like `NonDeterminismError`, it stands even
+ * if the workflow's code catches it.
+ */
+export class WorkflowYieldedError extends Error {
+  constructor() {
+    super("The workflow yielded at a Checkpoint");
+    this.name = "WorkflowYieldedError";
+  }
+}
+
 type Call = Pick<HistoryEntry, "kind" | "name">;
 
 function describe({ kind, name }: Call): string {
@@ -99,6 +111,11 @@ export type WorkflowOptions<Tx> = {
   random?: () => number;
   /** Once aborted, no new work starts: a call past the end of the history throws its reason. */
   signal?: AbortSignal;
+  /**
+   * Once aborted, the workflow yields at its next Checkpoint: the next activity saves its result,
+   * then throws `WorkflowYieldedError`.
+   */
+  yieldSignal?: AbortSignal;
   /** Called once when a save finds the attempt no longer owns its workflow. */
   onLost?: () => void;
 };
@@ -106,10 +123,16 @@ export type WorkflowOptions<Tx> = {
 export type Workflow<Tx> = {
   context: WorkflowContext<Tx>;
   /**
-   * Called once the workflow's code has returned. Throws the `NonDeterminismError` a replay met,
-   * even one the code caught, or one for history entries the code never reached.
+   * Called once the workflow's code has returned. Throws the `NonDeterminismError` a replay met or
+   * the `WorkflowYieldedError` a yield threw, even one the code caught, or a `NonDeterminismError`
+   * for history entries the code never reached.
    */
   finish: () => void;
+  /**
+   * The `NonDeterminismError` or `WorkflowYieldedError` this workflow threw, if any. It stands over
+   * whatever error the code threw after it, such as one that wraps it.
+   */
+  raised: () => NonDeterminismError | WorkflowYieldedError | undefined;
 };
 
 /**
@@ -122,10 +145,11 @@ export function createWorkflow<Tx>({
   now,
   random = Math.random,
   signal,
+  yieldSignal,
   onLost,
 }: WorkflowOptions<Tx>): Workflow<Tx> {
   let next = 0;
-  let failure: NonDeterminismError | undefined;
+  let failure: NonDeterminismError | WorkflowYieldedError | undefined;
   let busy = false;
 
   /** Runs one call, refusing a second while the first is still pending. */
@@ -167,6 +191,12 @@ export function createWorkflow<Tx>({
     seq += 1;
     return value;
   };
+  // Called once an activity's Checkpoint is saved: a yield requested by then stops the workflow here.
+  const checkpointed = <T>(result: T): T => {
+    if (!yieldSignal?.aborted) return result;
+    failure = new WorkflowYieldedError();
+    throw failure;
+  };
 
   const context: WorkflowContext<Tx> = {
     activity: <T>(name: string, fn: (tx: Tx) => Promise<T> | T) =>
@@ -174,13 +204,15 @@ export function createWorkflow<Tx>({
         const call: Call = { kind: "activity", name };
         const entry = replay(call);
         if (entry) return entry.result as T;
-        if (fn.length === 0) return record(call, await (fn as () => Promise<T> | T)());
+        if (fn.length === 0) {
+          return checkpointed(await record(call, await (fn as () => Promise<T> | T)()));
+        }
         const saved = await store.saveWith({ seq: seq + 1, ...call }, async (tx) =>
           asJson(await fn(tx)),
         );
         if (!saved.saved) return lost();
         seq += 1;
-        return saved.result;
+        return checkpointed(saved.result);
       }),
 
     now: () =>
@@ -219,5 +251,6 @@ export function createWorkflow<Tx>({
       const left = history[next];
       if (left) throw new NonDeterminismError(left.seq, left, "ended before reaching it");
     },
+    raised: () => failure,
   };
 }
