@@ -185,13 +185,13 @@ describe("a Bot's status from the server", () => {
     const quiet = await client.bot.create({ name: "Quiet", model });
     const busy = await client.bot.create({ name: "Busy", model });
     const fresh = await client.bot.create({ name: "Fresh", model });
-    await say(quiet.id, "assistant", "first", "2026-10-17T09:00:00Z");
-    const sentAt = await say(quiet.id, "assistant", "last words", "2026-10-17T10:00:00Z");
-    await say(quiet.id, "user", "ok", "2026-10-17T11:00:00Z");
-    await turn(quiet.id, "error", "2026-10-17T09:30:00Z");
-    await turn(quiet.id, "complete", "2026-10-17T11:00:01Z");
-    await say(busy.id, "user", "hi", "2026-10-17T12:00:00Z");
-    await turn(busy.id, "running", "2026-10-17T12:00:01Z");
+    await say(quiet.id, "assistant", "first", "2099-10-17T09:00:00Z");
+    const sentAt = await say(quiet.id, "assistant", "last words", "2099-10-17T10:00:00Z");
+    await say(quiet.id, "user", "ok", "2099-10-17T11:00:00Z");
+    await turn(quiet.id, "error", "2099-10-17T09:30:00Z");
+    await turn(quiet.id, "complete", "2099-10-17T11:00:01Z");
+    await say(busy.id, "user", "hi", "2099-10-17T12:00:00Z");
+    await turn(busy.id, "running", "2099-10-17T12:00:01Z");
 
     const listed = await client.bot.list();
 
