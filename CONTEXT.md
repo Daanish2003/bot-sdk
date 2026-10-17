@@ -161,7 +161,7 @@ The saved result of one piece of a Turn's or a background job's work. A Turn sav
 _Avoid_: Step, activity, snapshot
 
 **Trigger**:
-One event that wakes a Bot to run a Turn: the user, a Routine, an outside service, another agent, background work finishing or a Check-in. It records where it came from, so the Bot can tell whether the user asked, a Routine ran or an outside service sent it.
+One event that wakes a Bot to run a Turn: the user, a Routine, an outside service, another agent, background work finishing or a Check-in. It records where it came from, so the Bot can tell whether the user asked, a Routine ran or an outside service sent it. Each carries a unique ID from its source, and one whose ID the Bot has already seen is dropped: a resent Message is the same Message, never a second one.
 _Avoid_: Event, wake-up, input
 
 **Routine**:
