@@ -160,5 +160,16 @@ export function useBotTurn(
     seenMessageId: status === "complete" ? answered : undefined,
     failedMessageId: status === "error" ? answered : undefined,
     send: (text: string) => runSend(queryClient, orpc, botId, text, onRefusedSend),
+    /** Stops the Turn running anywhere; the views then read it as ended. */
+    stop: async () => {
+      try {
+        await orpc.bot.stop.call({ botId });
+      } finally {
+        void queryClient.invalidateQueries({
+          queryKey: orpc.bot.get.queryOptions({ input: { botId } }).queryKey,
+        });
+        void queryClient.invalidateQueries({ queryKey: orpc.bot.list.queryKey() });
+      }
+    },
   };
 }

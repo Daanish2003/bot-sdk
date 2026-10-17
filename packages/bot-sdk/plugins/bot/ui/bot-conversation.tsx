@@ -24,7 +24,7 @@ function BotConversationView({ botId }: { botId: string }) {
   const i18n = useI18n();
   const { t } = i18n;
   const [draft, setDraft] = useState("");
-  const { bot, error, messages, running, working, seenMessageId, failedMessageId, send } =
+  const { bot, error, messages, running, working, seenMessageId, failedMessageId, send, stop } =
     useBotTurn(botId, {
       // A refused send puts its text back in the composer and says why.
       onRefusedSend: (text, refusal) => {
@@ -107,6 +107,17 @@ function BotConversationView({ botId }: { botId: string }) {
           rows={1}
           className="max-h-40 min-h-10 resize-none"
         />
+        {working && (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() =>
+              void stop().catch((refusal) => toast.error(serverErrorText(i18n, refusal)))
+            }
+          >
+            ■ {t("bots.stop")}
+          </Button>
+        )}
         <Button
           type="submit"
           size="icon"

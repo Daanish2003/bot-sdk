@@ -167,6 +167,41 @@ export async function sendToBot(
 }
 
 /**
+ * Stops the Bot's running Turn by cancelling its job (#482, #483). A queued Turn ends `stopped`
+ * in the same transaction, so its job never runs; a running one ends `stopped` as its attempt
+ * aborts (`runTurnJob`). Does nothing when no Turn is running.
+ */
+export async function stopBot(deps: BotSdkContext, userId: string, botId: string): Promise<void> {
+  const found = await findBot(deps.db, userId, botId);
+  if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
+  const runner = deps.plugin("runner");
+  const ended = await deps.db.transaction(async (tx) => {
+    // The Conversation's row lock first, as in `sendToBot`.
+    await tx
+      .select({ id: conversation.id })
+      .from(conversation)
+      .where(eq(conversation.id, found.conversationId))
+      .for("update");
+    const [running] = await tx
+      .select({ id: botTurn.id })
+      .from(botTurn)
+      .where(and(eq(botTurn.botId, botId), eq(botTurn.status, "running")))
+      .limit(1);
+    if (!running) return false;
+    if ((await runner.cancelIn(tx, running.id)) !== "queued") return false;
+    await endTurn(tx, running.id, {
+      status: "stopped",
+      error: null,
+      transcript: [],
+      usage: null,
+      endedAt: deps.clock(),
+    });
+    return true;
+  });
+  if (ended) await hintChanged(deps, found.conversationId);
+}
+
+/**
  * Follows a Turn from Postgres (#483, slide 19's "signal, then fetch"): yields the user Message,
  * then re-reads on each "changed" hint on the Conversation's channel, and every `followPollMs` in
  * case a hint is lost, yielding each new Message, until the Turn has ended.
@@ -263,7 +298,25 @@ async function runTurnJob(
   const turn = await turnFacts(deps, turnId);
   if (!turn) throw new PermanentJobError(`Turn ${turnId} no longer exists`);
   const played = await playTurn(deps, turn, ctx, { attempt: ctx.signal });
-  if (ctx.signal.aborted) throw ctx.signal.reason;
+  if (ctx.signal.aborted) {
+    // A cancelled job never reaches `onFailed`, so `bot.stop` leaves a running Turn to end here.
+    // A lost lease or a shutdown leaves it `running`: the next attempt resumes it.
+    const cancelled = turn.jobId && (await deps.plugin("runner").status(turn.jobId));
+    if (cancelled && cancelled.status === "cancelled") {
+      await deps.db
+        .update(botTurn)
+        .set({
+          status: "stopped",
+          error: null,
+          transcript: played.transcript,
+          usage: played.usage,
+          endedAt: deps.clock(),
+        })
+        .where(and(eq(botTurn.id, turnId), eq(botTurn.status, "running")));
+      await hintChanged(deps, turn.conversationId);
+    }
+    throw ctx.signal.reason;
+  }
   // A thrown activity recorded nothing: the job retries it.
   if (played.failure !== undefined) throw played.failure;
   await ctx.activity("end_turn", (tx) =>

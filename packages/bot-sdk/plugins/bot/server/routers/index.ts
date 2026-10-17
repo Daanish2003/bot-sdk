@@ -5,7 +5,7 @@ import { protectedProcedure } from "../../../../core/server/procedures";
 import { rpcError } from "../../../../core/server/rpc-error";
 import { botMessages, createBot, findBot, latestTurnStatus, listBots } from "../store";
 import { botSendEventSchema } from "../../shared/turn";
-import { sendToBot } from "../turn";
+import { sendToBot, stopBot } from "../turn";
 
 const botRouter = {
   /**
@@ -55,6 +55,14 @@ const botRouter = {
     .handler(({ context, input, signal }) =>
       sendToBot(context.sdk, { userId: context.user.id, ...input, signal }),
     ),
+
+  /**
+   * Stops the caller's Bot's running Turn: a queued one ends `stopped` at once, a running one as
+   * its attempt aborts. The Messages already sent stay. Does nothing when no Turn is running.
+   */
+  stop: protectedProcedure
+    .input(z.object({ botId: z.uuid() }))
+    .handler(({ context, input }) => stopBot(context.sdk, context.user.id, input.botId)),
 };
 
 /** The `bot` plugin's routers, served under `<basePath>/rpc/<key>`. */
