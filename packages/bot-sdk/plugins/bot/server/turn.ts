@@ -28,7 +28,7 @@ import {
   WorkflowYieldedError,
 } from "../../runner/server/workflow/engine";
 import type { BotMessage, BotSendEvent, TurnStatus } from "../shared/turn";
-import { botTurnJobName, lockConversation, receive, turnEnded } from "./router";
+import { botTurnJobName, lockConversation, receive, turnEnded, turnStarted } from "./router";
 import { botMessages, findBot, textParts, toBotMessage, turnTimeLimitMs } from "./store";
 
 /** The most Steps a Turn may take; one more ends it `error` with `step_limit`. */
@@ -50,6 +50,9 @@ export const botSystemPrompt =
 export const emptyTextError =
   `The message was not sent: text is empty. Call ${sendToUserToolName} again with the words the ` +
   "user should read, or, if there is nothing worth saying, reply without calling a tool.";
+
+/** The first Checkpoint of a Turn's job, which starts the Turn (#501). */
+const startTurnActivity = "start_turn";
 
 /** How often `bot.send` re-reads its Turn when no hint has come (#483). */
 export const followPollMs = 2_000;
@@ -299,8 +302,20 @@ async function runTurnJob(
   turnId: string,
   ctx: WorkflowContext<Transaction> & { signal: AbortSignal },
 ) {
-  const turn = await turnFacts(deps, turnId);
-  if (!turn) throw new PermanentJobError(`Turn ${turnId} no longer exists`);
+  const created = await turnFacts(deps, turnId);
+  if (!created) throw new PermanentJobError(`Turn ${turnId} no longer exists`);
+  let turn = created;
+  try {
+    await ctx.activity(startTurnActivity, async (tx) => {
+      await turnStarted(deps, tx, turnId);
+      return null;
+    });
+    // Read after the start: a resumed attempt replays it, so the Turn keeps the start it had.
+    turn = (await turnFacts(deps, turnId)) ?? created;
+  } catch (caught) {
+    if (ctx.signal.aborted) await stopIfCancelled(deps, turn, { transcript: [], usage: null });
+    throw caught;
+  }
   const played = await playTurn(deps, turn, ctx, { attempt: ctx.signal });
   try {
     ctx.signal.throwIfAborted();
@@ -419,6 +434,11 @@ async function replayedTurn(
     now: deps.clock,
     signal: AbortSignal.abort(new Error("The Turn's job has ended")),
   });
+  try {
+    await workflow.context.activity(startTurnActivity, async () => null);
+  } catch {
+    // A job that never started recorded no start.
+  }
   return playTurn(deps, turn, workflow.context, {});
 }
 

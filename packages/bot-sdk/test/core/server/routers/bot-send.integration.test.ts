@@ -79,11 +79,12 @@ async function botWith(
   {
     manual = false,
     pubsub,
+    clock,
     idle = false,
-  }: { manual?: boolean; idle?: boolean } & Pick<TestDepsOverrides, "pubsub"> = {},
+  }: { manual?: boolean; idle?: boolean } & Pick<TestDepsOverrides, "pubsub" | "clock"> = {},
 ) {
   const fake = createFakeAdapter({ rounds, manual });
-  const deps = await sdkWithRunner({ adapterFor: () => fake.adapter, pubsub }, { idle });
+  const deps = await sdkWithRunner({ adapterFor: () => fake.adapter, pubsub, clock }, { idle });
   const user = await insertUser();
   await saveCredentials(deps, user.id, {
     service: "openai",
@@ -638,6 +639,169 @@ describe("one Turn at a time", () => {
   });
 });
 
+describe("batching quick Messages", () => {
+  /**
+   * A Bot on an idle runner and a clock the test moves. `runDue()` claims a Turn's job only once
+   * it is due at the clock's time, and runs it.
+   */
+  async function batchingBot(rounds: Round[], { manual = false } = {}) {
+    const timer = fakeJobClock(new Date());
+    const { fake, deps, client, user, botId } = await botWith(rounds, {
+      idle: true,
+      manual,
+      clock: timer.clock.now,
+    });
+    const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
+    return {
+      fake,
+      client,
+      botId,
+      conversationId,
+      advance: (ms: number) => timer.advance(ms),
+      now: () => timer.clock.now(),
+      /** Sends `text` and reads only the saved Message. */
+      sendNow: async (text: string) => {
+        await (await client.bot.send({ botId, text })).next();
+      },
+      runDue: async () => {
+        const claimed = await claimJob(getTestDb(), timer.clock.now(), { respectRunAfter: true });
+        if (!claimed) return false;
+        await runClaimedJob(getTestDb(), claimed, {
+          clock: timer.clock,
+          logger: silent,
+          deps: () => deps,
+        });
+        return true;
+      },
+    };
+  }
+
+  const userTexts = (call: TextOptions | undefined) =>
+    inputOf(call)
+      .filter((entry) => entry.role === "user")
+      .map((entry) => entry.content);
+
+  it("answers three sends 200 ms apart with one Turn that took all three Triggers", async () => {
+    const { fake, botId, conversationId, advance, sendNow, runDue } = await batchingBot([
+      round(text("All three.")),
+    ]);
+
+    await sendNow("Plan a dinner.");
+    advance(200);
+    await sendNow("For 4 people.");
+    advance(200);
+    await sendNow("Vegetarian.");
+
+    const turns = await turnsOf(botId);
+    expect(turns).toHaveLength(1);
+    expect((await triggersOf(conversationId)).map((row) => row.turnId)).toEqual([
+      turns[0]!.id,
+      turns[0]!.id,
+      turns[0]!.id,
+    ]);
+    // Its job waits 500 ms after the newest Trigger.
+    advance(499);
+    expect(await runDue()).toBe(false);
+    advance(1);
+    expect(await runDue()).toBe(true);
+    expect(fake.calls).toHaveLength(1);
+    expect(userTexts(fake.calls[0])).toEqual(["Plan a dinner.", "For 4 people.", "Vegetarian."]);
+  });
+
+  it("starts a second Turn for a send 600 ms after the last", async () => {
+    const { fake, botId, conversationId, advance, sendNow, runDue } = await batchingBot([
+      round(text("First.")),
+      round(text("Second.")),
+    ]);
+
+    await sendNow("one");
+    advance(500);
+    expect(await runDue()).toBe(true);
+    advance(100);
+    await sendNow("two");
+    advance(500);
+    expect(await runDue()).toBe(true);
+
+    const turns = await turnsOf(botId);
+    expect(turns.map((turn) => turn.status)).toEqual(["complete", "complete"]);
+    expect((await triggersOf(conversationId)).map((row) => row.turnId)).toEqual([
+      turns[0]!.id,
+      turns[1]!.id,
+    ]);
+    expect(userTexts(fake.calls[0])).toEqual(["one"]);
+    expect(userTexts(fake.calls[1])).toEqual(["one", "two"]);
+  });
+
+  it("starts a continuous burst's Turn by 2.5 s after its first Trigger", async () => {
+    const { fake, botId, conversationId, advance, sendNow, runDue } = await batchingBot([
+      round(text("Done.")),
+    ]);
+
+    // A send every 200 ms, from 0 to 2.4 s.
+    await sendNow("0");
+    for (let sent = 1; sent <= 12; sent++) {
+      advance(200);
+      await sendNow(String(sent));
+    }
+
+    advance(99);
+    expect(await runDue()).toBe(false);
+    advance(1);
+    expect(await runDue()).toBe(true);
+    const turns = await turnsOf(botId);
+    expect(turns).toHaveLength(1);
+    expect(new Set((await triggersOf(conversationId)).map((row) => row.turnId))).toEqual(
+      new Set([turns[0]!.id]),
+    );
+    expect(userTexts(fake.calls[0])).toHaveLength(13);
+  });
+
+  it("sets startedAt when the job starts, and the 5-minute limit counts from it", async () => {
+    const { fake, botId, advance, now, sendNow, runDue } = await batchingBot([
+      round(sends({ text: "On time.", endTurn: true })),
+    ]);
+
+    await sendNow("hi");
+    // The job starts long after the Turn was made, past the limit from the send.
+    advance(turnTimeLimitMs + 1_000);
+    const start = now();
+    expect(await runDue()).toBe(true);
+
+    const [turn] = await turnsOf(botId);
+    expect(turn).toMatchObject({ status: "complete", startedAt: start });
+    expect(fake.calls).toHaveLength(1);
+  });
+
+  it("debounces a Turn chained by turnEnded from its newest Trigger", async () => {
+    const first = round(text("First."));
+    const { fake, botId, conversationId, advance, sendNow, runDue } = await batchingBot(
+      [first, round(text("Second."))],
+      { manual: true },
+    );
+    await sendNow("one");
+    advance(500);
+    const running = runDue();
+    await expect.poll(() => fake.calls.length).toBe(1);
+    advance(1_000);
+    await sendNow("two");
+    expect((await triggersOf(conversationId)).at(-1)?.turnId).toBeNull();
+    advance(100);
+    await fake.release(first.length);
+    expect(await running).toBe(true);
+
+    const turns = await turnsOf(botId);
+    expect(turns.map((turn) => turn.status)).toEqual(["complete", "running"]);
+    // Due 500 ms after "two", 400 ms from now.
+    advance(399);
+    expect(await runDue()).toBe(false);
+    advance(1);
+    const second = runDue();
+    await fake.releaseAll();
+    expect(await second).toBe(true);
+    expect(userTexts(fake.calls[1])).toEqual(["one", "two"]);
+  });
+});
+
 describe("a Turn's Quota and usage", () => {
   const oneTurn = withUsage(round(sends({ text: "Hello!", endTurn: true })), {
     promptTokens: 100,
@@ -918,6 +1082,9 @@ describe("a Turn that resumes after a crash", () => {
     ]);
     await client.bot.send({ botId, text: "hi" });
     const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
+    const lost = attempt();
+    // The Turn has started, and waits in its model call.
+    await expect.poll(() => fake.calls.length).toBe(1);
     // Another connection holds the Conversation's row, so SendToUser's transaction waits on it.
     let unlock = () => {};
     let locked = () => {};
@@ -940,7 +1107,6 @@ describe("a Turn that resumes after a crash", () => {
       return rows[0]?.n;
     };
 
-    const lost = attempt();
     await fake.releaseAll();
     await expect.poll(waitingOnLocks).toBe(1);
     expect(await sentTexts(client, botId)).toEqual([]);
@@ -1023,12 +1189,14 @@ describe("a Turn that resumes after a crash", () => {
       round(text("Nothing to add.")),
     ]);
     const stream = await client.bot.send({ botId, text: "ok" });
+    const running = attempt();
+    // The Turn has started, and waits in its model call.
+    await expect.poll(() => fake.calls.length).toBe(1);
     // Another connection holds the Turn's row, so the end_turn Checkpoint waits on it.
     const turnRow = await holdLocks((tx) =>
       tx.select({ id: botTurn.id }).from(botTurn).where(eq(botTurn.botId, botId)).for("update"),
     );
 
-    const running = attempt();
     await fake.releaseAll();
     await expect.poll(waitingOnLocks).toBe(1);
     // The end_turn Checkpoint holds the Conversation's row lock, so `bot.stop` would wait for it:
@@ -1159,6 +1327,9 @@ describe("a Turn that resumes after a crash", () => {
     ]);
     await client.bot.send({ botId, text: "a question" });
     const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
+    const lost = attempt();
+    // The Turn has started, and waits in its model call.
+    await expect.poll(() => fake.calls.length).toBe(1);
     // Another connection holds the Conversation's row, so SendToUser's transaction waits on it.
     const conversationRow = await holdLocks((tx) =>
       tx
@@ -1168,7 +1339,6 @@ describe("a Turn that resumes after a crash", () => {
         .for("update"),
     );
 
-    const lost = attempt();
     await fake.releaseAll();
     await expect.poll(waitingOnLocks).toBe(1);
     // The model call is recorded; the process stops before SendToUser's Checkpoint.
@@ -1299,19 +1469,6 @@ describe("a Turn that resumes after a crash", () => {
     // The recorded Step replays without calling the Model or sending its Message again.
     expect(fake.calls).toHaveLength(2);
     expect(await sentTexts(client, botId)).toEqual(["One"]);
-    expect((await turnsOf(botId))[0]).toMatchObject({ status: "error", error: "timed_out" });
-  });
-
-  it("ends a Turn whose first attempt starts past 5 minutes timed_out without calling the Model", async () => {
-    const { fake, client, botId, attempt } = await crashableBot([
-      round(sends({ text: "One", endTurn: true })),
-    ]);
-    await client.bot.send({ botId, text: "hi" });
-    await ageTurn(botId, turnTimeLimitMs + 1_000);
-
-    await attempt();
-
-    expect(fake.calls).toHaveLength(0);
     expect((await turnsOf(botId))[0]).toMatchObject({ status: "error", error: "timed_out" });
   });
 });
