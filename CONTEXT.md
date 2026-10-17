@@ -157,7 +157,7 @@ One model call within a Turn and the tools it calls. A Turn is one or more Steps
 _Avoid_: Turn, iteration
 
 **Checkpoint**:
-The saved result of one piece of a Turn's or a background job's work. A Turn saves a Checkpoint after each Step; work resumed after a crash or a deploy starts after its last Checkpoint instead of from the beginning.
+The saved result of one piece of a Turn's or a background job's work. A Turn saves a Checkpoint after each Step's model call and after each tool call, so a Message it sends is sent once even across a crash; work resumed after a crash or a deploy starts after its last Checkpoint instead of from the beginning.
 _Avoid_: Step, activity, snapshot
 
 **Trigger**:
