@@ -53,19 +53,37 @@ This replaces the "lives in the Chat SDK core" amendment. ADR 0020 made the SDK 
 - **Its data.** `chat.job` moves to the runner's plugin schema, still in the `chat` schema (ADR 0020) and with no migration change. Job definitions stay with their domain and import `defineJob`, which stays internal.
 - **Extracted first, unchanged.** The move renames nothing, and the existing jobs tests prove it changes no behaviour. Checkpointed steps come after it and amend this ADR again.
 
-## Amendment: a job is a workflow with Checkpoints (2026-10-17, [#481](https://github.com/Daanish2003/ai-chat/issues/481))
+## Amendment: a job is a workflow replayed from its history (2026-10-17, [#481](https://github.com/Daanish2003/ai-chat/issues/481))
 
-Step 2 lets a Turn survive a crash or a deploy by resuming from its last saved piece of work. The runner gets that as **Checkpoints** on the jobs it already runs, built in-house in plain TypeScript with no new engine. The design copies the patterns in [How Postgres-native durable execution engines work inside](https://github.com/Daanish2003/ai-chat/issues/408).
+Step 2 lets a Turn survive a crash or a deploy by resuming from its last **Checkpoint**. The runner copies Temporal's model, built in-house in plain TypeScript on Postgres, with no Temporal server and no new dependency: a workflow records what it did in a history and is resumed by replaying its code against that history. Temporal also runs workflow code in a sandbox that enforces determinism. This runner leaves that out and catches broken determinism on replay instead, as DBOS does. The research behind it is [How Postgres-native durable execution engines work inside](https://github.com/Daanish2003/ai-chat/issues/408).
 
-- **A `chat.job` row is the workflow.** Its claim, lease, attempts and status are unchanged. One table is added: `chat.job_checkpoint (job_id → job.id on delete cascade, name, output jsonb, created_at)`, keyed by `(job_id, name)`. Pruning a job removes its Checkpoints. Today's jobs are workflows with no Checkpoints and behave as before. Nothing is renamed.
-- **`ctx.checkpoint(name, fn)`.** It runs `fn` once and saves its JSON result. When an attempt replays, it returns the saved result without running `fn`. The unit is a **Checkpoint**, not a step: Step is the Bot's model call (CONTEXT.md).
-- **Fenced on every write.** In one transaction, a Checkpoint is inserted only while this attempt still owns its row (the `ownAttempt` fence), and `heartbeat_at` is bumped, so each Checkpoint also renews the lease. If nothing is written, the lease is lost or the job was cancelled, and the attempt aborts the way a failed heartbeat aborts it. Side effects stay at-least-once: a crash after `fn` but before its save runs `fn` again.
-- **Identity is the name plus a repeat count.** The second `checkpoint("embed")` in a run is `embed#2`. There's no versioning: on resume, matching names are reused and new names run fresh. When a deploy changes what a Checkpoint returns, its author renames it.
-- **Recovery is unchanged:** a 10 s heartbeat, a 60 s lease, and the reaper re-queues an expired row, which counts as an attempt. Any process can claim the row, load its Checkpoints and replay past them. A retry after a thrown error also resumes after the last Checkpoint.
-- **A deploy hands work back at a Checkpoint.** `stop()` asks each running workflow to yield. Its next Checkpoint saves, then yields. The runner puts the row back as `queued` with `run_after = now`, without counting the attempt, under the same fence, so another process resumes it at once instead of a lease later. A job still running after `drainMs` is aborted as before.
-- **Cancel is unchanged.** The row becomes `cancelled`, and the attempt aborts at its next heartbeat or, sooner, at its next Checkpoint's fence.
+- **A `chat.job` row is the workflow.** Its claim, lease, attempts and status are unchanged. One table is added: `chat.job_event (job_id → job.id on delete cascade, seq, kind, name, result jsonb, created_at)`, keyed by `(job_id, seq)`. Pruning a job removes its history. Today's jobs are workflows with an empty history and behave as before. Nothing is renamed.
+- **What is recorded, in call order:**
+
+  | Call                     | Recorded                                    |
+  | ------------------------ | ------------------------------------------- |
+  | `ctx.activity(name, fn)` | `fn`'s JSON result, which is the Checkpoint |
+  | `ctx.now()`              | the time it returned                        |
+  | `ctx.random()`           | the number it returned                      |
+  | `ctx.patched(id)`        | a marker                                    |
+
+  Durable sleep and cron (step 4), messages into a running workflow (step 3) and child workflows (step 6) add kinds later.
+
+- **Replay.** A resumed attempt runs the workflow from the top. Each call reads the next history entry, and while entries remain it returns the recorded result without running anything. Past the end of the history, calls run for real and are recorded.
+- **Non-determinism fails the job.** If the entry at a seq has a different kind or name from the call, replay throws a `NonDeterminismError`. Like a `PermanentJobError`, it fails the job at once and runs `onFailed`. Its message names the seq, the recorded entry and the call. Temporal instead retries until a fixed deploy unsticks the workflow. Here a Turn that ends with an error is better than one stuck forever, and runs last minutes, not months.
+- **The rule for workflow authors.** Code outside `ctx.activity` runs again on every attempt, so anything that decides which call comes next must be deterministic. Times and random numbers come from `ctx.now()` and `ctx.random()`. Reads and side effects go inside an activity.
+- **Code changes go through `ctx.patched(id)`, as in Temporal.** In a new run, it returns `true` and records a marker. A replay with the marker returns `true`. A replay that passes this point without the marker (a run started before the deploy) returns `false` and records nothing. There's no `deprecatePatched`: a patch is deleted from the code once no run older than its deploy is left.
+- **Fenced on every write.** In one transaction, a history entry is inserted only while this attempt still owns its row (the `ownAttempt` fence), and `heartbeat_at` is bumped, so each write also renews the lease. If nothing is written, the lease is lost or the job was cancelled, and the attempt aborts the way a failed heartbeat aborts it. Side effects are at-least-once: a crash after `fn` but before its entry is saved runs `fn` again.
+- **A thrown activity records nothing.** The attempt fails, and the job retries under the existing three attempts with backoff. Replay skips the activities that already finished, so retrying the job amounts to retrying the failed activity. There are no per-activity retry policies. A `PermanentJobError` fails the job at once.
+- **Recovery is unchanged:** a 10 s heartbeat, a 60 s lease, and the reaper re-queues an expired row, which counts as an attempt. Any process can claim the row and replay it.
+- **A deploy hands work back at a Checkpoint.** `stop()` asks each running workflow to yield. Its next `ctx.activity` saves, then yields. The runner puts the row back as `queued` with `run_after = now`, without counting the attempt, under the same fence, so another process resumes it at once instead of a lease later. A job still running after `drainMs` is aborted as before.
+- **Cancel is unchanged.** The row becomes `cancelled`, and the attempt aborts at its next heartbeat or, sooner, at its next write's fence.
 - **Polling stays.** There's still a 2 s poll plus a wake-up on `enqueue`, and no LISTEN/NOTIFY.
-- **Trigger.dev saves nothing.** Under the Trigger.dev adapter there's no `chat.job` row, so `checkpoint()` runs `fn` without saving, and Trigger.dev's own retries apply. Whether Turns need the in-process runner is decided with [A Turn as a durable workflow](https://github.com/Daanish2003/ai-chat/issues/482).
-- **Left to later work:**
-  - A Checkpoint that commits a same-database write in its own transaction, for exactly-once (ticket 482).
-  - Partition keys and send/recv (step 3), durable sleep and cron (step 4), and child workflows (step 6).
+- **Trigger.dev records nothing.** Under the Trigger.dev adapter there's no `chat.job` row, so every `ctx` call runs for real and saves nothing, and Trigger.dev's own retries apply. Whether Turns need the in-process runner is decided with [A Turn as a durable workflow](https://github.com/Daanish2003/ai-chat/issues/482).
+- **Left to later work:** an activity that commits a same-database write in its own transaction, for exactly-once (ticket 482).
+
+### Considered options
+
+- **Checkpoints looked up by name, with no replay checks.** This is simpler, but a changed workflow can silently take a different path on resume.
+- **A sandbox that enforces determinism, as Temporal's TypeScript SDK has.** It's the largest piece of Temporal and has no other use here.
+- **DBOS Transact as a dependency.** Its model is the same and it has been used in production, but the engine is meant to be in-house ([Durable runner SDK design](https://github.com/Daanish2003/ai-chat/issues/391)).
