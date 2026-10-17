@@ -29,7 +29,10 @@ export async function heartbeatJob(
 }
 
 /** A job's recorded history, in seq order. */
-export async function loadHistory(db: Database, jobId: string): Promise<HistoryEntry[]> {
+export async function loadHistory(
+  db: Database | Transaction,
+  jobId: string,
+): Promise<HistoryEntry[]> {
   const rows = await db
     .select({
       seq: jobEvent.seq,

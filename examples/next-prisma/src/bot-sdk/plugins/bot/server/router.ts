@@ -49,15 +49,15 @@ export async function lockConversation(tx: Transaction, conversationId: string):
 /**
  * The Router's way in (#499): queues the Trigger in its Conversation queue and, when no Turn is
  * running, starts one that takes it. While the running Turn's job hasn't started, the Trigger joins
- * that Turn and pushes back its job (#501). Returns the Turn that took it, or `undefined` when the
- * Trigger waits for the Turn that follows the running one. Call the runner's `wake()` once `tx`
- * has committed.
+ * that Turn and pushes back its job (#501). Returns `takenBy`, the Turn that took it, or, when the
+ * Trigger waits for the Turn that follows the running one, `waitsFor`, that running Turn. Call the
+ * runner's `wake()` once `tx` has committed.
  */
 export async function receive(
   deps: BotSdkContext,
   tx: Transaction,
   trigger: ReceivedTrigger,
-): Promise<string | undefined> {
+): Promise<{ takenBy?: string; waitsFor?: string }> {
   await lockConversation(tx, trigger.conversationId);
   await tx.insert(botTrigger).values(trigger);
   const [running] = await tx
@@ -66,8 +66,8 @@ export async function receive(
     .innerJoin(bot, eq(bot.id, botTurn.botId))
     .where(and(eq(bot.conversationId, trigger.conversationId), eq(botTurn.status, "running")))
     .limit(1);
-  if (!running) return startTurn(deps, tx, trigger.conversationId);
-  if (!(await jobNotStarted(tx, running.jobId))) return undefined;
+  if (!running) return { takenBy: await startTurn(deps, tx, trigger.conversationId) };
+  if (!(await jobNotStarted(tx, running.jobId))) return { waitsFor: running.id };
   await tx.update(botTrigger).set({ turnId: running.id }).where(eq(botTrigger.id, trigger.id));
   // The runner has no reschedule: the queued job is cancelled and a replacement queued, in this
   // transaction, and the Turn is relinked to it.
@@ -75,23 +75,23 @@ export async function receive(
   await runner.cancelIn(tx, running.id);
   const jobId = await enqueueTurnJob(deps, tx, running.id, eq(botTrigger.turnId, running.id));
   await tx.update(botTurn).set({ jobId }).where(eq(botTurn.id, running.id));
-  return running.id;
+  return { takenBy: running.id };
 }
 
 /**
- * Whether a Turn's job is queued and has recorded no Checkpoint, so replacing it loses nothing. The
- * job's row is locked, so no runner claims it before this transaction ends. A job queued again
- * after an attempt (a deploy's yield, a retry, a crash) keeps its Checkpoints, so it is never
- * replaced.
+ * Whether a Turn's job is queued, has used no attempt and has recorded no Checkpoint, so replacing
+ * it loses nothing. The job's row is locked, so no runner claims it before this transaction ends. A
+ * job queued again after an attempt is never replaced: a retry or a crash used an attempt, which a
+ * replacement would give back, and a deploy's yield (which puts its attempt back) kept Checkpoints.
  */
 async function jobNotStarted(tx: Transaction, jobId: string | null): Promise<boolean> {
   if (!jobId) return false;
   const [row] = await tx
-    .select({ status: job.status })
+    .select({ status: job.status, attempts: job.attempts })
     .from(job)
     .where(eq(job.id, jobId))
     .for("update");
-  if (row?.status !== "queued") return false;
+  if (row?.status !== "queued" || row.attempts > 0) return false;
   const [recorded] = await tx
     .select({ seq: jobEvent.seq })
     .from(jobEvent)
