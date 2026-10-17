@@ -11,7 +11,7 @@ export type BotPlugin = BotSdkPlugin<"bot", never, never>;
 export function bot(): BotPlugin {
   return {
     id: "bot",
-    requires: ["models"],
+    requires: ["models", "runner"],
     router: botPluginRouter,
     deleteUser: botUserDelete,
     exportUser: (_sdk, userId, tx) => exportBots(tx, userId),

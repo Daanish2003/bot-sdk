@@ -1,7 +1,7 @@
 import { and, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
 
 import type { Database } from "../../../../core/server/db/index";
-import type { BotSdkContext } from "../../../../core/server/plugin";
+import type { BotSdkContext, Transaction } from "../../../../core/server/plugin";
 import { job } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { NonDeterminismError, createWorkflow } from "../workflow/engine";
@@ -24,11 +24,11 @@ export type ClaimedJob = {
 };
 
 /**
- * Stores a queued job and returns its id. A second enqueue with an active key stores nothing and
- * returns the id of the job that holds the key.
+ * Stores a queued job, in `db` or a transaction, and returns its id. A second enqueue with an
+ * active key stores nothing and returns the id of the job that holds the key.
  */
 export async function enqueueJob(
-  db: Database,
+  db: Database | Transaction,
   name: string,
   payload: unknown,
   options: EnqueueOptions & { now: Date },

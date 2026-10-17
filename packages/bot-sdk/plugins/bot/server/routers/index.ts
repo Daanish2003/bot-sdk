@@ -28,9 +28,7 @@ const botRouter = {
     }),
 
   /** The caller's Bots, the newest activity first, with their last sent Message and Turn status. */
-  list: protectedProcedure.handler(({ context }) =>
-    listBots(context.sdk.db, context.user.id, context.sdk.clock()),
-  ),
+  list: protectedProcedure.handler(({ context }) => listBots(context.sdk.db, context.user.id)),
 
   /** One of the caller's Bots with its latest Turn's status, and its Conversation's Messages; another user's is not found. */
   get: protectedProcedure
@@ -41,14 +39,15 @@ const botRouter = {
       const { conversationId, ...bot } = found;
       const [messages, turnStatus] = await Promise.all([
         botMessages(context.sdk.db, conversationId),
-        latestTurnStatus(context.sdk.db, bot.id, context.sdk.clock()),
+        latestTurnStatus(context.sdk.db, bot.id),
       ]);
       return { bot: { ...bot, turnStatus }, messages };
     }),
 
   /**
-   * Sends the caller's Message to their Bot and streams its Turn: the saved user Message, each
-   * Message the Bot sends as it is appended, then `turnEnded`. The request's signal stops the Turn.
+   * Sends the caller's Message to their Bot and follows its Turn, which runs as a runner job: the
+   * saved user Message, each Message the Bot sends, then `turnEnded`. A disconnect ends only the
+   * follow, never the Turn.
    */
   send: protectedProcedure
     .input(z.object({ botId: z.uuid(), text: z.string().trim().min(1) }))

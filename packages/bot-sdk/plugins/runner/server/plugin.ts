@@ -1,7 +1,8 @@
-import type { BotSdkContext, BotSdkPlugin } from "../../../core/server/plugin";
+import type { BotSdkContext, BotSdkPlugin, Transaction } from "../../../core/server/plugin";
 import { runRegisteredJob } from "./jobs/define";
-import { inProcessRunner } from "./jobs/in-process";
-import type { JobRunner } from "./jobs/runner";
+import { inProcessRunner, isInProcessRunner } from "./jobs/in-process";
+import type { EnqueueOptions, JobRunner } from "./jobs/runner";
+import { enqueueJob } from "./jobs/store";
 import { createRunnerLifecycle, type RunnerLifecycle } from "./lifecycle";
 
 export type RunnerOptions = {
@@ -19,6 +20,19 @@ export type RunnerApi = Pick<JobRunner, "enqueue" | "cancel" | "status"> & {
    * Rejects an unknown name or a bad payload. A Host's worker (such as a Trigger.dev task) calls it.
    */
   runJob: (name: string, payload: unknown) => Promise<void>;
+  /**
+   * Queues a job in the caller's transaction, so it exists only if that transaction commits, and
+   * returns its id. Only the in-process runner reads `chat.job`, so on another runner it throws.
+   * Call `wake()` once the transaction has committed, so the job is claimed now, not at the next poll.
+   */
+  enqueueIn: (
+    tx: Transaction,
+    name: string,
+    payload: unknown,
+    options?: EnqueueOptions,
+  ) => Promise<string>;
+  /** Has the in-process runner claim due jobs now instead of at its next poll. */
+  wake: () => void;
 };
 
 declare module "../../../core/server/plugin" {
@@ -61,6 +75,15 @@ export function runner(options: RunnerOptions = {}): RunnerPlugin {
         cancel: (idempotencyKey) => jobs.cancel(idempotencyKey),
         status: (jobId) => jobs.status(jobId),
         runJob: (name, payload) => runRegisteredJob(name, payload, sdk),
+        enqueueIn: (tx, name, payload, enqueueOptions = {}) => {
+          if (!isInProcessRunner(jobs)) {
+            throw new Error("Queueing a job in a transaction needs the in-process runner");
+          }
+          return enqueueJob(tx, name, payload, { ...enqueueOptions, now: sdk.clock() });
+        },
+        wake: () => {
+          if (isInProcessRunner(jobs)) jobs.wake();
+        },
       };
       jobRunners.set(api, jobs);
       lifecycles.set(sdk, createRunnerLifecycle(sdk, jobs));

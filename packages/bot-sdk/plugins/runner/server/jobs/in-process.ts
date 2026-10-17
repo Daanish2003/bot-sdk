@@ -48,6 +48,20 @@ async function waitUpTo(promise: Promise<unknown>, ms: number): Promise<void> {
   }
 }
 
+/** The in-process runner: a `JobRunner` that reads `chat.job`, and can be asked to claim now. */
+export type InProcessRunner = JobRunner & {
+  /** Claims due jobs now instead of at the next poll, as `enqueue` does. Does nothing before `start()`. */
+  wake: () => void;
+};
+
+/** The runners `inProcessRunner` made. */
+const inProcessRunners = new WeakSet<JobRunner>();
+
+/** Whether `jobs` is the in-process runner, so a job queued in `chat.job` is one it runs. */
+export function isInProcessRunner(jobs: JobRunner): jobs is InProcessRunner {
+  return inProcessRunners.has(jobs);
+}
+
 /**
  * The default runner (ADR 0011): polls `chat.job` every `pollMs`, claims due jobs with
  * `FOR UPDATE SKIP LOCKED` and runs up to `concurrency` at once. Nothing polls until `start()`.
@@ -62,7 +76,7 @@ export function inProcessRunner({
   drainMs = 250_000,
   clock = systemClock,
   deps,
-}: InProcessRunnerOptions): JobRunner {
+}: InProcessRunnerOptions): InProcessRunner {
   let running = false;
   let timer: unknown;
   let shutdown: AbortController | undefined;
@@ -99,7 +113,7 @@ export function inProcessRunner({
     if (running) claims = claims.then(claimUpToConcurrency);
   };
 
-  return {
+  const jobs: InProcessRunner = {
     async enqueue(name, payload, options = {}) {
       const id = await enqueueJob(db, name, payload, { ...options, now: clock.now() });
       requestClaim();
@@ -117,6 +131,8 @@ export function inProcessRunner({
     async schedule() {
       throw new Error("Recurring jobs are not supported yet");
     },
+
+    wake: requestClaim,
 
     async start() {
       if (running) return;
@@ -137,4 +153,6 @@ export function inProcessRunner({
       await Promise.all(inFlight);
     },
   };
+  inProcessRunners.add(jobs);
+  return jobs;
 }
