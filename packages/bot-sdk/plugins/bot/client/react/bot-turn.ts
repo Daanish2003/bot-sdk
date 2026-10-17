@@ -15,10 +15,15 @@ export type ShownBotMessage = BotMessage & { pending?: true };
  */
 type LocalTurn = { streams: number; pending: ShownBotMessage[] };
 
-/** The sends in flight on one client, by Bot. They outlive any Conversation view. */
+/**
+ * The sends in flight on one client, by Bot. They outlive any Conversation view. `unsent` holds, by
+ * Bot, the last send whose every attempt failed on the network, with its id: the server may have saved
+ * it, so sending that text again reuses the id.
+ */
 type LocalTurns = {
   snapshot: ReadonlyMap<string, LocalTurn>;
   listeners: Set<() => void>;
+  unsent: Map<string, { text: string; id: string }>;
 };
 
 const noTurns: ReadonlyMap<string, LocalTurn> = new Map();
@@ -27,7 +32,7 @@ const stores = new WeakMap<QueryClient, LocalTurns>();
 function storeOf(queryClient: QueryClient): LocalTurns {
   let store = stores.get(queryClient);
   if (!store) {
-    store = { snapshot: noTurns, listeners: new Set() };
+    store = { snapshot: noTurns, listeners: new Set(), unsent: new Map() };
     stores.set(queryClient, store);
   }
   return store;
@@ -73,6 +78,9 @@ let pendingSequence = 0;
 /** How many times a send is made when its request fails on the network, before the server answers. */
 const sendAttempts = 3;
 
+/** The wait before retry `n` (from 1), longer each time. */
+const retryDelayMs = (n: number) => 250 * n;
+
 /** Calls `bot.send`, again with the same input while the request fails on the network. */
 async function sendWithRetry(orpc: BotSdkOrpc, input: { botId: string; id: string; text: string }) {
   for (let attempt = 1; ; attempt++) {
@@ -82,6 +90,7 @@ async function sendWithRetry(orpc: BotSdkOrpc, input: { botId: string; id: strin
       // An answer from the server, a refusal included, is final; only a request that got none is retried.
       if (error instanceof ORPCError || attempt >= sendAttempts) throw error;
     }
+    await new Promise((resolve) => setTimeout(resolve, retryDelayMs(attempt)));
   }
 }
 
@@ -96,8 +105,10 @@ async function sendWithRetry(orpc: BotSdkOrpc, input: { botId: string; id: strin
  * cached Bot's Turn status, which "Seen ✓" reads.
  *
  * The send makes one uuidv7 for its Message and sends it as `id`. A request that fails on the network
- * before the server answers is made again with the same `id` (#498), so a Message the server did
- * save is never saved twice and the repeat re-joins its Turn.
+ * before the server answers is made again with the same `id` (#498), after a short wait, so a Message
+ * the server did save is never saved twice and the repeat re-joins its Turn. When every attempt fails,
+ * the text goes back to the composer as a refused one does, and sending the same text again reuses
+ * that `id`.
  *
  * A send the server refuses before saving the Message (402 Quota) removes the bubble and is handed
  * to `onRefused` with its text, so the composer can put it back.
@@ -120,7 +131,10 @@ async function runSend(
   };
   const listKey = orpc.bot.list.queryKey();
 
-  const id = uuidv7();
+  const unsent = storeOf(queryClient).unsent;
+  const lost = unsent.get(botId);
+  const id = lost?.text === text ? lost.id : uuidv7();
+  unsent.delete(botId);
   const pending: ShownBotMessage = {
     id: `pending-${++pendingSequence}`,
     role: "user",
@@ -157,8 +171,12 @@ async function runSend(
       }
     }
   } catch (error) {
-    // A failed send leaves the server's state to show; a refused one goes back to the composer.
-    if (!saved) onRefused?.(text, error);
+    // A failed send leaves the server's state to show; a refused one goes back to the composer. One
+    // that got no answer may have been saved, so its id is kept for the same text.
+    if (!saved) {
+      if (!(error instanceof ORPCError)) unsent.set(botId, { text, id });
+      onRefused?.(text, error);
+    }
   } finally {
     // A stream that never ended leaves the cached Turn status stale, so ask the server.
     if (!ended) void queryClient.invalidateQueries({ queryKey: getKey });

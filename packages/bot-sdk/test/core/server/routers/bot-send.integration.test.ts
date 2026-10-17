@@ -954,6 +954,25 @@ describe("batching quick Messages", () => {
     expect(await second).toBe(true);
     expect(userTexts(fake.calls[1])).toEqual(["one", "two"]);
   });
+
+  it("never replaces a job waiting out a retry: a send interrupts its Turn, and the next Turn takes the Message", async () => {
+    const { botId, conversationId, sendNow } = await batchingBot([]);
+    await sendNow("one");
+    const [first] = await turnsOf(botId);
+    // An attempt failed before its first Checkpoint, so the job waits out its backoff with no history.
+    await getTestDb().update(job).set({ attempts: 1 }).where(eq(job.id, first!.jobId!));
+
+    await sendNow("two");
+
+    const turns = await turnsOf(botId);
+    expect(turns.map((turn) => turn.status)).toEqual(["stopped", "running"]);
+    expect((await triggersOf(conversationId)).map((row) => row.turnId)).toEqual([
+      turns[0]!.id,
+      turns[1]!.id,
+    ]);
+    const [failed] = await getTestDb().select().from(job).where(eq(job.id, first!.jobId!));
+    expect(failed).toMatchObject({ status: "cancelled", attempts: 1 });
+  });
 });
 
 describe("a resent Message", () => {
@@ -1002,6 +1021,25 @@ describe("a resent Message", () => {
       { type: "message", role: "assistant", text: "Hello!" },
       { type: "turnEnded", status: "complete" },
     ]);
+    expect(await turnsOf(botId)).toHaveLength(1);
+  });
+
+  it("re-joins its Turn when resent with the id in uppercase", async () => {
+    const { client, user, botId } = await botWith([
+      round(sends({ text: "Hello!", endTurn: true })),
+    ]);
+    const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
+    const id = uuidv7();
+    await send(client, botId, "hi", id);
+
+    const events = await send(client, botId, "hi", id.toUpperCase());
+
+    expect(shapes(events)).toEqual([
+      { type: "message", role: "user", text: "hi" },
+      { type: "message", role: "assistant", text: "Hello!" },
+      { type: "turnEnded", status: "complete" },
+    ]);
+    expect(await triggersOf(conversationId)).toMatchObject([{ id, messageId: id }]);
     expect(await turnsOf(botId)).toHaveLength(1);
   });
 

@@ -52,7 +52,14 @@ const botRouter = {
    * follow, never the Turn.
    */
   send: protectedProcedure
-    .input(z.object({ botId: z.uuid(), id: z.uuidv7(), text: z.string().trim().min(1) }))
+    .input(
+      z.object({
+        botId: z.uuid(),
+        // Lowercased, as the Trigger's text id holds it, so an uppercase resend still re-joins.
+        id: z.uuidv7().transform((id) => id.toLowerCase()),
+        text: z.string().trim().min(1),
+      }),
+    )
     .output(eventIterator(botSendEventSchema))
     .handler(({ context, input, signal }) =>
       sendToBot(context.sdk, { userId: context.user.id, ...input, signal }),

@@ -76,12 +76,14 @@ function fakeBotServer(messages: BotMessage[] = []) {
     },
   };
   const handler = new RPCHandler(router);
-  // While set, the next send request fails as a dropped network does: `fetch` rejects.
-  let dropNextRequest = false;
+  // How many of the next send requests fail as a dropped network does: `fetch` rejects.
+  let dropRequests = 0;
   const dropped: string[] = [];
+  const droppedAt: number[] = [];
   const fetch = async (request: Request) => {
-    if (dropNextRequest && request.url.endsWith("/bot/send")) {
-      dropNextRequest = false;
+    if (dropRequests > 0 && request.url.endsWith("/bot/send")) {
+      dropRequests--;
+      droppedAt.push(Date.now());
       dropped.push(await request.text());
       throw new TypeError("Failed to fetch");
     }
@@ -95,14 +97,16 @@ function fakeBotServer(messages: BotMessage[] = []) {
     sends,
     /** The bodies of the requests `dropNext` failed. */
     dropped,
+    /** When each of those requests was made, in ms. */
+    droppedAt,
     stops,
     /** What `bot.get` says of the latest Turn from now on, as the server's Turn moves on. */
     setTurnStatus: (status: TurnStatus | "running" | null) => {
       turnStatus = status;
     },
-    /** Fails the next send request on the network, before the server sees it. */
-    dropNext: () => {
-      dropNextRequest = true;
+    /** Fails the next `count` send requests on the network, before the server sees them. */
+    dropNext: (count = 1) => {
+      dropRequests = count;
     },
     /** Refuses the next send with `error`, as the server does before saving the Message. */
     refuseNext: (error: Error) => {
@@ -343,6 +347,48 @@ describe("a send that fails on the network", () => {
     expect(server.dropped[0]).toContain(first!.id);
     expect(second).toMatchObject({ text: "second", id: expect.stringMatching(uuidv7Shape) });
     expect(second!.id).not.toBe(first!.id);
+  });
+
+  it("waits a little longer before each retry", async () => {
+    const server = fakeBotServer();
+    mount(server);
+    server.dropNext(2);
+
+    await type("hi");
+    await waitFor(() => expect(server.sends).toHaveLength(1), { timeout: 3_000 });
+
+    const [first, second, third] = [...server.droppedAt, Date.now()];
+    expect(second! - first!).toBeGreaterThanOrEqual(200);
+    expect(third! - second!).toBeGreaterThan(second! - first!);
+  });
+
+  it("gives the text back when every attempt fails, and sending it again reuses the same id", async () => {
+    const server = fakeBotServer();
+    const { container } = mount(server);
+    server.dropNext(3);
+
+    await type("hello?");
+    const composer = screen.getByRole<HTMLTextAreaElement>("textbox", { name: "Message" });
+    await waitFor(() => expect(composer.value).toBe("hello?"), { timeout: 3_000 });
+    expect(bubbles(container)).toEqual([]);
+    expect(server.sends).toEqual([]);
+
+    // The server may have saved it from an attempt whose answer was lost: the resend must re-join it.
+    await type("hello?");
+    await waitFor(() => expect(server.sends).toHaveLength(1));
+    const { id } = (server.sends as { id: string }[])[0]!;
+    expect(server.dropped).toHaveLength(3);
+    for (const body of server.dropped) expect(body).toContain(id);
+
+    // Once it is saved, the same text again is a new Message.
+    await server.stream(
+      { type: "message", message: said("m1", "user", "hello?") },
+      { type: "turnEnded", status: "complete" },
+      "end",
+    );
+    await type("hello?");
+    await waitFor(() => expect(server.sends).toHaveLength(2));
+    expect((server.sends as { id: string }[])[1]!.id).not.toBe(id);
   });
 });
 

@@ -13,6 +13,7 @@ import { z } from "zod";
 
 import { appendMessage } from "../../../core/server/chat/message-tree";
 import { bot, botTrigger, botTurn, message } from "../../../core/server/db/schema";
+import type { Database } from "../../../core/server/db/index";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
 import { searchTextOf } from "../../../core/shared/message-parts";
@@ -153,7 +154,7 @@ export async function sendToBot(
       status: "complete",
       createdAt: now,
     });
-    const takenBy = await receive(deps, tx, {
+    const { waitsFor } = await receive(deps, tx, {
       id: row.id,
       conversationId: found.conversationId,
       source: "user",
@@ -163,8 +164,7 @@ export async function sendToBot(
     });
     // The owner skips the line (#500): a Message sent while a Turn's job runs interrupts that Turn,
     // and the Turn that follows it takes the Message.
-    const running = takenBy === undefined ? await runningTurnOf(tx, found.id) : undefined;
-    const ended = running ? await cancelTurn(deps, tx, running) : false;
+    const ended = waitsFor ? await cancelTurn(deps, tx, waitsFor) : false;
     return { userMessage: toBotMessage(row), started: true, ended };
   });
   if (sent.started) deps.plugin("runner").wake();
@@ -249,9 +249,9 @@ async function cancelTurn(deps: BotSdkContext, tx: Transaction, turnId: string):
   if ((await deps.plugin("runner").cancelIn(tx, turnId)) !== "queued") return false;
   // A queued job may have run already (handed back by a deploy, waiting out a retry, or re-queued
   // after a crash), so the Turn keeps what its Checkpoints hold. The job's row is locked, so its
-  // history can't grow while it replays.
-  const turn = await turnFacts(deps, turnId);
-  const played = turn ? await replayedTurn(deps, turn) : { transcript: [], usage: null };
+  // history can't grow while it replays. It reads on `tx`, which holds those locks.
+  const turn = await turnFacts(tx, turnId);
+  const played = turn ? await replayedTurn(deps, tx, turn) : { transcript: [], usage: null };
   await endTurn(tx, turnId, {
     status: "stopped",
     error: null,
@@ -337,9 +337,13 @@ type TurnFacts = {
   jobId: string | null;
 };
 
-async function turnFacts(deps: BotSdkContext, turnId: string): Promise<TurnFacts | undefined> {
-  const [row] = await deps.db
+async function turnFacts(
+  db: Database | Transaction,
+  turnId: string,
+): Promise<(TurnFacts & { status: string }) | undefined> {
+  const [row] = await db
     .select({
+      status: botTurn.status,
       id: botTurn.id,
       botId: botTurn.botId,
       startedAt: botTurn.startedAt,
@@ -364,7 +368,7 @@ async function runTurnJob(
   turnId: string,
   ctx: WorkflowContext<Transaction> & { signal: AbortSignal },
 ) {
-  const created = await turnFacts(deps, turnId);
+  const created = await turnFacts(deps.db, turnId);
   if (!created) throw new PermanentJobError(`Turn ${turnId} no longer exists`);
   let turn = created;
   try {
@@ -373,7 +377,7 @@ async function runTurnJob(
       return null;
     });
     // Read after the start: a resumed attempt replays it, so the Turn keeps the start it had.
-    turn = (await turnFacts(deps, turnId)) ?? created;
+    turn = (await turnFacts(deps.db, turnId)) ?? created;
   } catch (caught) {
     if (ctx.signal.aborted) await stopIfCancelled(deps, turn, { transcript: [], usage: null });
     throw caught;
@@ -441,11 +445,12 @@ async function endFromCheckpoints(
   turnId: string,
   ending: { status: TurnStatus; error: string | null },
 ) {
-  const turn = await turnFacts(deps, turnId);
-  if (!turn) return;
+  const turn = await turnFacts(deps.db, turnId);
+  // A Turn that has already ended stays as it is, so there is nothing to replay.
+  if (turn?.status !== "running") return;
   let played: Pick<PlayedTurn, "transcript" | "usage"> = { transcript: [], usage: null };
   try {
-    played = await replayedTurn(deps, turn);
+    played = await replayedTurn(deps, deps.db, turn);
   } catch (caught) {
     // The Turn still ends, so it never reads `running` forever; only its transcript is lost.
     deps.logger.error(`Replaying the Checkpoints of Turn ${turnId} failed`, caught);
@@ -485,9 +490,10 @@ async function endRunningTurn(
  */
 async function replayedTurn(
   deps: BotSdkContext,
+  db: Database | Transaction,
   turn: TurnFacts,
 ): Promise<Pick<PlayedTurn, "transcript" | "usage">> {
-  const history = turn.jobId ? await loadHistory(deps.db, turn.jobId) : [];
+  const history = turn.jobId ? await loadHistory(db, turn.jobId) : [];
   const workflow = createWorkflow<Transaction>({
     history,
     store: {
@@ -499,7 +505,7 @@ async function replayedTurn(
   });
   // A job that never started recorded no start.
   if (history.length > 0) await workflow.context.activity(startTurnActivity, async () => null);
-  return playTurn(deps, turn, workflow.context, {});
+  return playTurn(deps, turn, workflow.context, { db });
 }
 
 /** Ends the Turn's row, in its last Checkpoint's transaction. */
@@ -522,9 +528,9 @@ async function endTurn(
  * in order. The Bot's sent Messages are not replayed as text: the transcripts hold them as
  * SendToUser calls. Only what came before the Turn counts, so every attempt reads the same input.
  */
-async function modelInput(deps: BotSdkContext, turn: TurnFacts): Promise<ModelMessage[]> {
+async function modelInput(db: Database | Transaction, turn: TurnFacts): Promise<ModelMessage[]> {
   const [users, turns] = await Promise.all([
-    deps.db
+    db
       .select({ parts: message.parts, createdAt: message.createdAt })
       .from(message)
       .where(
@@ -535,7 +541,7 @@ async function modelInput(deps: BotSdkContext, turn: TurnFacts): Promise<ModelMe
         ),
       )
       .orderBy(asc(message.createdAt), asc(message.id)),
-    deps.db
+    db
       .select({ transcript: botTurn.transcript, startedAt: botTurn.startedAt })
       .from(botTurn)
       .where(and(eq(botTurn.botId, turn.botId), lt(botTurn.startedAt, turn.startedAt)))
@@ -585,15 +591,16 @@ type PlayedTurn = {
  * and a SendToUser's Message commit with their Checkpoint, so each happens once. A Step with no
  * tool call ends the Turn quiet; the Step and time limits end it `error`.
  *
- * `attempt`, when given, is the attempt's signal: the live call stops when it aborts.
+ * `attempt`, when given, is the attempt's signal: the live call stops when it aborts. `db` reads the
+ * Turn's input (`deps.db` unless given).
  */
 async function playTurn(
   deps: BotSdkContext,
   turn: TurnFacts,
   ctx: WorkflowContext<Transaction>,
-  { attempt }: { attempt?: AbortSignal },
+  { attempt, db = deps.db }: { attempt?: AbortSignal; db?: Database | Transaction },
 ): Promise<PlayedTurn> {
-  const input = await modelInput(deps, turn);
+  const input = await modelInput(db, turn);
   const provider = parseModelId(turn.model)?.provider ?? "";
   const abortController = new AbortController();
   const onAttemptAbort = () => abortController.abort(attempt?.reason);
