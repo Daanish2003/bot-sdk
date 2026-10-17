@@ -672,6 +672,15 @@ describe("a Turn that resumes after a crash", () => {
         await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps);
         timer.tick();
       },
+      /**
+       * The process running the Turn dies: its lease runs out and the sweep runs, while the lost
+       * attempt runs nothing more. `timer.tick()` lets it see that afterwards.
+       */
+      die: async () => {
+        timer.advance(61_000);
+        await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps);
+      },
+      tick: () => timer.tick(),
     };
   }
 
@@ -896,6 +905,38 @@ describe("a Turn that resumes after a crash", () => {
       type: "turnEnded",
       status: "stopped",
     });
+  });
+
+  it("ends a stopped Turn whose process died stopped from the sweep, with the transcript of what it did", async () => {
+    const first = round(sends({ text: "On it…", endTurn: false }));
+    const { fake, client, botId, attempt, die, tick } = await crashableBot([
+      first,
+      round(sends({ text: "Never sent.", endTurn: true })),
+    ]);
+    await client.bot.send({ botId, text: "hi" });
+    const lost = attempt();
+    await fake.release(first.length);
+    // Step 1 is saved, and the attempt waits in Step 2's model call.
+    await expect.poll(() => fake.calls.length).toBe(2);
+    await expect.poll(() => sentTexts(client, botId)).toEqual(["On it…"]);
+
+    await client.bot.stop({ botId });
+    await die();
+
+    const [turn] = await turnsOf(botId);
+    expect(turn).toMatchObject({ status: "stopped", error: null });
+    expect(turn?.endedAt).toBeInstanceOf(Date);
+    expect(JSON.stringify(turn?.transcript)).toContain("On it…");
+    expect(JSON.stringify(turn?.transcript)).not.toContain("Never sent.");
+    // The Conversation is free: the next Message starts a Turn.
+    const next = await client.bot.send({ botId, text: "again" });
+    expect((await next.next()).value).toMatchObject({ type: "message" });
+
+    // The lost attempt finds its job gone once it runs again, and changes nothing.
+    tick();
+    await fake.releaseAll();
+    await lost;
+    expect((await turnsOf(botId)).find(({ id }) => id === turn?.id)).toEqual(turn);
   });
 
   it("bot.stop on a queued Turn that already sent a Message keeps its transcript and usage", async () => {

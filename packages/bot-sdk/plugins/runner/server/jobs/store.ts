@@ -190,6 +190,8 @@ export async function runClaimedJob(
   const startedAt = clock.now().getTime();
   let heartbeat: unknown;
   let decided = false;
+  // Set when the attempt is aborted because it no longer owns its row (a cancel, or a lost lease).
+  let lost = false;
   let concluded!: () => void;
   const done = new Promise<void>((resolve) => {
     concluded = resolve;
@@ -238,6 +240,7 @@ export async function runClaimedJob(
   const lose = (reason: string) => {
     if (decided) return;
     release();
+    lost = true;
     attempt.abort(new Error(reason));
     concluded();
   };
@@ -268,9 +271,18 @@ export async function runClaimedJob(
       }
       workflow.finish();
     })();
+    // A handler that ends after its attempt was aborted for losing its row has seen the cancel.
+    const ended = async (failure?: { error: unknown }) => {
+      if (lost) {
+        await acknowledgeCancel(db, claimed).catch((error: unknown) =>
+          logger.error(`Acknowledging the cancel of job "${claimed.name}" failed`, error),
+        );
+      }
+      await settle(failure);
+    };
     run.then(
-      () => settle(),
-      (error: unknown) => settle({ error }),
+      () => ended(),
+      (error: unknown) => ended({ error }),
     );
   }
   await done;
@@ -309,7 +321,39 @@ export async function reapStaleJobs(
       logger.error(`onFailed for job "${row.name}" failed`, onFailedError);
     }
   }
+
+  // A cancelled job keeps its last heartbeat until its attempt's handler ends. One that is still
+  // set past the lease belongs to an attempt that stopped first, so nothing has handled the cancel.
+  // Clearing it claims the job, so `onCancelled` runs once.
+  const abandoned = await db
+    .update(job)
+    .set({ heartbeatAt: null })
+    .where(and(eq(job.status, "cancelled"), lt(job.heartbeatAt, cutoff)))
+    .returning({ name: job.name, payload: job.payload });
+  for (const row of abandoned) {
+    try {
+      await registeredJob(row.name)?.onCancelled?.(row.payload, deps);
+    } catch (onCancelledError) {
+      logger.error(`onCancelled for job "${row.name}" failed`, onCancelledError);
+    }
+  }
 }
+
+/** Marks a cancel this attempt's handler has seen and ended on, so the sweep leaves it alone. */
+async function acknowledgeCancel(db: Database, claimed: ClaimedJob): Promise<void> {
+  await db
+    .update(job)
+    .set({ heartbeatAt: null })
+    .where(
+      and(eq(job.id, claimed.id), eq(job.status, "cancelled"), eq(job.attempts, claimed.attempts)),
+    );
+}
+
+/**
+ * A cancelled job keeps its running attempt's heartbeat, for the sweep to find if that attempt
+ * stops before it ends. A queued job has no attempt to lose: an earlier attempt's heartbeat goes.
+ */
+const heartbeatOnCancel = sql`case when ${job.status} = 'queued' then null else ${job.heartbeatAt} end`;
 
 /**
  * Cancels the queued job with this key, or the running one at its next heartbeat or, sooner, at its
@@ -318,7 +362,7 @@ export async function reapStaleJobs(
 export async function cancelJob(db: Database, idempotencyKey: string, now: Date): Promise<void> {
   await db
     .update(job)
-    .set({ status: "cancelled", updatedAt: now })
+    .set({ status: "cancelled", heartbeatAt: heartbeatOnCancel, updatedAt: now })
     .where(and(eq(job.idempotencyKey, idempotencyKey), inArray(job.status, [...ACTIVE])));
 }
 
@@ -338,7 +382,10 @@ export async function cancelJobIn(
     .where(and(eq(job.idempotencyKey, idempotencyKey), inArray(job.status, [...ACTIVE])))
     .for("update");
   if (!active) return undefined;
-  await tx.update(job).set({ status: "cancelled", updatedAt: now }).where(eq(job.id, active.id));
+  await tx
+    .update(job)
+    .set({ status: "cancelled", heartbeatAt: heartbeatOnCancel, updatedAt: now })
+    .where(eq(job.id, active.id));
   return active.status === "queued" ? "queued" : "running";
 }
 

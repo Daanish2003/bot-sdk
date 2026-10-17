@@ -90,6 +90,7 @@ export const botTurnJob = defineJob({
   payload: z.object({ turnId: z.uuid() }),
   run: ({ turnId }, ctx) => runTurnJob(ctx.deps, turnId, ctx),
   onFailed: ({ turnId }, _error, deps) => endLostTurn(deps, turnId),
+  onCancelled: ({ turnId }, deps) => endStoppedTurn(deps, turnId),
 });
 
 /**
@@ -329,8 +330,9 @@ async function runTurnJob(
 
 /**
  * Ends a Turn `stopped` once its attempt has aborted, if its job was cancelled. A cancelled job
- * never reaches `onFailed`, so `bot.stop` leaves a running Turn to end here. A lost lease or a
- * shutdown leaves it `running`: the next attempt resumes it.
+ * never reaches `onFailed`, so `bot.stop` leaves a running Turn to end here, or in `onCancelled`
+ * when the attempt dies first. A lost lease or a shutdown leaves it `running`: the next attempt
+ * resumes it.
  */
 async function stopIfCancelled(
   deps: BotSdkContext,
@@ -339,17 +341,7 @@ async function stopIfCancelled(
 ) {
   const cancelled = turn.jobId && (await deps.plugin("runner").status(turn.jobId));
   if (!cancelled || cancelled.status !== "cancelled") return;
-  await deps.db
-    .update(botTurn)
-    .set({
-      status: "stopped",
-      error: null,
-      transcript: played.transcript,
-      usage: played.usage,
-      endedAt: deps.clock(),
-    })
-    .where(and(eq(botTurn.id, turn.id), eq(botTurn.status, "running")));
-  await hintChanged(deps, turn.conversationId);
+  await endRunningTurn(deps, turn, { status: "stopped", error: null }, played);
 }
 
 /**
@@ -357,6 +349,24 @@ async function stopIfCancelled(
  * `error` / `interrupted`, and writes the transcript and usage its recorded activities hold.
  */
 async function endLostTurn(deps: BotSdkContext, turnId: string) {
+  await endFromCheckpoints(deps, turnId, { status: "error", error: "interrupted" });
+}
+
+/**
+ * The job's `onCancelled`, once the sweep finds a cancelled job whose attempt died before it
+ * stopped the Turn: ends a Turn still `running` `stopped`, and writes the transcript and usage its
+ * recorded activities hold.
+ */
+async function endStoppedTurn(deps: BotSdkContext, turnId: string) {
+  await endFromCheckpoints(deps, turnId, { status: "stopped", error: null });
+}
+
+/** Ends a Turn still `running` as `ending` says, with what its recorded Checkpoints hold. */
+async function endFromCheckpoints(
+  deps: BotSdkContext,
+  turnId: string,
+  ending: { status: TurnStatus; error: string | null },
+) {
   const turn = await turnFacts(deps, turnId);
   if (!turn) return;
   let played: Pick<PlayedTurn, "transcript" | "usage"> = { transcript: [], usage: null };
@@ -364,18 +374,22 @@ async function endLostTurn(deps: BotSdkContext, turnId: string) {
     played = await replayedTurn(deps, turn);
   } catch (caught) {
     // The Turn still ends, so it never reads `running` forever; only its transcript is lost.
-    deps.logger.error(`Replaying lost Turn ${turnId} failed`, caught);
+    deps.logger.error(`Replaying the Checkpoints of Turn ${turnId} failed`, caught);
   }
+  await endRunningTurn(deps, turn, ending, played);
+}
+
+/** Ends a Turn still `running` as `ending` says, with `played`'s transcript and usage. */
+async function endRunningTurn(
+  deps: BotSdkContext,
+  turn: TurnFacts,
+  ending: { status: TurnStatus; error: string | null },
+  played: Pick<PlayedTurn, "transcript" | "usage">,
+) {
   await deps.db
     .update(botTurn)
-    .set({
-      status: "error",
-      error: "interrupted",
-      transcript: played.transcript,
-      usage: played.usage,
-      endedAt: deps.clock(),
-    })
-    .where(and(eq(botTurn.id, turnId), eq(botTurn.status, "running")));
+    .set({ ...ending, transcript: played.transcript, usage: played.usage, endedAt: deps.clock() })
+    .where(and(eq(botTurn.id, turn.id), eq(botTurn.status, "running")));
   await hintChanged(deps, turn.conversationId);
 }
 
