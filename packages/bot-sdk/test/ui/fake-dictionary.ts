@@ -11,6 +11,7 @@ import {
   type ChatLocation,
   type ChatRouter,
 } from "../../core/client/react/provider";
+import type { BotSdkClientPlugin } from "../../core/client/plugin";
 import { en, type Messages } from "../../core/shared/i18n";
 
 /**
@@ -81,6 +82,8 @@ type WrapOptions = {
   /** The Host's navigation, to see where the UI goes. Defaults to going nowhere. */
   navigate?: ChatRouter["navigate"];
   messages?: Partial<Messages>;
+  /** The client plugins the Host enables. Defaults to the models and assistant plugins. */
+  plugins?: BotSdkClientPlugin[];
   /** The network. Defaults to failing, since a render test makes no requests. */
   fetch?: NonNullable<Parameters<typeof createBotSdkClient>[0]["fetch"]>;
 };
@@ -96,13 +99,14 @@ export function providerFor(
     location = {},
     navigate = () => {},
     messages = wrappedDictionary(),
+    plugins = [modelsClient(), assistantClient()],
     fetch = async () => {
       throw new Error("Unexpected request in a render test");
     },
   }: WrapOptions = {},
 ) {
   const client = createBotSdkClient({
-    plugins: [modelsClient(), assistantClient()],
+    plugins,
     baseUrl: "http://localhost/api/chat",
     fetch,
   });

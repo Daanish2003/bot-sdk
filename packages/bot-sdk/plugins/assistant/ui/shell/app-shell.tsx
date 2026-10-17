@@ -32,7 +32,7 @@ export function AppShell({
   quotaExceeded?: ReactNode;
   installPrompt?: ReactNode;
 }) {
-  const { orpc, Link } = useChatAdapter();
+  const { orpc, Link, plugins } = useChatAdapter();
   const { t } = useI18n();
   const [panelOpen, setPanelOpen] = useState(true);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -131,14 +131,16 @@ export function AppShell({
                 <MessagesSquareIcon />
               </Button>
               <div className="flex-1" />
-              <Link
-                page={{ to: "bots" }}
-                title={t("shell.bots")}
-                aria-label={t("shell.bots")}
-                className={buttonVariants({ variant: "ghost", size: "icon" })}
-              >
-                <BotIcon />
-              </Link>
+              {plugins.includes("bot") && (
+                <Link
+                  page={{ to: "bots" }}
+                  title={t("shell.bots")}
+                  aria-label={t("shell.bots")}
+                  className={buttonVariants({ variant: "ghost", size: "icon" })}
+                >
+                  <BotIcon />
+                </Link>
+              )}
               <Link
                 page={{ to: "keys" }}
                 title={t("shell.keysAndSettings")}
