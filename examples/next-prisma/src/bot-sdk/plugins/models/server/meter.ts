@@ -5,6 +5,7 @@ import { usage as usageRows } from "../../../core/server/db/schema";
 import type { ModelsDeps, HostImageModel, HostModel } from "./types";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { UsageEvent } from "../../../core/server/chat/hooks";
+import type { Transaction } from "../../../core/server/plugin";
 import { quotaRefusal } from "./quota";
 
 /** What a Quota check answers: the call may run, or not until the window resets (ADR 0007). */
@@ -30,6 +31,15 @@ export type Meter<Usage> = {
   record(usage: Usage): Promise<void>;
 };
 
+/** A meter that can also write its row in the caller's transaction. */
+export type TxMeter<Usage> = Meter<Usage> & {
+  /**
+   * Writes the call's row in `tx`, so it commits with the caller's other writes or not at all, and
+   * throws when the write fails. Returns the `onUsage` firing, to call once `tx` has committed.
+   */
+  recordIn(tx: Transaction, usage: Usage): Promise<() => void>;
+};
+
 /** One call to a Model: a Run, a title, one of a Memory job's calls, or a Bot's Turn. */
 export type ModelUsage = {
   kind: "run" | "title" | "memory" | "turn";
@@ -37,7 +47,7 @@ export type ModelUsage = {
   /** The Provider's reported cost in USD, when it reported one for the whole call. */
   reportedCost?: number;
 };
-export type ModelMeter = Meter<ModelUsage>;
+export type ModelMeter = TxMeter<ModelUsage>;
 
 /** Web searches: each has a fixed price, so a search records only that it ran. */
 export type SearchMeter = Meter<void>;
@@ -63,10 +73,11 @@ export type TranscriptionMeter = Meter<{ durationSeconds: number; reportedSecond
 export type EmbeddingMeter = Meter<{ characters: number; reportedTokens?: number }>;
 
 /** The meter of a call on the user's own key: never refused, never recorded. */
-export const freeMeter: Meter<unknown> = {
+export const freeMeter: TxMeter<unknown> = {
   onHost: false,
   mayRun: async () => ({ ok: true }),
   record: async () => {},
+  recordIn: async () => () => {},
 };
 
 type MeterDeps = Pick<ModelsDeps, "db" | "hooks" | "getQuota" | "logger">;
@@ -86,7 +97,7 @@ function meterOf<Usage>(
   userId: string,
   onHost: boolean,
   rowOf: (usage: Usage) => UsageRow | null,
-): Meter<Usage> {
+): TxMeter<Usage> {
   return {
     onHost,
     mayRun: async () => {
@@ -107,6 +118,13 @@ function meterOf<Usage>(
       }
       // The hook is never awaited (chat/hooks.ts).
       deps.hooks.fire("onUsage", event);
+    },
+    recordIn: async (tx, usage) => {
+      const row = rowOf(usage);
+      if (!row) return () => {};
+      const event: UsageEvent = { id: uuidv7(), userId, ...row, createdAt: new Date() };
+      await tx.insert(usageRows).values(event);
+      return () => deps.hooks.fire("onUsage", event);
     },
   };
 }

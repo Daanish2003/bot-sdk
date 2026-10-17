@@ -1,6 +1,7 @@
 import { createBotSdk } from "@ai-chat/bot-sdk/core/server";
 import { assistant, type HostToolContext } from "@ai-chat/bot-sdk/plugins/assistant/server";
 import { models } from "@ai-chat/bot-sdk/plugins/models/server";
+import { runner } from "@ai-chat/bot-sdk/plugins/runner/server";
 import { toolDefinition } from "@tanstack/ai";
 import { z } from "zod";
 
@@ -29,5 +30,5 @@ export const chat = createBotSdk({
     const session = await auth();
     return session ? { id: session.user.id } : null;
   },
-  plugins: [models(), assistant({ tools: [serverTime] })],
+  plugins: [models(), runner(), assistant({ tools: [serverTime] })],
 });
