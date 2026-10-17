@@ -162,14 +162,14 @@ The server API below is the spec for the SDK (spec #70). Some of it lands in lat
 
 ```ts
 // server: construct at module load (no side effects)
-// the Model options (Host Providers, BYOK, Quota, ...) go to `models(...)`, and the assistant's
-// (tools, jobs, MCP servers, ...) to `assistant(...)`
+// the Model options (Host Providers, BYOK, Quota, ...) go to `models(...)`, the background jobs
+// runner to `runner(...)`, and the assistant's (tools, MCP servers, ...) to `assistant(...)`
 const chat = createBotSdk({
   databaseUrl,
   getUser,
   keyEncryptionSecrets,
   basePath: "/api/chat",
-  plugins: [models(), assistant()],
+  plugins: [models(), runner(), assistant()],
 });
 
 // one catch-all route on your framework, for every chat call and the Shared link read
@@ -198,15 +198,17 @@ const data = await chat.plugin("assistant").getSharedConversation(token);
 - `start()` refuses to run while the `chat` schema is behind the bundled migrations.
 - `stop()` refuses new Runs with 503 while it drains, then closes the runtime's connections.
 
-## Background jobs: `jobs`
+## Background jobs: `runner`
 
-`assistant({ jobs })` takes the runner for background work (ADR 0011). The default is the in-process runner: it keeps jobs in the `chat.job` table, which the `chat` schema already has, polls it every 2 s, runs two jobs at once and retries a failed job up to three times, after about 10 s and 1 min. `start()` starts it, and `stop()` takes no new jobs and waits for the running ones. Nothing else to configure, and no second database.
+The `runner` plugin runs the background work (ADR 0011), such as Knowledge processing and Memory. `assistant` requires it, so a Host lists it: `plugins: [models(), runner(), assistant()]`. It's imported from `@ai-chat/bot-sdk/plugins/runner/server`.
+
+`runner({ jobs })` takes the runner for background work. The default is the in-process runner: it keeps jobs in the `chat.job` table, which the `chat` schema already has, polls it every 2 s, runs two jobs at once and retries a failed job up to three times, after about 10 s and 1 min. `start()` starts it, and `stop()` takes no new jobs and waits for the running ones. Nothing else to configure, and no second database.
 
 A custom runner is any object with `enqueue(name, payload, options?)`, `start()` and `stop()`, and it takes the place of the default. Jobs are internal to the SDK: a Host can't declare its own.
 
 ### Trigger.dev workers (optional)
 
-Only a Host that runs its jobs on Trigger.dev needs this. Every other Host keeps the in-process runner and needs nothing from `extras/`. The SDK never imports `extras/`, so `@trigger.dev/sdk` is a dependency of such a Host alone: install it there with `pnpm add @trigger.dev/sdk`.
+Only a Host that runs its jobs on Trigger.dev needs this. The `bot` plugin refuses to start on it, because a retry there starts a Turn over and would send its Messages again; Knowledge and Memory jobs run on either runner. Every other Host keeps the in-process runner and needs nothing from `extras/`. The SDK never imports `extras/`, so `@trigger.dev/sdk` is a dependency of such a Host alone: install it there with `pnpm add @trigger.dev/sdk`.
 
 `extras/trigger/trigger-runner.ts` is a runner that triggers a Host task. The copy script copies `extras/` only when the destination has none, so your edits survive updates. Wire it in two places:
 
@@ -218,18 +220,18 @@ import { chat } from "@/lib/chat";
 export const chatJob = task({
   id: "chat-job",
   run: async ({ name, payload }: { name: string; payload: unknown }) => {
-    await chat.plugin("assistant").runJob(name, payload);
+    await chat.plugin("runner").runJob(name, payload);
   },
 });
 
 // src/lib/chat.ts (where createBotSdk is called)
 export const chat = createBotSdk({
   /* ...as before */
-  plugins: [models(), assistant({ jobs: triggerJobRunner({ taskId: "chat-job" }) })],
+  plugins: [models(), runner({ jobs: triggerJobRunner({ taskId: "chat-job" }) }), assistant()],
 });
 ```
 
-`chat.plugin("assistant").runJob(name, payload)` runs a job's handler in the calling process, after validating the payload with the job's schema. It rejects an unknown name or a bad payload, and a handler's error reaches the task, so Trigger.dev's retries apply. The Trigger.dev runner supports `enqueue` only: `cancel`, `status` and `schedule` throw until they are needed. Trigger.dev's idempotency keys also match runs that have finished, so unlike the in-process runner, an `idempotencyKey` can't be reused after its job ends.
+`chat.plugin("runner").runJob(name, payload)` runs a job's handler in the calling process, after validating the payload with the job's schema. It rejects an unknown name or a bad payload, and a handler's error reaches the task, so Trigger.dev's retries apply. The Trigger.dev runner supports `enqueue` only: `cancel`, `status` and `schedule` throw until they are needed. Trigger.dev's idempotency keys also match runs that have finished, so unlike the in-process runner, an `idempotencyKey` can't be reused after its job ends.
 
 ## Host hooks
 
@@ -439,6 +441,7 @@ const chat = createBotSdk({
   // ...
   plugins: [
     models({ getQuota: async (userId) => ({ budgetUsd: 0.5, window: "day" }) }),
+    runner(),
     assistant(),
   ],
 });
@@ -474,6 +477,7 @@ const chat = createBotSdk({
       ],
       byok: true,
     }),
+    runner(),
     assistant(),
   ],
 });
@@ -496,7 +500,7 @@ const serverTime = toolDefinition({
   inputSchema: z.object({}),
 }).server<HostToolContext>(() => ({ now: new Date().toISOString() }));
 
-createBotSdk({ /* ... */ plugins: [models(), assistant({ tools: [serverTime] })] });
+createBotSdk({ /* ... */ plugins: [models(), runner(), assistant({ tools: [serverTime] })] });
 ```
 
 A tool that sets `needsApproval: true` in its `toolDefinition` asks the user first. The reply ends at the call and shows the tool's name, its full arguments, and Approve and Deny. Approving runs the tool; denying never runs it, and the Model is told the user declined. The reply then continues in a new Run on the same Message, so the wait takes no server process and survives a restart. While a call waits, the composer waits too, and Stop counts as Deny. A Shared link shows a waiting call as waiting, without its arguments.

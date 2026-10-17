@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { conversation, project, memory, userSettings } from "../../../../core/server/db/schema";
 import type { BotSdkContext } from "../../../../core/server/plugin";
-import { defineJob } from "../jobs/define";
+import { defineJob } from "../../../runner/server/jobs/define";
 import { rpcError } from "../../../../core/server/rpc-error";
 import { assistantState } from "../state";
 

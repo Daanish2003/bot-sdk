@@ -5,7 +5,6 @@ import { knowledgeBlobKey } from "../blob-keys";
 import { knowledgeFile } from "../../../../core/server/db/schema";
 import type { BotSdkContext } from "../../../../core/server/plugin";
 import { knowledgeJobKey } from "./process";
-import { assistantState } from "../state";
 
 /**
  * The ids of the Knowledge files `where` matches. A delete's cascade removes their rows and leaves
@@ -25,6 +24,6 @@ export async function knowledgeFileIdsWhere(
  * bytes (best-effort). Same order as `deleteKnowledgeFile`.
  */
 export async function discardKnowledgeFiles(deps: BotSdkContext, fileIds: string[]): Promise<void> {
-  for (const fileId of fileIds) await assistantState(deps).jobs.cancel(knowledgeJobKey(fileId));
+  for (const fileId of fileIds) await deps.plugin("runner").cancel(knowledgeJobKey(fileId));
   await deleteBlobsBestEffort(deps, fileIds.map(knowledgeBlobKey));
 }

@@ -20,6 +20,7 @@ import { modelsClient } from "../src/bot-sdk/plugins/models/client/index.ts";
 import { createBotSdk } from "../src/bot-sdk/core/server/create-chat.ts";
 import { assistant } from "../src/bot-sdk/plugins/assistant/server/index.ts";
 import { models } from "../src/bot-sdk/plugins/models/server/index.ts";
+import { runner } from "../src/bot-sdk/plugins/runner/server/index.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const adminUrl =
@@ -87,7 +88,7 @@ async function main() {
     keyEncryptionSecrets,
     basePath: "/api/chat",
     getUser: () => ({ id: user.id }),
-    plugins: [models(), assistant()],
+    plugins: [models(), runner(), assistant()],
   });
   await chat.start();
 

@@ -1,10 +1,12 @@
 import { and, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
 
 import type { Database } from "../../../../core/server/db/index";
-import type { BotSdkContext } from "../../../../core/server/plugin";
+import type { BotSdkContext, Transaction } from "../../../../core/server/plugin";
 import { job } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
+import { NonDeterminismError, WorkflowYieldedError, createWorkflow } from "../workflow/engine";
 import { JOB_TIMING, PermanentJobError, backoffAfter, registeredJob } from "./define";
+import { heartbeatJob, jobHistoryStore, loadHistory, ownAttempt } from "./history";
 import type { JobClock } from "./in-process";
 import type { EnqueueOptions, JobStatus } from "./runner";
 
@@ -22,11 +24,11 @@ export type ClaimedJob = {
 };
 
 /**
- * Stores a queued job and returns its id. A second enqueue with an active key stores nothing and
- * returns the id of the job that holds the key.
+ * Stores a queued job, in `db` or a transaction, and returns its id. A second enqueue with an
+ * active key stores nothing and returns the id of the job that holds the key.
  */
 export async function enqueueJob(
-  db: Database,
+  db: Database | Transaction,
   name: string,
   payload: unknown,
   options: EnqueueOptions & { now: Date },
@@ -97,24 +99,10 @@ export async function claimJob(
   };
 }
 
-/** Writes the heartbeat. False when the attempt no longer holds its row: cancelled or re-queued. */
-async function heartbeatJob(db: Database, claimed: ClaimedJob, now: Date): Promise<boolean> {
-  const held = await db
-    .update(job)
-    .set({ heartbeatAt: now })
-    .where(ownAttempt(claimed))
-    .returning({ id: job.id });
-  return held.length > 0;
-}
-
-/** Matches the row only while this attempt still owns it. */
-function ownAttempt(claimed: ClaimedJob) {
-  return and(eq(job.id, claimed.id), eq(job.status, "running"), eq(job.attempts, claimed.attempts));
-}
-
 /**
- * Records how an attempt ended: succeeded, retried after backoff, or failed (on the last attempt
- * or a `PermanentJobError`, which runs `onFailed`). An attempt that has lost its row writes nothing.
+ * Records how an attempt ended: succeeded, handed back after it yielded, retried after backoff, or
+ * failed (on the last attempt or a `PermanentJobError` or `NonDeterminismError`, which runs
+ * `onFailed`). An attempt that has lost its row writes nothing.
  */
 async function recordOutcome(
   db: Database,
@@ -128,8 +116,19 @@ async function recordOutcome(
   }
 
   const { error } = failure;
+  if (error instanceof WorkflowYieldedError) {
+    // A deploy: queued again for any process to resume at once, and the attempt doesn't count.
+    await db
+      .update(job)
+      .set({ status: "queued", runAfter: now, attempts: sql`${job.attempts} - 1`, updatedAt: now })
+      .where(ownAttempt(claimed));
+    return;
+  }
   const lastError = error instanceof Error ? error.message : String(error);
-  const final = error instanceof PermanentJobError || claimed.attempts >= claimed.maxAttempts;
+  const final =
+    error instanceof PermanentJobError ||
+    error instanceof NonDeterminismError ||
+    claimed.attempts >= claimed.maxAttempts;
   if (!final) {
     await db
       .update(job)
@@ -162,8 +161,10 @@ async function recordOutcome(
  *
  * - the handler settles, and the outcome is recorded (see `recordOutcome`);
  * - the attempt passes `JOB_TIMING.attemptCapMs`, which is a failure and is recorded;
- * - a heartbeat finds the row gone (cancelled, or re-queued after a lost lease), so the handler is
- *   aborted and nothing is written;
+ * - a heartbeat or a history save finds the row gone (cancelled, or re-queued after a lost lease),
+ *   so the handler is aborted and nothing is written;
+ * - `drain` aborts (a deploy's `stop()`), so the workflow yields at its next Checkpoint and the
+ *   row is handed back `queued` without counting the attempt, for another process to resume;
  * - `shutdown` aborts, so the handler is aborted and nothing is written. The lease is left to
  *   expire, and another process re-runs the job.
  */
@@ -174,8 +175,15 @@ export async function runClaimedJob(
     clock,
     logger,
     deps,
+    drain,
     shutdown,
-  }: { clock: JobClock; logger: Logger; deps: () => BotSdkContext; shutdown?: AbortSignal },
+  }: {
+    clock: JobClock;
+    logger: Logger;
+    deps: () => BotSdkContext;
+    drain?: AbortSignal;
+    shutdown?: AbortSignal;
+  },
 ): Promise<void> {
   const definition = registeredJob(claimed.name);
   const attempt = new AbortController();
@@ -223,9 +231,14 @@ export async function runClaimedJob(
       logger.error(`Heartbeat for job "${claimed.name}" failed`, error);
       return true;
     });
-    if (decided || held) return;
+    if (held) return;
+    lose("The job was cancelled");
+  };
+  // The attempt no longer owns its row: abort the handler and write nothing more.
+  const lose = (reason: string) => {
+    if (decided) return;
     release();
-    attempt.abort(new Error("The job was cancelled"));
+    attempt.abort(new Error(reason));
     concluded();
   };
 
@@ -235,10 +248,25 @@ export async function runClaimedJob(
   if (!decided) {
     const run = (async () => {
       if (!definition) throw new Error(`No job named "${claimed.name}" is defined`);
-      await definition.run(definition.payload.parse(claimed.payload), {
+      // A retried or re-claimed job replays its history and carries on after its last entry.
+      const workflow = createWorkflow({
+        history: await loadHistory(db, claimed.id),
+        store: jobHistoryStore(db, claimed, clock.now),
+        now: clock.now,
         signal: attempt.signal,
-        deps: deps(),
+        yieldSignal: drain,
+        onLost: () => lose("The attempt no longer owns its job"),
       });
+      try {
+        await definition.run(definition.payload.parse(claimed.payload), {
+          ...workflow.context,
+          signal: attempt.signal,
+          deps: deps(),
+        });
+      } catch (error) {
+        throw workflow.raised() ?? error;
+      }
+      workflow.finish();
     })();
     run.then(
       () => settle(),
@@ -283,12 +311,35 @@ export async function reapStaleJobs(
   }
 }
 
-/** Cancels the queued job with this key, or the running one at its next heartbeat. */
+/**
+ * Cancels the queued job with this key, or the running one at its next heartbeat or, sooner, at its
+ * next Checkpoint, whose save is fenced.
+ */
 export async function cancelJob(db: Database, idempotencyKey: string, now: Date): Promise<void> {
   await db
     .update(job)
     .set({ status: "cancelled", updatedAt: now })
     .where(and(eq(job.idempotencyKey, idempotencyKey), inArray(job.status, [...ACTIVE])));
+}
+
+/**
+ * Cancels the active job with this key in the caller's transaction, and returns what it was:
+ * `queued` (it never runs) or `running` (its attempt aborts at its next heartbeat or write).
+ * Returns undefined when no job with this key is active.
+ */
+export async function cancelJobIn(
+  tx: Transaction,
+  idempotencyKey: string,
+  now: Date,
+): Promise<"queued" | "running" | undefined> {
+  const [active] = await tx
+    .select({ id: job.id, status: job.status })
+    .from(job)
+    .where(and(eq(job.idempotencyKey, idempotencyKey), inArray(job.status, [...ACTIVE])))
+    .for("update");
+  if (!active) return undefined;
+  await tx.update(job).set({ status: "cancelled", updatedAt: now }).where(eq(job.id, active.id));
+  return active.status === "queued" ? "queued" : "running";
 }
 
 /** Deletes succeeded and cancelled jobs ended over 7 days ago, and failed ones over 30 days ago. */

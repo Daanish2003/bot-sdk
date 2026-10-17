@@ -28,10 +28,10 @@ export type InProcessRunnerOptions = {
   concurrency?: number;
   /** How often an idle runner polls `chat.job`. Enqueue wakes it sooner. */
   pollMs?: number;
-  /** How long `stop()` lets running jobs finish before it aborts them. */
+  /** How long `stop()` lets running jobs finish or yield before it aborts them. */
   drainMs?: number;
   clock?: JobClock;
-  /** The core context, read when a job runs. The `assistant` plugin passes its instance's. */
+  /** The core context, read when a job runs. The `runner` plugin passes its instance's. */
   deps: () => BotSdkContext;
 };
 
@@ -48,11 +48,26 @@ async function waitUpTo(promise: Promise<unknown>, ms: number): Promise<void> {
   }
 }
 
+/** The in-process runner: a `JobRunner` that reads `chat.job`, and can be asked to claim now. */
+export type InProcessRunner = JobRunner & {
+  /** Claims due jobs now instead of at the next poll, as `enqueue` does. Does nothing before `start()`. */
+  wake: () => void;
+};
+
+/** The runners `inProcessRunner` made. */
+const inProcessRunners = new WeakSet<JobRunner>();
+
+/** Whether `jobs` is the in-process runner, so a job queued in `chat.job` is one it runs. */
+export function isInProcessRunner(jobs: JobRunner): jobs is InProcessRunner {
+  return inProcessRunners.has(jobs);
+}
+
 /**
  * The default runner (ADR 0011): polls `chat.job` every `pollMs`, claims due jobs with
  * `FOR UPDATE SKIP LOCKED` and runs up to `concurrency` at once. Nothing polls until `start()`.
- * `stop()` takes no new jobs, waits up to `drainMs` for the running ones, then aborts them and
- * leaves their leases to expire.
+ * `stop()` takes no new jobs and asks each running workflow to yield: at its next Checkpoint its row
+ * is handed back `queued`, uncounted, for another process to resume. It waits up to `drainMs` for
+ * the running jobs to finish or yield, then aborts the rest and leaves their leases to expire.
  */
 export function inProcessRunner({
   db,
@@ -62,9 +77,10 @@ export function inProcessRunner({
   drainMs = 250_000,
   clock = systemClock,
   deps,
-}: InProcessRunnerOptions): JobRunner {
+}: InProcessRunnerOptions): InProcessRunner {
   let running = false;
   let timer: unknown;
+  let drain: AbortController | undefined;
   let shutdown: AbortController | undefined;
   // Claims run one after another on this chain, so `concurrency` is never exceeded.
   let claims: Promise<void> = Promise.resolve();
@@ -84,6 +100,7 @@ export function inProcessRunner({
         clock,
         logger,
         deps,
+        drain: drain?.signal,
         shutdown: shutdown?.signal,
       })
         .catch((error: unknown) => logger.error(`Background job "${claimed.name}" failed`, error))
@@ -99,7 +116,7 @@ export function inProcessRunner({
     if (running) claims = claims.then(claimUpToConcurrency);
   };
 
-  return {
+  const jobs: InProcessRunner = {
     async enqueue(name, payload, options = {}) {
       const id = await enqueueJob(db, name, payload, { ...options, now: clock.now() });
       requestClaim();
@@ -118,9 +135,12 @@ export function inProcessRunner({
       throw new Error("Recurring jobs are not supported yet");
     },
 
+    wake: requestClaim,
+
     async start() {
       if (running) return;
       running = true;
+      drain = new AbortController();
       shutdown = new AbortController();
       timer = clock.setInterval(requestClaim, pollMs);
       requestClaim();
@@ -129,6 +149,7 @@ export function inProcessRunner({
 
     async stop() {
       running = false;
+      drain?.abort();
       clock.clearInterval(timer);
       timer = undefined;
       await claims;
@@ -137,4 +158,6 @@ export function inProcessRunner({
       await Promise.all(inFlight);
     },
   };
+  inProcessRunners.add(jobs);
+  return jobs;
 }
