@@ -142,11 +142,10 @@ async function main() {
     // A Bot Turn: bot.send takes the client's uuidv7 id for the Message. The fake Provider never calls
     // the send_to_user tool, so the Bot's reply is not checked here: the Turn only has to end complete.
     const created = await client.rpc.bot.create({ name: "Smoke Bot", model });
-    const botEvents = await client.rpc.bot.send({
-      botId: created.id,
-      id: uuidv7(),
-      text: "Hello Bot from the smoke test",
-    });
+    const botEvents = await client.rpc.bot.send(
+      { botId: created.id, id: uuidv7(), text: "Hello Bot from the smoke test" },
+      { signal: AbortSignal.timeout(60_000) },
+    );
     let botStatus: string | undefined;
     let botSaid: string | undefined;
     for await (const event of botEvents) {
