@@ -215,10 +215,16 @@ export async function exportBots(tx: Transaction, userId: string): Promise<BotEx
         )
         .orderBy(asc(message.createdAt), asc(message.id))
     : [];
+  const byConversation = new Map<string, BotMessage[]>();
+  for (const sent of messages) {
+    const list = byConversation.get(sent.conversationId) ?? [];
+    list.push(toBotMessage(sent));
+    byConversation.set(sent.conversationId, list);
+  }
   return {
     bots: rows.map(({ conversationId, ...row }) => ({
       ...row,
-      messages: messages.filter((sent) => sent.conversationId === conversationId).map(toBotMessage),
+      messages: byConversation.get(conversationId) ?? [],
     })),
   };
 }
