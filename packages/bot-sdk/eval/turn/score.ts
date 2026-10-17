@@ -94,3 +94,18 @@ export function tally(scores: readonly Score[]) {
     endTurn: group(scores.flatMap((s) => (s.endTurn === null ? [] : [s.endTurn]))),
   };
 }
+
+/** The text of each non-empty SendToUser call in a Turn's transcript, in order. */
+export function sentTexts(transcript: readonly ModelMessage[] | null | undefined): string[] {
+  return (transcript ?? []).flatMap((entry) =>
+    (entry.toolCalls ?? []).flatMap((call) => {
+      if (call.function.name !== sendToUserName) return [];
+      try {
+        const { text } = JSON.parse(call.function.arguments) as { text?: unknown };
+        return typeof text === "string" && text.trim() ? [text] : [];
+      } catch {
+        return [];
+      }
+    }),
+  );
+}

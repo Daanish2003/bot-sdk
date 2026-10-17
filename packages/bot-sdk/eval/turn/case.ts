@@ -100,6 +100,24 @@ async function seedHistory(
   }
 }
 
+/** A fresh user with Credentials for the Model's Provider, and a Bot on that Model. */
+export async function freshBot(env: TurnEnv, caseId: string, repeat: number) {
+  const userId = randomUUID();
+  await env.db
+    .insert(userTable)
+    .values({ id: userId, name: "Eval", email: `${userId}@eval.invalid` });
+  const provider = env.model.split(":")[0]!;
+  await saveCredentials(env.sdk, userId, {
+    service: provider,
+    fields: env.credentialsFor(caseId, repeat),
+    hint: "eval",
+    verified: true,
+  });
+  const bot = await createBot(env.db, userId, { name: "Eval", model: env.model });
+  const found = await findBot(env.db, userId, bot.id);
+  return { userId, bot, found };
+}
+
 /** Runs one case once and scores the Turn. A failure before the Turn ends counts as a failed run. */
 export async function runCase(
   env: TurnEnv,
@@ -109,19 +127,7 @@ export async function runCase(
   const started = Date.now();
   const sent: string[] = [];
   try {
-    const userId = randomUUID();
-    await env.db
-      .insert(userTable)
-      .values({ id: userId, name: "Eval", email: `${userId}@eval.invalid` });
-    const provider = env.model.split(":")[0]!;
-    await saveCredentials(env.sdk, userId, {
-      service: provider,
-      fields: env.credentialsFor(evalCase.id, repeat),
-      hint: "eval",
-      verified: true,
-    });
-    const bot = await createBot(env.db, userId, { name: "Eval", model: env.model });
-    const found = await findBot(env.db, userId, bot.id);
+    const { userId, bot, found } = await freshBot(env, evalCase.id, repeat);
     await seedHistory(
       env.db,
       { botId: bot.id, conversationId: found!.conversationId },
