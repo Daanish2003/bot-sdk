@@ -2,7 +2,7 @@ import type { BotSdkContext, BotSdkPlugin, Transaction } from "../../../core/ser
 import { runRegisteredJob } from "./jobs/define";
 import { inProcessRunner, isInProcessRunner } from "./jobs/in-process";
 import type { EnqueueOptions, JobRunner } from "./jobs/runner";
-import { enqueueJob } from "./jobs/store";
+import { cancelJobIn, enqueueJob } from "./jobs/store";
 import { createRunnerLifecycle, type RunnerLifecycle } from "./lifecycle";
 
 export type RunnerOptions = {
@@ -31,6 +31,12 @@ export type RunnerApi = Pick<JobRunner, "enqueue" | "cancel" | "status"> & {
     payload: unknown,
     options?: EnqueueOptions,
   ) => Promise<string>;
+  /**
+   * Cancels the active job with this key in the caller's transaction, and returns what it was
+   * (`queued` never runs; `running` aborts at its next heartbeat or write), or undefined when
+   * none is active. Only the in-process runner reads `chat.job`, so on another runner it throws.
+   */
+  cancelIn: (tx: Transaction, idempotencyKey: string) => Promise<"queued" | "running" | undefined>;
   /** Has the in-process runner claim due jobs now instead of at its next poll. */
   wake: () => void;
 };
@@ -80,6 +86,12 @@ export function runner(options: RunnerOptions = {}): RunnerPlugin {
             throw new Error("Queueing a job in a transaction needs the in-process runner");
           }
           return enqueueJob(tx, name, payload, { ...enqueueOptions, now: sdk.clock() });
+        },
+        cancelIn: (tx, idempotencyKey) => {
+          if (!isInProcessRunner(jobs)) {
+            throw new Error("Cancelling a job in a transaction needs the in-process runner");
+          }
+          return cancelJobIn(tx, idempotencyKey, sdk.clock());
         },
         wake: () => {
           if (isInProcessRunner(jobs)) jobs.wake();

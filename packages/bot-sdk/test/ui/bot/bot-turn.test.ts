@@ -39,6 +39,7 @@ function fakeBotServer(messages: BotMessage[] = []) {
     wake();
   };
   const sends: unknown[] = [];
+  const stops: unknown[] = [];
   // The error the next send is refused with, before its stream starts.
   let refusal: Error | undefined;
   // While set, each `bot.get` reads the Messages at once but answers only once it resolves.
@@ -49,6 +50,9 @@ function fakeBotServer(messages: BotMessage[] = []) {
         const read = { bot: { ...ada, turnStatus }, messages: [...messages] };
         await held;
         return read;
+      }),
+      stop: os.input(z.object({ botId: z.string() })).handler(({ input }) => {
+        stops.push(input);
       }),
       send: os
         .input(z.object({ botId: z.string(), text: z.string() }))
@@ -77,6 +81,7 @@ function fakeBotServer(messages: BotMessage[] = []) {
   return {
     fetch,
     sends,
+    stops,
     /** What `bot.get` says of the latest Turn from now on, as the server's Turn moves on. */
     setTurnStatus: (status: TurnStatus | "running" | null) => {
       turnStatus = status;
@@ -325,6 +330,35 @@ describe("a Turn that didn't reply", () => {
 
     expect(screen.queryByText("Couldn't reply")).toBeNull();
     expect(screen.queryByText("Seen ✓")).toBeNull();
+  });
+});
+
+describe("stopping a Turn", () => {
+  it("shows ■ Stop while Working…, even for a Turn running in another tab, and calls bot.stop", async () => {
+    const server = fakeBotServer();
+    server.setTurnStatus("running");
+    mount(server);
+
+    fireEvent.click(await screen.findByRole("button", { name: "■ Stop" }));
+
+    await waitFor(() => expect(server.stops).toEqual([{ botId: ada.id }]));
+  });
+
+  it("shows ■ Stop for a send in flight, and not once the Turn has ended", async () => {
+    const server = fakeBotServer();
+    mount(server);
+    await screen.findByRole("textbox", { name: "Message" });
+    expect(screen.queryByRole("button", { name: "■ Stop" })).toBeNull();
+
+    await type("hi");
+    expect(screen.getByRole("button", { name: "■ Stop" })).toBeTruthy();
+
+    await server.stream(
+      { type: "message", message: said("m1", "user", "hi") },
+      { type: "turnEnded", status: "stopped" },
+      "end",
+    );
+    expect(screen.queryByRole("button", { name: "■ Stop" })).toBeNull();
   });
 });
 

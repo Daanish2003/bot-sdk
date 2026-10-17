@@ -322,6 +322,26 @@ export async function cancelJob(db: Database, idempotencyKey: string, now: Date)
     .where(and(eq(job.idempotencyKey, idempotencyKey), inArray(job.status, [...ACTIVE])));
 }
 
+/**
+ * Cancels the active job with this key in the caller's transaction, and returns what it was:
+ * `queued` (it never runs) or `running` (its attempt aborts at its next heartbeat or write).
+ * Returns undefined when no job with this key is active.
+ */
+export async function cancelJobIn(
+  tx: Transaction,
+  idempotencyKey: string,
+  now: Date,
+): Promise<"queued" | "running" | undefined> {
+  const [active] = await tx
+    .select({ id: job.id, status: job.status })
+    .from(job)
+    .where(and(eq(job.idempotencyKey, idempotencyKey), inArray(job.status, [...ACTIVE])))
+    .for("update");
+  if (!active) return undefined;
+  await tx.update(job).set({ status: "cancelled", updatedAt: now }).where(eq(job.id, active.id));
+  return active.status === "queued" ? "queued" : "running";
+}
+
 /** Deletes succeeded and cancelled jobs ended over 7 days ago, and failed ones over 30 days ago. */
 export async function pruneFinishedJobs(db: Database, now: Date): Promise<void> {
   await db

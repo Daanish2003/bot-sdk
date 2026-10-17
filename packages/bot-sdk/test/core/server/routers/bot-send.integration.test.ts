@@ -54,11 +54,12 @@ afterEach(async () => {
  * A Bot-enabled SDK over `overrides`, whose in-process runner runs the Turns' jobs. It is started
  * and stopped after the test; it drains for only 50 ms, so a Turn a test leaves hanging is aborted.
  */
-async function sdkWithRunner(overrides: TestDepsOverrides) {
+async function sdkWithRunner(overrides: TestDepsOverrides, { idle = false } = {}) {
   let deps: TestDeps | undefined;
   const jobs = inProcessRunner({ db: getTestDb(), logger: silent, drainMs: 50, deps: () => deps! });
   deps = createTestSdk({ plugins: [bot()], jobs, ...overrides });
-  await jobs.start();
+  // An idle runner never claims a job, so a Turn stays queued.
+  if (!idle) await jobs.start();
   started.push(jobs);
   return deps;
 }
@@ -66,10 +67,14 @@ async function sdkWithRunner(overrides: TestDepsOverrides) {
 /** A user with an OpenAI key, a Bot on `model`, and a client over a Bot-enabled SDK whose Model plays `rounds`. */
 async function botWith(
   rounds: Round[],
-  { manual = false, pubsub }: { manual?: boolean } & Pick<TestDepsOverrides, "pubsub"> = {},
+  {
+    manual = false,
+    pubsub,
+    idle = false,
+  }: { manual?: boolean; idle?: boolean } & Pick<TestDepsOverrides, "pubsub"> = {},
 ) {
   const fake = createFakeAdapter({ rounds, manual });
-  const deps = await sdkWithRunner({ adapterFor: () => fake.adapter, pubsub });
+  const deps = await sdkWithRunner({ adapterFor: () => fake.adapter, pubsub }, { idle });
   const user = await insertUser();
   await saveCredentials(deps, user.id, {
     service: "openai",
@@ -410,6 +415,64 @@ describe("a Turn off the request", () => {
       { type: "message", role: "assistant", text: "Hello!" },
       { type: "turnEnded", status: "complete" },
     ]);
+  });
+});
+
+describe("bot.stop", () => {
+  it("ends a queued Turn stopped at once, and its job never runs", async () => {
+    const { client, botId, fake } = await botWith([round(text("Never."))], { idle: true });
+    const stream = await client.bot.send({ botId, text: "hi" });
+    await stream.next();
+
+    await client.bot.stop({ botId });
+
+    const [turn] = await turnsOf(botId);
+    expect(turn).toMatchObject({ status: "stopped", error: null });
+    expect(turn?.endedAt).toBeInstanceOf(Date);
+    const [row] = await getTestDb().select().from(job).where(eq(job.id, turn!.jobId!));
+    expect(row).toMatchObject({ status: "cancelled", attempts: 0 });
+    expect(fake.calls).toHaveLength(0);
+    expect((await client.bot.get({ botId })).bot.turnStatus).toBe("stopped");
+  });
+
+  it("ends a running Turn stopped as its attempt aborts, and the Messages already sent stay", async () => {
+    const first = round(sends({ text: "On it…", endTurn: false }));
+    const { client, botId, fake } = await botWith(
+      [first, round(sends({ text: "Never sent.", endTurn: true }))],
+      { manual: true },
+    );
+    const stream = await client.bot.send({ botId, text: "hi" });
+    await fake.release(first.length);
+    await readUntil(
+      stream,
+      (event) => event.type === "message" && event.message.role === "assistant",
+    );
+
+    await client.bot.stop({ botId });
+    await fake.releaseAll();
+
+    expect(await endedTurn(botId)).toMatchObject({ status: "stopped", error: null });
+    expect((await client.bot.get({ botId })).messages.map((row) => row.text)).toEqual([
+      "hi",
+      "On it…",
+    ]);
+    const rest = await readUntil(stream, () => false);
+    expect(rest.at(-1)).toEqual({ type: "turnEnded", status: "stopped" });
+  });
+
+  it("does nothing when no Turn is running", async () => {
+    const { client, botId } = await botWith([]);
+
+    await client.bot.stop({ botId });
+
+    expect(await turnsOf(botId)).toEqual([]);
+  });
+
+  it("refuses another user's Bot as not found", async () => {
+    const { botId, deps } = await botWith([]);
+    const other = chatRpc({ user: await insertUser(), deps });
+
+    await expect(other.bot.stop({ botId })).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 });
 
