@@ -52,3 +52,20 @@ This replaces the "lives in the Chat SDK core" amendment. ADR 0020 made the SDK 
 - **Its lifecycle.** The runner owns its own reaper, prune, polling and drain. It starts before the plugins that require it and stops after them, so the assistant drains its Runs first and the runner drains its jobs after, as before.
 - **Its data.** `chat.job` moves to the runner's plugin schema, still in the `chat` schema (ADR 0020) and with no migration change. Job definitions stay with their domain and import `defineJob`, which stays internal.
 - **Extracted first, unchanged.** The move renames nothing, and the existing jobs tests prove it changes no behaviour. Checkpointed steps come after it and amend this ADR again.
+
+## Amendment: a job is a workflow with Checkpoints (2026-10-17, [#481](https://github.com/Daanish2003/ai-chat/issues/481))
+
+Step 2 lets a Turn survive a crash or a deploy by resuming from its last saved piece of work. The runner gets that as **Checkpoints** on the jobs it already runs, built in-house in plain TypeScript with no new engine. The design copies the patterns in [How Postgres-native durable execution engines work inside](https://github.com/Daanish2003/ai-chat/issues/408).
+
+- **A `chat.job` row is the workflow.** Its claim, lease, attempts and status are unchanged. One table is added: `chat.job_checkpoint (job_id → job.id on delete cascade, name, output jsonb, created_at)`, keyed by `(job_id, name)`. Pruning a job removes its Checkpoints. Today's jobs are workflows with no Checkpoints and behave as before. Nothing is renamed.
+- **`ctx.checkpoint(name, fn)`.** It runs `fn` once and saves its JSON result. When an attempt replays, it returns the saved result without running `fn`. The unit is a **Checkpoint**, not a step: Step is the Bot's model call (CONTEXT.md).
+- **Fenced on every write.** In one transaction, a Checkpoint is inserted only while this attempt still owns its row (the `ownAttempt` fence), and `heartbeat_at` is bumped, so each Checkpoint also renews the lease. If nothing is written, the lease is lost or the job was cancelled, and the attempt aborts the way a failed heartbeat aborts it. Side effects stay at-least-once: a crash after `fn` but before its save runs `fn` again.
+- **Identity is the name plus a repeat count.** The second `checkpoint("embed")` in a run is `embed#2`. There's no versioning: on resume, matching names are reused and new names run fresh. When a deploy changes what a Checkpoint returns, its author renames it.
+- **Recovery is unchanged:** a 10 s heartbeat, a 60 s lease, and the reaper re-queues an expired row, which counts as an attempt. Any process can claim the row, load its Checkpoints and replay past them. A retry after a thrown error also resumes after the last Checkpoint.
+- **A deploy hands work back at a Checkpoint.** `stop()` asks each running workflow to yield. Its next Checkpoint saves, then yields. The runner puts the row back as `queued` with `run_after = now`, without counting the attempt, under the same fence, so another process resumes it at once instead of a lease later. A job still running after `drainMs` is aborted as before.
+- **Cancel is unchanged.** The row becomes `cancelled`, and the attempt aborts at its next heartbeat or, sooner, at its next Checkpoint's fence.
+- **Polling stays.** There's still a 2 s poll plus a wake-up on `enqueue`, and no LISTEN/NOTIFY.
+- **Trigger.dev saves nothing.** Under the Trigger.dev adapter there's no `chat.job` row, so `checkpoint()` runs `fn` without saving, and Trigger.dev's own retries apply. Whether Turns need the in-process runner is decided with [A Turn as a durable workflow](https://github.com/Daanish2003/ai-chat/issues/482).
+- **Left to later work:**
+  - A Checkpoint that commits a same-database write in its own transaction, for exactly-once (ticket 482).
+  - Partition keys and send/recv (step 3), durable sleep and cron (step 4), and child workflows (step 6).
