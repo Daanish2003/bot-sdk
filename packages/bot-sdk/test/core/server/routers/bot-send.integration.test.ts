@@ -156,9 +156,14 @@ async function endedTurn(turnBotId: string) {
 }
 
 /** Sends `text` to the Bot and reads the whole stream. */
-async function send(client: ReturnType<typeof chatRpc>, botId: string, text: string) {
+async function send(
+  client: ReturnType<typeof chatRpc>,
+  botId: string,
+  text: string,
+  id = uuidv7(),
+) {
   const events = [];
-  for await (const event of await client.bot.send({ botId, text })) events.push(event);
+  for await (const event of await client.bot.send({ botId, id, text })) events.push(event);
   return events;
 }
 
@@ -308,7 +313,7 @@ describe("bot.send", () => {
     const { botId, deps } = await botWith([]);
     const other = chatRpc({ user: await insertUser(), deps });
 
-    await expect(other.bot.send({ botId, text: "hi" })).rejects.toMatchObject({
+    await expect(other.bot.send({ botId, id: uuidv7(), text: "hi" })).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
   });
@@ -345,7 +350,7 @@ describe("a Turn's limits", () => {
     });
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 
-    const stream = await client.bot.send({ botId, text: "take your time" });
+    const stream = await client.bot.send({ botId, id: uuidv7(), text: "take your time" });
     await fake.release(first.length);
     const before = await readUntil(
       stream,
@@ -375,7 +380,10 @@ describe("a Turn off the request", () => {
     );
     const abort = new AbortController();
 
-    const stream = await client.bot.send({ botId, text: "hi" }, { signal: abort.signal });
+    const stream = await client.bot.send(
+      { botId, id: uuidv7(), text: "hi" },
+      { signal: abort.signal },
+    );
     await fake.release(first.length);
     await readUntil(
       stream,
@@ -399,7 +407,7 @@ describe("a Turn off the request", () => {
     ]);
 
     // The transport may drop a stream it never pulled from: `return()` before any `next()`.
-    const stream = await sendToBot(deps, { userId: user.id, botId, text: "hi" });
+    const stream = await sendToBot(deps, { userId: user.id, botId, id: uuidv7(), text: "hi" });
     await stream.return(undefined);
 
     expect(await endedTurn(botId)).toMatchObject({ status: "complete", error: null });
@@ -443,7 +451,7 @@ describe("a Turn off the request", () => {
 describe("bot.stop", () => {
   it("ends a queued Turn stopped at once, and its job never runs", async () => {
     const { client, botId, fake } = await botWith([round(text("Never."))], { idle: true });
-    const stream = await client.bot.send({ botId, text: "hi" });
+    const stream = await client.bot.send({ botId, id: uuidv7(), text: "hi" });
     await stream.next();
 
     await client.bot.stop({ botId });
@@ -463,7 +471,7 @@ describe("bot.stop", () => {
       [first, round(sends({ text: "Never sent.", endTurn: true }))],
       { manual: true },
     );
-    const stream = await client.bot.send({ botId, text: "hi" });
+    const stream = await client.bot.send({ botId, id: uuidv7(), text: "hi" });
     await fake.release(first.length);
     await readUntil(
       stream,
@@ -508,12 +516,12 @@ describe("one Turn at a time", () => {
       { manual: true },
     );
     const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
-    const firstStream = await client.bot.send({ botId, text: "one" });
+    const firstStream = await client.bot.send({ botId, id: uuidv7(), text: "one" });
     const [first] = await readUntil(firstStream, () => true);
     // The first Turn waits in its model call.
     await expect.poll(() => fake.calls.length).toBe(1);
 
-    const secondStream = await client.bot.send({ botId, text: "two" });
+    const secondStream = await client.bot.send({ botId, id: uuidv7(), text: "two" });
     const [second] = await readUntil(secondStream, () => true);
 
     // No CONFLICT: the Message is saved, and its Trigger waits for the next Turn.
@@ -557,10 +565,10 @@ describe("one Turn at a time", () => {
       { manual: true },
     );
     const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
-    await (await client.bot.send({ botId, text: "one" })).next();
+    await (await client.bot.send({ botId, id: uuidv7(), text: "one" })).next();
     await expect.poll(() => fake.calls.length).toBe(1);
-    await (await client.bot.send({ botId, text: "two" })).next();
-    const third = await client.bot.send({ botId, text: "three" });
+    await (await client.bot.send({ botId, id: uuidv7(), text: "two" })).next();
+    const third = await client.bot.send({ botId, id: uuidv7(), text: "three" });
     await third.next();
 
     await fake.releaseAll();
@@ -583,9 +591,9 @@ describe("one Turn at a time", () => {
       [round(runError("Provider down")), round(text("Back."))],
       { manual: true },
     );
-    await (await client.bot.send({ botId, text: "one" })).next();
+    await (await client.bot.send({ botId, id: uuidv7(), text: "one" })).next();
     await expect.poll(() => fake.calls.length).toBe(1);
-    const queued = await client.bot.send({ botId, text: "two" });
+    const queued = await client.bot.send({ botId, id: uuidv7(), text: "two" });
     await queued.next();
 
     await fake.releaseAll();
@@ -601,9 +609,9 @@ describe("one Turn at a time", () => {
     const { client, botId, fake } = await botWith([round(text("Never.")), round(text("Back."))], {
       manual: true,
     });
-    await (await client.bot.send({ botId, text: "one" })).next();
+    await (await client.bot.send({ botId, id: uuidv7(), text: "one" })).next();
     await expect.poll(() => fake.calls.length).toBe(1);
-    const queued = await client.bot.send({ botId, text: "two" });
+    const queued = await client.bot.send({ botId, id: uuidv7(), text: "two" });
     await queued.next();
 
     await client.bot.stop({ botId });
@@ -638,6 +646,111 @@ describe("one Turn at a time", () => {
   });
 });
 
+describe("a resent Message", () => {
+  const messagesOf = (conversationId: string) =>
+    getTestDb().select().from(message).where(eq(message.conversationId, conversationId));
+
+  it("saves one Message and one Trigger, and re-joins the Turn that took it", async () => {
+    const { client, user, botId, fake } = await botWith(
+      [round(sends({ text: "Hello!", endTurn: true }))],
+      { manual: true },
+    );
+    const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
+    const id = uuidv7();
+    const first = await client.bot.send({ botId, id, text: "hi" });
+    expect(await first.next()).toMatchObject({ value: { message: { id } } });
+    await expect.poll(() => fake.calls.length).toBe(1);
+
+    const resent = await client.bot.send({ botId, id, text: "hi" });
+    expect(await resent.next()).toMatchObject({ value: { message: { id, text: "hi" } } });
+    await fake.releaseAll();
+
+    const rest = await readUntil(resent, () => false);
+    expect(shapes(rest)).toEqual([
+      { type: "message", role: "assistant", text: "Hello!" },
+      { type: "turnEnded", status: "complete" },
+    ]);
+    expect(await messagesOf(conversationId)).toHaveLength(2);
+    expect(await triggersOf(conversationId)).toMatchObject([{ id, messageId: id }]);
+    expect(await turnsOf(botId)).toHaveLength(1);
+  });
+
+  it("streams the Turn's Messages and turnEnded when its Turn has ended", async () => {
+    const { client, botId } = await botWith([round(sends({ text: "Hello!", endTurn: true }))]);
+    const id = uuidv7();
+    await client.bot.send({ botId, id, text: "hi" });
+    await endedTurn(botId);
+
+    const events = await (async () => {
+      const out = [];
+      for await (const event of await client.bot.send({ botId, id, text: "hi" })) out.push(event);
+      return out;
+    })();
+
+    expect(shapes(events)).toEqual([
+      { type: "message", role: "user", text: "hi" },
+      { type: "message", role: "assistant", text: "Hello!" },
+      { type: "turnEnded", status: "complete" },
+    ]);
+    expect(await turnsOf(botId)).toHaveLength(1);
+  });
+
+  it("is accepted after the Quota is spent", async () => {
+    const { client, user, botId } = await hostBotWith(
+      [round(sends({ text: "Hello!", endTurn: true }))],
+      { getQuota: quotaLookup({ budgetUsd: 0.0002, window: "day" }) },
+    );
+    const id = uuidv7();
+    await client.bot.send({ botId, id, text: "hi" });
+    await endedTurn(botId);
+    await getTestDb().insert(usage).values({
+      id: uuidv7(),
+      userId: user.id,
+      kind: "run",
+      model: hostModel,
+      inputTokens: 100,
+      outputTokens: 0,
+      costMicros: 1_000_000,
+      estimated: false,
+      createdAt: new Date(),
+    });
+    // A new Message is refused, but the resend is not.
+    await expect(client.bot.send({ botId, id: uuidv7(), text: "more" })).rejects.toMatchObject({
+      status: 402,
+    });
+
+    const events = await send(client, botId, "hi", id);
+
+    expect(events.at(-1)).toEqual({ type: "turnEnded", status: "complete" });
+  });
+
+  it("is refused with BAD_REQUEST when the id is used in another Conversation", async () => {
+    const { client, botId } = await botWith([round(text("ok"))]);
+    const other = await botWith([round(text("ok"))]);
+    const id = uuidv7();
+    await client.bot.send({ botId, id, text: "mine" });
+
+    await expect(
+      other.client.bot.send({ botId: other.botId, id, text: "x" }),
+    ).rejects.toMatchObject({ status: 400 });
+    const { conversationId } = (await findBot(getTestDb(), other.user.id, other.botId))!;
+    expect(await messagesOf(conversationId)).toEqual([]);
+  });
+
+  it("is rejected by validation without a uuidv7 id", async () => {
+    const { client, botId } = await botWith([]);
+
+    // @ts-expect-error the id is required
+    await expect(client.bot.send({ botId, text: "hi" })).rejects.toMatchObject({ status: 400 });
+    await expect(client.bot.send({ botId, id: "nope", text: "hi" })).rejects.toMatchObject({
+      status: 400,
+    });
+    await expect(
+      client.bot.send({ botId, id: crypto.randomUUID(), text: "hi" }),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+});
+
 describe("a Turn's Quota and usage", () => {
   const oneTurn = withUsage(round(sends({ text: "Hello!", endTurn: true })), {
     promptTokens: 100,
@@ -662,7 +775,7 @@ describe("a Turn's Quota and usage", () => {
       createdAt: new Date(),
     });
 
-    await expect(client.bot.send({ botId, text: "hi" })).rejects.toMatchObject({
+    await expect(client.bot.send({ botId, id: uuidv7(), text: "hi" })).rejects.toMatchObject({
       status: 402,
       data: { code: "error.quotaSpent" },
     });
@@ -840,7 +953,7 @@ describe("a Turn that resumes after a crash", () => {
       third,
       third,
     ]);
-    const stream = await client.bot.send({ botId, text: "count to three" });
+    const stream = await client.bot.send({ botId, id: uuidv7(), text: "count to three" });
 
     const lost = attempt();
     await fake.release(steps[0]!.length + steps[1]!.length);
@@ -882,7 +995,7 @@ describe("a Turn that resumes after a crash", () => {
       [first, second, second],
       { host: true },
     );
-    await client.bot.send({ botId, text: "hi" });
+    await client.bot.send({ botId, id: uuidv7(), text: "hi" });
 
     const lost = attempt();
     // The second model call is cut off partway.
@@ -916,7 +1029,7 @@ describe("a Turn that resumes after a crash", () => {
     const { fake, client, user, botId, attempt, crash, instance } = await crashableBot([
       round(sends({ text: "Hello!", endTurn: true })),
     ]);
-    await client.bot.send({ botId, text: "hi" });
+    await client.bot.send({ botId, id: uuidv7(), text: "hi" });
     const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
     // Another connection holds the Conversation's row, so SendToUser's transaction waits on it.
     let unlock = () => {};
@@ -993,7 +1106,7 @@ describe("a Turn that resumes after a crash", () => {
       second,
       second,
     ]);
-    const stream = await client.bot.send({ botId, text: "hi" });
+    const stream = await client.bot.send({ botId, id: uuidv7(), text: "hi" });
 
     const lost = attempt();
     await fake.release(first.length);
@@ -1022,7 +1135,7 @@ describe("a Turn that resumes after a crash", () => {
     const { fake, client, botId, attempt, instance } = await crashableBot([
       round(text("Nothing to add.")),
     ]);
-    const stream = await client.bot.send({ botId, text: "ok" });
+    const stream = await client.bot.send({ botId, id: uuidv7(), text: "ok" });
     // Another connection holds the Turn's row, so the end_turn Checkpoint waits on it.
     const turnRow = await holdLocks((tx) =>
       tx.select({ id: botTurn.id }).from(botTurn).where(eq(botTurn.botId, botId)).for("update"),
@@ -1053,14 +1166,14 @@ describe("a Turn that resumes after a crash", () => {
       first,
       round(sends({ text: "Never sent.", endTurn: true })),
     ]);
-    await client.bot.send({ botId, text: "hi" });
+    await client.bot.send({ botId, id: uuidv7(), text: "hi" });
     const lost = attempt();
     await fake.release(first.length);
     // Step 1 is saved, and the attempt waits in Step 2's model call.
     await expect.poll(() => fake.calls.length).toBe(2);
     await expect.poll(() => sentTexts(client, botId)).toEqual(["On it…"]);
     // A Message queued behind the Turn.
-    const queued = await client.bot.send({ botId, text: "and then?" });
+    const queued = await client.bot.send({ botId, id: uuidv7(), text: "and then?" });
     const [saved] = await readUntil(queued, () => true);
 
     await client.bot.stop({ botId });
@@ -1093,7 +1206,7 @@ describe("a Turn that resumes after a crash", () => {
     const { fake, client, user, botId, attempt } = await crashableBot([first, second], {
       host: true,
     });
-    await client.bot.send({ botId, text: "count" });
+    await client.bot.send({ botId, id: uuidv7(), text: "count" });
 
     const drain = new AbortController();
     const handedBack = attempt(undefined, drain.signal);
@@ -1129,7 +1242,7 @@ describe("a Turn that resumes after a crash", () => {
       [withUsage(round(sends({ text: "Hello!", endTurn: true })), usageOfStep)],
       { host: true, hooks: createHookEmitter({ onUsage }, silent) },
     );
-    await client.bot.send({ botId, text: "hi" });
+    await client.bot.send({ botId, id: uuidv7(), text: "hi" });
     // Another connection holds the usage table, so the bill's transaction waits on it.
     const usageTable = await holdLocks((tx) =>
       tx.execute(sql`lock table chat.usage in share mode`),
@@ -1157,7 +1270,7 @@ describe("a Turn that resumes after a crash", () => {
     const { fake, client, user, botId, attempt, crash, instance } = await crashableBot([
       round(sends({ text: "Here's the answer.", endTurn: true })),
     ]);
-    await client.bot.send({ botId, text: "a question" });
+    await client.bot.send({ botId, id: uuidv7(), text: "a question" });
     const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
     // Another connection holds the Conversation's row, so SendToUser's transaction waits on it.
     const conversationRow = await holdLocks((tx) =>
@@ -1196,7 +1309,7 @@ describe("a Turn that resumes after a crash", () => {
       hangs,
       hangs,
     ]);
-    await client.bot.send({ botId, text: "hi" });
+    await client.bot.send({ botId, id: uuidv7(), text: "hi" });
 
     const lost = [attempt()];
     await fake.release(first.length);
@@ -1223,11 +1336,11 @@ describe("a Turn that resumes after a crash", () => {
     const hangs = round(text("Never."));
     const { fake, client, user, botId, attempt, crash } = await crashableBot([hangs, hangs, hangs]);
     const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
-    await client.bot.send({ botId, text: "one" });
+    await client.bot.send({ botId, id: uuidv7(), text: "one" });
 
     const lost = [attempt()];
     await expect.poll(() => fake.calls.length).toBe(1);
-    await (await client.bot.send({ botId, text: "two" })).next();
+    await (await client.bot.send({ botId, id: uuidv7(), text: "two" })).next();
     for (const calls of [1, 2, 3]) {
       await expect.poll(() => fake.calls.length).toBe(calls);
       await crash();
@@ -1263,7 +1376,7 @@ describe("a Turn that resumes after a crash", () => {
     const { fake, client, botId, attempt, crash, instance } = await crashableBot(
       Array.from({ length: 12 }, () => step),
     );
-    await client.bot.send({ botId, text: "go on forever" });
+    await client.bot.send({ botId, id: uuidv7(), text: "go on forever" });
 
     const lost = attempt();
     await fake.release(step.length * 6);
@@ -1284,7 +1397,7 @@ describe("a Turn that resumes after a crash", () => {
   it("ends a resumed Turn past 5 minutes timed_out without calling the Model", async () => {
     const step = round(sends({ text: "One", endTurn: false }));
     const { fake, client, botId, attempt, crash, instance } = await crashableBot([step, step]);
-    await client.bot.send({ botId, text: "hi" });
+    await client.bot.send({ botId, id: uuidv7(), text: "hi" });
 
     const lost = attempt();
     await fake.release(step.length);
@@ -1306,7 +1419,7 @@ describe("a Turn that resumes after a crash", () => {
     const { fake, client, botId, attempt } = await crashableBot([
       round(sends({ text: "One", endTurn: true })),
     ]);
-    await client.bot.send({ botId, text: "hi" });
+    await client.bot.send({ botId, id: uuidv7(), text: "hi" });
     await ageTurn(botId, turnTimeLimitMs + 1_000);
 
     await attempt();

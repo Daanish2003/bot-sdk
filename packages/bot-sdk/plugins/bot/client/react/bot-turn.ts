@@ -1,7 +1,9 @@
+import { ORPCError } from "@orpc/client";
 import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSyncExternalStore } from "react";
 
 import { type BotSdkOrpc, useChatAdapter } from "../../../../core/client/react/provider";
+import { uuidv7 } from "../../../../core/shared/uuidv7";
 import type { BotMessage } from "../../shared/turn";
 
 /** A Message as the Conversation shows it: a saved one, or the user's Message still being sent. */
@@ -65,8 +67,23 @@ const inOrder = (messages: BotMessage[]) =>
       a.createdAt.getTime() - b.createdAt.getTime() || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
   );
 
-/** Tells the user's unsaved Messages apart until #513 gives each send its own id. */
+/** Tells the user's unsaved Messages apart until the server's saved one replaces them. */
 let pendingSequence = 0;
+
+/** How many times a send is made when its request fails on the network, before the server answers. */
+const sendAttempts = 3;
+
+/** Calls `bot.send`, again with the same input while the request fails on the network. */
+async function sendWithRetry(orpc: BotSdkOrpc, input: { botId: string; id: string; text: string }) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await orpc.bot.send.call(input);
+    } catch (error) {
+      // An answer from the server, a refusal included, is final; only a request that got none is retried.
+      if (error instanceof ORPCError || attempt >= sendAttempts) throw error;
+    }
+  }
+}
 
 /**
  * Sends the user's Message and reads the stream of the Turn that takes it. A send while a Turn
@@ -77,6 +94,10 @@ let pendingSequence = 0;
  * The user's Message shows at once, and the stream's first event (the saved Message) replaces it.
  * Each Message the Bot sends joins the cached Conversation as it arrives, and `turnEnded` sets the
  * cached Bot's Turn status, which "Seen ✓" reads.
+ *
+ * The send makes one uuidv7 for its Message and sends it as `id`. A request that fails on the network
+ * before the server answers is made again with the same `id` (#498), so a Message the server did
+ * save is never saved twice and the repeat re-joins its Turn.
  *
  * A send the server refuses before saving the Message (402 Quota) removes the bubble and is handed
  * to `onRefused` with its text, so the composer can put it back.
@@ -99,6 +120,7 @@ async function runSend(
   };
   const listKey = orpc.bot.list.queryKey();
 
+  const id = uuidv7();
   const pending: ShownBotMessage = {
     id: `pending-${++pendingSequence}`,
     role: "user",
@@ -116,7 +138,7 @@ async function runSend(
   // The stream's first event is the saved user Message: an error before it is a refusal.
   let saved = false;
   try {
-    for await (const event of await orpc.bot.send.call({ botId, text })) {
+    for await (const event of await sendWithRetry(orpc, { botId, id, text })) {
       await cancelRefetch();
       if (event.type === "message") {
         saved = true;

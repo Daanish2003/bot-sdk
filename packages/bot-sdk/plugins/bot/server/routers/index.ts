@@ -47,11 +47,12 @@ const botRouter = {
   /**
    * Sends the caller's Message to their Bot and follows the Turn that takes it, which runs as a
    * runner job: the saved user Message, each Message sent after it, then `turnEnded`. A send while
-   * a Turn runs waits in the Conversation queue for the next Turn. A disconnect ends only the
+   * a Turn runs waits in the Conversation queue for the next Turn. `id` is the client's uuidv7 for
+   * the Message: a resend with the same `id` saves nothing new and re-joins the same Turn's stream. A disconnect ends only the
    * follow, never the Turn.
    */
   send: protectedProcedure
-    .input(z.object({ botId: z.uuid(), text: z.string().trim().min(1) }))
+    .input(z.object({ botId: z.uuid(), id: z.uuidv7(), text: z.string().trim().min(1) }))
     .output(eventIterator(botSendEventSchema))
     .handler(({ context, input, signal }) =>
       sendToBot(context.sdk, { userId: context.user.id, ...input, signal }),

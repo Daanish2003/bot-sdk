@@ -105,9 +105,10 @@ export async function sendToBot(
   {
     userId,
     botId,
+    id,
     text,
     signal,
-  }: { userId: string; botId: string; text: string; signal?: AbortSignal },
+  }: { userId: string; botId: string; id: string; text: string; signal?: AbortSignal },
 ): Promise<AsyncGenerator<BotSendEvent>> {
   const found = await findBot(deps.db, userId, botId);
   if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
@@ -121,18 +122,22 @@ export async function sendToBot(
     );
   }
 
-  // A Turn on Host credentials is refused once its Quota's window has spent the budget (ADR 0007),
-  // before the user's Message is saved. It is checked here only, so a resumed Turn is never refused.
-  if (!(await call.meter.mayRun()).ok) {
-    throw rpcError("PAYMENT_REQUIRED", "error.quotaSpent", "You've used this window's Quota");
-  }
-
-  const userMessage = await deps.db.transaction(async (tx) => {
+  const sent = await deps.db.transaction(async (tx) => {
     // The Conversation's row lock first, as in every transaction that starts or ends a Turn.
     await lockConversation(tx, found.conversationId);
+    // A repeat of an earlier send (#498) is checked before the Quota, so a retry is never refused
+    // while its own Turn runs or once the Quota is spent. It saves nothing and re-joins its Turn.
+    const earlier = await seenMessage(tx, found.conversationId, id);
+    if (earlier) return { userMessage: earlier, started: false };
+    // A Turn on Host credentials is refused once its Quota's window has spent the budget (ADR 0007),
+    // before the user's Message is saved. It is checked here only, so a resumed Turn is never refused.
+    if (!(await call.meter.mayRun()).ok) {
+      throw rpcError("PAYMENT_REQUIRED", "error.quotaSpent", "You've used this window's Quota");
+    }
     // Read under the lock, so no Turn starts between this time and the Message's commit.
     const now = deps.clock();
     const row = await appendMessage(tx, found.conversationId, {
+      id,
       role: "user",
       parts: textParts(text),
       status: "complete",
@@ -146,16 +151,44 @@ export async function sendToBot(
       messageId: row.id,
       receivedAt: now,
     });
-    return toBotMessage(row);
+    return { userMessage: toBotMessage(row), started: true };
   });
-  deps.plugin("runner").wake();
+  if (sent.started) deps.plugin("runner").wake();
 
   return followTurn(deps, {
     conversationId: found.conversationId,
-    triggerId: userMessage.id,
-    userMessage,
+    triggerId: sent.userMessage.id,
+    userMessage: sent.userMessage,
     signal,
   });
+}
+
+/**
+ * The user Message an earlier send of `id` saved in this Conversation, or `undefined` when `id` is
+ * new. An id that a Message or Trigger of another Conversation already holds is `BAD_REQUEST`, which
+ * says nothing about that row. Call it under the Conversation's row lock.
+ */
+async function seenMessage(
+  tx: Transaction,
+  conversationId: string,
+  id: string,
+): Promise<BotMessage | undefined> {
+  const [row] = await tx.select().from(message).where(eq(message.id, id));
+  const [trigger] = await tx
+    .select({ conversationId: botTrigger.conversationId })
+    .from(botTrigger)
+    .where(eq(botTrigger.id, id));
+  if (!row && !trigger) return undefined;
+  if (
+    !row ||
+    !trigger ||
+    row.conversationId !== conversationId ||
+    trigger.conversationId !== conversationId ||
+    row.role !== "user"
+  ) {
+    throw rpcError("BAD_REQUEST", "error.messageIdTaken", "That message id is already used");
+  }
+  return toBotMessage(row);
 }
 
 /**

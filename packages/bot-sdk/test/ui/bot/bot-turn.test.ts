@@ -56,7 +56,7 @@ function fakeBotServer(messages: BotMessage[] = []) {
         stops.push(input);
       }),
       send: os
-        .input(z.object({ botId: z.string(), text: z.string() }))
+        .input(z.object({ botId: z.string(), id: z.string(), text: z.string() }))
         .output(eventIterator(z.custom<BotSendEvent>()))
         .handler(async function* ({ input }) {
           sends.push(input);
@@ -76,16 +76,33 @@ function fakeBotServer(messages: BotMessage[] = []) {
     },
   };
   const handler = new RPCHandler(router);
-  const fetch = async (request: Request) =>
-    (await handler.handle(request, { prefix: "/api/chat/rpc" })).response ??
-    new Response(null, { status: 404 });
+  // While set, the next send request fails as a dropped network does: `fetch` rejects.
+  let dropNextRequest = false;
+  const dropped: string[] = [];
+  const fetch = async (request: Request) => {
+    if (dropNextRequest && request.url.endsWith("/bot/send")) {
+      dropNextRequest = false;
+      dropped.push(await request.text());
+      throw new TypeError("Failed to fetch");
+    }
+    return (
+      (await handler.handle(request, { prefix: "/api/chat/rpc" })).response ??
+      new Response(null, { status: 404 })
+    );
+  };
   return {
     fetch,
     sends,
+    /** The bodies of the requests `dropNext` failed. */
+    dropped,
     stops,
     /** What `bot.get` says of the latest Turn from now on, as the server's Turn moves on. */
     setTurnStatus: (status: TurnStatus | "running" | null) => {
       turnStatus = status;
+    },
+    /** Fails the next send request on the network, before the server sees it. */
+    dropNext: () => {
+      dropNextRequest = true;
     },
     /** Refuses the next send with `error`, as the server does before saving the Message. */
     refuseNext: (error: Error) => {
@@ -135,6 +152,8 @@ async function type(text: string) {
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
 }
 
+const uuidv7Shape = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
 const bubbles = (container: HTMLElement) =>
   [...container.querySelectorAll<HTMLElement>("[data-bot-message]")].map((bubble) => [
     bubble.dataset.role,
@@ -149,7 +168,11 @@ describe("talking to a Bot", () => {
     await type("hello");
 
     expect(bubbles(container)).toEqual([["user", "hello"]]);
-    await waitFor(() => expect(server.sends).toEqual([{ botId: ada.id, text: "hello" }]));
+    await waitFor(() =>
+      expect(server.sends).toEqual([
+        { botId: ada.id, id: expect.stringMatching(uuidv7Shape), text: "hello" },
+      ]),
+    );
     await server.stream({ type: "message", message: said("m1", "user", "hello") });
     expect(bubbles(container)).toEqual([["user", "hello"]]);
     expect(container.querySelector("[data-bot-message][data-id=m1]")).toBeTruthy();
@@ -285,8 +308,8 @@ describe("sending while the Bot works", () => {
     ]);
     await waitFor(() =>
       expect(server.sends).toEqual([
-        { botId: ada.id, text: "hi" },
-        { botId: ada.id, text: "and one more thing" },
+        { botId: ada.id, id: expect.stringMatching(uuidv7Shape), text: "hi" },
+        { botId: ada.id, id: expect.stringMatching(uuidv7Shape), text: "and one more thing" },
       ]),
     );
     expect(screen.getByRole<HTMLTextAreaElement>("textbox", { name: "Message" }).value).toBe("");
@@ -295,6 +318,31 @@ describe("sending while the Bot works", () => {
 
   it("has no Turn-running refusal to show", () => {
     expect(Object.keys(en)).not.toContain("error.turnRunning");
+  });
+});
+
+describe("a send that fails on the network", () => {
+  it("retries with the id of the failed attempt, and the next send gets a fresh one", async () => {
+    const server = fakeBotServer();
+    mount(server);
+    server.dropNext();
+
+    await type("first");
+    await waitFor(() => expect(server.sends).toHaveLength(1));
+    await server.stream(
+      { type: "message", message: said("m1", "user", "first") },
+      { type: "turnEnded", status: "complete" },
+      "end",
+    );
+    await type("second");
+    await waitFor(() => expect(server.sends).toHaveLength(2));
+
+    const [first, second] = server.sends as { id: string; text: string }[];
+    expect(first).toMatchObject({ text: "first", id: expect.stringMatching(uuidv7Shape) });
+    expect(server.dropped).toHaveLength(1);
+    expect(server.dropped[0]).toContain(first!.id);
+    expect(second).toMatchObject({ text: "second", id: expect.stringMatching(uuidv7Shape) });
+    expect(second!.id).not.toBe(first!.id);
   });
 });
 
