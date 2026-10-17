@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
 import { assistant } from "../../../plugins/assistant/server/plugin";
+import { runner } from "../../../plugins/runner/server/plugin";
 import { models } from "../../../plugins/models/server/plugin";
 import { message, usage } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
@@ -84,7 +85,7 @@ describe('chat.plugin("models").usageTotals', () => {
       getUser: () => null,
       keyEncryptionSecrets,
       basePath,
-      plugins: [models(), assistant()],
+      plugins: [models(), runner(), assistant()],
     });
     const totals = await chat.plugin("models").usageTotals({ since, until });
 
@@ -154,7 +155,7 @@ describe('chat.plugin("models").usage', () => {
       getUser: () => null,
       keyEncryptionSecrets,
       basePath,
-      plugins: [models(), assistant()],
+      plugins: [models(), runner(), assistant()],
     });
 
     expect(await chat.plugin("models").usage({ userId: owner.id, since, until })).toEqual([
@@ -203,6 +204,7 @@ describe('chat.plugin("models").quota', () => {
         models({
           getQuota: (userId) => (userId === owner.id ? { budgetUsd: 1, window: "day" } : null),
         }),
+        runner(),
         assistant(),
       ],
     });
@@ -226,6 +228,7 @@ describe('chat.plugin("models").quota', () => {
         models({
           getQuota: () => null,
         }),
+        runner(),
         assistant(),
       ],
     });
@@ -260,7 +263,7 @@ describe("chat.admin.stopRuns", () => {
       getUser: () => null,
       keyEncryptionSecrets,
       basePath,
-      plugins: [models(), assistant()],
+      plugins: [models(), runner(), assistant()],
     });
 
     await chat.plugin("assistant").stopRuns(owner.id);
@@ -286,7 +289,7 @@ describe("chat.admin.stopRuns", () => {
       getUser: () => null,
       keyEncryptionSecrets,
       basePath,
-      plugins: [models(), assistant()],
+      plugins: [models(), runner(), assistant()],
     });
 
     await chat.plugin("assistant").stopRuns(owner.id);
@@ -323,7 +326,7 @@ describe("chat.admin.ratingTotals", () => {
       getUser: () => null,
       keyEncryptionSecrets,
       basePath,
-      plugins: [models(), assistant()],
+      plugins: [models(), runner(), assistant()],
     });
 
     const totals = await chat.plugin("assistant").ratingTotals({ since });
@@ -359,7 +362,7 @@ describe("chat.admin.ratingTotals", () => {
       getUser: () => null,
       keyEncryptionSecrets,
       basePath,
-      plugins: [models(), assistant()],
+      plugins: [models(), runner(), assistant()],
     });
     expect(await chat.plugin("assistant").ratingTotals({ since })).toEqual([
       { model: sonnet, up: 1, down: 1 },

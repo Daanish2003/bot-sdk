@@ -25,7 +25,7 @@ import { knowledgeBlobKey } from "../../../plugins/assistant/server/blob-keys";
 import { knowledgeJobKey } from "../../../plugins/assistant/server/knowledge/process";
 import { readTokens, saveTokens } from "../../../plugins/assistant/server/mcp/connections";
 import { assistant } from "../../../plugins/assistant/server/plugin";
-import { assistantState } from "../../../plugins/assistant/server/state";
+import { runner } from "../../../plugins/runner/server/plugin";
 import { listCredentials, saveCredentials } from "../../../plugins/models/server/credentials/store";
 import { models } from "../../../plugins/models/server/plugin";
 import { insertAttachment, linkTestAttachments } from "../../support/attachments";
@@ -129,11 +129,9 @@ async function seedEverything(user: TestUser, deps: TestDeps) {
   await deps.blobStore.put(knowledgeBlobKey(fileId), new Uint8Array([1]), {
     contentType: "text/markdown",
   });
-  await assistantState(deps).jobs.enqueue(
-    "knowledge.process",
-    { fileId },
-    { idempotencyKey: knowledgeJobKey(fileId) },
-  );
+  await deps
+    .plugin("runner")
+    .enqueue("knowledge.process", { fileId }, { idempotencyKey: knowledgeJobKey(fileId) });
 
   const botConversation = await insertConversation(user, { kind: "bot", model: null });
   await getTestDb().insert(bot).values({
@@ -367,7 +365,7 @@ describe("rotateKeys across plugins", () => {
       keyEncryptionSecrets: [keyB, keyA],
       basePath: "/api/chat",
       logger,
-      plugins: [models(), assistant()],
+      plugins: [models(), runner(), assistant()],
     });
 
     await expect(sdk.rotateKeys()).resolves.toEqual({ reencrypted: 2, unreadable: 1 });

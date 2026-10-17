@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { createBotSdk } from "../../../core/server/create-chat";
 import { conversation } from "../../../core/server/db/schema";
 import { assistant } from "../../../plugins/assistant/server/plugin";
+import { runner } from "../../../plugins/runner/server/plugin";
 import { searchPastChats } from "../../../plugins/assistant/server/search/past-chats";
 import { models } from "../../../plugins/models/server/plugin";
 import { saveCredentials } from "../../../plugins/models/server/credentials/store";
@@ -105,7 +106,7 @@ describe("the assistant's own Conversations", () => {
       getUser: () => null,
       keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
       basePath: "/api/chat",
-      plugins: [models(), assistant()],
+      plugins: [models(), runner(), assistant()],
     });
 
     const exported = await sdk.exportUser(user.id);

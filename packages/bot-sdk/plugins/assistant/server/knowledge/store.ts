@@ -14,7 +14,6 @@ import {
 } from "../../shared/knowledge/kinds";
 // Imported for its side effect: the job must be defined before the first upload enqueues it.
 import { knowledgeJobKey, knowledgeProcessJob } from "./process";
-import { assistantState } from "../state";
 
 /** What the Knowledge tab shows of a file. The bytes are never part of it. */
 export type KnowledgeFileInfo = {
@@ -143,11 +142,9 @@ export async function uploadKnowledgeFile(
       if (!created) throw new Error("Saving the Knowledge file returned no row");
       return created;
     });
-    await assistantState(deps).jobs.enqueue(
-      knowledgeProcessJob.name,
-      { fileId: id },
-      { idempotencyKey: knowledgeJobKey(id) },
-    );
+    await deps
+      .plugin("runner")
+      .enqueue(knowledgeProcessJob.name, { fileId: id }, { idempotencyKey: knowledgeJobKey(id) });
     return info;
   } catch (error) {
     await deleteBlobsBestEffort(deps, [key]);
@@ -235,11 +232,9 @@ export async function retryKnowledgeFile(
     .where(and(eq(knowledgeFile.id, fileId), eq(knowledgeFile.status, "failed")))
     .returning({ id: knowledgeFile.id });
   if (reset.length === 0) throw notFailed();
-  await assistantState(deps).jobs.enqueue(
-    knowledgeProcessJob.name,
-    { fileId },
-    { idempotencyKey: knowledgeJobKey(fileId) },
-  );
+  await deps
+    .plugin("runner")
+    .enqueue(knowledgeProcessJob.name, { fileId }, { idempotencyKey: knowledgeJobKey(fileId) });
 }
 
 /**
@@ -254,7 +249,7 @@ export async function deleteKnowledgeFile(
   fileId: string,
 ): Promise<void> {
   await ownedFileStatus(deps, userId, projectId, fileId);
-  await assistantState(deps).jobs.cancel(knowledgeJobKey(fileId));
+  await deps.plugin("runner").cancel(knowledgeJobKey(fileId));
   await deps.db.transaction(async (tx) => {
     // Locks the file row, so a passage write in progress finishes before its passages go.
     await tx

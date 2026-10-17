@@ -12,6 +12,7 @@ import type { BotSdkPlugin } from "../../core/server/plugin";
 import { createBotSdkOver, type SdkOver } from "../../plugins/assistant/server/over";
 import type { Limits } from "../../plugins/assistant/server/deps";
 import type { ModelsDeps } from "../../plugins/models/server/types";
+import type { JobRunner } from "../../plugins/runner/server/jobs/runner";
 import { resolveRateLimits } from "../../core/server/rate-limits";
 import { createFakeSearchClient } from "./fake-search-client";
 
@@ -32,6 +33,8 @@ export type TestDepsOverrides = Partial<
       /** The core's event emitter (`BotSdkContext.events`). */
       hooks: HookEmitter;
       limits: Partial<Limits>;
+      /** The `runner` plugin's jobs runner (`runner({ jobs })`). */
+      jobs: JobRunner;
       /** More plugins, enabled after `models` and the assistant. */
       plugins: readonly BotSdkPlugin[];
     }
@@ -125,10 +128,9 @@ export function createTestSdk({ limits, plugins, ...overrides }: TestDepsOverrid
       imageTimeoutMs: 120_000,
       ...limits,
     },
-    ...(overrides.jobs && { jobs: overrides.jobs }),
   };
   return createBotSdkOver(
-    { context, models, assistant, ...(plugins && { plugins }) },
+    { context, models, assistant, jobs: overrides.jobs, ...(plugins && { plugins }) },
     { basePath: "/api/chat", getUser: () => null, logger: { error: () => {} } },
   ).sdk;
 }

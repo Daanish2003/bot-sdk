@@ -32,6 +32,7 @@ registerHooks({
 
 const { createBotSdk } = await import("@ai-chat/bot-sdk/core/server");
 const { models } = await import("@ai-chat/bot-sdk/plugins/models/server");
+const { runner } = await import("@ai-chat/bot-sdk/plugins/runner/server");
 const { assistant } = await import("@ai-chat/bot-sdk/plugins/assistant/server");
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -48,7 +49,7 @@ const sdk = createBotSdk({
   basePath: "/api/chat",
   getUser: () => null,
   logger: log,
-  plugins: [models(), assistant()],
+  plugins: [models(), runner(), assistant()],
 });
 
 const result = await sdk.rotateKeys();

@@ -10,6 +10,7 @@ import { fakeEmbeddingAdapter } from "../../../../plugins/models/server/fake-emb
 import { createHookEmitter } from "../../../../core/server/chat/hooks";
 import { createBotSdk } from "../../../../core/server/create-chat";
 import { assistant } from "../../../../plugins/assistant/server/plugin";
+import { runner } from "../../../../plugins/runner/server/plugin";
 import { models } from "../../../../plugins/models/server/plugin";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { usage } from "../../../../core/server/db/schema";
@@ -337,6 +338,7 @@ describe("hostProviders embeddingModels", () => {
             },
           ],
         }),
+        runner(),
         assistant(),
       ],
     });
@@ -362,6 +364,7 @@ describe("hostProviders embeddingModels", () => {
             },
           ],
         }),
+        runner(),
         assistant(),
       ],
     });

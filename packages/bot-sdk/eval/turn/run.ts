@@ -20,7 +20,7 @@ import { migrate as migrateChatSchema } from "../../core/server/migrate";
 import type { BotSdkContext } from "../../core/server/plugin";
 import { resolveRateLimits } from "../../core/server/rate-limits";
 import { memoryRuntime } from "../../core/server/runtime";
-import type { JobRunner } from "../../plugins/assistant/server/jobs/runner";
+import type { JobRunner } from "../../plugins/runner/server/jobs/runner";
 import { createBotSdkOver } from "../../plugins/assistant/server/over";
 import { bot } from "../../plugins/bot/server/plugin";
 import { productionDeps } from "../../plugins/models/server/plugin";
@@ -157,7 +157,8 @@ async function main() {
         rateLimits: resolveRateLimits(),
       },
       models: modelsDeps,
-      assistant: { jobs: noJobs, memory: false },
+      assistant: { memory: false },
+      jobs: noJobs,
       plugins: [bot()],
     },
     { basePath: "/api/chat", getUser: () => null, logger: { error: () => {} } },

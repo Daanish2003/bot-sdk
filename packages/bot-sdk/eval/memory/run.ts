@@ -25,7 +25,7 @@ import { productionDeps } from "../../plugins/models/server/plugin";
 import { migrate as migrateChatSchema } from "../../core/server/migrate";
 import { resolveRateLimits } from "../../core/server/rate-limits";
 import { memoryRuntime } from "../../core/server/runtime";
-import type { JobRunner } from "../../plugins/assistant/server/jobs/runner";
+import type { JobRunner } from "../../plugins/runner/server/jobs/runner";
 import { createFakeAdapter, round, text } from "../../test/support/fake-adapter";
 import { type CaseResult, type EvalEnv, runCase } from "./case";
 import { categories, selectCases, tally } from "./cases";
@@ -203,7 +203,8 @@ async function main() {
         rateLimits: resolveRateLimits(),
       },
       models: modelsDeps,
-      assistant: { jobs: noJobs, memory: true },
+      assistant: { memory: true },
+      jobs: noJobs,
     },
     { basePath: "/api/chat", getUser: () => null, logger: { error: () => {} } },
   );

@@ -13,6 +13,7 @@ import {
   fakeImageAdapter,
   models,
 } from "@ai-chat/bot-sdk/plugins/models/server";
+import { runner } from "@ai-chat/bot-sdk/plugins/runner/server";
 import { log } from "evlog";
 
 import { isBanActive } from "./admin/ban";
@@ -113,6 +114,8 @@ export const sdk = (shared.botSdk ??= createBotSdk({
       // A user's Quota: an Admin's override, else the Host's default (spec #277).
       getQuota: (userId) => getQuota(db, ENV, userId),
     }),
+    // Background jobs (ADR 0011): the in-process runner, which Knowledge and Memory share.
+    runner(),
     assistant({
       mcpServers: mcpServersOf(ENV),
       // Artifacts (spec #304): the assistant's create_artifact tool, the side panel and its version route.

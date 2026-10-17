@@ -6,6 +6,7 @@ import { afterAll, describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../../core/server/create-chat";
 import { assistant } from "../../../../plugins/assistant/server/plugin";
+import { runner } from "../../../../plugins/runner/server/plugin";
 import { models } from "../../../../plugins/models/server/plugin";
 import {
   createRedisConnection,
@@ -99,7 +100,7 @@ describe("redisRuntime without Redis", () => {
         keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
         basePath: "/api/chat",
         runtime,
-        plugins: [models(), assistant()],
+        plugins: [models(), runner(), assistant()],
       });
       await sleep(50);
 
@@ -119,7 +120,7 @@ describe("redisRuntime without Redis", () => {
         keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
         basePath: "/api/chat",
         runtime,
-        plugins: [models(), assistant()],
+        plugins: [models(), runner(), assistant()],
       });
 
       // Never resolves: the server never answers the handshake. It must still be closable.

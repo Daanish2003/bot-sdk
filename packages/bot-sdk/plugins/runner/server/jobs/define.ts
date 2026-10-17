@@ -54,7 +54,7 @@ export function registeredJob(name: string): RegisteredJob | undefined {
 
 /**
  * Runs a registered job's handler in this process, with its payload validated against the job's
- * schema. `chat.runJob` calls it, so a Host's own worker (such as a Trigger.dev task) can run a job.
+ * schema. `chat.plugin("runner").runJob` calls it, so a Host's own worker (such as a Trigger.dev task) can run a job.
  * Errors reach the caller, which decides about retries.
  */
 export async function runRegisteredJob(

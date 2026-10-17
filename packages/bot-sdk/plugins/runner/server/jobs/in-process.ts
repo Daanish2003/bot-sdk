@@ -31,7 +31,7 @@ export type InProcessRunnerOptions = {
   /** How long `stop()` lets running jobs finish before it aborts them. */
   drainMs?: number;
   clock?: JobClock;
-  /** The core context, read when a job runs. The `assistant` plugin passes its instance's. */
+  /** The core context, read when a job runs. The `runner` plugin passes its instance's. */
   deps: () => BotSdkContext;
 };
 

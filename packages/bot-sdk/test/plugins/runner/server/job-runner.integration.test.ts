@@ -4,19 +4,17 @@ import { z } from "zod";
 
 import { createBotSdk } from "../../../../core/server/create-chat";
 import { assistant } from "../../../../plugins/assistant/server/plugin";
+import { runner } from "../../../../plugins/runner/server/plugin";
 import { models } from "../../../../plugins/models/server/plugin";
 import { job } from "../../../../core/server/db/schema";
-import { defineJob, PermanentJobError } from "../../../../plugins/assistant/server/jobs/define";
-import {
-  inProcessRunner,
-  type JobClock,
-} from "../../../../plugins/assistant/server/jobs/in-process";
-import type { JobRunner } from "../../../../plugins/assistant/server/jobs/runner";
+import { defineJob, PermanentJobError } from "../../../../plugins/runner/server/jobs/define";
+import { inProcessRunner, type JobClock } from "../../../../plugins/runner/server/jobs/in-process";
+import type { JobRunner } from "../../../../plugins/runner/server/jobs/runner";
 import {
   claimJob,
   pruneFinishedJobs,
   reapStaleJobs,
-} from "../../../../plugins/assistant/server/jobs/store";
+} from "../../../../plugins/runner/server/jobs/store";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { drainJobs } from "../../../support/jobs";
 import { getTestDb, testDatabaseUrl } from "../../../support/test-database";
@@ -712,7 +710,7 @@ describe("schedule", () => {
   });
 });
 
-describe("createBotSdk({ jobs })", () => {
+describe("runner({ jobs })", () => {
   it("starts and stops the Host's runner with chat.start() and chat.stop()", async () => {
     const jobs: JobRunner = {
       enqueue: vi.fn(async () => "job-id"),
@@ -728,12 +726,7 @@ describe("createBotSdk({ jobs })", () => {
       keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
       basePath: "/api/chat",
       logger: silent,
-      plugins: [
-        models(),
-        assistant({
-          jobs,
-        }),
-      ],
+      plugins: [models(), runner({ jobs }), assistant()],
     });
 
     await chat.start();
