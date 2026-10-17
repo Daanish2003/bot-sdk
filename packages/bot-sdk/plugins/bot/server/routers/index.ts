@@ -28,7 +28,9 @@ const botRouter = {
     }),
 
   /** The caller's Bots, the newest activity first, with their last sent Message and Turn status. */
-  list: protectedProcedure.handler(({ context }) => listBots(context.sdk.db, context.user.id)),
+  list: protectedProcedure.handler(({ context }) =>
+    listBots(context.sdk.db, context.user.id, context.sdk.clock()),
+  ),
 
   /** One of the caller's Bots with its latest Turn's status, and its Conversation's Messages; another user's is not found. */
   get: protectedProcedure
@@ -39,7 +41,7 @@ const botRouter = {
       const { conversationId, ...bot } = found;
       const [messages, turnStatus] = await Promise.all([
         botMessages(context.sdk.db, conversationId),
-        latestTurnStatus(context.sdk.db, bot.id),
+        latestTurnStatus(context.sdk.db, bot.id, context.sdk.clock()),
       ]);
       return { bot: { ...bot, turnStatus }, messages };
     }),
