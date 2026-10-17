@@ -144,6 +144,7 @@ export async function sendToBot(
     runTurn(deps, {
       conversationId: found.conversationId,
       turnId,
+      startedAt: now,
       userMessage,
       provider: parseModelId(found.model)?.provider ?? "",
       meter: call.meter,
@@ -224,6 +225,7 @@ async function* runTurn(
   {
     conversationId,
     turnId,
+    startedAt,
     userMessage,
     provider,
     meter,
@@ -232,6 +234,8 @@ async function* runTurn(
   }: {
     conversationId: string;
     turnId: string;
+    /** When the Turn started, by `deps.clock`. */
+    startedAt: Date;
     userMessage: BotMessage;
     /** The Model's Provider, for reading the usage it reports. */
     provider: string;
@@ -252,11 +256,17 @@ async function* runTurn(
     timedOut = true;
     abortController.abort();
   }, turnTimeLimitMs);
-  // Tells other requests this Turn's process is alive, until the Turn ends.
+  // Tells other requests this Turn's process is alive, until the Turn ends or passes its time
+  // limit: a Turn whose stream is held without being read on is seen dead a lease after the limit.
   const heartbeat = setInterval(() => {
+    const at = deps.clock();
+    if (at.getTime() - startedAt.getTime() >= turnTimeLimitMs) {
+      clearInterval(heartbeat);
+      return;
+    }
     void deps.db
       .update(botTurn)
-      .set({ heartbeatAt: deps.clock() })
+      .set({ heartbeatAt: at })
       .where(and(eq(botTurn.id, turnId), eq(botTurn.status, "running")))
       .catch((caught: unknown) =>
         deps.logger.error("Writing a Bot Turn's heartbeat failed", caught),

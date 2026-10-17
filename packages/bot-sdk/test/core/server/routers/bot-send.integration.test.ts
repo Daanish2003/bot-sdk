@@ -494,6 +494,43 @@ describe("a Turn's heartbeat", () => {
     const [turn] = await turnsOf(botId);
     expect(turn).toMatchObject({ status: "complete", heartbeatAt: lastBeat });
   });
+
+  it("stops the heartbeat once the Turn passes its time limit, so a stream held suspended reads as dead", async () => {
+    let now = Date.now();
+    const first = round(sends({ text: "On it…", endTurn: false }));
+    const { client, botId, fake } = await botWith([first, round(text("Never comes."))], {
+      manual: true,
+      clock: () => new Date(now),
+    });
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const startedAt = now;
+
+    // The client reads the first Message, then holds the stream without reading on or leaving it.
+    const stream = await client.bot.send({ botId, text: "hi" });
+    await fake.release(first.length);
+    await readUntil(
+      stream,
+      (event) => event.type === "message" && event.message.role === "assistant",
+    );
+    // A beat every 10 s up to the limit: the last one at 4 min 50 s.
+    while (now - startedAt < turnTimeLimitMs - 10_000) {
+      now += 10_000;
+      await vi.advanceTimersByTimeAsync(10_000);
+      await heartbeatBecomes(botId, new Date(now));
+    }
+    const lastBeat = new Date(now);
+    for (let beat = 0; beat < 3; beat++) {
+      now += 10_000;
+      await vi.advanceTimersByTimeAsync(10_000);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    expect((await turnsOf(botId))[0]).toMatchObject({ status: "running", heartbeatAt: lastBeat });
+    // A lease after the last beat, the held Turn reads as dead.
+    now = lastBeat.getTime() + 61_000;
+    expect((await client.bot.get({ botId })).bot.turnStatus).toBe("error");
+    await stream.return?.(undefined);
+  });
 });
 
 describe("a Turn's Quota and usage", () => {
