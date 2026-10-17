@@ -1,3 +1,4 @@
+import { isNull } from "drizzle-orm";
 import { type AnyPgColumn, index, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
 import { chatSchema } from "../../../../core/server/db/chat-schema";
@@ -34,6 +35,10 @@ export const botTrigger = chatSchema.table(
     receivedAt: timestamp("received_at").notNull(),
   },
   (table) => [
-    index("bot_trigger_conversation_id_received_at_idx").on(table.conversationId, table.receivedAt),
+    // The Conversation queue: the Triggers no Turn has taken yet.
+    index("bot_trigger_waiting_idx")
+      .on(table.conversationId, table.receivedAt)
+      .where(isNull(table.turnId)),
+    index("bot_trigger_turn_id_idx").on(table.turnId),
   ],
 );

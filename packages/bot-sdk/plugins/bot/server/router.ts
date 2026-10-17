@@ -1,6 +1,6 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, max } from "drizzle-orm";
 
-import { bot, botTrigger, botTurn, conversation } from "../../../core/server/db/schema";
+import { bot, botTrigger, botTurn, conversation, message } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 
@@ -78,16 +78,23 @@ async function startTurn(
     .from(bot)
     .where(eq(bot.conversationId, conversationId));
   if (!owner) throw new Error(`Conversation ${conversationId} has no Bot`);
+  // The Turn's input is the user Messages saved before it starts, so it starts after every Message
+  // its Triggers carry, even one stamped by a process whose clock runs ahead.
+  const [newest] = await tx
+    .select({ at: max(message.createdAt) })
+    .from(botTrigger)
+    .innerJoin(message, eq(message.id, botTrigger.messageId))
+    .where(waiting);
+  const startedAt = Math.max(deps.clock().getTime(), newest?.at?.getTime() ?? 0) + 1;
   const turnId = uuidv7();
   const jobId = await deps
     .plugin("runner")
     .enqueueIn(tx, botTurnJobName, { turnId }, { idempotencyKey: turnId });
-  // A ms after now, so the Turn's input holds every Message saved before it, its Triggers' among them.
   await tx.insert(botTurn).values({
     id: turnId,
     botId: owner.id,
     status: "running",
-    startedAt: new Date(deps.clock().getTime() + 1),
+    startedAt: new Date(startedAt),
     jobId,
   });
   await tx.update(botTrigger).set({ turnId }).where(waiting);

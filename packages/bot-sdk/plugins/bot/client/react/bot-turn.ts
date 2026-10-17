@@ -58,6 +58,13 @@ function useLocalTurns() {
   );
 }
 
+/** Messages in the order they were saved: several streams may each yield some, out of order. */
+const inOrder = (messages: BotMessage[]) =>
+  messages.sort(
+    (a, b) =>
+      a.createdAt.getTime() - b.createdAt.getTime() || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+  );
+
 /** Tells the user's unsaved Messages apart until #513 gives each send its own id. */
 let pendingSequence = 0;
 
@@ -118,7 +125,7 @@ async function runSend(
           // A refetch during the Turn may already hold the Message.
           data.messages.some((shown) => shown.id === event.message.id)
             ? data
-            : { ...data, messages: [...data.messages, event.message] },
+            : { ...data, messages: inOrder([...data.messages, event.message]) },
         );
         if (event.message.role === "user")
           void queryClient.invalidateQueries({ queryKey: listKey });

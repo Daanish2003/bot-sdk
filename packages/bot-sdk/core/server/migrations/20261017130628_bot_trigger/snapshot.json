@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "f53b9c52-380d-4569-b692-eb120736bbd3",
+  "id": "ce02bd63-89e6-4696-9a77-c55f2f8f745d",
   "prevIds": ["fe71f568-d231-4d2b-9c32-a6ab854e979b"],
   "ddl": [
     {
@@ -3101,11 +3101,32 @@
         }
       ],
       "isUnique": false,
+      "where": "(\"turn_id\" is null)",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "bot_trigger_waiting_idx",
+      "entityType": "indexes",
+      "schema": "chat",
+      "table": "bot_trigger"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "turn_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
       "where": null,
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "bot_trigger_conversation_id_received_at_idx",
+      "name": "bot_trigger_turn_id_idx",
       "entityType": "indexes",
       "schema": "chat",
       "table": "bot_trigger"

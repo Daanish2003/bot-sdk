@@ -126,10 +126,11 @@ export async function sendToBot(
     throw rpcError("PAYMENT_REQUIRED", "error.quotaSpent", "You've used this window's Quota");
   }
 
-  const now = deps.clock();
   const userMessage = await deps.db.transaction(async (tx) => {
     // The Conversation's row lock first, as in every transaction that starts or ends a Turn.
     await lockConversation(tx, found.conversationId);
+    // Read under the lock, so no Turn starts between this time and the Message's commit.
+    const now = deps.clock();
     const row = await appendMessage(tx, found.conversationId, {
       role: "user",
       parts: textParts(text),

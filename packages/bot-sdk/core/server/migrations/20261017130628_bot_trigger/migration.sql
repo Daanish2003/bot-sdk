@@ -10,7 +10,8 @@ CREATE TABLE "chat"."bot_trigger" (
 	"received_at" timestamp NOT NULL
 );
 --> statement-breakpoint
-CREATE INDEX "bot_trigger_conversation_id_received_at_idx" ON "chat"."bot_trigger" ("conversation_id","received_at");--> statement-breakpoint
+CREATE INDEX "bot_trigger_waiting_idx" ON "chat"."bot_trigger" ("conversation_id","received_at") WHERE ("turn_id" is null);--> statement-breakpoint
+CREATE INDEX "bot_trigger_turn_id_idx" ON "chat"."bot_trigger" ("turn_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "bot_turn_running_bot_id_idx" ON "chat"."bot_turn" ("bot_id") WHERE "status" = 'running';--> statement-breakpoint
 ALTER TABLE "chat"."bot_trigger" ADD CONSTRAINT "bot_trigger_conversation_id_conversation_id_fkey" FOREIGN KEY ("conversation_id") REFERENCES "chat"."conversation"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "chat"."bot_trigger" ADD CONSTRAINT "bot_trigger_message_id_message_id_fkey" FOREIGN KEY ("message_id") REFERENCES "chat"."message"("id") ON DELETE SET NULL;--> statement-breakpoint
