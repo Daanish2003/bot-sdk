@@ -29,6 +29,11 @@ export const batchLongestMs = 2_500;
 /** A Trigger as the Router receives it: its row, before any Turn has taken it. */
 export type ReceivedTrigger = Omit<typeof botTrigger.$inferInsert, "turnId">;
 
+/** The Conversation queue (#499): the Conversation's Triggers that no Turn has taken yet. */
+export function waitingIn(conversationId: string): SQL | undefined {
+  return and(eq(botTrigger.conversationId, conversationId), isNull(botTrigger.turnId));
+}
+
 /**
  * Takes the Conversation's row lock. Every transaction that starts or ends a Turn takes it first,
  * so a Conversation runs one Turn at a time (#499); the running-Turn index backs it up.
@@ -152,7 +157,7 @@ async function startTurn(
   tx: Transaction,
   conversationId: string,
 ): Promise<string | undefined> {
-  const waiting = and(eq(botTrigger.conversationId, conversationId), isNull(botTrigger.turnId));
+  const waiting = waitingIn(conversationId);
   const [first] = await tx.select({ id: botTrigger.id }).from(botTrigger).where(waiting).limit(1);
   if (!first) return undefined;
   const [owner] = await tx
@@ -201,9 +206,7 @@ export async function turnStarted(deps: BotSdkContext, tx: Transaction, turnId: 
       .innerJoin(message, eq(message.id, botTrigger.messageId))
       .where(triggers);
   const [taken] = await messagesOf(eq(botTrigger.turnId, turnId));
-  const [waiting] = await messagesOf(
-    and(eq(botTrigger.conversationId, turn.conversationId), isNull(botTrigger.turnId)),
-  );
+  const [waiting] = await messagesOf(waitingIn(turn.conversationId));
   // The Turn's input is the user Messages saved before it starts. It starts after every Message its
   // Triggers carry, even one stamped by a process whose clock runs ahead, and before any that came
   // once the job was claimed: those wait for the next Turn.
