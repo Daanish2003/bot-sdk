@@ -50,6 +50,8 @@ export async function insertMessage({
       parts: storedParts(text ? [{ type: "text", text }] : []),
       searchText: text,
       status: "complete",
+      // The host clock, like the Run endpoint: the database clock can sit ahead of it, and Messages sort by this.
+      createdAt: new Date(),
       model: role === "assistant" ? testModel : null,
       ...fields,
     })
