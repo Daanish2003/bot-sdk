@@ -149,7 +149,7 @@ An always-on agent a user has: it runs on the server, wakes on Triggers, keeps i
 _Avoid_: Agent, assistant (that answers in assistant Conversations), persona
 
 **Turn**:
-One Bot working through a batch of what woke it, until it stops. It works on one batch at a time; in a 1:1 Conversation a new Message from the user interrupts or stops the running Turn instead of waiting. It can send any number of Messages, or none.
+One Bot working through a batch of what woke it, until it stops. It works on one batch at a time. In a 1:1 Conversation the user skips the line: a new Message interrupts the running Turn, which ends where it is and is followed by a new Turn that takes the Message with the first one's work in view; Stop ends it with nothing following until the user's next Message. What an interrupted or stopped Turn already sent stays sent. It can send any number of Messages, or none.
 _Avoid_: Run (that is the assistant's), step, session
 
 **Step**:
@@ -161,8 +161,16 @@ The saved result of one piece of a Turn's or a background job's work. A Turn sav
 _Avoid_: Step, activity, snapshot
 
 **Trigger**:
-One event that wakes a Bot to run a Turn: the user, a Routine, an outside service, another agent, background work finishing or a Check-in. It records where it came from, so the Bot can tell whether the user asked, a Routine ran or an outside service sent it.
+One event that wakes a Bot to run a Turn: the user, a Routine, an outside service, another agent, background work finishing or a Check-in. It records where it came from, so the Bot can tell whether the user asked, a Routine ran or an outside service sent it. Each carries a unique ID from its source, and one whose ID the Bot has already seen is dropped: a resent Message is the same Message, never a second one.
 _Avoid_: Event, wake-up, input
+
+**Router**:
+What every Trigger passes through on its way to a Bot: it drops duplicates and puts each Trigger in its Conversation's queue.
+_Avoid_: Dispatcher, inbox
+
+**Conversation queue**:
+The Triggers a Conversation has received that no Turn has taken yet, in the order they arrived. A Turn waits a moment before it starts so quick Messages land in one batch, takes everything waiting, and when it ends the next Turn takes whatever has arrived since, so a Conversation runs one Turn at a time.
+_Avoid_: Inbox, backlog, job queue (that is the runner's)
 
 **Routine**:
 A prompt one Bot runs on a schedule or when an inbound webhook arrives. A Bot can create one from its Conversation, but it runs only after the user's Approval.
