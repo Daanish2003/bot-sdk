@@ -423,13 +423,14 @@ async function playTurn(
   // job's `onFailed`) has no limit.
   let expired = false;
   let inLiveCall = false;
+  const timeLeftMs = () => turnTimeLimitMs - (deps.clock().getTime() - turn.startedAt.getTime());
   const timeLimit = attempt
     ? setTimeout(
         () => {
           expired = true;
           if (inLiveCall) timeUp();
         },
-        Math.max(0, turnTimeLimitMs - (deps.clock().getTime() - turn.startedAt.getTime())),
+        Math.max(0, timeLeftMs()),
       )
     : undefined;
   let endTurn = false;
@@ -470,7 +471,8 @@ async function playTurn(
       let recorded: RecordedModelCall;
       try {
         recorded = await ctx.activity("model", async (): Promise<RecordedModelCall> => {
-          if (expired) timeUp();
+          // Read off the clock too: a timer that is due may not have fired yet.
+          if (attempt && (expired || timeLeftMs() <= 0)) timeUp();
           abortController.signal.throwIfAborted();
           const chunks: StreamChunk[] = [];
           inLiveCall = true;

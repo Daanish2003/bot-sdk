@@ -208,7 +208,7 @@ A custom runner is any object with `enqueue(name, payload, options?)`, `start()`
 
 ### Trigger.dev workers (optional)
 
-Only a Host that runs its jobs on Trigger.dev needs this. Every other Host keeps the in-process runner and needs nothing from `extras/`. The SDK never imports `extras/`, so `@trigger.dev/sdk` is a dependency of such a Host alone: install it there with `pnpm add @trigger.dev/sdk`.
+Only a Host that runs its jobs on Trigger.dev needs this. The `bot` plugin refuses to start on it, because a retry there starts a Turn over and would send its Messages again; Knowledge and Memory jobs run on either runner. Every other Host keeps the in-process runner and needs nothing from `extras/`. The SDK never imports `extras/`, so `@trigger.dev/sdk` is a dependency of such a Host alone: install it there with `pnpm add @trigger.dev/sdk`.
 
 `extras/trigger/trigger-runner.ts` is a runner that triggers a Host task. The copy script copies `extras/` only when the destination has none, so your edits survive updates. Wire it in two places:
 

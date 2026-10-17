@@ -3,7 +3,7 @@ import { eq, inArray, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createMemoryPubSub } from "../../../../core/server/chat/pubsub";
-import { botTurn, conversation, job, usage } from "../../../../core/server/db/schema";
+import { botTurn, conversation, job, message, usage } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import type { HostProvider } from "../../../../plugins/assistant/server/deps";
 import { bot } from "../../../../plugins/bot/server/plugin";
@@ -16,6 +16,7 @@ import {
   inProcessRunner,
   type InProcessRunner,
 } from "../../../../plugins/runner/server/jobs/in-process";
+import type { JobRunner } from "../../../../plugins/runner/server/jobs/runner";
 import {
   claimJob,
   reapStaleJobs,
@@ -765,5 +766,90 @@ describe("a Turn that resumes after a crash", () => {
     expect(turn?.transcript?.[0]?.content).toBe("Private note.");
     expect(JSON.stringify(turn?.transcript)).toContain("One");
     expect(JSON.stringify(turn?.transcript)).not.toContain("Never sent.");
+  });
+
+  /** Moves the Turn's start and its Conversation's Messages `ms` into the past. */
+  async function ageTurn(botId: string, ms: number) {
+    const ago = (column: typeof botTurn.startedAt | typeof message.createdAt) =>
+      sql`${column} - ${ms} * interval '1 millisecond'`;
+    await getTestDb()
+      .update(message)
+      .set({ createdAt: ago(message.createdAt) });
+    await getTestDb()
+      .update(botTurn)
+      .set({ startedAt: ago(botTurn.startedAt) })
+      .where(eq(botTurn.botId, botId));
+  }
+
+  it("counts the Steps of earlier attempts toward the 10-Step limit", async () => {
+    const step = round(sends({ text: "More", endTurn: false }));
+    const { fake, client, botId, attempt, crash, instance } = await crashableBot(
+      Array.from({ length: 12 }, () => step),
+    );
+    await client.bot.send({ botId, text: "go on forever" });
+
+    const lost = attempt();
+    await fake.release(step.length * 6);
+    // Six Steps are saved, and the attempt waits in the seventh's model call.
+    await expect.poll(() => fake.calls.length).toBe(7);
+    await expect.poll(async () => (await sentTexts(client, botId)).length).toBe(6);
+    await crash();
+    await lost;
+    const resumed = attempt(instance());
+    await fake.releaseAll();
+    await resumed;
+
+    expect(await sentTexts(client, botId)).toHaveLength(10);
+    const [turn] = await turnsOf(botId);
+    expect(turn).toMatchObject({ status: "error", error: "step_limit" });
+  });
+
+  it("ends a resumed Turn past 5 minutes timed_out without calling the Model", async () => {
+    const step = round(sends({ text: "One", endTurn: false }));
+    const { fake, client, botId, attempt, crash, instance } = await crashableBot([step, step]);
+    await client.bot.send({ botId, text: "hi" });
+
+    const lost = attempt();
+    await fake.release(step.length);
+    await expect.poll(() => fake.calls.length).toBe(2);
+    await expect.poll(() => sentTexts(client, botId)).toEqual(["One"]);
+    await crash();
+    await lost;
+    // The crash lasted past the limit.
+    await ageTurn(botId, turnTimeLimitMs + 1_000);
+    await attempt(instance());
+
+    // The recorded Step replays without calling the Model or sending its Message again.
+    expect(fake.calls).toHaveLength(2);
+    expect(await sentTexts(client, botId)).toEqual(["One"]);
+    expect((await turnsOf(botId))[0]).toMatchObject({ status: "error", error: "timed_out" });
+  });
+
+  it("ends a Turn whose first attempt starts past 5 minutes timed_out without calling the Model", async () => {
+    const { fake, client, botId, attempt } = await crashableBot([
+      round(sends({ text: "One", endTurn: true })),
+    ]);
+    await client.bot.send({ botId, text: "hi" });
+    await ageTurn(botId, turnTimeLimitMs + 1_000);
+
+    await attempt();
+
+    expect(fake.calls).toHaveLength(0);
+    expect((await turnsOf(botId))[0]).toMatchObject({ status: "error", error: "timed_out" });
+  });
+});
+
+describe("the bot plugin on a runner that is not in-process", () => {
+  it("fails at startup, because a retry there starts over and would send Messages again", () => {
+    const elsewhere: JobRunner = {
+      enqueue: async () => "job",
+      cancel: async () => {},
+      status: async () => undefined,
+      schedule: async () => {},
+      start: async () => {},
+      stop: async () => {},
+    };
+
+    expect(() => createTestSdk({ plugins: [bot()], jobs: elsewhere })).toThrow(/in-process/);
   });
 });
