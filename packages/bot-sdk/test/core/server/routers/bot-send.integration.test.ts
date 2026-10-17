@@ -29,9 +29,12 @@ const sendToUser = "send_to_user";
 type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
 /** A user with an OpenAI key, a Bot on `model`, and a client over a Bot-enabled SDK whose Model plays `rounds`. */
-async function botWith(rounds: Round[], { manual = false }: { manual?: boolean } = {}) {
+async function botWith(
+  rounds: Round[],
+  { manual = false, clock }: { manual?: boolean } & Pick<TestDepsOverrides, "clock"> = {},
+) {
   const fake = createFakeAdapter({ rounds, manual });
-  const deps = createTestSdk({ plugins: [bot()], adapterFor: () => fake.adapter });
+  const deps = createTestSdk({ plugins: [bot()], adapterFor: () => fake.adapter, clock });
   const user = await insertUser();
   await saveCredentials(deps, user.id, {
     service: "openai",
@@ -80,7 +83,10 @@ const usageOf = (userId: string) =>
   getTestDb().select().from(usage).where(eq(usage.userId, userId));
 
 /** A Turn row of `botId`, as a process left it. */
-async function insertTurn(botId: string, fields: { status: "running"; startedAt: Date }) {
+async function insertTurn(
+  botId: string,
+  fields: { status: "running"; startedAt: Date; heartbeatAt: Date | null },
+) {
   const id = uuidv7();
   await getTestDb()
     .insert(botTurn)
@@ -348,10 +354,40 @@ describe("a Turn's limits", () => {
   });
 });
 
+/** A `running` Turn of a live process: it started 2 minutes ago and its heartbeat is 30 s old. */
+const live = () => ({
+  status: "running" as const,
+  startedAt: new Date(Date.now() - 2 * 60_000),
+  heartbeatAt: new Date(Date.now() - 30_000),
+});
+
+/**
+ * `running` Turns a dead process left: started only 2 minutes ago, well inside the time limit, but
+ * with a heartbeat over 60 s old, or none.
+ */
+const dead = [
+  {
+    heartbeat: "a heartbeat over 60 s old",
+    fields: () => ({
+      status: "running" as const,
+      startedAt: new Date(Date.now() - 2 * 60_000),
+      heartbeatAt: new Date(Date.now() - 61_000),
+    }),
+  },
+  {
+    heartbeat: "no heartbeat",
+    fields: () => ({
+      status: "running" as const,
+      startedAt: new Date(Date.now() - 2 * 60_000),
+      heartbeatAt: null,
+    }),
+  },
+];
+
 describe("one Turn at a time", () => {
-  it("refuses a Message while a Turn is running with 409, and saves nothing", async () => {
+  it("refuses a Message while a Turn with a fresh heartbeat is running with 409, and saves nothing", async () => {
     const { client, botId } = await botWith([]);
-    await insertTurn(botId, { status: "running", startedAt: new Date() });
+    await insertTurn(botId, live());
 
     await expect(client.bot.send({ botId, text: "hello?" })).rejects.toMatchObject({
       code: "CONFLICT",
@@ -362,46 +398,138 @@ describe("one Turn at a time", () => {
     expect(await turnsOf(botId)).toHaveLength(1);
   });
 
-  it("marks a running Turn left by a dead process error / interrupted when the next Turn starts", async () => {
-    const { client, botId } = await botWith([round(sends({ text: "Back.", endTurn: true }))]);
-    // Older than any live Turn can be: the time limit would have ended it.
-    const stale = await insertTurn(botId, {
-      status: "running",
-      startedAt: new Date(Date.now() - 2 * turnTimeLimitMs),
-    });
+  it.each(dead)(
+    "marks a running Turn with $heartbeat error / interrupted when the next Turn starts",
+    async ({ fields }) => {
+      const { client, botId } = await botWith([round(sends({ text: "Back.", endTurn: true }))]);
+      const stale = await insertTurn(botId, fields());
 
-    const events = await send(client, botId, "still there?");
+      const events = await send(client, botId, "still there?");
 
-    expect(events.at(-1)).toEqual({ type: "turnEnded", status: "complete" });
-    const turns = await turnsOf(botId);
-    expect(turns.find((turn) => turn.id === stale)).toMatchObject({
-      status: "error",
-      error: "interrupted",
-    });
-    expect(turns.find((turn) => turn.id === stale)?.endedAt).toBeInstanceOf(Date);
-  });
+      expect(events.at(-1)).toEqual({ type: "turnEnded", status: "complete" });
+      const turns = await turnsOf(botId);
+      expect(turns.find((turn) => turn.id === stale)).toMatchObject({
+        status: "error",
+        error: "interrupted",
+      });
+      expect(turns.find((turn) => turn.id === stale)?.endedAt).toBeInstanceOf(Date);
+    },
+  );
 
-  it("reads a running Turn left by a dead process as error in bot.get and bot.list", async () => {
+  it.each(dead)(
+    "reads a running Turn with $heartbeat as error in bot.get and bot.list",
+    async ({ fields }) => {
+      const { client, botId } = await botWith([]);
+      await insertTurn(botId, fields());
+
+      expect((await client.bot.get({ botId })).bot.turnStatus).toBe("error");
+      expect((await client.bot.list()).find((listed) => listed.id === botId)?.turnStatus).toBe(
+        "error",
+      );
+    },
+  );
+
+  it("reads a running Turn with a fresh heartbeat as running", async () => {
     const { client, botId } = await botWith([]);
-    await insertTurn(botId, {
-      status: "running",
-      startedAt: new Date(Date.now() - 2 * turnTimeLimitMs),
-    });
-
-    expect((await client.bot.get({ botId })).bot.turnStatus).toBe("error");
-    expect((await client.bot.list()).find((listed) => listed.id === botId)?.turnStatus).toBe(
-      "error",
-    );
-  });
-
-  it("reads a live running Turn as running", async () => {
-    const { client, botId } = await botWith([]);
-    await insertTurn(botId, { status: "running", startedAt: new Date() });
+    await insertTurn(botId, live());
 
     expect((await client.bot.get({ botId })).bot.turnStatus).toBe("running");
     expect((await client.bot.list()).find((listed) => listed.id === botId)?.turnStatus).toBe(
       "running",
     );
+  });
+});
+
+describe("a Turn's heartbeat", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** The Turn's `heartbeat_at` once it is `at`; a write the clock started lands a moment later. */
+  async function heartbeatBecomes(botId: string, at: Date) {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const [turn] = await turnsOf(botId);
+      if (turn?.heartbeatAt?.getTime() === at.getTime()) return;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    throw new Error(`The heartbeat never reached ${at.toISOString()}`);
+  }
+
+  it("writes heartbeat_at when the Turn starts and every 10 s while it runs, and stops when it ends", async () => {
+    let now = Date.now();
+    const first = round(sends({ text: "On it…", endTurn: false }));
+    const last = round(sends({ text: "Done.", endTurn: true }));
+    const { client, botId, fake } = await botWith([first, last], {
+      manual: true,
+      clock: () => new Date(now),
+    });
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+
+    const stream = await client.bot.send({ botId, text: "hi" });
+    const startedAt = new Date(now);
+    expect((await turnsOf(botId))[0]?.heartbeatAt).toEqual(startedAt);
+
+    await fake.release(first.length);
+    await readUntil(
+      stream,
+      (event) => event.type === "message" && event.message.role === "assistant",
+    );
+    now += 10_000;
+    await vi.advanceTimersByTimeAsync(10_000);
+    await heartbeatBecomes(botId, new Date(now));
+    now += 10_000;
+    await vi.advanceTimersByTimeAsync(10_000);
+    await heartbeatBecomes(botId, new Date(now));
+    const lastBeat = new Date(now);
+
+    await fake.release(last.length);
+    expect((await readUntil(stream, () => false)).at(-1)).toEqual({
+      type: "turnEnded",
+      status: "complete",
+    });
+    now += 30_000;
+    await vi.advanceTimersByTimeAsync(30_000);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    const [turn] = await turnsOf(botId);
+    expect(turn).toMatchObject({ status: "complete", heartbeatAt: lastBeat });
+  });
+
+  it("stops the heartbeat once the Turn passes its time limit, so a stream held suspended reads as dead", async () => {
+    let now = Date.now();
+    const first = round(sends({ text: "On it…", endTurn: false }));
+    const { client, botId, fake } = await botWith([first, round(text("Never comes."))], {
+      manual: true,
+      clock: () => new Date(now),
+    });
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const startedAt = now;
+
+    // The client reads the first Message, then holds the stream without reading on or leaving it.
+    const stream = await client.bot.send({ botId, text: "hi" });
+    await fake.release(first.length);
+    await readUntil(
+      stream,
+      (event) => event.type === "message" && event.message.role === "assistant",
+    );
+    // A beat every 10 s up to the limit: the last one at 4 min 50 s.
+    while (now - startedAt < turnTimeLimitMs - 10_000) {
+      now += 10_000;
+      await vi.advanceTimersByTimeAsync(10_000);
+      await heartbeatBecomes(botId, new Date(now));
+    }
+    const lastBeat = new Date(now);
+    for (let beat = 0; beat < 3; beat++) {
+      now += 10_000;
+      await vi.advanceTimersByTimeAsync(10_000);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    expect((await turnsOf(botId))[0]).toMatchObject({ status: "running", heartbeatAt: lastBeat });
+    // A lease after the last beat, the held Turn reads as dead.
+    now = lastBeat.getTime() + 61_000;
+    expect((await client.bot.get({ botId })).bot.turnStatus).toBe("error");
+    await stream.return?.(undefined);
   });
 });
 

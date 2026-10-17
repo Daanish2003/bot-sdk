@@ -1,0 +1,1 @@
+ALTER TABLE "chat"."bot_turn" ADD COLUMN "heartbeat_at" timestamp with time zone;
