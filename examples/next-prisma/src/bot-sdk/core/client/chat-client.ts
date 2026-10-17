@@ -38,6 +38,8 @@ export interface BotSdkClient {
   exportUrl: string;
   /** The transport every RPC call goes through. */
   fetch: BotSdkFetch;
+  /** The ids of the client plugins this client was created with, in order. */
+  plugins: readonly string[];
 }
 
 /**
@@ -61,7 +63,13 @@ export function createBotSdkClient({
     }),
   );
   return Object.assign(
-    { rpc, orpc: createTanstackQueryUtils(rpc), exportUrl: `${base}/export`, fetch },
+    {
+      rpc,
+      orpc: createTanstackQueryUtils(rpc),
+      exportUrl: `${base}/export`,
+      fetch,
+      plugins: plugins.map((plugin) => plugin.id),
+    },
     ...plugins.map((plugin) => plugin.urls?.(base) ?? {}),
   ) as BotSdkClient;
 }
