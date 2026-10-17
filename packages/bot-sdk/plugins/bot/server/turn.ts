@@ -12,8 +12,7 @@ import { and, asc, eq, lt } from "drizzle-orm";
 import { z } from "zod";
 
 import { appendMessage } from "../../../core/server/chat/message-tree";
-import { bot, botTurn, conversation, message } from "../../../core/server/db/schema";
-import { uuidv7 } from "../../../core/server/lib/uuidv7";
+import { bot, botTrigger, botTurn, message } from "../../../core/server/db/schema";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
 import { searchTextOf } from "../../../core/shared/message-parts";
@@ -29,6 +28,7 @@ import {
   WorkflowYieldedError,
 } from "../../runner/server/workflow/engine";
 import type { BotMessage, BotSendEvent, TurnStatus } from "../shared/turn";
+import { botTurnJobName, lockConversation, receive, turnEnded } from "./router";
 import { botMessages, findBot, textParts, toBotMessage, turnTimeLimitMs } from "./store";
 
 /** The most Steps a Turn may take; one more ends it `error` with `step_limit`. */
@@ -86,17 +86,18 @@ async function hintChanged(deps: BotSdkContext, conversationId: string) {
 
 /** The runner job of one Turn, keyed by the Turn's id (ADR 0011, the #482 amendment). */
 export const botTurnJob = defineJob({
-  name: "bot.turn",
+  name: botTurnJobName,
   payload: z.object({ turnId: z.uuid() }),
   run: ({ turnId }, ctx) => runTurnJob(ctx.deps, turnId, ctx),
   onFailed: ({ turnId }, _error, deps) => endLostTurn(deps, turnId),
 });
 
 /**
- * Saves the user's Message, creates its Turn and queues the Turn's job, in one transaction. Checks
- * run before anything is written, and a refusal throws an RPC error before the stream starts. The
- * returned stream follows the Turn from Postgres: the saved user Message, each Message the Turn
- * sends, then `turnEnded`. Leaving it ends only the follow, never the Turn.
+ * Saves the user's Message and hands its Trigger to the Router, in one transaction: a Turn takes it
+ * now or, while a Turn runs, the next one does. Checks run before anything is written, and a
+ * refusal throws an RPC error before the stream starts. The returned stream follows the Turn that
+ * takes the Message from Postgres: the saved user Message, each Message sent after it, then
+ * `turnEnded`. Leaving it ends only the follow, never the Turn.
  */
 export async function sendToBot(
   deps: BotSdkContext,
@@ -125,55 +126,41 @@ export async function sendToBot(
     throw rpcError("PAYMENT_REQUIRED", "error.quotaSpent", "You've used this window's Quota");
   }
 
-  const runner = deps.plugin("runner");
   const now = deps.clock();
-  const turnId = uuidv7();
   const userMessage = await deps.db.transaction(async (tx) => {
-    // The Conversation's row lock first, so two sends can't both find no Turn running.
-    await tx
-      .select({ id: conversation.id })
-      .from(conversation)
-      .where(eq(conversation.id, found.conversationId))
-      .for("update");
-    const [running] = await tx
-      .select({ id: botTurn.id })
-      .from(botTurn)
-      .where(and(eq(botTurn.botId, botId), eq(botTurn.status, "running")))
-      .limit(1);
-    if (running) {
-      throw rpcError("CONFLICT", "error.turnRunning", "A Turn is still running for this Bot");
-    }
+    // The Conversation's row lock first, as in every transaction that starts or ends a Turn.
+    await lockConversation(tx, found.conversationId);
     const row = await appendMessage(tx, found.conversationId, {
       role: "user",
       parts: textParts(text),
       status: "complete",
       createdAt: now,
     });
-    const jobId = await runner.enqueueIn(
-      tx,
-      botTurnJob.name,
-      { turnId },
-      { idempotencyKey: turnId },
-    );
-    // A ms after its Message, so the replayed history puts the Turn after the Message it answers.
-    await tx.insert(botTurn).values({
-      id: turnId,
-      botId,
-      status: "running",
-      startedAt: new Date(now.getTime() + 1),
-      jobId,
+    await receive(deps, tx, {
+      id: row.id,
+      conversationId: found.conversationId,
+      source: "user",
+      channel: "web",
+      messageId: row.id,
+      receivedAt: now,
     });
     return toBotMessage(row);
   });
-  runner.wake();
+  deps.plugin("runner").wake();
 
-  return followTurn(deps, { conversationId: found.conversationId, turnId, userMessage, signal });
+  return followTurn(deps, {
+    conversationId: found.conversationId,
+    triggerId: userMessage.id,
+    userMessage,
+    signal,
+  });
 }
 
 /**
  * Stops the Bot's running Turn by cancelling its job (#482, #483). A queued Turn ends `stopped`
  * in the same transaction, so its job never runs; a running one ends `stopped` as its attempt
- * aborts (`runTurnJob`). Does nothing when no Turn is running.
+ * aborts (`runTurnJob`). Either way, the next Turn takes what waits in the Conversation queue.
+ * Does nothing when no Turn is running.
  */
 export async function stopBot(deps: BotSdkContext, userId: string, botId: string): Promise<void> {
   const found = await findBot(deps.db, userId, botId);
@@ -181,11 +168,7 @@ export async function stopBot(deps: BotSdkContext, userId: string, botId: string
   const runner = deps.plugin("runner");
   const ended = await deps.db.transaction(async (tx) => {
     // The Conversation's row lock first, as in `sendToBot`.
-    await tx
-      .select({ id: conversation.id })
-      .from(conversation)
-      .where(eq(conversation.id, found.conversationId))
-      .for("update");
+    await lockConversation(tx, found.conversationId);
     const [running] = await tx
       .select({ id: botTurn.id })
       .from(botTurn)
@@ -205,24 +188,28 @@ export async function stopBot(deps: BotSdkContext, userId: string, botId: string
       usage: played.usage,
       endedAt: deps.clock(),
     });
+    await turnEnded(deps, tx, running.id);
     return true;
   });
-  if (ended) await hintChanged(deps, found.conversationId);
+  if (!ended) return;
+  runner.wake();
+  await hintChanged(deps, found.conversationId);
 }
 
 /**
- * Follows a Turn from Postgres (#483, slide 19's "signal, then fetch"): yields the user Message,
- * then re-reads on each "changed" hint on the Conversation's channel, and every `followPollMs` in
- * case a hint is lost, yielding each new Message, until the Turn has ended.
+ * Follows the Turn that takes a Trigger, from Postgres (#483, slide 19's "signal, then fetch"):
+ * yields the user Message, then re-reads on each "changed" hint on the Conversation's channel, and
+ * every `followPollMs` in case a hint is lost, yielding each new Message, until a Turn has taken
+ * the Trigger and ended.
  */
 async function* followTurn(
   deps: BotSdkContext,
   {
     conversationId,
-    turnId,
+    triggerId,
     userMessage,
     signal,
-  }: { conversationId: string; turnId: string; userMessage: BotMessage; signal?: AbortSignal },
+  }: { conversationId: string; triggerId: string; userMessage: BotMessage; signal?: AbortSignal },
 ): AsyncGenerator<BotSendEvent> {
   yield { type: "message", message: userMessage };
   let hinted = false;
@@ -238,17 +225,23 @@ async function* followTurn(
     while (!signal?.aborted) {
       hinted = false;
       // The status first: the Messages read after it hold every one sent before the Turn ended.
-      const [turn] = await deps.db
+      // A Trigger no Turn has taken yet has no status: it waits in the Conversation queue.
+      const [taken] = await deps.db
         .select({ status: botTurn.status })
-        .from(botTurn)
-        .where(eq(botTurn.id, turnId));
+        .from(botTrigger)
+        .leftJoin(botTurn, eq(botTurn.id, botTrigger.turnId))
+        .where(eq(botTrigger.id, triggerId));
       for (const sent of await botMessages(deps.db, conversationId, userMessage.createdAt)) {
         if (shown.has(sent.id)) continue;
         shown.add(sent.id);
         yield { type: "message", message: sent };
       }
-      if (turn?.status !== "running") {
-        yield { type: "turnEnded", status: turn?.status ?? "error" };
+      if (!taken) {
+        yield { type: "turnEnded", status: "error" };
+        return;
+      }
+      if (taken.status !== null && taken.status !== "running") {
+        yield { type: "turnEnded", status: taken.status };
         return;
       }
       await new Promise<void>((resolve) => {
@@ -311,19 +304,22 @@ async function runTurnJob(
     ctx.signal.throwIfAborted();
     // A thrown activity recorded nothing: the job retries it.
     if (played.failure !== undefined) throw played.failure;
-    await ctx.activity("end_turn", (tx) =>
-      endTurn(tx, turnId, {
+    await ctx.activity("end_turn", async (tx) => {
+      await lockConversation(tx, turn.conversationId);
+      await endTurn(tx, turnId, {
         ...endingOf(played),
         transcript: played.transcript,
         usage: played.usage,
         endedAt: deps.clock(),
-      }),
-    );
+      });
+      await turnEnded(deps, tx, turnId);
+    });
   } catch (caught) {
     // Also when the abort lands after the Turn played, before or during its end_turn Checkpoint.
     if (ctx.signal.aborted) await stopIfCancelled(deps, turn, played);
     throw caught;
   }
+  deps.plugin("runner").wake();
   await hintChanged(deps, turn.conversationId);
 }
 
@@ -339,17 +335,12 @@ async function stopIfCancelled(
 ) {
   const cancelled = turn.jobId && (await deps.plugin("runner").status(turn.jobId));
   if (!cancelled || cancelled.status !== "cancelled") return;
-  await deps.db
-    .update(botTurn)
-    .set({
-      status: "stopped",
-      error: null,
-      transcript: played.transcript,
-      usage: played.usage,
-      endedAt: deps.clock(),
-    })
-    .where(and(eq(botTurn.id, turn.id), eq(botTurn.status, "running")));
-  await hintChanged(deps, turn.conversationId);
+  await endRunningTurn(deps, turn, {
+    status: "stopped",
+    error: null,
+    transcript: played.transcript,
+    usage: played.usage,
+  });
 }
 
 /**
@@ -366,16 +357,36 @@ async function endLostTurn(deps: BotSdkContext, turnId: string) {
     // The Turn still ends, so it never reads `running` forever; only its transcript is lost.
     deps.logger.error(`Replaying lost Turn ${turnId} failed`, caught);
   }
-  await deps.db
-    .update(botTurn)
-    .set({
-      status: "error",
-      error: "interrupted",
-      transcript: played.transcript,
-      usage: played.usage,
-      endedAt: deps.clock(),
-    })
-    .where(and(eq(botTurn.id, turnId), eq(botTurn.status, "running")));
+  await endRunningTurn(deps, turn, {
+    status: "error",
+    error: "interrupted",
+    transcript: played.transcript,
+    usage: played.usage,
+  });
+}
+
+/**
+ * Ends a Turn that is still `running` from outside its job, and starts the next Turn for what
+ * waits in the Conversation queue, under the Conversation's row lock. A Turn that has already
+ * ended stays as it is.
+ */
+async function endRunningTurn(
+  deps: BotSdkContext,
+  turn: TurnFacts,
+  ending: { status: TurnStatus; error: string | null } & Pick<PlayedTurn, "transcript" | "usage">,
+) {
+  const ended = await deps.db.transaction(async (tx) => {
+    await lockConversation(tx, turn.conversationId);
+    const rows = await tx
+      .update(botTurn)
+      .set({ ...ending, endedAt: deps.clock() })
+      .where(and(eq(botTurn.id, turn.id), eq(botTurn.status, "running")))
+      .returning({ id: botTurn.id });
+    if (rows.length === 0) return false;
+    await turnEnded(deps, tx, turn.id);
+    return true;
+  });
+  if (ended) deps.plugin("runner").wake();
   await hintChanged(deps, turn.conversationId);
 }
 

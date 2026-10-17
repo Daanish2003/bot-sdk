@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { rpcError } from "../../../core/server/rpc-error";
+import { en } from "../../../core/shared/i18n";
 import type { BotMessage, BotSendEvent, TurnStatus } from "../../../plugins/bot/shared/turn";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
 import { providerFor } from "../fake-dictionary";
@@ -268,21 +269,40 @@ describe("a refetch during a send", () => {
   });
 });
 
+describe("sending while the Bot works", () => {
+  it("sends mid-Turn and shows the Message at once, with no refusal", async () => {
+    const server = fakeBotServer();
+    const { container } = mount(server);
+    await type("hi");
+    await server.stream({ type: "message", message: said("m1", "user", "hi") });
+    expect(screen.getByRole("status", { name: "Typing" })).toBeTruthy();
+
+    await type("and one more thing");
+
+    expect(bubbles(container)).toEqual([
+      ["user", "hi"],
+      ["user", "and one more thing"],
+    ]);
+    await waitFor(() =>
+      expect(server.sends).toEqual([
+        { botId: ada.id, text: "hi" },
+        { botId: ada.id, text: "and one more thing" },
+      ]),
+    );
+    expect(screen.getByRole<HTMLTextAreaElement>("textbox", { name: "Message" }).value).toBe("");
+    expect(screen.getByRole("button", { name: "■ Stop" })).toBeTruthy();
+  });
+
+  it("has no Turn-running refusal to show", () => {
+    expect(Object.keys(en)).not.toContain("error.turnRunning");
+  });
+});
+
 describe("a refused send", () => {
-  it.each([
-    [
-      "409, a Turn is running",
-      rpcError("CONFLICT", "error.turnRunning", "A Turn is still running"),
-      "Your Bot is still replying. Wait for it to finish, then send again.",
-    ],
-    [
-      "402, out of Quota",
-      rpcError("PAYMENT_REQUIRED", "error.quotaSpent", "Quota spent"),
-      "You've used this window's Quota",
-    ],
-  ])("on %s removes the bubble, puts the text back and says why", async (_, error, why) => {
+  it("on 402, out of Quota, removes the bubble, puts the text back and says why", async () => {
+    const why = "You've used this window's Quota";
     const server = fakeBotServer([said("m0", "user", "earlier")]);
-    server.refuseNext(error);
+    server.refuseNext(rpcError("PAYMENT_REQUIRED", "error.quotaSpent", "Quota spent"));
     const { container } = mount(server);
     await screen.findByText("earlier");
 

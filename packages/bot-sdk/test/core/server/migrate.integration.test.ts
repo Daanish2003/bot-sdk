@@ -61,6 +61,7 @@ const sdkTables = [
   "attachment",
   "blob",
   "bot",
+  "bot_trigger",
   "bot_turn",
   "conversation",
   "generated_image",
@@ -99,6 +100,8 @@ describe("chat.migrate()", () => {
     );
     expect(enums.map((row) => row.typname).sort()).toEqual([
       "artifact_kind",
+      "bot_trigger_channel",
+      "bot_trigger_source",
       "bot_turn_status",
       "job_status",
       "knowledge_file_status",
@@ -426,7 +429,7 @@ describe("chat.migrate()", () => {
     await expect(Promise.all([chat.migrate(), chat.migrate()])).resolves.toBeDefined();
 
     const applied = await rows<{ count: string }>(url, "select count(*) from chat.__migrations");
-    expect(applied).toEqual([{ count: "31" }]);
+    expect(applied).toEqual([{ count: "32" }]);
   });
 
   it("gives a Conversation's tool settings empty lists by default, so existing rows read as empty", async () => {

@@ -1,10 +1,17 @@
 import type { ModelMessage, TextOptions } from "@tanstack/ai";
-import { eq, inArray, sql } from "drizzle-orm";
+import { asc, eq, inArray, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createHookEmitter } from "../../../../core/server/chat/hooks";
 import { createMemoryPubSub } from "../../../../core/server/chat/pubsub";
-import { botTurn, conversation, job, message, usage } from "../../../../core/server/db/schema";
+import {
+  botTrigger,
+  botTurn,
+  conversation,
+  job,
+  message,
+  usage,
+} from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import type { Transaction } from "../../../../core/server/plugin";
 import type { HostProvider } from "../../../../plugins/assistant/server/deps";
@@ -166,7 +173,20 @@ const shapes = (events: Awaited<ReturnType<typeof send>>) =>
 const sends = (input: { text: string; endTurn: boolean }) => toolCall({ name: sendToUser, input });
 
 async function turnsOf(botId: string) {
-  return getTestDb().select().from(botTurn).where(eq(botTurn.botId, botId));
+  return getTestDb()
+    .select()
+    .from(botTurn)
+    .where(eq(botTurn.botId, botId))
+    .orderBy(asc(botTurn.startedAt), asc(botTurn.id));
+}
+
+/** The Conversation's Triggers, in the order they were received. */
+async function triggersOf(conversationId: string) {
+  return getTestDb()
+    .select()
+    .from(botTrigger)
+    .where(eq(botTrigger.conversationId, conversationId))
+    .orderBy(asc(botTrigger.receivedAt), asc(botTrigger.id));
 }
 
 /** The model input of one call: its messages, as the adapter got them. */
@@ -479,19 +499,132 @@ describe("bot.stop", () => {
 });
 
 describe("one Turn at a time", () => {
-  it("refuses a Message while a Turn is running with 409 before the first event, and saves nothing", async () => {
-    const { client, botId } = await botWith([]);
-    await insertRunningTurn(botId);
-    const jobsBefore = await getTestDb().select().from(job);
+  it("queues a Message sent while a Turn runs, and the next Turn takes it when the first ends", async () => {
+    const { client, user, botId, fake } = await botWith(
+      [
+        round(sends({ text: "Done.", endTurn: true })),
+        round(sends({ text: "Got the second.", endTurn: true })),
+      ],
+      { manual: true },
+    );
+    const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
+    const firstStream = await client.bot.send({ botId, text: "one" });
+    const [first] = await readUntil(firstStream, () => true);
+    // The first Turn waits in its model call.
+    await expect.poll(() => fake.calls.length).toBe(1);
 
-    await expect(client.bot.send({ botId, text: "hello?" })).rejects.toMatchObject({
-      code: "CONFLICT",
-      status: 409,
-      data: { code: "error.turnRunning" },
-    });
-    expect((await client.bot.get({ botId })).messages).toEqual([]);
+    const secondStream = await client.bot.send({ botId, text: "two" });
+    const [second] = await readUntil(secondStream, () => true);
+
+    // No CONFLICT: the Message is saved, and its Trigger waits for the next Turn.
+    expect(second).toMatchObject({ type: "message", message: { role: "user", text: "two" } });
+    const [firstTurn] = await turnsOf(botId);
+    const firstId = first?.type === "message" ? first.message.id : "";
+    const secondId = second?.type === "message" ? second.message.id : "";
+    expect(await triggersOf(conversationId)).toMatchObject([
+      { id: firstId, messageId: firstId, source: "user", channel: "web", turnId: firstTurn!.id },
+      { id: secondId, messageId: secondId, source: "user", channel: "web", turnId: null },
+    ]);
     expect(await turnsOf(botId)).toHaveLength(1);
-    expect(await getTestDb().select().from(job)).toEqual(jobsBefore);
+
+    await fake.releaseAll();
+
+    // The queued send's stream follows the Turn that took it through to its end.
+    const rest = await readUntil(secondStream, () => false);
+    expect(shapes(rest).at(-1)).toEqual({ type: "turnEnded", status: "complete" });
+    expect(shapes(rest)).toContainEqual({
+      type: "message",
+      role: "assistant",
+      text: "Got the second.",
+    });
+    const turns = await turnsOf(botId);
+    expect(turns.map((turn) => turn.status)).toEqual(["complete", "complete"]);
+    const secondTurn = turns.find((turn) => turn.id !== firstTurn!.id)!;
+    expect((await triggersOf(conversationId)).map((row) => row.turnId)).toEqual([
+      firstTurn!.id,
+      secondTurn.id,
+    ]);
+    // The second Turn's input holds the first exchange, then the queued Message.
+    const input = inputOf(fake.calls[1]);
+    expect(input[0]).toMatchObject({ role: "user", content: "one" });
+    expect(input.at(-1)).toMatchObject({ role: "user", content: "two" });
+    expect(JSON.stringify(input)).toContain("Done.");
+  });
+
+  it("has the next Turn take every waiting Trigger, in the order they were received", async () => {
+    const { client, user, botId, fake } = await botWith(
+      [round(text("First.")), round(text("Both."))],
+      { manual: true },
+    );
+    const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
+    await (await client.bot.send({ botId, text: "one" })).next();
+    await expect.poll(() => fake.calls.length).toBe(1);
+    await (await client.bot.send({ botId, text: "two" })).next();
+    const third = await client.bot.send({ botId, text: "three" });
+    await third.next();
+
+    await fake.releaseAll();
+    expect((await readUntil(third, () => false)).at(-1)).toEqual({
+      type: "turnEnded",
+      status: "complete",
+    });
+
+    const turns = await turnsOf(botId);
+    expect(turns).toHaveLength(2);
+    const taken = await triggersOf(conversationId);
+    expect(taken.map((row) => row.turnId)).toEqual([turns[0]!.id, turns[1]!.id, turns[1]!.id]);
+    expect(fake.calls).toHaveLength(2);
+    const users = inputOf(fake.calls[1]).filter((entry) => entry.role === "user");
+    expect(users.map((entry) => entry.content)).toEqual(["one", "two", "three"]);
+  });
+
+  it("starts the next Turn when the running one ends error", async () => {
+    const { client, botId, fake } = await botWith(
+      [round(runError("Provider down")), round(text("Back."))],
+      { manual: true },
+    );
+    await (await client.bot.send({ botId, text: "one" })).next();
+    await expect.poll(() => fake.calls.length).toBe(1);
+    const queued = await client.bot.send({ botId, text: "two" });
+    await queued.next();
+
+    await fake.releaseAll();
+
+    expect((await readUntil(queued, () => false)).at(-1)).toEqual({
+      type: "turnEnded",
+      status: "complete",
+    });
+    expect((await turnsOf(botId)).map((turn) => turn.status).sort()).toEqual(["complete", "error"]);
+  });
+
+  it("starts the next Turn when the running one is stopped", async () => {
+    const { client, botId, fake } = await botWith([round(text("Never.")), round(text("Back."))], {
+      manual: true,
+    });
+    await (await client.bot.send({ botId, text: "one" })).next();
+    await expect.poll(() => fake.calls.length).toBe(1);
+    const queued = await client.bot.send({ botId, text: "two" });
+    await queued.next();
+
+    await client.bot.stop({ botId });
+    await fake.releaseAll();
+
+    expect((await readUntil(queued, () => false)).at(-1)).toEqual({
+      type: "turnEnded",
+      status: "complete",
+    });
+    expect((await turnsOf(botId)).map((turn) => turn.status).sort()).toEqual([
+      "complete",
+      "stopped",
+    ]);
+  });
+
+  it("refuses a second running Turn for one Bot by its index", async () => {
+    const { botId } = await botWith([]);
+    await insertRunningTurn(botId);
+
+    await expect(insertRunningTurn(botId)).rejects.toMatchObject({ cause: { code: "23505" } });
+    expect(await turnsOf(botId)).toHaveLength(1);
   });
 
   it("reads a running Turn as running in bot.get and bot.list, however old", async () => {
@@ -535,6 +668,8 @@ describe("a Turn's Quota and usage", () => {
     });
     expect((await client.bot.get({ botId })).messages).toEqual([]);
     expect(await turnsOf(botId)).toEqual([]);
+    const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
+    expect(await triggersOf(conversationId)).toEqual([]);
   });
 
   it("records a Turn's usage as turn on Host credentials", async () => {
@@ -874,8 +1009,10 @@ describe("a Turn that resumes after a crash", () => {
     ]);
   });
 
-  it("ends the Turn stopped when bot.stop lands just before its last Checkpoint", async () => {
-    const { fake, client, botId, attempt } = await crashableBot([round(text("Nothing to add."))]);
+  it("ends the Turn stopped when its job is cancelled just before its last Checkpoint", async () => {
+    const { fake, client, botId, attempt, instance } = await crashableBot([
+      round(text("Nothing to add.")),
+    ]);
     const stream = await client.bot.send({ botId, text: "ok" });
     // Another connection holds the Turn's row, so the end_turn Checkpoint waits on it.
     const turnRow = await holdLocks((tx) =>
@@ -885,7 +1022,10 @@ describe("a Turn that resumes after a crash", () => {
     const running = attempt();
     await fake.releaseAll();
     await expect.poll(waitingOnLocks).toBe(1);
-    await client.bot.stop({ botId });
+    // The end_turn Checkpoint holds the Conversation's row lock, so `bot.stop` would wait for it:
+    // this is a stop whose cancel committed just before that Checkpoint began.
+    const [turnBefore] = await turnsOf(botId);
+    await instance().plugin("runner").cancel(turnBefore!.id);
     await turnRow.release();
     await running;
 
@@ -1029,6 +1169,32 @@ describe("a Turn that resumes after a crash", () => {
     expect(turn?.transcript?.[0]?.content).toBe("Private note.");
     expect(JSON.stringify(turn?.transcript)).toContain("One");
     expect(JSON.stringify(turn?.transcript)).not.toContain("Never sent.");
+  });
+
+  it("starts the next Turn for a Message queued while a Turn was lost, once onFailed ends it", async () => {
+    const hangs = round(text("Never."));
+    const { fake, client, user, botId, attempt, crash } = await crashableBot([hangs, hangs, hangs]);
+    const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
+    await client.bot.send({ botId, text: "one" });
+
+    const lost = [attempt()];
+    await expect.poll(() => fake.calls.length).toBe(1);
+    await (await client.bot.send({ botId, text: "two" })).next();
+    for (const calls of [1, 2, 3]) {
+      await expect.poll(() => fake.calls.length).toBe(calls);
+      await crash();
+      if (calls < 3) lost.push(attempt());
+    }
+    await Promise.all(lost);
+
+    const turns = await turnsOf(botId);
+    expect(turns.map((turn) => turn.status)).toEqual(["error", "running"]);
+    expect((await triggersOf(conversationId)).map((row) => row.turnId)).toEqual([
+      turns[0]!.id,
+      turns[1]!.id,
+    ]);
+    const [next] = await getTestDb().select().from(job).where(eq(job.id, turns[1]!.jobId!));
+    expect(next).toMatchObject({ name: "bot.turn", status: "queued" });
   });
 
   /** Moves the Turn's start and its Conversation's Messages `ms` into the past. */
