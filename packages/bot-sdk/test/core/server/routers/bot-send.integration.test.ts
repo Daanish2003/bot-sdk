@@ -6,7 +6,8 @@ import { botTurn, usage } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import type { HostProvider } from "../../../../plugins/assistant/server/deps";
 import { bot } from "../../../../plugins/bot/server/plugin";
-import { turnTimeLimitMs } from "../../../../plugins/bot/server/turn";
+import { turnTimeLimitMs } from "../../../../plugins/bot/server/store";
+import { sendToBot } from "../../../../plugins/bot/server/turn";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { quotaLookup } from "../../../../plugins/models/server/quota";
 import { createTestSdk, type TestDepsOverrides } from "../../../support/deps";
@@ -329,6 +330,22 @@ describe("a Turn's limits", () => {
       "On it…",
     ]);
   });
+
+  it("ends the Turn stopped when its stream is left before it is read, so the next send isn't refused", async () => {
+    const { deps, user, client, botId } = await botWith([
+      round(sends({ text: "Back.", endTurn: true })),
+    ]);
+
+    // The transport may drop a stream it never pulled from: `return()` before any `next()`.
+    const stream = await sendToBot(deps, { userId: user.id, botId, text: "hi" });
+    await stream.return(undefined);
+
+    expect(await endedTurn(botId)).toMatchObject({ status: "stopped", error: null });
+    expect((await send(client, botId, "again")).at(-1)).toEqual({
+      type: "turnEnded",
+      status: "complete",
+    });
+  });
 });
 
 describe("one Turn at a time", () => {
@@ -362,6 +379,29 @@ describe("one Turn at a time", () => {
       error: "interrupted",
     });
     expect(turns.find((turn) => turn.id === stale)?.endedAt).toBeInstanceOf(Date);
+  });
+
+  it("reads a running Turn left by a dead process as error in bot.get and bot.list", async () => {
+    const { client, botId } = await botWith([]);
+    await insertTurn(botId, {
+      status: "running",
+      startedAt: new Date(Date.now() - 2 * turnTimeLimitMs),
+    });
+
+    expect((await client.bot.get({ botId })).bot.turnStatus).toBe("error");
+    expect((await client.bot.list()).find((listed) => listed.id === botId)?.turnStatus).toBe(
+      "error",
+    );
+  });
+
+  it("reads a live running Turn as running", async () => {
+    const { client, botId } = await botWith([]);
+    await insertTurn(botId, { status: "running", startedAt: new Date() });
+
+    expect((await client.bot.get({ botId })).bot.turnStatus).toBe("running");
+    expect((await client.bot.list()).find((listed) => listed.id === botId)?.turnStatus).toBe(
+      "running",
+    );
   });
 });
 

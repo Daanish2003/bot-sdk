@@ -20,19 +20,10 @@ import { promptCharactersOf, reportedUsageOf } from "../../assistant/server/chat
 import type { ModelMeter } from "../../models/server/meter";
 import { parseModelId } from "../../models/shared/models";
 import type { BotMessage, BotSendEvent, TurnStatus } from "../shared/turn";
-import { findBot, textParts, toBotMessage } from "./store";
+import { findBot, staleTurnMs, textParts, toBotMessage, turnTimeLimitMs } from "./store";
 
 /** The most Steps a Turn may take; one more ends it `error` with `step_limit`. */
 export const turnStepLimit = 10;
-
-/** The longest a Turn may run; past it, it ends `error` with `timed_out`. */
-export const turnTimeLimitMs = 5 * 60_000;
-
-/**
- * A `running` Turn older than this was left by a dead process: a live one would have reached its
- * time limit and ended. The minute after the limit leaves room for the ending to be written.
- */
-const staleTurnMs = turnTimeLimitMs + 60_000;
 
 /** The Bot's one tool in step 1: the only way it reaches the user. */
 export const sendToUserToolName = "send_to_user";
@@ -138,21 +129,44 @@ export async function sendToBot(
     return toBotMessage(row);
   });
 
-  return runTurn(deps, {
-    conversationId: found.conversationId,
-    turnId,
-    userMessage,
-    provider: parseModelId(found.model)?.provider ?? "",
-    meter: call.meter,
-    // Inside the Turn, so a failure here ends it `error` instead of leaving it running.
-    prepare: async () => ({
-      input: await modelInput(deps, { conversationId: found.conversationId, botId, turnId }),
-      adapter: deps
-        .plugin("models")
-        .adapterFor(found.model, call.credentials, { maxOutputTokens: call.maxOutputTokens }),
+  return started(
+    runTurn(deps, {
+      conversationId: found.conversationId,
+      turnId,
+      userMessage,
+      provider: parseModelId(found.model)?.provider ?? "",
+      meter: call.meter,
+      // Inside the Turn, so a failure here ends it `error` instead of leaving it running.
+      prepare: async () => ({
+        input: await modelInput(deps, { conversationId: found.conversationId, botId, turnId }),
+        adapter: deps
+          .plugin("models")
+          .adapterFor(found.model, call.credentials, { maxOutputTokens: call.maxOutputTokens }),
+      }),
+      signal,
     }),
-    signal,
-  });
+  );
+}
+
+/**
+ * The stream, run up to its first event. A generator left before its first `next()` never runs its
+ * body, so its `finally` wouldn't end the Turn's row; once started, `return()` runs it. The first
+ * event is held and given to the first `next()`.
+ */
+async function started<T>(stream: AsyncGenerator<T>): Promise<AsyncGenerator<T>> {
+  let first: IteratorResult<T> | undefined = await stream.next();
+  const resumed: AsyncGenerator<T> = {
+    next: (...args) => {
+      const held = first;
+      first = undefined;
+      return held ? Promise.resolve(held) : stream.next(...args);
+    },
+    return: (value) => stream.return(value),
+    throw: (error) => stream.throw(error),
+    [Symbol.asyncIterator]: () => resumed,
+    [Symbol.asyncDispose]: () => stream[Symbol.asyncDispose](),
+  };
+  return resumed;
 }
 
 /**
