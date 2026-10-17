@@ -34,6 +34,11 @@ export type JobDefinition<P> = {
   run: (payload: P, context: JobContext) => Promise<void>;
   /** Runs once, after the final failure (the last attempt, or a `PermanentJobError`). */
   onFailed?: (payload: P, error: unknown, deps: BotSdkContext) => Promise<void> | void;
+  /**
+   * Runs once, from the lease sweep, for a cancelled job whose attempt lost its lease before its
+   * handler ended (a crash). An attempt that sees the cancel and ends leaves it to the handler.
+   */
+  onCancelled?: (payload: P, deps: BotSdkContext) => Promise<void> | void;
 };
 
 /** A definition as the runner holds it, with its payload type erased. */
@@ -42,6 +47,7 @@ export type RegisteredJob = {
   payload: z.ZodType<unknown>;
   run: (payload: unknown, context: JobContext) => Promise<void>;
   onFailed?: (payload: unknown, error: unknown, deps: BotSdkContext) => Promise<void> | void;
+  onCancelled?: (payload: unknown, deps: BotSdkContext) => Promise<void> | void;
 };
 
 const registry = new Map<string, RegisteredJob>();

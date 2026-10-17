@@ -24,14 +24,16 @@ function BotConversationView({ botId }: { botId: string }) {
   const i18n = useI18n();
   const { t } = i18n;
   const [draft, setDraft] = useState("");
-  const { bot, error, messages, running, working, seenMessageId, failedMessageId, send } =
-    useBotTurn(botId, {
+  const { bot, error, messages, working, seenMessageId, failedMessageId, send, stop } = useBotTurn(
+    botId,
+    {
       // A refused send puts its text back in the composer and says why.
       onRefusedSend: (text, refusal) => {
         setDraft(text);
         toast.error(serverErrorText(i18n, refusal));
       },
-    });
+    },
+  );
 
   if (error) {
     return (
@@ -45,7 +47,7 @@ function BotConversationView({ botId }: { botId: string }) {
   const submit = (event?: FormEvent) => {
     event?.preventDefault();
     const text = draft.trim();
-    if (!text || running) return;
+    if (!text) return;
     setDraft("");
     void send(text);
   };
@@ -107,12 +109,18 @@ function BotConversationView({ botId }: { botId: string }) {
           rows={1}
           className="max-h-40 min-h-10 resize-none"
         />
-        <Button
-          type="submit"
-          size="icon"
-          aria-label={t("bots.send")}
-          disabled={!draft.trim() || running}
-        >
+        {working && (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() =>
+              void stop().catch((refusal) => toast.error(serverErrorText(i18n, refusal)))
+            }
+          >
+            ■ {t("bots.stop")}
+          </Button>
+        )}
+        <Button type="submit" size="icon" aria-label={t("bots.send")} disabled={!draft.trim()}>
           <SendIcon />
         </Button>
       </form>

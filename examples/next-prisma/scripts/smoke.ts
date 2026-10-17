@@ -15,10 +15,13 @@ import { PrismaClient } from "@prisma/client";
 import pg from "pg";
 
 import { createBotSdkClient } from "../src/bot-sdk/core/client/chat-client.ts";
+import { uuidv7 } from "../src/bot-sdk/core/shared/uuidv7.ts";
+import { botClient } from "../src/bot-sdk/plugins/bot/client/index.ts";
 import { assistantClient } from "../src/bot-sdk/plugins/assistant/client/index.ts";
 import { modelsClient } from "../src/bot-sdk/plugins/models/client/index.ts";
 import { createBotSdk } from "../src/bot-sdk/core/server/create-chat.ts";
 import { assistant } from "../src/bot-sdk/plugins/assistant/server/index.ts";
+import { bot } from "../src/bot-sdk/plugins/bot/server/index.ts";
 import { models } from "../src/bot-sdk/plugins/models/server/index.ts";
 import { runner } from "../src/bot-sdk/plugins/runner/server/index.ts";
 
@@ -88,14 +91,14 @@ async function main() {
     keyEncryptionSecrets,
     basePath: "/api/chat",
     getUser: () => ({ id: user.id }),
-    plugins: [models(), runner(), assistant()],
+    plugins: [models(), runner(), assistant(), bot()],
   });
   await chat.start();
 
   try {
     const client = createBotSdkClient({
       baseUrl: "http://localhost/api/chat",
-      plugins: [modelsClient(), assistantClient()],
+      plugins: [modelsClient(), assistantClient(), botClient()],
       fetch: chat.handler,
     });
     await client.rpc.credentials.save({ service: "ollama", fields: { host: providerUrl } });
@@ -136,6 +139,25 @@ async function main() {
     if (!reply || !JSON.stringify(reply.parts).includes("You said")) {
       throw new Error("The assistant Message was not saved");
     }
+    // A Bot Turn: bot.send takes the client's uuidv7 id for the Message. The fake Provider never calls
+    // the send_to_user tool, so the Bot's reply is not checked here: the Turn only has to end complete.
+    const created = await client.rpc.bot.create({ name: "Smoke Bot", model });
+    const botEvents = await client.rpc.bot.send({
+      botId: created.id,
+      id: uuidv7(),
+      text: "Hello Bot from the smoke test",
+    });
+    let botStatus: string | undefined;
+    let botSaid: string | undefined;
+    for await (const event of botEvents) {
+      if (event.type === "message" && event.message.role === "user") botSaid = event.message.text;
+      if (event.type === "turnEnded") botStatus = event.status;
+    }
+    if (botSaid !== "Hello Bot from the smoke test")
+      throw new Error("The Bot did not save the user Message");
+    if (botStatus !== "complete")
+      throw new Error(`The Bot Turn ended ${botStatus ?? "without an end"}`);
+
     console.log(`Smoke test passed: streamed ${streamed.length} characters and saved the reply.`);
   } finally {
     await chat.stop();

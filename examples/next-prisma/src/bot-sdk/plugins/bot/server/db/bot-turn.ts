@@ -1,5 +1,14 @@
 import type { ModelMessage } from "@tanstack/ai";
-import { type AnyPgColumn, index, jsonb, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import {
+  type AnyPgColumn,
+  index,
+  jsonb,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from "drizzle-orm/pg-core";
 
 import { chatSchema } from "../../../../core/server/db/chat-schema";
 import { job } from "../../../runner/server/db/job";
@@ -42,5 +51,12 @@ export const botTurn = chatSchema.table(
     /** The Turn's model messages, after its input. Null until the Turn ends. */
     transcript: jsonb("transcript").$type<ModelMessage[]>(),
   },
-  (table) => [index("bot_turn_bot_id_started_at_idx").on(table.botId, table.startedAt.desc())],
+  (table) => [
+    index("bot_turn_bot_id_started_at_idx").on(table.botId, table.startedAt.desc()),
+    // One running Turn per Bot (#499): it backs up the Conversation's row lock, so a missed lock is
+    // an error instead of a second running Turn. A Bot has exactly one Conversation.
+    uniqueIndex("bot_turn_running_bot_id_idx")
+      .on(table.botId)
+      .where(sql`${table.status} = 'running'`),
+  ],
 );

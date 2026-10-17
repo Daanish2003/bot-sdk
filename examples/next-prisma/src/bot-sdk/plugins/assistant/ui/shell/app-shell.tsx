@@ -1,7 +1,7 @@
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
-import { MessagesSquareIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
+import { BotIcon, MessagesSquareIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 
 import { useChatAdapter, useI18n } from "../../../../core/client/react/provider";
@@ -32,7 +32,7 @@ export function AppShell({
   quotaExceeded?: ReactNode;
   installPrompt?: ReactNode;
 }) {
-  const { orpc, Link } = useChatAdapter();
+  const { orpc, Link, plugins } = useChatAdapter();
   const { t } = useI18n();
   const [panelOpen, setPanelOpen] = useState(true);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -131,6 +131,16 @@ export function AppShell({
                 <MessagesSquareIcon />
               </Button>
               <div className="flex-1" />
+              {plugins.includes("bot") && (
+                <Link
+                  page={{ to: "bots" }}
+                  title={t("shell.bots")}
+                  aria-label={t("shell.bots")}
+                  className={buttonVariants({ variant: "ghost", size: "icon" })}
+                >
+                  <BotIcon />
+                </Link>
+              )}
               <Link
                 page={{ to: "keys" }}
                 title={t("shell.keysAndSettings")}
