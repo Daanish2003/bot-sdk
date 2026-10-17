@@ -3,7 +3,7 @@ import { asc, eq, inArray, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createHookEmitter } from "../../../../core/server/chat/hooks";
-import { createMemoryPubSub } from "../../../../core/server/chat/pubsub";
+import { createMemoryPubSub, type PubSub } from "../../../../core/server/chat/pubsub";
 import {
   botTrigger,
   botTurn,
@@ -57,6 +57,26 @@ const silent = { error: () => {} };
 /** The runners the tests started, stopped after each test. */
 const started: InProcessRunner[] = [];
 
+/** The subscriptions on the tests' Pub/Sub that are still open: one per stream a send is following. */
+let openFollowers = 0;
+
+/** `pubsub`, counting its open subscriptions in `openFollowers`. */
+function countingPubSub(pubsub: PubSub): PubSub {
+  return {
+    publish: (channel, message) => pubsub.publish(channel, message),
+    async subscribe(channel, handler) {
+      const unsubscribe = await pubsub.subscribe(channel, handler);
+      openFollowers++;
+      let open = true;
+      return async () => {
+        if (open) openFollowers--;
+        open = false;
+        await unsubscribe();
+      };
+    },
+  };
+}
+
 afterEach(async () => {
   for (const jobs of started.splice(0)) await jobs.stop();
 });
@@ -68,7 +88,8 @@ afterEach(async () => {
 async function sdkWithRunner(overrides: TestDepsOverrides, { idle = false } = {}) {
   let deps: TestDeps | undefined;
   const jobs = inProcessRunner({ db: getTestDb(), logger: silent, drainMs: 50, deps: () => deps! });
-  deps = createTestSdk({ plugins: [bot()], jobs, ...overrides });
+  const pubsub = countingPubSub(overrides.pubsub ?? createMemoryPubSub());
+  deps = createTestSdk({ plugins: [bot()], jobs, ...overrides, pubsub });
   // An idle runner never claims a job, so a Turn stays queued.
   if (!idle) await jobs.start();
   started.push(jobs);
@@ -168,6 +189,16 @@ async function send(
   const events = [];
   for await (const event of await client.bot.send({ botId, id, text })) events.push(event);
   return events;
+}
+
+/**
+ * Sends `text` and reads only the saved Message, then closes the stream. A stream left open keeps
+ * following the Turn, and its queries can still run when the next test truncates the tables.
+ */
+async function sendSaved(client: ReturnType<typeof chatRpc>, botId: string, text: string) {
+  const stream = await client.bot.send({ botId, id: uuidv7(), text });
+  await stream.next();
+  await stream.return(undefined);
 }
 
 /** The stream's events, with each Message cut down to its role and text. */
@@ -575,7 +606,7 @@ describe("one Turn at a time", () => {
       { manual: true },
     );
     const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
-    await (await client.bot.send({ botId, id: uuidv7(), text: "one" })).next();
+    await sendSaved(client, botId, "one");
     await expect.poll(() => fake.calls.length).toBe(1);
     await queueTrigger(deps, conversationId, "two");
 
@@ -684,9 +715,9 @@ describe("skipping the line", () => {
       { manual: true },
     );
     const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
-    await (await client.bot.send({ botId, id: uuidv7(), text: "one" })).next();
+    await sendSaved(client, botId, "one");
     await expect.poll(() => fake.calls.length).toBe(1);
-    await (await client.bot.send({ botId, id: uuidv7(), text: "two" })).next();
+    await sendSaved(client, botId, "two");
     const third = await client.bot.send({ botId, id: uuidv7(), text: "three" });
     await third.next();
 
@@ -713,7 +744,7 @@ describe("skipping the line", () => {
       { manual: true },
     );
     const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
-    await (await client.bot.send({ botId, id: uuidv7(), text: "one" })).next();
+    await sendSaved(client, botId, "one");
     await expect.poll(() => fake.calls.length).toBe(1);
     const twoId = uuidv7();
     const two = await client.bot.send({ botId, id: twoId, text: "two" });
@@ -751,6 +782,16 @@ describe("skipping the line", () => {
 });
 
 describe("batching quick Messages", () => {
+  // A stream a test closes keeps following the Turn until the abort reaches the server, and a hint
+  // wakes it to query. Those queries must end before the next test truncates the tables.
+  let followersBefore = 0;
+  beforeEach(() => {
+    followersBefore = openFollowers;
+  });
+  afterEach(async () => {
+    await expect.poll(() => openFollowers, { timeout: 5_000 }).toBeLessThanOrEqual(followersBefore);
+  });
+
   /**
    * A Bot on an idle runner and a clock the test moves. `runDue()` claims a Turn's job only once
    * it is due at the clock's time, and runs it.
@@ -772,7 +813,7 @@ describe("batching quick Messages", () => {
       now: () => timer.clock.now(),
       /** Sends `text` and reads only the saved Message. */
       sendNow: async (text: string) => {
-        await (await client.bot.send({ botId, id: uuidv7(), text })).next();
+        await sendSaved(client, botId, text);
       },
       runDue: async () => {
         const claimed = await claimJob(getTestDb(), timer.clock.now(), { respectRunAfter: true });
@@ -1555,7 +1596,7 @@ describe("a Turn that resumes after a crash", () => {
     const [queued] = await getTestDb().select().from(job).where(eq(job.id, before!.jobId!));
     expect(queued).toMatchObject({ status: "queued" });
 
-    await (await client.bot.send({ botId, id: uuidv7(), text: "two" })).next();
+    await sendSaved(client, botId, "two");
 
     // Its queued job never runs again: the Turn ends stopped at once, and the next one starts.
     const [after, next] = await turnsOf(botId);
