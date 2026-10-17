@@ -164,6 +164,14 @@ _Avoid_: Step, activity, snapshot
 One event that wakes a Bot to run a Turn: the user, a Routine, an outside service, another agent, background work finishing or a Check-in. It records where it came from, so the Bot can tell whether the user asked, a Routine ran or an outside service sent it. Each carries a unique ID from its source, and one whose ID the Bot has already seen is dropped: a resent Message is the same Message, never a second one.
 _Avoid_: Event, wake-up, input
 
+**Router**:
+What every Trigger passes through on its way to a Bot: it drops duplicates and puts each Trigger in its Conversation's queue.
+_Avoid_: Dispatcher, inbox
+
+**Conversation queue**:
+The Triggers a Conversation has received that no Turn has taken yet, in the order they arrived. A Turn takes everything waiting, and when it ends the next Turn takes whatever has arrived since, so a Conversation runs one Turn at a time.
+_Avoid_: Inbox, backlog, job queue (that is the runner's)
+
 **Routine**:
 A prompt one Bot runs on a schedule or when an inbound webhook arrives. A Bot can create one from its Conversation, but it runs only after the user's Approval.
 _Avoid_: Cron job, schedule, automation, Saved prompt (that the user inserts)
