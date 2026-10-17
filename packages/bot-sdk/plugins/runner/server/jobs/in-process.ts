@@ -28,7 +28,7 @@ export type InProcessRunnerOptions = {
   concurrency?: number;
   /** How often an idle runner polls `chat.job`. Enqueue wakes it sooner. */
   pollMs?: number;
-  /** How long `stop()` lets running jobs finish before it aborts them. */
+  /** How long `stop()` lets running jobs finish or yield before it aborts them. */
   drainMs?: number;
   clock?: JobClock;
   /** The core context, read when a job runs. The `runner` plugin passes its instance's. */
@@ -51,8 +51,9 @@ async function waitUpTo(promise: Promise<unknown>, ms: number): Promise<void> {
 /**
  * The default runner (ADR 0011): polls `chat.job` every `pollMs`, claims due jobs with
  * `FOR UPDATE SKIP LOCKED` and runs up to `concurrency` at once. Nothing polls until `start()`.
- * `stop()` takes no new jobs, waits up to `drainMs` for the running ones, then aborts them and
- * leaves their leases to expire.
+ * `stop()` takes no new jobs and asks each running workflow to yield: at its next Checkpoint its row
+ * is handed back `queued`, uncounted, for another process to resume. It waits up to `drainMs` for
+ * the running jobs to finish or yield, then aborts the rest and leaves their leases to expire.
  */
 export function inProcessRunner({
   db,
@@ -65,6 +66,7 @@ export function inProcessRunner({
 }: InProcessRunnerOptions): JobRunner {
   let running = false;
   let timer: unknown;
+  let drain: AbortController | undefined;
   let shutdown: AbortController | undefined;
   // Claims run one after another on this chain, so `concurrency` is never exceeded.
   let claims: Promise<void> = Promise.resolve();
@@ -84,6 +86,7 @@ export function inProcessRunner({
         clock,
         logger,
         deps,
+        drain: drain?.signal,
         shutdown: shutdown?.signal,
       })
         .catch((error: unknown) => logger.error(`Background job "${claimed.name}" failed`, error))
@@ -121,6 +124,7 @@ export function inProcessRunner({
     async start() {
       if (running) return;
       running = true;
+      drain = new AbortController();
       shutdown = new AbortController();
       timer = clock.setInterval(requestClaim, pollMs);
       requestClaim();
@@ -129,6 +133,7 @@ export function inProcessRunner({
 
     async stop() {
       running = false;
+      drain?.abort();
       clock.clearInterval(timer);
       timer = undefined;
       await claims;

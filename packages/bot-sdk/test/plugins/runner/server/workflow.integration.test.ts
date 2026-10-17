@@ -159,6 +159,18 @@ defineJob({
   },
 });
 
+defineJob({
+  name: "workflow.catches",
+  payload: z.object({}),
+  run: async (_payload, ctx) => {
+    // Code that swallows whatever its activity throws, then still has work before it returns.
+    try {
+      await step(ctx, "a");
+    } catch {}
+    await point("caught", "before");
+  },
+});
+
 let values: { now: number; random: number; patched: boolean }[] = [];
 
 defineJob({
@@ -462,6 +474,115 @@ describe("a workflow's history", () => {
     await db().delete(job).where(eq(job.id, id));
 
     expect(await historyOf(id)).toEqual([]);
+  });
+});
+
+describe("a deploy or a cancel", () => {
+  const runnerWith = (timer: ReturnType<typeof fakeJobClock>, drainMs: number) =>
+    inProcessRunner({ db: db(), logger: silent, deps: jobDeps, clock: timer.clock, drainMs });
+
+  it("stop() hands the job back at its next Checkpoint, uncounted, and another runner finishes it", async () => {
+    const timer = fakeJobClock(start);
+    const deploying = runnerWith(timer, 2_000);
+    holdAtPoint("b", "before");
+    const id = await deploying.enqueue("workflow.steps", {});
+    await deploying.start();
+    await reached;
+
+    const stopping = deploying.stop();
+    release();
+    await stopping;
+
+    // `b` saved its Checkpoint, then the workflow yielded before `c`.
+    expect(effects).toEqual(["a", "b"]);
+    expect((await historyOf(id)).map((entry) => entry.name)).toEqual(["a", "b"]);
+    const handedBack = await jobOf(id);
+    expect(handedBack).toMatchObject({ status: "queued", attempts: 0 });
+    expect(handedBack?.runAfter.getTime()).toBe(start.getTime());
+
+    // Another process resumes it at once, with no lease to wait out.
+    const next = runnerWith(timer, 20);
+    await next.start();
+    await expect.poll(async () => (await jobOf(id))?.status).toBe("succeeded");
+    await next.stop();
+
+    expect(effects).toEqual(["a", "b", "c"]);
+    expect(results).toEqual([["A", "B", "C"]]);
+    expect(await jobOf(id)).toMatchObject({ status: "succeeded", attempts: 1 });
+  });
+
+  it("stop() aborts a job still running after drainMs, as before, and leaves its lease", async () => {
+    const timer = fakeJobClock(start);
+    const deploying = runnerWith(timer, 20);
+    holdAtPoint("b", "before");
+    const id = await deploying.enqueue("workflow.steps", {});
+    await deploying.start();
+    await reached;
+
+    await deploying.stop();
+
+    expect(await jobOf(id)).toMatchObject({ status: "running", attempts: 1 });
+    expect((await historyOf(id)).map((entry) => entry.name)).toEqual(["a"]);
+    release();
+  });
+
+  it("a cancel stops a running job at its next Checkpoint, and nothing is recorded after it", async () => {
+    const timer = fakeJobClock(start);
+    const jobs = runnerWith(timer, 20);
+    holdAtPoint("b", "after");
+    const id = await jobs.enqueue("workflow.steps", {}, { idempotencyKey: "k" });
+    await jobs.start();
+    await reached;
+
+    await jobs.cancel("k");
+    release();
+
+    await expect.poll(async () => (await jobOf(id))?.status).toBe("cancelled");
+    await jobs.stop();
+    // `b`'s Checkpoint was fenced, so `c` never ran.
+    expect(effects).toEqual(["a", "b"]);
+    expect(await historyOf(id)).toEqual([{ seq: 1, kind: "activity", name: "a", result: "A" }]);
+    expect(await jobOf(id)).toMatchObject({ status: "cancelled", attempts: 1 });
+  });
+
+  it("a cancel rolls back a (tx) activity's write at its fence", async () => {
+    const timer = fakeJobClock(start);
+    const jobs = runnerWith(timer, 2_000);
+    holdAtPoint("write", "after");
+    const id = await jobs.enqueue("workflow.write", {}, { idempotencyKey: "k" });
+    await jobs.start();
+    await reached;
+
+    await jobs.cancel("k");
+    release();
+    await jobs.stop();
+
+    expect(await markers()).toHaveLength(0);
+    expect(await historyOf(id)).toEqual([]);
+    expect(await jobOf(id)).toMatchObject({ status: "cancelled", attempts: 1 });
+  });
+
+  it("fences the hand-back: an attempt that lost its lease can't hand the row back", async () => {
+    const timer = fakeJobClock(start);
+    const deploying = runnerWith(timer, 2_000);
+    holdAtPoint("a", "before");
+    const id = await deploying.enqueue("workflow.catches", {});
+    await deploying.start();
+    await reached;
+
+    const stopping = deploying.stop();
+    // `a` saves and yields; the code swallows that and holds on.
+    holdAtPoint("caught", "before");
+    release();
+    await reached;
+    // Meanwhile its lease expires and another process claims the job.
+    await crash(timer);
+    expect(await claimJob(db(), timer.clock.now())).toMatchObject({ attempts: 2 });
+
+    release();
+    await stopping;
+
+    expect(await jobOf(id)).toMatchObject({ status: "running", attempts: 2 });
   });
 });
 
