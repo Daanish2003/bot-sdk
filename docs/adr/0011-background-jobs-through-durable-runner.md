@@ -41,3 +41,14 @@ Before anything was built, the runner moved out of its own package. The Chat SDK
 - **Recurring jobs:** `schedule(name, { everyMs })`, with no cron. Each slot is enqueued under the key `name:<slot>`, so exactly one process fires it. They're designed now and built with Synced sources.
 - **Shutdown and retention.** `stop()` stops taking jobs and drains for `drainMs`, then aborts the rest; their leases expire and another process re-runs them. Succeeded and cancelled jobs are deleted after 7 days, failed ones after 30.
 - **Jobs are internal.** `defineJob({ name, payload, run, onFailed })` isn't public, and a Host can't register its own jobs.
+
+## Amendment: the runner is a plugin of the Bot SDK (2026-10-17, [#479](https://github.com/Daanish2003/ai-chat/issues/479))
+
+This replaces the "lives in the Chat SDK core" amendment. ADR 0020 made the SDK one core with plugins, and step 0 left the runner inside the `assistant` plugin. Step 2 moves it into its own **`runner` plugin**, so the assistant and the `bot` plugin share one runner.
+
+- **`runner({ jobs? })`.** `jobs` takes a `JobRunner` and defaults to the in-process runner. `assistant({ jobs })` goes away. A Host lists the plugin itself: `plugins: [models(), runner(), assistant()]`.
+- **Its API.** `sdk.plugin("runner")` gives `enqueue`, `cancel`, `status` and `runJob`. A Trigger.dev task calls `chat.plugin("runner").runJob(name, payload)`.
+- **Who requires it.** `assistant` requires `runner` for the Knowledge and Memory jobs. `bot` requires it once Turns run on it.
+- **Its lifecycle.** The runner owns its own reaper, prune, polling and drain. It starts before the plugins that require it and stops after them, so the assistant drains its Runs first and the runner drains its jobs after, as before.
+- **Its data.** `chat.job` moves to the runner's plugin schema, still in the `chat` schema (ADR 0020) and with no migration change. Job definitions stay with their domain and import `defineJob`, which stays internal.
+- **Extracted first, unchanged.** The move renames nothing, and the existing jobs tests prove it changes no behaviour. Checkpointed steps come after it and amend this ADR again.
