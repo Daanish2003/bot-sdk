@@ -5,6 +5,7 @@ import type { ChatUser } from "../../../../core/server/context";
 import { conversation, memory } from "../../../../core/server/db/schema";
 import type { BotSdkContext } from "../../../../core/server/plugin";
 import type { MemoryUpdatedEvent, TurnChange } from "../../shared/memory/changes";
+import { assistantConversation } from "../chat/kind";
 
 /** The pub/sub channel of a Conversation: its Memory jobs publish here (#290). */
 export const conversationChannel = (conversationId: string) => `conversation:${conversationId}`;
@@ -80,7 +81,13 @@ export async function handleConversationEvents(
     ? await deps.db
         .select({ id: conversation.id })
         .from(conversation)
-        .where(and(eq(conversation.id, id.data), eq(conversation.userId, user.id)))
+        .where(
+          and(
+            eq(conversation.id, id.data),
+            eq(conversation.userId, user.id),
+            assistantConversation(),
+          ),
+        )
     : [];
   if (!owned) {
     return Response.json({ code: "error.conversationNotFound", params: {} }, { status: 404 });

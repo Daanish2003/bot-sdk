@@ -5,7 +5,7 @@ import { z } from "zod";
 import { isKnownModel, parseModelId } from "../../../models/shared/models";
 import type { ResolvedEmbeddingModel } from "../../../models/server/embedding-models";
 import { loadPath } from "../../../../core/server/chat/message-tree";
-import { promptCharactersOf, reportedUsageOf } from "../chat/usage";
+import { promptCharactersOf, reportedUsageOf } from "../../../models/server/run-usage";
 import {
   conversation,
   type MessageRow,

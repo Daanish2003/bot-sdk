@@ -3,6 +3,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { artifact, artifactVersion, conversation } from "../../../../core/server/db/schema";
 import type { BotSdkContext } from "../../../../core/server/plugin";
 import { loadPath } from "../../../../core/server/chat/message-tree";
+import { assistantConversation } from "../chat/kind";
 import type { ArtifactKind } from "../../shared/chat/artifact";
 
 type Deps = Pick<BotSdkContext, "db">;
@@ -224,7 +225,9 @@ export async function readArtifactVersion(
     .select({ conversationId: artifact.conversationId, kind: artifact.kind })
     .from(artifact)
     .innerJoin(conversation, eq(conversation.id, artifact.conversationId))
-    .where(and(eq(artifact.id, artifactId), eq(conversation.userId, userId)));
+    .where(
+      and(eq(artifact.id, artifactId), eq(conversation.userId, userId), assistantConversation()),
+    );
   if (!owned) return null;
   const pathIds = (await loadPath(deps, owned.conversationId, messageId)).map((row) => row.id);
   if (pathIds.length === 0) return null;

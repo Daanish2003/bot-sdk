@@ -62,7 +62,7 @@ async function insertConversation(
 ) {
   const [row] = await db
     .insert(conversation)
-    .values({ id: uuidv7(fields.createdAt.getTime()), ...fields })
+    .values({ id: uuidv7(fields.createdAt.getTime()), kind: "assistant", ...fields })
     .returning();
   return row!;
 }

@@ -10,6 +10,7 @@ import { snippetAround } from "../../../../core/shared/search/text";
 import { userSettings } from "../../../../core/server/db/schema";
 import type { BotSdkContext } from "../../../../core/server/plugin";
 import { assistantState } from "../state";
+import { assistantKind } from "../chat/kind";
 
 type Deps = Pick<BotSdkContext, "db" | "plugin">;
 
@@ -74,6 +75,7 @@ export async function searchPastChats(
       SELECT c.id, COALESCE(c.title, '') AS title, c.active_leaf_id
       FROM chat.conversation c
       WHERE c.user_id = ${userId}
+        AND c.kind = ${assistantKind}
         AND c.temporary = false
         AND c.id <> ${conversationId}
         AND c.active_leaf_id IS NOT NULL

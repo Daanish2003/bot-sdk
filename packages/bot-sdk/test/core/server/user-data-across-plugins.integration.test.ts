@@ -9,6 +9,7 @@ import { createHookEmitter } from "../../../core/server/chat/hooks";
 import { createBotSdk } from "../../../core/server/create-chat";
 import * as schema from "../../../core/server/db/schema";
 import {
+  bot,
   job,
   knowledgeFile,
   mcpConnection,
@@ -88,7 +89,7 @@ async function activeJobsNaming(ids: string[]) {
  * A user with a row in every table that has a `user_id` column: a Conversation with an Attachment,
  * a Shared link, a Generated image and a Memory; a Project with a Conversation, a Generated image
  * and a Knowledge file whose processing job is queued; an unused Attachment; settings, a Saved
- * prompt, an MCP connection, credentials and usage. Returns the blob keys and ids it made.
+ * prompt, an MCP connection, credentials and usage; a Bot. Returns the blob keys and ids it made.
  */
 async function seedEverything(user: TestUser, deps: TestDeps) {
   const conv = await insertConversation(user, { title: "Mine" });
@@ -133,6 +134,15 @@ async function seedEverything(user: TestUser, deps: TestDeps) {
     { fileId },
     { idempotencyKey: knowledgeJobKey(fileId) },
   );
+
+  const botConversation = await insertConversation(user, { kind: "bot", model: null });
+  await getTestDb().insert(bot).values({
+    id: uuidv7(),
+    userId: user.id,
+    conversationId: botConversation.id,
+    name: "Ada",
+    model: "anthropic:claude-sonnet-5-5",
+  });
 
   await getTestDb().insert(userSettings).values({ userId: user.id, instructions: "Be terse." });
   await getTestDb()

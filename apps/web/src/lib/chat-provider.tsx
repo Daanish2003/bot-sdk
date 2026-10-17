@@ -31,6 +31,8 @@ function routeOf(page: ChatPage) {
       return { to: "/p/$id", params: { id: page.id } };
     case "keys":
       return { to: "/settings/keys" };
+    case "bots":
+      return page.id ? { to: "/bots/$botId", params: { botId: page.id } } : { to: "/bots" };
   }
 }
 

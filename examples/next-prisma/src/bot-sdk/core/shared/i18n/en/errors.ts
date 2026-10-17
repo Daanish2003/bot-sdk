@@ -8,6 +8,8 @@ export const errorMessages = {
   "error.conversationNotFound": "Conversation not found",
   "error.messageNotFound": "Message not found",
   "error.projectNotFound": "Project not found",
+  "error.botNotFound": "Bot not found",
+  "error.turnRunning": "Your Bot is still replying. Wait for it to finish, then send again.",
   "error.sharedLinkNotFound": "Shared link not found",
   "error.invalidCursor": "Invalid cursor",
   "error.modelNotAvailable": ({ model }: { model: string }) =>

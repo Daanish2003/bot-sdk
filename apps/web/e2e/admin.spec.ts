@@ -103,9 +103,13 @@ async function shareConversation(owner: SeededUser, title: string): Promise<stri
   const token = randomBytes(16).toString("base64url");
   const now = new Date();
   try {
-    await db
-      .insert(conversation)
-      .values({ id: conversationId, userId: owner.id, title, model: "e2e-model" });
+    await db.insert(conversation).values({
+      id: conversationId,
+      userId: owner.id,
+      kind: "assistant",
+      title,
+      model: "e2e-model",
+    });
     await db.insert(message).values([
       {
         id: question,
@@ -299,7 +303,7 @@ async function writeReplies(owner: SeededUser, model: string, replies: number): 
   try {
     await db
       .insert(conversation)
-      .values({ id: conversationId, userId: owner.id, title: "Ratings", model });
+      .values({ id: conversationId, userId: owner.id, kind: "assistant", title: "Ratings", model });
     await db.insert(message).values([
       {
         id: question,

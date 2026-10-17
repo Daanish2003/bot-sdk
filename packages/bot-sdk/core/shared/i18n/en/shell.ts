@@ -7,6 +7,7 @@ export const shellMessages = {
   "shell.searchShortcut": ({ modKey }: { modKey: string }) => `Search (${modKey}K)`,
   "shell.searchTitle": "Search (⌘K / Ctrl+K)",
   "shell.conversations": "Conversations",
+  "shell.bots": "Bots",
   "shell.keysAndSettings": "Keys & settings",
   "shell.menu": "Menu",
   "shell.showConversations": "Show Conversations",

@@ -10,6 +10,7 @@ import {
   knowledgeFile,
 } from "../../../core/server/db/schema";
 import type { BotSdkContext, UserDeleteHooks } from "../../../core/server/plugin";
+import { assistantConversation } from "./chat/kind";
 import { discardKnowledgeFiles, knowledgeFileIdsWhere } from "./knowledge/cascade";
 
 /**
@@ -43,14 +44,18 @@ export const assistantUserDelete: UserDeleteHooks<{
 };
 
 /**
- * Deletes every Conversation the user owns, Project ones included, in one transaction. Their
+ * Deletes every assistant Conversation the user owns, Project ones included, in one transaction. Their
  * Messages, Shared links and Message–Attachment links go with them. The Projects stay, empty, and
  * so do the Attachments, which a Conversation's delete never removed (the reaper takes unused ones).
  * Live Runs in them stop, through the delete hooks.
  */
 export async function deleteAllConversations(deps: BotSdkContext, userId: string): Promise<void> {
   const { afterCommit } = await deps.db.transaction((tx) =>
-    deleteConversations(deps, tx, { userId, announce: { projectId: conversation.projectId } }),
+    deleteConversations(deps, tx, {
+      where: assistantConversation(),
+      userId,
+      announce: { projectId: conversation.projectId },
+    }),
   );
   // After the commit: a rolled-back delete fires nothing (#265, #266).
   await afterCommit();

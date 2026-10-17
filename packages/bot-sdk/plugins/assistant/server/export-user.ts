@@ -16,16 +16,18 @@ import {
   userSettings,
 } from "../../../core/server/db/schema";
 import type { Transaction } from "../../../core/server/plugin";
+import { assistantConversation, withModel } from "./chat/kind";
 import { liveConversation } from "./chat/temporary";
 import type { ArtifactKind } from "../shared/chat/artifact";
 import type { StoredParts } from "../shared/message-parts";
+import type { BotExport } from "../../bot/server/store";
 
 /**
  * Everything the SDK keeps for one user, as one JSON-ready document (`chat.exportUser`). Provider
  * and Tool credentials are never in it, and an Attachment appears by name and type only. Usage
- * rows are left out: they are the Quota's record, not the user's data.
+ * rows are left out: they are the Quota's record, not the user's data. The `bot` plugin adds `bots`.
  */
-export type UserExport = {
+export type UserExport = BotExport & {
   /** The format version. Bumped only when a reader would misread the document. */
   version: 1;
   exportedAt: Date;
@@ -110,8 +112,8 @@ export type UserExport = {
   }[];
 };
 
-/** The assistant's part of the export: every key but the core's `version` and `exportedAt`. */
-export type AssistantExport = Omit<UserExport, "version" | "exportedAt">;
+/** The assistant's part of the export: every key but the core's `version` and `exportedAt`, and the `bot` plugin's. */
+export type AssistantExport = Omit<UserExport, "version" | "exportedAt" | keyof BotExport>;
 
 /**
  * The assistant's part of `sdk.exportUser`, read in the export's snapshot `tx` and built in memory.
@@ -143,18 +145,24 @@ export async function exportAssistantData(
     .where(eq(project.userId, userId))
     .orderBy(asc(project.createdAt), asc(project.id));
 
-  const conversations = await tx
-    .select()
-    .from(conversation)
-    .where(and(eq(conversation.userId, userId), liveConversation(new Date())))
-    .orderBy(asc(conversation.createdAt), asc(conversation.id));
+  const conversations = (
+    await tx
+      .select()
+      .from(conversation)
+      .where(
+        and(eq(conversation.userId, userId), assistantConversation(), liveConversation(new Date())),
+      )
+      .orderBy(asc(conversation.createdAt), asc(conversation.id))
+  ).map(withModel);
 
   const messages = (
     await tx
       .select({ message })
       .from(message)
       .innerJoin(conversation, eq(conversation.id, message.conversationId))
-      .where(and(eq(conversation.userId, userId), liveConversation(new Date())))
+      .where(
+        and(eq(conversation.userId, userId), assistantConversation(), liveConversation(new Date())),
+      )
       .orderBy(asc(message.createdAt), asc(message.id))
   ).map((row) => row.message);
 
@@ -180,7 +188,9 @@ export async function exportAssistantData(
     })
     .from(sharedLink)
     .innerJoin(conversation, eq(conversation.id, sharedLink.conversationId))
-    .where(and(eq(conversation.userId, userId), liveConversation(new Date())));
+    .where(
+      and(eq(conversation.userId, userId), assistantConversation(), liveConversation(new Date())),
+    );
 
   const images = messageIds.length
     ? await tx
@@ -236,7 +246,9 @@ export async function exportAssistantData(
     })
     .from(artifact)
     .innerJoin(conversation, eq(conversation.id, artifact.conversationId))
-    .where(and(eq(conversation.userId, userId), liveConversation(new Date())))
+    .where(
+      and(eq(conversation.userId, userId), assistantConversation(), liveConversation(new Date())),
+    )
     .orderBy(asc(artifact.createdAt), asc(artifact.id));
 
   const knowledgeFiles = await tx
@@ -262,7 +274,9 @@ export async function exportAssistantData(
     .from(artifactVersion)
     .innerJoin(artifact, eq(artifact.id, artifactVersion.artifactId))
     .innerJoin(conversation, eq(conversation.id, artifact.conversationId))
-    .where(and(eq(conversation.userId, userId), liveConversation(new Date())))
+    .where(
+      and(eq(conversation.userId, userId), assistantConversation(), liveConversation(new Date())),
+    )
     .orderBy(
       asc(artifactVersion.createdAt),
       asc(artifactVersion.messageId),

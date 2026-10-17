@@ -1,0 +1,521 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lesson 10 · The week-one loop, and talking only through a tool</title>
+    <link rel="stylesheet" href="../assets/style.css" />
+  </head>
+  <body>
+    <main>
+      <p class="kicker">ai-chat architecture · Lesson 10</p>
+      <h1>The week-one loop, and talking only through a tool</h1>
+      <p class="subtitle">
+        A Bot's model text stays private. The user reads only what the Bot sends with one tool.
+      </p>
+      <p class="meta">
+        About 12 minutes · a browser · you'll write <code>playTurn(steps)</code>, the function that
+        decides which Messages a Turn sends
+      </p>
+
+      <section class="words">
+        <h2>Words you'll need</h2>
+        <dl>
+          <dt>Turn</dt>
+          <dd>One Bot working on what a user Message started, until it stops.</dd>
+          <dt>Step</dt>
+          <dd>One call to the Model. It answers with plain text, tool calls, or both.</dd>
+          <dt>SendToUser</dt>
+          <dd>The Bot's only tool. Each call sends the user one Message.</dd>
+          <dt>Transcript</dt>
+          <dd>The Model's private side of a Turn. It is saved, and it is never a Message.</dd>
+        </dl>
+        <p class="hint">
+          Forgot a code name? Press the <strong>Names?</strong> button in the bottom-right corner.
+        </p>
+      </section>
+
+      <figure id="video"></figure>
+
+      <div
+        class="quiz"
+        data-answer="1"
+        data-why="requires lists the plugins this plugin calls. Then sdk.plugin(id) returns that plugin's typed API, and the SDK throws at startup when it is not enabled."
+      >
+        <div class="label">Warm-up · Lesson 9</div>
+        <p class="q">
+          The <code>bot</code> plugin has <code>requires: ["models"]</code>. What does that give it?
+        </p>
+        <ol class="opts">
+          <li data-why="requires does not add columns. Columns come from a plugin's schema module.">
+            Models' columns on the <code>bot</code> table
+          </li>
+          <li>
+            A typed <code>sdk.plugin("models")</code>, and a startup error if models is missing
+          </li>
+          <li data-why="Plugins start in dependency order, but nothing is copied from models.">
+            A copy of models' routers
+          </li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+
+      <h2><span class="num">1</span>A Turn is a loop of Steps</h2>
+      <figure id="loop">
+        <figcaption>
+          Each Step is one Model call. A Step with a tool call leads to another.
+        </figcaption>
+      </figure>
+      <p>
+        This is slide 2's week-one loop, made safe to ship. A user Message starts a Turn. The Turn
+        calls the Model, runs the tools the Model asked for, and calls the Model again. It repeats
+        until the Model stops. The Host's request runs the whole Turn.
+      </p>
+      <p>
+        <a href="../../../packages/bot-sdk/plugins/bot/server/turn.ts"><code>runTurn</code></a>
+        calls TanStack AI's <code>chat()</code> with one tool and a small middleware. A runaway
+        Model cannot loop for ever: a Turn gets 10 Steps (<code>turnStepLimit</code>) and 5 minutes
+        (<code>turnTimeLimitMs</code>). Past either limit it ends <code>error</code>, and the
+        Messages already sent stay.
+      </p>
+
+      <h2><span class="num">2</span>The user reads only what SendToUser sends</h2>
+      <figure id="private">
+        <figcaption>Both sides are saved. Only the tool's side becomes a Message.</figcaption>
+      </figure>
+      <p>
+        Think of a person who thinks out loud in a locked room and passes notes under the door. The
+        user sees the notes. The Model's own text is never shown. The fixed
+        <code>botSystemPrompt</code> tells the Model so.
+      </p>
+      <p>
+        <code>send_to_user</code> takes <code>{ text, endTurn }</code>, and both are required. Each
+        call appends one Message to the Conversation straight away. If <code>text</code> is empty,
+        the tool sends nothing and returns <code>emptyTextError</code>, which tells the Model what
+        to do next.
+      </p>
+      <p>
+        When the Turn ends, however it ends, <code>runTurn</code> writes the transcript to the
+        <code>bot_turn</code> row. The next Turn replays it as input (<code>modelInput</code>). So
+        the Model remembers what it thought and what it chose not to say. The Model also sees its
+        own sends as <code>send_to_user</code> calls, never as plain text.
+      </p>
+
+      <div
+        class="quiz"
+        data-answer="2"
+        data-why="Only a send_to_user call appends a Message. The Model's plain text goes into the transcript, which the user never sees."
+      >
+        <div class="label">Quiz</div>
+        <p class="q">
+          In a Step, the Model writes "Sure, checking now" as plain text and calls no tool. What
+          does the user see?
+        </p>
+        <ol class="opts">
+          <li data-why="Plain text is not a Message. Only send_to_user makes one.">
+            A Message with that text
+          </li>
+          <li data-why="The user sees nothing of the transcript, and the text is not an error.">
+            A "Couldn't reply" note
+          </li>
+          <li>Nothing. The text goes into the private transcript.</li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+
+      <h2><span class="num">3</span>Quiet is allowed, and the last send can end the Turn</h2>
+      <figure id="ends">
+        <figcaption>The rule has two exits. Any other Step goes on to another Step.</figcaption>
+      </figure>
+      <p>
+        After each Step the middleware's <code>onShouldContinue</code> decides what happens next. A
+        Step with no tool call ends the Turn, quiet. The user sees "Seen ✓" under their last Message
+        and nothing else. A Step where a send had <code>endTurn: true</code> ends the Turn with no
+        further Model call. This is slide 22's "one less step", and a normal reply costs one Step.
+      </p>
+      <p>
+        There is no <code>NO_REPLY</code> token and no forced <code>tool_choice</code>. Quiet is
+        just a reply that calls no tool.
+      </p>
+
+      <h2><span class="num">4</span>bot.send streams each Message</h2>
+      <figure id="stream">
+        <figcaption>
+          One request, one stream of events. The browser shows each as it arrives.
+        </figcaption>
+      </figure>
+      <p>
+        <code>bot.send</code> is an oRPC streaming procedure. It yields
+        <code>{ type: "message" }</code> first for the saved user Message, then once for each send,
+        and last <code>{ type: "turnEnded", status }</code>. So "On it…" shows before a slower
+        answer. A refusal (402 Quota, 409 a Turn is running) is thrown before the stream starts, so
+        the user's Message is not saved.
+      </p>
+
+      <h2>Try it</h2>
+      <div id="ex1"></div>
+      <figure id="payoff">
+        <div class="toy-out">
+          <div id="payoff-pic"></div>
+          <span id="pay-out"
+            >Pass the tests first. Then your <code>playTurn</code> drives a sample chat.</span
+          >
+        </div>
+        <figcaption>The sample Model sends, keeps one Step private, then ends the Turn.</figcaption>
+      </figure>
+
+      <section class="takeaways">
+        <h2>Key takeaways</h2>
+        <p class="one-thing">
+          <strong>If you remember only one thing:</strong> a Bot reaches the user only by calling
+          <code>send_to_user</code>, and everything else it writes stays in a private transcript.
+        </p>
+        <ul>
+          <li>
+            <strong>A Turn is a loop of Steps.</strong> It ends on a Step with no tool call, on an
+            <code>endTurn: true</code> send, or at a limit.
+          </li>
+          <li>
+            <strong>Quiet is a normal ending.</strong> The user sees "Seen ✓", and the Model still
+            remembers the Turn.
+          </li>
+          <li>
+            <strong>Each send is a Message at once.</strong> <code>bot.send</code> streams it to the
+            browser as it is appended.
+          </li>
+        </ul>
+        <p class="selftest">Self-test: cover this box and name the three ways a Turn can end.</p>
+      </section>
+
+      <details class="deeper">
+        <summary>Go deeper: sources, side notes and a challenge</summary>
+        <h3>The lecture</h3>
+        <ul>
+          <li>
+            Slide 2: the week-one loop. Slide 3: an always-on agent "only messages you when it calls
+            a send tool, so it can stay quiet". Slide 8: the Bot app, a sidebar of Bots with
+            previews. Slide 22, "One tool for talking to you": thinking stays private, quiet is
+            allowed, and "one less step". Its fourth card is partly hidden, so "one less step" is
+            read as ending the Turn on the last message.
+          </li>
+          <li>
+            Slide 22's "rich messages" are not built. <code>send_to_user</code> is text only (step
+            12).
+          </li>
+        </ul>
+        <h3>Side notes</h3>
+        <ul>
+          <li>
+            <code>sendToBot</code> checks, in order: the Bot, the Model, then Quota
+            (<code>meter.mayRun()</code>). Then one transaction locks the Conversation, refuses with
+            409 if a fresh Turn is <code>running</code>, marks a stale one <code>error</code> with
+            <code>interrupted</code>, and saves the user Message and the Turn row.
+          </li>
+          <li>
+            The client holds the in-flight send in a store outside the view (<a
+              href="../../../packages/bot-sdk/plugins/bot/client/react/bot-turn.ts"
+              ><code>useBotTurn</code></a
+            >), so opening another Bot does not stop a Turn. Closing the tab aborts the request
+            signal, and the Turn ends <code>stopped</code>.
+          </li>
+          <li>
+            "Seen ✓" is derived: the latest Turn ended <code>complete</code> and the last Message is
+            the user's.
+          </li>
+        </ul>
+        <h3>What step 2 changes</h3>
+        <p>
+          Today the Turn lives inside one request, and its transcript is written once, at the end.
+          Step 2 makes the Turn survive a crash and saves each Step as it happens, and it pulls the
+          loop out into a <code>runner</code> plugin (spec
+          <a href="https://github.com/Daanish2003/ai-chat/issues/463">#463</a>, out of scope).
+        </p>
+        <h3>Challenge</h3>
+        <p>
+          Read <code>answeredCalls</code> in
+          <a href="../../../packages/bot-sdk/plugins/bot/server/turn.ts"><code>turn.ts</code></a
+          >. Why does it drop a tool call that never got a result before the transcript is saved?
+          Tell your teacher.
+        </p>
+      </details>
+
+      <div class="footer-box">
+        <p>
+          <strong>Primary source:</strong>
+          <a href="../../../packages/bot-sdk/plugins/bot/server/turn.ts"><code>turn.ts</code></a
+          >, then <a href="../../../docs/adr/0020-one-core-sdk-with-plugins.md">ADR 0020</a>.
+        </p>
+        <p>
+          <strong>Cheat sheets:</strong> <a href="../reference/package-map.html">Package map</a> ·
+          <a href="../reference/names.html">Names</a>
+        </p>
+        <p>
+          <strong>Stuck or curious?</strong> Ask your teacher (Claude) anything: "why no
+          <code>NO_REPLY</code> token?", "show me a Turn's transcript", or "quiz me again".
+        </p>
+        <div class="nav">
+          <a href="0009-the-bot-sdk-core-and-plugins.html">← Lesson 9: The Bot SDK</a
+          ><a href="../index.html">Course contents →</a>
+        </div>
+      </div>
+    </main>
+
+    <script src="../assets/diagrams.js"></script>
+    <script src="../assets/names.js" data-upto="10"></script>
+    <script src="../assets/explainer.js"></script>
+    <script src="../assets/quiz.js"></script>
+    <script src="../assets/exercise.js"></script>
+    <script>
+      const D = Diagrams;
+
+      // Section 1: a Turn is Steps in a row.
+      D.render(
+        "#loop",
+        D.svg(
+          760,
+          190,
+          D.box(10, 70, 130, 50, "user Message", { tone: "accent" }) +
+            D.arrow(140, 95, 190, 95) +
+            D.box(190, 55, 150, 80, "Step 1", {
+              mono: true,
+              tone: "blue",
+              sub: "Model call + tools",
+            }) +
+            D.arrow(340, 95, 390, 95, { dashed: true, label: "tool call" }) +
+            D.box(390, 55, 150, 80, "Step 2", {
+              mono: true,
+              tone: "blue",
+              sub: "Model call + tools",
+            }) +
+            D.arrow(540, 95, 590, 95, { dashed: true, label: "…" }) +
+            D.box(590, 70, 160, 50, "Turn ends", { tone: "ok", sub: "10 Steps · 5 minutes" }),
+          { label: "A user Message starts a Turn, which runs Steps until it ends" },
+        ),
+      );
+
+      // Section 2: two lanes, one saved, one shown.
+      D.render(
+        "#private",
+        D.svg(
+          760,
+          230,
+          D.box(10, 85, 150, 60, "Model's Step", { tone: "blue" }) +
+            D.arrow(160, 100, 290, 50) +
+            D.arrow(160, 130, 290, 180) +
+            D.box(290, 25, 200, 50, "plain text", { tone: "warn", sub: "private" }) +
+            D.box(290, 155, 200, 50, "send_to_user", {
+              mono: true,
+              tone: "ok",
+              sub: "{ text, endTurn }",
+            }) +
+            D.arrow(490, 180, 570, 180, { tone: "ok" }) +
+            D.box(570, 155, 180, 50, "a Message", { tone: "ok", sub: "the user reads it" }) +
+            D.arrow(490, 50, 570, 100, { tone: "faint" }) +
+            D.arrow(630, 155, 630, 130, { tone: "faint" }) +
+            D.box(570, 70, 180, 50, "bot_turn.transcript", { mono: true, sub: "never shown" }),
+          { label: "Plain text goes to the transcript only; send_to_user also makes a Message" },
+        ),
+      );
+
+      // Section 3: what happens after a Step.
+      D.render(
+        "#ends",
+        D.svg(
+          760,
+          230,
+          D.box(10, 85, 150, 60, "a Step finishes", { tone: "blue" }) +
+            D.arrow(160, 100, 300, 40) +
+            D.arrow(160, 115, 300, 115) +
+            D.arrow(160, 130, 300, 190) +
+            D.box(300, 15, 220, 50, "no tool call", { tone: "warn" }) +
+            D.arrow(520, 40, 590, 40) +
+            D.box(590, 15, 160, 50, "ends, quiet", { tone: "ok", sub: "Seen ✓" }) +
+            D.box(300, 90, 220, 50, "send with endTurn true", { mono: true, tone: "warn" }) +
+            D.arrow(520, 115, 590, 115) +
+            D.box(590, 90, 160, 50, "ends, no more calls", { tone: "ok" }) +
+            D.box(300, 165, 220, 50, "send with endTurn false", { mono: true }) +
+            D.arrow(520, 190, 590, 190) +
+            D.box(590, 165, 160, 50, "another Step", { tone: "blue" }),
+          { label: "After a Step, the Turn ends quiet, ends on endTurn, or takes another Step" },
+        ),
+      );
+
+      // Section 4: the stream.
+      D.render(
+        "#stream",
+        D.svg(
+          760,
+          150,
+          D.box(10, 50, 130, 50, "browser", { tone: "accent" }) +
+            D.arrow(140, 75, 190, 75, { label: "bot.send" }) +
+            D.box(190, 25, 190, 36, "message: user (saved)", { mono: true }) +
+            D.box(390, 25, 170, 36, "message: “On it…”", { mono: true, tone: "ok" }) +
+            D.box(570, 25, 180, 36, "message: the answer", { mono: true, tone: "ok" }) +
+            D.box(190, 85, 190, 36, "turnEnded: complete", { mono: true, tone: "blue" }) +
+            D.text(480, 108, "events arrive in this order, left to right, then below", {
+              anchor: "middle",
+              tone: "faint",
+            }),
+          { label: "bot.send yields the user Message, each sent Message, then turnEnded" },
+        ),
+      );
+
+      // Video.
+      Explainer.mount("#video", {
+        title: "Lesson 10 in about 1 minute",
+        width: 760,
+        height: 300,
+        scenes: [
+          {
+            say: "A Turn is a loop. Each Step calls the Model once. If the Model calls a tool, the Turn takes another Step.",
+            draw: (t, A) =>
+              D.box(40, 110, 150, 50, "Step 1", { mono: true, tone: "blue" }) +
+              D.arrow(190, 135, 270, 135, { dashed: true, opacity: A.step(t, 0.2, 0.5) }) +
+              D.box(270, 110, 150, 50, "Step 2", {
+                mono: true,
+                tone: "blue",
+                opacity: A.step(t, 0.4, 0.7),
+              }),
+          },
+          {
+            say: "The Bot talks to the user only through one tool, send to user. Its plain text stays private.",
+            show: "send_to_user({ text, endTurn })",
+            draw: (t, A) =>
+              D.box(40, 60, 200, 50, "plain text", { tone: "warn", sub: "private" }) +
+              D.box(40, 150, 200, 50, "send_to_user", {
+                mono: true,
+                tone: "ok",
+                opacity: A.step(t, 0.3, 0.6),
+              }) +
+              D.arrow(240, 175, 340, 175, { tone: "ok", opacity: A.step(t, 0.5, 0.8) }) +
+              D.box(340, 150, 200, 50, "a Message", { tone: "ok", opacity: A.step(t, 0.6, 0.9) }),
+          },
+          {
+            say: "Both sides are saved in the transcript, and the next Turn replays it, so the Bot remembers what it kept to itself.",
+            draw: (t, A) =>
+              D.box(40, 110, 260, 50, "bot_turn.transcript", { mono: true }) +
+              D.arrow(300, 135, 400, 135, { opacity: A.step(t, 0.3, 0.6) }) +
+              D.box(400, 110, 200, 50, "next Turn's input", {
+                tone: "blue",
+                opacity: A.step(t, 0.5, 0.9),
+              }),
+          },
+          {
+            say: "A Step with no tool call ends the Turn quiet. A send with end turn true ends it with no more Model calls.",
+            show: "no tool call → Seen ✓   ·   endTurn: true → stop",
+            draw: (t, A) =>
+              D.box(40, 60, 240, 50, "no tool call", { tone: "warn" }) +
+              D.box(320, 60, 160, 50, "Seen ✓", { tone: "ok", opacity: A.step(t, 0.3, 0.6) }) +
+              D.box(40, 150, 240, 50, "endTurn: true", { mono: true, tone: "warn" }) +
+              D.box(320, 150, 160, 50, "Turn ends", { tone: "ok", opacity: A.step(t, 0.6, 0.9) }),
+          },
+          {
+            say: "Next, write play turn. Given a Model's Steps, it returns the Messages the user would read.",
+            show: "Next: write playTurn(steps).",
+            draw: () =>
+              D.text(380, 130, "Write playTurn(steps)", {
+                tone: "accent",
+                anchor: "middle",
+                weight: 600,
+              }),
+          },
+        ],
+      });
+
+      // Try it: playTurn.
+      const SAMPLE = [
+        [{ text: "On it…", endTurn: false }],
+        [],
+        [
+          { text: "Found it.", endTurn: false },
+          { text: "It is Thursday.", endTurn: true },
+        ],
+        [{ text: "never sent", endTurn: true }],
+      ];
+      let learnerPlay = null;
+      function showPlay() {
+        const picOut = document.getElementById("payoff-pic");
+        const payOut = document.getElementById("pay-out");
+        if (!learnerPlay) {
+          picOut.innerHTML = "";
+          payOut.innerHTML =
+            "Pass the tests first. Then your <code>playTurn</code> drives a sample chat.";
+          return;
+        }
+        const sent = learnerPlay(JSON.parse(JSON.stringify(SAMPLE)));
+        picOut.innerHTML = D.svg(
+          760,
+          20 + sent.length * 48,
+          sent.map((text, i) => D.box(20, 10 + i * 48, 360, 38, text, { tone: "ok" })).join(""),
+          { label: "The Messages the learner's playTurn sends for the sample Steps" },
+        );
+        payOut.innerHTML = `Your <code>playTurn</code> sent ${sent.length} Messages.`;
+      }
+      Exercise.mount("#ex1", {
+        title: "Write playTurn(steps)",
+        task: "Each Step is a list of <code>send_to_user</code> calls <code>{ text, endTurn }</code>. A Step with no calls is a plain reply. Return the texts the user reads, in order. A call with empty <code>text</code> sends nothing and does not end the Turn. A Step with no calls ends the Turn. After a Step where a sent call has <code>endTurn: true</code>, no more Steps run.",
+        storageKey: "ai-chat-sdk-l10-playTurn",
+        fnName: "playTurn",
+        starter: `// A Step is an array of calls: { text, endTurn }. An empty array is a plain reply.
+      // Example: playTurn([[{ text: "On it…", endTurn: false }], [{ text: "Done", endTurn: true }]])
+      //          → ["On it…", "Done"]
+      // Hint: loop over the Steps. Stop if a Step has no calls. In a Step, skip a call whose
+      // text is empty, send the others, and remember if one had endTurn true.
+      function playTurn(steps) {
+        return [];
+      }`,
+        solution: `function playTurn(steps) {
+        const sent = [];
+        for (const step of steps) {
+          if (step.length === 0) break;
+          let ended = false;
+          for (const call of step) {
+            if (!call.text.trim()) continue;
+            sent.push(call.text);
+            if (call.endTurn) ended = true;
+          }
+          if (ended) break;
+        }
+        return sent;
+      }`,
+        tests: [
+          {
+            name: "send, then a last send with endTurn true → both texts",
+            args: [[[{ text: "On it…", endTurn: false }], [{ text: "Done", endTurn: true }]]],
+            expect: ["On it…", "Done"],
+          },
+          { name: "one plain reply, no calls → quiet, []", args: [[[]]], expect: [] },
+          {
+            name: "two sends in one Step, the last ends the Turn → the next Step never runs",
+            args: [
+              [
+                [
+                  { text: "a", endTurn: false },
+                  { text: "b", endTurn: true },
+                ],
+                [{ text: "c", endTurn: true }],
+              ],
+            ],
+            expect: ["a", "b"],
+          },
+          {
+            name: "empty text sends nothing and does not end the Turn",
+            args: [[[{ text: "", endTurn: true }], [{ text: "hi", endTurn: true }]]],
+            expect: ["hi"],
+          },
+          {
+            name: "a send, then a plain reply → the send stays, then quiet",
+            args: [[[{ text: "x", endTurn: false }], []]],
+            expect: ["x"],
+          },
+          { name: "no Steps → []", args: [[]], expect: [] },
+        ],
+        onResult(fn, all) {
+          learnerPlay = all ? fn : null;
+          showPlay();
+        },
+      });
+      showPlay();
+    </script>
+  </body>
+</html>

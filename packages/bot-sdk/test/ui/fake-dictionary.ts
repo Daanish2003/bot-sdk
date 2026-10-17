@@ -78,6 +78,8 @@ export function renderWrapped(ui: ReactElement, options: WrapOptions = {}) {
 type WrapOptions = {
   seed?: (queryClient: QueryClient, client: BotSdkClient) => void;
   location?: Partial<ChatLocation>;
+  /** The Host's navigation, to see where the UI goes. Defaults to going nowhere. */
+  navigate?: ChatRouter["navigate"];
   messages?: Partial<Messages>;
   /** The network. Defaults to failing, since a render test makes no requests. */
   fetch?: NonNullable<Parameters<typeof createBotSdkClient>[0]["fetch"]>;
@@ -92,6 +94,7 @@ export function providerFor(
   {
     seed,
     location = {},
+    navigate = () => {},
     messages = wrappedDictionary(),
     fetch = async () => {
       throw new Error("Unexpected request in a render test");
@@ -105,7 +108,7 @@ export function providerFor(
   });
   const router: ChatRouter = {
     Link: ({ children, className }: ChatLinkProps) => createElement("a", { className }, children),
-    navigate: () => {},
+    navigate,
     useLocation: () => ({ newConversation: false, ...location }),
     shareUrl: (token) => token,
   };

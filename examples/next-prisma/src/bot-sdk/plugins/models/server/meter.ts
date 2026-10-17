@@ -30,9 +30,9 @@ export type Meter<Usage> = {
   record(usage: Usage): Promise<void>;
 };
 
-/** One call to a Model: a Run, a title, or one of a Memory job's calls. */
+/** One call to a Model: a Run, a title, one of a Memory job's calls, or a Bot's Turn. */
 export type ModelUsage = {
-  kind: "run" | "title" | "memory";
+  kind: "run" | "title" | "memory" | "turn";
   usage: MessageUsage;
   /** The Provider's reported cost in USD, when it reported one for the whole call. */
   reportedCost?: number;

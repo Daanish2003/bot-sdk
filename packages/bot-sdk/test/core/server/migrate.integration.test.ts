@@ -59,6 +59,8 @@ const sdkTables = [
   "artifact_version",
   "attachment",
   "blob",
+  "bot",
+  "bot_turn",
   "conversation",
   "generated_image",
   "job",
@@ -95,6 +97,7 @@ describe("chat.migrate()", () => {
     );
     expect(enums.map((row) => row.typname).sort()).toEqual([
       "artifact_kind",
+      "bot_turn_status",
       "job_status",
       "knowledge_file_status",
       "memory_origin",
@@ -238,7 +241,7 @@ describe("chat.migrate()", () => {
     expect(
       await rows(
         url,
-        `select c.title, c.model, c.reasoning_effort, c.project_id, c.pinned_at, m.role, m.parts, m.reasoning_effort as m_effort,
+        `select c.kind, c.title, c.model, c.reasoning_effort, c.project_id, c.pinned_at, m.role, m.parts, m.reasoning_effort as m_effort,
                 m.usage, m.context_start_id, s.background_model, s.instructions
            from chat.conversation c
            join chat.message m on m.conversation_id = c.id
@@ -246,6 +249,7 @@ describe("chat.migrate()", () => {
       ),
     ).toEqual([
       {
+        kind: "assistant",
         title: "Before",
         model: "openai:gpt",
         reasoning_effort: null,
@@ -420,7 +424,7 @@ describe("chat.migrate()", () => {
     await expect(Promise.all([chat.migrate(), chat.migrate()])).resolves.toBeDefined();
 
     const applied = await rows<{ count: string }>(url, "select count(*) from chat.__migrations");
-    expect(applied).toEqual([{ count: "24" }]);
+    expect(applied).toEqual([{ count: "28" }]);
   });
 
   it("gives a Conversation's tool settings empty lists by default, so existing rows read as empty", async () => {
@@ -429,8 +433,8 @@ describe("chat.migrate()", () => {
 
     await rows(
       url,
-      `insert into chat.conversation (id, user_id, model)
-       values ('0196a000-0000-7000-8000-000000000001', 'user-1', 'anthropic:claude-sonnet-5-5')`,
+      `insert into chat.conversation (id, user_id, kind, model)
+       values ('0196a000-0000-7000-8000-000000000001', 'user-1', 'assistant', 'anthropic:claude-sonnet-5-5')`,
     );
     const stored = await rows<{ tool_settings: unknown }>(
       url,
@@ -438,6 +442,27 @@ describe("chat.migrate()", () => {
     );
 
     expect(stored).toEqual([{ tool_settings: { connections: [], allowedTools: [] } }]);
+  });
+
+  it("rejects an assistant Conversation with no Model, and lets another plugin's have none", async () => {
+    const url = await scratchDatabase("kind_model");
+    await chatFor(url).migrate();
+
+    await expect(
+      rows(
+        url,
+        `insert into chat.conversation (id, user_id, kind)
+         values ('0196a000-0000-7000-8000-000000000001', 'user-1', 'assistant')`,
+      ),
+    ).rejects.toThrow(/conversation_assistant_model_check/);
+    await rows(
+      url,
+      `insert into chat.conversation (id, user_id, kind)
+       values ('0196a000-0000-7000-8000-000000000002', 'user-1', 'bot')`,
+    );
+    expect(await rows(url, "select kind, model from chat.conversation")).toEqual([
+      { kind: "bot", model: null },
+    ]);
   });
 
   it("throws an error naming pg_trgm when the role may not create it", async () => {

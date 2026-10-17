@@ -5,7 +5,7 @@ import {
   type ChatHandler,
   type GivenContext,
 } from "../../../core/server/create-chat";
-import type { BotSdkContext, BotSdkPlugin } from "../../../core/server/plugin";
+import { enabledPlugins, type BotSdkContext, type BotSdkPlugin } from "../../../core/server/plugin";
 import { modelsOver } from "../../models/server/plugin";
 import type { ModelsDeps } from "../../models/server/types";
 import { assistantOver } from "./plugin";
@@ -48,11 +48,13 @@ export function createBotSdkOver(
 
 /**
  * The handler of a new instance over `sdk`'s parts (a `createBotSdkOver` context, or a copy of one
- * with some parts replaced): its core context, `models` bundle and `assistant` state.
+ * with some parts replaced): its core context, `models` bundle and `assistant` state, and the
+ * other plugins `sdk` enabled.
  */
 export function createChatHandler(sdk: SdkOver, options: OverOptions): ChatHandler {
   const { plugin: _plugin, rateLimit: _rateLimit, ...context } = sdk;
   const models = { ...sdk, hooks: sdk.events, keyEncryptionSecrets: sdk.keyring };
-  return createBotSdkOver({ context, models, assistant: assistantState(sdk) }, options).instance
-    .handler;
+  const plugins = enabledPlugins(sdk).filter(({ id }) => id !== "models" && id !== "assistant");
+  return createBotSdkOver({ context, models, assistant: assistantState(sdk), plugins }, options)
+    .instance.handler;
 }

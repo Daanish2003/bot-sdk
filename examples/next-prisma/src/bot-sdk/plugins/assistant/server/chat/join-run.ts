@@ -6,6 +6,7 @@ import { z } from "zod";
 import type { BotSdkContext } from "../../../../core/server/plugin";
 import type { ChatUser } from "../../../../core/server/context";
 import { runLogId } from "./run";
+import { assistantConversation } from "./kind";
 import { liveConversation } from "./temporary";
 import { runStreamDurability, START } from "../../../../core/server/chat/run-streams";
 import { assistantState } from "../state";
@@ -40,6 +41,7 @@ export async function handleJoin(
       and(
         eq(message.id, runId.data),
         eq(conversation.userId, user.id),
+        assistantConversation(),
         liveConversation(new Date()),
       ),
     )

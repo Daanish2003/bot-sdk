@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
   boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -49,8 +50,11 @@ export const reasoningEffort = chatSchema.enum("reasoning_effort", [
 
 /** The assistant's columns on a Conversation. */
 const conversationColumns = {
-  /** The selected Model, `"provider:model"`; checked in code, not an enum. */
-  model: text("model").notNull(),
+  /**
+   * The selected Model, `"provider:model"`; checked in code, not an enum. Null only on another
+   * plugin's Conversation: a CHECK keeps it set on every assistant one.
+   */
+  model: text("model"),
   /** The effort the Conversation asks for; null means the Model's default. */
   reasoningEffort: reasoningEffort("reasoning_effort"),
   /** The Project this Conversation is in; null when it is in none. Deleting it deletes this. */
@@ -126,6 +130,10 @@ export const assistantSchema = {
         index("conversation_project_id_last_message_at_idx").on(
           table.projectId,
           table.lastMessageAt.desc(),
+        ),
+        check(
+          "conversation_assistant_model_check",
+          sql`${table.kind} <> 'assistant' OR ${table.model} IS NOT NULL`,
         ),
       ],
     },

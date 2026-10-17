@@ -65,3 +65,6 @@ temp
 # Memory eval (packages/bot-sdk/eval/memory): the downloaded dataset and the answers it writes
 packages/bot-sdk/eval/memory/cache/
 packages/bot-sdk/eval/memory/results/
+
+# Turn eval (packages/bot-sdk/eval/turn): the results it writes
+packages/bot-sdk/eval/turn/results/

@@ -253,6 +253,7 @@ describe("conversation.list paging", () => {
     const rows = Array.from({ length: count }, (_, i) => ({
       id: uuidv7(),
       userId,
+      kind: "assistant",
       model: testModel,
       lastMessageAt: new Date(Date.UTC(2026, 9, 1, 9, Math.floor(i / 2))),
     }));
@@ -1296,6 +1297,7 @@ describe("conversation.archived", () => {
     const rows = Array.from({ length: count }, (_, i) => ({
       id: uuidv7(),
       userId,
+      kind: "assistant",
       model: testModel,
       archivedAt: new Date(Date.UTC(2026, 9, 1, 9, Math.floor(i / 2))),
       lastMessageAt: new Date(Date.UTC(2026, 9, 1, 9, Math.floor(i / 2))),

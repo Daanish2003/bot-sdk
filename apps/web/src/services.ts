@@ -7,6 +7,7 @@ import {
   redisStore,
 } from "@ai-chat/bot-sdk/core/server";
 import { assistant } from "@ai-chat/bot-sdk/plugins/assistant/server";
+import { bot } from "@ai-chat/bot-sdk/plugins/bot/server";
 import {
   fakeEmbeddingAdapter,
   fakeImageAdapter,
@@ -117,5 +118,7 @@ export const sdk = (shared.botSdk ??= createBotSdk({
       // Artifacts (spec #304): the assistant's create_artifact tool, the side panel and its version route.
       artifacts: true,
     }),
+    // Bots (spec #463): the full-screen Bots app at /bots.
+    bot(),
   ],
 }));
