@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lesson 12 · One turn at a time per Conversation</title>
+    <link rel="stylesheet" href="../assets/style.css" />
+  </head>
+  <body>
+    <main>
+      <p class="kicker">ai-chat architecture · Lesson 12</p>
+      <h1>One turn at a time per Conversation</h1>
+      <p class="subtitle">
+        Every Trigger goes through the Router into a queue. The Bot works on one batch at a time,
+        and you can skip the line.
+      </p>
+      <p class="meta">
+        About 14 minutes · a browser · you'll write <code>runAfter(receivedAts)</code>, the rule
+        that decides when a batch of quick Messages starts its Turn
+      </p>
+
+      <section class="words">
+        <h2>Words you'll need</h2>
+        <dl>
+          <dt>Trigger</dt>
+          <dd>One event that wakes a Bot. A Message you send is one.</dd>
+          <dt>Router</dt>
+          <dd>What every Trigger passes through. It drops repeats and queues the rest.</dd>
+          <dt>Conversation queue</dt>
+          <dd>The Triggers of one Conversation that no Turn has taken yet.</dd>
+          <dt>Skipping the line</dt>
+          <dd>Your new Message interrupts the running Turn, or Stop ends it.</dd>
+        </dl>
+        <p class="hint">
+          Forgot a code name? Press the <strong>Names?</strong> button in the bottom-right corner.
+        </p>
+      </section>
+
+      <figure id="video"></figure>
+
+      <div
+        class="quiz"
+        data-answer="1"
+        data-why="The job has a lease. If nothing renews it for 60 s, the reaper re-queues the job and any process replays it."
+      >
+        <div class="label">Warm-up · Lesson 11</div>
+        <p class="q">The process running a Turn dies. What brings the Turn back?</p>
+        <ol class="opts">
+          <li data-why="The user does not need to do anything. The job is still saved.">
+            The user sends the Message again
+          </li>
+          <li>The reaper re-queues the job when its lease expires, and a process replays it.</li>
+          <li data-why="Web no longer runs the Turn. It only follows it from Postgres.">
+            The web server starts the Turn over
+          </li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+
+      <h2><span class="num">1</span>The Router drops repeats</h2>
+      <figure id="dedupe">
+        <figcaption>A resend with the same id saves nothing and joins the same Turn.</figcaption>
+      </figure>
+      <p>
+        Slide 19 says the server "drops any ID it has already seen". Here the unique ID is the user
+        Message's own id. The web client makes a uuidv7 for each send and passes it as
+        <code>id</code> to <code>bot.send</code>. If the request fails on the network, the client
+        tries again with the same id, up to 3 tries in all.
+      </p>
+      <p>
+        <a href="../../../packages/bot-sdk/plugins/bot/server/turn.ts"><code>sendToBot</code></a>
+        looks for the id first, under the Conversation's row lock and before the Quota check. A
+        repeat saves nothing, so a retry works while its own Turn runs and after the Quota is spent.
+        Its stream joins the Turn that took the Message. If that Turn has ended, the stream gives
+        the Turn's Messages and then <code>turnEnded</code>. An id that belongs to another
+        Conversation is refused with <code>BAD_REQUEST</code>, and the answer says nothing about
+        that row.
+      </p>
+
+      <h2><span class="num">2</span>One Turn at a time, by chaining</h2>
+      <figure id="chain">
+        <figcaption>Turn 1 ends, and Turn 2 takes both Triggers that waited.</figcaption>
+      </figure>
+      <p>
+        Each Trigger is a row in <code>chat.bot_trigger</code>. It keeps the source's unique ID, its
+        Conversation, the Message it carries, <code>received_at</code> and <code>turn_id</code>. Its
+        <code>source</code> (<code>user</code>) and <code>channel</code> (<code>web</code>) say
+        where it came from, so a Turn's provenance is the Triggers it took. The Conversation queue
+        is the rows with no <code>turn_id</code>.
+      </p>
+      <p>
+        <a href="../../../packages/bot-sdk/plugins/bot/server/router.ts"><code>receive</code></a>
+        saves the Trigger. If no Turn is running, it starts one that takes everything waiting. If
+        one is running, the Trigger waits. When a Turn ends, <code>turnEnded</code> starts the next
+        Turn for all the Triggers that arrived meanwhile. No job stays alive between Turns, and each
+        Turn is still one runner job.
+      </p>
+      <p>
+        Every transaction that starts or ends a Turn takes the Conversation's row lock first. A
+        partial unique index on running Turns (<code>bot_turn_running_bot_id_idx</code>) turns a
+        missed lock into an error, never a second running Turn.
+      </p>
+
+      <h2><span class="num">3</span>Quick Messages make one Turn</h2>
+      <figure id="batch">
+        <figcaption>Three Messages 200 ms apart: the job runs 500 ms after the last.</figcaption>
+      </figure>
+      <p>
+        A new Turn does not start at once. Its job runs when 500 ms pass with no new Trigger, and
+        never later than 2.5 s after the first Trigger it took. There is no cap. This is your
+        exercise.
+      </p>
+      <p>
+        While the job is queued and has recorded no Checkpoint, a new Trigger joins that Turn. The
+        runner has no reschedule call, so the Router cancels the queued job and queues a new one
+        with a later <code>runAfter</code>, in the same transaction. The job's first Checkpoint,
+        <code>start_turn</code>, sets the Turn's <code>startedAt</code>. The Turn's input is the
+        user Messages saved before that, so it holds the whole batch.
+      </p>
+
+      <h2><span class="num">4</span>Skipping the line: interrupt or Stop</h2>
+      <figure id="skip">
+        <figcaption>
+          A send starts a new Turn after the old one stops. Stop leaves nothing.
+        </figcaption>
+      </figure>
+      <p>
+        In your 1:1 Conversation, a Message sent after the Turn's job has started does not wait. It
+        interrupts. <code>sendToBot</code> saves the Message, queues its Trigger and cancels the
+        running job. The Turn aborts at its next Checkpoint or heartbeat (up to 10 s), ends
+        <code>stopped</code> and calls <code>turnEnded</code>. What it already sent stays. The next
+        Turn takes the new Message, and the first Turn's transcript is part of its input. Several
+        sends during the abort all join that one Turn. <code>CONFLICT</code> and its toast are gone.
+      </p>
+      <p>
+        <strong>Stop</strong> (<code>stopBot</code>) is different. In the same transaction it marks
+        every waiting Trigger as taken by the Turn it stops, so the queue is empty and nothing
+        follows. Those Messages stay in the chat, and the next Turn reads them as history.
+      </p>
+      <p>
+        A cancelled job whose process dies never sees the cancel. The reaper's sweep finds it and
+        calls the job's <code>onCancelled</code> hook, which ends the Turn <code>stopped</code> and
+        chains the next one, so a Conversation is never stuck on "Working…".
+      </p>
+
+      <h2>Try it</h2>
+      <div id="ex1"></div>
+      <figure id="payoff">
+        <div class="toy-out">
+          <div id="payoff-pic"></div>
+          <span id="pay-out"
+            >Pass the tests first. Then your <code>runAfter</code> times two sample batches.</span
+          >
+        </div>
+        <figcaption>
+          Blue dots are arrivals; the green dot is when your rule runs the job.
+        </figcaption>
+      </figure>
+
+      <div
+        class="quiz"
+        data-answer="2"
+        data-why="Stop gives the waiting Triggers to the stopped Turn, so the queue is empty. Only your next Message starts a Turn, and it reads the earlier Messages as history."
+      >
+        <div class="label">Quiz</div>
+        <p class="q">
+          A Turn is running and two of your Messages wait in the queue. You press Stop. What
+          happens?
+        </p>
+        <ol class="opts">
+          <li data-why="That is an interrupt. Stop starts nothing.">
+            A new Turn starts and answers both Messages
+          </li>
+          <li data-why="The Messages are not deleted. They stay in the chat.">
+            Both Messages are deleted
+          </li>
+          <li>
+            The Turn ends <code>stopped</code> and nothing follows. The next Turn reads both
+            Messages as history.
+          </li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+
+      <section class="takeaways">
+        <h2>Key takeaways</h2>
+        <p class="one-thing">
+          <strong>If you remember only one thing:</strong> every Trigger goes through the Router
+          into the Conversation queue, and the next Turn takes everything that arrived while the
+          last one ran.
+        </p>
+        <ul>
+          <li>
+            <strong>A repeat is the same Message.</strong> The client's id is the Message's id, so a
+            resend saves nothing and joins the same Turn.
+          </li>
+          <li>
+            <strong>Quick Messages batch.</strong> The job runs 500 ms after the newest Trigger, and
+            no later than 2.5 s after the first.
+          </li>
+          <li>
+            <strong>You skip the line.</strong> A new Message interrupts the running Turn. Stop ends
+            it and starts nothing.
+          </li>
+        </ul>
+        <p class="selftest">
+          Self-test: cover this box and say what happens to a Message sent while a Turn runs, and
+          what changes if you press Stop first.
+        </p>
+      </section>
+
+      <details class="deeper">
+        <summary>Go deeper: sources, side notes and a challenge</summary>
+        <h3>The lecture</h3>
+        <ul>
+          <li>
+            Slide 14, "What wakes the agent": "Router: drops duplicates, picks the conversation",
+            then "Conversation queue: one turn at a time". Its footer says every wake-up records
+            where it came from, so the agent can tell whether you asked, a routine ran or an outside
+            service sent it.
+          </li>
+          <li>
+            Slide 19, "What happens when you hit send": the app "saves the message locally with a
+            unique ID" and "the server drops any ID it has already seen". Caption: "Unique IDs make
+            retries safe", and for the turn, "One turn at a time per conversation."
+          </li>
+          <li>
+            Slide 20, "Rules for handling new messages": you, in a 1:1 chat, "skip the line", and a
+            new message or the Stop button "interrupts or stops the turn". "3 quick messages → 1
+            turn". "The agent works on one batch of messages at a time." Everyone else joins a FIFO
+            line. Step 3 builds the line for the owner only, because no other wake source exists
+            yet.
+          </li>
+        </ul>
+        <h3>Side notes</h3>
+        <ul>
+          <li>
+            The batching numbers are a recorded deviation. The lecture gives none, so they come from
+            the research ticket
+            <em>Prior art: per-conversation queues, skipping the line and batching</em>, and the
+            decision is in <em>Batching quick Messages into one Turn</em>. 500 ms is OpenClaw's
+            queue debounce default, and 2.5 s is its rule that a batch closes at 5 times the
+            debounce. Hermes's 0.35 s and 1.0 s were rejected as tuned for a fast phone typist, too
+            tight for three deliberate Messages. The constants are <code>batchQuietMs</code> and
+            <code>batchLongestMs</code> in <code>router.ts</code>.
+          </li>
+          <li>
+            There is no cap on a batch because only the owner can wake a Bot in step 3, and the 2.5
+            s limit already bounds it. A later source that can flood the line picks a cap in its own
+            step.
+          </li>
+          <li>
+            Steering (sending a Message into the running Turn) was rejected: the runner cannot send
+            into a running job, and splicing a Message into a replayed workflow needs a
+            Checkpoint-safe design (<em>Skipping the line: interrupt vs Stop</em>).
+          </li>
+          <li>
+            The runner stays generic. It has no partitions or priority; the queue rule lives in the
+            Bot. Its only addition is the <code>onCancelled</code> hook on a job definition.
+          </li>
+          <li>
+            Provenance is stored but not shown to the Model: every Trigger is the user in step 3
+            (<em>Trigger provenance: recording where a wake-up came from</em>). The first step that
+            adds a second source chooses the format.
+          </li>
+          <li>
+            Tests: <code>test/core/server/routers/bot-send.integration.test.ts</code> (the "one Turn
+            at a time", "skipping the line", "batching quick Messages" and "a resent Message"
+            groups). The real-Model evals for batching and interrupting are in
+            <code>eval/turn/queue-cases.ts</code>.
+          </li>
+        </ul>
+        <h3>What was left out, and what comes next</h3>
+        <p>
+          Steering, a batch cap, a FIFO line shared by other sources, and provenance in the Model's
+          input are left out. Later steps add the wake sources (Routines, Slack, helpers) that need
+          them.
+        </p>
+        <h3>Challenge</h3>
+        <p>
+          Read the "makes one replacement Turn for several sends while the old Turn aborts" test in
+          <code>bot-send.integration.test.ts</code>. Which lock and which rows make it one Turn, not
+          two? Tell your teacher.
+        </p>
+      </details>
+
+      <div class="footer-box">
+        <p>
+          <strong>Primary source:</strong>
+          <a href="../../../packages/bot-sdk/plugins/bot/server/router.ts"><code>router.ts</code></a
+          >, then
+          <a href="../../../docs/adr/0011-background-jobs-through-durable-runner.md">ADR 0011</a>.
+        </p>
+        <p>
+          <strong>Cheat sheets:</strong> <a href="../reference/package-map.html">Package map</a> ·
+          <a href="../reference/names.html">Names</a>
+        </p>
+        <p>
+          <strong>Stuck or curious?</strong> Ask your teacher (Claude) anything: "why is the lock
+          taken first?", "show me a Trigger row", or "quiz me again".
+        </p>
+        <div class="nav">
+          <a href="0011-durable-workflows-saving-each-step.html">← Lesson 11: Durable workflows</a
+          ><a href="../index.html">Course contents →</a>
+        </div>
+      </div>
+    </main>
+
+    <script src="../assets/diagrams.js"></script>
+    <script src="../assets/names.js" data-upto="12"></script>
+    <script src="../assets/explainer.js"></script>
+    <script src="../assets/quiz.js"></script>
+    <script src="../assets/exercise.js"></script>
+    <script>
+      const D = Diagrams;
+
+      // Section 1: a resend.
+      D.render(
+        "#dedupe",
+        D.svg(
+          760,
+          190,
+          D.box(10, 20, 170, 44, "send, id A", { tone: "blue" }) +
+            D.box(10, 110, 170, 44, "resend, id A", { tone: "blue" }) +
+            D.arrow(180, 42, 280, 85) +
+            D.arrow(180, 132, 280, 100) +
+            D.box(280, 65, 200, 50, "seen id A?", { tone: "warn", sub: "checked first" }) +
+            D.arrow(480, 80, 560, 50, { label: "new" }) +
+            D.box(560, 25, 190, 44, "save + Trigger", { tone: "ok" }) +
+            D.arrow(480, 100, 560, 140, { label: "seen" }) +
+            D.box(560, 115, 190, 44, "join its Turn", { tone: "blue", sub: "saves nothing" }),
+          { label: "A new id is saved; a seen id saves nothing and joins the Turn that took it" },
+        ),
+      );
+
+      // Section 2: chaining.
+      D.render(
+        "#chain",
+        D.svg(
+          760,
+          190,
+          D.box(10, 20, 200, 44, "Turn 1 runs", { tone: "ok", sub: "took Trigger A" }) +
+            D.box(10, 110, 90, 44, "B waits", { tone: "blue" }) +
+            D.box(110, 110, 100, 44, "C waits", { tone: "blue" }) +
+            D.arrow(210, 42, 300, 42, { label: "ends" }) +
+            D.box(300, 20, 200, 44, "turnEnded", { mono: true }) +
+            D.arrow(500, 42, 560, 42) +
+            D.box(560, 20, 190, 44, "Turn 2 runs", { tone: "ok", sub: "took B and C" }) +
+            D.text(10, 175, "one lock per Conversation, and one running Turn per Bot", {
+              tone: "faint",
+            }),
+          { label: "When Turn 1 ends, Turn 2 takes the two Triggers that waited" },
+        ),
+      );
+
+      // Section 3: batching timeline (ms 0..3000 across 690 px).
+      const X = (t) => 30 + t * 0.23;
+      D.render(
+        "#batch",
+        D.svg(
+          760,
+          130,
+          D.route([
+            [30, 70],
+            [720, 70],
+          ]) +
+            [0, 200, 400].map((t) => D.dot(X(t), 70, 6, { tone: "blue" })).join("") +
+            D.dot(X(900), 70, 8, { tone: "ok" }) +
+            D.text(X(0), 40, "3 Messages", { tone: "faint", size: 12 }) +
+            D.text(X(900), 100, "job runs at 900 ms", { size: 12, anchor: "middle" }) +
+            D.dot(X(2500), 70, 4, { tone: "warn" }) +
+            D.text(X(2500), 100, "2.5 s limit", { tone: "faint", size: 12, anchor: "middle" }),
+          { label: "Arrivals at 0, 200 and 400 ms; the job runs 500 ms after the last, at 900 ms" },
+        ),
+      );
+
+      // Section 4: interrupt and Stop.
+      D.render(
+        "#skip",
+        D.svg(
+          760,
+          210,
+          D.text(10, 18, "send mid-Turn", { tone: "faint" }) +
+            D.box(10, 30, 150, 44, "Turn 1 runs", { tone: "ok" }) +
+            D.arrow(160, 52, 220, 52, { label: "cancel" }) +
+            D.box(220, 30, 150, 44, "Turn 1 stopped", {
+              tone: "warn",
+              sub: "keeps its Messages",
+            }) +
+            D.arrow(370, 52, 430, 52) +
+            D.box(430, 30, 200, 44, "Turn 2 runs", { tone: "ok", sub: "takes your Message" }) +
+            D.text(10, 118, "Stop", { tone: "faint" }) +
+            D.box(10, 130, 150, 44, "Turn 1 runs", { tone: "ok" }) +
+            D.arrow(160, 152, 220, 152, { label: "cancel" }) +
+            D.box(220, 130, 220, 44, "Turn 1 stopped", {
+              tone: "warn",
+              sub: "took the waiting Triggers",
+            }) +
+            D.arrow(440, 152, 500, 152, { dashed: true }) +
+            D.box(500, 130, 190, 44, "nothing runs", {}),
+          { label: "A send ends the Turn and a new one follows; Stop ends it and nothing follows" },
+        ),
+      );
+
+      // Video.
+      Explainer.mount("#video", {
+        title: "Lesson 12 in about 1 minute",
+        width: 760,
+        height: 300,
+        scenes: [
+          {
+            say: "Every Trigger goes through the Router. If its id was seen before, it is dropped, so a resend is the same Message.",
+            draw: (t, A) =>
+              D.box(40, 110, 160, 50, "send, id A", { tone: "blue" }) +
+              D.box(240, 110, 160, 50, "Router", { tone: "warn", opacity: A.step(t, 0.2, 0.5) }) +
+              D.box(440, 110, 200, 50, "Conversation queue", {
+                tone: "ok",
+                opacity: A.step(t, 0.5, 0.9),
+              }),
+          },
+          {
+            say: "A Conversation runs one Turn at a time. When a Turn ends, the next Turn takes everything that arrived while it ran.",
+            draw: (t, A) =>
+              D.box(40, 110, 180, 50, "Turn 1", { tone: "ok" }) +
+              D.box(260, 110, 180, 50, "Turn 2", { tone: "ok", opacity: A.step(t, 0.4, 0.8) }),
+          },
+          {
+            say: "Quick Messages batch. The Turn waits five hundred milliseconds after the newest one, and never more than two and a half seconds after the first.",
+            show: "min(newest + 500, first + 2500)",
+            draw: (t, A) =>
+              D.dot(80, 140, 7, { tone: "blue" }) +
+              `<g opacity="${A.step(t, 0.2, 0.4)}">${D.dot(130, 140, 7, { tone: "blue" })}</g>` +
+              `<g opacity="${A.step(t, 0.4, 0.6)}">${D.dot(180, 140, 7, { tone: "blue" })}</g>` +
+              `<g opacity="${A.step(t, 0.6, 0.9)}">${D.dot(300, 140, 9, { tone: "ok" })}</g>`,
+          },
+          {
+            say: "In your own chat you skip the line. A new Message cancels the running Turn, and a new Turn takes it. Stop ends the Turn and starts nothing.",
+            draw: (t, A) =>
+              D.box(40, 110, 180, 50, "Turn 1 stopped", { tone: "warn" }) +
+              D.box(260, 110, 180, 50, "Turn 2 runs", { tone: "ok", opacity: A.step(t, 0.4, 0.8) }),
+          },
+          {
+            say: "Next, write the rule that says when a batch runs.",
+            show: "Next: write runAfter(receivedAts).",
+            draw: () =>
+              D.text(380, 130, "Write runAfter(receivedAts)", {
+                tone: "accent",
+                anchor: "middle",
+                weight: 600,
+              }),
+          },
+        ],
+      });
+
+      // Try it: runAfter.
+      let learnerRunAfter = null;
+      const SAMPLES = [
+        { name: "3 Messages, 200 ms apart", at: [0, 200, 400] },
+        { name: "a Message every 400 ms", at: [0, 400, 800, 1200, 1600, 2000, 2400, 2800] },
+      ];
+      function showRunAfter() {
+        const picOut = document.getElementById("payoff-pic");
+        const payOut = document.getElementById("pay-out");
+        if (!learnerRunAfter) {
+          picOut.innerHTML = "";
+          payOut.innerHTML =
+            "Pass the tests first. Then your <code>runAfter</code> times two sample batches.";
+          return;
+        }
+        const runs = SAMPLES.map((s) => learnerRunAfter(s.at.slice()));
+        const rows = SAMPLES.map((s, i) => {
+          const y = 40 + i * 60;
+          return (
+            D.text(30, y - 22, s.name, { tone: "faint", size: 12 }) +
+            D.route([
+              [30, y],
+              [720, y],
+            ]) +
+            s.at.map((t) => D.dot(X(t), y, 5, { tone: "blue" })).join("") +
+            D.dot(X(runs[i]), y, 8, { tone: "ok" }) +
+            D.text(X(runs[i]) + 14, y, `runs at ${runs[i]} ms`, { size: 12 })
+          );
+        }).join("");
+        picOut.innerHTML = D.svg(760, 140, rows, {
+          label: "Arrivals and the time your runAfter gives for two sample batches",
+        });
+        payOut.innerHTML = `Your <code>runAfter</code> runs the batches at ${runs[0]} ms and ${runs[1]} ms.`;
+      }
+      Exercise.mount("#ex1", {
+        title: "Write runAfter(receivedAts)",
+        task: "<code>receivedAts</code> is a list of times in ms: when each Trigger of one batch arrived. Return the time in ms when the Turn's job runs. It runs 500 ms after the newest Trigger, but never later than 2500 ms after the first one.",
+        storageKey: "ai-chat-sdk-l12-runafter",
+        fnName: "runAfter",
+        starter: `// Example: [0, 200, 400] → the newest is 400, so 400 + 500 = 900.
+      // Hint: the first is Math.min(...receivedAts) and the newest is Math.max(...receivedAts).
+      function runAfter(receivedAts) {
+        return 0;
+      }`,
+        solution: `function runAfter(receivedAts) {
+        const first = Math.min(...receivedAts);
+        const newest = Math.max(...receivedAts);
+        return Math.min(newest + 500, first + 2500);
+      }`,
+        tests: [
+          { name: "one Message at 0 → 500", args: [[0]], expect: 500 },
+          { name: "0, 200, 400 → 900 (500 after the newest)", args: [[0, 200, 400]], expect: 900 },
+          {
+            name: "1000 and 1200 → 1700 (times need not start at 0)",
+            args: [[1000, 1200]],
+            expect: 1700,
+          },
+          {
+            name: "a Message every 400 ms to 2800 → 2500 (the longest wait)",
+            args: [[0, 400, 800, 1200, 1600, 2000, 2400, 2800]],
+            expect: 2500,
+          },
+          { name: "0 and 2000 → 2500 (both rules give 2500)", args: [[0, 2000]], expect: 2500 },
+          { name: "0 and 1900 → 2400 (just under the limit)", args: [[0, 1900]], expect: 2400 },
+        ],
+        onResult(fn, all) {
+          learnerRunAfter = all ? fn : null;
+          showRunAfter();
+        },
+      });
+      showRunAfter();
+    </script>
+  </body>
+</html>
