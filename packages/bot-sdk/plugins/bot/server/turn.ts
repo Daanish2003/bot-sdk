@@ -23,7 +23,11 @@ import { parseModelId } from "../../models/shared/models";
 import type { MessageUsage } from "../../models/shared/usage";
 import { defineJob, PermanentJobError } from "../../runner/server/jobs/define";
 import { loadHistory } from "../../runner/server/jobs/history";
-import { createWorkflow, type WorkflowContext } from "../../runner/server/workflow/engine";
+import {
+  createWorkflow,
+  type WorkflowContext,
+  WorkflowYieldedError,
+} from "../../runner/server/workflow/engine";
 import type { BotMessage, BotSendEvent, TurnStatus } from "../shared/turn";
 import { botMessages, findBot, textParts, toBotMessage, turnTimeLimitMs } from "./store";
 
@@ -189,11 +193,16 @@ export async function stopBot(deps: BotSdkContext, userId: string, botId: string
       .limit(1);
     if (!running) return false;
     if ((await runner.cancelIn(tx, running.id)) !== "queued") return false;
+    // A queued job may have run already (handed back by a deploy, waiting out a retry, or re-queued
+    // after a crash), so the Turn keeps what its Checkpoints hold. The job's row is locked, so its
+    // history can't grow while it replays.
+    const turn = await turnFacts(deps, running.id);
+    const played = turn ? await replayedTurn(deps, turn) : { transcript: [], usage: null };
     await endTurn(tx, running.id, {
       status: "stopped",
       error: null,
-      transcript: [],
-      usage: null,
+      transcript: played.transcript,
+      usage: played.usage,
       endedAt: deps.clock(),
     });
     return true;
@@ -298,35 +307,48 @@ async function runTurnJob(
   const turn = await turnFacts(deps, turnId);
   if (!turn) throw new PermanentJobError(`Turn ${turnId} no longer exists`);
   const played = await playTurn(deps, turn, ctx, { attempt: ctx.signal });
-  if (ctx.signal.aborted) {
-    // A cancelled job never reaches `onFailed`, so `bot.stop` leaves a running Turn to end here.
-    // A lost lease or a shutdown leaves it `running`: the next attempt resumes it.
-    const cancelled = turn.jobId && (await deps.plugin("runner").status(turn.jobId));
-    if (cancelled && cancelled.status === "cancelled") {
-      await deps.db
-        .update(botTurn)
-        .set({
-          status: "stopped",
-          error: null,
-          transcript: played.transcript,
-          usage: played.usage,
-          endedAt: deps.clock(),
-        })
-        .where(and(eq(botTurn.id, turnId), eq(botTurn.status, "running")));
-      await hintChanged(deps, turn.conversationId);
-    }
-    throw ctx.signal.reason;
+  try {
+    ctx.signal.throwIfAborted();
+    // A thrown activity recorded nothing: the job retries it.
+    if (played.failure !== undefined) throw played.failure;
+    await ctx.activity("end_turn", (tx) =>
+      endTurn(tx, turnId, {
+        ...endingOf(played),
+        transcript: played.transcript,
+        usage: played.usage,
+        endedAt: deps.clock(),
+      }),
+    );
+  } catch (caught) {
+    // Also when the abort lands after the Turn played, before or during its end_turn Checkpoint.
+    if (ctx.signal.aborted) await stopIfCancelled(deps, turn, played);
+    throw caught;
   }
-  // A thrown activity recorded nothing: the job retries it.
-  if (played.failure !== undefined) throw played.failure;
-  await ctx.activity("end_turn", (tx) =>
-    endTurn(tx, turnId, {
-      ...endingOf(played),
+  await hintChanged(deps, turn.conversationId);
+}
+
+/**
+ * Ends a Turn `stopped` once its attempt has aborted, if its job was cancelled. A cancelled job
+ * never reaches `onFailed`, so `bot.stop` leaves a running Turn to end here. A lost lease or a
+ * shutdown leaves it `running`: the next attempt resumes it.
+ */
+async function stopIfCancelled(
+  deps: BotSdkContext,
+  turn: TurnFacts,
+  played: Pick<PlayedTurn, "transcript" | "usage">,
+) {
+  const cancelled = turn.jobId && (await deps.plugin("runner").status(turn.jobId));
+  if (!cancelled || cancelled.status !== "cancelled") return;
+  await deps.db
+    .update(botTurn)
+    .set({
+      status: "stopped",
+      error: null,
       transcript: played.transcript,
       usage: played.usage,
       endedAt: deps.clock(),
-    }),
-  );
+    })
+    .where(and(eq(botTurn.id, turn.id), eq(botTurn.status, "running")));
   await hintChanged(deps, turn.conversationId);
 }
 
@@ -339,17 +361,7 @@ async function endLostTurn(deps: BotSdkContext, turnId: string) {
   if (!turn) return;
   let played: Pick<PlayedTurn, "transcript" | "usage"> = { transcript: [], usage: null };
   try {
-    // The recorded calls replay, and the first one past them stops the Turn there.
-    const workflow = createWorkflow<Transaction>({
-      history: turn.jobId ? await loadHistory(deps.db, turn.jobId) : [],
-      store: {
-        save: async () => false,
-        saveWith: async () => ({ saved: false }),
-      },
-      now: deps.clock,
-      signal: AbortSignal.abort(new Error("The Turn's job has failed")),
-    });
-    played = await playTurn(deps, turn, workflow.context, {});
+    played = await replayedTurn(deps, turn);
   } catch (caught) {
     // The Turn still ends, so it never reads `running` forever; only its transcript is lost.
     deps.logger.error(`Replaying lost Turn ${turnId} failed`, caught);
@@ -365,6 +377,26 @@ async function endLostTurn(deps: BotSdkContext, turnId: string) {
     })
     .where(and(eq(botTurn.id, turnId), eq(botTurn.status, "running")));
   await hintChanged(deps, turn.conversationId);
+}
+
+/**
+ * What a Turn whose job has ended did: its recorded calls replay, and the first one past them
+ * stops the Turn there. Its transcript and usage are those of the recorded calls.
+ */
+async function replayedTurn(
+  deps: BotSdkContext,
+  turn: TurnFacts,
+): Promise<Pick<PlayedTurn, "transcript" | "usage">> {
+  const workflow = createWorkflow<Transaction>({
+    history: turn.jobId ? await loadHistory(deps.db, turn.jobId) : [],
+    store: {
+      save: async () => false,
+      saveWith: async () => ({ saved: false }),
+    },
+    now: deps.clock,
+    signal: AbortSignal.abort(new Error("The Turn's job has ended")),
+  });
+  return playTurn(deps, turn, workflow.context, {});
 }
 
 /** Ends the Turn's row, in its last Checkpoint's transaction. */
@@ -545,11 +577,18 @@ async function playTurn(
         const bill = recorded.usage;
         if (bill) {
           let fire: (() => void) | undefined;
-          await ctx.activity("bill", async (tx) => {
-            const { record } = await liveCall();
-            fire = await record(tx, bill.usage, bill.reportedCost);
-            return null;
-          });
+          try {
+            await ctx.activity("bill", async (tx) => {
+              const { record } = await liveCall();
+              fire = await record(tx, bill.usage, bill.reportedCost);
+              return null;
+            });
+          } catch (caught) {
+            // A yield is thrown once the bill's Checkpoint has committed: its next attempt replays
+            // the bill, so it fires now or never.
+            if (caught instanceof WorkflowYieldedError) fire?.();
+            throw caught;
+          }
           // Only once the bill has committed, and never on a replay.
           fire?.();
           billed.push(bill.usage);
@@ -573,6 +612,10 @@ async function playTurn(
     try {
       // The Message commits with its Checkpoint, so it is sent once across a crash.
       const result = await ctx.activity(sendToUserToolName, async (tx) => {
+        // Run only live, so a recorded send still replays: past the limit, a resumed Turn sends
+        // nothing more, and never answers a question from long ago.
+        if (attempt && (expired || timeLeftMs() <= 0)) timeUp();
+        abortController.signal.throwIfAborted();
         if (!text.trim()) return { error: emptyTextError };
         await appendMessage(tx, turn.conversationId, {
           role: "assistant",
@@ -588,7 +631,8 @@ async function playTurn(
       }
       return result;
     } catch (caught) {
-      failure ??= caught;
+      // A time limit or a stop recorded nothing, and isn't a failure to retry.
+      if (!abortController.signal.aborted) failure ??= caught;
       if (context?.toolCallId) unanswered.add(context.toolCallId);
       abortController.abort();
       throw caught;

@@ -2,9 +2,11 @@ import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { eq, inArray, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createHookEmitter } from "../../../../core/server/chat/hooks";
 import { createMemoryPubSub } from "../../../../core/server/chat/pubsub";
 import { botTurn, conversation, job, message, usage } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
+import type { Transaction } from "../../../../core/server/plugin";
 import type { HostProvider } from "../../../../plugins/assistant/server/deps";
 import { bot } from "../../../../plugins/bot/server/plugin";
 import { turnTimeLimitMs } from "../../../../plugins/bot/server/store";
@@ -600,9 +602,14 @@ describe("a Turn that resumes after a crash", () => {
    * the test runs by hand, one attempt at a time, on the fake clock. Each attempt may run on its own
    * SDK instance, as on another process.
    */
-  async function crashableBot(rounds: Round[], { host = false }: { host?: boolean } = {}) {
+  async function crashableBot(
+    rounds: Round[],
+    { host = false, hooks }: { host?: boolean } & Pick<TestDepsOverrides, "hooks"> = {},
+  ) {
     const fake = createFakeAdapter({ rounds, manual: true });
     const timer = fakeJobClock(new Date());
+    // One pub/sub across the processes, as Redis is.
+    const pubsub = createMemoryPubSub();
     const instance = () => {
       let deps: TestDeps | undefined;
       // Never started: the test claims and runs each attempt.
@@ -616,6 +623,8 @@ describe("a Turn that resumes after a crash", () => {
         plugins: [bot()],
         jobs,
         adapterFor: () => fake.adapter,
+        pubsub,
+        hooks,
         ...(host && { hostProviders }),
       });
       return deps;
@@ -639,14 +648,19 @@ describe("a Turn that resumes after a crash", () => {
       botId: created.id,
       /** A process: an SDK instance that can run an attempt of the Turn's job. */
       instance,
-      /** Claims the Turn's job and runs one attempt of it on `on`, without waiting for it to end. */
-      attempt: async (on: TestDeps = deps) => {
+      /**
+       * Claims the Turn's job and runs one attempt of it on `on`, without waiting for it to end.
+       * `drain` is the process's deploy signal: once aborted, the attempt yields at its next
+       * Checkpoint.
+       */
+      attempt: async (on: TestDeps = deps, drain?: AbortSignal) => {
         const claimed = await claimJob(getTestDb(), timer.clock.now(), { respectRunAfter: false });
         if (!claimed) throw new Error("Nothing to claim");
         return runClaimedJob(getTestDb(), claimed, {
           clock: timer.clock,
           logger: silent,
           deps: () => on,
+          drain,
         });
       },
       /**
@@ -797,6 +811,192 @@ describe("a Turn that resumes after a crash", () => {
 
     expect(await sentTexts(client, botId)).toEqual(["Hello!"]);
     expect((await turnsOf(botId))[0]).toMatchObject({ status: "complete" });
+  });
+
+  /** How many of this database's connections wait on a lock. */
+  const waitingOnLocks = async () => {
+    const { rows } = await getTestDb().execute<{ n: number }>(
+      sql`select count(*)::int as n from pg_stat_activity
+          where datname = current_database() and wait_event_type = 'Lock'`,
+    );
+    return rows[0]?.n;
+  };
+
+  /** Another connection takes the locks `take` takes, and holds them until `release()`. */
+  async function holdLocks(take: (tx: Transaction) => Promise<unknown>) {
+    let release = () => {};
+    let held = () => {};
+    const holding = new Promise<void>((resolve) => (held = resolve));
+    const done = getTestDb().transaction(async (tx) => {
+      await take(tx);
+      held();
+      await new Promise<void>((resolve) => (release = resolve));
+    });
+    await holding;
+    return {
+      release: async () => {
+        release();
+        await done;
+      },
+    };
+  }
+
+  it("follows the Turn with bot.send across a resume on a second runner", async () => {
+    const first = round(sends({ text: "One", endTurn: false }));
+    const second = round(sends({ text: "Two", endTurn: true }));
+    const { fake, client, botId, attempt, crash, instance } = await crashableBot([
+      first,
+      second,
+      second,
+    ]);
+    const stream = await client.bot.send({ botId, text: "hi" });
+
+    const lost = attempt();
+    await fake.release(first.length);
+    const before = await readUntil(
+      stream,
+      (event) => event.type === "message" && event.message.role === "assistant",
+    );
+    await expect.poll(() => fake.calls.length).toBe(2);
+    await crash();
+    await lost;
+    // The follow stays open while another process resumes the Turn.
+    const resumed = attempt(instance());
+    const after = readUntil(stream, () => false);
+    await fake.releaseAll();
+    await resumed;
+
+    expect(shapes([...before, ...(await after)])).toEqual([
+      { type: "message", role: "user", text: "hi" },
+      { type: "message", role: "assistant", text: "One" },
+      { type: "message", role: "assistant", text: "Two" },
+      { type: "turnEnded", status: "complete" },
+    ]);
+  });
+
+  it("ends the Turn stopped when bot.stop lands just before its last Checkpoint", async () => {
+    const { fake, client, botId, attempt } = await crashableBot([round(text("Nothing to add."))]);
+    const stream = await client.bot.send({ botId, text: "ok" });
+    // Another connection holds the Turn's row, so the end_turn Checkpoint waits on it.
+    const turnRow = await holdLocks((tx) =>
+      tx.select({ id: botTurn.id }).from(botTurn).where(eq(botTurn.botId, botId)).for("update"),
+    );
+
+    const running = attempt();
+    await fake.releaseAll();
+    await expect.poll(waitingOnLocks).toBe(1);
+    await client.bot.stop({ botId });
+    await turnRow.release();
+    await running;
+
+    const turn = await endedTurn(botId);
+    expect(turn).toMatchObject({ status: "stopped", error: null });
+    expect(JSON.stringify(turn.transcript)).toContain("Nothing to add.");
+    expect((await readUntil(stream, () => false)).at(-1)).toEqual({
+      type: "turnEnded",
+      status: "stopped",
+    });
+  });
+
+  it("bot.stop on a queued Turn that already sent a Message keeps its transcript and usage", async () => {
+    const usageOfStep = { promptTokens: 100, completionTokens: 10, totalTokens: 110 };
+    const first = withUsage(round(sends({ text: "One", endTurn: false })), usageOfStep);
+    const second = withUsage(round(sends({ text: "Two", endTurn: true })), usageOfStep);
+    const { fake, client, user, botId, attempt } = await crashableBot([first, second], {
+      host: true,
+    });
+    await client.bot.send({ botId, text: "count" });
+
+    const drain = new AbortController();
+    const handedBack = attempt(undefined, drain.signal);
+    await fake.release(first.length);
+    await expect.poll(() => sentTexts(client, botId)).toEqual(["One"]);
+    // A deploy: the attempt hands the Turn back at its next Checkpoint, queued for another process.
+    drain.abort();
+    await fake.releaseAll();
+    await handedBack;
+    const [queued] = await turnsOf(botId);
+    expect(
+      (await getTestDb().select().from(job).where(eq(job.id, queued!.jobId!)))[0],
+    ).toMatchObject({ status: "queued" });
+
+    await client.bot.stop({ botId });
+
+    const [turn] = await turnsOf(botId);
+    expect(turn).toMatchObject({ status: "stopped", error: null });
+    expect(turn?.transcript?.[0]?.toolCalls?.map((call) => call.function.name)).toEqual([
+      sendToUser,
+    ]);
+    expect(JSON.stringify(turn?.transcript)).toContain("One");
+    expect(JSON.stringify(turn?.transcript)).not.toContain("Two");
+    // The usage matches what was billed.
+    expect(await usageOf(user.id)).toHaveLength(1);
+    expect(turn?.usage).toMatchObject({ input: 100, output: 10, estimated: false });
+  });
+
+  it("fires onUsage for a bill whose Checkpoint a deploy's yield follows", async () => {
+    const onUsage = vi.fn();
+    const usageOfStep = { promptTokens: 100, completionTokens: 10, totalTokens: 110 };
+    const { fake, client, user, botId, attempt, instance } = await crashableBot(
+      [withUsage(round(sends({ text: "Hello!", endTurn: true })), usageOfStep)],
+      { host: true, hooks: createHookEmitter({ onUsage }, silent) },
+    );
+    await client.bot.send({ botId, text: "hi" });
+    // Another connection holds the usage table, so the bill's transaction waits on it.
+    const usageTable = await holdLocks((tx) =>
+      tx.execute(sql`lock table chat.usage in share mode`),
+    );
+
+    const drain = new AbortController();
+    const handedBack = attempt(undefined, drain.signal);
+    await fake.releaseAll();
+    await expect.poll(waitingOnLocks).toBe(1);
+    // The deploy starts while the bill is being saved: it commits, then the attempt yields.
+    drain.abort();
+    await usageTable.release();
+    await handedBack;
+    // Another process resumes the Turn and replays the bill.
+    await attempt(instance());
+
+    expect((await turnsOf(botId))[0]).toMatchObject({ status: "complete" });
+    const rows = await usageOf(user.id);
+    expect(rows).toHaveLength(1);
+    await expect.poll(() => onUsage.mock.calls.length).toBe(1);
+    expect(onUsage).toHaveBeenCalledWith(rows[0]);
+  });
+
+  it("ends a Turn resumed past 5 minutes timed_out without sending its recorded Step's Message", async () => {
+    const { fake, client, user, botId, attempt, crash, instance } = await crashableBot([
+      round(sends({ text: "Here's the answer.", endTurn: true })),
+    ]);
+    await client.bot.send({ botId, text: "a question" });
+    const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
+    // Another connection holds the Conversation's row, so SendToUser's transaction waits on it.
+    const conversationRow = await holdLocks((tx) =>
+      tx
+        .select({ id: conversation.id })
+        .from(conversation)
+        .where(eq(conversation.id, conversationId))
+        .for("update"),
+    );
+
+    const lost = attempt();
+    await fake.releaseAll();
+    await expect.poll(waitingOnLocks).toBe(1);
+    // The model call is recorded; the process stops before SendToUser's Checkpoint.
+    await crash();
+    await lost;
+    // The outage lasted past the limit.
+    await ageTurn(botId, turnTimeLimitMs + 1_000);
+    const resumed = attempt(instance());
+    await conversationRow.release();
+    await resumed;
+
+    expect(fake.calls).toHaveLength(1);
+    expect(await sentTexts(client, botId)).toEqual([]);
+    const [turn] = await turnsOf(botId);
+    expect(turn).toMatchObject({ status: "error", error: "timed_out" });
+    expect(JSON.stringify(turn?.transcript)).not.toContain("Here's the answer.");
   });
 
   it("ends the Turn error / interrupted after three lost attempts, with the transcript of what it did", async () => {
