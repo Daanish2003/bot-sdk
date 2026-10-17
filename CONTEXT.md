@@ -152,6 +152,10 @@ _Avoid_: Agent, assistant (that answers in assistant Conversations), persona
 One Bot working through a batch of what woke it, until it stops. It works on one batch at a time; in a 1:1 Conversation a new Message from the user interrupts or stops the running Turn instead of waiting. It can send any number of Messages, or none.
 _Avoid_: Run (that is the assistant's), step, session
 
+**Step**:
+One model call within a Turn and the tools it calls. A Turn is one or more Steps; it ends when a Step calls no tool, or when a Message the Bot sends says it is the last.
+_Avoid_: Turn, iteration
+
 **Trigger**:
 One event that wakes a Bot to run a Turn: the user, a Routine, an outside service, another agent, background work finishing or a Check-in. It records where it came from, so the Bot can tell whether the user asked, a Routine ran or an outside service sent it.
 _Avoid_: Event, wake-up, input

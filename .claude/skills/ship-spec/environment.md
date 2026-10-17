@@ -13,6 +13,8 @@ Shared by the orchestrator and every implementer. Each bullet cost a past run a 
 - **What hooks block:** `git branch -D`, `git checkout -- .`, `reset --hard`, force-push and pushing to `main`. Use `git branch -d`, and to clear CRLF-only noise, use `git add -A`. Give the user `-D` commands to run. The hooks match the text anywhere in a command, even inside a sed or echo string, so write "force-delete" instead.
 - **`-d` and ticket branches:** `git branch -d` checks against the current branch's upstream or HEAD, so it refuses a ticket branch that is merged only into the integration branch. Put those branches on the user's list at the end.
 - **Formatting:** `pnpm check` runs `oxfmt --write` and rewrites line endings in every file. Use `pnpm exec oxlint` and `pnpm exec oxfmt --check` instead.
+- **Scripted edits:** this machine has no `python`; use `node -e`.
+- **Fresh worktrees:** the first `pnpm exec` in a worktree with no `node_modules` runs a `pnpm install`. Two at once can fail with `ERR_PNPM_LOCKFILE_RENAME_FILE`; retry once the install has finished.
 
 ## Databases and services
 
@@ -20,7 +22,7 @@ Shared by the orchestrator and every implementer. Each bullet cost a past run a 
 - **Test databases:** one per ticket, `TEST_DATABASE_URL=postgresql://postgres:password@127.0.0.1:5435/ai-chat_test_<N>`. The integration verify uses its own database (`ai-chat_test_int_<spec>`); a shared one breaks once one branch's migration has run on it. Drop the run's test databases at the end. Each run copies the migrated database once per vitest worker (`<database>_r<runId>_w<n>`) and drops only its own copies when it ends, so concurrent runs on one database don't collide. A run killed midway leaves its copies behind for good; the end-of-run drop below removes them.
 - **Redis:** 6379 is another project's and needs auth. Tests use ai-chat's compose Redis, `ai-chat-redis`, on `127.0.0.1:6380`, with one database number per ticket (`TEST_REDIS_URL=redis://127.0.0.1:6380/<1–15>`). The integration verify uses 0.
 - **Starting the services:** `pnpm db:start` for Postgres (`ai-chat-postgres`) and `docker compose up -d redis` for Redis. Run both from the **main checkout**, never a worktree: the gitignored root `.env` there sets `POSTGRES_PORT=5435` and `REDIS_PORT=6380`, and a worktree has no `.env`, so it would publish on the wrong ports.
-- **Memory:** this is a 16 GB machine. Run only one heavy job at a time (a verify, an e2e run, or an agent's suite). Hundreds of leftover test databases once made Postgres hold 2.4 GB and got e2e killed. At the end of the run, drop every `ai-chat_test%` and `ai-chat_e2e%` database except `ai-chat`. The editor's tsserver (a child of typescript-language-server) can hold 2 GB and once got a verify reaped. When memory is low, `taskkill` it; the editor restarts it.
+- **Memory:** this is a 16 GB machine. Run only one heavy job at a time (a verify, an e2e run, or an agent's suite). Hundreds of leftover test databases once made Postgres hold 2.4 GB and got e2e killed. At the end of the run, drop every `ai-chat_test%` and `ai-chat_e2e%` database except `ai-chat`. The editor's tsserver (a child of typescript-language-server) can hold 2–3 GB (3.2 GB in the #463 run) and once got a verify reaped. When memory is low, `taskkill` it; the editor restarts it.
 - **`.env`:** never copy the user's `.env` into a worktree. Tests and builds get CI's placeholder values (verify.sh carries them).
 
 ## Checks
@@ -30,11 +32,11 @@ Shared by the orchestrator and every implementer. Each bullet cost a past run a 
 - **Read the exit code**, not only the summary. Vitest exits 1 on unhandled errors while every test passes. Also read the **skip count**: turbo's strict env drops variables missing from `passThroughEnv`, and the suites gated on them skip silently.
 - **Runs stay in the foreground:** agents hand back with background runs still going, and those runs die with them. Stop an old verify (TaskStop) before starting a new one.
 - **Timestamps:** tests that compare a Postgres-default timestamp (the Docker clock) with a JS one (the host clock) are flaky. Set timestamps explicitly.
-- **Verify time:** about 4–7 minutes since #454. A much longer run means memory pressure or leftover databases.
+- **Verify time:** about 3–7 minutes since #454 (3 minutes in the #463 run). A much longer run means memory pressure or leftover databases.
 - **Large commits:** the lint-staged pre-commit hook fails with "command line too long" at about 150 or more files. Split a wide move into several commits.
 - **Node strip-types:** scripts run by Node directly (`copy.ts`, and what the example Host loads) can't use TypeScript parameter properties or enums.
 - **Tailwind v4 `@source`:** a glob like `@source "../plugins/*/ui"` was not scanned. Name each folder, otherwise the e2e fails with unstyled screens.
-- **e2e flakes:** two-factor and artifacts.phone have failed under `--workers=2` and passed when re-run alone. Re-run the failures with `--workers=1` before treating them as real.
+- **e2e flakes:** two-factor and artifacts.phone have failed under `--workers=2` and passed when re-run alone. Re-run the failures with `--workers=1` before treating them as real. In CI, artifacts.phone has failed twice in one run (retry included) and passed on `gh run rerun <id> --failed`.
 - **Code review by an agent:** a forked `code-review` can review the main checkout and see an empty diff. Point it at the worktree path.
 - **CI-only criteria:** a criterion like "green on PR" or "seen to fail in CI" needs a real PR. Use a draft PR into the integration branch.
 
@@ -45,7 +47,8 @@ Shared by the orchestrator and every implementer. Each bullet cost a past run a 
   - When merging, regenerate the later ticket's migration with drizzle-kit on top of the merged branch, then re-date it. Never hand-edit snapshot `prevIds`.
   - Update `LATEST_MIGRATION` and the migrate test's count.
   - Check: `pnpm exec drizzle-kit generate` in the SDK package must say "No schema changes".
-- **SDK copy:** after a merge that touches the SDK, run the copy into the example Host visibly, never piped to `/dev/null`, and with an absolute destination. Confirm with `diff -rq --strip-trailing-cr` that only `VERSION` differs. A `VERSION` conflict is only a timestamp; resolve it with `git checkout --ours`.
+  - drizzle-kit writes `snapshot.json` in a shape that `oxfmt --check` can refuse. Run `pnpm exec oxfmt` on the new snapshot before committing.
+- **SDK copy:** after a merge that touches the SDK, run the copy into the example Host visibly, never piped to `/dev/null`, and with an absolute destination: `node scripts/copy.ts <absolute dest>` from `packages/bot-sdk`. `pnpm run copy -- <dest>` passes `--` as the destination and creates a stray `packages/bot-sdk/--` folder. Confirm with `diff -rq --strip-trailing-cr` that only `VERSION` differs. A `VERSION` conflict is only a timestamp; resolve it with `git checkout --ours`.
 
 ## Permissions
 
