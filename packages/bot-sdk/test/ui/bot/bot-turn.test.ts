@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { eventIterator, os } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
+import type { QueryClient } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createElement, Fragment } from "react";
 import { Toaster } from "sonner";
@@ -39,9 +40,15 @@ function fakeBotServer(messages: BotMessage[] = []) {
   const sends: unknown[] = [];
   // The error the next send is refused with, before its stream starts.
   let refusal: Error | undefined;
+  // While set, each `bot.get` reads the Messages at once but answers only once it resolves.
+  let held: Promise<void> | undefined;
   const router = {
     bot: {
-      get: os.handler(() => ({ bot: ada, messages })),
+      get: os.handler(async () => {
+        const read = { bot: ada, messages: [...messages] };
+        await held;
+        return read;
+      }),
       send: os
         .input(z.object({ botId: z.string(), text: z.string() }))
         .output(eventIterator(z.custom<BotSendEvent>()))
@@ -72,6 +79,15 @@ function fakeBotServer(messages: BotMessage[] = []) {
     refuseNext: (error: Error) => {
       refusal = error;
     },
+    /** Holds every `bot.get` answer until the returned release is called. */
+    holdGets: () => {
+      let release = () => {};
+      held = new Promise<void>((resolve) => (release = resolve));
+      return () => {
+        held = undefined;
+        release();
+      };
+    },
     /** Streams `events` to the open send, then lets the client read them. */
     stream: async (...events: (BotSendEvent | "end")[]) => {
       await act(async () => {
@@ -82,7 +98,10 @@ function fakeBotServer(messages: BotMessage[] = []) {
   };
 }
 
-function mount(server: ReturnType<typeof fakeBotServer>) {
+function mount(
+  server: ReturnType<typeof fakeBotServer>,
+  seed?: (queryClient: QueryClient) => void,
+) {
   return render(
     createElement(
       Fragment,
@@ -90,6 +109,7 @@ function mount(server: ReturnType<typeof fakeBotServer>) {
       providerFor(createElement(BotConversation, { botId: ada.id }), {
         fetch: server.fetch,
         messages: {},
+        seed,
       }),
       // The toast shows in the Toaster, which the page mounts once.
       createElement(Toaster),
@@ -204,6 +224,36 @@ describe("talking to a Bot", () => {
 
     expect(screen.getByText("Hello!")).toBeTruthy();
     expect(screen.queryByText("Seen ✓")).toBeNull();
+  });
+});
+
+describe("a refetch during a send", () => {
+  it("doesn't drop the streamed Messages when a bot.get that started before the send answers after them", async () => {
+    const server = fakeBotServer([said("m0", "user", "earlier")]);
+    let queryClient: QueryClient | undefined;
+    const { container } = mount(server, (client) => (queryClient = client));
+    await screen.findByText("earlier");
+
+    // A refetch (a window focus, say) reads the Conversation before the send, and answers late.
+    const release = server.holdGets();
+    await act(async () => {
+      void queryClient!.refetchQueries();
+    });
+    await type("hi");
+    await server.stream(
+      { type: "message", message: said("m1", "user", "hi") },
+      { type: "message", message: said("m2", "assistant", "Hello!") },
+    );
+    await act(async () => {
+      release();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    expect(bubbles(container)).toEqual([
+      ["user", "earlier"],
+      ["user", "hi"],
+      ["assistant", "Hello!"],
+    ]);
   });
 });
 
