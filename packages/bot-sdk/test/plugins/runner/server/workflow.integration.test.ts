@@ -171,6 +171,20 @@ defineJob({
   },
 });
 
+defineJob({
+  name: "workflow.wraps",
+  payload: z.object({}),
+  run: async (_payload, ctx) => {
+    // Code that wraps whatever its activity throws in its own error.
+    try {
+      await step(ctx, "a");
+    } catch (error) {
+      throw new Error("wrapped", { cause: error });
+    }
+    await step(ctx, "b");
+  },
+});
+
 let values: { now: number; random: number; patched: boolean }[] = [];
 
 defineJob({
@@ -523,7 +537,24 @@ describe("a deploy or a cancel", () => {
 
     expect(await jobOf(id)).toMatchObject({ status: "running", attempts: 1 });
     expect((await historyOf(id)).map((entry) => entry.name)).toEqual(["a"]);
+    // Let the held activity end before the next test starts.
     release();
+    await expect.poll(async () => (await historyOf(id)).length).toBe(2);
+  });
+
+  it("hands the job back even when the code wraps the yield in its own error", async () => {
+    const timer = fakeJobClock(start);
+    const deploying = runnerWith(timer, 2_000);
+    holdAtPoint("a", "before");
+    const id = await deploying.enqueue("workflow.wraps", {});
+    await deploying.start();
+    await reached;
+
+    const stopping = deploying.stop();
+    release();
+    await stopping;
+
+    expect(await jobOf(id)).toMatchObject({ status: "queued", attempts: 0 });
   });
 
   it("a cancel stops a running job at its next Checkpoint, and nothing is recorded after it", async () => {

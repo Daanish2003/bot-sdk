@@ -128,6 +128,11 @@ export type Workflow<Tx> = {
    * for history entries the code never reached.
    */
   finish: () => void;
+  /**
+   * The `NonDeterminismError` or `WorkflowYieldedError` this workflow threw, if any. It stands over
+   * whatever error the code threw after it, such as one that wraps it.
+   */
+  raised: () => NonDeterminismError | WorkflowYieldedError | undefined;
 };
 
 /**
@@ -246,5 +251,6 @@ export function createWorkflow<Tx>({
       const left = history[next];
       if (left) throw new NonDeterminismError(left.seq, left, "ended before reaching it");
     },
+    raised: () => failure,
   };
 }

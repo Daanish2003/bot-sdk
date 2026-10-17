@@ -257,11 +257,15 @@ export async function runClaimedJob(
         yieldSignal: drain,
         onLost: () => lose("The attempt no longer owns its job"),
       });
-      await definition.run(definition.payload.parse(claimed.payload), {
-        ...workflow.context,
-        signal: attempt.signal,
-        deps: deps(),
-      });
+      try {
+        await definition.run(definition.payload.parse(claimed.payload), {
+          ...workflow.context,
+          signal: attempt.signal,
+          deps: deps(),
+        });
+      } catch (error) {
+        throw workflow.raised() ?? error;
+      }
       workflow.finish();
     })();
     run.then(

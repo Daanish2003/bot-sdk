@@ -30,7 +30,8 @@ export type JobRunner = {
   enqueue: (name: string, payload: unknown, options?: EnqueueOptions) => Promise<string>;
   /**
    * Drops the queued job with this key, or aborts the running one at its next heartbeat or, sooner,
-   * at its next Checkpoint, whose save is fenced.
+   * at its next Checkpoint, whose save is fenced. A plain activity's side effect has run by then,
+   * and only its Checkpoint is dropped; a `(tx) =>` activity's write is rolled back.
    */
   cancel: (idempotencyKey: string) => Promise<void>;
   status: (jobId: string) => Promise<JobStatus | undefined>;
