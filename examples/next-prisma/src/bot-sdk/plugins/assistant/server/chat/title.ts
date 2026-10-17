@@ -6,7 +6,7 @@ import type { BotSdkContext } from "../../../../core/server/plugin";
 import { loadSettings } from "../settings/store";
 import { isKnownModel, parseModelId } from "../../../models/shared/models";
 import { loadPath } from "../../../../core/server/chat/message-tree";
-import { promptCharactersOf, reportedUsageOf } from "./usage";
+import { promptCharactersOf, reportedUsageOf } from "../../../models/server/run-usage";
 
 const titlePrompt =
   "Write a short title (at most 6 words) for the conversation below. Reply with the title only: " +

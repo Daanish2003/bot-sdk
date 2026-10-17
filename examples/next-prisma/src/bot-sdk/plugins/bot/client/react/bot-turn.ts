@@ -73,6 +73,11 @@ async function runSend(
   const getKey = orpc.bot.get.queryOptions({ input: { botId } }).queryKey;
   const update = (change: (data: Conversation) => Conversation) =>
     queryClient.setQueryData(getKey, (data) => data && change(data));
+  // A `bot.get` that started before a write would answer after it with older Messages, so it is
+  // cancelled first. The first load isn't: with no data there is nothing to write over.
+  const cancelRefetch = async () => {
+    if (queryClient.getQueryData(getKey)) await queryClient.cancelQueries({ queryKey: getKey });
+  };
   const listKey = orpc.bot.list.queryKey();
 
   setLocalTurn(queryClient, botId, {
@@ -83,6 +88,7 @@ async function runSend(
   let saved = false;
   try {
     for await (const event of await orpc.bot.send.call({ botId, text })) {
+      await cancelRefetch();
       if (event.type === "message") {
         saved = true;
         setLocalTurn(queryClient, botId, {});

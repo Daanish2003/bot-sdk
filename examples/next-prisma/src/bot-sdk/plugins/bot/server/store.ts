@@ -60,15 +60,39 @@ export async function createBot(
   });
 }
 
-/** The status of each Bot's latest Turn; a Bot with no Turn has no entry. */
+/** The longest a Turn may run; past it, it ends `error` with `timed_out`. */
+export const turnTimeLimitMs = 5 * 60_000;
+
+/**
+ * A `running` Turn older than this was left by a dead process: a live one would have reached its
+ * time limit and ended. The minute after the limit leaves room for the ending to be written.
+ */
+export const staleTurnMs = turnTimeLimitMs + 60_000;
+
+/**
+ * The status of each Bot's latest Turn; a Bot with no Turn has no entry. A stale `running` Turn
+ * reads as `error`, so a client stops waiting on a Turn no process will end.
+ */
 async function latestTurnStatuses(db: Database | Transaction, botIds: string[]) {
   if (botIds.length === 0) return new Map<string, BotTurnStatus>();
   const rows = await db
-    .selectDistinctOn([botTurn.botId], { botId: botTurn.botId, status: botTurn.status })
+    .selectDistinctOn([botTurn.botId], {
+      botId: botTurn.botId,
+      status: botTurn.status,
+      startedAt: botTurn.startedAt,
+    })
     .from(botTurn)
     .where(inArray(botTurn.botId, botIds))
     .orderBy(botTurn.botId, desc(botTurn.startedAt), desc(botTurn.id));
-  return new Map(rows.map((row) => [row.botId, row.status]));
+  const now = Date.now();
+  return new Map(
+    rows.map((row): [string, BotTurnStatus] => [
+      row.botId,
+      row.status === "running" && now - row.startedAt.getTime() >= staleTurnMs
+        ? "error"
+        : row.status,
+    ]),
+  );
 }
 
 /** The latest Turn's status of one Bot, `null` before its first Turn. */
@@ -191,10 +215,16 @@ export async function exportBots(tx: Transaction, userId: string): Promise<BotEx
         )
         .orderBy(asc(message.createdAt), asc(message.id))
     : [];
+  const byConversation = new Map<string, BotMessage[]>();
+  for (const sent of messages) {
+    const list = byConversation.get(sent.conversationId) ?? [];
+    list.push(toBotMessage(sent));
+    byConversation.set(sent.conversationId, list);
+  }
   return {
     bots: rows.map(({ conversationId, ...row }) => ({
       ...row,
-      messages: messages.filter((sent) => sent.conversationId === conversationId).map(toBotMessage),
+      messages: byConversation.get(conversationId) ?? [],
     })),
   };
 }

@@ -6,7 +6,7 @@ import {
   type TokenUsage,
 } from "@tanstack/ai";
 
-import type { MessageUsage } from "../../../models/shared/usage";
+import type { MessageUsage } from "../shared/usage";
 
 /** Providers that report input without its cache reads and writes, so those are added back. */
 const cacheApartProviders = new Set(["anthropic", "bedrock"]);
