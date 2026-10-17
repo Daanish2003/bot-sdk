@@ -1,0 +1,594 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lesson 11 · Durable workflows, saving each step</title>
+    <link rel="stylesheet" href="../assets/style.css" />
+  </head>
+  <body>
+    <main>
+      <p class="kicker">ai-chat architecture · Lesson 11</p>
+      <h1>Durable workflows, saving each step</h1>
+      <p class="subtitle">
+        A Turn runs as a job that saves a Checkpoint after each piece of work. After a crash, the
+        job replays its history and carries on.
+      </p>
+      <p class="meta">
+        About 14 minutes · a browser · you'll write <code>replay(history, calls)</code>, the check
+        that decides what a resumed job skips
+      </p>
+
+      <section class="words">
+        <h2>Words you'll need</h2>
+        <dl>
+          <dt>Checkpoint</dt>
+          <dd>The saved result of one piece of a Turn's work, such as one Model call.</dd>
+          <dt>History</dt>
+          <dd>The Checkpoints of one job, in the order they were saved.</dd>
+          <dt>Replay</dt>
+          <dd>Running the job's code again from the top, with the history answering each call.</dd>
+          <dt>Lease</dt>
+          <dd>
+            The claim that one process holds on a running job. It expires if the process stops.
+          </dd>
+        </dl>
+        <p class="hint">
+          Forgot a code name? Press the <strong>Names?</strong> button in the bottom-right corner.
+        </p>
+      </section>
+
+      <figure id="video"></figure>
+
+      <div
+        class="quiz"
+        data-answer="1"
+        data-why="A refusal is thrown before the stream starts, so nothing is saved. The Turn only starts after the checks pass."
+      >
+        <div class="label">Warm-up · Lesson 10</div>
+        <p class="q">
+          In Lesson 10, a send is refused with 409 because a Turn is still running. Is the user's
+          Message saved?
+        </p>
+        <ol class="opts">
+          <li data-why="A refusal is thrown before anything is written.">
+            Yes, then the Turn waits
+          </li>
+          <li>No. The refusal comes before the Message is saved.</li>
+          <li data-why="The Message is not saved, and nothing is queued.">
+            Yes, and a second Turn is queued
+          </li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+
+      <h2><span class="num">1</span>A Turn that survives a crash</h2>
+      <figure id="crash">
+        <figcaption>
+          A crash cuts a Turn after Checkpoint 2. The next process replays 1 and 2, then goes on.
+        </figcaption>
+      </figure>
+      <p>
+        In Lesson 10 the request ran the whole Turn, so a crash threw it away. The lecture wants the
+        opposite. Slide 13's agent "runs a turn, then stops", and it "loads state, works, saves each
+        step".
+      </p>
+      <p>
+        Now a Turn is one <strong>job</strong> in the runner, keyed by the Turn's id. The job's code
+        asks for work through <code>ctx.activity(name, fn)</code>. It runs <code>fn</code> once and
+        saves the JSON result as a Checkpoint in <code>chat.job_event</code>. After a crash, any
+        process claims the job and runs its code again from the top. While the history has an entry,
+        a call returns the saved result and runs nothing. Past the end, calls run for real.
+      </p>
+      <p>
+        <a href="../../../packages/bot-sdk/plugins/bot/server/turn.ts"><code>playTurn</code></a>
+        saves a <code>"model"</code> Checkpoint for each Model call, a <code>"bill"</code>
+        Checkpoint for its usage, and one Checkpoint for each tool call. A replayed Model call plays
+        its saved chunks, so a resume never calls the Model for a Step it already took.
+      </p>
+
+      <h2><span class="num">2</span>One rule: the same calls in the same order</h2>
+      <figure id="rule">
+        <figcaption>
+          The history says call 2 was a "model"; the new code asked for a tool.
+        </figcaption>
+      </figure>
+      <p>
+        A call has no id. Its place in the order is its identity. On replay, the engine compares
+        each call's kind and name with the entry at that place (<a
+          href="../../../packages/bot-sdk/plugins/runner/server/workflow/engine.ts"
+          ><code>createWorkflow</code></a
+        >). A mismatch throws <code>NonDeterminismError</code> with the seq, the recorded entry and
+        the call. It fails the job for good and runs <code>onFailed</code>, so a broken resume fails
+        loudly and never takes another path.
+      </p>
+      <p>
+        This gives the authors' rule: code outside <code>ctx.activity</code> runs again on every
+        attempt, so whatever picks the next call must give the same answer. Times and random numbers
+        come from <code>ctx.now()</code> and <code>ctx.random()</code>, which are recorded. Reads
+        and side effects go inside an activity. To change a workflow while older runs are in flight,
+        ask <code>ctx.patched(id)</code>. It is <code>true</code> in a new run and in a replay that
+        has its marker, and <code>false</code> in a replay that passes that point without it.
+      </p>
+
+      <h2><span class="num">3</span>At least once, or exactly once</h2>
+      <figure id="once">
+        <figcaption>
+          A crash before the save runs a plain activity twice. A (tx) write dies with its
+          transaction.
+        </figcaption>
+      </figure>
+      <p>
+        A plain <code>ctx.activity(name, () =&gt; …)</code> is at-least-once. If the process dies
+        after <code>fn</code> but before the save, the next attempt runs <code>fn</code> again. A
+        <code>ctx.activity(name, (tx) =&gt; …)</code> gets the transaction its Checkpoint is saved
+        in. Its writes and the Checkpoint commit together or not at all, so it runs exactly once.
+      </p>
+      <p>
+        That is why a SendToUser Message is never sent twice. The tool appends its Message inside
+        the
+        <code>(tx)</code> activity, so a crash before the commit leaves no Message and no
+        Checkpoint, and the retry sends it once. The <code>"bill"</code> Checkpoint does the same
+        for usage. A Model call cut off by a crash records nothing, so it bills nothing and runs
+        again with the same input.
+      </p>
+
+      <h2><span class="num">4</span>Leases, the reaper and a deploy</h2>
+      <figure id="lease">
+        <figcaption>
+          Every save renews the lease. A silent process loses it, and the reaper re-queues the job.
+        </figcaption>
+      </figure>
+      <p>
+        A running job heartbeats every 10 s, and every Checkpoint save renews the lease too (<a
+          href="../../../packages/bot-sdk/plugins/runner/server/jobs/history.ts"
+          ><code>jobHistoryStore</code></a
+        >). Each save is fenced: it writes only while this attempt still owns the row, so a lost
+        attempt can't write over a newer one. If the lease runs 60 s without a renewal, the 30 s
+        reaper (<code>reapStaleJobs</code>) re-queues the job, and any process can claim it. After 3
+        attempts the job fails and <code>onFailed</code> ends the Turn <code>error</code> /
+        <code>interrupted</code>.
+      </p>
+      <p>
+        A deploy is gentler. <code>stop()</code> asks each running job to yield. At its next
+        Checkpoint it saves, stops, and its row goes back to <code>queued</code> without counting an
+        attempt, so another process resumes it at once instead of a lease later.
+      </p>
+      <p>
+        Web no longer runs the Turn. <code>bot.send</code> saves the user's Message, enqueues the
+        job and then follows the Turn from Postgres (<code>followTurn</code>). It re-reads when a
+        "changed" hint arrives and every 2 s, so closing the tab ends only the follow. A new
+        <code>bot.stop</code> cancels the job. A Turn that resumes on another server keeps showing
+        "Working…", with no "Resuming" label.
+      </p>
+
+      <h2>Try it</h2>
+      <div id="ex1"></div>
+      <figure id="payoff">
+        <div class="toy-out">
+          <div id="payoff-pic"></div>
+          <span id="pay-out"
+            >Pass the tests first. Then your <code>replay</code> resumes a sample Turn.</span
+          >
+        </div>
+        <figcaption>A Turn crashed after two Checkpoints; the replay skips them.</figcaption>
+      </figure>
+
+      <div
+        class="quiz"
+        data-answer="2"
+        data-why="The Message and its Checkpoint are written in one transaction. A crash before the commit leaves neither, and the retry writes both once."
+      >
+        <div class="label">Quiz</div>
+        <p class="q">
+          The process dies while SendToUser's <code>(tx)</code> activity is running, before the
+          commit. What does the retry do?
+        </p>
+        <ol class="opts">
+          <li data-why="Nothing was committed, so there is no Message to skip.">
+            Skips the tool, because the Message exists
+          </li>
+          <li>Runs the tool again. The first attempt left no Message, so it is sent once.</li>
+          <li
+            data-why="A Checkpoint is saved only with its activity's transaction, so it was not saved either."
+          >
+            Sends the Message twice
+          </li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+
+      <section class="takeaways">
+        <h2>Key takeaways</h2>
+        <p class="one-thing">
+          <strong>If you remember only one thing:</strong> a job saves a Checkpoint after each piece
+          of work, and after a crash it replays its history and carries on after the last one.
+        </p>
+        <ul>
+          <li>
+            <strong>Order is identity.</strong> A replay with a different call order fails with
+            <code>NonDeterminismError</code>.
+          </li>
+          <li>
+            <strong>Plain activities run at least once.</strong> A <code>(tx)</code> activity
+            commits with its Checkpoint, so a Message is sent once.
+          </li>
+          <li>
+            <strong>Leases bring work back.</strong> The reaper re-queues a silent job, and a deploy
+            hands it back at its next Checkpoint.
+          </li>
+        </ul>
+        <p class="selftest">
+          Self-test: cover this box and say what a replay does with a call that has an entry, and
+          with one that does not.
+        </p>
+      </section>
+
+      <details class="deeper">
+        <summary>Go deeper: sources, side notes and a challenge</summary>
+        <h3>The lecture</h3>
+        <ul>
+          <li>
+            Slide 13, "How does it stay always on?": the agent process "runs a turn, then stops" and
+            "loads state, works, saves each step". Its footer: "Everything that matters is saved, so
+            any trigger can bring it back."
+          </li>
+          <li>
+            Slide 17, "Why the agent runs on the server": "Close your laptop and the work keeps
+            going". Slide 18: "Save everything on the server."
+          </li>
+          <li>
+            Slide 42 lists "Durable workflows" as the first of the eight pieces "every agent product
+            will have". The slides do not name an engine, a history, a lease or a replay rule. Those
+            come from ADR 0011 and its step 2 amendments, not from the lecture.
+          </li>
+        </ul>
+        <h3>Side notes</h3>
+        <ul>
+          <li>
+            The model is Temporal's: a workflow replayed from its history, the determinism rule, and
+            <code>patched</code>. This repo builds it in plain TypeScript on Postgres, without
+            Temporal's sandbox (as DBOS does). The engine imports nothing from the Bot SDK
+            (<code>workflow/engine.ts</code>), so it could become its own package.
+          </li>
+          <li>
+            The <code>bot</code> plugin refuses to start on the Trigger.dev adapter
+            (<code>bot/server/plugin.ts</code>). That adapter records no history, so a retry would
+            start the Turn over and send its Messages again.
+          </li>
+          <li>
+            The 10-Step limit counts the replayed Model calls, so a crash can't reset it. The
+            5-minute limit counts from the Turn's start on the wall clock, crash time included, and
+            it is a timer that aborts the live Model call, never a branch in replayed code.
+          </li>
+          <li>
+            Quota is checked once, in <code>sendToBot</code>, before the Message is saved, so a
+            resume is never refused halfway. A Turn that resumes past 5 minutes ends
+            <code>timed_out</code> without calling the Model.
+          </li>
+          <li>
+            The crash tests are in
+            <code>test/plugins/runner/server/workflow.integration.test.ts</code> and
+            <code>test/core/server/routers/bot-send.integration.test.ts</code>.
+          </li>
+        </ul>
+        <h3>What was left out, and what comes next</h3>
+        <p>
+          Temporal's sandbox is left out, so the determinism rule is a rule authors keep, not one
+          the engine forces. There are no per-activity retry policies, no LISTEN/NOTIFY, and no
+          <code>deprecatePatched</code>. Runs stay off the runner. Later steps add more kinds of
+          history entry (steps 3, 4 and 6 in the spec).
+        </p>
+        <h3>Challenge</h3>
+        <p>
+          Read the "killed between a plain activity's side effect and its Checkpoint" test in
+          <code>workflow.integration.test.ts</code>. Why does it expect the side effect twice? Tell
+          your teacher.
+        </p>
+      </details>
+
+      <div class="footer-box">
+        <p>
+          <strong>Primary source:</strong>
+          <a href="../../../packages/bot-sdk/plugins/runner/server/workflow/engine.ts"
+            ><code>engine.ts</code></a
+          >, then
+          <a href="../../../docs/adr/0011-background-jobs-through-durable-runner.md">ADR 0011</a>.
+        </p>
+        <p>
+          <strong>Cheat sheets:</strong> <a href="../reference/package-map.html">Package map</a> ·
+          <a href="../reference/names.html">Names</a>
+        </p>
+        <p>
+          <strong>Stuck or curious?</strong> Ask your teacher (Claude) anything: "why is order the
+          identity?", "show me a job's history", or "quiz me again".
+        </p>
+        <div class="nav">
+          <a href="0010-the-week-one-loop.html">← Lesson 10: The week-one loop</a
+          ><a href="../index.html">Course contents →</a>
+        </div>
+      </div>
+    </main>
+
+    <script src="../assets/diagrams.js"></script>
+    <script src="../assets/names.js" data-upto="11"></script>
+    <script src="../assets/explainer.js"></script>
+    <script src="../assets/quiz.js"></script>
+    <script src="../assets/exercise.js"></script>
+    <script>
+      const D = Diagrams;
+
+      // Section 1: a crash after Checkpoint 2, then a resume.
+      D.render(
+        "#crash",
+        D.svg(
+          760,
+          210,
+          D.text(10, 20, "process A", { tone: "faint" }) +
+            D.box(10, 30, 130, 44, "Checkpoint 1", { tone: "ok", sub: "model" }) +
+            D.box(150, 30, 130, 44, "Checkpoint 2", { tone: "ok", sub: "send_to_user" }) +
+            D.box(290, 30, 130, 44, "crash", { tone: "warn" }) +
+            D.text(10, 110, "process B", { tone: "faint" }) +
+            D.box(10, 120, 130, 44, "1: replayed", { tone: "blue", sub: "runs nothing" }) +
+            D.box(150, 120, 130, 44, "2: replayed", { tone: "blue", sub: "runs nothing" }) +
+            D.box(290, 120, 130, 44, "3: runs", { tone: "ok", sub: "saved as 3" }) +
+            D.arrow(355, 74, 355, 120, { dashed: true, label: "claims the job" }),
+          { label: "Process B replays the two saved Checkpoints and runs the third call" },
+        ),
+      );
+
+      // Section 2: a mismatch.
+      D.render(
+        "#rule",
+        D.svg(
+          760,
+          190,
+          D.box(10, 20, 220, 44, "history, seq 2", { mono: true, sub: 'activity "model"' }) +
+            D.box(10, 110, 220, 44, "code, call 2", {
+              mono: true,
+              tone: "warn",
+              sub: 'activity "send_to_user"',
+            }) +
+            D.arrow(230, 42, 330, 85) +
+            D.arrow(230, 132, 330, 100) +
+            D.box(330, 65, 300, 50, "NonDeterminismError", {
+              mono: true,
+              tone: "warn",
+              sub: "seq 2 · fails the job",
+            }),
+          { label: "A recorded model entry meets a send_to_user call, so the replay fails" },
+        ),
+      );
+
+      // Section 3: two kinds of activity.
+      D.render(
+        "#once",
+        D.svg(
+          760,
+          230,
+          D.text(10, 20, "ctx.activity(name, () => …)", { tone: "faint", mono: true }) +
+            D.box(10, 30, 150, 44, "fn runs", { tone: "blue" }) +
+            D.box(180, 30, 120, 44, "crash", { tone: "warn" }) +
+            D.box(320, 30, 150, 44, "save never ran", {}) +
+            D.box(490, 30, 250, 44, "retry runs fn again", { tone: "warn", sub: "at least once" }) +
+            D.text(10, 125, "ctx.activity(name, (tx) => …)", { tone: "faint", mono: true }) +
+            D.box(10, 135, 150, 44, "fn writes in tx", { tone: "blue" }) +
+            D.box(180, 135, 120, 44, "crash", { tone: "warn" }) +
+            D.box(320, 135, 150, 44, "tx rolls back", {}) +
+            D.box(490, 135, 250, 44, "retry writes once", { tone: "ok", sub: "exactly once" }),
+          {
+            label:
+              "A plain activity may run twice; a (tx) activity commits once with its Checkpoint",
+          },
+        ),
+      );
+
+      // Section 4: the lease.
+      D.render(
+        "#lease",
+        D.svg(
+          760,
+          160,
+          D.box(10, 50, 150, 50, "running", { tone: "blue", sub: "heartbeat 10 s" }) +
+            D.arrow(160, 75, 250, 75, { label: "silent 60 s" }) +
+            D.box(250, 50, 150, 50, "lease expired", { tone: "warn" }) +
+            D.arrow(400, 75, 490, 75, { label: "reaper, 30 s" }) +
+            D.box(490, 50, 120, 50, "queued", {}) +
+            D.arrow(610, 75, 650, 75) +
+            D.box(650, 50, 100, 50, "resumed", { tone: "ok" }) +
+            D.text(
+              10,
+              135,
+              "a deploy skips the wait: yield at the next Checkpoint → queued at once",
+              {
+                tone: "faint",
+              },
+            ),
+          {
+            label:
+              "A silent job loses its lease, the reaper re-queues it, and a process resumes it",
+          },
+        ),
+      );
+
+      // Video.
+      Explainer.mount("#video", {
+        title: "Lesson 11 in about 1 minute",
+        width: 760,
+        height: 300,
+        scenes: [
+          {
+            say: "A Turn is now a job. After each piece of work it saves a Checkpoint in Postgres.",
+            draw: (t, A) =>
+              D.box(40, 110, 150, 50, "Checkpoint 1", { tone: "ok" }) +
+              D.box(210, 110, 150, 50, "Checkpoint 2", {
+                tone: "ok",
+                opacity: A.step(t, 0.3, 0.7),
+              }),
+          },
+          {
+            say: "If the server crashes, another process runs the code again from the top. Saved calls return their saved results, and the job carries on.",
+            draw: (t, A) =>
+              D.box(40, 110, 150, 50, "replayed", { tone: "blue" }) +
+              D.box(210, 110, 150, 50, "replayed", { tone: "blue", opacity: A.step(t, 0.2, 0.5) }) +
+              D.box(380, 110, 150, 50, "runs for real", {
+                tone: "ok",
+                opacity: A.step(t, 0.5, 0.9),
+              }),
+          },
+          {
+            say: "The code must make the same calls in the same order. If it does not, the replay fails with a non determinism error.",
+            show: "NonDeterminismError at seq 2",
+            draw: () =>
+              D.box(40, 110, 360, 50, "NonDeterminismError", { mono: true, tone: "warn" }),
+          },
+          {
+            say: "A tool that writes inside the activity's transaction commits with its Checkpoint, so a Message is sent once.",
+            draw: (t, A) =>
+              D.box(40, 110, 220, 50, "Message + Checkpoint", { tone: "ok" }) +
+              D.text(280, 140, "one transaction", { tone: "faint", opacity: A.step(t, 0.4, 0.8) }),
+          },
+          {
+            say: "Next, write replay. Given a history and the calls the code makes, it says what is skipped and where real work starts.",
+            show: "Next: write replay(history, calls).",
+            draw: () =>
+              D.text(380, 130, "Write replay(history, calls)", {
+                tone: "accent",
+                anchor: "middle",
+                weight: 600,
+              }),
+          },
+        ],
+      });
+
+      // Try it: replay.
+      const SAMPLE_HISTORY = [
+        { seq: 1, kind: "activity", name: "model", result: "chunks" },
+        { seq: 2, kind: "activity", name: "send_to_user", result: "sent" },
+      ];
+      const SAMPLE_CALLS = [
+        { kind: "activity", name: "model" },
+        { kind: "activity", name: "send_to_user" },
+        { kind: "activity", name: "model" },
+      ];
+      let learnerReplay = null;
+      function showReplay() {
+        const picOut = document.getElementById("payoff-pic");
+        const payOut = document.getElementById("pay-out");
+        if (!learnerReplay) {
+          picOut.innerHTML = "";
+          payOut.innerHTML =
+            "Pass the tests first. Then your <code>replay</code> resumes a sample Turn.";
+          return;
+        }
+        const out = learnerReplay(
+          JSON.parse(JSON.stringify(SAMPLE_HISTORY)),
+          JSON.parse(JSON.stringify(SAMPLE_CALLS)),
+        );
+        const rows = SAMPLE_CALLS.map((call, i) =>
+          D.box(
+            20,
+            10 + i * 48,
+            360,
+            38,
+            `${i + 1}: ${call.name} · ${i < out.replayed.length ? "skipped" : "runs for real"}`,
+            { tone: i < out.replayed.length ? "blue" : "ok" },
+          ),
+        ).join("");
+        picOut.innerHTML = D.svg(760, 20 + SAMPLE_CALLS.length * 48, rows, {
+          label: "Which of the sample calls your replay skips, and which run for real",
+        });
+        payOut.innerHTML = `Your <code>replay</code> skipped ${out.replayed.length} calls and starts real work at seq ${out.runsForRealFromSeq}.`;
+      }
+      Exercise.mount("#ex1", {
+        title: "Write replay(history, calls)",
+        task: "<code>history</code> is a list of <code>{ seq, kind, name, result }</code>. <code>calls</code> is the list of <code>{ kind, name }</code> the code makes, in order. Walk the calls. If a call has an entry at the same place and its kind and name match, add that entry's <code>result</code> to <code>replayed</code>. If it has no entry, stop: return <code>{ replayed, runsForRealFromSeq }</code>, where the seq is the call's place counted from 1. If the kind or name differ, return <code>{ error }</code> with the text <code>NonDeterminismError at seq N</code>. If the code ends while entries are left, return the same error for the first entry left.",
+        storageKey: "ai-chat-sdk-l11-replay",
+        fnName: "replay",
+        starter: `// Example: history [{ seq: 1, kind: "activity", name: "a", result: 5 }],
+      //          calls [{ kind: "activity", name: "a" }, { kind: "activity", name: "b" }]
+      //          → { replayed: [5], runsForRealFromSeq: 2 }
+      // Hint: history[i] is the entry for calls[i].
+      function replay(history, calls) {
+        return { replayed: [], runsForRealFromSeq: 1 };
+      }`,
+        solution: `function replay(history, calls) {
+        const replayed = [];
+        for (let i = 0; i < calls.length; i++) {
+          const entry = history[i];
+          if (!entry) return { replayed, runsForRealFromSeq: i + 1 };
+          if (entry.kind !== calls[i].kind || entry.name !== calls[i].name) {
+            return { error: "NonDeterminismError at seq " + entry.seq };
+          }
+          replayed.push(entry.result);
+        }
+        const left = history[calls.length];
+        if (left) return { error: "NonDeterminismError at seq " + left.seq };
+        return { replayed, runsForRealFromSeq: calls.length + 1 };
+      }`,
+        tests: [
+          {
+            name: "an empty history → every call runs for real",
+            args: [[], [{ kind: "activity", name: "a" }]],
+            expect: { replayed: [], runsForRealFromSeq: 1 },
+          },
+          {
+            name: "two entries and three calls → skip two, real work from seq 3",
+            args: [
+              [
+                { seq: 1, kind: "activity", name: "model", result: "c" },
+                { seq: 2, kind: "activity", name: "send_to_user", result: "s" },
+              ],
+              [
+                { kind: "activity", name: "model" },
+                { kind: "activity", name: "send_to_user" },
+                { kind: "activity", name: "model" },
+              ],
+            ],
+            expect: { replayed: ["c", "s"], runsForRealFromSeq: 3 },
+          },
+          {
+            name: "a different name at seq 2 → NonDeterminismError at seq 2",
+            args: [
+              [
+                { seq: 1, kind: "activity", name: "model", result: "c" },
+                { seq: 2, kind: "activity", name: "model", result: "d" },
+              ],
+              [
+                { kind: "activity", name: "model" },
+                { kind: "activity", name: "send_to_user" },
+              ],
+            ],
+            expect: { error: "NonDeterminismError at seq 2" },
+          },
+          {
+            name: "a different kind at seq 1 → NonDeterminismError at seq 1",
+            args: [[{ seq: 1, kind: "now", name: "", result: 5 }], [{ kind: "random", name: "" }]],
+            expect: { error: "NonDeterminismError at seq 1" },
+          },
+          {
+            name: "the code ends with an entry left → NonDeterminismError at that seq",
+            args: [
+              [
+                { seq: 1, kind: "activity", name: "a", result: 1 },
+                { seq: 2, kind: "activity", name: "b", result: 2 },
+              ],
+              [{ kind: "activity", name: "a" }],
+            ],
+            expect: { error: "NonDeterminismError at seq 2" },
+          },
+          {
+            name: "history and calls match exactly → all skipped, real work after",
+            args: [[{ seq: 1, kind: "now", name: "", result: 9 }], [{ kind: "now", name: "" }]],
+            expect: { replayed: [9], runsForRealFromSeq: 2 },
+          },
+        ],
+        onResult(fn, all) {
+          learnerReplay = all ? fn : null;
+          showReplay();
+        },
+      });
+      showReplay();
+    </script>
+  </body>
+</html>
