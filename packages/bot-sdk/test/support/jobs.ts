@@ -1,5 +1,5 @@
 import type { Database } from "../../core/server/db/index";
-import { systemClock } from "../../plugins/runner/server/jobs/in-process";
+import { systemClock, type JobClock } from "../../plugins/runner/server/jobs/in-process";
 import { claimJob, runClaimedJob } from "../../plugins/runner/server/jobs/store";
 import { createTestSdk, type TestDeps } from "./deps";
 import { getTestDb } from "./test-database";
@@ -41,4 +41,32 @@ export async function drainJobs({
     });
     ran += 1;
   }
+}
+
+/** A clock the test moves by hand; `tick()` fires every timer (poll and heartbeat). */
+export function fakeJobClock(start: Date) {
+  let current = start.getTime();
+  const timers = new Set<() => void>();
+  const intervals: number[] = [];
+  const clock: JobClock = {
+    now: () => new Date(current),
+    setInterval: (callback, ms) => {
+      intervals.push(ms);
+      timers.add(callback);
+      return callback;
+    },
+    clearInterval: (handle) => {
+      timers.delete(handle as () => void);
+    },
+  };
+  return {
+    clock,
+    intervals,
+    advance: (ms: number) => {
+      current += ms;
+    },
+    tick: () => {
+      for (const timer of timers) timer();
+    },
+  };
 }

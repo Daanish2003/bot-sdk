@@ -4,7 +4,9 @@ import type { Database } from "../../../../core/server/db/index";
 import type { BotSdkContext } from "../../../../core/server/plugin";
 import { job } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
+import { NonDeterminismError, createWorkflow } from "../workflow/engine";
 import { JOB_TIMING, PermanentJobError, backoffAfter, registeredJob } from "./define";
+import { heartbeatJob, jobHistoryStore, loadHistory, ownAttempt } from "./history";
 import type { JobClock } from "./in-process";
 import type { EnqueueOptions, JobStatus } from "./runner";
 
@@ -97,24 +99,9 @@ export async function claimJob(
   };
 }
 
-/** Writes the heartbeat. False when the attempt no longer holds its row: cancelled or re-queued. */
-async function heartbeatJob(db: Database, claimed: ClaimedJob, now: Date): Promise<boolean> {
-  const held = await db
-    .update(job)
-    .set({ heartbeatAt: now })
-    .where(ownAttempt(claimed))
-    .returning({ id: job.id });
-  return held.length > 0;
-}
-
-/** Matches the row only while this attempt still owns it. */
-function ownAttempt(claimed: ClaimedJob) {
-  return and(eq(job.id, claimed.id), eq(job.status, "running"), eq(job.attempts, claimed.attempts));
-}
-
 /**
  * Records how an attempt ended: succeeded, retried after backoff, or failed (on the last attempt
- * or a `PermanentJobError`, which runs `onFailed`). An attempt that has lost its row writes nothing.
+ * or a `PermanentJobError` or `NonDeterminismError`, which runs `onFailed`). An attempt that has lost its row writes nothing.
  */
 async function recordOutcome(
   db: Database,
@@ -129,7 +116,10 @@ async function recordOutcome(
 
   const { error } = failure;
   const lastError = error instanceof Error ? error.message : String(error);
-  const final = error instanceof PermanentJobError || claimed.attempts >= claimed.maxAttempts;
+  const final =
+    error instanceof PermanentJobError ||
+    error instanceof NonDeterminismError ||
+    claimed.attempts >= claimed.maxAttempts;
   if (!final) {
     await db
       .update(job)
@@ -162,8 +152,8 @@ async function recordOutcome(
  *
  * - the handler settles, and the outcome is recorded (see `recordOutcome`);
  * - the attempt passes `JOB_TIMING.attemptCapMs`, which is a failure and is recorded;
- * - a heartbeat finds the row gone (cancelled, or re-queued after a lost lease), so the handler is
- *   aborted and nothing is written;
+ * - a heartbeat or a history save finds the row gone (cancelled, or re-queued after a lost lease),
+ *   so the handler is aborted and nothing is written;
  * - `shutdown` aborts, so the handler is aborted and nothing is written. The lease is left to
  *   expire, and another process re-runs the job.
  */
@@ -223,9 +213,14 @@ export async function runClaimedJob(
       logger.error(`Heartbeat for job "${claimed.name}" failed`, error);
       return true;
     });
-    if (decided || held) return;
+    if (held) return;
+    lose("The job was cancelled");
+  };
+  // The attempt no longer owns its row: abort the handler and write nothing more.
+  const lose = (reason: string) => {
+    if (decided) return;
     release();
-    attempt.abort(new Error("The job was cancelled"));
+    attempt.abort(new Error(reason));
     concluded();
   };
 
@@ -235,10 +230,20 @@ export async function runClaimedJob(
   if (!decided) {
     const run = (async () => {
       if (!definition) throw new Error(`No job named "${claimed.name}" is defined`);
+      // A retried or re-claimed job replays its history and carries on after its last entry.
+      const workflow = createWorkflow({
+        history: await loadHistory(db, claimed.id),
+        store: jobHistoryStore(db, claimed, clock.now),
+        now: clock.now,
+        signal: attempt.signal,
+        onLost: () => lose("The attempt no longer owns its job"),
+      });
       await definition.run(definition.payload.parse(claimed.payload), {
+        ...workflow.context,
         signal: attempt.signal,
         deps: deps(),
       });
+      workflow.finish();
     })();
     run.then(
       () => settle(),

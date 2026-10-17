@@ -1,6 +1,8 @@
 import type { z } from "zod";
 
-import type { BotSdkContext } from "../../../../core/server/plugin";
+import type { BotSdkContext, Transaction } from "../../../../core/server/plugin";
+import { createWorkflow, type WorkflowContext } from "../workflow/engine";
+import { unrecordedStore } from "./history";
 
 /**
  * A failure retrying can't fix, such as a PDF with no text layer. It fails the job at once
@@ -16,9 +18,14 @@ export class PermanentJobError extends Error {
 /**
  * What a handler gets besides its payload. `signal` aborts at the next heartbeat after a cancel.
  * `deps` are the SDK's dependencies, since a job's models, adapters and clock are only known once
- * `createBotSdk` has built them.
+ * `createBotSdk` has built them. The rest is the workflow context (ADR 0011, the #481 amendment):
+ * `activity`, `now`, `random` and `patched` are recorded in the job's history and replayed when the
+ * job is retried or re-claimed. Code outside them reruns on every attempt.
  */
-export type JobContext = { signal: AbortSignal; deps: BotSdkContext };
+export type JobContext = WorkflowContext<Transaction> & {
+  signal: AbortSignal;
+  deps: BotSdkContext;
+};
 
 /** A job as internal code declares it. Jobs are internal: a Host can't register its own. */
 export type JobDefinition<P> = {
@@ -55,7 +62,8 @@ export function registeredJob(name: string): RegisteredJob | undefined {
 /**
  * Runs a registered job's handler in this process, with its payload validated against the job's
  * schema. `chat.plugin("runner").runJob` calls it, so a Host's own worker (such as a Trigger.dev task) can run a job.
- * Errors reach the caller, which decides about retries.
+ * Errors reach the caller, which decides about retries. With no `chat.job` row, nothing is
+ * recorded: every workflow call runs for real.
  */
 export async function runRegisteredJob(
   name: string,
@@ -68,7 +76,12 @@ export async function runRegisteredJob(
   if (!parsed.success) {
     throw new Error(`Job "${name}" got an invalid payload: ${parsed.error.message}`);
   }
-  await job.run(parsed.data, { signal: new AbortController().signal, deps });
+  const workflow = createWorkflow({
+    history: [],
+    store: unrecordedStore(deps.db),
+    now: deps.clock,
+  });
+  await job.run(parsed.data, { ...workflow.context, signal: new AbortController().signal, deps });
 }
 
 /** Milliseconds to wait before attempt 2, 3, and so on: about 10 s, 1 min, then 5 min. */
