@@ -393,23 +393,28 @@ describe("create_artifact in a reply", () => {
     });
     // The Stop is sent through the same stop RPC as a user's, once the reply exists and before the
     // Artifact's transaction runs; its signal is aborted by the time the artifact row is written.
-    let stopped = false;
+    let stoppedWrite: Promise<unknown> | undefined;
     const db = new Proxy(deps.db, {
       get(target, key, receiver) {
         if (key !== "transaction") return Reflect.get(target, key, receiver);
         return async (...args: Parameters<typeof target.transaction>) => {
-          const reply = stopped ? undefined : await replyOf(deps, conv.id);
-          if (reply) {
-            stopped = true;
+          const reply = stoppedWrite ? undefined : await replyOf(deps, conv.id);
+          if (!reply) return target.transaction(...args);
+          stoppedWrite = (async () => {
             await chatRpc({ user, deps }).chat.stop({ messageId: reply.id });
             await new Promise((resolve) => setTimeout(resolve, 50));
-          }
-          return target.transaction(...args);
+            return target.transaction(...args);
+          })();
+          return stoppedWrite;
         };
       },
     }) as TestDeps["db"];
 
     await (await send({}, { ...deps, db })).text();
+    // The Run ends on the Stop without waiting for the call it leaves behind, so its write may still
+    // be running here. Awaited, it is seen to roll back, and it can't run into the next test's
+    // truncate: holding `artifact`, its foreign key check would wait on `conversation`, a deadlock.
+    await expect(stoppedWrite).rejects.toThrow("stopped");
 
     expect(await artifactRowsOf(deps, conv.id)).toEqual([]);
     expect(await versionRowsOf(deps)).toEqual([]);
