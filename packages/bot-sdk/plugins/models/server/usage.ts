@@ -1,7 +1,7 @@
 import { and, eq, gte, lt, sql } from "drizzle-orm";
 
 import { usage } from "../../../core/server/db/schema";
-import type { RunUsage } from "../../assistant/server/chat/usage";
+import type { RunUsage } from "./run-usage";
 import type { MessageUsage } from "../shared/usage";
 import type { ModelsDeps } from "./types";
 

@@ -17,7 +17,12 @@ import { createToolBudget, spentCalls } from "./tracked-tool";
 import { artifactCutOff } from "./artifact-tool";
 import type { RunPlan } from "./run-plan";
 import { cancelChannel, heartbeatExpired, listenForStop, stopRequested } from "./stop";
-import { addUsage, normalizeUsage, promptCharactersOf, type RunUsage } from "./usage";
+import {
+  addUsage,
+  normalizeUsage,
+  promptCharactersOf,
+  type RunUsage,
+} from "../../../models/server/run-usage";
 import { assistantState } from "../state";
 
 type MessageUpdate = Partial<typeof message.$inferInsert>;

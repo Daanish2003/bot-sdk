@@ -16,7 +16,7 @@ import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkContext } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
 import { searchTextOf } from "../../../core/shared/message-parts";
-import { promptCharactersOf, reportedUsageOf } from "../../assistant/server/chat/usage";
+import { promptCharactersOf, reportedUsageOf } from "../../models/server/run-usage";
 import type { ModelMeter } from "../../models/server/meter";
 import { parseModelId } from "../../models/shared/models";
 import type { BotMessage, BotSendEvent, TurnStatus } from "../shared/turn";
