@@ -149,7 +149,7 @@ An always-on agent a user has: it runs on the server, wakes on Triggers, keeps i
 _Avoid_: Agent, assistant (that answers in assistant Conversations), persona
 
 **Turn**:
-One Bot working through a batch of what woke it, until it stops. It works on one batch at a time; in a 1:1 Conversation a new Message from the user interrupts or stops the running Turn instead of waiting. It can send any number of Messages, or none.
+One Bot working through a batch of what woke it, until it stops. It works on one batch at a time. In a 1:1 Conversation the user skips the line: a new Message interrupts the running Turn, which ends where it is and is followed by a new Turn that takes the Message with the first one's work in view; Stop ends it with nothing following until the user's next Message. What an interrupted or stopped Turn already sent stays sent. It can send any number of Messages, or none.
 _Avoid_: Run (that is the assistant's), step, session
 
 **Step**:
@@ -169,7 +169,7 @@ What every Trigger passes through on its way to a Bot: it drops duplicates and p
 _Avoid_: Dispatcher, inbox
 
 **Conversation queue**:
-The Triggers a Conversation has received that no Turn has taken yet, in the order they arrived. A Turn takes everything waiting, and when it ends the next Turn takes whatever has arrived since, so a Conversation runs one Turn at a time.
+The Triggers a Conversation has received that no Turn has taken yet, in the order they arrived. A Turn waits a moment before it starts so quick Messages land in one batch, takes everything waiting, and when it ends the next Turn takes whatever has arrived since, so a Conversation runs one Turn at a time.
 _Avoid_: Inbox, backlog, job queue (that is the runner's)
 
 **Routine**:
