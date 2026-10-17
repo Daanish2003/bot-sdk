@@ -458,8 +458,9 @@ async function replayedTurn(
   deps: BotSdkContext,
   turn: TurnFacts,
 ): Promise<Pick<PlayedTurn, "transcript" | "usage">> {
+  const history = turn.jobId ? await loadHistory(deps.db, turn.jobId) : [];
   const workflow = createWorkflow<Transaction>({
-    history: turn.jobId ? await loadHistory(deps.db, turn.jobId) : [],
+    history,
     store: {
       save: async () => false,
       saveWith: async () => ({ saved: false }),
@@ -467,11 +468,8 @@ async function replayedTurn(
     now: deps.clock,
     signal: AbortSignal.abort(new Error("The Turn's job has ended")),
   });
-  try {
-    await workflow.context.activity(startTurnActivity, async () => null);
-  } catch {
-    // A job that never started recorded no start.
-  }
+  // A job that never started recorded no start.
+  if (history.length > 0) await workflow.context.activity(startTurnActivity, async () => null);
   return playTurn(deps, turn, workflow.context, {});
 }
 

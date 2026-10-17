@@ -6,6 +6,7 @@ import {
   botTurn,
   conversation,
   job,
+  jobEvent,
   message,
 } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
@@ -73,18 +74,25 @@ export async function receive(
 }
 
 /**
- * Whether a Turn's job is queued and has never been claimed. The job's row is locked, so no runner
- * claims it before this transaction ends. A job queued again after an attempt keeps its history,
- * so it is never replaced.
+ * Whether a Turn's job is queued and has recorded no Checkpoint, so replacing it loses nothing. The
+ * job's row is locked, so no runner claims it before this transaction ends. A job queued again
+ * after an attempt (a deploy's yield, a retry, a crash) keeps its Checkpoints, so it is never
+ * replaced.
  */
 async function jobNotStarted(tx: Transaction, jobId: string | null): Promise<boolean> {
   if (!jobId) return false;
   const [row] = await tx
-    .select({ status: job.status, attempts: job.attempts })
+    .select({ status: job.status })
     .from(job)
     .where(eq(job.id, jobId))
     .for("update");
-  return row?.status === "queued" && row.attempts === 0;
+  if (row?.status !== "queued") return false;
+  const [recorded] = await tx
+    .select({ seq: jobEvent.seq })
+    .from(jobEvent)
+    .where(eq(jobEvent.jobId, jobId))
+    .limit(1);
+  return !recorded;
 }
 
 /**
@@ -152,14 +160,21 @@ async function startTurn(
     .from(bot)
     .where(eq(bot.conversationId, conversationId));
   if (!owner) throw new Error(`Conversation ${conversationId} has no Bot`);
+  // Until its job starts and sets it (`turnStarted`), the Turn starts after every Message its
+  // Triggers carry, even one stamped by a process whose clock runs ahead.
+  const [newest] = await tx
+    .select({ at: max(message.createdAt) })
+    .from(botTrigger)
+    .innerJoin(message, eq(message.id, botTrigger.messageId))
+    .where(waiting);
+  const startedAt = Math.max(deps.clock().getTime(), newest?.at?.getTime() ?? 0) + 1;
   const turnId = uuidv7();
   const jobId = await enqueueTurnJob(deps, tx, turnId, waiting);
   await tx.insert(botTurn).values({
     id: turnId,
     botId: owner.id,
     status: "running",
-    // Until its job starts and sets it (`turnStarted`).
-    startedAt: deps.clock(),
+    startedAt: new Date(startedAt),
     jobId,
   });
   await tx.update(botTrigger).set({ turnId }).where(waiting);

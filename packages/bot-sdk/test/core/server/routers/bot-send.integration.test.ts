@@ -1403,6 +1403,29 @@ describe("a Turn that resumes after a crash", () => {
     expect(turn?.usage).toMatchObject({ input: 100, output: 10, estimated: false });
   });
 
+  it("never replaces the job of a Turn a deploy handed back: a send waits for the next Turn", async () => {
+    const first = round(sends({ text: "On it…", endTurn: false }));
+    const { fake, client, user, botId, attempt } = await crashableBot([first, round(text("."))]);
+    const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
+    await client.bot.send({ botId, id: uuidv7(), text: "one" });
+    const drain = new AbortController();
+    const handedBack = attempt(undefined, drain.signal);
+    await expect.poll(() => fake.calls.length).toBe(1);
+    // The deploy starts: the model call's Checkpoint is saved, then the attempt yields.
+    drain.abort();
+    await fake.release(first.length);
+    await handedBack;
+    const [before] = await turnsOf(botId);
+    const [queued] = await getTestDb().select().from(job).where(eq(job.id, before!.jobId!));
+    expect(queued).toMatchObject({ status: "queued" });
+
+    await (await client.bot.send({ botId, id: uuidv7(), text: "two" })).next();
+
+    const [after] = await turnsOf(botId);
+    expect(after?.jobId).toBe(before!.jobId);
+    expect((await triggersOf(conversationId)).at(-1)?.turnId).toBeNull();
+  });
+
   it("fires onUsage for a bill whose Checkpoint a deploy's yield follows", async () => {
     const onUsage = vi.fn();
     const usageOfStep = { promptTokens: 100, completionTokens: 10, totalTokens: 110 };
