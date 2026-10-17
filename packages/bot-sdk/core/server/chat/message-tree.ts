@@ -32,7 +32,7 @@ export async function loadPath(
 export async function appendMessage(
   tx: Transaction,
   conversationId: string,
-  fields: Pick<MessageInsert, "role" | "parts" | "status" | "createdAt">,
+  fields: Pick<MessageInsert, "role" | "parts" | "status" | "createdAt"> & { id?: string },
 ): Promise<MessageRow> {
   const [owner] = await tx
     .select({ activeLeafId: conversation.activeLeafId })
@@ -43,11 +43,11 @@ export async function appendMessage(
   const [row] = await tx
     .insert(message)
     .values({
-      id: uuidv7(),
       conversationId,
       parentId: owner.activeLeafId,
       searchText: searchTextOf(fields.parts),
       ...fields,
+      id: fields.id ?? uuidv7(),
     })
     .returning();
   if (!row) throw new Error("Appending the Message returned no row");

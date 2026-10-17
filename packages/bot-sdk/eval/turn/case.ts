@@ -132,6 +132,7 @@ export async function runCase(
     for await (const event of await sendToBot(env.sdk, {
       userId,
       botId: bot.id,
+      id: uuidv7(),
       text: evalCase.message,
     })) {
       if (event.type === "message" && event.message.role === "assistant")
