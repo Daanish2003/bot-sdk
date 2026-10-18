@@ -106,6 +106,27 @@ describe("scoreQueue, interrupting", () => {
   });
 });
 
+describe("scoreQueue, unavailable", () => {
+  const ids = ["ask"];
+  it("passes when one Turn completed and sent a Message", () => {
+    expect(scoreQueue("unavailable", { triggerIds: ids, turns: [turn("complete", ids)] })).toEqual({
+      passed: true,
+      reasons: [],
+    });
+  });
+
+  it("fails when the Turn answered in plain text and sent nothing", () => {
+    const score = scoreQueue("unavailable", { triggerIds: ids, turns: [turn("complete", ids, 0)] });
+    expect(score.passed).toBe(false);
+    expect(score.reasons).toContain("the Turn sent nothing, expected a reply");
+  });
+
+  it("fails when the Turn did not complete", () => {
+    const score = scoreQueue("unavailable", { triggerIds: ids, turns: [turn("error", ids)] });
+    expect(score.reasons).toContain("the Turn ended error, expected complete");
+  });
+});
+
 describe("judge", () => {
   it("parses the verdict and the reason, and reads anything else as no", () => {
     expect(parseVerdict("Verdict: yes\nReason: it covers all three.")).toEqual({
@@ -161,8 +182,8 @@ describe("sentTexts", () => {
 });
 
 describe("queueCases", () => {
-  it("has the batching and interrupting cases, sent through the real plugin with ids", () => {
-    expect(queueCases.map((c) => c.id)).toEqual(["batching", "interrupting"]);
+  it("has the batching, interrupting and unavailable cases, sent through the real plugin with ids", () => {
+    expect(queueCases.map((c) => c.id)).toEqual(["batching", "interrupting", "unavailable"]);
     expect(queueCases[0]!.messages.map((m) => m.text)).toEqual([
       "Plan a dinner.",
       "For 4 people.",
@@ -174,5 +195,6 @@ describe("queueCases", () => {
       "Actually, make it Rome",
     ]);
     expect(queueCases[1]!.messages[1]!.afterTurnStarts).toBe(true);
+    expect(queueCases[2]!.messages.map((m) => m.text)).toEqual(["Book the meeting for Thursday"]);
   });
 });

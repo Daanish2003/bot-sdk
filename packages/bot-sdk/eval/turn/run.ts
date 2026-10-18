@@ -10,7 +10,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { chat } from "@tanstack/ai";
+import { type AnyTextAdapter, chat } from "@tanstack/ai";
 import { type AnthropicChatModel, createAnthropicChat } from "@tanstack/ai-anthropic";
 import { type OpenAIChatModel, createOpenaiChat } from "@tanstack/ai-openai";
 import { createOpenRouterText } from "@tanstack/ai-openrouter";
@@ -113,6 +113,21 @@ function fakeScript(evalCase: TurnCase) {
   return [round(send("A fake reply.", true))];
 }
 
+/** The adapter, except that its call waits until the Turn is stopped, and then plays nothing. */
+function heldUntilStopped(adapter: AnyTextAdapter): AnyTextAdapter {
+  return {
+    ...adapter,
+    chatStream: async function* (options) {
+      const signal = options.request?.signal;
+      await new Promise<void>((resolve) => {
+        if (!signal || signal.aborted) return resolve();
+        signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+      yield* adapter.chatStream(options);
+    },
+  };
+}
+
 const percent = (rate: number | null) =>
   rate === null ? "   n/a" : `${(rate * 100).toFixed(1).padStart(5)}%`;
 
@@ -165,13 +180,23 @@ async function main() {
   const scripts = new Map<string, TurnCase>();
   /** What the fake Model plays for a queue case: a reply that ends the Turn. */
   const queueScript: TurnCase = { id: "queue", expected: "reply", history: [], message: "" };
+  /** How many Turns have asked the fake Model for an adapter, per run. */
+  const turnsStarted = new Map<string, number>();
   const modelsDeps: ModelsDeps = fake
     ? {
         ...realModels,
         adapterFor: (_model, credentials) => {
           const evalCase = scripts.get((credentials as { apiKey: string }).apiKey);
           if (!evalCase) throw new Error("No fake script for this run");
-          return createFakeAdapter({ rounds: fakeScript(evalCase) }).adapter;
+          const { adapter } = createFakeAdapter({ rounds: fakeScript(evalCase) });
+          // The interrupting case: the first Turn's Model call holds until the correction stops the
+          // Turn, so the fake cannot finish it before the correction is sent. Real runs are not held.
+          const key = (credentials as { apiKey: string }).apiKey;
+          const turnNumber = (turnsStarted.get(key) ?? 0) + 1;
+          turnsStarted.set(key, turnNumber);
+          return evalCase.id === "interrupting" && turnNumber === 1
+            ? heldUntilStopped(adapter)
+            : adapter;
         },
       }
     : realModels;
@@ -205,7 +230,7 @@ async function main() {
     credentialsFor: (caseId: string, repeat: number) => {
       if (!fake) return { apiKey };
       const key = `fake-${caseId}-${repeat}`;
-      scripts.set(key, cases.find((c) => c.id === caseId) ?? queueScript);
+      scripts.set(key, cases.find((c) => c.id === caseId) ?? { ...queueScript, id: caseId });
       return { apiKey: key };
     },
   };

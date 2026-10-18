@@ -23,7 +23,8 @@ export function scoreQueue(kind: QueueCase["id"], observed: QueueObserved): Queu
   const reasons: string[] = [];
   const { triggerIds, turns } = observed;
   const last = turns.at(-1);
-  if (kind === "batching") {
+  // "unavailable" is one Message the Bot cannot do: its one Turn must still send the user a reply.
+  if (kind === "batching" || kind === "unavailable") {
     if (turns.length !== 1) {
       reasons.push(`${turns.length} Turns took Triggers, expected exactly 1`);
     } else if (turns[0]!.triggerIds.length !== triggerIds.length) {
