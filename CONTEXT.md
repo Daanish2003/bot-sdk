@@ -150,7 +150,7 @@ _Avoid_: Agent, assistant (that answers in assistant Conversations), persona
 
 **Turn**:
 One Bot working through a batch of what woke it, until it stops. It works on one batch at a time. In a 1:1 Conversation the user skips the line: a new Message interrupts the running Turn, which ends where it is and is followed by a new Turn that takes the Message with the first one's work in view; Stop ends it with nothing following until the user's next Message. What an interrupted or stopped Turn already sent stays sent. It can send any number of Messages, or none.
-Staying quiet means replying with no text; plain text the Bot writes never reaches the user, so the first time a Step ends in plain text the Turn takes one more Step with a note saying it was not delivered.
+Staying quiet means replying with no text; plain text the Bot writes never reaches the user, so the first time a Step ends in plain text the Turn takes one more Step with a note saying it was not delivered, unless no Step is left, when the Turn ends quiet.
 _Avoid_: Run (that is the assistant's), step, session
 
 **Step**:
