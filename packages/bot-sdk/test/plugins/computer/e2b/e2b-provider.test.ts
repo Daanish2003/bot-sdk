@@ -147,4 +147,41 @@ describe.skipIf(!apiKey || !apiUrl || !sandboxUrl)("e2bProvider on a real E2B", 
       stdout: "0\n",
     });
   }, 60_000);
+
+  it("kills the whole process group of a command, background children included", async () => {
+    const { sandboxId } = await provider.create({ timeoutMs: 60_000 });
+    created.push(sandboxId);
+    const left = () => provider.run(sandboxId, "pgrep -c sleep || true", { timeoutMs: 20_000 });
+    const timedOut = await provider.run(sandboxId, "sleep 300 & wait", { timeoutMs: 1500 });
+    expect(timedOut).toMatchObject({ timedOut: true });
+    expect(await left()).toMatchObject({ stdout: "0\n" });
+
+    const controller = new AbortController();
+    const running = provider.run(sandboxId, "sleep 300 & wait", {
+      timeoutMs: 30_000,
+      signal: controller.signal,
+    });
+    setTimeout(() => controller.abort(new Error("stopped")), 1000);
+    await expect(running).rejects.toThrow("stopped");
+    expect(await left()).toMatchObject({ stdout: "0\n" });
+  }, 60_000);
+
+  it("reports a sandbox killed behind its back as gone, though it is connected", async () => {
+    const { sandboxId } = await provider.create({ timeoutMs: 60_000 });
+    created.push(sandboxId);
+    await provider.writeFile(sandboxId, "/home/user/a.txt", "a");
+    // Another adapter instance kills it, so this one still holds the connection it cached.
+    await e2bProvider({
+      apiKey: apiKey!,
+      apiUrl: apiUrl!,
+      sandboxUrl: sandboxUrl!,
+      template: "ai-chat-computer-v1",
+    }).kill(sandboxId);
+    await expect(provider.readFile(sandboxId, "/home/user/a.txt")).rejects.toBeInstanceOf(
+      SandboxGoneError,
+    );
+    await expect(provider.run(sandboxId, "true", { timeoutMs: 20_000 })).rejects.toBeInstanceOf(
+      SandboxGoneError,
+    );
+  }, 60_000);
 });
