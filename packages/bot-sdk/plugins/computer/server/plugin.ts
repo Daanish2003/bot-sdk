@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
+import { deleteBlobsBestEffort } from "../../../core/server/blob/store";
 import { computer as computerTable } from "../../../core/server/db/schema";
 import type { BotSdkContext, BotSdkPlugin, Transaction } from "../../../core/server/plugin";
 import { defineJob } from "../../runner/server/jobs/define";
@@ -210,8 +211,8 @@ export function computer({ provider }: ComputerOptions): ComputerPlugin {
       return { api };
     },
     // The row goes with its user, with its queued sleep checks, and its sandbox id is collected.
-    // Killing that sandbox after the commit is the user delete ticket's (#525). A check that runs
-    // anyway finds no row and ends.
+    // After the commit the sandbox is killed and the archive deleted, both best-effort. A check
+    // that runs anyway finds no row and ends. Deleting a Bot never reaches here: its files stay.
     deleteUser: {
       before: async (sdk, { userId, tx }) => {
         await cancelQueuedJobsIn(tx, sleepJobName, { field: "userId", value: userId }, sdk.clock());
@@ -221,7 +222,10 @@ export function computer({ provider }: ComputerOptions): ComputerPlugin {
           .returning({ sandboxId: computerTable.sandboxId });
         return deleted?.sandboxId ?? null;
       },
-      after: async () => {},
+      after: async (sdk, { userId, collected }) => {
+        if (typeof collected === "string") await killBestEffort(sdk, provider, userId, collected);
+        await deleteBlobsBestEffort(sdk, [computerBlobKey(userId)]);
+      },
     },
   };
 }
