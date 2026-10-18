@@ -84,6 +84,6 @@ client ids, `EVAL_REPEATS` times each. Each has a structural check and an LLM-ju
   completed. Judge: the reply says Thursday, not Wednesday.
 
 The structural check reads Turns and Triggers, never the Model's text. The judge answers `Verdict:` and
-`Reason:`, both printed per run and saved in the results file. `EVAL_JUDGE_MODEL` (an `openai:` or
-`anthropic:` Model) sets the judge; it defaults to `EVAL_BOT_MODEL`, so that must be one of those
+`Reason:`, both printed per run and saved in the results file. `EVAL_JUDGE_MODEL` (an `openai:`,
+`anthropic:` or `openrouter:` Model) sets the judge; it defaults to `EVAL_BOT_MODEL`, so that must be one of those
 Providers unless you set it. `--limit` limits only the week-one cases.

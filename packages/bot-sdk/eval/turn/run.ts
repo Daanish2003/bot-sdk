@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 import { chat } from "@tanstack/ai";
 import { type AnthropicChatModel, createAnthropicChat } from "@tanstack/ai-anthropic";
 import { type OpenAIChatModel, createOpenaiChat } from "@tanstack/ai-openai";
+import { createOpenRouterText } from "@tanstack/ai-openrouter";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 
 import { postgresBlobStore } from "../../core/server/blob/postgres";
@@ -50,7 +51,7 @@ const keyVariables: Record<string, string> = {
   openrouter: "OPENROUTER_API_KEY",
 };
 
-/** The judge's completion at temperature 0, on OpenAI or Anthropic (the pattern of eval/memory/run.ts). */
+/** The judge's completion at temperature 0, on OpenAI, Anthropic or OpenRouter (the pattern of eval/memory/run.ts). */
 function judgeCompletion(model: string, apiKey: string): Complete {
   const provider = model.split(":")[0]!;
   const modelId = model.slice(provider.length + 1);
@@ -58,7 +59,9 @@ function judgeCompletion(model: string, apiKey: string): Complete {
   if (provider === "openai") adapter = createOpenaiChat(modelId as OpenAIChatModel, apiKey);
   else if (provider === "anthropic") {
     adapter = createAnthropicChat(modelId as AnthropicChatModel, apiKey);
-  } else fail(`EVAL_JUDGE_MODEL must be an openai or anthropic Model, not "${model}"`);
+  } else if (provider === "openrouter") {
+    adapter = createOpenRouterText(modelId as Parameters<typeof createOpenRouterText>[0], apiKey);
+  } else fail(`EVAL_JUDGE_MODEL must be an openai, anthropic or openrouter Model, not "${model}"`);
   return async (prompt) => {
     const result = await chat({
       adapter,
