@@ -11,10 +11,11 @@ import {
 } from "../../../eval/turn/queue-score";
 import { sentTexts } from "../../../eval/turn/score";
 
-const turn = (status: QueueObserved["turns"][number]["status"], triggerIds: string[]) => ({
-  status,
-  triggerIds,
-});
+const turn = (
+  status: QueueObserved["turns"][number]["status"],
+  triggerIds: string[],
+  sent = 1,
+) => ({ status, triggerIds, sent });
 
 describe("scoreQueue, batching", () => {
   const ids = ["a", "b", "c"];
@@ -46,6 +47,12 @@ describe("scoreQueue, batching", () => {
   it("fails when the Turn did not complete", () => {
     const score = scoreQueue("batching", { triggerIds: ids, turns: [turn("error", ids)] });
     expect(score.reasons).toContain("the Turn ended error, expected complete");
+  });
+
+  it("fails when the Turn completed without sending anything", () => {
+    const score = scoreQueue("batching", { triggerIds: ids, turns: [turn("complete", ids, 0)] });
+    expect(score.passed).toBe(false);
+    expect(score.reasons).toContain("the Turn sent nothing, expected a reply");
   });
 });
 
@@ -85,6 +92,17 @@ describe("scoreQueue, interrupting", () => {
     expect(score.passed).toBe(false);
     expect(score.reasons).toContain("the last Turn did not take the correction");
     expect(score.reasons).toContain("the last Turn ended error, expected complete");
+  });
+
+  it("fails when the Turn that took the correction sent nothing", () => {
+    const score = scoreQueue("interrupting", {
+      triggerIds: ids,
+      turns: [turn("stopped", ["first"], 0), turn("complete", ["fix"], 0)],
+    });
+    expect(score).toEqual({
+      passed: false,
+      reasons: ["the last Turn sent nothing, expected a reply"],
+    });
   });
 });
 
@@ -152,8 +170,9 @@ describe("queueCases", () => {
     ]);
     expect(queueCases[0]!.messages.slice(1).every((m) => m.afterMs === 200)).toBe(true);
     expect(queueCases[1]!.messages.map((m) => m.text)).toEqual([
-      "Book the meeting for Wednesday",
-      "Actually, make it Thursday",
+      "Plan a trip to Paris",
+      "Actually, make it Rome",
     ]);
+    expect(queueCases[1]!.messages[1]!.afterTurnStarts).toBe(true);
   });
 });

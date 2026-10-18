@@ -89,6 +89,7 @@ export async function runQueueCase(
         status: turn.status,
         triggerIds: triggers.filter((t) => t.turnId === turn.id).map((t) => t.id),
         transcript: turn.transcript,
+        sent: sentTexts(turn.transcript).length,
       }))
       .filter((turn) => turn.triggerIds.length > 0);
     const structural = scoreQueue(evalCase.id, { triggerIds: ids, turns: taking });

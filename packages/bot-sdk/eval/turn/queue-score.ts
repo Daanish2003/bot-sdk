@@ -8,8 +8,12 @@ import type { QueueCase } from "./queue-cases";
 export type QueueObserved = {
   /** The id of each Trigger, in the order the case sent them. */
   triggerIds: string[];
-  /** The Turns that took at least one Trigger, oldest first. */
-  turns: { status: "running" | "complete" | "error" | "stopped"; triggerIds: string[] }[];
+  /** The Turns that took at least one Trigger, oldest first, with how many Messages each sent. */
+  turns: {
+    status: "running" | "complete" | "error" | "stopped";
+    triggerIds: string[];
+    sent: number;
+  }[];
 };
 
 export type QueueScore = { passed: boolean; reasons: string[] };
@@ -28,6 +32,8 @@ export function scoreQueue(kind: QueueCase["id"], observed: QueueObserved): Queu
     if (last && last.status !== "complete") {
       reasons.push(`the Turn ended ${last.status}, expected complete`);
     }
+    // A plain-text answer stays private: the user saw nothing (#516).
+    if (last && last.sent === 0) reasons.push("the Turn sent nothing, expected a reply");
   } else {
     if (turns.length !== 2) {
       reasons.push(`${turns.length} Turn(s) took Triggers, expected 2`);
@@ -46,6 +52,7 @@ export function scoreQueue(kind: QueueCase["id"], observed: QueueObserved): Queu
       if (last.status !== "complete") {
         reasons.push(`the last Turn ended ${last.status}, expected complete`);
       }
+      if (last.sent === 0) reasons.push("the last Turn sent nothing, expected a reply");
     }
   }
   return { passed: reasons.length === 0, reasons };

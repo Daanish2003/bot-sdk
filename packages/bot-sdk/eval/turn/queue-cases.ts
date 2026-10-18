@@ -33,12 +33,12 @@ export const queueCases: QueueCase[] = [
   {
     id: "interrupting",
     messages: [
-      { text: "Book the meeting for Wednesday" },
-      { text: "Actually, make it Thursday", afterTurnStarts: true },
+      { text: "Plan a trip to Paris" },
+      { text: "Actually, make it Rome", afterTurnStarts: true },
     ],
     criterion:
-      "The user first asked to book a meeting for Wednesday, then corrected it: 'Actually, make it " +
-      "Thursday'. The reply must say the meeting is for Thursday, and must not say it is for Wednesday " +
-      "(it may mention Wednesday only to say it was changed).",
+      "The user first asked to plan a trip to Paris, then corrected it: 'Actually, make it Rome'. " +
+      "The reply must plan a trip to Rome, and must not plan one to Paris (it may mention Paris only " +
+      "to say it was changed).",
   },
 ];

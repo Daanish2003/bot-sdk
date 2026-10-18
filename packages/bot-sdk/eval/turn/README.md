@@ -78,10 +78,13 @@ The same run also plays two cases of the Router and queue (spec #510) with the r
 client ids, `EVAL_REPEATS` times each. Each has a structural check and an LLM-judge check:
 
 - **batching:** "Plan a dinner." / "For 4 people." / "Vegetarian." sent 200 ms apart. Structural:
-  exactly one Turn took all three Triggers and completed. Judge: the reply covers all three.
-- **interrupting:** "Book the meeting for Wednesday", then, once the Turn's job is running, "Actually,
-  make it Thursday". Structural: the first Turn ended `stopped`, a second Turn took the correction and
-  completed. Judge: the reply says Thursday, not Wednesday.
+  exactly one Turn took all three Triggers, completed and sent a reply. Judge: the reply covers all
+  three.
+- **interrupting:** "Plan a trip to Paris", then, once the Turn's job is running, "Actually, make it
+  Rome". Structural: the first Turn ended `stopped`, a second Turn took the correction, completed and
+  sent a reply. Judge: the reply plans a trip to Rome, not Paris. The case asks for something the Bot
+  can answer in a message: asked to book a meeting, which it has no tool for, the Model answered in
+  plain text, which the user never sees (#516).
 
 The structural check reads Turns and Triggers, never the Model's text. The judge answers `Verdict:` and
 `Reason:`, both printed per run and saved in the results file. `EVAL_JUDGE_MODEL` (an `openai:`,
