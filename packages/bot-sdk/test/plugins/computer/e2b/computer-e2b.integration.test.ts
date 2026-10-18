@@ -20,7 +20,7 @@ describe.skipIf(!apiKey || !apiUrl || !sandboxUrl)("the computer plugin on real 
       apiKey: apiKey!,
       apiUrl: apiUrl!,
       sandboxUrl: sandboxUrl!,
-      template: "ai-chat-computer-v1",
+      template: "ai-chat-computer-v2",
     });
   const users: string[] = [];
   afterEach(async () => {

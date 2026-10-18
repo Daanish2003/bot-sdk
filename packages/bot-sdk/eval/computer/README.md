@@ -20,7 +20,7 @@ export E2B_API_KEY=... E2B_API_URL=http://localhost:3000 E2B_SANDBOX_URL=http://
 export EVAL_DATABASE_URL=postgresql://postgres:password@127.0.0.1:5435/ai-chat_eval
 ```
 
-- `EVAL_TEMPLATE` is the template Computers are built from (default `ai-chat-computer-v1`).
+- `EVAL_TEMPLATE` is the template Computers are built from (default `ai-chat-computer-v2`).
 - The local Embed fits one sandbox at a time, and a sandbox that will not start fails with `Failed to
 place sandbox` (`mmap memfd: cannot allocate memory` in the orchestrator log) when WSL's page cache
   has filled the memory. Free it before each run (SDK README, "The template").
@@ -64,10 +64,10 @@ pnpm -F @ai-chat/bot-sdk eval:computer:lifecycle
 ```
 
 It needs a second template, built from the same Dockerfile under another name, so the last step can
-change the template name (`EVAL_REBUILD_TEMPLATE`, default `ai-chat-computer-v1-eval`):
+change the template name (`EVAL_REBUILD_TEMPLATE`, default `ai-chat-computer-v2-eval`):
 
 ```sh
-pnpm dlx @e2b/cli@2.22.0 template create ai-chat-computer-v1-eval -p plugins/computer/template -d Dockerfile
+pnpm dlx @e2b/cli@2.22.0 template create ai-chat-computer-v2-eval -p plugins/computer/template -d Dockerfile
 ```
 
 It drives one user's Computer through the real plugin, and prints pass or fail for each check:
