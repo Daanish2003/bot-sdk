@@ -52,7 +52,7 @@ Repeat until no ticket is open:
    - create its worktree (`../ai-chat-wt/<N>`, branch `<type>/<N>-<slug>` from the integration tip). Create worktrees one at a time; they race on `.git/config`;
    - launch an implementer: Agent tool with the ticket's `model`, `run_in_background: true`, and **no** `isolation` (the worktree is pre-made). The prompt is three pointers: the ticket URL, the worktree path, and the run brief path.
 2. **When an implementer reports**, check its report against the brief's report shape:
-   - **Done:** the base is the current integration tip or an ancestor of it, the commit SHAs are listed, and the affected tests are green. Go to step 4.
+   - **Done:** the base is the current integration tip or an ancestor of it, the commit SHAs are listed, the affected tests are green, and `checks` lists the `code-review` run. If the review is missing, resume the agent with SendMessage to run it before you merge. Go to step 4.
    - **Owner decision:** post the question on the ticket, ask the user (batch any open questions into one AskUserQuestion), and keep the other slots busy. Resume the same agent with SendMessage once answered.
    - **Blocked or denied** (a permission denial, a broken base): do the step yourself if it is yours, or ask the user. Never retry a denied command verbatim.
 3. Keep going between tickets. Report to the user only at the end or when blocked.

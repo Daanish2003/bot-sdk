@@ -5,6 +5,7 @@ You are an **implementer** for one ticket of [spec #<SPEC>](https://github.com/D
 - Integration branch: `feature/<SLUG>`
 - Migration slot holder: <TICKET or none>. Only that ticket may add a migration.
 - e2e slot holder: <TICKET or none>. Only that ticket may run Playwright.
+- Your test database: `ai-chat_test_<N>`, where `<N>` is your ticket number. It is the only database you may drop, and only by that exact name. Never drop by pattern (`LIKE`, a loop over `pg_database`): other tickets and the integration verify use databases on the same server.
 - Machine gotchas: `.claude/skills/ship-spec/environment.md`. Read it first.
 
 ## Steps
@@ -16,7 +17,7 @@ You are an **implementer** for one ticket of [spec #<SPEC>](https://github.com/D
    - `diagnosing-bugs` when something fails and you don't know why;
    - `domain-modeling` when a new term appears.
 4. **Check as you go.** Typecheck the packages you touched, run the affected test files, then `pnpm exec oxlint` and `pnpm exec oxfmt --check` on your changed files. Don't run the whole vitest suite; the orchestrator's verify is the full run. Run every command in the foreground and wait for it to exit.
-5. **Review.** Call the Skill tool with `code-review` on your diff against `origin/feature/<SLUG>`, and fix every confirmed finding.
+5. **Review. This step is required, even for a small diff.** Call the Skill tool with `code-review` on your diff against `origin/feature/<SLUG>`, and fix every confirmed finding. List it under `checks` in your report (`code-review → <n> findings, <n> fixed`). A report without it is sent back.
 6. **Commit** with Conventional Commits naming the ticket, `(#<N>)`, ending with the attribution line from your instructions.
 7. **Take the tip.** Merge `origin/feature/<SLUG>` into your branch, resolve conflicts keeping both tickets' behaviour, and re-run step 4's checks.
 8. **Report** in this shape, and nothing else:
