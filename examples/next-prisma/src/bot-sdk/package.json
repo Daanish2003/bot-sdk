@@ -13,7 +13,9 @@
     "./plugins/assistant/ui": "./plugins/assistant/ui/index.ts",
     "./plugins/bot/server": "./plugins/bot/server/index.ts",
     "./plugins/bot/client": "./plugins/bot/client/index.ts",
-    "./plugins/bot/ui": "./plugins/bot/ui/index.ts"
+    "./plugins/bot/ui": "./plugins/bot/ui/index.ts",
+    "./plugins/computer/server": "./plugins/computer/server/index.ts",
+    "./plugins/computer/e2b": "./plugins/computer/e2b/index.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",
@@ -54,6 +56,7 @@
     "cheerio": "1.1.2",
     "csv-parse": "7.0.2",
     "drizzle-orm": "catalog:",
+    "e2b": "2.55.0",
     "html-to-text": "10.0.1",
     "htmlparser2": "10.1.0",
     "ipaddr.js": "2.5.0",

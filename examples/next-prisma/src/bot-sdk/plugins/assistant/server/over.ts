@@ -61,7 +61,7 @@ export function createBotSdkOver(
  * other plugins `sdk` enabled.
  */
 export function createChatHandler(sdk: SdkOver, options: OverOptions): ChatHandler {
-  const { plugin: _plugin, rateLimit: _rateLimit, ...context } = sdk;
+  const { plugin: _plugin, hasPlugin: _hasPlugin, rateLimit: _rateLimit, ...context } = sdk;
   const models = { ...sdk, hooks: sdk.events, keyEncryptionSecrets: sdk.keyring };
   const plugins = enabledPlugins(sdk).filter(
     ({ id }) => !["models", "runner", "assistant"].includes(id),
