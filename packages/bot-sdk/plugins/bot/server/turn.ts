@@ -887,6 +887,25 @@ async function playTurn(
     }
   };
   /**
+   * `onComputer` for a live call: the Turn's time limit, like a Stop, stops its operations
+   * through `live`'s signal, and its commands run no later than `live`'s deadline.
+   */
+  const onLiveComputer = async <T extends object>(
+    operate: (computer: ComputerHandle, live: FileToolOptions) => Promise<T>,
+  ) => {
+    inLiveCall = true;
+    try {
+      return await onComputer((computer) =>
+        operate(computer, {
+          deadline: new Date(turn.startedAt.getTime() + turnTimeLimitMs),
+          signal: abortController.signal,
+        }),
+      );
+    } finally {
+      inLiveCall = false;
+    }
+  };
+  /**
    * After a Computer tool's Checkpoint is saved: the rebuild its result told is recorded as told.
    * A crash before then tells it again in the retried attempt rather than never.
    */
@@ -917,35 +936,25 @@ async function playTurn(
       const result = await ctx.activity(shellToolName, async () => {
         beforeLiveTool();
         if (!startedHere) return { error: interruptedShellError };
-        // A live call: the Turn's time limit, like a Stop, kills the command through the signal.
-        inLiveCall = true;
-        try {
-          return await onComputer(async (computer) => {
-            const result = await computer.run(command, {
-              cwd: resolvePath(turn.botId, cwd),
-              timeoutMs: (timeoutSeconds ?? defaultShellTimeoutSeconds) * 1000,
-              deadline: new Date(turn.startedAt.getTime() + turnTimeLimitMs),
-              signal: abortController.signal,
-            });
-            // The cap is applied here, so the Checkpoint holds only the truncated form.
-            const capped = await capOutput(
-              result,
-              spillPath(turn.botId, context?.toolCallId ?? uuidv7()),
-              computer.writeFile,
-            );
-            return "timedOut" in capped ? { ...capped, hint: timedOutHint } : capped;
+        return onLiveComputer(async (computer, live) => {
+          const result = await computer.run(command, {
+            ...live,
+            cwd: resolvePath(turn.botId, cwd),
+            timeoutMs: (timeoutSeconds ?? defaultShellTimeoutSeconds) * 1000,
           });
-        } finally {
-          inLiveCall = false;
-        }
+          // The cap is applied here, so the Checkpoint holds only the truncated form.
+          const capped = await capOutput(
+            result,
+            spillPath(turn.botId, context?.toolCallId ?? uuidv7()),
+            computer.writeFile,
+          );
+          return "timedOut" in capped ? { ...capped, hint: timedOutHint } : capped;
+        });
       });
       return recordTold(result);
     }),
   );
-  /**
-   * A file tool: one activity, re-run after a crash. A live call, like `shell`'s: a Stop or the
-   * Turn's time limit stops its operations through the signal.
-   */
+  /** A file tool: one activity, re-run after a crash, and a live call like `shell`'s. */
   const fileTool =
     <Input, Output extends object>(
       name: string,
@@ -961,17 +970,7 @@ async function playTurn(
         recordTold(
           await ctx.activity(name, async () => {
             beforeLiveTool();
-            inLiveCall = true;
-            try {
-              return await onComputer((computer) =>
-                run(computer, turn.botId, input, {
-                  deadline: new Date(turn.startedAt.getTime() + turnTimeLimitMs),
-                  signal: abortController.signal,
-                }),
-              );
-            } finally {
-              inLiveCall = false;
-            }
+            return onLiveComputer((computer, live) => run(computer, turn.botId, input, live));
           }),
         ),
       );

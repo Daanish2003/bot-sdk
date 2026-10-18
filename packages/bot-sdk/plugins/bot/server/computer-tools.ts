@@ -196,7 +196,7 @@ export const maxPageBytes = 512 * 1024;
  */
 export const fetchedLineBytes = 4 * (maxLineLength + 1);
 
-/** What a file tool's operations get from the Turn: its Stop, and its time limit. */
+/** What a file tool's operations get from the Turn: its Stop, and its time limit (for its commands). */
 export type FileToolOptions = { signal?: AbortSignal; deadline?: Date };
 
 /** A path quoted for bash. */
@@ -211,19 +211,22 @@ const notRegular = [
 
 /**
  * `read`'s one command, after `p=<path> o=<first line> n=<lines>`. Unless the path isn't a regular
- * file, it reports `binary` or `notutf8` from the whole file (scanned on the Computer, so no byte
- * moves), or else `lines <count>` and then the range, base64: each line cut to `fetchedLineBytes`,
- * and only the lines that fit in `maxPageBytes`. Any failed step fails the command.
+ * file, it reports `binary` or `notutf8` from the whole file (two passes on the Computer, so no
+ * byte moves), or else `lines <count>` and then the range, base64: each line cut to
+ * `fetchedLineBytes`, and only the lines that fit in `maxPageBytes`. Any failed step fails the
+ * command. The UTF-8 check needs the C.UTF-8 locale (Debian has it); without it, only the
+ * fetched lines are checked.
  */
 export const readScript = [
   "set -o pipefail",
   notRegular,
-  String.raw`nul=$(tr -dc '\000' < "$p" | wc -c) || exit`,
-  `[ "$nul" -eq 0 ] || { echo binary; exit 0; }`,
+  // One pass counts the newlines and the NULs: tr keeps only those, and wc counts them.
+  String.raw`counts=$(tr -dc '\000\n' < "$p" | wc -lc) || exit`,
+  `read -r lines all <<< "$counts"`,
+  `[ "$all" -eq "$lines" ] || { echo binary; exit 0; }`,
   `LC_ALL=C.UTF-8 grep -qaxv '.*' "$p"; s=$?`,
   `[ $s -eq 0 ] && { echo notutf8; exit 0; }`,
   `[ $s -eq 1 ] || exit $s`,
-  `lines=$(wc -l < "$p") || exit`,
   `[ -n "$(tail -c 1 "$p")" ] && lines=$((lines + 1))`,
   `echo "lines $lines"`,
   `e=$((o + n - 1)); [ "$e" -gt "$lines" ] && e=$lines`,
@@ -419,8 +422,7 @@ export async function writeTool(
   options: FileToolOptions = {},
 ) {
   const path = resolvePath(botId, input.path);
-  options.signal?.throwIfAborted();
-  await computer.writeFile(path, input.content);
+  await computer.writeFile(path, input.content, options);
   return { path, bytes: new TextEncoder().encode(input.content).length };
 }
 
@@ -447,8 +449,7 @@ export async function editTool(
       error: `${path} is ${size} bytes, over the ${maxTextBytes} edit can load. Use ${shellToolName} to change it (for example sed or a script).`,
     };
   }
-  options.signal?.throwIfAborted();
-  const bytes = await computer.readFile(path);
+  const bytes = await computer.readFile(path, options);
   if (!bytes) return { error: missing };
   const decoded = decodeText(bytes, path);
   if ("error" in decoded) return decoded;
@@ -464,8 +465,7 @@ export async function editTool(
       error: `oldText appears ${found} times in ${path}. Add surrounding text to make it unique, or set replaceAll to replace every occurrence.`,
     };
   }
-  options.signal?.throwIfAborted();
-  await computer.writeFile(path, decoded.text.split(input.oldText).join(input.newText));
+  await computer.writeFile(path, decoded.text.split(input.oldText).join(input.newText), options);
   return { path, replaced: input.replaceAll ? found : 1 };
 }
 
@@ -480,8 +480,7 @@ export async function listTool(
   options: FileToolOptions = {},
 ) {
   const path = resolvePath(botId, input.path);
-  options.signal?.throwIfAborted();
-  const entries = await computer.list(path);
+  const entries = await computer.list(path, options);
   if (!entries && path === botDirectory(botId)) return { path, entries: [] };
   if (!entries) return { error: `${path} does not exist.` };
   return { path, entries: [...entries].sort((a, b) => a.name.localeCompare(b.name)) };
