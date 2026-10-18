@@ -612,7 +612,8 @@ type PlayedTurn = {
  * returns its result without running; past the history, calls run for real. A model call's usage
  * and a SendToUser's Message commit with their Checkpoint, so each happens once. A Step with no
  * tool call ends the Turn quiet, except that the first one with plain text gets one more Step,
- * after `undeliveredTextReminder`; the Step and time limits end it `error`.
+ * after `undeliveredTextReminder`, when a Step is left under the limit; the Step and time limits
+ * end it `error`.
  *
  * `attempt`, when given, is the attempt's signal: the live call stops when it aborts. `db` reads the
  * Turn's input (`deps.db` unless given).
@@ -818,13 +819,11 @@ async function playTurn(
         if (engine) messages.push(...engine.messages.slice(engine.messageCount));
       }
       if (reminded || endTurn || stepLimit || error !== undefined) break;
-      if (abortController.signal.aborted || !endsInPlainText(messages)) break;
+      // With no Step left under the limit, there is no reminder: the Turn ends quiet, as before.
+      if (abortController.signal.aborted || steps >= turnStepLimit) break;
+      if (!endsInPlainText(messages)) break;
       // Plain text reaches no one: one more Step, with a note that says so (#531). It is rebuilt
       // from the recorded model call on replay, so it needs no Checkpoint of its own.
-      if (steps >= turnStepLimit) {
-        stepLimit = true;
-        break;
-      }
       reminded = true;
       messages.push({ role: "user", content: undeliveredTextReminder });
     }

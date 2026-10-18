@@ -473,7 +473,7 @@ describe("a Step that ends in plain text", () => {
     expect(turn).toMatchObject({ status: "error", error: "step_limit" });
   });
 
-  it("ends the Turn error / step_limit when plain text ends the tenth Step, as the reminder would be an eleventh", async () => {
+  it("skips the reminder when plain text ends the tenth Step, and ends the Turn quiet and complete", async () => {
     const more = round(sends({ text: "More", endTurn: false }));
     const { client, botId, fake } = await botWith([
       ...Array.from({ length: 9 }, () => more),
@@ -481,11 +481,13 @@ describe("a Step that ends in plain text", () => {
       round(sends({ text: "Too late", endTurn: true })),
     ]);
 
-    await send(client, botId, "go on");
+    const events = await send(client, botId, "go on");
 
     expect(fake.calls).toHaveLength(10);
+    expect(events.at(-1)).toEqual({ type: "turnEnded", status: "complete" });
     const [turn] = await turnsOf(botId);
-    expect(turn).toMatchObject({ status: "error", error: "step_limit" });
+    expect(turn).toMatchObject({ status: "complete", error: null });
+    expect(JSON.stringify(turn?.transcript)).not.toMatch(/not delivered/i);
   });
 });
 

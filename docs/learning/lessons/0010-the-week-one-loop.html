@@ -143,8 +143,8 @@
         So a Step that ends in plain text and no tool call gets one more Step, once per Turn, after
         a short note: that text was not delivered, so send it with <code>send_to_user</code> if the
         user needs it, or reply with no text. If that Step is plain text again, the Turn ends quiet
-        and <code>complete</code>. The extra Step counts toward the 10-Step limit, and the note
-        stays in the transcript.
+        and <code>complete</code>. The extra Step counts toward the 10-Step limit; with no Step
+        left, there is no note, and the Turn ends quiet. The note stays in the transcript.
       </p>
 
       <h2><span class="num">4</span>bot.send streams each Message</h2>
