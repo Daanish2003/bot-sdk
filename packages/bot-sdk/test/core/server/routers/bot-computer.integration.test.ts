@@ -939,6 +939,35 @@ describe("a rebuilt Computer", () => {
     expect(computerFake.callsOf("create")).toHaveLength(2);
   });
 
+  it("never says files were restored by a rebuild that started empty, after a later sync", async () => {
+    const { client, botId, fake, computerFake, deps, user } = await botWith([
+      round(file("list", {})),
+      round(),
+    ]);
+    // The Computer was never synced, so its rebuild starts empty; then a sync stores new files.
+    const handle = deps.plugin("computer").forUser(user.id);
+    await handle.list("/home/user");
+    await getTestDb()
+      .update(computerTable)
+      .set({ state: "asleep" })
+      .where(eq(computerTable.userId, user.id));
+    computerFake.lose(computerFake.callsOf("create")[0]!.sandboxId);
+    await handle.writeFile("/home/user/shared/later.txt", "new");
+    await getTestDb()
+      .update(computerTable)
+      .set({ lastActiveAt: new Date(Date.now() - 10 * 60_000) })
+      .where(eq(computerTable.userId, user.id));
+    await drainJobs({ deps });
+    expect(await computerRow(user.id)).toMatchObject({ syncedAt: expect.any(Date) });
+
+    await send(client, botId, "look");
+
+    const { rebuiltAt } = (await computerRow(user.id))!;
+    const { note } = toolResultsOf(fake.calls[1]).at(-1);
+    expect(note).toContain(rebuiltAt!.toISOString());
+    expect(note).not.toMatch(/were restored/);
+  });
+
   it("tells each of the user's Bots once, and not a Bot created after it", async () => {
     const { client, botId, fake, computerFake, deps, user } = await botWith([
       round(file("write", { path: "note.txt", content: "kept" })),

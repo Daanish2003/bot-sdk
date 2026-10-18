@@ -96,7 +96,8 @@ export type OwnerCheck = (tx: Transaction, userId: string) => Promise<boolean>;
 /**
  * The Computer's latest rebuild: at `rebuiltAt`, a wake built it again from its template and
  * restored its synced files as of `restoredAsOf`. That is null when there was no archive, so it
- * started empty, and undefined once a later sync replaced the archive it restored.
+ * started empty, and undefined once a later sync stored a newer archive: the row then no longer
+ * says whether the rebuild restored one or started empty.
  */
 export type Rebuild = { rebuiltAt: Date; restoredAsOf: Date | null | undefined };
 
