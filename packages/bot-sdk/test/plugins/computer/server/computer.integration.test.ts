@@ -297,9 +297,10 @@ describe("the sleep check", () => {
     await sleeping;
     await operation;
 
-    // The sleep's sync lists the files, then archives them, before the pause.
+    // The sleep's sync lists the files, archives them and removes the archive, before the pause.
     expect(fake.calls.map((call) => call.type)).toEqual([
       "create",
+      "run",
       "run",
       "run",
       "run",
@@ -426,6 +427,8 @@ describe("syncing the files at sleep", () => {
     expect(synced?.syncedAt).toEqual(clock.now);
     expect(synced?.syncFingerprint).toMatch(/^[0-9a-f]{64}$/);
     expect(synced?.syncedBytes).toBe(archive?.length);
+    // No snapshot keeps the archive.
+    expect([...fake.files.keys()]).toEqual(["/home/user/bots/b1/note.txt"]);
 
     await handle.list("/home/user");
     await sleepNow(setup);
@@ -544,6 +547,7 @@ describe("a wake that rebuilds", () => {
 
     const [, second] = fake.callsOf("create");
     expect(text(note)).toBe("remember me");
+    expect([...fake.files.keys()]).toEqual(["/home/user/bots/b1/note.txt"]);
     expect(fake.callsOf("resume")).toEqual([]);
     expect(await computerRow(user.id)).toMatchObject({
       state: "awake",

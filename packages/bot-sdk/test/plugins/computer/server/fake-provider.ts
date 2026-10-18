@@ -43,7 +43,7 @@ const newDisk = (): Disk => ({ files: new Map(), mtimes: new Map() });
 /**
  * A Computer provider for tests: no sandbox, only a record of what it was asked to do, and a disk
  * per sandbox. Each command is answered by `onCommand`, which the test supplies (exit 0 with no
- * output by default), except the commands the sync and restore use (`mkdir -p`, `find … -prune`,
+ * output by default), except the commands the sync and restore use (`mkdir -p`, `find … -prune`, `rm -f`,
  * `tar -czf`, `tar -xzf`, `stat -c %s`, joined by `&&`), which the fake runs on the disk. Its
  * archives are uncompressed, so a file's size is its archive's.
  *
@@ -210,15 +210,16 @@ function runBuiltIn(
   cwd: string,
   write: (disk: Disk, path: string, bytes: Uint8Array) => void,
 ): CommandResult | undefined {
-  const parts = command.split(" && ").map(words);
-  if (!parts.every((argv) => builtIns.has(argv[0] ?? ""))) return undefined;
+  // tar's `|| [ $? -eq 1 ]` (its exit 1 still wrote the archive) never fails here.
+  const parts = command.replaceAll(" || [ $? -eq 1 ]", "").split(" && ").map(words);
+  if (!parts.every(isBuiltIn)) return undefined;
   const at = (path: string) => posix.resolve(cwd, path);
   const under = (root: string, path: string) => path === root || path.startsWith(`${root}/`);
   let stdout = "";
   for (const [name, ...args] of parts) {
     if (name === "mkdir") continue;
     if (name === "find") {
-      // find <roots…> -name <excluded> -prune -o -printf '<format>'
+      // find <roots…> -name <excluded> -prune -o ! -type d -printf '%p %s %Ts\n'
       const roots = args.slice(0, args.indexOf("-name"));
       const excluded = args[args.indexOf("-name") + 1];
       for (const root of roots) {
@@ -226,9 +227,13 @@ function runBuiltIn(
           if (!under(at(root), path)) continue;
           const relative = posix.join(root, posix.relative(at(root), path));
           if (relative.split("/").includes(excluded ?? "")) continue;
-          stdout += `f ${relative} ${bytes.length} ${disk.mtimes.get(path) ?? 0}\n`;
+          stdout += `${relative} ${bytes.length} ${disk.mtimes.get(path) ?? 0}\n`;
         }
       }
+      continue;
+    }
+    if (name === "rm") {
+      disk.files.delete(at(args.at(-1) ?? ""));
       continue;
     }
     if (name === "stat") {
@@ -268,7 +273,11 @@ function runBuiltIn(
   return { exitCode: 0, stdout, stderr: "" };
 }
 
-const builtIns = new Set(["mkdir", "find", "stat", "tar"]);
+const builtIns = new Set(["mkdir", "find", "rm", "stat", "tar"]);
+
+/** Whether the fake runs this command itself: a test's own `rm -rf` goes to `onCommand`. */
+const isBuiltIn = ([name, ...args]: string[]) =>
+  builtIns.has(name ?? "") && (name !== "rm" || (args.length === 2 && args[0] === "-f"));
 
 /** A command's words, with single-quoted words unquoted. */
 const words = (command: string) =>

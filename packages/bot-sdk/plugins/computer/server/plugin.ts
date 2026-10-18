@@ -43,11 +43,17 @@ const syncCommandTimeoutMs = 2 * 60_000;
 const archivePath = "/tmp/computer-sync.tar.gz";
 const restorePath = "/tmp/computer-restore.tar.gz";
 
-/** Lists the synced files (type, path, size and mtime), the input of the sync's fingerprint. */
-const listCommand = `mkdir -p ${syncedTrees} && find ${syncedTrees} -name .outputs -prune -o -printf '%y %p %s %T@\\n'`;
+/**
+ * Lists the synced files (path, size and mtime in whole seconds, as tar keeps it), the input of the
+ * sync's fingerprint. Directories are left out, so a new `.outputs/` changes nothing.
+ */
+const listCommand = `mkdir -p ${syncedTrees} && find ${syncedTrees} -name .outputs -prune -o ! -type d -printf '%p %s %Ts\\n'`;
 
-/** Archives the synced trees and prints the archive's size. */
-const archiveCommand = `tar -czf ${archivePath} --exclude=.outputs ${syncedTrees} && stat -c %s ${archivePath}`;
+/**
+ * Archives the synced trees and prints the archive's size. tar's exit 1 ("file changed as we read
+ * it") still wrote the archive, so only a worse exit fails.
+ */
+const archiveCommand = `tar -czf ${archivePath} --exclude=.outputs ${syncedTrees} || [ $? -eq 1 ] && stat -c %s ${archivePath}`;
 
 /** The blob key of a user's Computer archive. */
 export const computerBlobKey = (userId: string) => `computer/${userId}`;
@@ -251,7 +257,7 @@ type Woken = { sandboxId: string; rebuild: Rebuild | null };
  * became awake. A failed wake throws, so the row keeps its old sandbox and the next call retries.
  */
 async function wake(sdk: BotSdkContext, provider: ComputerProvider, userId: string) {
-  return sdk.db.transaction(async (tx): Promise<Woken> => {
+  const { woken, replaced } = await sdk.db.transaction(async (tx) => {
     const [locked] = await tx
       .select()
       .from(computerTable)
@@ -259,7 +265,7 @@ async function wake(sdk: BotSdkContext, provider: ComputerProvider, userId: stri
       .for("update");
     if (!locked) throw new Error(`The Computer of user ${userId} has no row`);
     if (locked.state === "awake" && locked.sandboxId) {
-      return { sandboxId: locked.sandboxId, rebuild: null };
+      return { woken: { sandboxId: locked.sandboxId, rebuild: null }, replaced: null };
     }
     let woken: Woken;
     const asleepId = locked.sandboxId;
@@ -284,18 +290,29 @@ async function wake(sdk: BotSdkContext, provider: ComputerProvider, userId: stri
       .update(computerTable)
       .set({ state: "awake", sandboxId: woken.sandboxId, template: provider.template })
       .where(eq(computerTable.userId, userId));
-    // The old sandbox goes once the row names the new one; a gone one is killed harmlessly.
-    if (asleepId && asleepId !== woken.sandboxId) {
-      await provider.kill(asleepId).catch((caught: unknown) => {
-        sdk.logger.error(
-          `Killing the old sandbox of the Computer of user ${userId} failed`,
-          caught,
-        );
-      });
-    }
     await armSleepCheck(sdk, userId, after(sdk.clock(), computerIdleMs), tx);
-    return woken;
+    return { woken, replaced: asleepId && asleepId !== woken.sandboxId ? asleepId : null };
   });
+  // A rebuild's old sandbox goes once the row names the new one; a gone one is killed harmlessly.
+  if (replaced) await killBestEffort(sdk, provider, userId, replaced);
+  return woken;
+}
+
+/** Kills a sandbox the row no longer names. A failure is logged with the sandbox id, never thrown. */
+async function killBestEffort(
+  sdk: BotSdkContext,
+  provider: ComputerProvider,
+  userId: string,
+  sandboxId: string,
+) {
+  try {
+    await provider.kill(sandboxId);
+  } catch (caught) {
+    sdk.logger.error(
+      `Killing sandbox ${sandboxId} of the Computer of user ${userId} failed`,
+      caught,
+    );
+  }
 }
 
 /**
@@ -322,13 +339,13 @@ async function rebuild(
       await syncCommand(
         provider,
         sandboxId,
-        `tar -xzf ${restorePath} -C ${computerHome}`,
+        `tar -xzf ${restorePath} -C ${computerHome} && rm -f ${restorePath}`,
         "Extracting the archive",
       );
     }
     return { sandboxId, rebuild: { restoredAsOf: archive ? row.syncedAt : null } };
   } catch (caught) {
-    await provider.kill(sandboxId).catch(() => {});
+    await killBestEffort(sdk, provider, userId, sandboxId);
     sdk.logger.error(`Restoring the files of the Computer of user ${userId} failed`, caught);
     throw new ComputerUnavailableError(userId, caught);
   }
@@ -343,15 +360,36 @@ async function rebuild(
 async function syncFiles(
   sdk: BotSdkContext,
   provider: ComputerProvider,
-  row: typeof computerTable.$inferSelect & { sandboxId: string },
+  sandboxId: string,
+  { userId, syncFingerprint }: typeof computerTable.$inferSelect,
 ) {
-  const { userId, sandboxId } = row;
   try {
     const listing = await syncCommand(provider, sandboxId, listCommand, "Listing the files");
     const fingerprint = createHash("sha256")
       .update(listing.split("\n").filter(Boolean).sort().join("\n"))
       .digest("hex");
-    if (fingerprint === row.syncFingerprint) return null;
+    if (fingerprint === syncFingerprint) return null;
+    const bytes = await readArchive(sdk, provider, sandboxId, userId);
+    if (!bytes) return null;
+    await sdk.blobStore.put(computerBlobKey(userId), bytes, { contentType: "application/gzip" });
+    return { syncedAt: sdk.clock(), syncFingerprint: fingerprint, syncedBytes: bytes.length };
+  } catch (caught) {
+    sdk.logger.error(`Syncing the files of the Computer of user ${userId} failed`, caught);
+    return null;
+  }
+}
+
+/**
+ * Archives the synced trees and reads the archive's bytes, or returns null for one over the cap,
+ * logged with its size. The archive is removed from the sandbox either way, so no snapshot keeps it.
+ */
+async function readArchive(
+  sdk: BotSdkContext,
+  provider: ComputerProvider,
+  sandboxId: string,
+  userId: string,
+) {
+  try {
     const size = Number(
       (await syncCommand(provider, sandboxId, archiveCommand, "Archiving the files")).trim(),
     );
@@ -363,11 +401,11 @@ async function syncFiles(
     }
     const bytes = await provider.readFile(sandboxId, archivePath);
     if (!bytes) throw new Error(`${archivePath} is missing`);
-    await sdk.blobStore.put(computerBlobKey(userId), bytes, { contentType: "application/gzip" });
-    return { syncedAt: sdk.clock(), syncFingerprint: fingerprint, syncedBytes: bytes.length };
-  } catch (caught) {
-    sdk.logger.error(`Syncing the files of the Computer of user ${userId} failed`, caught);
-    return null;
+    return bytes;
+  } finally {
+    await syncCommand(provider, sandboxId, `rm -f ${archivePath}`, "Removing the archive").catch(
+      () => {},
+    );
   }
 }
 
@@ -413,7 +451,7 @@ async function sleepCheck(
     const now = sdk.clock();
     const idle = now.getTime() - locked.lastActiveAt.getTime() > computerIdleMs;
     if (idle && !(await isBusy(busyChecks, userId, locked.lastActiveAt))) {
-      const synced = await syncFiles(sdk, provider, { ...locked, sandboxId: locked.sandboxId });
+      const synced = await syncFiles(sdk, provider, locked.sandboxId, locked);
       await provider.pause(locked.sandboxId);
       await tx
         .update(computerTable)
