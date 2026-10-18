@@ -5,6 +5,7 @@ import {
   NotFoundError,
   Sandbox,
   SandboxNotFoundError,
+  SandboxNotRunningError,
   type CommandResult as E2bCommandResult,
 } from "e2b";
 
@@ -38,9 +39,46 @@ export function e2bProvider({
   template,
 }: E2bProviderOptions): ComputerProvider {
   const connection = { apiKey, apiUrl, sandboxUrl };
+  // The connected sandbox of each id: a connect is a control-plane round trip, and an operation
+  // would pay it every time. An entry goes when its sandbox is paused, killed or gone, and when
+  // a call on it fails, so the next call connects afresh.
+  const connected = new Map<string, Promise<Sandbox>>();
+  const forget = (sandboxId: string) => {
+    connected.delete(sandboxId);
+  };
   // A connect to a running sandbox leaves its timeout alone unless the new one is longer.
-  const open = (sandboxId: string) =>
-    goneIfNotFound(sandboxId, () => Sandbox.connect(sandboxId, connection));
+  const open = (sandboxId: string) => {
+    let sandbox = connected.get(sandboxId);
+    if (!sandbox) {
+      sandbox = Sandbox.connect(sandboxId, connection);
+      connected.set(sandboxId, sandbox);
+      const attempt = sandbox;
+      sandbox.catch(() => {
+        if (connected.get(sandboxId) === attempt) forget(sandboxId);
+      });
+    }
+    return sandbox;
+  };
+  /** Runs a call on the sandbox, throwing `SandboxGoneError` when E2B no longer has it. */
+  const withSandbox = async <T>(
+    sandboxId: string,
+    call: (sandbox: Sandbox) => Promise<T>,
+    retried = false,
+  ): Promise<T> => {
+    try {
+      return await call(await open(sandboxId));
+    } catch (error) {
+      forget(sandboxId);
+      const stale =
+        error instanceof SandboxNotRunningError || error instanceof SandboxNotFoundError;
+      // A cached connection can be stale: the sandbox was paused or killed behind its back. One
+      // fresh connect resumes it or finds it gone. No call had run yet, so it is safe to make it again.
+      if (stale && !retried) return withSandbox(sandboxId, call, true);
+      if (error instanceof SandboxNotFoundError)
+        throw new SandboxGoneError(sandboxId, { cause: error });
+      throw error;
+    }
+  };
 
   return {
     template,
@@ -51,12 +89,15 @@ export function e2bProvider({
         timeoutMs,
         lifecycle: { onTimeout: "pause" },
       });
+      connected.set(sandbox.sandboxId, Promise.resolve(sandbox));
       return { sandboxId: sandbox.sandboxId };
     },
 
     async resume(sandboxId, { timeoutMs }) {
+      forget(sandboxId);
       try {
-        await Sandbox.connect(sandboxId, { ...connection, timeoutMs });
+        const sandbox = await Sandbox.connect(sandboxId, { ...connection, timeoutMs });
+        connected.set(sandboxId, Promise.resolve(sandbox));
         return "resumed";
       } catch (error) {
         if (error instanceof NotFoundError) return "gone";
@@ -65,10 +106,12 @@ export function e2bProvider({
     },
 
     async kill(sandboxId) {
+      forget(sandboxId);
       await Sandbox.kill(sandboxId, connection);
     },
 
     async pause(sandboxId) {
+      forget(sandboxId);
       await goneIfNotFound(sandboxId, () => Sandbox.pause(sandboxId, connection));
     },
 
@@ -78,20 +121,29 @@ export function e2bProvider({
 
     async run(sandboxId, command, { cwd = homeDirectory, timeoutMs, signal }) {
       signal?.throwIfAborted();
-      const sandbox = await open(sandboxId);
-      await sandbox.files.makeDir(cwd);
       // Each stream keeps only its ends, so a command that prints without end can't exhaust memory.
       const out = boundedOutput();
       const err = boundedOutput();
-      // The SDK's own limit is off (0): the timer below kills the command and keeps its output.
-      const handle = await sandbox.commands.run(command, {
-        background: true,
-        cwd,
-        timeoutMs: 0,
-        onStdout: (data) => out.add(data),
-        onStderr: (data) => err.add(data),
-      });
-      const kill = () => handle.kill().catch(() => false);
+      // The command gets a process group of its own, and creates its directory in the same call:
+      // `exec` makes the shell's pid the group's id, so a kill can reach the children and
+      // background jobs the command started, which a kill of the shell alone leaves running.
+      const script = `mkdir -p ${quoted(cwd)} && cd ${quoted(cwd)} && exec setsid bash -c ${quoted(command)}`;
+      const { sandbox, handle } = await withSandbox(sandboxId, async (sandbox) => ({
+        sandbox,
+        // The SDK's own limit is off (0): the timer below kills the command and keeps its output.
+        handle: await sandbox.commands.run(script, {
+          background: true,
+          timeoutMs: 0,
+          onStdout: (data) => out.add(data),
+          onStderr: (data) => err.add(data),
+        }),
+      }));
+      const kill = async () => {
+        await Promise.all([
+          sandbox.commands.run(`kill -KILL -- -${handle.pid}`).catch(() => undefined),
+          handle.kill().catch(() => false),
+        ]);
+      };
       return new Promise<CommandResult | TimedOutCommand>((resolve, reject) => {
         // Killing the command also settles `wait()`, which must not beat the outcome set here.
         let stopped = false;
@@ -135,17 +187,17 @@ export function e2bProvider({
     },
 
     async readFile(sandboxId, path) {
-      const sandbox = await open(sandboxId);
-      try {
-        return await sandbox.files.read(path, { format: "bytes" });
-      } catch (error) {
-        if (error instanceof FileNotFoundError) return null;
-        throw error;
-      }
+      return withSandbox(sandboxId, async (sandbox) => {
+        try {
+          return await sandbox.files.read(path, { format: "bytes" });
+        } catch (error) {
+          if (error instanceof FileNotFoundError) return null;
+          throw error;
+        }
+      });
     },
 
     async writeFile(sandboxId, path, content) {
-      const sandbox = await open(sandboxId);
       const data =
         typeof content === "string"
           ? content
@@ -153,24 +205,30 @@ export function e2bProvider({
               content.byteOffset,
               content.byteOffset + content.byteLength,
             ) as ArrayBuffer);
-      await sandbox.files.write(path, data);
+      await withSandbox(sandboxId, (sandbox) => sandbox.files.write(path, data));
     },
 
     async list(sandboxId, path) {
-      const sandbox = await open(sandboxId);
-      try {
-        const entries = await sandbox.files.list(path);
-        return entries.map((entry): FileEntry => ({
-          name: entry.name,
-          kind: entry.type === FileType.DIR ? "directory" : "file",
-          size: entry.size,
-        }));
-      } catch (error) {
-        if (error instanceof FileNotFoundError) return null;
-        throw error;
-      }
+      return withSandbox(sandboxId, async (sandbox) => {
+        try {
+          const entries = await sandbox.files.list(path);
+          return entries.map((entry): FileEntry => ({
+            name: entry.name,
+            kind: entry.type === FileType.DIR ? "directory" : "file",
+            size: entry.size,
+          }));
+        } catch (error) {
+          if (error instanceof FileNotFoundError) return null;
+          throw error;
+        }
+      });
     },
   };
+}
+
+/** A string as one shell word. */
+function quoted(text: string) {
+  return `'${text.replaceAll("'", "'\\''")}'`;
 }
 
 /** Runs an E2B call on a sandbox, throwing `SandboxGoneError` when E2B no longer has it. */
