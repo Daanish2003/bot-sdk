@@ -41,6 +41,16 @@ describe("boundedOutput", () => {
     expect(text.length).toBeLessThan(2 * keptEndCharacters + 100);
   });
 
+  it("never splits a character outside the Basic Multilingual Plane at either cut", () => {
+    const output = boundedOutput();
+    // Each emoji is two UTF-16 code units, so an odd prefix puts a pair across every boundary.
+    output.add("a" + "😀".repeat(2 * keptEndCharacters));
+
+    const text = output.text();
+    expect(text).toBe(new TextDecoder().decode(new TextEncoder().encode(text)));
+    expect(text.endsWith("😀")).toBe(true);
+  });
+
   it("still spills to a file in shell, with the real first and last characters in the result", async () => {
     const output = boundedOutput();
     output.add("start ");

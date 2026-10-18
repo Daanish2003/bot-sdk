@@ -19,7 +19,7 @@ import {
   ComputerUnavailableError,
   syncCapBytes,
 } from "../../../../plugins/computer/server/plugin";
-import type { CommandResult } from "../../../../plugins/computer/server/provider";
+import { SandboxGoneError, type CommandResult } from "../../../../plugins/computer/server/provider";
 import type { JobRunner } from "../../../../plugins/runner/server/jobs/runner";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { drainJobs } from "../../../support/jobs";
@@ -661,14 +661,29 @@ describe("an awake Computer whose sandbox is gone", () => {
       sandboxId: second?.sandboxId,
     });
     expect(handle.takeRebuild()).toEqual({ restoredAsOf: synced?.syncedAt });
+    // The lost awake period's check is cancelled: one chain, armed by the rebuild's wake.
+    expect(await queuedChecks()).toHaveLength(1);
+  });
+
+  it("is unavailable when the rebuilt sandbox is gone too", async () => {
+    const { fake, handle } = await awakeAndLost();
+    fake.provider.readFile = async (sandboxId) => {
+      throw new SandboxGoneError(sandboxId);
+    };
+
+    await expect(handle.readFile("/home/user/bots/b1/note.txt")).rejects.toBeInstanceOf(
+      ComputerUnavailableError,
+    );
   });
 
   it("is marked asleep by an idle sleep check, which ends its chain, and the next operation rebuilds it", async () => {
     const setup = await awakeAndLost();
-    const { fake, user, handle } = setup;
+    const { fake, user, handle, logged } = setup;
 
     await sleepNow(setup);
 
+    // A gone sandbox is no sync failure.
+    expect(logged).toEqual([]);
     expect(await getTestDb().select().from(job).where(eq(job.status, "failed"))).toEqual([]);
     expect((await computerRow(user.id))?.state).toBe("asleep");
     expect(await queuedChecks()).toEqual([]);

@@ -213,8 +213,10 @@ export function computer({ provider }: ComputerOptions): ComputerPlugin {
                   return await act(woken.sandboxId);
                 } catch (caught) {
                   if (signal?.aborted) throw caught;
-                  // The row said awake, but the sandbox is gone: the wake rebuilds it, once.
-                  if (caught instanceof SandboxGoneError && !retried) {
+                  if (caught instanceof SandboxGoneError) {
+                    // A rebuilt sandbox gone too: the Computer couldn't start.
+                    if (retried) throw new ComputerUnavailableError(userId, caught);
+                    // The row said awake, but the sandbox is gone: the wake rebuilds it, once.
                     await markAsleep(sdk, userId, woken.sandboxId);
                     woken = await wake(sdk, provider, userId);
                     continue;
@@ -352,12 +354,26 @@ async function wake(sdk: BotSdkContext, provider: ComputerProvider, userId: stri
   return woken;
 }
 
-/** Marks the Computer asleep while its row still names `sandboxId`, gone, so the next wake rebuilds it. */
+/**
+ * Marks the Computer asleep while its row still names `sandboxId`, gone, so the next wake rebuilds
+ * it, and cancels the queued sleep checks of the awake period it ends: the wake arms a fresh one.
+ */
 async function markAsleep(sdk: BotSdkContext, userId: string, sandboxId: string) {
-  await sdk.db
-    .update(computerTable)
-    .set({ state: "asleep" })
-    .where(and(eq(computerTable.userId, userId), eq(computerTable.sandboxId, sandboxId)));
+  await sdk.db.transaction(async (tx) => {
+    const marked = await tx
+      .update(computerTable)
+      .set({ state: "asleep" })
+      .where(
+        and(
+          eq(computerTable.userId, userId),
+          eq(computerTable.sandboxId, sandboxId),
+          eq(computerTable.state, "awake"),
+        ),
+      )
+      .returning({ userId: computerTable.userId });
+    if (marked.length === 0) return;
+    await cancelQueuedJobsIn(tx, sleepJobName, { field: "userId", value: userId }, sdk.clock());
+  });
 }
 
 /** Kills a sandbox the row no longer names. A failure is logged with the sandbox id, never thrown. */
@@ -436,7 +452,10 @@ async function syncFiles(
     await sdk.blobStore.put(computerBlobKey(userId), bytes, { contentType: "application/gzip" });
     return { syncedAt: sdk.clock(), syncFingerprint: fingerprint, syncedBytes: bytes.length };
   } catch (caught) {
-    sdk.logger.error(`Syncing the files of the Computer of user ${userId} failed`, caught);
+    // A gone sandbox has nothing to sync; the pause that follows finds it gone too.
+    if (!(caught instanceof SandboxGoneError)) {
+      sdk.logger.error(`Syncing the files of the Computer of user ${userId} failed`, caught);
+    }
     return null;
   }
 }
