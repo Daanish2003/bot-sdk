@@ -134,8 +134,17 @@
         further Model call. This is slide 22's "one less step", and a normal reply costs one Step.
       </p>
       <p>
-        There is no <code>NO_REPLY</code> token and no forced <code>tool_choice</code>. Quiet is
-        just a reply that calls no tool.
+        There is no <code>NO_REPLY</code> token and no forced <code>tool_choice</code>. Quiet is a
+        reply with no text and no tool call.
+      </p>
+      <p>
+        <em>Amended by <a href="https://github.com/Daanish2003/ai-chat/issues/531">#531</a>.</em>
+        A Model sometimes writes a refusal or a question as plain text, which the user never sees.
+        So a Step that ends in plain text and no tool call gets one more Step, once per Turn, after
+        a short note: that text was not delivered, so send it with <code>send_to_user</code> if the
+        user needs it, or reply with no text. If that Step is plain text again, the Turn ends quiet
+        and <code>complete</code>. The extra Step counts toward the 10-Step limit, and the note
+        stays in the transcript.
       </p>
 
       <h2><span class="num">4</span>bot.send streams each Message</h2>
@@ -205,6 +214,13 @@
         </ul>
         <h3>Side notes</h3>
         <ul>
+          <li>
+            The note after a plain-text Step is a recorded deviation: the lecture is silent here.
+            Its reason is the Turn eval's numbers, kept next to
+            <code>undeliveredTextReminder</code> in
+            <a href="../../../packages/bot-sdk/plugins/bot/server/turn.ts"><code>turn.ts</code></a
+            >. After a crash it is rebuilt from the recorded model call, so it needs no Checkpoint.
+          </li>
           <li>
             <code>sendToBot</code> checks, in order: the Bot, the Model, then Quota
             (<code>meter.mayRun()</code>). Then one transaction locks the Conversation, refuses with
