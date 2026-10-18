@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lt } from "drizzle-orm";
 
 import { deleteConversations } from "../../../core/server/chat/delete-conversations";
 import {
@@ -58,6 +58,31 @@ export async function createBot(
     if (!row) throw new Error("Inserting the Bot returned no row");
     return row;
   });
+}
+
+/**
+ * Whether a Turn of one of the user's Bots is running and started before `lastActiveAt`, the
+ * Computer's last activity, so it may still use the Computer: `bot`'s busy check (#508). A Turn
+ * that started later hasn't used it yet.
+ */
+export async function hasTurnUsingComputer(
+  db: Database,
+  userId: string,
+  lastActiveAt: Date,
+): Promise<boolean> {
+  const [running] = await db
+    .select({ id: botTurn.id })
+    .from(botTurn)
+    .innerJoin(bot, eq(bot.id, botTurn.botId))
+    .where(
+      and(
+        eq(bot.userId, userId),
+        eq(botTurn.status, "running"),
+        lt(botTurn.startedAt, lastActiveAt),
+      ),
+    )
+    .limit(1);
+  return running !== undefined;
 }
 
 /** The longest a Turn may run; past it, it ends `error` with `timed_out`. */

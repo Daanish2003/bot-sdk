@@ -478,6 +478,9 @@ importers:
       drizzle-orm:
         specifier: 'catalog:'
         version: 1.0.0-rc.4(@cloudflare/workers-types@4.20260702.1)(@types/pg@8.23.1)(pg@8.23.1)(zod@4.6.5)
+      e2b:
+        specifier: 2.55.0
+        version: 2.55.0
       html-to-text:
         specifier: 10.0.1
         version: 10.0.1

@@ -8,7 +8,7 @@ The chat lives in `src/bot-sdk/`, a committed copy made by the SDK's copy script
 ## Layout
 
 - `src/bot-sdk/`: the copied SDK, reached through the `@ai-chat/bot-sdk/*` alias in `tsconfig.json`. `core/` and each plugin's server and client code are replaced on every copy; every `ui/` folder is the Host's to edit. `VERSION` records the commit and time of the copy.
-- `src/lib/chat.ts`: `createBotSdk({ plugins: [models(), runner(), assistant()] })` with `getUser` from `auth()`.
+- `src/lib/chat.ts`: `createBotSdk({ plugins: [models(), runner(), assistant()] })` (plus `computer` when the E2B variables are set) with `getUser` from `auth()`.
 - `src/app/api/chat/[...path]/route.ts`: the catch-all handler under `/api/chat`.
 - `src/instrumentation.ts` and `src/instrumentation-node.ts`: `chat.start()` and the SIGTERM drain.
 - `src/components/chat-root.tsx`: `<ChatProvider>` with a `router` adapter on `next/link` and `next/navigation`.
@@ -24,6 +24,7 @@ environment or in a gitignored `.env` (see `.env.example`):
 - `AUTH_SECRET`: `openssl rand -base64 32`
 - `AUTH_TRUST_HOST=true` for local hosts
 - `KEY_ENCRYPTION_SECRET`: keep it stable, since it encrypts saved Provider keys
+- `E2B_API_KEY`, `E2B_API_URL`, `E2B_SANDBOX_URL` (optional): the three self-hosted E2B values that turn on the `computer` plugin, so Bots get a Computer. Set all three or none; with none, Bots work without one. See `packages/bot-sdk/README.md` for the setup.
 
 ```sh
 pnpm -F @ai-chat/example-next-prisma db:migrate   # prisma migrate deploy, then the chat schema
