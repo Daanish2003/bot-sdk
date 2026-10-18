@@ -100,6 +100,10 @@ The root `ui/` needs nothing beyond `core/`'s packages.
 - for Knowledge's text extraction: `cheerio`, `htmlparser2`, `csv-parse`, `mammoth`, `pdfjs-dist`, `@thednp/dommatrix`
 - for its `ui/`: `@tanstack/ai-react`, `lucide-react`, and what the `prompt-kit` components need (see below): `class-variance-authority`, `marked`, `react-markdown`, `remark-breaks`, `remark-gfm`, `shiki`, `use-stick-to-bottom`, `@tailwindcss/typography`.
 
+**What the `computer` plugin needs (on top of `core/`):**
+
+- `e2b` (pinned at 2.55.0), the E2B JS SDK. Only `plugins/computer/e2b` imports it, so a Host that does not use that subpath can leave it out.
+
 `core/` imports only npm packages and its own files, so a Host outside this repo can copy and compile it. `examples/next-prisma` is a Host outside this repo that runs it.
 
 ## shadcn components
@@ -232,6 +236,71 @@ export const chat = createBotSdk({
 ```
 
 `chat.plugin("runner").runJob(name, payload)` runs a job's handler in the calling process, after validating the payload with the job's schema. It rejects an unknown name or a bad payload, and a handler's error reaches the task, so Trigger.dev's retries apply. The Trigger.dev runner supports `enqueue` only: `cancel`, `status` and `schedule` throw until they are needed. Trigger.dev's idempotency keys also match runs that have finished, so unlike the in-process runner, an `idempotencyKey` can't be reused after its job ends.
+
+## A Computer for Bots: `computer`
+
+The `computer` plugin gives each user one Computer, a real machine where their Bots run shell commands and keep files. It requires `runner`, and it is imported from `@ai-chat/bot-sdk/plugins/computer/server`. Leave it out and Bots run without a Computer: no tools, and no mention of them in the system prompt.
+
+The plugin runs on a provider. The E2B provider is on its own subpath, so a Host that never imports it never loads the `e2b` package:
+
+```ts
+import { e2bProvider } from "@ai-chat/bot-sdk/plugins/computer/e2b";
+import { computer } from "@ai-chat/bot-sdk/plugins/computer/server";
+
+computer({
+  provider: e2bProvider({ apiKey, apiUrl, sandboxUrl, template: "ai-chat-computer-v1" }),
+});
+```
+
+`apps/web` turns `computer` on only when `E2B_API_KEY`, `E2B_API_URL` and `E2B_SANDBOX_URL` are all set.
+
+### The template
+
+`plugins/computer/template/Dockerfile` is a plain Debian image with no X server. The plugin only expects `/home/user`, `bash` and `tar`, so a Host can pass any template with those. The template's name is its version: change the name with every change to the Dockerfile, and every Computer is rebuilt on its next wake. `apps/web` keeps the name in `computerTemplate` (`src/services.ts`).
+
+Build it into self-hosted E2B with the E2B CLI (no dependency is added; `pnpm dlx` fetches it), from `packages/bot-sdk`, with the three variables above in the environment:
+
+```sh
+pnpm dlx @e2b/cli@2.22.0 template create ai-chat-computer-v1 -p plugins/computer/template -d Dockerfile
+```
+
+Notes from building it on local E2B Embed:
+
+- The root disk of a sandbox is about 800 MB, 256 MB of it reserved, and `--min-free-disk-mb` did not enlarge it. Keep the image small: with `nodejs` and `npm` added, the disk had no space left and a sleep's sync failed with "No space left on device".
+- The build resumes a snapshot for each Dockerfile step, which can fail with `mmap memfd: cannot allocate memory` when WSL's page cache has filled the memory. Free it (`wsl -d Ubuntu-24.04 -u root -- bash -c 'sync; echo 3 > /proc/sys/vm/drop_caches; echo 1 > /proc/sys/vm/compact_memory'`) and build again; finished steps are cached.
+- Run only one sandbox at a time while testing: with the 2 GiB of hugepages Embed has here, a second sandbox placed while one is paused or running can fail with "Failed to place sandbox".
+
+### Local E2B Embed (WSL2)
+
+Self-hosted E2B runs in the WSL2 distro `Ubuntu-24.04`, in `~/e2b` (its own Docker Engine, not Docker Desktop). Start it, and again after any Windows or WSL restart:
+
+```sh
+wsl -d Ubuntu-24.04 -- bash -c 'cd ~/e2b && docker compose up -d --wait'
+```
+
+The three variables come from the `ready` container:
+
+```sh
+wsl -d Ubuntu-24.04 -- bash -c 'cd ~/e2b && docker compose exec -T ready cat /run/e2b/sdk.env'
+```
+
+It prints `E2B_API_KEY`, `E2B_API_URL=http://localhost:3000` and `E2B_SANDBOX_URL=http://localhost:3002` (and a dashboard URL the SDK doesn't need). Gotchas:
+
+- Use `localhost`, not `127.0.0.1`: WSL forwards its ports on `[::1]` only.
+- `C:\Users\<you>\.wslconfig` needs `[general]` `instanceIdleTimeout=-1`. Without it WSL stops Ubuntu 15 seconds after the last `wsl.exe` session closes, and Embed dies with it.
+- Keep Windows update KB5127648 uninstalled until microsoft/WSL#41917 is fixed: it turns off nested KVM on AMD.
+
+### Pause on timeout
+
+A sandbox is created with a 1 hour timeout and `lifecycle: { onTimeout: "pause" }`, the backstop for a sleep that never runs. Self-hosted E2B (the `e2b-dev/runtime` Embed, orchestrator `v0.16.202610051633`) honours it: a sandbox created with a 5 second timeout was paused when it ran out, and a later connect resumed it with its files. So no fallback is needed there. On an E2B that lacks it, the timeout would kill the sandbox, `resume` would report it `"gone"`, and the next wake would rebuild it from the last synced archive.
+
+### Trying it against a real E2B
+
+With the three variables set and the template built, two test files run the adapter on a real sandbox (they skip without the variables). Run them one file at a time from the repo root, with `TEST_DATABASE_URL` set:
+
+```sh
+pnpm exec vitest run --maxWorkers=1 --no-file-parallelism packages/bot-sdk/test/plugins/computer/e2b
+```
 
 ## Host hooks
 

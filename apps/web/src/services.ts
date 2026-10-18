@@ -8,6 +8,8 @@ import {
 } from "@ai-chat/bot-sdk/core/server";
 import { assistant } from "@ai-chat/bot-sdk/plugins/assistant/server";
 import { bot } from "@ai-chat/bot-sdk/plugins/bot/server";
+import { e2bProvider } from "@ai-chat/bot-sdk/plugins/computer/e2b";
+import { computer } from "@ai-chat/bot-sdk/plugins/computer/server";
 import {
   fakeEmbeddingAdapter,
   fakeImageAdapter,
@@ -31,6 +33,10 @@ import {
 } from "./host-models";
 import { mcpServersOf } from "./mcp-server";
 import { trustedIpHeadersOf } from "./trusted-ip";
+
+// The template Computers are built from, named by its version (spec #519). It matches the SDK's
+// Dockerfile, built into E2B as this name; changing it rebuilds every Computer on its next wake.
+export const computerTemplate = "ai-chat-computer-v1";
 
 export const db = createDb(ENV);
 // The OAuth values are optional outside production (see .env.schema); an empty id makes the
@@ -116,6 +122,19 @@ export const sdk = (shared.botSdk ??= createBotSdk({
     }),
     // Background jobs (ADR 0011): the in-process runner, which Knowledge and Memory share.
     runner(),
+    // The Bots' Computer (spec #519): on only when self-hosted E2B is configured.
+    ...(ENV.E2B_API_KEY && ENV.E2B_API_URL && ENV.E2B_SANDBOX_URL
+      ? [
+          computer({
+            provider: e2bProvider({
+              apiKey: ENV.E2B_API_KEY,
+              apiUrl: ENV.E2B_API_URL,
+              sandboxUrl: ENV.E2B_SANDBOX_URL,
+              template: computerTemplate,
+            }),
+          }),
+        ]
+      : []),
     assistant({
       mcpServers: mcpServersOf(ENV),
       // Artifacts (spec #304): the assistant's create_artifact tool, the side panel and its version route.
