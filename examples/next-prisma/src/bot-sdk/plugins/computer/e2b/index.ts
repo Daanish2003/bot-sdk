@@ -78,20 +78,22 @@ export function e2bProvider({
 
     async run(sandboxId, command, { cwd = homeDirectory, timeoutMs, signal }) {
       signal?.throwIfAborted();
-      const sandbox = await open(sandboxId);
-      await sandbox.files.makeDir(cwd);
       // Each stream keeps only its ends, so a command that prints without end can't exhaust memory.
       const out = boundedOutput();
       const err = boundedOutput();
       // The SDK's own limit is off (0): the timer below kills the command and keeps its output.
-      const handle = await sandbox.commands.run(command, {
+      const script = `mkdir -p ${quoted(cwd)} && cd ${quoted(cwd)} && exec setsid bash -c ${quoted(command)}`;
+      const sandbox = await open(sandboxId);
+      const handle = await sandbox.commands.run(script, {
         background: true,
-        cwd,
         timeoutMs: 0,
         onStdout: (data) => out.add(data),
         onStderr: (data) => err.add(data),
       });
-      const kill = () => handle.kill().catch(() => false);
+      const kill = async () => {
+        await sandbox.commands.run(`kill -KILL -- -${handle.pid}`).catch(() => undefined);
+        await handle.kill().catch(() => false);
+      };
       return new Promise<CommandResult | TimedOutCommand>((resolve, reject) => {
         // Killing the command also settles `wait()`, which must not beat the outcome set here.
         let stopped = false;
@@ -171,6 +173,11 @@ export function e2bProvider({
       }
     },
   };
+}
+
+/** A string as one shell word. */
+function quoted(text: string) {
+  return `'${text.replaceAll("'", "'\\''")}'`;
 }
 
 /** Runs an E2B call on a sandbox, throwing `SandboxGoneError` when E2B no longer has it. */
