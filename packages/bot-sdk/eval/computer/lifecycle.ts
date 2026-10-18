@@ -78,8 +78,11 @@ async function main() {
   const runSleepCheck = async (over: typeof sdk) => {
     const started = Date.now();
     const due = new Date(Date.now() + computerIdleMs + 60_000);
-    // A bounded loop: a check that keeps the Computer awake queues its follow-up inside the window.
-    for (let ran = 0; ran < 10; ran++) {
+    // Jobs left in a reused scratch database (earlier runs) are due first and are run too, so the loop
+    // goes on until this user is asleep. It is bounded because a check that keeps the Computer awake
+    // queues its follow-up inside the window.
+    for (let ran = 0; ran < 1000; ran++) {
+      if ((await row())?.state === "asleep") break;
       const claimed = await claimJob(db, due);
       if (!claimed) break;
       await runClaimedJob(db, claimed, { clock: systemClock, logger: console, deps: () => over });
