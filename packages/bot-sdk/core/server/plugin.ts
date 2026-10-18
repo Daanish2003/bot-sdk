@@ -115,6 +115,11 @@ export type BotSdkPlugin<
   id: Id;
   /** The ids of the plugins this one calls. `createBotSdk` throws when one isn't enabled. */
   requires?: readonly string[];
+  /**
+   * The ids of the plugins this one calls only when they're enabled (`hasPlugin`). Each enabled
+   * one is ordered before it, as with `requires`, so its `init` can call them; a missing one is fine.
+   */
+  uses?: readonly string[];
   /** oRPC routers, served under `<basePath>/rpc/<key>`. A key two plugins claim throws. */
   router?: Record<string, AnyRouter>;
   routes?: readonly Route[];
@@ -187,7 +192,7 @@ export function enabledPlugins(sdk: Pick<BotSdkContext, "plugin">): readonly Bot
 }
 
 /**
- * The plugins in dependency order: each after the plugins it requires, otherwise as listed.
+ * The plugins in dependency order: each after the plugins it requires or uses, otherwise as listed.
  * Throws on a duplicate id, a missing requirement or a cycle.
  */
 export function orderPlugins<Plugin extends BotSdkPlugin>(plugins: readonly Plugin[]): Plugin[] {
@@ -202,7 +207,7 @@ export function orderPlugins<Plugin extends BotSdkPlugin>(plugins: readonly Plug
     if (ordered.includes(plugin)) return;
     if (visiting.has(plugin.id)) {
       throw new Error(
-        `Plugin "${plugin.id}" is in a requires cycle: ${[...visiting, plugin.id].join(" → ")}`,
+        `Plugin "${plugin.id}" is in a cycle of requires or uses: ${[...visiting, plugin.id].join(" → ")}`,
       );
     }
     visiting.add(plugin.id);
@@ -212,6 +217,10 @@ export function orderPlugins<Plugin extends BotSdkPlugin>(plugins: readonly Plug
         throw new Error(`Plugin "${plugin.id}" requires plugin "${id}", which isn't enabled`);
       }
       visit(required);
+    }
+    for (const id of plugin.uses ?? []) {
+      const used = byId.get(id);
+      if (used) visit(used);
     }
     visiting.delete(plugin.id);
     ordered.push(plugin);

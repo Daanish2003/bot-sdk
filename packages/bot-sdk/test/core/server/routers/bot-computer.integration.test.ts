@@ -152,7 +152,8 @@ describe("the shell tool", () => {
     const [created] = computerFake.callsOf("create");
     expect(computerFake.callsOf("create")).toHaveLength(1);
     expect(computerFake.callsOf("resume")).toEqual([
-      { type: "resume", sandboxId: created?.sandboxId },
+      // With the backstop: the sandbox pauses itself an hour on, should no sleep check run.
+      { type: "resume", sandboxId: created?.sandboxId, timeoutMs: 60 * 60_000 },
     ]);
     // The resume comes before the command that needed it.
     expect(computerFake.calls.map((call) => call.type)).toEqual(["create", "run", "resume", "run"]);

@@ -208,7 +208,8 @@ describe("deleteUser across plugins", () => {
     expect(await activeJobsNaming(own.ids)).toEqual([]);
     expect(await rowsByTable(other.id)).toEqual(before);
     expect(kept.blobKeys.filter((key) => !held.has(key))).toEqual([]);
-    expect(await activeJobsNaming(kept.ids)).toHaveLength(1);
+    // Their Knowledge file's processing and their Computer's sleep check.
+    expect(await activeJobsNaming(kept.ids)).toHaveLength(2);
   });
 
   it("deletes the models plugin's rows on an instance without the assistant", async () => {
