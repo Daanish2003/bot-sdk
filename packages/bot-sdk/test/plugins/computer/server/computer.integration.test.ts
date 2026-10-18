@@ -3,7 +3,13 @@ import { describe, expect, it } from "vitest";
 
 import { postgresBlobStore } from "../../../../core/server/blob/postgres";
 import type { BlobStore } from "../../../../core/server/blob/store";
-import { botTurn, computer as computerTable, job } from "../../../../core/server/db/schema";
+import {
+  bot as botTable,
+  botTurn,
+  computer as computerTable,
+  job,
+} from "../../../../core/server/db/schema";
+import { deleteUserData } from "../../../../core/server/user-data";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { bot } from "../../../../plugins/bot/server/plugin";
 import { createBot } from "../../../../plugins/bot/server/store";
@@ -54,8 +60,8 @@ function sdkWith({
 function testBlobStore() {
   const inner = postgresBlobStore(getTestDb());
   const puts: string[] = [];
-  const failing = new Set<"put" | "get">();
-  const failIfTold = (call: "put" | "get") => {
+  const failing = new Set<"put" | "get" | "delete">();
+  const failIfTold = (call: "put" | "get" | "delete") => {
     if (failing.has(call)) throw new Error(`The blob store was told to fail ${call}`);
   };
   const store: BlobStore = {
@@ -68,7 +74,10 @@ function testBlobStore() {
       failIfTold("get");
       return inner.get(key);
     },
-    delete: (keys) => inner.delete(keys),
+    delete: async (keys) => {
+      failIfTold("delete");
+      await inner.delete(keys);
+    },
   };
   return { store, puts, failing, stored: (key: string) => inner.get(key) };
 }
@@ -633,6 +642,71 @@ describe("a sleep check left queued", () => {
     expect(await queuedChecks()).toEqual([]);
     const [check] = await getTestDb().select({ status: job.status }).from(job);
     expect(check?.status).toBe("succeeded");
+  });
+});
+
+describe("deleting", () => {
+  /** A user with a synced Computer, asleep, with a note of a Bot in its directory. */
+  async function syncedComputer() {
+    const setup = sdkWith({ withBot: true });
+    const user = await insertUser();
+    const handle = setup.sdk.plugin("computer").forUser(user.id);
+    await handle.writeFile("/home/user/bots/b1/note.txt", "remember me");
+    await sleepNow(setup);
+    return { ...setup, user, handle };
+  }
+
+  it("deletes the row, kills the sandbox and deletes the archive when the user is deleted", async () => {
+    const { sdk, fake, blobs, user } = await syncedComputer();
+    const sandboxId = (await computerRow(user.id))?.sandboxId;
+    expect(await blobs.stored(`computer/${user.id}`)).not.toBeNull();
+
+    await deleteUserData(sdk, user.id);
+
+    expect(await computerRow(user.id)).toBeUndefined();
+    expect(fake.callsOf("kill-sandbox")).toEqual([{ type: "kill-sandbox", sandboxId }]);
+    expect(await blobs.stored(`computer/${user.id}`)).toBeNull();
+  });
+
+  it("deletes the user even when the kill and the blob delete fail, logging both", async () => {
+    const { sdk, fake, blobs, user, logged } = await syncedComputer();
+    fake.provider.kill = async () => {
+      throw new Error("kill failed");
+    };
+    blobs.failing.add("delete");
+
+    await expect(deleteUserData(sdk, user.id)).resolves.toBeUndefined();
+
+    expect(await computerRow(user.id)).toBeUndefined();
+    const messages = logged.map(([message]) => String(message));
+    expect(messages.some((message) => message.includes("Killing sandbox"))).toBe(true);
+    expect(messages.some((message) => message.includes("Deleting blobs"))).toBe(true);
+  });
+
+  it("does nothing for a user who never used their Computer", async () => {
+    const { sdk, fake, blobs } = sdkWith();
+    const user = await insertUser();
+
+    await deleteUserData(sdk, user.id);
+
+    expect(fake.callsOf("kill-sandbox")).toEqual([]);
+    expect(blobs.puts).toEqual([]);
+  });
+
+  it("keeps a Bot's files on the Computer and in the next archive when the Bot is deleted", async () => {
+    const setup = await syncedComputer();
+    const { handle, blobs, user } = setup;
+    const created = await createBot(getTestDb(), user.id, { name: "Ada", model: "openai:gpt-5.6" });
+    await handle.writeFile(`/home/user/bots/${created.id}/work.txt`, "mine");
+
+    await getTestDb().delete(botTable).where(eq(botTable.id, created.id));
+    await sleepNow(setup);
+
+    expect(await handle.readFile(`/home/user/bots/${created.id}/work.txt`)).not.toBeNull();
+    const archive = text(await blobs.stored(`computer/${user.id}`));
+    expect(archive).toContain(`bots/${created.id}/work.txt`);
+    expect(archive).toContain("bots/b1/note.txt");
+    expect(await computerRow(user.id)).toBeDefined();
   });
 });
 
