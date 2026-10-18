@@ -178,7 +178,7 @@ A prompt one Bot runs on a schedule (days of the week at a time, in the user's t
 _Avoid_: Cron job, schedule, automation, Saved prompt (that the user inserts)
 
 **Check-in**:
-A scheduled time a Bot wakes to check on something.
+A single moment a Bot sets for itself to wake and check on something, with a note to its future self. It needs no Approval; anything that repeats is a Routine.
 _Avoid_: Reminder, Routine (that is a prompt the user approved)
 
 **Helper**:
