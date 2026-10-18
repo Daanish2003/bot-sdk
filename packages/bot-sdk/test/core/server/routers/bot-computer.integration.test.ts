@@ -2,7 +2,12 @@ import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { eq, inArray } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { botTurn, computer as computerTable, job } from "../../../../core/server/db/schema";
+import {
+  bot as botTable,
+  botTurn,
+  computer as computerTable,
+  job,
+} from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { bot } from "../../../../plugins/bot/server/plugin";
 import {
@@ -429,6 +434,7 @@ describe("a shell call whose attempt is cut off", () => {
       computerFake,
       deps,
       client,
+      user,
       botId,
       timer,
       instance,
@@ -491,6 +497,37 @@ describe("a shell call whose attempt is cut off", () => {
     expect(fake.calls).toHaveLength(2);
     expect(toolResultOf(fake.calls[1])).toEqual({ error: interruptedShellError });
     expect(await turnOf(botId)).toMatchObject({ status: "complete" });
+  });
+
+  it("still tells the rebuild in a retried attempt, after the rebuilding one died", async () => {
+    const setup = await botOnHandRunJobs([
+      round(shell({ command: "make all" })),
+      round(file("list", {})),
+      round(),
+    ]);
+    const { fake, computerFake, deps, user, attempt, timer, instance, client, botId } = setup;
+    // The user's Computer is asleep, and its sandbox is lost: the Turn's first call rebuilds it.
+    await deps.plugin("computer").forUser(user.id).list("/home/user");
+    await getTestDb()
+      .update(computerTable)
+      .set({ state: "asleep" })
+      .where(eq(computerTable.userId, user.id));
+    computerFake.lose(computerFake.callsOf("create")[0]!.sandboxId);
+    await client.bot.send({ botId, id: uuidv7(), text: "build it" });
+
+    const lost = attempt();
+    await setup.commandStarted;
+    timer.advance(61_000);
+    await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps);
+    timer.tick();
+    await lost;
+    await attempt(instance());
+
+    const rebuilt = await computerRow(user.id);
+    expect(computerFake.callsOf("create")).toHaveLength(2);
+    expect(toolResultsOf(fake.calls[2]).at(-1)).toMatchObject({
+      note: rebuiltNote({ rebuiltAt: rebuilt!.rebuiltAt!, restoredAsOf: null }),
+    });
   });
 });
 
@@ -734,15 +771,60 @@ describe("a rebuilt Computer", () => {
     await send(client, botId, "read it back");
 
     const [read, listed] = toolResultsOf(fake.calls[3]).slice(-2);
+    const { rebuiltAt } = (await computerRow(user.id))!;
     expect(read).toEqual({
       content: "1\tkept",
       totalLines: 1,
-      note: rebuiltNote({ restoredAsOf: synced!.syncedAt }),
+      note: rebuiltNote({ rebuiltAt: rebuiltAt!, restoredAsOf: synced!.syncedAt }),
     });
     expect(read.note).toBe(
       `Your computer was rebuilt: files were restored as of ${synced!.syncedAt!.toISOString()}, but installed programs may be missing.`,
     );
     expect(listed).not.toHaveProperty("note");
     expect(computerFake.callsOf("create")).toHaveLength(2);
+  });
+
+  it("tells each of the user's Bots once, and not a Bot created after it", async () => {
+    const { client, botId, fake, computerFake, deps, user } = await botWith([
+      round(file("write", { path: "note.txt", content: "kept" })),
+      round(),
+      round(file("list", {})),
+      round(),
+      round(file("list", {}), file("list", {})),
+      round(),
+      round(file("list", {})),
+      round(),
+      round(file("list", {})),
+      round(),
+    ]);
+    const { id: otherId } = await client.bot.create({ name: "Bo", model });
+    await send(client, botId, "take a note");
+    await getTestDb()
+      .update(computerTable)
+      .set({ lastActiveAt: new Date(Date.now() - 10 * 60_000) })
+      .where(eq(computerTable.userId, user.id));
+    await drainJobs({ deps });
+    computerFake.lose(computerFake.callsOf("create")[0]!.sandboxId);
+
+    // The first Bot's Turn rebuilds the Computer and is told.
+    await send(client, botId, "look");
+    expect(toolResultsOf(fake.calls[3]).at(-1)).toHaveProperty("note");
+    // The other Bot is told on its first Computer result, once.
+    await send(client, otherId, "look");
+    const [first, second] = toolResultsOf(fake.calls[5]).slice(-2);
+    expect(first).toHaveProperty("note");
+    expect(second).not.toHaveProperty("note");
+    // The first Bot isn't told again.
+    await send(client, botId, "look again");
+    expect(toolResultsOf(fake.calls[7]).at(-1)).not.toHaveProperty("note");
+    // A Bot created after the rebuild had nothing on the Computer to lose.
+    const { id: laterId } = await client.bot.create({ name: "Cy", model });
+    await send(client, laterId, "look");
+    expect(toolResultsOf(fake.calls[9]).at(-1)).not.toHaveProperty("note");
+    expect(computerFake.callsOf("create")).toHaveLength(2);
+    const seen = await getTestDb().select().from(botTable).where(eq(botTable.userId, user.id));
+    expect(seen.find((row) => row.id === otherId)?.computerRebuildSeenAt).toEqual(
+      (await computerRow(user.id))?.rebuiltAt,
+    );
   });
 });

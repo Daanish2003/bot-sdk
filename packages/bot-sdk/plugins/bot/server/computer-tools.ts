@@ -30,8 +30,11 @@ export function computerOperationError(message: string): string {
   return `Your computer reported an error: ${message}`;
 }
 
-/** What the first tool result after a rebuild of the Computer adds, once. */
-export function rebuiltNote({ restoredAsOf }: Rebuild): string {
+/** What a Bot's first tool result after a rebuild of the Computer adds, once per Bot. */
+export function rebuiltNote({ rebuiltAt, restoredAsOf }: Rebuild): string {
+  if (restoredAsOf === undefined) {
+    return `Your computer was rebuilt at ${rebuiltAt.toISOString()}: only the files it had saved before then were restored, and installed programs may be missing.`;
+  }
   return restoredAsOf
     ? `Your computer was rebuilt: files were restored as of ${restoredAsOf.toISOString()}, but installed programs may be missing.`
     : "Your computer was rebuilt: it had no saved files to restore, and installed programs may be missing.";

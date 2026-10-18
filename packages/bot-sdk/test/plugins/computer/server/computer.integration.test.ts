@@ -124,6 +124,7 @@ describe("forUser(userId).run", () => {
       syncedAt: null,
       syncFingerprint: null,
       syncedBytes: null,
+      rebuiltAt: null,
     });
   });
 
@@ -361,7 +362,12 @@ describe("bot's busy check", () => {
     const user = await insertUser();
     const lastActive = setup.clock.now;
     await setup.sdk.plugin("computer").forUser(user.id).run("true");
-    const created = await createBot(getTestDb(), user.id, { name: "Ada", model: "openai:gpt-5.6" });
+    const created = await createBot(
+      getTestDb(),
+      user.id,
+      { name: "Ada", model: "openai:gpt-5.6" },
+      new Date(),
+    );
     const insertTurn = (status: "running" | "complete", startedAt: Date) =>
       getTestDb().insert(botTurn).values({ id: uuidv7(), botId: created.id, status, startedAt });
     return { ...setup, user, lastActive, insertTurn };
@@ -393,10 +399,12 @@ describe("bot's busy check", () => {
     const { sdk, clock, user, lastActive, insertTurn } = await idleWithBot();
     await insertTurn("complete", after(lastActive, -1_000));
     const other = await insertUser();
-    const otherBot = await createBot(getTestDb(), other.id, {
-      name: "Bo",
-      model: "openai:gpt-5.6",
-    });
+    const otherBot = await createBot(
+      getTestDb(),
+      other.id,
+      { name: "Bo", model: "openai:gpt-5.6" },
+      new Date(),
+    );
     await getTestDb()
       .insert(botTurn)
       .values({
@@ -546,12 +554,12 @@ describe("a wake that rebuilds", () => {
     await handle.list("/home/user");
 
     expect(fake.calls.map((call) => call.type)).toEqual(["create"]);
-    expect(handle.takeRebuild()).toBeNull();
+    expect(handle.rebuild()).toBeNull();
     expect(blobs.puts).toEqual([]);
   });
 
-  it("rebuilds a lost sandbox from the template, restores the files, and tells it once", async () => {
-    const { fake, user, handle, firstId, synced } = await asleepWithNote();
+  it("rebuilds a lost sandbox from the template, restores the files, and records the rebuild", async () => {
+    const { sdk, fake, clock, user, handle, firstId, synced } = await asleepWithNote();
     fake.lose(firstId);
 
     const note = await handle.readFile("/home/user/bots/b1/note.txt");
@@ -564,15 +572,51 @@ describe("a wake that rebuilds", () => {
       state: "awake",
       sandboxId: second?.sandboxId,
       template: "fake-computer-v1",
+      rebuiltAt: clock.now,
     });
-    expect(handle.takeRebuild()).toEqual({ restoredAsOf: synced?.syncedAt });
-    expect(handle.takeRebuild()).toBeNull();
+    const rebuilt = { rebuiltAt: clock.now, restoredAsOf: synced?.syncedAt };
+    expect(handle.rebuild()).toEqual(rebuilt);
+    // Every later operation, through any handle of the user, sees the same rebuild.
+    const another = sdk.plugin("computer").forUser(user.id);
+    expect(another.rebuild()).toBeNull();
+    clock.now = after(clock.now, minuteMs);
+    await another.list("/home/user");
+    expect(another.rebuild()).toEqual(rebuilt);
+    expect(fake.callsOf("create")).toHaveLength(2);
+  });
+
+  it("no longer knows what a rebuild restored once a later sync replaced its archive", async () => {
+    const setup = await asleepWithNote();
+    const { fake, clock, handle, firstId } = setup;
+    fake.lose(firstId);
     await handle.list("/home/user");
-    expect(handle.takeRebuild()).toBeNull();
+    const rebuiltAt = clock.now;
+    await handle.writeFile("/home/user/bots/b1/later.txt", "new");
+    await sleepNow(setup);
+
+    await handle.list("/home/user");
+
+    expect(handle.rebuild()).toEqual({ rebuiltAt, restoredAsOf: undefined });
+  });
+
+  it("starts empty when the archive is missing, and forgets the sync it can't restore", async () => {
+    const { fake, clock, user, handle, firstId, blobs } = await asleepWithNote();
+    fake.lose(firstId);
+    await blobs.store.delete([`computer/${user.id}`]);
+
+    await handle.list("/home/user");
+
+    expect(fake.files.size).toBe(0);
+    expect(handle.rebuild()).toEqual({ rebuiltAt: clock.now, restoredAsOf: null });
+    expect(await computerRow(user.id)).toMatchObject({
+      syncedAt: null,
+      syncFingerprint: null,
+      syncedBytes: null,
+    });
   });
 
   it("rebuilds on a changed template, restores the files, and kills the old sandbox", async () => {
-    const { fake, user, handle, firstId, synced } = await asleepWithNote();
+    const { fake, clock, user, handle, firstId, synced } = await asleepWithNote();
     fake.provider.template = "fake-computer-v2";
 
     await handle.list("/home/user/bots/b1");
@@ -586,7 +630,7 @@ describe("a wake that rebuilds", () => {
       sandboxId: second?.sandboxId,
       template: "fake-computer-v2",
     });
-    expect(handle.takeRebuild()).toEqual({ restoredAsOf: synced?.syncedAt });
+    expect(handle.rebuild()).toEqual({ rebuiltAt: clock.now, restoredAsOf: synced?.syncedAt });
   });
 
   it("fails the wake when the restore fails, kills the new sandbox, leaves the row, and the next call retries", async () => {
@@ -604,8 +648,9 @@ describe("a wake that rebuilds", () => {
       state: "asleep",
       sandboxId: firstId,
       template: "fake-computer-v1",
+      rebuiltAt: null,
     });
-    expect(handle.takeRebuild()).toBeNull();
+    expect(handle.rebuild()).toBeNull();
 
     blobs.failing.delete("get");
     const note = await handle.readFile("/home/user/bots/b1/note.txt");
@@ -616,7 +661,7 @@ describe("a wake that rebuilds", () => {
   });
 
   it("starts empty when a lost Computer was never synced, and says so", async () => {
-    const { sdk, fake } = sdkWith();
+    const { sdk, fake, clock } = sdkWith();
     const user = await insertUser();
     const handle = sdk.plugin("computer").forUser(user.id);
     await handle.list("/home/user");
@@ -629,7 +674,7 @@ describe("a wake that rebuilds", () => {
     await handle.list("/home/user");
 
     expect(fake.callsOf("create")).toHaveLength(2);
-    expect(handle.takeRebuild()).toEqual({ restoredAsOf: null });
+    expect(handle.rebuild()).toEqual({ rebuiltAt: clock.now, restoredAsOf: null });
   });
 });
 
@@ -650,7 +695,7 @@ describe("an awake Computer whose sandbox is gone", () => {
   }
 
   it("is rebuilt by its next operation, with the files restored and the rebuild told", async () => {
-    const { fake, user, handle, synced } = await awakeAndLost();
+    const { fake, clock, user, handle, synced } = await awakeAndLost();
 
     const note = await handle.readFile("/home/user/bots/b1/note.txt");
 
@@ -660,7 +705,7 @@ describe("an awake Computer whose sandbox is gone", () => {
       state: "awake",
       sandboxId: second?.sandboxId,
     });
-    expect(handle.takeRebuild()).toEqual({ restoredAsOf: synced?.syncedAt });
+    expect(handle.rebuild()).toEqual({ rebuiltAt: clock.now, restoredAsOf: synced?.syncedAt });
     // The lost awake period's check is cancelled: one chain, armed by the rebuild's wake.
     expect(await queuedChecks()).toHaveLength(1);
   });
@@ -856,7 +901,12 @@ describe("deleting", () => {
   it("keeps a Bot's files on the Computer and in the next archive when the Bot is deleted", async () => {
     const setup = await syncedComputer();
     const { handle, blobs, user } = setup;
-    const created = await createBot(getTestDb(), user.id, { name: "Ada", model: "openai:gpt-5.6" });
+    const created = await createBot(
+      getTestDb(),
+      user.id,
+      { name: "Ada", model: "openai:gpt-5.6" },
+      new Date(),
+    );
     await handle.writeFile(`/home/user/bots/${created.id}/work.txt`, "mine");
 
     await getTestDb().delete(botTable).where(eq(botTable.id, created.id));

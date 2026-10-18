@@ -165,7 +165,7 @@ async function main() {
       "the file was restored",
       new TextDecoder().decode(restored ?? new Uint8Array()) === fileContent,
     );
-    const rebuild = rebuildHandle.takeRebuild();
+    const rebuild = rebuildHandle.rebuild();
     check("the rebuild reports what it restored", !!rebuild?.restoredAsOf);
   } finally {
     const last = await row();
