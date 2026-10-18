@@ -95,7 +95,29 @@ export function createComputerSdk(options: {
   ).sdk;
 }
 
+const placeAttempts = 4;
+
+/** Retries a create or resume the local E2B could not place (it fits few sandboxes), with a short backoff. */
+function retryPlacement<A extends unknown[], R>(call: (...args: A) => Promise<R>) {
+  return async (...args: A): Promise<R> => {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await call(...args);
+      } catch (caught) {
+        const placement = caught instanceof Error && /Failed to place sandbox/.test(caught.message);
+        if (!placement || attempt === placeAttempts) throw caught;
+        await new Promise((resolve) => setTimeout(resolve, 5_000 * attempt));
+      }
+    }
+  };
+}
+
 /** The E2B adapter on the local E2B, for the template `template`. */
 export function localE2bProvider(template: string): ComputerProvider {
-  return e2bProvider({ ...e2bFromEnv(), template });
+  const provider = e2bProvider({ ...e2bFromEnv(), template });
+  return {
+    ...provider,
+    create: retryPlacement(provider.create),
+    resume: retryPlacement(provider.resume),
+  };
 }
