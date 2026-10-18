@@ -269,5 +269,5 @@ export async function listTool(computer: ComputerHandle, botId: string, input: {
   const path = resolvePath(botId, input.path);
   const entries = await computer.list(path);
   if (!entries) return { error: `${path} does not exist.` };
-  return { path, entries: entries.toSorted((a, b) => a.name.localeCompare(b.name)) };
+  return { path, entries: [...entries].sort((a, b) => a.name.localeCompare(b.name)) };
 }
