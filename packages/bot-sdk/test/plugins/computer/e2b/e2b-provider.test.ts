@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { e2bProvider } from "../../../../plugins/computer/e2b";
+import { keptEndCharacters } from "../../../../plugins/computer/e2b/bounded-output";
+import { SandboxGoneError } from "../../../../plugins/computer/server/provider";
 
 const sdkRoot = fileURLToPath(new URL("../../../../", import.meta.url));
 
@@ -97,7 +99,24 @@ describe.skipIf(!apiKey || !apiUrl || !sandboxUrl)("e2bProvider on a real E2B", 
     await provider.kill(sandboxId);
     await provider.kill(sandboxId);
     expect(await provider.resume(sandboxId, { timeoutMs: 60_000 })).toBe("gone");
+    await expect(provider.run(sandboxId, "true", { timeoutMs: 20_000 })).rejects.toBeInstanceOf(
+      SandboxGoneError,
+    );
+    await expect(provider.pause(sandboxId)).rejects.toBeInstanceOf(SandboxGoneError);
+    await expect(provider.setTimeout(sandboxId, 60_000)).rejects.toBeInstanceOf(SandboxGoneError);
   }, 120_000);
+
+  it("keeps only the ends of an output too long to hold", async () => {
+    const { sandboxId } = await provider.create({ timeoutMs: 60_000 });
+    created.push(sandboxId);
+    const result = await provider.run(sandboxId, "echo first; yes | head -c 8000000; echo last", {
+      timeoutMs: 30_000,
+    });
+    expect(result.stdout.startsWith("first\ny\n")).toBe(true);
+    expect(result.stdout.endsWith("y\nlast\n")).toBe(true);
+    expect(result.stdout).toContain("characters left out by the computer");
+    expect(result.stdout.length).toBeLessThan(2 * keptEndCharacters + 100);
+  }, 60_000);
 
   it("kills a command at its time limit and keeps what it printed", async () => {
     const { sandboxId } = await provider.create({ timeoutMs: 60_000 });

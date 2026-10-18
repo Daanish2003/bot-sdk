@@ -331,6 +331,43 @@ describe("shell at its limits", () => {
   });
 });
 
+describe("an operation the Computer fails", () => {
+  it("is shell's result, an error the Model can act on, and the command never runs again", async () => {
+    const { client, botId, fake, computerFake } = await botWith(
+      [round(shell({ command: "echo hi", cwd: "/root/locked" })), round()],
+      {
+        onCommand: () => {
+          throw new Error("mkdir /root/locked: permission denied");
+        },
+      },
+    );
+
+    const events = await send(client, botId, "run it");
+
+    expect(toolResultOf(fake.calls[1]).error).toContain("permission denied");
+    expect(events.at(-1)).toEqual({ type: "turnEnded", status: "complete" });
+    expect(computerFake.callsOf("run")).toHaveLength(1);
+  });
+
+  it("is a file tool's result: a read of a directory, a list of a file", async () => {
+    const { client, botId, fake } = await botWith([
+      round(
+        file("write", { path: "notes/a.txt", content: "one" }),
+        file("read", { path: "notes" }),
+        file("list", { path: "notes/a.txt" }),
+      ),
+      round(),
+    ]);
+
+    const events = await send(client, botId, "go");
+
+    const [, read, listed] = toolResultsOf(fake.calls[1]);
+    expect(read.error).toContain("is a directory");
+    expect(listed.error).toContain("is not a directory");
+    expect(events.at(-1)).toEqual({ type: "turnEnded", status: "complete" });
+  });
+});
+
 describe("a user's Computer", () => {
   it("is created on its first operation, not before", async () => {
     const { client, botId, user } = await botWith([round()]);
@@ -569,6 +606,46 @@ describe("the file tools", () => {
     const [result] = toolResultsOf(fake.calls[1]);
     expect(result.error).toContain("binary");
     expect(result.error).toContain("shell");
+  });
+
+  it("refuses to read or edit a file that isn't UTF-8, suggesting shell, and leaves it as it was", async () => {
+    const { client, botId, fake, computerFake } = await botWith([
+      round(
+        file("read", { path: "/tmp/latin1.txt" }),
+        file("edit", { path: "/tmp/latin1.txt", oldText: "old", newText: "new" }),
+      ),
+      round(),
+    ]);
+    // "café old" in Latin-1: é is the lone byte 0xe9.
+    const latin1 = new Uint8Array([0x63, 0x61, 0x66, 0xe9, 0x20, 0x6f, 0x6c, 0x64]);
+    computerFake.files.set("/tmp/latin1.txt", latin1);
+
+    await send(client, botId, "go");
+
+    const [read, edited] = toolResultsOf(fake.calls[1]);
+    expect(read.error).toContain("UTF-8");
+    expect(read.error).toContain("shell");
+    expect(edited.error).toContain("UTF-8");
+    expect(edited.error).toContain("shell");
+    expect(computerFake.files.get("/tmp/latin1.txt")).toEqual(latin1);
+  });
+
+  it("keeps a byte order mark through an edit", async () => {
+    const { client, botId, computerFake } = await botWith([
+      round(file("edit", { path: "/tmp/bom.txt", oldText: "old", newText: "new" })),
+      round(),
+    ]);
+    const bom = [0xef, 0xbb, 0xbf];
+    computerFake.files.set(
+      "/tmp/bom.txt",
+      new Uint8Array([...bom, ...new TextEncoder().encode("old")]),
+    );
+
+    await send(client, botId, "go");
+
+    expect(computerFake.files.get("/tmp/bom.txt")).toEqual(
+      new Uint8Array([...bom, ...new TextEncoder().encode("new")]),
+    );
   });
 
   it("errors for a missing file", async () => {

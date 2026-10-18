@@ -22,7 +22,11 @@ import { conversationChannel } from "../../assistant/server/memory/notice";
 import { addUsage, promptCharactersOf, reportedUsageOf } from "../../models/server/run-usage";
 import { parseModelId } from "../../models/shared/models";
 import type { MessageUsage } from "../../models/shared/usage";
-import { type ComputerHandle, ComputerUnavailableError } from "../../computer/server/plugin";
+import {
+  type ComputerHandle,
+  ComputerOperationError,
+  ComputerUnavailableError,
+} from "../../computer/server/plugin";
 import { defineJob, PermanentJobError } from "../../runner/server/jobs/define";
 import { loadHistory } from "../../runner/server/jobs/history";
 import {
@@ -43,6 +47,7 @@ import {
   capOutput,
   computerOf,
   computerPrompt,
+  computerOperationError,
   computerUnavailableError,
   defaultShellTimeoutSeconds,
   editDefinition,
@@ -53,7 +58,7 @@ import {
   readDefinition,
   readTool,
   rebuiltNote,
-  shellCwd,
+  resolvePath,
   shellDefinition,
   shellStartActivity,
   shellToolName,
@@ -841,9 +846,10 @@ async function playTurn(
   // One handle for the Turn, so a rebuild its wake did is told once, in the next tool result.
   let userComputer: ComputerHandle | undefined;
   /**
-   * The Computer's operation for a live tool call. A failed wake is the tool's result, unless the
-   * Turn was stopped or ran out of time meanwhile: then the call stays unanswered. After a rebuild,
-   * the result carries the rebuilt note.
+   * The Computer's operation for a live tool call. A failed wake, or an operation the provider
+   * failed, is the tool's result, unless the Turn was stopped or ran out of time meanwhile: then
+   * the call stays unanswered. A database failure throws, so the Turn's job retries it. After a
+   * rebuild, the result carries the rebuilt note.
    */
   const onComputer = async <T extends object>(
     operate: (computer: ComputerHandle) => Promise<T>,
@@ -854,8 +860,11 @@ async function playTurn(
       const rebuild = computer.takeRebuild();
       return rebuild ? { ...result, note: rebuiltNote(rebuild) } : result;
     } catch (caught) {
-      if (caught instanceof ComputerUnavailableError && !abortController.signal.aborted) {
-        return { error: computerUnavailableError };
+      if (!abortController.signal.aborted) {
+        if (caught instanceof ComputerUnavailableError) return { error: computerUnavailableError };
+        if (caught instanceof ComputerOperationError) {
+          return { error: computerOperationError(caught.message) };
+        }
       }
       throw caught;
     }
@@ -884,7 +893,7 @@ async function playTurn(
         try {
           return await onComputer(async (computer) => {
             const result = await computer.run(command, {
-              cwd: shellCwd(turn.botId, cwd),
+              cwd: resolvePath(turn.botId, cwd),
               timeoutMs: (timeoutSeconds ?? defaultShellTimeoutSeconds) * 1000,
               deadline: new Date(turn.startedAt.getTime() + turnTimeLimitMs),
               signal: abortController.signal,

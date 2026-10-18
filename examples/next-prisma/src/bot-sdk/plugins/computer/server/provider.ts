@@ -8,6 +8,17 @@ export type TimedOutCommand = { timedOut: true; stdout: string; stderr: string }
 export type FileEntry = { name: string; kind: "file" | "directory"; size: number };
 
 /**
+ * What a provider throws when the sandbox it is given no longer exists (its snapshot lost, or
+ * killed): from a command, a file operation, a pause or a timeout. The plugin rebuilds it.
+ */
+export class SandboxGoneError extends Error {
+  constructor(sandboxId: string, options?: { cause?: unknown }) {
+    super(`Sandbox ${sandboxId} is gone`, options);
+    this.name = "SandboxGoneError";
+  }
+}
+
+/**
  * The seam between the `computer` plugin and what runs a user's Computer: a sandbox, named only
  * here. The plugin keeps each user's sandbox id and state in `chat.computer`; the provider only
  * acts on the sandbox it is given.

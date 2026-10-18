@@ -25,6 +25,11 @@ export const computerUnavailableError =
   "Your computer couldn't start. Try again shortly; if it keeps failing, tell the user their " +
   "computer is unavailable right now.";
 
+/** What a tool returns when the Computer failed its operation, with the Computer's own message. */
+export function computerOperationError(message: string): string {
+  return `Your computer reported an error: ${message}`;
+}
+
 /** What the first tool result after a rebuild of the Computer adds, once. */
 export function rebuiltNote({ restoredAsOf }: Rebuild): string {
   return restoredAsOf
@@ -53,11 +58,6 @@ export const sharedDirectory = "/home/user/shared";
 /** A Bot's own directory on its user's Computer, where its relative paths and commands start. */
 export function botDirectory(botId: string): string {
   return `/home/user/bots/${botId}`;
-}
-
-/** Where a `shell` call runs: `cwd` against the Bot's directory, or that directory itself. */
-export function shellCwd(botId: string, cwd: string | undefined): string {
-  return posix.resolve(botDirectory(botId), cwd ?? ".");
 }
 
 /** What the system prompt says about the Computer, with the Bot's own directory in it. */
@@ -93,7 +93,10 @@ export const shellDefinition = toolDefinition({
       }),
   }),
 });
-/** Resolves a tool's path: relative to the Bot's directory, or absolute anywhere. */
+/**
+ * Resolves a tool's path, or a `shell` call's cwd: relative to the Bot's directory, or absolute
+ * anywhere. With none, it is the Bot's directory itself.
+ */
 export function resolvePath(botId: string, path: string | undefined): string {
   return posix.resolve(botDirectory(botId), path ?? ".");
 }
@@ -151,14 +154,24 @@ const defaultReadLines = 2_000;
 /** The longest line `read` returns whole. */
 const maxLineLength = 2_000;
 
-/** A file read as text: its bytes decoded, or an error that suggests `shell` for a binary file. */
+/**
+ * A file read as text: its bytes decoded as UTF-8, with any byte order mark kept so an edit writes
+ * it back, or an error that suggests `shell` for a binary file or one that isn't UTF-8 (which a
+ * rewrite would corrupt).
+ */
 export function decodeText(bytes: Uint8Array, path: string): { text: string } | { error: string } {
   if (bytes.includes(0)) {
     return {
       error: `${path} is a binary file, which read can't show. Use ${shellToolName} to inspect it (for example file, xxd or strings).`,
     };
   }
-  return { text: new TextDecoder().decode(bytes) };
+  try {
+    return { text: new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes) };
+  } catch {
+    return {
+      error: `${path} is not UTF-8 text, which read and edit can't handle without changing it. Use ${shellToolName} to inspect or change it (for example file, iconv or sed).`,
+    };
+  }
 }
 
 /** Numbered lines of `text` from line `offset` (1-based), at most `limit` of them. */

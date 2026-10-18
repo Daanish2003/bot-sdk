@@ -15,10 +15,12 @@ import { bot } from "../../../../plugins/bot/server/plugin";
 import { createBot } from "../../../../plugins/bot/server/store";
 import {
   computer,
+  ComputerOperationError,
   ComputerUnavailableError,
   syncCapBytes,
 } from "../../../../plugins/computer/server/plugin";
 import type { CommandResult } from "../../../../plugins/computer/server/provider";
+import type { JobRunner } from "../../../../plugins/runner/server/jobs/runner";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { drainJobs } from "../../../support/jobs";
 import { getTestDb } from "../../../support/test-database";
@@ -628,6 +630,149 @@ describe("a wake that rebuilds", () => {
 
     expect(fake.callsOf("create")).toHaveLength(2);
     expect(handle.takeRebuild()).toEqual({ restoredAsOf: null });
+  });
+});
+
+describe("an awake Computer whose sandbox is gone", () => {
+  /** A user whose Computer has a synced note, was woken again, and then lost its sandbox. */
+  async function awakeAndLost() {
+    const setup = sdkWith();
+    const user = await insertUser();
+    const handle = setup.sdk.plugin("computer").forUser(user.id);
+    await handle.writeFile("/home/user/bots/b1/note.txt", "remember me");
+    await sleepNow(setup);
+    const synced = await computerRow(user.id);
+    await handle.list("/home/user");
+    expect((await computerRow(user.id))?.state).toBe("awake");
+    const [first] = setup.fake.callsOf("create");
+    setup.fake.lose(first!.sandboxId);
+    return { ...setup, user, handle, synced };
+  }
+
+  it("is rebuilt by its next operation, with the files restored and the rebuild told", async () => {
+    const { fake, user, handle, synced } = await awakeAndLost();
+
+    const note = await handle.readFile("/home/user/bots/b1/note.txt");
+
+    const [, second] = fake.callsOf("create");
+    expect(text(note)).toBe("remember me");
+    expect(await computerRow(user.id)).toMatchObject({
+      state: "awake",
+      sandboxId: second?.sandboxId,
+    });
+    expect(handle.takeRebuild()).toEqual({ restoredAsOf: synced?.syncedAt });
+  });
+
+  it("is marked asleep by an idle sleep check, which ends its chain, and the next operation rebuilds it", async () => {
+    const setup = await awakeAndLost();
+    const { fake, user, handle } = setup;
+
+    await sleepNow(setup);
+
+    expect(await getTestDb().select().from(job).where(eq(job.status, "failed"))).toEqual([]);
+    expect((await computerRow(user.id))?.state).toBe("asleep");
+    expect(await queuedChecks()).toEqual([]);
+    expect(text(await handle.readFile("/home/user/bots/b1/note.txt"))).toBe("remember me");
+    expect(fake.callsOf("create")).toHaveLength(2);
+  });
+
+  it("is marked asleep by a sleep check that would keep it awake, which ends its chain", async () => {
+    const { sdk, user, clock } = await awakeAndLost();
+    sdk.plugin("computer").addBusyCheck(async () => true);
+
+    clock.now = after(clock.now, 6 * minuteMs);
+    await runDueJobs(sdk, clock.now);
+
+    expect(await getTestDb().select().from(job).where(eq(job.status, "failed"))).toEqual([]);
+    expect((await computerRow(user.id))?.state).toBe("asleep");
+    expect(await queuedChecks()).toEqual([]);
+  });
+});
+
+describe("a wake whose transaction fails after its create", () => {
+  it("kills the new sandbox, and the next call creates another", async () => {
+    const { sdk, fake, logged } = sdkWith();
+    const user = await insertUser();
+    const handle = sdk.plugin("computer").forUser(user.id);
+    const runner = sdk.plugin("runner");
+    const enqueueIn = runner.enqueueIn;
+    runner.enqueueIn = async () => {
+      throw new Error("the database went away");
+    };
+
+    await expect(handle.list("/home/user")).rejects.toThrow("the database went away");
+
+    const [created] = fake.callsOf("create");
+    expect(fake.callsOf("kill-sandbox")).toEqual([
+      { type: "kill-sandbox", sandboxId: created?.sandboxId },
+    ]);
+    expect(await computerRow(user.id)).toMatchObject({ state: "asleep", sandboxId: null });
+    expect(logged).toEqual([]);
+
+    runner.enqueueIn = enqueueIn;
+    await handle.list("/home/user");
+
+    const [, retried] = fake.callsOf("create");
+    expect(await computerRow(user.id)).toMatchObject({
+      state: "awake",
+      sandboxId: retried?.sandboxId,
+    });
+  });
+});
+
+describe("the computer plugin on a runner that is not in-process", () => {
+  it("fails at startup, because a wake queues its sleep check in its transaction", () => {
+    const elsewhere: JobRunner = {
+      enqueue: async () => "job",
+      cancel: async () => {},
+      status: async () => undefined,
+      schedule: async () => {},
+      start: async () => {},
+      stop: async () => {},
+    };
+    const { provider } = fakeComputerProvider();
+
+    expect(() => createTestSdk({ plugins: [computer({ provider })], jobs: elsewhere })).toThrow(
+      /in-process/,
+    );
+  });
+});
+
+describe("an operation the provider fails", () => {
+  it("throws ComputerOperationError with the cause, and still records activity", async () => {
+    const { sdk, fake, clock } = sdkWith({
+      onCommand: () => {
+        throw new Error("cwd: permission denied");
+      },
+    });
+    const user = await insertUser();
+    const handle = sdk.plugin("computer").forUser(user.id);
+    await handle.writeFile("/home/user/bots/b1/note.txt", "hi");
+
+    const failed = handle.run("true");
+    await expect(failed).rejects.toBeInstanceOf(ComputerOperationError);
+    await expect(failed).rejects.toThrow("cwd: permission denied");
+    await expect(handle.readFile("/home/user/bots")).rejects.toBeInstanceOf(ComputerOperationError);
+    await expect(handle.list("/home/user/bots/b1/note.txt")).rejects.toBeInstanceOf(
+      ComputerOperationError,
+    );
+    expect(fake.callsOf("create")).toHaveLength(1);
+    expect((await computerRow(user.id))?.lastActiveAt).toEqual(clock.now);
+  });
+
+  it("rethrows a stop as it is, not as an operation error", async () => {
+    const { sdk } = sdkWith({ onCommand: () => new Promise(() => {}) });
+    const user = await insertUser();
+    const stop = new AbortController();
+    const reason = new Error("stopped");
+
+    const running = sdk
+      .plugin("computer")
+      .forUser(user.id)
+      .run("sleep 100", { signal: stop.signal });
+    setTimeout(() => stop.abort(reason), 50);
+
+    await expect(running).rejects.toBe(reason);
   });
 });
 

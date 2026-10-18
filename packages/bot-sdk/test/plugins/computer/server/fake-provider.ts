@@ -1,10 +1,11 @@
 import { posix } from "node:path";
 
-import type {
-  CommandResult,
-  ComputerProvider,
-  FileEntry,
-  TimedOutCommand,
+import {
+  SandboxGoneError,
+  type CommandResult,
+  type ComputerProvider,
+  type FileEntry,
+  type TimedOutCommand,
 } from "../../../../plugins/computer/server/provider";
 
 /** One command the fake ran: where, on which sandbox, and with what time limit. */
@@ -51,7 +52,9 @@ const newDisk = (): Disk => ({ files: new Map(), mtimes: new Map() });
  * `signal` aborts is killed and throws. Each lifecycle call in `failing` throws, recording nothing.
  * Each pause first awaits `onPause`, so a test can hold a pause, or make it fail by throwing. A
  * command or file operation on a paused sandbox throws, so an operation that skipped its wake
- * fails. `lose(sandboxId)` makes a sandbox gone: its disk is dropped and a resume reports it gone.
+ * fails. `lose(sandboxId)` makes a sandbox gone: its disk is dropped, a resume reports it gone, and
+ * a command, file operation, pause or timeout on it throws `SandboxGoneError`. Reading a directory
+ * or listing a file throws, as a real filesystem does.
  */
 export function fakeComputerProvider({
   template = "fake-computer-v1",
@@ -75,7 +78,7 @@ export function fakeComputerProvider({
   const runningDisk = (sandboxId: string) => {
     if (paused.has(sandboxId)) throw new Error(`Sandbox ${sandboxId} is paused`);
     const disk = disks.get(sandboxId);
-    if (!disk) throw new Error(`Sandbox ${sandboxId} is gone`);
+    if (!disk) throw new SandboxGoneError(sandboxId);
     return disk;
   };
   let created = 0;
@@ -111,11 +114,13 @@ export function fakeComputerProvider({
     },
     pause: async (sandboxId) => {
       await onPause(sandboxId);
+      if (!disks.has(sandboxId)) throw new SandboxGoneError(sandboxId);
       // Pausing a paused sandbox succeeds, as the provider seam promises.
       paused.add(sandboxId);
       calls.push({ type: "pause", sandboxId });
     },
     setTimeout: async (sandboxId, timeoutMs) => {
+      if (!disks.has(sandboxId)) throw new SandboxGoneError(sandboxId);
       calls.push({ type: "timeout", sandboxId, timeoutMs });
     },
     run: async (sandboxId, command, { cwd, timeoutMs, signal }) => {
@@ -155,13 +160,18 @@ export function fakeComputerProvider({
           );
       });
     },
-    readFile: async (sandboxId, path) => runningDisk(sandboxId).files.get(path) ?? null,
+    readFile: async (sandboxId, path) => {
+      const { files } = runningDisk(sandboxId);
+      if (isDirectory(files, path)) throw new Error(`EISDIR: ${path} is a directory`);
+      return files.get(path) ?? null;
+    },
     writeFile: async (sandboxId, path, content) => {
       const bytes = typeof content === "string" ? new TextEncoder().encode(content) : content;
       write(runningDisk(sandboxId), path, bytes);
     },
     list: async (sandboxId, path) => {
       const { files } = runningDisk(sandboxId);
+      if (files.has(path)) throw new Error(`ENOTDIR: ${path} is not a directory`);
       const prefix = path.endsWith("/") ? path : `${path}/`;
       const entries = new Map<string, FileEntry>();
       for (const [file, bytes] of files) {
@@ -272,6 +282,12 @@ function runBuiltIn(
   }
   return { exitCode: 0, stdout, stderr: "" };
 }
+
+/** Whether `path` is a directory of `files`: some file is under it. */
+const isDirectory = (files: Map<string, Uint8Array>, path: string) => {
+  const prefix = path.endsWith("/") ? path : `${path}/`;
+  return [...files.keys()].some((file) => file.startsWith(prefix));
+};
 
 const builtIns = new Set(["mkdir", "find", "rm", "stat", "tar"]);
 

@@ -4,10 +4,13 @@ import {
   FileType,
   NotFoundError,
   Sandbox,
+  SandboxNotFoundError,
   type CommandResult as E2bCommandResult,
 } from "e2b";
 
 import type { CommandResult, ComputerProvider, FileEntry, TimedOutCommand } from "../server";
+import { SandboxGoneError } from "../server/provider";
+import { boundedOutput } from "./bounded-output";
 
 /** The self-hosted E2B a Host points the adapter at, and the template it builds Computers from. */
 export type E2bProviderOptions = {
@@ -36,7 +39,8 @@ export function e2bProvider({
 }: E2bProviderOptions): ComputerProvider {
   const connection = { apiKey, apiUrl, sandboxUrl };
   // A connect to a running sandbox leaves its timeout alone unless the new one is longer.
-  const open = (sandboxId: string) => Sandbox.connect(sandboxId, connection);
+  const open = (sandboxId: string) =>
+    goneIfNotFound(sandboxId, () => Sandbox.connect(sandboxId, connection));
 
   return {
     template,
@@ -65,26 +69,27 @@ export function e2bProvider({
     },
 
     async pause(sandboxId) {
-      await Sandbox.pause(sandboxId, connection);
+      await goneIfNotFound(sandboxId, () => Sandbox.pause(sandboxId, connection));
     },
 
     async setTimeout(sandboxId, timeoutMs) {
-      await Sandbox.setTimeout(sandboxId, timeoutMs, connection);
+      await goneIfNotFound(sandboxId, () => Sandbox.setTimeout(sandboxId, timeoutMs, connection));
     },
 
     async run(sandboxId, command, { cwd = homeDirectory, timeoutMs, signal }) {
       signal?.throwIfAborted();
       const sandbox = await open(sandboxId);
       await sandbox.files.makeDir(cwd);
-      let stdout = "";
-      let stderr = "";
+      // Each stream keeps only its ends, so a command that prints without end can't exhaust memory.
+      const out = boundedOutput();
+      const err = boundedOutput();
       // The SDK's own limit is off (0): the timer below kills the command and keeps its output.
       const handle = await sandbox.commands.run(command, {
         background: true,
         cwd,
         timeoutMs: 0,
-        onStdout: (data) => void (stdout += data),
-        onStderr: (data) => void (stderr += data),
+        onStdout: (data) => out.add(data),
+        onStderr: (data) => err.add(data),
       });
       const kill = () => handle.kill().catch(() => false);
       return new Promise<CommandResult | TimedOutCommand>((resolve, reject) => {
@@ -98,7 +103,9 @@ export function e2bProvider({
           () => {
             stopped = true;
             finish();
-            void kill().then(() => resolve({ timedOut: true, stdout, stderr }));
+            void kill().then(() =>
+              resolve({ timedOut: true, stdout: out.text(), stderr: err.text() }),
+            );
           },
           Math.min(timeoutMs, maxTimerMs),
         );
@@ -114,13 +121,13 @@ export function e2bProvider({
           (result) => {
             if (stopped) return;
             finish();
-            resolve(resultOf(result, stdout, stderr));
+            resolve(resultOf(result, out.text(), err.text()));
           },
           (error: unknown) => {
             if (stopped) return;
             finish();
             // A non-zero exit is a result, not an error; anything else is the caller's to see.
-            if (error instanceof CommandExitError) resolve(resultOf(error, stdout, stderr));
+            if (error instanceof CommandExitError) resolve(resultOf(error, out.text(), err.text()));
             else reject(error);
           },
         );
@@ -164,6 +171,17 @@ export function e2bProvider({
       }
     },
   };
+}
+
+/** Runs an E2B call on a sandbox, throwing `SandboxGoneError` when E2B no longer has it. */
+async function goneIfNotFound<T>(sandboxId: string, call: () => Promise<T>): Promise<T> {
+  try {
+    return await call();
+  } catch (error) {
+    if (error instanceof SandboxNotFoundError)
+      throw new SandboxGoneError(sandboxId, { cause: error });
+    throw error;
+  }
 }
 
 function resultOf(

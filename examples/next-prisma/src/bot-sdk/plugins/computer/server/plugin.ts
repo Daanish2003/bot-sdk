@@ -1,14 +1,22 @@
 import { createHash } from "node:crypto";
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { deleteBlobsBestEffort } from "../../../core/server/blob/store";
 import { computer as computerTable } from "../../../core/server/db/schema";
 import type { BotSdkContext, BotSdkPlugin, Transaction } from "../../../core/server/plugin";
 import { defineJob } from "../../runner/server/jobs/define";
+import { isInProcessRunner } from "../../runner/server/jobs/in-process";
 import { cancelQueuedJobsIn } from "../../runner/server/jobs/store";
-import type { CommandResult, ComputerProvider, FileEntry, TimedOutCommand } from "./provider";
+import { runnerJobs } from "../../runner/server/plugin";
+import {
+  type CommandResult,
+  type ComputerProvider,
+  type FileEntry,
+  SandboxGoneError,
+  type TimedOutCommand,
+} from "./provider";
 
 /** How long a command may run when its caller doesn't say: 60 seconds. */
 export const defaultCommandTimeoutMs = 60_000;
@@ -82,7 +90,9 @@ export type Rebuild = { restoredAsOf: Date | null };
 /**
  * One user's Computer. Every operation wakes it first when it isn't awake (a first create, a
  * resume, or a rebuild), and records activity when it starts and when it finishes. An operation
- * whose wake fails throws `ComputerUnavailableError`, and nothing runs.
+ * whose wake fails throws `ComputerUnavailableError`, and nothing runs. One the provider fails
+ * (a permission denied, a read of a directory) throws `ComputerOperationError`; one whose sandbox
+ * turns out gone rebuilds it and runs once more. A stop rethrows its reason as it is.
  */
 export type ComputerHandle = {
   /**
@@ -116,6 +126,17 @@ export class ComputerUnavailableError extends Error {
   constructor(userId: string, cause: unknown) {
     super(`The Computer of user ${userId} couldn't start`, { cause });
     this.name = "ComputerUnavailableError";
+  }
+}
+
+/**
+ * An operation the provider failed after the Computer woke: its `message` is the cause's, for
+ * the caller (a Bot) to act on. A database failure is never one: it throws as it is.
+ */
+export class ComputerOperationError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+    this.name = "ComputerOperationError";
   }
 }
 
@@ -170,16 +191,37 @@ export function computer({ provider }: ComputerOptions): ComputerPlugin {
     id: "computer",
     requires: ["runner"],
     init: (sdk) => {
+      // A wake queues its sleep check in its own transaction, which only the in-process runner reads.
+      if (!isInProcessRunner(runnerJobs(sdk))) {
+        throw new Error(
+          "The computer plugin needs the in-process runner: a wake queues its sleep check in its transaction",
+        );
+      }
       const busyChecks: BusyCheck[] = [];
       const api: ComputerApi = {
         forUser: (userId) => {
           let lastRebuild: Rebuild | null = null;
-          const operate = async <T>(act: (sandboxId: string) => Promise<T>) => {
-            const woken = await startOperation(sdk, provider, userId);
-            if (woken.rebuild) lastRebuild = woken.rebuild;
-            const { sandboxId } = woken;
+          const operate = async <T>(
+            act: (sandboxId: string) => Promise<T>,
+            signal?: AbortSignal,
+          ) => {
+            let woken = await startOperation(sdk, provider, userId);
             try {
-              return await act(sandboxId);
+              for (let retried = false; ; retried = true) {
+                if (woken.rebuild) lastRebuild = woken.rebuild;
+                try {
+                  return await act(woken.sandboxId);
+                } catch (caught) {
+                  if (signal?.aborted) throw caught;
+                  // The row said awake, but the sandbox is gone: the wake rebuilds it, once.
+                  if (caught instanceof SandboxGoneError && !retried) {
+                    await markAsleep(sdk, userId, woken.sandboxId);
+                    woken = await wake(sdk, provider, userId);
+                    continue;
+                  }
+                  throw new ComputerOperationError(caught);
+                }
+              }
             } finally {
               await recordActivity(sdk, userId);
             }
@@ -197,7 +239,7 @@ export function computer({ provider }: ComputerOptions): ComputerPlugin {
                 const left = deadline ? deadline.getTime() - sdk.clock().getTime() : timeoutMs;
                 const limitMs = Math.max(0, Math.min(timeoutMs, left));
                 return provider.run(id, command, { cwd, timeoutMs: limitMs, signal });
-              }),
+              }, signal),
             readFile: (path) => operate((id) => provider.readFile(id, path)),
             writeFile: (path, content) => operate((id) => provider.writeFile(id, path, content)),
             list: (path) => operate((id) => provider.list(id, path)),
@@ -258,48 +300,64 @@ type Woken = { sandboxId: string; rebuild: Rebuild | null };
  * when it has none, rebuilds it when its template changed or the provider reports it gone, and
  * else resumes it. Another operation that woke it meanwhile wins, and this one uses its sandbox.
  * A wake arms one sleep check in its transaction, so the check exists exactly when the Computer
- * became awake. A failed wake throws, so the row keeps its old sandbox and the next call retries.
+ * became awake. A failed wake throws, so the row keeps its old sandbox and the next call retries;
+ * a sandbox it created before the failure is killed, since the row never names it.
  */
 async function wake(sdk: BotSdkContext, provider: ComputerProvider, userId: string) {
-  const { woken, replaced } = await sdk.db.transaction(async (tx) => {
-    const [locked] = await tx
-      .select()
-      .from(computerTable)
-      .where(eq(computerTable.userId, userId))
-      .for("update");
-    if (!locked) throw new Error(`The Computer of user ${userId} has no row`);
-    if (locked.state === "awake" && locked.sandboxId) {
-      return { woken: { sandboxId: locked.sandboxId, rebuild: null }, replaced: null };
-    }
-    let woken: Woken;
-    const asleepId = locked.sandboxId;
-    const stale = locked.template !== provider.template;
-    if (!asleepId) {
-      // A first create: nothing to restore, and nothing to tell.
-      const { sandboxId } = await unavailableOnFailure(sdk, userId, () =>
-        provider.create({ timeoutMs: backstopTimeoutMs }),
-      );
-      woken = { sandboxId, rebuild: null };
-    } else if (
-      !stale &&
-      (await unavailableOnFailure(sdk, userId, () =>
-        provider.resume(asleepId, { timeoutMs: backstopTimeoutMs }),
-      )) === "resumed"
-    ) {
-      woken = { sandboxId: asleepId, rebuild: null };
-    } else {
-      woken = await rebuild(sdk, provider, locked);
-    }
-    await tx
-      .update(computerTable)
-      .set({ state: "awake", sandboxId: woken.sandboxId, template: provider.template })
-      .where(eq(computerTable.userId, userId));
-    await armSleepCheck(sdk, userId, after(sdk.clock(), computerIdleMs), tx);
-    return { woken, replaced: asleepId && asleepId !== woken.sandboxId ? asleepId : null };
-  });
+  let created: string | undefined;
+  const { woken, replaced } = await sdk.db
+    .transaction(async (tx) => {
+      const [locked] = await tx
+        .select()
+        .from(computerTable)
+        .where(eq(computerTable.userId, userId))
+        .for("update");
+      if (!locked) throw new Error(`The Computer of user ${userId} has no row`);
+      if (locked.state === "awake" && locked.sandboxId) {
+        return { woken: { sandboxId: locked.sandboxId, rebuild: null }, replaced: null };
+      }
+      let woken: Woken;
+      const asleepId = locked.sandboxId;
+      const stale = locked.template !== provider.template;
+      if (!asleepId) {
+        // A first create: nothing to restore, and nothing to tell.
+        const { sandboxId } = await unavailableOnFailure(sdk, userId, () =>
+          provider.create({ timeoutMs: backstopTimeoutMs }),
+        );
+        woken = { sandboxId, rebuild: null };
+      } else if (
+        !stale &&
+        (await unavailableOnFailure(sdk, userId, () =>
+          provider.resume(asleepId, { timeoutMs: backstopTimeoutMs }),
+        )) === "resumed"
+      ) {
+        woken = { sandboxId: asleepId, rebuild: null };
+      } else {
+        woken = await rebuild(sdk, provider, locked);
+      }
+      if (woken.sandboxId !== asleepId) created = woken.sandboxId;
+      await tx
+        .update(computerTable)
+        .set({ state: "awake", sandboxId: woken.sandboxId, template: provider.template })
+        .where(eq(computerTable.userId, userId));
+      await armSleepCheck(sdk, userId, after(sdk.clock(), computerIdleMs), tx);
+      return { woken, replaced: asleepId && asleepId !== woken.sandboxId ? asleepId : null };
+    })
+    .catch(async (caught: unknown) => {
+      if (created) await killBestEffort(sdk, provider, userId, created);
+      throw caught;
+    });
   // A rebuild's old sandbox goes once the row names the new one; a gone one is killed harmlessly.
   if (replaced) await killBestEffort(sdk, provider, userId, replaced);
   return woken;
+}
+
+/** Marks the Computer asleep while its row still names `sandboxId`, gone, so the next wake rebuilds it. */
+async function markAsleep(sdk: BotSdkContext, userId: string, sandboxId: string) {
+  await sdk.db
+    .update(computerTable)
+    .set({ state: "asleep" })
+    .where(and(eq(computerTable.userId, userId), eq(computerTable.sandboxId, sandboxId)));
 }
 
 /** Kills a sandbox the row no longer names. A failure is logged with the sandbox id, never thrown. */
@@ -435,8 +493,10 @@ async function syncCommand(
  * One sleep check, under the row lock until it commits, so an operation that arrives meanwhile
  * waits and then wakes the Computer. An asleep Computer's chain ends. An idle one that no busy
  * check holds has its files synced, then is paused and marked `asleep`, with the sync recorded; a
- * failed pause throws before the row changes, so the runner retries. Otherwise the provider's timeout is extended and one follow-up is armed, in the
- * same transaction, so the chain can't end while the Computer stays awake.
+ * failed pause throws before the row changes, so the runner retries. Otherwise the provider's
+ * timeout is extended and one follow-up is armed, in the same transaction, so the chain can't end
+ * while the Computer stays awake. A sandbox found gone is marked `asleep` and its chain ends, so
+ * the next wake rebuilds it.
  */
 async function sleepCheck(
   sdk: BotSdkContext,
@@ -452,23 +512,42 @@ async function sleepCheck(
       .for("update");
     // A deleted user's row is gone, and an asleep Computer's chain ends with its awake period.
     if (!locked?.sandboxId || locked.state === "asleep") return;
+    const { sandboxId } = locked;
     const now = sdk.clock();
     const idle = now.getTime() - locked.lastActiveAt.getTime() > computerIdleMs;
-    if (idle && !(await isBusy(busyChecks, userId, locked.lastActiveAt))) {
-      const synced = await syncFiles(sdk, provider, locked.sandboxId, locked);
-      await provider.pause(locked.sandboxId);
+    const markAsleepIn = async (synced: Awaited<ReturnType<typeof syncFiles>>) => {
       await tx
         .update(computerTable)
         .set({ state: "asleep", ...synced })
         .where(eq(computerTable.userId, userId));
+    };
+    if (idle && !(await isBusy(busyChecks, userId, locked.lastActiveAt))) {
+      const synced = await syncFiles(sdk, provider, sandboxId, locked);
+      const gone = await isGone(() => provider.pause(sandboxId));
+      // A gone sandbox's sync failed, so nothing new is recorded.
+      await markAsleepIn(gone ? null : synced);
       return;
     }
-    await provider.setTimeout(locked.sandboxId, backstopTimeoutMs);
+    if (await isGone(() => provider.setTimeout(sandboxId, backstopTimeoutMs))) {
+      await markAsleepIn(null);
+      return;
+    }
     const followUpAt = new Date(
       Math.max(locked.lastActiveAt.getTime() + computerIdleMs, now.getTime() + followUpAtLeastMs),
     );
     await armSleepCheck(sdk, userId, followUpAt, tx);
   });
+}
+
+/** Runs a provider call on a sandbox, and returns whether the sandbox was gone. */
+async function isGone(call: () => Promise<void>): Promise<boolean> {
+  try {
+    await call();
+    return false;
+  } catch (caught) {
+    if (caught instanceof SandboxGoneError) return true;
+    throw caught;
+  }
 }
 
 /** Whether any busy check says the Computer is in use. */

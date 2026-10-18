@@ -1,9 +1,16 @@
 export {
   computer,
+  ComputerOperationError,
   ComputerUnavailableError,
   defaultCommandTimeoutMs,
   type ComputerApi,
   type ComputerHandle,
   type ComputerPlugin,
 } from "./plugin";
-export type { CommandResult, ComputerProvider, FileEntry, TimedOutCommand } from "./provider";
+export {
+  SandboxGoneError,
+  type CommandResult,
+  type ComputerProvider,
+  type FileEntry,
+  type TimedOutCommand,
+} from "./provider";
