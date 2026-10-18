@@ -30,10 +30,14 @@ export function computerOperationError(message: string): string {
   return `Your computer reported an error: ${message}`;
 }
 
-/** What a Bot's first tool result after a rebuild of the Computer adds, once per Bot. */
+/**
+ * What a Bot's first tool result after a rebuild of the Computer adds, once per Bot. Once a later
+ * sync replaced the archive, the row no longer says whether the rebuild restored any files, so
+ * the note claims none.
+ */
 export function rebuiltNote({ rebuiltAt, restoredAsOf }: Rebuild): string {
   if (restoredAsOf === undefined) {
-    return `Your computer was rebuilt at ${rebuiltAt.toISOString()}: only the files it had saved before then were restored, and installed programs may be missing.`;
+    return `Your computer was rebuilt at ${rebuiltAt.toISOString()}: it got back at most the files it had saved before then, maybe none, and installed programs may be missing.`;
   }
   return restoredAsOf
     ? `Your computer was rebuilt: files were restored as of ${restoredAsOf.toISOString()}, but installed programs may be missing.`
@@ -163,54 +167,151 @@ const maxLineLength = 2_000;
  * rewrite would corrupt).
  */
 export function decodeText(bytes: Uint8Array, path: string): { text: string } | { error: string } {
-  if (bytes.includes(0)) {
-    return {
-      error: `${path} is a binary file, which read can't show. Use ${shellToolName} to inspect it (for example file, xxd or strings).`,
-    };
-  }
+  if (bytes.includes(0)) return { error: binaryFileError(path) };
   try {
     return { text: new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes) };
   } catch {
-    return {
-      error: `${path} is not UTF-8 text, which read and edit can't handle without changing it. Use ${shellToolName} to inspect or change it (for example file, iconv or sed).`,
-    };
+    return { error: notUtf8Error(path) };
   }
 }
 
-/**
- * The most bytes of a file that `edit` loads, and of the lines that `read` fetches at once. Over
- * it, the tool returns an error that suggests `shell`.
- */
+const binaryFileError = (path: string) =>
+  `${path} is a binary file, which read can't show. Use ${shellToolName} to inspect it (for example file, xxd or strings).`;
+
+const notUtf8Error = (path: string) =>
+  `${path} is not UTF-8 text, which read and edit can't handle without changing it. Use ${shellToolName} to inspect or change it (for example file, iconv or sed).`;
+
+/** The most bytes of a file that `edit` loads. Over it, edit returns an error that suggests `shell`. */
 export const maxTextBytes = 5_000_000;
+
+/**
+ * The most bytes of lines one `read` fetches: base64 makes it a third bigger, which stays well
+ * under the 1 MiB characters at each end of a command's output that a provider keeps.
+ */
+export const maxPageBytes = 512 * 1024;
+
+/**
+ * How much of each line `read` fetches, in bytes: `maxLineLength` characters of up to 4 bytes,
+ * and one more, so a line cut here is still cut with "…".
+ */
+export const fetchedLineBytes = 4 * (maxLineLength + 1);
+
+/** What a file tool's operations get from the Turn: its Stop, and its time limit (for its commands). */
+export type FileToolOptions = { signal?: AbortSignal; deadline?: Date };
 
 /** A path quoted for bash. */
 const quote = (path: string) => `'${path.replaceAll("'", String.raw`'\''`)}'`;
 
+/** Reports what the path in `$p` is when it isn't a regular file, and ends the command. */
+const notRegular = [
+  `[ -e "$p" ] || { echo missing; exit 0; }`,
+  `[ -d "$p" ] && { echo directory; exit 0; }`,
+  `[ -f "$p" ] || { echo special; exit 0; }`,
+].join("\n");
+
 /**
- * Finds a regular file on the Computer without loading it, and returns its size in bytes, with its
- * line count when asked, or an error.
+ * `read`'s one command, after `p=<path> o=<first line> n=<lines>`. Unless the path isn't a regular
+ * file, it reports `binary` or `notutf8` from the whole file (two passes on the Computer, so no
+ * byte moves), or else `lines <count>` and then the range, base64: each line cut to
+ * `fetchedLineBytes`, and only the lines that fit in `maxPageBytes`. Any failed step fails the
+ * command. The UTF-8 check needs the C.UTF-8 locale (Debian has it); without it, only the
+ * fetched lines are checked.
  */
-async function fileInfo(
+export const readScript = [
+  "set -o pipefail",
+  notRegular,
+  // One pass counts the newlines and the NULs: tr keeps only those, and wc counts them.
+  String.raw`counts=$(tr -dc '\000\n' < "$p" | wc -lc) || exit`,
+  `read -r lines all <<< "$counts"`,
+  `[ "$all" -eq "$lines" ] || { echo binary; exit 0; }`,
+  `LC_ALL=C.UTF-8 grep -qaxv '.*' "$p"; s=$?`,
+  `[ $s -eq 0 ] && { echo notutf8; exit 0; }`,
+  `[ $s -eq 1 ] || exit $s`,
+  `[ -n "$(tail -c 1 "$p")" ] && lines=$((lines + 1))`,
+  `echo "lines $lines"`,
+  `e=$((o + n - 1)); [ "$e" -gt "$lines" ] && e=$lines`,
+  `[ "$n" -gt 0 ] && [ "$o" -le "$e" ] || exit 0`,
+  `sed -n "$o,\${e}p;\${e}q" "$p" | cut -b 1-${fetchedLineBytes} | LC_ALL=C awk -v max=${maxPageBytes} '!cut { if (t + length($0) + 1 > max) cut = 1; else { t += length($0) + 1; print } }' | base64 -w0`,
+].join("\n");
+
+/** `edit`'s look-up, after `p=<path>`: unless the path isn't a regular file, `bytes <size>`. */
+export const sizeScript = [notRegular, `b=$(wc -c < "$p") || exit`, `echo "bytes $b"`].join("\n");
+
+/** A whole number at least `min`, or the largest safe one for a larger number. */
+function wholeAtLeast(value: number, min: number): number {
+  const whole = Math.trunc(value);
+  if (Number.isSafeInteger(whole)) return Math.max(whole, min);
+  return whole > 0 ? Number.MAX_SAFE_INTEGER : min;
+}
+
+/** What a file tool's command reports on its own line: the path's kind, or what it found. */
+const reportLine = /^(missing|directory|special|binary|notutf8|lines \d+|bytes \d+)$/;
+
+/**
+ * Runs a file tool's command on `path` and returns its report and the output after it, or an
+ * error: `missing` when there is no such file, one for a directory or another kind of file, and
+ * what the Computer said when the command failed (a permission denied).
+ */
+async function runOnFile(
   computer: ComputerHandle,
   path: string,
-  withLines: boolean,
+  command: string,
   missing: string,
-): Promise<{ bytes: number; lines: number } | { error: string }> {
-  const quoted = quote(path);
-  const result = await computer.run(
-    `test -f ${quoted} && stat -c %s ${quoted}${withLines ? ` && awk 'END{print NR}' ${quoted}` : ""}`,
-  );
+  options: FileToolOptions,
+): Promise<{ report: string; rest: string } | { error: string }> {
+  const result = await computer.run(command, options);
   if ("timedOut" in result) {
-    return { error: `Looking up ${path} timed out. Use ${shellToolName} to work with it.` };
+    return { error: `Looking at ${path} timed out. Use ${shellToolName} to work with it.` };
   }
   if (result.exitCode !== 0) {
-    const directory = await computer.run(`test -d ${quoted}`);
-    return "exitCode" in directory && directory.exitCode === 0
-      ? { error: `${path} is a directory. Use list to see what is there.` }
-      : { error: missing };
+    return {
+      error: computerOperationError(result.stderr.trim() || `exit code ${result.exitCode}`),
+    };
   }
-  const [bytes = 0, lines = 0] = result.stdout.trim().split("\n").map(Number);
-  return { bytes, lines };
+  // The report is the last such line: a login profile may print before it.
+  const lines = result.stdout.split("\n");
+  const at = lines.findLastIndex((line) => reportLine.test(line));
+  const report = lines[at];
+  if (report === undefined) {
+    return { error: computerOperationError(`unexpected output: ${result.stdout.slice(0, 200)}`) };
+  }
+  if (report === "missing") return { error: missing };
+  if (report === "directory") {
+    return { error: `${path} is a directory. Use list to see what is there.` };
+  }
+  if (report === "special") {
+    return { error: `${path} is not a regular file. Use ${shellToolName} to work with it.` };
+  }
+  return { report, rest: lines.slice(at + 1).join("\n") };
+}
+
+/**
+ * The fetched lines, with the end of each line cut at `fetchedLineBytes` dropped when the cut
+ * split a character, so the cut alone never makes the text look like it isn't UTF-8.
+ */
+function dropSplitCharacters(bytes: Uint8Array): Uint8Array {
+  const parts: Uint8Array[] = [];
+  for (let start = 0; start < bytes.length;) {
+    const newline = bytes.indexOf(10, start);
+    const end = newline < 0 ? bytes.length : newline;
+    const cut = end - start === fetchedLineBytes ? splitTail(bytes, start, end) : 0;
+    parts.push(bytes.subarray(start, end - cut));
+    if (newline >= 0) parts.push(Uint8Array.of(10));
+    start = end + 1;
+  }
+  return Buffer.concat(parts);
+}
+
+/** How many bytes at the end of `bytes[start, end)` are an incomplete UTF-8 character. */
+function splitTail(bytes: Uint8Array, start: number, end: number): number {
+  for (let back = 1; back <= 3 && end - back >= start; back += 1) {
+    const byte = bytes[end - back] ?? 0;
+    // A continuation byte: the character starts further back.
+    if ((byte & 0xc0) === 0x80) continue;
+    const length = byte >= 0xf0 ? 4 : byte >= 0xe0 ? 3 : byte >= 0xc0 ? 2 : 1;
+    return length > back ? back : 0;
+  }
+  return 0;
 }
 
 /**
@@ -275,46 +376,42 @@ export const listDefinition = toolDefinition({
 });
 
 /**
- * The `read` tool's result. It fetches only the lines it returns, with `sed` on the Computer,
- * so paging through a huge file doesn't move the file.
+ * The `read` tool's result, from one command on the Computer: it checks the whole file there and
+ * fetches only the lines it returns, with `sed`, so paging through a huge file doesn't move the
+ * file. A page whose lines are over `maxPageBytes` stops early, with a hint to read on.
  */
 export async function readTool(
   computer: ComputerHandle,
   botId: string,
   input: { path: string; offset?: number; limit?: number },
+  options: FileToolOptions = {},
 ) {
   const path = resolvePath(botId, input.path);
-  const info = await fileInfo(
+  const start = wholeAtLeast(input.offset ?? 1, 1);
+  const count = wholeAtLeast(input.limit ?? defaultReadLines, 0);
+  const found = await runOnFile(
     computer,
     path,
-    true,
+    `p=${quote(path)} o=${start} n=${count}\n${readScript}`,
     `${path} does not exist. Use list to see what is there.`,
+    options,
   );
-  if ("error" in info) return info;
-  const start = Math.max(input.offset ?? 1, 1);
-  const count = Math.max(input.limit ?? defaultReadLines, 0);
-  if (count === 0 || start > info.lines) return numberLines("", start, info.lines);
-  const end = start + count - 1;
-  // One byte past the limit shows that the lines were over it.
-  const fetched = await computer.run(
-    `sed -n '${start},${end}p;${end}q' ${quote(path)} | head -c ${maxTextBytes + 1} | base64 -w0`,
-  );
-  if ("timedOut" in fetched || fetched.exitCode !== 0) {
-    return {
-      error:
-        `Reading ${path} failed${"timedOut" in fetched ? " (timed out)" : `: ${fetched.stderr.trim()}`}. ` +
-        `Use ${shellToolName} to work with it.`,
-    };
-  }
-  const bytes = Uint8Array.from(Buffer.from(fetched.stdout.trim(), "base64"));
-  if (bytes.length > maxTextBytes) {
-    return {
-      error: `These lines of ${path} are over ${maxTextBytes} bytes, too many for read. Give a smaller limit, or use ${shellToolName} (for example sed, head or grep).`,
-    };
-  }
+  if ("error" in found) return found;
+  if (found.report === "binary") return { error: binaryFileError(path) };
+  if (found.report === "notutf8") return { error: notUtf8Error(path) };
+  const totalLines = Number(found.report.slice("lines ".length));
+  const bytes = dropSplitCharacters(Buffer.from(found.rest.trim(), "base64"));
   const decoded = decodeText(bytes, path);
   if ("error" in decoded) return decoded;
-  return numberLines(decoded.text, start, info.lines);
+  const page = numberLines(decoded.text, start, totalLines);
+  const nextOffset = "nextOffset" in page ? page.nextOffset : undefined;
+  if (nextOffset === undefined || nextOffset > Math.min(start + count - 1, totalLines)) return page;
+  return {
+    ...page,
+    hint:
+      `This read stopped before line ${nextOffset}: one read returns at most ${maxPageBytes} bytes of lines. ` +
+      `Read on with offset ${nextOffset}, or use ${shellToolName} (for example sed, head or grep).`,
+  };
 }
 
 /** The `write` tool's result. */
@@ -322,33 +419,38 @@ export async function writeTool(
   computer: ComputerHandle,
   botId: string,
   input: { path: string; content: string },
+  options: FileToolOptions = {},
 ) {
   const path = resolvePath(botId, input.path);
-  await computer.writeFile(path, input.content);
+  await computer.writeFile(path, input.content, options);
   return { path, bytes: new TextEncoder().encode(input.content).length };
 }
 
-/** The `edit` tool's result: read plus write. */
+/** The `edit` tool's result: a size look-up, a load, and a write. */
 export async function editTool(
   computer: ComputerHandle,
   botId: string,
   input: { path: string; oldText: string; newText: string; replaceAll?: boolean },
+  options: FileToolOptions = {},
 ) {
   const path = resolvePath(botId, input.path);
-  const info = await fileInfo(
+  const missing = `${path} does not exist. Use write to create it.`;
+  const looked = await runOnFile(
     computer,
     path,
-    false,
-    `${path} does not exist. Use write to create it.`,
+    `p=${quote(path)}\n${sizeScript}`,
+    missing,
+    options,
   );
-  if ("error" in info) return info;
-  if (info.bytes > maxTextBytes) {
+  if ("error" in looked) return looked;
+  const size = Number(looked.report.slice("bytes ".length));
+  if (size > maxTextBytes) {
     return {
-      error: `${path} is ${info.bytes} bytes, over the ${maxTextBytes} edit can load. Use ${shellToolName} to change it (for example sed or a script).`,
+      error: `${path} is ${size} bytes, over the ${maxTextBytes} edit can load. Use ${shellToolName} to change it (for example sed or a script).`,
     };
   }
-  const bytes = await computer.readFile(path);
-  if (!bytes) return { error: `${path} does not exist. Use write to create it.` };
+  const bytes = await computer.readFile(path, options);
+  if (!bytes) return { error: missing };
   const decoded = decodeText(bytes, path);
   if ("error" in decoded) return decoded;
   if (!input.oldText) return { error: "oldText is empty. Give the exact text to replace." };
@@ -363,14 +465,23 @@ export async function editTool(
       error: `oldText appears ${found} times in ${path}. Add surrounding text to make it unique, or set replaceAll to replace every occurrence.`,
     };
   }
-  await computer.writeFile(path, decoded.text.split(input.oldText).join(input.newText));
+  await computer.writeFile(path, decoded.text.split(input.oldText).join(input.newText), options);
   return { path, replaced: input.replaceAll ? found : 1 };
 }
 
-/** The `list` tool's result. */
-export async function listTool(computer: ComputerHandle, botId: string, input: { path?: string }) {
+/**
+ * The `list` tool's result. The Bot's own directory exists from its first write, so before that
+ * it lists as empty.
+ */
+export async function listTool(
+  computer: ComputerHandle,
+  botId: string,
+  input: { path?: string },
+  options: FileToolOptions = {},
+) {
   const path = resolvePath(botId, input.path);
-  const entries = await computer.list(path);
+  const entries = await computer.list(path, options);
+  if (!entries && path === botDirectory(botId)) return { path, entries: [] };
   if (!entries) return { error: `${path} does not exist.` };
   return { path, entries: [...entries].sort((a, b) => a.name.localeCompare(b.name)) };
 }

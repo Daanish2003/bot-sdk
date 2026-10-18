@@ -124,10 +124,13 @@ export function e2bProvider({
       // Each stream keeps only its ends, so a command that prints without end can't exhaust memory.
       const out = boundedOutput();
       const err = boundedOutput();
-      // The command gets a process group of its own, and creates its directory in the same call:
-      // `exec` makes the shell's pid the group's id, so a kill can reach the children and
-      // background jobs the command started, which a kill of the shell alone leaves running.
-      const script = `mkdir -p ${quoted(cwd)} && cd ${quoted(cwd)} && exec setsid bash -c ${quoted(command)}`;
+      // The command gets a process group of its own, and creates its directory in the same call,
+      // so a kill can reach the children and background jobs the command started, which a kill
+      // of the shell alone leaves running. `exec` makes the tracked pid the group's id, unless
+      // setsid forks (it does when its caller leads a group): then the group is its child's, and
+      // `-w` makes the tracked pid wait for that child. `bash -l` loads the profile, as the
+      // handle promises.
+      const script = `mkdir -p ${quoted(cwd)} && cd ${quoted(cwd)} && exec setsid -w bash -l -c ${quoted(command)}`;
       const { sandbox, handle } = await withSandbox(sandboxId, async (sandbox) => ({
         sandbox,
         // The SDK's own limit is off (0): the timer below kills the command and keeps its output.
@@ -138,11 +141,13 @@ export function e2bProvider({
           onStderr: (data) => err.add(data),
         }),
       }));
+      // The group kill reaches both cases: the tracked pid's group, and the groups its children
+      // lead (a forked setsid's). It goes first, since the children are found through the pid.
+      const pid = handle.pid;
+      const killGroups = `c=$(cat /proc/${pid}/task/${pid}/children 2>/dev/null); kill -KILL -- -${pid} $(for g in $c; do printf ' -%s' "$g"; done)`;
       const kill = async () => {
-        await Promise.all([
-          sandbox.commands.run(`kill -KILL -- -${handle.pid}`).catch(() => undefined),
-          handle.kill().catch(() => false),
-        ]);
+        await sandbox.commands.run(killGroups).catch(() => undefined);
+        await handle.kill().catch(() => false);
       };
       return new Promise<CommandResult | TimedOutCommand>((resolve, reject) => {
         // Killing the command also settles `wait()`, which must not beat the outcome set here.

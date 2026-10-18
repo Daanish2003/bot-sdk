@@ -96,7 +96,8 @@ export type OwnerCheck = (tx: Transaction, userId: string) => Promise<boolean>;
 /**
  * The Computer's latest rebuild: at `rebuiltAt`, a wake built it again from its template and
  * restored its synced files as of `restoredAsOf`. That is null when there was no archive, so it
- * started empty, and undefined once a later sync replaced the archive it restored.
+ * started empty, and undefined once a later sync stored a newer archive: the row then no longer
+ * says whether the rebuild restored one or started empty.
  */
 export type Rebuild = { rebuiltAt: Date; restoredAsOf: Date | null | undefined };
 
@@ -126,12 +127,19 @@ export type ComputerHandle = {
     options?: { cwd?: string; timeoutMs?: number; deadline?: Date; signal?: AbortSignal },
   ) => Promise<CommandResult | TimedOutCommand>;
   /** A file's bytes, or null when there is no such file. */
-  readFile: (path: string) => Promise<Uint8Array | null>;
+  readFile: (path: string, options?: FileOperationOptions) => Promise<Uint8Array | null>;
   /** Writes a file, creating any missing parent directories, and overwrites it. */
-  writeFile: (path: string, content: string) => Promise<void>;
+  writeFile: (path: string, content: string, options?: FileOperationOptions) => Promise<void>;
   /** A directory's entries, one level deep, or null when there is no such directory. */
-  list: (path: string) => Promise<FileEntry[] | null>;
+  list: (path: string, options?: FileOperationOptions) => Promise<FileEntry[] | null>;
 };
+
+/**
+ * A file operation's stop: once `signal` aborts, the operation throws its reason before it
+ * reaches the provider, and a gone sandbox is not rebuilt for it. One the provider has started
+ * runs to its end.
+ */
+export type FileOperationOptions = { signal?: AbortSignal };
 
 /**
  * An operation's wake failed: the provider couldn't create, resume or rebuild the Computer, or a
@@ -262,9 +270,22 @@ export function computer({ provider }: ComputerOptions): ComputerPlugin {
                 const limitMs = Math.max(0, Math.min(timeoutMs, left));
                 return provider.run(id, command, { cwd, timeoutMs: limitMs, signal });
               }, signal),
-            readFile: (path) => operate((id) => provider.readFile(id, path)),
-            writeFile: (path, content) => operate((id) => provider.writeFile(id, path, content)),
-            list: (path) => operate((id) => provider.list(id, path)),
+            // A stop during the wake reaches no provider call, as with `run`.
+            readFile: (path, { signal } = {}) =>
+              operate((id) => {
+                signal?.throwIfAborted();
+                return provider.readFile(id, path);
+              }, signal),
+            writeFile: (path, content, { signal } = {}) =>
+              operate((id) => {
+                signal?.throwIfAborted();
+                return provider.writeFile(id, path, content);
+              }, signal),
+            list: (path, { signal } = {}) =>
+              operate((id) => {
+                signal?.throwIfAborted();
+                return provider.list(id, path);
+              }, signal),
           };
         },
         addBusyCheck: (check) => {
