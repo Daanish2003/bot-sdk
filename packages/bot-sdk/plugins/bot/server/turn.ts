@@ -37,12 +37,18 @@ import {
   turnStarted,
   waitingIn,
 } from "./router";
+import { ComputerUnavailableError } from "../../computer/server/plugin";
 import {
   computerOf,
   computerPrompt,
+  computerUnavailableError,
+  defaultShellTimeoutSeconds,
+  interruptedShellError,
   shellCwd,
   shellDefinition,
+  shellStartActivity,
   shellToolName,
+  timedOutHint,
 } from "./computer-tools";
 import { botMessages, findBot, textParts, toBotMessage, turnTimeLimitMs } from "./store";
 
@@ -820,14 +826,39 @@ async function playTurn(
 
   // The Computer's tools, whenever `computer` is on: the tool set never changes mid-conversation.
   const withComputer = deps.hasPlugin("computer");
-  const shell = shellDefinition.server(({ command, cwd }, context) =>
-    toolCallOf(context?.toolCallId, () =>
-      // No transaction: the command runs on the Computer, not in the database.
-      ctx.activity(shellToolName, async () => {
+  const shell = shellDefinition.server(({ command, cwd, timeoutSeconds }, context) =>
+    toolCallOf(context?.toolCallId, async () => {
+      // The start marker: a resumed Turn that replays it with no result never runs the command
+      // again, since it may have partly run. No transaction: the command runs on the Computer.
+      let startedHere = false;
+      await ctx.activity(shellStartActivity, async () => {
         beforeLiveTool();
-        return computerOf(deps, turn.userId).run(command, { cwd: shellCwd(turn.botId, cwd) });
-      }),
-    ),
+        startedHere = true;
+        return null;
+      });
+      return ctx.activity(shellToolName, async () => {
+        beforeLiveTool();
+        if (!startedHere) return { error: interruptedShellError };
+        const requestedMs = (timeoutSeconds ?? defaultShellTimeoutSeconds) * 1000;
+        // A live call: the Turn's time limit, like a Stop, kills the command through the signal,
+        // and the wake's time counts against it.
+        inLiveCall = true;
+        try {
+          const result = await computerOf(deps, turn.userId).run(command, {
+            cwd: shellCwd(turn.botId, cwd),
+            timeoutMs: Math.min(requestedMs, timeLeftMs()),
+            signal: abortController.signal,
+          });
+          return "timedOut" in result ? { ...result, hint: timedOutHint } : result;
+        } catch (caught) {
+          if (caught instanceof ComputerUnavailableError)
+            return { error: computerUnavailableError };
+          throw caught;
+        } finally {
+          inLiveCall = false;
+        }
+      });
+    }),
   );
 
   /** What the Turn's model calls and tool calls added to its input, in order. */

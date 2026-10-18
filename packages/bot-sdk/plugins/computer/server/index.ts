@@ -1,2 +1,8 @@
-export { computer, type ComputerApi, type ComputerHandle, type ComputerPlugin } from "./plugin";
-export type { CommandResult, ComputerProvider } from "./provider";
+export {
+  computer,
+  ComputerUnavailableError,
+  type ComputerApi,
+  type ComputerHandle,
+  type ComputerPlugin,
+} from "./plugin";
+export type { CommandResult, ComputerProvider, TimedOutCommand } from "./provider";

@@ -9,6 +9,27 @@ import type { ComputerHandle } from "../../computer/server/plugin";
 /** The Computer tool that runs a shell command. */
 export const shellToolName = "shell";
 
+/** The `shell` call's start marker, recorded before the command runs live. */
+export const shellStartActivity = "shell_start";
+
+/** How long a `shell` command may run when the Bot doesn't say: 60 seconds. */
+export const defaultShellTimeoutSeconds = 60;
+
+/** What a tool returns when the Computer couldn't wake. */
+export const computerUnavailableError =
+  "Your computer couldn't start. Try again shortly; if it keeps failing, tell the user their " +
+  "computer is unavailable right now.";
+
+/** What a resumed Turn returns for a `shell` call that started but has no result. */
+export const interruptedShellError =
+  "This command was interrupted by a restart and may have partly run. Check its effects before " +
+  "running it again.";
+
+/** What a `shell` call killed at its time limit adds to the output it printed. */
+export const timedOutHint =
+  "The command was killed at its time limit. Break the work up into shorter commands, or give a " +
+  "longer timeoutSeconds if this turn has time left.";
+
 /** The user's Computer. Call it only with `computer` on (`hasPlugin("computer")`). */
 export function computerOf(deps: BotSdkContext, userId: string): ComputerHandle {
   return deps.plugin("computer").forUser(userId);
@@ -49,5 +70,14 @@ export const shellDefinition = toolDefinition({
     cwd: z.string().optional().meta({
       description: "Where to run it: absolute, or relative to your own directory.",
     }),
+    timeoutSeconds: z
+      .number()
+      .positive()
+      .optional()
+      .meta({
+        description:
+          `How long it may run, in seconds (${defaultShellTimeoutSeconds} by default, and never ` +
+          "past this turn's time left). It is killed then, and you get what it printed so far.",
+      }),
   }),
 });

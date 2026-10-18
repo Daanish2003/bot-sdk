@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 
 import { computer as computerTable } from "../../../core/server/db/schema";
 import type { BotSdkContext, BotSdkPlugin } from "../../../core/server/plugin";
-import type { CommandResult, ComputerProvider } from "./provider";
+import type { CommandResult, ComputerProvider, TimedOutCommand } from "./provider";
 
 export type ComputerOptions = {
   /** What runs the Computers: E2B, or the tests' fake. */
@@ -14,9 +14,25 @@ export type ComputerOptions = {
  * resume), and records activity when it starts and when it finishes.
  */
 export type ComputerHandle = {
-  /** Runs `command` with `bash -l -c` in `cwd` (the home directory by default). */
-  run: (command: string, options?: { cwd?: string }) => Promise<CommandResult>;
+  /**
+   * Runs `command` with `bash -l -c` in `cwd` (the home directory by default). A command still
+   * running after `timeoutMs` (60 seconds by default) is killed and returns what it printed so
+   * far. Once `signal` aborts, the command is killed and `run` throws its reason. A failed wake
+   * throws `ComputerUnavailableError`, and nothing runs.
+   */
+  run: (
+    command: string,
+    options?: { cwd?: string; timeoutMs?: number; signal?: AbortSignal },
+  ) => Promise<CommandResult | TimedOutCommand>;
 };
+
+/** An operation's wake failed: the Computer couldn't be created or resumed. */
+export class ComputerUnavailableError extends Error {
+  constructor(userId: string, cause: unknown) {
+    super(`The Computer of user ${userId} couldn't start`, { cause });
+    this.name = "ComputerUnavailableError";
+  }
+}
 
 /** The `computer` plugin's API (`sdk.plugin("computer")`). */
 export type ComputerApi = {
@@ -43,9 +59,12 @@ export function computer({ provider }: ComputerOptions): ComputerPlugin {
       const api: ComputerApi = {
         forUser: (userId) => ({
           run: async (command, options = {}) => {
+            const { cwd, timeoutMs = 60_000, signal } = options;
             const sandboxId = await startOperation(sdk, provider, userId);
             try {
-              return await provider.run(sandboxId, command, { cwd: options.cwd });
+              // A stop during the wake runs nothing.
+              signal?.throwIfAborted();
+              return await provider.run(sandboxId, command, { cwd, timeoutMs, signal });
             } finally {
               await recordActivity(sdk, userId);
             }
@@ -85,7 +104,12 @@ async function startOperation(
     .onConflictDoUpdate({ target: computerTable.userId, set: { lastActiveAt: now } })
     .returning({ state: computerTable.state, sandboxId: computerTable.sandboxId });
   if (row?.state === "awake" && row.sandboxId) return row.sandboxId;
-  return wake(sdk, provider, userId);
+  try {
+    return await wake(sdk, provider, userId);
+  } catch (caught) {
+    sdk.logger.error(`Waking the Computer of user ${userId} failed`, caught);
+    throw new ComputerUnavailableError(userId, caught);
+  }
 }
 
 /**

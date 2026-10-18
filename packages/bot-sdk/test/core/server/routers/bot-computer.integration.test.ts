@@ -1,10 +1,15 @@
 import type { ModelMessage, TextOptions } from "@tanstack/ai";
-import { eq } from "drizzle-orm";
-import { afterEach, describe, expect, it } from "vitest";
+import { eq, inArray } from "drizzle-orm";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { computer as computerTable } from "../../../../core/server/db/schema";
+import { botTurn, computer as computerTable, job } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { bot } from "../../../../plugins/bot/server/plugin";
+import {
+  computerUnavailableError,
+  interruptedShellError,
+} from "../../../../plugins/bot/server/computer-tools";
+import { turnTimeLimitMs } from "../../../../plugins/bot/server/store";
 import { botSystemPrompt } from "../../../../plugins/bot/server/turn";
 import { computer } from "../../../../plugins/computer/server/plugin";
 import type { CommandResult } from "../../../../plugins/computer/server/provider";
@@ -13,14 +18,20 @@ import {
   inProcessRunner,
   type InProcessRunner,
 } from "../../../../plugins/runner/server/jobs/in-process";
+import {
+  claimJob,
+  reapStaleJobs,
+  runClaimedJob,
+} from "../../../../plugins/runner/server/jobs/store";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
+import { fakeJobClock } from "../../../support/jobs";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
 import {
   fakeComputerProvider,
-  type FakeCommand,
+  type FakeCommandRun,
 } from "../../../plugins/computer/server/fake-provider";
 
 const model = "openai:gpt-5.6";
@@ -47,7 +58,7 @@ async function botWith(
     onCommand,
   }: {
     withComputer?: boolean;
-    onCommand?: (command: FakeCommand) => CommandResult | Promise<CommandResult>;
+    onCommand?: (command: FakeCommandRun) => CommandResult | Promise<CommandResult>;
   } = {},
 ) {
   const fake = createFakeAdapter({ rounds });
@@ -82,14 +93,22 @@ async function send(client: ReturnType<typeof chatRpc>, botId: string, text: str
   return events;
 }
 
-const shell = (input: { command: string; cwd?: string }) => toolCall({ name: "shell", input });
+const shell = (input: { command: string; cwd?: string; timeoutSeconds?: number }) =>
+  toolCall({ name: "shell", input });
+
+const sends = (input: { text: string; endTurn: boolean }) =>
+  toolCall({ name: "send_to_user", input });
+
+/** The Bot's Turn (each test sends it at most one that matters here). */
+const turnOf = async (botId: string) =>
+  (await getTestDb().select().from(botTurn).where(eq(botTurn.botId, botId)))[0];
 
 /** The model input of one call: its messages, as the adapter got them. */
 const inputOf = (call: TextOptions | undefined) => (call?.messages ?? []) as ModelMessage[];
 
-/** The result the Model got for its tool call in call `call`, parsed. */
+/** The result the Model got for the last tool call in its input to call `call`, parsed. */
 const toolResultOf = (call: TextOptions | undefined) =>
-  JSON.parse(String(inputOf(call).find((entry) => entry.role === "tool")?.content));
+  JSON.parse(String(inputOf(call).findLast((entry) => entry.role === "tool")?.content));
 
 /** The names of the tools a model call offered. */
 const toolNamesOf = (call: TextOptions | undefined) => (call?.tools ?? []).map((tool) => tool.name);
@@ -204,6 +223,92 @@ describe("the shell tool", () => {
   });
 });
 
+/** A command that prints `printed`, then runs until it is killed. `started` resolves once it runs. */
+function runsUntilKilled(printed = "") {
+  let running: () => void = () => {};
+  const started = new Promise<void>((resolve) => (running = resolve));
+  const onCommand = ({ print, signal }: FakeCommandRun) => {
+    print(printed);
+    running();
+    return new Promise<CommandResult>((_resolve, reject) => {
+      signal.addEventListener("abort", () => reject(new Error("killed")));
+    });
+  };
+  return { started, onCommand };
+}
+
+describe("shell at its limits", () => {
+  it("kills a command that outlives timeoutSeconds and returns what it printed, timed out", async () => {
+    const { client, botId, fake, computerFake } = await botWith(
+      [round(shell({ command: "make all", timeoutSeconds: 0.05 })), round()],
+      { onCommand: runsUntilKilled("building…\n").onCommand },
+    );
+
+    const events = await send(client, botId, "build it");
+
+    expect(events.at(-1)).toEqual({ type: "turnEnded", status: "complete" });
+    expect(toolResultOf(fake.calls[1])).toEqual({
+      timedOut: true,
+      stdout: "building…\n",
+      stderr: "",
+      hint: expect.stringMatching(/break .* up/i),
+    });
+    expect(computerFake.callsOf("run")[0]?.timeoutMs).toBe(50);
+    expect(computerFake.callsOf("kill")).toEqual([
+      { type: "kill", sandboxId: "fake-sandbox-1", command: "make all" },
+    ]);
+  });
+
+  it("runs a command for 60 seconds by default, and caps a longer one at the Turn's time left", async () => {
+    const { client, botId, computerFake } = await botWith([
+      round(shell({ command: "echo quick" }), shell({ command: "sleep", timeoutSeconds: 3600 })),
+      round(),
+    ]);
+
+    await send(client, botId, "go");
+
+    const [quick, long] = computerFake.callsOf("run");
+    expect(quick?.timeoutMs).toBe(60_000);
+    expect(long?.timeoutMs).toBeLessThanOrEqual(turnTimeLimitMs);
+    expect(long?.timeoutMs).toBeGreaterThan(turnTimeLimitMs - 30_000);
+  });
+
+  it("returns the couldn't-start note when the Computer fails to start, and the Turn carries on", async () => {
+    const { client, botId, fake, computerFake } = await botWith([
+      round(shell({ command: "echo one" })),
+      round(sends({ text: "My computer is down.", endTurn: true })),
+    ]);
+    computerFake.failing.add("create");
+
+    const events = await send(client, botId, "run it");
+
+    expect(toolResultOf(fake.calls[1])).toEqual({ error: computerUnavailableError });
+    expect(events.at(-1)).toEqual({ type: "turnEnded", status: "complete" });
+    expect(computerFake.callsOf("run")).toEqual([]);
+  });
+
+  it("returns the couldn't-start note when an asleep Computer fails to resume", async () => {
+    const { client, botId, fake, computerFake, user } = await botWith([
+      round(shell({ command: "echo one" })),
+      round(),
+      round(shell({ command: "echo two" })),
+      round(),
+    ]);
+    await send(client, botId, "first");
+    await getTestDb()
+      .update(computerTable)
+      .set({ state: "asleep" })
+      .where(eq(computerTable.userId, user.id));
+    computerFake.failing.add("resume");
+
+    const events = await send(client, botId, "second");
+
+    expect(toolResultOf(fake.calls[3])).toEqual({ error: computerUnavailableError });
+    expect(events.at(-1)).toEqual({ type: "turnEnded", status: "complete" });
+    expect(computerFake.callsOf("run")).toHaveLength(1);
+  });
+});
+
 describe("a user's Computer", () => {
   it("is created on its first operation, not before", async () => {
     const { client, botId, user } = await botWith([round()]);
@@ -212,5 +317,120 @@ describe("a user's Computer", () => {
 
     // A Turn that used no Computer tool leaves the Computer alone.
     expect(await computerRow(user.id)).toBeUndefined();
+  });
+});
+
+describe("a shell call whose attempt is cut off", () => {
+  // Each test claims its Turn's job by hand: no job another test left behind may be claimed first.
+  beforeEach(async () => {
+    await getTestDb()
+      .update(job)
+      .set({ status: "cancelled" })
+      .where(inArray(job.status, ["queued", "running"]));
+  });
+
+  /**
+   * A Bot with `computer` on, whose Turn's job the test runs by hand, one attempt at a time, on
+   * the fake job clock. Its one command runs until it is killed. Each attempt may run on its own
+   * SDK instance, as on another process.
+   */
+  async function botOnHandRunJobs(rounds: Round[]) {
+    const command = runsUntilKilled();
+    const fake = createFakeAdapter({ rounds });
+    const computerFake = fakeComputerProvider({ onCommand: command.onCommand });
+    const timer = fakeJobClock(new Date());
+    const instance = () => {
+      let deps: TestDeps | undefined;
+      // Never started: the test claims and runs each attempt.
+      const jobs = inProcessRunner({
+        db: getTestDb(),
+        logger: silent,
+        clock: timer.clock,
+        deps: () => deps!,
+      });
+      deps = createTestSdk({
+        plugins: [bot(), computer({ provider: computerFake.provider })],
+        jobs,
+        adapterFor: () => fake.adapter,
+      });
+      return deps;
+    };
+    const deps = instance();
+    const user = await insertUser();
+    await saveCredentials(deps, user.id, {
+      service: "openai",
+      fields: { apiKey: "openai-test-key" },
+      hint: "…-key",
+      verified: true,
+    });
+    const client = chatRpc({ user, deps });
+    const { id: botId } = await client.bot.create({ name: "Ada", model });
+    return {
+      fake,
+      computerFake,
+      deps,
+      client,
+      botId,
+      timer,
+      instance,
+      /** Resolves once the command runs. */
+      commandStarted: command.started,
+      /** Claims the Turn's job and runs one attempt of it on `on`, without waiting for it to end. */
+      attempt: async (on: TestDeps = deps) => {
+        const claimed = await claimJob(getTestDb(), timer.clock.now(), { respectRunAfter: false });
+        if (!claimed) throw new Error("Nothing to claim");
+        return runClaimedJob(getTestDb(), claimed, {
+          clock: timer.clock,
+          logger: silent,
+          deps: () => on,
+        });
+      },
+    };
+  }
+
+  it("is killed when the Turn is stopped, and stays unanswered", async () => {
+    const { client, botId, computerFake, attempt, timer, commandStarted } = await botOnHandRunJobs([
+      round(shell({ command: "sleep 600", timeoutSeconds: 120 })),
+    ]);
+    const stream = await client.bot.send({ botId, id: uuidv7(), text: "wait" });
+    const running = attempt();
+    await commandStarted;
+
+    await client.bot.stop({ botId });
+    // The running attempt sees the cancel at its next heartbeat.
+    timer.tick();
+    await running;
+
+    expect(computerFake.callsOf("kill")).toEqual([
+      { type: "kill", sandboxId: "fake-sandbox-1", command: "sleep 600" },
+    ]);
+    const events = [];
+    for await (const event of stream) events.push(event);
+    expect(events.at(-1)).toEqual({ type: "turnEnded", status: "stopped" });
+    const turn = await turnOf(botId);
+    expect(turn).toMatchObject({ status: "stopped" });
+    // The call never got a result, so the transcript leaves it out.
+    expect(JSON.stringify(turn?.transcript)).not.toContain("sleep 600");
+  });
+
+  it("never runs again after a crash, and the resumed Turn returns the interrupted note", async () => {
+    const { fake, computerFake, deps, botId, attempt, timer, instance, client, commandStarted } =
+      await botOnHandRunJobs([round(shell({ command: "rm -rf build" })), round()]);
+    await client.bot.send({ botId, id: uuidv7(), text: "clean up" });
+
+    const lost = attempt();
+    await commandStarted;
+    // The process dies mid-command: its lease expires and the reaper re-queues the Turn's job.
+    timer.advance(61_000);
+    await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps);
+    timer.tick();
+    await lost;
+    // Another process resumes the Turn.
+    await attempt(instance());
+
+    expect(computerFake.callsOf("run").map((call) => call.command)).toEqual(["rm -rf build"]);
+    expect(fake.calls).toHaveLength(2);
+    expect(toolResultOf(fake.calls[1])).toEqual({ error: interruptedShellError });
+    expect(await turnOf(botId)).toMatchObject({ status: "complete" });
   });
 });
