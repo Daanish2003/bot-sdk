@@ -127,7 +127,9 @@ export function e2bProvider({
       // The command gets a process group of its own, and creates its directory in the same call:
       // `exec` makes the shell's pid the group's id, so a kill can reach the children and
       // background jobs the command started, which a kill of the shell alone leaves running.
-      const script = `mkdir -p ${quoted(cwd)} && cd ${quoted(cwd)} && exec setsid bash -c ${quoted(command)}`;
+      // `-w` makes the tracked pid wait for the command should setsid ever fork (it does when
+      // its caller leads a group), and `bash -l` loads the profile, as the handle promises.
+      const script = `mkdir -p ${quoted(cwd)} && cd ${quoted(cwd)} && exec setsid -w bash -l -c ${quoted(command)}`;
       const { sandbox, handle } = await withSandbox(sandboxId, async (sandbox) => ({
         sandbox,
         // The SDK's own limit is off (0): the timer below kills the command and keeps its output.
