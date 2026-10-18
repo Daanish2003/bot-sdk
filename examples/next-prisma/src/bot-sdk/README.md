@@ -254,6 +254,8 @@ computer({
 
 `apps/web` turns `computer` on only when `E2B_API_KEY`, `E2B_API_URL` and `E2B_SANDBOX_URL` are all set.
 
+A user's Computer is created on their first operation, and with `bot` on, only for a user who has a Bot: `bot` adds that owner check (`addOwnerCheck`), so a Turn that races its user's delete leaves no Computer behind. A plugin that uses the Computer for users without a Bot adds its own check.
+
 ### The template
 
 `plugins/computer/template/Dockerfile` is a plain Debian image with no X server. The plugin only expects `/home/user`, `bash` and `tar`, so a Host can pass any template with those. The template's name is its version: change the name with every change to the Dockerfile, and every Computer is rebuilt on its next wake. `apps/web` keeps the name in `computerTemplate` (`src/services.ts`).
@@ -266,9 +268,28 @@ pnpm dlx @e2b/cli@2.22.0 template create ai-chat-computer-v1 -p plugins/computer
 
 Notes from building it on local E2B Embed:
 
-- The root disk of a sandbox is about 800 MB, 256 MB of it reserved, and `--min-free-disk-mb` did not enlarge it. Keep the image small: with `nodejs` and `npm` added, the disk had no space left and a sleep's sync failed with "No space left on device".
+- The root disk is small, and how to raise it is under "Root disk size" below. Keep the image small until that is done: with `nodejs` and `npm` added, the disk had no space left and a sleep's sync failed with "No space left on device".
 - The build resumes a snapshot for each Dockerfile step, which can fail with `mmap memfd: cannot allocate memory` when WSL's page cache has filled the memory. Free it (`wsl -d Ubuntu-24.04 -u root -- bash -c 'sync; echo 3 > /proc/sys/vm/drop_caches; echo 1 > /proc/sys/vm/compact_memory'`) and build again; finished steps are cached.
 - Run only one sandbox at a time while testing: with the 2 GiB of hugepages Embed has here, a second sandbox placed while one is paused or running can fail with "Failed to place sandbox".
+
+### Root disk size
+
+On local E2B Embed a sandbox's root disk is about 800 MB with 256 MB reserved: the builds in Embed's database show `total_disk_size_mb = 990` and `free_disk_size_mb = 0`. A template with `nodejs` and `npm` added left no space, and a sleep's sync failed with "No space left on device". So `ai-chat-computer-v1` stays minimal. What the primary sources say about raising it (sources: [E2B build limits](https://docs.e2b.dev/faq/build-limits), `e2b-dev/infra` `packages/api/internal/team/free_disk.go`, `packages/orchestrator/pkg/template/build/phases/ensurefreedisk/`, and Embed's Postgres `tiers` table, read-only):
+
+- The root disk is the image plus free space. The size is not set in the Dockerfile or in the orchestrator's environment. Free space is a per-build request: `template create --min-free-disk-mb <MiB>`. The API checks it against the team's limits (`LimitFreeDiskSize`): omitted means the team's `default_free_disk_size_mb`, `0` means no growth, above the team's `max_free_disk_size_mb` (the tier's `max_disk_size_mb`) is refused with HTTP 400. After the Dockerfile steps, a "resize-disk" build phase measures the free space and grows the ext4 filesystem (`resize2fs`, plus 10% for metadata) until the free space reaches the request. It never shrinks, and the growth is best effort.
+- Embed's only tier, `base_v1` (both teams use it), has `disk_mb = 512`, `default_free_disk_size_mb = 512` and `max_disk_size_mb = 25600`. So up to 25 GiB of free space can be requested without touching any config, and a rebuild is what applies it.
+- The disk size is part of the built template. Changing it needs a rebuild, and per the template-name rule above, a new template name (`ai-chat-computer-v2`), so every Computer is rebuilt on its next wake.
+- Tier values live in Postgres (`public.tiers`, with per-team `project_limits` and `addons` overrides). Changing `default_free_disk_size_mb` or `max_disk_size_mb` there is an Embed change, not an SDK one.
+
+Not settled, because nothing was built for this research: `--min-free-disk-mb` was tried earlier on this Embed (orchestrator `v0.16.202610051633`) and did not enlarge the disk, and every recent build row stores `free_disk_size_mb = 0` although the tier default is 512. The resize-disk phase is on `main` of `e2b-dev/infra`, but I could not map that Embed release to a commit, so either that release predates the phase or the request never reached it. The next step is one build with `--min-free-disk-mb 2048 --no-cache` under a new name, then check `env_builds.free_disk_size_mb` and `total_disk_size_mb` and `df -h /` in a sandbox. If `total_disk_size_mb` does not grow, update Embed to a release that carries the phase.
+
+Trade-offs of a bigger disk:
+
+- Each pause writes a snapshot to the host's filesystem and Embed refuses a pause that would leave under 1024 MiB free (`PAUSE_ADMISSION_DISK_HEADROOM_MIB`). Preflight wants 20 GiB free (`PF_MIN_FREE_GIB`). A larger root disk makes the worst case snapshot larger (only blocks written are stored, so an unused disk costs little).
+- The resize adds build time and a layer to the template cache. RAM and hugepages are not affected, so the one-sandbox limit stays.
+- A Bot that installs anything sizeable still fills a finite disk. The Computer's sync archive (`tar` of `/home/user`) grows with what the Bot keeps, whatever the disk size.
+
+Owner decisions (infrastructure): the target free space (recommendation: 2048 MiB, 8x today's headroom, well under the 25600 MiB cap), and whether Node joins the template (recommendation: not in `v1`; if Bots need it, add `nodejs` and `npm` in a `v2` template built with the larger disk, once the 2 GiB build is seen to work).
 
 ### Local E2B Embed (WSL2)
 

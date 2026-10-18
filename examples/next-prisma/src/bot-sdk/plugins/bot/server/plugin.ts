@@ -2,7 +2,7 @@ import type { BotSdkPlugin } from "../../../core/server/plugin";
 import { isInProcessRunner } from "../../runner/server/jobs/in-process";
 import { runnerJobs } from "../../runner/server/plugin";
 import { botPluginRouter } from "./routers/index";
-import { botUserDelete, exportBots, hasTurnUsingComputer } from "./store";
+import { botUserDelete, exportBots, hasTurnUsingComputer, userHasBot } from "./store";
 
 export type BotPlugin = BotSdkPlugin<"bot", never, never>;
 
@@ -24,13 +24,14 @@ export function bot(): BotPlugin {
           "The bot plugin needs the in-process runner: a Trigger.dev retry starts a Turn over and would send its Messages again",
         );
       }
-      // Never mid-Turn (#508): a Turn that started before the Computer's last activity holds it.
       if (sdk.hasPlugin("computer")) {
-        sdk
-          .plugin("computer")
-          .addBusyCheck((userId, lastActiveAt) =>
-            hasTurnUsingComputer(sdk.db, userId, lastActiveAt),
-          );
+        const computer = sdk.plugin("computer");
+        // Never mid-Turn (#508): a Turn that started before the Computer's last activity holds it.
+        computer.addBusyCheck((userId, lastActiveAt) =>
+          hasTurnUsingComputer(sdk.db, userId, lastActiveAt),
+        );
+        // Only a user with a Bot gets a Computer, so a Turn racing the user's delete creates none.
+        computer.addOwnerCheck(userHasBot);
       }
     },
     router: botPluginRouter,

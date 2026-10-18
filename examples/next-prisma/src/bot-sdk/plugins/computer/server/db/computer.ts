@@ -30,4 +30,6 @@ export const computer = chatSchema.table("computer", {
   syncFingerprint: text("sync_fingerprint"),
   /** The last stored archive's size, in bytes. */
   syncedBytes: integer("synced_bytes"),
+  /** When a wake last rebuilt the Computer from its template. Null until the first rebuild. */
+  rebuiltAt: timestamp("rebuilt_at", { withTimezone: true }),
 });

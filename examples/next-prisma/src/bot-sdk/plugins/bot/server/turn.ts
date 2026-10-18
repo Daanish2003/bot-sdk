@@ -67,7 +67,15 @@ import {
   writeDefinition,
   writeTool,
 } from "./computer-tools";
-import { botMessages, findBot, textParts, toBotMessage, turnTimeLimitMs } from "./store";
+import {
+  botMessages,
+  computerRebuildSeenAt,
+  findBot,
+  markComputerRebuildSeen,
+  textParts,
+  toBotMessage,
+  turnTimeLimitMs,
+} from "./store";
 
 /** The most Steps a Turn may take; one more ends it `error` with `step_limit`. */
 export const turnStepLimit = 10;
@@ -843,13 +851,16 @@ async function playTurn(
 
   // The Computer's tools, whenever `computer` is on: the tool set never changes mid-conversation.
   const withComputer = deps.hasPlugin("computer");
-  // One handle for the Turn, so a rebuild its wake did is told once, in the next tool result.
   let userComputer: ComputerHandle | undefined;
+  // The latest rebuild of the Computer the Bot was told of, read on its first Computer call
+  // (undefined until then), and the one the latest result tells, recorded once it is saved.
+  let rebuildSeenAt: Date | null | undefined;
+  let telling: Date | undefined;
   /**
    * The Computer's operation for a live tool call. A failed wake, or an operation the provider
    * failed, is the tool's result, unless the Turn was stopped or ran out of time meanwhile: then
    * the call stays unanswered. A database failure throws, so the Turn's job retries it. After a
-   * rebuild, the result carries the rebuilt note.
+   * rebuild the Bot wasn't told of, the result carries the rebuilt note (#553).
    */
   const onComputer = async <T extends object>(
     operate: (computer: ComputerHandle) => Promise<T>,
@@ -857,8 +868,13 @@ async function playTurn(
     const computer = (userComputer ??= computerOf(deps, turn.userId));
     try {
       const result = await operate(computer);
-      const rebuild = computer.takeRebuild();
-      return rebuild ? { ...result, note: rebuiltNote(rebuild) } : result;
+      const rebuild = computer.rebuild();
+      if (!rebuild) return result;
+      if (rebuildSeenAt === undefined)
+        rebuildSeenAt = await computerRebuildSeenAt(deps.db, turn.botId);
+      if (rebuildSeenAt && rebuild.rebuiltAt <= rebuildSeenAt) return result;
+      telling = rebuild.rebuiltAt;
+      return { ...result, note: rebuiltNote(rebuild) };
     } catch (caught) {
       if (!abortController.signal.aborted) {
         if (caught instanceof ComputerUnavailableError) return { error: computerUnavailableError };
@@ -868,6 +884,18 @@ async function playTurn(
       }
       throw caught;
     }
+  };
+  /**
+   * After a Computer tool's Checkpoint is saved: the rebuild its result told is recorded as told.
+   * A crash before then tells it again in the retried attempt rather than never.
+   */
+  const recordTold = async <T>(result: T): Promise<T> => {
+    if (telling) {
+      await markComputerRebuildSeen(deps.db, turn.botId, telling);
+      rebuildSeenAt = telling;
+      telling = undefined;
+    }
+    return result;
   };
   const shell = shellDefinition.server(({ command, cwd, timeoutSeconds }, context) =>
     toolCallOf(context?.toolCallId, async () => {
@@ -885,7 +913,7 @@ async function playTurn(
         },
         { yields: false },
       );
-      return ctx.activity(shellToolName, async () => {
+      const result = await ctx.activity(shellToolName, async () => {
         beforeLiveTool();
         if (!startedHere) return { error: interruptedShellError };
         // A live call: the Turn's time limit, like a Stop, kills the command through the signal.
@@ -910,6 +938,7 @@ async function playTurn(
           inLiveCall = false;
         }
       });
+      return recordTold(result);
     }),
   );
   /** A file tool: one activity, re-run after a crash. */
@@ -919,11 +948,13 @@ async function playTurn(
       run: (computer: ComputerHandle, botId: string, input: Input) => Promise<Output>,
     ) =>
     (input: Input, context?: { toolCallId?: string }) =>
-      toolCallOf(context?.toolCallId, () =>
-        ctx.activity(name, async () => {
-          beforeLiveTool();
-          return onComputer((computer) => run(computer, turn.botId, input));
-        }),
+      toolCallOf(context?.toolCallId, async () =>
+        recordTold(
+          await ctx.activity(name, async () => {
+            beforeLiveTool();
+            return onComputer((computer) => run(computer, turn.botId, input));
+          }),
+        ),
       );
   const read = readDefinition.server(fileTool("read", readTool));
   const write = writeDefinition.server(fileTool("write", writeTool));
