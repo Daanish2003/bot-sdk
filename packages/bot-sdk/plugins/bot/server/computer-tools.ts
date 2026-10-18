@@ -174,22 +174,57 @@ export function decodeText(bytes: Uint8Array, path: string): { text: string } | 
   }
 }
 
-/** Numbered lines of `text` from line `offset` (1-based), at most `limit` of them. */
-export function readLines(text: string, offset = 1, limit = defaultReadLines) {
-  const lines = text.split("\n");
+/**
+ * The most bytes of a file that `edit` loads, and of the lines that `read` fetches at once. Over
+ * it, the tool returns an error that suggests `shell`.
+ */
+export const maxTextBytes = 5_000_000;
+
+/** A path quoted for bash. */
+const quote = (path: string) => `'${path.replaceAll("'", String.raw`'\''`)}'`;
+
+/**
+ * Finds a regular file on the Computer without loading it, and returns its size in bytes, with its
+ * line count when asked, or an error.
+ */
+async function fileInfo(
+  computer: ComputerHandle,
+  path: string,
+  withLines: boolean,
+  missing: string,
+): Promise<{ bytes: number; lines: number } | { error: string }> {
+  const quoted = quote(path);
+  const result = await computer.run(
+    `test -f ${quoted} && stat -c %s ${quoted}${withLines ? ` && awk 'END{print NR}' ${quoted}` : ""}`,
+  );
+  if ("timedOut" in result) {
+    return { error: `Looking up ${path} timed out. Use ${shellToolName} to work with it.` };
+  }
+  if (result.exitCode !== 0) {
+    const directory = await computer.run(`test -d ${quoted}`);
+    return "exitCode" in directory && directory.exitCode === 0
+      ? { error: `${path} is a directory. Use list to see what is there.` }
+      : { error: missing };
+  }
+  const [bytes = 0, lines = 0] = result.stdout.trim().split("\n").map(Number);
+  return { bytes, lines };
+}
+
+/**
+ * Numbered lines from `rangeText`, which holds the file's lines from line `start` (1-based) on, out
+ * of `totalLines`.
+ */
+export function numberLines(rangeText: string, start: number, totalLines: number) {
+  const lines = rangeText.split("\n");
   if (lines.at(-1) === "") lines.pop();
-  const start = Math.max(offset, 1);
-  const shown = lines.slice(start - 1, start - 1 + Math.max(limit, 0));
-  const content = shown
+  const content = lines
     .map((line, index) => {
       const cut = line.length > maxLineLength ? `${line.slice(0, maxLineLength)}…` : line;
       return `${start + index}\t${cut}`;
     })
     .join("\n");
-  const next = start + shown.length;
-  return next <= lines.length
-    ? { content, totalLines: lines.length, nextOffset: next }
-    : { content, totalLines: lines.length };
+  const next = start + lines.length;
+  return next <= totalLines ? { content, totalLines, nextOffset: next } : { content, totalLines };
 }
 
 const pathField = z.string().meta({ description: "Absolute, or relative to your own directory." });
@@ -236,18 +271,47 @@ export const listDefinition = toolDefinition({
   inputSchema: z.object({ path: pathField.optional() }),
 });
 
-/** The `read` tool's result. */
+/**
+ * The `read` tool's result. It fetches only the lines it returns, with `sed` on the Computer,
+ * so paging through a huge file doesn't move the file.
+ */
 export async function readTool(
   computer: ComputerHandle,
   botId: string,
   input: { path: string; offset?: number; limit?: number },
 ) {
   const path = resolvePath(botId, input.path);
-  const bytes = await computer.readFile(path);
-  if (!bytes) return { error: `${path} does not exist. Use list to see what is there.` };
+  const info = await fileInfo(
+    computer,
+    path,
+    true,
+    `${path} does not exist. Use list to see what is there.`,
+  );
+  if ("error" in info) return info;
+  const start = Math.max(input.offset ?? 1, 1);
+  const count = Math.max(input.limit ?? defaultReadLines, 0);
+  if (count === 0 || start > info.lines) return numberLines("", start, info.lines);
+  const end = start + count - 1;
+  // One byte past the limit shows that the lines were over it.
+  const fetched = await computer.run(
+    `sed -n '${start},${end}p;${end}q' ${quote(path)} | head -c ${maxTextBytes + 1} | base64 -w0`,
+  );
+  if ("timedOut" in fetched || fetched.exitCode !== 0) {
+    return {
+      error:
+        `Reading ${path} failed${"timedOut" in fetched ? " (timed out)" : `: ${fetched.stderr.trim()}`}. ` +
+        `Use ${shellToolName} to work with it.`,
+    };
+  }
+  const bytes = Uint8Array.from(Buffer.from(fetched.stdout.trim(), "base64"));
+  if (bytes.length > maxTextBytes) {
+    return {
+      error: `These lines of ${path} are over ${maxTextBytes} bytes, too many for read. Give a smaller limit, or use ${shellToolName} (for example sed, head or grep).`,
+    };
+  }
   const decoded = decodeText(bytes, path);
   if ("error" in decoded) return decoded;
-  return readLines(decoded.text, input.offset, input.limit);
+  return numberLines(decoded.text, start, info.lines);
 }
 
 /** The `write` tool's result. */
@@ -268,6 +332,18 @@ export async function editTool(
   input: { path: string; oldText: string; newText: string; replaceAll?: boolean },
 ) {
   const path = resolvePath(botId, input.path);
+  const info = await fileInfo(
+    computer,
+    path,
+    false,
+    `${path} does not exist. Use write to create it.`,
+  );
+  if ("error" in info) return info;
+  if (info.bytes > maxTextBytes) {
+    return {
+      error: `${path} is ${info.bytes} bytes, over the ${maxTextBytes} edit can load. Use ${shellToolName} to change it (for example sed or a script).`,
+    };
+  }
   const bytes = await computer.readFile(path);
   if (!bytes) return { error: `${path} does not exist. Use write to create it.` };
   const decoded = decodeText(bytes, path);
