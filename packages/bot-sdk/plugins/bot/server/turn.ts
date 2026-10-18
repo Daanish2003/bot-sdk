@@ -15,12 +15,14 @@ import { appendMessage } from "../../../core/server/chat/message-tree";
 import { bot, botTrigger, botTurn, message } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
+import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { rpcError } from "../../../core/server/rpc-error";
 import { searchTextOf } from "../../../core/shared/message-parts";
 import { conversationChannel } from "../../assistant/server/memory/notice";
 import { addUsage, promptCharactersOf, reportedUsageOf } from "../../models/server/run-usage";
 import { parseModelId } from "../../models/shared/models";
 import type { MessageUsage } from "../../models/shared/usage";
+import type { ComputerHandle } from "../../computer/server/plugin";
 import { defineJob, PermanentJobError } from "../../runner/server/jobs/define";
 import { loadHistory } from "../../runner/server/jobs/history";
 import {
@@ -38,8 +40,18 @@ import {
   waitingIn,
 } from "./router";
 import {
+  capOutput,
   computerOf,
   computerPrompt,
+  editDefinition,
+  editTool,
+  listDefinition,
+  listTool,
+  readDefinition,
+  readTool,
+  spillPath,
+  writeDefinition,
+  writeTool,
   shellCwd,
   shellDefinition,
   shellToolName,
@@ -825,10 +837,34 @@ async function playTurn(
       // No transaction: the command runs on the Computer, not in the database.
       ctx.activity(shellToolName, async () => {
         beforeLiveTool();
-        return computerOf(deps, turn.userId).run(command, { cwd: shellCwd(turn.botId, cwd) });
+        const computer = computerOf(deps, turn.userId);
+        const result = await computer.run(command, { cwd: shellCwd(turn.botId, cwd) });
+        // The cap is applied here, so the Checkpoint holds only the truncated form.
+        return capOutput(
+          result,
+          spillPath(turn.botId, context?.toolCallId ?? uuidv7()),
+          computer.writeFile,
+        );
       }),
     ),
   );
+  /** A file tool: one activity, re-run after a crash. */
+  const fileTool =
+    <Input, Output>(
+      name: string,
+      run: (computer: ComputerHandle, botId: string, input: Input) => Promise<Output>,
+    ) =>
+    (input: Input, context?: { toolCallId?: string }) =>
+      toolCallOf(context?.toolCallId, () =>
+        ctx.activity(name, async () => {
+          beforeLiveTool();
+          return run(computerOf(deps, turn.userId), turn.botId, input);
+        }),
+      );
+  const read = readDefinition.server(fileTool("read", readTool));
+  const write = writeDefinition.server(fileTool("write", writeTool));
+  const edit = editDefinition.server(fileTool("edit", editTool));
+  const list = listDefinition.server(fileTool("list", listTool));
 
   /** What the Turn's model calls and tool calls added to its input, in order. */
   const messages: ModelMessage[] = [];
@@ -840,7 +876,7 @@ async function playTurn(
         adapter: durableAdapter,
         messages: [...input, ...messages],
         systemPrompts: botSystemPrompts(turn.botId, withComputer),
-        tools: withComputer ? [sendToUser, shell] : [sendToUser],
+        tools: withComputer ? [sendToUser, shell, read, write, edit, list] : [sendToUser],
         // One call at a time, in call order, which is a workflow's identity.
         toolExecution: "sequential",
         abortController,

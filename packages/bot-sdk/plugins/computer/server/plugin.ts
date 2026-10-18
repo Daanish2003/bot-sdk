@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 
 import { computer as computerTable } from "../../../core/server/db/schema";
 import type { BotSdkContext, BotSdkPlugin } from "../../../core/server/plugin";
-import type { CommandResult, ComputerProvider } from "./provider";
+import type { CommandResult, ComputerProvider, FileEntry } from "./provider";
 
 export type ComputerOptions = {
   /** What runs the Computers: E2B, or the tests' fake. */
@@ -16,6 +16,12 @@ export type ComputerOptions = {
 export type ComputerHandle = {
   /** Runs `command` with `bash -l -c` in `cwd` (the home directory by default). */
   run: (command: string, options?: { cwd?: string }) => Promise<CommandResult>;
+  /** A file's bytes, or null when there is no such file. */
+  readFile: (path: string) => Promise<Uint8Array | null>;
+  /** Writes a file, creating any missing parent directories, and overwrites it. */
+  writeFile: (path: string, content: string) => Promise<void>;
+  /** A directory's entries, one level deep, or null when there is no such directory. */
+  list: (path: string) => Promise<FileEntry[] | null>;
 };
 
 /** The `computer` plugin's API (`sdk.plugin("computer")`). */
@@ -41,16 +47,23 @@ export function computer({ provider }: ComputerOptions): ComputerPlugin {
     requires: ["runner"],
     init: (sdk) => {
       const api: ComputerApi = {
-        forUser: (userId) => ({
-          run: async (command, options = {}) => {
+        forUser: (userId) => {
+          const operate = async <T>(act: (sandboxId: string) => Promise<T>) => {
             const sandboxId = await startOperation(sdk, provider, userId);
             try {
-              return await provider.run(sandboxId, command, { cwd: options.cwd });
+              return await act(sandboxId);
             } finally {
               await recordActivity(sdk, userId);
             }
-          },
-        }),
+          };
+          return {
+            run: (command, options = {}) =>
+              operate((id) => provider.run(id, command, { cwd: options.cwd })),
+            readFile: (path) => operate((id) => provider.readFile(id, path)),
+            writeFile: (path, content) => operate((id) => provider.writeFile(id, path, content)),
+            list: (path) => operate((id) => provider.list(id, path)),
+          };
+        },
       };
       return { api };
     },
