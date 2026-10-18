@@ -361,13 +361,13 @@ describe("bot's busy check", () => {
     const setup = sdkWith({ withBot: true });
     const user = await insertUser();
     const lastActive = setup.clock.now;
-    await setup.sdk.plugin("computer").forUser(user.id).run("true");
     const created = await createBot(
       getTestDb(),
       user.id,
       { name: "Ada", model: "openai:gpt-5.6" },
       new Date(),
     );
+    await setup.sdk.plugin("computer").forUser(user.id).run("true");
     const insertTurn = (status: "running" | "complete", startedAt: Date) =>
       getTestDb().insert(botTurn).values({ id: uuidv7(), botId: created.id, status, startedAt });
     return { ...setup, user, lastActive, insertTurn };
@@ -855,6 +855,7 @@ describe("deleting", () => {
   async function syncedComputer() {
     const setup = sdkWith({ withBot: true });
     const user = await insertUser();
+    await createBot(getTestDb(), user.id, { name: "Ada", model: "openai:gpt-5.6" }, new Date());
     const handle = setup.sdk.plugin("computer").forUser(user.id);
     await handle.writeFile("/home/user/bots/b1/note.txt", "remember me");
     await sleepNow(setup);
@@ -931,6 +932,67 @@ async function waitForLockWait() {
   }
   throw new Error("No session waited on a lock");
 }
+
+describe("an operation for a user with nothing that uses a Computer", () => {
+  it("creates no row, no sandbox and no blob once the user is deleted", async () => {
+    const setup = sdkWith({ withBot: true });
+    const { sdk, fake, blobs } = setup;
+    const user = await insertUser();
+    await createBot(getTestDb(), user.id, { name: "Ada", model: "openai:gpt-5.6" }, new Date());
+    const handle = sdk.plugin("computer").forUser(user.id);
+    await handle.run("true");
+    await deleteUserData(sdk, user.id);
+
+    await expect(handle.run("true")).rejects.toBeInstanceOf(ComputerUnavailableError);
+
+    expect(await computerRow(user.id)).toBeUndefined();
+    expect(fake.callsOf("create")).toHaveLength(1);
+    expect(await queuedChecks()).toEqual([]);
+    await sleepNow(setup);
+    expect(await blobs.stored(`computer/${user.id}`)).toBeNull();
+  });
+
+  it("creates nothing when it waits on a user delete that commits", async () => {
+    const { sdk, fake } = sdkWith({ withBot: true });
+    const user = await insertUser();
+    await createBot(getTestDb(), user.id, { name: "Ada", model: "openai:gpt-5.6" }, new Date());
+    let commit!: () => void;
+    const committing = new Promise<void>((resolve) => (commit = resolve));
+    let deleted!: () => void;
+    const deleting = new Promise<void>((resolve) => (deleted = resolve));
+    // The user's delete has removed their Bots and not yet committed.
+    const deletion = getTestDb().transaction(async (tx) => {
+      await tx.delete(botTable).where(eq(botTable.userId, user.id));
+      deleted();
+      await committing;
+    });
+    await deleting;
+
+    const operation = sdk.plugin("computer").forUser(user.id).run("true");
+    const settled = operation.catch((caught: unknown) => caught);
+    await waitForLockWait();
+    commit();
+    await deletion;
+
+    expect(await settled).toBeInstanceOf(ComputerUnavailableError);
+    expect(await computerRow(user.id)).toBeUndefined();
+    expect(fake.calls).toEqual([]);
+  });
+
+  it("is refused for a user with no Bot when bot is on, and allowed when no plugin checks", async () => {
+    const withBot = sdkWith({ withBot: true });
+    const alone = sdkWith();
+    const user = await insertUser();
+
+    await expect(
+      withBot.sdk.plugin("computer").forUser(user.id).run("true"),
+    ).rejects.toBeInstanceOf(ComputerUnavailableError);
+    expect(await computerRow(user.id)).toBeUndefined();
+
+    await alone.sdk.plugin("computer").forUser(user.id).run("true");
+    expect((await computerRow(user.id))?.state).toBe("awake");
+  });
+});
 
 describe("hasPlugin", () => {
   it("says whether computer is enabled", () => {

@@ -82,6 +82,12 @@ export type ComputerOptions = {
 export type BusyCheck = (userId: string, lastActiveAt: Date) => Promise<boolean>;
 
 /**
+ * Whether the user still holds something that uses their Computer (`bot`: a Bot), read in `tx`
+ * under a lock that the user's delete waits for, or that waits for it.
+ */
+export type OwnerCheck = (tx: Transaction, userId: string) => Promise<boolean>;
+
+/**
  * The Computer's latest rebuild: at `rebuiltAt`, a wake built it again from its template and
  * restored its synced files as of `restoredAsOf`. That is null when there was no archive, so it
  * started empty, and undefined once a later sync replaced the archive it restored.
@@ -90,7 +96,8 @@ export type Rebuild = { rebuiltAt: Date; restoredAsOf: Date | null | undefined }
 
 /**
  * One user's Computer. Every operation wakes it first when it isn't awake (a first create, a
- * resume, or a rebuild), and records activity when it starts and when it finishes. An operation
+ * resume, or a rebuild), and records activity when it starts and when it finishes. The first operation creates the Computer only while an owner
+ * check holds, if any plugin added one; otherwise it throws `ComputerUnavailableError`. An operation
  * whose wake fails throws `ComputerUnavailableError`, and nothing runs. One the provider fails
  * (a permission denied, a read of a directory) throws `ComputerOperationError`; one whose sandbox
  * turns out gone rebuilds it and runs once more. A stop rethrows its reason as it is.
@@ -149,6 +156,12 @@ export type ComputerApi = {
    * "in use" from the plugins that use it without knowing about them.
    */
   addBusyCheck: (check: BusyCheck) => void;
+  /**
+   * Adds an owner check. Once any is added, a user's Computer is created only while one of them
+   * holds, so an operation that races the user's delete creates nothing (#554). A plugin that
+   * uses the Computer for a user without a Bot adds its own.
+   */
+  addOwnerCheck: (check: OwnerCheck) => void;
 };
 
 declare module "../../../core/server/plugin" {
@@ -199,6 +212,7 @@ export function computer({ provider }: ComputerOptions): ComputerPlugin {
         );
       }
       const busyChecks: BusyCheck[] = [];
+      const ownerChecks: OwnerCheck[] = [];
       const api: ComputerApi = {
         forUser: (userId) => {
           let latestRebuild: Rebuild | null = null;
@@ -206,7 +220,7 @@ export function computer({ provider }: ComputerOptions): ComputerPlugin {
             act: (sandboxId: string) => Promise<T>,
             signal?: AbortSignal,
           ) => {
-            let woken = await startOperation(sdk, provider, userId);
+            let woken = await startOperation(sdk, provider, ownerChecks, userId);
             try {
               for (let retried = false; ; retried = true) {
                 latestRebuild = woken.rebuild;
@@ -247,6 +261,9 @@ export function computer({ provider }: ComputerOptions): ComputerPlugin {
         addBusyCheck: (check) => {
           busyChecks.push(check);
         },
+        addOwnerCheck: (check) => {
+          ownerChecks.push(check);
+        },
       };
       sleepChecks.set(api, (userId) => sleepCheck(sdk, provider, busyChecks, userId));
       return { api };
@@ -283,22 +300,60 @@ const startColumns = {
  * An operation's start: records activity, creating the row on the user's first operation, and
  * returns the sandbox to act on, waking the Computer first when it isn't awake. While a sleep
  * check holds the row lock, the update waits for it, then sees `asleep` and wakes the Computer.
+ * A user delete's lock is waited for the same way, and then the row is gone.
  */
 async function startOperation(
   sdk: BotSdkContext,
   provider: ComputerProvider,
+  ownerChecks: readonly OwnerCheck[],
   userId: string,
 ): Promise<Woken> {
   const now = sdk.clock();
   const [row] = await sdk.db
-    .insert(computerTable)
-    .values({ userId, state: "asleep", lastActiveAt: now, createdAt: now })
-    .onConflictDoUpdate({ target: computerTable.userId, set: { lastActiveAt: now } })
+    .update(computerTable)
+    .set({ lastActiveAt: now })
+    .where(eq(computerTable.userId, userId))
     .returning(startColumns);
-  if (row?.state === "awake" && row.sandboxId) {
-    return { sandboxId: row.sandboxId, rebuild: rebuildOf(row) };
+  const started = row ?? (await createRow(sdk, ownerChecks, userId, now));
+  if (started.state === "awake" && started.sandboxId) {
+    return { sandboxId: started.sandboxId, rebuild: rebuildOf(started) };
   }
   return wake(sdk, provider, userId);
+}
+
+/**
+ * Creates the user's row on their first operation, while an owner check holds, in one
+ * transaction with the checks' locks: a user delete that removed what they hold makes it throw
+ * `ComputerUnavailableError`, and one that waits for this commit deletes the row it creates. That
+ * needs the owners' `deleteUser.before` to run before this plugin's, as a plugin that `uses`
+ * computer does (the hooks run in reverse dependency order).
+ */
+async function createRow(
+  sdk: BotSdkContext,
+  ownerChecks: readonly OwnerCheck[],
+  userId: string,
+  now: Date,
+) {
+  return sdk.db.transaction(async (tx) => {
+    if (ownerChecks.length > 0 && !(await isOwned(ownerChecks, tx, userId))) {
+      throw new ComputerUnavailableError(userId, new Error("Nothing of the user uses a Computer"));
+    }
+    const [row] = await tx
+      .insert(computerTable)
+      .values({ userId, state: "asleep", lastActiveAt: now, createdAt: now })
+      .onConflictDoUpdate({ target: computerTable.userId, set: { lastActiveAt: now } })
+      .returning(startColumns);
+    if (!row) throw new Error(`Creating the Computer of user ${userId} returned no row`);
+    return row;
+  });
+}
+
+/** Whether any owner check says the user still holds something that uses the Computer. */
+async function isOwned(checks: readonly OwnerCheck[], tx: Transaction, userId: string) {
+  for (const check of checks) {
+    if (await check(tx, userId)) return true;
+  }
+  return false;
 }
 
 /** The latest rebuild a row records, or null when it was never rebuilt. */
@@ -335,7 +390,10 @@ async function wake(sdk: BotSdkContext, provider: ComputerProvider, userId: stri
         .from(computerTable)
         .where(eq(computerTable.userId, userId))
         .for("update");
-      if (!locked) throw new Error(`The Computer of user ${userId} has no row`);
+      // A user delete that committed since the operation started removed it: nothing to wake.
+      if (!locked) {
+        throw new ComputerUnavailableError(userId, new Error("The Computer has no row"));
+      }
       if (locked.state === "awake" && locked.sandboxId) {
         return {
           woken: { sandboxId: locked.sandboxId, rebuild: rebuildOf(locked) },

@@ -254,6 +254,8 @@ computer({
 
 `apps/web` turns `computer` on only when `E2B_API_KEY`, `E2B_API_URL` and `E2B_SANDBOX_URL` are all set.
 
+A user's Computer is created on their first operation, and with `bot` on, only for a user who has a Bot: `bot` adds that owner check (`addOwnerCheck`), so a Turn that races its user's delete leaves no Computer behind. A plugin that uses the Computer for users without a Bot adds its own check.
+
 ### The template
 
 `plugins/computer/template/Dockerfile` is a plain Debian image with no X server. The plugin only expects `/home/user`, `bash` and `tar`, so a Host can pass any template with those. The template's name is its version: change the name with every change to the Dockerfile, and every Computer is rebuilt on its next wake. `apps/web` keeps the name in `computerTemplate` (`src/services.ts`).

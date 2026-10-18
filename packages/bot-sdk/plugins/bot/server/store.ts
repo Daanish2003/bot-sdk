@@ -90,6 +90,20 @@ export async function hasTurnUsingComputer(
 }
 
 /**
+ * Whether the user has a Bot, read under a lock that the user's delete waits for: `bot`'s owner
+ * check, so a Turn racing that delete creates no Computer (#554).
+ */
+export async function userHasBot(tx: Transaction, userId: string): Promise<boolean> {
+  const [found] = await tx
+    .select({ id: bot.id })
+    .from(bot)
+    .where(eq(bot.userId, userId))
+    .limit(1)
+    .for("key share");
+  return found !== undefined;
+}
+
+/**
  * The latest rebuild of the user's Computer the Bot was told of, or its creation (null for a Bot
  * from before the column, or one deleted meanwhile).
  */

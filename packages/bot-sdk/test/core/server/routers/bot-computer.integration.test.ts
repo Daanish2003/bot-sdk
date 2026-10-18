@@ -9,6 +9,7 @@ import {
   job,
 } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
+import { deleteUserData } from "../../../../core/server/user-data";
 import { bot } from "../../../../plugins/bot/server/plugin";
 import {
   computerUnavailableError,
@@ -826,5 +827,43 @@ describe("a rebuilt Computer", () => {
     expect(seen.find((row) => row.id === otherId)?.computerRebuildSeenAt).toEqual(
       (await computerRow(user.id))?.rebuiltAt,
     );
+  });
+});
+
+describe("a user delete during a Turn", () => {
+  it("leaves no Computer behind: the Turn's next tool call creates no row, sandbox or blob", async () => {
+    let deleteUser = async () => {};
+    const { client, botId, fake, computerFake, deps, user } = await botWith(
+      [round(shell({ command: "first" })), round(shell({ command: "second" })), round()],
+      {
+        onCommand: async ({ command }) => {
+          // The user's delete commits while their Turn is mid-step.
+          if (command === "first") await deleteUser();
+          return { exitCode: 0, stdout: "", stderr: "" };
+        },
+      },
+    );
+    deleteUser = () => deleteUserData(deps, user.id);
+
+    const stream = await client.bot.send({ botId, id: uuidv7(), text: "go" });
+    await expect
+      .poll(async () => {
+        const [turnJob] = await getTestDb()
+          .select({ status: job.status })
+          .from(job)
+          .where(eq(job.name, "bot.turn"));
+        return turnJob?.status;
+      })
+      .toMatch(/succeeded|failed/);
+    await stream.return?.(undefined);
+
+    expect(computerFake.callsOf("run").map((call) => call.command)).toEqual(["first"]);
+    expect(computerFake.callsOf("create")).toHaveLength(1);
+    expect(computerFake.callsOf("kill-sandbox")).toHaveLength(1);
+    expect(await computerRow(user.id)).toBeUndefined();
+    expect(fake.calls.length).toBeGreaterThan(1);
+    expect(toolResultOf(fake.calls[2])).toEqual({ error: computerUnavailableError });
+    await drainJobs({ deps });
+    expect(await deps.blobStore.get(`computer/${user.id}`)).toBeNull();
   });
 });
