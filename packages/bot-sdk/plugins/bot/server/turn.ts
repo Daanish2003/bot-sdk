@@ -37,6 +37,13 @@ import {
   turnStarted,
   waitingIn,
 } from "./router";
+import {
+  computerOf,
+  computerPrompt,
+  shellCwd,
+  shellDefinition,
+  shellToolName,
+} from "./computer-tools";
 import { botMessages, findBot, textParts, toBotMessage, turnTimeLimitMs } from "./store";
 
 /** The most Steps a Turn may take; one more ends it `error` with `step_limit`. */
@@ -45,18 +52,40 @@ export const turnStepLimit = 10;
 /** The Bot's one tool in step 1: the only way it reaches the user. */
 export const sendToUserToolName = "send_to_user";
 
-/** The fixed Bot system prompt: there are no per-Bot instructions. */
-export const botSystemPrompt =
+const promptOpening =
   "You are a Bot the user talks to in a messenger. The user never sees your text replies or your " +
-  `tool calls; they see only the messages you send with the ${sendToUserToolName} tool. It is your ` +
-  "only tool: you cannot send email or messages to anyone else, look up live data, or act outside " +
-  "this chat. When asked to, say plainly that you cannot, then offer what you can do. To say " +
+  `tool calls; they see only the messages you send with the ${sendToUserToolName} tool. `;
+
+/** What the Bot can't do, with no Computer. */
+const onlyToolLimits =
+  "It is your only tool: you cannot send email or messages to anyone else, look up live data, or act " +
+  "outside this chat. ";
+
+/** What the Bot can't do, with its Computer. */
+const computerLimits =
+  "Besides it, you have only your computer (below): you cannot send email or messages to anyone " +
+  "else. ";
+
+const promptRules =
+  "When asked to, say plainly that you cannot, then offer what you can do. To say " +
   `something, call ${sendToUserToolName}. You may call it more than once, in order. Set endTurn to ` +
   "true on your last message, so you stop there. Anything you want the user to read goes through " +
   "it, including a refusal (you cannot do what they asked) and a question you need answered. If " +
   "there is nothing worth saying (the user just acknowledged, said goodbye for now, or needs no " +
   "answer), send nothing: reply with no text and no tool call, not even to say you are staying " +
   "quiet. Do not send a pleasantry (you're welcome, good luck, see you) in reply to one.";
+
+/** The fixed Bot system prompt with no Computer: there are no per-Bot instructions. */
+export const botSystemPrompt = promptOpening + onlyToolLimits + promptRules;
+
+/**
+ * The system prompts of a Bot's Turn. With `computer` on, the Bot's limits allow its Computer, and
+ * a second prompt names its own directory and the shared one; with it off, it is `botSystemPrompt`.
+ */
+export function botSystemPrompts(botId: string, withComputer: boolean): string[] {
+  if (!withComputer) return [botSystemPrompt];
+  return [promptOpening + computerLimits + promptRules, computerPrompt(botId)];
+}
 
 /** What SendToUser returns for an empty `text`: what went wrong, and what to do instead. */
 export const emptyTextError =
@@ -744,14 +773,34 @@ async function playTurn(
     },
   } as unknown as AnyTextAdapter;
 
-  const sendToUser = sendToUserDefinition.server(async ({ text, endTurn: last }, context) => {
+  /**
+   * One tool call. A call that throws recorded nothing: it stays unanswered and ends the attempt,
+   * and only a throw that no time limit or stop caused is a failure to retry.
+   */
+  const toolCallOf = async <T>(toolCallId: string | undefined, call: () => Promise<T>) => {
     try {
+      return await call();
+    } catch (caught) {
+      if (!abortController.signal.aborted) failure ??= caught;
+      if (toolCallId) unanswered.add(toolCallId);
+      abortController.abort();
+      throw caught;
+    }
+  };
+  /**
+   * Called first in a tool's activity, which runs only live, so a recorded call still replays:
+   * past the limit, a resumed Turn does nothing more, and never answers a question from long ago.
+   */
+  const beforeLiveTool = () => {
+    if (attempt && (expired || timeLeftMs() <= 0)) timeUp();
+    abortController.signal.throwIfAborted();
+  };
+
+  const sendToUser = sendToUserDefinition.server(({ text, endTurn: last }, context) =>
+    toolCallOf(context?.toolCallId, async () => {
       // The Message commits with its Checkpoint, so it is sent once across a crash.
       const result = await ctx.activity(sendToUserToolName, async (tx) => {
-        // Run only live, so a recorded send still replays: past the limit, a resumed Turn sends
-        // nothing more, and never answers a question from long ago.
-        if (attempt && (expired || timeLeftMs() <= 0)) timeUp();
-        abortController.signal.throwIfAborted();
+        beforeLiveTool();
         if (!text.trim()) return { error: emptyTextError };
         await appendMessage(tx, turn.conversationId, {
           role: "assistant",
@@ -766,14 +815,20 @@ async function playTurn(
         await hintChanged(deps, turn.conversationId);
       }
       return result;
-    } catch (caught) {
-      // A time limit or a stop recorded nothing, and isn't a failure to retry.
-      if (!abortController.signal.aborted) failure ??= caught;
-      if (context?.toolCallId) unanswered.add(context.toolCallId);
-      abortController.abort();
-      throw caught;
-    }
-  });
+    }),
+  );
+
+  // The Computer's tools, whenever `computer` is on: the tool set never changes mid-conversation.
+  const withComputer = deps.hasPlugin("computer");
+  const shell = shellDefinition.server(({ command, cwd }, context) =>
+    toolCallOf(context?.toolCallId, () =>
+      // No transaction: the command runs on the Computer, not in the database.
+      ctx.activity(shellToolName, async () => {
+        beforeLiveTool();
+        return computerOf(deps, turn.userId).run(command, { cwd: shellCwd(turn.botId, cwd) });
+      }),
+    ),
+  );
 
   /** What the Turn's model calls and tool calls added to its input, in order. */
   const messages: ModelMessage[] = [];
@@ -784,8 +839,8 @@ async function playTurn(
       const stream = chat({
         adapter: durableAdapter,
         messages: [...input, ...messages],
-        systemPrompts: [botSystemPrompt],
-        tools: [sendToUser],
+        systemPrompts: botSystemPrompts(turn.botId, withComputer),
+        tools: withComputer ? [sendToUser, shell] : [sendToUser],
         // One call at a time, in call order, which is a workflow's identity.
         toolExecution: "sequential",
         abortController,

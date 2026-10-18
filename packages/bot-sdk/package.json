@@ -13,7 +13,8 @@
     "./plugins/assistant/ui": "./plugins/assistant/ui/index.ts",
     "./plugins/bot/server": "./plugins/bot/server/index.ts",
     "./plugins/bot/client": "./plugins/bot/client/index.ts",
-    "./plugins/bot/ui": "./plugins/bot/ui/index.ts"
+    "./plugins/bot/ui": "./plugins/bot/ui/index.ts",
+    "./plugins/computer/server": "./plugins/computer/server/index.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",

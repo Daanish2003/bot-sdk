@@ -44,6 +44,8 @@ export type BotSdkContext = {
   rateLimit: (rule: string, key: string) => Promise<number | null>;
   /** An enabled plugin's API. Throws for a plugin that isn't enabled. */
   plugin: <Id extends keyof PluginApis>(id: Id) => PluginApis[Id];
+  /** Whether the instance enabled plugin `id`, for a plugin that uses another softly, without `requires`. */
+  hasPlugin: (id: string) => boolean;
 };
 
 /** A transaction on the core's database. */
