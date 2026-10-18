@@ -4,10 +4,10 @@ Shared by the orchestrator and every implementer. Each bullet cost a past run a 
 
 ## Worktrees and git
 
-- **Worktree paths:** ticket worktrees go in `../ai-chat-wt/<N>`, and the integration worktree in `../ai-chat-wt/integration`. Always pass agents **absolute** paths; a relative path once created a stray `hobby/hobby/`.
+- **Worktree paths:** ticket worktrees go in `../ai-chat-wt/<N>`, and the integration worktree in `../ai-chat-wt/integration-<spec>` (old runs leave undeletable folders behind, so a fixed name collides). Always pass agents **absolute** paths; a relative path once created a stray `hobby/hobby/`.
 - **Line endings:** create every worktree with `git -c core.autocrlf=false worktree add …`. The Windows system gitconfig sets `autocrlf=true`, and a CRLF worktree fails `oxfmt --check` on every file. Check for real changes with `git diff --ignore-cr-at-eol`.
 - **Merges too:** pass `-c core.autocrlf=false` to every `git merge` and `checkout` in a worktree. A plain merge once checked out 617 files with CRLF. To recover, delete those files and run `git -c core.autocrlf=false restore -- .`.
-- **Removing a worktree:** `git worktree remove` can fail on "Filename too long" (deep `node_modules`). It still deregisters the worktree, but the folder stays and needs the user to remove it. Sometimes it only marks the worktree `prunable`; run `git worktree prune` before `git branch -d`.
+- **Removing a worktree:** `git worktree remove` can fail on "Filename too long" (deep `node_modules`). It still deregisters the worktree, but the folder stays. Once the user has asked for it gone, `node -e "require('fs').rmSync('<abs path>',{recursive:true,force:true})"` removes it (long paths are fine) for one folder; `cmd rd` and PowerShell failed on the escaping from Git Bash in the #531 run. A bulk removal of many folders was denied even after the user asked, so write the loop to a script in `%TEMP%` and give the user `! node <script>`. Sometimes it only marks the worktree `prunable`; run `git worktree prune` before `git branch -d`.
 - **Creation order:** create worktrees one at a time. Parallel `git worktree add` races on the `.git/config` lock.
 - **Pre-made worktrees:** never give `isolation: "worktree"` to an agent that has one; it gets a second worktree under `.claude/worktrees` and its git commands on yours are refused.
 - **What hooks block:** `git branch -D`, `git checkout -- .`, `reset --hard`, force-push and pushing to `main`. Use `git branch -d`, and to clear CRLF-only noise, use `git add -A`. Give the user `-D` commands to run. The hooks match the text anywhere in a command, even inside a sed or echo string, so write "force-delete" instead.
@@ -24,6 +24,7 @@ Shared by the orchestrator and every implementer. Each bullet cost a past run a 
 - **Starting the services:** `pnpm db:start` for Postgres (`ai-chat-postgres`) and `docker compose up -d redis` for Redis. Run both from the **main checkout**, never a worktree: the gitignored root `.env` there sets `POSTGRES_PORT=5435` and `REDIS_PORT=6380`, and a worktree has no `.env`, so it would publish on the wrong ports.
 - **Memory:** this is a 16 GB machine. Run only one heavy job at a time (a verify, an e2e run, or an agent's suite). Hundreds of leftover test databases once made Postgres hold 2.4 GB and got e2e killed. At the end of the run, drop every `ai-chat_test%` and `ai-chat_e2e%` database except `ai-chat`. The editor's tsserver (a child of typescript-language-server) can hold 2–3 GB (3.2 GB in the #463 run) and once got a verify reaped. When memory is low, `taskkill` it; the editor restarts it. The classifier denies that kill ("Interfere With Workloads") unless the user has said to free memory, and after the denial it also refused the next verify; ask the user first. An agent's e2e run was killed for low memory in the #486 run, so the orchestrator runs e2e for the slot holder.
 - **Dropping databases:** an implementer in the #510 run dropped every `ai-chat_test%` database, the integration verify's included. Brief each agent to drop only its own database by its exact name; only the orchestrator runs the end-of-run sweep.
+- **`pnpm check-types` in a worktree** fails on varlock ("config is invalid") because there is no `.env`. Export verify.sh's placeholder env first.
 - **`.env`:** never copy the user's `.env` into a worktree. Tests and builds get CI's placeholder values (verify.sh carries them).
 
 ## Checks
@@ -39,7 +40,7 @@ Shared by the orchestrator and every implementer. Each bullet cost a past run a 
 - **Large commits:** the lint-staged pre-commit hook fails with "command line too long" at about 150 or more files. Split a wide move into several commits.
 - **Node strip-types:** scripts run by Node directly (`copy.ts`, and what the example Host loads) can't use TypeScript parameter properties or enums.
 - **Tailwind v4 `@source`:** a glob like `@source "../plugins/*/ui"` was not scanned. Name each folder, otherwise the e2e fails with unstyled screens.
-- **e2e flakes:** two-factor and artifacts.phone have failed under `--workers=2` and passed when re-run alone. Re-run the failures with `--workers=1` before treating them as real. In CI, artifacts.phone has failed twice in one run (retry included) and passed on `gh run rerun <id> --failed`.
+- **e2e flakes:** two-factor, knowledge and artifacts.phone have failed under `--workers=2` and passed when re-run alone. Re-run the failures with `--workers=1` before treating them as real. In CI, artifacts.phone has failed twice in one run (retry included) and passed on `gh run rerun <id> --failed` (again in the #531 run).
 - **Code review by an agent:** a forked `code-review` can review the main checkout and see an empty diff. Point it at the worktree path.
 - **CI-only criteria:** a criterion like "green on PR" or "seen to fail in CI" needs a real PR. Use a draft PR into the integration branch.
 
