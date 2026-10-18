@@ -15,12 +15,14 @@ import { appendMessage } from "../../../core/server/chat/message-tree";
 import { bot, botTrigger, botTurn, message } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
+import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { rpcError } from "../../../core/server/rpc-error";
 import { searchTextOf } from "../../../core/shared/message-parts";
 import { conversationChannel } from "../../assistant/server/memory/notice";
 import { addUsage, promptCharactersOf, reportedUsageOf } from "../../models/server/run-usage";
 import { parseModelId } from "../../models/shared/models";
 import type { MessageUsage } from "../../models/shared/usage";
+import { type ComputerHandle, ComputerUnavailableError } from "../../computer/server/plugin";
 import { defineJob, PermanentJobError } from "../../runner/server/jobs/define";
 import { loadHistory } from "../../runner/server/jobs/history";
 import {
@@ -37,18 +39,27 @@ import {
   turnStarted,
   waitingIn,
 } from "./router";
-import { ComputerUnavailableError } from "../../computer/server/plugin";
 import {
+  capOutput,
   computerOf,
   computerPrompt,
   computerUnavailableError,
   defaultShellTimeoutSeconds,
+  editDefinition,
+  editTool,
   interruptedShellError,
+  listDefinition,
+  listTool,
+  readDefinition,
+  readTool,
   shellCwd,
   shellDefinition,
   shellStartActivity,
   shellToolName,
+  spillPath,
   timedOutHint,
+  writeDefinition,
+  writeTool,
 } from "./computer-tools";
 import { botMessages, findBot, textParts, toBotMessage, turnTimeLimitMs } from "./store";
 
@@ -826,40 +837,81 @@ async function playTurn(
 
   // The Computer's tools, whenever `computer` is on: the tool set never changes mid-conversation.
   const withComputer = deps.hasPlugin("computer");
+  /**
+   * The Computer's operation for a live tool call. A failed wake is the tool's result, unless the
+   * Turn was stopped or ran out of time meanwhile: then the call stays unanswered.
+   */
+  const onComputer = async <T>(operate: () => Promise<T>) => {
+    try {
+      return await operate();
+    } catch (caught) {
+      if (caught instanceof ComputerUnavailableError && !abortController.signal.aborted) {
+        return { error: computerUnavailableError };
+      }
+      throw caught;
+    }
+  };
   const shell = shellDefinition.server(({ command, cwd, timeoutSeconds }, context) =>
     toolCallOf(context?.toolCallId, async () => {
       // The start marker: a resumed Turn that replays it with no result never runs the command
-      // again, since it may have partly run. No transaction: the command runs on the Computer.
+      // again, since it may have partly run. A yield waits for the command's own Checkpoint, so
+      // the marker never stands for a command that didn't start. No transaction: the command runs
+      // on the Computer, not in the database.
       let startedHere = false;
-      await ctx.activity(shellStartActivity, async () => {
-        beforeLiveTool();
-        startedHere = true;
-        return null;
-      });
+      await ctx.activity(
+        shellStartActivity,
+        async () => {
+          beforeLiveTool();
+          startedHere = true;
+          return null;
+        },
+        { yields: false },
+      );
       return ctx.activity(shellToolName, async () => {
         beforeLiveTool();
         if (!startedHere) return { error: interruptedShellError };
-        const requestedMs = (timeoutSeconds ?? defaultShellTimeoutSeconds) * 1000;
-        // A live call: the Turn's time limit, like a Stop, kills the command through the signal,
-        // and the wake's time counts against it.
+        const computer = computerOf(deps, turn.userId);
+        // A live call: the Turn's time limit, like a Stop, kills the command through the signal.
         inLiveCall = true;
         try {
-          const result = await computerOf(deps, turn.userId).run(command, {
-            cwd: shellCwd(turn.botId, cwd),
-            timeoutMs: Math.min(requestedMs, timeLeftMs()),
-            signal: abortController.signal,
+          return await onComputer(async () => {
+            const result = await computer.run(command, {
+              cwd: shellCwd(turn.botId, cwd),
+              timeoutMs: (timeoutSeconds ?? defaultShellTimeoutSeconds) * 1000,
+              deadline: new Date(turn.startedAt.getTime() + turnTimeLimitMs),
+              signal: abortController.signal,
+            });
+            // The cap is applied here, so the Checkpoint holds only the truncated form.
+            const capped = await capOutput(
+              result,
+              spillPath(turn.botId, context?.toolCallId ?? uuidv7()),
+              computer.writeFile,
+            );
+            return "timedOut" in capped ? { ...capped, hint: timedOutHint } : capped;
           });
-          return "timedOut" in result ? { ...result, hint: timedOutHint } : result;
-        } catch (caught) {
-          if (caught instanceof ComputerUnavailableError)
-            return { error: computerUnavailableError };
-          throw caught;
         } finally {
           inLiveCall = false;
         }
       });
     }),
   );
+  /** A file tool: one activity, re-run after a crash. */
+  const fileTool =
+    <Input, Output>(
+      name: string,
+      run: (computer: ComputerHandle, botId: string, input: Input) => Promise<Output>,
+    ) =>
+    (input: Input, context?: { toolCallId?: string }) =>
+      toolCallOf(context?.toolCallId, () =>
+        ctx.activity(name, async () => {
+          beforeLiveTool();
+          return onComputer(() => run(computerOf(deps, turn.userId), turn.botId, input));
+        }),
+      );
+  const read = readDefinition.server(fileTool("read", readTool));
+  const write = writeDefinition.server(fileTool("write", writeTool));
+  const edit = editDefinition.server(fileTool("edit", editTool));
+  const list = listDefinition.server(fileTool("list", listTool));
 
   /** What the Turn's model calls and tool calls added to its input, in order. */
   const messages: ModelMessage[] = [];
@@ -871,7 +923,7 @@ async function playTurn(
         adapter: durableAdapter,
         messages: [...input, ...messages],
         systemPrompts: botSystemPrompts(turn.botId, withComputer),
-        tools: withComputer ? [sendToUser, shell] : [sendToUser],
+        tools: withComputer ? [sendToUser, shell, read, write, edit, list] : [sendToUser],
         // One call at a time, in call order, which is a workflow's identity.
         toolExecution: "sequential",
         abortController,

@@ -1,6 +1,7 @@
 import type {
   CommandResult,
   ComputerProvider,
+  FileEntry,
   TimedOutCommand,
 } from "../../../../plugins/computer/server/provider";
 
@@ -44,6 +45,8 @@ export function fakeComputerProvider({
   const failIfTold = (call: Lifecycle) => {
     if (failing.has(call)) throw new Error(`The fake was told to fail ${call}`);
   };
+  /** The files of the fake Computer, by absolute path. */
+  const files = new Map<string, Uint8Array>();
   let created = 0;
   const provider: ComputerProvider = {
     template,
@@ -93,9 +96,29 @@ export function fakeComputerProvider({
           );
       });
     },
+    readFile: async (_sandboxId, path) => files.get(path) ?? null,
+    writeFile: async (_sandboxId, path, content) => {
+      files.set(path, new TextEncoder().encode(content));
+    },
+    list: async (_sandboxId, path) => {
+      const prefix = path.endsWith("/") ? path : `${path}/`;
+      const entries = new Map<string, FileEntry>();
+      for (const [file, bytes] of files) {
+        if (!file.startsWith(prefix)) continue;
+        const [name, ...rest] = file.slice(prefix.length).split("/");
+        if (!name) continue;
+        entries.set(
+          name,
+          rest.length > 0
+            ? { name, kind: "directory", size: 0 }
+            : { name, kind: "file", size: bytes.length },
+        );
+      }
+      return entries.size > 0 ? [...entries.values()] : null;
+    },
   };
   /** The calls of one type. */
   const callsOf = <Type extends FakeCall["type"]>(type: Type) =>
     calls.filter((call): call is Extract<FakeCall, { type: Type }> => call.type === type);
-  return { provider, calls, callsOf, failing };
+  return { provider, calls, callsOf, failing, files };
 }

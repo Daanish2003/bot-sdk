@@ -4,6 +4,9 @@ export type CommandResult = { exitCode: number; stdout: string; stderr: string }
 /** A command killed at its time limit: what it printed until then, and no exit code. */
 export type TimedOutCommand = { timedOut: true; stdout: string; stderr: string };
 
+/** One entry of a directory listing. */
+export type FileEntry = { name: string; kind: "file" | "directory"; size: number };
+
 /**
  * The seam between the `computer` plugin and what runs a user's Computer: a sandbox, named only
  * here. The plugin keeps each user's sandbox id and state in `chat.computer`; the provider only
@@ -27,4 +30,10 @@ export type ComputerProvider = {
     command: string,
     options: { cwd?: string; timeoutMs: number; signal?: AbortSignal },
   ) => Promise<CommandResult | TimedOutCommand>;
+  /** A file's bytes, or null when there is no such file. */
+  readFile: (sandboxId: string, path: string) => Promise<Uint8Array | null>;
+  /** Writes `content` to `path`, creating any missing parent directories and overwriting. */
+  writeFile: (sandboxId: string, path: string, content: string) => Promise<void>;
+  /** The entries of a directory, one level deep, or null when there is no such directory. */
+  list: (sandboxId: string, path: string) => Promise<FileEntry[] | null>;
 };

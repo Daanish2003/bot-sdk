@@ -202,7 +202,14 @@ describe("the shell tool", () => {
 
     await send(client, botId, "hi");
 
-    expect(toolNamesOf(fake.calls[0])).toEqual(["send_to_user", "shell"]);
+    expect(toolNamesOf(fake.calls[0])).toEqual([
+      "send_to_user",
+      "shell",
+      "read",
+      "write",
+      "edit",
+      "list",
+    ]);
     const prompt = JSON.stringify(fake.calls[0]?.systemPrompts);
     expect(prompt).toContain(`/home/user/bots/${botId}`);
     expect(prompt).toContain("/home/user/shared");
@@ -285,6 +292,19 @@ describe("shell at its limits", () => {
     expect(toolResultOf(fake.calls[1])).toEqual({ error: computerUnavailableError });
     expect(events.at(-1)).toEqual({ type: "turnEnded", status: "complete" });
     expect(computerFake.callsOf("run")).toEqual([]);
+  });
+
+  it("returns the couldn't-start note from the file tools too", async () => {
+    const { client, botId, fake, computerFake } = await botWith([
+      round(toolCall({ name: "read", input: { path: "notes.md" } })),
+      round(),
+    ]);
+    computerFake.failing.add("create");
+
+    const events = await send(client, botId, "read my notes");
+
+    expect(toolResultOf(fake.calls[1])).toEqual({ error: computerUnavailableError });
+    expect(events.at(-1)).toEqual({ type: "turnEnded", status: "complete" });
   });
 
   it("returns the couldn't-start note when an asleep Computer fails to resume", async () => {
@@ -432,5 +452,182 @@ describe("a shell call whose attempt is cut off", () => {
     expect(fake.calls).toHaveLength(2);
     expect(toolResultOf(fake.calls[1])).toEqual({ error: interruptedShellError });
     expect(await turnOf(botId)).toMatchObject({ status: "complete" });
+  });
+});
+
+const file = (name: string, input: object) => toolCall({ name, input });
+
+/** The results the Model got for its tool calls in model call `call`, parsed, in order. */
+const toolResultsOf = (call: TextOptions | undefined) =>
+  inputOf(call)
+    .filter((entry) => entry.role === "tool")
+    .map((entry) => JSON.parse(String(entry.content)));
+
+describe("the file tools", () => {
+  it("writes a file, reads it back with numbers, an offset and a limit, edits it and lists its directory", async () => {
+    const { client, botId, fake, computerFake } = await botWith([
+      round(
+        file("write", { path: "notes/a.txt", content: "one\ntwo\nthree\nfour\n" }),
+        file("read", { path: "notes/a.txt" }),
+        file("read", { path: "notes/a.txt", offset: 2, limit: 2 }),
+        file("edit", { path: "notes/a.txt", oldText: "three", newText: "3" }),
+        file("read", { path: "notes/a.txt", offset: 3, limit: 1 }),
+        file("list", { path: "notes" }),
+      ),
+      round(),
+    ]);
+
+    await send(client, botId, "take notes");
+
+    const directory = `/home/user/bots/${botId}`;
+    const [written, whole, partial, edited, reread, listed] = toolResultsOf(fake.calls[1]);
+    expect(written).toEqual({ path: `${directory}/notes/a.txt`, bytes: 19 });
+    expect(whole).toEqual({ content: "1\tone\n2\ttwo\n3\tthree\n4\tfour", totalLines: 4 });
+    expect(partial).toEqual({ content: "2\ttwo\n3\tthree", totalLines: 4, nextOffset: 4 });
+    expect(edited).toEqual({ path: `${directory}/notes/a.txt`, replaced: 1 });
+    expect(reread.content).toBe("3\t3");
+    expect(listed).toEqual({
+      path: `${directory}/notes`,
+      entries: [{ name: "a.txt", kind: "file", size: 15 }],
+    });
+    expect(computerFake.callsOf("create")).toHaveLength(1);
+  });
+
+  it("cuts long lines when reading", async () => {
+    const { client, botId, fake } = await botWith([
+      round(
+        file("write", { path: "long.txt", content: "x".repeat(2500) }),
+        file("read", { path: "long.txt" }),
+      ),
+      round(),
+    ]);
+
+    await send(client, botId, "go");
+
+    const [, read] = toolResultsOf(fake.calls[1]);
+    expect(read.content).toBe(`1\t${"x".repeat(2000)}…`);
+  });
+
+  it("errors clearly when the text to edit is missing or ambiguous, and replaceAll replaces every one", async () => {
+    const { client, botId, fake } = await botWith([
+      round(
+        file("write", { path: "a.txt", content: "cat cat dog" }),
+        file("edit", { path: "a.txt", oldText: "bird", newText: "x" }),
+        file("edit", { path: "a.txt", oldText: "cat", newText: "x" }),
+        file("edit", { path: "a.txt", oldText: "cat", newText: "fox", replaceAll: true }),
+        file("read", { path: "a.txt" }),
+      ),
+      round(),
+    ]);
+
+    await send(client, botId, "go");
+
+    const [, missing, ambiguous, all, read] = toolResultsOf(fake.calls[1]);
+    expect(missing.error).toContain("was not found");
+    expect(ambiguous.error).toContain("appears 2 times");
+    expect(ambiguous.error).toContain("replaceAll");
+    expect(all.replaced).toBe(2);
+    expect(read.content).toBe("1\tfox fox dog");
+  });
+
+  it("puts relative paths in the Bot's directory, and shares /home/user/shared between Bots", async () => {
+    const { client, botId, computerFake, fake } = await botWith([
+      round(
+        file("write", { path: "mine.txt", content: "m" }),
+        file("write", { path: "/home/user/shared/hand.txt", content: "h" }),
+      ),
+      round(),
+    ]);
+    const other = await client.bot.create({ name: "Bo", model });
+
+    await send(client, botId, "go");
+
+    expect([...computerFake.files.keys()].toSorted()).toEqual([
+      `/home/user/bots/${botId}/mine.txt`,
+      "/home/user/shared/hand.txt",
+    ]);
+    // Another Bot of the user sees the shared file, and not the first Bot's own.
+    expect(fake.calls).toHaveLength(2);
+    expect(await computerFake.provider.list("x", `/home/user/bots/${other.id}`)).toBeNull();
+    expect(await computerFake.provider.list("x", "/home/user/shared")).toEqual([
+      { name: "hand.txt", kind: "file", size: 1 },
+    ]);
+  });
+
+  it("returns an error that suggests shell for a binary file", async () => {
+    const { client, botId, fake, computerFake } = await botWith([
+      round(file("read", { path: "/tmp/a.bin" })),
+      round(),
+    ]);
+    computerFake.files.set("/tmp/a.bin", new Uint8Array([1, 0, 2]));
+
+    await send(client, botId, "go");
+
+    const [result] = toolResultsOf(fake.calls[1]);
+    expect(result.error).toContain("binary");
+    expect(result.error).toContain("shell");
+  });
+
+  it("errors for a missing file", async () => {
+    const { client, botId, fake } = await botWith([
+      round(file("read", { path: "nope.txt" })),
+      round(),
+    ]);
+
+    await send(client, botId, "go");
+
+    expect(toolResultsOf(fake.calls[1])[0].error).toContain("does not exist");
+  });
+
+  it("offers all five tools, and wakes the Computer on a file operation", async () => {
+    const { client, botId, fake, user } = await botWith([round(file("list", {})), round()]);
+
+    await send(client, botId, "go");
+
+    expect(toolNamesOf(fake.calls[0])).toEqual([
+      "send_to_user",
+      "shell",
+      "read",
+      "write",
+      "edit",
+      "list",
+    ]);
+    expect(await computerRow(user.id)).toMatchObject({ state: "awake" });
+  });
+});
+
+describe("a long shell output", () => {
+  it("is cut in the result and saved in full under .outputs/, and the Checkpoint holds only the cut form", async () => {
+    const big = `${"a".repeat(6000)}${"b".repeat(6000)}`;
+    const { client, botId, fake, computerFake } = await botWith(
+      [round(shell({ command: "cat big" })), round()],
+      { onCommand: () => ({ exitCode: 0, stdout: big, stderr: "" }) },
+    );
+
+    await send(client, botId, "go");
+
+    const result = toolResultOf(fake.calls[1]);
+    const [path] = [...computerFake.files.keys()];
+    expect(path?.startsWith(`/home/user/bots/${botId}/.outputs/`)).toBe(true);
+    expect(path?.endsWith(".txt")).toBe(true);
+    expect(new TextDecoder().decode(computerFake.files.get(path!))).toBe(big);
+    expect(result.outputPath).toBe(path);
+    expect(result.stdout.startsWith("a".repeat(2000))).toBe(true);
+    expect(result.stdout.endsWith("b".repeat(2000))).toBe(true);
+    expect(result.stdout.length).toBeLessThan(4200);
+    // The Model's next input, built from the Checkpoint, never held the full output.
+    expect(JSON.stringify(fake.calls[1]?.messages)).not.toContain("a".repeat(2001));
+  });
+
+  it("leaves an output at the threshold whole", async () => {
+    const { client, botId, fake, computerFake } = await botWith(
+      [round(shell({ command: "cat ok" })), round()],
+      { onCommand: () => ({ exitCode: 0, stdout: "a".repeat(10_000), stderr: "" }) },
+    );
+
+    await send(client, botId, "go");
+
+    expect(toolResultOf(fake.calls[1]).stdout).toHaveLength(10_000);
+    expect(computerFake.files.size).toBe(0);
   });
 });

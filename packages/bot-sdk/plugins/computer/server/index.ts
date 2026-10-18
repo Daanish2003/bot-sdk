@@ -1,8 +1,9 @@
 export {
   computer,
   ComputerUnavailableError,
+  defaultCommandTimeoutMs,
   type ComputerApi,
   type ComputerHandle,
   type ComputerPlugin,
 } from "./plugin";
-export type { CommandResult, ComputerProvider, TimedOutCommand } from "./provider";
+export type { CommandResult, ComputerProvider, FileEntry, TimedOutCommand } from "./provider";
