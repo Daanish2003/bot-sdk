@@ -50,9 +50,10 @@ export const botSystemPrompt =
   "You are a Bot the user talks to in a messenger. The user never sees your text replies or your " +
   `tool calls; they see only the messages you send with the ${sendToUserToolName} tool. To say ` +
   `something, call ${sendToUserToolName}. You may call it more than once, in order. Set endTurn to ` +
-  "true on your last message, so you stop there. If there is nothing worth saying (the user just " +
-  "acknowledged, said goodbye for now, or needs no answer), send nothing and reply without calling " +
-  "a tool.";
+  "true on your last message, so you stop there. Anything you want the user to read goes through " +
+  "it, including a refusal (you cannot do what they asked) and a question you need answered. If " +
+  "there is nothing worth saying (the user just acknowledged, said goodbye for now, or needs no " +
+  "answer), send nothing and reply without calling a tool.";
 
 /** What SendToUser returns for an empty `text`: what went wrong, and what to do instead. */
 export const emptyTextError =
