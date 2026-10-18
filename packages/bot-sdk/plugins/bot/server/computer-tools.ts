@@ -4,7 +4,11 @@ import { toolDefinition } from "@tanstack/ai";
 import { z } from "zod";
 
 import type { BotSdkContext } from "../../../core/server/plugin";
-import { type ComputerHandle, defaultCommandTimeoutMs } from "../../computer/server/plugin";
+import {
+  type ComputerHandle,
+  defaultCommandTimeoutMs,
+  type Rebuild,
+} from "../../computer/server/plugin";
 import type { CommandResult, TimedOutCommand } from "../../computer/server/provider";
 
 /** The Computer tool that runs a shell command. */
@@ -20,6 +24,13 @@ export const defaultShellTimeoutSeconds = defaultCommandTimeoutMs / 1000;
 export const computerUnavailableError =
   "Your computer couldn't start. Try again shortly; if it keeps failing, tell the user their " +
   "computer is unavailable right now.";
+
+/** What the first tool result after a rebuild of the Computer adds, once. */
+export function rebuiltNote({ restoredAsOf }: Rebuild): string {
+  return restoredAsOf
+    ? `Your computer was rebuilt: files were restored as of ${restoredAsOf.toISOString()}, but installed programs may be missing.`
+    : "Your computer was rebuilt: it had no saved files to restore, and installed programs may be missing.";
+}
 
 /** What a resumed Turn returns for a `shell` call that started but has no result. */
 export const interruptedShellError =

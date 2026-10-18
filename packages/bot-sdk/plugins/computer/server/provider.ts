@@ -20,8 +20,13 @@ export type ComputerProvider = {
    * `timeoutMs` passes (the backstop for a sleep that never runs).
    */
   create: (options: { timeoutMs: number }) => Promise<{ sandboxId: string }>;
-  /** Resumes a paused sandbox, which then pauses itself once `timeoutMs` passes. */
-  resume: (sandboxId: string, options: { timeoutMs: number }) => Promise<void>;
+  /**
+   * Resumes a paused sandbox, which then pauses itself once `timeoutMs` passes. A sandbox that no
+   * longer exists (its snapshot lost, or killed) is `"gone"`, and the plugin rebuilds it.
+   */
+  resume: (sandboxId: string, options: { timeoutMs: number }) => Promise<"resumed" | "gone">;
+  /** Kills a sandbox for good. Killing one that is already gone succeeds. */
+  kill: (sandboxId: string) => Promise<void>;
   /** Pauses a sandbox, snapshotting its memory and disk. Pausing a paused sandbox succeeds. */
   pause: (sandboxId: string) => Promise<void>;
   /** Moves the sandbox's self-pause to `timeoutMs` from now. */
@@ -40,7 +45,7 @@ export type ComputerProvider = {
   /** A file's bytes, or null when there is no such file. */
   readFile: (sandboxId: string, path: string) => Promise<Uint8Array | null>;
   /** Writes `content` to `path`, creating any missing parent directories and overwriting. */
-  writeFile: (sandboxId: string, path: string, content: string) => Promise<void>;
+  writeFile: (sandboxId: string, path: string, content: string | Uint8Array) => Promise<void>;
   /** The entries of a directory, one level deep, or null when there is no such directory. */
   list: (sandboxId: string, path: string) => Promise<FileEntry[] | null>;
 };

@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -22,6 +24,34 @@ const followUpAtLeastMs = 60_000;
  */
 const backstopTimeoutMs = 60 * 60_000;
 
+/** The home directory, where the synced trees live and an archive is restored. */
+const computerHome = "/home/user";
+
+/**
+ * What a sleep syncs: the Bots' directories and the shared one, minus every `.outputs/` (spilled
+ * outputs that can be produced again). Nothing else survives a rebuild.
+ */
+const syncedTrees = "bots shared";
+
+/** The largest archive stored, compressed: 100 MB. A bigger one is skipped, and the last one stays. */
+export const syncCapBytes = 100 * 1024 * 1024;
+
+/** How long each command of a sync or a restore may run. */
+const syncCommandTimeoutMs = 2 * 60_000;
+
+/** Where a sync writes the archive in the sandbox, and where a restore writes it before extracting. */
+const archivePath = "/tmp/computer-sync.tar.gz";
+const restorePath = "/tmp/computer-restore.tar.gz";
+
+/** Lists the synced files (type, path, size and mtime), the input of the sync's fingerprint. */
+const listCommand = `mkdir -p ${syncedTrees} && find ${syncedTrees} -name .outputs -prune -o -printf '%y %p %s %T@\\n'`;
+
+/** Archives the synced trees and prints the archive's size. */
+const archiveCommand = `tar -czf ${archivePath} --exclude=.outputs ${syncedTrees} && stat -c %s ${archivePath}`;
+
+/** The blob key of a user's Computer archive. */
+export const computerBlobKey = (userId: string) => `computer/${userId}`;
+
 /** The self-chaining sleep check's job name. */
 const sleepJobName = "computer.sleep";
 
@@ -37,11 +67,22 @@ export type ComputerOptions = {
 export type BusyCheck = (userId: string, lastActiveAt: Date) => Promise<boolean>;
 
 /**
- * One user's Computer. Every operation wakes it first when it isn't awake (a first create, or a
- * resume), and records activity when it starts and when it finishes. An operation whose wake
- * fails throws `ComputerUnavailableError`, and nothing runs.
+ * A rebuild a wake did: the Computer was built again from its template and its synced files were
+ * restored, as of `restoredAsOf` (null when there was no archive, so it started empty).
+ */
+export type Rebuild = { restoredAsOf: Date | null };
+
+/**
+ * One user's Computer. Every operation wakes it first when it isn't awake (a first create, a
+ * resume, or a rebuild), and records activity when it starts and when it finishes. An operation
+ * whose wake fails throws `ComputerUnavailableError`, and nothing runs.
  */
 export type ComputerHandle = {
+  /**
+   * The rebuild that a wake of this handle's operations did, once: the first call after it
+   * returns it, and later calls null until another rebuild. It lives in memory only.
+   */
+  takeRebuild: () => Rebuild | null;
   /**
    * Runs `command` with `bash -l -c` in `cwd` (the home directory by default). A command still
    * running after `timeoutMs` (`defaultCommandTimeoutMs` when unset) or at `deadline`, whichever
@@ -60,7 +101,10 @@ export type ComputerHandle = {
   list: (path: string) => Promise<FileEntry[] | null>;
 };
 
-/** An operation's wake failed: the provider couldn't create or resume the Computer. */
+/**
+ * An operation's wake failed: the provider couldn't create, resume or rebuild the Computer, or a
+ * rebuild couldn't restore its files.
+ */
 export class ComputerUnavailableError extends Error {
   constructor(userId: string, cause: unknown) {
     super(`The Computer of user ${userId} couldn't start`, { cause });
@@ -122,8 +166,11 @@ export function computer({ provider }: ComputerOptions): ComputerPlugin {
       const busyChecks: BusyCheck[] = [];
       const api: ComputerApi = {
         forUser: (userId) => {
+          let lastRebuild: Rebuild | null = null;
           const operate = async <T>(act: (sandboxId: string) => Promise<T>) => {
-            const sandboxId = await startOperation(sdk, provider, userId);
+            const woken = await startOperation(sdk, provider, userId);
+            if (woken.rebuild) lastRebuild = woken.rebuild;
+            const { sandboxId } = woken;
             try {
               return await act(sandboxId);
             } finally {
@@ -131,6 +178,11 @@ export function computer({ provider }: ComputerOptions): ComputerPlugin {
             }
           };
           return {
+            takeRebuild: () => {
+              const taken = lastRebuild;
+              lastRebuild = null;
+              return taken;
+            },
             run: (command, { cwd, timeoutMs = defaultCommandTimeoutMs, deadline, signal } = {}) =>
               operate((id) => {
                 // A stop during the wake runs nothing.
@@ -177,61 +229,171 @@ async function startOperation(
   sdk: BotSdkContext,
   provider: ComputerProvider,
   userId: string,
-): Promise<string> {
+): Promise<Woken> {
   const now = sdk.clock();
   const [row] = await sdk.db
     .insert(computerTable)
     .values({ userId, state: "asleep", lastActiveAt: now, createdAt: now })
     .onConflictDoUpdate({ target: computerTable.userId, set: { lastActiveAt: now } })
     .returning({ state: computerTable.state, sandboxId: computerTable.sandboxId });
-  if (row?.state === "awake" && row.sandboxId) return row.sandboxId;
+  if (row?.state === "awake" && row.sandboxId) return { sandboxId: row.sandboxId, rebuild: null };
   return wake(sdk, provider, userId);
 }
 
+/** The sandbox an operation acts on, and the rebuild its wake did, if any. */
+type Woken = { sandboxId: string; rebuild: Rebuild | null };
+
 /**
  * Wakes the user's Computer under its row lock, which covers only this step: creates its sandbox
- * when it has none, else resumes it. Another operation that woke it meanwhile wins, and this one
- * uses its sandbox. A wake arms one sleep check in its transaction, so the check exists exactly
- * when the Computer became awake.
+ * when it has none, rebuilds it when its template changed or the provider reports it gone, and
+ * else resumes it. Another operation that woke it meanwhile wins, and this one uses its sandbox.
+ * A wake arms one sleep check in its transaction, so the check exists exactly when the Computer
+ * became awake. A failed wake throws, so the row keeps its old sandbox and the next call retries.
  */
 async function wake(sdk: BotSdkContext, provider: ComputerProvider, userId: string) {
-  return sdk.db.transaction(async (tx) => {
+  return sdk.db.transaction(async (tx): Promise<Woken> => {
     const [locked] = await tx
       .select()
       .from(computerTable)
       .where(eq(computerTable.userId, userId))
       .for("update");
     if (!locked) throw new Error(`The Computer of user ${userId} has no row`);
-    if (locked.state === "awake" && locked.sandboxId) return locked.sandboxId;
-    let sandboxId = locked.sandboxId;
-    if (sandboxId) {
-      const asleepId = sandboxId;
-      await unavailableOnFailure(sdk, userId, () =>
-        provider.resume(asleepId, { timeoutMs: backstopTimeoutMs }),
-      );
-      await tx
-        .update(computerTable)
-        .set({ state: "awake" })
-        .where(eq(computerTable.userId, userId));
-    } else {
-      ({ sandboxId } = await unavailableOnFailure(sdk, userId, () =>
+    if (locked.state === "awake" && locked.sandboxId) {
+      return { sandboxId: locked.sandboxId, rebuild: null };
+    }
+    let woken: Woken;
+    const asleepId = locked.sandboxId;
+    const stale = locked.template !== provider.template;
+    if (!asleepId) {
+      // A first create: nothing to restore, and nothing to tell.
+      const { sandboxId } = await unavailableOnFailure(sdk, userId, () =>
         provider.create({ timeoutMs: backstopTimeoutMs }),
-      ));
-      await tx
-        .update(computerTable)
-        .set({ state: "awake", sandboxId, template: provider.template })
-        .where(eq(computerTable.userId, userId));
+      );
+      woken = { sandboxId, rebuild: null };
+    } else if (
+      !stale &&
+      (await unavailableOnFailure(sdk, userId, () =>
+        provider.resume(asleepId, { timeoutMs: backstopTimeoutMs }),
+      )) === "resumed"
+    ) {
+      woken = { sandboxId: asleepId, rebuild: null };
+    } else {
+      woken = await rebuild(sdk, provider, locked);
+    }
+    await tx
+      .update(computerTable)
+      .set({ state: "awake", sandboxId: woken.sandboxId, template: provider.template })
+      .where(eq(computerTable.userId, userId));
+    // The old sandbox goes once the row names the new one; a gone one is killed harmlessly.
+    if (asleepId && asleepId !== woken.sandboxId) {
+      await provider.kill(asleepId).catch((caught: unknown) => {
+        sdk.logger.error(
+          `Killing the old sandbox of the Computer of user ${userId} failed`,
+          caught,
+        );
+      });
     }
     await armSleepCheck(sdk, userId, after(sdk.clock(), computerIdleMs), tx);
-    return sandboxId;
+    return woken;
   });
+}
+
+/**
+ * Builds the Computer again from the template and restores its last archive into the home
+ * directory; with no archive, it starts empty. A failed restore kills the new sandbox and throws
+ * `ComputerUnavailableError`, so the wake fails instead of handing back a Computer without files.
+ */
+async function rebuild(
+  sdk: BotSdkContext,
+  provider: ComputerProvider,
+  row: typeof computerTable.$inferSelect,
+): Promise<Woken> {
+  const { userId } = row;
+  const { sandboxId } = await unavailableOnFailure(sdk, userId, () =>
+    provider.create({ timeoutMs: backstopTimeoutMs }),
+  );
+  try {
+    const archive = row.syncedAt ? await sdk.blobStore.get(computerBlobKey(userId)) : null;
+    if (row.syncedAt && !archive) {
+      sdk.logger.error(`The archive of the Computer of user ${userId} is missing; it starts empty`);
+    }
+    if (archive) {
+      await provider.writeFile(sandboxId, restorePath, archive);
+      await syncCommand(
+        provider,
+        sandboxId,
+        `tar -xzf ${restorePath} -C ${computerHome}`,
+        "Extracting the archive",
+      );
+    }
+    return { sandboxId, rebuild: { restoredAsOf: archive ? row.syncedAt : null } };
+  } catch (caught) {
+    await provider.kill(sandboxId).catch(() => {});
+    sdk.logger.error(`Restoring the files of the Computer of user ${userId} failed`, caught);
+    throw new ComputerUnavailableError(userId, caught);
+  }
+}
+
+/**
+ * Stores the Computer's files in the blob store as one archive, unless their listing matches the
+ * last archive's fingerprint, and returns the `synced_*` columns to record. Any failure (an
+ * archive over the cap, `tar`, the provider, the blob store) is logged with its cause and returns
+ * null, so the columns stay and the pause goes ahead.
+ */
+async function syncFiles(
+  sdk: BotSdkContext,
+  provider: ComputerProvider,
+  row: typeof computerTable.$inferSelect & { sandboxId: string },
+) {
+  const { userId, sandboxId } = row;
+  try {
+    const listing = await syncCommand(provider, sandboxId, listCommand, "Listing the files");
+    const fingerprint = createHash("sha256")
+      .update(listing.split("\n").filter(Boolean).sort().join("\n"))
+      .digest("hex");
+    if (fingerprint === row.syncFingerprint) return null;
+    const size = Number(
+      (await syncCommand(provider, sandboxId, archiveCommand, "Archiving the files")).trim(),
+    );
+    if (size > syncCapBytes) {
+      sdk.logger.error(
+        `The archive of the Computer of user ${userId} is ${size} bytes, over the ${syncCapBytes}-byte cap; the last archive stays`,
+      );
+      return null;
+    }
+    const bytes = await provider.readFile(sandboxId, archivePath);
+    if (!bytes) throw new Error(`${archivePath} is missing`);
+    await sdk.blobStore.put(computerBlobKey(userId), bytes, { contentType: "application/gzip" });
+    return { syncedAt: sdk.clock(), syncFingerprint: fingerprint, syncedBytes: bytes.length };
+  } catch (caught) {
+    sdk.logger.error(`Syncing the files of the Computer of user ${userId} failed`, caught);
+    return null;
+  }
+}
+
+/** Runs one of the sync's or the restore's commands in the home directory, and returns its stdout. */
+async function syncCommand(
+  provider: ComputerProvider,
+  sandboxId: string,
+  command: string,
+  what: string,
+): Promise<string> {
+  const result = await provider.run(sandboxId, command, {
+    cwd: computerHome,
+    timeoutMs: syncCommandTimeoutMs,
+  });
+  if ("timedOut" in result) throw new Error(`${what} timed out`);
+  if (result.exitCode !== 0) {
+    throw new Error(`${what} exited ${result.exitCode}: ${result.stderr.slice(0, 1_000)}`);
+  }
+  return result.stdout;
 }
 
 /**
  * One sleep check, under the row lock until it commits, so an operation that arrives meanwhile
  * waits and then wakes the Computer. An asleep Computer's chain ends. An idle one that no busy
- * check holds is paused and marked `asleep`; a failed pause throws before the row changes, so the
- * runner retries. Otherwise the provider's timeout is extended and one follow-up is armed, in the
+ * check holds has its files synced, then is paused and marked `asleep`, with the sync recorded; a
+ * failed pause throws before the row changes, so the runner retries. Otherwise the provider's timeout is extended and one follow-up is armed, in the
  * same transaction, so the chain can't end while the Computer stays awake.
  */
 async function sleepCheck(
@@ -251,10 +413,11 @@ async function sleepCheck(
     const now = sdk.clock();
     const idle = now.getTime() - locked.lastActiveAt.getTime() > computerIdleMs;
     if (idle && !(await isBusy(busyChecks, userId, locked.lastActiveAt))) {
+      const synced = await syncFiles(sdk, provider, { ...locked, sandboxId: locked.sandboxId });
       await provider.pause(locked.sandboxId);
       await tx
         .update(computerTable)
-        .set({ state: "asleep" })
+        .set({ state: "asleep", ...synced })
         .where(eq(computerTable.userId, userId));
       return;
     }

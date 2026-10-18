@@ -8,6 +8,7 @@ import { bot } from "../../../../plugins/bot/server/plugin";
 import {
   computerUnavailableError,
   interruptedShellError,
+  rebuiltNote,
 } from "../../../../plugins/bot/server/computer-tools";
 import { turnTimeLimitMs } from "../../../../plugins/bot/server/store";
 import { botSystemPrompt } from "../../../../plugins/bot/server/turn";
@@ -25,7 +26,7 @@ import {
 } from "../../../../plugins/runner/server/jobs/store";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
-import { fakeJobClock } from "../../../support/jobs";
+import { drainJobs, fakeJobClock } from "../../../support/jobs";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
@@ -549,8 +550,9 @@ describe("the file tools", () => {
     ]);
     // Another Bot of the user sees the shared file, and not the first Bot's own.
     expect(fake.calls).toHaveLength(2);
-    expect(await computerFake.provider.list("x", `/home/user/bots/${other.id}`)).toBeNull();
-    expect(await computerFake.provider.list("x", "/home/user/shared")).toEqual([
+    const sandboxId = computerFake.callsOf("create")[0]!.sandboxId;
+    expect(await computerFake.provider.list(sandboxId, `/home/user/bots/${other.id}`)).toBeNull();
+    expect(await computerFake.provider.list(sandboxId, "/home/user/shared")).toEqual([
       { name: "hand.txt", kind: "file", size: 1 },
     ]);
   });
@@ -630,5 +632,40 @@ describe("a long shell output", () => {
 
     expect(toolResultOf(fake.calls[1]).stdout).toHaveLength(10_000);
     expect(computerFake.files.size).toBe(0);
+  });
+});
+
+describe("a rebuilt Computer", () => {
+  it("says so once, in the first tool result after the rebuild, with the files restored", async () => {
+    const { client, botId, fake, computerFake, deps, user } = await botWith([
+      round(file("write", { path: "note.txt", content: "kept" })),
+      round(),
+      round(file("read", { path: "note.txt" }), file("list", {})),
+      round(),
+    ]);
+    await send(client, botId, "take a note");
+    // The Computer goes idle and sleeps, syncing its files, and then its snapshot is lost.
+    await getTestDb()
+      .update(computerTable)
+      .set({ lastActiveAt: new Date(Date.now() - 10 * 60_000) })
+      .where(eq(computerTable.userId, user.id));
+    await drainJobs({ deps });
+    const synced = await computerRow(user.id);
+    expect(synced).toMatchObject({ state: "asleep", syncedAt: expect.any(Date) });
+    computerFake.lose(computerFake.callsOf("create")[0]!.sandboxId);
+
+    await send(client, botId, "read it back");
+
+    const [read, listed] = toolResultsOf(fake.calls[3]).slice(-2);
+    expect(read).toEqual({
+      content: "1\tkept",
+      totalLines: 1,
+      note: rebuiltNote({ restoredAsOf: synced!.syncedAt }),
+    });
+    expect(read.note).toBe(
+      `Your computer was rebuilt: files were restored as of ${synced!.syncedAt!.toISOString()}, but installed programs may be missing.`,
+    );
+    expect(listed).not.toHaveProperty("note");
+    expect(computerFake.callsOf("create")).toHaveLength(2);
   });
 });

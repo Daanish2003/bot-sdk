@@ -52,6 +52,7 @@ import {
   listTool,
   readDefinition,
   readTool,
+  rebuiltNote,
   shellCwd,
   shellDefinition,
   shellStartActivity,
@@ -837,13 +838,21 @@ async function playTurn(
 
   // The Computer's tools, whenever `computer` is on: the tool set never changes mid-conversation.
   const withComputer = deps.hasPlugin("computer");
+  // One handle for the Turn, so a rebuild its wake did is told once, in the next tool result.
+  let userComputer: ComputerHandle | undefined;
   /**
    * The Computer's operation for a live tool call. A failed wake is the tool's result, unless the
-   * Turn was stopped or ran out of time meanwhile: then the call stays unanswered.
+   * Turn was stopped or ran out of time meanwhile: then the call stays unanswered. After a rebuild,
+   * the result carries the rebuilt note.
    */
-  const onComputer = async <T>(operate: () => Promise<T>) => {
+  const onComputer = async <T extends object>(
+    operate: (computer: ComputerHandle) => Promise<T>,
+  ) => {
+    const computer = (userComputer ??= computerOf(deps, turn.userId));
     try {
-      return await operate();
+      const result = await operate(computer);
+      const rebuild = computer.takeRebuild();
+      return rebuild ? { ...result, note: rebuiltNote(rebuild) } : result;
     } catch (caught) {
       if (caught instanceof ComputerUnavailableError && !abortController.signal.aborted) {
         return { error: computerUnavailableError };
@@ -870,11 +879,10 @@ async function playTurn(
       return ctx.activity(shellToolName, async () => {
         beforeLiveTool();
         if (!startedHere) return { error: interruptedShellError };
-        const computer = computerOf(deps, turn.userId);
         // A live call: the Turn's time limit, like a Stop, kills the command through the signal.
         inLiveCall = true;
         try {
-          return await onComputer(async () => {
+          return await onComputer(async (computer) => {
             const result = await computer.run(command, {
               cwd: shellCwd(turn.botId, cwd),
               timeoutMs: (timeoutSeconds ?? defaultShellTimeoutSeconds) * 1000,
@@ -897,7 +905,7 @@ async function playTurn(
   );
   /** A file tool: one activity, re-run after a crash. */
   const fileTool =
-    <Input, Output>(
+    <Input, Output extends object>(
       name: string,
       run: (computer: ComputerHandle, botId: string, input: Input) => Promise<Output>,
     ) =>
@@ -905,7 +913,7 @@ async function playTurn(
       toolCallOf(context?.toolCallId, () =>
         ctx.activity(name, async () => {
           beforeLiveTool();
-          return onComputer(() => run(computerOf(deps, turn.userId), turn.botId, input));
+          return onComputer((computer) => run(computer, turn.botId, input));
         }),
       );
   const read = readDefinition.server(fileTool("read", readTool));
