@@ -29,7 +29,7 @@ import { bot } from "../../plugins/bot/server/plugin";
 import { runnerJobs } from "../../plugins/runner/server/plugin";
 import { productionDeps } from "../../plugins/models/server/plugin";
 import type { ModelsDeps } from "../../plugins/models/server/types";
-import { createFakeAdapter, round, text, toolCall } from "../../test/support/fake-adapter";
+import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adapter";
 import { type TurnCase, turnCases } from "./cases";
 import { runCase, type TurnRunResult } from "./case";
 import { queueCases } from "./queue-cases";
@@ -106,7 +106,7 @@ async function mapPool<T, R>(items: T[], size: number, worker: (item: T) => Prom
 function fakeScript(evalCase: TurnCase) {
   const send = (message: string, endTurn: boolean) =>
     toolCall({ name: "send_to_user", input: { text: message, endTurn } });
-  if (evalCase.expected === "quiet") return [round(text("Nothing worth saying."))];
+  if (evalCase.expected === "quiet") return [round()];
   if (evalCase.multi) {
     return [round(send("One.", false), send("Two.", false), send("Three.", true))];
   }

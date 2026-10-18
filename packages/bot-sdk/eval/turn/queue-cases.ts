@@ -11,8 +11,12 @@ export type QueueMessage = {
   afterTurnStarts?: true;
 };
 
+/** The cases of one Message the Bot cannot do or cannot understand: it must still reply (#516, #531). */
+export const refusalCaseIds = ["unavailable", "no-email", "unclear", "no-live-data"] as const;
+export type RefusalCaseId = (typeof refusalCaseIds)[number];
+
 export type QueueCase = {
-  id: "batching" | "interrupting" | "unavailable";
+  id: "batching" | "interrupting" | RefusalCaseId;
   messages: QueueMessage[];
   /** What the judge checks the reply of the last Turn against. */
   criterion: string;
@@ -50,5 +54,29 @@ export const queueCases: QueueCase[] = [
       "The user asked the assistant to book a meeting for Thursday, which it cannot do. The reply " +
       "must either say it cannot book meetings or ask the user for details (such as the time or " +
       "who to invite). It must not say the meeting is booked.",
+  },
+  // The three below are #531's: a refusal or a question the Model once wrote as plain text.
+  {
+    id: "no-email",
+    messages: [{ text: "Send this summary to my boss" }],
+    criterion:
+      "The user asked the assistant to send a summary to their boss, but it cannot send email. The " +
+      "reply must say it cannot send email (it may offer to help write the summary, or ask what to " +
+      "send), and must not claim it sent anything.",
+  },
+  {
+    id: "unclear",
+    messages: [{ text: "Fix it" }],
+    criterion:
+      "The user wrote only 'Fix it', with no earlier context. The reply must ask what 'it' is, or " +
+      "otherwise ask what needs fixing.",
+  },
+  {
+    id: "no-live-data",
+    messages: [{ text: "What's the weather in Delhi right now?" }],
+    criterion:
+      "The user asked for the weather in Delhi right now, but the assistant has no live data. The " +
+      "reply must say it has no live or current weather data, and must not make up a current " +
+      "forecast or temperature (it may describe typical weather or point to a weather service).",
   },
 ];

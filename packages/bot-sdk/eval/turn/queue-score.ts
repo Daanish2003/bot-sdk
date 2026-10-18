@@ -2,7 +2,7 @@
 // they took, never the Model's text. The judge reads the Bot's reply: the pattern of
 // eval/memory/judge.ts, with a yes or no and a reason.
 
-import type { QueueCase } from "./queue-cases";
+import { type QueueCase, refusalCaseIds } from "./queue-cases";
 
 /** What a run left behind: its Triggers in the order sent, and the Turns that took them. */
 export type QueueObserved = {
@@ -23,8 +23,9 @@ export function scoreQueue(kind: QueueCase["id"], observed: QueueObserved): Queu
   const reasons: string[] = [];
   const { triggerIds, turns } = observed;
   const last = turns.at(-1);
-  // "unavailable" is one Message the Bot cannot do: its one Turn must still send the user a reply.
-  if (kind === "batching" || kind === "unavailable") {
+  // A refusal case is one Message the Bot cannot do or understand: its one Turn must still send the
+  // user a reply.
+  if (kind === "batching" || (refusalCaseIds as readonly string[]).includes(kind)) {
     if (turns.length !== 1) {
       reasons.push(`${turns.length} Turns took Triggers, expected exactly 1`);
     } else if (turns[0]!.triggerIds.length !== triggerIds.length) {

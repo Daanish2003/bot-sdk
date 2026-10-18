@@ -127,6 +127,25 @@ describe("scoreQueue, unavailable", () => {
   });
 });
 
+describe("scoreQueue, the other refusal and question cases", () => {
+  it.each(["no-email", "unclear", "no-live-data"] as const)(
+    "scores %s as one complete Turn that sent a Message",
+    (kind) => {
+      const ids = ["ask"];
+      expect(scoreQueue(kind, { triggerIds: ids, turns: [turn("complete", ids)] }).passed).toBe(
+        true,
+      );
+      expect(
+        scoreQueue(kind, { triggerIds: ids, turns: [turn("complete", ids, 0)] }).reasons,
+      ).toContain("the Turn sent nothing, expected a reply");
+      expect(
+        scoreQueue(kind, { triggerIds: ids, turns: [turn("complete", ids), turn("complete", [])] })
+          .reasons,
+      ).toContain("2 Turns took Triggers, expected exactly 1");
+    },
+  );
+});
+
 describe("judge", () => {
   it("parses the verdict and the reason, and reads anything else as no", () => {
     expect(parseVerdict("Verdict: yes\nReason: it covers all three.")).toEqual({
@@ -182,8 +201,15 @@ describe("sentTexts", () => {
 });
 
 describe("queueCases", () => {
-  it("has the batching, interrupting and unavailable cases, sent through the real plugin with ids", () => {
-    expect(queueCases.map((c) => c.id)).toEqual(["batching", "interrupting", "unavailable"]);
+  it("has the batching, interrupting and four refusal and question cases, sent through the real plugin with ids", () => {
+    expect(queueCases.map((c) => c.id)).toEqual([
+      "batching",
+      "interrupting",
+      "unavailable",
+      "no-email",
+      "unclear",
+      "no-live-data",
+    ]);
     expect(queueCases[0]!.messages.map((m) => m.text)).toEqual([
       "Plan a dinner.",
       "For 4 people.",
@@ -196,5 +222,10 @@ describe("queueCases", () => {
     ]);
     expect(queueCases[1]!.messages[1]!.afterTurnStarts).toBe(true);
     expect(queueCases[2]!.messages.map((m) => m.text)).toEqual(["Book the meeting for Thursday"]);
+    expect(queueCases.slice(3).map((c) => c.messages.map((m) => m.text))).toEqual([
+      ["Send this summary to my boss"],
+      ["Fix it"],
+      ["What's the weather in Delhi right now?"],
+    ]);
   });
 });

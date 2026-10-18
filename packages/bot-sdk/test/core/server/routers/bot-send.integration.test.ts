@@ -257,7 +257,7 @@ async function queueTrigger(deps: TestDeps, conversationId: string, text: string
 
 describe("bot.send", () => {
   it("keeps a reply with no tool call private: zero Messages, a complete Turn, its text in the transcript", async () => {
-    const { client, botId } = await botWith([round(text("Nothing to add here."))]);
+    const { client, botId } = await botWith([round(text("Nothing to add here.")), round()]);
 
     const events = await send(client, botId, "ok");
 
@@ -270,6 +270,9 @@ describe("bot.send", () => {
     expect(turn).toMatchObject({ status: "complete" });
     expect(turn?.endedAt).toBeInstanceOf(Date);
     expect(JSON.stringify(turn?.transcript)).toContain("Nothing to add here.");
+    // The reminder Step answered with no text, so the reminder is the transcript's last entry.
+    expect(turn?.transcript?.map((entry) => entry.role)).toEqual(["assistant", "user"]);
+    expect(String(turn?.transcript?.at(-1)?.content)).toMatch(/not delivered/i);
   });
 
   it("appends one Message per SendToUser call, never the Model's plain text", async () => {
@@ -328,7 +331,7 @@ describe("bot.send", () => {
   it("answers an empty text with an error saying what to do, and appends nothing", async () => {
     const { client, botId, fake } = await botWith([
       round(sends({ text: "  ", endTurn: true })),
-      round(text("I'll stay quiet.")),
+      round(),
     ]);
 
     const events = await send(client, botId, "hm");
@@ -340,7 +343,7 @@ describe("bot.send", () => {
     // The Model read the error and got its next Step.
     const result = inputOf(fake.calls[1]).find((message) => message.role === "tool");
     expect(String(result?.content)).toMatch(/text.*empty|empty.*text/i);
-    expect(String(result?.content)).toMatch(/reply without calling a tool/i);
+    expect(String(result?.content)).toMatch(/reply with no text and no tool call/i);
   });
 
   it("replays earlier Turns' transcripts as the next Turn's input, after the fixed system prompt", async () => {
@@ -374,6 +377,117 @@ describe("bot.send", () => {
     await expect(other.bot.send({ botId, id: uuidv7(), text: "hi" })).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
+  });
+});
+
+describe("a Step that ends in plain text", () => {
+  /** The note the Turn adds after an undelivered plain-text Step, from a model call's input. */
+  const reminderIn = (call: TextOptions | undefined) => inputOf(call).at(-1);
+
+  it("gets one reminder Step, and the reply that Step sends reaches the user", async () => {
+    const { client, botId, fake } = await botWith([
+      round(text("I can't book meetings.")),
+      round(sends({ text: "I can't book meetings.", endTurn: true })),
+    ]);
+
+    const events = await send(client, botId, "Book the meeting for Thursday");
+
+    expect(shapes(events)).toEqual([
+      { type: "message", role: "user", text: "Book the meeting for Thursday" },
+      { type: "message", role: "assistant", text: "I can't book meetings." },
+      { type: "turnEnded", status: "complete" },
+    ]);
+    expect(fake.calls).toHaveLength(2);
+    const reminder = reminderIn(fake.calls[1]);
+    expect(reminder?.role).toBe("user");
+    expect(String(reminder?.content)).toMatch(/not delivered/i);
+    expect(String(reminder?.content)).toContain(sendToUser);
+    expect(String(reminder?.content)).toMatch(/no text/i);
+    // The reminder stays in the saved transcript, so the next Turn's history is honest.
+    const [turn] = await turnsOf(botId);
+    expect(turn?.transcript?.map((entry) => entry.role)).toEqual([
+      "assistant",
+      "user",
+      "assistant",
+      "tool",
+    ]);
+    expect(turn?.transcript?.[1]).toMatchObject({ content: reminder?.content });
+  });
+
+  it("gets the reminder after the Turn already sent Messages", async () => {
+    const { client, botId, fake } = await botWith([
+      round(sends({ text: "Here it is.", endTurn: false })),
+      round(text("That should do it.")),
+      round(),
+    ]);
+
+    const events = await send(client, botId, "hi");
+
+    expect(events.at(-1)).toEqual({ type: "turnEnded", status: "complete" });
+    expect(fake.calls).toHaveLength(3);
+    expect(String(reminderIn(fake.calls[2])?.content)).toMatch(/not delivered/i);
+  });
+
+  it("ends the Turn complete and quiet when the Step after the reminder is plain text again", async () => {
+    // Only two rounds are scripted: a second reminder would fail the Turn.
+    const { client, botId, fake } = await botWith([
+      round(text("Nothing to add here.")),
+      round(text("Still nothing.")),
+    ]);
+
+    const events = await send(client, botId, "ok");
+
+    expect(shapes(events)).toEqual([
+      { type: "message", role: "user", text: "ok" },
+      { type: "turnEnded", status: "complete" },
+    ]);
+    expect(fake.calls).toHaveLength(2);
+    const [turn] = await turnsOf(botId);
+    expect(turn).toMatchObject({ status: "complete", error: null });
+    expect(JSON.stringify(turn?.transcript)).toContain("Still nothing.");
+  });
+
+  it("gets no reminder for a Step with no text and no tool call", async () => {
+    const { client, botId, fake } = await botWith([round(text("  ")), round()]);
+
+    const events = await send(client, botId, "ok");
+
+    expect(events.at(-1)).toEqual({ type: "turnEnded", status: "complete" });
+    expect(fake.calls).toHaveLength(1);
+  });
+
+  it("counts the reminder Step toward the 10-Step limit", async () => {
+    const more = round(sends({ text: "More", endTurn: false }));
+    const { client, botId, fake } = await botWith([
+      round(text("Thinking out loud.")),
+      ...Array.from({ length: 10 }, () => more),
+    ]);
+
+    await send(client, botId, "go on forever");
+
+    expect(fake.calls).toHaveLength(10);
+    expect(
+      (await client.bot.get({ botId })).messages.filter((row) => row.role === "assistant"),
+    ).toHaveLength(9);
+    const [turn] = await turnsOf(botId);
+    expect(turn).toMatchObject({ status: "error", error: "step_limit" });
+  });
+
+  it("skips the reminder when plain text ends the tenth Step, and ends the Turn quiet and complete", async () => {
+    const more = round(sends({ text: "More", endTurn: false }));
+    const { client, botId, fake } = await botWith([
+      ...Array.from({ length: 9 }, () => more),
+      round(text("Done, I think.")),
+      round(sends({ text: "Too late", endTurn: true })),
+    ]);
+
+    const events = await send(client, botId, "go on");
+
+    expect(fake.calls).toHaveLength(10);
+    expect(events.at(-1)).toEqual({ type: "turnEnded", status: "complete" });
+    const [turn] = await turnsOf(botId);
+    expect(turn).toMatchObject({ status: "complete", error: null });
+    expect(JSON.stringify(turn?.transcript)).not.toMatch(/not delivered/i);
   });
 });
 
@@ -566,10 +680,7 @@ describe("bot.stop", () => {
 
 describe("one Turn at a time", () => {
   it("has the next Turn take every Trigger that waited while a Turn ran, in the order they were received", async () => {
-    const { client, deps, user, botId, fake } = await botWith(
-      [round(text("First.")), round(text("Both."))],
-      { manual: true },
-    );
+    const { client, deps, user, botId, fake } = await botWith([round(), round()], { manual: true });
     const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
     const firstStream = await client.bot.send({ botId, id: uuidv7(), text: "one" });
     await firstStream.next();
@@ -602,7 +713,7 @@ describe("one Turn at a time", () => {
 
   it("starts the next Turn when the running one ends error", async () => {
     const { client, deps, user, botId, fake } = await botWith(
-      [round(runError("Provider down")), round(text("Back."))],
+      [round(runError("Provider down")), round()],
       { manual: true },
     );
     const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
@@ -710,10 +821,9 @@ describe("skipping the line", () => {
   });
 
   it("makes one replacement Turn for several sends while the old Turn aborts", async () => {
-    const { client, user, botId, fake } = await botWith(
-      [round(text("Never.")), round(text("Both."))],
-      { manual: true },
-    );
+    const { client, user, botId, fake } = await botWith([round(text("Never.")), round()], {
+      manual: true,
+    });
     const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
     await sendSaved(client, botId, "one");
     await expect.poll(() => fake.calls.length).toBe(1);
@@ -739,10 +849,9 @@ describe("skipping the line", () => {
   });
 
   it("Stop after a send starts nothing: the stopped Turn takes the waiting Triggers, and the next send's Turn reads their Messages", async () => {
-    const { client, user, botId, fake } = await botWith(
-      [round(text("Never.")), round(text("Back."))],
-      { manual: true },
-    );
+    const { client, user, botId, fake } = await botWith([round(text("Never.")), round()], {
+      manual: true,
+    });
     const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
     await sendSaved(client, botId, "one");
     await expect.poll(() => fake.calls.length).toBe(1);
@@ -834,9 +943,7 @@ describe("batching quick Messages", () => {
       .map((entry) => entry.content);
 
   it("answers three sends 200 ms apart with one Turn that took all three Triggers", async () => {
-    const { fake, botId, conversationId, advance, sendNow, runDue } = await batchingBot([
-      round(text("All three.")),
-    ]);
+    const { fake, botId, conversationId, advance, sendNow, runDue } = await batchingBot([round()]);
 
     await sendNow("Plan a dinner.");
     advance(200);
@@ -862,8 +969,8 @@ describe("batching quick Messages", () => {
 
   it("starts a second Turn for a send 600 ms after the last", async () => {
     const { fake, botId, conversationId, advance, sendNow, runDue } = await batchingBot([
-      round(text("First.")),
-      round(text("Second.")),
+      round(),
+      round(),
     ]);
 
     await sendNow("one");
@@ -1786,6 +1893,36 @@ describe("a Turn that resumes after a crash", () => {
       .set({ startedAt: ago(botTurn.startedAt) })
       .where(eq(botTurn.botId, botId));
   }
+
+  it("rebuilds the reminder after a plain-text Step on replay, from the recorded model call", async () => {
+    const first = round(text("I can't send email."));
+    const reply = round(sends({ text: "I can't send email.", endTurn: true }));
+    const { fake, client, botId, attempt, crash, instance } = await crashableBot([
+      first,
+      reply,
+      reply,
+    ]);
+    await client.bot.send({ botId, id: uuidv7(), text: "Send this summary to my boss" });
+
+    const lost = attempt();
+    await fake.release(first.length);
+    // The plain-text Step is saved, and the attempt waits in the reminder Step's model call.
+    await expect.poll(() => fake.calls.length).toBe(2);
+    await crash();
+    await lost;
+    const resumed = attempt(instance());
+    await fake.releaseAll();
+    await resumed;
+
+    // Only the reminder Step's call ran again, on the same input: the reminder was rebuilt.
+    expect(fake.calls).toHaveLength(3);
+    expect(modelSees(inputOf(fake.calls[2]))).toEqual(modelSees(inputOf(fake.calls[1])));
+    expect(String(inputOf(fake.calls[2]).at(-1)?.content)).toMatch(/not delivered/i);
+    expect(await sentTexts(client, botId)).toEqual(["I can't send email."]);
+    const [turn] = await turnsOf(botId);
+    expect(turn).toMatchObject({ status: "complete", error: null });
+    expect(turn?.transcript?.filter((entry) => entry.role === "user")).toHaveLength(1);
+  });
 
   it("counts the Steps of earlier attempts toward the 10-Step limit", async () => {
     const step = round(sends({ text: "More", endTurn: false }));

@@ -48,17 +48,38 @@ export const sendToUserToolName = "send_to_user";
 /** The fixed Bot system prompt: there are no per-Bot instructions. */
 export const botSystemPrompt =
   "You are a Bot the user talks to in a messenger. The user never sees your text replies or your " +
-  `tool calls; they see only the messages you send with the ${sendToUserToolName} tool. To say ` +
+  `tool calls; they see only the messages you send with the ${sendToUserToolName} tool. It is your ` +
+  "only tool: you cannot send email or messages to anyone else, look up live data, or act outside " +
+  "this chat. When asked to, say plainly that you cannot, then offer what you can do. To say " +
   `something, call ${sendToUserToolName}. You may call it more than once, in order. Set endTurn to ` +
   "true on your last message, so you stop there. Anything you want the user to read goes through " +
   "it, including a refusal (you cannot do what they asked) and a question you need answered. If " +
   "there is nothing worth saying (the user just acknowledged, said goodbye for now, or needs no " +
-  "answer), send nothing and reply without calling a tool.";
+  "answer), send nothing: reply with no text and no tool call, not even to say you are staying " +
+  "quiet. Do not send a pleasantry (you're welcome, good luck, see you) in reply to one.";
 
 /** What SendToUser returns for an empty `text`: what went wrong, and what to do instead. */
 export const emptyTextError =
   `The message was not sent: text is empty. Call ${sendToUserToolName} again with the words the ` +
-  "user should read, or, if there is nothing worth saying, reply without calling a tool.";
+  "user should read, or, if there is nothing worth saying, reply with no text and no tool call.";
+
+/**
+ * The note a Turn adds as a user turn when a Step ends in plain text and no tool call, for one
+ * more Step, at most once per Turn (#531). A recorded deviation: the lecture is silent here.
+ *
+ * Why, from the Turn eval (eval/turn, `EVAL_REPEATS=3`, both Models over OpenRouter): on the prompt
+ * alone, Haiku 4.5 wrote refusals and questions as plain text the user never saw ("unavailable"
+ * 1/3, "no-email" 0/3, "unclear" 1/3), and gpt-5.4-mini answered "no-live-data" in plain text (1/3).
+ * With this note and the prompt above, all four refusal and question cases passed 3/3 on both
+ * Models, structurally and with the judge, in two runs. Quiet cases: Haiku 19/30 before, 24/30
+ * and 19/30 after; gpt-5.4-mini 30/30 before and after.
+ */
+export const undeliveredTextReminder =
+  "(A note from the system, not from the user.) Your last reply was plain text, so it was not " +
+  "delivered: the user never sees plain text. The user needs it only if it answers what they " +
+  `asked, says you cannot do it, or asks them something: then send it with ${sendToUserToolName}. ` +
+  "A thanks, a good luck, a goodbye or an offer of more help is not needed: reply with no text. " +
+  "Do not answer this note.";
 
 /** The first Checkpoint of a Turn's job, which starts the Turn (#501). */
 const startTurnActivity = "start_turn";
@@ -590,7 +611,9 @@ type PlayedTurn = {
  * tool call an activity of the workflow `ctx` (ADR 0011, the #482 amendment). A recorded call
  * returns its result without running; past the history, calls run for real. A model call's usage
  * and a SendToUser's Message commit with their Checkpoint, so each happens once. A Step with no
- * tool call ends the Turn quiet; the Step and time limits end it `error`.
+ * tool call ends the Turn quiet, except that the first one with plain text gets one more Step,
+ * after `undeliveredTextReminder`, when a Step is left under the limit; the Step and time limits
+ * end it `error`.
  *
  * `attempt`, when given, is the attempt's signal: the live call stops when it aborts. `db` reads the
  * Turn's input (`deps.db` unless given).
@@ -631,7 +654,8 @@ async function playTurn(
     : undefined;
   let endTurn = false;
   let stepLimit = false;
-  let engine: ChatMiddlewareContext | undefined;
+  /** The Turn's Steps so far, recorded or live: one per model call. */
+  let steps = 0;
   /** What each recorded model call billed. */
   const billed: MessageUsage[] = [];
   /** The tool calls whose activity threw: they recorded nothing, so they stay unanswered. */
@@ -664,6 +688,7 @@ async function playTurn(
     name: provider,
     model: parseModelId(turn.model)?.modelId ?? turn.model,
     chatStream: async function* (options: TextOptions) {
+      steps += 1;
       let recorded: RecordedModelCall;
       try {
         recorded = await ctx.activity("model", async (): Promise<RecordedModelCall> => {
@@ -750,39 +775,57 @@ async function playTurn(
     }
   });
 
+  /** What the Turn's model calls and tool calls added to its input, in order. */
+  const messages: ModelMessage[] = [];
   try {
-    const stream = chat({
-      adapter: durableAdapter,
-      messages: input,
-      systemPrompts: [botSystemPrompt],
-      tools: [sendToUser],
-      // One call at a time, in call order, which is a workflow's identity.
-      toolExecution: "sequential",
-      abortController,
-      // The Step limit is the middleware's, so the engine's default limit doesn't end the Turn first.
-      agentLoopStrategy: () => true,
-      middleware: [
-        {
-          name: "bot-turn",
-          onStart: (middlewareCtx) => {
-            engine = middlewareCtx;
+    let reminded = false;
+    for (;;) {
+      let engine: ChatMiddlewareContext | undefined;
+      const stream = chat({
+        adapter: durableAdapter,
+        messages: [...input, ...messages],
+        systemPrompts: [botSystemPrompt],
+        tools: [sendToUser],
+        // One call at a time, in call order, which is a workflow's identity.
+        toolExecution: "sequential",
+        abortController,
+        // The Step limit is the middleware's, so the engine's default limit doesn't end the Turn first.
+        agentLoopStrategy: () => true,
+        middleware: [
+          {
+            name: "bot-turn",
+            onStart: (middlewareCtx) => {
+              engine = middlewareCtx;
+            },
+            onShouldContinue: (_middlewareCtx, state) => {
+              // Any `endTurn: true` in the Step ends the Turn with no further model call.
+              if (endTurn) return false;
+              // A Step that called a tool would go on to another; past the limit, the Turn ends.
+              // Replay counts the recorded Steps, so a crash can't reset the limit.
+              if (state.lastTurnToolCallCount > 0 && steps >= turnStepLimit) {
+                stepLimit = true;
+                return false;
+              }
+              return true;
+            },
           },
-          onShouldContinue: (_middlewareCtx, state) => {
-            // Any `endTurn: true` in the Step ends the Turn with no further model call.
-            if (endTurn) return false;
-            // A Step that called a tool would go on to another; past the limit, the Turn ends.
-            // Replay counts the recorded Steps, so a crash can't reset the limit.
-            if (state.lastTurnToolCallCount > 0 && state.iterationCount >= turnStepLimit) {
-              stepLimit = true;
-              return false;
-            }
-            return true;
-          },
-        },
-      ],
-    });
-    for await (const chunk of stream) {
-      if (chunk.type === EventType.RUN_ERROR) error = chunk.message;
+        ],
+      });
+      try {
+        for await (const chunk of stream) {
+          if (chunk.type === EventType.RUN_ERROR) error = chunk.message;
+        }
+      } finally {
+        if (engine) messages.push(...engine.messages.slice(engine.messageCount));
+      }
+      if (reminded || endTurn || stepLimit || error !== undefined) break;
+      // With no Step left under the limit, there is no reminder: the Turn ends quiet, as before.
+      if (abortController.signal.aborted || steps >= turnStepLimit) break;
+      if (!endsInPlainText(messages)) break;
+      // Plain text reaches no one: one more Step, with a note that says so (#531). It is rebuilt
+      // from the recorded model call on replay, so it needs no Checkpoint of its own.
+      reminded = true;
+      messages.push({ role: "user", content: undeliveredTextReminder });
     }
     finished = true;
   } catch (caught) {
@@ -791,7 +834,6 @@ async function playTurn(
     clearTimeout(timeLimit);
     attempt?.removeEventListener("abort", onAttemptAbort);
   }
-  const messages = engine ? engine.messages.slice(engine.messageCount) : [];
   return {
     timedOut,
     stepLimit,
@@ -873,6 +915,17 @@ function endingOf({
   if (error !== undefined) return { status: "error", error };
   if (stepLimit) return { status: "error", error: "step_limit" };
   return finished ? { status: "complete", error: null } : { status: "stopped", error: null };
+}
+
+/** Whether the last Step ended in non-empty plain text and no tool call. */
+function endsInPlainText(messages: readonly ModelMessage[]): boolean {
+  const last = messages.at(-1);
+  if (last?.role !== "assistant" || last.toolCalls?.length) return false;
+  const content =
+    typeof last.content === "string"
+      ? last.content
+      : (last.content ?? []).map((part) => (part.type === "text" ? part.content : "")).join("");
+  return content.trim() !== "";
 }
 
 /**

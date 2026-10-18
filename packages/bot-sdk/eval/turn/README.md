@@ -37,7 +37,9 @@ out" after a Bot answer). Borderline messages like "thanks!" are left out on pur
 - A **reply** case passes with at least one Message, `endTurn: true` on the last SendToUser call, and
   no model call after it. A multi-message case also needs at least two Messages, with `endTurn` only on
   the last.
-- A **quiet** case passes with no Message and a `complete` Turn.
+- A **quiet** case passes with no Message and a `complete` Turn. Quiet means a reply with no text: a
+  Step that ends in plain text gets one more Step after a note that the text was not delivered
+  (#531), so plain text the Model meant only for itself can still turn into a sent Message and fail.
 - The run prints the pass rate for the reply group, the quiet group, and the endTurn group (the runs
   that sent something and got `endTurn` right), and the reason for each failure. Every run, with the
   text it sent, is saved to `eval/turn/results/turn-<time>.json` (gitignored).
@@ -72,9 +74,9 @@ mean nothing.
 EVAL_DATABASE_URL=... pnpm -F @ai-chat/bot-sdk eval:turn -- --fake
 ```
 
-## Queue evals (batching, interrupting and unavailable)
+## Queue evals (batching, interrupting, and refusals and questions)
 
-The same run also plays three cases of the Router and queue (spec #510) with the real `bot` plugin and
+The same run also plays six cases of the Router and queue (spec #510, #531) with the real `bot` plugin and
 client ids, `EVAL_REPEATS` times each. Each has a structural check and an LLM-judge check:
 
 - **batching:** "Plan a dinner." / "For 4 people." / "Vegetarian." sent 200 ms apart. Structural:
@@ -89,6 +91,15 @@ client ids, `EVAL_REPEATS` times each. Each has a structural check and an LLM-ju
   took the Message, completed and sent at least one Message (a refusal or a question goes through
   SendToUser too, never as plain text, #516). Judge: the reply says it cannot book or asks for details,
   and does not claim the meeting is booked.
+- **no-email:** "Send this summary to my boss", which the Bot cannot do. Structural: as for unavailable.
+  Judge: the reply says it cannot send email, and does not claim it sent anything.
+- **unclear:** "Fix it", with no earlier context. Structural: as for unavailable. Judge: the reply asks
+  what "it" is.
+- **no-live-data:** "What's the weather in Delhi right now?". Structural: as for unavailable. Judge:
+  the reply says it has no live data, and makes up no forecast.
+
+The four refusal and question cases (unavailable and the three above, #531) are the ones a Model once
+answered in plain text, which the user never sees.
 
 In the `--fake` run, the interrupting case's first Model call is held until the correction stops that Turn, so the fake cannot finish it first; real runs are not held.
 
