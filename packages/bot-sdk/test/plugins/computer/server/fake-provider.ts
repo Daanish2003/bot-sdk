@@ -220,6 +220,8 @@ function runBuiltIn(
   cwd: string,
   write: (disk: Disk, path: string, bytes: Uint8Array) => void,
 ): CommandResult | undefined {
+  const ranged = rangedRead(disk, command, cwd);
+  if (ranged) return ranged;
   // tar's `|| [ $? -eq 1 ]` (its exit 1 still wrote the archive) never fails here.
   const parts = command.replaceAll(" || [ $? -eq 1 ]", "").split(" && ").map(words);
   if (!parts.every(isBuiltIn)) return undefined;
@@ -244,6 +246,20 @@ function runBuiltIn(
     }
     if (name === "rm") {
       disk.files.delete(at(args.at(-1) ?? ""));
+      continue;
+    }
+    if (name === "test") {
+      // test -f <path>, or test -d <path>
+      const path = at(args.at(-1) ?? "");
+      const found = args[0] === "-d" ? isDirectory(disk.files, path) : disk.files.has(path);
+      if (!found) return { exitCode: 1, stdout, stderr: "" };
+      continue;
+    }
+    if (name === "awk") {
+      // awk 'END{print NR}' <path>: the lines of a file, an unterminated last one included
+      const bytes = disk.files.get(at(args.at(-1) ?? ""));
+      if (!bytes) return { exitCode: 2, stdout, stderr: "awk: no such file" };
+      stdout += `${lineParts(bytes).lines.length}\n`;
       continue;
     }
     if (name === "stat") {
@@ -289,7 +305,37 @@ const isDirectory = (files: Map<string, Uint8Array>, path: string) => {
   return [...files.keys()].some((file) => file.startsWith(prefix));
 };
 
-const builtIns = new Set(["mkdir", "find", "rm", "stat", "tar"]);
+const builtIns = new Set(["mkdir", "find", "rm", "stat", "tar", "test", "awk"]);
+
+/** A file's lines (without their newlines), and whether the last one ends with a newline. */
+function lineParts(bytes: Uint8Array) {
+  const lines = Buffer.from(bytes).toString("latin1").split("\n");
+  const terminated = lines.at(-1) === "";
+  if (terminated) lines.pop();
+  return { lines, terminated };
+}
+
+/**
+ * Runs `read`'s ranged fetch on `disk`: `sed -n '<from>,<to>p;<to>q' <path> | head -c <n> | base64 -w0`,
+ * or returns undefined for any other command.
+ */
+function rangedRead(disk: Disk, command: string, cwd: string): CommandResult | undefined {
+  const match =
+    /^sed -n '(\d+),(\d+)p;\d+q' '((?:[^']|'\\'')*)' \| head -c (\d+) \| base64 -w0$/.exec(command);
+  if (!match) return undefined;
+  const [, from, to, quoted, max] = match;
+  const bytes = disk.files.get(
+    posix.resolve(cwd, (quoted ?? "").replaceAll(String.raw`'\''`, "'")),
+  );
+  if (!bytes) return { exitCode: 0, stdout: "", stderr: "sed: no such file" };
+  const { lines, terminated } = lineParts(bytes);
+  const picked = lines.slice(Number(from) - 1, Number(to));
+  const text =
+    picked.join("\n") +
+    (picked.length > 0 && (Number(to) < lines.length || terminated) ? "\n" : "");
+  const out = Buffer.from(text, "latin1").subarray(0, Number(max));
+  return { exitCode: 0, stdout: out.toString("base64"), stderr: "" };
+}
 
 /** Whether the fake runs this command itself: a test's own `rm -rf` goes to `onCommand`. */
 const isBuiltIn = ([name, ...args]: string[]) =>

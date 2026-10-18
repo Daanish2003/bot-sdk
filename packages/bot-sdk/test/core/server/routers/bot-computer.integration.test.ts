@@ -1,9 +1,10 @@
 import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { eq, inArray } from "drizzle-orm";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { botTurn, computer as computerTable, job } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
+import { maxTextBytes } from "../../../../plugins/bot/server/computer-tools";
 import { bot } from "../../../../plugins/bot/server/plugin";
 import {
   computerUnavailableError,
@@ -530,6 +531,46 @@ describe("the file tools", () => {
       entries: [{ name: "a.txt", kind: "file", size: 15 }],
     });
     expect(computerFake.callsOf("create")).toHaveLength(1);
+  });
+
+  it("reads a range without loading the file, and shows the rest by nextOffset", async () => {
+    const { client, botId, fake, computerFake } = await botWith([
+      round(
+        file("read", { path: "/tmp/big.log", offset: 3, limit: 2 }),
+        file("read", { path: "/tmp/big.log", offset: 5, limit: 2 }),
+        file("read", { path: "/tmp/big.log", offset: 9 }),
+      ),
+      round(),
+    ]);
+    computerFake.files.set("/tmp/big.log", new TextEncoder().encode("a\nb\nc\nd\ne\nlast"));
+    const load = vi.spyOn(computerFake.provider, "readFile");
+
+    await send(client, botId, "go");
+
+    const [middle, tail, beyond] = toolResultsOf(fake.calls[1]);
+    expect(middle).toEqual({ content: "3\tc\n4\td", totalLines: 6, nextOffset: 5 });
+    expect(tail).toEqual({ content: "5\te\n6\tlast", totalLines: 6 });
+    expect(beyond).toEqual({ content: "", totalLines: 6 });
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it("returns an error that suggests shell when read's lines or edit's file are over the size limit", async () => {
+    const { client, botId, fake, computerFake } = await botWith([
+      round(
+        file("read", { path: "/tmp/wide.txt" }),
+        file("edit", { path: "/tmp/huge.txt", oldText: "a", newText: "b" }),
+      ),
+      round(),
+    ]);
+    computerFake.files.set("/tmp/wide.txt", new Uint8Array(maxTextBytes + 1).fill(97));
+    computerFake.files.set("/tmp/huge.txt", new Uint8Array(maxTextBytes + 1).fill(97));
+
+    await send(client, botId, "go");
+
+    const [read, edit] = toolResultsOf(fake.calls[1]);
+    expect(read.error).toContain("shell");
+    expect(edit.error).toContain("shell");
+    expect(computerFake.files.get("/tmp/huge.txt")?.[0]).toBe(97);
   });
 
   it("cuts long lines when reading", async () => {
