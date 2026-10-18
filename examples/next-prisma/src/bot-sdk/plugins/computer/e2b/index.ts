@@ -69,12 +69,13 @@ export function e2bProvider({
       return await call(await open(sandboxId));
     } catch (error) {
       forget(sandboxId);
+      const stale =
+        error instanceof SandboxNotRunningError || error instanceof SandboxNotFoundError;
+      // A cached connection can be stale: the sandbox was paused or killed behind its back. One
+      // fresh connect resumes it or finds it gone. No call had run yet, so it is safe to make it again.
+      if (stale && !retried) return withSandbox(sandboxId, call, true);
       if (error instanceof SandboxNotFoundError)
         throw new SandboxGoneError(sandboxId, { cause: error });
-      // The cached connection is stale: the sandbox was paused or killed behind its back. A fresh
-      // connect resumes it or finds it gone. No call had run yet, so it is safe to make it again.
-      if (error instanceof SandboxNotRunningError && !retried)
-        return withSandbox(sandboxId, call, true);
       throw error;
     }
   };
@@ -138,8 +139,10 @@ export function e2bProvider({
         }),
       }));
       const kill = async () => {
-        await sandbox.commands.run(`kill -KILL -- -${handle.pid}`).catch(() => undefined);
-        await handle.kill().catch(() => false);
+        await Promise.all([
+          sandbox.commands.run(`kill -KILL -- -${handle.pid}`).catch(() => undefined),
+          handle.kill().catch(() => false),
+        ]);
       };
       return new Promise<CommandResult | TimedOutCommand>((resolve, reject) => {
         // Killing the command also settles `wait()`, which must not beat the outcome set here.
