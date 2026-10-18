@@ -7,6 +7,13 @@ import {
   type FileEntry,
   type TimedOutCommand,
 } from "../../../../plugins/computer/server/provider";
+import {
+  fetchedLineBytes,
+  maxPageBytes,
+  readScript,
+  sizeScript,
+} from "../../../../plugins/bot/server/computer-tools";
+import { boundedOutput } from "../../../../plugins/computer/e2b/bounded-output";
 
 /** One command the fake ran: where, on which sandbox, and with what time limit. */
 export type FakeCommand = {
@@ -36,17 +43,35 @@ export type FakeCall =
   | { type: "kill"; sandboxId: string; command: string }
   | { type: "kill-sandbox"; sandboxId: string };
 
-/** One sandbox's disk: each file's bytes, and the write that last changed it as its mtime. */
-type Disk = { files: Map<string, Uint8Array>; mtimes: Map<string, number> };
+/**
+ * One sandbox's disk: each file's bytes, the write that last changed it as its mtime, and the
+ * files its commands can't read (permission denied).
+ */
+type Disk = {
+  files: Map<string, Uint8Array>;
+  mtimes: Map<string, number>;
+  unreadable: Set<string>;
+};
 
-const newDisk = (): Disk => ({ files: new Map(), mtimes: new Map() });
+const newDisk = (): Disk => ({ files: new Map(), mtimes: new Map(), unreadable: new Set() });
+
+/** A result with each stream kept as the E2B adapter keeps it: 1 MiB characters at each end. */
+function bounded<Result extends CommandResult | TimedOutCommand>(result: Result): Result {
+  const out = boundedOutput();
+  const err = boundedOutput();
+  out.add(result.stdout);
+  err.add(result.stderr);
+  return { ...result, stdout: out.text(), stderr: err.text() };
+}
 
 /**
  * A Computer provider for tests: no sandbox, only a record of what it was asked to do, and a disk
  * per sandbox. Each command is answered by `onCommand`, which the test supplies (exit 0 with no
  * output by default), except the commands the sync and restore use (`mkdir -p`, `find … -prune`, `rm -f`,
- * `tar -czf`, `tar -xzf`, `stat -c %s`, joined by `&&`), which the fake runs on the disk. Its
- * archives are uncompressed, so a file's size is its archive's.
+ * `tar -czf`, `tar -xzf`, `stat -c %s`, joined by `&&`) and the file tools' commands, which the
+ * fake runs on the disk. Its archives are uncompressed, so a file's size is its archive's. Each
+ * command's output is kept as the E2B adapter keeps it, and a file in `unreadable` fails the file
+ * tools' commands with permission denied.
  *
  * A command still running after its `timeoutMs` is killed and returns what it printed; one whose
  * `signal` aborts is killed and throws. Each lifecycle call in `failing` throws, recording nothing.
@@ -127,10 +152,10 @@ export function fakeComputerProvider({
       const disk = runningDisk(sandboxId);
       calls.push({ type: "run", sandboxId, command, cwd, timeoutMs });
       const builtIn = runBuiltIn(disk, command, cwd ?? "/home/user", write);
-      if (builtIn) return builtIn;
+      if (builtIn) return bounded(builtIn);
       const killed = new AbortController();
       let stdout = "";
-      return await new Promise<CommandResult | TimedOutCommand>((resolve, reject) => {
+      const result = await new Promise<CommandResult | TimedOutCommand>((resolve, reject) => {
         /** Settles the command once: a kill first records it and stops `onCommand`. */
         const settle = (kill: boolean, finish: () => void) => {
           if (killed.signal.aborted) return;
@@ -159,6 +184,7 @@ export function fakeComputerProvider({
             (caught) => settle(false, () => reject(caught)),
           );
       });
+      return bounded(result);
     },
     readFile: async (sandboxId, path) => {
       const { files } = runningDisk(sandboxId);
@@ -206,6 +232,10 @@ export function fakeComputerProvider({
     get files() {
       return current.files;
     },
+    /** The files of the newest sandbox that its commands can't read, as with permission denied. */
+    get unreadable() {
+      return current.unreadable;
+    },
   };
 }
 
@@ -220,8 +250,8 @@ function runBuiltIn(
   cwd: string,
   write: (disk: Disk, path: string, bytes: Uint8Array) => void,
 ): CommandResult | undefined {
-  const ranged = rangedRead(disk, command, cwd);
-  if (ranged) return ranged;
+  const fileTool = fileToolCommand(disk, command, cwd);
+  if (fileTool) return fileTool;
   // tar's `|| [ $? -eq 1 ]` (its exit 1 still wrote the archive) never fails here.
   const parts = command.replaceAll(" || [ $? -eq 1 ]", "").split(" && ").map(words);
   if (!parts.every(isBuiltIn)) return undefined;
@@ -246,20 +276,6 @@ function runBuiltIn(
     }
     if (name === "rm") {
       disk.files.delete(at(args.at(-1) ?? ""));
-      continue;
-    }
-    if (name === "test") {
-      // test -f <path>, or test -d <path>
-      const path = at(args.at(-1) ?? "");
-      const found = args[0] === "-d" ? isDirectory(disk.files, path) : disk.files.has(path);
-      if (!found) return { exitCode: 1, stdout, stderr: "" };
-      continue;
-    }
-    if (name === "awk") {
-      // awk 'END{print NR}' <path>: the lines of a file, an unterminated last one included
-      const bytes = disk.files.get(at(args.at(-1) ?? ""));
-      if (!bytes) return { exitCode: 2, stdout, stderr: "awk: no such file" };
-      stdout += `${lineParts(bytes).lines.length}\n`;
       continue;
     }
     if (name === "stat") {
@@ -305,7 +321,7 @@ const isDirectory = (files: Map<string, Uint8Array>, path: string) => {
   return [...files.keys()].some((file) => file.startsWith(prefix));
 };
 
-const builtIns = new Set(["mkdir", "find", "rm", "stat", "tar", "test", "awk"]);
+const builtIns = new Set(["mkdir", "find", "rm", "stat", "tar"]);
 
 /** A file's lines (without their newlines), and whether the last one ends with a newline. */
 function lineParts(bytes: Uint8Array) {
@@ -316,25 +332,43 @@ function lineParts(bytes: Uint8Array) {
 }
 
 /**
- * Runs `read`'s ranged fetch on `disk`: `sed -n '<from>,<to>p;<to>q' <path> | head -c <n> | base64 -w0`,
- * or returns undefined for any other command.
+ * Runs a file tool's command on `disk` as bash would: `p=<path> o=<first line> n=<lines>` then
+ * `readScript`, or `p=<path>` then `sizeScript`. Returns undefined for any other command.
  */
-function rangedRead(disk: Disk, command: string, cwd: string): CommandResult | undefined {
-  const match =
-    /^sed -n '(\d+),(\d+)p;\d+q' '((?:[^']|'\\'')*)' \| head -c (\d+) \| base64 -w0$/.exec(command);
+function fileToolCommand(disk: Disk, command: string, cwd: string): CommandResult | undefined {
+  const newline = command.indexOf("\n");
+  const body = command.slice(newline + 1);
+  if (body !== readScript && body !== sizeScript) return undefined;
+  const match = /^p='((?:[^']|'\\'')*)'(?: o=(\d+) n=(\d+))?$/.exec(command.slice(0, newline));
   if (!match) return undefined;
-  const [, from, to, quoted, max] = match;
-  const bytes = disk.files.get(
-    posix.resolve(cwd, (quoted ?? "").replaceAll(String.raw`'\''`, "'")),
-  );
-  if (!bytes) return { exitCode: 0, stdout: "", stderr: "sed: no such file" };
-  const { lines, terminated } = lineParts(bytes);
-  const picked = lines.slice(Number(from) - 1, Number(to));
-  const text =
-    picked.join("\n") +
-    (picked.length > 0 && (Number(to) < lines.length || terminated) ? "\n" : "");
-  const out = Buffer.from(text, "latin1").subarray(0, Number(max));
-  return { exitCode: 0, stdout: out.toString("base64"), stderr: "" };
+  const [, quoted, from, count] = match;
+  const path = posix.resolve(cwd, (quoted ?? "").replaceAll(String.raw`'\''`, "'"));
+  const report = (stdout: string) => ({ exitCode: 0, stdout, stderr: "" });
+  const bytes = disk.files.get(path);
+  if (!bytes) return report(isDirectory(disk.files, path) ? "directory\n" : "missing\n");
+  if (disk.unreadable.has(path)) {
+    return { exitCode: 1, stdout: "", stderr: `bash: line 5: ${path}: Permission denied` };
+  }
+  if (body === sizeScript) return report(`bytes ${bytes.length}\n`);
+  if (bytes.includes(0)) return report("binary\n");
+  try {
+    new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return report("notutf8\n");
+  }
+  const { lines } = lineParts(bytes);
+  const header = `lines ${lines.length}\n`;
+  const first = Number(from);
+  const last = Math.min(first + Number(count) - 1, lines.length);
+  if (Number(count) === 0 || first > last) return report(header);
+  // Each line cut to its fetched bytes, and only the lines that fit in a page.
+  let page = "";
+  for (const line of lines.slice(first - 1, last)) {
+    const cut = line.slice(0, fetchedLineBytes);
+    if (page.length + cut.length + 1 > maxPageBytes) break;
+    page += `${cut}\n`;
+  }
+  return report(header + Buffer.from(page, "latin1").toString("base64"));
 }
 
 /** Whether the fake runs this command itself: a test's own `rm -rf` goes to `onCommand`. */

@@ -52,6 +52,7 @@ import {
   defaultShellTimeoutSeconds,
   editDefinition,
   editTool,
+  type FileToolOptions,
   interruptedShellError,
   listDefinition,
   listTool,
@@ -941,18 +942,36 @@ async function playTurn(
       return recordTold(result);
     }),
   );
-  /** A file tool: one activity, re-run after a crash. */
+  /**
+   * A file tool: one activity, re-run after a crash. A live call, like `shell`'s: a Stop or the
+   * Turn's time limit stops its operations through the signal.
+   */
   const fileTool =
     <Input, Output extends object>(
       name: string,
-      run: (computer: ComputerHandle, botId: string, input: Input) => Promise<Output>,
+      run: (
+        computer: ComputerHandle,
+        botId: string,
+        input: Input,
+        options: FileToolOptions,
+      ) => Promise<Output>,
     ) =>
     (input: Input, context?: { toolCallId?: string }) =>
       toolCallOf(context?.toolCallId, async () =>
         recordTold(
           await ctx.activity(name, async () => {
             beforeLiveTool();
-            return onComputer((computer) => run(computer, turn.botId, input));
+            inLiveCall = true;
+            try {
+              return await onComputer((computer) =>
+                run(computer, turn.botId, input, {
+                  deadline: new Date(turn.startedAt.getTime() + turnTimeLimitMs),
+                  signal: abortController.signal,
+                }),
+              );
+            } finally {
+              inLiveCall = false;
+            }
           }),
         ),
       );

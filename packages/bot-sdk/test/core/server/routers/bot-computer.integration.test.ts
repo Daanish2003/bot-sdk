@@ -64,8 +64,10 @@ async function botWith(
   {
     withComputer = true,
     onCommand,
+    clock,
   }: {
     withComputer?: boolean;
+    clock?: () => Date;
     onCommand?: (command: FakeCommandRun) => CommandResult | Promise<CommandResult>;
   } = {},
 ) {
@@ -77,6 +79,7 @@ async function botWith(
     plugins: withComputer ? [bot(), computer({ provider: computerFake.provider })] : [bot()],
     jobs,
     adapterFor: () => fake.adapter,
+    ...(clock ? { clock } : {}),
   });
   await jobs.start();
   started.push(jobs);
@@ -592,21 +595,16 @@ describe("the file tools", () => {
     expect(load).not.toHaveBeenCalled();
   });
 
-  it("returns an error that suggests shell when read's lines or edit's file are over the size limit", async () => {
+  it("returns an error that suggests shell when edit's file is over the size limit", async () => {
     const { client, botId, fake, computerFake } = await botWith([
-      round(
-        file("read", { path: "/tmp/wide.txt" }),
-        file("edit", { path: "/tmp/huge.txt", oldText: "a", newText: "b" }),
-      ),
+      round(file("edit", { path: "/tmp/huge.txt", oldText: "a", newText: "b" })),
       round(),
     ]);
-    computerFake.files.set("/tmp/wide.txt", new Uint8Array(maxTextBytes + 1).fill(97));
     computerFake.files.set("/tmp/huge.txt", new Uint8Array(maxTextBytes + 1).fill(97));
 
     await send(client, botId, "go");
 
-    const [read, edit] = toolResultsOf(fake.calls[1]);
-    expect(read.error).toContain("shell");
+    const [edit] = toolResultsOf(fake.calls[1]);
     expect(edit.error).toContain("shell");
     expect(computerFake.files.get("/tmp/huge.txt")?.[0]).toBe(97);
   });
@@ -725,6 +723,121 @@ describe("the file tools", () => {
     expect(computerFake.files.get("/tmp/bom.txt")).toEqual(
       new Uint8Array([...bom, ...new TextEncoder().encode("new")]),
     );
+  });
+
+  it("reads a page too big for one fetch in parts, and says where to read on", async () => {
+    const { client, botId, fake, computerFake } = await botWith([
+      round(file("read", { path: "/tmp/wide.log" })),
+      round(),
+      round(file("read", { path: "/tmp/wide.log", offset: 2401 })),
+      round(),
+    ]);
+    // 2,500 lines of 1,500 characters: a default page is 3 MB, more than one fetch can carry.
+    const line = (n: number) => `${String(n).padStart(4, "0")}${"x".repeat(1496)}`;
+    const lines = Array.from({ length: 2500 }, (_, index) => line(index + 1));
+    computerFake.files.set("/tmp/wide.log", new TextEncoder().encode(`${lines.join("\n")}\n`));
+
+    await send(client, botId, "read it");
+
+    const [first] = toolResultsOf(fake.calls[1]);
+    const rows: string[] = first.content.split("\n");
+    expect(first.totalLines).toBe(2500);
+    expect(first.nextOffset).toBeLessThan(2001);
+    expect(rows).toHaveLength(first.nextOffset - 1);
+    expect(rows).toEqual(rows.map((_, index) => `${index + 1}\t${line(index + 1)}`));
+    expect(first.hint).toContain(String(first.nextOffset));
+
+    await send(client, botId, "read the end");
+    const last = toolResultsOf(fake.calls[3]).at(-1);
+    expect(last.content.split("\n").at(-1)).toBe(`2500\t${line(2500)}`);
+    expect(last).not.toHaveProperty("nextOffset");
+    expect(last).not.toHaveProperty("hint");
+  });
+
+  it("reads a file with a huge line, cut, without fetching the whole line", async () => {
+    const { client, botId, fake, computerFake } = await botWith([
+      round(file("read", { path: "/tmp/one.json" })),
+      round(),
+    ]);
+    computerFake.files.set(
+      "/tmp/one.json",
+      new TextEncoder().encode(`${"x".repeat(3_000_000)}\na${"€".repeat(3000)}\nend`),
+    );
+
+    await send(client, botId, "go");
+
+    const [read] = toolResultsOf(fake.calls[1]);
+    expect(read).toEqual({
+      content: `1\t${"x".repeat(2000)}…\n2\ta${"€".repeat(1999)}…\n3\tend`,
+      totalLines: 3,
+    });
+  });
+
+  it("finds a binary or non-UTF-8 file by its whole content, not only the lines read", async () => {
+    const { client, botId, fake, computerFake } = await botWith([
+      round(
+        file("read", { path: "/tmp/late.bin", limit: 1 }),
+        file("read", { path: "/tmp/late.txt", limit: 1 }),
+      ),
+      round(),
+    ]);
+    computerFake.files.set("/tmp/late.bin", new Uint8Array([0x61, 0x0a, 0x62, 0x00, 0x0a]));
+    computerFake.files.set("/tmp/late.txt", new Uint8Array([0x61, 0x0a, 0x62, 0xe9, 0x0a]));
+
+    await send(client, botId, "go");
+
+    const [binary, latin1] = toolResultsOf(fake.calls[1]);
+    expect(binary.error).toContain("binary");
+    expect(latin1.error).toContain("not UTF-8");
+  });
+
+  it("reports what the Computer said when a file can't be read, not that it is missing", async () => {
+    const { client, botId, fake, computerFake } = await botWith([
+      round(
+        file("read", { path: "/etc/shadow" }),
+        file("edit", { path: "/etc/shadow", oldText: "a", newText: "b" }),
+      ),
+      round(),
+    ]);
+    computerFake.files.set("/etc/shadow", new TextEncoder().encode("secret"));
+    computerFake.unreadable.add("/etc/shadow");
+
+    await send(client, botId, "go");
+
+    const [read, edit] = toolResultsOf(fake.calls[1]);
+    expect(read.error).toMatch(/^Your computer reported an error: .*Permission denied/);
+    expect(edit.error).toMatch(/^Your computer reported an error: .*Permission denied/);
+  });
+
+  it("lists the Bot's own directory as empty on a fresh Computer", async () => {
+    const { client, botId, fake } = await botWith([round(file("list", {})), round()]);
+
+    await send(client, botId, "go");
+
+    expect(toolResultsOf(fake.calls[1])[0]).toEqual({
+      path: `/home/user/bots/${botId}`,
+      entries: [],
+    });
+  });
+
+  it("gives the file tools' commands the Turn's time left", async () => {
+    let skewMs = 0;
+    const { client, botId, computerFake } = await botWith(
+      [round(shell({ command: "wait" })), round(file("read", { path: "a.txt" })), round()],
+      {
+        clock: () => new Date(Date.now() + skewMs),
+        onCommand: () => {
+          // The command took most of the Turn's time.
+          skewMs = turnTimeLimitMs - 10_000;
+          return { exitCode: 0, stdout: "", stderr: "" };
+        },
+      },
+    );
+
+    await send(client, botId, "go");
+
+    const [, read] = computerFake.callsOf("run");
+    expect(read?.timeoutMs).toBeLessThanOrEqual(10_000);
   });
 
   it("errors for a missing file", async () => {
