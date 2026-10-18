@@ -20,6 +20,9 @@ export type E2bProviderOptions = {
 
 const homeDirectory = "/home/user";
 
+/** The longest delay a timer takes: a larger one fires after 1 ms. */
+const maxTimerMs = 2 ** 31 - 1;
+
 /**
  * The `computer` plugin's provider on self-hosted E2B (the open-source Firecracker runtime). It
  * is the only module that loads the `e2b` SDK, so a Host that never imports this subpath never
@@ -91,17 +94,22 @@ export function e2bProvider({
           clearTimeout(timer);
           signal?.removeEventListener("abort", onAbort);
         };
-        const timer = setTimeout(() => {
-          stopped = true;
-          finish();
-          void kill().then(() => resolve({ timedOut: true, stdout, stderr }));
-        }, timeoutMs);
+        const timer = setTimeout(
+          () => {
+            stopped = true;
+            finish();
+            void kill().then(() => resolve({ timedOut: true, stdout, stderr }));
+          },
+          Math.min(timeoutMs, maxTimerMs),
+        );
         const onAbort = () => {
           stopped = true;
           finish();
           void kill().then(() => reject(signal?.reason));
         };
         signal?.addEventListener("abort", onAbort, { once: true });
+        // An abort during the setup above fired before this listener existed.
+        if (signal?.aborted) onAbort();
         handle.wait().then(
           (result) => {
             if (stopped) return;
@@ -151,7 +159,7 @@ export function e2bProvider({
           size: entry.size,
         }));
       } catch (error) {
-        if (error instanceof NotFoundError) return null;
+        if (error instanceof FileNotFoundError) return null;
         throw error;
       }
     },
