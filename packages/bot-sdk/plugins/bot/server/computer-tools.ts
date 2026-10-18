@@ -4,11 +4,32 @@ import { toolDefinition } from "@tanstack/ai";
 import { z } from "zod";
 
 import type { BotSdkContext } from "../../../core/server/plugin";
-import type { ComputerHandle } from "../../computer/server/plugin";
-import type { CommandResult } from "../../computer/server/provider";
+import { type ComputerHandle, defaultCommandTimeoutMs } from "../../computer/server/plugin";
+import type { CommandResult, TimedOutCommand } from "../../computer/server/provider";
 
 /** The Computer tool that runs a shell command. */
 export const shellToolName = "shell";
+
+/** The `shell` call's start marker, recorded before the command runs live. */
+export const shellStartActivity = "shell_start";
+
+/** How long a `shell` command may run when the Bot doesn't say. */
+export const defaultShellTimeoutSeconds = defaultCommandTimeoutMs / 1000;
+
+/** What a tool returns when the Computer couldn't wake. */
+export const computerUnavailableError =
+  "Your computer couldn't start. Try again shortly; if it keeps failing, tell the user their " +
+  "computer is unavailable right now.";
+
+/** What a resumed Turn returns for a `shell` call that started but has no result. */
+export const interruptedShellError =
+  "This command was interrupted by a restart and may have partly run. Check its effects before " +
+  "running it again.";
+
+/** What a `shell` call killed at its time limit adds to the output it printed. */
+export const timedOutHint =
+  "The command was killed at its time limit. Break the work up into shorter commands, or give a " +
+  "longer timeoutSeconds if this turn has time left.";
 
 /** The user's Computer. Call it only with `computer` on (`hasPlugin("computer")`). */
 export function computerOf(deps: BotSdkContext, userId: string): ComputerHandle {
@@ -50,6 +71,15 @@ export const shellDefinition = toolDefinition({
     cwd: z.string().optional().meta({
       description: "Where to run it: absolute, or relative to your own directory.",
     }),
+    timeoutSeconds: z
+      .number()
+      .positive()
+      .optional()
+      .meta({
+        description:
+          `How long it may run, in seconds (${defaultShellTimeoutSeconds} by default, and never ` +
+          "past this turn's time left). It is killed then, and you get what it printed so far.",
+      }),
   }),
 });
 /** Resolves a tool's path: relative to the Bot's directory, or absolute anywhere. */
@@ -63,7 +93,7 @@ export const spillThreshold = 10_000;
 const spillKeep = 2_000;
 
 /** What `shell` returns: the command's result, with long outputs cut and the file that holds them. */
-export type ShellOutput = CommandResult & { outputPath?: string };
+export type ShellOutput = (CommandResult | TimedOutCommand) & { outputPath?: string };
 
 /** Where the full output of tool call `toolCallId` goes, in the Bot's directory. */
 export function spillPath(botId: string, toolCallId: string): string {
@@ -79,7 +109,7 @@ const keepEnds = (text: string) =>
  * and last characters of each long stream plus that path.
  */
 export async function capOutput(
-  result: CommandResult,
+  result: CommandResult | TimedOutCommand,
   path: string,
   save: (path: string, content: string) => Promise<void>,
 ): Promise<ShellOutput> {
@@ -98,7 +128,7 @@ export async function capOutput(
     () => false,
   );
   return {
-    exitCode: result.exitCode,
+    ...result,
     stdout: longOut ? keepEnds(result.stdout) : result.stdout,
     stderr: longErr ? keepEnds(result.stderr) : result.stderr,
     ...(saved ? { outputPath: path } : {}),

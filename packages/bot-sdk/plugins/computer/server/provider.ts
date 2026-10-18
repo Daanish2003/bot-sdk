@@ -1,6 +1,9 @@
 /** What a command printed, and how it exited. A non-zero exit is a normal result. */
 export type CommandResult = { exitCode: number; stdout: string; stderr: string };
 
+/** A command killed at its time limit: what it printed until then, and no exit code. */
+export type TimedOutCommand = { timedOut: true; stdout: string; stderr: string };
+
 /** One entry of a directory listing. */
 export type FileEntry = { name: string; kind: "file" | "directory"; size: number };
 
@@ -25,9 +28,15 @@ export type ComputerProvider = {
   setTimeout: (sandboxId: string, timeoutMs: number) => Promise<void>;
   /**
    * Runs `command` with `bash -l -c` in `cwd` (the home directory, `/home/user`, when unset),
-   * creating `cwd` first when it is missing, and waits for it to exit.
+   * creating `cwd` first when it is missing, and waits for it to exit. A command still running
+   * after `timeoutMs` is killed and returns what it printed so far. Once `signal` aborts, the
+   * command is killed and `run` throws its reason.
    */
-  run: (sandboxId: string, command: string, options: { cwd?: string }) => Promise<CommandResult>;
+  run: (
+    sandboxId: string,
+    command: string,
+    options: { cwd?: string; timeoutMs: number; signal?: AbortSignal },
+  ) => Promise<CommandResult | TimedOutCommand>;
   /** A file's bytes, or null when there is no such file. */
   readFile: (sandboxId: string, path: string) => Promise<Uint8Array | null>;
   /** Writes `content` to `path`, creating any missing parent directories and overwriting. */

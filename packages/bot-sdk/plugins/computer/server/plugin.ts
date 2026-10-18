@@ -5,7 +5,10 @@ import { computer as computerTable } from "../../../core/server/db/schema";
 import type { BotSdkContext, BotSdkPlugin, Transaction } from "../../../core/server/plugin";
 import { defineJob } from "../../runner/server/jobs/define";
 import { cancelQueuedJobsIn } from "../../runner/server/jobs/store";
-import type { CommandResult, ComputerProvider, FileEntry } from "./provider";
+import type { CommandResult, ComputerProvider, FileEntry, TimedOutCommand } from "./provider";
+
+/** How long a command may run when its caller doesn't say: 60 seconds. */
+export const defaultCommandTimeoutMs = 60_000;
 
 /** A Computer whose last activity is older than this is idle, so its sleep check may pause it. */
 export const computerIdleMs = 5 * 60_000;
@@ -35,11 +38,20 @@ export type BusyCheck = (userId: string, lastActiveAt: Date) => Promise<boolean>
 
 /**
  * One user's Computer. Every operation wakes it first when it isn't awake (a first create, or a
- * resume), and records activity when it starts and when it finishes.
+ * resume), and records activity when it starts and when it finishes. An operation whose wake
+ * fails throws `ComputerUnavailableError`, and nothing runs.
  */
 export type ComputerHandle = {
-  /** Runs `command` with `bash -l -c` in `cwd` (the home directory by default). */
-  run: (command: string, options?: { cwd?: string }) => Promise<CommandResult>;
+  /**
+   * Runs `command` with `bash -l -c` in `cwd` (the home directory by default). A command still
+   * running after `timeoutMs` (`defaultCommandTimeoutMs` when unset) or at `deadline`, whichever
+   * comes first, is killed and returns what it printed so far; the wake's time counts toward
+   * `deadline`. Once `signal` aborts, the command is killed and `run` throws its reason.
+   */
+  run: (
+    command: string,
+    options?: { cwd?: string; timeoutMs?: number; deadline?: Date; signal?: AbortSignal },
+  ) => Promise<CommandResult | TimedOutCommand>;
   /** A file's bytes, or null when there is no such file. */
   readFile: (path: string) => Promise<Uint8Array | null>;
   /** Writes a file, creating any missing parent directories, and overwrites it. */
@@ -47,6 +59,14 @@ export type ComputerHandle = {
   /** A directory's entries, one level deep, or null when there is no such directory. */
   list: (path: string) => Promise<FileEntry[] | null>;
 };
+
+/** An operation's wake failed: the provider couldn't create or resume the Computer. */
+export class ComputerUnavailableError extends Error {
+  constructor(userId: string, cause: unknown) {
+    super(`The Computer of user ${userId} couldn't start`, { cause });
+    this.name = "ComputerUnavailableError";
+  }
+}
 
 /** The `computer` plugin's API (`sdk.plugin("computer")`). */
 export type ComputerApi = {
@@ -111,8 +131,14 @@ export function computer({ provider }: ComputerOptions): ComputerPlugin {
             }
           };
           return {
-            run: (command, options = {}) =>
-              operate((id) => provider.run(id, command, { cwd: options.cwd })),
+            run: (command, { cwd, timeoutMs = defaultCommandTimeoutMs, deadline, signal } = {}) =>
+              operate((id) => {
+                // A stop during the wake runs nothing.
+                signal?.throwIfAborted();
+                const left = deadline ? deadline.getTime() - sdk.clock().getTime() : timeoutMs;
+                const limitMs = Math.max(0, Math.min(timeoutMs, left));
+                return provider.run(id, command, { cwd, timeoutMs: limitMs, signal });
+              }),
             readFile: (path) => operate((id) => provider.readFile(id, path)),
             writeFile: (path, content) => operate((id) => provider.writeFile(id, path, content)),
             list: (path) => operate((id) => provider.list(id, path)),
@@ -179,13 +205,18 @@ async function wake(sdk: BotSdkContext, provider: ComputerProvider, userId: stri
     if (locked.state === "awake" && locked.sandboxId) return locked.sandboxId;
     let sandboxId = locked.sandboxId;
     if (sandboxId) {
-      await provider.resume(sandboxId, { timeoutMs: backstopTimeoutMs });
+      const asleepId = sandboxId;
+      await unavailableOnFailure(sdk, userId, () =>
+        provider.resume(asleepId, { timeoutMs: backstopTimeoutMs }),
+      );
       await tx
         .update(computerTable)
         .set({ state: "awake" })
         .where(eq(computerTable.userId, userId));
     } else {
-      ({ sandboxId } = await provider.create({ timeoutMs: backstopTimeoutMs }));
+      ({ sandboxId } = await unavailableOnFailure(sdk, userId, () =>
+        provider.create({ timeoutMs: backstopTimeoutMs }),
+      ));
       await tx
         .update(computerTable)
         .set({ state: "awake", sandboxId, template: provider.template })
@@ -260,6 +291,23 @@ async function armSleepCheck(
 
 /** `ms` after `time`. */
 const after = (time: Date, ms: number) => new Date(time.getTime() + ms);
+
+/**
+ * Runs the provider's create or resume. Its failure is the Computer's (it couldn't start), unlike
+ * a failure of the database around it, which the caller retries.
+ */
+async function unavailableOnFailure<T>(
+  sdk: BotSdkContext,
+  userId: string,
+  wakeUp: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await wakeUp();
+  } catch (caught) {
+    sdk.logger.error(`Waking the Computer of user ${userId} failed`, caught);
+    throw new ComputerUnavailableError(userId, caught);
+  }
+}
 
 /**
  * An operation's finish: records activity again, so a long command doesn't count as idle time.

@@ -95,6 +95,27 @@ defineJob({
   },
 });
 
+/** `a` is a marker that what follows must run after, in the same attempt: a yield skips it. */
+defineJob({
+  name: "workflow.marked",
+  payload: z.object({}),
+  run: async (_payload, ctx) => {
+    const done = [
+      await ctx.activity(
+        "a",
+        async () => {
+          await point("a", "before");
+          effects.push("a");
+          return "A";
+        },
+        { yields: false },
+      ),
+    ];
+    for (const name of ["b", "c"]) done.push(await step(ctx, name));
+    results.push(done);
+  },
+});
+
 /** Written by `workflow.write` in its activity's transaction. */
 const MARKER = "workflow.marker";
 
@@ -523,6 +544,24 @@ describe("a deploy or a cancel", () => {
     expect(effects).toEqual(["a", "b", "c"]);
     expect(results).toEqual([["A", "B", "C"]]);
     expect(await jobOf(id)).toMatchObject({ status: "succeeded", attempts: 1 });
+  });
+
+  it("stop() never hands the job back at a Checkpoint saved with yields: false, but at the next", async () => {
+    const timer = fakeJobClock(start);
+    const deploying = runnerWith(timer, 2_000);
+    holdAtPoint("a", "before");
+    const id = await deploying.enqueue("workflow.marked", {});
+    await deploying.start();
+    await reached;
+
+    const stopping = deploying.stop();
+    release();
+    await stopping;
+
+    // `a` saved and carried on; `b` saved its Checkpoint, then the workflow yielded before `c`.
+    expect(effects).toEqual(["a", "b"]);
+    expect((await historyOf(id)).map((entry) => entry.name)).toEqual(["a", "b"]);
+    expect(await jobOf(id)).toMatchObject({ status: "queued", attempts: 0 });
   });
 
   it("stop() aborts a job still running after drainMs, as before, and leaves its lease", async () => {

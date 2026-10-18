@@ -22,7 +22,7 @@ import { conversationChannel } from "../../assistant/server/memory/notice";
 import { addUsage, promptCharactersOf, reportedUsageOf } from "../../models/server/run-usage";
 import { parseModelId } from "../../models/shared/models";
 import type { MessageUsage } from "../../models/shared/usage";
-import type { ComputerHandle } from "../../computer/server/plugin";
+import { type ComputerHandle, ComputerUnavailableError } from "../../computer/server/plugin";
 import { defineJob, PermanentJobError } from "../../runner/server/jobs/define";
 import { loadHistory } from "../../runner/server/jobs/history";
 import {
@@ -43,18 +43,23 @@ import {
   capOutput,
   computerOf,
   computerPrompt,
+  computerUnavailableError,
+  defaultShellTimeoutSeconds,
   editDefinition,
   editTool,
+  interruptedShellError,
   listDefinition,
   listTool,
   readDefinition,
   readTool,
-  spillPath,
-  writeDefinition,
-  writeTool,
   shellCwd,
   shellDefinition,
+  shellStartActivity,
   shellToolName,
+  spillPath,
+  timedOutHint,
+  writeDefinition,
+  writeTool,
 } from "./computer-tools";
 import { botMessages, findBot, textParts, toBotMessage, turnTimeLimitMs } from "./store";
 
@@ -832,21 +837,63 @@ async function playTurn(
 
   // The Computer's tools, whenever `computer` is on: the tool set never changes mid-conversation.
   const withComputer = deps.hasPlugin("computer");
-  const shell = shellDefinition.server(({ command, cwd }, context) =>
-    toolCallOf(context?.toolCallId, () =>
-      // No transaction: the command runs on the Computer, not in the database.
-      ctx.activity(shellToolName, async () => {
+  /**
+   * The Computer's operation for a live tool call. A failed wake is the tool's result, unless the
+   * Turn was stopped or ran out of time meanwhile: then the call stays unanswered.
+   */
+  const onComputer = async <T>(operate: () => Promise<T>) => {
+    try {
+      return await operate();
+    } catch (caught) {
+      if (caught instanceof ComputerUnavailableError && !abortController.signal.aborted) {
+        return { error: computerUnavailableError };
+      }
+      throw caught;
+    }
+  };
+  const shell = shellDefinition.server(({ command, cwd, timeoutSeconds }, context) =>
+    toolCallOf(context?.toolCallId, async () => {
+      // The start marker: a resumed Turn that replays it with no result never runs the command
+      // again, since it may have partly run. A yield waits for the command's own Checkpoint, so
+      // the marker never stands for a command that didn't start. No transaction: the command runs
+      // on the Computer, not in the database.
+      let startedHere = false;
+      await ctx.activity(
+        shellStartActivity,
+        async () => {
+          beforeLiveTool();
+          startedHere = true;
+          return null;
+        },
+        { yields: false },
+      );
+      return ctx.activity(shellToolName, async () => {
         beforeLiveTool();
+        if (!startedHere) return { error: interruptedShellError };
         const computer = computerOf(deps, turn.userId);
-        const result = await computer.run(command, { cwd: shellCwd(turn.botId, cwd) });
-        // The cap is applied here, so the Checkpoint holds only the truncated form.
-        return capOutput(
-          result,
-          spillPath(turn.botId, context?.toolCallId ?? uuidv7()),
-          computer.writeFile,
-        );
-      }),
-    ),
+        // A live call: the Turn's time limit, like a Stop, kills the command through the signal.
+        inLiveCall = true;
+        try {
+          return await onComputer(async () => {
+            const result = await computer.run(command, {
+              cwd: shellCwd(turn.botId, cwd),
+              timeoutMs: (timeoutSeconds ?? defaultShellTimeoutSeconds) * 1000,
+              deadline: new Date(turn.startedAt.getTime() + turnTimeLimitMs),
+              signal: abortController.signal,
+            });
+            // The cap is applied here, so the Checkpoint holds only the truncated form.
+            const capped = await capOutput(
+              result,
+              spillPath(turn.botId, context?.toolCallId ?? uuidv7()),
+              computer.writeFile,
+            );
+            return "timedOut" in capped ? { ...capped, hint: timedOutHint } : capped;
+          });
+        } finally {
+          inLiveCall = false;
+        }
+      });
+    }),
   );
   /** A file tool: one activity, re-run after a crash. */
   const fileTool =
@@ -858,7 +905,7 @@ async function playTurn(
       toolCallOf(context?.toolCallId, () =>
         ctx.activity(name, async () => {
           beforeLiveTool();
-          return run(computerOf(deps, turn.userId), turn.botId, input);
+          return onComputer(() => run(computerOf(deps, turn.userId), turn.botId, input));
         }),
       );
   const read = readDefinition.server(fileTool("read", readTool));
