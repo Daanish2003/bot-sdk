@@ -165,4 +165,23 @@ describe.skipIf(!apiKey || !apiUrl || !sandboxUrl)("e2bProvider on a real E2B", 
     await expect(running).rejects.toThrow("stopped");
     expect(await left()).toMatchObject({ stdout: "0\n" });
   }, 60_000);
+
+  it("reports a sandbox killed behind its back as gone, though it is connected", async () => {
+    const { sandboxId } = await provider.create({ timeoutMs: 60_000 });
+    created.push(sandboxId);
+    await provider.writeFile(sandboxId, "/home/user/a.txt", "a");
+    // Another adapter instance kills it, so this one still holds the connection it cached.
+    await e2bProvider({
+      apiKey: apiKey!,
+      apiUrl: apiUrl!,
+      sandboxUrl: sandboxUrl!,
+      template: "ai-chat-computer-v1",
+    }).kill(sandboxId);
+    await expect(provider.readFile(sandboxId, "/home/user/a.txt")).rejects.toBeInstanceOf(
+      SandboxGoneError,
+    );
+    await expect(provider.run(sandboxId, "true", { timeoutMs: 20_000 })).rejects.toBeInstanceOf(
+      SandboxGoneError,
+    );
+  }, 60_000);
 });
