@@ -1,5 +1,5 @@
 ---
-Status: proposed
+Status: accepted
 ---
 
 # Routines accept inbound webhooks at a secret URL, handled by the Bot SDK
