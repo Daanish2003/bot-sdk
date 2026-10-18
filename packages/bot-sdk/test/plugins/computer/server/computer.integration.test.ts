@@ -1,5 +1,5 @@
 import { and, asc, eq, sql } from "drizzle-orm";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { postgresBlobStore } from "../../../../core/server/blob/postgres";
 import type { BlobStore } from "../../../../core/server/blob/store";
@@ -385,9 +385,20 @@ describe("bot's busy check", () => {
     expect(await queuedChecks()).toEqual([after(clock.now, minuteMs)]);
   });
 
-  it("doesn't hold the Computer for a Turn that started after its last activity", async () => {
+  it("holds the Computer for a Turn stamped a few seconds after its last activity, as clock skew allows", async () => {
+    const { sdk, fake, clock, user, lastActive, insertTurn } = await idleWithBot();
+    await insertTurn("running", after(lastActive, 5_000));
+
+    clock.now = after(lastActive, 10 * minuteMs);
+    await runDueJobs(sdk, clock.now);
+
+    expect(fake.callsOf("pause")).toEqual([]);
+    expect((await computerRow(user.id))?.state).toBe("awake");
+  });
+
+  it("doesn't hold the Computer for a Turn that started well after its last activity", async () => {
     const { sdk, clock, user, lastActive, insertTurn } = await idleWithBot();
-    await insertTurn("running", after(lastActive, 1_000));
+    await insertTurn("running", after(lastActive, minuteMs));
 
     clock.now = after(lastActive, 10 * minuteMs);
     await runDueJobs(sdk, clock.now);
@@ -991,6 +1002,51 @@ describe("an operation for a user with nothing that uses a Computer", () => {
 
     await alone.sdk.plugin("computer").forUser(user.id).run("true");
     expect((await computerRow(user.id))?.state).toBe("awake");
+  });
+});
+
+describe("a long operation", () => {
+  it("keeps the Computer awake while it runs, whoever called it, and stops recording once it ends", async () => {
+    let started!: () => void;
+    const running = new Promise<void>((resolve) => (started = resolve));
+    let finish!: () => void;
+    const finishing = new Promise<void>((resolve) => (finish = resolve));
+    const { sdk, fake, clock } = sdkWith({
+      onCommand: async () => {
+        started();
+        await finishing;
+        return ok;
+      },
+    });
+    const user = await insertUser();
+    const start = clock.now;
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      const operation = sdk.plugin("computer").forUser(user.id).run("make all");
+      await running;
+
+      // Four minutes in, the operation's heartbeat records activity.
+      clock.now = after(start, 4 * minuteMs);
+      await vi.advanceTimersByTimeAsync(minuteMs);
+      await vi.waitFor(async () =>
+        expect((await computerRow(user.id))?.lastActiveAt).toEqual(clock.now),
+      );
+      // Seven minutes in, the sleep check finds it active three minutes ago.
+      clock.now = after(start, 7 * minuteMs);
+      await runDueJobs(sdk, clock.now);
+
+      expect(fake.callsOf("pause")).toEqual([]);
+      expect((await computerRow(user.id))?.state).toBe("awake");
+
+      finish();
+      await operation;
+      const finished = clock.now;
+      clock.now = after(start, 9 * minuteMs);
+      await vi.advanceTimersByTimeAsync(5 * minuteMs);
+      expect((await computerRow(user.id))?.lastActiveAt).toEqual(finished);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

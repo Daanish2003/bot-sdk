@@ -65,9 +65,15 @@ export async function createBot(
 }
 
 /**
+ * How much later than the Computer's last activity a running Turn may be stamped and still hold
+ * it: the Turn's start and the activity are stamped by different clocks (#558).
+ */
+export const turnStartSkewMs = 30_000;
+
+/**
  * Whether a Turn of one of the user's Bots is running and started before `lastActiveAt`, the
- * Computer's last activity, so it may still use the Computer: `bot`'s busy check (#508). A Turn
- * that started later hasn't used it yet.
+ * Computer's last activity, give or take `turnStartSkewMs`, so it may still use the Computer:
+ * `bot`'s busy check (#508). A Turn that started later hasn't used it yet.
  */
 export async function hasTurnUsingComputer(
   db: Database,
@@ -82,7 +88,7 @@ export async function hasTurnUsingComputer(
       and(
         eq(bot.userId, userId),
         eq(botTurn.status, "running"),
-        lt(botTurn.startedAt, lastActiveAt),
+        lt(botTurn.startedAt, new Date(lastActiveAt.getTime() + turnStartSkewMs)),
       ),
     )
     .limit(1);

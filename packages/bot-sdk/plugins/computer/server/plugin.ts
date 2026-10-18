@@ -24,6 +24,12 @@ export const defaultCommandTimeoutMs = 60_000;
 /** A Computer whose last activity is older than this is idle, so its sleep check may pause it. */
 export const computerIdleMs = 5 * 60_000;
 
+/**
+ * How often a running operation records activity, well inside `computerIdleMs`, so a sleep check
+ * in any process sees it active for as long as it runs (#558).
+ */
+export const activityHeartbeatMs = 60_000;
+
 /** The soonest a check that kept the Computer awake checks again. */
 const followUpAtLeastMs = 60_000;
 
@@ -96,7 +102,8 @@ export type Rebuild = { rebuiltAt: Date; restoredAsOf: Date | null | undefined }
 
 /**
  * One user's Computer. Every operation wakes it first when it isn't awake (a first create, a
- * resume, or a rebuild), and records activity when it starts and when it finishes. The first operation creates the Computer only while an owner
+ * resume, or a rebuild), and records activity when it starts, every `activityHeartbeatMs` while
+ * it runs, and when it finishes. The first operation creates the Computer only while an owner
  * check holds, if any plugin added one; otherwise it throws `ComputerUnavailableError`. An operation
  * whose wake fails throws `ComputerUnavailableError`, and nothing runs. One the provider fails
  * (a permission denied, a read of a directory) throws `ComputerOperationError`; one whose sandbox
@@ -221,6 +228,7 @@ export function computer({ provider }: ComputerOptions): ComputerPlugin {
             signal?: AbortSignal,
           ) => {
             let woken = await startOperation(sdk, provider, ownerChecks, userId);
+            const heartbeat = startHeartbeat(sdk, userId);
             try {
               for (let retried = false; ; retried = true) {
                 latestRebuild = woken.rebuild;
@@ -240,6 +248,7 @@ export function computer({ provider }: ComputerOptions): ComputerPlugin {
                 }
               }
             } finally {
+              await heartbeat.stop();
               await recordActivity(sdk, userId);
             }
           };
@@ -706,6 +715,25 @@ async function unavailableOnFailure<T>(
     sdk.logger.error(`Waking the Computer of user ${userId} failed`, caught);
     throw new ComputerUnavailableError(userId, caught);
   }
+}
+
+/**
+ * Records activity every `activityHeartbeatMs` while an operation runs, in the row, so a sleep
+ * check in another process sees it too; `stop` ends it and waits for a write in flight.
+ */
+function startHeartbeat(sdk: BotSdkContext, userId: string) {
+  let beating: Promise<void> | undefined;
+  const timer = setInterval(() => {
+    beating ??= recordActivity(sdk, userId).finally(() => (beating = undefined));
+  }, activityHeartbeatMs);
+  // A stuck operation must not keep the process alive on its own.
+  timer.unref?.();
+  return {
+    stop: async () => {
+      clearInterval(timer);
+      await beating;
+    },
+  };
 }
 
 /**
