@@ -49,7 +49,7 @@ export const chat = createBotSdk({
     models(),
     runner(),
     ...(e2b
-      ? [computer({ provider: e2bProvider({ ...e2b, template: "ai-chat-computer-v1" }) })]
+      ? [computer({ provider: e2bProvider({ ...e2b, template: "ai-chat-computer-v2" }) })]
       : []),
     assistant({ tools: [serverTime] }),
   ],

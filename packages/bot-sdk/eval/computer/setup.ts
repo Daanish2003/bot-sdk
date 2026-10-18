@@ -23,7 +23,7 @@ import type { ModelsDeps } from "../../plugins/models/server/types";
 const evalKeySecret = "eval-computer-key-secret-not-for-production";
 
 /** The template the Host builds Computers from (`apps/web`'s `computerTemplate`). */
-export const defaultTemplate = "ai-chat-computer-v1";
+export const defaultTemplate = "ai-chat-computer-v2";
 
 export function fail(message: string): never {
   console.error(message);
