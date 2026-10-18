@@ -71,3 +71,28 @@ mean nothing.
 ```sh
 EVAL_DATABASE_URL=... pnpm -F @ai-chat/bot-sdk eval:turn -- --fake
 ```
+
+## Queue evals (batching, interrupting and unavailable)
+
+The same run also plays three cases of the Router and queue (spec #510) with the real `bot` plugin and
+client ids, `EVAL_REPEATS` times each. Each has a structural check and an LLM-judge check:
+
+- **batching:** "Plan a dinner." / "For 4 people." / "Vegetarian." sent 200 ms apart. Structural:
+  exactly one Turn took all three Triggers, completed and sent a reply. Judge: the reply covers all
+  three.
+- **interrupting:** "Plan a trip to Paris", then, once the Turn's job is running, "Actually, make it
+  Rome". Structural: the first Turn ended `stopped`, a second Turn took the correction, completed and
+  sent a reply. Judge: the reply plans a trip to Rome, not Paris. The case asks for something the Bot
+  can answer in a message: asked to book a meeting, which it has no tool for, the Model answered in
+  plain text, which the user never sees (#516).
+- **unavailable:** "Book the meeting for Thursday", which the Bot has no tool for. Structural: one Turn
+  took the Message, completed and sent at least one Message (a refusal or a question goes through
+  SendToUser too, never as plain text, #516). Judge: the reply says it cannot book or asks for details,
+  and does not claim the meeting is booked.
+
+In the `--fake` run, the interrupting case's first Model call is held until the correction stops that Turn, so the fake cannot finish it first; real runs are not held.
+
+The structural check reads Turns and Triggers, never the Model's text. The judge answers `Verdict:` and
+`Reason:`, both printed per run and saved in the results file. `EVAL_JUDGE_MODEL` (an `openai:`,
+`anthropic:` or `openrouter:` Model) sets the judge; it defaults to `EVAL_BOT_MODEL`, so that must be one of those
+Providers unless you set it. `--limit` limits only the week-one cases.

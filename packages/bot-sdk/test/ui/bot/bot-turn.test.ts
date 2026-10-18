@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { rpcError } from "../../../core/server/rpc-error";
+import { en } from "../../../core/shared/i18n";
 import type { BotMessage, BotSendEvent, TurnStatus } from "../../../plugins/bot/shared/turn";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
 import { providerFor } from "../fake-dictionary";
@@ -55,7 +56,7 @@ function fakeBotServer(messages: BotMessage[] = []) {
         stops.push(input);
       }),
       send: os
-        .input(z.object({ botId: z.string(), text: z.string() }))
+        .input(z.object({ botId: z.string(), id: z.string(), text: z.string() }))
         .output(eventIterator(z.custom<BotSendEvent>()))
         .handler(async function* ({ input }) {
           sends.push(input);
@@ -75,16 +76,37 @@ function fakeBotServer(messages: BotMessage[] = []) {
     },
   };
   const handler = new RPCHandler(router);
-  const fetch = async (request: Request) =>
-    (await handler.handle(request, { prefix: "/api/chat/rpc" })).response ??
-    new Response(null, { status: 404 });
+  // How many of the next send requests fail as a dropped network does: `fetch` rejects.
+  let dropRequests = 0;
+  const dropped: string[] = [];
+  const droppedAt: number[] = [];
+  const fetch = async (request: Request) => {
+    if (dropRequests > 0 && request.url.endsWith("/bot/send")) {
+      dropRequests--;
+      droppedAt.push(Date.now());
+      dropped.push(await request.text());
+      throw new TypeError("Failed to fetch");
+    }
+    return (
+      (await handler.handle(request, { prefix: "/api/chat/rpc" })).response ??
+      new Response(null, { status: 404 })
+    );
+  };
   return {
     fetch,
     sends,
+    /** The bodies of the requests `dropNext` failed. */
+    dropped,
+    /** When each of those requests was made, in ms. */
+    droppedAt,
     stops,
     /** What `bot.get` says of the latest Turn from now on, as the server's Turn moves on. */
     setTurnStatus: (status: TurnStatus | "running" | null) => {
       turnStatus = status;
+    },
+    /** Fails the next `count` send requests on the network, before the server sees them. */
+    dropNext: (count = 1) => {
+      dropRequests = count;
     },
     /** Refuses the next send with `error`, as the server does before saving the Message. */
     refuseNext: (error: Error) => {
@@ -134,6 +156,8 @@ async function type(text: string) {
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
 }
 
+const uuidv7Shape = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
 const bubbles = (container: HTMLElement) =>
   [...container.querySelectorAll<HTMLElement>("[data-bot-message]")].map((bubble) => [
     bubble.dataset.role,
@@ -148,7 +172,11 @@ describe("talking to a Bot", () => {
     await type("hello");
 
     expect(bubbles(container)).toEqual([["user", "hello"]]);
-    await waitFor(() => expect(server.sends).toEqual([{ botId: ada.id, text: "hello" }]));
+    await waitFor(() =>
+      expect(server.sends).toEqual([
+        { botId: ada.id, id: expect.stringMatching(uuidv7Shape), text: "hello" },
+      ]),
+    );
     await server.stream({ type: "message", message: said("m1", "user", "hello") });
     expect(bubbles(container)).toEqual([["user", "hello"]]);
     expect(container.querySelector("[data-bot-message][data-id=m1]")).toBeTruthy();
@@ -268,21 +296,107 @@ describe("a refetch during a send", () => {
   });
 });
 
+describe("sending while the Bot works", () => {
+  it("sends mid-Turn and shows the Message at once, with no refusal", async () => {
+    const server = fakeBotServer();
+    const { container } = mount(server);
+    await type("hi");
+    await server.stream({ type: "message", message: said("m1", "user", "hi") });
+    expect(screen.getByRole("status", { name: "Typing" })).toBeTruthy();
+
+    await type("and one more thing");
+
+    expect(bubbles(container)).toEqual([
+      ["user", "hi"],
+      ["user", "and one more thing"],
+    ]);
+    await waitFor(() =>
+      expect(server.sends).toEqual([
+        { botId: ada.id, id: expect.stringMatching(uuidv7Shape), text: "hi" },
+        { botId: ada.id, id: expect.stringMatching(uuidv7Shape), text: "and one more thing" },
+      ]),
+    );
+    expect(screen.getByRole<HTMLTextAreaElement>("textbox", { name: "Message" }).value).toBe("");
+    expect(screen.getByRole("button", { name: "■ Stop" })).toBeTruthy();
+  });
+
+  it("has no Turn-running refusal to show", () => {
+    expect(Object.keys(en)).not.toContain("error.turnRunning");
+  });
+});
+
+describe("a send that fails on the network", () => {
+  it("retries with the id of the failed attempt, and the next send gets a fresh one", async () => {
+    const server = fakeBotServer();
+    mount(server);
+    server.dropNext();
+
+    await type("first");
+    await waitFor(() => expect(server.sends).toHaveLength(1));
+    await server.stream(
+      { type: "message", message: said("m1", "user", "first") },
+      { type: "turnEnded", status: "complete" },
+      "end",
+    );
+    await type("second");
+    await waitFor(() => expect(server.sends).toHaveLength(2));
+
+    const [first, second] = server.sends as { id: string; text: string }[];
+    expect(first).toMatchObject({ text: "first", id: expect.stringMatching(uuidv7Shape) });
+    expect(server.dropped).toHaveLength(1);
+    expect(server.dropped[0]).toContain(first!.id);
+    expect(second).toMatchObject({ text: "second", id: expect.stringMatching(uuidv7Shape) });
+    expect(second!.id).not.toBe(first!.id);
+  });
+
+  it("waits a little longer before each retry", async () => {
+    const server = fakeBotServer();
+    mount(server);
+    server.dropNext(2);
+
+    await type("hi");
+    await waitFor(() => expect(server.sends).toHaveLength(1), { timeout: 3_000 });
+
+    const [first, second, third] = [...server.droppedAt, Date.now()];
+    expect(second! - first!).toBeGreaterThanOrEqual(200);
+    expect(third! - second!).toBeGreaterThan(second! - first!);
+  });
+
+  it("gives the text back when every attempt fails, and sending it again reuses the same id", async () => {
+    const server = fakeBotServer();
+    const { container } = mount(server);
+    server.dropNext(3);
+
+    await type("hello?");
+    const composer = screen.getByRole<HTMLTextAreaElement>("textbox", { name: "Message" });
+    await waitFor(() => expect(composer.value).toBe("hello?"), { timeout: 3_000 });
+    expect(bubbles(container)).toEqual([]);
+    expect(server.sends).toEqual([]);
+
+    // The server may have saved it from an attempt whose answer was lost: the resend must re-join it.
+    await type("hello?");
+    await waitFor(() => expect(server.sends).toHaveLength(1));
+    const { id } = (server.sends as { id: string }[])[0]!;
+    expect(server.dropped).toHaveLength(3);
+    for (const body of server.dropped) expect(body).toContain(id);
+
+    // Once it is saved, the same text again is a new Message.
+    await server.stream(
+      { type: "message", message: said("m1", "user", "hello?") },
+      { type: "turnEnded", status: "complete" },
+      "end",
+    );
+    await type("hello?");
+    await waitFor(() => expect(server.sends).toHaveLength(2));
+    expect((server.sends as { id: string }[])[1]!.id).not.toBe(id);
+  });
+});
+
 describe("a refused send", () => {
-  it.each([
-    [
-      "409, a Turn is running",
-      rpcError("CONFLICT", "error.turnRunning", "A Turn is still running"),
-      "Your Bot is still replying. Wait for it to finish, then send again.",
-    ],
-    [
-      "402, out of Quota",
-      rpcError("PAYMENT_REQUIRED", "error.quotaSpent", "Quota spent"),
-      "You've used this window's Quota",
-    ],
-  ])("on %s removes the bubble, puts the text back and says why", async (_, error, why) => {
+  it("on 402, out of Quota, removes the bubble, puts the text back and says why", async () => {
+    const why = "You've used this window's Quota";
     const server = fakeBotServer([said("m0", "user", "earlier")]);
-    server.refuseNext(error);
+    server.refuseNext(rpcError("PAYMENT_REQUIRED", "error.quotaSpent", "Quota spent"));
     const { container } = mount(server);
     await screen.findByText("earlier");
 

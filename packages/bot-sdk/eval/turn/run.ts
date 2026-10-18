@@ -10,6 +10,10 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { type AnyTextAdapter, chat } from "@tanstack/ai";
+import { type AnthropicChatModel, createAnthropicChat } from "@tanstack/ai-anthropic";
+import { type OpenAIChatModel, createOpenaiChat } from "@tanstack/ai-openai";
+import { createOpenRouterText } from "@tanstack/ai-openrouter";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 
 import { postgresBlobStore } from "../../core/server/blob/postgres";
@@ -28,6 +32,9 @@ import type { ModelsDeps } from "../../plugins/models/server/types";
 import { createFakeAdapter, round, text, toolCall } from "../../test/support/fake-adapter";
 import { type TurnCase, turnCases } from "./cases";
 import { runCase, type TurnRunResult } from "./case";
+import { queueCases } from "./queue-cases";
+import { type Complete, runQueueCase, type QueueRunResult } from "./queue-run";
+import { tallyQueue } from "./queue-score";
 import { tally } from "./score";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
@@ -43,6 +50,28 @@ const keyVariables: Record<string, string> = {
   gemini: "GEMINI_API_KEY",
   openrouter: "OPENROUTER_API_KEY",
 };
+
+/** The judge's completion at temperature 0, on OpenAI, Anthropic or OpenRouter (the pattern of eval/memory/run.ts). */
+function judgeCompletion(model: string, apiKey: string): Complete {
+  const provider = model.split(":")[0]!;
+  const modelId = model.slice(provider.length + 1);
+  let adapter;
+  if (provider === "openai") adapter = createOpenaiChat(modelId as OpenAIChatModel, apiKey);
+  else if (provider === "anthropic") {
+    adapter = createAnthropicChat(modelId as AnthropicChatModel, apiKey);
+  } else if (provider === "openrouter") {
+    adapter = createOpenRouterText(modelId as Parameters<typeof createOpenRouterText>[0], apiKey);
+  } else fail(`EVAL_JUDGE_MODEL must be an openai, anthropic or openrouter Model, not "${model}"`);
+  return async (prompt) => {
+    const result = await chat({
+      adapter,
+      messages: [{ role: "user", content: prompt }],
+      stream: false,
+      modelOptions: { temperature: 0 },
+    });
+    return result.text;
+  };
+}
 
 function fail(message: string): never {
   console.error(message);
@@ -84,6 +113,21 @@ function fakeScript(evalCase: TurnCase) {
   return [round(send("A fake reply.", true))];
 }
 
+/** The adapter, except that its call waits until the Turn is stopped, and then plays nothing. */
+function heldUntilStopped(adapter: AnyTextAdapter): AnyTextAdapter {
+  return {
+    ...adapter,
+    chatStream: async function* (options) {
+      const signal = options.request?.signal;
+      await new Promise<void>((resolve) => {
+        if (!signal || signal.aborted) return resolve();
+        signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+      yield* adapter.chatStream(options);
+    },
+  };
+}
+
 const percent = (rate: number | null) =>
   rate === null ? "   n/a" : `${(rate * 100).toFixed(1).padStart(5)}%`;
 
@@ -112,6 +156,16 @@ async function main() {
   const apiKey = fake ? "sk-fake" : process.env[keyVariables[provider] ?? ""];
   if (!apiKey) fail(`${keyVariables[provider] ?? `A key for ${provider}`} is not set`);
 
+  // The judge defaults to the Bot's own Model when that is an OpenAI or Anthropic one.
+  const judgeModel = process.env.EVAL_JUDGE_MODEL ?? model;
+  const judgeProvider = judgeModel.split(":")[0]!;
+  const judgeKey = fake ? "sk-fake" : process.env[keyVariables[judgeProvider] ?? ""];
+  if (!judgeKey)
+    fail(`${keyVariables[judgeProvider] ?? `A key for ${judgeProvider}`} is not set (the judge)`);
+  const complete: Complete = fake
+    ? async () => "Verdict: yes\nReason: fake judge"
+    : judgeCompletion(judgeModel, judgeKey);
+
   const cases = limit === undefined ? turnCases : turnCases.slice(0, limit);
   const db = await prepareSchema(databaseUrl);
   const logger: Pick<Console, "error"> = console;
@@ -124,13 +178,25 @@ async function main() {
   );
   /** The fake Model's case for each run, found by the run's own API key. */
   const scripts = new Map<string, TurnCase>();
+  /** What the fake Model plays for a queue case: a reply that ends the Turn. */
+  const queueScript: TurnCase = { id: "queue", expected: "reply", history: [], message: "" };
+  /** How many Turns have asked the fake Model for an adapter, per run. */
+  const turnsStarted = new Map<string, number>();
   const modelsDeps: ModelsDeps = fake
     ? {
         ...realModels,
         adapterFor: (_model, credentials) => {
           const evalCase = scripts.get((credentials as { apiKey: string }).apiKey);
           if (!evalCase) throw new Error("No fake script for this run");
-          return createFakeAdapter({ rounds: fakeScript(evalCase) }).adapter;
+          const { adapter } = createFakeAdapter({ rounds: fakeScript(evalCase) });
+          // The interrupting case: the first Turn's Model call holds until the correction stops the
+          // Turn, so the fake cannot finish it before the correction is sent. Real runs are not held.
+          const key = (credentials as { apiKey: string }).apiKey;
+          const turnNumber = (turnsStarted.get(key) ?? 0) + 1;
+          turnsStarted.set(key, turnNumber);
+          return evalCase.id === "interrupting" && turnNumber === 1
+            ? heldUntilStopped(adapter)
+            : adapter;
         },
       }
     : realModels;
@@ -164,10 +230,7 @@ async function main() {
     credentialsFor: (caseId: string, repeat: number) => {
       if (!fake) return { apiKey };
       const key = `fake-${caseId}-${repeat}`;
-      scripts.set(
-        key,
-        cases.find((c) => c.id === caseId)!,
-      );
+      scripts.set(key, cases.find((c) => c.id === caseId) ?? { ...queueScript, id: caseId });
       return { apiKey: key };
     },
   };
@@ -194,7 +257,34 @@ async function main() {
     },
   );
 
+  console.log(`
+Queue evals: ${queueCases.length} cases x ${repeats} repeats, judge ${judgeModel}`);
+  const queueRuns = queueCases.flatMap((evalCase) =>
+    Array.from({ length: repeats }, (_, repeat) => ({ evalCase, repeat })),
+  );
+  const queueResults: QueueRunResult[] = await mapPool(
+    queueRuns,
+    concurrency,
+    async ({ evalCase, repeat }) => {
+      const result = await runQueueCase(env, complete, evalCase, repeat);
+      console.log(
+        `  ${result.caseId} #${repeat}: structural ${result.structural.passed ? "pass" : "FAIL"}, judge ${result.judge ? (result.judge.correct ? "yes" : "NO") : "n/a"}`,
+      );
+      for (const reason of result.structural.reasons) console.log(`      ${reason}`);
+      if (result.judge) console.log(`      judge: ${result.judge.reason}`);
+      return result;
+    },
+  );
+
   await jobs.stop();
+
+  const queueRates = tallyQueue(
+    queueResults.map((r) => ({
+      caseId: r.caseId,
+      structural: r.structural.passed,
+      judge: r.judge?.correct ?? null,
+    })),
+  );
 
   const rates = tally(results.map((result) => result.score));
   console.log("");
@@ -204,17 +294,37 @@ async function main() {
     );
   }
 
+  for (const [name, row] of Object.entries(queueRates)) {
+    console.log(
+      `${name.padEnd(12)} structural ${row.structural}/${row.runs}, judge ${row.judge}/${row.runs}`,
+    );
+  }
+
   await mkdir(resultsDir, { recursive: true });
   const file = join(resultsDir, `turn-${startedAt.replace(/[:.]/g, "-")}.json`);
   await writeFile(
     file,
-    JSON.stringify({ startedAt, fake, model, repeats, rates, runs: results }, null, 2),
+    JSON.stringify(
+      {
+        startedAt,
+        fake,
+        model,
+        judgeModel,
+        repeats,
+        rates,
+        runs: results,
+        queueRates,
+        queueRuns: queueResults,
+      },
+      null,
+      2,
+    ),
   );
   console.log(`\nEvery run is in ${file}`);
   await db.$client.end();
   // The SDK's timers are not all cleared once a Turn ends, so the script exits here.
   // A run that errored (a bad key, a rate limit) is not a Model failure: exit non-zero so it is seen.
-  process.exit(results.some((result) => result.error) ? 1 : 0);
+  process.exit([...results, ...queueResults].some((result) => result.error) ? 1 : 0);
 }
 
 await main();

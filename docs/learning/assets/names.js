@@ -654,6 +654,54 @@ window.NAMES = [
       "How bot.send follows a Turn run by the runner: re-reads Postgres on each changed hint and every 2 s, yielding new Messages until the Turn ends.",
     example: "plugins/bot/server/turn.ts",
   },
+  {
+    lesson: 12,
+    name: "chat.bot_trigger",
+    kind: "table/column",
+    meaning:
+      "One row per Trigger the Router received: id (the source's unique ID; a user Message's id), conversation_id, source, channel, message_id, turn_id (null while it waits in the Conversation queue) and received_at.",
+    example: "bot_trigger.turn_id is null: the Trigger waits",
+  },
+  {
+    lesson: 12,
+    name: "receive · turnEnded",
+    kind: "function",
+    meaning:
+      "The Router's two calls. receive queues a Trigger and starts a Turn if none runs; turnEnded starts the next Turn for the Triggers that waited.",
+    example: "plugins/bot/server/router.ts",
+  },
+  {
+    lesson: 12,
+    name: "batchQuietMs · batchLongestMs",
+    kind: "type",
+    meaning:
+      "The batching rule: a Turn's job runs 500 ms after the newest Trigger, and no later than 2500 ms after the first.",
+    example: "min(newest + 500, first + 2500)",
+  },
+  {
+    lesson: 12,
+    name: "bot_turn_running_bot_id_idx",
+    kind: "table/column",
+    meaning:
+      "A partial unique index on bot_turn(bot_id) where status is running. It backs up the Conversation's row lock: a missed lock is an error, never a second running Turn.",
+    example: "plugins/bot/server/db/bot-turn.ts",
+  },
+  {
+    lesson: 12,
+    name: "stopBot",
+    kind: "function",
+    meaning:
+      "bot.stop: cancels the running Turn and, in the same transaction, gives it every waiting Trigger, so nothing follows.",
+    example: "plugins/bot/server/turn.ts",
+  },
+  {
+    lesson: 12,
+    name: "onCancelled",
+    kind: "function",
+    meaning:
+      "A job hook the lease sweep calls for a cancelled job whose attempt died before it ended. The Bot ends the Turn stopped and chains the next one.",
+    example: "plugins/runner/server/jobs/define.ts",
+  },
 ];
 
 (function () {

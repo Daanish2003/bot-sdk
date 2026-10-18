@@ -1,16 +1,25 @@
 import type { ModelMessage, TextOptions } from "@tanstack/ai";
-import { eq, inArray, sql } from "drizzle-orm";
+import { asc, eq, inArray, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createHookEmitter } from "../../../../core/server/chat/hooks";
-import { createMemoryPubSub } from "../../../../core/server/chat/pubsub";
-import { botTurn, conversation, job, message, usage } from "../../../../core/server/db/schema";
+import { createMemoryPubSub, type PubSub } from "../../../../core/server/chat/pubsub";
+import {
+  botTrigger,
+  botTurn,
+  conversation,
+  job,
+  message,
+  usage,
+} from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import type { Transaction } from "../../../../core/server/plugin";
 import type { HostProvider } from "../../../../plugins/assistant/server/deps";
+import { appendMessage } from "../../../../core/server/chat/message-tree";
 import { bot } from "../../../../plugins/bot/server/plugin";
+import { receive } from "../../../../plugins/bot/server/router";
 import { turnTimeLimitMs } from "../../../../plugins/bot/server/store";
-import { findBot } from "../../../../plugins/bot/server/store";
+import { findBot, textParts } from "../../../../plugins/bot/server/store";
 import { sendToBot } from "../../../../plugins/bot/server/turn";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { quotaLookup } from "../../../../plugins/models/server/quota";
@@ -48,6 +57,26 @@ const silent = { error: () => {} };
 /** The runners the tests started, stopped after each test. */
 const started: InProcessRunner[] = [];
 
+/** The subscriptions on the tests' Pub/Sub that are still open: one per stream a send is following. */
+let openFollowers = 0;
+
+/** `pubsub`, counting its open subscriptions in `openFollowers`. */
+function countingPubSub(pubsub: PubSub): PubSub {
+  return {
+    publish: (channel, message) => pubsub.publish(channel, message),
+    async subscribe(channel, handler) {
+      const unsubscribe = await pubsub.subscribe(channel, handler);
+      openFollowers++;
+      let open = true;
+      return async () => {
+        if (open) openFollowers--;
+        open = false;
+        await unsubscribe();
+      };
+    },
+  };
+}
+
 afterEach(async () => {
   for (const jobs of started.splice(0)) await jobs.stop();
 });
@@ -59,7 +88,8 @@ afterEach(async () => {
 async function sdkWithRunner(overrides: TestDepsOverrides, { idle = false } = {}) {
   let deps: TestDeps | undefined;
   const jobs = inProcessRunner({ db: getTestDb(), logger: silent, drainMs: 50, deps: () => deps! });
-  deps = createTestSdk({ plugins: [bot()], jobs, ...overrides });
+  const pubsub = countingPubSub(overrides.pubsub ?? createMemoryPubSub());
+  deps = createTestSdk({ plugins: [bot()], jobs, ...overrides, pubsub });
   // An idle runner never claims a job, so a Turn stays queued.
   if (!idle) await jobs.start();
   started.push(jobs);
@@ -72,11 +102,12 @@ async function botWith(
   {
     manual = false,
     pubsub,
+    clock,
     idle = false,
-  }: { manual?: boolean; idle?: boolean } & Pick<TestDepsOverrides, "pubsub"> = {},
+  }: { manual?: boolean; idle?: boolean } & Pick<TestDepsOverrides, "pubsub" | "clock"> = {},
 ) {
   const fake = createFakeAdapter({ rounds, manual });
-  const deps = await sdkWithRunner({ adapterFor: () => fake.adapter, pubsub }, { idle });
+  const deps = await sdkWithRunner({ adapterFor: () => fake.adapter, pubsub, clock }, { idle });
   const user = await insertUser();
   await saveCredentials(deps, user.id, {
     service: "openai",
@@ -149,10 +180,25 @@ async function endedTurn(turnBotId: string) {
 }
 
 /** Sends `text` to the Bot and reads the whole stream. */
-async function send(client: ReturnType<typeof chatRpc>, botId: string, text: string) {
+async function send(
+  client: ReturnType<typeof chatRpc>,
+  botId: string,
+  text: string,
+  id = uuidv7(),
+) {
   const events = [];
-  for await (const event of await client.bot.send({ botId, text })) events.push(event);
+  for await (const event of await client.bot.send({ botId, id, text })) events.push(event);
   return events;
+}
+
+/**
+ * Sends `text` and reads only the saved Message, then closes the stream. A stream left open keeps
+ * following the Turn, and its queries can still run when the next test truncates the tables.
+ */
+async function sendSaved(client: ReturnType<typeof chatRpc>, botId: string, text: string) {
+  const stream = await client.bot.send({ botId, id: uuidv7(), text });
+  await stream.next();
+  await stream.return(undefined);
 }
 
 /** The stream's events, with each Message cut down to its role and text. */
@@ -166,11 +212,48 @@ const shapes = (events: Awaited<ReturnType<typeof send>>) =>
 const sends = (input: { text: string; endTurn: boolean }) => toolCall({ name: sendToUser, input });
 
 async function turnsOf(botId: string) {
-  return getTestDb().select().from(botTurn).where(eq(botTurn.botId, botId));
+  return getTestDb()
+    .select()
+    .from(botTurn)
+    .where(eq(botTurn.botId, botId))
+    .orderBy(asc(botTurn.startedAt), asc(botTurn.id));
+}
+
+/** The Conversation's Triggers, in the order they were received. */
+async function triggersOf(conversationId: string) {
+  return getTestDb()
+    .select()
+    .from(botTrigger)
+    .where(eq(botTrigger.conversationId, conversationId))
+    .orderBy(asc(botTrigger.receivedAt), asc(botTrigger.id));
 }
 
 /** The model input of one call: its messages, as the adapter got them. */
 const inputOf = (call: TextOptions | undefined) => (call?.messages ?? []) as ModelMessage[];
+
+/**
+ * Saves a user Message and hands its Trigger to the Router directly, as a later wake source would:
+ * it waits in the Conversation queue instead of interrupting the running Turn. Returns its id.
+ */
+async function queueTrigger(deps: TestDeps, conversationId: string, text: string) {
+  return getTestDb().transaction(async (tx) => {
+    const row = await appendMessage(tx, conversationId, {
+      role: "user",
+      parts: textParts(text),
+      status: "complete",
+      createdAt: deps.clock(),
+    });
+    await receive(deps, tx, {
+      id: row.id,
+      conversationId,
+      source: "user",
+      channel: "web",
+      messageId: row.id,
+      receivedAt: deps.clock(),
+    });
+    return row.id;
+  });
+}
 
 describe("bot.send", () => {
   it("keeps a reply with no tool call private: zero Messages, a complete Turn, its text in the transcript", async () => {
@@ -288,7 +371,7 @@ describe("bot.send", () => {
     const { botId, deps } = await botWith([]);
     const other = chatRpc({ user: await insertUser(), deps });
 
-    await expect(other.bot.send({ botId, text: "hi" })).rejects.toMatchObject({
+    await expect(other.bot.send({ botId, id: uuidv7(), text: "hi" })).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
   });
@@ -325,7 +408,7 @@ describe("a Turn's limits", () => {
     });
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 
-    const stream = await client.bot.send({ botId, text: "take your time" });
+    const stream = await client.bot.send({ botId, id: uuidv7(), text: "take your time" });
     await fake.release(first.length);
     const before = await readUntil(
       stream,
@@ -355,7 +438,10 @@ describe("a Turn off the request", () => {
     );
     const abort = new AbortController();
 
-    const stream = await client.bot.send({ botId, text: "hi" }, { signal: abort.signal });
+    const stream = await client.bot.send(
+      { botId, id: uuidv7(), text: "hi" },
+      { signal: abort.signal },
+    );
     await fake.release(first.length);
     await readUntil(
       stream,
@@ -379,7 +465,7 @@ describe("a Turn off the request", () => {
     ]);
 
     // The transport may drop a stream it never pulled from: `return()` before any `next()`.
-    const stream = await sendToBot(deps, { userId: user.id, botId, text: "hi" });
+    const stream = await sendToBot(deps, { userId: user.id, botId, id: uuidv7(), text: "hi" });
     await stream.return(undefined);
 
     expect(await endedTurn(botId)).toMatchObject({ status: "complete", error: null });
@@ -423,7 +509,7 @@ describe("a Turn off the request", () => {
 describe("bot.stop", () => {
   it("ends a queued Turn stopped at once, and its job never runs", async () => {
     const { client, botId, fake } = await botWith([round(text("Never."))], { idle: true });
-    const stream = await client.bot.send({ botId, text: "hi" });
+    const stream = await client.bot.send({ botId, id: uuidv7(), text: "hi" });
     await stream.next();
 
     await client.bot.stop({ botId });
@@ -443,7 +529,7 @@ describe("bot.stop", () => {
       [first, round(sends({ text: "Never sent.", endTurn: true }))],
       { manual: true },
     );
-    const stream = await client.bot.send({ botId, text: "hi" });
+    const stream = await client.bot.send({ botId, id: uuidv7(), text: "hi" });
     await fake.release(first.length);
     await readUntil(
       stream,
@@ -479,19 +565,64 @@ describe("bot.stop", () => {
 });
 
 describe("one Turn at a time", () => {
-  it("refuses a Message while a Turn is running with 409 before the first event, and saves nothing", async () => {
-    const { client, botId } = await botWith([]);
-    await insertRunningTurn(botId);
-    const jobsBefore = await getTestDb().select().from(job);
+  it("has the next Turn take every Trigger that waited while a Turn ran, in the order they were received", async () => {
+    const { client, deps, user, botId, fake } = await botWith(
+      [round(text("First.")), round(text("Both."))],
+      { manual: true },
+    );
+    const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
+    const firstStream = await client.bot.send({ botId, id: uuidv7(), text: "one" });
+    await firstStream.next();
+    await expect.poll(() => fake.calls.length).toBe(1);
+    const two = await queueTrigger(deps, conversationId, "two");
+    const three = await queueTrigger(deps, conversationId, "three");
+    const [firstTurn] = await turnsOf(botId);
+    expect(await triggersOf(conversationId)).toMatchObject([
+      { turnId: firstTurn!.id },
+      { id: two, turnId: null },
+      { id: three, turnId: null },
+    ]);
 
-    await expect(client.bot.send({ botId, text: "hello?" })).rejects.toMatchObject({
-      code: "CONFLICT",
-      status: 409,
-      data: { code: "error.turnRunning" },
+    await fake.releaseAll();
+    expect((await readUntil(firstStream, () => false)).at(-1)).toEqual({
+      type: "turnEnded",
+      status: "complete",
     });
-    expect((await client.bot.get({ botId })).messages).toEqual([]);
+    await expect
+      .poll(async () => (await turnsOf(botId)).map((turn) => turn.status))
+      .toEqual(["complete", "complete"]);
+
+    const turns = await turnsOf(botId);
+    const taken = await triggersOf(conversationId);
+    expect(taken.map((row) => row.turnId)).toEqual([turns[0]!.id, turns[1]!.id, turns[1]!.id]);
+    expect(fake.calls).toHaveLength(2);
+    const users = inputOf(fake.calls[1]).filter((entry) => entry.role === "user");
+    expect(users.map((entry) => entry.content)).toEqual(["one", "two", "three"]);
+  });
+
+  it("starts the next Turn when the running one ends error", async () => {
+    const { client, deps, user, botId, fake } = await botWith(
+      [round(runError("Provider down")), round(text("Back."))],
+      { manual: true },
+    );
+    const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
+    await sendSaved(client, botId, "one");
+    await expect.poll(() => fake.calls.length).toBe(1);
+    await queueTrigger(deps, conversationId, "two");
+
+    await fake.releaseAll();
+
+    await expect
+      .poll(async () => (await turnsOf(botId)).map((turn) => turn.status))
+      .toEqual(["error", "complete"]);
+  });
+
+  it("refuses a second running Turn for one Bot by its index", async () => {
+    const { botId } = await botWith([]);
+    await insertRunningTurn(botId);
+
+    await expect(insertRunningTurn(botId)).rejects.toMatchObject({ cause: { code: "23505" } });
     expect(await turnsOf(botId)).toHaveLength(1);
-    expect(await getTestDb().select().from(job)).toEqual(jobsBefore);
   });
 
   it("reads a running Turn as running in bot.get and bot.list, however old", async () => {
@@ -502,6 +633,469 @@ describe("one Turn at a time", () => {
     expect((await client.bot.list()).find((listed) => listed.id === botId)?.turnStatus).toBe(
       "running",
     );
+  });
+});
+
+describe("skipping the line", () => {
+  const userTexts = (call: TextOptions | undefined) =>
+    inputOf(call)
+      .filter((entry) => entry.role === "user")
+      .map((entry) => entry.content);
+
+  it("interrupts a running Turn: it ends stopped and keeps its sent Messages, and a new Turn takes the Message with its transcript in view", async () => {
+    const first = round(sends({ text: "On it…", endTurn: false }));
+    const { client, user, botId, fake } = await botWith(
+      [
+        first,
+        round(sends({ text: "Wednesday it is.", endTurn: true })),
+        round(sends({ text: "Thursday it is.", endTurn: true })),
+      ],
+      { manual: true },
+    );
+    const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
+    const firstStream = await client.bot.send({
+      botId,
+      id: uuidv7(),
+      text: "Book the meeting for Wednesday",
+    });
+    await fake.release(first.length);
+    await readUntil(
+      firstStream,
+      (event) => event.type === "message" && event.message.role === "assistant",
+    );
+    // Step 1 is saved, and the Turn waits in Step 2's model call.
+    await expect.poll(() => fake.calls.length).toBe(2);
+
+    const correction = await client.bot.send({
+      botId,
+      id: uuidv7(),
+      text: "Actually, make it Thursday",
+    });
+    const [saved] = await readUntil(correction, () => true);
+    const savedId = saved?.type === "message" ? saved.message.id : "";
+    expect(saved).toMatchObject({
+      type: "message",
+      message: { role: "user", text: "Actually, make it Thursday" },
+    });
+    await fake.releaseAll();
+
+    const rest = await readUntil(correction, () => false);
+    expect(shapes(rest)).toEqual([
+      { type: "message", role: "assistant", text: "Thursday it is." },
+      { type: "turnEnded", status: "complete" },
+    ]);
+    expect((await readUntil(firstStream, () => false)).at(-1)).toEqual({
+      type: "turnEnded",
+      status: "stopped",
+    });
+    const turns = await turnsOf(botId);
+    expect(turns.map((turn) => turn.status)).toEqual(["stopped", "complete"]);
+    // Each Trigger records where it came from.
+    expect(await triggersOf(conversationId)).toMatchObject([
+      { source: "user", channel: "web", turnId: turns[0]!.id },
+      { id: savedId, messageId: savedId, source: "user", channel: "web", turnId: turns[1]!.id },
+    ]);
+    expect((await client.bot.get({ botId })).messages.map((row) => row.text)).toEqual([
+      "Book the meeting for Wednesday",
+      "On it…",
+      "Actually, make it Thursday",
+      "Thursday it is.",
+    ]);
+    // The new Turn's input: the interrupted Turn's transcript, then the new Message.
+    const input = inputOf(fake.calls.at(-1));
+    expect(input[0]).toMatchObject({ role: "user", content: "Book the meeting for Wednesday" });
+    expect(JSON.stringify(input.slice(1, -1))).toContain("On it…");
+    expect(JSON.stringify(input)).not.toContain("Wednesday it is.");
+    expect(input.at(-1)).toMatchObject({ role: "user", content: "Actually, make it Thursday" });
+  });
+
+  it("makes one replacement Turn for several sends while the old Turn aborts", async () => {
+    const { client, user, botId, fake } = await botWith(
+      [round(text("Never.")), round(text("Both."))],
+      { manual: true },
+    );
+    const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
+    await sendSaved(client, botId, "one");
+    await expect.poll(() => fake.calls.length).toBe(1);
+    await sendSaved(client, botId, "two");
+    const third = await client.bot.send({ botId, id: uuidv7(), text: "three" });
+    await third.next();
+
+    await fake.releaseAll();
+    expect((await readUntil(third, () => false)).at(-1)).toEqual({
+      type: "turnEnded",
+      status: "complete",
+    });
+
+    const turns = await turnsOf(botId);
+    expect(turns.map((turn) => turn.status)).toEqual(["stopped", "complete"]);
+    expect((await triggersOf(conversationId)).map((row) => row.turnId)).toEqual([
+      turns[0]!.id,
+      turns[1]!.id,
+      turns[1]!.id,
+    ]);
+    expect(fake.calls).toHaveLength(2);
+    expect(userTexts(fake.calls[1])).toEqual(["one", "two", "three"]);
+  });
+
+  it("Stop after a send starts nothing: the stopped Turn takes the waiting Triggers, and the next send's Turn reads their Messages", async () => {
+    const { client, user, botId, fake } = await botWith(
+      [round(text("Never.")), round(text("Back."))],
+      { manual: true },
+    );
+    const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
+    await sendSaved(client, botId, "one");
+    await expect.poll(() => fake.calls.length).toBe(1);
+    const twoId = uuidv7();
+    const two = await client.bot.send({ botId, id: twoId, text: "two" });
+    await two.next();
+
+    await client.bot.stop({ botId });
+    // Every chunk goes through, the next Turn's too, so this resolves only once that Turn has run.
+    const released = fake.releaseAll();
+
+    expect((await readUntil(two, () => false)).at(-1)).toEqual({
+      type: "turnEnded",
+      status: "stopped",
+    });
+    const [stopped, ...after] = await turnsOf(botId);
+    expect(stopped).toMatchObject({ status: "stopped" });
+    expect(after).toEqual([]);
+    expect((await triggersOf(conversationId)).map((row) => row.turnId)).toEqual([
+      stopped!.id,
+      stopped!.id,
+    ]);
+    // A resend of a Message Stop left re-joins the stopped Turn.
+    expect((await send(client, botId, "two", twoId)).at(-1)).toEqual({
+      type: "turnEnded",
+      status: "stopped",
+    });
+    expect(await turnsOf(botId)).toHaveLength(1);
+
+    expect((await send(client, botId, "three")).at(-1)).toEqual({
+      type: "turnEnded",
+      status: "complete",
+    });
+    await released;
+    expect(userTexts(fake.calls.at(-1))).toEqual(["one", "two", "three"]);
+  });
+});
+
+describe("batching quick Messages", () => {
+  // A stream a test closes keeps following the Turn until the abort reaches the server, and a hint
+  // wakes it to query. Those queries must end before the next test truncates the tables.
+  let followersBefore = 0;
+  beforeEach(() => {
+    followersBefore = openFollowers;
+  });
+  afterEach(async () => {
+    await expect.poll(() => openFollowers, { timeout: 5_000 }).toBeLessThanOrEqual(followersBefore);
+  });
+
+  /**
+   * A Bot on an idle runner and a clock the test moves. `runDue()` claims a Turn's job only once
+   * it is due at the clock's time, and runs it.
+   */
+  async function batchingBot(rounds: Round[], { manual = false } = {}) {
+    const timer = fakeJobClock(new Date());
+    const { fake, deps, client, user, botId } = await botWith(rounds, {
+      idle: true,
+      manual,
+      clock: timer.clock.now,
+    });
+    const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
+    return {
+      fake,
+      client,
+      botId,
+      conversationId,
+      advance: (ms: number) => timer.advance(ms),
+      now: () => timer.clock.now(),
+      /** Sends `text` and reads only the saved Message. */
+      sendNow: async (text: string) => {
+        await sendSaved(client, botId, text);
+      },
+      runDue: async () => {
+        const claimed = await claimJob(getTestDb(), timer.clock.now(), { respectRunAfter: true });
+        if (!claimed) return false;
+        await runClaimedJob(getTestDb(), claimed, {
+          clock: timer.clock,
+          logger: silent,
+          deps: () => deps,
+        });
+        return true;
+      },
+    };
+  }
+
+  const userTexts = (call: TextOptions | undefined) =>
+    inputOf(call)
+      .filter((entry) => entry.role === "user")
+      .map((entry) => entry.content);
+
+  it("answers three sends 200 ms apart with one Turn that took all three Triggers", async () => {
+    const { fake, botId, conversationId, advance, sendNow, runDue } = await batchingBot([
+      round(text("All three.")),
+    ]);
+
+    await sendNow("Plan a dinner.");
+    advance(200);
+    await sendNow("For 4 people.");
+    advance(200);
+    await sendNow("Vegetarian.");
+
+    const turns = await turnsOf(botId);
+    expect(turns).toHaveLength(1);
+    expect((await triggersOf(conversationId)).map((row) => row.turnId)).toEqual([
+      turns[0]!.id,
+      turns[0]!.id,
+      turns[0]!.id,
+    ]);
+    // Its job waits 500 ms after the newest Trigger.
+    advance(499);
+    expect(await runDue()).toBe(false);
+    advance(1);
+    expect(await runDue()).toBe(true);
+    expect(fake.calls).toHaveLength(1);
+    expect(userTexts(fake.calls[0])).toEqual(["Plan a dinner.", "For 4 people.", "Vegetarian."]);
+  });
+
+  it("starts a second Turn for a send 600 ms after the last", async () => {
+    const { fake, botId, conversationId, advance, sendNow, runDue } = await batchingBot([
+      round(text("First.")),
+      round(text("Second.")),
+    ]);
+
+    await sendNow("one");
+    advance(500);
+    expect(await runDue()).toBe(true);
+    advance(100);
+    await sendNow("two");
+    advance(500);
+    expect(await runDue()).toBe(true);
+
+    const turns = await turnsOf(botId);
+    expect(turns.map((turn) => turn.status)).toEqual(["complete", "complete"]);
+    expect((await triggersOf(conversationId)).map((row) => row.turnId)).toEqual([
+      turns[0]!.id,
+      turns[1]!.id,
+    ]);
+    expect(userTexts(fake.calls[0])).toEqual(["one"]);
+    expect(userTexts(fake.calls[1])).toEqual(["one", "two"]);
+  });
+
+  it("starts a continuous burst's Turn by 2.5 s after its first Trigger", async () => {
+    const { fake, botId, conversationId, advance, sendNow, runDue } = await batchingBot([
+      round(text("Done.")),
+    ]);
+
+    // A send every 200 ms, from 0 to 2.4 s.
+    await sendNow("0");
+    for (let sent = 1; sent <= 12; sent++) {
+      advance(200);
+      await sendNow(String(sent));
+    }
+
+    advance(99);
+    expect(await runDue()).toBe(false);
+    advance(1);
+    expect(await runDue()).toBe(true);
+    const turns = await turnsOf(botId);
+    expect(turns).toHaveLength(1);
+    expect(new Set((await triggersOf(conversationId)).map((row) => row.turnId))).toEqual(
+      new Set([turns[0]!.id]),
+    );
+    expect(userTexts(fake.calls[0])).toHaveLength(13);
+  });
+
+  it("sets startedAt when the job starts, and the 5-minute limit counts from it", async () => {
+    const { fake, botId, advance, now, sendNow, runDue } = await batchingBot([
+      round(sends({ text: "On time.", endTurn: true })),
+    ]);
+
+    await sendNow("hi");
+    // The job starts long after the Turn was made, past the limit from the send.
+    advance(turnTimeLimitMs + 1_000);
+    const start = now();
+    expect(await runDue()).toBe(true);
+
+    const [turn] = await turnsOf(botId);
+    expect(turn).toMatchObject({ status: "complete", startedAt: start });
+    expect(fake.calls).toHaveLength(1);
+  });
+
+  it("debounces a Turn chained by turnEnded from its newest Trigger", async () => {
+    const first = round(text("First."));
+    const { fake, botId, conversationId, advance, sendNow, runDue } = await batchingBot(
+      [first, round(text("Second."))],
+      { manual: true },
+    );
+    await sendNow("one");
+    advance(500);
+    const running = runDue();
+    await expect.poll(() => fake.calls.length).toBe(1);
+    advance(1_000);
+    await sendNow("two");
+    expect((await triggersOf(conversationId)).at(-1)?.turnId).toBeNull();
+    advance(100);
+    await fake.release(first.length);
+    expect(await running).toBe(true);
+
+    // "two" interrupted the running Turn, which ends once its aborted handler settles.
+    await expect
+      .poll(async () => (await turnsOf(botId)).map((turn) => turn.status))
+      .toEqual(["stopped", "running"]);
+    // Due 500 ms after "two", 400 ms from now.
+    advance(399);
+    expect(await runDue()).toBe(false);
+    advance(1);
+    const second = runDue();
+    await fake.releaseAll();
+    expect(await second).toBe(true);
+    expect(userTexts(fake.calls[1])).toEqual(["one", "two"]);
+  });
+
+  it("never replaces a job waiting out a retry: a send interrupts its Turn, and the next Turn takes the Message", async () => {
+    const { botId, conversationId, sendNow } = await batchingBot([]);
+    await sendNow("one");
+    const [first] = await turnsOf(botId);
+    // An attempt failed before its first Checkpoint, so the job waits out its backoff with no history.
+    await getTestDb().update(job).set({ attempts: 1 }).where(eq(job.id, first!.jobId!));
+
+    await sendNow("two");
+
+    const turns = await turnsOf(botId);
+    expect(turns.map((turn) => turn.status)).toEqual(["stopped", "running"]);
+    expect((await triggersOf(conversationId)).map((row) => row.turnId)).toEqual([
+      turns[0]!.id,
+      turns[1]!.id,
+    ]);
+    const [failed] = await getTestDb().select().from(job).where(eq(job.id, first!.jobId!));
+    expect(failed).toMatchObject({ status: "cancelled", attempts: 1 });
+  });
+});
+
+describe("a resent Message", () => {
+  const messagesOf = (conversationId: string) =>
+    getTestDb().select().from(message).where(eq(message.conversationId, conversationId));
+
+  it("saves one Message and one Trigger, and re-joins the Turn that took it", async () => {
+    const { client, user, botId, fake } = await botWith(
+      [round(sends({ text: "Hello!", endTurn: true }))],
+      { manual: true },
+    );
+    const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
+    const id = uuidv7();
+    const first = await client.bot.send({ botId, id, text: "hi" });
+    expect(await first.next()).toMatchObject({ value: { message: { id } } });
+    await expect.poll(() => fake.calls.length).toBe(1);
+
+    const resent = await client.bot.send({ botId, id, text: "hi" });
+    expect(await resent.next()).toMatchObject({ value: { message: { id, text: "hi" } } });
+    await fake.releaseAll();
+
+    const rest = await readUntil(resent, () => false);
+    expect(shapes(rest)).toEqual([
+      { type: "message", role: "assistant", text: "Hello!" },
+      { type: "turnEnded", status: "complete" },
+    ]);
+    expect(await messagesOf(conversationId)).toHaveLength(2);
+    expect(await triggersOf(conversationId)).toMatchObject([{ id, messageId: id }]);
+    expect(await turnsOf(botId)).toHaveLength(1);
+  });
+
+  it("streams the Turn's Messages and turnEnded when its Turn has ended", async () => {
+    const { client, botId } = await botWith([round(sends({ text: "Hello!", endTurn: true }))]);
+    const id = uuidv7();
+    await client.bot.send({ botId, id, text: "hi" });
+    await endedTurn(botId);
+
+    const events = await (async () => {
+      const out = [];
+      for await (const event of await client.bot.send({ botId, id, text: "hi" })) out.push(event);
+      return out;
+    })();
+
+    expect(shapes(events)).toEqual([
+      { type: "message", role: "user", text: "hi" },
+      { type: "message", role: "assistant", text: "Hello!" },
+      { type: "turnEnded", status: "complete" },
+    ]);
+    expect(await turnsOf(botId)).toHaveLength(1);
+  });
+
+  it("re-joins its Turn when resent with the id in uppercase", async () => {
+    const { client, user, botId } = await botWith([
+      round(sends({ text: "Hello!", endTurn: true })),
+    ]);
+    const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
+    const id = uuidv7();
+    await send(client, botId, "hi", id);
+
+    const events = await send(client, botId, "hi", id.toUpperCase());
+
+    expect(shapes(events)).toEqual([
+      { type: "message", role: "user", text: "hi" },
+      { type: "message", role: "assistant", text: "Hello!" },
+      { type: "turnEnded", status: "complete" },
+    ]);
+    expect(await triggersOf(conversationId)).toMatchObject([{ id, messageId: id }]);
+    expect(await turnsOf(botId)).toHaveLength(1);
+  });
+
+  it("is accepted after the Quota is spent", async () => {
+    const { client, user, botId } = await hostBotWith(
+      [round(sends({ text: "Hello!", endTurn: true }))],
+      { getQuota: quotaLookup({ budgetUsd: 0.0002, window: "day" }) },
+    );
+    const id = uuidv7();
+    await client.bot.send({ botId, id, text: "hi" });
+    await endedTurn(botId);
+    await getTestDb().insert(usage).values({
+      id: uuidv7(),
+      userId: user.id,
+      kind: "run",
+      model: hostModel,
+      inputTokens: 100,
+      outputTokens: 0,
+      costMicros: 1_000_000,
+      estimated: false,
+      createdAt: new Date(),
+    });
+    // A new Message is refused, but the resend is not.
+    await expect(client.bot.send({ botId, id: uuidv7(), text: "more" })).rejects.toMatchObject({
+      status: 402,
+    });
+
+    const events = await send(client, botId, "hi", id);
+
+    expect(events.at(-1)).toEqual({ type: "turnEnded", status: "complete" });
+  });
+
+  it("is refused with BAD_REQUEST when the id is used in another Conversation", async () => {
+    const { client, botId } = await botWith([round(text("ok"))]);
+    const other = await botWith([round(text("ok"))]);
+    const id = uuidv7();
+    await client.bot.send({ botId, id, text: "mine" });
+
+    await expect(
+      other.client.bot.send({ botId: other.botId, id, text: "x" }),
+    ).rejects.toMatchObject({ status: 400 });
+    const { conversationId } = (await findBot(getTestDb(), other.user.id, other.botId))!;
+    expect(await messagesOf(conversationId)).toEqual([]);
+  });
+
+  it("is rejected by validation without a uuidv7 id", async () => {
+    const { client, botId } = await botWith([]);
+
+    // @ts-expect-error the id is required
+    await expect(client.bot.send({ botId, text: "hi" })).rejects.toMatchObject({ status: 400 });
+    await expect(client.bot.send({ botId, id: "nope", text: "hi" })).rejects.toMatchObject({
+      status: 400,
+    });
+    await expect(
+      client.bot.send({ botId, id: crypto.randomUUID(), text: "hi" }),
+    ).rejects.toMatchObject({ status: 400 });
   });
 });
 
@@ -529,12 +1123,14 @@ describe("a Turn's Quota and usage", () => {
       createdAt: new Date(),
     });
 
-    await expect(client.bot.send({ botId, text: "hi" })).rejects.toMatchObject({
+    await expect(client.bot.send({ botId, id: uuidv7(), text: "hi" })).rejects.toMatchObject({
       status: 402,
       data: { code: "error.quotaSpent" },
     });
     expect((await client.bot.get({ botId })).messages).toEqual([]);
     expect(await turnsOf(botId)).toEqual([]);
+    const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
+    expect(await triggersOf(conversationId)).toEqual([]);
   });
 
   it("records a Turn's usage as turn on Host credentials", async () => {
@@ -644,6 +1240,7 @@ describe("a Turn that resumes after a crash", () => {
     return {
       fake,
       client,
+      deps,
       user,
       botId: created.id,
       /** A process: an SDK instance that can run an attempt of the Turn's job. */
@@ -672,6 +1269,15 @@ describe("a Turn that resumes after a crash", () => {
         await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps);
         timer.tick();
       },
+      /**
+       * The process running the Turn dies: its lease runs out and the sweep runs, while the lost
+       * attempt runs nothing more. `timer.tick()` lets it see that afterwards.
+       */
+      die: async () => {
+        timer.advance(61_000);
+        await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps);
+      },
+      tick: () => timer.tick(),
     };
   }
 
@@ -696,7 +1302,7 @@ describe("a Turn that resumes after a crash", () => {
       third,
       third,
     ]);
-    const stream = await client.bot.send({ botId, text: "count to three" });
+    const stream = await client.bot.send({ botId, id: uuidv7(), text: "count to three" });
 
     const lost = attempt();
     await fake.release(steps[0]!.length + steps[1]!.length);
@@ -738,7 +1344,7 @@ describe("a Turn that resumes after a crash", () => {
       [first, second, second],
       { host: true },
     );
-    await client.bot.send({ botId, text: "hi" });
+    await client.bot.send({ botId, id: uuidv7(), text: "hi" });
 
     const lost = attempt();
     // The second model call is cut off partway.
@@ -772,8 +1378,11 @@ describe("a Turn that resumes after a crash", () => {
     const { fake, client, user, botId, attempt, crash, instance } = await crashableBot([
       round(sends({ text: "Hello!", endTurn: true })),
     ]);
-    await client.bot.send({ botId, text: "hi" });
+    await client.bot.send({ botId, id: uuidv7(), text: "hi" });
     const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
+    const lost = attempt();
+    // The Turn has started, and waits in its model call.
+    await expect.poll(() => fake.calls.length).toBe(1);
     // Another connection holds the Conversation's row, so SendToUser's transaction waits on it.
     let unlock = () => {};
     let locked = () => {};
@@ -796,7 +1405,6 @@ describe("a Turn that resumes after a crash", () => {
       return rows[0]?.n;
     };
 
-    const lost = attempt();
     await fake.releaseAll();
     await expect.poll(waitingOnLocks).toBe(1);
     expect(await sentTexts(client, botId)).toEqual([]);
@@ -849,7 +1457,7 @@ describe("a Turn that resumes after a crash", () => {
       second,
       second,
     ]);
-    const stream = await client.bot.send({ botId, text: "hi" });
+    const stream = await client.bot.send({ botId, id: uuidv7(), text: "hi" });
 
     const lost = attempt();
     await fake.release(first.length);
@@ -874,18 +1482,25 @@ describe("a Turn that resumes after a crash", () => {
     ]);
   });
 
-  it("ends the Turn stopped when bot.stop lands just before its last Checkpoint", async () => {
-    const { fake, client, botId, attempt } = await crashableBot([round(text("Nothing to add."))]);
-    const stream = await client.bot.send({ botId, text: "ok" });
+  it("ends the Turn stopped when its job is cancelled just before its last Checkpoint", async () => {
+    const { fake, client, botId, attempt, instance } = await crashableBot([
+      round(text("Nothing to add.")),
+    ]);
+    const stream = await client.bot.send({ botId, id: uuidv7(), text: "ok" });
+    const running = attempt();
+    // The Turn has started, and waits in its model call.
+    await expect.poll(() => fake.calls.length).toBe(1);
     // Another connection holds the Turn's row, so the end_turn Checkpoint waits on it.
     const turnRow = await holdLocks((tx) =>
       tx.select({ id: botTurn.id }).from(botTurn).where(eq(botTurn.botId, botId)).for("update"),
     );
 
-    const running = attempt();
     await fake.releaseAll();
     await expect.poll(waitingOnLocks).toBe(1);
-    await client.bot.stop({ botId });
+    // The end_turn Checkpoint holds the Conversation's row lock, so `bot.stop` would wait for it:
+    // this is a stop whose cancel committed just before that Checkpoint began.
+    const [turnBefore] = await turnsOf(botId);
+    await instance().plugin("runner").cancel(turnBefore!.id);
     await turnRow.release();
     await running;
 
@@ -898,6 +1513,75 @@ describe("a Turn that resumes after a crash", () => {
     });
   });
 
+  /**
+   * A Turn that has sent "On it…" and waits in Step 2's model call, and a send of "and then?" that
+   * interrupts it. Returns that send's saved Message.
+   */
+  async function interruptedTurn(
+    fake: ReturnType<typeof createFakeAdapter>,
+    client: ReturnType<typeof chatRpc>,
+    botId: string,
+    attempt: () => Promise<unknown>,
+  ) {
+    await client.bot.send({ botId, id: uuidv7(), text: "hi" });
+    const lost = attempt();
+    await fake.release(round(sends({ text: "On it…", endTurn: false })).length);
+    // Step 1 is saved, and the attempt waits in Step 2's model call.
+    await expect.poll(() => fake.calls.length).toBe(2);
+    await expect.poll(() => sentTexts(client, botId)).toEqual(["On it…"]);
+    const interrupt = await client.bot.send({ botId, id: uuidv7(), text: "and then?" });
+    const [saved] = await readUntil(interrupt, () => true);
+    return { lost, savedId: saved?.type === "message" ? saved.message.id : "" };
+  }
+
+  it("ends an interrupted Turn whose process died stopped from the sweep, and the next Turn takes the Message", async () => {
+    const { fake, client, botId, attempt, die, tick } = await crashableBot([
+      round(sends({ text: "On it…", endTurn: false })),
+      round(sends({ text: "Never sent.", endTurn: true })),
+    ]);
+    const { lost, savedId } = await interruptedTurn(fake, client, botId, attempt);
+
+    await die();
+
+    const [turn, next] = await turnsOf(botId);
+    expect(turn).toMatchObject({ status: "stopped", error: null });
+    expect(turn?.endedAt).toBeInstanceOf(Date);
+    expect(JSON.stringify(turn?.transcript)).toContain("On it…");
+    expect(JSON.stringify(turn?.transcript)).not.toContain("Never sent.");
+    // The Conversation recovers: the next Turn took the interrupting Message.
+    expect(next).toMatchObject({ status: "running" });
+    const [taken] = await getTestDb().select().from(botTrigger).where(eq(botTrigger.id, savedId));
+    expect(taken?.turnId).toBe(next?.id);
+
+    // The lost attempt finds its job gone once it runs again, and changes nothing.
+    tick();
+    await fake.releaseAll();
+    await lost;
+    expect((await turnsOf(botId)).find(({ id }) => id === turn?.id)).toEqual(turn);
+  });
+
+  it("ends a stopped Turn whose process died stopped from the sweep, and starts nothing after it", async () => {
+    const { fake, client, botId, attempt, die, tick } = await crashableBot([
+      round(sends({ text: "On it…", endTurn: false })),
+      round(sends({ text: "Never sent.", endTurn: true })),
+    ]);
+    const { lost, savedId } = await interruptedTurn(fake, client, botId, attempt);
+
+    await client.bot.stop({ botId });
+    await die();
+
+    const turns = await turnsOf(botId);
+    expect(turns).toHaveLength(1);
+    expect(turns[0]).toMatchObject({ status: "stopped", error: null });
+    expect(JSON.stringify(turns[0]?.transcript)).toContain("On it…");
+    const [taken] = await getTestDb().select().from(botTrigger).where(eq(botTrigger.id, savedId));
+    expect(taken?.turnId).toBe(turns[0]?.id);
+
+    tick();
+    await fake.releaseAll();
+    await lost;
+  });
+
   it("bot.stop on a queued Turn that already sent a Message keeps its transcript and usage", async () => {
     const usageOfStep = { promptTokens: 100, completionTokens: 10, totalTokens: 110 };
     const first = withUsage(round(sends({ text: "One", endTurn: false })), usageOfStep);
@@ -905,7 +1589,7 @@ describe("a Turn that resumes after a crash", () => {
     const { fake, client, user, botId, attempt } = await crashableBot([first, second], {
       host: true,
     });
-    await client.bot.send({ botId, text: "count" });
+    await client.bot.send({ botId, id: uuidv7(), text: "count" });
 
     const drain = new AbortController();
     const handedBack = attempt(undefined, drain.signal);
@@ -934,6 +1618,33 @@ describe("a Turn that resumes after a crash", () => {
     expect(turn?.usage).toMatchObject({ input: 100, output: 10, estimated: false });
   });
 
+  it("never replaces the job of a Turn a deploy handed back: a send interrupts it, and the next Turn takes the Message", async () => {
+    const first = round(sends({ text: "On it…", endTurn: false }));
+    const { fake, client, user, botId, attempt } = await crashableBot([first, round(text("."))]);
+    const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
+    await client.bot.send({ botId, id: uuidv7(), text: "one" });
+    const drain = new AbortController();
+    const handedBack = attempt(undefined, drain.signal);
+    await expect.poll(() => fake.calls.length).toBe(1);
+    // The deploy starts: the model call's Checkpoint is saved, then the attempt yields.
+    drain.abort();
+    await fake.release(first.length);
+    await handedBack;
+    const [before] = await turnsOf(botId);
+    const [queued] = await getTestDb().select().from(job).where(eq(job.id, before!.jobId!));
+    expect(queued).toMatchObject({ status: "queued" });
+
+    await sendSaved(client, botId, "two");
+
+    // Its queued job never runs again: the Turn ends stopped at once, and the next one starts.
+    const [after, next] = await turnsOf(botId);
+    expect(after).toMatchObject({ status: "stopped", jobId: before!.jobId });
+    const [cancelled] = await getTestDb().select().from(job).where(eq(job.id, before!.jobId!));
+    expect(cancelled).toMatchObject({ status: "cancelled" });
+    expect(next).toMatchObject({ status: "running" });
+    expect((await triggersOf(conversationId)).at(-1)?.turnId).toBe(next?.id);
+  });
+
   it("fires onUsage for a bill whose Checkpoint a deploy's yield follows", async () => {
     const onUsage = vi.fn();
     const usageOfStep = { promptTokens: 100, completionTokens: 10, totalTokens: 110 };
@@ -941,7 +1652,7 @@ describe("a Turn that resumes after a crash", () => {
       [withUsage(round(sends({ text: "Hello!", endTurn: true })), usageOfStep)],
       { host: true, hooks: createHookEmitter({ onUsage }, silent) },
     );
-    await client.bot.send({ botId, text: "hi" });
+    await client.bot.send({ botId, id: uuidv7(), text: "hi" });
     // Another connection holds the usage table, so the bill's transaction waits on it.
     const usageTable = await holdLocks((tx) =>
       tx.execute(sql`lock table chat.usage in share mode`),
@@ -969,8 +1680,11 @@ describe("a Turn that resumes after a crash", () => {
     const { fake, client, user, botId, attempt, crash, instance } = await crashableBot([
       round(sends({ text: "Here's the answer.", endTurn: true })),
     ]);
-    await client.bot.send({ botId, text: "a question" });
+    await client.bot.send({ botId, id: uuidv7(), text: "a question" });
     const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
+    const lost = attempt();
+    // The Turn has started, and waits in its model call.
+    await expect.poll(() => fake.calls.length).toBe(1);
     // Another connection holds the Conversation's row, so SendToUser's transaction waits on it.
     const conversationRow = await holdLocks((tx) =>
       tx
@@ -980,7 +1694,6 @@ describe("a Turn that resumes after a crash", () => {
         .for("update"),
     );
 
-    const lost = attempt();
     await fake.releaseAll();
     await expect.poll(waitingOnLocks).toBe(1);
     // The model call is recorded; the process stops before SendToUser's Checkpoint.
@@ -1008,7 +1721,7 @@ describe("a Turn that resumes after a crash", () => {
       hangs,
       hangs,
     ]);
-    await client.bot.send({ botId, text: "hi" });
+    await client.bot.send({ botId, id: uuidv7(), text: "hi" });
 
     const lost = [attempt()];
     await fake.release(first.length);
@@ -1031,6 +1744,36 @@ describe("a Turn that resumes after a crash", () => {
     expect(JSON.stringify(turn?.transcript)).not.toContain("Never sent.");
   });
 
+  it("starts the next Turn for a Message queued while a Turn was lost, once onFailed ends it", async () => {
+    const hangs = round(text("Never."));
+    const { fake, client, deps, user, botId, attempt, crash } = await crashableBot([
+      hangs,
+      hangs,
+      hangs,
+    ]);
+    const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
+    await client.bot.send({ botId, id: uuidv7(), text: "one" });
+
+    const lost = [attempt()];
+    await expect.poll(() => fake.calls.length).toBe(1);
+    await queueTrigger(deps, conversationId, "two");
+    for (const calls of [1, 2, 3]) {
+      await expect.poll(() => fake.calls.length).toBe(calls);
+      await crash();
+      if (calls < 3) lost.push(attempt());
+    }
+    await Promise.all(lost);
+
+    const turns = await turnsOf(botId);
+    expect(turns.map((turn) => turn.status)).toEqual(["error", "running"]);
+    expect((await triggersOf(conversationId)).map((row) => row.turnId)).toEqual([
+      turns[0]!.id,
+      turns[1]!.id,
+    ]);
+    const [next] = await getTestDb().select().from(job).where(eq(job.id, turns[1]!.jobId!));
+    expect(next).toMatchObject({ name: "bot.turn", status: "queued" });
+  });
+
   /** Moves the Turn's start and its Conversation's Messages `ms` into the past. */
   async function ageTurn(botId: string, ms: number) {
     const ago = (column: typeof botTurn.startedAt | typeof message.createdAt) =>
@@ -1049,7 +1792,7 @@ describe("a Turn that resumes after a crash", () => {
     const { fake, client, botId, attempt, crash, instance } = await crashableBot(
       Array.from({ length: 12 }, () => step),
     );
-    await client.bot.send({ botId, text: "go on forever" });
+    await client.bot.send({ botId, id: uuidv7(), text: "go on forever" });
 
     const lost = attempt();
     await fake.release(step.length * 6);
@@ -1070,7 +1813,7 @@ describe("a Turn that resumes after a crash", () => {
   it("ends a resumed Turn past 5 minutes timed_out without calling the Model", async () => {
     const step = round(sends({ text: "One", endTurn: false }));
     const { fake, client, botId, attempt, crash, instance } = await crashableBot([step, step]);
-    await client.bot.send({ botId, text: "hi" });
+    await client.bot.send({ botId, id: uuidv7(), text: "hi" });
 
     const lost = attempt();
     await fake.release(step.length);
@@ -1085,19 +1828,6 @@ describe("a Turn that resumes after a crash", () => {
     // The recorded Step replays without calling the Model or sending its Message again.
     expect(fake.calls).toHaveLength(2);
     expect(await sentTexts(client, botId)).toEqual(["One"]);
-    expect((await turnsOf(botId))[0]).toMatchObject({ status: "error", error: "timed_out" });
-  });
-
-  it("ends a Turn whose first attempt starts past 5 minutes timed_out without calling the Model", async () => {
-    const { fake, client, botId, attempt } = await crashableBot([
-      round(sends({ text: "One", endTurn: true })),
-    ]);
-    await client.bot.send({ botId, text: "hi" });
-    await ageTurn(botId, turnTimeLimitMs + 1_000);
-
-    await attempt();
-
-    expect(fake.calls).toHaveLength(0);
     expect((await turnsOf(botId))[0]).toMatchObject({ status: "error", error: "timed_out" });
   });
 });

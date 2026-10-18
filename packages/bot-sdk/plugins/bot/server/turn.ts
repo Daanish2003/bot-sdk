@@ -12,8 +12,8 @@ import { and, asc, eq, lt } from "drizzle-orm";
 import { z } from "zod";
 
 import { appendMessage } from "../../../core/server/chat/message-tree";
-import { bot, botTurn, conversation, message } from "../../../core/server/db/schema";
-import { uuidv7 } from "../../../core/server/lib/uuidv7";
+import { bot, botTrigger, botTurn, message } from "../../../core/server/db/schema";
+import type { Database } from "../../../core/server/db/index";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
 import { searchTextOf } from "../../../core/shared/message-parts";
@@ -29,6 +29,14 @@ import {
   WorkflowYieldedError,
 } from "../../runner/server/workflow/engine";
 import type { BotMessage, BotSendEvent, TurnStatus } from "../shared/turn";
+import {
+  botTurnJobName,
+  lockConversation,
+  receive,
+  turnEnded,
+  turnStarted,
+  waitingIn,
+} from "./router";
 import { botMessages, findBot, textParts, toBotMessage, turnTimeLimitMs } from "./store";
 
 /** The most Steps a Turn may take; one more ends it `error` with `step_limit`. */
@@ -42,14 +50,18 @@ export const botSystemPrompt =
   "You are a Bot the user talks to in a messenger. The user never sees your text replies or your " +
   `tool calls; they see only the messages you send with the ${sendToUserToolName} tool. To say ` +
   `something, call ${sendToUserToolName}. You may call it more than once, in order. Set endTurn to ` +
-  "true on your last message, so you stop there. If there is nothing worth saying (the user just " +
-  "acknowledged, said goodbye for now, or needs no answer), send nothing and reply without calling " +
-  "a tool.";
+  "true on your last message, so you stop there. Anything you want the user to read goes through " +
+  "it, including a refusal (you cannot do what they asked) and a question you need answered. If " +
+  "there is nothing worth saying (the user just acknowledged, said goodbye for now, or needs no " +
+  "answer), send nothing and reply without calling a tool.";
 
 /** What SendToUser returns for an empty `text`: what went wrong, and what to do instead. */
 export const emptyTextError =
   `The message was not sent: text is empty. Call ${sendToUserToolName} again with the words the ` +
   "user should read, or, if there is nothing worth saying, reply without calling a tool.";
+
+/** The first Checkpoint of a Turn's job, which starts the Turn (#501). */
+const startTurnActivity = "start_turn";
 
 /** How often `bot.send` re-reads its Turn when no hint has come (#483). */
 export const followPollMs = 2_000;
@@ -86,26 +98,29 @@ async function hintChanged(deps: BotSdkContext, conversationId: string) {
 
 /** The runner job of one Turn, keyed by the Turn's id (ADR 0011, the #482 amendment). */
 export const botTurnJob = defineJob({
-  name: "bot.turn",
+  name: botTurnJobName,
   payload: z.object({ turnId: z.uuid() }),
   run: ({ turnId }, ctx) => runTurnJob(ctx.deps, turnId, ctx),
   onFailed: ({ turnId }, _error, deps) => endLostTurn(deps, turnId),
+  onCancelled: ({ turnId }, deps) => endStoppedTurn(deps, turnId),
 });
 
 /**
- * Saves the user's Message, creates its Turn and queues the Turn's job, in one transaction. Checks
- * run before anything is written, and a refusal throws an RPC error before the stream starts. The
- * returned stream follows the Turn from Postgres: the saved user Message, each Message the Turn
- * sends, then `turnEnded`. Leaving it ends only the follow, never the Turn.
+ * Saves the user's Message and hands its Trigger to the Router, in one transaction: a Turn takes it
+ * now or, while a Turn's job runs, that Turn is interrupted and the next one does. Checks run
+ * before anything is written, and a refusal throws an RPC error before the stream starts. The
+ * returned stream follows the Turn that takes the Message from Postgres: the saved user Message,
+ * each Message sent after it, then `turnEnded`. Leaving it ends only the follow, never the Turn.
  */
 export async function sendToBot(
   deps: BotSdkContext,
   {
     userId,
     botId,
+    id,
     text,
     signal,
-  }: { userId: string; botId: string; text: string; signal?: AbortSignal },
+  }: { userId: string; botId: string; id: string; text: string; signal?: AbortSignal },
 ): Promise<AsyncGenerator<BotSendEvent>> {
   const found = await findBot(deps.db, userId, botId);
   if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
@@ -119,110 +134,150 @@ export async function sendToBot(
     );
   }
 
-  // A Turn on Host credentials is refused once its Quota's window has spent the budget (ADR 0007),
-  // before the user's Message is saved. It is checked here only, so a resumed Turn is never refused.
-  if (!(await call.meter.mayRun()).ok) {
-    throw rpcError("PAYMENT_REQUIRED", "error.quotaSpent", "You've used this window's Quota");
-  }
-
-  const runner = deps.plugin("runner");
-  const now = deps.clock();
-  const turnId = uuidv7();
-  const userMessage = await deps.db.transaction(async (tx) => {
-    // The Conversation's row lock first, so two sends can't both find no Turn running.
-    await tx
-      .select({ id: conversation.id })
-      .from(conversation)
-      .where(eq(conversation.id, found.conversationId))
-      .for("update");
-    const [running] = await tx
-      .select({ id: botTurn.id })
-      .from(botTurn)
-      .where(and(eq(botTurn.botId, botId), eq(botTurn.status, "running")))
-      .limit(1);
-    if (running) {
-      throw rpcError("CONFLICT", "error.turnRunning", "A Turn is still running for this Bot");
+  const sent = await deps.db.transaction(async (tx) => {
+    // The Conversation's row lock first, as in every transaction that starts or ends a Turn.
+    await lockConversation(tx, found.conversationId);
+    // A repeat of an earlier send (#498) is checked before the Quota, so a retry is never refused
+    // while its own Turn runs or once the Quota is spent. It saves nothing and re-joins its Turn.
+    const earlier = await seenMessage(tx, found.conversationId, id);
+    if (earlier) return { userMessage: earlier, started: false, ended: false };
+    // A Turn on Host credentials is refused once its Quota's window has spent the budget (ADR 0007),
+    // before the user's Message is saved. It is checked here only, so a resumed Turn is never refused.
+    if (!(await call.meter.mayRun()).ok) {
+      throw rpcError("PAYMENT_REQUIRED", "error.quotaSpent", "You've used this window's Quota");
     }
+    // Read under the lock, so no Turn starts between this time and the Message's commit.
+    const now = deps.clock();
     const row = await appendMessage(tx, found.conversationId, {
+      id,
       role: "user",
       parts: textParts(text),
       status: "complete",
       createdAt: now,
     });
-    const jobId = await runner.enqueueIn(
-      tx,
-      botTurnJob.name,
-      { turnId },
-      { idempotencyKey: turnId },
-    );
-    // A ms after its Message, so the replayed history puts the Turn after the Message it answers.
-    await tx.insert(botTurn).values({
-      id: turnId,
-      botId,
-      status: "running",
-      startedAt: new Date(now.getTime() + 1),
-      jobId,
+    const { waitsFor } = await receive(deps, tx, {
+      id: row.id,
+      conversationId: found.conversationId,
+      source: "user",
+      channel: "web",
+      messageId: row.id,
+      receivedAt: now,
     });
-    return toBotMessage(row);
+    // The owner skips the line (#500): a Message sent while a Turn's job runs interrupts that Turn,
+    // and the Turn that follows it takes the Message.
+    const ended = waitsFor ? await cancelTurn(deps, tx, waitsFor) : false;
+    return { userMessage: toBotMessage(row), started: true, ended };
   });
-  runner.wake();
+  if (sent.started) deps.plugin("runner").wake();
+  if (sent.ended) await hintChanged(deps, found.conversationId);
 
-  return followTurn(deps, { conversationId: found.conversationId, turnId, userMessage, signal });
+  return followTurn(deps, {
+    conversationId: found.conversationId,
+    triggerId: sent.userMessage.id,
+    userMessage: sent.userMessage,
+    signal,
+  });
 }
 
 /**
- * Stops the Bot's running Turn by cancelling its job (#482, #483). A queued Turn ends `stopped`
- * in the same transaction, so its job never runs; a running one ends `stopped` as its attempt
- * aborts (`runTurnJob`). Does nothing when no Turn is running.
+ * The user Message an earlier send of `id` saved in this Conversation, or `undefined` when `id` is
+ * new. An id that a Message or Trigger of another Conversation already holds is `BAD_REQUEST`, which
+ * says nothing about that row. Call it under the Conversation's row lock.
+ */
+async function seenMessage(
+  tx: Transaction,
+  conversationId: string,
+  id: string,
+): Promise<BotMessage | undefined> {
+  const [row] = await tx.select().from(message).where(eq(message.id, id));
+  const [trigger] = await tx
+    .select({ conversationId: botTrigger.conversationId })
+    .from(botTrigger)
+    .where(eq(botTrigger.id, id));
+  if (!row && !trigger) return undefined;
+  if (
+    !row ||
+    !trigger ||
+    row.conversationId !== conversationId ||
+    trigger.conversationId !== conversationId ||
+    row.role !== "user"
+  ) {
+    throw rpcError("BAD_REQUEST", "error.messageIdTaken", "That message id is already used");
+  }
+  return toBotMessage(row);
+}
+
+/**
+ * Stops the Bot's running Turn by cancelling its job (#482, #483), and starts nothing after it
+ * (#500): in the same transaction, the Turn it stops takes every Trigger waiting in the
+ * Conversation queue, so `turnEnded` finds the line empty. Their Messages stay, and the next Turn
+ * reads them as history. Does nothing when no Turn is running.
  */
 export async function stopBot(deps: BotSdkContext, userId: string, botId: string): Promise<void> {
   const found = await findBot(deps.db, userId, botId);
   if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
-  const runner = deps.plugin("runner");
   const ended = await deps.db.transaction(async (tx) => {
     // The Conversation's row lock first, as in `sendToBot`.
-    await tx
-      .select({ id: conversation.id })
-      .from(conversation)
-      .where(eq(conversation.id, found.conversationId))
-      .for("update");
-    const [running] = await tx
-      .select({ id: botTurn.id })
-      .from(botTurn)
-      .where(and(eq(botTurn.botId, botId), eq(botTurn.status, "running")))
-      .limit(1);
+    await lockConversation(tx, found.conversationId);
+    const running = await runningTurnOf(tx, botId);
     if (!running) return false;
-    if ((await runner.cancelIn(tx, running.id)) !== "queued") return false;
-    // A queued job may have run already (handed back by a deploy, waiting out a retry, or re-queued
-    // after a crash), so the Turn keeps what its Checkpoints hold. The job's row is locked, so its
-    // history can't grow while it replays.
-    const turn = await turnFacts(deps, running.id);
-    const played = turn ? await replayedTurn(deps, turn) : { transcript: [], usage: null };
-    await endTurn(tx, running.id, {
-      status: "stopped",
-      error: null,
-      transcript: played.transcript,
-      usage: played.usage,
-      endedAt: deps.clock(),
-    });
-    return true;
+    await tx.update(botTrigger).set({ turnId: running }).where(waitingIn(found.conversationId));
+    return cancelTurn(deps, tx, running);
   });
-  if (ended) await hintChanged(deps, found.conversationId);
+  if (!ended) return;
+  deps.plugin("runner").wake();
+  await hintChanged(deps, found.conversationId);
+}
+
+/** The id of the Bot's running Turn, or `undefined` when none runs. */
+async function runningTurnOf(tx: Transaction, botId: string): Promise<string | undefined> {
+  const [running] = await tx
+    .select({ id: botTurn.id })
+    .from(botTurn)
+    .where(and(eq(botTurn.botId, botId), eq(botTurn.status, "running")))
+    .limit(1);
+  return running?.id;
 }
 
 /**
- * Follows a Turn from Postgres (#483, slide 19's "signal, then fetch"): yields the user Message,
- * then re-reads on each "changed" hint on the Conversation's channel, and every `followPollMs` in
- * case a hint is lost, yielding each new Message, until the Turn has ended.
+ * Cancels Turn `turnId`'s job, unless it is already cancelled, under the Conversation's row lock
+ * (#500). A queued job never runs again, so its Turn ends `stopped` here and the next Turn takes
+ * what waits in the Conversation queue; a running one ends `stopped` as its attempt aborts
+ * (`runTurnJob`), or in `onCancelled` when that attempt dies first. Returns whether the Turn ended
+ * here.
+ */
+async function cancelTurn(deps: BotSdkContext, tx: Transaction, turnId: string): Promise<boolean> {
+  if ((await deps.plugin("runner").cancelIn(tx, turnId)) !== "queued") return false;
+  // A queued job may have run already (handed back by a deploy, waiting out a retry, or re-queued
+  // after a crash), so the Turn keeps what its Checkpoints hold. The job's row is locked, so its
+  // history can't grow while it replays. It reads on `tx`, which holds those locks.
+  const turn = await turnFacts(tx, turnId);
+  const played = turn ? await replayedTurn(deps, tx, turn) : { transcript: [], usage: null };
+  await endTurn(tx, turnId, {
+    status: "stopped",
+    error: null,
+    transcript: played.transcript,
+    usage: played.usage,
+    endedAt: deps.clock(),
+  });
+  await turnEnded(deps, tx, turnId);
+  return true;
+}
+
+/**
+ * Follows the Turn that takes a Trigger, from Postgres (#483, slide 19's "signal, then fetch"):
+ * yields the user Message, then re-reads on each "changed" hint on the Conversation's channel, and
+ * every `followPollMs` in case a hint is lost, yielding each new Message, until a Turn has taken
+ * the Trigger and ended.
  */
 async function* followTurn(
   deps: BotSdkContext,
   {
     conversationId,
-    turnId,
+    triggerId,
     userMessage,
     signal,
-  }: { conversationId: string; turnId: string; userMessage: BotMessage; signal?: AbortSignal },
+  }: { conversationId: string; triggerId: string; userMessage: BotMessage; signal?: AbortSignal },
 ): AsyncGenerator<BotSendEvent> {
   yield { type: "message", message: userMessage };
   let hinted = false;
@@ -238,17 +293,23 @@ async function* followTurn(
     while (!signal?.aborted) {
       hinted = false;
       // The status first: the Messages read after it hold every one sent before the Turn ended.
-      const [turn] = await deps.db
+      // A Trigger no Turn has taken yet has no status: it waits in the Conversation queue.
+      const [taken] = await deps.db
         .select({ status: botTurn.status })
-        .from(botTurn)
-        .where(eq(botTurn.id, turnId));
+        .from(botTrigger)
+        .leftJoin(botTurn, eq(botTurn.id, botTrigger.turnId))
+        .where(eq(botTrigger.id, triggerId));
       for (const sent of await botMessages(deps.db, conversationId, userMessage.createdAt)) {
         if (shown.has(sent.id)) continue;
         shown.add(sent.id);
         yield { type: "message", message: sent };
       }
-      if (turn?.status !== "running") {
-        yield { type: "turnEnded", status: turn?.status ?? "error" };
+      if (!taken) {
+        yield { type: "turnEnded", status: "error" };
+        return;
+      }
+      if (taken.status !== null && taken.status !== "running") {
+        yield { type: "turnEnded", status: taken.status };
         return;
       }
       await new Promise<void>((resolve) => {
@@ -277,9 +338,13 @@ type TurnFacts = {
   jobId: string | null;
 };
 
-async function turnFacts(deps: BotSdkContext, turnId: string): Promise<TurnFacts | undefined> {
-  const [row] = await deps.db
+async function turnFacts(
+  db: Database | Transaction,
+  turnId: string,
+): Promise<(TurnFacts & { status: string }) | undefined> {
+  const [row] = await db
     .select({
+      status: botTurn.status,
       id: botTurn.id,
       botId: botTurn.botId,
       startedAt: botTurn.startedAt,
@@ -304,33 +369,49 @@ async function runTurnJob(
   turnId: string,
   ctx: WorkflowContext<Transaction> & { signal: AbortSignal },
 ) {
-  const turn = await turnFacts(deps, turnId);
-  if (!turn) throw new PermanentJobError(`Turn ${turnId} no longer exists`);
+  const created = await turnFacts(deps.db, turnId);
+  if (!created) throw new PermanentJobError(`Turn ${turnId} no longer exists`);
+  let turn = created;
+  try {
+    await ctx.activity(startTurnActivity, async (tx) => {
+      await turnStarted(deps, tx, turnId);
+      return null;
+    });
+    // Read after the start: a resumed attempt replays it, so the Turn keeps the start it had.
+    turn = (await turnFacts(deps.db, turnId)) ?? created;
+  } catch (caught) {
+    if (ctx.signal.aborted) await stopIfCancelled(deps, turn, { transcript: [], usage: null });
+    throw caught;
+  }
   const played = await playTurn(deps, turn, ctx, { attempt: ctx.signal });
   try {
     ctx.signal.throwIfAborted();
     // A thrown activity recorded nothing: the job retries it.
     if (played.failure !== undefined) throw played.failure;
-    await ctx.activity("end_turn", (tx) =>
-      endTurn(tx, turnId, {
+    await ctx.activity("end_turn", async (tx) => {
+      await lockConversation(tx, turn.conversationId);
+      await endTurn(tx, turnId, {
         ...endingOf(played),
         transcript: played.transcript,
         usage: played.usage,
         endedAt: deps.clock(),
-      }),
-    );
+      });
+      await turnEnded(deps, tx, turnId);
+    });
   } catch (caught) {
     // Also when the abort lands after the Turn played, before or during its end_turn Checkpoint.
     if (ctx.signal.aborted) await stopIfCancelled(deps, turn, played);
     throw caught;
   }
+  deps.plugin("runner").wake();
   await hintChanged(deps, turn.conversationId);
 }
 
 /**
  * Ends a Turn `stopped` once its attempt has aborted, if its job was cancelled. A cancelled job
- * never reaches `onFailed`, so `bot.stop` leaves a running Turn to end here. A lost lease or a
- * shutdown leaves it `running`: the next attempt resumes it.
+ * never reaches `onFailed`, so `bot.stop` leaves a running Turn to end here, or in `onCancelled`
+ * when the attempt dies first. A lost lease or a shutdown leaves it `running`: the next attempt
+ * resumes it.
  */
 async function stopIfCancelled(
   deps: BotSdkContext,
@@ -339,17 +420,7 @@ async function stopIfCancelled(
 ) {
   const cancelled = turn.jobId && (await deps.plugin("runner").status(turn.jobId));
   if (!cancelled || cancelled.status !== "cancelled") return;
-  await deps.db
-    .update(botTurn)
-    .set({
-      status: "stopped",
-      error: null,
-      transcript: played.transcript,
-      usage: played.usage,
-      endedAt: deps.clock(),
-    })
-    .where(and(eq(botTurn.id, turn.id), eq(botTurn.status, "running")));
-  await hintChanged(deps, turn.conversationId);
+  await endRunningTurn(deps, turn, { status: "stopped", error: null }, played);
 }
 
 /**
@@ -357,25 +428,60 @@ async function stopIfCancelled(
  * `error` / `interrupted`, and writes the transcript and usage its recorded activities hold.
  */
 async function endLostTurn(deps: BotSdkContext, turnId: string) {
-  const turn = await turnFacts(deps, turnId);
-  if (!turn) return;
+  await endFromCheckpoints(deps, turnId, { status: "error", error: "interrupted" });
+}
+
+/**
+ * The job's `onCancelled`, once the sweep finds a cancelled job whose attempt died before it
+ * stopped the Turn: ends a Turn still `running` `stopped`, and writes the transcript and usage its
+ * recorded activities hold.
+ */
+async function endStoppedTurn(deps: BotSdkContext, turnId: string) {
+  await endFromCheckpoints(deps, turnId, { status: "stopped", error: null });
+}
+
+/** Ends a Turn still `running` as `ending` says, with what its recorded Checkpoints hold. */
+async function endFromCheckpoints(
+  deps: BotSdkContext,
+  turnId: string,
+  ending: { status: TurnStatus; error: string | null },
+) {
+  const turn = await turnFacts(deps.db, turnId);
+  // A Turn that has already ended stays as it is, so there is nothing to replay.
+  if (turn?.status !== "running") return;
   let played: Pick<PlayedTurn, "transcript" | "usage"> = { transcript: [], usage: null };
   try {
-    played = await replayedTurn(deps, turn);
+    played = await replayedTurn(deps, deps.db, turn);
   } catch (caught) {
     // The Turn still ends, so it never reads `running` forever; only its transcript is lost.
-    deps.logger.error(`Replaying lost Turn ${turnId} failed`, caught);
+    deps.logger.error(`Replaying the Checkpoints of Turn ${turnId} failed`, caught);
   }
-  await deps.db
-    .update(botTurn)
-    .set({
-      status: "error",
-      error: "interrupted",
-      transcript: played.transcript,
-      usage: played.usage,
-      endedAt: deps.clock(),
-    })
-    .where(and(eq(botTurn.id, turnId), eq(botTurn.status, "running")));
+  await endRunningTurn(deps, turn, ending, played);
+}
+
+/**
+ * Ends a Turn still `running` as `ending` says, with `played`'s transcript and usage, from outside
+ * its job, and starts the next Turn for what waits in the Conversation queue, under the
+ * Conversation's row lock. A Turn that has already ended stays as it is.
+ */
+async function endRunningTurn(
+  deps: BotSdkContext,
+  turn: TurnFacts,
+  ending: { status: TurnStatus; error: string | null },
+  played: Pick<PlayedTurn, "transcript" | "usage">,
+) {
+  const ended = await deps.db.transaction(async (tx) => {
+    await lockConversation(tx, turn.conversationId);
+    const rows = await tx
+      .update(botTurn)
+      .set({ ...ending, transcript: played.transcript, usage: played.usage, endedAt: deps.clock() })
+      .where(and(eq(botTurn.id, turn.id), eq(botTurn.status, "running")))
+      .returning({ id: botTurn.id });
+    if (rows.length === 0) return false;
+    await turnEnded(deps, tx, turn.id);
+    return true;
+  });
+  if (ended) deps.plugin("runner").wake();
   await hintChanged(deps, turn.conversationId);
 }
 
@@ -385,10 +491,12 @@ async function endLostTurn(deps: BotSdkContext, turnId: string) {
  */
 async function replayedTurn(
   deps: BotSdkContext,
+  db: Database | Transaction,
   turn: TurnFacts,
 ): Promise<Pick<PlayedTurn, "transcript" | "usage">> {
+  const history = turn.jobId ? await loadHistory(db, turn.jobId) : [];
   const workflow = createWorkflow<Transaction>({
-    history: turn.jobId ? await loadHistory(deps.db, turn.jobId) : [],
+    history,
     store: {
       save: async () => false,
       saveWith: async () => ({ saved: false }),
@@ -396,7 +504,9 @@ async function replayedTurn(
     now: deps.clock,
     signal: AbortSignal.abort(new Error("The Turn's job has ended")),
   });
-  return playTurn(deps, turn, workflow.context, {});
+  // A job that never started recorded no start.
+  if (history.length > 0) await workflow.context.activity(startTurnActivity, async () => null);
+  return playTurn(deps, turn, workflow.context, { db });
 }
 
 /** Ends the Turn's row, in its last Checkpoint's transaction. */
@@ -419,9 +529,9 @@ async function endTurn(
  * in order. The Bot's sent Messages are not replayed as text: the transcripts hold them as
  * SendToUser calls. Only what came before the Turn counts, so every attempt reads the same input.
  */
-async function modelInput(deps: BotSdkContext, turn: TurnFacts): Promise<ModelMessage[]> {
+async function modelInput(db: Database | Transaction, turn: TurnFacts): Promise<ModelMessage[]> {
   const [users, turns] = await Promise.all([
-    deps.db
+    db
       .select({ parts: message.parts, createdAt: message.createdAt })
       .from(message)
       .where(
@@ -432,7 +542,7 @@ async function modelInput(deps: BotSdkContext, turn: TurnFacts): Promise<ModelMe
         ),
       )
       .orderBy(asc(message.createdAt), asc(message.id)),
-    deps.db
+    db
       .select({ transcript: botTurn.transcript, startedAt: botTurn.startedAt })
       .from(botTurn)
       .where(and(eq(botTurn.botId, turn.botId), lt(botTurn.startedAt, turn.startedAt)))
@@ -482,15 +592,16 @@ type PlayedTurn = {
  * and a SendToUser's Message commit with their Checkpoint, so each happens once. A Step with no
  * tool call ends the Turn quiet; the Step and time limits end it `error`.
  *
- * `attempt`, when given, is the attempt's signal: the live call stops when it aborts.
+ * `attempt`, when given, is the attempt's signal: the live call stops when it aborts. `db` reads the
+ * Turn's input (`deps.db` unless given).
  */
 async function playTurn(
   deps: BotSdkContext,
   turn: TurnFacts,
   ctx: WorkflowContext<Transaction>,
-  { attempt }: { attempt?: AbortSignal },
+  { attempt, db = deps.db }: { attempt?: AbortSignal; db?: Database | Transaction },
 ): Promise<PlayedTurn> {
-  const input = await modelInput(deps, turn);
+  const input = await modelInput(db, turn);
   const provider = parseModelId(turn.model)?.provider ?? "";
   const abortController = new AbortController();
   const onAttemptAbort = () => abortController.abort(attempt?.reason);

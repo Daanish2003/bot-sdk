@@ -32,6 +32,7 @@ const ran: string[] = [];
 const started: string[] = [];
 const failedLabels: string[] = [];
 const aborted: string[] = [];
+const cancelledLabels: string[] = [];
 let failure: unknown;
 let gate: Promise<void> | undefined;
 /** While true, `test.hold` runs until its attempt is aborted, or until `releaseHold()`. */
@@ -81,6 +82,9 @@ defineJob({
     });
     ran.push(label);
   },
+  onCancelled: ({ label }) => {
+    cancelledLabels.push(label);
+  },
 });
 
 /** Every `chat.job` row, read straight from the test database. */
@@ -103,6 +107,7 @@ beforeEach(() => {
   started.length = 0;
   failedLabels.length = 0;
   aborted.length = 0;
+  cancelledLabels.length = 0;
   failure = undefined;
   gate = undefined;
   holding = false;
@@ -560,6 +565,93 @@ describe("cancel", () => {
     await expect.poll(() => aborted).toEqual(["a"]);
     expect(await jobRows()).toMatchObject([{ status: "cancelled", attempts: 1 }]);
     await runner.stop();
+  });
+  it("calls onCancelled from the sweep, exactly once, for a cancelled job whose attempt lost its lease", async () => {
+    const timer = fakeJobClock(start);
+    const db = getTestDb();
+    const runner = inProcessRunner({ db, logger: silent, deps: jobDeps, clock: timer.clock });
+    await runner.enqueue("test.hold", { label: "a" }, { idempotencyKey: "k" });
+    // A process claims the job and dies without running any more of it.
+    expect(await claimJob(db, timer.clock.now())).toMatchObject({ attempts: 1 });
+    await runner.cancel("k");
+
+    timer.advance(60_000);
+    await reapStaleJobs(db, timer.clock.now(), silent, jobDeps());
+    expect(cancelledLabels).toEqual([]);
+
+    timer.advance(1_000);
+    await reapStaleJobs(db, timer.clock.now(), silent, jobDeps());
+    await reapStaleJobs(db, timer.clock.now(), silent, jobDeps());
+
+    expect(cancelledLabels).toEqual(["a"]);
+    expect(await jobRows()).toMatchObject([{ status: "cancelled", attempts: 1 }]);
+  });
+
+  it("never calls onCancelled for a job whose attempt saw the cancel and ended", async () => {
+    const timer = fakeJobClock(start);
+    holding = true;
+    const runner = inProcessRunner({
+      db: getTestDb(),
+      logger: silent,
+      deps: jobDeps,
+      clock: timer.clock,
+      drainMs: 20,
+    });
+    await runner.enqueue("test.hold", { label: "a" }, { idempotencyKey: "k" });
+    await runner.start();
+    await expect.poll(() => statusOf("test.hold")).toBe("running");
+    await runner.cancel("k");
+    timer.advance(10_000);
+    timer.tick();
+    await expect.poll(() => aborted).toEqual(["a"]);
+    await expect.poll(async () => (await jobRows())[0]?.heartbeatAt).toBeNull();
+    await runner.stop();
+
+    timer.advance(61_000);
+    await reapStaleJobs(getTestDb(), timer.clock.now(), silent, jobDeps());
+
+    expect(cancelledLabels).toEqual([]);
+  });
+
+  it("calls onCancelled for a cancelled job whose handler ended before its attempt saw the cancel", async () => {
+    const timer = fakeJobClock(start);
+    holding = true;
+    const runner = inProcessRunner({
+      db: getTestDb(),
+      logger: silent,
+      deps: jobDeps,
+      clock: timer.clock,
+    });
+    await runner.enqueue("test.hold", { label: "a" }, { idempotencyKey: "k" });
+    await runner.start();
+    await expect.poll(() => statusOf("test.hold")).toBe("running");
+    await runner.cancel("k");
+
+    // The handler ends on its own, before a heartbeat tells it of the cancel.
+    releaseHold?.();
+    await expect.poll(() => ran).toEqual(["a"]);
+    await runner.stop();
+    timer.advance(61_000);
+    await reapStaleJobs(getTestDb(), timer.clock.now(), silent, jobDeps());
+
+    expect(cancelledLabels).toEqual(["a"]);
+  });
+
+  it("never calls onCancelled for a job cancelled while it waited to retry", async () => {
+    const timer = fakeJobClock(start);
+    const db = getTestDb();
+    const runner = inProcessRunner({ db, logger: silent, deps: jobDeps, clock: timer.clock });
+    await runner.enqueue("test.hold", { label: "a" }, { idempotencyKey: "k" });
+    expect(await claimJob(db, timer.clock.now())).toMatchObject({ attempts: 1 });
+    timer.advance(61_000);
+    await reapStaleJobs(db, timer.clock.now(), silent, jobDeps());
+    expect(await statusOf("test.hold")).toBe("queued");
+
+    await runner.cancel("k");
+    timer.advance(61_000);
+    await reapStaleJobs(db, timer.clock.now(), silent, jobDeps());
+
+    expect(cancelledLabels).toEqual([]);
   });
 });
 
