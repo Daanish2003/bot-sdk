@@ -1,4 +1,8 @@
-import type { CommandResult, ComputerProvider } from "../../../../plugins/computer/server/provider";
+import type {
+  CommandResult,
+  ComputerProvider,
+  FileEntry,
+} from "../../../../plugins/computer/server/provider";
 
 /** One command the fake ran: where, and on which sandbox. */
 export type FakeCommand = { sandboxId: string; command: string; cwd: string | undefined };
@@ -15,7 +19,7 @@ export type FakeCall =
  * A Computer provider for tests: no sandbox, only a record of what it was asked to do. Each
  * command is answered by `onCommand`, which the test supplies (exit 0 with no output by default).
  * Each pause first awaits `onPause`, so a test can hold a pause, or make it fail by throwing. A
- * command on a paused sandbox throws, so an operation that skipped its wake fails.
+ * command or file operation on a paused sandbox throws, so an operation that skipped its wake fails.
  */
 export function fakeComputerProvider({
   template = "fake-computer-v1",
@@ -28,6 +32,12 @@ export function fakeComputerProvider({
 } = {}) {
   const calls: FakeCall[] = [];
   const paused = new Set<string>();
+  /** Throws for a paused sandbox, so an operation that skipped its wake fails. */
+  const assertRunning = (sandboxId: string) => {
+    if (paused.has(sandboxId)) throw new Error(`Sandbox ${sandboxId} is paused`);
+  };
+  /** The files of the fake Computer, by absolute path. */
+  const files = new Map<string, Uint8Array>();
   let created = 0;
   const provider: ComputerProvider = {
     template,
@@ -52,13 +62,38 @@ export function fakeComputerProvider({
       calls.push({ type: "timeout", sandboxId, timeoutMs });
     },
     run: async (sandboxId, command, { cwd }) => {
-      if (paused.has(sandboxId)) throw new Error(`Sandbox ${sandboxId} is paused`);
+      assertRunning(sandboxId);
       calls.push({ type: "run", sandboxId, command, cwd });
       return onCommand({ sandboxId, command, cwd });
+    },
+    readFile: async (sandboxId, path) => {
+      assertRunning(sandboxId);
+      return files.get(path) ?? null;
+    },
+    writeFile: async (sandboxId, path, content) => {
+      assertRunning(sandboxId);
+      files.set(path, new TextEncoder().encode(content));
+    },
+    list: async (sandboxId, path) => {
+      assertRunning(sandboxId);
+      const prefix = path.endsWith("/") ? path : `${path}/`;
+      const entries = new Map<string, FileEntry>();
+      for (const [file, bytes] of files) {
+        if (!file.startsWith(prefix)) continue;
+        const [name, ...rest] = file.slice(prefix.length).split("/");
+        if (!name) continue;
+        entries.set(
+          name,
+          rest.length > 0
+            ? { name, kind: "directory", size: 0 }
+            : { name, kind: "file", size: bytes.length },
+        );
+      }
+      return entries.size > 0 ? [...entries.values()] : null;
     },
   };
   /** The calls of one type. */
   const callsOf = <Type extends FakeCall["type"]>(type: Type) =>
     calls.filter((call): call is Extract<FakeCall, { type: Type }> => call.type === type);
-  return { provider, calls, callsOf };
+  return { provider, calls, callsOf, files };
 }
