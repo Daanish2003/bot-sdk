@@ -97,3 +97,13 @@ The `bot` plugin runs each Turn as one runner job, keyed by the Turn id, and req
 - **Turns need the in-process runner.** Under Trigger.dev nothing is recorded and a retry starts over, which would send Messages again, so `bot` refuses to start on that adapter. The knowledge and memory jobs still run on either.
 - **The job is the Turn's liveness.** `bot_turn` links to its job and loses `heartbeat_at` and its "interrupted" sweep. A job that uses up its attempts ends its Turn `error` with `interrupted`.
 - **The engine has no Bot SDK imports.** It's a module inside `plugins/runner/`, so it could become its own package later without a rewrite. It stays a plugin now (ADR 0020).
+
+## Amendment: Routines and Check-ins fire as self-chaining jobs (2026-10-18, [#537](https://github.com/Daanish2003/ai-chat/issues/537), [#540](https://github.com/Daanish2003/ai-chat/issues/540))
+
+Step 4 needs schedules like "weekdays 8:00" in the user's time zone. `everyMs` can't express that. Research: [#536](https://github.com/Daanish2003/ai-chat/issues/536).
+
+- **A Routine fires through its own self-chaining job,** not through `schedule()`. Each fire hands its Trigger to the Router. In the same transaction it enqueues the next fire with `runAfter` set to the next slot, under the idempotency key `routine:<id>:<slot>`. Approving or resuming a Routine enqueues its first fire. Pausing, editing or deleting it cancels the queued one. The Routine's row is its schedule, so the runner gets no schedule table.
+- **A Check-in is one delayed job** under `check_in:<id>`.
+- **`schedule(name, { everyMs })` stays unbuilt** until something needs a fixed interval.
+- **Missed fires run once, late.** A job whose `runAfter` passed while nothing ran fires when the runner is back, and the next slot is counted from then. Older slots aren't replayed.
+- **Durable sleep stays deferred.** No workflow waits mid-run yet. The `sleep` history kind arrives with the first one, probably Helpers in step 6.

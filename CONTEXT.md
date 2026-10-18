@@ -174,7 +174,7 @@ The Triggers a Conversation has received that no Turn has taken yet, in the orde
 _Avoid_: Inbox, backlog, job queue (that is the runner's)
 
 **Routine**:
-A prompt one Bot runs on a schedule or when an inbound webhook arrives. A Bot can create one from its Conversation, but it runs only after the user's Approval.
+A prompt one Bot runs on a schedule (days of the week at a time, in the user's time zone) or when an inbound webhook arrives. A Bot can create one from its Conversation, but it runs only after the user's Approval. Each run lands in the Bot's Conversation, marked as the Routine's, never as the user's; a run missed while nothing was running happens once, late.
 _Avoid_: Cron job, schedule, automation, Saved prompt (that the user inserts)
 
 **Check-in**:
