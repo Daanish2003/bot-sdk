@@ -270,7 +270,8 @@ async function runOnFile(
   }
   // The report is the last such line: a login profile may print before it.
   const lines = result.stdout.split("\n");
-  const at = lines.findLastIndex((line) => reportLine.test(line));
+  let at = lines.length - 1;
+  while (at >= 0 && !reportLine.test(lines[at]!)) at--;
   const report = lines[at];
   if (report === undefined) {
     return { error: computerOperationError(`unexpected output: ${result.stdout.slice(0, 200)}`) };
