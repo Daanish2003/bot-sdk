@@ -1,13 +1,4 @@
-import {
-  type AnyTextAdapter,
-  type ChatMiddlewareContext,
-  chat,
-  EventType,
-  type ModelMessage,
-  type StreamChunk,
-  type TextOptions,
-  toolDefinition,
-} from "@tanstack/ai";
+import { type ModelMessage, toolDefinition } from "@tanstack/ai";
 import { and, asc, eq, isNotNull, lt, lte, ne } from "drizzle-orm";
 import { z } from "zod";
 
@@ -15,25 +6,13 @@ import { appendMessage } from "../../../core/server/chat/message-tree";
 import { bot, botTrigger, botTurn, message } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
-import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { rpcError } from "../../../core/server/rpc-error";
 import { searchTextOf } from "../../../core/shared/message-parts";
 import { conversationChannel } from "../../assistant/server/memory/notice";
-import { addUsage, promptCharactersOf, reportedUsageOf } from "../../models/server/run-usage";
-import { parseModelId } from "../../models/shared/models";
 import type { MessageUsage } from "../../models/shared/usage";
-import {
-  type ComputerHandle,
-  ComputerOperationError,
-  ComputerUnavailableError,
-} from "../../computer/server/plugin";
 import { defineJob, PermanentJobError } from "../../runner/server/jobs/define";
 import { loadHistory } from "../../runner/server/jobs/history";
-import {
-  createWorkflow,
-  type WorkflowContext,
-  WorkflowYieldedError,
-} from "../../runner/server/workflow/engine";
+import { createWorkflow, type WorkflowContext } from "../../runner/server/workflow/engine";
 import { routineScheduleSchema } from "../shared/routine";
 import type { BotMessage, BotSendEvent, TurnStatus } from "../shared/turn";
 import {
@@ -45,40 +24,9 @@ import {
   waitingIn,
 } from "./router";
 import { cancelCheckInTool, pendingCheckIns, saveCheckIn } from "./check-in";
-import {
-  capOutput,
-  computerOf,
-  computerPrompt,
-  computerOperationError,
-  computerUnavailableError,
-  defaultShellTimeoutSeconds,
-  editDefinition,
-  editTool,
-  type FileToolOptions,
-  interruptedShellError,
-  listDefinition,
-  listTool,
-  readDefinition,
-  readTool,
-  rebuiltNote,
-  resolvePath,
-  shellDefinition,
-  shellStartActivity,
-  shellToolName,
-  spillPath,
-  timedOutHint,
-  writeDefinition,
-  writeTool,
-} from "./computer-tools";
-import {
-  botMessages,
-  computerRebuildSeenAt,
-  findBot,
-  markComputerRebuildSeen,
-  textParts,
-  toBotMessage,
-  turnTimeLimitMs,
-} from "./store";
+import { computerPrompt } from "./computer-tools";
+import { type LoopKit, type LoopResult, type LoopSetup, runLoop } from "./loop";
+import { botMessages, findBot, textParts, toBotMessage, turnTimeLimitMs } from "./store";
 import { deleteRoutine, routinesPrompt, saveRoutine, updateRoutine } from "./routine";
 import { timeNotice } from "./time-zone";
 
@@ -648,7 +596,7 @@ async function runTurnJob(
 async function stopIfCancelled(
   deps: BotSdkContext,
   turn: TurnFacts,
-  played: Pick<PlayedTurn, "transcript" | "usage">,
+  played: Pick<LoopResult, "transcript" | "usage">,
 ) {
   const cancelled = turn.jobId && (await deps.plugin("runner").status(turn.jobId));
   if (!cancelled || cancelled.status !== "cancelled") return;
@@ -681,7 +629,7 @@ async function endFromCheckpoints(
   const turn = await turnFacts(deps.db, turnId);
   // A Turn that has already ended stays as it is, so there is nothing to replay.
   if (turn?.status !== "running") return;
-  let played: Pick<PlayedTurn, "transcript" | "usage"> = { transcript: [], usage: null };
+  let played: Pick<LoopResult, "transcript" | "usage"> = { transcript: [], usage: null };
   try {
     played = await replayedTurn(deps, deps.db, turn);
   } catch (caught) {
@@ -700,7 +648,7 @@ async function endRunningTurn(
   deps: BotSdkContext,
   turn: TurnFacts,
   ending: { status: TurnStatus; error: string | null },
-  played: Pick<PlayedTurn, "transcript" | "usage">,
+  played: Pick<LoopResult, "transcript" | "usage">,
 ) {
   const ended = await deps.db.transaction(async (tx) => {
     await lockConversation(tx, turn.conversationId);
@@ -725,7 +673,7 @@ async function replayedTurn(
   deps: BotSdkContext,
   db: Database | Transaction,
   turn: TurnFacts,
-): Promise<Pick<PlayedTurn, "transcript" | "usage">> {
+): Promise<Pick<LoopResult, "transcript" | "usage">> {
   const history = turn.jobId ? await loadHistory(db, turn.jobId) : [];
   const workflow = createWorkflow<Transaction>({
     history,
@@ -836,39 +784,12 @@ async function modelInput(db: Database | Transaction, turn: TurnFacts): Promise<
   return entries.flatMap((entry) => entry.messages);
 }
 
-/** What one model call recorded: its chunks, and what it bills (`null` for nothing). */
-type RecordedModelCall = {
-  chunks: StreamChunk[];
-  usage: { usage: MessageUsage; reportedCost?: number } | null;
-};
-
-/** The Model's own failure in a live model call, as opposed to a failure to save its Checkpoint. */
-class ModelCallError extends Error {
-  constructor(cause: unknown) {
-    super(cause instanceof Error ? cause.message : String(cause), { cause });
-  }
-}
-
-/** What a played Turn came to. `failure` is an activity that threw, which recorded nothing. */
-type PlayedTurn = {
-  timedOut: boolean;
-  stepLimit: boolean;
-  stopped: boolean;
-  error: string | undefined;
-  finished: boolean;
-  transcript: ModelMessage[];
-  usage: MessageUsage | null;
-  failure?: unknown;
-};
-
 /**
- * The Turn's loop (slide 2): `chat()` with SendToUser as its only tool, each model call and each
- * tool call an activity of the workflow `ctx` (ADR 0011, the #482 amendment). A recorded call
- * returns its result without running; past the history, calls run for real. A model call's usage
- * and a SendToUser's Message commit with their Checkpoint, so each happens once. A Step with no
- * tool call ends the Turn quiet, except that the first one with plain text gets one more Step,
- * after `undeliveredTextReminder`, when a Step is left under the limit; the Step and time limits
- * end it `error`.
+ * The Turn's loop (slide 2), run through `runLoop`: SendToUser, the Routine and Check-in tools and,
+ * whenever `computer` is on, the Computer's tools. A SendToUser's Message commits with its
+ * Checkpoint, so it is sent once. A Step with no tool call ends the Turn quiet, except that the
+ * first one with plain text gets one more Step, after `undeliveredTextReminder`, when a Step is left
+ * under the limit; the Step and time limits end it `error`.
  *
  * `attempt`, when given, is the attempt's signal: the live call stops when it aborts. `db` reads the
  * Turn's input (`deps.db` unless given).
@@ -878,316 +799,44 @@ async function playTurn(
   turn: TurnFacts,
   ctx: WorkflowContext<Transaction>,
   { attempt, db = deps.db }: { attempt?: AbortSignal; db?: Database | Transaction },
-): Promise<PlayedTurn> {
+): Promise<LoopResult> {
   const input = await modelInput(db, turn);
-  const provider = parseModelId(turn.model)?.provider ?? "";
-  const abortController = new AbortController();
-  const onAttemptAbort = () => abortController.abort(attempt?.reason);
-  if (attempt?.aborted) onAttemptAbort();
-  attempt?.addEventListener("abort", onAttemptAbort, { once: true });
-  let timedOut = false;
-  const timeUp = () => {
-    // A Turn that was stopped but hasn't ended yet stays stopped.
-    if (abortController.signal.aborted) return;
-    timedOut = true;
-    abortController.abort();
-  };
-  // Wall clock from the Turn's start. It cuts off only a live model call, never the replay of the
-  // recorded ones: past the limit, the next live call ends the Turn. A replay with no attempt (the
-  // job's `onFailed`) has no limit.
-  let expired = false;
-  let inLiveCall = false;
-  const timeLeftMs = () => turnTimeLimitMs - (deps.clock().getTime() - turn.startedAt.getTime());
-  const timeLimit = attempt
-    ? setTimeout(
-        () => {
-          expired = true;
-          if (inLiveCall) timeUp();
-        },
-        Math.max(0, timeLeftMs()),
-      )
-    : undefined;
+  return runLoop(deps, ctx, {
+    owner: turn,
+    usageKind: "turn",
+    input,
+    startedAt: turn.startedAt,
+    stepLimit: turnStepLimit,
+    timeLimitMs: turnTimeLimitMs,
+    plainTextReminder: undeliveredTextReminder,
+    attempt,
+    setup: (kit) => turnSetup(deps, turn, kit),
+  });
+}
+
+/** The Turn's system prompts and tools, given the loop's `kit`. */
+async function turnSetup(deps: BotSdkContext, turn: TurnFacts, kit: LoopKit): Promise<LoopSetup> {
+  const { liveActivity } = kit;
   let endTurn = false;
-  let stepLimit = false;
-  /** The Turn's Steps so far, recorded or live: one per model call. */
-  let steps = 0;
-  /** What each recorded model call billed. */
-  const billed: MessageUsage[] = [];
-  /** The tool calls whose activity threw: they recorded nothing, so they stay unanswered. */
-  const unanswered = new Set<string>();
-  let failure: unknown;
-  let error: string | undefined;
-  let finished = false;
 
-  /** The Model's call, made once: the credentials and the adapter are only needed for a live call. */
-  let live: Promise<{ adapter: AnyTextAdapter; record: ModelCallRecorder }> | undefined;
-  const liveCall = () =>
-    (live ??= (async () => {
-      const models = deps.plugin("models");
-      const call = await models.resolveModelCall(turn.userId, turn.model);
-      if (!call) throw new Error(`"${turn.model}" is not an available Model`);
-      return {
-        adapter: models.adapterFor(turn.model, call.credentials, {
-          maxOutputTokens: call.maxOutputTokens,
-        }),
-        record: (tx, usage, reportedCost) =>
-          call.meter.recordIn(tx, { kind: "turn", usage, reportedCost }),
-      };
-    })());
-
-  // The model call as an activity: replayed, it plays the recorded chunks without calling the Model.
-  // The call runs outside a transaction; its bill is the next activity, written in that activity's
-  // Checkpoint transaction, so it commits once.
-  const durableAdapter = {
-    kind: "text",
-    name: provider,
-    model: parseModelId(turn.model)?.modelId ?? turn.model,
-    chatStream: async function* (options: TextOptions) {
-      steps += 1;
-      let recorded: RecordedModelCall;
-      try {
-        recorded = await ctx.activity("model", async (): Promise<RecordedModelCall> => {
-          // Read off the clock too: a timer that is due may not have fired yet.
-          if (attempt && (expired || timeLeftMs() <= 0)) timeUp();
-          abortController.signal.throwIfAborted();
-          const chunks: StreamChunk[] = [];
-          inLiveCall = true;
-          try {
-            const { adapter } = await liveCall();
-            for await (const chunk of adapter.chatStream(options)) chunks.push(withoutRaw(chunk));
-          } catch (caught) {
-            throw new ModelCallError(caught);
-          } finally {
-            inLiveCall = false;
-          }
-          // A call cut off before its end records nothing and bills nothing; a resume calls it again.
-          abortController.signal.throwIfAborted();
-          const usage = callUsage(deps, provider, chunks, options.messages as ModelMessage[]);
-          return { chunks, usage: usage ?? null };
-        });
-        const bill = recorded.usage;
-        if (bill) {
-          let fire: (() => void) | undefined;
-          try {
-            await ctx.activity("bill", async (tx) => {
-              const { record } = await liveCall();
-              fire = await record(tx, bill.usage, bill.reportedCost);
-              return null;
-            });
-          } catch (caught) {
-            // A yield is thrown once the bill's Checkpoint has committed: its next attempt replays
-            // the bill, so it fires now or never.
-            if (caught instanceof WorkflowYieldedError) fire?.();
-            throw caught;
-          }
-          // Only once the bill has committed, and never on a replay.
-          fire?.();
-          billed.push(bill.usage);
-        }
-      } catch (caught) {
-        // The Model's own failure ends the Turn `error`, as `chat()` reports it.
-        if (caught instanceof ModelCallError) throw caught.cause;
-        // Anything else (a Checkpoint or a bill that failed to save) recorded nothing: the job
-        // retries it.
-        if (!abortController.signal.aborted) {
-          failure ??= caught;
-          abortController.abort();
-        }
-        throw caught;
-      }
-      yield* recorded.chunks;
-    },
-  } as unknown as AnyTextAdapter;
-
-  /**
-   * One tool call. A call that throws recorded nothing: it stays unanswered and ends the attempt,
-   * and only a throw that no time limit or stop caused is a failure to retry.
-   */
-  const toolCallOf = async <T>(toolCallId: string | undefined, call: () => Promise<T>) => {
-    try {
-      return await call();
-    } catch (caught) {
-      if (!abortController.signal.aborted) failure ??= caught;
-      if (toolCallId) unanswered.add(toolCallId);
-      abortController.abort();
-      throw caught;
-    }
-  };
-  /**
-   * Called first in a tool's activity, which runs only live, so a recorded call still replays:
-   * past the limit, a resumed Turn does nothing more, and never answers a question from long ago.
-   */
-  const beforeLiveTool = () => {
-    if (attempt && (expired || timeLeftMs() <= 0)) timeUp();
-    abortController.signal.throwIfAborted();
-  };
-
-  const sendToUser = sendToUserDefinition.server(({ text, endTurn: last }, context) =>
-    toolCallOf(context?.toolCallId, async () => {
-      // The Message commits with its Checkpoint, so it is sent once across a crash.
-      const result = await ctx.activity(sendToUserToolName, async (tx) => {
-        beforeLiveTool();
-        if (!text.trim()) return { error: emptyTextError };
-        await appendMessage(tx, turn.conversationId, {
-          role: "assistant",
-          parts: textParts(text),
-          status: "complete",
-          createdAt: deps.clock(),
-        });
-        return { sent: true };
+  const sendToUser = sendToUserDefinition.server(async ({ text, endTurn: last }, context) => {
+    // The Message commits with its Checkpoint, so it is sent once across a crash.
+    const result = await liveActivity(sendToUserToolName, context?.toolCallId, async (tx) => {
+      if (!text.trim()) return { error: emptyTextError };
+      await appendMessage(tx, turn.conversationId, {
+        role: "assistant",
+        parts: textParts(text),
+        status: "complete",
+        createdAt: deps.clock(),
       });
-      if ("sent" in result) {
-        if (last) endTurn = true;
-        await hintChanged(deps, turn.conversationId);
-      }
-      return result;
-    }),
-  );
-
-  // The Computer's tools, whenever `computer` is on: the tool set never changes mid-conversation.
-  const withComputer = deps.hasPlugin("computer");
-  let userComputer: ComputerHandle | undefined;
-  // The latest rebuild of the Computer the Bot was told of, read on its first Computer call
-  // (undefined until then), and the one the latest result tells, recorded once it is saved.
-  let rebuildSeenAt: Date | null | undefined;
-  let telling: Date | undefined;
-  /**
-   * The Computer's operation for a live tool call. A failed wake, or an operation the provider
-   * failed, is the tool's result, unless the Turn was stopped or ran out of time meanwhile: then
-   * the call stays unanswered. A database failure throws, so the Turn's job retries it. After a
-   * rebuild the Bot wasn't told of, the result carries the rebuilt note (#553).
-   */
-  const onComputer = async <T extends object>(
-    operate: (computer: ComputerHandle) => Promise<T>,
-  ) => {
-    const computer = (userComputer ??= computerOf(deps, turn.userId));
-    try {
-      const result = await operate(computer);
-      const rebuild = computer.rebuild();
-      if (!rebuild) return result;
-      if (rebuildSeenAt === undefined)
-        rebuildSeenAt = await computerRebuildSeenAt(deps.db, turn.botId);
-      if (rebuildSeenAt && rebuild.rebuiltAt <= rebuildSeenAt) return result;
-      telling = rebuild.rebuiltAt;
-      return { ...result, note: rebuiltNote(rebuild) };
-    } catch (caught) {
-      if (!abortController.signal.aborted) {
-        if (caught instanceof ComputerUnavailableError) return { error: computerUnavailableError };
-        if (caught instanceof ComputerOperationError) {
-          return { error: computerOperationError(caught.message) };
-        }
-      }
-      throw caught;
-    }
-  };
-  /**
-   * `onComputer` for a live call: the Turn's time limit, like a Stop, stops its operations
-   * through `live`'s signal, and its commands run no later than `live`'s deadline.
-   */
-  const onLiveComputer = async <T extends object>(
-    operate: (computer: ComputerHandle, live: FileToolOptions) => Promise<T>,
-  ) => {
-    inLiveCall = true;
-    try {
-      return await onComputer((computer) =>
-        operate(computer, {
-          deadline: new Date(turn.startedAt.getTime() + turnTimeLimitMs),
-          signal: abortController.signal,
-        }),
-      );
-    } finally {
-      inLiveCall = false;
-    }
-  };
-  /**
-   * After a Computer tool's Checkpoint is saved: the rebuild its result told is recorded as told.
-   * A crash before then tells it again in the retried attempt rather than never.
-   */
-  const recordTold = async <T>(result: T): Promise<T> => {
-    if (telling) {
-      await markComputerRebuildSeen(deps.db, turn.botId, telling);
-      rebuildSeenAt = telling;
-      telling = undefined;
+      return { sent: true };
+    });
+    if ("sent" in result) {
+      if (last) endTurn = true;
+      await hintChanged(deps, turn.conversationId);
     }
     return result;
-  };
-  const shell = shellDefinition.server(({ command, cwd, timeoutSeconds }, context) =>
-    toolCallOf(context?.toolCallId, async () => {
-      // The start marker: a resumed Turn that replays it with no result never runs the command
-      // again, since it may have partly run. A yield waits for the command's own Checkpoint, so
-      // the marker never stands for a command that didn't start. No transaction: the command runs
-      // on the Computer, not in the database.
-      let startedHere = false;
-      await ctx.activity(
-        shellStartActivity,
-        async () => {
-          beforeLiveTool();
-          startedHere = true;
-          return null;
-        },
-        { yields: false },
-      );
-      const result = await ctx.activity(shellToolName, async () => {
-        beforeLiveTool();
-        if (!startedHere) return { error: interruptedShellError };
-        return onLiveComputer(async (computer, live) => {
-          const result = await computer.run(command, {
-            ...live,
-            cwd: resolvePath(turn.botId, cwd),
-            timeoutMs: (timeoutSeconds ?? defaultShellTimeoutSeconds) * 1000,
-          });
-          // The cap is applied here, so the Checkpoint holds only the truncated form.
-          const capped = await capOutput(
-            result,
-            spillPath(turn.botId, context?.toolCallId ?? uuidv7()),
-            computer.writeFile,
-          );
-          return "timedOut" in capped ? { ...capped, hint: timedOutHint } : capped;
-        });
-      });
-      return recordTold(result);
-    }),
-  );
-  /** A file tool: one activity, re-run after a crash, and a live call like `shell`'s. */
-  const fileTool =
-    <Input, Output extends object>(
-      name: string,
-      run: (
-        computer: ComputerHandle,
-        botId: string,
-        input: Input,
-        options: FileToolOptions,
-      ) => Promise<Output>,
-    ) =>
-    (input: Input, context?: { toolCallId?: string }) =>
-      toolCallOf(context?.toolCallId, async () =>
-        recordTold(
-          await ctx.activity(name, async () => {
-            beforeLiveTool();
-            return onLiveComputer((computer, live) => run(computer, turn.botId, input, live));
-          }),
-        ),
-      );
-  const read = readDefinition.server(fileTool("read", readTool));
-  const write = writeDefinition.server(fileTool("write", writeTool));
-  const edit = editDefinition.server(fileTool("edit", editTool));
-  const list = listDefinition.server(fileTool("list", listTool));
-
-  /**
-   * A database write of the Turn's: it commits with its Checkpoint, so it happens once across a
-   * crash, and runs only live, like a tool's activity.
-   */
-  const liveActivity = <T>(
-    name: string,
-    toolCallId: string | undefined,
-    write: (tx: Transaction) => Promise<T>,
-  ) =>
-    toolCallOf(toolCallId, () =>
-      ctx.activity(name, async (tx) => {
-        beforeLiveTool();
-        return write(tx);
-      }),
-    );
+  });
 
   // The Turn carries on once the Routine is saved: the Approval is the Routine's, not the call's.
   const createRoutine = createRoutineDefinition.server(async (input, context) =>
@@ -1247,146 +896,28 @@ async function playTurn(
     })),
   );
 
-  /** What the Turn's model calls and tool calls added to its input, in order. */
-  const messages: ModelMessage[] = [];
-  try {
-    // The Bot's Routines as the Turn starts, read once: a replay reads the recorded list.
-    const routines = await liveActivity(
-      "routines",
-      undefined,
-      async (tx) => (await routinesPrompt(tx, turn.botId)) ?? null,
-    );
-    let reminded = false;
-    for (;;) {
-      let engine: ChatMiddlewareContext | undefined;
-      const stream = chat({
-        adapter: durableAdapter,
-        messages: [...input, ...messages],
-        systemPrompts: [
-          ...botSystemPrompts(turn.botId, withComputer),
-          ...(routines ? [routines] : []),
-        ],
-        tools: [
-          sendToUser,
-          createRoutine,
-          updateRoutineTool,
-          deleteRoutineTool,
-          setCheckInTool,
-          cancelCheckInToolImpl,
-          listCheckInsTool,
-          ...(withComputer ? [shell, read, write, edit, list] : []),
-        ],
-        // One call at a time, in call order, which is a workflow's identity.
-        toolExecution: "sequential",
-        abortController,
-        // The Step limit is the middleware's, so the engine's default limit doesn't end the Turn first.
-        agentLoopStrategy: () => true,
-        middleware: [
-          {
-            name: "bot-turn",
-            onStart: (middlewareCtx) => {
-              engine = middlewareCtx;
-            },
-            onShouldContinue: (_middlewareCtx, state) => {
-              // Any `endTurn: true` in the Step ends the Turn with no further model call.
-              if (endTurn) return false;
-              // A Step that called a tool would go on to another; past the limit, the Turn ends.
-              // Replay counts the recorded Steps, so a crash can't reset the limit.
-              if (state.lastTurnToolCallCount > 0 && steps >= turnStepLimit) {
-                stepLimit = true;
-                return false;
-              }
-              return true;
-            },
-          },
-        ],
-      });
-      try {
-        for await (const chunk of stream) {
-          if (chunk.type === EventType.RUN_ERROR) error = chunk.message;
-        }
-      } finally {
-        if (engine) messages.push(...engine.messages.slice(engine.messageCount));
-      }
-      if (reminded || endTurn || stepLimit || error !== undefined) break;
-      // With no Step left under the limit, there is no reminder: the Turn ends quiet, as before.
-      if (abortController.signal.aborted || steps >= turnStepLimit) break;
-      if (!endsInPlainText(messages)) break;
-      // Plain text reaches no one: one more Step, with a note that says so (#531). It is rebuilt
-      // from the recorded model call on replay, so it needs no Checkpoint of its own.
-      reminded = true;
-      messages.push({ role: "user", content: undeliveredTextReminder });
-    }
-    finished = true;
-  } catch (caught) {
-    error = caught instanceof Error ? caught.message : String(caught);
-  } finally {
-    clearTimeout(timeLimit);
-    attempt?.removeEventListener("abort", onAttemptAbort);
-  }
+  // The Bot's Routines as the Turn starts, read once: a replay reads the recorded list.
+  const routines = await liveActivity(
+    "routines",
+    undefined,
+    async (tx) => (await routinesPrompt(tx, turn.botId)) ?? null,
+  );
+  // The Computer's tools, whenever `computer` is on: the tool set never changes mid-conversation.
+  const withComputer = deps.hasPlugin("computer");
   return {
-    timedOut,
-    stepLimit,
-    // An abort wins over an error: the adapter often reports the cancelled request as one.
-    stopped: abortController.signal.aborted,
-    error,
-    finished,
-    transcript: answeredCalls(messages.filter((entry) => !unanswered.has(entry.toolCallId ?? ""))),
-    usage: billed.length > 0 ? totalUsage(billed) : null,
-    failure,
+    systemPrompts: [...botSystemPrompts(turn.botId, withComputer), ...(routines ? [routines] : [])],
+    tools: [
+      sendToUser,
+      createRoutine,
+      updateRoutineTool,
+      deleteRoutineTool,
+      setCheckInTool,
+      cancelCheckInToolImpl,
+      listCheckInsTool,
+      ...(withComputer ? kit.computerTools : []),
+    ],
+    ended: () => endTurn,
   };
-}
-
-/**
- * Records one model call's usage against the Quota, in its bill's Checkpoint transaction. Returns
- * the `onUsage` firing, for once that transaction has committed.
- */
-type ModelCallRecorder = (
-  tx: Transaction,
-  usage: MessageUsage,
-  reportedCost: number | undefined,
-) => Promise<() => void>;
-
-/**
- * What one model call bills: the usage its Provider reported, else an estimate from its input and
- * output. A call that failed with no usage reported bills nothing.
- */
-function callUsage(
-  deps: BotSdkContext,
-  provider: string,
-  chunks: StreamChunk[],
-  messages: ModelMessage[],
-): { usage: MessageUsage; reportedCost?: number } | null {
-  const reported = reportedUsageOf(provider, chunks);
-  if (!reported.usage && chunks.some((chunk) => chunk.type === EventType.RUN_ERROR)) return null;
-  const output = chunks
-    .map((chunk) =>
-      chunk.type === EventType.TEXT_MESSAGE_CONTENT || chunk.type === EventType.TOOL_CALL_ARGS
-        ? chunk.delta
-        : "",
-    )
-    .join("");
-  return {
-    usage: deps.plugin("models").messageUsage(reported.usage, {
-      promptCharacters: promptCharactersOf(messages),
-      parts: [{ type: "text", text: output }],
-    }),
-    reportedCost: reported.cost,
-  };
-}
-
-/** The Turn's usage: the sum of what its model calls billed, an estimate if any of them was. */
-function totalUsage(calls: MessageUsage[]): MessageUsage {
-  let total: Omit<MessageUsage, "estimated"> | undefined;
-  for (const { estimated: _estimated, ...call } of calls) total = addUsage(total, call);
-  return { ...total!, estimated: calls.some((call) => call.estimated) };
-}
-
-/** A chunk without the Provider's raw event, which the history needn't keep. */
-function withoutRaw(chunk: StreamChunk): StreamChunk {
-  if (!("rawEvent" in chunk)) return chunk;
-  const { rawEvent: _raw, ...rest } = chunk;
-  return rest as StreamChunk;
 }
 
 /** How a Turn ended, and why when it failed: a limit's code or the Provider's error. */
@@ -1396,7 +927,7 @@ function endingOf({
   stopped,
   error,
   finished,
-}: Pick<PlayedTurn, "timedOut" | "stepLimit" | "stopped" | "error" | "finished">): {
+}: Pick<LoopResult, "timedOut" | "stepLimit" | "stopped" | "error" | "finished">): {
   status: TurnStatus;
   error: string | null;
 } {
@@ -1405,33 +936,4 @@ function endingOf({
   if (error !== undefined) return { status: "error", error };
   if (stepLimit) return { status: "error", error: "step_limit" };
   return finished ? { status: "complete", error: null } : { status: "stopped", error: null };
-}
-
-/** Whether the last Step ended in non-empty plain text and no tool call. */
-function endsInPlainText(messages: readonly ModelMessage[]): boolean {
-  const last = messages.at(-1);
-  if (last?.role !== "assistant" || last.toolCalls?.length) return false;
-  const content =
-    typeof last.content === "string"
-      ? last.content
-      : (last.content ?? []).map((part) => (part.type === "text" ? part.content : "")).join("");
-  return content.trim() !== "";
-}
-
-/**
- * The transcript without tool calls that never got a result (a Turn cut off mid-Step), which a
- * Provider would refuse when the transcript is replayed.
- */
-function answeredCalls(messages: readonly ModelMessage[]): ModelMessage[] {
-  const answered = new Set(
-    messages.flatMap((entry) => (entry.toolCallId ? [entry.toolCallId] : [])),
-  );
-  return messages.flatMap((entry) => {
-    if (!entry.toolCalls) return [entry];
-    const toolCalls = entry.toolCalls.filter((call) => answered.has(call.id));
-    if (toolCalls.length === entry.toolCalls.length) return [entry];
-    const { toolCalls: _dropped, ...rest } = entry;
-    if (toolCalls.length > 0) return [{ ...rest, toolCalls }];
-    return rest.content ? [rest] : [];
-  });
 }
