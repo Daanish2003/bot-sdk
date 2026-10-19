@@ -88,9 +88,17 @@ export function e2bProvider({
         ...connection,
         timeoutMs,
         lifecycle: { onTimeout: "pause" },
+        // A port is reached only with the sandbox's traffic access token: the Screens' noVNC and
+        // DevTools ports must not be open to anyone who finds the URL.
+        network: { allowPublicTraffic: false },
       });
       connected.set(sandbox.sandboxId, Promise.resolve(sandbox));
       return { sandboxId: sandbox.sandboxId };
+    },
+
+    async hostUrl(sandboxId, port) {
+      const host = await withSandbox(sandboxId, async (sandbox) => sandbox.getHost(port));
+      return `https://${host}`;
     },
 
     async resume(sandboxId, { timeoutMs }) {

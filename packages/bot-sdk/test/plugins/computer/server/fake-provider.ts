@@ -37,6 +37,7 @@ type Lifecycle = "create" | "resume";
  */
 export type FakeCall =
   | { [Type in Lifecycle]: { type: Type; sandboxId: string; timeoutMs: number } }[Lifecycle]
+  | { type: "host-url"; sandboxId: string; port: number }
   | { type: "pause"; sandboxId: string }
   | { type: "timeout"; sandboxId: string; timeoutMs: number }
   | ({ type: "run" } & FakeCommand)
@@ -124,6 +125,11 @@ export function fakeComputerProvider({
       disks.set(sandboxId, current);
       calls.push({ type: "create", sandboxId, timeoutMs });
       return { sandboxId };
+    },
+    hostUrl: async (sandboxId, port) => {
+      if (!disks.has(sandboxId)) throw new SandboxGoneError(sandboxId);
+      calls.push({ type: "host-url", sandboxId, port });
+      return `https://${port}-${sandboxId}.fake.test`;
     },
     resume: async (sandboxId, { timeoutMs }) => {
       failIfTold("resume");

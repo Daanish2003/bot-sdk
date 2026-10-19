@@ -27,10 +27,16 @@ export type ComputerProvider = {
   /** The template a new sandbox is built from, recorded on `chat.computer` as `template`. */
   template: string;
   /**
-   * Creates a sandbox from `template`, running, and returns its id. It pauses itself once
+   * Creates a sandbox from `template`, running, with public traffic off, and returns its id. It pauses itself once
    * `timeoutMs` passes (the backstop for a sleep that never runs).
    */
   create: (options: { timeoutMs: number }) => Promise<{ sandboxId: string }>;
+  /**
+   * The URL, scheme and host without a path, at which `port` of the sandbox is reached from
+   * outside. Sandboxes are created with public traffic off, so a request to it is refused (403)
+   * without the sandbox's traffic access token.
+   */
+  hostUrl: (sandboxId: string, port: number) => Promise<string>;
   /**
    * Resumes a paused sandbox, which then pauses itself once `timeoutMs` passes. A sandbox that no
    * longer exists (its snapshot lost, or killed) is `"gone"`, and the plugin rebuilds it.

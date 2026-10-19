@@ -248,7 +248,7 @@ import { e2bProvider } from "@ai-chat/bot-sdk/plugins/computer/e2b";
 import { computer } from "@ai-chat/bot-sdk/plugins/computer/server";
 
 computer({
-  provider: e2bProvider({ apiKey, apiUrl, sandboxUrl, template: "ai-chat-computer-v2" }),
+  provider: e2bProvider({ apiKey, apiUrl, sandboxUrl, template: "ai-chat-computer-v3" }),
 });
 ```
 
@@ -258,12 +258,12 @@ A user's Computer is created on their first operation, and with `bot` on, only f
 
 ### The template
 
-`plugins/computer/template/Dockerfile` is a plain Debian image with no X server. The plugin only expects `/home/user`, `bash` and `tar`, so a Host can pass any template with those. The template's name is its version: change the name with every change to the Dockerfile, and every Computer is rebuilt on its next wake. `apps/web` keeps the name in `computerTemplate` (`src/services.ts`).
+`plugins/computer/template/Dockerfile` is a Debian image with Screens: Xvfb, x11vnc, noVNC (websockify), xdotool, scrot and Chromium, plus the `ai-chat-screen` start script that `openScreen`, `closeScreen` and `setScreenControl` run. A Computer without Screens only needs `/home/user`, `bash` and `tar`, so a Host that never opens a Screen can pass any template with those. The template's name is its version: change the name with every change to the Dockerfile, and every Computer is rebuilt on its next wake. `apps/web` keeps the name in `computerTemplate` (`src/services.ts`).
 
 Build it into self-hosted E2B with the E2B CLI (no dependency is added; `pnpm dlx` fetches it), from `packages/bot-sdk`, with the three variables above in the environment:
 
 ```sh
-pnpm dlx @e2b/cli@2.22.0 template create ai-chat-computer-v2 -p plugins/computer/template -d Dockerfile
+pnpm dlx @e2b/cli@2.22.0 template create ai-chat-computer-v3 --memory-mb 1536 -p plugins/computer/template -d Dockerfile
 ```
 
 Notes from building it on local E2B Embed:
@@ -281,6 +281,7 @@ Measured on 2026-10-19 (orchestrator `v0.16.202610051633`, the newest Embed rele
 - `template create --min-free-disk-mb 2048 --no-cache` is a no-op here. The API stores `free_disk_size_mb = 2048`, but the build phase that would act on it (`ensurefreedisk`, "resize-disk") runs only when the orchestrator's `build-ensure-free-disk-space` feature flag is on. Its default is off, Embed has no LaunchDarkly, and the flag has no environment override. A sandbox from that build still showed 787M.
 - The lever that works is the tier's `disk_mb`: the base build phase grows the root filesystem to it (`enlargeDiskAfterProvisioning` in `e2b-dev/infra`). With `UPDATE tiers SET disk_mb = 2560 WHERE id = 'base_v1'` (run in the `postgres` container of `~/e2b`), a `--no-cache` rebuild of `ai-chat-computer-v2` gave `df -h /` = 2.8G size, 269M used, 2.3G available. No Embed restart was needed.
 - To revert, set `disk_mb` back to 512 and rebuild under a new template name. The disk size is part of the built template, so changing it needs a rebuild and a new name (per the rule above), and every Computer is rebuilt on its next wake. `ai-chat-computer-v2` is the template built with `disk_mb = 2560`.
+- `ai-chat-computer-v3` needs that bigger disk too: its packages leave about 1.3 GiB free on the 2.8 GiB root, against about 245 MB on the default tier.
 - The cap is the tier's `max_disk_size_mb` (25600). Changing tier values is an Embed change, not an SDK one.
 
 Trade-offs of a bigger disk:

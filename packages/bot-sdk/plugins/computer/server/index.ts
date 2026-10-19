@@ -3,9 +3,12 @@ export {
   ComputerOperationError,
   ComputerUnavailableError,
   defaultCommandTimeoutMs,
+  maxScreens,
   type ComputerApi,
   type ComputerHandle,
   type ComputerPlugin,
+  type ScreenControl,
+  type ScreenUrls,
 } from "./plugin";
 export {
   SandboxGoneError,
