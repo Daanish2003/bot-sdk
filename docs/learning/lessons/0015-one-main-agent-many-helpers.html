@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lesson 15 · One main agent, many Helpers</title>
+    <link rel="stylesheet" href="../assets/style.css" />
+  </head>
+  <body>
+    <main>
+      <p class="kicker">ai-chat architecture · Lesson 15</p>
+      <h1>One main agent, many Helpers</h1>
+      <p class="subtitle">
+        A Turn stops after 10 Steps or 5 minutes. For bigger work the Bot hands a task to a Helper,
+        keeps talking, and hears back as a Trigger.
+      </p>
+      <p class="meta">
+        About 14 minutes · a browser · no code to write; you'll answer the quizzes and follow a
+        Helper's states
+      </p>
+
+      <section class="words">
+        <h2>Words you'll need</h2>
+        <dl>
+          <dt>Helper</dt>
+          <dd>
+            An agent a Bot hands one complete task to. It works in its own fresh context and reports
+            back briefly.
+          </dd>
+          <dt>Screen</dt>
+          <dd>
+            One display on the Computer, with its own Chrome. A Computer-use Helper works on it.
+          </dd>
+          <dt>To-do list</dt>
+          <dd>The Bot's Helpers that are still working or waiting for the user.</dd>
+          <dt>Computer card</dt>
+          <dd>A Message part where a Helper hands its Screen to you, for a login or a captcha.</dd>
+        </dl>
+        <p class="hint">
+          Forgot a code name? Press the <strong>Names?</strong> button in the bottom-right corner.
+        </p>
+      </section>
+
+      <figure id="video"></figure>
+
+      <div
+        class="quiz"
+        data-answer="0"
+        data-why="Routines, Check-ins and webhooks all wake the Bot as Triggers, and each says where it came from. A Helper's report will be one more."
+      >
+        <div class="label">Warm-up · Lesson 14</div>
+        <p class="q">What does a Check-in do when its time comes?</p>
+        <ol class="opts">
+          <li>It hands the Router a Trigger with source <code>check_in</code></li>
+          <li data-why="A Check-in needs no OK, and it is not a Message from you.">
+            It waits for the user's Approval
+          </li>
+          <li data-why="Anything that repeats is a Routine. A Check-in fires once.">
+            It repeats on a schedule
+          </li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+
+      <h2><span class="num">1</span>Hand off, then keep talking</h2>
+      <figure id="fan">
+        <figcaption>
+          The Bot answers quick things itself and hands a whole task to a Helper.
+        </figcaption>
+      </figure>
+      <p>
+        Slide 27 says the main agent "answers quick questions itself" and "hands bigger tasks to a
+        helper, so it can keep talking to you." Slide 26 adds that a separate helper does the
+        clicking, so screenshots don't fill the main agent's context. This step builds two kinds: a
+        <strong>General Helper</strong> (shell, files, web search) and a
+        <strong>Computer-use Helper</strong> (a Screen's browser and desktop).
+      </p>
+      <p>
+        <code>start_helper</code> saves a <code>running</code> row in
+        <code>chat.bot_helper</code> and queues a <code>bot.helper</code> job. The Turn carries on.
+        The Helper sees only its task, so the task must stand alone. A Bot may have three General
+        Helpers and one Computer-use Helper at once. A Helper is its own job, not a child of the
+        Turn (the ADR 0011 amendment), so Stop on the Turn ends the Turn only.
+      </p>
+
+      <h2><span class="num">2</span>The report is a Trigger</h2>
+      <figure id="report">
+        <figcaption>
+          A finished Helper hands the Router a Trigger. The to-do list shows the rest.
+        </figcaption>
+      </figure>
+      <p>
+        A Helper runs the Turn's loop for at most 50 Steps and 30 minutes. Its last Step's text is
+        its report, cut to 2,000 characters. Its last Checkpoint hands the Router a Trigger with
+        source <code>helper</code> and the ID <code>helper:&lt;id&gt;:&lt;n&gt;</code>. A Helper
+        that runs out or crashes still ends <code>error</code> and still reports.
+      </p>
+      <p>
+        The <strong>to-do list</strong> has no table. It is the Bot's <code>running</code> and
+        <code>waiting</code> Helpers, listed in each Turn's input after the time notice, one line
+        each, and never in the system prompt. The Bot can <code>check_helper</code>,
+        <code>message_helper</code> and <code>stop_helpers</code>.
+      </p>
+
+      <h2><span class="num">3</span>Screens, and handing one to you</h2>
+      <figure id="handoff">
+        <figcaption>
+          ask_user ends the job. Done starts a new one that carries on from the saved transcript.
+        </figcaption>
+      </figure>
+      <p>
+        A Computer-use Helper takes the lowest free <strong>Screen</strong>, 1 to 4, across all the
+        user's Bots. It reads pages with the Browser tools and uses <code>desktop</code> for the
+        rest. Each Bot's Chrome profile stays on the Computer, so a rebuild loses sign-ins.
+      </p>
+      <p>
+        At a login, code, captcha or payment it calls <code>ask_user</code>. Its transcript is
+        saved, its status becomes <code>waiting</code>, a <strong>Computer card</strong> Message is
+        written, and the job ends, with no timeout. The card opens a live view, view-only until
+        <strong>Take control</strong>. What you type never reaches the Model.
+        <strong>Done</strong> flips the card to <code>done</code> and starts a fresh job that
+        answers the call. The Host mounts <code>bot.screenHandler</code> for the page and
+        <code>bot.screenSocket</code> for the socket.
+      </p>
+
+      <h2><span class="num">4</span>The cheapest way first, and a gap</h2>
+      <figure id="ladder">
+        <figcaption>
+          The Computer system prompt names the rungs. Only the last one costs you a moment.
+        </figcaption>
+      </figure>
+      <p>
+        The Bot's prompt says: try what it knows or has in its files, then
+        <code>web_search</code>, then a Helper. Connectors are not on the ladder.
+      </p>
+      <p>
+        The gap: Anthropic and OpenAI each ship a computer toolset, but the pinned TanStack AI
+        adapters don't support either (#562). So <code>desktop</code> is a plain tool over
+        <code>xdotool</code> on a 1280×800 screen that returns screenshots as image parts. Only the
+        newest 3 stay in the Helper's input.
+      </p>
+
+      <h2>Try it</h2>
+      <div
+        class="quiz"
+        data-answer="2"
+        data-why="Stop ends the Turn only. A Helper is its own job, and its finish reaches the Bot as a helper Trigger."
+      >
+        <div class="label">Quiz</div>
+        <p class="q">
+          A General Helper is mid-task when you press Stop on the Bot's Turn. What happens to it?
+        </p>
+        <ol class="opts">
+          <li data-why="Stop ends the Turn, not its Helpers. Use stop_helpers or the To-do list.">
+            It stops too
+          </li>
+          <li data-why="A Helper is not a child of the Turn, so nothing waits on it.">
+            It waits for the next Turn
+          </li>
+          <li>It keeps running and reports back later as a Trigger</li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+
+      <section class="takeaways">
+        <h2>Key takeaways</h2>
+        <p class="one-thing">
+          <strong>If you remember only one thing:</strong> a Helper is its own job. The Bot hands
+          off and keeps talking, and the report comes back as a Trigger.
+        </p>
+        <ul>
+          <li>
+            <strong>The to-do list is the live Helpers.</strong> It has no table, and the Bot sees
+            it in each Turn's input.
+          </li>
+          <li>
+            <strong>A hand-off ends the job.</strong> The row says <code>waiting</code> until you
+            tap Done, and a new job carries on.
+          </li>
+          <li>
+            <strong>Cheapest first.</strong> Knowledge and files, then web search, then a Helper.
+          </li>
+        </ul>
+        <p class="selftest">
+          Self-test: cover this box and say what happens, step by step, from a Helper's
+          <code>ask_user</code> to the Helper carrying on.
+        </p>
+      </section>
+
+      <details class="deeper">
+        <summary>Go deeper: sources, side notes and a challenge</summary>
+        <h3>The lecture and the decisions</h3>
+        <ul>
+          <li>
+            Slide 26: "A separate helper agent does the clicking, so screenshots don't fill up the
+            main agent's context." Slide 27: the main agent hands "a complete task description" to
+            helpers and gets "a short report". It also lists a to-do list, checking on a helper,
+            sending it a message and stopping all helpers. Slide 20's "Helper finished" is the
+            report. The lecture's Video helper and Cloud coding agent have no build step yet.
+          </li>
+          <li>
+            Spec:
+            <a href="https://github.com/Daanish2003/ai-chat/issues/587"
+              >Bot step 6, Helpers (#587)</a
+            >. Map: <a href="https://github.com/Daanish2003/ai-chat/issues/417">#417</a>.
+          </li>
+          <li>
+            Decisions:
+            <a href="https://github.com/Daanish2003/ai-chat/issues/565">the Helper job (#565)</a>,
+            <a href="https://github.com/Daanish2003/ai-chat/issues/567">the to-do list (#567)</a>,
+            <a href="https://github.com/Daanish2003/ai-chat/issues/568">the hand-off (#568)</a>,
+            <a href="https://github.com/Daanish2003/ai-chat/issues/573">the ladder (#573)</a> and
+            <a href="https://github.com/Daanish2003/ai-chat/issues/562"
+              >the adapters' computer toolsets (#562)</a
+            >.
+          </li>
+        </ul>
+        <h3>Side notes</h3>
+        <ul>
+          <li>
+            Billing: each Helper model call records usage of kind <code>helper</code>, against the
+            same Quota. The Quota is checked when a Helper starts, so a resumed one is never
+            refused.
+          </li>
+          <li>
+            Sleep: a running Helper keeps the Computer awake through a busy check
+            (<code>hasRunningHelper</code>); a waiting one does not.
+          </li>
+          <li>
+            If the Computer was rebuilt while the Helper waited, the answer to
+            <code>ask_user</code> adds that the browser restarted and sign-ins were lost.
+          </li>
+          <li>
+            Done on a Helper that was stopped is refused: "This task was stopped." A stopped waiting
+            Helper's card reads <code>cancelled</code>.
+          </li>
+          <li>
+            The example Host mounts the page handler in a Next route. A Next route can't upgrade a
+            WebSocket, so the live view's socket needs a WebSocket-capable server; its README says
+            so, and <code>apps/web</code> shows how.
+          </li>
+          <li>
+            Tests live beside the others in <code>packages/bot-sdk/test</code>. Evals:
+            <code>eval/turn</code> for the ladder and <code>eval/computer</code> for the Screens.
+          </li>
+        </ul>
+        <h3>What was left out, and what comes next</h3>
+        <p>
+          Stopping Helpers on a Ban is its own fix (#585). Rich parts beyond the Computer card come
+          in step 12, and the full safety rules in step 9.
+        </p>
+        <h3>Challenge</h3>
+        <p>
+          Read <code>helperDone</code> in <code>hand-off.ts</code>. It cancels the Helper's old job
+          before it queues the new one under the same key. Why does that order matter? Tell your
+          teacher.
+        </p>
+      </details>
+
+      <div class="footer-box">
+        <p>
+          <strong>Primary source:</strong>
+          <a href="../../../packages/bot-sdk/plugins/bot/server/helper.ts"><code>helper.ts</code></a
+          >,
+          <a href="../../../packages/bot-sdk/plugins/bot/server/hand-off.ts"
+            ><code>hand-off.ts</code></a
+          >,
+          <a href="../../../packages/bot-sdk/plugins/bot/server/screen-view.ts"
+            ><code>screen-view.ts</code></a
+          >, then the amendment in
+          <a href="../../../docs/adr/0011-background-jobs-through-durable-runner.md">ADR 0011</a>.
+        </p>
+        <p>
+          <strong>Cheat sheets:</strong> <a href="../reference/package-map.html">Package map</a> ·
+          <a href="../reference/names.html">Names</a>
+        </p>
+        <p>
+          <strong>Stuck or curious?</strong> Ask your teacher (Claude) anything: "what is a
+          Screen?", "show me a Helper row", or "quiz me again".
+        </p>
+        <div class="nav">
+          <a href="0014-what-wakes-the-agent.html">← Lesson 14: What wakes the agent</a
+          ><a href="../index.html">Course contents →</a>
+        </div>
+      </div>
+    </main>
+
+    <script src="../assets/diagrams.js"></script>
+    <script src="../assets/names.js" data-upto="15"></script>
+    <script src="../assets/explainer.js"></script>
+    <script src="../assets/quiz.js"></script>
+    <script>
+      const D = Diagrams;
+
+      // Section 1: the fan-out.
+      D.render(
+        "#fan",
+        D.svg(
+          760,
+          190,
+          D.box(10, 70, 110, 44, "You", { tone: "blue" }) +
+            D.arrow(120, 92, 190, 92) +
+            D.box(190, 70, 160, 44, "Main agent", { tone: "ok", sub: "the Bot" }) +
+            D.arrow(350, 82, 470, 40, { label: "complete task" }) +
+            D.arrow(350, 102, 470, 150, { label: "complete task" }) +
+            D.box(470, 18, 270, 44, "General Helper", {
+              tone: "warn",
+              sub: "shell, files, web search",
+            }) +
+            D.box(470, 128, 270, 44, "Computer-use Helper", {
+              tone: "warn",
+              sub: "a Screen: browser, desktop",
+            }),
+          { label: "The Bot hands a complete task to a General or Computer-use Helper" },
+        ),
+      );
+
+      // Section 2: the report.
+      D.render(
+        "#report",
+        D.svg(
+          760,
+          190,
+          D.box(10, 60, 170, 44, "Helper's last Step", { tone: "ok", sub: "no tool call" }) +
+            D.arrow(180, 82, 260, 82, { label: "report" }) +
+            D.box(260, 60, 220, 44, "end_helper Checkpoint", {
+              tone: "warn",
+              sub: "row + Trigger",
+            }) +
+            D.arrow(480, 82, 560, 82) +
+            D.box(560, 60, 190, 44, "Router → next Turn", {
+              tone: "blue",
+              sub: "helper:<id>:<n>",
+            }) +
+            D.text(10, 150, "the Bot's Turns list the still-live Helpers as its to-do list", {
+              tone: "faint",
+            }),
+          { label: "A Helper's last Checkpoint ends it and hands the Router a helper Trigger" },
+        ),
+      );
+
+      // Section 3: the hand-off.
+      D.render(
+        "#handoff",
+        D.svg(
+          760,
+          190,
+          D.box(10, 60, 130, 44, "running", { tone: "ok" }) +
+            D.arrow(140, 82, 200, 82, { label: "ask_user" }) +
+            D.box(200, 60, 160, 44, "waiting", { tone: "warn", sub: "job ended, card open" }) +
+            D.arrow(360, 82, 440, 82, { label: "Done" }) +
+            D.box(440, 60, 150, 44, "running", { tone: "ok", sub: "a new job" }) +
+            D.arrow(590, 82, 650, 82) +
+            D.box(650, 60, 100, 44, "report", { tone: "blue" }) +
+            D.arrow(280, 104, 280, 140, { dashed: true, label: "stopped" }) +
+            D.text(280, 160, "card reads cancelled; Done is refused", {
+              tone: "faint",
+              anchor: "middle",
+            }),
+          { label: "ask_user makes a Helper wait; Done starts a new job that carries on" },
+        ),
+      );
+
+      // Section 4: the ladder.
+      D.render(
+        "#ladder",
+        D.svg(
+          760,
+          170,
+          D.box(10, 60, 170, 44, "know / own files", { tone: "ok" }) +
+            D.arrow(180, 82, 230, 82) +
+            D.box(230, 60, 150, 44, "web_search", { tone: "blue", mono: true }) +
+            D.arrow(380, 82, 430, 82) +
+            D.box(430, 60, 140, 44, "a Helper", { tone: "warn" }) +
+            D.arrow(570, 82, 620, 82) +
+            D.box(620, 60, 130, 44, "ask you", { tone: "warn" }) +
+            D.text(10, 140, "cheapest on the left; try the next only when the last cannot do it", {
+              tone: "faint",
+            }),
+          { label: "The ladder: knowledge and files, web search, a Helper, then the user" },
+        ),
+      );
+
+      // Video.
+      Explainer.mount("#video", {
+        title: "Lesson 15 in about 1 minute",
+        width: 760,
+        height: 300,
+        scenes: [
+          {
+            say: "A Turn is short. For a big task the Bot hands a Helper the whole task and keeps talking to you.",
+            draw: (t, A) =>
+              D.box(40, 110, 170, 50, "Bot", { tone: "ok" }) +
+              D.box(270, 110, 200, 50, "Helper", { tone: "warn", opacity: A.step(t, 0.4, 0.8) }),
+          },
+          {
+            say: "The Helper is its own job. Stop on the Turn doesn't stop it.",
+            draw: (t, A) =>
+              D.box(40, 110, 170, 50, "Turn ends", { tone: "faint" }) +
+              D.box(270, 110, 200, 50, "Helper runs on", {
+                tone: "ok",
+                opacity: A.step(t, 0.4, 0.8),
+              }),
+          },
+          {
+            say: "At a login, the Helper hands you its Screen. You take control, then tap Done.",
+            draw: (t, A) =>
+              D.box(40, 110, 170, 50, "waiting", { tone: "warn" }) +
+              D.box(270, 110, 200, 50, "Done: running", {
+                tone: "ok",
+                opacity: A.step(t, 0.5, 0.9),
+              }),
+          },
+          {
+            say: "The report comes back as a Trigger, and the Bot tells you what matters.",
+            draw: (t, A) =>
+              D.box(40, 110, 170, 50, "report", { tone: "blue" }) +
+              D.box(270, 110, 200, 50, "Bot tells you", {
+                tone: "ok",
+                opacity: A.step(t, 0.4, 0.8),
+              }),
+          },
+        ],
+      });
+    </script>
+  </body>
+</html>
