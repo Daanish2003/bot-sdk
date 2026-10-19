@@ -1,0 +1,143 @@
+import type { ModelMessage } from "@tanstack/ai";
+import { describe, expect, it } from "vitest";
+
+import { routineCases } from "../../../eval/turn/routine-cases";
+import {
+  callInputs,
+  describeCall,
+  failEmptyJudgement,
+  nextThursday,
+  scoreRoutine,
+  type RoutineObserved,
+} from "../../../eval/turn/routine-score";
+
+const calls = (...names: string[]): ModelMessage[] => [
+  {
+    role: "assistant",
+    content: "",
+    toolCalls: names.map((name, i) => ({
+      id: `c${i}`,
+      type: "function" as const,
+      function: { name, arguments: JSON.stringify({ name: "x", at: "2026-10-22T09:00:00+01:00" }) },
+    })),
+  },
+];
+
+const observed = (over: Partial<RoutineObserved> = {}): RoutineObserved => ({
+  status: "complete",
+  calls: [],
+  sent: 1,
+  ...over,
+});
+
+describe("scoreRoutine", () => {
+  it("passes a create_routine call when one was wanted, and fails its absence", () => {
+    const wanted = { createRoutine: true };
+    expect(scoreRoutine(wanted, observed({ calls: ["create_routine"] })).passed).toBe(true);
+    expect(scoreRoutine(wanted, observed()).reasons).toEqual(["create_routine was not called"]);
+  });
+
+  it("fails a create_routine call that was not wanted", () => {
+    const score = scoreRoutine({ createRoutine: false }, observed({ calls: ["create_routine"] }));
+    expect(score.reasons).toEqual(["create_routine was called, expected no call"]);
+  });
+
+  it("wants set_check_in and no create_routine for a check back", () => {
+    const wanted = { setCheckIn: true, createRoutine: false };
+    expect(scoreRoutine(wanted, observed({ calls: ["set_check_in"] })).passed).toBe(true);
+    expect(scoreRoutine(wanted, observed({ calls: ["create_routine"] })).passed).toBe(false);
+  });
+
+  it("passes a quiet run only with no Message", () => {
+    expect(scoreRoutine({ sent: "none" }, observed({ sent: 0 })).passed).toBe(true);
+    expect(scoreRoutine({ sent: "none" }, observed({ sent: 1 })).reasons).toEqual([
+      "sent 1 Message(s), expected none",
+    ]);
+  });
+
+  it("wants exactly one Message for `one`, and at least one for `some`", () => {
+    expect(scoreRoutine({ sent: "one" }, observed({ sent: 2 })).passed).toBe(false);
+    expect(scoreRoutine({ sent: "one" }, observed({ sent: 1 })).passed).toBe(true);
+    expect(scoreRoutine({ sent: "some" }, observed({ sent: 0 })).passed).toBe(false);
+    expect(scoreRoutine({ sent: "some" }, observed({ sent: 3 })).passed).toBe(true);
+  });
+
+  it("fails a Turn that did not complete", () => {
+    const score = scoreRoutine({}, observed({ status: "error" }));
+    expect(score.reasons).toEqual(["the Turn ended error, expected complete"]);
+  });
+});
+
+const now = new Date("2026-10-19T10:00:00Z");
+
+describe("callInputs and describeCall", () => {
+  it("gives the judge the current time, the zone, and whether at is in the past", () => {
+    const past = describeCall(
+      "set_check_in",
+      { at: "2026-10-15T09:00:00Z", note: "n" },
+      now,
+      "UTC",
+    );
+    expect(past).toContain("2026-10-19T10:00:00.000Z");
+    expect(past).toContain("UTC");
+    expect(past).toContain("in the past");
+    const future = describeCall(
+      "set_check_in",
+      { at: "2026-10-22T09:00:00Z", note: "n" },
+      now,
+      "UTC",
+    );
+    expect(future).toContain("in the future");
+  });
+
+  it("gives a fake Check-in a future Thursday", () => {
+    const at = nextThursday(now);
+    expect(at.getTime()).toBeGreaterThan(now.getTime());
+    expect(at.getUTCDay()).toBe(4);
+  });
+
+  it("reads the input of each call of a tool", () => {
+    expect(callInputs(calls("create_routine", "send_to_user"), "create_routine")).toEqual([
+      { name: "x", at: "2026-10-22T09:00:00+01:00" },
+    ]);
+  });
+
+  it("names the weekday of a check-in's local date", () => {
+    const text = describeCall(
+      "set_check_in",
+      { at: "2026-10-22T09:00:00+01:00", note: "n" },
+      now,
+      "UTC",
+    );
+    expect(text).toContain("Thursday");
+  });
+});
+
+describe("routineCases", () => {
+  it("has one case for each acceptance criterion, with unique ids", () => {
+    expect(new Set(routineCases.map((c) => c.id)).size).toBe(routineCases.length);
+    expect(routineCases.map((c) => c.id)).toEqual([
+      "routine-recurring",
+      "routine-one-off",
+      "routine-check-back",
+      "routine-run-nothing-new",
+      "routine-run-something-new",
+      "check-in-fired",
+    ]);
+  });
+});
+
+describe("failEmptyJudgement", () => {
+  it("fails a judged case whose judged text is empty, with a reason", () => {
+    const score = failEmptyJudgement({ passed: true, reasons: [] }, "  ", "create_routine");
+    expect(score).toEqual({
+      passed: false,
+      reasons: ["nothing to judge: no create_routine input"],
+    });
+  });
+
+  it("leaves the score alone when there is text to judge", () => {
+    const score = { passed: true, reasons: [] };
+    expect(failEmptyJudgement(score, "text", "reply")).toBe(score);
+  });
+});

@@ -107,3 +107,30 @@ The structural check reads Turns and Triggers, never the Model's text. The judge
 `Reason:`, both printed per run and saved in the results file. `EVAL_JUDGE_MODEL` (an `openai:`,
 `anthropic:` or `openrouter:` Model) sets the judge; it defaults to `EVAL_BOT_MODEL`, so that must be one of those
 Providers unless you set it. `--limit` limits only the week-one cases.
+
+## Routine and Check-in evals (spec #543, #550)
+
+Six more cases play after the queue cases, `EVAL_REPEATS` times each, with the real `bot` plugin. The
+first three start from a user Message. The last three start from a Trigger, handed to the Router the way
+a Routine's fire or a fired Check-in does (`routineSnapshot` and `checkInNotice` make its text), after
+the same kind of seeded history. The Bot has no tool to look anything up, so a Routine's prompt carries
+the data it reads. Each case has a structural check on the Turn's tool calls and Messages, and most have a
+judge check (same judge as above):
+
+- **routine-recurring:** "Every weekday at 8am, give me a short summary of the top tech news."
+  Structural: `create_routine` called. Judge: reads the call, a slug name, a prompt for the summary,
+  mon to fri at 08:00.
+- **routine-one-off:** "What's the capital of Australia?". Structural: `create_routine` not called, and
+  a Message sent. No judge.
+- **routine-check-back:** "I sent the contract to Priya. Check back with me Thursday." Structural:
+  `set_check_in` called and `create_routine` not. Judge: reads the call, whose `at` is a Thursday
+  (the weekday is computed and shown to the judge) and whose note mentions the contract or Priya.
+- **routine-run-nothing-new:** a Routine run whose prompt shows the same versions today as yesterday.
+  Structural: the Turn completes and sends no Message. No judge.
+- **routine-run-something-new:** the same with vite at a new version. Structural: exactly one Message.
+  Judge: it reports the new vite version and not a react one.
+- **check-in-fired:** a Check-in whose note says to ask whether Priya replied. Structural: at least one
+  Message. Judge: it asks about the reply or offers a reminder.
+
+Results are saved as `routineRates` and `routineRuns` in the results file. Run the whole script, as above:
+the same `--fake` dry run plays these cases too.

@@ -33,6 +33,9 @@ import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adap
 import { type TurnCase, turnCases } from "./cases";
 import { runCase, type TurnRunResult } from "./case";
 import { queueCases } from "./queue-cases";
+import { type RoutineCase, routineCases } from "./routine-cases";
+import { nextThursday } from "./routine-score";
+import { runRoutineCase, type RoutineRunResult } from "./routine-run";
 import { type Complete, runQueueCase, type QueueRunResult } from "./queue-run";
 import { tallyQueue } from "./queue-score";
 import { tally } from "./score";
@@ -100,6 +103,28 @@ async function mapPool<T, R>(items: T[], size: number, worker: (item: T) => Prom
   });
   await Promise.all(lanes);
   return results;
+}
+
+/** What the fake Model plays for a step-4 case: what a good Bot would do. */
+function routineFakeScript(evalCase: RoutineCase) {
+  const send = toolCall({ name: "send_to_user", input: { text: "A fake reply.", endTurn: true } });
+  const { createRoutine, setCheckIn, sent } = evalCase.expect;
+  if (createRoutine) {
+    const input = {
+      name: "tech-news",
+      prompt: "Give me a short summary of the top tech news.",
+      schedule: { days: ["mon", "tue", "wed", "thu", "fri"], at: "08:00" },
+    };
+    return [round(toolCall({ name: "create_routine", input })), round(send)];
+  }
+  if (setCheckIn) {
+    const at = nextThursday(new Date()).toISOString();
+    return [
+      round(toolCall({ name: "set_check_in", input: { at, note: "Ask about the contract." } })),
+      round(send),
+    ];
+  }
+  return sent === "none" ? [round()] : [round(send)];
 }
 
 /** What the fake Model plays for a case: what a good Bot would do. */
@@ -177,7 +202,7 @@ async function main() {
     { defaultBackgroundModel: undefined },
   );
   /** The fake Model's case for each run, found by the run's own API key. */
-  const scripts = new Map<string, TurnCase>();
+  const scripts = new Map<string, { id: string; rounds: () => ReturnType<typeof round>[] }>();
   /** What the fake Model plays for a queue case: a reply that ends the Turn. */
   const queueScript: TurnCase = { id: "queue", expected: "reply", history: [], message: "" };
   /** How many Turns have asked the fake Model for an adapter, per run. */
@@ -188,7 +213,7 @@ async function main() {
         adapterFor: (_model, credentials) => {
           const evalCase = scripts.get((credentials as { apiKey: string }).apiKey);
           if (!evalCase) throw new Error("No fake script for this run");
-          const { adapter } = createFakeAdapter({ rounds: fakeScript(evalCase) });
+          const { adapter } = createFakeAdapter({ rounds: evalCase.rounds() });
           // The interrupting case: the first Turn's Model call holds until the correction stops the
           // Turn, so the fake cannot finish it before the correction is sent. Real runs are not held.
           const key = (credentials as { apiKey: string }).apiKey;
@@ -230,7 +255,15 @@ async function main() {
     credentialsFor: (caseId: string, repeat: number) => {
       if (!fake) return { apiKey };
       const key = `fake-${caseId}-${repeat}`;
-      scripts.set(key, cases.find((c) => c.id === caseId) ?? { ...queueScript, id: caseId });
+      const turnCase = cases.find((c) => c.id === caseId);
+      const routineCase = routineCases.find((c) => c.id === caseId);
+      scripts.set(key, {
+        id: caseId,
+        rounds: () =>
+          routineCase
+            ? routineFakeScript(routineCase)
+            : fakeScript(turnCase ?? { ...queueScript, id: caseId }),
+      });
       return { apiKey: key };
     },
   };
@@ -276,10 +309,37 @@ Queue evals: ${queueCases.length} cases x ${repeats} repeats, judge ${judgeModel
     },
   );
 
+  console.log(`
+Routine and Check-in evals: ${routineCases.length} cases x ${repeats} repeats, judge ${judgeModel}`);
+  const routineRuns = routineCases.flatMap((evalCase) =>
+    Array.from({ length: repeats }, (_, repeat) => ({ evalCase, repeat })),
+  );
+  const routineResults: RoutineRunResult[] = await mapPool(
+    routineRuns,
+    concurrency,
+    async ({ evalCase, repeat }) => {
+      const result = await runRoutineCase(env, complete, evalCase, repeat);
+      console.log(
+        `  ${result.caseId} #${repeat}: structural ${result.structural.passed ? "pass" : "FAIL"}, judge ${result.judge ? (result.judge.correct ? "yes" : "NO") : "n/a"}`,
+      );
+      for (const reason of result.structural.reasons) console.log(`      ${reason}`);
+      if (result.judge) console.log(`      judge: ${result.judge.reason}`);
+      return result;
+    },
+  );
+
   await jobs.stop();
 
   const queueRates = tallyQueue(
     queueResults.map((r) => ({
+      caseId: r.caseId,
+      structural: r.structural.passed,
+      judge: r.judge?.correct ?? null,
+    })),
+  );
+
+  const routineRates = tallyQueue(
+    routineResults.map((r) => ({
       caseId: r.caseId,
       structural: r.structural.passed,
       judge: r.judge?.correct ?? null,
@@ -300,6 +360,12 @@ Queue evals: ${queueCases.length} cases x ${repeats} repeats, judge ${judgeModel
     );
   }
 
+  for (const [name, row] of Object.entries(routineRates)) {
+    console.log(
+      `${name.padEnd(26)} structural ${row.structural}/${row.runs}, judge ${row.judge}/${row.runs}`,
+    );
+  }
+
   await mkdir(resultsDir, { recursive: true });
   const file = join(resultsDir, `turn-${startedAt.replace(/[:.]/g, "-")}.json`);
   await writeFile(
@@ -315,6 +381,8 @@ Queue evals: ${queueCases.length} cases x ${repeats} repeats, judge ${judgeModel
         runs: results,
         queueRates,
         queueRuns: queueResults,
+        routineRates,
+        routineRuns: routineResults,
       },
       null,
       2,
@@ -324,7 +392,9 @@ Queue evals: ${queueCases.length} cases x ${repeats} repeats, judge ${judgeModel
   await db.$client.end();
   // The SDK's timers are not all cleared once a Turn ends, so the script exits here.
   // A run that errored (a bad key, a rate limit) is not a Model failure: exit non-zero so it is seen.
-  process.exit([...results, ...queueResults].some((result) => result.error) ? 1 : 0);
+  process.exit(
+    [...results, ...queueResults, ...routineResults].some((result) => result.error) ? 1 : 0,
+  );
 }
 
 await main();
