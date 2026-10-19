@@ -66,7 +66,9 @@ export function CheckInLine({
           {checkInText(i18n, checkIn)}
         </span>
       </span>
-      {checkIn.state === "failed" ? <span>{i18n.t("bots.checkInFailed")}</span> : null}
+      {checkIn.state === "failed" ? (
+        <span className="text-destructive">{i18n.t("bots.checkInFailed")}</span>
+      ) : null}
       <CancelCheckIn checkIn={checkIn} {...actions} />
       <span className="h-px w-8 bg-border" />
     </div>
