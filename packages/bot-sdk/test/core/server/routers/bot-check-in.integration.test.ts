@@ -274,6 +274,35 @@ describe("a Check-in", () => {
     expect(await checkInTriggers(conversationId)).toEqual([]);
   });
 
+  it("is fired, with no Trigger, once its fire fails every attempt, so it never stays pending", async () => {
+    let failing = false;
+    const { botId, conversationId, runDue, advanceTo } = await botTurn({
+      rounds: [round(setCheckIn(setThursday)), round()],
+      host: true,
+      getQuota: async () => {
+        if (failing) throw new Error("The Quota store is down");
+        return null;
+      },
+    });
+    failing = true;
+
+    advanceTo(thursdayUtc);
+    await runDue();
+    // Past every backoff.
+    for (const hour of ["09", "10", "11", "12"]) {
+      advanceTo(`2026-10-22T${hour}:00:00.000Z`);
+      await runDue();
+    }
+
+    const failed = await getTestDb()
+      .select({ status: job.status })
+      .from(job)
+      .where(like(job.idempotencyKey, "check_in:%"));
+    expect(failed).toEqual([{ status: "failed" }]);
+    expect((await checkIns(botId)).map((row) => row.state)).toEqual(["fired"]);
+    expect(await checkInTriggers(conversationId)).toEqual([]);
+  });
+
   it("leaves no queued Check-in job once the user is deleted", async () => {
     const { deps, user } = await botTurn({ rounds: [round(setCheckIn(setThursday)), round()] });
     expect(await queuedJobs()).toHaveLength(1);
