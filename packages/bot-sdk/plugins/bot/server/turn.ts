@@ -720,14 +720,16 @@ const sinceTime: Intl.DateTimeFormatOptions = {
 
 /**
  * The Bot's to-do list (#567), after the time notice: one line per running or waiting Helper,
- * `<id> · General · running: <gist> · since 10:42`, the time in the user's zone.
+ * `<id> · General · running: <gist> · since 10:42`, the time in the user's zone. A Helper waiting
+ * on a hand-off reads `waiting for the user: <reason> · task: <gist>`.
  */
 function todoNotice(todo: TodoItem[], stored: string | undefined): string {
   const since = formatterIn(knownZone(stored), sinceTime);
   const lines = todo.map((item) => {
     const kind = item.type === "general" ? "General" : "Computer-use";
     const state = item.status === "waiting" ? "waiting for the user" : "running";
-    return `${item.id} · ${kind} · ${state}: ${item.gist} · since ${since.format(new Date(item.startedAt))}`;
+    const doing = item.reason === undefined ? item.gist : `${item.reason} · task: ${item.gist}`;
+    return `${item.id} · ${kind} · ${state}: ${doing} · since ${since.format(new Date(item.startedAt))}`;
   });
   return ["[Your to-do list: the Helpers still working or waiting for the user]", ...lines].join(
     "\n",

@@ -13,6 +13,7 @@ import { allHelpers, useBotHelpers } from "../client/react/helpers";
 import { useBotRoutines } from "../client/react/routines";
 import { BotAvatar } from "./bot-avatar";
 import { CheckInLine } from "./check-in-line";
+import { ComputerCard } from "./computer-card";
 import { HelperCard } from "./helper-card";
 import { isLiveHelper } from "../shared/helper";
 import { RoutineCard } from "./routine-card";
@@ -24,7 +25,7 @@ import { TodoPopover } from "./todo-popover";
  * A Bot's Conversation: the Messages sent in it, the user's on the right and the Bot's on the left,
  * ••• while a Turn runs, and "Seen ✓" under the user's last Message when the Bot stayed quiet, or "Couldn't reply" when the
  * Turn failed. A Routine the Bot created shows after the Turn that created it, as does a Check-in
- * it set, and each Helper it started shows as a card after it, and each run of a Routine or fired Check-in gets a divider above what it sent, or one of its own when it stayed quiet. The Bot's Messages are
+ * it set, and each Helper it started shows as a card after it (a hand-off Message is followed by its Computer card), and each run of a Routine or fired Check-in gets a divider above what it sent, or one of its own when it stayed quiet. The Bot's Messages are
  * never collapsed. The header lists the Routines, to pause, resume or delete them, and the To-do
  * list of live Helpers, to stop them.
  */
@@ -53,9 +54,16 @@ function BotConversationView({ botId }: { botId: string }) {
     acting: actingCheckIns,
     cancel: onCancelCheckIn,
   } = useBotCheckIns(botId, working);
-  const { helpers, acting: actingHelpers, stop: stopHelpers } = useBotHelpers(botId, working);
+  const {
+    helpers,
+    acting: actingHelpers,
+    stop: stopHelpers,
+    done: helperDone,
+  } = useBotHelpers(botId, working);
   const onStopHelper = (helperId?: string) =>
     void stopHelpers(helperId).catch((refusal) => toast.error(serverErrorText(i18n, refusal)));
+  const onHelperDone = (helperId: string) =>
+    void helperDone(helperId).catch((refusal) => toast.error(serverErrorText(i18n, refusal)));
   const todo = helpers.filter((helper) => isLiveHelper(helper.status));
   const actions = { onPause: pause, onResume: resume, onDelete: remove, actingRoutines: acting };
   const checkInActions = { onCancelCheckIn, actingCheckIns };
@@ -186,6 +194,14 @@ function BotConversationView({ botId }: { botId: string }) {
             >
               {message.text}
             </div>
+            {message.computer && (
+              <ComputerCard
+                card={message.computer}
+                helper={helpers.find((helper) => helper.id === message.computer?.helperId)}
+                onDone={onHelperDone}
+                acting={actingHelpers.has(message.computer.helperId)}
+              />
+            )}
             {message.id === seenMessageId && (
               <p className="self-end text-xs text-muted-foreground">{t("bots.seen")}</p>
             )}

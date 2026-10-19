@@ -13,6 +13,7 @@ import type { Database } from "../../../core/server/db/index";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { Transaction, UserDeleteHooks } from "../../../core/server/plugin";
 import { searchTextOf } from "../../../core/shared/message-parts";
+import { type ComputerCard, computerCardSchema } from "../shared/helper";
 import type { BotMessage, BotTurnStatus } from "../shared/turn";
 
 /** The `kind` of every Bot's Conversation: the plugin's id. */
@@ -39,11 +40,39 @@ export function textParts(text: string, timeZone?: string): MessageRow["parts"] 
   return { schemaVersion: 1, parts: [{ type: "text", text }], ...(timeZone && { timeZone }) };
 }
 
-/** A Message row as the client sees it. */
+/**
+ * A hand-off Message's stored parts (#568): the reason as its `text` part, then the Computer card.
+ * The column is typed as the assistant's parts union until the row types are composed from the
+ * plugins, so the bot plugin's `computer` part is cast in here.
+ */
+export function handOffParts(card: ComputerCard): MessageRow["parts"] {
+  return {
+    schemaVersion: 1,
+    parts: [{ type: "text", text: card.reason }, card],
+  } as unknown as MessageRow["parts"];
+}
+
+/** The Computer card a Message's parts hold, if any. */
+export function computerCardOf(parts: MessageRow["parts"]): ComputerCard | undefined {
+  for (const part of parts.parts as readonly unknown[]) {
+    const card = computerCardSchema.safeParse(part);
+    if (card.success) return card.data;
+  }
+  return undefined;
+}
+
+/** A Message row as the client sees it, with its Computer card when it is a hand-off. */
 export function toBotMessage(
   row: Pick<MessageRow, "id" | "role" | "parts" | "createdAt">,
 ): BotMessage {
-  return { id: row.id, role: row.role, text: searchTextOf(row.parts), createdAt: row.createdAt };
+  const computer = computerCardOf(row.parts);
+  return {
+    id: row.id,
+    role: row.role,
+    text: searchTextOf(row.parts),
+    createdAt: row.createdAt,
+    ...(computer && { computer }),
+  };
 }
 
 /**

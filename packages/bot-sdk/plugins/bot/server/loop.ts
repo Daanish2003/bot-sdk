@@ -585,7 +585,7 @@ function callUsage(
 }
 
 /** The loop's usage: the sum of what its model calls billed, an estimate if any of them was. */
-function totalUsage(calls: MessageUsage[]): MessageUsage {
+export function totalUsage(calls: MessageUsage[]): MessageUsage {
   let total: Omit<MessageUsage, "estimated"> | undefined;
   for (const { estimated: _estimated, ...call } of calls) total = addUsage(total, call);
   return { ...total!, estimated: calls.some((call) => call.estimated) };
