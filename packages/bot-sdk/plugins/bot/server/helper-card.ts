@@ -4,6 +4,7 @@ import { EventType, type StreamChunk } from "@tanstack/ai";
 import { bot, botHelper, botTurn, jobEvent } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
 import { type BotHelper, isLiveHelper } from "../shared/helper";
+import { askUserToolName, stepsIn } from "./hand-off";
 import { gistOf } from "./helper";
 import { lastMessageOfTurn } from "./routine";
 
@@ -38,8 +39,9 @@ function latestToolCall(chunks: readonly StreamChunk[]): string | null {
 /**
  * The Bot's Helpers, oldest first (#590), each with `afterMessageId`, the last Message of the Turn
  * that started it (see `lastMessageOfTurn`). `steps` are the Helper's model calls so far, from its
- * job's recorded history; once the job is pruned, from its transcript. A live Helper also has its
- * `latest` tool call. With `helperId`, only that one of the Bot's Helpers.
+ * job's recorded history; once the job is pruned, from its transcript. After a hand-off they are
+ * the saved transcript's, plus the resumed job's while it runs. A live Helper also has its `latest`
+ * tool call. With `helperId`, only that one of the Bot's Helpers.
  */
 export async function listHelpers(
   db: Database,
@@ -92,14 +94,15 @@ export async function listHelpers(
         const recorded = call?.result as { chunks?: StreamChunk[] } | null | undefined;
         latest = latestToolCall(recorded?.chunks ?? []);
       }
-      return {
-        ...row,
-        gist: gistOf(row.task),
-        steps: jobId
-          ? (stepsOf.get(jobId) ?? 0)
-          : (transcript ?? []).filter((message) => message.role === "assistant").length,
-        latest,
-      };
+      const handedOff = (transcript ?? []).some((message) =>
+        message.toolCalls?.some((call) => call.function.name === askUserToolName),
+      );
+      const recorded = jobId ? (stepsOf.get(jobId) ?? 0) : 0;
+      let steps = jobId ? recorded : stepsIn(transcript ?? []);
+      if (handedOff) {
+        steps = stepsIn(transcript!) + (row.status === "running" ? recorded : 0);
+      }
+      return { ...row, gist: gistOf(row.task), steps, latest };
     }),
   );
 }
