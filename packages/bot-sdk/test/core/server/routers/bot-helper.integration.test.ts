@@ -610,3 +610,55 @@ describe("Stop and deletion", () => {
     );
   });
 });
+
+describe("the Conversation's Helpers (#590)", () => {
+  it("lists a live Helper with its Steps and latest tool call, then its report once it ends", async () => {
+    // The Helper's shell command waits until the test lets it through.
+    let finishCommand: (() => void) | undefined;
+    const commandHeld = new Promise<void>((resolve) => (finishCommand = resolve));
+    const { client, botId } = await botWith(
+      [handsOff("Count the files in /home/user/shared.\nThen report."), round()],
+      [round(shell("ls /home/user/shared | wc -l")), round(text("There are 3 files."))],
+      {
+        onCommand: async () => {
+          await commandHeld;
+          return { exitCode: 0, stdout: "3\n", stderr: "" };
+        },
+      },
+    );
+    await send(client, botId, "how many files are there?");
+
+    await expect
+      .poll(async () => (await client.bot.helper.list({ botId }))[0]?.latest, { timeout: 10_000 })
+      .toBe("shell: ls /home/user/shared | wc -l");
+    const { messages } = await client.bot.get({ botId });
+    const [live] = await client.bot.helper.list({ botId });
+    expect(live).toMatchObject({
+      type: "general",
+      task: "Count the files in /home/user/shared.\nThen report.",
+      gist: "Count the files in /home/user/shared.",
+      status: "running",
+      steps: 1,
+      report: null,
+      afterMessageId: messages.find((message) => message.role === "assistant")?.id,
+    });
+
+    finishCommand!();
+    await settled(botId);
+    const [ended] = await client.bot.helper.list({ botId });
+    expect(ended).toMatchObject({
+      status: "complete",
+      steps: 2,
+      latest: null,
+      report: "There are 3 files.",
+    });
+  });
+
+  it("is empty for a Bot with no Helpers, and a Bot of another user is not found", async () => {
+    const { client, botId } = await botWith([], []);
+    expect(await client.bot.helper.list({ botId })).toEqual([]);
+
+    const other = chatRpc({ user: await insertUser(), deps: (await botWith([], [])).deps });
+    await expect(other.bot.helper.list({ botId })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+});
