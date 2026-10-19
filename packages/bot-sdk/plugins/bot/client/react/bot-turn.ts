@@ -238,6 +238,8 @@ export function useBotTurn(
     bot: query.data?.bot,
     error: query.error,
     messages,
+    /** Each Turn's provenance: the Triggers it took, and whether it sent anything. */
+    turns: query.data?.turns ?? [],
     working,
     seenMessageId: status === "complete" ? answered : undefined,
     failedMessageId: status === "error" ? answered : undefined,

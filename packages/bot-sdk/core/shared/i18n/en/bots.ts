@@ -20,6 +20,11 @@ export const botsMessages = {
   "bots.routineRuns": ({ schedule, timeZone }: { schedule: string; timeZone: string }) =>
     `Runs ${schedule} (${timeZone}). It won't run until you approve.`,
   "bots.routineApproved": ({ name }: { name: string }) => `${name} approved`,
+  "bots.routineApprovedNext": ({ name, time }: { name: string; time: string }) =>
+    `${name} approved · next run ${time}`,
+  "bots.routineRan": ({ name, time }: { name: string; time: string }) => `${name} · ${time}`,
+  "bots.routineRanQuiet": ({ name, time }: { name: string; time: string }) =>
+    `${name} · ${time} · ran, nothing to say`,
   "bots.routinePaused": ({ name }: { name: string }) => `${name} paused`,
   "bots.approve": "Approve",
   "bots.decline": "Decline",

@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import type { BotRoutine } from "../../../plugins/bot/shared/routine";
-import type { BotMessage, BotSendEvent } from "../../../plugins/bot/shared/turn";
+import type { BotMessage, BotSendEvent, BotTurnProvenance } from "../../../plugins/bot/shared/turn";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
 import { providerFor } from "../fake-dictionary";
 
@@ -35,14 +35,19 @@ const morningBrief = (afterMessageId: string): BotRoutine => ({
   approvedAt: null,
   createdAt,
   afterMessageId,
+  nextRunAt: null,
 });
 
 /**
- * A stand-in for the server's `bot` router: `bot.get` answers with `messages`, `bot.routine.list`
+ * A stand-in for the server's `bot` router: `bot.get` answers with `messages` and `turns`, `bot.routine.list`
  * with `routines`, approve and decline change them as the server does, and each `bot.send` streams
  * the events the test pushes.
  */
-function fakeBotServer(messages: BotMessage[], routines: BotRoutine[] = []) {
+function fakeBotServer(
+  messages: BotMessage[],
+  routines: BotRoutine[] = [],
+  turns: BotTurnProvenance[] = [],
+) {
   const queue: (BotSendEvent | "end")[] = [];
   let wake = () => {};
   const approved: string[] = [];
@@ -50,7 +55,11 @@ function fakeBotServer(messages: BotMessage[], routines: BotRoutine[] = []) {
   let turnStatus: "running" | "complete" | null = null;
   const router = {
     bot: {
-      get: os.handler(() => ({ bot: { ...ada, turnStatus }, messages: [...messages] })),
+      get: os.handler(() => ({
+        bot: { ...ada, turnStatus },
+        messages: [...messages],
+        turns: [...turns],
+      })),
       stop: os.handler(() => {}),
       send: os
         .input(z.object({ botId: z.string(), id: z.string(), text: z.string() }).loose())
@@ -196,5 +205,104 @@ describe("a Routine waiting for the user's OK", () => {
     server.setTurnStatus("complete");
 
     await screen.findByRole("group", { name: "Created morning-brief routine" }, { timeout: 5_000 });
+  });
+});
+
+describe("a Routine's runs", () => {
+  const at = (iso: string) => new Date(iso);
+  const sentAt = (id: string, role: BotMessage["role"], text: string, iso: string) => ({
+    ...said(id, role, text),
+    createdAt: at(iso),
+  });
+  const run = (sent: boolean): BotTurnProvenance => ({
+    id: "t2",
+    status: "complete",
+    startedAt: at("2026-10-19T07:00:01.000Z"),
+    endedAt: at("2026-10-19T07:00:05.000Z"),
+    sent,
+    triggers: [
+      {
+        source: "routine",
+        channel: "schedule",
+        routineName: "morning-brief",
+        at: at("2026-10-19T07:00:00.000Z"),
+      },
+    ],
+  });
+  const userTurn: BotTurnProvenance = {
+    id: "t1",
+    status: "complete",
+    startedAt: at("2026-10-19T06:00:01.000Z"),
+    endedAt: at("2026-10-19T06:00:05.000Z"),
+    sent: true,
+    triggers: [
+      { source: "user", channel: "web", routineName: null, at: at("2026-10-19T06:00:00.000Z") },
+    ],
+  };
+  const before = [
+    sentAt("m1", "user", "Morning!", "2026-10-19T06:00:00.000Z"),
+    sentAt("m2", "assistant", "Morning to you.", "2026-10-19T06:00:02.000Z"),
+  ];
+
+  /** The Conversation's rows in order: each Message's text, and each run divider's. */
+  const timeline = (container: HTMLElement) =>
+    [...container.querySelectorAll<HTMLElement>("[data-bot-message], [data-run]")].map((row) =>
+      row.dataset.run ? `run:${row.textContent}` : row.textContent,
+    );
+
+  it("puts a divider with the Routine's name and time above the Messages its run sent, and never collapses them", async () => {
+    const server = fakeBotServer(
+      [
+        ...before,
+        sentAt("m3", "assistant", "Three meetings today.", "2026-10-19T07:00:02.000Z"),
+        sentAt("m4", "assistant", "The first is at 9.", "2026-10-19T07:00:03.000Z"),
+      ],
+      [],
+      [userTurn, run(true)],
+    );
+    const { container } = mount(server);
+
+    await screen.findByText("Three meetings today.");
+    const rows = timeline(container);
+    expect(rows.slice(0, 2)).toEqual(["Morning!", "Morning to you."]);
+    expect(rows[2]).toMatch(/^run:morning-brief · \S.*$/);
+    expect(rows[2]).not.toContain("nothing to say");
+    expect(rows.slice(3)).toEqual(["Three meetings today.", "The first is at 9."]);
+  });
+
+  it("gives a quiet run a divider of its own", async () => {
+    const server = fakeBotServer(
+      [...before, sentAt("m3", "user", "Anything new?", "2026-10-19T08:00:00.000Z")],
+      [],
+      [userTurn, run(false)],
+    );
+    const { container } = mount(server);
+
+    await screen.findByText("Anything new?");
+    const rows = timeline(container);
+    expect(rows).toHaveLength(4);
+    expect(rows[2]).toMatch(/^run:morning-brief · .+ · ran, nothing to say$/);
+    expect(rows[3]).toBe("Anything new?");
+  });
+});
+
+describe("an approved Routine", () => {
+  it("shows its next run on its divider", async () => {
+    const server = fakeBotServer(
+      [said("m1", "user", "Brief me")],
+      [
+        {
+          ...morningBrief("m1"),
+          state: "active",
+          approvedAt: createdAt,
+          nextRunAt: new Date("2026-10-20T07:00:00.000Z"),
+        },
+      ],
+    );
+    mount(server);
+
+    expect((await screen.findByText(/morning-brief approved/)).textContent).toMatch(
+      /^morning-brief approved · next run \S.*$/,
+    );
   });
 });

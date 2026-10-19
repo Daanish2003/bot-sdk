@@ -23,7 +23,10 @@ export type RoutineSchedule = z.infer<typeof routineScheduleSchema>;
 /** How a Routine stands: `pending` until the user's Approval. */
 export type RoutineState = "pending" | "active" | "paused";
 
-/** A Routine as the client sees it. `afterMessageId` is the Message its approval card follows. */
+/**
+ * A Routine as the client sees it. `afterMessageId` is the Message its approval card follows;
+ * `nextRunAt` is when its queued fire is due, `null` when none is queued.
+ */
 export type BotRoutine = {
   id: string;
   name: string;
@@ -34,6 +37,7 @@ export type BotRoutine = {
   approvedAt: Date | null;
   createdAt: Date;
   afterMessageId: string | null;
+  nextRunAt: Date | null;
 };
 
 const weekdays: readonly RoutineDay[] = ["mon", "tue", "wed", "thu", "fri"];

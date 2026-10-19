@@ -1,13 +1,117 @@
-import { and, asc, desc, eq, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, like, lt, lte, min, or, sql } from "drizzle-orm";
 
-import { bot, botRoutine, botTurn, message } from "../../../core/server/db/schema";
+import { bot, botRoutine, botTurn, job, message } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
-import type { Transaction } from "../../../core/server/plugin";
+import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
 import { type BotRoutine, type RoutineSchedule, scheduleText } from "../shared/routine";
+import { knownZone, nextSlot } from "./schedule";
 import { newestTimeZone } from "./store";
 import { defaultTimeZone } from "./time-zone";
+
+/** The runner job of one scheduled fire of a Routine (`routine-fire.ts`). */
+export const routineFireJobName = "bot.routine_fire";
+
+/**
+ * The key of a Routine's fire at `slot` (ADR 0011, the #537 amendment), which is also the ID of the
+ * Trigger it hands the Router (#539): `routine:<id>:<slot>`, the slot in UTC.
+ */
+export function fireKey(routineId: string, slot: Date): string {
+  return `routine:${routineId}:${slot.toISOString()}`;
+}
+
+/** Queues the Routine's fire at `slot`, in `tx`. */
+export async function queueFire(
+  deps: BotSdkContext,
+  tx: Transaction,
+  routineId: string,
+  slot: Date,
+): Promise<void> {
+  await deps
+    .plugin("runner")
+    .enqueueIn(
+      tx,
+      routineFireJobName,
+      { routineId, slot: slot.toISOString() },
+      { idempotencyKey: fireKey(routineId, slot), runAfter: slot },
+    );
+}
+
+/** Cancels the queued fires of the user's Routines, in `tx`, so none fires once they are deleted. */
+export async function cancelUserFires(
+  deps: BotSdkContext,
+  tx: Transaction,
+  userId: string,
+): Promise<void> {
+  const routines = await tx
+    .select({ id: botRoutine.id })
+    .from(botRoutine)
+    .innerJoin(bot, eq(bot.id, botRoutine.botId))
+    .where(eq(bot.userId, userId));
+  if (routines.length === 0) return;
+  const fires = await tx
+    .select({ key: job.idempotencyKey })
+    .from(job)
+    .where(
+      and(
+        eq(job.name, routineFireJobName),
+        inArray(job.status, ["queued", "running"]),
+        or(...routines.map((routine) => like(job.idempotencyKey, `routine:${routine.id}:%`))),
+      ),
+    );
+  const runner = deps.plugin("runner");
+  for (const { key } of fires) if (key) await runner.cancelIn(tx, key);
+}
+
+const snapshotTime = (zone: string) =>
+  new Intl.DateTimeFormat("en-GB", {
+    timeZone: zone,
+    weekday: "short",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
+
+/**
+ * What a Routine's fire gives the Model (#539), kept on its Trigger: a wake notice, then the prompt
+ * as it was at the fire, so an edit made later never changes what a Turn reads.
+ */
+export function routineSnapshot({
+  name,
+  prompt,
+  slot,
+  timeZone,
+}: {
+  name: string;
+  prompt: string;
+  slot: Date;
+  timeZone: string;
+}): string {
+  const zone = knownZone(timeZone);
+  const part: Record<string, string> = {};
+  for (const { type, value } of snapshotTime(zone).formatToParts(slot)) part[type] = value;
+  const when = `${part.weekday} ${part.year}-${part.month}-${part.day} ${part.hour}:${part.minute}`;
+  return (
+    `Routine ${JSON.stringify(name)} ran at ${when} (${zone}). The user didn't send this; it's ` +
+    `their approved Routine. If there's nothing worth telling the user, send nothing.\n\n${prompt}`
+  );
+}
+
+/** The name of the Routine whose snapshot `text` is (`routineSnapshot`), or `null`. */
+export function routineNameOf(text: string | null): string | null {
+  return text?.match(/^Routine "([a-z0-9-]+)" ran at /)?.[1] ?? null;
+}
+
+/** The slot of a scheduled fire's Trigger ID (`fireKey`), or `undefined`. */
+export function slotOf(triggerId: string): Date | undefined {
+  const slot = /^routine:[0-9a-f-]{36}:(.+)$/.exec(triggerId)?.[1];
+  const at = slot ? new Date(slot) : undefined;
+  return at && !Number.isNaN(at.getTime()) ? at : undefined;
+}
 
 /** What `create_routine` returns once the Routine is saved: it waits for the user's Approval. */
 export const routineSavedResult = "Saved; it runs once the user approves it.";
@@ -109,6 +213,7 @@ async function ownedRoutine(db: Database | Transaction, userId: string, routineI
  * The Bot's Routines, sorted by name. Each has `afterMessageId`, the last Message of the Turn that
  * created it: its approval card follows it. That is the Bot's last Message sent by the time the Turn
  * ended, or the user's last one from before it started; a user Message sent while it ran is not.
+ * `nextRunAt` is when its queued fire is due, `null` when none is queued.
  */
 export async function listRoutines(db: Database, botId: string): Promise<BotRoutine[]> {
   const after = db
@@ -123,6 +228,17 @@ export async function listRoutines(db: Database, botId: string): Promise<BotRout
     )
     .orderBy(desc(message.createdAt), desc(message.id))
     .limit(1);
+  // When the Routine's queued fire is due: its next run.
+  const nextRun = db
+    .select({ at: min(job.runAfter) })
+    .from(job)
+    .where(
+      and(
+        eq(job.name, routineFireJobName),
+        eq(job.status, "queued"),
+        like(job.idempotencyKey, sql`'routine:' || ${botRoutine.id} || ':%'`),
+      ),
+    );
   return db
     .select({
       id: botRoutine.id,
@@ -134,6 +250,7 @@ export async function listRoutines(db: Database, botId: string): Promise<BotRout
       approvedAt: botRoutine.approvedAt,
       createdAt: botRoutine.createdAt,
       afterMessageId: sql<string | null>`(${after})`,
+      nextRunAt: sql<Date | null>`(${nextRun})`.mapWith(job.runAfter),
     })
     .from(botRoutine)
     .innerJoin(bot, eq(bot.id, botRoutine.botId))
@@ -147,17 +264,22 @@ export async function listRoutines(db: Database, botId: string): Promise<BotRout
  * no longer pending stays as it is. Nothing wakes the Bot.
  */
 export async function approveRoutine(
-  db: Database,
+  deps: BotSdkContext,
   userId: string,
   routineId: string,
-  now: Date,
 ): Promise<{ id: string; state: BotRoutine["state"]; approvedAt: Date | null }> {
-  return db.transaction(async (tx) => {
+  const now = deps.clock();
+  return deps.db.transaction(async (tx) => {
     await ownedRoutine(tx, userId, routineId);
-    await tx
+    const [approved] = await tx
       .update(botRoutine)
       .set({ state: "active", approvedAt: now, updatedAt: now })
-      .where(and(eq(botRoutine.id, routineId), eq(botRoutine.state, "pending")));
+      .where(and(eq(botRoutine.id, routineId), eq(botRoutine.state, "pending")))
+      .returning({ schedule: botRoutine.schedule, timeZone: botRoutine.timeZone });
+    // Approving starts the chain of fires (ADR 0011, the #537 amendment): the first is queued.
+    if (approved?.schedule) {
+      await queueFire(deps, tx, routineId, nextSlot(approved.schedule, approved.timeZone, now));
+    }
     const [row] = await tx
       .select({ id: botRoutine.id, state: botRoutine.state, approvedAt: botRoutine.approvedAt })
       .from(botRoutine)

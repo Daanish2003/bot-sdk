@@ -1,0 +1,507 @@
+import type { ModelMessage, TextOptions } from "@tanstack/ai";
+import { and, asc, eq, inArray, like } from "drizzle-orm";
+import { afterEach, describe, expect, it } from "vitest";
+
+import { botRoutine, botTrigger, botTurn, job, usage } from "../../../../core/server/db/schema";
+import { uuidv7 } from "../../../../core/server/lib/uuidv7";
+import { deleteUserData } from "../../../../core/server/user-data";
+import type { HostProvider } from "../../../../plugins/assistant/server/deps";
+import { bot } from "../../../../plugins/bot/server/plugin";
+import { routineFireJobName } from "../../../../plugins/bot/server/routine";
+import { findBot } from "../../../../plugins/bot/server/store";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
+import {
+  inProcessRunner,
+  type InProcessRunner,
+} from "../../../../plugins/runner/server/jobs/in-process";
+import { claimJob, runClaimedJob } from "../../../../plugins/runner/server/jobs/store";
+import { createTestSdk, type TestDeps, type TestDepsOverrides } from "../../../support/deps";
+import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
+import { fakeJobClock } from "../../../support/jobs";
+import { chatRpc } from "../../../support/sdk";
+import { getTestDb } from "../../../support/test-database";
+import { insertUser } from "../../../support/users";
+
+const model = "openai:gpt-5.6";
+const silent = { error: () => {} };
+
+type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
+
+const started: InProcessRunner[] = [];
+
+afterEach(async () => {
+  for (const jobs of started.splice(0)) await jobs.stop();
+});
+
+const hostModel = "anthropic:claude-sonnet-5-5";
+const hostProviders: HostProvider[] = [
+  {
+    provider: "anthropic",
+    credentials: { apiKey: "sk-host-secret-never-stored" },
+    models: [
+      {
+        modelId: "claude-sonnet-5-5",
+        maxOutputTokens: 512,
+        inputUsdPerMillion: 3,
+        outputUsdPerMillion: 15,
+      },
+    ],
+  },
+];
+
+const createRoutine = (input: unknown) => toolCall({ name: "create_routine", input });
+const sends = (input: { text: string; endTurn: boolean }) =>
+  toolCall({ name: "send_to_user", input });
+
+type RoutineInput = {
+  name: string;
+  prompt: string;
+  schedule: { days: string[]; at: string };
+};
+
+const weekdays = ["mon", "tue", "wed", "thu", "fri"];
+const everyDay = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+
+const morningBrief: RoutineInput = {
+  name: "morning-brief",
+  prompt: "Summarize today's calendar.",
+  schedule: { days: weekdays, at: "08:00" },
+};
+
+/**
+ * A Bot whose Routine `routine` the user has approved, on an idle runner and a clock the test
+ * moves: the Bot created it at `at`, in `timeZone`, and the user approved it right away. `runDue()`
+ * runs every job due at the clock's time, one after another, until none is left. The Model plays
+ * `rounds` after the two that create the Routine.
+ */
+async function approvedRoutine({
+  at,
+  routine = morningBrief,
+  timeZone = "Europe/London",
+  rounds = [],
+  manual = false,
+  host = false,
+  getQuota,
+}: {
+  at: Date;
+  routine?: RoutineInput;
+  timeZone?: string;
+  rounds?: Round[];
+  manual?: boolean;
+  host?: boolean;
+} & Pick<TestDepsOverrides, "getQuota">) {
+  const timer = fakeJobClock(at);
+  const creation = [round(createRoutine(routine)), round()];
+  const fake = createFakeAdapter({ rounds: [...creation, ...rounds], manual });
+  let deps: TestDeps | undefined;
+  const jobs = inProcessRunner({
+    db: getTestDb(),
+    logger: silent,
+    drainMs: 50,
+    clock: timer.clock,
+    deps: () => deps!,
+  });
+  deps = createTestSdk({
+    plugins: [bot()],
+    jobs,
+    adapterFor: () => fake.adapter,
+    clock: timer.clock.now,
+    ...(host && { hostProviders }),
+    getQuota,
+  });
+  started.push(jobs);
+  const user = await insertUser();
+  if (!host) {
+    await saveCredentials(deps, user.id, {
+      service: "openai",
+      fields: { apiKey: "openai-test-key" },
+      hint: "…-key",
+      verified: true,
+    });
+  }
+  const client = chatRpc({ user, deps });
+  const created = await client.bot.create({ name: "Ada", model: host ? hostModel : model });
+  const botId = created.id;
+  const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
+
+  const runDue = async () => {
+    for (;;) {
+      const claimed = await claimJob(getTestDb(), timer.clock.now(), { respectRunAfter: true });
+      if (!claimed) return;
+      await runClaimedJob(getTestDb(), claimed, {
+        clock: timer.clock,
+        logger: silent,
+        deps: () => deps!,
+      });
+    }
+  };
+  const advanceTo = (when: string | Date) => {
+    timer.advance(new Date(when).getTime() - timer.clock.now().getTime());
+  };
+  const sendSaved = async (text: string) => {
+    const stream = await client.bot.send({ botId, id: uuidv7(), text, timeZone });
+    await stream.next();
+    await stream.return(undefined);
+  };
+
+  if (manual) void fake.release(creation.flat().length);
+  await sendSaved("Set it up, please");
+  timer.advance(500);
+  await runDue();
+  const [listed] = await client.bot.routine.list({ botId });
+  await client.bot.routine.approve({ routineId: listed!.id });
+
+  return {
+    fake,
+    deps,
+    client,
+    user,
+    botId,
+    conversationId,
+    routineId: listed!.id,
+    timer,
+    runDue,
+    advanceTo,
+    sendSaved,
+  };
+}
+
+/** The Conversation's Triggers from Routines, in the order they were received. */
+const routineTriggers = (conversationId: string) =>
+  getTestDb()
+    .select()
+    .from(botTrigger)
+    .where(and(eq(botTrigger.conversationId, conversationId), eq(botTrigger.source, "routine")))
+    .orderBy(asc(botTrigger.receivedAt), asc(botTrigger.id));
+
+/** When the Routine's queued fires are due. */
+const queuedFires = async (routineId: string) =>
+  (
+    await getTestDb()
+      .select({ runAfter: job.runAfter, key: job.idempotencyKey })
+      .from(job)
+      .where(
+        and(
+          like(job.idempotencyKey, `routine:${routineId}:%`),
+          inArray(job.status, ["queued", "running"]),
+        ),
+      )
+  ).map((row) => row.runAfter.toISOString());
+
+const turnsOf = (botId: string) =>
+  getTestDb()
+    .select()
+    .from(botTurn)
+    .where(eq(botTurn.botId, botId))
+    .orderBy(asc(botTurn.startedAt), asc(botTurn.id));
+
+const inputOf = (call: TextOptions | undefined) => (call?.messages ?? []) as ModelMessage[];
+
+// Sunday 18 October 2026, 11:00 in London (summer time, UTC+1).
+const sunday = new Date("2026-10-18T10:00:00.000Z");
+// Monday 19 October, 08:00 in London.
+const mondaySlot = "2026-10-19T07:00:00.000Z";
+
+const wakeNotice =
+  `Routine "morning-brief" ran at Mon 2026-10-19 08:00 (Europe/London). The user didn't send ` +
+  `this; it's their approved Routine. If there's nothing worth telling the user, send nothing.`;
+
+describe("a scheduled Routine", () => {
+  it("queues its first fire when approved, and past Monday 08:00 London makes one routine / schedule Trigger with the prompt snapshot, then queues Tuesday's", async () => {
+    const { client, botId, conversationId, routineId, runDue, advanceTo } = await approvedRoutine({
+      at: sunday,
+      rounds: [round()],
+    });
+    expect(await queuedFires(routineId)).toEqual([mondaySlot]);
+    // The approved divider shows it.
+    expect((await client.bot.routine.list({ botId }))[0]?.nextRunAt).toEqual(new Date(mondaySlot));
+
+    advanceTo("2026-10-19T06:59:59.000Z");
+    await runDue();
+    expect(await routineTriggers(conversationId)).toEqual([]);
+
+    advanceTo(mondaySlot);
+    await runDue();
+
+    expect(await routineTriggers(conversationId)).toEqual([
+      expect.objectContaining({
+        id: `routine:${routineId}:${mondaySlot}`,
+        source: "routine",
+        channel: "schedule",
+        messageId: null,
+        text: `${wakeNotice}\n\n${morningBrief.prompt}`,
+      }),
+    ]);
+    expect(await queuedFires(routineId)).toEqual(["2026-10-20T07:00:00.000Z"]);
+    expect((await client.bot.routine.list({ botId }))[0]?.nextRunAt).toEqual(
+      new Date("2026-10-20T07:00:00.000Z"),
+    );
+  });
+
+  it("on weekdays never fires on Saturday or Sunday, and the Monday after the October change is 08:00 GMT", async () => {
+    // Friday 23 October, 10:00 in London: that day's 08:00 has passed.
+    const { conversationId, routineId, runDue, advanceTo } = await approvedRoutine({
+      at: new Date("2026-10-23T09:00:00.000Z"),
+    });
+    expect(await queuedFires(routineId)).toEqual(["2026-10-26T08:00:00.000Z"]);
+
+    advanceTo("2026-10-24T07:00:00.000Z");
+    await runDue();
+    advanceTo("2026-10-25T08:00:00.000Z");
+    await runDue();
+    expect(await routineTriggers(conversationId)).toEqual([]);
+
+    advanceTo("2026-10-26T08:00:00.000Z");
+    await runDue();
+    expect((await routineTriggers(conversationId)).map((trigger) => trigger.id)).toEqual([
+      `routine:${routineId}:2026-10-26T08:00:00.000Z`,
+    ]);
+  });
+
+  it("never makes a second Trigger for a slot", async () => {
+    const { deps, conversationId, routineId, runDue, advanceTo } = await approvedRoutine({
+      at: sunday,
+      rounds: [round()],
+    });
+    advanceTo(mondaySlot);
+    await runDue();
+
+    // The slot's job ran, so its key is free again: a second fire of it is queued.
+    await deps
+      .plugin("runner")
+      .enqueue(
+        routineFireJobName,
+        { routineId, slot: mondaySlot },
+        { idempotencyKey: `routine:${routineId}:${mondaySlot}` },
+      );
+    await runDue();
+
+    expect(await routineTriggers(conversationId)).toHaveLength(1);
+  });
+
+  it("gives the Model the wake notice and the snapshot as one input turn, and saves no user Message for it", async () => {
+    const { fake, client, botId, runDue, advanceTo } = await approvedRoutine({
+      at: sunday,
+      rounds: [round()],
+    });
+    advanceTo(mondaySlot);
+    await runDue();
+    advanceTo("2026-10-19T07:00:00.500Z");
+    await runDue();
+
+    const input = inputOf(fake.calls.at(-1));
+    expect(input.at(-1)).toEqual({
+      role: "user",
+      content: `${wakeNotice}\n\n${morningBrief.prompt}`,
+    });
+    const { messages } = await client.bot.get({ botId });
+    expect(messages.filter((sent) => sent.role === "user").map((sent) => sent.text)).toEqual([
+      "Set it up, please",
+    ]);
+  });
+
+  it("keeps the snapshot a Turn reads when the Routine's prompt is edited mid-Turn", async () => {
+    const { fake, routineId, runDue, advanceTo } = await approvedRoutine({
+      at: sunday,
+      rounds: [round()],
+    });
+    advanceTo(mondaySlot);
+    await runDue();
+    await getTestDb()
+      .update(botRoutine)
+      .set({ prompt: "Something else entirely." })
+      .where(eq(botRoutine.id, routineId));
+    advanceTo("2026-10-19T07:00:00.500Z");
+    await runDue();
+
+    const content = JSON.stringify(inputOf(fake.calls.at(-1)));
+    expect(content).toContain(morningBrief.prompt);
+    expect(content).not.toContain("Something else entirely.");
+  });
+
+  it("joins the Turn of user Messages waiting to start, which takes both", async () => {
+    const { fake, botId, conversationId, runDue, advanceTo, sendSaved } = await approvedRoutine({
+      at: sunday,
+      rounds: [round()],
+    });
+    advanceTo("2026-10-19T06:59:59.800Z");
+    await sendSaved("Good morning");
+    advanceTo(mondaySlot);
+    await runDue();
+    advanceTo("2026-10-19T07:00:00.500Z");
+    await runDue();
+
+    const turns = await turnsOf(botId);
+    expect(turns).toHaveLength(2);
+    const [fired] = await routineTriggers(conversationId);
+    expect(fired?.turnId).toBe(turns[1]!.id);
+    const contents = inputOf(fake.calls.at(-1)).map((entry) => String(entry.content));
+    expect(contents.some((content) => content.endsWith("Good morning"))).toBe(true);
+    expect(contents.at(-1)).toContain(wakeNotice);
+  });
+
+  it("is interrupted by a user send during its Turn, and the next Turn takes the Message", async () => {
+    const hanging = round(sends({ text: "Your calendar…", endTurn: true }));
+    const { fake, botId, runDue, advanceTo, sendSaved, timer } = await approvedRoutine({
+      at: sunday,
+      rounds: [hanging, round(sends({ text: "Hi!", endTurn: true }))],
+      manual: true,
+    });
+    advanceTo(mondaySlot);
+    await runDue();
+    advanceTo("2026-10-19T07:00:00.500Z");
+    const running = runDue();
+    // The Routine's Turn waits in its model call.
+    await expect.poll(() => fake.calls.length).toBe(3);
+
+    await sendSaved("Stop, I'm up already");
+    // The heartbeat sees the cancel, and the Routine's Turn ends as its attempt aborts.
+    timer.tick();
+    await running;
+    await expect
+      .poll(async () => (await turnsOf(botId)).map((turn) => turn.status))
+      .toEqual(["complete", "stopped", "running"]);
+    await fake.releaseAll();
+    advanceTo("2026-10-19T07:00:01.500Z");
+    await runDue();
+
+    expect((await turnsOf(botId)).map((turn) => turn.status)).toEqual([
+      "complete",
+      "stopped",
+      "complete",
+    ]);
+    const last = inputOf(fake.calls.at(-1));
+    expect(String(last.at(-1)?.content)).toContain("Stop, I'm up already");
+  });
+
+  it("ends a run whose Model sends nothing with no Message, and the read reports a quiet run with its provenance", async () => {
+    const { client, botId, runDue, advanceTo } = await approvedRoutine({
+      at: sunday,
+      rounds: [round()],
+    });
+    const before = (await client.bot.get({ botId })).messages;
+    advanceTo(mondaySlot);
+    await runDue();
+    advanceTo("2026-10-19T07:00:00.500Z");
+    await runDue();
+
+    const read = await client.bot.get({ botId });
+    expect(read.messages).toEqual(before);
+    expect(read.turns.at(-1)).toMatchObject({
+      status: "complete",
+      sent: false,
+      triggers: [
+        {
+          source: "routine",
+          channel: "schedule",
+          routineName: "morning-brief",
+          at: new Date(mondaySlot),
+        },
+      ],
+    });
+    // The user's own Trigger reads as theirs, and that Turn sent nothing either.
+    expect(read.turns[0]).toMatchObject({
+      triggers: [{ source: "user", channel: "web", routineName: null }],
+    });
+  });
+
+  it("after a clock jump over three slots fires once, and counts the next slot from then", async () => {
+    const { conversationId, routineId, runDue, advanceTo } = await approvedRoutine({
+      at: sunday,
+      rounds: [round()],
+    });
+
+    // Wednesday 21 October, 13:00 in London: Monday's, Tuesday's and Wednesday's slots passed.
+    advanceTo("2026-10-21T12:00:00.000Z");
+    await runDue();
+
+    expect((await routineTriggers(conversationId)).map((trigger) => trigger.id)).toEqual([
+      `routine:${routineId}:${mondaySlot}`,
+    ]);
+    expect(await queuedFires(routineId)).toEqual(["2026-10-22T07:00:00.000Z"]);
+  });
+
+  it("in Europe/London keeps 08:00 local across the March change", async () => {
+    // Saturday 28 March 2026, noon GMT; summer time starts at 01:00 UTC on Sunday.
+    const { routineId, runDue, advanceTo } = await approvedRoutine({
+      at: new Date("2026-03-28T12:00:00.000Z"),
+      routine: { ...morningBrief, schedule: { days: everyDay, at: "08:00" } },
+      rounds: [round()],
+    });
+    expect(await queuedFires(routineId)).toEqual(["2026-03-29T07:00:00.000Z"]);
+
+    advanceTo("2026-03-29T07:00:00.000Z");
+    await runDue();
+
+    expect(await queuedFires(routineId)).toEqual(["2026-03-30T07:00:00.000Z"]);
+  });
+
+  it("in Europe/London keeps 08:00 local across the October change", async () => {
+    // Saturday 24 October 2026, 13:00 in London; summer time ends at 01:00 UTC on Sunday.
+    const { routineId, runDue, advanceTo } = await approvedRoutine({
+      at: new Date("2026-10-24T12:00:00.000Z"),
+      routine: { ...morningBrief, schedule: { days: everyDay, at: "08:00" } },
+      rounds: [round()],
+    });
+    expect(await queuedFires(routineId)).toEqual(["2026-10-25T08:00:00.000Z"]);
+
+    advanceTo("2026-10-25T08:00:00.000Z");
+    await runDue();
+
+    expect(await queuedFires(routineId)).toEqual(["2026-10-26T08:00:00.000Z"]);
+  });
+
+  it("in America/New_York fires a 02:30 at 03:00 on the spring-forward day", async () => {
+    // Saturday 7 March 2026, 07:00 in New York; clocks jump from 02:00 to 03:00 on Sunday.
+    const { routineId, runDue, advanceTo } = await approvedRoutine({
+      at: new Date("2026-03-07T12:00:00.000Z"),
+      timeZone: "America/New_York",
+      routine: { ...morningBrief, schedule: { days: everyDay, at: "02:30" } },
+      rounds: [round()],
+    });
+    // 03:00 EDT.
+    expect(await queuedFires(routineId)).toEqual(["2026-03-08T07:00:00.000Z"]);
+
+    advanceTo("2026-03-08T07:00:00.000Z");
+    await runDue();
+
+    // Monday's 02:30 EDT.
+    expect(await queuedFires(routineId)).toEqual(["2026-03-09T06:30:00.000Z"]);
+  });
+
+  it("makes no Trigger while the user's Quota is spent, and still queues the next fire", async () => {
+    let quota: Awaited<ReturnType<NonNullable<TestDepsOverrides["getQuota"]>>> = null;
+    const { user, conversationId, routineId, runDue, advanceTo } = await approvedRoutine({
+      at: sunday,
+      host: true,
+      getQuota: async () => quota,
+    });
+    quota = { budgetUsd: 0.0002, window: "month" };
+    await getTestDb().insert(usage).values({
+      id: uuidv7(),
+      userId: user.id,
+      kind: "turn",
+      model: hostModel,
+      inputTokens: 100,
+      outputTokens: 0,
+      costMicros: 1_000_000,
+      estimated: false,
+      createdAt: new Date(),
+    });
+
+    advanceTo(mondaySlot);
+    await runDue();
+
+    expect(await routineTriggers(conversationId)).toEqual([]);
+    expect(await queuedFires(routineId)).toEqual(["2026-10-20T07:00:00.000Z"]);
+  });
+
+  it("leaves no queued fire once the user is deleted", async () => {
+    const { deps, user, routineId } = await approvedRoutine({ at: sunday });
+    expect(await queuedFires(routineId)).toHaveLength(1);
+
+    await deleteUserData(deps, user.id);
+
+    expect(await queuedFires(routineId)).toEqual([]);
+  });
+});

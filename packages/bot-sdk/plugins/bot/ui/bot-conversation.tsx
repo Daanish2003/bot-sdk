@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { SendIcon } from "lucide-react";
-import { type FormEvent, Fragment, type KeyboardEvent, useState } from "react";
+import { type FormEvent, Fragment, type KeyboardEvent, type ReactNode, useState } from "react";
 import { toast } from "sonner";
 
 import { useI18n } from "../../../core/client/react/provider";
@@ -11,11 +11,14 @@ import { useBotTurn } from "../client/react/bot-turn";
 import { useBotRoutines } from "../client/react/routines";
 import { BotAvatar } from "./bot-avatar";
 import { RoutineCard } from "./routine-card";
+import { RunDivider } from "./run-divider";
 
 /**
  * A Bot's Conversation: the Messages sent in it, the user's on the right and the Bot's on the left,
  * ••• while a Turn runs, and "Seen ✓" under the user's last Message when the Bot stayed quiet, or "Couldn't reply" when the
- * Turn failed. A Routine the Bot created shows after the Turn that created it.
+ * Turn failed. A Routine the Bot created shows after the Turn that created it, and each of its runs
+ * gets a divider above what it sent, or one of its own when it stayed quiet. The Bot's Messages are
+ * never collapsed.
  */
 export function BotConversation({ botId }: { botId: string }) {
   // One instance per Bot, so a Turn's state never shows on another Bot.
@@ -26,16 +29,14 @@ function BotConversationView({ botId }: { botId: string }) {
   const i18n = useI18n();
   const { t } = i18n;
   const [draft, setDraft] = useState("");
-  const { bot, error, messages, working, seenMessageId, failedMessageId, send, stop } = useBotTurn(
-    botId,
-    {
+  const { bot, error, messages, turns, working, seenMessageId, failedMessageId, send, stop } =
+    useBotTurn(botId, {
       // A refused send puts its text back in the composer and says why.
       onRefusedSend: (text, refusal) => {
         setDraft(text);
         toast.error(serverErrorText(i18n, refusal));
       },
-    },
-  );
+    });
 
   const { routines, approve, decline } = useBotRoutines(botId, working);
 
@@ -67,6 +68,27 @@ function BotConversationView({ botId }: { botId: string }) {
       routine.afterMessageId && shownIds.has(routine.afterMessageId) ? routine.afterMessageId : "";
     routinesAfter.set(after, [...(routinesAfter.get(after) ?? []), routine]);
   }
+  // Each Routine run's divider, before the Message it goes above ("" after the last): a run that
+  // sent something above its first Message, a quiet one where it ran. One still running and quiet
+  // has none yet.
+  const runsBefore = new Map<string, ReactNode[]>();
+  for (const turn of turns) {
+    const fired = turn.triggers.find((trigger) => trigger.source === "routine");
+    if (!fired) continue;
+    const from = turn.startedAt.getTime();
+    const until = turn.endedAt?.getTime() ?? Infinity;
+    const quiet = !turn.sent;
+    if (quiet && turn.status !== "complete") continue;
+    const next = messages.find((message) => {
+      const at = message.createdAt.getTime();
+      return quiet ? at >= from : message.role === "assistant" && at >= from && at <= until;
+    });
+    const before = next?.id ?? "";
+    runsBefore.set(before, [
+      ...(runsBefore.get(before) ?? []),
+      <RunDivider key={turn.id} name={fired.routineName ?? ""} at={fired.at} quiet={quiet} />,
+    ]);
+  }
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) submit(event);
@@ -84,6 +106,7 @@ function BotConversationView({ botId }: { botId: string }) {
         )}
         {messages.map((message) => (
           <Fragment key={message.id}>
+            {runsBefore.get(message.id)}
             <div
               data-bot-message
               data-id={message.id}
@@ -107,6 +130,7 @@ function BotConversationView({ botId }: { botId: string }) {
             {routinesAfter.get(message.id)?.map(routineCard)}
           </Fragment>
         ))}
+        {runsBefore.get("")}
         {routinesAfter.get("")?.map(routineCard)}
         {working && (
           <div

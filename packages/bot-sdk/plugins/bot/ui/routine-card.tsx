@@ -14,11 +14,12 @@ import { toast } from "sonner";
 import { useI18n } from "../../../core/client/react/provider";
 import { serverErrorText } from "../../../core/client/rpc-error";
 import { type BotRoutine, scheduleText } from "../shared/routine";
+import { runTime } from "./run-divider";
 
 /**
  * A Routine in its Bot's Conversation, after the Turn that created it (#538, prototype variant A):
  * pending, a card titled "Created <name> routine" with its schedule, zone and prompt, and Approve /
- * Decline; approved, a one-line divider ("<name> paused" while paused).
+ * Decline; approved, a one-line divider with its next run ("<name> paused" while paused).
  */
 export function RoutineCard({
   routine,
@@ -52,7 +53,12 @@ export function RoutineCard({
           <ClockIcon className="size-3" />
           {routine.state === "paused"
             ? t("bots.routinePaused", { name: routine.name })
-            : t("bots.routineApproved", { name: routine.name })}
+            : routine.nextRunAt
+              ? t("bots.routineApprovedNext", {
+                  name: routine.name,
+                  time: runTime(i18n.locale, routine.nextRunAt),
+                })
+              : t("bots.routineApproved", { name: routine.name })}
         </span>
         <span className="h-px w-8 bg-border" />
       </div>

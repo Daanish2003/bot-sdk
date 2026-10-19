@@ -5,6 +5,7 @@ import { protectedProcedure } from "../../../../core/server/procedures";
 import { rpcError } from "../../../../core/server/rpc-error";
 import { botMessages, createBot, findBot, latestTurnStatus, listBots } from "../store";
 import { botSendEventSchema } from "../../shared/turn";
+import { turnProvenance } from "../provenance";
 import { approveRoutine, declineRoutine, listRoutines } from "../routine";
 import { isTimeZone } from "../time-zone";
 import { sendToBot, stopBot } from "../turn";
@@ -32,7 +33,10 @@ const botRouter = {
   /** The caller's Bots, the newest activity first, with their last sent Message and Turn status. */
   list: protectedProcedure.handler(({ context }) => listBots(context.sdk.db, context.user.id)),
 
-  /** One of the caller's Bots with its latest Turn's status, and its Conversation's Messages; another user's is not found. */
+  /**
+   * One of the caller's Bots with its latest Turn's status, its Conversation's Messages, and its
+   * Turns' provenance; another user's is not found.
+   */
   get: protectedProcedure
     .input(z.object({ botId: z.uuid() }))
     .handler(async ({ context, input }) => {
@@ -43,7 +47,9 @@ const botRouter = {
         botMessages(context.sdk.db, conversationId),
         latestTurnStatus(context.sdk.db, bot.id),
       ]);
-      return { bot: { ...bot, turnStatus }, messages };
+      // Each Turn's Triggers and whether it sent anything, for the dividers of Routine runs.
+      const turns = await turnProvenance(context.sdk.db, bot.id, messages);
+      return { bot: { ...bot, turnStatus }, messages, turns };
     }),
 
   /**
@@ -92,7 +98,7 @@ const botRouter = {
     approve: protectedProcedure
       .input(z.object({ routineId: z.uuid() }))
       .handler(({ context, input }) =>
-        approveRoutine(context.sdk.db, context.user.id, input.routineId, context.sdk.clock()),
+        approveRoutine(context.sdk, context.user.id, input.routineId),
       ),
 
     /** Declines a pending Routine, which deletes it. Another user's is not found. */

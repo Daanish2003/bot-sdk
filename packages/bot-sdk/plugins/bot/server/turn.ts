@@ -8,7 +8,7 @@ import {
   type TextOptions,
   toolDefinition,
 } from "@tanstack/ai";
-import { and, asc, eq, lt } from "drizzle-orm";
+import { and, asc, eq, isNotNull, lt, lte, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { appendMessage } from "../../../core/server/chat/message-tree";
@@ -141,7 +141,7 @@ const createRoutineDefinition = toolDefinition({
  * Tells whoever follows the Conversation that it changed, so they re-read it from Postgres. Never
  * throws: a lost hint is covered by the follower's re-read every `followPollMs`.
  */
-async function hintChanged(deps: BotSdkContext, conversationId: string) {
+export async function hintChanged(deps: BotSdkContext, conversationId: string) {
   try {
     await deps.pubsub.publish(
       conversationChannel(conversationId),
@@ -590,12 +590,13 @@ async function endTurn(
 }
 
 /**
- * The Turn's model input: each user Message as a user turn and each earlier Turn as its transcript,
- * in order. The newest user Message opens with the current time in its zone. The Bot's sent Messages are not replayed as text: the transcripts hold them as
+ * The Turn's model input: each user Message as a user turn, each Trigger with no Message (such as a
+ * Routine's fire) as an input turn of its text, and each earlier Turn as its transcript, in order.
+ * The newest user Message opens with the current time in its zone. The Bot's sent Messages are not replayed as text: the transcripts hold them as
  * SendToUser calls. Only what came before the Turn counts, so every attempt reads the same input.
  */
 async function modelInput(db: Database | Transaction, turn: TurnFacts): Promise<ModelMessage[]> {
-  const [users, turns] = await Promise.all([
+  const [users, woken, turns] = await Promise.all([
     db
       .select({ parts: message.parts, createdAt: message.createdAt })
       .from(message)
@@ -607,6 +608,21 @@ async function modelInput(db: Database | Transaction, turn: TurnFacts): Promise<
         ),
       )
       .orderBy(asc(message.createdAt), asc(message.id)),
+    // The Triggers that carry no Message (a Routine's fire, #539), taken by this Turn or an earlier
+    // one: never one taken later, so every attempt reads the same input.
+    db
+      .select({ text: botTrigger.text, receivedAt: botTrigger.receivedAt })
+      .from(botTrigger)
+      .innerJoin(botTurn, eq(botTurn.id, botTrigger.turnId))
+      .where(
+        and(
+          eq(botTrigger.conversationId, turn.conversationId),
+          ne(botTrigger.source, "user"),
+          isNotNull(botTrigger.text),
+          lte(botTurn.startedAt, turn.startedAt),
+        ),
+      )
+      .orderBy(asc(botTrigger.receivedAt), asc(botTrigger.id)),
     db
       .select({ transcript: botTurn.transcript, startedAt: botTurn.startedAt })
       .from(botTurn)
@@ -629,9 +645,14 @@ ${searchTextOf(row.parts)}`
         },
       ],
     })),
+    // One input turn each, never a user Message: its text opens with a notice of what woke the Bot.
+    ...woken.map((row) => ({
+      at: row.receivedAt.getTime(),
+      messages: [{ role: "user" as const, content: row.text! }],
+    })),
     ...turns.map((row) => ({ at: row.startedAt.getTime(), messages: row.transcript ?? [] })),
   ];
-  // A stable sort keeps a user Message before a Turn that started at the same time.
+  // A stable sort keeps a user Message or a Trigger before a Turn that started at the same time.
   entries.sort((a, b) => a.at - b.at);
   return entries.flatMap((entry) => entry.messages);
 }

@@ -55,6 +55,7 @@ describe("bot.create", () => {
     await expect(client.bot.get({ botId: created.id })).resolves.toEqual({
       bot: { ...created, turnStatus: null },
       messages: [],
+      turns: [],
     });
   });
 
