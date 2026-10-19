@@ -410,4 +410,27 @@ describe("starting a Computer-use Helper", () => {
 
     expect((await helpersOf(third))[0]?.screen).toBe(2);
   }, 60_000);
+
+  it("closes its Screen when it's stopped, which frees the slot (#591)", async () => {
+    const { client, newBot, computerFake } = await userWith(
+      [handsOff(startComputerUse("First.")), handsOff(startComputerUse("Second."))],
+      Array.from({ length: 4 }, () => round(text("never"))),
+      { manualHelpers: true },
+    );
+    const first = await newBot();
+    await send(client, first, "browse");
+    const commands = () =>
+      computerFake
+        .callsOf("run")
+        .map((call) => call.command)
+        .filter((command) => command.startsWith(screenScript));
+    await expect.poll(commands, { timeout: 10_000 }).toEqual([`${screenScript} start 1 ${first}`]);
+
+    await client.bot.helper.stop({ botId: first });
+
+    expect(commands()).toEqual([`${screenScript} start 1 ${first}`, `${screenScript} stop 1`]);
+    const second = await newBot();
+    await send(client, second, "browse");
+    expect((await helpersOf(second))[0]?.screen).toBe(1);
+  }, 60_000);
 });

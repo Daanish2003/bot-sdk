@@ -270,7 +270,7 @@ async function runHelperJob(
 }
 
 /** Closes an ending Helper's Screen, best-effort: its Chrome profile stays. */
-async function closeScreen(
+export async function closeScreen(
   deps: BotSdkContext,
   helper: Pick<HelperFacts, "id" | "userId" | "screen">,
 ) {
