@@ -1,5 +1,6 @@
 import type { Database } from "../../../../core/server/db/index";
 import type { BotSdkContext } from "../../../../core/server/plugin";
+import { jobNamesInLane } from "./define";
 import { cancelJob, claimJob, enqueueJob, readJob, runClaimedJob } from "./store";
 import type { JobRunner } from "./runner";
 
@@ -24,8 +25,10 @@ export const systemClock: JobClock = {
 export type InProcessRunnerOptions = {
   db: Database;
   logger?: Logger;
-  /** Jobs run at once in this process (ADR 0011). */
+  /** Jobs outside the `helper` lane run at once in this process (ADR 0011). */
   concurrency?: number;
+  /** `helper` lane jobs run at once in this process, beside the others (#602). */
+  helperConcurrency?: number;
   /** How often an idle runner polls `chat.job`. Enqueue wakes it sooner. */
   pollMs?: number;
   /** How long `stop()` lets running jobs finish or yield before it aborts them. */
@@ -64,7 +67,8 @@ export function isInProcessRunner(jobs: JobRunner): jobs is InProcessRunner {
 
 /**
  * The default runner (ADR 0011): polls `chat.job` every `pollMs`, claims due jobs with
- * `FOR UPDATE SKIP LOCKED` and runs up to `concurrency` at once. Nothing polls until `start()`.
+ * `FOR UPDATE SKIP LOCKED` and runs up to `concurrency` jobs at once, plus up to
+ * `helperConcurrency` `helper` lane jobs in their own budget, so neither lane takes the other's slots. Nothing polls until `start()`.
  * `stop()` takes no new jobs and asks each running workflow to yield: at its next Checkpoint its row
  * is handed back `queued`, uncounted, for another process to resume. It waits up to `drainMs` for
  * the running jobs to finish or yield, then aborts the rest and leaves their leases to expire.
@@ -73,6 +77,7 @@ export function inProcessRunner({
   db,
   logger = console,
   concurrency = 2,
+  helperConcurrency = 4,
   pollMs = 2_000,
   drainMs = 250_000,
   clock = systemClock,
@@ -82,15 +87,27 @@ export function inProcessRunner({
   let timer: unknown;
   let drain: AbortController | undefined;
   let shutdown: AbortController | undefined;
-  // Claims run one after another on this chain, so `concurrency` is never exceeded.
+  // Claims run one after another on this chain, so no lane's budget is ever exceeded.
   let claims: Promise<void> = Promise.resolve();
   const inFlight = new Set<Promise<void>>();
+  const helpersInFlight = new Set<Promise<void>>();
+  const othersInFlight = new Set<Promise<void>>();
 
   const claimUpToConcurrency = async () => {
-    while (running && inFlight.size < concurrency) {
+    const helperNames = jobNamesInLane("helper");
+    await claimInto(helpersInFlight, helperConcurrency, { only: helperNames });
+    await claimInto(othersInFlight, concurrency, { except: helperNames });
+  };
+
+  const claimInto = async (
+    lane: Set<Promise<void>>,
+    budget: number,
+    names: { only: string[] } | { except: string[] },
+  ) => {
+    while (running && lane.size < budget) {
       let claimed;
       try {
-        claimed = await claimJob(db, clock.now());
+        claimed = await claimJob(db, clock.now(), { names });
       } catch (error) {
         logger.error("Claiming a background job failed", error);
         return;
@@ -106,9 +123,11 @@ export function inProcessRunner({
         .catch((error: unknown) => logger.error(`Background job "${claimed.name}" failed`, error))
         .finally(() => {
           inFlight.delete(work);
+          lane.delete(work);
           requestClaim();
         });
       inFlight.add(work);
+      lane.add(work);
     }
   };
 

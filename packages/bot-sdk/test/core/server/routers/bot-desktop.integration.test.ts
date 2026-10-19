@@ -62,7 +62,6 @@ async function userWith(model: string, turns: Round[], helpers: Round[]) {
     db: getTestDb(),
     logger: silent,
     drainMs: 50,
-    concurrency: 8,
     deps: () => deps!,
   });
   deps = createTestSdk({

@@ -102,12 +102,10 @@ async function botWith(
   const fakes = splitAdapter(turns, helpers, manualHelpers);
   const computerFake = fakeComputerProvider({ onCommand });
   let deps: TestDeps | undefined;
-  // Room for three Helpers and a Turn at once.
   const jobs = inProcessRunner({
     db: getTestDb(),
     logger: silent,
     drainMs: 50,
-    concurrency: 4,
     deps: () => deps!,
   });
   deps = createTestSdk({
