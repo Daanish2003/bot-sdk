@@ -49,8 +49,9 @@ export const routineFireJob = defineJob({
  * Fires the Routine's slot (#539): while it is `active`, queues its next fire, counted from now so a
  * late fire runs once, and hands the Router a `routine` / `schedule` Trigger carrying its snapshot.
  * The Trigger's ID is the slot's, so a slot never makes a second one. While the user's Quota is
- * spent, no Trigger is handed: there is no caller to show a 402 to. Returns the Conversation that
- * got a Trigger, or `null`.
+ * spent, no Trigger is handed: there is no caller to show a 402 to. Nor while the user is Banned
+ * (#585); the next fire is still queued, so the Routine fires again once the Ban ends. Returns the
+ * Conversation that got a Trigger, or `null`.
  */
 async function fireRoutine(
   deps: BotSdkContext,
@@ -64,9 +65,11 @@ async function fireRoutine(
     .innerJoin(bot, eq(bot.id, botRoutine.botId))
     .where(eq(botRoutine.id, routineId));
   if (!owner) return null;
-  // The Quota is read before any lock is taken, so a slow read never holds up the Conversation.
+  // The Quota and the Ban are read before any lock is taken, so a slow read never holds up the
+  // Conversation.
   const call = await deps.plugin("models").resolveModelCall(owner.userId, owner.model);
   const quotaSpent = call ? !(await call.meter.mayRun()).ok : false;
+  const banned = await deps.isUserBlocked(owner.userId);
   // The Conversation's row lock first, as in every transaction that hands the Router a Trigger.
   await lockConversation(tx, owner.conversationId);
   const [routine] = await tx
@@ -82,7 +85,7 @@ async function fireRoutine(
   const after = new Date(Math.max(now.getTime(), slot.getTime()));
   await queueFire(deps, tx, routineId, nextSlot(routine.schedule, routine.timeZone, after));
 
-  if (quotaSpent) return null;
+  if (quotaSpent || banned) return null;
   const id = fireKey(routineId, slot);
   const [seen] = await tx
     .select({ id: botTrigger.id })

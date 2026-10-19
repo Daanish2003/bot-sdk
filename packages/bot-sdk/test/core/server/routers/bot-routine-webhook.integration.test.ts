@@ -13,7 +13,7 @@ import {
   type InProcessRunner,
 } from "../../../../plugins/runner/server/jobs/in-process";
 import { claimJob, runClaimedJob } from "../../../../plugins/runner/server/jobs/store";
-import { createTestSdk, type TestDeps } from "../../../support/deps";
+import { createTestSdk, type TestDeps, type TestDepsOverrides } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
 import { fakeJobClock } from "../../../support/jobs";
 import { chatRpc } from "../../../support/sdk";
@@ -51,7 +51,8 @@ const at = new Date("2026-10-19T10:42:00.000Z");
 async function botWithRoutine({
   routine = payouts,
   rounds = [],
-}: { routine?: unknown; rounds?: Round[] } = {}) {
+  isUserBlocked,
+}: { routine?: unknown; rounds?: Round[] } & Pick<TestDepsOverrides, "isUserBlocked"> = {}) {
   const timer = fakeJobClock(at);
   const fake = createFakeAdapter({ rounds: [round(createRoutine(routine)), round(), ...rounds] });
   let deps: TestDeps | undefined;
@@ -67,6 +68,7 @@ async function botWithRoutine({
     jobs,
     adapterFor: () => fake.adapter,
     clock: timer.clock.now,
+    isUserBlocked,
   });
   started.push(jobs);
   const user = await insertUser();
@@ -114,8 +116,11 @@ async function botWithRoutine({
 }
 
 /** A Bot with the webhook Routine `payouts`, approved: its token is the one approving revealed. */
-async function approvedWebhook(rounds: Round[] = []) {
-  const made = await botWithRoutine({ rounds });
+async function approvedWebhook(
+  rounds: Round[] = [],
+  { isUserBlocked }: Pick<TestDepsOverrides, "isUserBlocked"> = {},
+) {
+  const made = await botWithRoutine({ rounds, isUserBlocked });
   const routineId = made.routines[0]!.id;
   const { webhookToken } = await made.client.bot.routine.approve({ routineId });
   return { ...made, routineId, token: webhookToken! };
@@ -207,6 +212,19 @@ describe("a webhook Routine's URL", () => {
     expect(again.webhookToken).toBeUndefined();
     expect((await call(token)).status).toBe(202);
     expect(await routineTriggers(conversationId)).toHaveLength(1);
+  });
+
+  it("answers 202 and makes no Trigger while the user is Banned", async () => {
+    let banned = false;
+    const { conversationId, token, call } = await approvedWebhook([], {
+      isUserBlocked: async () => banned,
+    });
+    banned = true;
+
+    const response = await call(token, '{"amount":1200}');
+
+    expect(response.status).toBe(202);
+    expect(await routineTriggers(conversationId)).toEqual([]);
   });
 
   it("answers 413 to a body over 64 KB and makes nothing", async () => {

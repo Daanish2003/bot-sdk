@@ -65,7 +65,8 @@ async function botTurn({
   rounds,
   host = false,
   getQuota,
-}: { rounds: Round[]; host?: boolean } & Pick<TestDepsOverrides, "getQuota">) {
+  isUserBlocked,
+}: { rounds: Round[]; host?: boolean } & Pick<TestDepsOverrides, "getQuota" | "isUserBlocked">) {
   const timer = fakeJobClock(monday);
   const fake = createFakeAdapter({ rounds });
   let deps: TestDeps | undefined;
@@ -83,6 +84,7 @@ async function botTurn({
     clock: timer.clock.now,
     ...(host && { hostProviders }),
     getQuota,
+    isUserBlocked,
   });
   started.push(jobs);
   const user = await insertUser();
@@ -267,6 +269,20 @@ describe("a Check-in", () => {
       estimated: false,
       createdAt: new Date(),
     });
+
+    advanceTo(thursdayUtc);
+    await runDue();
+
+    expect(await checkInTriggers(conversationId)).toEqual([]);
+  });
+
+  it("makes no Trigger while the user is Banned", async () => {
+    let banned = false;
+    const { conversationId, runDue, advanceTo } = await botTurn({
+      rounds: [round(setCheckIn(setThursday)), round()],
+      isUserBlocked: async () => banned,
+    });
+    banned = true;
 
     advanceTo(thursdayUtc);
     await runDue();

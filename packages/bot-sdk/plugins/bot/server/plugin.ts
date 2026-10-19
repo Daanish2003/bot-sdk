@@ -8,6 +8,7 @@ import "./check-in-fire";
 import { handleRoutineWebhook } from "./routine-webhook";
 import { botPluginRouter } from "./routers/index";
 import { botUserDelete, exportBots, hasTurnUsingComputer, userHasBot } from "./store";
+import { stopUserTurns } from "./turn";
 
 export type BotPlugin = BotSdkPlugin<"bot", never, never>;
 
@@ -18,6 +19,8 @@ export type BotApi = {
    * it at `/api/routines/webhook/<token>` with no sign-in: the token is the authentication.
    */
   webhookHandler: (request: Request) => Promise<Response>;
+  /** Stops the running Turn of each of the user's Bots. The Host calls it when it Bans the user. */
+  stopTurns: (userId: string) => Promise<void>;
 };
 
 declare module "../../../core/server/plugin" {
@@ -53,7 +56,10 @@ export function bot(): BotPlugin {
         // Only a user with a Bot gets a Computer, so a Turn racing the user's delete creates none.
         computer.addOwnerCheck(userHasBot);
       }
-      const api: BotApi = { webhookHandler: (request) => handleRoutineWebhook(sdk, request) };
+      const api: BotApi = {
+        webhookHandler: (request) => handleRoutineWebhook(sdk, request),
+        stopTurns: (userId) => stopUserTurns(sdk, userId),
+      };
       return { api };
     },
     // Repairs a Routine whose chain of fires broke, now and then hourly (#578).
