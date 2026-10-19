@@ -257,7 +257,9 @@ describe("stopping a Computer-use Helper", () => {
     await deps.plugin("bot").stopTurns(user.id);
 
     expect((await helpersOf(botId)).map((row) => row.status)).toEqual(["stopped"]);
-    expect(screenCommands(computerFake).at(-1)).toBe("/usr/local/bin/ai-chat-screen stop 1");
+    await expect
+      .poll(() => screenCommands(computerFake).at(-1), { timeout: 10_000 })
+      .toBe("/usr/local/bin/ai-chat-screen stop 1");
     expect(
       await getTestDb().select().from(botTrigger).where(eq(botTrigger.source, "helper")),
     ).toEqual([]);

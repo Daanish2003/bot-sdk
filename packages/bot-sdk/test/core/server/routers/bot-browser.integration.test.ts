@@ -428,7 +428,10 @@ describe("starting a Computer-use Helper", () => {
 
     await client.bot.helper.stop({ botId: first });
 
-    expect(commands()).toEqual([`${screenScript} start 1 ${first}`, `${screenScript} stop 1`]);
+    // A job closes it once the stop has committed.
+    await expect
+      .poll(commands, { timeout: 10_000 })
+      .toEqual([`${screenScript} start 1 ${first}`, `${screenScript} stop 1`]);
     const second = await newBot();
     await send(client, second, "browse");
     expect((await helpersOf(second))[0]?.screen).toBe(1);

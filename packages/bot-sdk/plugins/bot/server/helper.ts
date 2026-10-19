@@ -633,7 +633,7 @@ async function replayedHelper(deps: BotSdkContext, helper: HelperFacts, waitedSi
  * has committed: its cancelled job saves no more Checkpoints, so a replay reads the same each time.
  * Best-effort: the Helper stays stopped, and only its transcript is lost.
  */
-export async function recordStoppedHelper(deps: BotSdkContext, helperId: string): Promise<void> {
+async function recordStoppedHelper(deps: BotSdkContext, helperId: string): Promise<void> {
   try {
     const helper = await helperFacts(deps.db, helperId);
     if (helper?.status !== "stopped") return;
@@ -649,6 +649,29 @@ export async function recordStoppedHelper(deps: BotSdkContext, helperId: string)
     deps.logger.error(`Replaying the Checkpoints of Helper ${helperId} failed`, caught);
   }
 }
+
+/** The runner job that finishes a stop, once it has committed. */
+export const helperStoppedJobName = "bot.helper.stopped";
+
+/**
+ * What a stop leaves to after its commit, enqueued in its transaction (`stopHelpers`), so it runs
+ * only once the stop stands, and again after a crash: the stopped Helper's transcript and usage
+ * become what its Checkpoints hold (unless it was waiting, and saved them then), and its Screen is
+ * closed. Each part is best-effort and logged, and the same however often it runs.
+ */
+export const helperStoppedJob = defineJob({
+  name: helperStoppedJobName,
+  payload: z.object({
+    helperId: z.uuid(),
+    userId: z.string(),
+    screen: z.number().int().nullable(),
+    waited: z.boolean(),
+  }),
+  run: async ({ helperId, userId, screen, waited }, ctx) => {
+    if (!waited) await recordStoppedHelper(ctx.deps, helperId);
+    await closeScreen(ctx.deps, { id: helperId, userId, screen });
+  },
+});
 
 /** Whether one of the user's Helpers is running, so it may use the Computer: a busy check. */
 export async function hasRunningHelper(db: Database, userId: string): Promise<boolean> {
