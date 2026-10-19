@@ -16,7 +16,7 @@ const MIGRATION_LOCK_ID = 727_770_001;
  * The newest folder in `core/server/migrations`. A bundler can't read that folder at run time, so
  * `start()` compares against this name. A test keeps it equal to the folder listing.
  */
-export const LATEST_MIGRATION = "20261019100756_bot_routine_webhook";
+export const LATEST_MIGRATION = "20261019122831_job_idempotency_key_prefix";
 
 function migrationsFolder() {
   // Only `migrate()` reads the folder, from a migrate script that runs the file unbundled. The
