@@ -46,7 +46,7 @@ export type TurnRunResult = {
  * the Bot's SendToUser calls (the Bot's own Messages are not replayed as text). A ms apart, so the
  * order is the history's.
  */
-async function seedHistory(
+export async function seedHistory(
   db: Database,
   { botId, conversationId }: { botId: string; conversationId: string },
   history: TurnCase["history"],
@@ -113,7 +113,7 @@ export async function freshBot(env: TurnEnv, caseId: string, repeat: number) {
     hint: "eval",
     verified: true,
   });
-  const bot = await createBot(env.db, userId, { name: "Eval", model: env.model });
+  const bot = await createBot(env.db, userId, { name: "Eval", model: env.model }, new Date());
   const found = await findBot(env.db, userId, bot.id);
   return { userId, bot, found };
 }

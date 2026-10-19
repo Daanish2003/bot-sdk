@@ -29,8 +29,23 @@ import {
   hostProvidersOf,
   quotaOf,
 } from "./host-models";
+import { computerPluginsOf } from "./computer";
 import { mcpServersOf } from "./mcp-server";
 import { trustedIpHeadersOf } from "./trusted-ip";
+
+// The template Computers are built from, named by its version (spec #519). It matches the SDK's
+// Dockerfile, built into E2B as this name; changing it rebuilds every Computer on its next wake.
+export const computerTemplate = "ai-chat-computer-v2";
+
+// The three E2B values are set together or not at all, so a typo does not silently turn Computers off.
+const e2bValues = [ENV.E2B_API_KEY, ENV.E2B_API_URL, ENV.E2B_SANDBOX_URL];
+if (e2bValues.some(Boolean) && !e2bValues.every(Boolean)) {
+  throw new Error("E2B_API_KEY, E2B_API_URL and E2B_SANDBOX_URL are set together or not at all");
+}
+const e2b =
+  ENV.E2B_API_KEY && ENV.E2B_API_URL && ENV.E2B_SANDBOX_URL
+    ? { apiKey: ENV.E2B_API_KEY, apiUrl: ENV.E2B_API_URL, sandboxUrl: ENV.E2B_SANDBOX_URL }
+    : undefined;
 
 export const db = createDb(ENV);
 // The OAuth values are optional outside production (see .env.schema); an empty id makes the
@@ -116,6 +131,8 @@ export const sdk = (shared.botSdk ??= createBotSdk({
     }),
     // Background jobs (ADR 0011): the in-process runner, which Knowledge and Memory share.
     runner(),
+    // The Bots' Computer (spec #519): on only when self-hosted E2B is configured.
+    ...(await computerPluginsOf(e2b, computerTemplate)),
     assistant({
       mcpServers: mcpServersOf(ENV),
       // Artifacts (spec #304): the assistant's create_artifact tool, the side panel and its version route.

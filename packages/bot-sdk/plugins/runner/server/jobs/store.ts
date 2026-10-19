@@ -367,6 +367,29 @@ export async function cancelJob(db: Database, idempotencyKey: string, now: Date)
 }
 
 /**
+ * Cancels, in the caller's transaction, the queued jobs named `name` whose payload's `field` is
+ * `value`: for a job with no idempotency key, such as a self-chaining check. A running one is left
+ * to end.
+ */
+export async function cancelQueuedJobsIn(
+  tx: Transaction,
+  name: string,
+  { field, value }: { field: string; value: string },
+  now: Date,
+): Promise<void> {
+  await tx
+    .update(job)
+    .set({ status: "cancelled", heartbeatAt: heartbeatOnCancel, updatedAt: now })
+    .where(
+      and(
+        eq(job.name, name),
+        eq(job.status, "queued"),
+        sql`${job.payload} ->> ${field} = ${value}`,
+      ),
+    );
+}
+
+/**
  * Cancels the active job with this key in the caller's transaction, and returns what it was:
  * `queued` (it never runs) or `running` (its attempt aborts at its next heartbeat or write).
  * Returns undefined when no job with this key is active.

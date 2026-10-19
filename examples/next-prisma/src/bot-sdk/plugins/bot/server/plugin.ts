@@ -2,7 +2,7 @@ import type { BotSdkPlugin } from "../../../core/server/plugin";
 import { isInProcessRunner } from "../../runner/server/jobs/in-process";
 import { runnerJobs } from "../../runner/server/plugin";
 import { botPluginRouter } from "./routers/index";
-import { botUserDelete, exportBots } from "./store";
+import { botUserDelete, exportBots, hasTurnUsingComputer, userHasBot } from "./store";
 
 export type BotPlugin = BotSdkPlugin<"bot", never, never>;
 
@@ -14,6 +14,8 @@ export function bot(): BotPlugin {
   return {
     id: "bot",
     requires: ["models", "runner"],
+    // Softly: with computer on, a Turn has its tools, and a running Turn keeps the Computer awake.
+    uses: ["computer"],
     init: (sdk) => {
       // A Turn replays from the history `chat.job` holds. Trigger.dev records nothing and its retry
       // starts over, which would send the Messages again (ADR 0011, the #482 amendment).
@@ -21,6 +23,15 @@ export function bot(): BotPlugin {
         throw new Error(
           "The bot plugin needs the in-process runner: a Trigger.dev retry starts a Turn over and would send its Messages again",
         );
+      }
+      if (sdk.hasPlugin("computer")) {
+        const computer = sdk.plugin("computer");
+        // Never mid-Turn (#508): a Turn that started before the Computer's last activity holds it.
+        computer.addBusyCheck((userId, lastActiveAt) =>
+          hasTurnUsingComputer(sdk.db, userId, lastActiveAt),
+        );
+        // Only a user with a Bot gets a Computer, so a Turn racing the user's delete creates none.
+        computer.addOwnerCheck(userHasBot);
       }
     },
     router: botPluginRouter,

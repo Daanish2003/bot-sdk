@@ -47,6 +47,7 @@
     "cn": "^0.4.0",
     "csv-parse": "7.0.2",
     "drizzle-orm": "catalog:",
+    "e2b": "2.55.0",
     "html-to-text": "10.0.1",
     "htmlparser2": "10.1.0",
     "ipaddr.js": "2.5.0",

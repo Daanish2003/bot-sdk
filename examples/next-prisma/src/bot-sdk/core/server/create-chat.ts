@@ -154,7 +154,7 @@ function exportResponse(document: UserExport) {
 }
 
 /** The parts of the core context a test may give instead of having them built. */
-export type GivenContext = Partial<Omit<BotSdkContext, "plugin" | "rateLimit">>;
+export type GivenContext = Partial<Omit<BotSdkContext, "plugin" | "hasPlugin" | "rateLimit">>;
 
 /**
  * The Bot SDK for a Host: one instance over its plugins (ADR 0020). Construction checks each
@@ -192,7 +192,8 @@ export function buildBotSdk(
 
   const apis = new Map<string, object>();
   // Building the context opens nothing: the pool and the runtime connect on first use.
-  const sdk = buildContext(options, given, ruleDefaults, (id) => {
+  const enabledIds = new Set(plugins.map((plugin) => plugin.id));
+  const sdk = buildContext(options, given, ruleDefaults, enabledIds, (id) => {
     const api = apis.get(id);
     if (!api) throw new Error(`Plugin "${id}" isn't enabled`);
     return api;
@@ -245,6 +246,7 @@ function buildContext(
   options: BotSdkOptions,
   given: GivenContext,
   ruleDefaults: ReturnType<typeof mergeRateLimits>,
+  enabledIds: ReadonlySet<string>,
   plugin: (id: string) => object,
 ): BotSdkContext {
   const logger = options.logger ?? console;
@@ -283,6 +285,8 @@ function buildContext(
       return rateLimitedFor(counters, limit, key);
     },
     plugin: <Id extends keyof PluginApis>(id: Id) => plugin(id) as PluginApis[Id],
+    // From the plugin list, so it holds already in an `init` that runs before the other plugin's.
+    hasPlugin: (id) => enabledIds.has(id),
   };
 }
 

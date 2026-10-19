@@ -25,6 +25,7 @@ import { knowledgeBlobKey } from "../../../plugins/assistant/server/blob-keys";
 import { knowledgeJobKey } from "../../../plugins/assistant/server/knowledge/process";
 import { readTokens, saveTokens } from "../../../plugins/assistant/server/mcp/connections";
 import { assistant } from "../../../plugins/assistant/server/plugin";
+import { computer } from "../../../plugins/computer/server/plugin";
 import { runner } from "../../../plugins/runner/server/plugin";
 import { listCredentials, saveCredentials } from "../../../plugins/models/server/credentials/store";
 import { models } from "../../../plugins/models/server/plugin";
@@ -35,6 +36,7 @@ import { insertGeneratedImage } from "../../support/generated-images";
 import { insertMemory } from "../../support/memories";
 import { chatRpc } from "../../support/sdk";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
+import { fakeComputerProvider } from "../../plugins/computer/server/fake-provider";
 import { insertUser, type TestUser } from "../../support/users";
 
 const testKey = "test-key-encryption-secret-not-for-production";
@@ -89,7 +91,7 @@ async function activeJobsNaming(ids: string[]) {
  * A user with a row in every table that has a `user_id` column: a Conversation with an Attachment,
  * a Shared link, a Generated image and a Memory; a Project with a Conversation, a Generated image
  * and a Knowledge file whose processing job is queued; an unused Attachment; settings, a Saved
- * prompt, an MCP connection, credentials and usage; a Bot. Returns the blob keys and ids it made.
+ * prompt, an MCP connection, credentials and usage; a Bot; a Computer. Returns the blob keys and ids it made.
  */
 async function seedEverything(user: TestUser, deps: TestDeps) {
   const conv = await insertConversation(user, { title: "Mine" });
@@ -142,6 +144,8 @@ async function seedEverything(user: TestUser, deps: TestDeps) {
     model: "anthropic:claude-sonnet-5-5",
   });
 
+  await deps.plugin("computer").forUser(user.id).run("true");
+
   await getTestDb().insert(userSettings).values({ userId: user.id, instructions: "Be terse." });
   await getTestDb()
     .insert(savedPrompt)
@@ -182,7 +186,10 @@ async function seedEverything(user: TestUser, deps: TestDeps) {
 describe("deleteUser across plugins", () => {
   it("leaves nothing of the user in any user_id table, the blob store or the jobs queue, and the other user's data untouched", async () => {
     const { store, held } = fakeBlobStore();
-    const deps = createTestSdk({ blobStore: store });
+    const deps = createTestSdk({
+      blobStore: store,
+      plugins: [computer({ provider: fakeComputerProvider().provider })],
+    });
     const owner = await insertUser();
     const other = await insertUser();
     const own = await seedEverything(owner, deps);
@@ -201,7 +208,8 @@ describe("deleteUser across plugins", () => {
     expect(await activeJobsNaming(own.ids)).toEqual([]);
     expect(await rowsByTable(other.id)).toEqual(before);
     expect(kept.blobKeys.filter((key) => !held.has(key))).toEqual([]);
-    expect(await activeJobsNaming(kept.ids)).toHaveLength(1);
+    // Their Knowledge file's processing and their Computer's sleep check.
+    expect(await activeJobsNaming(kept.ids)).toHaveLength(2);
   });
 
   it("deletes the models plugin's rows on an instance without the assistant", async () => {
