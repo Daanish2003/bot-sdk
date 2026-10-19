@@ -409,6 +409,26 @@ describe("a scheduled Routine", () => {
     });
   });
 
+  it("reads the status of the Turn that took the user's last Message apart from a later quiet run's", async () => {
+    const { client, botId, runDue, advanceTo, sendSaved } = await approvedRoutine({
+      at: sunday,
+      rounds: [round()],
+    });
+    await sendSaved("Anything for me?");
+    await client.bot.stop({ botId });
+    advanceTo(mondaySlot);
+    await runDue();
+    advanceTo("2026-10-19T07:00:00.500Z");
+    await runDue();
+
+    const read = await client.bot.get({ botId });
+    expect(read.bot).toMatchObject({ turnStatus: "complete", userTurnStatus: "stopped" });
+
+    // The user's next Message reads as its own Turn's.
+    await sendSaved("Hello?");
+    expect((await client.bot.get({ botId })).bot.userTurnStatus).toBe("running");
+  });
+
   it("reads a run that sent a Message as sent, beside each earlier Turn with its own Triggers", async () => {
     const { client, botId, runDue, advanceTo } = await approvedRoutine({
       at: sunday,

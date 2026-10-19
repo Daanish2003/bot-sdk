@@ -46,7 +46,7 @@ function seed(queryClient: QueryClient, client: BotSdkClient) {
     webSearchOnHost: false,
   });
   queryClient.setQueryData(client.orpc.bot.get.queryKey({ input: { botId: ada.id } }), {
-    bot: { ...ada, turnStatus: null },
+    bot: { ...ada, turnStatus: null, userTurnStatus: null },
     messages: [],
     turns: [],
   });

@@ -53,7 +53,7 @@ describe("bot.create", () => {
       activeLeafId: null,
     });
     await expect(client.bot.get({ botId: created.id })).resolves.toEqual({
-      bot: { ...created, turnStatus: null },
+      bot: { ...created, turnStatus: null, userTurnStatus: null },
       messages: [],
       turns: [],
     });

@@ -38,6 +38,8 @@ function fakeBotServer(messages: BotMessage[] = []) {
   const queue: (BotSendEvent | "end" | "drop")[] = [];
   let wake = () => {};
   let turnStatus: TurnStatus | "running" | null = null;
+  // The status of the Turn that took the user's last Message.
+  let userTurnStatus: TurnStatus | "running" | null = null;
   const push = (event: BotSendEvent | "end" | "drop") => {
     queue.push(event);
     wake();
@@ -51,7 +53,7 @@ function fakeBotServer(messages: BotMessage[] = []) {
   const router = {
     bot: {
       get: os.handler(async () => {
-        const read = { bot: { ...ada, turnStatus }, messages: [...messages] };
+        const read = { bot: { ...ada, turnStatus, userTurnStatus }, messages: [...messages] };
         await held;
         return read;
       }),
@@ -113,6 +115,11 @@ function fakeBotServer(messages: BotMessage[] = []) {
     /** What `bot.get` says of the latest Turn from now on, as the server's Turn moves on. */
     setTurnStatus: (status: TurnStatus | "running" | null) => {
       turnStatus = status;
+      userTurnStatus = status;
+    },
+    /** What `bot.get` says of the Turn that took the user's last Message, when another Turn ran since. */
+    setUserTurnStatus: (status: TurnStatus | "running" | null) => {
+      userTurnStatus = status;
     },
     /** Fails the next `count` send requests on the network, before the server sees them. */
     dropNext: (count = 1) => {
@@ -485,6 +492,30 @@ describe("a Turn that didn't reply", () => {
     );
 
     expect(screen.queryByText("Couldn't reply")).toBeNull();
+    expect(screen.queryByText("Seen ✓")).toBeNull();
+  });
+});
+
+describe("a quiet background run after the user's Message", () => {
+  it("reads the user's Message's own Turn, not the run: no Seen ✓ after a stopped one", async () => {
+    const server = fakeBotServer([said("m1", "user", "hi")]);
+    // A Routine's quiet run, the latest Turn, ended complete after the user's Turn was stopped.
+    server.setTurnStatus("complete");
+    server.setUserTurnStatus("stopped");
+    mount(server);
+
+    await screen.findByText("hi");
+    expect(screen.queryByText("Seen ✓")).toBeNull();
+    expect(screen.queryByText("Couldn't reply")).toBeNull();
+  });
+
+  it("shows Couldn't reply after the user's failed Turn, not Seen ✓", async () => {
+    const server = fakeBotServer([said("m1", "user", "hi")]);
+    server.setTurnStatus("complete");
+    server.setUserTurnStatus("error");
+    mount(server);
+
+    expect(await screen.findByText("Couldn't reply")).toBeTruthy();
     expect(screen.queryByText("Seen ✓")).toBeNull();
   });
 });
