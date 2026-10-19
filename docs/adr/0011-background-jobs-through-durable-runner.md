@@ -107,3 +107,11 @@ Step 4 needs schedules like "weekdays 8:00" in the user's time zone. `everyMs` c
 - **`schedule(name, { everyMs })` stays unbuilt** until something needs a fixed interval.
 - **Missed fires run once, late.** A job whose `runAfter` passed while nothing ran fires when the runner is back, and the next slot is counted from then. Older slots aren't replayed.
 - **Durable sleep stays deferred.** No workflow waits mid-run yet. The `sleep` history kind arrives with the first one, probably Helpers in step 6.
+
+## Amendment: a Helper is its own job, and the hand-off ends it (2026-10-19, [#565](https://github.com/Daanish2003/ai-chat/issues/565), [#568](https://github.com/Daanish2003/ai-chat/issues/568))
+
+Step 6 was expected to bring child workflows and durable sleep. It brings neither.
+
+- **A Helper is its own `bot.helper` job, not a child workflow of the Turn.** It outlives the Turn that started it, so nothing waits on it. Its finish reaches the Bot as a `helper` Trigger through the Router, like any other Trigger. The Turn and the Helper run the same one-activity-per-call loop.
+- **Handing the Screen to a person ends the job.** The Helper saves its transcript on its row and ends `waiting`. Tapping **Done** enqueues a fresh `bot.helper` job, which loads the transcript and answers the hand-off call. This replaces the durable wait (send and receive in the runner) that The Computer ([#396](https://github.com/Daanish2003/ai-chat/issues/396)) planned. A hand-off has no timeout, and it can wait days across deploys. A parked job would hold a runner row and a replay history for all that time, to gain nothing over a row that says `waiting`.
+- **Durable sleep, messages into a running workflow and child workflows stay unbuilt.** Messages to a Helper are rows its loop reads in an activity before each model call, so a replay reads the same ones.
