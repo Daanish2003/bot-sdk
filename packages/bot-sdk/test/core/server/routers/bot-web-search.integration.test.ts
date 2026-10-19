@@ -1,7 +1,8 @@
 import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { asc, eq, sql } from "drizzle-orm";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { createHookEmitter } from "../../../../core/server/chat/hooks";
 import { botHelper, usage } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import type { HostProvider } from "../../../../plugins/assistant/server/deps";
@@ -92,7 +93,7 @@ async function botWith(
     withComputer?: boolean;
     helperRounds?: Rounds;
     onSearch?: () => Promise<void>;
-  } & Pick<TestDepsOverrides, "getQuota"> = {},
+  } & Pick<TestDepsOverrides, "getQuota" | "hooks"> = {},
 ) {
   const tavily = fakeTavily(onSearch);
   const turnFake = createFakeAdapter({ rounds });
@@ -144,7 +145,7 @@ async function botWith(
   }
   const client = chatRpc({ user, deps });
   const created = await client.bot.create({ name: "Ada", model: host ? hostModel : model });
-  return { turnFake, helperFake, tavily, client, user, botId: created.id };
+  return { turnFake, helperFake, tavily, client, user, botId: created.id, jobs };
 }
 
 async function send(client: ReturnType<typeof chatRpc>, botId: string, message: string) {
@@ -210,6 +211,48 @@ describe("the Bot's web search", () => {
     expect(openDuringSearch).toEqual([0]);
     const rows = (await usageOf(user.id)).filter((row) => row.kind === "web_search");
     expect(rows).toHaveLength(1);
+  });
+
+  it("fires onUsage for a search whose record a deploy's yield follows", async () => {
+    const onUsage = vi.fn();
+    // Another connection takes the usage table during the search, so the record waits on it.
+    let release = () => {};
+    let held: Promise<void> = Promise.resolve();
+    const { client, botId, user, jobs } = await botWith([round(search("news")), round(done)], {
+      host: true,
+      hooks: createHookEmitter({ onUsage }, silent),
+      onSearch: async () => {
+        let locked = () => {};
+        const locking = new Promise<void>((resolve) => (locked = resolve));
+        held = getTestDb().transaction(async (tx) => {
+          await tx.execute(sql`lock table chat.usage in share mode`);
+          locked();
+          await new Promise<void>((resolve) => (release = resolve));
+        });
+        await locking;
+      },
+    });
+    const waitingOnLocks = async () => {
+      const { rows } = await getTestDb().execute<{ n: number }>(
+        sql`select count(*)::int as n from pg_stat_activity
+            where datname = current_database() and wait_event_type = 'Lock'`,
+      );
+      return rows[0]?.n;
+    };
+
+    await client.bot.send({ botId, id: uuidv7(), text: "news?" });
+    await expect.poll(waitingOnLocks, { timeout: 10_000 }).toBe(1);
+    // The deploy starts while the search is being recorded: it commits, then the attempt yields.
+    await jobs.stop();
+    release();
+    await held;
+
+    const searched = () =>
+      usageOf(user.id).then((rows) => rows.filter((row) => row.kind === "web_search"));
+    await expect.poll(async () => (await searched()).length).toBe(1);
+    await expect
+      .poll(() => onUsage.mock.calls.filter(([row]) => row.kind === "web_search"))
+      .toEqual([[(await searched())[0]]]);
   });
 
   it("does not search once a search has spent the Quota", async () => {

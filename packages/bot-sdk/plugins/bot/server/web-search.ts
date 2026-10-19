@@ -11,6 +11,7 @@ import {
 } from "../../assistant/shared/chat/web-search";
 import type { ToolCall } from "../../models/server/credentials/resolve";
 import { tavilyService } from "../../models/shared/credentials/services";
+import { WorkflowYieldedError } from "../../runner/server/workflow/engine";
 import type { LoopKit } from "./loop";
 
 /** What `web_search` returns with neither a Tool credential nor a Host key (#592). */
@@ -45,7 +46,7 @@ export function webSearchTool(
     // What the live search ran on; an attempt that resumes at the write resolves it again.
     let call: ToolCall | null | undefined;
     let usageRecorded = () => {};
-    const output = await liveRequest(
+    const request = liveRequest(
       webSearchToolName,
       context?.toolCallId,
       async (): Promise<WebSearchOutput> => {
@@ -73,7 +74,16 @@ export function webSearchTool(
         if (call) usageRecorded = await call.meter.recordIn(tx);
       },
     );
-    usageRecorded();
-    return output;
+    try {
+      const output = await request;
+      // Only once the record has committed, and never on a replay.
+      usageRecorded();
+      return output;
+    } catch (caught) {
+      // A yield is thrown once the record's Checkpoint has committed: its next attempt replays the
+      // record, so it fires now or never.
+      if (caught instanceof WorkflowYieldedError) usageRecorded();
+      throw caught;
+    }
   });
 }
