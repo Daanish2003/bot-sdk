@@ -11,6 +11,7 @@ import { useBotTurn } from "../client/react/bot-turn";
 import { useBotRoutines } from "../client/react/routines";
 import { BotAvatar } from "./bot-avatar";
 import { RoutineCard } from "./routine-card";
+import { RoutinesPopover } from "./routines-popover";
 import { RunDivider } from "./run-divider";
 
 /**
@@ -18,7 +19,7 @@ import { RunDivider } from "./run-divider";
  * ••• while a Turn runs, and "Seen ✓" under the user's last Message when the Bot stayed quiet, or "Couldn't reply" when the
  * Turn failed. A Routine the Bot created shows after the Turn that created it, and each of its runs
  * gets a divider above what it sent, or one of its own when it stayed quiet. The Bot's Messages are
- * never collapsed.
+ * never collapsed. The header lists the Routines, to pause, resume or delete them.
  */
 export function BotConversation({ botId }: { botId: string }) {
   // One instance per Bot, so a Turn's state never shows on another Bot.
@@ -38,7 +39,8 @@ function BotConversationView({ botId }: { botId: string }) {
       },
     });
 
-  const { routines, approve, decline } = useBotRoutines(botId, working);
+  const { routines, approve, decline, pause, resume, remove } = useBotRoutines(botId, working);
+  const actions = { onPause: pause, onResume: resume, onDelete: remove };
 
   if (error) {
     return (
@@ -57,7 +59,13 @@ function BotConversationView({ botId }: { botId: string }) {
     void send(text);
   };
   const routineCard = (routine: (typeof routines)[number]) => (
-    <RoutineCard key={routine.id} routine={routine} onApprove={approve} onDecline={decline} />
+    <RoutineCard
+      key={routine.id}
+      routine={routine}
+      onApprove={approve}
+      onDecline={decline}
+      {...actions}
+    />
   );
   // Each Routine under the Message its card follows; one whose Message isn't shown yet (its Turn
   // still runs here) follows the rest.
@@ -99,6 +107,7 @@ function BotConversationView({ botId }: { botId: string }) {
       <header className="flex items-center gap-3 border-b px-4 py-3">
         <BotAvatar name={bot.name} size={28} />
         <h1 className="font-semibold">{bot.name}</h1>
+        {routines.length > 0 && <RoutinesPopover routines={routines} {...actions} />}
       </header>
       <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-4">
         {messages.length === 0 && (

@@ -38,7 +38,7 @@ import {
   turnStarted,
   waitingIn,
 } from "./router";
-import { routinesPrompt, saveRoutine } from "./routine";
+import { deleteRoutine, routinesPrompt, saveRoutine, updateRoutine } from "./routine";
 import { botMessages, findBot, textParts, toBotMessage, turnTimeLimitMs } from "./store";
 import { timeNotice } from "./time-zone";
 
@@ -50,6 +50,12 @@ export const sendToUserToolName = "send_to_user";
 
 /** The Bot's tool that saves a Routine for the user's Approval (#538). */
 export const createRoutineToolName = "create_routine";
+
+/** The Bot's tool that changes one of its Routines (#538). */
+export const updateRoutineToolName = "update_routine";
+
+/** The Bot's tool that deletes one of its Routines, with no OK (#538). */
+export const deleteRoutineToolName = "delete_routine";
 
 /** The fixed Bot system prompt: there are no per-Bot instructions. */
 export const botSystemPrompt =
@@ -110,6 +116,15 @@ const sendToUserDefinition = toolDefinition({
   }),
 });
 
+/** A Routine's name: a slug, unique per Bot. */
+const routineName = z
+  .string()
+  .regex(
+    /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
+    'name must be a slug: lowercase letters, digits and hyphens, like "morning-brief"',
+  )
+  .max(60, "name must be at most 60 characters");
+
 const createRoutineDefinition = toolDefinition({
   name: createRoutineToolName,
   description:
@@ -117,14 +132,9 @@ const createRoutineDefinition = toolDefinition({
     "zone. Use it when the user asks for something recurring. It runs only once the user approves " +
     "it, and each run wakes you with its prompt.",
   inputSchema: z.object({
-    name: z
-      .string()
-      .regex(
-        /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
-        'name must be a slug: lowercase letters, digits and hyphens, like "morning-brief"',
-      )
-      .max(60, "name must be at most 60 characters")
-      .meta({ description: 'A short slug naming the Routine, like "morning-brief".' }),
+    name: routineName.meta({
+      description: 'A short slug naming the Routine, like "morning-brief".',
+    }),
     prompt: z
       .string()
       .trim()
@@ -134,6 +144,33 @@ const createRoutineDefinition = toolDefinition({
       description:
         'When it runs, like { "days": ["mon", "tue", "wed", "thu", "fri"], "at": "08:00" }.',
     }),
+  }),
+});
+
+const updateRoutineDefinition = toolDefinition({
+  name: updateRoutineToolName,
+  description:
+    "Change the prompt or the schedule of one of your Routines, named as in your list. A change to " +
+    "a Routine the user approved sends it back for their OK: it stops running until they approve it.",
+  inputSchema: z.object({
+    name: routineName.meta({ description: "The name of the Routine to change." }),
+    prompt: z
+      .string()
+      .trim()
+      .min(1, "prompt must not be empty")
+      .optional()
+      .meta({ description: "The new prompt; leave it out to keep the current one." }),
+    schedule: routineScheduleSchema.optional().meta({
+      description: "The new schedule; leave it out to keep the current one.",
+    }),
+  }),
+});
+
+const deleteRoutineDefinition = toolDefinition({
+  name: deleteRoutineToolName,
+  description: "Delete one of your Routines, named as in your list. It never runs again.",
+  inputSchema: z.object({
+    name: routineName.meta({ description: "The name of the Routine to delete." }),
   }),
 });
 
@@ -877,6 +914,27 @@ async function playTurn(
     ),
   );
 
+  const updateRoutineTool = updateRoutineDefinition.server(async (input, context) =>
+    liveActivity(updateRoutineToolName, context?.toolCallId, (tx) =>
+      updateRoutine(deps, tx, {
+        ...input,
+        botId: turn.botId,
+        conversationId: turn.conversationId,
+        now: deps.clock(),
+      }),
+    ),
+  );
+
+  const deleteRoutineTool = deleteRoutineDefinition.server(async (input, context) =>
+    liveActivity(deleteRoutineToolName, context?.toolCallId, (tx) =>
+      deleteRoutine(deps, tx, {
+        ...input,
+        botId: turn.botId,
+        conversationId: turn.conversationId,
+      }),
+    ),
+  );
+
   /** What the Turn's model calls and tool calls added to its input, in order. */
   const messages: ModelMessage[] = [];
   try {
@@ -893,7 +951,7 @@ async function playTurn(
         adapter: durableAdapter,
         messages: [...input, ...messages],
         systemPrompts: routines ? [botSystemPrompt, routines] : [botSystemPrompt],
-        tools: [sendToUser, createRoutine],
+        tools: [sendToUser, createRoutine, updateRoutineTool, deleteRoutineTool],
         // One call at a time, in call order, which is a workflow's identity.
         toolExecution: "sequential",
         abortController,

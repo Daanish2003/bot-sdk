@@ -52,6 +52,14 @@ function fakeBotServer(
   let wake = () => {};
   const approved: string[] = [];
   const declined: string[] = [];
+  const paused: string[] = [];
+  const resumed: string[] = [];
+  const deleted: string[] = [];
+  const setState = (routineId: string, state: BotRoutine["state"]) => {
+    const routine = routines.find((row) => row.id === routineId)!;
+    routine.state = state;
+    return { id: routine.id, state };
+  };
   let turnStatus: "running" | "complete" | null = null;
   const router = {
     bot: {
@@ -89,6 +97,21 @@ function fakeBotServer(
             1,
           );
         }),
+        pause: os.input(z.object({ routineId: z.string() })).handler(({ input }) => {
+          paused.push(input.routineId);
+          return setState(input.routineId, "paused");
+        }),
+        resume: os.input(z.object({ routineId: z.string() })).handler(({ input }) => {
+          resumed.push(input.routineId);
+          return setState(input.routineId, "active");
+        }),
+        delete: os.input(z.object({ routineId: z.string() })).handler(({ input }) => {
+          deleted.push(input.routineId);
+          routines.splice(
+            routines.findIndex((row) => row.id === input.routineId),
+            1,
+          );
+        }),
       },
     },
   };
@@ -100,6 +123,9 @@ function fakeBotServer(
     fetch,
     approved,
     declined,
+    paused,
+    resumed,
+    deleted,
     routines,
     /** What `bot.get` says of the latest Turn from now on, as a Turn run elsewhere moves on. */
     setTurnStatus: (status: "running" | "complete" | null) => {
@@ -304,5 +330,96 @@ describe("an approved Routine", () => {
     expect((await screen.findByText(/morning-brief approved/)).textContent).toMatch(
       /^morning-brief approved · next run \S.*$/,
     );
+  });
+});
+
+describe("the Routines popover in the header", () => {
+  const routines = (): BotRoutine[] => [
+    { ...morningBrief("m1"), state: "active", approvedAt: createdAt },
+    {
+      ...morningBrief("m1"),
+      id: "r2",
+      name: "weekly-review",
+      schedule: { days: ["fri"], at: "16:00" },
+      state: "paused",
+      approvedAt: createdAt,
+    },
+    { ...morningBrief("m1"), id: "r3", name: "inbox-sweep" },
+  ];
+
+  /** Opens the popover and returns its list of Routines. */
+  const open = async (count: number) => {
+    fireEvent.click(await screen.findByRole("button", { name: new RegExp(`^Routines ${count}`) }));
+    return screen.findByRole("list", { name: "Routines" });
+  };
+  const row = (list: HTMLElement, name: string) =>
+    within(list)
+      .getAllByRole("listitem")
+      .find((item) => item.textContent?.includes(name))!;
+
+  it("counts the approved Routines and lists every Routine with its schedule and state", async () => {
+    const server = fakeBotServer([said("m1", "user", "Brief me")], routines());
+    mount(server);
+
+    const list = await open(2);
+
+    expect(
+      within(list)
+        .getAllByRole("listitem")
+        .map((item) => item.textContent),
+    ).toEqual([
+      expect.stringMatching(/^morning-brief.*weekdays 08:00.*active/),
+      expect.stringMatching(/^weekly-review.*fri 16:00.*paused/),
+      expect.stringMatching(/^inbox-sweep.*weekdays 08:00.*waiting for OK/),
+    ]);
+    // A pending Routine is approved or declined on its card, not here.
+    expect(within(row(list, "inbox-sweep")).queryAllByRole("button")).toEqual([]);
+  });
+
+  it("pauses, resumes and deletes through the router", async () => {
+    const server = fakeBotServer([said("m1", "user", "Brief me")], routines());
+    mount(server);
+    const list = await open(2);
+
+    fireEvent.click(within(row(list, "morning-brief")).getByRole("button", { name: "Pause" }));
+    await waitFor(() => expect(server.paused).toEqual(["r1"]));
+    fireEvent.click(within(row(list, "weekly-review")).getByRole("button", { name: "Resume" }));
+    await waitFor(() => expect(server.resumed).toEqual(["r2"]));
+    fireEvent.click(within(row(list, "weekly-review")).getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(server.deleted).toEqual(["r2"]));
+
+    await waitFor(() =>
+      expect(
+        within(list)
+          .getAllByRole("listitem")
+          .map((item) => item.textContent),
+      ).toEqual([
+        expect.stringMatching(/^morning-brief.*paused/),
+        expect.stringMatching(/^inbox-sweep/),
+      ]),
+    );
+  });
+});
+
+describe("the approved divider", () => {
+  it("pauses, resumes and deletes its Routine through the router", async () => {
+    const server = fakeBotServer(
+      [said("m1", "user", "Brief me")],
+      [{ ...morningBrief("m1"), state: "active", approvedAt: createdAt }],
+    );
+    const { container } = mount(server);
+    await screen.findByText(/morning-brief approved/);
+    const divider = () => container.querySelector<HTMLElement>("[data-routine=morning-brief]")!;
+
+    fireEvent.click(within(divider()).getByRole("button", { name: "Pause" }));
+    await screen.findByText("morning-brief paused");
+    expect(server.paused).toEqual(["r1"]);
+    fireEvent.click(within(divider()).getByRole("button", { name: "Resume" }));
+    await screen.findByText(/morning-brief approved/);
+    expect(server.resumed).toEqual(["r1"]);
+    fireEvent.click(within(divider()).getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => expect(divider()).toBeNull());
+    expect(server.deleted).toEqual(["r1"]);
   });
 });

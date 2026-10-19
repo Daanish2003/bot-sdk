@@ -6,7 +6,14 @@ import { rpcError } from "../../../../core/server/rpc-error";
 import { botMessages, createBot, findBot, latestTurnStatus, listBots } from "../store";
 import { botSendEventSchema } from "../../shared/turn";
 import { turnProvenance } from "../provenance";
-import { approveRoutine, declineRoutine, listRoutines } from "../routine";
+import {
+  approveRoutine,
+  declineRoutine,
+  listRoutines,
+  pauseRoutine,
+  removeRoutine,
+  resumeRoutine,
+} from "../routine";
 import { isTimeZone } from "../time-zone";
 import { sendToBot, stopBot } from "../turn";
 
@@ -106,6 +113,28 @@ const botRouter = {
       .input(z.object({ routineId: z.uuid() }))
       .handler(({ context, input }) =>
         declineRoutine(context.sdk.db, context.user.id, input.routineId),
+      ),
+
+    /**
+     * Pauses an active Routine: its queued fire is cancelled and its Triggers no Turn has taken yet
+     * are dropped. Another user's is not found.
+     */
+    pause: protectedProcedure
+      .input(z.object({ routineId: z.uuid() }))
+      .handler(({ context, input }) => pauseRoutine(context.sdk, context.user.id, input.routineId)),
+
+    /** Resumes a paused Routine with no fresh OK: its next fire is queued. Another user's is not found. */
+    resume: protectedProcedure
+      .input(z.object({ routineId: z.uuid() }))
+      .handler(({ context, input }) =>
+        resumeRoutine(context.sdk, context.user.id, input.routineId),
+      ),
+
+    /** Deletes a Routine in any state, and nothing of it fires again. Another user's is not found. */
+    delete: protectedProcedure
+      .input(z.object({ routineId: z.uuid() }))
+      .handler(({ context, input }) =>
+        removeRoutine(context.sdk, context.user.id, input.routineId),
       ),
   },
 };

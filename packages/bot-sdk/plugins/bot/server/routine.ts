@@ -1,11 +1,12 @@
 import { and, asc, desc, eq, inArray, isNull, like, lt, lte, min, or, sql } from "drizzle-orm";
 
-import { bot, botRoutine, botTurn, job, message } from "../../../core/server/db/schema";
+import { bot, botRoutine, botTrigger, botTurn, job, message } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
 import { type BotRoutine, type RoutineSchedule, scheduleText } from "../shared/routine";
+import { lockConversation } from "./router";
 import { knownZone, nextSlot } from "./schedule";
 import { newestTimeZone } from "./store";
 import { defaultTimeZone } from "./time-zone";
@@ -49,7 +50,20 @@ export async function cancelUserFires(
     .from(botRoutine)
     .innerJoin(bot, eq(bot.id, botRoutine.botId))
     .where(eq(bot.userId, userId));
-  if (routines.length === 0) return;
+  await cancelFires(
+    deps,
+    tx,
+    routines.map((routine) => routine.id),
+  );
+}
+
+/** Cancels the queued fires of the Routines `routineIds`, in `tx`: the chain of fires stops. */
+async function cancelFires(
+  deps: BotSdkContext,
+  tx: Transaction,
+  routineIds: string[],
+): Promise<void> {
+  if (routineIds.length === 0) return;
   const fires = await tx
     .select({ key: job.idempotencyKey })
     .from(job)
@@ -57,11 +71,29 @@ export async function cancelUserFires(
       and(
         eq(job.name, routineFireJobName),
         inArray(job.status, ["queued", "running"]),
-        or(...routines.map((routine) => like(job.idempotencyKey, `routine:${routine.id}:%`))),
+        or(...routineIds.map((id) => like(job.idempotencyKey, `routine:${id}:%`))),
       ),
     );
   const runner = deps.plugin("runner");
   for (const { key } of fires) if (key) await runner.cancelIn(tx, key);
+}
+
+/**
+ * Stops a Routine at once (#539), in `tx`, which holds its Conversation's row lock: its queued fire
+ * is cancelled, and its Triggers that no Turn has taken yet are dropped. One a Turn has taken
+ * finishes.
+ */
+async function stopRoutine(deps: BotSdkContext, tx: Transaction, routineId: string) {
+  await cancelFires(deps, tx, [routineId]);
+  await tx
+    .delete(botTrigger)
+    .where(
+      and(
+        eq(botTrigger.source, "routine"),
+        isNull(botTrigger.turnId),
+        like(botTrigger.id, `routine:${routineId}:%`),
+      ),
+    );
 }
 
 const snapshotTime = (zone: string) =>
@@ -165,6 +197,84 @@ export async function saveRoutine(
   }
   return { saved: routineSavedResult };
 }
+
+/** What `update_routine` returns once a change sent an approved Routine back for the user's OK. */
+export const routineChangedResult = "Saved; it runs again once the user approves the change.";
+
+/**
+ * Applies a Turn's `update_routine` call (#538) to the Bot's Routine `name`. A changed prompt or
+ * schedule sends an approved Routine back to `pending` and stops it at once (`stopRoutine`), so
+ * editing never gets around the user's OK; a call that changes neither leaves it as it is. Returns the tool's
+ * result: saved, or an error the Model can act on.
+ */
+export async function updateRoutine(
+  deps: BotSdkContext,
+  tx: Transaction,
+  {
+    botId,
+    conversationId,
+    name,
+    prompt,
+    schedule,
+    now,
+  }: {
+    botId: string;
+    conversationId: string;
+    name: string;
+    prompt?: string;
+    schedule?: RoutineSchedule;
+    now: Date;
+  },
+): Promise<{ saved: string } | { error: string }> {
+  // The Conversation's row lock first, as in a fire, which locks the Routine after it.
+  await lockConversation(tx, conversationId);
+  const [routine] = await tx
+    .select()
+    .from(botRoutine)
+    .where(and(eq(botRoutine.botId, botId), eq(botRoutine.name, name)))
+    .for("update");
+  if (!routine) return { error: noRoutineNamed(name) };
+  const promptChanged = prompt !== undefined && prompt !== routine.prompt;
+  const scheduleChanged =
+    schedule !== undefined &&
+    (!routine.schedule || scheduleText(schedule) !== scheduleText(routine.schedule));
+  if (!promptChanged && !scheduleChanged) return { saved: "Nothing changed." };
+  const approved = routine.state !== "pending";
+  await tx
+    .update(botRoutine)
+    .set({
+      ...(promptChanged && { prompt }),
+      ...(scheduleChanged && { schedule }),
+      ...(approved && { state: "pending" as const, approvedAt: null }),
+      updatedAt: now,
+    })
+    .where(eq(botRoutine.id, routine.id));
+  if (!approved) return { saved: routineSavedResult };
+  await stopRoutine(deps, tx, routine.id);
+  return { saved: routineChangedResult };
+}
+
+/**
+ * Applies a Turn's `delete_routine` call (#538): the Bot's Routine `name` is deleted with no OK, and
+ * stops at once (`stopRoutine`). Returns the tool's result: deleted, or an error the Model can act on.
+ */
+export async function deleteRoutine(
+  deps: BotSdkContext,
+  tx: Transaction,
+  { botId, conversationId, name }: { botId: string; conversationId: string; name: string },
+): Promise<{ deleted: true } | { error: string }> {
+  await lockConversation(tx, conversationId);
+  const [deleted] = await tx
+    .delete(botRoutine)
+    .where(and(eq(botRoutine.botId, botId), eq(botRoutine.name, name)))
+    .returning({ id: botRoutine.id });
+  if (!deleted) return { error: noRoutineNamed(name) };
+  await stopRoutine(deps, tx, deleted.id);
+  return { deleted: true };
+}
+
+const noRoutineNamed = (name: string) =>
+  `No Routine named "${name}". Your Routines are listed in the system prompt.`;
 
 /**
  * The system prompt's list of the Bot's Routines (#538), sorted by name, one line each:
@@ -302,5 +412,81 @@ export async function declineRoutine(
     await tx
       .delete(botRoutine)
       .where(and(eq(botRoutine.id, routineId), eq(botRoutine.state, "pending")));
+  });
+}
+
+/**
+ * Locks the Routine `routineId` of one of the user's Bots after its Conversation's row lock, the
+ * order a fire takes them in, or throws `NOT_FOUND`.
+ */
+async function lockedRoutine(tx: Transaction, userId: string, routineId: string) {
+  const [owner] = await tx
+    .select({ conversationId: bot.conversationId })
+    .from(botRoutine)
+    .innerJoin(bot, eq(bot.id, botRoutine.botId))
+    .where(and(eq(botRoutine.id, routineId), eq(bot.userId, userId)));
+  if (owner) await lockConversation(tx, owner.conversationId);
+  const [routine] = owner
+    ? await tx.select().from(botRoutine).where(eq(botRoutine.id, routineId)).for("update")
+    : [];
+  if (!routine) throw rpcError("NOT_FOUND", "error.routineNotFound", "Routine not found");
+  return routine;
+}
+
+/**
+ * The user pauses an active Routine: it stops at once (`stopRoutine`) until resumed. Any other
+ * Routine stays as it is. Nothing wakes the Bot.
+ */
+export async function pauseRoutine(
+  deps: BotSdkContext,
+  userId: string,
+  routineId: string,
+): Promise<{ id: string; state: BotRoutine["state"] }> {
+  return deps.db.transaction(async (tx) => {
+    const routine = await lockedRoutine(tx, userId, routineId);
+    if (routine.state !== "active") return { id: routine.id, state: routine.state };
+    await tx
+      .update(botRoutine)
+      .set({ state: "paused", updatedAt: deps.clock() })
+      .where(eq(botRoutine.id, routineId));
+    await stopRoutine(deps, tx, routineId);
+    return { id: routine.id, state: "paused" };
+  });
+}
+
+/**
+ * The user resumes a paused Routine: it turns `active` with no fresh OK, and its next slot's fire is
+ * queued. Any other Routine stays as it is. Nothing wakes the Bot.
+ */
+export async function resumeRoutine(
+  deps: BotSdkContext,
+  userId: string,
+  routineId: string,
+): Promise<{ id: string; state: BotRoutine["state"] }> {
+  const now = deps.clock();
+  return deps.db.transaction(async (tx) => {
+    const routine = await lockedRoutine(tx, userId, routineId);
+    if (routine.state !== "paused") return { id: routine.id, state: routine.state };
+    await tx
+      .update(botRoutine)
+      .set({ state: "active", updatedAt: now })
+      .where(eq(botRoutine.id, routineId));
+    if (routine.schedule) {
+      await queueFire(deps, tx, routineId, nextSlot(routine.schedule, routine.timeZone, now));
+    }
+    return { id: routine.id, state: "active" };
+  });
+}
+
+/** The user deletes a Routine in any state: it stops at once (`stopRoutine`). */
+export async function removeRoutine(
+  deps: BotSdkContext,
+  userId: string,
+  routineId: string,
+): Promise<void> {
+  await deps.db.transaction(async (tx) => {
+    await lockedRoutine(tx, userId, routineId);
+    await tx.delete(botRoutine).where(eq(botRoutine.id, routineId));
+    await stopRoutine(deps, tx, routineId);
   });
 }

@@ -505,3 +505,213 @@ describe("a scheduled Routine", () => {
     expect(await queuedFires(routineId)).toEqual([]);
   });
 });
+
+const updateRoutine = (input: unknown) => toolCall({ name: "update_routine", input });
+const deleteRoutine = (input: unknown) => toolCall({ name: "delete_routine", input });
+
+describe("changing a Routine", () => {
+  // Tuesday's 09:00 in London, the slot the edit below moves the Routine to.
+  const tuesdayNine = "2026-10-20T08:00:00.000Z";
+
+  it("sends an active Routine whose schedule update_routine changes back to pending, with nothing at the old slot; approving it again fires at the new one", async () => {
+    const { client, botId, conversationId, routineId, runDue, advanceTo, sendSaved } =
+      await approvedRoutine({
+        at: sunday,
+        rounds: [
+          round(
+            updateRoutine({ name: "morning-brief", schedule: { days: weekdays, at: "09:00" } }),
+          ),
+          round(),
+          round(),
+        ],
+      });
+    await sendSaved("Make it 9:00");
+    advanceTo("2026-10-18T10:00:01.000Z");
+    await runDue();
+
+    const [edited] = await client.bot.routine.list({ botId });
+    expect(edited).toMatchObject({
+      state: "pending",
+      schedule: { days: weekdays, at: "09:00" },
+      nextRunAt: null,
+    });
+    expect(await queuedFires(routineId)).toEqual([]);
+    advanceTo(mondaySlot);
+    await runDue();
+    expect(await routineTriggers(conversationId)).toEqual([]);
+
+    // Monday 08:30 in London: approved again, the next run is Tuesday's 09:00.
+    advanceTo("2026-10-19T07:30:00.000Z");
+    await client.bot.routine.approve({ routineId });
+    expect(await queuedFires(routineId)).toEqual(["2026-10-19T08:00:00.000Z"]);
+    advanceTo("2026-10-19T08:00:00.000Z");
+    await runDue();
+    expect((await routineTriggers(conversationId)).map((trigger) => trigger.id)).toEqual([
+      `routine:${routineId}:2026-10-19T08:00:00.000Z`,
+    ]);
+    expect(await queuedFires(routineId)).toEqual([tuesdayNine]);
+  });
+
+  it("drops a fire still waiting behind the running Turn when update_routine sends the Routine back to pending", async () => {
+    const editing = round(updateRoutine({ name: "morning-brief", prompt: "Summarize my inbox." }));
+    const { fake, botId, conversationId, runDue, advanceTo, sendSaved } = await approvedRoutine({
+      at: sunday,
+      rounds: [editing, round()],
+      manual: true,
+    });
+    advanceTo("2026-10-19T06:59:59.000Z");
+    await sendSaved("Make it about my inbox");
+    advanceTo("2026-10-19T06:59:59.500Z");
+    const running = runDue();
+    // The user's Turn waits in its model call, and the Routine's fire queues behind it.
+    await expect.poll(() => fake.calls.length).toBe(3);
+    advanceTo(mondaySlot);
+    await runDue();
+    expect(await routineTriggers(conversationId)).toHaveLength(1);
+
+    await fake.releaseAll();
+    await running;
+
+    expect(await routineTriggers(conversationId)).toEqual([]);
+    expect(await turnsOf(botId)).toHaveLength(2);
+  });
+
+  it("keeps an active Routine active when update_routine changes neither its prompt nor its schedule", async () => {
+    const { client, botId, routineId, runDue, advanceTo, sendSaved } = await approvedRoutine({
+      at: sunday,
+      rounds: [
+        round(updateRoutine({ name: "morning-brief", prompt: morningBrief.prompt })),
+        round(),
+      ],
+    });
+    await sendSaved("Rename it");
+    advanceTo("2026-10-18T10:00:01.000Z");
+    await runDue();
+
+    expect((await client.bot.routine.list({ botId }))[0]).toMatchObject({ state: "active" });
+    expect(await queuedFires(routineId)).toEqual([mondaySlot]);
+  });
+
+  it("removes a Routine with delete_routine, with no OK, and nothing fires after", async () => {
+    const { client, botId, conversationId, routineId, runDue, advanceTo, sendSaved } =
+      await approvedRoutine({
+        at: sunday,
+        rounds: [round(deleteRoutine({ name: "morning-brief" })), round()],
+      });
+    await sendSaved("Drop the brief");
+    advanceTo("2026-10-18T10:00:01.000Z");
+    await runDue();
+
+    expect(await client.bot.routine.list({ botId })).toEqual([]);
+    expect(await queuedFires(routineId)).toEqual([]);
+    advanceTo("2026-10-21T12:00:00.000Z");
+    await runDue();
+    expect(await routineTriggers(conversationId)).toEqual([]);
+  });
+});
+
+describe("pausing, resuming and deleting a Routine", () => {
+  it("pausing cancels the queued fire and drops a fire still waiting behind the running Turn", async () => {
+    const hanging = round(sends({ text: "On it", endTurn: true }));
+    const { fake, client, botId, conversationId, routineId, runDue, advanceTo, sendSaved } =
+      await approvedRoutine({ at: sunday, rounds: [hanging], manual: true });
+    advanceTo("2026-10-19T06:59:59.000Z");
+    await sendSaved("Good morning");
+    advanceTo("2026-10-19T06:59:59.500Z");
+    const running = runDue();
+    // The user's Turn waits in its model call.
+    await expect.poll(() => fake.calls.length).toBe(3);
+    advanceTo(mondaySlot);
+    await runDue();
+    expect(await routineTriggers(conversationId)).toEqual([
+      expect.objectContaining({ turnId: null }),
+    ]);
+
+    await client.bot.routine.pause({ routineId });
+
+    expect(await routineTriggers(conversationId)).toEqual([]);
+    expect(await queuedFires(routineId)).toEqual([]);
+    expect((await client.bot.routine.list({ botId }))[0]).toMatchObject({
+      state: "paused",
+      nextRunAt: null,
+    });
+    await fake.releaseAll();
+    await running;
+    advanceTo("2026-10-21T12:00:00.000Z");
+    await runDue();
+    expect((await turnsOf(botId)).map((turn) => turn.status)).toEqual(["complete", "complete"]);
+    expect(await routineTriggers(conversationId)).toEqual([]);
+  });
+
+  it("lets a fire the running Turn already took finish when the Routine is paused", async () => {
+    const hanging = round(sends({ text: "Three meetings today.", endTurn: true }));
+    const { fake, client, botId, conversationId, routineId, runDue, advanceTo } =
+      await approvedRoutine({ at: sunday, rounds: [hanging], manual: true });
+    advanceTo(mondaySlot);
+    await runDue();
+    advanceTo("2026-10-19T07:00:00.500Z");
+    const running = runDue();
+    await expect.poll(() => fake.calls.length).toBe(3);
+
+    await client.bot.routine.pause({ routineId });
+    await fake.releaseAll();
+    await running;
+
+    const turns = await turnsOf(botId);
+    expect(turns.map((turn) => turn.status)).toEqual(["complete", "complete"]);
+    expect(await routineTriggers(conversationId)).toEqual([
+      expect.objectContaining({ turnId: turns[1]!.id }),
+    ]);
+    const { messages } = await client.bot.get({ botId });
+    expect(messages.at(-1)?.text).toBe("Three meetings today.");
+  });
+
+  it("resuming queues the next slot with no approval, and it fires", async () => {
+    const { client, botId, conversationId, routineId, runDue, advanceTo } = await approvedRoutine({
+      at: sunday,
+      rounds: [round()],
+    });
+    await client.bot.routine.pause({ routineId });
+    // Monday's slot passes while it is paused.
+    advanceTo("2026-10-19T12:00:00.000Z");
+    await runDue();
+
+    await client.bot.routine.resume({ routineId });
+
+    expect((await client.bot.routine.list({ botId }))[0]).toMatchObject({ state: "active" });
+    expect(await queuedFires(routineId)).toEqual(["2026-10-20T07:00:00.000Z"]);
+    advanceTo("2026-10-20T07:00:00.000Z");
+    await runDue();
+    expect((await routineTriggers(conversationId)).map((trigger) => trigger.id)).toEqual([
+      `routine:${routineId}:2026-10-20T07:00:00.000Z`,
+    ]);
+  });
+
+  it("deleting stops all fires", async () => {
+    const { client, botId, conversationId, routineId, runDue, advanceTo } = await approvedRoutine({
+      at: sunday,
+    });
+
+    await client.bot.routine.delete({ routineId });
+
+    expect(await client.bot.routine.list({ botId })).toEqual([]);
+    expect(await queuedFires(routineId)).toEqual([]);
+    advanceTo("2026-10-23T12:00:00.000Z");
+    await runDue();
+    expect(await routineTriggers(conversationId)).toEqual([]);
+  });
+
+  it("gives another user NOT_FOUND for pause, resume and delete", async () => {
+    const { deps, routineId } = await approvedRoutine({ at: sunday });
+    const other = chatRpc({ user: await insertUser(), deps });
+
+    for (const call of [
+      other.bot.routine.pause,
+      other.bot.routine.resume,
+      other.bot.routine.delete,
+    ]) {
+      await expect(call({ routineId })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    }
+    expect(await queuedFires(routineId)).toEqual([mondaySlot]);
+  });
+});

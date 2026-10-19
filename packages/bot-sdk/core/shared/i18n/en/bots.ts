@@ -28,4 +28,12 @@ export const botsMessages = {
   "bots.routinePaused": ({ name }: { name: string }) => `${name} paused`,
   "bots.approve": "Approve",
   "bots.decline": "Decline",
+  "bots.pause": "Pause",
+  "bots.resume": "Resume",
+  "bots.delete": "Delete",
+  "bots.routines": "Routines",
+  "bots.routinesCount": ({ count }: { count: number }) => `Routines ${count}`,
+  "bots.routinePending": "waiting for OK",
+  "bots.routineActive": "active",
+  "bots.routineStatePaused": "paused",
 };
