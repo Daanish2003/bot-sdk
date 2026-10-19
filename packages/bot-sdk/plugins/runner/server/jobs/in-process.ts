@@ -89,13 +89,14 @@ export function inProcessRunner({
   let shutdown: AbortController | undefined;
   // Claims run one after another on this chain, so no lane's budget is ever exceeded.
   let claims: Promise<void> = Promise.resolve();
-  const inFlight = new Set<Promise<void>>();
   const helpersInFlight = new Set<Promise<void>>();
   const othersInFlight = new Set<Promise<void>>();
 
   const claimUpToConcurrency = async () => {
     const helperNames = jobNamesInLane("helper");
-    await claimInto(helpersInFlight, helperConcurrency, { only: helperNames });
+    if (helperNames.length > 0) {
+      await claimInto(helpersInFlight, helperConcurrency, { only: helperNames });
+    }
     await claimInto(othersInFlight, concurrency, { except: helperNames });
   };
 
@@ -122,11 +123,9 @@ export function inProcessRunner({
       })
         .catch((error: unknown) => logger.error(`Background job "${claimed.name}" failed`, error))
         .finally(() => {
-          inFlight.delete(work);
           lane.delete(work);
           requestClaim();
         });
-      inFlight.add(work);
       lane.add(work);
     }
   };
@@ -172,9 +171,9 @@ export function inProcessRunner({
       clock.clearInterval(timer);
       timer = undefined;
       await claims;
-      await waitUpTo(Promise.all(inFlight), drainMs);
+      await waitUpTo(Promise.all([...helpersInFlight, ...othersInFlight]), drainMs);
       shutdown?.abort();
-      await Promise.all(inFlight);
+      await Promise.all([...helpersInFlight, ...othersInFlight]);
     },
   };
   inProcessRunners.add(jobs);
