@@ -251,7 +251,7 @@ function capReport(report: string): string {
 }
 
 /** The task's first line, short enough for a header. */
-function gistOf(task: string): string {
+export function gistOf(task: string): string {
   const line = task.trim().split("\n")[0]!.trim();
   return line.length <= 60 ? line : `${line.slice(0, 59)}…`;
 }

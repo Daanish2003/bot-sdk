@@ -9,9 +9,11 @@ import { useI18n } from "../../../core/client/react/provider";
 import { serverErrorText } from "../../../core/client/rpc-error";
 import { useBackgroundRuns, useBotTurn } from "../client/react/bot-turn";
 import { useBotCheckIns } from "../client/react/check-ins";
+import { useBotHelpers } from "../client/react/helpers";
 import { useBotRoutines } from "../client/react/routines";
 import { BotAvatar } from "./bot-avatar";
 import { CheckInLine } from "./check-in-line";
+import { HelperCard } from "./helper-card";
 import { RoutineCard } from "./routine-card";
 import { RoutinesPopover } from "./routines-popover";
 import { RunDivider } from "./run-divider";
@@ -20,7 +22,7 @@ import { RunDivider } from "./run-divider";
  * A Bot's Conversation: the Messages sent in it, the user's on the right and the Bot's on the left,
  * ••• while a Turn runs, and "Seen ✓" under the user's last Message when the Bot stayed quiet, or "Couldn't reply" when the
  * Turn failed. A Routine the Bot created shows after the Turn that created it, as does a Check-in
- * it set, and each run of a Routine or fired Check-in gets a divider above what it sent, or one of its own when it stayed quiet. The Bot's Messages are
+ * it set, and each Helper it started shows as a card after it, and each run of a Routine or fired Check-in gets a divider above what it sent, or one of its own when it stayed quiet. The Bot's Messages are
  * never collapsed. The header lists the Routines, to pause, resume or delete them.
  */
 export function BotConversation({ botId }: { botId: string }) {
@@ -48,6 +50,7 @@ function BotConversationView({ botId }: { botId: string }) {
     acting: actingCheckIns,
     cancel: onCancelCheckIn,
   } = useBotCheckIns(botId, working);
+  const { helpers } = useBotHelpers(botId, working);
   const actions = { onPause: pause, onResume: resume, onDelete: remove, actingRoutines: acting };
   const checkInActions = { onCancelCheckIn, actingCheckIns };
   useBackgroundRuns(
@@ -88,8 +91,12 @@ function BotConversationView({ botId }: { botId: string }) {
   const shownIds = new Set(messages.map((message) => message.id));
   const routinesAfter = groupAfter(routines, shownIds);
   const checkInsAfter = groupAfter(checkIns, shownIds);
+  const helpersAfter = groupAfter(helpers, shownIds);
   const checkInLine = (checkIn: (typeof checkIns)[number]) => (
     <CheckInLine key={checkIn.id} checkIn={checkIn} {...checkInActions} />
+  );
+  const helperCard = (helper: (typeof helpers)[number]) => (
+    <HelperCard key={helper.id} helper={helper} />
   );
   // Each run's divider, before the Message it goes above ("" after the last): a run that
   // sent something above its first Message, a quiet one where it ran. One still running and quiet
@@ -171,11 +178,13 @@ function BotConversationView({ botId }: { botId: string }) {
             )}
             {routinesAfter.get(message.id)?.map(routineCard)}
             {checkInsAfter.get(message.id)?.map(checkInLine)}
+            {helpersAfter.get(message.id)?.map(helperCard)}
           </Fragment>
         ))}
         {runsBefore.get("")}
         {routinesAfter.get("")?.map(routineCard)}
         {checkInsAfter.get("")?.map(checkInLine)}
+        {helpersAfter.get("")?.map(helperCard)}
         {working && (
           <div
             role="status"
