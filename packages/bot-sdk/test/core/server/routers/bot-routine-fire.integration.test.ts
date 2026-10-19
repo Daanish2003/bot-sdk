@@ -770,3 +770,64 @@ describe("pausing, resuming and deleting a Routine", () => {
     expect(await queuedFires(routineId)).toEqual([mondaySlot]);
   });
 });
+
+describe("a Routine whose chain of fires broke", () => {
+  /** Ends the Routine's queued fire as failed with nothing queued after it: an `onFailed` that threw. */
+  const breakChain = (routineId: string) =>
+    getTestDb()
+      .update(job)
+      .set({ status: "failed" })
+      .where(like(job.idempotencyKey, `routine:${routineId}:%`));
+
+  it("gets its next fire queued when the SDK starts, and it fires", async () => {
+    const { deps, conversationId, routineId, runDue, advanceTo } = await approvedRoutine({
+      at: sunday,
+      rounds: [round()],
+    });
+    await breakChain(routineId);
+    expect(await queuedFires(routineId)).toEqual([]);
+
+    await bot().start!(deps);
+    await runDue();
+
+    expect(await queuedFires(routineId)).toEqual([mondaySlot]);
+    advanceTo(mondaySlot);
+    await runDue();
+    expect((await routineTriggers(conversationId)).map((trigger) => trigger.id)).toEqual([
+      `routine:${routineId}:${mondaySlot}`,
+    ]);
+  });
+
+  it("gets its next fire queued within the hour while the SDK runs, counted from then", async () => {
+    const { deps, routineId, runDue, advanceTo } = await approvedRoutine({
+      at: sunday,
+      rounds: [round()],
+    });
+    await bot().start!(deps);
+    await runDue();
+    // Monday 14:00 in London: Monday's fire ran, and so did the reconciles up to now. Then
+    // Tuesday's queued fire fails for good with nothing queued after it.
+    advanceTo("2026-10-19T13:00:00.000Z");
+    await runDue();
+    await breakChain(routineId);
+    expect(await queuedFires(routineId)).toEqual([]);
+
+    // 15:00 in London: the next hour's reconcile.
+    advanceTo("2026-10-19T14:00:00.000Z");
+    await runDue();
+
+    expect(await queuedFires(routineId)).toEqual(["2026-10-20T07:00:00.000Z"]);
+  });
+
+  it("leaves a paused Routine and one whose fire is queued as they are", async () => {
+    const queued = await approvedRoutine({ at: sunday });
+    const paused = await approvedRoutine({ at: sunday });
+    await paused.client.bot.routine.pause({ routineId: paused.routineId });
+
+    await bot().start!(queued.deps);
+    await queued.runDue();
+
+    expect(await queuedFires(queued.routineId)).toEqual([mondaySlot]);
+    expect(await queuedFires(paused.routineId)).toEqual([]);
+  });
+});

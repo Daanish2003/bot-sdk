@@ -3,8 +3,7 @@ import { isInProcessRunner } from "../../runner/server/jobs/in-process";
 import { runnerJobs } from "../../runner/server/plugin";
 import { cancelUserCheckIns } from "./check-in";
 import { cancelUserFires } from "./routine";
-// Registers the Routine fire job, which nothing else here imports.
-import "./routine-fire";
+import { startRoutineReconcile } from "./routine-fire";
 import "./check-in-fire";
 import { handleRoutineWebhook } from "./routine-webhook";
 import { botPluginRouter } from "./routers/index";
@@ -46,6 +45,8 @@ export function bot(): BotPlugin {
       const api: BotApi = { webhookHandler: (request) => handleRoutineWebhook(sdk, request) };
       return { api };
     },
+    // Repairs a Routine whose chain of fires broke, now and then hourly (#578).
+    start: startRoutineReconcile,
     router: botPluginRouter,
     deleteUser: {
       // No Routine or Check-in fires for a deleted user: its queued jobs are cancelled.
