@@ -1,7 +1,7 @@
-import { eq } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, like, not, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { bot, botRoutine, botTrigger } from "../../../core/server/db/schema";
+import { bot, botRoutine, botTrigger, job } from "../../../core/server/db/schema";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { defineJob } from "../../runner/server/jobs/define";
 import { fireKey, queueFire, routineFireJobName, routineSnapshot } from "./routine";
@@ -98,4 +98,105 @@ async function fireRoutine(
     receivedAt: now,
   });
   return { conversationId: owner.conversationId };
+}
+
+/** The runner job that repairs broken chains of Routine fires (#578). */
+const routineReconcileJobName = "bot.routine_reconcile";
+
+/**
+ * How often the reconcile runs. A Routine's slots are a day apart at least, so an hour finds a
+ * broken chain long before its next slot.
+ */
+const reconcileEveryMs = 60 * 60_000;
+
+/**
+ * Queues the reconcile at `at`. Its key is `at`, so the boots and runs that queue the same time
+ * share one job.
+ */
+async function queueReconcile(deps: BotSdkContext, at: Date): Promise<void> {
+  await deps
+    .plugin("runner")
+    .enqueue(
+      routineReconcileJobName,
+      { at: at.toISOString() },
+      { idempotencyKey: `routine_reconcile:${at.toISOString()}`, runAfter: at },
+    );
+}
+
+/**
+ * Starts the reconcile when the SDK starts: one runs now, then each queues the next on the hour, so
+ * however many times the SDK starts, one chain of reconciles runs.
+ */
+export const startRoutineReconcile = (deps: BotSdkContext) => queueReconcile(deps, deps.clock());
+
+/** Whether the Routine of the row being read has a fire queued or running. */
+const hasFire = sql`exists (select 1 from ${job} where ${and(
+  eq(job.name, routineFireJobName),
+  inArray(job.status, ["queued", "running"]),
+  like(job.idempotencyKey, sql`'routine:' || ${botRoutine.id} || ':%'`),
+)})`;
+
+/**
+ * Queues the next fire of every active scheduled Routine that has none (#578): one whose chain of
+ * fires broke, because its `onFailed` threw or the process died during it. The next reconcile is
+ * queued first, and again by `onFailed`, so one that fails never ends the chain of reconciles. A
+ * Routine that fails to repair is logged and the rest are still repaired.
+ */
+export const routineReconcileJob = defineJob({
+  name: routineReconcileJobName,
+  payload: z.object({ at: z.iso.datetime() }),
+  run: async ({ at }, { deps }) => {
+    await queueNextReconcile(deps, new Date(at));
+    const broken = await deps.db
+      .select({ id: botRoutine.id })
+      .from(botRoutine)
+      .where(and(eq(botRoutine.state, "active"), isNotNull(botRoutine.schedule), not(hasFire)));
+    for (const { id } of broken) {
+      await repairChain(deps, id).catch((error: unknown) =>
+        deps.logger.error(`Repairing the fires of Routine ${id} failed`, error),
+      );
+    }
+  },
+  onFailed: ({ at }, _error, deps) => queueNextReconcile(deps, new Date(at)),
+});
+
+/**
+ * Queues the reconcile after the one at `at`, on the next hour. Counted from `at` at the earliest: a
+ * clock that reads just before it would queue that same reconcile again, whose key a running one
+ * still holds, and end the chain.
+ */
+function queueNextReconcile(deps: BotSdkContext, at: Date): Promise<void> {
+  const after = Math.max(deps.clock().getTime(), at.getTime());
+  return queueReconcile(
+    deps,
+    new Date((Math.floor(after / reconcileEveryMs) + 1) * reconcileEveryMs),
+  );
+}
+
+/**
+ * Queues the next slot's fire of the Routine `routineId`, counted from now, while it is still
+ * active, scheduled and without a fire. Its Conversation's row lock first, as a fire takes them.
+ */
+async function repairChain(deps: BotSdkContext, routineId: string): Promise<void> {
+  await deps.db.transaction(async (tx) => {
+    const [owner] = await tx
+      .select({ conversationId: bot.conversationId })
+      .from(botRoutine)
+      .innerJoin(bot, eq(bot.id, botRoutine.botId))
+      .where(eq(botRoutine.id, routineId));
+    if (!owner) return;
+    await lockConversation(tx, owner.conversationId);
+    const [routine] = await tx
+      .select({ schedule: botRoutine.schedule, timeZone: botRoutine.timeZone })
+      .from(botRoutine)
+      .where(and(eq(botRoutine.id, routineId), eq(botRoutine.state, "active"), not(hasFire)))
+      .for("update");
+    if (!routine?.schedule) return;
+    await queueFire(
+      deps,
+      tx,
+      routineId,
+      nextSlot(routine.schedule, routine.timeZone, deps.clock()),
+    );
+  });
 }
