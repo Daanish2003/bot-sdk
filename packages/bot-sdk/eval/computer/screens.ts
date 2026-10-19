@@ -262,7 +262,7 @@ export async function checkScreens(options: {
       await fetch(`${origin}/api/screens/vnc.html`),
       await fetch(`${origin}${url.replace(token, "not-a-token")}`),
       await fetch(
-        `${origin}${url.replace(token, `${token.slice(0, -2)}${token.endsWith("A") ? "B" : "A"}${token.slice(-1)}`)}`,
+        `${origin}${url.replace(token, `${token.slice(0, -2)}${token.at(-2) === "A" ? "B" : "A"}${token.slice(-1)}`)}`,
       ),
     ].map((response) => response.status);
     check(

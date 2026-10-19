@@ -308,7 +308,7 @@ describe("the live view's proxy", () => {
     const { url } = await client.bot.screen.view({ helperId: helper.id });
     const token = url.split("/")[3]!;
     const handler = deps.plugin("bot").screenHandler;
-    const forged = `${token.slice(0, -2)}${token.endsWith("A") ? "B" : "A"}${token.slice(-1)}`;
+    const forged = `${token.slice(0, -2)}${token.at(-2) === "A" ? "B" : "A"}${token.slice(-1)}`;
 
     const refused = [
       await handler(pageRequest("/api/screens/vnc.html")),
@@ -323,6 +323,43 @@ describe("the live view's proxy", () => {
     await expect(deps.plugin("bot").screenSocket.upgrade(socketRequest(url))).rejects.toMatchObject(
       { status: 403 },
     );
+    expect(novnc.requests).toEqual([]);
+    expect(novnc.upgrades).toEqual([]);
+  });
+
+  it("refuses a path that leaves noVNC's directory, on the page and the socket, and reaches nothing", async () => {
+    const { client, deps, helper, novnc } = await waitingHelper();
+    const elsewhere = await fakeNovnc();
+    cleanups.push(() => elsewhere.close());
+    const { url } = await client.bot.screen.view({ helperId: helper.id });
+    const base = url.split("/vnc.html")[0]!;
+    const host = new URL(elsewhere.origin).host;
+    const escapes = [
+      `${base}//${host}/latest/meta-data`,
+      `${base}/${elsewhere.origin}/latest/meta-data`,
+      `${base}/%2F%2F${host}/latest/meta-data`,
+      `${base}/%2f%2f${host}/websockify`,
+      `${base}/..%2F..%2Flatest`,
+      `${base}/app/..%2F..%2Fwebsockify`,
+      `${base}/%5C%5C${host}/latest`,
+      `${base}/app/../../latest`,
+      `${base}/%2e%2e/latest`,
+    ];
+    const { screenHandler, screenSocket } = deps.plugin("bot");
+
+    const statuses = [];
+    for (const path of escapes) {
+      statuses.push((await screenHandler(pageRequest(path))).status);
+      statuses.push(
+        await screenSocket.upgrade(pageRequest(path)).then(
+          () => 101,
+          (refused: Response) => refused.status,
+        ),
+      );
+    }
+
+    expect(statuses.filter((status) => status < 400 || status >= 500)).toEqual([]);
+    expect(elsewhere.requests).toEqual([]);
     expect(novnc.requests).toEqual([]);
     expect(novnc.upgrades).toEqual([]);
   });
