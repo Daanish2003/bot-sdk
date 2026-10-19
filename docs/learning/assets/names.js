@@ -702,6 +702,37 @@ window.NAMES = [
       "A job hook the lease sweep calls for a cancelled job whose attempt died before it ended. The Bot ends the Turn stopped and chains the next one.",
     example: "plugins/runner/server/jobs/define.ts",
   },
+  {
+    lesson: 13,
+    name: "create_routine",
+    kind: "tool",
+    meaning:
+      "The Bot's tool that saves a Routine as pending. It runs only once the user approves it.",
+    example: "plugins/bot/server/turn.ts",
+  },
+  {
+    lesson: 13,
+    name: "routine:<id>:<slot>",
+    kind: "ID",
+    meaning: "The ID of a scheduled run's Trigger. A slot never makes a second Trigger.",
+    example: "plugins/bot/server/routine.ts (fireKey)",
+  },
+  {
+    lesson: 13,
+    name: "set_check_in",
+    kind: "tool",
+    meaning:
+      "The Bot's tool that sets a Check-in for itself, at least a minute ahead. It needs no OK.",
+    example: "plugins/bot/server/check-in.ts",
+  },
+  {
+    lesson: 13,
+    name: "handleRoutineWebhook",
+    kind: "function",
+    meaning:
+      "Answers POST /api/routines/webhook/<token>: 202 at once, 404 for an unknown token, 413 for a body over 64 KB.",
+    example: "plugins/bot/server/routine-webhook.ts",
+  },
 ];
 
 (function () {
