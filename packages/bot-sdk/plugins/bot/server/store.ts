@@ -30,9 +30,12 @@ export type ListedBot = BotWithStatus & { lastMessage: { text: string; at: Date 
 
 export type { BotMessage };
 
-/** A Bot Conversation Message's stored parts: one base `text` part. */
-export function textParts(text: string): MessageRow["parts"] {
-  return { schemaVersion: 1, parts: [{ type: "text", text }] };
+/**
+ * A Bot Conversation Message's stored parts: one base `text` part, and the IANA `timeZone` the
+ * user sent it from, when they sent one.
+ */
+export function textParts(text: string, timeZone?: string): MessageRow["parts"] {
+  return { schemaVersion: 1, parts: [{ type: "text", text }], ...(timeZone && { timeZone }) };
 }
 
 /** A Message row as the client sees it. */
@@ -158,6 +161,23 @@ export async function botMessages(
     )
     .orderBy(asc(message.createdAt), asc(message.id));
   return rows.map(toBotMessage);
+}
+
+/**
+ * The IANA time zone the Conversation's newest user Message was sent from, or `undefined` when it
+ * carried none (or there is no user Message yet). Routines and Check-ins take their zone from it.
+ */
+export async function newestTimeZone(
+  db: Database | Transaction,
+  conversationId: string,
+): Promise<string | undefined> {
+  const [row] = await db
+    .select({ parts: message.parts })
+    .from(message)
+    .where(and(eq(message.conversationId, conversationId), eq(message.role, "user")))
+    .orderBy(desc(message.createdAt), desc(message.id))
+    .limit(1);
+  return row?.parts.timeZone;
 }
 
 /**

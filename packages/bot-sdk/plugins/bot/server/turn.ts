@@ -38,6 +38,7 @@ import {
   waitingIn,
 } from "./router";
 import { botMessages, findBot, textParts, toBotMessage, turnTimeLimitMs } from "./store";
+import { timeNotice } from "./time-zone";
 
 /** The most Steps a Turn may take; one more ends it `error` with `step_limit`. */
 export const turnStepLimit = 10;
@@ -132,6 +133,7 @@ export const botTurnJob = defineJob({
  * before anything is written, and a refusal throws an RPC error before the stream starts. The
  * returned stream follows the Turn that takes the Message from Postgres: the saved user Message,
  * each Message sent after it, then `turnEnded`. Leaving it ends only the follow, never the Turn.
+ * `timeZone` is the user's IANA zone, kept on the Message.
  */
 export async function sendToBot(
   deps: BotSdkContext,
@@ -140,8 +142,16 @@ export async function sendToBot(
     botId,
     id,
     text,
+    timeZone,
     signal,
-  }: { userId: string; botId: string; id: string; text: string; signal?: AbortSignal },
+  }: {
+    userId: string;
+    botId: string;
+    id: string;
+    text: string;
+    timeZone?: string;
+    signal?: AbortSignal;
+  },
 ): Promise<AsyncGenerator<BotSendEvent>> {
   const found = await findBot(deps.db, userId, botId);
   if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
@@ -172,7 +182,7 @@ export async function sendToBot(
     const row = await appendMessage(tx, found.conversationId, {
       id,
       role: "user",
-      parts: textParts(text),
+      parts: textParts(text, timeZone),
       status: "complete",
       createdAt: now,
     });
@@ -547,7 +557,7 @@ async function endTurn(
 
 /**
  * The Turn's model input: each user Message as a user turn and each earlier Turn as its transcript,
- * in order. The Bot's sent Messages are not replayed as text: the transcripts hold them as
+ * in order. The newest user Message opens with the current time in its zone. The Bot's sent Messages are not replayed as text: the transcripts hold them as
  * SendToUser calls. Only what came before the Turn counts, so every attempt reads the same input.
  */
 async function modelInput(db: Database | Transaction, turn: TurnFacts): Promise<ModelMessage[]> {
@@ -570,9 +580,20 @@ async function modelInput(db: Database | Transaction, turn: TurnFacts): Promise<
       .orderBy(asc(botTurn.startedAt), asc(botTurn.id)),
   ]);
   const entries = [
-    ...users.map((row) => ({
+    ...users.map((row, index) => ({
       at: row.createdAt.getTime(),
-      messages: [{ role: "user" as const, content: searchTextOf(row.parts) }],
+      messages: [
+        {
+          role: "user" as const,
+          // The newest one opens with the time, as of the Turn's start so every attempt reads the same.
+          content:
+            index === users.length - 1
+              ? `${timeNotice(turn.startedAt, row.parts.timeZone)}
+
+${searchTextOf(row.parts)}`
+              : searchTextOf(row.parts),
+        },
+      ],
     })),
     ...turns.map((row) => ({ at: row.startedAt.getTime(), messages: row.transcript ?? [] })),
   ];

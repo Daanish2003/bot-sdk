@@ -5,7 +5,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createElement, Fragment } from "react";
 import { Toaster } from "sonner";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { rpcError } from "../../../core/server/rpc-error";
@@ -14,7 +14,10 @@ import type { BotMessage, BotSendEvent, TurnStatus } from "../../../plugins/bot/
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
 import { providerFor } from "../fake-dictionary";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 const createdAt = new Date("2026-10-17T09:00:00.000Z");
 const ada = { id: "b2", name: "Ada", model: "openai:gpt-5.6", createdAt };
@@ -56,7 +59,14 @@ function fakeBotServer(messages: BotMessage[] = []) {
         stops.push(input);
       }),
       send: os
-        .input(z.object({ botId: z.string(), id: z.string(), text: z.string() }))
+        .input(
+          z.object({
+            botId: z.string(),
+            id: z.string(),
+            text: z.string(),
+            timeZone: z.string().optional(),
+          }),
+        )
         .output(eventIterator(z.custom<BotSendEvent>()))
         .handler(async function* ({ input }) {
           sends.push(input);
@@ -174,12 +184,34 @@ describe("talking to a Bot", () => {
     expect(bubbles(container)).toEqual([["user", "hello"]]);
     await waitFor(() =>
       expect(server.sends).toEqual([
-        { botId: ada.id, id: expect.stringMatching(uuidv7Shape), text: "hello" },
+        {
+          botId: ada.id,
+          id: expect.stringMatching(uuidv7Shape),
+          text: "hello",
+          timeZone: expect.any(String),
+        },
       ]),
     );
     await server.stream({ type: "message", message: said("m1", "user", "hello") });
     expect(bubbles(container)).toEqual([["user", "hello"]]);
     expect(container.querySelector("[data-bot-message][data-id=m1]")).toBeTruthy();
+  });
+
+  it("sends the browser's IANA time zone with each Message", async () => {
+    vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockReturnValue({
+      timeZone: "Asia/Tokyo",
+    } as Intl.ResolvedDateTimeFormatOptions);
+    const server = fakeBotServer();
+    mount(server);
+
+    await type("first");
+    await type("second");
+
+    await waitFor(() => expect(server.sends).toHaveLength(2));
+    expect((server.sends as { timeZone?: string }[]).map((send) => send.timeZone)).toEqual([
+      "Asia/Tokyo",
+      "Asia/Tokyo",
+    ]);
   });
 
   it("shows only the sent Messages, the user's on the right and the Bot's on the left", async () => {
@@ -312,8 +344,18 @@ describe("sending while the Bot works", () => {
     ]);
     await waitFor(() =>
       expect(server.sends).toEqual([
-        { botId: ada.id, id: expect.stringMatching(uuidv7Shape), text: "hi" },
-        { botId: ada.id, id: expect.stringMatching(uuidv7Shape), text: "and one more thing" },
+        {
+          botId: ada.id,
+          id: expect.stringMatching(uuidv7Shape),
+          text: "hi",
+          timeZone: expect.any(String),
+        },
+        {
+          botId: ada.id,
+          id: expect.stringMatching(uuidv7Shape),
+          text: "and one more thing",
+          timeZone: expect.any(String),
+        },
       ]),
     );
     expect(screen.getByRole<HTMLTextAreaElement>("textbox", { name: "Message" }).value).toBe("");

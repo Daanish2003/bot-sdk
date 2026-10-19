@@ -5,6 +5,7 @@ import { protectedProcedure } from "../../../../core/server/procedures";
 import { rpcError } from "../../../../core/server/rpc-error";
 import { botMessages, createBot, findBot, latestTurnStatus, listBots } from "../store";
 import { botSendEventSchema } from "../../shared/turn";
+import { isTimeZone } from "../time-zone";
 import { sendToBot, stopBot } from "../turn";
 
 const botRouter = {
@@ -58,6 +59,8 @@ const botRouter = {
         // Lowercased, as the Trigger's text id holds it, so an uppercase resend still re-joins.
         id: z.uuidv7().transform((id) => id.toLowerCase()),
         text: z.string().trim().min(1),
+        // The client's IANA zone; the Turn's newest input shows the time in it (UTC when absent).
+        timeZone: z.string().refine(isTimeZone, "Not an IANA time zone").optional(),
       }),
     )
     .output(eventIterator(botSendEventSchema))
