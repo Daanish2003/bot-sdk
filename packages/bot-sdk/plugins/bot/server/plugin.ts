@@ -1,9 +1,11 @@
 import type { BotSdkPlugin } from "../../../core/server/plugin";
 import { isInProcessRunner } from "../../runner/server/jobs/in-process";
 import { runnerJobs } from "../../runner/server/plugin";
+import { cancelUserCheckIns } from "./check-in";
 import { cancelUserFires } from "./routine";
 // Registers the Routine fire job, which nothing else here imports.
 import "./routine-fire";
+import "./check-in-fire";
 import { handleRoutineWebhook } from "./routine-webhook";
 import { botPluginRouter } from "./routers/index";
 import { botUserDelete, exportBots } from "./store";
@@ -46,9 +48,10 @@ export function bot(): BotPlugin {
     },
     router: botPluginRouter,
     deleteUser: {
-      // No Routine fires for a deleted user: its queued fires go with the rows.
+      // No Routine or Check-in fires for a deleted user: its queued jobs are cancelled.
       before: async (sdk, args) => {
         await cancelUserFires(sdk, args.tx, args.userId);
+        await cancelUserCheckIns(sdk, args.tx, args.userId);
         return botUserDelete.before(sdk, args);
       },
       after: botUserDelete.after,

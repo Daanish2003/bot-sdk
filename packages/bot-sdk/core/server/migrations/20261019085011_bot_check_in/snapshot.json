@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "4ceb6490-7835-4c10-89b6-a8ca46b78348",
+  "id": "9e1ba8eb-717b-4b9a-95a8-db1b39df0b4e",
   "prevIds": ["ab27cadf-d061-4b4d-b41f-d056b6254555"],
   "ddl": [
     {
@@ -25,6 +25,12 @@
     {
       "values": ["extracted", "said"],
       "name": "memory_origin",
+      "entityType": "enums",
+      "schema": "chat"
+    },
+    {
+      "values": ["pending", "fired", "cancelled"],
+      "name": "bot_check_in_state",
       "entityType": "enums",
       "schema": "chat"
     },
@@ -178,6 +184,12 @@
     {
       "isRlsEnabled": false,
       "name": "bot",
+      "entityType": "tables",
+      "schema": "chat"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "bot_check_in",
       "entityType": "tables",
       "schema": "chat"
     },
@@ -1880,6 +1892,110 @@
       "name": "id",
       "entityType": "columns",
       "schema": "chat",
+      "table": "bot_check_in"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "bot_id",
+      "entityType": "columns",
+      "schema": "chat",
+      "table": "bot_check_in"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "at",
+      "entityType": "columns",
+      "schema": "chat",
+      "table": "bot_check_in"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "note",
+      "entityType": "columns",
+      "schema": "chat",
+      "table": "bot_check_in"
+    },
+    {
+      "type": "bot_check_in_state",
+      "typeSchema": "chat",
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "state",
+      "entityType": "columns",
+      "schema": "chat",
+      "table": "bot_check_in"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "created_by_turn_id",
+      "entityType": "columns",
+      "schema": "chat",
+      "table": "bot_check_in"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "chat",
+      "table": "bot_check_in"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "chat",
+      "table": "bot_check_in"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "chat",
       "table": "bot_routine"
     },
     {
@@ -1930,19 +2046,6 @@
       "generated": null,
       "identity": null,
       "name": "schedule",
-      "entityType": "columns",
-      "schema": "chat",
-      "table": "bot_routine"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "webhook_token_hash",
       "entityType": "columns",
       "schema": "chat",
       "table": "bot_routine"
@@ -3272,6 +3375,27 @@
           "asc": true,
           "nullsFirst": false,
           "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "bot_check_in_bot_id_idx",
+      "entityType": "indexes",
+      "schema": "chat",
+      "table": "bot_check_in"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "bot_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
         },
         {
           "value": "name",
@@ -3287,27 +3411,6 @@
       "method": "btree",
       "concurrently": false,
       "name": "bot_routine_bot_id_name_idx",
-      "entityType": "indexes",
-      "schema": "chat",
-      "table": "bot_routine"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "webhook_token_hash",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": true,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "bot_routine_webhook_token_hash_idx",
       "entityType": "indexes",
       "schema": "chat",
       "table": "bot_routine"
@@ -3752,6 +3855,32 @@
       "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
+      "name": "bot_check_in_bot_id_bot_id_fkey",
+      "entityType": "fks",
+      "schema": "chat",
+      "table": "bot_check_in"
+    },
+    {
+      "nameExplicit": false,
+      "columns": ["created_by_turn_id"],
+      "schemaTo": "chat",
+      "tableTo": "bot_turn",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "bot_check_in_created_by_turn_id_bot_turn_id_fkey",
+      "entityType": "fks",
+      "schema": "chat",
+      "table": "bot_check_in"
+    },
+    {
+      "nameExplicit": false,
+      "columns": ["bot_id"],
+      "schemaTo": "chat",
+      "tableTo": "bot",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
       "name": "bot_routine_bot_id_bot_id_fkey",
       "entityType": "fks",
       "schema": "chat",
@@ -4008,6 +4137,14 @@
       "name": "bot_pkey",
       "schema": "chat",
       "table": "bot",
+      "entityType": "pks"
+    },
+    {
+      "columns": ["id"],
+      "nameExplicit": false,
+      "name": "bot_check_in_pkey",
+      "schema": "chat",
+      "table": "bot_check_in",
       "entityType": "pks"
     },
     {

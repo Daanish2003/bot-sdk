@@ -3,7 +3,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { ClockIcon } from "lucide-react";
 
 import { useI18n } from "../../../core/client/react/provider";
+import type { BotCheckIn } from "../shared/check-in";
 import { type BotRoutine, scheduleText } from "../shared/routine";
+import { CancelCheckIn, type CheckInActionHandlers, checkInText } from "./check-in-line";
 import {
   RoutineActions,
   type RoutineActionHandlers,
@@ -18,27 +20,34 @@ const stateKeys = {
 } as const;
 
 /**
- * The Bot header's "Routines N" button (prototype variant A), N counting the approved ones. It opens
- * a popover listing every Routine with its schedule and state, and Pause / Resume and Delete. An
- * approved webhook Routine's row also has its URL, with Copy and Rotate (variant B's row).
+ * The Bot header's "Routines N · Check-ins M" button (prototype variant A), N counting the approved
+ * Routines and M the pending Check-ins. It opens a popover listing every Routine with its schedule
+ * and state, and Pause / Resume and Delete, then the pending Check-ins, with Cancel. An approved
+ * webhook Routine's row also has its URL, with Copy and Rotate (variant B's row).
  */
 export function RoutinesPopover({
   routines,
+  checkIns,
+  onCancelCheckIn,
   webhookTokens,
   onRotate,
   ...actions
 }: {
   routines: BotRoutine[];
+  checkIns: BotCheckIn[];
   /** The webhook tokens approving or rotating gave on this page, by Routine. */
   webhookTokens: Record<string, string>;
   onRotate: (routineId: string) => Promise<void>;
-} & RoutineActionHandlers) {
-  const { t } = useI18n();
+} & CheckInActionHandlers &
+  RoutineActionHandlers) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const pending = checkIns.filter((checkIn) => checkIn.state === "pending");
   const approved = routines.filter((routine) => routine.state !== "pending").length;
   return (
     <Popover>
       <PopoverTrigger render={<Button variant="outline" size="sm" className="ml-auto" />}>
-        <ClockIcon /> {t("bots.routinesCount", { count: approved })}
+        <ClockIcon /> {t("bots.routinesCount", { routines: approved, checkIns: pending.length })}
       </PopoverTrigger>
       <PopoverContent className="w-96">
         <ul aria-label={t("bots.routines")} className="flex flex-col gap-2 text-sm">
@@ -67,6 +76,22 @@ export function RoutinesPopover({
             </li>
           ))}
         </ul>
+        {pending.length > 0 && (
+          <ul
+            aria-label={t("bots.checkIns")}
+            className="mt-2 flex flex-col gap-2 border-t pt-2 text-sm"
+          >
+            {pending.map((checkIn) => (
+              <li key={checkIn.id} className="flex items-center gap-2">
+                <ClockIcon className="size-4 shrink-0" />
+                <span>{checkInText(i18n, checkIn)}</span>
+                <span className="ml-auto">
+                  <CancelCheckIn checkIn={checkIn} onCancelCheckIn={onCancelCheckIn} />
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
       </PopoverContent>
     </Popover>
   );

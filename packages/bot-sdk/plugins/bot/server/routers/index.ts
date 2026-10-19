@@ -15,6 +15,7 @@ import {
   resumeRoutine,
   rotateWebhook,
 } from "../routine";
+import { cancelCheckIn, listCheckIns } from "../check-in";
 import { isTimeZone } from "../time-zone";
 import { sendToBot, stopBot } from "../turn";
 
@@ -146,6 +147,25 @@ const botRouter = {
       .input(z.object({ routineId: z.uuid() }))
       .handler(({ context, input }) =>
         rotateWebhook(context.sdk, context.user.id, input.routineId),
+      ),
+  },
+
+  /** The Check-ins of the caller's Bots (#540). */
+  checkIn: {
+    /** One of the caller's Bots' Check-ins, soonest first, each with the Message its line follows. */
+    list: protectedProcedure
+      .input(z.object({ botId: z.uuid() }))
+      .handler(async ({ context, input }) => {
+        const found = await findBot(context.sdk.db, context.user.id, input.botId);
+        if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
+        return listCheckIns(context.sdk.db, input.botId);
+      }),
+
+    /** Cancels a pending Check-in: it never fires. Another user's is not found. */
+    cancel: protectedProcedure
+      .input(z.object({ checkInId: z.uuid() }))
+      .handler(({ context, input }) =>
+        cancelCheckIn(context.sdk, context.user.id, input.checkInId),
       ),
   },
 };

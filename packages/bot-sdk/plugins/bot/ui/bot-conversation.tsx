@@ -8,8 +8,10 @@ import { toast } from "sonner";
 import { useI18n } from "../../../core/client/react/provider";
 import { serverErrorText } from "../../../core/client/rpc-error";
 import { useBotTurn } from "../client/react/bot-turn";
+import { useBotCheckIns } from "../client/react/check-ins";
 import { useBotRoutines } from "../client/react/routines";
 import { BotAvatar } from "./bot-avatar";
+import { CheckInLine } from "./check-in-line";
 import { RoutineCard } from "./routine-card";
 import { RoutinesPopover } from "./routines-popover";
 import { RunDivider } from "./run-divider";
@@ -17,8 +19,8 @@ import { RunDivider } from "./run-divider";
 /**
  * A Bot's Conversation: the Messages sent in it, the user's on the right and the Bot's on the left,
  * ••• while a Turn runs, and "Seen ✓" under the user's last Message when the Bot stayed quiet, or "Couldn't reply" when the
- * Turn failed. A Routine the Bot created shows after the Turn that created it, and each of its runs
- * gets a divider above what it sent, or one of its own when it stayed quiet. The Bot's Messages are
+ * Turn failed. A Routine the Bot created shows after the Turn that created it, as does a Check-in
+ * it set, and each run of a Routine or fired Check-in gets a divider above what it sent, or one of its own when it stayed quiet. The Bot's Messages are
  * never collapsed. The header lists the Routines, to pause, resume or delete them.
  */
 export function BotConversation({ botId }: { botId: string }) {
@@ -41,6 +43,7 @@ function BotConversationView({ botId }: { botId: string }) {
 
   const { routines, webhookTokens, approve, decline, pause, resume, remove, rotate } =
     useBotRoutines(botId, working);
+  const { checkIns, cancel: cancelCheckIn } = useBotCheckIns(botId, working);
   const actions = { onPause: pause, onResume: resume, onDelete: remove };
 
   if (error) {
@@ -78,12 +81,22 @@ function BotConversationView({ botId }: { botId: string }) {
       routine.afterMessageId && shownIds.has(routine.afterMessageId) ? routine.afterMessageId : "";
     routinesAfter.set(after, [...(routinesAfter.get(after) ?? []), routine]);
   }
-  // Each Routine run's divider, before the Message it goes above ("" after the last): a run that
+  // Each Check-in under the Message its line follows, as a Routine's card does.
+  const checkInsAfter = new Map<string, typeof checkIns>();
+  for (const checkIn of checkIns) {
+    const after =
+      checkIn.afterMessageId && shownIds.has(checkIn.afterMessageId) ? checkIn.afterMessageId : "";
+    checkInsAfter.set(after, [...(checkInsAfter.get(after) ?? []), checkIn]);
+  }
+  const checkInLine = (checkIn: (typeof checkIns)[number]) => (
+    <CheckInLine key={checkIn.id} checkIn={checkIn} onCancelCheckIn={cancelCheckIn} />
+  );
+  // Each run's divider, before the Message it goes above ("" after the last): a run that
   // sent something above its first Message, a quiet one where it ran. One still running and quiet
   // has none yet.
   const runsBefore = new Map<string, ReactNode[]>();
   for (const turn of turns) {
-    const fired = turn.triggers.find((trigger) => trigger.source === "routine");
+    const fired = turn.triggers.find((trigger) => trigger.source !== "user");
     if (!fired) continue;
     const from = turn.startedAt.getTime();
     const until = turn.endedAt?.getTime() ?? Infinity;
@@ -98,7 +111,7 @@ function BotConversationView({ botId }: { botId: string }) {
       ...(runsBefore.get(before) ?? []),
       <RunDivider
         key={turn.id}
-        name={fired.routineName ?? ""}
+        name={fired.source === "check_in" ? t("bots.checkIn") : (fired.routineName ?? "")}
         at={fired.at}
         quiet={quiet}
         webhook={fired.channel === "webhook"}
@@ -115,9 +128,11 @@ function BotConversationView({ botId }: { botId: string }) {
       <header className="flex items-center gap-3 border-b px-4 py-3">
         <BotAvatar name={bot.name} size={28} />
         <h1 className="font-semibold">{bot.name}</h1>
-        {routines.length > 0 && (
+        {(routines.length > 0 || checkIns.some((checkIn) => checkIn.state === "pending")) && (
           <RoutinesPopover
             routines={routines}
+            checkIns={checkIns}
+            onCancelCheckIn={cancelCheckIn}
             webhookTokens={webhookTokens}
             onRotate={rotate}
             {...actions}
@@ -152,10 +167,12 @@ function BotConversationView({ botId }: { botId: string }) {
               <p className="self-end text-xs text-muted-foreground">{t("bots.couldntReply")}</p>
             )}
             {routinesAfter.get(message.id)?.map(routineCard)}
+            {checkInsAfter.get(message.id)?.map(checkInLine)}
           </Fragment>
         ))}
         {runsBefore.get("")}
         {routinesAfter.get("")?.map(routineCard)}
+        {checkInsAfter.get("")?.map(checkInLine)}
         {working && (
           <div
             role="status"

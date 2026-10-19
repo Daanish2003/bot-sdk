@@ -110,6 +110,13 @@ const snapshotTime = (zone: string) =>
     hourCycle: "h23",
   });
 
+/** `at` as the notices of a Routine run and a Check-in write it, in `zone`: `Mon 2026-10-19 08:00`. */
+export function zonedTime(at: Date, zone: string): string {
+  const part: Record<string, string> = {};
+  for (const { type, value } of snapshotTime(zone).formatToParts(at)) part[type] = value;
+  return `${part.weekday} ${part.year}-${part.month}-${part.day} ${part.hour}:${part.minute}`;
+}
+
 /**
  * What a Routine's fire gives the Model (#539), kept on its Trigger: a wake notice, then the prompt
  * as it was at the fire, so an edit made later never changes what a Turn reads.
@@ -126,9 +133,7 @@ export function routineSnapshot({
   timeZone: string;
 }): string {
   const zone = knownZone(timeZone);
-  const part: Record<string, string> = {};
-  for (const { type, value } of snapshotTime(zone).formatToParts(slot)) part[type] = value;
-  const when = `${part.weekday} ${part.year}-${part.month}-${part.day} ${part.hour}:${part.minute}`;
+  const when = zonedTime(slot, zone);
   return (
     `Routine ${JSON.stringify(name)} ran at ${when} (${zone}). The user didn't send this; it's ` +
     `their approved Routine. If there's nothing worth telling the user, send nothing.\n\n${prompt}`
@@ -357,13 +362,12 @@ async function ownedRoutine(db: Database | Transaction, userId: string, routineI
 }
 
 /**
- * The Bot's Routines, sorted by name. Each has `afterMessageId`, the last Message of the Turn that
- * created it: its approval card follows it. That is the Bot's last Message sent by the time the Turn
- * ended, or the user's last one from before it started; a user Message sent while it ran is not.
- * `nextRunAt` is when its queued fire is due, `null` when none is queued.
+ * The last Message of the Turn a row's `createdByTurnId` names, which its card or line follows: the
+ * Bot's last Message sent by the time the Turn ended, or the user's last one from before it started;
+ * a user Message sent while it ran is not. Use it in a query that joins `bot` and `bot_turn`.
  */
-export async function listRoutines(db: Database, botId: string): Promise<BotRoutine[]> {
-  const after = db
+export function lastMessageOfTurn(db: Database) {
+  return db
     .select({ id: message.id })
     .from(message)
     .where(
@@ -375,6 +379,16 @@ export async function listRoutines(db: Database, botId: string): Promise<BotRout
     )
     .orderBy(desc(message.createdAt), desc(message.id))
     .limit(1);
+}
+
+/**
+ * The Bot's Routines, sorted by name. Each has `afterMessageId`, the last Message of the Turn that
+ * created it: its approval card follows it. That is the Bot's last Message sent by the time the Turn
+ * ended, or the user's last one from before it started; a user Message sent while it ran is not.
+ * `nextRunAt` is when its queued fire is due, `null` when none is queued.
+ */
+export async function listRoutines(db: Database, botId: string): Promise<BotRoutine[]> {
+  const after = lastMessageOfTurn(db);
   // When the Routine's queued fire is due: its next run.
   const nextRun = db
     .select({ at: min(job.runAfter) })

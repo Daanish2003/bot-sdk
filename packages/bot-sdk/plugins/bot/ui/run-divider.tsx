@@ -3,15 +3,15 @@ import { ClockIcon, WebhookIcon } from "lucide-react";
 import { dateFormat } from "../../../core/client/intl";
 import { useI18n } from "../../../core/client/react/provider";
 
-/** A Routine run's time as its dividers show it, in the browser's zone: `Mon 08:00`. */
+/** A run's time as its dividers show it, in the browser's zone: `Mon 08:00`. */
 export function runTime(locale: string, at: Date): string {
   return dateFormat(locale, { weekday: "short", hour: "2-digit", minute: "2-digit" }).format(at);
 }
 
 /**
- * The divider above a Routine run's Messages (#539): "<name> · <time>", with a clock, or a webhook
- * icon for a run a webhook started. A quiet run has one of its own: "<name> · <time> · ran,
- * nothing to say".
+ * The divider above a Routine run's or fired Check-in's Messages (#539, #540): "<name> · <time>",
+ * with a clock, or a webhook icon for a run a webhook started. A quiet run has one of its own:
+ * "<name> · <time> · ran, nothing to say".
  */
 export function RunDivider({
   name,
