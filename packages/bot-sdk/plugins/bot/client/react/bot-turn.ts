@@ -82,14 +82,15 @@ const sendAttempts = 3;
 const retryDelayMs = (n: number) => 250 * n;
 
 /** The browser's IANA time zone, sent with each Message so the Bot knows the user's "now". */
-function browserTimeZone(): string {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone;
+function browserTimeZone(): string | undefined {
+  // An empty zone is left out: the server refuses one, and a Message without one reads as UTC.
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
 }
 
 /** Calls `bot.send`, again with the same input while the request fails on the network. */
 async function sendWithRetry(
   orpc: BotSdkOrpc,
-  input: { botId: string; id: string; text: string; timeZone: string },
+  input: { botId: string; id: string; text: string; timeZone?: string },
 ) {
   for (let attempt = 1; ; attempt++) {
     try {

@@ -16,7 +16,9 @@ export function isTimeZone(zone: string): boolean {
  * changed, then your message"): `at` as the clock reads in `zone`, so "now" and "tomorrow at 9" mean
  * the user's.
  */
-export function timeNotice(at: Date, zone: string = defaultTimeZone): string {
+export function timeNotice(at: Date, stored: string = defaultTimeZone): string {
+  // A zone this runtime no longer knows must not stop the Turn: read it in UTC.
+  const zone = isTimeZone(stored) ? stored : defaultTimeZone;
   const time = new Intl.DateTimeFormat("en-GB", {
     timeZone: zone,
     weekday: "long",
