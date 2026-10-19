@@ -7,6 +7,7 @@ import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { isLiveHelper } from "../shared/helper";
 import { closeScreen, helperJobKey, recordStoppedHelper, startHelperTool } from "./helper";
+import { closeComputerCard } from "./hand-off";
 import { listHelpers } from "./helper-card";
 import type { LoopKit } from "./loop";
 
@@ -109,7 +110,8 @@ export async function stopHelpers(
   const [owner] = await tx.select({ userId: bot.userId }).from(bot).where(eq(bot.id, botId));
   for (const { id, screen } of rows) {
     await runner.cancelIn(tx, helperJobKey(id));
-    await recordStoppedHelper(deps, tx, id);
+    // A waiting Helper's card reads cancelled; its transcript was saved when it began to wait.
+    if (!(await closeComputerCard(tx, id, "cancelled"))) await recordStoppedHelper(deps, tx, id);
     // Before the stop commits and frees its slot, so it never closes the next Helper's Screen.
     if (owner) await closeScreen(deps, { id, userId: owner.userId, screen });
   }

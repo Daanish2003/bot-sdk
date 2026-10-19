@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 /** What a Helper works with (#565). */
 export type HelperType = "general" | "computer_use";
 
@@ -24,3 +26,17 @@ export type BotHelper = {
   startedAt: Date;
   afterMessageId: string | null;
 };
+
+/**
+ * The Computer card part of a hand-off Message (#568): the Helper that handed its Screen to the
+ * user, why, and whether the user tapped Done or the task was stopped first. The live link is never
+ * stored.
+ */
+export const computerCardSchema = z.object({
+  type: z.literal("computer"),
+  helperId: z.string(),
+  reason: z.string(),
+  state: z.enum(["open", "done", "cancelled"]),
+});
+
+export type ComputerCard = z.infer<typeof computerCardSchema>;

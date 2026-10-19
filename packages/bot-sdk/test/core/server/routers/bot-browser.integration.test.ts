@@ -267,6 +267,7 @@ describe("a Computer-use Helper's browser", () => {
       "browser_press",
       "browser_tabs",
       "desktop",
+      "ask_user",
     ]);
     const results = toolResults(helper.transcript ?? []);
     expect(results.map((call) => call.result.result)).toEqual([

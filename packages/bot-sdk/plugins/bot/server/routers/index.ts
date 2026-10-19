@@ -24,6 +24,7 @@ import {
 } from "../routine";
 import { cancelCheckIn, listCheckIns } from "../check-in";
 import { listHelpers } from "../helper-card";
+import { helperDone } from "../hand-off";
 import { stopHelpers } from "../helper-tools";
 import { isTimeZone } from "../time-zone";
 import { sendToBot, stopBot } from "../turn";
@@ -192,6 +193,15 @@ const botRouter = {
         if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
         return listHelpers(context.sdk.db, input.botId);
       }),
+
+    /**
+     * The user's Done on a Helper waiting for them at a hand-off (#568): it goes back to running and
+     * a fresh job carries on from where it stopped, and its Computer card reads done. Refused,
+     * "This task was stopped.", once it isn't waiting. Another user's Helper is not found.
+     */
+    done: protectedProcedure
+      .input(z.object({ helperId: z.uuid() }))
+      .handler(({ context, input }) => helperDone(context.sdk, context.user.id, input.helperId)),
 
     /**
      * Stops one of the caller's Bot's Helpers, or all of its live ones with no `helperId`, as

@@ -1,11 +1,17 @@
 import { z } from "zod";
 
-/** A Message of a Bot's Conversation: its text, never the Bot's private transcript. */
+import { computerCardSchema } from "./helper";
+
+/**
+ * A Message of a Bot's Conversation: its text, never the Bot's private transcript. A Computer-use
+ * Helper's hand-off Message also has its Computer card.
+ */
 export const botMessageSchema = z.object({
   id: z.string(),
   role: z.enum(["user", "assistant"]),
   text: z.string(),
   createdAt: z.date(),
+  computer: computerCardSchema.optional(),
 });
 
 export type BotMessage = z.infer<typeof botMessageSchema>;
