@@ -244,6 +244,44 @@ describe("the shell tool", () => {
     expect(prompt).not.toContain("It is your only tool");
   });
 
+  it("puts the cheapest-first ladder in the system prompt, ahead of the conversation (#598)", async () => {
+    const { client, botId, fake } = await botWith([round()]);
+
+    await send(client, botId, "hi");
+
+    const prompts = (fake.calls[0]?.systemPrompts ?? []).map(String);
+    const ladder = prompts.find((prompt) => prompt.startsWith("You have a computer"));
+    expect(ladder).toContain(
+      "Try the cheapest way first: what you already know or have in your files, then `web_search`, then a Helper.",
+    );
+    expect(ladder).toContain("Hand anything bigger to a Helper with `start_helper`");
+    expect(ladder).toContain(
+      "Write the task so it stands alone, since the Helper sees nothing else.",
+    );
+    expect(ladder).toContain("never work around it with a browser.");
+  });
+
+  it("offers the same tools in every Turn, whether or not a Helper is running (#598)", async () => {
+    const { client, botId, fake } = await botWith([
+      round(toolCall({ name: "start_helper", input: { type: "general", task: "Look it up." } })),
+      round(),
+      round(),
+    ]);
+
+    await send(client, botId, "first");
+    await send(client, botId, "second");
+
+    // The Helper's own model calls share the fake; the Bot's are the ones without its prompt.
+    const turnCalls = fake.calls.filter(
+      (call) =>
+        !(call.systemPrompts ?? []).some((prompt) => String(prompt).startsWith("You are a Helper")),
+    );
+    const names = turnCalls.map(toolNamesOf);
+    expect(names.length).toBeGreaterThanOrEqual(3);
+    for (const turnNames of names) expect(turnNames).toEqual(names[0]);
+    expect(names[0]).toContain("start_helper");
+  });
+
   it("has no Computer tools and no mention of them when computer is off", async () => {
     const { client, botId, fake, user } = await botWith([round()], { withComputer: false });
 
