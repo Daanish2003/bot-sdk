@@ -1,0 +1,147 @@
+// One run of a step-4 eval case (spec #543), through the real `bot` plugin: a fresh user and Bot, the
+// case's history, then either a user Message or a Trigger as a Routine's run or a fired Check-in hands
+// the Router (the same `receive`, with the text `routineSnapshot` and `checkInNotice` make).
+
+import { asc, eq } from "drizzle-orm";
+
+import { botTurn } from "../../core/server/db/schema";
+import { uuidv7 } from "../../core/server/lib/uuidv7";
+import { checkInNotice } from "../../plugins/bot/server/check-in";
+import { lockConversation, receive } from "../../plugins/bot/server/router";
+import { routineSnapshot } from "../../plugins/bot/server/routine";
+import { sendToBot } from "../../plugins/bot/server/turn";
+import { freshBot, seedHistory, type TurnEnv } from "./case";
+import type { RoutineCase } from "./routine-cases";
+import { callInputs, callNames, describeCall, scoreRoutine } from "./routine-score";
+import { judge } from "./queue-score";
+import type { Complete } from "./queue-run";
+import { sentTexts } from "./score";
+
+export type RoutineRunResult = {
+  caseId: string;
+  repeat: number;
+  structural: { passed: boolean; reasons: string[] };
+  /** The judge's verdict and reason; `null` when the case has no judge check or there was nothing to judge. */
+  judge: { correct: boolean; reason: string } | null;
+  /** The Messages the Turn sent. */
+  reply: string[];
+  /** The tool calls the Turn made, in order. */
+  calls: string[];
+  ms: number;
+  error?: string;
+};
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Waits until the Bot has a Turn and none is running, and returns the newest one. */
+async function waitForTurn(env: TurnEnv, botId: string, timeoutMs = 120_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const turns = await env.db
+      .select({ status: botTurn.status, transcript: botTurn.transcript })
+      .from(botTurn)
+      .where(eq(botTurn.botId, botId))
+      .orderBy(asc(botTurn.startedAt));
+    const ended = turns.filter((turn) => turn.status !== "running");
+    if (turns.length > 0 && ended.length === turns.length) return turns.at(-1)!;
+    await sleep(100);
+  }
+  throw new Error("The Bot's Turn did not end");
+}
+
+/** Runs one case once, scores the Turn it started, and judges what the case asks to judge. */
+export async function runRoutineCase(
+  env: TurnEnv,
+  complete: Complete,
+  evalCase: RoutineCase,
+  repeat: number,
+): Promise<RoutineRunResult> {
+  const started = Date.now();
+  let reply: string[] = [];
+  let calls: string[] = [];
+  try {
+    const { userId, bot, found } = await freshBot(env, evalCase.id, repeat);
+    await seedHistory(
+      env.db,
+      { botId: bot.id, conversationId: found!.conversationId },
+      evalCase.history ?? [],
+    );
+    const { start } = evalCase;
+    if (start.kind === "user") {
+      for await (const _ of await sendToBot(env.sdk, {
+        userId,
+        botId: bot.id,
+        id: uuidv7(),
+        text: start.message,
+      }));
+    } else {
+      const now = new Date();
+      await env.db.transaction(async (tx) => {
+        await lockConversation(tx, found!.conversationId);
+        const text =
+          start.kind === "routine"
+            ? routineSnapshot({
+                name: start.name,
+                prompt: start.prompt,
+                slot: now,
+                timeZone: "UTC",
+              })
+            : await checkInNotice(tx, found!.conversationId, {
+                createdAt: new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000),
+                at: now,
+                note: start.note,
+              });
+        await receive(env.sdk, tx, {
+          id: uuidv7(),
+          conversationId: found!.conversationId,
+          source: start.kind,
+          channel: "schedule",
+          text,
+          receivedAt: now,
+        });
+      });
+      env.sdk.plugin("runner").wake();
+    }
+    const turn = await waitForTurn(env, bot.id);
+    calls = callNames(turn.transcript);
+    reply = sentTexts(turn.transcript);
+    const structural = scoreRoutine(evalCase.expect, {
+      status: turn.status,
+      calls,
+      sent: reply.length,
+    });
+
+    let verdict: RoutineRunResult["judge"] = null;
+    const { judge: check } = evalCase;
+    if (check) {
+      const judged =
+        check.on === "reply"
+          ? reply.join("\n")
+          : callInputs(turn.transcript, check.on)
+              .map((input) => describeCall(check.on, input))
+              .join("\n");
+      if (judged) verdict = await judge(complete, { criterion: check.criterion, reply: judged });
+    }
+    return {
+      caseId: evalCase.id,
+      repeat,
+      structural,
+      judge: verdict,
+      reply,
+      calls,
+      ms: Date.now() - started,
+    };
+  } catch (caught) {
+    const error = caught instanceof Error ? caught.message : String(caught);
+    return {
+      caseId: evalCase.id,
+      repeat,
+      structural: { passed: false, reasons: [`error: ${error}`] },
+      judge: null,
+      reply,
+      calls,
+      ms: Date.now() - started,
+      error,
+    };
+  }
+}
