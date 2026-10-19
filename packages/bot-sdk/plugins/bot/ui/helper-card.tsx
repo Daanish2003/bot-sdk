@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ChevronDownIcon, Loader2Icon, MonitorIcon, TerminalIcon } from "lucide-react";
 import { useState } from "react";
@@ -21,8 +22,12 @@ const chipLabels = {
   stopped: "bots.helperStopped",
 } as const;
 
+/** A Helper's type icon: a terminal for a General Helper, a screen for a Computer-use one. */
+export const helperIcon = (helper: Pick<BotHelper, "type">) =>
+  helper.type === "general" ? TerminalIcon : MonitorIcon;
+
 /** Working (with a spinner), Needs you, Done, Failed or Stopped. */
-function StatusChip({ status }: { status: HelperStatus }) {
+export function StatusChip({ status }: { status: HelperStatus }) {
   const { t } = useI18n();
   return (
     <span
@@ -40,13 +45,22 @@ function StatusChip({ status }: { status: HelperStatus }) {
 /**
  * A Helper in its Bot's Conversation, after the Bot Message of the Turn that started it (#590):
  * its type icon, the task's gist, its type and a status chip. While live it shows "step N · <latest
- * tool call>"; opening it shows the task, and the report once it ended. It updates in place as the
- * Helper works and ends.
+ * tool call>"; opening it shows the task, the report once it ended, and Stop while it's live
+ * (#591). It updates in place as the Helper works and ends.
  */
-export function HelperCard({ helper }: { helper: BotHelper }) {
+export function HelperCard({
+  helper,
+  onStop,
+  stopping,
+}: {
+  helper: BotHelper;
+  onStop: (helperId: string) => void;
+  /** Whether a stop of this Helper is in flight. */
+  stopping: boolean;
+}) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
-  const Icon = helper.type === "general" ? TerminalIcon : MonitorIcon;
+  const Icon = helperIcon(helper);
   return (
     <div
       data-helper={helper.id}
@@ -87,6 +101,17 @@ export function HelperCard({ helper }: { helper: BotHelper }) {
               <span className="text-muted-foreground">{t("bots.helperReport")} </span>
               {helper.report}
             </p>
+          )}
+          {isLiveHelper(helper.status) && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="self-start"
+              disabled={stopping}
+              onClick={() => onStop(helper.id)}
+            >
+              {t("bots.stop")}
+            </Button>
           )}
         </div>
       )}

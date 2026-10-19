@@ -1,8 +1,8 @@
 import { type ModelMessage, toolDefinition } from "@tanstack/ai";
-import { and, count, eq, inArray, like } from "drizzle-orm";
+import { and, asc, count, eq, inArray, isNull, like } from "drizzle-orm";
 import { z } from "zod";
 
-import { bot, botHelper, botTrigger } from "../../../core/server/db/schema";
+import { bot, botHelper, botHelperMessage, botTrigger } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
@@ -71,7 +71,7 @@ const startHelperDefinition = toolDefinition({
 });
 
 /** A Helper job's idempotency key, by which it is cancelled. */
-const helperJobKey = (helperId: string) => `helper:${helperId}`;
+export const helperJobKey = (helperId: string) => `helper:${helperId}`;
 
 /** What `start_helper` needs of the Turn that calls it. */
 type HelperStarter = { id: string; botId: string; userId: string; model: string };
@@ -214,8 +214,62 @@ function playHelper(
     attempt,
     // The Bot isn't told by its Helper's results: its own next Computer call tells it.
     tellsBot: false,
+    inbox: (tx) => deliverMessages(deps, tx, helper.id),
     setup: async (kit) => ({ systemPrompts: [generalHelperPrompt], tools: kit.computerTools }),
   });
+}
+
+/** How a Message from the Bot opens in the Helper's model input (#566). */
+export const helperMessagePrefix = "Message from your Bot: ";
+
+/**
+ * The Bot's Messages to Helper `helperId` that it hasn't read, oldest first, as its inbox reads
+ * them before a model call: each is marked delivered in the inbox's Checkpoint, so it arrives once.
+ */
+async function deliverMessages(deps: BotSdkContext, tx: Transaction, helperId: string) {
+  const rows = await tx
+    .update(botHelperMessage)
+    .set({ deliveredAt: deps.clock() })
+    .where(and(eq(botHelperMessage.helperId, helperId), isNull(botHelperMessage.deliveredAt)))
+    .returning({
+      id: botHelperMessage.id,
+      text: botHelperMessage.text,
+      createdAt: botHelperMessage.createdAt,
+    });
+  rows.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id));
+  return rows.map((row) => `${helperMessagePrefix}${row.text}`);
+}
+
+/** A Helper on the Bot's to-do list (#567), as the Turn that reads it started. */
+export type TodoItem = {
+  id: string;
+  type: "general" | "computer_use";
+  status: "running" | "waiting";
+  gist: string;
+  /** ISO, so the Turn's start Checkpoint records it as it reads. */
+  startedAt: string;
+};
+
+/** The Bot's to-do list (#567): its `running` and `waiting` Helpers, oldest first. */
+export async function todoList(db: Database | Transaction, botId: string): Promise<TodoItem[]> {
+  const rows = await db
+    .select({
+      id: botHelper.id,
+      type: botHelper.type,
+      status: botHelper.status,
+      task: botHelper.task,
+      startedAt: botHelper.startedAt,
+    })
+    .from(botHelper)
+    .where(and(eq(botHelper.botId, botId), inArray(botHelper.status, ["running", "waiting"])))
+    .orderBy(asc(botHelper.startedAt), asc(botHelper.id));
+  return rows.map((row) => ({
+    id: row.id,
+    type: row.type,
+    status: row.status as TodoItem["status"],
+    gist: gistOf(row.task),
+    startedAt: row.startedAt.toISOString(),
+  }));
 }
 
 /** How a Helper's played loop ends: its status and its report. */

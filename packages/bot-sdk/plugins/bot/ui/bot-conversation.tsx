@@ -9,21 +9,24 @@ import { useI18n } from "../../../core/client/react/provider";
 import { serverErrorText } from "../../../core/client/rpc-error";
 import { useBackgroundRuns, useBotTurn } from "../client/react/bot-turn";
 import { useBotCheckIns } from "../client/react/check-ins";
-import { useBotHelpers } from "../client/react/helpers";
+import { allHelpers, useBotHelpers } from "../client/react/helpers";
 import { useBotRoutines } from "../client/react/routines";
 import { BotAvatar } from "./bot-avatar";
 import { CheckInLine } from "./check-in-line";
 import { HelperCard } from "./helper-card";
+import { isLiveHelper } from "../shared/helper";
 import { RoutineCard } from "./routine-card";
 import { RoutinesPopover } from "./routines-popover";
 import { RunDivider } from "./run-divider";
+import { TodoPopover } from "./todo-popover";
 
 /**
  * A Bot's Conversation: the Messages sent in it, the user's on the right and the Bot's on the left,
  * ••• while a Turn runs, and "Seen ✓" under the user's last Message when the Bot stayed quiet, or "Couldn't reply" when the
  * Turn failed. A Routine the Bot created shows after the Turn that created it, as does a Check-in
  * it set, and each Helper it started shows as a card after it, and each run of a Routine or fired Check-in gets a divider above what it sent, or one of its own when it stayed quiet. The Bot's Messages are
- * never collapsed. The header lists the Routines, to pause, resume or delete them.
+ * never collapsed. The header lists the Routines, to pause, resume or delete them, and the To-do
+ * list of live Helpers, to stop them.
  */
 export function BotConversation({ botId }: { botId: string }) {
   // One instance per Bot, so a Turn's state never shows on another Bot.
@@ -50,7 +53,10 @@ function BotConversationView({ botId }: { botId: string }) {
     acting: actingCheckIns,
     cancel: onCancelCheckIn,
   } = useBotCheckIns(botId, working);
-  const { helpers } = useBotHelpers(botId, working);
+  const { helpers, acting: actingHelpers, stop: stopHelpers } = useBotHelpers(botId, working);
+  const onStopHelper = (helperId?: string) =>
+    void stopHelpers(helperId).catch((refusal) => toast.error(serverErrorText(i18n, refusal)));
+  const todo = helpers.filter((helper) => isLiveHelper(helper.status));
   const actions = { onPause: pause, onResume: resume, onDelete: remove, actingRoutines: acting };
   const checkInActions = { onCancelCheckIn, actingCheckIns };
   useBackgroundRuns(
@@ -96,7 +102,12 @@ function BotConversationView({ botId }: { botId: string }) {
     <CheckInLine key={checkIn.id} checkIn={checkIn} {...checkInActions} />
   );
   const helperCard = (helper: (typeof helpers)[number]) => (
-    <HelperCard key={helper.id} helper={helper} />
+    <HelperCard
+      key={helper.id}
+      helper={helper}
+      onStop={onStopHelper}
+      stopping={actingHelpers.has(helper.id) || actingHelpers.has(allHelpers)}
+    />
   );
   // Each run's divider, before the Message it goes above ("" after the last): a run that
   // sent something above its first Message, a quiet one where it ran. One still running and quiet
@@ -138,16 +149,21 @@ function BotConversationView({ botId }: { botId: string }) {
       <header className="flex items-center gap-3 border-b px-4 py-3">
         <BotAvatar name={bot.name} size={28} />
         <h1 className="font-semibold">{bot.name}</h1>
-        {(routines.length > 0 || checkIns.some((checkIn) => checkIn.state === "pending")) && (
-          <RoutinesPopover
-            routines={routines}
-            checkIns={checkIns}
-            {...checkInActions}
-            webhookTokens={webhookTokens}
-            onRotate={rotate}
-            {...actions}
-          />
-        )}
+        <div className="ml-auto flex items-center gap-2">
+          {(routines.length > 0 || checkIns.some((checkIn) => checkIn.state === "pending")) && (
+            <RoutinesPopover
+              routines={routines}
+              checkIns={checkIns}
+              {...checkInActions}
+              webhookTokens={webhookTokens}
+              onRotate={rotate}
+              {...actions}
+            />
+          )}
+          {todo.length > 0 && (
+            <TodoPopover helpers={todo} onStop={onStopHelper} acting={actingHelpers} />
+          )}
+        </div>
       </header>
       <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-4">
         {messages.length === 0 && (

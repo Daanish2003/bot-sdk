@@ -65,3 +65,23 @@ export const botHelper = chatSchema.table(
   },
   (table) => [index("bot_helper_bot_id_status_idx").on(table.botId, table.status)],
 );
+
+/**
+ * A Message from the Bot to one of its Helpers (#566), from `message_helper`. The Helper reads the
+ * undelivered ones before its next model call, in an `inbox` activity that sets `deliveredAt`.
+ */
+export const botHelperMessage = chatSchema.table(
+  "bot_helper_message",
+  {
+    /** uuidv7, generated in app code. */
+    id: uuid("id").primaryKey(),
+    helperId: uuid("helper_id")
+      .notNull()
+      .references((): AnyPgColumn => botHelper.id, { onDelete: "cascade" }),
+    text: text("text").notNull(),
+    createdAt: timestamp("created_at").notNull(),
+    /** When the Helper's inbox read it; null until then. */
+    deliveredAt: timestamp("delivered_at"),
+  },
+  (table) => [index("bot_helper_message_helper_id_idx").on(table.helperId, table.createdAt)],
+);

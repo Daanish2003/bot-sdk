@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   botHelper,
+  botHelperMessage,
   botTrigger,
   botTurn,
   computer as computerTable,
@@ -101,7 +102,14 @@ async function botWith(
   const fakes = splitAdapter(turns, helpers, manualHelpers);
   const computerFake = fakeComputerProvider({ onCommand });
   let deps: TestDeps | undefined;
-  const jobs = inProcessRunner({ db: getTestDb(), logger: silent, drainMs: 50, deps: () => deps! });
+  // Room for three Helpers and a Turn at once.
+  const jobs = inProcessRunner({
+    db: getTestDb(),
+    logger: silent,
+    drainMs: 50,
+    concurrency: 4,
+    deps: () => deps!,
+  });
   deps = createTestSdk({
     plugins: withComputer ? [bot(), computer({ provider: computerFake.provider })] : [bot()],
     jobs,
@@ -660,5 +668,330 @@ describe("the Conversation's Helpers (#590)", () => {
 
     const other = chatRpc({ user: await insertUser(), deps: (await botWith([], [])).deps });
     await expect(other.bot.helper.list({ botId })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+});
+/** Commands that each wait until the test lets them through, in order. */
+function heldCommands() {
+  const releases: Array<() => void> = [];
+  let started = 0;
+  const onCommand = async () => {
+    started += 1;
+    await new Promise<void>((resolve) => releases.push(resolve));
+    return { exitCode: 0, stdout: "ok\n", stderr: "" };
+  };
+  return {
+    onCommand,
+    /** Waits until `count` commands have started. */
+    started: (count: number) => expect.poll(() => started, { timeout: 10_000 }).toBe(count),
+    /** Lets the oldest held command finish. */
+    release: () => releases.shift()?.(),
+  };
+}
+
+const checkHelper = (helperId: string) => toolCall({ name: "check_helper", input: { helperId } });
+
+const messageHelper = (helperId: string, text: string) =>
+  toolCall({ name: "message_helper", input: { helperId, text } });
+
+const stopHelpers = (helperId?: string) =>
+  toolCall({ name: "stop_helpers", input: helperId ? { helperId } : {} });
+
+/** The results of every tool call `name` in a transcript, parsed, in order. */
+const resultsOf = (transcript: ModelMessage[] | null | undefined, name: string) => {
+  const entries = transcript ?? [];
+  return entries
+    .flatMap((entry) => entry.toolCalls ?? [])
+    .filter((call) => call.function.name === name)
+    .map((call) =>
+      JSON.parse(String(entries.find((entry) => entry.toolCallId === call.id)?.content)),
+    );
+};
+
+/** How many of `input`'s user turns hold `needle`. */
+const userTurnsWith = (input: ModelMessage[], needle: string) =>
+  input.filter((entry) => entry.role === "user" && JSON.stringify(entry.content).includes(needle))
+    .length;
+
+const noHelperError = "No Helper with that id; your to-do list shows the current ones.";
+const finishedError = "That Helper already finished. Read its report, or start a new one.";
+
+describe("checking on a Helper (#591)", () => {
+  it("returns its status, task, Steps and latest tool call, then its report once it ended", async () => {
+    const ids: string[] = [];
+    const held = heldCommands();
+    const { client, botId } = await botWith(
+      [
+        handsOff("Count the files in /home/user/shared."),
+        () => round(checkHelper(ids[0]!), sends({ text: "Still counting.", endTurn: true })),
+        () => round(checkHelper(ids[0]!), sends({ text: "3 files.", endTurn: true })),
+      ],
+      [round(shell("ls /home/user/shared | wc -l")), round(text("There are 3 files."))],
+      { onCommand: held.onCommand },
+    );
+    await send(client, botId, "how many files?");
+    ids.push((await helpersOf(botId))[0]!.id);
+    await held.started(1);
+
+    await send(client, botId, "how's it going?");
+
+    expect(resultsOf((await turnsOf(botId))[1]?.transcript, "check_helper")).toEqual([
+      {
+        status: "running",
+        task: "Count the files in /home/user/shared.",
+        steps: 1,
+        latest: "shell: ls /home/user/shared | wc -l",
+        report: null,
+      },
+    ]);
+
+    held.release();
+    await settled(botId);
+    expect(resultsOf((await turnsOf(botId))[2]?.transcript, "check_helper")).toEqual([
+      {
+        status: "complete",
+        task: "Count the files in /home/user/shared.",
+        steps: 2,
+        latest: null,
+        report: "There are 3 files.",
+      },
+    ]);
+  });
+
+  it("refuses an unknown id, and another Bot's Helper, with a next step", async () => {
+    const other = await botWith([handsOff("Elsewhere.")], [round(text("Never comes."))], {
+      manualHelpers: true,
+    });
+    await send(other.client, other.botId, "go");
+    const [elsewhere] = await helpersOf(other.botId);
+    const { client, botId } = await botWith(
+      [
+        round(
+          checkHelper(uuidv7()),
+          checkHelper("h_3f2a"),
+          checkHelper(elsewhere!.id),
+          messageHelper(elsewhere!.id, "Hi."),
+          stopHelpers(elsewhere!.id),
+          sends({ text: "None.", endTurn: true }),
+        ),
+      ],
+      [],
+    );
+
+    await send(client, botId, "go");
+
+    const [turn] = await turnsOf(botId);
+    const errors = (turn?.transcript ?? [])
+      .filter((entry) => entry.role === "tool")
+      .slice(0, 5)
+      .map((entry) => JSON.parse(String(entry.content)));
+    expect(errors).toEqual(Array.from({ length: 5 }, () => ({ error: noHelperError })));
+    expect((await helpersOf(other.botId))[0]?.status).toBe("running");
+    expect(await getTestDb().select().from(botHelperMessage)).toEqual([]);
+  });
+});
+
+describe("messaging a Helper (#591)", () => {
+  it("reaches the Helper's next model input once, and a replay reads the same", async () => {
+    const ids: string[] = [];
+    const held = heldCommands();
+    const { client, botId, deps, helperFake } = await botWith(
+      [
+        handsOff("Count the files."),
+        () =>
+          round(
+            messageHelper(ids[0]!, "Count hidden files too."),
+            sends({ text: "Told it.", endTurn: true }),
+          ),
+      ],
+      [round(shell("ls")), round(shell("ls -a")), round(text("Never comes."))],
+      { onCommand: held.onCommand },
+    );
+    await send(client, botId, "count the files");
+    ids.push((await helpersOf(botId))[0]!.id);
+    await held.started(1);
+
+    await send(client, botId, "hidden ones too");
+    expect(resultsOf((await turnsOf(botId))[1]?.transcript, "message_helper")).toEqual([
+      { sent: true },
+    ]);
+    expect(userTurnsWith(inputOf(helperFake.calls[0]), "Count hidden files too.")).toBe(0);
+
+    held.release();
+    await held.started(2);
+    const message = "Message from your Bot: Count hidden files too.";
+    expect(helperFake.calls).toHaveLength(2);
+    expect(userTurnsWith(inputOf(helperFake.calls[1]), message)).toBe(1);
+    const [row] = await getTestDb()
+      .select()
+      .from(botHelperMessage)
+      .where(eq(botHelperMessage.helperId, ids[0]!));
+    expect(row).toMatchObject({ text: "Count hidden files too." });
+    expect(row?.deliveredAt).toBeInstanceOf(Date);
+
+    // The job's last-chance ending replays its Checkpoints: the inbox reads the recorded message,
+    // though the row now reads delivered.
+    await botHelperJob.onFailed!({ helperId: ids[0]! }, new Error("lost"), deps);
+    const [helper] = await helpersOf(botId);
+    expect(helper?.status).toBe("error");
+    expect(userTurnsWith(helper?.transcript ?? [], message)).toBe(1);
+    held.release();
+  });
+
+  it("refuses a message to a Helper that already finished", async () => {
+    const ids: string[] = [];
+    const { client, botId } = await botWith(
+      [
+        handsOff("Say hi."),
+        round(),
+        () => round(messageHelper(ids[0]!, "And bye."), sends({ text: "Done.", endTurn: true })),
+      ],
+      [round(text("hi"))],
+    );
+    await send(client, botId, "go");
+    await settled(botId);
+    ids.push((await helpersOf(botId))[0]!.id);
+
+    await send(client, botId, "tell it bye");
+
+    expect(resultsOf((await turnsOf(botId)).at(-1)?.transcript, "message_helper")).toEqual([
+      { error: finishedError },
+    ]);
+    expect(await getTestDb().select().from(botHelperMessage)).toEqual([]);
+  });
+});
+
+describe("stopping Helpers (#591)", () => {
+  it("stops one, then all, cancelling their jobs and sending no Trigger", async () => {
+    const ids: string[] = [];
+    const { client, botId } = await botWith(
+      [
+        round(startHelper("One."), startHelper("Two."), sends({ text: "On it.", endTurn: true })),
+        () => round(stopHelpers(ids[0]!), sends({ text: "Stopped one.", endTurn: true })),
+        () => round(stopHelpers(), sends({ text: "Stopped all.", endTurn: true })),
+      ],
+      [round(text("Never comes.")), round(text("Never comes."))],
+      { manualHelpers: true },
+    );
+    await send(client, botId, "go");
+    ids.push(...(await helpersOf(botId)).map((row) => row.id));
+
+    await send(client, botId, "stop the first");
+    expect(resultsOf((await turnsOf(botId))[1]?.transcript, "stop_helpers")).toEqual([
+      { stopped: [ids[0]] },
+    ]);
+    expect((await helpersOf(botId)).map((row) => row.status)).toEqual(["stopped", "running"]);
+
+    await send(client, botId, "stop them all");
+    expect(resultsOf((await turnsOf(botId))[2]?.transcript, "stop_helpers")).toEqual([
+      { stopped: [ids[1]] },
+    ]);
+    const helpers = await helpersOf(botId);
+    expect(helpers.map((row) => row.status)).toEqual(["stopped", "stopped"]);
+    expect(helpers.every((row) => row.endedAt instanceof Date)).toBe(true);
+    const jobs = await getTestDb()
+      .select({ status: job.status })
+      .from(job)
+      .where(eq(job.name, "bot.helper"));
+    expect(jobs.map((row) => row.status)).toEqual(["cancelled", "cancelled"]);
+    expect(await helperTriggers()).toEqual([]);
+  });
+
+  it("refuses to stop a Helper that already finished", async () => {
+    const ids: string[] = [];
+    const { client, botId } = await botWith(
+      [
+        handsOff("Say hi."),
+        round(),
+        () => round(stopHelpers(ids[0]!), sends({ text: "Done.", endTurn: true })),
+      ],
+      [round(text("hi"))],
+    );
+    await send(client, botId, "go");
+    await settled(botId);
+    ids.push((await helpersOf(botId))[0]!.id);
+
+    await send(client, botId, "stop it");
+
+    expect(resultsOf((await turnsOf(botId)).at(-1)?.transcript, "stop_helpers")).toEqual([
+      { error: finishedError },
+    ]);
+    expect((await helpersOf(botId))[0]?.status).toBe("complete");
+  });
+
+  it("lets the user stop one Helper or all of them, and not another user's", async () => {
+    const { client, botId, deps } = await botWith(
+      [
+        round(
+          startHelper("One."),
+          startHelper("Two."),
+          startHelper("Three."),
+          sends({ text: "On it.", endTurn: true }),
+        ),
+      ],
+      [round(text("Never comes.")), round(text("Never comes.")), round(text("Never comes."))],
+      { manualHelpers: true },
+    );
+    await send(client, botId, "go");
+    const [one] = await helpersOf(botId);
+
+    const stranger = chatRpc({ user: await insertUser(), deps });
+    await expect(stranger.bot.helper.stop({ botId })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+
+    await client.bot.helper.stop({ botId, helperId: one!.id });
+    expect((await client.bot.helper.list({ botId })).map((helper) => helper.status)).toEqual([
+      "stopped",
+      "running",
+      "running",
+    ]);
+    await client.bot.helper.stop({ botId });
+    expect((await client.bot.helper.list({ botId })).map((helper) => helper.status)).toEqual([
+      "stopped",
+      "stopped",
+      "stopped",
+    ]);
+    expect(await helperTriggers()).toEqual([]);
+  });
+});
+
+describe("the to-do list (#591)", () => {
+  it("is a line per live Helper in the Turn's newest input, nothing when none, and the system prompt is unchanged", async () => {
+    const held = heldCommands();
+    const { client, botId, turnFake } = await botWith(
+      [
+        handsOff("Count the files in /home/user/shared.\nThen report."),
+        round(sends({ text: "Working on it.", endTurn: true })),
+        round(sends({ text: "Done.", endTurn: true })),
+      ],
+      [round(shell("ls")), round(text("There are 3 files."))],
+      { onCommand: held.onCommand },
+    );
+
+    await send(client, botId, "how many files?");
+    expect(JSON.stringify(inputOf(turnFake.calls[0]))).not.toContain("to-do");
+    const [helper] = await helpersOf(botId);
+    await held.started(1);
+
+    await send(client, botId, "how's it going?");
+    const since = new Intl.DateTimeFormat("en-GB", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+      timeZone: "UTC",
+    }).format(helper!.startedAt);
+    const newest = inputOf(turnFake.calls[1]).at(-1);
+    expect(newest?.role).toBe("user");
+    const lines = String(newest?.content).split("\n");
+    expect(lines).toContain(
+      `${helper!.id} · General · running: Count the files in /home/user/shared. · since ${since}`,
+    );
+    expect(lines.at(-1)).toBe("how's it going?");
+    expect(turnFake.calls[1]?.systemPrompts).toEqual(turnFake.calls[0]?.systemPrompts);
+
+    held.release();
+    await settled(botId);
+    // The report's Turn: the Helper has ended, so the list is gone.
+    expect(String(inputOf(turnFake.calls[2]).at(-1)?.content)).not.toContain(helper!.id);
   });
 });

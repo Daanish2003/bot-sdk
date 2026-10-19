@@ -25,11 +25,12 @@ import {
 } from "./router";
 import { cancelCheckInTool, pendingCheckIns, saveCheckIn } from "./check-in";
 import { computerPrompt } from "./computer-tools";
-import { startHelperTool } from "./helper";
+import { type TodoItem, todoList } from "./helper";
+import { helperTools } from "./helper-tools";
 import { type LoopKit, type LoopResult, type LoopSetup, runLoop } from "./loop";
 import { botMessages, findBot, textParts, toBotMessage, turnTimeLimitMs } from "./store";
 import { deleteRoutine, routinesPrompt, saveRoutine, updateRoutine } from "./routine";
-import { timeNotice } from "./time-zone";
+import { formatterIn, knownZone, timeNotice } from "./time-zone";
 
 /** The most Steps a Turn may take; one more ends it `error` with `step_limit`. */
 export const turnStepLimit = 10;
@@ -553,10 +554,12 @@ async function runTurnJob(
   const created = await turnFacts(deps.db, turnId);
   if (!created) throw new PermanentJobError(`Turn ${turnId} no longer exists`);
   let turn = created;
+  let todo: TodoItem[] | null;
   try {
-    await ctx.activity(startTurnActivity, async (tx) => {
+    // The to-do list as the Turn starts, recorded: every attempt reads the same.
+    todo = await ctx.activity(startTurnActivity, async (tx) => {
       await turnStarted(deps, tx, turnId);
-      return null;
+      return todoList(tx, turn.botId);
     });
     // Read after the start: a resumed attempt replays it, so the Turn keeps the start it had.
     turn = (await turnFacts(deps.db, turnId)) ?? created;
@@ -564,7 +567,7 @@ async function runTurnJob(
     if (ctx.signal.aborted) await stopIfCancelled(deps, turn, { transcript: [], usage: null });
     throw caught;
   }
-  const played = await playTurn(deps, turn, ctx, { attempt: ctx.signal });
+  const played = await playTurn(deps, turn, ctx, { attempt: ctx.signal, todo });
   try {
     ctx.signal.throwIfAborted();
     // A thrown activity recorded nothing: the job retries it.
@@ -686,8 +689,11 @@ async function replayedTurn(
     signal: AbortSignal.abort(new Error("The Turn's job has ended")),
   });
   // A job that never started recorded no start.
-  if (history.length > 0) await workflow.context.activity(startTurnActivity, async () => null);
-  return playTurn(deps, turn, workflow.context, { db });
+  const todo =
+    history.length > 0
+      ? await workflow.context.activity<TodoItem[] | null>(startTurnActivity, async () => null)
+      : null;
+  return playTurn(deps, turn, workflow.context, { db, todo });
 }
 
 /** Ends the Turn's row, in its last Checkpoint's transaction. */
@@ -705,6 +711,28 @@ async function endTurn(
   await tx.update(botTurn).set(ending).where(eq(botTurn.id, turnId));
 }
 
+const sinceTime: Intl.DateTimeFormatOptions = {
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+};
+
+/**
+ * The Bot's to-do list (#567), after the time notice: one line per running or waiting Helper,
+ * `<id> · General · running: <gist> · since 10:42`, the time in the user's zone.
+ */
+function todoNotice(todo: TodoItem[], stored: string | undefined): string {
+  const since = formatterIn(knownZone(stored), sinceTime);
+  const lines = todo.map((item) => {
+    const kind = item.type === "general" ? "General" : "Computer-use";
+    const state = item.status === "waiting" ? "waiting for the user" : "running";
+    return `${item.id} · ${kind} · ${state}: ${item.gist} · since ${since.format(new Date(item.startedAt))}`;
+  });
+  return ["[Your to-do list: the Helpers still working or waiting for the user]", ...lines].join(
+    "\n",
+  );
+}
+
 /** How much of an earlier Turn's Trigger text later Turns replay: a webhook payload can be 64 KB. */
 const earlierTriggerTextLimit = 2_048;
 
@@ -716,7 +744,11 @@ const earlierTriggerTextLimit = 2_048;
  * Messages are not replayed as text: the transcripts hold them as SendToUser calls. Only what came
  * before the Turn counts, so every attempt reads the same input.
  */
-async function modelInput(db: Database | Transaction, turn: TurnFacts): Promise<ModelMessage[]> {
+async function modelInput(
+  db: Database | Transaction,
+  turn: TurnFacts,
+  todo: TodoItem[] | null,
+): Promise<ModelMessage[]> {
   const [users, woken, turns] = await Promise.all([
     db
       .select({ parts: message.parts, createdAt: message.createdAt })
@@ -765,13 +797,19 @@ async function modelInput(db: Database | Transaction, turn: TurnFacts): Promise<
           : `${row.text!.slice(0, earlierTriggerTextLimit)}\n[truncated]`,
     })),
   ];
-  // The newest input opens with the time, as of the Turn's start so every attempt reads the same.
+  // The newest input opens with the time, as of the Turn's start so every attempt reads the same,
+  // then the to-do list as the Turn's start Checkpoint recorded it.
   const newest = inputs.reduce<(typeof inputs)[number] | undefined>(
     (latest, input) => (latest && latest.at > input.at ? latest : input),
     undefined,
   );
   if (newest) {
-    newest.content = `${timeNotice(turn.startedAt, users.at(-1)?.parts.timeZone)}\n\n${newest.content}`;
+    const zone = users.at(-1)?.parts.timeZone;
+    const notices = [
+      timeNotice(turn.startedAt, zone),
+      ...(todo?.length ? [todoNotice(todo, zone)] : []),
+    ];
+    newest.content = `${notices.join("\n\n")}\n\n${newest.content}`;
   }
   const entries = [
     ...inputs.map((input) => ({
@@ -799,9 +837,13 @@ async function playTurn(
   deps: BotSdkContext,
   turn: TurnFacts,
   ctx: WorkflowContext<Transaction>,
-  { attempt, db = deps.db }: { attempt?: AbortSignal; db?: Database | Transaction },
+  {
+    attempt,
+    db = deps.db,
+    todo,
+  }: { attempt?: AbortSignal; db?: Database | Transaction; todo: TodoItem[] | null },
 ): Promise<LoopResult> {
-  const input = await modelInput(db, turn);
+  const input = await modelInput(db, turn, todo);
   return runLoop(deps, ctx, {
     owner: turn,
     usageKind: "turn",
@@ -916,7 +958,7 @@ async function turnSetup(deps: BotSdkContext, turn: TurnFacts, kit: LoopKit): Pr
       setCheckInTool,
       cancelCheckInToolImpl,
       listCheckInsTool,
-      ...(withComputer ? [...kit.computerTools, startHelperTool(deps, turn, liveActivity)] : []),
+      ...(withComputer ? [...kit.computerTools, ...helperTools(deps, turn, liveActivity)] : []),
     ],
     ended: () => endTurn,
   };

@@ -47,7 +47,7 @@ export function RoutinesPopover({
   const approved = routines.filter((routine) => routine.state !== "pending").length;
   return (
     <Popover>
-      <PopoverTrigger render={<Button variant="outline" size="sm" className="ml-auto" />}>
+      <PopoverTrigger render={<Button variant="outline" size="sm" />}>
         <ClockIcon /> {t("bots.routinesCount", { routines: approved, checkIns: pending.length })}
       </PopoverTrigger>
       <PopoverContent className="w-96">

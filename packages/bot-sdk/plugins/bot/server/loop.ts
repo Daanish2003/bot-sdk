@@ -100,6 +100,11 @@ export type LoopOptions = {
    * Helper's loop tells only its own context, so the Bot still hears of it in its next Turn.
    */
   tellsBot?: boolean;
+  /**
+   * Reads what has arrived for the loop since its last model call, as user turns added before the
+   * next one, in an `inbox` activity: a replay reads the recorded turns (a Helper's, #566).
+   */
+  inbox?: (tx: Transaction) => Promise<string[]>;
 };
 
 /** What a played loop came to. `failure` is an activity that threw, which recorded nothing. */
@@ -457,6 +462,28 @@ export async function runLoop(
             name: "bot-turn",
             onStart: (middlewareCtx) => {
               engine = middlewareCtx;
+            },
+            // Before each model call: what the inbox holds joins the input, and stays in it.
+            onConfig: async (middlewareCtx, config) => {
+              const { inbox } = options;
+              if (!inbox || middlewareCtx.phase !== "beforeModel") return;
+              let arrived: string[];
+              try {
+                arrived = await ctx.activity("inbox", inbox);
+              } catch (caught) {
+                // It recorded nothing: the job retries it, as for a model call's Checkpoint.
+                if (!abortController.signal.aborted) {
+                  failure ??= caught;
+                  abortController.abort();
+                }
+                throw caught;
+              }
+              if (arrived.length === 0) return;
+              const messages = [
+                ...config.messages,
+                ...arrived.map((content) => ({ role: "user" as const, content })),
+              ];
+              return { messages, providerMessages: messages };
             },
             onShouldContinue: (_middlewareCtx, state) => {
               // A tool call that ends the loop ends it with no further model call.

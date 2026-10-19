@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
 import { eventIterator, os } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
-import { cleanup, render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, fireEvent, within } from "@testing-library/react";
 import { createElement } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
+import { backgroundPollMs } from "../../../plugins/bot/client/react/bot-turn";
 import type { BotHelper, HelperStatus } from "../../../plugins/bot/shared/helper";
+import type { BotRoutine } from "../../../plugins/bot/shared/routine";
 import type { BotMessage, BotSendEvent } from "../../../plugins/bot/shared/turn";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
 import { providerFor } from "../fake-dictionary";
@@ -39,8 +41,15 @@ const helper = (afterMessageId: string, extra: Partial<BotHelper> = {}): BotHelp
   ...extra,
 });
 
-/** A stand-in for the server's `bot` router, with the Helpers a test gives it. */
-function mount(messages: BotMessage[], helpers: BotHelper[]) {
+/**
+ * A stand-in for the server's `bot` router, with the Helpers (and Routines) a test gives it.
+ * `bot.helper.stop` records its input in `stops` and stops them as the server does.
+ */
+function mount(
+  messages: BotMessage[],
+  helpers: BotHelper[],
+  { routines = [], stops = [] }: { routines?: BotRoutine[]; stops?: unknown[] } = {},
+) {
   const router = {
     bot: {
       get: os.handler(() => ({ bot: { ...ada, turnStatus: null }, messages, turns: [] })),
@@ -49,12 +58,23 @@ function mount(messages: BotMessage[], helpers: BotHelper[]) {
         .input(z.object({ botId: z.string(), id: z.string(), text: z.string() }).loose())
         .output(eventIterator(z.custom<BotSendEvent>()))
         .handler(async function* () {}),
-      routine: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
+      routine: { list: os.input(z.object({ botId: z.string() })).handler(() => routines) },
       checkIn: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
       helper: {
         list: os
           .input(z.object({ botId: z.string() }))
           .handler(() => helpers.map((h) => ({ ...h }))),
+        stop: os
+          .input(z.object({ botId: z.string(), helperId: z.string().optional() }))
+          .handler(({ input }) => {
+            stops.push(input);
+            helpers.forEach((h, index) => {
+              const live = h.status === "running" || h.status === "waiting";
+              if (live && (!input.helperId || input.helperId === h.id)) {
+                helpers[index] = { ...h, status: "stopped", latest: null };
+              }
+            });
+          }),
       },
     },
   };
@@ -96,7 +116,7 @@ describe("a Helper in the Conversation", () => {
     expect(card(container).querySelector(".animate-spin")).not.toBeNull();
     expect(card(container).textContent).not.toContain("Task:");
 
-    fireEvent.click(screen.getByRole("button", { expanded: false }));
+    fireEvent.click(within(card(container)).getByRole("button", { expanded: false }));
 
     expect(card(container).textContent).toContain("Task: Count the files in /home/user/shared.");
     expect(card(container).textContent).not.toContain("Report:");
@@ -125,7 +145,7 @@ describe("a Helper in the Conversation", () => {
       expect(card(container).dataset.status).toBe(status);
       expect(card(container).querySelector(".animate-spin")).toBeNull();
       expect(card(container).textContent?.includes("step 2")).toBe(live);
-      fireEvent.click(screen.getByRole("button", { expanded: false }));
+      fireEvent.click(within(card(container)).getByRole("button", { expanded: false }));
       expect(card(container).textContent?.includes("Report: There are 3 files.")).toBe(!live);
     },
   );
@@ -144,5 +164,127 @@ describe("a Helper in the Conversation", () => {
     expect(container.textContent).not.toMatch(/finished/i);
     expect(card(container).textContent).toContain("Done");
     expect(card(container).textContent).not.toContain("step 2");
+  });
+});
+
+describe("stopping a Helper from its card (#591)", () => {
+  it("offers Stop in the expanded card of a live Helper, which calls the router", async () => {
+    const stops: unknown[] = [];
+    const { container } = mount([said("m1", "assistant", "On it.")], [helper("m1")], { stops });
+    await screen.findByText("Working");
+
+    fireEvent.click(within(card(container)).getByRole("button", { expanded: false }));
+    fireEvent.click(within(card(container)).getByRole("button", { name: "Stop" }));
+
+    await waitFor(() => expect(card(container).dataset.status).toBe("stopped"));
+    expect(stops).toEqual([{ botId: "b2", helperId: "h1" }]);
+    expect(within(card(container)).queryByRole("button", { name: "Stop" })).toBeNull();
+  });
+
+  it("has no Stop once the Helper ended", async () => {
+    const { container } = mount(
+      [said("m1", "assistant", "On it.")],
+      [helper("m1", { status: "complete", report: "3." })],
+    );
+    await screen.findByText("Done");
+
+    fireEvent.click(within(card(container)).getByRole("button", { expanded: false }));
+
+    expect(within(card(container)).queryByRole("button", { name: "Stop" })).toBeNull();
+  });
+});
+
+describe("the To-do list (#591)", () => {
+  const two = () => [
+    helper("m1"),
+    helper("m1", {
+      id: "h2",
+      gist: "Sign in to Salesforce.",
+      type: "computer_use",
+      status: "waiting",
+    }),
+    helper("m1", { id: "h3", gist: "Old task.", status: "complete", report: "Done." }),
+  ];
+
+  it("counts the running and waiting Helpers, with a dot when one needs the user", async () => {
+    mount([said("m1", "assistant", "On it.")], two());
+
+    const button = await screen.findByRole("button", { name: /To-do 2/ });
+    expect(button.querySelector("[data-needs-you]")).not.toBeNull();
+  });
+
+  it("has no dot when no Helper needs the user, and no button when none is live", async () => {
+    mount([said("m1", "assistant", "On it.")], [helper("m1")]);
+    const button = await screen.findByRole("button", { name: /To-do 1/ });
+    expect(button.querySelector("[data-needs-you]")).toBeNull();
+    cleanup();
+
+    mount([said("m1", "assistant", "On it.")], [helper("m1", { status: "complete" })]);
+    await screen.findByText("Done");
+    expect(screen.queryByRole("button", { name: /To-do/ })).toBeNull();
+  });
+
+  it("lists each live Helper with its status and a stop ×, and Stop all when there are several", async () => {
+    const stops: unknown[] = [];
+    mount([said("m1", "assistant", "On it.")], two(), { stops });
+
+    fireEvent.click(await screen.findByRole("button", { name: /To-do 2/ }));
+    const list = await screen.findByRole("list", { name: "To-do" });
+    const items = within(list).getAllByRole("listitem");
+    expect(items.map((item) => item.textContent)).toEqual([
+      expect.stringContaining("Count the files in /home/user/shared."),
+      expect.stringContaining("Sign in to Salesforce."),
+    ]);
+    expect(items[0]!.textContent).toContain("Working");
+    expect(items[1]!.textContent).toContain("Needs you");
+
+    fireEvent.click(within(list).getByRole("button", { name: "Stop Sign in to Salesforce." }));
+    await waitFor(() => expect(stops).toEqual([{ botId: "b2", helperId: "h2" }]));
+    await screen.findByRole("button", { name: /To-do 1/ });
+    // One left: no Stop all.
+    expect(screen.queryByRole("button", { name: "Stop all Helpers" })).toBeNull();
+  });
+
+  it("stops every Helper with Stop all Helpers", async () => {
+    const stops: unknown[] = [];
+    mount([said("m1", "assistant", "On it.")], two(), { stops });
+
+    fireEvent.click(await screen.findByRole("button", { name: /To-do 2/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Stop all Helpers" }));
+
+    await waitFor(() => expect(stops).toEqual([{ botId: "b2" }]));
+    await waitFor(() => expect(screen.queryByRole("button", { name: /To-do/ })).toBeNull());
+  });
+});
+
+describe("a Helper a background run started (#591)", () => {
+  it("shows while the page is open and idle, with no reload", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const routine: BotRoutine = {
+        id: "r1",
+        name: "morning-brief",
+        prompt: "Summarize today's calendar.",
+        schedule: { days: ["mon"], at: "08:00" },
+        webhook: false,
+        timeZone: "Europe/London",
+        state: "active",
+        approvedAt: createdAt,
+        createdAt,
+        afterMessageId: "m1",
+        nextRunAt: null,
+      };
+      const helpers: BotHelper[] = [];
+      mount([said("m1", "assistant", "On it.")], helpers, { routines: [routine] });
+      await screen.findByText("On it.");
+
+      // A Routine's Turn starts a Helper on the server; this page sends nothing.
+      helpers.push(helper("m1"));
+      await act(() => vi.advanceTimersByTimeAsync(backgroundPollMs));
+
+      await screen.findByText("Count the files in /home/user/shared.");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

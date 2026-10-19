@@ -24,6 +24,7 @@ import {
 } from "../routine";
 import { cancelCheckIn, listCheckIns } from "../check-in";
 import { listHelpers } from "../helper-card";
+import { stopHelpers } from "../helper-tools";
 import { isTimeZone } from "../time-zone";
 import { sendToBot, stopBot } from "../turn";
 
@@ -190,6 +191,21 @@ const botRouter = {
         const found = await findBot(context.sdk.db, context.user.id, input.botId);
         if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
         return listHelpers(context.sdk.db, input.botId);
+      }),
+
+    /**
+     * Stops one of the caller's Bot's Helpers, or all of its live ones with no `helperId`, as
+     * `stop_helpers` does: no `helper` Trigger. One that already ended, or isn't the Bot's, stays
+     * as it is. Another user's Bot is not found.
+     */
+    stop: protectedProcedure
+      .input(z.object({ botId: z.uuid(), helperId: z.uuid().optional() }))
+      .handler(async ({ context, input }) => {
+        const found = await findBot(context.sdk.db, context.user.id, input.botId);
+        if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
+        await context.sdk.db.transaction((tx) =>
+          stopHelpers(context.sdk, tx, input.botId, input.helperId),
+        );
       }),
   },
 };
