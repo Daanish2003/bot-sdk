@@ -254,7 +254,11 @@ describe("the live view's proxy", () => {
     expect(page.status).toBe(200);
     // The sandbox wrote it, so it runs in an opaque origin, not the Host's.
     expect(page.headers.get("content-security-policy")).toBe("sandbox allow-scripts");
-    expect(await page.text()).toMatch(/^noVNC \/vnc\.html\?/);
+    const html = await page.text();
+    expect(html).toContain("noVNC /vnc.html?");
+    // The storage shim is first in the head, before any noVNC script; only HTML gets it.
+    expect(html).toMatch(/<head><script>.*localStorage.*sessionStorage.*<\/script><title>/);
+    expect(html.match(/<script>/g)).toHaveLength(1);
     expect(await file.text()).toBe("noVNC /app/ui.js");
     // The Screen's address the link asked for is reused, not asked for again for each file.
     expect(asked()).toBe(askedByLink);

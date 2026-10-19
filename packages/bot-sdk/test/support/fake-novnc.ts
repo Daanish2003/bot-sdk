@@ -12,7 +12,7 @@ const trafficHeader = "e2b-traffic-access-token";
 /**
  * A stand-in for a Screen's noVNC behind E2B, on a local port: websockify's web server and its
  * socket. Like E2B with public traffic off, it refuses (403) any request without the traffic token
- * header. A GET answers `noVNC <path>`, or at `/redirect?to=<location>` a 302 there; an upgrade at `/websockify` opens a socket whose binary
+ * header. A GET answers `noVNC <path>` (in an HTML page's body for `.html`), or at `/redirect?to=<location>` a 302 there; an upgrade at `/websockify` opens a socket whose binary
  * messages it records, and `send` pushes bytes down every open socket. Just enough of RFC 6455 for
  * one small frame at a time: no new dependency for a test.
  */
@@ -33,7 +33,16 @@ export async function fakeNovnc() {
       response.writeHead(302, { location: url.searchParams.get("to") ?? "/" }).end();
       return;
     }
-    response.writeHead(200, { "content-type": "text/html" }).end(`noVNC ${request.url}`);
+    // Like websockify's web server: an HTML page has a head, and other files their own type.
+    if (url.pathname.endsWith(".html")) {
+      response
+        .writeHead(200, { "content-type": "text/html" })
+        .end(
+          `<!DOCTYPE html><html><head><title>noVNC</title></head><body>noVNC ${request.url}</body></html>`,
+        );
+      return;
+    }
+    response.writeHead(200, { "content-type": "text/javascript" }).end(`noVNC ${request.url}`);
   });
   server.on("upgrade", (request, socket: Duplex) => {
     upgrades.push({ path: request.url ?? "", headers: request.headers });
