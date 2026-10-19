@@ -9,7 +9,7 @@ import type { BotCheckIn } from "../shared/check-in";
 import { lockConversation } from "./router";
 import { lastMessageOfTurn, zonedTime } from "./routine";
 import { newestTimeZone } from "./store";
-import { defaultTimeZone, knownZone } from "./time-zone";
+import { knownZone } from "./time-zone";
 
 /** The runner job of one Check-in's fire (`check-in-fire.ts`). */
 export const checkInFireJobName = "bot.check_in_fire";
@@ -173,7 +173,7 @@ export async function checkInNotice(
   conversationId: string,
   row: { createdAt: Date; at: Date; note: string },
 ): Promise<string> {
-  const zone = knownZone((await newestTimeZone(tx, conversationId)) ?? defaultTimeZone);
+  const zone = knownZone(await newestTimeZone(tx, conversationId));
   return (
     `Check-in you set on ${zonedTime(row.createdAt, zone)} for ${zonedTime(row.at, zone)} ` +
     `(${zone}): ${JSON.stringify(row.note)}`

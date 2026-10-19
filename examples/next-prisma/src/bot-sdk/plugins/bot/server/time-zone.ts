@@ -4,6 +4,12 @@ export const defaultTimeZone = "UTC";
 const formatters = new WeakMap<Intl.DateTimeFormatOptions, Map<string, Intl.DateTimeFormat>>();
 
 /**
+ * Zones held per options. Zones come from clients, which may spell one zone in any case, so the
+ * cache starts over past this many instead of growing without bound.
+ */
+const zonesCached = 1_000;
+
+/**
  * The `en-GB` formatter of `options` in `zone`, built once per pair: building one is slow, and
  * Routines and notices format on every fire and Turn. `options` must be a module constant, the
  * cache's key. Throws for a zone the runtime doesn't know, as `Intl.DateTimeFormat` does.
@@ -17,6 +23,7 @@ export function formatterIn(
   let formatter = byZone.get(zone);
   if (!formatter) {
     formatter = new Intl.DateTimeFormat("en-GB", { ...options, timeZone: zone });
+    if (byZone.size >= zonesCached) byZone.clear();
     byZone.set(zone, formatter);
   }
   return formatter;

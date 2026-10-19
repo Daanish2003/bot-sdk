@@ -87,21 +87,21 @@ export async function latestTurnStatus(db: Database | Transaction, botId: string
 }
 
 /**
- * The status of the Turn that took the user's last Message in Conversation `conversationId`: `null`
- * before their first and while it waits in the Conversation queue. A later Routine or Check-in run
- * leaves it as it is.
+ * The status of the Turn that took the user's last Message, found by its Trigger's ID (the
+ * Message's): `null` before their first and while it waits in the Conversation queue. A later
+ * Routine or Check-in run leaves it as it is.
  */
 export async function userTurnStatus(
   db: Database | Transaction,
-  conversationId: string,
+  messages: BotMessage[],
 ): Promise<BotTurnStatus | null> {
+  const last = messages.findLast((sent) => sent.role === "user");
+  if (!last) return null;
   const [row] = await db
     .select({ status: botTurn.status })
     .from(botTrigger)
-    .leftJoin(botTurn, eq(botTurn.id, botTrigger.turnId))
-    .where(and(eq(botTrigger.conversationId, conversationId), eq(botTrigger.source, "user")))
-    .orderBy(desc(botTrigger.receivedAt), desc(botTrigger.id))
-    .limit(1);
+    .innerJoin(botTurn, eq(botTurn.id, botTrigger.turnId))
+    .where(eq(botTrigger.id, last.id));
   return row?.status ?? null;
 }
 
