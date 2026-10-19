@@ -95,7 +95,7 @@ export async function userTurnStatus(
   db: Database | Transaction,
   messages: BotMessage[],
 ): Promise<BotTurnStatus | null> {
-  const last = messages.findLast((sent) => sent.role === "user");
+  const last = messages.filter((sent) => sent.role === "user").at(-1);
   if (!last) return null;
   const [row] = await db
     .select({ status: botTurn.status })
