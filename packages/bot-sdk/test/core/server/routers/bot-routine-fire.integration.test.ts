@@ -409,6 +409,36 @@ describe("a scheduled Routine", () => {
     });
   });
 
+  it("reads a run that sent a Message as sent, beside each earlier Turn with its own Triggers", async () => {
+    const { client, botId, runDue, advanceTo } = await approvedRoutine({
+      at: sunday,
+      rounds: [round(sends({ text: "Your calendar is clear.", endTurn: true }))],
+    });
+    advanceTo(mondaySlot);
+    await runDue();
+    advanceTo("2026-10-19T07:00:00.500Z");
+    await runDue();
+
+    const { turns } = await client.bot.get({ botId });
+    expect(turns.map(({ sent, triggers }) => ({ sent, triggers }))).toEqual([
+      {
+        sent: false,
+        triggers: [{ source: "user", channel: "web", routineName: null, at: expect.any(Date) }],
+      },
+      {
+        sent: true,
+        triggers: [
+          {
+            source: "routine",
+            channel: "schedule",
+            routineName: "morning-brief",
+            at: new Date(mondaySlot),
+          },
+        ],
+      },
+    ]);
+  });
+
   it("after a clock jump over three slots fires once, and counts the next slot from then", async () => {
     const { conversationId, routineId, runDue, advanceTo } = await approvedRoutine({
       at: sunday,
