@@ -6,7 +6,7 @@ import { bot, botHelper, botHelperMessage } from "../../../core/server/db/schema
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { isLiveHelper } from "../shared/helper";
-import { closeScreen, helperJobKey, recordStoppedHelper, startHelperTool } from "./helper";
+import { helperJobKey, helperStoppedJobName, startHelperTool } from "./helper";
 import { closeComputerCard } from "./hand-off";
 import { listHelpers } from "./helper-card";
 import type { LoopKit } from "./loop";
@@ -80,8 +80,10 @@ async function liveHelper(
 /**
  * Stops the Bot's Helper `helperId`, or every live one when it's absent (#566): each turns
  * `stopped` and its job is cancelled through the runner, and it sends no `helper` Trigger (its
- * job's finish only ends a `running` Helper). Its transcript and usage are what its Checkpoints hold
- * by then, and its Screen is closed. Refuses an id that isn't the Bot's or has ended.
+ * job's finish only ends a `running` Helper). A waiting one's Computer card reads cancelled. Its
+ * transcript, usage and Screen are left to a `bot.helper.stopped` job enqueued in `tx`, which
+ * runs once the stop has committed; wake the runner then. Refuses an id that isn't the Bot's or
+ * has ended.
  */
 export async function stopHelpers(
   deps: BotSdkContext,
@@ -110,12 +112,35 @@ export async function stopHelpers(
   const [owner] = await tx.select({ userId: bot.userId }).from(bot).where(eq(bot.id, botId));
   for (const { id, screen } of rows) {
     await runner.cancelIn(tx, helperJobKey(id));
-    // A waiting Helper's card reads cancelled; its transcript was saved when it began to wait.
-    if (!(await closeComputerCard(tx, id, "cancelled"))) await recordStoppedHelper(deps, tx, id);
-    // Before the stop commits and frees its slot, so it never closes the next Helper's Screen.
-    if (owner) await closeScreen(deps, { id, userId: owner.userId, screen });
+    // A waiting Helper's transcript was saved when it began to wait.
+    const waited = await closeComputerCard(tx, id, "cancelled");
+    if (owner) {
+      await runner.enqueueIn(
+        tx,
+        helperStoppedJobName,
+        { helperId: id, userId: owner.userId, screen, waited },
+        { idempotencyKey: `helper-stopped:${id}` },
+      );
+    }
   }
   return { stopped: rows.map((row) => row.id) };
+}
+
+/** `stopHelpers` in a transaction of its own; the runner is woken once it has committed. */
+export async function stopBotHelpers(
+  deps: BotSdkContext,
+  botId: string,
+  helperId?: string,
+): Promise<{ stopped: string[] } | { error: string }> {
+  const result = await deps.db.transaction((tx) => stopHelpers(deps, tx, botId, helperId));
+  deps.plugin("runner").wake();
+  return result;
+}
+
+/** Stops every live Helper of each of the user's Bots, as `stopBotHelpers` does: a Ban calls it. */
+export async function stopUserHelpers(deps: BotSdkContext, userId: string): Promise<void> {
+  const bots = await deps.db.select({ id: bot.id }).from(bot).where(eq(bot.userId, userId));
+  for (const { id } of bots) await stopBotHelpers(deps, id);
 }
 
 /**
@@ -148,11 +173,13 @@ export function helperTools(
     }),
   );
 
-  const stop = stopHelpersDefinition.server(async ({ helperId }, context) =>
-    liveActivity(stopHelpersToolName, context?.toolCallId, (tx) =>
+  const stop = stopHelpersDefinition.server(async ({ helperId }, context) => {
+    const result = await liveActivity(stopHelpersToolName, context?.toolCallId, (tx) =>
       stopHelpers(deps, tx, turn.botId, helperId),
-    ),
-  );
+    );
+    deps.plugin("runner").wake();
+    return result;
+  });
 
   return [startHelperTool(deps, turn, liveActivity), check, message, stop];
 }

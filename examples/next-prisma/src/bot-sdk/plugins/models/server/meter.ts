@@ -166,7 +166,7 @@ export function hostSearchMeter(
   deps: MeterDeps,
   userId: string,
   pricePerSearchUsd: number,
-): SearchMeter {
+): TxMeter<void> {
   return meterOf<void>(deps, userId, true, () => ({
     kind: "web_search",
     model: "tavily",

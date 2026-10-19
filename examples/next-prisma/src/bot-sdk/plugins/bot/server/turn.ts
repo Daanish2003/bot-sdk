@@ -961,7 +961,7 @@ async function turnSetup(deps: BotSdkContext, turn: TurnFacts, kit: LoopKit): Pr
       setCheckInTool,
       cancelCheckInToolImpl,
       listCheckInsTool,
-      webSearchTool(deps, turn.userId, liveActivity),
+      webSearchTool(deps, turn.userId, kit.liveRequest),
       ...(withComputer ? [...kit.computerTools, ...helperTools(deps, turn, liveActivity)] : []),
     ],
     ended: () => endTurn,

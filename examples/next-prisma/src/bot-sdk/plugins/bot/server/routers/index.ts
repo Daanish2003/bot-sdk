@@ -25,7 +25,7 @@ import {
 import { cancelCheckIn, listCheckIns } from "../check-in";
 import { listHelpers } from "../helper-card";
 import { helperDone } from "../hand-off";
-import { stopHelpers } from "../helper-tools";
+import { stopBotHelpers } from "../helper-tools";
 import { screenControl, screenView } from "../screen-view";
 import { isTimeZone } from "../time-zone";
 import { sendToBot, stopBot } from "../turn";
@@ -214,9 +214,7 @@ const botRouter = {
       .handler(async ({ context, input }) => {
         const found = await findBot(context.sdk.db, context.user.id, input.botId);
         if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
-        await context.sdk.db.transaction((tx) =>
-          stopHelpers(context.sdk, tx, input.botId, input.helperId),
-        );
+        await stopBotHelpers(context.sdk, input.botId, input.helperId);
       }),
   },
 

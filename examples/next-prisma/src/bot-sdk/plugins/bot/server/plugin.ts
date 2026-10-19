@@ -10,6 +10,7 @@ import { handleRoutineWebhook } from "./routine-webhook";
 import { botPluginRouter } from "./routers/index";
 import { handleScreenRequest, type ScreenSocketHooks, screenSocketHooks } from "./screen-view";
 import { botUserDelete, exportBots, hasTurnUsingComputer, userHasBot } from "./store";
+import { stopUserHelpers } from "./helper-tools";
 import { stopUserTurns } from "./turn";
 
 export type BotPlugin = BotSdkPlugin<"bot", never, never>;
@@ -21,7 +22,10 @@ export type BotApi = {
    * it at `/api/routines/webhook/<token>` with no sign-in: the token is the authentication.
    */
   webhookHandler: (request: Request) => Promise<Response>;
-  /** Stops the running Turn of each of the user's Bots. The Host calls it when it Bans the user. */
+  /**
+   * Stops the running Turn and the running and waiting Helpers of each of the user's Bots, closing
+   * their Screens. The Host calls it when it Bans the user.
+   */
   stopTurns: (userId: string) => Promise<void>;
   /**
    * The live view's page proxy (#597), Request → Response. The Host mounts it for GET and HEAD at
@@ -73,7 +77,11 @@ export function bot(): BotPlugin {
       }
       const api: BotApi = {
         webhookHandler: (request) => handleRoutineWebhook(sdk, request),
-        stopTurns: (userId) => stopUserTurns(sdk, userId),
+        stopTurns: async (userId) => {
+          // The Turns first, so none starts a Helper after its Helpers are stopped.
+          await stopUserTurns(sdk, userId);
+          await stopUserHelpers(sdk, userId);
+        },
         screenHandler: (request) => handleScreenRequest(sdk, request),
         screenSocket: screenSocketHooks(sdk),
       };

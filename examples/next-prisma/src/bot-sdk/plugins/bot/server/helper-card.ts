@@ -4,7 +4,7 @@ import { EventType, type StreamChunk } from "@tanstack/ai";
 import { bot, botHelper, botTurn, jobEvent } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
 import { type BotHelper, isLiveHelper } from "../shared/helper";
-import { askUserToolName, stepsIn } from "./hand-off";
+import { askUserToolName } from "./hand-off";
 import { gistOf } from "./helper";
 import { lastMessageOfTurn } from "./routine";
 
@@ -57,7 +57,9 @@ export async function listHelpers(
       report: botHelper.report,
       startedAt: botHelper.startedAt,
       jobId: botHelper.jobId,
-      transcript: botHelper.transcript,
+      // Read in SQL, so the transcript and its screenshots never leave the database.
+      savedSteps: sql<number>`(select count(*)::int from jsonb_array_elements(coalesce(${botHelper.transcript}, '[]'::jsonb)) as entry where entry->>'role' = 'assistant')`,
+      handedOff: sql<boolean>`coalesce(${botHelper.transcript} @> ${JSON.stringify([{ toolCalls: [{ function: { name: askUserToolName } }] }])}::jsonb, false)`,
       afterMessageId: sql<string | null>`(${lastMessageOfTurn(db)})`,
     })
     .from(botHelper)
@@ -81,28 +83,28 @@ export async function listHelpers(
     : [];
   const stepsOf = new Map(counts.map((row) => [row.jobId, row.steps]));
 
-  return Promise.all(
-    rows.map(async ({ jobId, transcript, ...row }) => {
-      let latest: string | null = null;
-      if (jobId && isLiveHelper(row.status)) {
-        const [call] = await db
-          .select({ result: jobEvent.result })
-          .from(jobEvent)
-          .where(and(eq(jobEvent.jobId, jobId), eq(jobEvent.name, "model")))
-          .orderBy(desc(jobEvent.seq))
-          .limit(1);
-        const recorded = call?.result as { chunks?: StreamChunk[] } | null | undefined;
-        latest = latestToolCall(recorded?.chunks ?? []);
-      }
-      const handedOff = (transcript ?? []).some((message) =>
-        message.toolCalls?.some((call) => call.function.name === askUserToolName),
-      );
-      const recorded = jobId ? (stepsOf.get(jobId) ?? 0) : 0;
-      let steps = jobId ? recorded : stepsIn(transcript ?? []);
-      if (handedOff) {
-        steps = stepsIn(transcript!) + (row.status === "running" ? recorded : 0);
-      }
-      return { ...row, gist: gistOf(row.task), steps, latest };
-    }),
+  // Each live Helper's newest model call, all in one query.
+  const liveJobIds = rows.flatMap((row) =>
+    row.jobId && isLiveHelper(row.status) ? [row.jobId] : [],
   );
+  const newest = liveJobIds.length
+    ? await db
+        .selectDistinctOn([jobEvent.jobId], { jobId: jobEvent.jobId, result: jobEvent.result })
+        .from(jobEvent)
+        .where(and(inArray(jobEvent.jobId, liveJobIds), eq(jobEvent.name, "model")))
+        .orderBy(jobEvent.jobId, desc(jobEvent.seq))
+    : [];
+  const newestOf = new Map(newest.map((row) => [row.jobId, row.result]));
+
+  return rows.map(({ jobId, savedSteps, handedOff, ...row }) => {
+    let latest: string | null = null;
+    if (jobId && isLiveHelper(row.status)) {
+      const recorded = newestOf.get(jobId) as { chunks?: StreamChunk[] } | null | undefined;
+      latest = latestToolCall(recorded?.chunks ?? []);
+    }
+    const recorded = jobId ? (stepsOf.get(jobId) ?? 0) : 0;
+    let steps = jobId ? recorded : savedSteps;
+    if (handedOff) steps = savedSteps + (row.status === "running" ? recorded : 0);
+    return { ...row, gist: gistOf(row.task), steps, latest };
+  });
 }

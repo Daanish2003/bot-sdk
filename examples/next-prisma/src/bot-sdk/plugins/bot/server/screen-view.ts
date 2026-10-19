@@ -210,8 +210,27 @@ function cachedScreenUrls(sdk: BotSdkContext, userId: string, slot: number) {
 }
 
 /**
+ * Whether the path segments after a view token name a file under noVNC's directory: no empty
+ * segment but the last, and none that decodes to `.`, `..` or a separator, any of which could climb
+ * out of the directory or name another host.
+ */
+function isFilePath(segments: string[]): boolean {
+  return segments.every((segment, index) => {
+    if (segment === "") return index === segments.length - 1;
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(segment);
+    } catch {
+      return false;
+    }
+    return decoded !== "." && decoded !== ".." && !/[/\\]/.test(decoded);
+  });
+}
+
+/**
  * The upstream of a request under `screenViewPath`, or the Response that refuses it: 403 without a
- * valid view token, 404 once its Helper ended or holds no Screen.
+ * valid view token, 400 for a path that would leave noVNC's directory, 404 once its Helper ended or
+ * holds no Screen.
  */
 async function upstreamOf(sdk: BotSdkContext, request: Request): Promise<Upstream | Response> {
   const { pathname, search } = new URL(request.url);
@@ -220,12 +239,18 @@ async function upstreamOf(sdk: BotSdkContext, request: Request): Promise<Upstrea
     : [];
   const view = verifyViewToken(sdk, token);
   if (!view || rest.length === 0) return new Response(null, { status: 403 });
+  if (!isFilePath(rest)) return new Response(null, { status: 400 });
   const screen = await heldScreen(sdk, view.userId, view.helperId);
   if (typeof screen === "string") return new Response(null, { status: 404 });
   const urls = await cachedScreenUrls(sdk, view.userId, screen.slot);
   const page = new URL(urls.novnc.url);
   // Relative to the page's directory, so a provider URL with a path prefix keeps it.
   const directory = new URL(".", page);
+  const url = new URL(`${rest.join("/")}${search}`, directory);
+  // The traffic token goes only to the noVNC endpoint, never another host or path.
+  if (url.origin !== directory.origin || !url.pathname.startsWith(directory.pathname)) {
+    return new Response(null, { status: 400 });
+  }
   const socket = new URL(page.searchParams.get("path") ?? "websockify", directory);
   socket.protocol = socket.protocol === "https:" ? "wss:" : "ws:";
   return {
@@ -233,7 +258,7 @@ async function upstreamOf(sdk: BotSdkContext, request: Request): Promise<Upstrea
     helperId: view.helperId,
     base: `${screenViewPath}/${token}/`,
     directory: directory.href,
-    url: new URL(`${rest.join("/")}${search}`, directory).href,
+    url: url.href,
     isSocket: rest.join("/") === "websockify",
     socketUrl: socket.href,
     headers: urls.novnc.headers,

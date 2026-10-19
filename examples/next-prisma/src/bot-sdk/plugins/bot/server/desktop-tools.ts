@@ -185,9 +185,9 @@ export function desktopTools(
 ) {
   return [
     desktopDefinition.server(async (input, context) => {
-      if (!(await canSee())) return { error: noVisionError };
-      const done = await computerCall("desktop", context?.toolCallId, (computer, live) =>
-        act(computer, slot, input as Input, live),
+      // Asked only live, inside the call's Checkpoint, so a replay reads the answer it recorded.
+      const done = await computerCall("desktop", context?.toolCallId, async (computer, live) =>
+        (await canSee()) ? act(computer, slot, input as Input, live) : { error: noVisionError },
       );
       if ("error" in done) return done;
       const { result, screenshot, ...rest } = done as DesktopResult & { note?: string };

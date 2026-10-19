@@ -16,6 +16,11 @@ export const interruptedActionError =
   "The browser restarted during this action, so it may or may not have happened. Call " +
   "browser_snapshot to see the page.";
 
+/** What stands for the snapshot when an action happened but the page couldn't be read after it. */
+export const unreadPageNote = (error: string) =>
+  `The action happened, but the page couldn't be read after it (${error}). Don't repeat the ` +
+  "action; call browser_snapshot to see the page.";
+
 /** A snapshot longer than this goes to a file, and the result keeps its start. */
 export const snapshotLimit = 20_000;
 
@@ -74,19 +79,23 @@ export class BrowserSession {
    * Runs `action` on the current tab, if any, then reads it afresh. A ref that isn't on the page
    * is the stale-ref error. A connection that dropped before the action is reopened first; one
    * that drops during it is reopened too, but the action isn't run again, since it may have
-   * happened.
+   * happened. An action that happened stays done when the page can't be read after it (a
+   * navigation destroyed it): the snapshot is then `unreadPageNote`, so it isn't repeated.
    */
   async act(
     computer: ComputerHandle,
     action?: (page: Page) => Promise<string>,
   ): Promise<{ result?: string; snapshot: string } | { error: string }> {
     await this.open(computer);
+    let result: string | undefined;
     try {
-      const result = action ? await action(await this.page()) : undefined;
+      if (action) result = await action(await this.page());
       const snapshot = await snapshotOf(await this.page());
       return result === undefined ? { snapshot } : { result, snapshot };
     } catch (caught) {
       if (caught instanceof StaleRefError) return { error: staleRefError };
+      // The next call reconnects first, as every call does.
+      if (result !== undefined) return { result, snapshot: unreadPageNote(firstLine(caught)) };
       if (this.browser?.isConnected()) return { error: firstLine(caught) };
       await this.open(computer);
       return { error: interruptedActionError };
