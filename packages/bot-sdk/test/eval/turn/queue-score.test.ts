@@ -235,3 +235,20 @@ describe("queueCases", () => {
     ]);
   });
 });
+
+describe("the batching and interrupting criteria (#575)", () => {
+  it.each([
+    ["batching", ["a dinner", "4 people", "vegetarian"]],
+    ["interrupting", ["Rome", "Paris"]],
+  ] as const)(
+    "%s accepts a clarifying question that keeps every constraint, and fails one that drops a constraint",
+    (id, constraints) => {
+      const { criterion } = queueCases.find((c) => c.id === id)!;
+      expect(criterion).toMatch(/[Ii]t may plan that \w+, or ask a clarifying question/);
+      for (const constraint of constraints) expect(criterion).toContain(constraint);
+      expect(criterion).toMatch(
+        /It fails if it (drops or contradicts any of them|plans or asks about a trip to Paris)/,
+      );
+    },
+  );
+});

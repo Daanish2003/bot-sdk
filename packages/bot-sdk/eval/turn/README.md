@@ -80,19 +80,20 @@ The same run also plays six cases of the Router and queue (spec #510, #531) with
 client ids, `EVAL_REPEATS` times each. Each has a structural check and an LLM-judge check:
 
 - **batching:** "Plan a dinner." / "For 4 people." / "Vegetarian." sent 200 ms apart. Structural:
-  exactly one Turn took all three Triggers, completed and sent a reply. Judge: the reply covers all
-  three.
+  exactly one Turn took all three Triggers, completed and sent a reply. Judge: the reply keeps all
+  three (it plans the dinner, or asks a clarifying question that keeps them, #575).
 - **interrupting:** "Plan a trip to Paris", then, once the Turn's job is running, "Actually, make it
   Rome". Structural: the first Turn ended `stopped`, a second Turn took the correction, completed and
-  sent a reply. Judge: the reply plans a trip to Rome, not Paris. The case asks for something the Bot
-  can answer in a message: asked to book a meeting, which it has no tool for, the Model answered in
+  sent a reply. Judge: the reply plans a trip to Rome, or asks a clarifying question about it, and
+  not about Paris (#575). The case asks for something the Bot can answer in a message: asked to book a meeting, which it has no tool for, the Model answered in
   plain text, which the user never sees (#516).
 - **unavailable:** "Book the meeting for Thursday", which the Bot has no tool for. Structural: one Turn
   took the Message, completed and sent at least one Message (a refusal or a question goes through
   SendToUser too, never as plain text, #516). Judge: the reply says it cannot book or asks for details,
   and does not claim the meeting is booked.
 - **no-email:** "Send this summary to my boss", which the Bot cannot do. Structural: as for unavailable.
-  Judge: the reply says it cannot send email, and does not claim it sent anything.
+  Judge: the reply says it cannot send email, and does not claim it sent anything. The prompt tells the
+  Bot to start with the refusal and never offer to send anything to anyone but the user (#575).
 - **unclear:** "Fix it", with no earlier context. Structural: as for unavailable. Judge: the reply asks
   what "it" is.
 - **no-live-data:** "What's the weather in Delhi right now?". Structural: as for unavailable. Judge:
