@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useChatAdapter } from "../../../../core/client/react/provider";
 import { isLiveHelper } from "../../shared/helper";
@@ -52,5 +52,81 @@ export function useBotHelpers(botId: string, working: boolean) {
     done: async (helperId: string) => {
       await act(helperId, () => orpc.bot.helper.done.call({ helperId }));
     },
+  };
+}
+
+/** Whether a live view only watches its Screen, or drives it. */
+export type ScreenMode = "view" | "control";
+
+/**
+ * The live view of a waiting Helper's Screen (#597): a fresh link from `bot.screen.view` on mount
+ * (never stored), then Take control (`control`) when `startMode` asks for it. `switchTo` takes or
+ * gives back control. Control taken here is given back when the view unmounts, even when it was
+ * still being taken. `failed` once the link couldn't be had.
+ */
+export function useLiveView(helperId: string, startMode: ScreenMode = "view") {
+  const { orpc } = useChatAdapter();
+  const [url, setUrl] = useState<string>();
+  const [mode, setMode] = useState<ScreenMode>("view");
+  const [failed, setFailed] = useState(false);
+  // Whether this view took control (or is taking it), so unmounting gives it back.
+  const controlling = useRef(false);
+  // Control calls go one after another, so a give-back can't overtake the take it undoes.
+  const sent = useRef<Promise<unknown>>(Promise.resolve());
+  const send = (next: ScreenMode) => {
+    const call = sent.current
+      .catch(() => {})
+      .then(() => orpc.bot.screen.control.call({ helperId, mode: next }));
+    sent.current = call;
+    return call;
+  };
+  useEffect(() => {
+    let current = true;
+    void (async () => {
+      try {
+        const view = await orpc.bot.screen.view.call({ helperId });
+        if (startMode === "control") {
+          controlling.current = true;
+          await send("control");
+        }
+        if (!current) return;
+        setUrl(view.url);
+        setMode(startMode);
+      } catch {
+        if (current) setFailed(true);
+      }
+    })();
+    return () => {
+      current = false;
+    };
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- `send` only reads refs and these.
+  }, [orpc, helperId, startMode]);
+  useEffect(
+    () => () => {
+      if (!controlling.current) return;
+      controlling.current = false;
+      void send("view").catch(() => {});
+    },
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- `send` only reads refs and these.
+    [orpc, helperId],
+  );
+  return {
+    url,
+    mode,
+    failed,
+    switchTo: async (next: ScreenMode) => {
+      controlling.current = next === "control";
+      await send(next);
+      setMode(next);
+    },
+  };
+}
+
+/** A fresh live-view link to a Helper's Screen (#597), absolute, for Copy link. */
+export function useFreshLink(helperId: string) {
+  const { orpc } = useChatAdapter();
+  return async () => {
+    const view = await orpc.bot.screen.view.call({ helperId });
+    return new URL(view.url, window.location.origin).href;
   };
 }

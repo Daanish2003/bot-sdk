@@ -4,6 +4,7 @@ export {
   ComputerUnavailableError,
   defaultCommandTimeoutMs,
   maxScreens,
+  ScreenNotOpenError,
   type ComputerApi,
   type ComputerHandle,
   type ComputerPlugin,

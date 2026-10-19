@@ -178,6 +178,11 @@ export type ComputerHandle = {
   screenUrls: (slot: number) => Promise<ScreenUrls>;
   /** Makes an open Screen's x11vnc view-only (`view`) or lets a viewer drive it (`control`). */
   setScreenControl: (slot: number, mode: ScreenControl) => Promise<void>;
+  /**
+   * Records activity now, without waking the Computer: a live view of a Screen calls it while it is
+   * open, so the Computer stays awake while the user watches.
+   */
+  heartbeat: () => Promise<void>;
 };
 
 /** The URLs of one Screen. */
@@ -212,6 +217,17 @@ export class ComputerOperationError extends Error {
   constructor(cause: unknown) {
     super(cause instanceof Error ? cause.message : String(cause), { cause });
     this.name = "ComputerOperationError";
+  }
+}
+
+/**
+ * What `screenUrls` fails with, as the cause of its `ComputerOperationError`, when the Screen isn't
+ * open (never opened, closed, or lost to a rebuild).
+ */
+export class ScreenNotOpenError extends Error {
+  constructor(slot: number) {
+    super(`Screen ${slot} is not open`);
+    this.name = "ScreenNotOpenError";
   }
 }
 
@@ -344,7 +360,7 @@ export function computer({ provider }: ComputerOptions): ComputerPlugin {
               assertSlot(slot);
               return operate(async (id) => {
                 const token = await provider.readFile(id, screenTokenPath(slot));
-                if (!token) throw new Error(`Screen ${slot} is not open`);
+                if (!token) throw new ScreenNotOpenError(slot);
                 const [novnc, cdpUrl, headers] = await Promise.all([
                   provider.hostUrl(id, novncPort(slot)),
                   provider.hostUrl(id, cdpPort(slot)),
@@ -366,6 +382,7 @@ export function computer({ provider }: ComputerOptions): ComputerPlugin {
               assertSlot(slot);
               return operate((id) => screenCommand(id, `${mode} ${slot}`));
             },
+            heartbeat: () => recordActivity(sdk, userId),
             run: (command, { cwd, timeoutMs = defaultCommandTimeoutMs, deadline, signal } = {}) =>
               operate((id) => {
                 // A stop during the wake runs nothing.

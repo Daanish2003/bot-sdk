@@ -40,3 +40,9 @@ export const computerCardSchema = z.object({
 });
 
 export type ComputerCard = z.infer<typeof computerCardSchema>;
+
+/**
+ * Where the Host mounts the live view's proxy (#597): `<path>/<view token>/…` serves a Screen's
+ * noVNC page and files, and `<path>/<view token>/websockify` its socket.
+ */
+export const screenViewPath = "/api/screens";

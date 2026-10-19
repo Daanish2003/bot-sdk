@@ -1157,6 +1157,34 @@ describe("Screens", () => {
     ]);
   });
 
+  it("counts a live view's heartbeat as activity, without waking an asleep Computer", async () => {
+    const setup = sdkWith();
+    const { sdk, fake, clock } = setup;
+    const user = await insertUser();
+    const handle = sdk.plugin("computer").forUser(user.id);
+    await handle.openScreen(1, "work");
+    const start = clock.now;
+
+    // Four minutes in, the live view's heartbeat; seven minutes in, the sleep check finds it active.
+    clock.now = after(start, 4 * minuteMs);
+    await handle.heartbeat();
+    clock.now = after(start, 7 * minuteMs);
+    await runDueJobs(sdk, clock.now);
+
+    expect(fake.callsOf("pause")).toEqual([]);
+    expect(await computerRow(user.id)).toMatchObject({
+      state: "awake",
+      lastActiveAt: after(start, 4 * minuteMs),
+    });
+
+    await sleepNow(setup);
+    const calls = fake.calls.length;
+    await handle.heartbeat();
+
+    expect(fake.calls).toHaveLength(calls);
+    expect((await computerRow(user.id))?.state).toBe("asleep");
+  });
+
   it("fails an open whose start script fails, with its message", async () => {
     const { sdk } = sdkWith({
       onCommand: () => ({ exitCode: 1, stdout: "", stderr: "Xvfb did not start" }),

@@ -8,6 +8,7 @@ import { startRoutineReconcile } from "./routine-fire";
 import "./check-in-fire";
 import { handleRoutineWebhook } from "./routine-webhook";
 import { botPluginRouter } from "./routers/index";
+import { handleScreenRequest, type ScreenSocketHooks, screenSocketHooks } from "./screen-view";
 import { botUserDelete, exportBots, hasTurnUsingComputer, userHasBot } from "./store";
 import { stopUserTurns } from "./turn";
 
@@ -22,6 +23,17 @@ export type BotApi = {
   webhookHandler: (request: Request) => Promise<Response>;
   /** Stops the running Turn of each of the user's Bots. The Host calls it when it Bans the user. */
   stopTurns: (userId: string) => Promise<void>;
+  /**
+   * The live view's page proxy (#597), Request → Response. The Host mounts it for GET and HEAD at
+   * `screenViewPath/<view token>/*` (`/api/screens`) with no sign-in: the view token that
+   * `bot.screen.view` mints is the authentication, and a request without a valid one answers 403.
+   */
+  screenHandler: (request: Request) => Promise<Response>;
+  /**
+   * The live view's socket proxy (#597): WebSocket hooks in crossws's shape, which the Host mounts
+   * at `screenViewPath/<view token>/websockify` (Nitro: `defineWebSocketHandler(screenSocket)`).
+   */
+  screenSocket: ScreenSocketHooks;
 };
 
 declare module "../../../core/server/plugin" {
@@ -62,6 +74,8 @@ export function bot(): BotPlugin {
       const api: BotApi = {
         webhookHandler: (request) => handleRoutineWebhook(sdk, request),
         stopTurns: (userId) => stopUserTurns(sdk, userId),
+        screenHandler: (request) => handleScreenRequest(sdk, request),
+        screenSocket: screenSocketHooks(sdk),
       };
       return { api };
     },

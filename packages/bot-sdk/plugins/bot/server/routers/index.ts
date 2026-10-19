@@ -26,6 +26,7 @@ import { cancelCheckIn, listCheckIns } from "../check-in";
 import { listHelpers } from "../helper-card";
 import { helperDone } from "../hand-off";
 import { stopHelpers } from "../helper-tools";
+import { screenControl, screenView } from "../screen-view";
 import { isTimeZone } from "../time-zone";
 import { sendToBot, stopBot } from "../turn";
 
@@ -217,6 +218,25 @@ const botRouter = {
           stopHelpers(context.sdk, tx, input.botId, input.helperId),
         );
       }),
+  },
+
+  /** The live view of a Computer-use Helper's Screen (#597). Another user's Helper is not found. */
+  screen: {
+    /**
+     * A fresh live-view link to the Screen of one of the caller's live Helpers, never stored. It
+     * wakes the Computer and reopens the Screen when it isn't open, and the view starts view-only.
+     * Refused, "This task was stopped.", once the Helper ended.
+     */
+    view: protectedProcedure
+      .input(z.object({ helperId: z.uuid() }))
+      .handler(({ context, input }) => screenView(context.sdk, context.user.id, input.helperId)),
+
+    /** Take control (`control`) and give back (`view`): switches the Screen's x11vnc. */
+    control: protectedProcedure
+      .input(z.object({ helperId: z.uuid(), mode: z.enum(["view", "control"]) }))
+      .handler(({ context, input }) =>
+        screenControl(context.sdk, context.user.id, input.helperId, input.mode),
+      ),
   },
 };
 

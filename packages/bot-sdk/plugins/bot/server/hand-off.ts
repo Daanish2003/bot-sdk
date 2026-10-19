@@ -156,7 +156,7 @@ export async function helperDone(
   helperId: string,
 ): Promise<{ status: "running" }> {
   const runner = deps.plugin("runner");
-  const conversationId = await deps.db.transaction(async (tx) => {
+  const resumed = await deps.db.transaction(async (tx) => {
     const [owned] = await tx
       .select({ conversationId: bot.conversationId })
       .from(botHelper)
@@ -169,6 +169,7 @@ export async function helperDone(
         status: botHelper.status,
         startedAt: botHelper.startedAt,
         endedAt: botHelper.endedAt,
+        screen: botHelper.screen,
       })
       .from(botHelper)
       .where(eq(botHelper.id, helperId))
@@ -196,11 +197,19 @@ export async function helperDone(
       })
       .where(eq(botHelper.id, helperId));
     await closeComputerCard(tx, helperId, "done");
-    return owned.conversationId;
+    return { conversationId: owned.conversationId, screen: helper.screen };
   });
-  if (conversationId === null) return { status: "running" };
+  if (resumed === null) return { status: "running" };
   runner.wake();
-  await hintChanged(deps, conversationId);
+  await hintChanged(deps, resumed.conversationId);
+  // The user's control ends with the hand-off (#597), even when their client didn't give it back.
+  if (resumed.screen !== null) {
+    await computerOf(deps, userId)
+      .setScreenControl(resumed.screen, "view")
+      .catch((caught: unknown) => {
+        deps.logger.error("Done couldn't give the Screen back to the Bot", caught);
+      });
+  }
   return { status: "running" };
 }
 
