@@ -25,6 +25,7 @@ import {
 } from "./router";
 import { cancelCheckInTool, pendingCheckIns, saveCheckIn } from "./check-in";
 import { computerPrompt } from "./computer-tools";
+import { startHelperTool } from "./helper";
 import { type LoopKit, type LoopResult, type LoopSetup, runLoop } from "./loop";
 import { botMessages, findBot, textParts, toBotMessage, turnTimeLimitMs } from "./store";
 import { deleteRoutine, routinesPrompt, saveRoutine, updateRoutine } from "./routine";
@@ -786,7 +787,7 @@ async function modelInput(db: Database | Transaction, turn: TurnFacts): Promise<
 
 /**
  * The Turn's loop (slide 2), run through `runLoop`: SendToUser, the Routine and Check-in tools and,
- * whenever `computer` is on, the Computer's tools. A SendToUser's Message commits with its
+ * whenever `computer` is on, the Computer's tools and `start_helper`. A SendToUser's Message commits with its
  * Checkpoint, so it is sent once. A Step with no tool call ends the Turn quiet, except that the
  * first one with plain text gets one more Step, after `undeliveredTextReminder`, when a Step is left
  * under the limit; the Step and time limits end it `error`.
@@ -902,7 +903,8 @@ async function turnSetup(deps: BotSdkContext, turn: TurnFacts, kit: LoopKit): Pr
     undefined,
     async (tx) => (await routinesPrompt(tx, turn.botId)) ?? null,
   );
-  // The Computer's tools, whenever `computer` is on: the tool set never changes mid-conversation.
+  // The Computer's tools and Helpers, whenever `computer` is on: the tool set never changes
+  // mid-conversation.
   const withComputer = deps.hasPlugin("computer");
   return {
     systemPrompts: [...botSystemPrompts(turn.botId, withComputer), ...(routines ? [routines] : [])],
@@ -914,7 +916,7 @@ async function turnSetup(deps: BotSdkContext, turn: TurnFacts, kit: LoopKit): Pr
       setCheckInTool,
       cancelCheckInToolImpl,
       listCheckInsTool,
-      ...(withComputer ? kit.computerTools : []),
+      ...(withComputer ? [...kit.computerTools, startHelperTool(deps, turn, liveActivity)] : []),
     ],
     ended: () => endTurn,
   };

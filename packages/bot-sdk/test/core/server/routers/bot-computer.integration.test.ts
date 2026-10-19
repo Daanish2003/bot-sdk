@@ -232,6 +232,7 @@ describe("the shell tool", () => {
       "write",
       "edit",
       "list",
+      "start_helper",
     ]);
     const prompt = JSON.stringify(fake.calls[0]?.systemPrompts);
     expect(prompt).toContain(`/home/user/bots/${botId}`);
@@ -874,6 +875,7 @@ describe("the file tools", () => {
       "write",
       "edit",
       "list",
+      "start_helper",
     ]);
     expect(await computerRow(user.id)).toMatchObject({ state: "awake" });
   });

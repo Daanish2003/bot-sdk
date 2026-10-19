@@ -2,6 +2,7 @@ import type { BotSdkPlugin } from "../../../core/server/plugin";
 import { isInProcessRunner } from "../../runner/server/jobs/in-process";
 import { runnerJobs } from "../../runner/server/plugin";
 import { cancelUserCheckIns } from "./check-in";
+import { cancelUserHelpers, hasRunningHelper } from "./helper";
 import { cancelUserFires } from "./routine";
 import { startRoutineReconcile } from "./routine-fire";
 import "./check-in-fire";
@@ -53,6 +54,8 @@ export function bot(): BotPlugin {
         computer.addBusyCheck((userId, lastActiveAt) =>
           hasTurnUsingComputer(sdk.db, userId, lastActiveAt),
         );
+        // A running Helper may use it at any moment; a waiting one doesn't hold it.
+        computer.addBusyCheck((userId) => hasRunningHelper(sdk.db, userId));
         // Only a user with a Bot gets a Computer, so a Turn racing the user's delete creates none.
         computer.addOwnerCheck(userHasBot);
       }
@@ -66,10 +69,11 @@ export function bot(): BotPlugin {
     start: startRoutineReconcile,
     router: botPluginRouter,
     deleteUser: {
-      // No Routine or Check-in fires for a deleted user: its queued jobs are cancelled.
+      // No Routine, Check-in or Helper runs for a deleted user: its jobs are cancelled.
       before: async (sdk, args) => {
         await cancelUserFires(sdk, args.tx, args.userId);
         await cancelUserCheckIns(sdk, args.tx, args.userId);
+        await cancelUserHelpers(sdk, args.tx, args.userId);
         return botUserDelete.before(sdk, args);
       },
       after: botUserDelete.after,

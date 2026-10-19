@@ -5,6 +5,7 @@ import { postgresBlobStore } from "../../../../core/server/blob/postgres";
 import type { BlobStore } from "../../../../core/server/blob/store";
 import {
   bot as botTable,
+  botHelper,
   botTurn,
   computer as computerTable,
   job,
@@ -370,7 +371,23 @@ describe("bot's busy check", () => {
     await setup.sdk.plugin("computer").forUser(user.id).run("true");
     const insertTurn = (status: "running" | "complete", startedAt: Date) =>
       getTestDb().insert(botTurn).values({ id: uuidv7(), botId: created.id, status, startedAt });
-    return { ...setup, user, lastActive, insertTurn };
+    /** A General Helper of the Bot, started by a Turn that has ended. */
+    const insertHelper = async (status: "running" | "waiting" | "complete", startedAt: Date) => {
+      const turnId = uuidv7();
+      await getTestDb()
+        .insert(botTurn)
+        .values({ id: turnId, botId: created.id, status: "complete", startedAt });
+      await getTestDb().insert(botHelper).values({
+        id: uuidv7(),
+        botId: created.id,
+        type: "general",
+        task: "Count the files.",
+        status,
+        startedByTurnId: turnId,
+        startedAt,
+      });
+    };
+    return { ...setup, user, lastActive, insertTurn, insertHelper };
   }
 
   it("keeps the Computer awake while a Turn that started before its last activity runs", async () => {
@@ -399,6 +416,28 @@ describe("bot's busy check", () => {
   it("doesn't hold the Computer for a Turn that started well after its last activity", async () => {
     const { sdk, clock, user, lastActive, insertTurn } = await idleWithBot();
     await insertTurn("running", after(lastActive, minuteMs));
+
+    clock.now = after(lastActive, 10 * minuteMs);
+    await runDueJobs(sdk, clock.now);
+
+    expect((await computerRow(user.id))?.state).toBe("asleep");
+  });
+
+  it("keeps the Computer awake while a Helper runs, however long ago it started", async () => {
+    const { sdk, fake, clock, user, lastActive, insertHelper } = await idleWithBot();
+    await insertHelper("running", after(lastActive, minuteMs));
+
+    clock.now = after(lastActive, 10 * minuteMs);
+    await runDueJobs(sdk, clock.now);
+
+    expect(fake.callsOf("pause")).toEqual([]);
+    expect((await computerRow(user.id))?.state).toBe("awake");
+  });
+
+  it("doesn't hold the Computer for a Helper waiting for the user, or one that ended", async () => {
+    const { sdk, clock, user, lastActive, insertHelper } = await idleWithBot();
+    await insertHelper("waiting", after(lastActive, -1_000));
+    await insertHelper("complete", after(lastActive, -1_000));
 
     clock.now = after(lastActive, 10 * minuteMs);
     await runDueJobs(sdk, clock.now);

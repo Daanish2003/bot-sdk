@@ -96,7 +96,10 @@ function BotConversationView({ botId }: { botId: string }) {
   // has none yet.
   const runsBefore = new Map<string, ReactNode[]>();
   for (const turn of turns) {
-    const fired = turn.triggers.find((trigger) => trigger.source !== "user");
+    // A Helper's report wakes a Turn too, but it shows on the Helper's card, not as a divider.
+    const fired = turn.triggers.find(
+      (trigger) => trigger.source !== "user" && trigger.source !== "helper",
+    );
     if (!fired) continue;
     const from = turn.startedAt.getTime();
     const until = turn.endedAt?.getTime() ?? Infinity;

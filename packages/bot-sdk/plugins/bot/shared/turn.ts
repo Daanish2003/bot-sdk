@@ -32,8 +32,8 @@ export type BotSendEvent = z.infer<typeof botSendEventSchema>;
  * when it was received.
  */
 export type BotTurnTrigger = {
-  source: "user" | "routine" | "check_in";
-  channel: "web" | "schedule" | "webhook";
+  source: "user" | "routine" | "check_in" | "helper";
+  channel: "web" | "schedule" | "webhook" | "helper";
   routineName: string | null;
   at: Date;
 };
