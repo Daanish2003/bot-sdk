@@ -888,6 +888,11 @@ describe("stopping Helpers (#591)", () => {
     const helpers = await helpersOf(botId);
     expect(helpers.map((row) => row.status)).toEqual(["stopped", "stopped"]);
     expect(helpers.every((row) => row.endedAt instanceof Date)).toBe(true);
+    // What their Checkpoints hold: nothing past the task, since neither model call finished.
+    expect(helpers.map((row) => row.transcript)).toEqual([
+      [{ role: "user", content: "One." }],
+      [{ role: "user", content: "Two." }],
+    ]);
     const jobs = await getTestDb()
       .select({ status: job.status })
       .from(job)

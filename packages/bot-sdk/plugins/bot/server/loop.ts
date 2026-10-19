@@ -479,11 +479,11 @@ export async function runLoop(
                 throw caught;
               }
               if (arrived.length === 0) return;
-              const messages = [
-                ...config.messages,
-                ...arrived.map((content) => ({ role: "user" as const, content })),
-              ];
-              return { messages, providerMessages: messages };
+              const turns = arrived.map((content) => ({ role: "user" as const, content }));
+              return {
+                messages: [...config.messages, ...turns],
+                providerMessages: [...(config.providerMessages ?? config.messages), ...turns],
+              };
             },
             onShouldContinue: (_middlewareCtx, state) => {
               // A tool call that ends the loop ends it with no further model call.

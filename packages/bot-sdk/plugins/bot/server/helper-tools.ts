@@ -6,7 +6,7 @@ import { botHelper, botHelperMessage } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { isLiveHelper } from "../shared/helper";
-import { helperJobKey, startHelperTool } from "./helper";
+import { helperJobKey, recordStoppedHelper, startHelperTool } from "./helper";
 import { listHelpers } from "./helper-card";
 import type { LoopKit } from "./loop";
 
@@ -79,7 +79,8 @@ async function liveHelper(
 /**
  * Stops the Bot's Helper `helperId`, or every live one when it's absent (#566): each turns
  * `stopped` and its job is cancelled through the runner, and it sends no `helper` Trigger (its
- * job's finish only ends a `running` Helper). Refuses an id that isn't the Bot's or has ended.
+ * job's finish only ends a `running` Helper). Its transcript and usage are what its Checkpoints hold
+ * by then. Refuses an id that isn't the Bot's or has ended.
  */
 export async function stopHelpers(
   deps: BotSdkContext,
@@ -105,7 +106,10 @@ export async function stopHelpers(
     )
     .returning({ id: botHelper.id });
   const runner = deps.plugin("runner");
-  for (const { id } of rows) await runner.cancelIn(tx, helperJobKey(id));
+  for (const { id } of rows) {
+    await runner.cancelIn(tx, helperJobKey(id));
+    await recordStoppedHelper(deps, tx, id);
+  }
   return { stopped: rows.map((row) => row.id) };
 }
 

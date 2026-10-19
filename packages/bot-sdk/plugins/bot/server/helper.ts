@@ -236,7 +236,8 @@ async function deliverMessages(deps: BotSdkContext, tx: Transaction, helperId: s
       text: botHelperMessage.text,
       createdAt: botHelperMessage.createdAt,
     });
-  rows.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id));
+  // uuidv7 ids sort in the order they were sent.
+  rows.sort((a, b) => a.id.localeCompare(b.id));
   return rows.map((row) => `${helperMessagePrefix}${row.text}`);
 }
 
@@ -380,8 +381,12 @@ async function endLostHelper(deps: BotSdkContext, helperId: string) {
 }
 
 /** What a Helper whose job has ended did: its recorded calls replay, and nothing more runs. */
-async function replayedHelper(deps: BotSdkContext, helper: HelperFacts) {
-  const history = helper.jobId ? await loadHistory(deps.db, helper.jobId) : [];
+async function replayedHelper(
+  deps: BotSdkContext,
+  helper: HelperFacts,
+  db: Database | Transaction = deps.db,
+) {
+  const history = helper.jobId ? await loadHistory(db, helper.jobId) : [];
   const workflow = createWorkflow<Transaction>({
     history,
     store: { save: async () => false, saveWith: async () => ({ saved: false }) },
@@ -389,6 +394,31 @@ async function replayedHelper(deps: BotSdkContext, helper: HelperFacts) {
     signal: AbortSignal.abort(new Error("The Helper's job has ended")),
   });
   return playHelper(deps, helper, workflow.context);
+}
+
+/**
+ * Writes what a stopped Helper's recorded Checkpoints hold, its transcript and usage, as `stop_helpers`
+ * stops it: its cancelled job writes nothing more. Reads on `tx`, which holds its job's row lock.
+ */
+export async function recordStoppedHelper(
+  deps: BotSdkContext,
+  tx: Transaction,
+  helperId: string,
+): Promise<void> {
+  const helper = await helperFacts(tx, helperId);
+  if (!helper) return;
+  let played: Pick<LoopResult, "transcript" | "usage">;
+  try {
+    played = await replayedHelper(deps, helper, tx);
+  } catch (caught) {
+    // The Helper stays stopped; only its transcript is lost.
+    deps.logger.error(`Replaying the Checkpoints of Helper ${helperId} failed`, caught);
+    return;
+  }
+  await tx
+    .update(botHelper)
+    .set({ transcript: [...helperInput(helper), ...played.transcript], usage: played.usage })
+    .where(eq(botHelper.id, helperId));
 }
 
 /** Whether one of the user's Helpers is running, so it may use the Computer: a busy check. */
