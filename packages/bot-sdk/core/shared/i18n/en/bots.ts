@@ -32,7 +32,13 @@ export const botsMessages = {
   "bots.resume": "Resume",
   "bots.delete": "Delete",
   "bots.routines": "Routines",
-  "bots.routinesCount": ({ count }: { count: number }) => `Routines ${count}`,
+  "bots.routinesCount": ({ routines, checkIns }: { routines: number; checkIns: number }) =>
+    `Routines ${routines} · Check-ins ${checkIns}`,
+  "bots.checkIns": "Check-ins",
+  "bots.checkIn": "Check-in",
+  "bots.checkInSet": ({ time, note }: { time: string; note: string }) =>
+    `Check-in set for ${time}: "${note}"`,
+  "bots.cancel": "Cancel",
   "bots.routinePending": "waiting for OK",
   "bots.routineActive": "active",
   "bots.routineStatePaused": "paused",
