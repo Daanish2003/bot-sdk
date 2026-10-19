@@ -7,6 +7,9 @@ export default defineConfig({
   features: {
     websocket: true,
   },
+  // playwright-core is external (vite.config.ts); copy it into .output so the built server loads it.
+  // nf3 finds it through @ai-chat/bot-sdk/package.json, which the SDK exports for this.
+  traceDeps: ["playwright-core"],
   experimental: {
     asyncContext: true,
   },
