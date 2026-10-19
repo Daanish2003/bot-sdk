@@ -5,6 +5,8 @@ import { routineCases } from "../../../eval/turn/routine-cases";
 import {
   callInputs,
   describeCall,
+  failEmptyJudgement,
+  nextThursday,
   scoreRoutine,
   type RoutineObserved,
 } from "../../../eval/turn/routine-score";
@@ -66,7 +68,34 @@ describe("scoreRoutine", () => {
   });
 });
 
+const now = new Date("2026-10-19T10:00:00Z");
+
 describe("callInputs and describeCall", () => {
+  it("gives the judge the current time, the zone, and whether at is in the past", () => {
+    const past = describeCall(
+      "set_check_in",
+      { at: "2026-10-15T09:00:00Z", note: "n" },
+      now,
+      "UTC",
+    );
+    expect(past).toContain("2026-10-19T10:00:00.000Z");
+    expect(past).toContain("UTC");
+    expect(past).toContain("in the past");
+    const future = describeCall(
+      "set_check_in",
+      { at: "2026-10-22T09:00:00Z", note: "n" },
+      now,
+      "UTC",
+    );
+    expect(future).toContain("in the future");
+  });
+
+  it("gives a fake Check-in a future Thursday", () => {
+    const at = nextThursday(now);
+    expect(at.getTime()).toBeGreaterThan(now.getTime());
+    expect(at.getUTCDay()).toBe(4);
+  });
+
   it("reads the input of each call of a tool", () => {
     expect(callInputs(calls("create_routine", "send_to_user"), "create_routine")).toEqual([
       { name: "x", at: "2026-10-22T09:00:00+01:00" },
@@ -74,7 +103,12 @@ describe("callInputs and describeCall", () => {
   });
 
   it("names the weekday of a check-in's local date", () => {
-    const text = describeCall("set_check_in", { at: "2026-10-22T09:00:00+01:00", note: "n" });
+    const text = describeCall(
+      "set_check_in",
+      { at: "2026-10-22T09:00:00+01:00", note: "n" },
+      now,
+      "UTC",
+    );
     expect(text).toContain("Thursday");
   });
 });
@@ -90,5 +124,20 @@ describe("routineCases", () => {
       "routine-run-something-new",
       "check-in-fired",
     ]);
+  });
+});
+
+describe("failEmptyJudgement", () => {
+  it("fails a judged case whose judged text is empty, with a reason", () => {
+    const score = failEmptyJudgement({ passed: true, reasons: [] }, "  ", "create_routine");
+    expect(score).toEqual({
+      passed: false,
+      reasons: ["nothing to judge: no create_routine input"],
+    });
+  });
+
+  it("leaves the score alone when there is text to judge", () => {
+    const score = { passed: true, reasons: [] };
+    expect(failEmptyJudgement(score, "text", "reply")).toBe(score);
   });
 });

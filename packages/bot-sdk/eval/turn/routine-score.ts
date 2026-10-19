@@ -41,16 +41,36 @@ export function callInputs(
 
 const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
+/** The next Thursday after `now`, at 09:00 UTC. */
+export function nextThursday(now: Date): Date {
+  const days = (4 - now.getUTCDay() + 7) % 7 || 7;
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + days, 9));
+}
+
 /**
  * A tool call's input as the judge reads it. A Check-in's `at` also gets the weekday of its own
- * local date, since a judge cannot work that out from an ISO string.
+ * local date (a judge cannot work that out from an ISO string), whether it is in the future, and the
+ * time now and the user's zone.
  */
-export function describeCall(tool: string, input: Record<string, unknown>): string {
+export function describeCall(
+  tool: string,
+  input: Record<string, unknown>,
+  now: Date,
+  zone: string,
+): string {
   const json = `${tool} ${JSON.stringify(input)}`;
-  const date = typeof input.at === "string" ? /^(\d{4})-(\d{2})-(\d{2})/.exec(input.at) : null;
+  const at = typeof input.at === "string" ? input.at : "";
+  const date = /^(d{4})-(d{2})-(d{2})/.exec(at);
   if (tool !== "set_check_in" || !date) return json;
   const day = new Date(Date.UTC(Number(date[1]), Number(date[2]) - 1, Number(date[3])));
-  return `${json} (at is a ${weekdays[day.getUTCDay()]})`;
+  const when = new Date(at).getTime() > now.getTime() ? "in the future" : "in the past";
+  return `${json} (at is a ${weekdays[day.getUTCDay()]}, ${when}; now is ${now.toISOString()}, the user's time zone is ${zone})`;
+}
+
+/** Fails a judged case whose judged text is empty, so the judge is never skipped without a reason. */
+export function failEmptyJudgement(score: RoutineScore, judged: string, on: string): RoutineScore {
+  if (judged.trim()) return score;
+  return { passed: false, reasons: [...score.reasons, `nothing to judge: no ${on} input`] };
 }
 
 /** Scores a run's Turn against the case's expectation. */

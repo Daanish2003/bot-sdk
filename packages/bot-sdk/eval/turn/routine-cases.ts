@@ -69,7 +69,7 @@ export const routineCases: RoutineCase[] = [
       on: "set_check_in",
       criterion:
         "The user said to check back on Thursday about a contract they sent to Priya. The " +
-        "Check-in's `at` must be a Thursday (its weekday is given) and its note must mention the " +
+        "Check-in's `at` must be a Thursday in the future (its weekday, whether it is in the future, the time now and the user's time zone are given) and its note must mention the " +
         "contract or Priya.",
     },
   },

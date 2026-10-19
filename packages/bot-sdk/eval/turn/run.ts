@@ -34,6 +34,7 @@ import { type TurnCase, turnCases } from "./cases";
 import { runCase, type TurnRunResult } from "./case";
 import { queueCases } from "./queue-cases";
 import { type RoutineCase, routineCases } from "./routine-cases";
+import { nextThursday } from "./routine-score";
 import { runRoutineCase, type RoutineRunResult } from "./routine-run";
 import { type Complete, runQueueCase, type QueueRunResult } from "./queue-run";
 import { tallyQueue } from "./queue-score";
@@ -117,7 +118,7 @@ function routineFakeScript(evalCase: RoutineCase) {
     return [round(toolCall({ name: "create_routine", input })), round(send)];
   }
   if (setCheckIn) {
-    const at = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+    const at = nextThursday(new Date()).toISOString();
     return [
       round(toolCall({ name: "set_check_in", input: { at, note: "Ask about the contract." } })),
       round(send),

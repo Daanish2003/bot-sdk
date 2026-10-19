@@ -12,7 +12,13 @@ import { routineSnapshot } from "../../plugins/bot/server/routine";
 import { sendToBot } from "../../plugins/bot/server/turn";
 import { freshBot, seedHistory, type TurnEnv } from "./case";
 import type { RoutineCase } from "./routine-cases";
-import { callInputs, callNames, describeCall, scoreRoutine } from "./routine-score";
+import {
+  callInputs,
+  callNames,
+  describeCall,
+  failEmptyJudgement,
+  scoreRoutine,
+} from "./routine-score";
 import { judge } from "./queue-score";
 import type { Complete } from "./queue-run";
 import { sentTexts } from "./score";
@@ -105,7 +111,7 @@ export async function runRoutineCase(
     const turn = await waitForTurn(env, bot.id);
     calls = callNames(turn.transcript);
     reply = sentTexts(turn.transcript);
-    const structural = scoreRoutine(evalCase.expect, {
+    let structural = scoreRoutine(evalCase.expect, {
       status: turn.status,
       calls,
       sent: reply.length,
@@ -118,8 +124,9 @@ export async function runRoutineCase(
         check.on === "reply"
           ? reply.join("\n")
           : callInputs(turn.transcript, check.on)
-              .map((input) => describeCall(check.on, input))
+              .map((input) => describeCall(check.on, input, new Date(), "UTC"))
               .join("\n");
+      structural = failEmptyJudgement(structural, judged, check.on);
       if (judged) verdict = await judge(complete, { criterion: check.criterion, reply: judged });
     }
     return {
