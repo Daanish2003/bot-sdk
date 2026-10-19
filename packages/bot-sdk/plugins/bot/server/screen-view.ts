@@ -260,7 +260,7 @@ const addedHeaders = {
  * sandbox (`sandbox allow-scripts`) gives a page an opaque origin, where reading either throws a
  * SecurityError and noVNC never starts. Its settings then live only as long as the page.
  */
-const storageShim = `<script>(function(){for(var name of["localStorage","sessionStorage"]){var data=new Map();Object.defineProperty(window,name,{configurable:true,value:{get length(){return data.size},key:function(i){return Array.from(data.keys())[i]??null},getItem:function(k){k=String(k);return data.has(k)?data.get(k):null},setItem:function(k,v){data.set(String(k),String(v))},removeItem:function(k){data.delete(String(k))},clear:function(){data.clear()}}})}})()</script>`;
+const storageShim = `<script>(function(){for(const name of["localStorage","sessionStorage"]){const data=new Map();Object.defineProperty(window,name,{configurable:true,value:{get length(){return data.size},key:function(i){return Array.from(data.keys())[i]??null},getItem:function(k){k=String(k);return data.has(k)?data.get(k):null},setItem:function(k,v){data.set(String(k),String(v))},removeItem:function(k){data.delete(String(k))},clear:function(){data.clear()}}})}})()</script>`;
 
 /** `html` with the storage shim first in its `<head>` (or first of all, with no `<head>`). */
 function withStorageShim(html: string): string {
