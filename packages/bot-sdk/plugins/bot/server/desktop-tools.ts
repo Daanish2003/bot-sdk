@@ -38,19 +38,20 @@ const actions = [
   "wait",
 ] as const;
 
+/**
+ * [x, y]. An array of two, not a tuple: a tuple becomes `items: [...]`, which is not JSON Schema
+ * draft 2020-12, and Anthropic's API rejects the whole tool. The y bound is checked at run time.
+ */
 const point = z
-  .tuple([
+  .array(
     z
       .number()
       .int()
       .min(0)
       .max(screenWidth - 1),
-    z
-      .number()
-      .int()
-      .min(0)
-      .max(screenHeight - 1),
-  ])
+  )
+  .length(2)
+  .refine(([, y]) => y! < screenHeight, `y must be under ${screenHeight}`)
   .meta({ description: `[x, y] on the ${screenWidth}x${screenHeight} screen.` });
 
 const desktopDefinition = toolDefinition({
@@ -88,7 +89,7 @@ const quoted = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 
 /** The `xdotool` arguments of an action, or what the call lacks. `undefined` takes no input. */
 function xdotoolArguments(input: Input): { args?: string; missing?: string } {
-  const at = (name: string, value: readonly [number, number] | undefined) =>
+  const at = (name: string, value: readonly number[] | undefined) =>
     value ? { xy: `${value[0]} ${value[1]}` } : { missing: `${input.action} needs ${name}` };
   switch (input.action) {
     case "screenshot":
