@@ -4,11 +4,13 @@ import { describe, expect, it } from "vitest";
 import { routineCases } from "../../../eval/turn/routine-cases";
 import {
   callInputs,
+  callsToJudge,
   describeCall,
   failEmptyJudgement,
   nextThursday,
   scoreRoutine,
   toolCallsOf,
+  turnIdOf,
   type RoutineObserved,
 } from "../../../eval/turn/routine-score";
 
@@ -164,5 +166,89 @@ describe("toolCallsOf", () => {
       { name: "create_routine", args: "{oops" },
     ]);
     expect(toolCallsOf(null)).toEqual([]);
+  });
+});
+
+describe("describeCall weekday", () => {
+  it("reads the weekday in the user's zone, not from the date prefix of an offset", () => {
+    const at = "2026-10-22T23:30:00-05:00";
+    expect(describeCall("set_check_in", { at, note: "n" }, now, "UTC")).toContain("a Friday");
+    expect(describeCall("set_check_in", { at, note: "n" }, now, "America/Chicago")).toContain(
+      "a Thursday",
+    );
+  });
+
+  it("says when at has no offset", () => {
+    const text = describeCall("set_check_in", { at: "2026-10-22T09:00:00", note: "n" }, now, "UTC");
+    expect(text).toContain("no offset");
+  });
+});
+
+const turnWith = (tool: string, input: unknown, result: unknown): ModelMessage[] => [
+  {
+    role: "assistant",
+    content: "",
+    toolCalls: [
+      { id: "t1", type: "function", function: { name: tool, arguments: JSON.stringify(input) } },
+    ],
+  },
+  { role: "tool", toolCallId: "t1", content: JSON.stringify(result) },
+];
+
+describe("callsToJudge", () => {
+  const input = { at: "2026-10-22T09:00:00Z", note: "n" };
+
+  it("describes a call the tool accepted", () => {
+    const out = callsToJudge(
+      turnWith("set_check_in", input, { saved: { id: "x" } }),
+      "set_check_in",
+      now,
+      "UTC",
+    );
+    expect(out.text).toContain("set_check_in");
+    expect(out.rejection).toBeUndefined();
+  });
+
+  it("does not judge a call the tool rejected, and says why", () => {
+    const out = callsToJudge(
+      turnWith("set_check_in", input, { error: "Not saved: too soon" }),
+      "set_check_in",
+      now,
+      "UTC",
+    );
+    expect(out.text).toBe("");
+    expect(out.rejection).toBe("set_check_in was rejected: Not saved: too soon");
+  });
+
+  it("does not judge a call with no result", () => {
+    const transcript = turnWith("set_check_in", input, {}).slice(0, 1);
+    expect(callsToJudge(transcript, "set_check_in", now, "UTC").rejection).toBe(
+      "set_check_in has no result",
+    );
+  });
+
+  it("judges an accepted retry after a rejection", () => {
+    const retry = turnWith("set_check_in", input, { saved: {} }).map((m) => ({
+      ...m,
+      toolCallId: m.role === "tool" ? "t2" : undefined,
+      toolCalls: m.toolCalls?.map((c) => ({ ...c, id: "t2" })),
+    }));
+    const transcript = [
+      ...turnWith("set_check_in", input, { error: "no" }),
+      ...retry,
+    ] as ModelMessage[];
+    const out = callsToJudge(transcript, "set_check_in", now, "UTC");
+    expect(out.text).toContain("set_check_in");
+    expect(out.rejection).toBeUndefined();
+  });
+});
+
+describe("turnIdOf", () => {
+  it("returns the Turn that took the Trigger", () => {
+    expect(turnIdOf({ takenBy: "turn-1" })).toBe("turn-1");
+  });
+
+  it("throws when the Trigger waits for a running Turn", () => {
+    expect(() => turnIdOf({ waitsFor: "turn-0" })).toThrow(/waits for/);
   });
 });

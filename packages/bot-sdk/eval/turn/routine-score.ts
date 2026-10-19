@@ -54,8 +54,6 @@ export function toolCallsOf(
   );
 }
 
-const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-
 /** The next Thursday after `now`, at 09:00 UTC. */
 export function nextThursday(now: Date): Date {
   const days = (4 - now.getUTCDay() + 7) % 7 || 7;
@@ -63,9 +61,9 @@ export function nextThursday(now: Date): Date {
 }
 
 /**
- * A tool call's input as the judge reads it. A Check-in's `at` also gets the weekday of its own
- * local date (a judge cannot work that out from an ISO string), whether it is in the future, and the
- * time now and the user's zone.
+ * A tool call's input as the judge reads it. A Check-in's `at` also gets its weekday and local time
+ * in the user's zone (a judge cannot work that out from an ISO string, and an offset can put it on
+ * another day than its date prefix), whether it is in the future, and the time now.
  */
 export function describeCall(
   tool: string,
@@ -74,12 +72,67 @@ export function describeCall(
   zone: string,
 ): string {
   const json = `${tool} ${JSON.stringify(input)}`;
-  const at = typeof input.at === "string" ? input.at : "";
-  const date = /^(\d{4})-(\d{2})-(\d{2})/.exec(at);
-  if (tool !== "set_check_in" || !date) return json;
-  const day = new Date(Date.UTC(Number(date[1]), Number(date[2]) - 1, Number(date[3])));
-  const when = new Date(at).getTime() > now.getTime() ? "in the future" : "in the past";
-  return `${json} (at is a ${weekdays[day.getUTCDay()]}, ${when}; now is ${now.toISOString()}, the user's time zone is ${zone})`;
+  if (tool !== "set_check_in" || typeof input.at !== "string") return json;
+  const at = new Date(input.at);
+  if (Number.isNaN(at.getTime())) return json;
+  const context = `now is ${now.toISOString()}, the user's time zone is ${zone}`;
+  if (!/(?:Z|[+-]\d{2}:?\d{2})$/i.test(input.at)) return `${json} (at has no offset; ${context})`;
+  const local = new Intl.DateTimeFormat("en-US", {
+    timeZone: zone,
+    weekday: "long",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(at);
+  const [weekday, time] = local.split(", ");
+  const when = at.getTime() > now.getTime() ? "in the future" : "in the past";
+  return `${json} (at is a ${weekday} at ${time} in the user's zone, ${when}; ${context})`;
+}
+
+/** The Check-in or Routine calls of `tool` to judge: the accepted ones, or why none was. */
+export function callsToJudge(
+  transcript: readonly ModelMessage[] | null | undefined,
+  tool: string,
+  now: Date,
+  zone: string,
+): { text: string; rejection?: string } {
+  const entries = transcript ?? [];
+  const accepted: string[] = [];
+  let rejection: string | undefined;
+  for (const entry of entries) {
+    for (const call of entry.toolCalls ?? []) {
+      if (call.function.name !== tool) continue;
+      const result = entries.find((m) => m.role === "tool" && m.toolCallId === call.id);
+      let error: string | undefined;
+      if (!result) error = `${tool} has no result`;
+      else {
+        try {
+          const parsed: unknown = JSON.parse(String(result.content));
+          const message = (parsed as { error?: unknown } | null)?.error;
+          if (message !== undefined) error = `${tool} was rejected: ${String(message)}`;
+        } catch {
+          // A result that is not JSON is not an error object.
+        }
+      }
+      if (error) {
+        rejection = error;
+        continue;
+      }
+      try {
+        const input = JSON.parse(call.function.arguments) as Record<string, unknown>;
+        accepted.push(describeCall(tool, input, now, zone));
+      } catch {
+        rejection = `${tool} was called with arguments that are not JSON`;
+      }
+    }
+  }
+  return accepted.length > 0 ? { text: accepted.join("\n") } : { text: "", rejection };
+}
+
+/** The id of the Turn that took a Trigger, from the Router's answer; a Trigger that waits has none yet. */
+export function turnIdOf({ takenBy, waitsFor }: { takenBy?: string; waitsFor?: string }): string {
+  if (takenBy) return takenBy;
+  throw new Error(`the Trigger waits for the running Turn ${waitsFor ?? "(unknown)"}`);
 }
 
 /** Fails a judged case whose judged text is empty, so the judge is never skipped without a reason. */

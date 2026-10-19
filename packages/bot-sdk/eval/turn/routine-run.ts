@@ -2,23 +2,24 @@
 // case's history, then either a user Message or a Trigger as a Routine's run or a fired Check-in hands
 // the Router (the same `receive`, with the text `routineSnapshot` and `checkInNotice` make).
 
-import { asc, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
-import { botTurn } from "../../core/server/db/schema";
+import { botTrigger, botTurn } from "../../core/server/db/schema";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
 import { checkInNotice } from "../../plugins/bot/server/check-in";
 import { lockConversation, receive } from "../../plugins/bot/server/router";
 import { routineSnapshot } from "../../plugins/bot/server/routine";
+import { defaultTimeZone } from "../../plugins/bot/server/time-zone";
 import { sendToBot } from "../../plugins/bot/server/turn";
 import { freshBot, seedHistory, type TurnEnv } from "./case";
 import type { RoutineCase } from "./routine-cases";
 import {
-  callInputs,
   callNames,
-  describeCall,
+  callsToJudge,
   failEmptyJudgement,
   scoreRoutine,
   toolCallsOf,
+  turnIdOf,
 } from "./routine-score";
 import { judge } from "./queue-score";
 import type { Complete } from "./queue-run";
@@ -42,17 +43,19 @@ export type RoutineRunResult = {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Waits until the Bot has a Turn and none is running, and returns the newest one. */
-async function waitForTurn(env: TurnEnv, botId: string, timeoutMs = 120_000) {
+/** Waits until the Turn `turnId` is no longer running, and returns it. */
+async function waitForTurn(env: TurnEnv, turnId: string, timeoutMs = 120_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const turns = await env.db
-      .select({ status: botTurn.status, transcript: botTurn.transcript })
+    const [turn] = await env.db
+      .select({
+        status: botTurn.status,
+        transcript: botTurn.transcript,
+        startedAt: botTurn.startedAt,
+      })
       .from(botTurn)
-      .where(eq(botTurn.botId, botId))
-      .orderBy(asc(botTurn.startedAt));
-    const ended = turns.filter((turn) => turn.status !== "running");
-    if (turns.length > 0 && ended.length === turns.length) return turns.at(-1)!;
+      .where(eq(botTurn.id, turnId));
+    if (turn && turn.status !== "running") return turn;
     await sleep(100);
   }
   throw new Error("The Bot's Turn did not end");
@@ -77,16 +80,27 @@ export async function runRoutineCase(
       evalCase.history ?? [],
     );
     const { start } = evalCase;
+    let turnId: string;
     if (start.kind === "user") {
+      // The Message's id is its Trigger's id; the Trigger names the Turn that took it.
+      const id = uuidv7();
       for await (const _ of await sendToBot(env.sdk, {
         userId,
         botId: bot.id,
-        id: uuidv7(),
+        id,
         text: start.message,
-      }));
+      })) {
+        // Drained: the stream ends when the Turn does.
+      }
+      const [trigger] = await env.db
+        .select({ turnId: botTrigger.turnId })
+        .from(botTrigger)
+        .where(eq(botTrigger.id, id));
+      if (!trigger?.turnId) throw new Error("No Turn took the user Message");
+      turnId = trigger.turnId;
     } else {
       const now = new Date();
-      await env.db.transaction(async (tx) => {
+      const taken = await env.db.transaction(async (tx) => {
         await lockConversation(tx, found!.conversationId);
         const text =
           start.kind === "routine"
@@ -94,14 +108,14 @@ export async function runRoutineCase(
                 name: start.name,
                 prompt: start.prompt,
                 slot: now,
-                timeZone: "UTC",
+                timeZone: defaultTimeZone,
               })
             : await checkInNotice(tx, found!.conversationId, {
                 createdAt: new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000),
                 at: now,
                 note: start.note,
               });
-        await receive(env.sdk, tx, {
+        return receive(env.sdk, tx, {
           id: uuidv7(),
           conversationId: found!.conversationId,
           source: start.kind,
@@ -110,9 +124,10 @@ export async function runRoutineCase(
           receivedAt: now,
         });
       });
+      turnId = turnIdOf(taken);
       env.sdk.plugin("runner").wake();
     }
-    const turn = await waitForTurn(env, bot.id);
+    const turn = await waitForTurn(env, turnId);
     calls = callNames(turn.transcript);
     toolCalls = toolCallsOf(turn.transcript);
     reply = sentTexts(turn.transcript);
@@ -125,13 +140,20 @@ export async function runRoutineCase(
     let verdict: RoutineRunResult["judge"] = null;
     const { judge: check } = evalCase;
     if (check) {
-      const judged =
-        check.on === "reply"
-          ? reply.join("\n")
-          : callInputs(turn.transcript, check.on)
-              .map((input) => describeCall(check.on, input, new Date(), "UTC"))
-              .join("\n");
-      structural = failEmptyJudgement(structural, judged, check.on);
+      // The clock is the Turn's own and the zone the Bot's (the user sent none, so the default).
+      let judged = reply.join("\n");
+      let rejection: string | undefined;
+      if (check.on !== "reply") {
+        ({ text: judged, rejection } = callsToJudge(
+          turn.transcript,
+          check.on,
+          turn.startedAt,
+          defaultTimeZone,
+        ));
+      }
+      if (rejection) {
+        structural = { passed: false, reasons: [...structural.reasons, rejection] };
+      } else structural = failEmptyJudgement(structural, judged, check.on);
       if (judged) verdict = await judge(complete, { criterion: check.criterion, reply: judged });
     }
     return {
