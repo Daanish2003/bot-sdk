@@ -171,7 +171,8 @@ export type ComputerHandle = {
   closeScreen: (slot: number) => Promise<void>;
   /**
    * An open Screen's Chromium DevTools endpoint and its noVNC link, which carries the token that
-   * `openScreen` made. Both are refused without the sandbox's traffic access token. Throws when
+   * `openScreen` made. Both are refused without the sandbox's traffic access token, which
+   * `headers` carries (the CDP connection sends them; the noVNC link doesn't yet). Throws when
    * the Screen isn't open.
    */
   screenUrls: (slot: number) => Promise<ScreenUrls>;
@@ -180,7 +181,7 @@ export type ComputerHandle = {
 };
 
 /** The URLs of one Screen. */
-export type ScreenUrls = { cdpUrl: string; novncUrl: string };
+export type ScreenUrls = { cdpUrl: string; novncUrl: string; headers: Record<string, string> };
 
 /** Whether a Screen's viewer only watches, or drives it. */
 export type ScreenControl = "view" | "control";
@@ -344,9 +345,10 @@ export function computer({ provider }: ComputerOptions): ComputerPlugin {
               return operate(async (id) => {
                 const token = await provider.readFile(id, screenTokenPath(slot));
                 if (!token) throw new Error(`Screen ${slot} is not open`);
-                const [novnc, cdpUrl] = await Promise.all([
+                const [novnc, cdpUrl, headers] = await Promise.all([
                   provider.hostUrl(id, novncPort(slot)),
                   provider.hostUrl(id, cdpPort(slot)),
+                  provider.trafficHeaders(id),
                 ]);
                 const query = new URLSearchParams({
                   path: `websockify?token=${new TextDecoder().decode(token)}`,
@@ -355,6 +357,7 @@ export function computer({ provider }: ComputerOptions): ComputerPlugin {
                 });
                 return {
                   cdpUrl,
+                  headers,
                   novncUrl: `${novnc}/vnc.html?${query}`,
                 };
               });

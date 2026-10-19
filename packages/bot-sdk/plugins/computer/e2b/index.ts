@@ -101,6 +101,11 @@ export function e2bProvider({
       return `https://${host}`;
     },
 
+    async trafficHeaders(sandboxId): Promise<Record<string, string>> {
+      const token = await withSandbox(sandboxId, async (sandbox) => sandbox.trafficAccessToken);
+      return token ? { "e2b-traffic-access-token": token } : {};
+    },
+
     async resume(sandboxId, { timeoutMs }) {
       forget(sandboxId);
       try {

@@ -1127,6 +1127,7 @@ describe("Screens", () => {
 
     const id = created?.sandboxId;
     expect(urls.cdpUrl).toBe(`https://9225-${id}.fake.test`);
+    expect(urls.headers).toEqual({ "e2b-traffic-access-token": `traffic-${id}` });
     const novnc = new URL(urls.novncUrl);
     expect(novnc.origin).toBe(`https://6083-${id}.fake.test`);
     expect(novnc.pathname).toBe("/vnc.html");

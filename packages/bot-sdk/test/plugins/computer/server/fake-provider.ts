@@ -86,8 +86,11 @@ export function fakeComputerProvider({
   template = "fake-computer-v1",
   onCommand = () => ({ exitCode: 0, stdout: "", stderr: "" }),
   onPause = () => {},
+  hostUrl = (sandboxId, port) => `https://${port}-${sandboxId}.fake.test`,
 }: {
   template?: string;
+  /** The URL of a port of a sandbox: a test can point a Screen's DevTools port at a real Chromium. */
+  hostUrl?: (sandboxId: string, port: number) => string;
   onCommand?: (command: FakeCommandRun) => CommandResult | Promise<CommandResult>;
   onPause?: (sandboxId: string) => void | Promise<void>;
 } = {}) {
@@ -129,7 +132,11 @@ export function fakeComputerProvider({
     hostUrl: async (sandboxId, port) => {
       if (!disks.has(sandboxId)) throw new SandboxGoneError(sandboxId);
       calls.push({ type: "host-url", sandboxId, port });
-      return `https://${port}-${sandboxId}.fake.test`;
+      return hostUrl(sandboxId, port);
+    },
+    trafficHeaders: async (sandboxId) => {
+      if (!disks.has(sandboxId)) throw new SandboxGoneError(sandboxId);
+      return { "e2b-traffic-access-token": `traffic-${sandboxId}` };
     },
     resume: async (sandboxId, { timeoutMs }) => {
       failIfTold("resume");
