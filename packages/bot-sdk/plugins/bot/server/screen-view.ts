@@ -256,6 +256,21 @@ const addedHeaders = {
 };
 
 /**
+ * An in-memory `localStorage` and `sessionStorage`, run before noVNC's own scripts (#606). The
+ * sandbox (`sandbox allow-scripts`) gives a page an opaque origin, where reading either throws a
+ * SecurityError and noVNC never starts. Its settings then live only as long as the page.
+ */
+const storageShim = `<script>(function(){for(var name of["localStorage","sessionStorage"]){var data=new Map();Object.defineProperty(window,name,{configurable:true,value:{get length(){return data.size},key:function(i){return Array.from(data.keys())[i]??null},getItem:function(k){k=String(k);return data.has(k)?data.get(k):null},setItem:function(k,v){data.set(String(k),String(v))},removeItem:function(k){data.delete(String(k))},clear:function(){data.clear()}}})}})()</script>`;
+
+/** `html` with the storage shim first in its `<head>` (or first of all, with no `<head>`). */
+function withStorageShim(html: string): string {
+  const head = /<head(?:\s[^>]*)?>/i.exec(html);
+  if (!head) return storageShim + html;
+  const end = head.index + head[0].length;
+  return html.slice(0, end) + storageShim + html.slice(end);
+}
+
+/**
  * The live view's page proxy: a GET under `screenViewPath/<view token>/` is fetched from the
  * Screen's noVNC with the traffic token added, so the token never reaches the browser.
  */
@@ -283,6 +298,14 @@ export async function handleScreenRequest(sdk: BotSdkContext, request: Request):
       if (target.startsWith(upstream.directory)) {
         headers.set("location", upstream.base + target.slice(upstream.directory.length));
       }
+    }
+    // An HTML page gets the storage shim; every other file passes through unchanged.
+    const isHtml = (headers.get("content-type") ?? "").toLowerCase().startsWith("text/html");
+    if (isHtml && request.method === "GET" && response.ok) {
+      return new Response(withStorageShim(await response.text()), {
+        status: response.status,
+        headers,
+      });
     }
     return new Response(response.body, { status: response.status, headers });
   } catch (caught) {
