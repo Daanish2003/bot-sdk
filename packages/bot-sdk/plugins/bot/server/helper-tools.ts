@@ -5,6 +5,7 @@ import { z } from "zod";
 import { bot, botHelper, botHelperMessage } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
+import { WorkflowYieldedError } from "../../runner/server/workflow/engine";
 import { isLiveHelper } from "../shared/helper";
 import { closeScreen, helperJobKey, recordStoppedHelper, startHelperTool } from "./helper";
 import { closeComputerCard } from "./hand-off";
@@ -77,18 +78,27 @@ async function liveHelper(
   return undefined;
 }
 
+/** A Helper `stopHelpers` stopped, with what `afterStop` needs of it. */
+export type StoppedHelper = {
+  id: string;
+  userId: string;
+  screen: number | null;
+  /** Whether it was waiting for the user, so its transcript was saved then. */
+  waited: boolean;
+};
+
 /**
  * Stops the Bot's Helper `helperId`, or every live one when it's absent (#566): each turns
  * `stopped` and its job is cancelled through the runner, and it sends no `helper` Trigger (its
- * job's finish only ends a `running` Helper). Its transcript and usage are what its Checkpoints hold
- * by then, and its Screen is closed. Refuses an id that isn't the Bot's or has ended.
+ * job's finish only ends a `running` Helper). A waiting one's Computer card reads cancelled.
+ * Refuses an id that isn't the Bot's or has ended. Once `tx` commits, `afterStop` does the rest.
  */
 export async function stopHelpers(
   deps: BotSdkContext,
   tx: Transaction,
   botId: string,
   helperId?: string,
-): Promise<{ stopped: string[] } | { error: string }> {
+): Promise<{ stopped: StoppedHelper[] } | { error: string }> {
   if (helperId !== undefined) {
     const refused = await liveHelper(tx, botId, helperId);
     if (refused) return refused;
@@ -108,14 +118,43 @@ export async function stopHelpers(
     .returning({ id: botHelper.id, screen: botHelper.screen });
   const runner = deps.plugin("runner");
   const [owner] = await tx.select({ userId: bot.userId }).from(bot).where(eq(bot.id, botId));
+  const stopped: StoppedHelper[] = [];
   for (const { id, screen } of rows) {
     await runner.cancelIn(tx, helperJobKey(id));
-    // A waiting Helper's card reads cancelled; its transcript was saved when it began to wait.
-    if (!(await closeComputerCard(tx, id, "cancelled"))) await recordStoppedHelper(deps, tx, id);
-    // Before the stop commits and frees its slot, so it never closes the next Helper's Screen.
-    if (owner) await closeScreen(deps, { id, userId: owner.userId, screen });
+    const waited = await closeComputerCard(tx, id, "cancelled");
+    if (owner) stopped.push({ id, userId: owner.userId, screen, waited });
   }
-  return { stopped: rows.map((row) => row.id) };
+  return { stopped };
+}
+
+/**
+ * What a stop does once it has committed, outside its transaction: each stopped Helper's
+ * transcript and usage become what its Checkpoints hold, and its Screen is closed. Best-effort
+ * and logged, and the same however often it runs.
+ */
+export async function afterStop(deps: BotSdkContext, stopped: StoppedHelper[]): Promise<void> {
+  for (const helper of stopped) {
+    if (!helper.waited) await recordStoppedHelper(deps, helper.id);
+    await closeScreen(deps, helper);
+  }
+}
+
+/** `stopHelpers` in a transaction of its own, then `afterStop`. */
+export async function stopBotHelpers(
+  deps: BotSdkContext,
+  botId: string,
+  helperId?: string,
+): Promise<{ stopped: string[] } | { error: string }> {
+  const result = await deps.db.transaction((tx) => stopHelpers(deps, tx, botId, helperId));
+  if ("error" in result) return result;
+  await afterStop(deps, result.stopped);
+  return { stopped: result.stopped.map((helper) => helper.id) };
+}
+
+/** Stops every live Helper of each of the user's Bots, as `stopBotHelpers` does: a Ban calls it. */
+export async function stopUserHelpers(deps: BotSdkContext, userId: string): Promise<void> {
+  const bots = await deps.db.select({ id: bot.id }).from(bot).where(eq(bot.userId, userId));
+  for (const { id } of bots) await stopBotHelpers(deps, id);
 }
 
 /**
@@ -148,11 +187,24 @@ export function helperTools(
     }),
   );
 
-  const stop = stopHelpersDefinition.server(async ({ helperId }, context) =>
-    liveActivity(stopHelpersToolName, context?.toolCallId, (tx) =>
-      stopHelpers(deps, tx, turn.botId, helperId),
-    ),
-  );
+  const stop = stopHelpersDefinition.server(async ({ helperId }, context) => {
+    // Set only by a live call, so a replay doesn't stop anything again.
+    let stopped: StoppedHelper[] = [];
+    try {
+      const result = await liveActivity(stopHelpersToolName, context?.toolCallId, async (tx) => {
+        const stopping = await stopHelpers(deps, tx, turn.botId, helperId);
+        if ("error" in stopping) return stopping;
+        stopped = stopping.stopped;
+        return { stopped: stopped.map((helper) => helper.id) };
+      });
+      await afterStop(deps, stopped);
+      return result;
+    } catch (caught) {
+      // A yield comes after the Checkpoint committed, so the stop stands.
+      if (caught instanceof WorkflowYieldedError) await afterStop(deps, stopped);
+      throw caught;
+    }
+  });
 
   return [startHelperTool(deps, turn, liveActivity), check, message, stop];
 }

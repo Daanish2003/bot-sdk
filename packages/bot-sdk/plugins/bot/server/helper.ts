@@ -1,5 +1,5 @@
 import { type ModelMessage, toolDefinition } from "@tanstack/ai";
-import { and, asc, count, eq, inArray, isNotNull, isNull, like } from "drizzle-orm";
+import { and, asc, count, eq, inArray, isNotNull, isNull, like, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { bot, botHelper, botHelperMessage, botTrigger } from "../../../core/server/db/schema";
@@ -159,6 +159,8 @@ export function startHelperTool(
       if (type === "computer_use") {
         screen = await freeScreen(tx, turn.userId);
         if (screen === null) return { error: screensInUseError };
+        // Waits out a close of the Helper that had it, so the close never lands on this one.
+        await lockScreen(tx, turn.userId, screen);
       }
       const helperId = uuidv7();
       const jobId = await deps
@@ -198,6 +200,16 @@ async function freeScreen(tx: Transaction, userId: string): Promise<number | nul
   const taken = new Set(held.map((row) => row.screen));
   for (let slot = 1; slot <= maxScreens; slot += 1) if (!taken.has(slot)) return slot;
   return null;
+}
+
+/**
+ * The user's Screen `slot`'s lock, until `tx` ends: `start_helper` takes it as it hands the slot
+ * out, and `closeScreen` holds it while it closes the Screen.
+ */
+async function lockScreen(tx: Transaction, userId: string, slot: number) {
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtextextended(${`screen:${userId}:${slot}`}, 0))`,
+  );
 }
 
 /**
@@ -301,14 +313,36 @@ async function runHelperJob(
   if (ended) await afterReport(deps, ended.conversationId);
 }
 
-/** Closes an ending Helper's Screen, best-effort: its Chrome profile stays. */
+/**
+ * Closes an ending or stopped Helper's Screen, best-effort: its Chrome profile stays. Under the
+ * slot's lock, and only while no other running or waiting Helper of the user holds the slot, so it
+ * never closes the Screen of the Helper that took the slot next.
+ */
 export async function closeScreen(
   deps: BotSdkContext,
   helper: Pick<HelperFacts, "id" | "userId" | "screen">,
 ) {
-  if (helper.screen === null) return;
-  await computerOf(deps, helper.userId)
-    .closeScreen(helper.screen)
+  const slot = helper.screen;
+  if (slot === null) return;
+  await deps.db
+    .transaction(async (tx) => {
+      await lockScreen(tx, helper.userId, slot);
+      const [next] = await tx
+        .select({ id: botHelper.id })
+        .from(botHelper)
+        .innerJoin(bot, eq(bot.id, botHelper.botId))
+        .where(
+          and(
+            eq(bot.userId, helper.userId),
+            eq(botHelper.screen, slot),
+            inArray(botHelper.status, ["running", "waiting"]),
+            ne(botHelper.id, helper.id),
+          ),
+        )
+        .limit(1);
+      if (next) return;
+      await computerOf(deps, helper.userId).closeScreen(slot);
+    })
     .catch((caught) =>
       deps.logger.error(`Closing the Screen of Helper ${helper.id} failed`, caught),
     );
@@ -585,13 +619,8 @@ async function endLostHelper(deps: BotSdkContext, helperId: string, waitedSince?
 }
 
 /** What a Helper whose job has ended did: its recorded calls replay, and nothing more runs. */
-async function replayedHelper(
-  deps: BotSdkContext,
-  helper: HelperFacts,
-  waitedSince?: string,
-  db: Database | Transaction = deps.db,
-) {
-  const history = helper.jobId ? await loadHistory(db, helper.jobId) : [];
+async function replayedHelper(deps: BotSdkContext, helper: HelperFacts, waitedSince?: string) {
+  const history = helper.jobId ? await loadHistory(deps.db, helper.jobId) : [];
   const workflow = createWorkflow<Transaction>({
     history,
     store: { save: async () => false, saveWith: async () => ({ saved: false }) },
@@ -604,31 +633,25 @@ async function replayedHelper(
 }
 
 /**
- * Writes what a stopped Helper's recorded Checkpoints hold, its transcript and usage, as `stop_helpers`
- * stops it: its cancelled job writes nothing more. Reads on `tx`, which holds its job's row lock.
+ * Writes what a stopped Helper's recorded Checkpoints hold, its transcript and usage, once its stop
+ * has committed: its cancelled job saves no more Checkpoints, so a replay reads the same each time.
+ * Best-effort: the Helper stays stopped, and only its transcript is lost.
  */
-export async function recordStoppedHelper(
-  deps: BotSdkContext,
-  tx: Transaction,
-  helperId: string,
-): Promise<void> {
-  const helper = await helperFacts(tx, helperId);
-  if (!helper) return;
-  let played: Pick<PlayedHelper, "input" | "transcript" | "usage">;
+export async function recordStoppedHelper(deps: BotSdkContext, helperId: string): Promise<void> {
   try {
-    played = await replayedHelper(deps, helper, undefined, tx);
+    const helper = await helperFacts(deps.db, helperId);
+    if (helper?.status !== "stopped") return;
+    const played = await replayedHelper(deps, helper);
+    await deps.db
+      .update(botHelper)
+      .set({
+        transcript: [...played.input, ...played.transcript],
+        usage: usageSoFar(helper, played),
+      })
+      .where(eq(botHelper.id, helperId));
   } catch (caught) {
-    // The Helper stays stopped; only its transcript is lost.
     deps.logger.error(`Replaying the Checkpoints of Helper ${helperId} failed`, caught);
-    return;
   }
-  await tx
-    .update(botHelper)
-    .set({
-      transcript: [...played.input, ...played.transcript],
-      usage: usageSoFar(helper, played),
-    })
-    .where(eq(botHelper.id, helperId));
 }
 
 /** Whether one of the user's Helpers is running, so it may use the Computer: a busy check. */

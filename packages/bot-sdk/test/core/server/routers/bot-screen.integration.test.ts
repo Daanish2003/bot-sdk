@@ -2,9 +2,14 @@ import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { botHelper, computer as computerTable } from "../../../../core/server/db/schema";
+import {
+  botHelper,
+  botTrigger,
+  computer as computerTable,
+} from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { askUserToolName } from "../../../../plugins/bot/server/hand-off";
+import { closeScreen } from "../../../../plugins/bot/server/helper";
 import { bot } from "../../../../plugins/bot/server/plugin";
 import type { ScreenPeer } from "../../../../plugins/bot/server/screen-view";
 import { computer } from "../../../../plugins/computer/server/plugin";
@@ -20,7 +25,11 @@ import { fakeNovnc } from "../../../support/fake-novnc";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
-import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
+import {
+  fakeComputerProvider,
+  type FakeCommandRun,
+} from "../../../plugins/computer/server/fake-provider";
+import type { CommandResult } from "../../../../plugins/computer/server/provider";
 
 const model = "openai:gpt-5.6";
 const silent = { error: () => {} };
@@ -42,9 +51,12 @@ const reason = "Sign in to Salesforce: enter your password and the code from you
 /**
  * A user with a Bot whose Computer-use Helper is waiting for them at a hand-off, over an SDK with
  * `computer` on. Each Screen's noVNC port is a fake noVNC that wants E2B's traffic token; no Chrome
- * answers on the DevTools ports. The clock is the real time plus `offset.ms`.
+ * answers on the DevTools ports. The clock is the real time plus `offset.ms`. `onCommand` answers the
+ * sandbox's commands.
  */
-async function waitingHelper() {
+async function waitingHelper(
+  onCommand?: (command: FakeCommandRun) => CommandResult | Promise<CommandResult>,
+) {
   const novnc = await fakeNovnc();
   const offset = { ms: 0 };
   const clock = () => new Date(Date.now() + offset.ms);
@@ -70,6 +82,7 @@ async function waitingHelper() {
   const computerFake = fakeComputerProvider({
     hostUrl: (_sandboxId, port) =>
       port >= 6081 && port <= 6084 ? novnc.origin : "http://127.0.0.1:1",
+    ...(onCommand && { onCommand }),
   });
   let deps: TestDeps | undefined;
   const jobs: InProcessRunner = inProcessRunner({
@@ -210,6 +223,66 @@ describe("bot.screen.view", () => {
       message: "This task was stopped.",
     });
     expect((await deps.plugin("bot").screenHandler(pageRequest(url))).status).toBe(404);
+  });
+});
+
+describe("stopping a Computer-use Helper", () => {
+  it("commits the stop before it closes the Screen, which can take a while", async () => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let closing = false;
+    const { client, helper, botId } = await waitingHelper(async ({ command }) => {
+      if (command.endsWith("ai-chat-screen stop 1")) {
+        closing = true;
+        await held;
+      }
+      return { exitCode: 0, stdout: "", stderr: "" };
+    });
+
+    const stopping = client.bot.helper.stop({ botId, helperId: helper.id });
+    try {
+      await expect.poll(() => closing, { timeout: 10_000 }).toBe(true);
+
+      // Read on another connection while the Screen is still closing.
+      expect((await helpersOf(botId))[0]?.status).toBe("stopped");
+    } finally {
+      release();
+      await stopping;
+    }
+  });
+
+  it("is what a Ban does to the user's Helpers: the Screen closes and no report comes", async () => {
+    const { deps, user, botId, computerFake } = await waitingHelper();
+
+    await deps.plugin("bot").stopTurns(user.id);
+
+    expect((await helpersOf(botId)).map((row) => row.status)).toEqual(["stopped"]);
+    expect(screenCommands(computerFake).at(-1)).toBe("/usr/local/bin/ai-chat-screen stop 1");
+    expect(
+      await getTestDb().select().from(botTrigger).where(eq(botTrigger.source, "helper")),
+    ).toEqual([]);
+  });
+
+  it("never closes the Screen once another Helper of the user holds its slot", async () => {
+    const { client, deps, user, helper, botId, computerFake } = await waitingHelper();
+    await client.bot.helper.stop({ botId, helperId: helper.id });
+    // The next Helper takes the slot the stop freed.
+    await getTestDb().insert(botHelper).values({
+      id: uuidv7(),
+      botId,
+      type: "computer_use",
+      task: "Next.",
+      status: "running",
+      startedByTurnId: helper.startedByTurnId,
+      screen: 1,
+      startedAt: new Date(),
+    });
+    const before = screenCommands(computerFake).length;
+
+    // The stopped Helper's job, late to see its cancel, closes its Screen as it ends.
+    await closeScreen(deps, { id: helper.id, userId: user.id, screen: 1 });
+
+    expect(screenCommands(computerFake).slice(before)).toEqual([]);
   });
 });
 

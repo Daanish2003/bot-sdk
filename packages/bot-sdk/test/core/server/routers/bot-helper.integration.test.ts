@@ -596,6 +596,25 @@ describe("Stop and deletion", () => {
     expect((await helpersOf(botId)).map((row) => row.status)).toEqual(["running"]);
   });
 
+  it("stops the user's running Helpers on a Ban, cancelling their jobs, and no report comes", async () => {
+    const { client, botId, deps, user } = await botWith(
+      [round(startHelper("One."), sends({ text: "On it.", endTurn: true }))],
+      [round(text("Never comes."))],
+      { manualHelpers: true },
+    );
+    await send(client, botId, "go");
+
+    await deps.plugin("bot").stopTurns(user.id);
+
+    expect((await helpersOf(botId)).map((row) => row.status)).toEqual(["stopped"]);
+    const helperJobs = await getTestDb()
+      .select({ status: job.status })
+      .from(job)
+      .where(eq(job.name, "bot.helper"));
+    expect(helperJobs.map((row) => row.status)).toEqual(["cancelled"]);
+    expect(await helperTriggers()).toEqual([]);
+  });
+
   it("leaves no Helper rows or queued Helper jobs once the user is deleted", async () => {
     const { client, botId, deps, user } = await botWith(
       [round(startHelper("One."), startHelper("Two."), sends({ text: "On it.", endTurn: true }))],
