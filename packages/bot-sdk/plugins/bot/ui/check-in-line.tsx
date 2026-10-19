@@ -1,28 +1,19 @@
 import { Button } from "@/components/ui/button";
 import { ClockIcon } from "lucide-react";
-import { useState } from "react";
-import { toast } from "sonner";
 
 import { useI18n } from "../../../core/client/react/provider";
-import { serverErrorText } from "../../../core/client/rpc-error";
 import type { BotCheckIn } from "../shared/check-in";
+import { useRefusalToast } from "./refusal-toast";
 import { runTime } from "./run-divider";
 
-/** What the user can do to a Check-in: cancel it while it is pending. */
-export type CheckInActionHandlers = { onCancelCheckIn: (checkInId: string) => Promise<void> };
-
-/** Cancels Check-in `checkInId`; a refusal says why in a toast. */
-function useCancel(checkInId: string, onCancel: (checkInId: string) => Promise<void>) {
-  const i18n = useI18n();
-  const [busy, setBusy] = useState(false);
-  const cancel = () => {
-    setBusy(true);
-    onCancel(checkInId)
-      .catch((refusal) => toast.error(serverErrorText(i18n, refusal)))
-      .finally(() => setBusy(false));
-  };
-  return [busy, cancel] as const;
-}
+/**
+ * What the user can do to a Check-in: cancel it while it is pending. `actingCheckIns` holds the
+ * Check-ins with a cancel in flight: each of their Cancels waits for it.
+ */
+export type CheckInActionHandlers = {
+  onCancelCheckIn: (checkInId: string) => Promise<void>;
+  actingCheckIns: ReadonlySet<string>;
+};
 
 /** The Check-in in words, as its line and the popover show it: `Check-in set for Thu 09:00: "note"`. */
 export function checkInText(
@@ -36,12 +27,18 @@ export function checkInText(
 export function CancelCheckIn({
   checkIn,
   onCancelCheckIn,
+  actingCheckIns,
 }: { checkIn: BotCheckIn } & CheckInActionHandlers) {
   const { t } = useI18n();
-  const [busy, cancel] = useCancel(checkIn.id, onCancelCheckIn);
+  const run = useRefusalToast();
   if (checkIn.state !== "pending") return null;
   return (
-    <Button size="xs" variant="ghost" disabled={busy} onClick={cancel}>
+    <Button
+      size="xs"
+      variant="ghost"
+      disabled={actingCheckIns.has(checkIn.id)}
+      onClick={() => run(onCancelCheckIn(checkIn.id))}
+    >
       {t("bots.cancel")}
     </Button>
   );
@@ -53,7 +50,7 @@ export function CancelCheckIn({
  */
 export function CheckInLine({
   checkIn,
-  onCancelCheckIn,
+  ...actions
 }: { checkIn: BotCheckIn } & CheckInActionHandlers) {
   const i18n = useI18n();
   return (
@@ -69,7 +66,7 @@ export function CheckInLine({
           {checkInText(i18n, checkIn)}
         </span>
       </span>
-      <CancelCheckIn checkIn={checkIn} onCancelCheckIn={onCancelCheckIn} />
+      <CancelCheckIn checkIn={checkIn} {...actions} />
       <span className="h-px w-8 bg-border" />
     </div>
   );

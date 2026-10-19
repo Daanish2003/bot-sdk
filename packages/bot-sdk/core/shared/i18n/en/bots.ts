@@ -38,6 +38,9 @@ export const botsMessages = {
   "bots.pause": "Pause",
   "bots.resume": "Resume",
   "bots.delete": "Delete",
+  "bots.pauseRoutine": ({ name }: { name: string }) => `Pause ${name}`,
+  "bots.resumeRoutine": ({ name }: { name: string }) => `Resume ${name}`,
+  "bots.deleteRoutine": ({ name }: { name: string }) => `Delete ${name}`,
   "bots.routines": "Routines",
   "bots.routinesCount": ({ routines, checkIns }: { routines: number; checkIns: number }) =>
     `Routines ${routines} · Check-ins ${checkIns}`,

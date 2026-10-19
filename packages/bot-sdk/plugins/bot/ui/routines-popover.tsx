@@ -29,6 +29,7 @@ export function RoutinesPopover({
   routines,
   checkIns,
   onCancelCheckIn,
+  actingCheckIns,
   webhookTokens,
   onRotate,
   ...actions
@@ -70,6 +71,7 @@ export function RoutinesPopover({
                     routineId={routine.id}
                     token={webhookTokens[routine.id]}
                     onRotate={onRotate}
+                    busy={actions.actingRoutines.has(routine.id)}
                   />
                 </div>
               )}
@@ -86,7 +88,11 @@ export function RoutinesPopover({
                 <ClockIcon className="size-4 shrink-0" />
                 <span>{checkInText(i18n, checkIn)}</span>
                 <span className="ml-auto">
-                  <CancelCheckIn checkIn={checkIn} onCancelCheckIn={onCancelCheckIn} />
+                  <CancelCheckIn
+                    checkIn={checkIn}
+                    onCancelCheckIn={onCancelCheckIn}
+                    actingCheckIns={actingCheckIns}
+                  />
                 </span>
               </li>
             ))}

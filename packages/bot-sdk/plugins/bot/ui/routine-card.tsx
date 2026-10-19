@@ -8,12 +8,13 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { ClockIcon, WebhookIcon } from "lucide-react";
-import { useId, useState } from "react";
+import { useId } from "react";
 import { toast } from "sonner";
 
 import { useI18n } from "../../../core/client/react/provider";
 import { serverErrorText } from "../../../core/client/rpc-error";
 import { type BotRoutine, routineWebhookPath, scheduleText } from "../shared/routine";
+import { useRefusalToast } from "./refusal-toast";
 import { runTime } from "./run-divider";
 
 /**
@@ -38,7 +39,8 @@ export function RoutineCard({
   const i18n = useI18n();
   const { t } = i18n;
   const titleId = useId();
-  const [busy, act] = useRoutineAction(routine.id);
+  const run = useRefusalToast();
+  const busy = actions.actingRoutines.has(routine.id);
 
   if (routine.state !== "pending") {
     const divider = (
@@ -96,10 +98,15 @@ export function RoutineCard({
       </CardHeader>
       <CardContent className="text-sm whitespace-pre-wrap">{routine.prompt}</CardContent>
       <CardFooter className="gap-2">
-        <Button size="sm" disabled={busy} onClick={() => act(onApprove)}>
+        <Button size="sm" disabled={busy} onClick={() => run(onApprove(routine.id))}>
           {t("bots.approve")}
         </Button>
-        <Button size="sm" variant="outline" disabled={busy} onClick={() => act(onDecline)}>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={busy}
+          onClick={() => run(onDecline(routine.id))}
+        >
           {t("bots.decline")}
         </Button>
       </CardFooter>
@@ -119,20 +126,22 @@ export function RoutineIcon({ routine, className }: { routine: BotRoutine; class
 /**
  * An approved webhook Routine's URL in monospace, with Copy, and Rotate when `onRotate` is given.
  * Only the token's hash is stored (ADR 0021), so the URL shows once, after approving or rotating
- * on this page; otherwise Rotate gives a new one.
+ * on this page; otherwise Rotate gives a new one. `busy` is true while an action on the Routine runs.
  */
 export function WebhookUrl({
   routineId,
   token,
   onRotate,
+  busy = false,
 }: {
   routineId: string;
   token: string | undefined;
   onRotate?: (routineId: string) => Promise<void>;
+  busy?: boolean;
 }) {
   const i18n = useI18n();
   const { t } = i18n;
-  const [busy, act] = useRoutineAction(routineId);
+  const run = useRefusalToast();
   const url = token && `${window.location.origin}${routineWebhookPath}/${token}`;
   const copy = (text: string) =>
     navigator.clipboard
@@ -153,7 +162,12 @@ export function WebhookUrl({
           </Button>
         )}
         {onRotate && (
-          <Button size="xs" variant="ghost" disabled={busy} onClick={() => act(onRotate)}>
+          <Button
+            size="xs"
+            variant="ghost"
+            disabled={busy}
+            onClick={() => run(onRotate(routineId))}
+          >
             {t("bots.rotate")}
           </Button>
         )}
@@ -162,51 +176,63 @@ export function WebhookUrl({
   );
 }
 
-/** What the user can do to an approved Routine: pause, resume and delete it. */
+/**
+ * What the user can do to an approved Routine: pause, resume and delete it. `actingRoutines` holds the
+ * Routines with an action in flight: each of their controls waits for it.
+ */
 export type RoutineActionHandlers = {
   onPause: (routineId: string) => Promise<void>;
   onResume: (routineId: string) => Promise<void>;
   onDelete: (routineId: string) => Promise<void>;
+  actingRoutines: ReadonlySet<string>;
 };
 
-/** Runs one action on Routine `routineId` at a time; a refusal says why in a toast. */
-export function useRoutineAction(routineId: string) {
-  const i18n = useI18n();
-  const [busy, setBusy] = useState(false);
-  const act = (action: (routineId: string) => Promise<void>) => {
-    setBusy(true);
-    action(routineId)
-      .catch((refusal) => toast.error(serverErrorText(i18n, refusal)))
-      .finally(() => setBusy(false));
-  };
-  return [busy, act] as const;
-}
-
 /**
- * Pause (or Resume, while paused) and Delete for an approved Routine. A pending one has none: it is
- * approved or declined on its card.
+ * Pause (or Resume, while paused) and Delete for an approved Routine, each labelled with its name.
+ * A pending one has none: it is approved or declined on its card.
  */
 export function RoutineActions({
   routine,
   onPause,
   onResume,
   onDelete,
+  actingRoutines,
 }: { routine: BotRoutine } & RoutineActionHandlers) {
   const { t } = useI18n();
-  const [busy, act] = useRoutineAction(routine.id);
+  const run = useRefusalToast();
   if (routine.state === "pending") return null;
+  const busy = actingRoutines.has(routine.id);
+  const { name } = routine;
   return (
     <span className="inline-flex gap-1">
       {routine.state === "active" ? (
-        <Button size="xs" variant="ghost" disabled={busy} onClick={() => act(onPause)}>
+        <Button
+          size="xs"
+          variant="ghost"
+          aria-label={t("bots.pauseRoutine", { name })}
+          disabled={busy}
+          onClick={() => run(onPause(routine.id))}
+        >
           {t("bots.pause")}
         </Button>
       ) : (
-        <Button size="xs" variant="ghost" disabled={busy} onClick={() => act(onResume)}>
+        <Button
+          size="xs"
+          variant="ghost"
+          aria-label={t("bots.resumeRoutine", { name })}
+          disabled={busy}
+          onClick={() => run(onResume(routine.id))}
+        >
           {t("bots.resume")}
         </Button>
       )}
-      <Button size="xs" variant="ghost" disabled={busy} onClick={() => act(onDelete)}>
+      <Button
+        size="xs"
+        variant="ghost"
+        aria-label={t("bots.deleteRoutine", { name })}
+        disabled={busy}
+        onClick={() => run(onDelete(routine.id))}
+      >
         {t("bots.delete")}
       </Button>
     </span>

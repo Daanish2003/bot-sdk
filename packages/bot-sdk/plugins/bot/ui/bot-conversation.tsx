@@ -41,10 +41,15 @@ function BotConversationView({ botId }: { botId: string }) {
       },
     });
 
-  const { routines, webhookTokens, approve, decline, pause, resume, remove, rotate } =
+  const { routines, webhookTokens, acting, approve, decline, pause, resume, remove, rotate } =
     useBotRoutines(botId, working);
-  const { checkIns, cancel: cancelCheckIn } = useBotCheckIns(botId, working);
-  const actions = { onPause: pause, onResume: resume, onDelete: remove };
+  const {
+    checkIns,
+    acting: actingCheckIns,
+    cancel: onCancelCheckIn,
+  } = useBotCheckIns(botId, working);
+  const actions = { onPause: pause, onResume: resume, onDelete: remove, actingRoutines: acting };
+  const checkInActions = { onCancelCheckIn, actingCheckIns };
 
   if (error) {
     return (
@@ -72,24 +77,13 @@ function BotConversationView({ botId }: { botId: string }) {
       {...actions}
     />
   );
-  // Each Routine under the Message its card follows; one whose Message isn't shown yet (its Turn
-  // still runs here) follows the rest.
+  // Each Routine under the Message its card follows, and each Check-in under the one its line
+  // follows; one whose Message isn't shown yet (its Turn still runs here) follows the rest.
   const shownIds = new Set(messages.map((message) => message.id));
-  const routinesAfter = new Map<string, typeof routines>();
-  for (const routine of routines) {
-    const after =
-      routine.afterMessageId && shownIds.has(routine.afterMessageId) ? routine.afterMessageId : "";
-    routinesAfter.set(after, [...(routinesAfter.get(after) ?? []), routine]);
-  }
-  // Each Check-in under the Message its line follows, as a Routine's card does.
-  const checkInsAfter = new Map<string, typeof checkIns>();
-  for (const checkIn of checkIns) {
-    const after =
-      checkIn.afterMessageId && shownIds.has(checkIn.afterMessageId) ? checkIn.afterMessageId : "";
-    checkInsAfter.set(after, [...(checkInsAfter.get(after) ?? []), checkIn]);
-  }
+  const routinesAfter = groupAfter(routines, shownIds);
+  const checkInsAfter = groupAfter(checkIns, shownIds);
   const checkInLine = (checkIn: (typeof checkIns)[number]) => (
-    <CheckInLine key={checkIn.id} checkIn={checkIn} onCancelCheckIn={cancelCheckIn} />
+    <CheckInLine key={checkIn.id} checkIn={checkIn} {...checkInActions} />
   );
   // Each run's divider, before the Message it goes above ("" after the last): a run that
   // sent something above its first Message, a quiet one where it ran. One still running and quiet
@@ -132,7 +126,7 @@ function BotConversationView({ botId }: { botId: string }) {
           <RoutinesPopover
             routines={routines}
             checkIns={checkIns}
-            onCancelCheckIn={cancelCheckIn}
+            {...checkInActions}
             webhookTokens={webhookTokens}
             onRotate={rotate}
             {...actions}
@@ -210,4 +204,17 @@ function BotConversationView({ botId }: { botId: string }) {
       </form>
     </section>
   );
+}
+
+/** `items` by the Message each follows, in order: "" for those whose Message isn't in `shownIds`. */
+function groupAfter<T extends { afterMessageId: string | null }>(
+  items: T[],
+  shownIds: ReadonlySet<string>,
+): Map<string, T[]> {
+  const after = new Map<string, T[]>();
+  for (const item of items) {
+    const id = item.afterMessageId && shownIds.has(item.afterMessageId) ? item.afterMessageId : "";
+    after.set(id, [...(after.get(id) ?? []), item]);
+  }
+  return after;
 }

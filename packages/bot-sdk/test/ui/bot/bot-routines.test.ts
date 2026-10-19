@@ -64,6 +64,8 @@ function fakeBotServer(
     return { id: routine.id, state };
   };
   let turnStatus: "running" | "complete" | null = null;
+  // While set, pause, resume and delete answer only once it resolves.
+  let held: Promise<void> | undefined;
   const router = {
     bot: {
       get: os.handler(() => ({
@@ -105,7 +107,8 @@ function fakeBotServer(
             1,
           );
         }),
-        pause: os.input(z.object({ routineId: z.string() })).handler(({ input }) => {
+        pause: os.input(z.object({ routineId: z.string() })).handler(async ({ input }) => {
+          await held;
           paused.push(input.routineId);
           return setState(input.routineId, "paused");
         }),
@@ -113,7 +116,8 @@ function fakeBotServer(
           resumed.push(input.routineId);
           return setState(input.routineId, "active");
         }),
-        delete: os.input(z.object({ routineId: z.string() })).handler(({ input }) => {
+        delete: os.input(z.object({ routineId: z.string() })).handler(async ({ input }) => {
+          await held;
           deleted.push(input.routineId);
           routines.splice(
             routines.findIndex((row) => row.id === input.routineId),
@@ -143,6 +147,15 @@ function fakeBotServer(
     /** What `bot.get` says of the latest Turn from now on, as a Turn run elsewhere moves on. */
     setTurnStatus: (status: "running" | "complete" | null) => {
       turnStatus = status;
+    },
+    /** Holds every pause and delete answer until the returned release is called. */
+    holdActions: () => {
+      let release = () => {};
+      held = new Promise<void>((resolve) => (release = resolve));
+      return () => {
+        held = undefined;
+        release();
+      };
     },
     /** Streams `events` to the open send, then lets the client read them. */
     stream: async (...events: (BotSendEvent | "end")[]) => {
@@ -394,11 +407,17 @@ describe("the Routines popover in the header", () => {
     mount(server);
     const list = await open(2);
 
-    fireEvent.click(within(row(list, "morning-brief")).getByRole("button", { name: "Pause" }));
+    fireEvent.click(
+      within(row(list, "morning-brief")).getByRole("button", { name: "Pause morning-brief" }),
+    );
     await waitFor(() => expect(server.paused).toEqual(["r1"]));
-    fireEvent.click(within(row(list, "weekly-review")).getByRole("button", { name: "Resume" }));
+    fireEvent.click(
+      within(row(list, "weekly-review")).getByRole("button", { name: "Resume weekly-review" }),
+    );
     await waitFor(() => expect(server.resumed).toEqual(["r2"]));
-    fireEvent.click(within(row(list, "weekly-review")).getByRole("button", { name: "Delete" }));
+    fireEvent.click(
+      within(row(list, "weekly-review")).getByRole("button", { name: "Delete weekly-review" }),
+    );
     await waitFor(() => expect(server.deleted).toEqual(["r2"]));
 
     await waitFor(() =>
@@ -412,6 +431,30 @@ describe("the Routines popover in the header", () => {
       ]),
     );
   });
+
+  it("keeps a Routine's actions busy in the popover while its divider's action runs, so only one is sent", async () => {
+    const server = fakeBotServer(
+      [said("m1", "user", "Brief me")],
+      [{ ...morningBrief("m1"), state: "active", approvedAt: createdAt }],
+    );
+    const { container } = mount(server);
+    await screen.findByText(/morning-brief approved/);
+    const release = server.holdActions();
+
+    const divider = container.querySelector<HTMLElement>("[data-routine=morning-brief]")!;
+    fireEvent.click(within(divider).getByRole("button", { name: "Pause morning-brief" }));
+    const list = await open(1);
+    const remove = within(row(list, "morning-brief")).getByRole<HTMLButtonElement>("button", {
+      name: "Delete morning-brief",
+    });
+    expect(remove.disabled).toBe(true);
+    fireEvent.click(remove);
+    release();
+
+    await screen.findByText("morning-brief paused");
+    expect(server.paused).toEqual(["r1"]);
+    expect(server.deleted).toEqual([]);
+  });
 });
 
 describe("the approved divider", () => {
@@ -424,13 +467,13 @@ describe("the approved divider", () => {
     await screen.findByText(/morning-brief approved/);
     const divider = () => container.querySelector<HTMLElement>("[data-routine=morning-brief]")!;
 
-    fireEvent.click(within(divider()).getByRole("button", { name: "Pause" }));
+    fireEvent.click(within(divider()).getByRole("button", { name: "Pause morning-brief" }));
     await screen.findByText("morning-brief paused");
     expect(server.paused).toEqual(["r1"]);
-    fireEvent.click(within(divider()).getByRole("button", { name: "Resume" }));
+    fireEvent.click(within(divider()).getByRole("button", { name: "Resume morning-brief" }));
     await screen.findByText(/morning-brief approved/);
     expect(server.resumed).toEqual(["r1"]);
-    fireEvent.click(within(divider()).getByRole("button", { name: "Delete" }));
+    fireEvent.click(within(divider()).getByRole("button", { name: "Delete morning-brief" }));
 
     await waitFor(() => expect(divider()).toBeNull());
     expect(server.deleted).toEqual(["r1"]);
