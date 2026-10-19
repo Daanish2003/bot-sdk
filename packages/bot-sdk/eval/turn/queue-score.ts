@@ -86,16 +86,23 @@ export async function judge(
   return parseVerdict(answer);
 }
 
-/** Pass counts per case: structural passes, and judge passes over the runs that were judged. */
+/** Pass counts per case: structural passes, and judge passes over the `judged` runs (a run with no judge verdict is not counted). */
 export function tallyQueue(
   runs: readonly { caseId: string; structural: boolean; judge: boolean | null }[],
 ) {
-  const out: Record<string, { runs: number; structural: number; judge: number }> = {};
+  const out: Record<string, { runs: number; structural: number; judge: number; judged: number }> =
+    {};
   for (const run of runs) {
-    const row = (out[run.caseId] ??= { runs: 0, structural: 0, judge: 0 });
+    const row = (out[run.caseId] ??= { runs: 0, structural: 0, judge: 0, judged: 0 });
     row.runs += 1;
     if (run.structural) row.structural += 1;
+    if (run.judge !== null) row.judged += 1;
     if (run.judge) row.judge += 1;
   }
   return out;
+}
+
+/** The judge column of a tally row: n/a when no run was judged. */
+export function formatJudge(row: { judge: number; judged: number }): string {
+  return row.judged === 0 ? "judge n/a" : `judge ${row.judge}/${row.judged}`;
 }

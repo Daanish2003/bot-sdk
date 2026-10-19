@@ -39,6 +39,21 @@ export function callInputs(
   );
 }
 
+/** Every tool call in a Turn's transcript, in order, with its args (as text when they are not JSON). */
+export function toolCallsOf(
+  transcript: readonly ModelMessage[] | null | undefined,
+): { name: string; args: unknown }[] {
+  return (transcript ?? []).flatMap((entry) =>
+    (entry.toolCalls ?? []).map((call) => {
+      try {
+        return { name: call.function.name, args: JSON.parse(call.function.arguments) as unknown };
+      } catch {
+        return { name: call.function.name, args: call.function.arguments };
+      }
+    }),
+  );
+}
+
 const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 /** The next Thursday after `now`, at 09:00 UTC. */

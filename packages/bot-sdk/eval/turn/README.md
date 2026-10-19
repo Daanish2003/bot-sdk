@@ -134,3 +134,15 @@ judge check (same judge as above):
 
 Results are saved as `routineRates` and `routineRuns` in the results file. Run the whole script, as above:
 the same `--fake` dry run plays these cases too.
+
+## Judge Model and results
+
+- **Use a stronger judge than the Bot.** Set `EVAL_JUDGE_MODEL` to a different, stronger Model than
+  `EVAL_BOT_MODEL` (it can be another Provider: the run reads that Provider's key, such as
+  `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`). A small Model judging its own replies once misread the
+  routine-run-something-new criterion.
+- The tally prints `judge n/a` for a case with no judge check, and the judge rate is over the judged
+  runs only.
+- Every run in the results file has `toolCalls`, the tool calls of its Turn(s) in order with their
+  arguments (week-one, queue and routine runs), so a run that sent nothing shows whether the Bot called a
+  tool or nothing at all.

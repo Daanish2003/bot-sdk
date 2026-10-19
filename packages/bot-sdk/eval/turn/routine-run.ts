@@ -18,6 +18,7 @@ import {
   describeCall,
   failEmptyJudgement,
   scoreRoutine,
+  toolCallsOf,
 } from "./routine-score";
 import { judge } from "./queue-score";
 import type { Complete } from "./queue-run";
@@ -33,6 +34,8 @@ export type RoutineRunResult = {
   reply: string[];
   /** The tool calls the Turn made, in order. */
   calls: string[];
+  /** Every tool call the Turn made, in order, with its args. */
+  toolCalls: { name: string; args: unknown }[];
   ms: number;
   error?: string;
 };
@@ -65,6 +68,7 @@ export async function runRoutineCase(
   const started = Date.now();
   let reply: string[] = [];
   let calls: string[] = [];
+  let toolCalls: RoutineRunResult["toolCalls"] = [];
   try {
     const { userId, bot, found } = await freshBot(env, evalCase.id, repeat);
     await seedHistory(
@@ -110,6 +114,7 @@ export async function runRoutineCase(
     }
     const turn = await waitForTurn(env, bot.id);
     calls = callNames(turn.transcript);
+    toolCalls = toolCallsOf(turn.transcript);
     reply = sentTexts(turn.transcript);
     let structural = scoreRoutine(evalCase.expect, {
       status: turn.status,
@@ -136,6 +141,7 @@ export async function runRoutineCase(
       judge: verdict,
       reply,
       calls,
+      toolCalls,
       ms: Date.now() - started,
     };
   } catch (caught) {
@@ -147,6 +153,7 @@ export async function runRoutineCase(
       judge: null,
       reply,
       calls,
+      toolCalls,
       ms: Date.now() - started,
       error,
     };

@@ -8,6 +8,7 @@ import {
   failEmptyJudgement,
   nextThursday,
   scoreRoutine,
+  toolCallsOf,
   type RoutineObserved,
 } from "../../../eval/turn/routine-score";
 
@@ -139,5 +140,29 @@ describe("failEmptyJudgement", () => {
   it("leaves the score alone when there is text to judge", () => {
     const score = { passed: true, reasons: [] };
     expect(failEmptyJudgement(score, "text", "reply")).toBe(score);
+  });
+});
+
+describe("toolCallsOf", () => {
+  it("lists each call with its name and parsed args, keeping unparsable args as text", () => {
+    const transcript: ModelMessage[] = [
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [
+          {
+            id: "a",
+            type: "function",
+            function: { name: "set_check_in", arguments: '{"note":"n"}' },
+          },
+          { id: "b", type: "function", function: { name: "create_routine", arguments: "{oops" } },
+        ],
+      },
+    ];
+    expect(toolCallsOf(transcript)).toEqual([
+      { name: "set_check_in", args: { note: "n" } },
+      { name: "create_routine", args: "{oops" },
+    ]);
+    expect(toolCallsOf(null)).toEqual([]);
   });
 });
