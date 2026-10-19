@@ -13,6 +13,7 @@ import { runnerJobs } from "../../runner/server/plugin";
 import {
   type CommandResult,
   type ComputerProvider,
+  type Endpoint,
   type FileEntry,
   SandboxGoneError,
   type TimedOutCommand,
@@ -171,16 +172,25 @@ export type ComputerHandle = {
   closeScreen: (slot: number) => Promise<void>;
   /**
    * An open Screen's Chromium DevTools endpoint and its noVNC link, which carries the token that
-   * `openScreen` made. Both are refused without the sandbox's traffic access token. Throws when
-   * the Screen isn't open.
+   * `openScreen` made. Each comes with the headers a request to it must carry: the sandbox's
+   * traffic access token, and whatever routes it to the sandbox and port, so a client never uses
+   * one endpoint's headers for the other. Throws when the Screen isn't open.
    */
   screenUrls: (slot: number) => Promise<ScreenUrls>;
   /** Makes an open Screen's x11vnc view-only (`view`) or lets a viewer drive it (`control`). */
   setScreenControl: (slot: number, mode: ScreenControl) => Promise<void>;
+  /**
+   * Records activity now, without waking the Computer: a live view of a Screen calls it while it is
+   * open, so the Computer stays awake while the user watches.
+   */
+  heartbeat: () => Promise<void>;
 };
 
-/** The URLs of one Screen. */
-export type ScreenUrls = { cdpUrl: string; novncUrl: string };
+/**
+ * The endpoints of one Screen: Chromium's DevTools, and the noVNC page (`url` is the page's link,
+ * `vnc.html` with its query).
+ */
+export type ScreenUrls = { cdp: Endpoint; novnc: Endpoint };
 
 /** Whether a Screen's viewer only watches, or drives it. */
 export type ScreenControl = "view" | "control";
@@ -211,6 +221,17 @@ export class ComputerOperationError extends Error {
   constructor(cause: unknown) {
     super(cause instanceof Error ? cause.message : String(cause), { cause });
     this.name = "ComputerOperationError";
+  }
+}
+
+/**
+ * What `screenUrls` fails with, as the cause of its `ComputerOperationError`, when the Screen isn't
+ * open (never opened, closed, or lost to a rebuild).
+ */
+export class ScreenNotOpenError extends Error {
+  constructor(slot: number) {
+    super(`Screen ${slot} is not open`);
+    this.name = "ScreenNotOpenError";
   }
 }
 
@@ -343,26 +364,24 @@ export function computer({ provider }: ComputerOptions): ComputerPlugin {
               assertSlot(slot);
               return operate(async (id) => {
                 const token = await provider.readFile(id, screenTokenPath(slot));
-                if (!token) throw new Error(`Screen ${slot} is not open`);
-                const [novnc, cdpUrl] = await Promise.all([
-                  provider.hostUrl(id, novncPort(slot)),
-                  provider.hostUrl(id, cdpPort(slot)),
+                if (!token) throw new ScreenNotOpenError(slot);
+                const [novnc, cdp] = await Promise.all([
+                  provider.endpoint(id, novncPort(slot)),
+                  provider.endpoint(id, cdpPort(slot)),
                 ]);
                 const query = new URLSearchParams({
                   path: `websockify?token=${new TextDecoder().decode(token)}`,
                   autoconnect: "1",
                   resize: "scale",
                 });
-                return {
-                  cdpUrl,
-                  novncUrl: `${novnc}/vnc.html?${query}`,
-                };
+                return { cdp, novnc: { ...novnc, url: `${novnc.url}/vnc.html?${query}` } };
               });
             },
             setScreenControl: async (slot, mode) => {
               assertSlot(slot);
               return operate((id) => screenCommand(id, `${mode} ${slot}`));
             },
+            heartbeat: () => recordActivity(sdk, userId),
             run: (command, { cwd, timeoutMs = defaultCommandTimeoutMs, deadline, signal } = {}) =>
               operate((id) => {
                 // A stop during the wake runs nothing.

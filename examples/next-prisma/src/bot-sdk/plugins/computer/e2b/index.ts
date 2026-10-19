@@ -1,5 +1,6 @@
 import {
   CommandExitError,
+  ConnectionConfig,
   FileNotFoundError,
   FileType,
   NotFoundError,
@@ -17,7 +18,12 @@ import { boundedOutput } from "./bounded-output";
 export type E2bProviderOptions = {
   apiKey: string;
   apiUrl: string;
-  sandboxUrl: string;
+  /**
+   * Where the self-hosted E2B serves sandbox ports (`E2B_SANDBOX_URL`), routing each request by its
+   * `E2b-Sandbox-Id` and `E2b-Sandbox-Port` headers. Unset, the SDK reads `E2B_SANDBOX_URL`; with
+   * neither, a port is reached at its own host (`https://<port>-<id>.<domain>`).
+   */
+  sandboxUrl?: string;
   /** The template's name, which is its version (for example `ai-chat-computer-v1`). */
   template: string;
 };
@@ -39,6 +45,10 @@ export function e2bProvider({
   template,
 }: E2bProviderOptions): ComputerProvider {
   const connection = { apiKey, apiUrl, sandboxUrl };
+  // Resolved as the SDK resolves it for envd (the option, else `E2B_SANDBOX_URL`), so a port's
+  // traffic, and its traffic token, go where the sandbox's own traffic goes.
+  const resolved = new ConnectionConfig(connection);
+  const portsUrl = resolved.sandboxUrl?.replace(/\/+$/, "");
   // The connected sandbox of each id: a connect is a control-plane round trip, and an operation
   // would pay it every time. An entry goes when its sandbox is paused, killed or gone, and when
   // a call on it fails, so the next call connects afresh.
@@ -96,9 +106,22 @@ export function e2bProvider({
       return { sandboxId: sandbox.sandboxId };
     },
 
-    async hostUrl(sandboxId, port) {
-      const host = await withSandbox(sandboxId, async (sandbox) => sandbox.getHost(port));
-      return `https://${host}`;
+    async endpoint(sandboxId, port) {
+      const { token, host } = await withSandbox(sandboxId, async (sandbox) => ({
+        token: sandbox.trafficAccessToken,
+        host: portsUrl ? undefined : sandbox.getHost(port),
+      }));
+      const headers: Record<string, string> = token ? { "e2b-traffic-access-token": token } : {};
+      // The Embed serves every port at its sandbox URL and routes by these headers, as the SDK
+      // does for envd; a port's own host (`*.e2b.app`) is E2B Cloud's.
+      if (portsUrl) {
+        return {
+          url: portsUrl,
+          headers: { ...headers, "E2b-Sandbox-Id": sandboxId, "E2b-Sandbox-Port": String(port) },
+        };
+      }
+      // In debug mode the SDK's host is a plain-HTTP localhost port.
+      return { url: `${resolved.debug ? "http" : "https"}://${host}`, headers };
     },
 
     async resume(sandboxId, { timeoutMs }) {

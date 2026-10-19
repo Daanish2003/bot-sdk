@@ -23,6 +23,10 @@ import {
   rotateWebhook,
 } from "../routine";
 import { cancelCheckIn, listCheckIns } from "../check-in";
+import { listHelpers } from "../helper-card";
+import { helperDone } from "../hand-off";
+import { stopHelpers } from "../helper-tools";
+import { screenControl, screenView } from "../screen-view";
 import { isTimeZone } from "../time-zone";
 import { sendToBot, stopBot } from "../turn";
 
@@ -177,6 +181,61 @@ const botRouter = {
       .input(z.object({ checkInId: z.uuid() }))
       .handler(({ context, input }) =>
         cancelCheckIn(context.sdk, context.user.id, input.checkInId),
+      ),
+  },
+
+  /** The Helpers of the caller's Bots (#590). */
+  helper: {
+    /** One of the caller's Bots' Helpers, oldest first, each with the Message its card follows. */
+    list: protectedProcedure
+      .input(z.object({ botId: z.uuid() }))
+      .handler(async ({ context, input }) => {
+        const found = await findBot(context.sdk.db, context.user.id, input.botId);
+        if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
+        return listHelpers(context.sdk.db, input.botId);
+      }),
+
+    /**
+     * The user's Done on a Helper waiting for them at a hand-off (#568): it goes back to running and
+     * a fresh job carries on from where it stopped, and its Computer card reads done. Refused,
+     * "This task was stopped.", once it isn't waiting. Another user's Helper is not found.
+     */
+    done: protectedProcedure
+      .input(z.object({ helperId: z.uuid() }))
+      .handler(({ context, input }) => helperDone(context.sdk, context.user.id, input.helperId)),
+
+    /**
+     * Stops one of the caller's Bot's Helpers, or all of its live ones with no `helperId`, as
+     * `stop_helpers` does: no `helper` Trigger. One that already ended, or isn't the Bot's, stays
+     * as it is. Another user's Bot is not found.
+     */
+    stop: protectedProcedure
+      .input(z.object({ botId: z.uuid(), helperId: z.uuid().optional() }))
+      .handler(async ({ context, input }) => {
+        const found = await findBot(context.sdk.db, context.user.id, input.botId);
+        if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
+        await context.sdk.db.transaction((tx) =>
+          stopHelpers(context.sdk, tx, input.botId, input.helperId),
+        );
+      }),
+  },
+
+  /** The live view of a Computer-use Helper's Screen (#597). Another user's Helper is not found. */
+  screen: {
+    /**
+     * A fresh live-view link to the Screen of one of the caller's live Helpers, never stored. It
+     * wakes the Computer and reopens the Screen when it isn't open, and the view starts view-only.
+     * Refused, "This task was stopped.", once the Helper ended.
+     */
+    view: protectedProcedure
+      .input(z.object({ helperId: z.uuid() }))
+      .handler(({ context, input }) => screenView(context.sdk, context.user.id, input.helperId)),
+
+    /** Take control (`control`) and give back (`view`): switches the Screen's x11vnc. */
+    control: protectedProcedure
+      .input(z.object({ helperId: z.uuid(), mode: z.enum(["view", "control"]) }))
+      .handler(({ context, input }) =>
+        screenControl(context.sdk, context.user.id, input.helperId, input.mode),
       ),
   },
 };

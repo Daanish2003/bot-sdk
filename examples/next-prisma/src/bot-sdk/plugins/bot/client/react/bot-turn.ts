@@ -209,7 +209,7 @@ async function runSend(
 export const backgroundPollMs = 15_000;
 
 /**
- * Asks again for Bot `botId`'s Conversation, Routines and Check-ins every `backgroundPollMs` while
+ * Asks again for Bot `botId`'s Conversation, Routines, Check-ins and Helpers every `backgroundPollMs` while
  * `expected`: an approved Routine or a pending Check-in may run with no one sending, so its run
  * and what it changed show without a reload, even a run too quick to be seen running. A run found
  * running is then followed every 2 s by `useBotTurn`.
@@ -224,6 +224,8 @@ export function useBackgroundRuns(botId: string, expected: boolean) {
       orpc.bot.get.queryKey(input),
       orpc.bot.routine.list.queryKey(input),
       orpc.bot.checkIn.list.queryKey(input),
+      // A run may start a Helper.
+      orpc.bot.helper.list.queryKey(input),
     ];
     const timer = setInterval(() => {
       for (const queryKey of keys) void queryClient.invalidateQueries({ queryKey });

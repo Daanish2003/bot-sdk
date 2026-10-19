@@ -511,6 +511,9 @@ importers:
       pg:
         specifier: ^8.23.1
         version: 8.23.1
+      playwright-core:
+        specifier: 1.63.0
+        version: 1.63.0
       react:
         specifier: 'catalog:'
         version: 19.3.0
