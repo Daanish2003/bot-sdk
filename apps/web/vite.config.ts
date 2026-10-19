@@ -12,6 +12,11 @@ export default defineConfig({
   resolve: {
     tsconfigPaths: true,
   },
+  build: {
+    // The Browser tool (#594) imports playwright-core, which cannot be bundled (chromium-bidi). The
+    // client graph reaches it through services.ts but never runs it; Nitro traces it for the server.
+    rolldownOptions: { external: ["playwright-core"] },
+  },
   plugins: [
     varlockVitePlugin({ ssrInjectMode: "auto-load" }),
     tailwindcss(),
