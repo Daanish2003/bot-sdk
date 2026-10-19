@@ -119,6 +119,10 @@ export function zonedTime(at: Date, zone: string): string {
 /**
  * What a Routine's fire gives the Model (#539), kept on its Trigger: a wake notice, then the prompt
  * as it was at the fire, so an edit made later never changes what a Turn reads.
+ *
+ * The notice names the message to leave out (#582): with "If there's nothing new worth telling the
+ * user, send nothing, not even to say so.", gpt-5.4-mini sent "No new Vite or React release
+ * today…" on the eval's routine-run-nothing-new case in 3 of 6 runs.
  */
 export function routineSnapshot({
   name,
@@ -135,8 +139,8 @@ export function routineSnapshot({
   const when = zonedTime(slot, zone);
   return (
     `Routine ${JSON.stringify(name)} ran at ${when} (${zone}). The user didn't send this; it's ` +
-    `their approved Routine. If there's nothing new worth telling the user, send nothing, not ` +
-    `even to say so.\n\n${prompt}`
+    `their approved Routine. Message the user only if this run finds something new. If it finds ` +
+    `nothing new, send nothing at all, not even a message saying nothing changed.\n\n${prompt}`
   );
 }
 
