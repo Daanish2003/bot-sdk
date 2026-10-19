@@ -139,6 +139,9 @@ const sandboxOf = (fake: ReturnType<typeof fakeComputerProvider>) => ({
   screenToken: new TextDecoder().decode(fake.files.get("/tmp/screens/1/token")),
 });
 
+/** A beat queries the database twice, which can take more than `vi.waitFor`'s default 1 s under load. */
+const beatTimeout = { timeout: 10_000 };
+
 const lastActiveAt = async (userId: string) =>
   (await getTestDb().select().from(computerTable).where(eq(computerTable.userId, userId)))[0]
     ?.lastActiveAt;
@@ -496,7 +499,7 @@ describe("the live view's proxy", () => {
         const at = await lastActiveAt(user.id);
         expect(at!.getTime()).toBeGreaterThanOrEqual(Date.now() + 4 * minuteMs - 5_000);
         return at;
-      });
+      }, beatTimeout);
 
       hooks.close(peer);
       offset.ms = 9 * minuteMs;
@@ -520,7 +523,7 @@ describe("the live view's proxy", () => {
 
       await vi.advanceTimersByTimeAsync(minuteMs);
 
-      await vi.waitFor(() => expect(peer.closed).toBe(true));
+      await vi.waitFor(() => expect(peer.closed).toBe(true), beatTimeout);
     } finally {
       vi.useRealTimers();
     }
