@@ -54,8 +54,8 @@ export function webSearchTool(
         return { results };
       } catch (caught) {
         // A stopped Turn or an expired time limit leaves the call unanswered, not failed.
-        if (context?.abortSignal?.aborted) throw caught;
-        const reason = caught instanceof SearchError ? caught.reason : "failed";
+        if (context?.abortSignal?.aborted || !(caught instanceof SearchError)) throw caught;
+        const reason = caught.reason;
         return { error: searchErrorMessages[reason], reason };
       }
     }),
