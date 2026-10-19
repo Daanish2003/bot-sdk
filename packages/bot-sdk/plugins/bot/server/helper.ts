@@ -19,6 +19,7 @@ import { computerOf } from "./computer-tools";
 import { type LoopKit, type LoopResult, runLoop } from "./loop";
 import { lockConversation, receive } from "./router";
 import { hintChanged } from "./turn";
+import { webSearchTool } from "./web-search";
 
 /** The runner job that runs one Helper (#565). */
 export const botHelperJobName = "bot.helper";
@@ -82,14 +83,15 @@ const startHelperDefinition = toolDefinition({
   name: startHelperToolName,
   description:
     "Hand a complete task to a Helper, which works on it in the background while you keep talking " +
-    "to the user. A general Helper has the shell and files; a computer_use Helper has its own " +
-    "Screen with a browser, for websites. It sees only the task, " +
+    "to the user. A general Helper has the shell, files and web search; a computer_use Helper has " +
+    "its own Screen with a browser, for websites. It sees only the task, " +
     "nothing of this conversation, so write the task so it stands alone: the goal, everything it " +
     "needs to know, and what to report. Its short report comes back to you later; tell the user " +
     "what matters in it. It returns the Helper's id.",
   inputSchema: z.object({
     type: z.enum(["general", "computer_use"]).meta({
-      description: "general: the shell and files. computer_use: a browser on its own Screen.",
+      description:
+        "general: the shell, files and web search. computer_use: a browser on its own Screen.",
     }),
     task: z.string().trim().min(1, "task must not be empty").meta({
       description: "The complete task, written so it stands alone.",
@@ -308,7 +310,12 @@ function playHelper(
     // The Bot isn't told by its Helper's results: its own next Computer call tells it.
     tellsBot: false,
     setup: async (kit) => {
-      if (!session) return { systemPrompts: [generalHelperPrompt], tools: kit.computerTools };
+      if (!session) {
+        return {
+          systemPrompts: [generalHelperPrompt],
+          tools: [...kit.computerTools, webSearchTool(deps, helper.userId, kit.liveActivity)],
+        };
+      }
       // A Screen that won't open now is opened again by the first Browser tool, which tells the
       // Helper why it can't; anything else ends the Helper `error`.
       const unlessComputerFailed = (caught: unknown) => {
@@ -363,7 +370,7 @@ function capReport(report: string): string {
 }
 
 /** The task's first line, short enough for a header. */
-function gistOf(task: string): string {
+export function gistOf(task: string): string {
   const line = task.trim().split("\n")[0]!.trim();
   return line.length <= 60 ? line : `${line.slice(0, 59)}…`;
 }

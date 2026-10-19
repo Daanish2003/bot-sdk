@@ -30,6 +30,7 @@ import { type LoopKit, type LoopResult, type LoopSetup, runLoop } from "./loop";
 import { botMessages, findBot, textParts, toBotMessage, turnTimeLimitMs } from "./store";
 import { deleteRoutine, routinesPrompt, saveRoutine, updateRoutine } from "./routine";
 import { timeNotice } from "./time-zone";
+import { webSearchTool } from "./web-search";
 
 /** The most Steps a Turn may take; one more ends it `error` with `step_limit`. */
 export const turnStepLimit = 10;
@@ -61,13 +62,13 @@ const promptOpening =
 
 /** What the Bot can't do, with no Computer. */
 const onlyToolLimits =
-  "It is your only tool: you cannot send email or messages to anyone else, look up live data, or act " +
+  "Besides it, you have only web_search: you cannot send email or messages to anyone else, or act " +
   "outside this chat. ";
 
 /** What the Bot can't do, with its Computer. */
 const computerLimits =
-  "Besides it, you have only your computer (below): you cannot send email or messages to anyone " +
-  "else. ";
+  "Besides it, you have only web_search and your computer (below): you cannot send email or " +
+  "messages to anyone else. ";
 
 /**
  * The Bot's rules, with or without its Computer. The sentence after "say plainly that you cannot"
@@ -916,6 +917,7 @@ async function turnSetup(deps: BotSdkContext, turn: TurnFacts, kit: LoopKit): Pr
       setCheckInTool,
       cancelCheckInToolImpl,
       listCheckInsTool,
+      webSearchTool(deps, turn.userId, liveActivity),
       ...(withComputer ? [...kit.computerTools, startHelperTool(deps, turn, liveActivity)] : []),
     ],
     ended: () => endTurn,
