@@ -58,12 +58,12 @@ const startHelperDefinition = toolDefinition({
   name: startHelperToolName,
   description:
     "Hand a complete task to a Helper, which works on it in the background while you keep talking " +
-    "to the user. A general Helper has the shell, files and web search. It sees only the task, " +
+    "to the user. A general Helper has the shell and files. It sees only the task, " +
     "nothing of this conversation, so write the task so it stands alone: the goal, everything it " +
     "needs to know, and what to report. Its short report comes back to you later; tell the user " +
     "what matters in it. It returns the Helper's id.",
   inputSchema: z.object({
-    type: z.enum(["general"]).meta({ description: "general: shell, files and web search." }),
+    type: z.enum(["general"]).meta({ description: "general: the shell and files." }),
     task: z.string().trim().min(1, "task must not be empty").meta({
       description: "The complete task, written so it stands alone.",
     }),
@@ -93,7 +93,7 @@ export function startHelperTool(
       const call = await deps.plugin("models").resolveModelCall(turn.userId, turn.model);
       if (call && !(await call.meter.mayRun()).ok) return { error: helperQuotaSpentError };
       // The Bot's row lock, so two calls can't both take the last place.
-      await tx.select({ id: bot.id }).from(bot).where(eq(bot.id, turn.botId)).for("update");
+      await tx.select({ id: bot.id }).from(bot).where(eq(bot.id, turn.botId)).for("no key update");
       const [live] = await tx
         .select({ count: count() })
         .from(botHelper)
@@ -212,6 +212,8 @@ function playHelper(
     stepLimit: helperStepLimit,
     timeLimitMs: helperTimeLimitMs,
     attempt,
+    // The Bot isn't told by its Helper's results: its own next Computer call tells it.
+    tellsBot: false,
     setup: async (kit) => ({ systemPrompts: [generalHelperPrompt], tools: kit.computerTools }),
   });
 }

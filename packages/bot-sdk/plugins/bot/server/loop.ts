@@ -95,6 +95,11 @@ export type LoopOptions = {
   setup: (kit: LoopKit) => Promise<LoopSetup>;
   /** The attempt's signal: the live call stops when it aborts. With none, there is no time limit. */
   attempt?: AbortSignal;
+  /**
+   * Whether a rebuild the loop's results tell counts as told to the Bot (true by default). A
+   * Helper's loop tells only its own context, so the Bot still hears of it in its next Turn.
+   */
+  tellsBot?: boolean;
 };
 
 /** What a played loop came to. `failure` is an activity that threw, which recorded nothing. */
@@ -355,7 +360,7 @@ export async function runLoop(
    */
   const recordTold = async <T>(result: T): Promise<T> => {
     if (telling) {
-      await markComputerRebuildSeen(deps.db, owner.botId, telling);
+      if (options.tellsBot !== false) await markComputerRebuildSeen(deps.db, owner.botId, telling);
       rebuildSeenAt = telling;
       telling = undefined;
     }

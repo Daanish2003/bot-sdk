@@ -2,7 +2,14 @@ import type { AnyTextAdapter, ModelMessage, TextOptions } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { botHelper, botTrigger, botTurn, job, usage } from "../../../../core/server/db/schema";
+import {
+  botHelper,
+  botTrigger,
+  botTurn,
+  computer as computerTable,
+  job,
+  usage,
+} from "../../../../core/server/db/schema";
 import { deleteUserData } from "../../../../core/server/user-data";
 import type { HostProvider } from "../../../../plugins/assistant/server/deps";
 import {
@@ -512,6 +519,41 @@ describe("how many Helpers a Bot runs", () => {
       tooManyGeneralHelpersError,
     ]);
     expect((await helpersOf(botId)).map((row) => row.task)).toEqual(["One.", "Two.", "Three."]);
+  });
+});
+
+describe("a rebuilt Computer", () => {
+  it("tells the Helper once, and still tells the Bot", async () => {
+    const { client, botId, helperFake, turnFake, computerFake, deps, user } = await botWith(
+      [
+        handsOff("List the files."),
+        round(shell("ls")),
+        round(sends({ text: "Done.", endTurn: true })),
+      ],
+      [round(shell("ls")), round(shell("ls")), round(text("No files."))],
+    );
+    // The user's Computer exists and sleeps, then its sandbox is lost: its next wake rebuilds it.
+    await deps.plugin("computer").forUser(user.id).run("true");
+    await getTestDb()
+      .update(computerTable)
+      .set({ state: "asleep" })
+      .where(eq(computerTable.userId, user.id));
+    computerFake.lose(computerFake.callsOf("create")[0]!.sandboxId);
+
+    await send(client, botId, "what's on the computer?");
+    await settled(botId);
+
+    const shellResults = (call: TextOptions | undefined) =>
+      inputOf(call)
+        .filter((entry) => entry.role === "tool")
+        .map((entry) => JSON.parse(String(entry.content)));
+    // The Helper hears of it in its first result only.
+    expect(shellResults(helperFake.calls[2]).map((result) => "note" in result)).toEqual([
+      true,
+      false,
+    ]);
+    // The Bot's own next Computer call still carries the note: the Helper's doesn't count for it.
+    expect(shellResults(turnFake.calls[2]).at(-1)).toHaveProperty("note");
   });
 });
 
