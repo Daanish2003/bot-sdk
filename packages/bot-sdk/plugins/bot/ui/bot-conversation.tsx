@@ -8,12 +8,14 @@ import { toast } from "sonner";
 import { useI18n } from "../../../core/client/react/provider";
 import { serverErrorText } from "../../../core/client/rpc-error";
 import { useBotTurn } from "../client/react/bot-turn";
+import { useBotRoutines } from "../client/react/routines";
 import { BotAvatar } from "./bot-avatar";
+import { RoutineCard } from "./routine-card";
 
 /**
  * A Bot's Conversation: the Messages sent in it, the user's on the right and the Bot's on the left,
  * ••• while a Turn runs, and "Seen ✓" under the user's last Message when the Bot stayed quiet, or "Couldn't reply" when the
- * Turn failed.
+ * Turn failed. A Routine the Bot created shows after the Turn that created it.
  */
 export function BotConversation({ botId }: { botId: string }) {
   // One instance per Bot, so a Turn's state never shows on another Bot.
@@ -35,6 +37,8 @@ function BotConversationView({ botId }: { botId: string }) {
     },
   );
 
+  const { routines, approve, decline } = useBotRoutines(botId, working);
+
   if (error) {
     return (
       <p className="m-auto p-4 text-sm text-muted-foreground">
@@ -51,6 +55,19 @@ function BotConversationView({ botId }: { botId: string }) {
     setDraft("");
     void send(text);
   };
+  const routineCard = (routine: (typeof routines)[number]) => (
+    <RoutineCard key={routine.id} routine={routine} onApprove={approve} onDecline={decline} />
+  );
+  // Each Routine under the Message its card follows; one whose Message isn't shown yet (its Turn
+  // still runs here) follows the rest.
+  const shownIds = new Set(messages.map((message) => message.id));
+  const routinesAfter = new Map<string, typeof routines>();
+  for (const routine of routines) {
+    const after =
+      routine.afterMessageId && shownIds.has(routine.afterMessageId) ? routine.afterMessageId : "";
+    routinesAfter.set(after, [...(routinesAfter.get(after) ?? []), routine]);
+  }
+
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) submit(event);
   };
@@ -87,8 +104,10 @@ function BotConversationView({ botId }: { botId: string }) {
             {message.id === failedMessageId && (
               <p className="self-end text-xs text-muted-foreground">{t("bots.couldntReply")}</p>
             )}
+            {routinesAfter.get(message.id)?.map(routineCard)}
           </Fragment>
         ))}
+        {routinesAfter.get("")?.map(routineCard)}
         {working && (
           <div
             role="status"

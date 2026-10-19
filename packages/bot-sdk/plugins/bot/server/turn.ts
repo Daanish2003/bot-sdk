@@ -28,6 +28,7 @@ import {
   type WorkflowContext,
   WorkflowYieldedError,
 } from "../../runner/server/workflow/engine";
+import { routineScheduleSchema } from "../shared/routine";
 import type { BotMessage, BotSendEvent, TurnStatus } from "../shared/turn";
 import {
   botTurnJobName,
@@ -37,21 +38,27 @@ import {
   turnStarted,
   waitingIn,
 } from "./router";
+import { routinesPrompt, saveRoutine } from "./routine";
 import { botMessages, findBot, textParts, toBotMessage, turnTimeLimitMs } from "./store";
 import { timeNotice } from "./time-zone";
 
 /** The most Steps a Turn may take; one more ends it `error` with `step_limit`. */
 export const turnStepLimit = 10;
 
-/** The Bot's one tool in step 1: the only way it reaches the user. */
+/** The Bot's tool for reaching the user: the only way it does. */
 export const sendToUserToolName = "send_to_user";
+
+/** The Bot's tool that saves a Routine for the user's Approval (#538). */
+export const createRoutineToolName = "create_routine";
 
 /** The fixed Bot system prompt: there are no per-Bot instructions. */
 export const botSystemPrompt =
   "You are a Bot the user talks to in a messenger. The user never sees your text replies or your " +
   `tool calls; they see only the messages you send with the ${sendToUserToolName} tool. It is your ` +
-  "only tool: you cannot send email or messages to anyone else, look up live data, or act outside " +
-  "this chat. When asked to, say plainly that you cannot, then offer what you can do. To say " +
+  "only way to reach them: you cannot send email or messages to anyone else, look up live data, or " +
+  "act outside this chat. When asked to, say plainly that you cannot, then offer what you can do. " +
+  `When the user asks for something to happen on a schedule, save it with ${createRoutineToolName}; ` +
+  "it runs only once the user approves it. To say " +
   `something, call ${sendToUserToolName}. You may call it more than once, in order. Set endTurn to ` +
   "true on your last message, so you stop there. Anything you want the user to read goes through " +
   "it, including a refusal (you cannot do what they asked) and a question you need answered. If " +
@@ -99,6 +106,33 @@ const sendToUserDefinition = toolDefinition({
     text: z.string().meta({ description: "The message the user reads, as plain text." }),
     endTurn: z.boolean().meta({
       description: "true on your last message of this turn, false when you will send more.",
+    }),
+  }),
+});
+
+const createRoutineDefinition = toolDefinition({
+  name: createRoutineToolName,
+  description:
+    "Save a Routine: a prompt you run on a schedule, days of the week at a time in the user's time " +
+    "zone. Use it when the user asks for something recurring. It runs only once the user approves " +
+    "it, and each run wakes you with its prompt.",
+  inputSchema: z.object({
+    name: z
+      .string()
+      .regex(
+        /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
+        'name must be a slug: lowercase letters, digits and hyphens, like "morning-brief"',
+      )
+      .max(60, "name must be at most 60 characters")
+      .meta({ description: 'A short slug naming the Routine, like "morning-brief".' }),
+    prompt: z
+      .string()
+      .trim()
+      .min(1, "prompt must not be empty")
+      .meta({ description: "What to do on each run, written as an instruction to yourself." }),
+    schedule: routineScheduleSchema.meta({
+      description:
+        'When it runs, like { "days": ["mon", "tue", "wed", "thu", "fri"], "at": "08:00" }.',
     }),
   }),
 });
@@ -765,48 +799,80 @@ async function playTurn(
     },
   } as unknown as AnyTextAdapter;
 
-  const sendToUser = sendToUserDefinition.server(async ({ text, endTurn: last }, context) => {
+  /**
+   * A Turn's activity other than a model call: its writes commit with its Checkpoint, so they
+   * happen once across a crash. `write` runs only live, so a recorded call still replays: past the
+   * limit, a resumed Turn writes nothing more, and never answers a question from long ago. A failure
+   * to save, or a yield, is the attempt's `failure`; a tool call's `toolCallId` is then unanswered.
+   */
+  const liveActivity = async <T>(
+    name: string,
+    toolCallId: string | undefined,
+    write: (tx: Transaction) => Promise<T>,
+  ): Promise<T> => {
     try {
-      // The Message commits with its Checkpoint, so it is sent once across a crash.
-      const result = await ctx.activity(sendToUserToolName, async (tx) => {
-        // Run only live, so a recorded send still replays: past the limit, a resumed Turn sends
-        // nothing more, and never answers a question from long ago.
+      return await ctx.activity(name, async (tx) => {
         if (attempt && (expired || timeLeftMs() <= 0)) timeUp();
         abortController.signal.throwIfAborted();
-        if (!text.trim()) return { error: emptyTextError };
-        await appendMessage(tx, turn.conversationId, {
-          role: "assistant",
-          parts: textParts(text),
-          status: "complete",
-          createdAt: deps.clock(),
-        });
-        return { sent: true };
+        return write(tx);
       });
-      if ("sent" in result) {
-        if (last) endTurn = true;
-        await hintChanged(deps, turn.conversationId);
-      }
-      return result;
     } catch (caught) {
       // A time limit or a stop recorded nothing, and isn't a failure to retry.
       if (!abortController.signal.aborted) failure ??= caught;
-      if (context?.toolCallId) unanswered.add(context.toolCallId);
+      if (toolCallId) unanswered.add(toolCallId);
       abortController.abort();
       throw caught;
     }
+  };
+
+  const sendToUser = sendToUserDefinition.server(async ({ text, endTurn: last }, context) => {
+    const result = await liveActivity(sendToUserToolName, context?.toolCallId, async (tx) => {
+      if (!text.trim()) return { error: emptyTextError };
+      await appendMessage(tx, turn.conversationId, {
+        role: "assistant",
+        parts: textParts(text),
+        status: "complete",
+        createdAt: deps.clock(),
+      });
+      return { sent: true };
+    });
+    if ("sent" in result) {
+      if (last) endTurn = true;
+      await hintChanged(deps, turn.conversationId);
+    }
+    return result;
   });
+
+  // The Turn carries on once the Routine is saved: the Approval is the Routine's, not the call's.
+  const createRoutine = createRoutineDefinition.server(async (input, context) =>
+    liveActivity(createRoutineToolName, context?.toolCallId, (tx) =>
+      saveRoutine(tx, {
+        ...input,
+        botId: turn.botId,
+        conversationId: turn.conversationId,
+        turnId: turn.id,
+        now: deps.clock(),
+      }),
+    ),
+  );
 
   /** What the Turn's model calls and tool calls added to its input, in order. */
   const messages: ModelMessage[] = [];
   try {
+    // The Bot's Routines as the Turn starts, read once: a replay reads the recorded list.
+    const routines = await liveActivity(
+      "routines",
+      undefined,
+      async (tx) => (await routinesPrompt(tx, turn.botId)) ?? null,
+    );
     let reminded = false;
     for (;;) {
       let engine: ChatMiddlewareContext | undefined;
       const stream = chat({
         adapter: durableAdapter,
         messages: [...input, ...messages],
-        systemPrompts: [botSystemPrompt],
-        tools: [sendToUser],
+        systemPrompts: routines ? [botSystemPrompt, routines] : [botSystemPrompt],
+        tools: [sendToUser, createRoutine],
         // One call at a time, in call order, which is a workflow's identity.
         toolExecution: "sequential",
         abortController,

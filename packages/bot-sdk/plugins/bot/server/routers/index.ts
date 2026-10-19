@@ -5,6 +5,7 @@ import { protectedProcedure } from "../../../../core/server/procedures";
 import { rpcError } from "../../../../core/server/rpc-error";
 import { botMessages, createBot, findBot, latestTurnStatus, listBots } from "../store";
 import { botSendEventSchema } from "../../shared/turn";
+import { approveRoutine, declineRoutine, listRoutines } from "../routine";
 import { isTimeZone } from "../time-zone";
 import { sendToBot, stopBot } from "../turn";
 
@@ -75,6 +76,32 @@ const botRouter = {
   stop: protectedProcedure
     .input(z.object({ botId: z.uuid() }))
     .handler(({ context, input }) => stopBot(context.sdk, context.user.id, input.botId)),
+
+  /** The Routines of the caller's Bots (#538). Approving or declining one never wakes the Bot. */
+  routine: {
+    /** One of the caller's Bots' Routines, sorted by name, each with the Message its card follows. */
+    list: protectedProcedure
+      .input(z.object({ botId: z.uuid() }))
+      .handler(async ({ context, input }) => {
+        const found = await findBot(context.sdk.db, context.user.id, input.botId);
+        if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
+        return listRoutines(context.sdk.db, input.botId);
+      }),
+
+    /** Approves a pending Routine: it turns `active`. Another user's is not found. */
+    approve: protectedProcedure
+      .input(z.object({ routineId: z.uuid() }))
+      .handler(({ context, input }) =>
+        approveRoutine(context.sdk.db, context.user.id, input.routineId, context.sdk.clock()),
+      ),
+
+    /** Declines a pending Routine, which deletes it. Another user's is not found. */
+    decline: protectedProcedure
+      .input(z.object({ routineId: z.uuid() }))
+      .handler(({ context, input }) =>
+        declineRoutine(context.sdk.db, context.user.id, input.routineId),
+      ),
+  },
 };
 
 /** The `bot` plugin's routers, served under `<basePath>/rpc/<key>`. */
