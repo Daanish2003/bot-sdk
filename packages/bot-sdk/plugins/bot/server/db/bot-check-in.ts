@@ -4,10 +4,11 @@ import { chatSchema } from "../../../../core/server/db/chat-schema";
 import { bot } from "./bot";
 import { botTurn } from "./bot-turn";
 
-/** How a Check-in stands: `pending` until it fires once or the Bot or the user cancels it. */
+/** How a Check-in stands: `pending` until it fires once, fails for good, or the Bot or the user cancels it. */
 export const botCheckInState = chatSchema.enum("bot_check_in_state", [
   "pending",
   "fired",
+  "failed",
   "cancelled",
 ]);
 

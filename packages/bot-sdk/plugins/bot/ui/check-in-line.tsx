@@ -46,7 +46,7 @@ export function CancelCheckIn({
 
 /**
  * A Check-in in its Bot's Conversation, after the Turn that set it (#540): "Check-in set for <time>:
- * "<note>"" with Cancel, struck through once cancelled.
+ * "<note>"" with Cancel, struck through once cancelled, marked failed when its fire failed.
  */
 export function CheckInLine({
   checkIn,
@@ -66,6 +66,7 @@ export function CheckInLine({
           {checkInText(i18n, checkIn)}
         </span>
       </span>
+      {checkIn.state === "failed" ? <span>{i18n.t("bots.checkInFailed")}</span> : null}
       <CancelCheckIn checkIn={checkIn} {...actions} />
       <span className="h-px w-8 bg-border" />
     </div>
