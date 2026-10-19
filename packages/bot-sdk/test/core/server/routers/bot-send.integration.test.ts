@@ -680,6 +680,22 @@ describe("bot.stop", () => {
 
     await expect(other.bot.stop({ botId })).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
+
+  it("stopTurns, on a Ban, ends the running Turn of each of the user's Bots stopped", async () => {
+    const { client, deps, user, botId, fake } = await botWith([], { idle: true });
+    const { id: otherBotId } = await client.bot.create({ name: "Grace", model });
+    for (const id of [botId, otherBotId]) {
+      const stream = await client.bot.send({ botId: id, id: uuidv7(), text: "hi" });
+      await stream.next();
+    }
+
+    await deps.plugin("bot").stopTurns(user.id);
+
+    for (const id of [botId, otherBotId]) {
+      expect(await turnsOf(id)).toMatchObject([{ status: "stopped", error: null }]);
+    }
+    expect(fake.calls).toHaveLength(0);
+  });
 });
 
 describe("one Turn at a time", () => {

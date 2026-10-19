@@ -62,8 +62,9 @@ async function readBody(request: Request, limit: number): Promise<string | null>
  * Hands the Router the webhook's Trigger for the active Routine whose token hashes to `tokenHash`:
  * its prompt, then the payload as untrusted data. Its ID is `routine:<id>:<key>`, so a delivery
  * retried with the same `Idempotency-Key` makes none; with no key, every call makes one. While the
- * user's Quota is spent none is handed, as for a scheduled fire. Returns the Conversation that got
- * a Trigger, `null` when none was handed, or `undefined` for no active Routine.
+ * user's Quota is spent or they are Banned (#585) none is handed, as for a scheduled fire. Returns
+ * the Conversation that got a Trigger, `null` when none was handed, or `undefined` for no active
+ * Routine.
  */
 async function receiveWebhook(
   deps: BotSdkContext,
@@ -80,9 +81,11 @@ async function receiveWebhook(
     .innerJoin(bot, eq(bot.id, botRoutine.botId))
     .where(and(eq(botRoutine.webhookTokenHash, tokenHash), eq(botRoutine.state, "active")));
   if (!owner) return undefined;
-  // The Quota is read outside the transaction, so a slow read never holds up the Conversation.
+  // The Quota and the Ban are read outside the transaction, so a slow read never holds up the
+  // Conversation.
   const call = await deps.plugin("models").resolveModelCall(owner.userId, owner.model);
   if (call && !(await call.meter.mayRun()).ok) return null;
+  if (await deps.isUserBlocked(owner.userId)) return null;
 
   return deps.db.transaction(async (tx) => {
     // The Conversation's row lock first, as in every transaction that hands the Router a Trigger.

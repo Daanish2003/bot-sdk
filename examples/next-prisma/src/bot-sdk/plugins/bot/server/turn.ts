@@ -455,6 +455,12 @@ export async function stopBot(deps: BotSdkContext, userId: string, botId: string
   await hintChanged(deps, found.conversationId);
 }
 
+/** Stops the running Turn of each of the user's Bots, as `stopBot` does (#585): a Ban calls it. */
+export async function stopUserTurns(deps: BotSdkContext, userId: string): Promise<void> {
+  const bots = await deps.db.select({ id: bot.id }).from(bot).where(eq(bot.userId, userId));
+  for (const { id } of bots) await stopBot(deps, userId, id);
+}
+
 /** The id of the Bot's running Turn, or `undefined` when none runs. */
 async function runningTurnOf(tx: Transaction, botId: string): Promise<string | undefined> {
   const [running] = await tx

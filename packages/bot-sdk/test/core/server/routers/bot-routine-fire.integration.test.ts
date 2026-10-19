@@ -82,6 +82,7 @@ async function approvedRoutine({
   manual = false,
   host = false,
   getQuota,
+  isUserBlocked,
 }: {
   at: Date;
   routine?: RoutineInput;
@@ -89,7 +90,7 @@ async function approvedRoutine({
   rounds?: Round[];
   manual?: boolean;
   host?: boolean;
-} & Pick<TestDepsOverrides, "getQuota">) {
+} & Pick<TestDepsOverrides, "getQuota" | "isUserBlocked">) {
   const timer = fakeJobClock(at);
   const creation = [round(createRoutine(routine)), round()];
   const fake = createFakeAdapter({ rounds: [...creation, ...rounds], manual });
@@ -108,6 +109,7 @@ async function approvedRoutine({
     clock: timer.clock.now,
     ...(host && { hostProviders }),
     getQuota,
+    isUserBlocked,
   });
   started.push(jobs);
   const user = await insertUser();
@@ -549,6 +551,27 @@ describe("a scheduled Routine", () => {
 
     expect(await routineTriggers(conversationId)).toEqual([]);
     expect(await queuedFires(routineId)).toEqual(["2026-10-20T07:00:00.000Z"]);
+  });
+
+  it("makes no Trigger while the user is Banned, still queues the next fire, and fires again once the Ban ends", async () => {
+    let banned = false;
+    const { conversationId, routineId, runDue, advanceTo } = await approvedRoutine({
+      at: sunday,
+      isUserBlocked: async () => banned,
+    });
+    banned = true;
+
+    advanceTo(mondaySlot);
+    await runDue();
+
+    expect(await routineTriggers(conversationId)).toEqual([]);
+    expect(await queuedFires(routineId)).toEqual(["2026-10-20T07:00:00.000Z"]);
+
+    banned = false;
+    advanceTo("2026-10-20T07:00:00.000Z");
+    await runDue();
+
+    expect(await routineTriggers(conversationId)).toHaveLength(1);
   });
 
   it("leaves no queued fire once the user is deleted", async () => {

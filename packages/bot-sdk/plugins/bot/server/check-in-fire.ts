@@ -35,8 +35,9 @@ export const checkInFireJob = defineJob({
 /**
  * Fires the Check-in while it is `pending`: hands the Router a `check_in` / `schedule` Trigger with
  * the Check-in's notice and marks it `fired`. While the user's Quota is spent no Trigger is handed
- * (there is no caller to show a 402 to), and the Check-in is `fired` all the same, so it never
- * lingers as pending. Returns the Conversation that got a Trigger, or `null`.
+ * (there is no caller to show a 402 to), nor while the user is Banned (#585), and the Check-in is
+ * `fired` all the same, so it never lingers as pending. Returns the Conversation that got a
+ * Trigger, or `null`.
  */
 async function fireCheckIn(
   deps: BotSdkContext,
@@ -49,16 +50,18 @@ async function fireCheckIn(
     .innerJoin(bot, eq(bot.id, botCheckIn.botId))
     .where(eq(botCheckIn.id, checkInId));
   if (!owner) return null;
-  // The Quota is read before any lock is taken, so a slow read never holds up the Conversation.
+  // The Quota and the Ban are read before any lock is taken, so a slow read never holds up the
+  // Conversation.
   const call = await deps.plugin("models").resolveModelCall(owner.userId, owner.model);
   const quotaSpent = call ? !(await call.meter.mayRun()).ok : false;
+  const banned = await deps.isUserBlocked(owner.userId);
   await lockConversation(tx, owner.conversationId);
   const [row] = await tx
     .update(botCheckIn)
     .set({ state: "fired", updatedAt: deps.clock() })
     .where(and(eq(botCheckIn.id, checkInId), eq(botCheckIn.state, "pending")))
     .returning();
-  if (!row || quotaSpent) return null;
+  if (!row || quotaSpent || banned) return null;
   const id = checkInKey(checkInId);
   const [seen] = await tx
     .select({ id: botTrigger.id })
