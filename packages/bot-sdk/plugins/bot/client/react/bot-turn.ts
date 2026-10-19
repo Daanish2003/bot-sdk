@@ -206,6 +206,23 @@ async function runSend(
   }
 }
 
+/** How often an idle Conversation is asked for again while a Routine or Check-in may run in it. */
+export const backgroundPollMs = 15_000;
+
+/**
+ * Asks for Bot `botId`'s Conversation every `backgroundPollMs` while `expected`: an approved
+ * Routine or a pending Check-in may run with no one sending, so its run shows without a reload. A
+ * run it finds running is then followed every 2 s by `useBotTurn`, and the lists refresh once it
+ * ends.
+ */
+export function useBackgroundRuns(botId: string, expected: boolean) {
+  const { orpc } = useChatAdapter();
+  useQuery({
+    ...orpc.bot.get.queryOptions({ input: { botId } }),
+    refetchInterval: expected ? backgroundPollMs : false,
+  });
+}
+
 /** The Bots whose Turn a `send` on this client is running, so a sidebar row can say "Working…". */
 export function useSendingBotIds(): ReadonlySet<string> {
   return new Set(useLocalTurns().keys());

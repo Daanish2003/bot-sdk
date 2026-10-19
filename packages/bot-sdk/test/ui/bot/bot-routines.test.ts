@@ -6,6 +6,7 @@ import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
+import { backgroundPollMs } from "../../../plugins/bot/client/react/bot-turn";
 import type { BotRoutine } from "../../../plugins/bot/shared/routine";
 import type { BotMessage, BotSendEvent, BotTurnProvenance } from "../../../plugins/bot/shared/turn";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
@@ -320,6 +321,31 @@ describe("a Routine's runs", () => {
     expect(rows[2]).toMatch(/^run:morning-brief · \S.*$/);
     expect(rows[2]).not.toContain("nothing to say");
     expect(rows.slice(3)).toEqual(["Three meetings today.", "The first is at 9."]);
+  });
+
+  it("shows a run that happened while the page was open and idle, with no reload", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const messages = [...before];
+      const turns = [userTurn];
+      const server = fakeBotServer(
+        messages,
+        [{ ...morningBrief("m1"), state: "active", approvedAt: createdAt }],
+        turns,
+      );
+      const { container } = mount(server);
+      await screen.findByText("Morning to you.");
+
+      // The Routine runs on the server; this page sends nothing.
+      messages.push(sentAt("m3", "assistant", "Three meetings today.", "2026-10-19T07:00:02.000Z"));
+      turns.push(run(true));
+      await act(() => vi.advanceTimersByTimeAsync(backgroundPollMs));
+
+      await screen.findByText("Three meetings today.");
+      expect(timeline(container)[2]).toMatch(/^run:morning-brief · /);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("gives a quiet run a divider of its own", async () => {

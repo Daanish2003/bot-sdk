@@ -7,7 +7,7 @@ import { toast } from "sonner";
 
 import { useI18n } from "../../../core/client/react/provider";
 import { serverErrorText } from "../../../core/client/rpc-error";
-import { useBotTurn } from "../client/react/bot-turn";
+import { useBackgroundRuns, useBotTurn } from "../client/react/bot-turn";
 import { useBotCheckIns } from "../client/react/check-ins";
 import { useBotRoutines } from "../client/react/routines";
 import { BotAvatar } from "./bot-avatar";
@@ -50,6 +50,12 @@ function BotConversationView({ botId }: { botId: string }) {
   } = useBotCheckIns(botId, working);
   const actions = { onPause: pause, onResume: resume, onDelete: remove, actingRoutines: acting };
   const checkInActions = { onCancelCheckIn, actingCheckIns };
+  useBackgroundRuns(
+    botId,
+    !working &&
+      (routines.some((routine) => routine.state === "active") ||
+        checkIns.some((checkIn) => checkIn.state === "pending")),
+  );
 
   if (error) {
     return (
