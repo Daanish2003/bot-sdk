@@ -269,7 +269,7 @@ describe("a Helper's report", () => {
     expect(helper?.endedAt).toBeInstanceOf(Date);
     const [trigger] = await helperTriggers();
     expect(trigger).toMatchObject({
-      id: `helper:${helper?.id}:1`,
+      id: `helper:${helper?.id}`,
       source: "helper",
       channel: "helper",
       text:
@@ -414,7 +414,7 @@ describe("a Helper's limits", () => {
     const [helper] = await helpersOf(botId);
     expect(helper).toMatchObject({ status: "error", report: helperEndings.crashed });
     const [trigger] = await helperTriggers();
-    expect(trigger?.id).toBe(`helper:${helper?.id}:1`);
+    expect(trigger?.id).toBe(`helper:${helper?.id}`);
     expect(trigger?.text).toContain(helperEndings.crashed);
     // The report started a Turn, queued for the runner.
     expect(await turnsOf(botId)).toHaveLength(2);

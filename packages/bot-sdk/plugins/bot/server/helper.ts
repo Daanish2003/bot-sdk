@@ -1,8 +1,8 @@
 import { type ModelMessage, toolDefinition } from "@tanstack/ai";
-import { and, asc, count, eq, inArray, isNotNull, isNull, like, ne, sql } from "drizzle-orm";
+import { and, asc, count, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { bot, botHelper, botHelperMessage, botTrigger } from "../../../core/server/db/schema";
+import { bot, botHelper, botHelperMessage } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
@@ -542,7 +542,7 @@ export function gistOf(task: string): string {
 
 /**
  * Ends a `running` Helper as `ending` says and hands the Router its report as a `helper` / `helper`
- * Trigger, under its Conversation's row lock. Its id is `helper:<id>:<n>`, the Helper's n-th report.
+ * Trigger, under its Conversation's row lock. Its id is `helper:<id>`: a Helper ends once.
  * A Helper that already ended stays as it is and sends nothing, so a retried finish sends one
  * Trigger. Returns the Conversation that got it, or `null`.
  */
@@ -571,13 +571,9 @@ async function endHelper(
     .where(and(eq(botHelper.id, helper.id), eq(botHelper.status, "running")))
     .returning({ id: botHelper.id });
   if (rows.length === 0) return null;
-  const [reports] = await tx
-    .select({ count: count() })
-    .from(botTrigger)
-    .where(like(botTrigger.id, `helper:${helper.id}:%`));
   const kind = helper.type === "general" ? "General Helper" : "Computer-use Helper";
   await receive(deps, tx, {
-    id: `helper:${helper.id}:${(reports?.count ?? 0) + 1}`,
+    id: `helper:${helper.id}`,
     conversationId: owner.conversationId,
     source: "helper",
     channel: "helper",
