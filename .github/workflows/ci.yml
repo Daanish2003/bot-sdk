@@ -111,6 +111,10 @@ jobs:
           done
           exit 1
 
+      # The Bot SDK's Browser tool tests launch a local headless Chromium.
+      - name: Install Chromium for the Browser tool tests
+        run: pnpm -F @ai-chat/bot-sdk exec playwright-core install --with-deps chromium
+
       - name: Test
         run: pnpm test
 

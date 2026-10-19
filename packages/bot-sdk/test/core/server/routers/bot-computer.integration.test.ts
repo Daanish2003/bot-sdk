@@ -133,6 +133,7 @@ const botTools = [
   "set_check_in",
   "cancel_check_in",
   "list_check_ins",
+  "web_search",
 ];
 
 const computerRow = async (userId: string) =>

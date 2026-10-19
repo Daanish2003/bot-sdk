@@ -37,6 +37,8 @@ export type ComputerProvider = {
    * without the sandbox's traffic access token.
    */
   hostUrl: (sandboxId: string, port: number) => Promise<string>;
+  /** The headers a request to a `hostUrl` must carry: the sandbox's traffic access token. */
+  trafficHeaders: (sandboxId: string) => Promise<Record<string, string>>;
   /**
    * Resumes a paused sandbox, which then pauses itself once `timeoutMs` passes. A sandbox that no
    * longer exists (its snapshot lost, or killed) is `"gone"`, and the plugin rebuilds it.

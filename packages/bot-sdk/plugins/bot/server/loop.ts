@@ -60,6 +60,16 @@ export type LoopKit = {
   ) => Promise<T>;
   /** The Computer's tools: Shell, then the file tools Read, Write, Edit and List. */
   computerTools: AnyServerTool[];
+  /**
+   * A Computer tool call of the loop's, as tool call `toolCallId`: one activity, re-run after a
+   * crash, that `operate`s live on the Computer. A failed wake or operation is its result, and
+   * after a rebuild the Bot wasn't told of, the result carries the rebuilt note.
+   */
+  computerCall: <T extends object>(
+    name: string,
+    toolCallId: string | undefined,
+    operate: (computer: ComputerHandle, live: FileToolOptions) => Promise<T>,
+  ) => Promise<T | { error: string }>;
 };
 
 /** What a loop's `setup` hands it: the system prompts, the tools, and what ends it early. */
@@ -408,6 +418,15 @@ export async function runLoop(
       return recordTold(result);
     }),
   );
+  const computerCall: LoopKit["computerCall"] = (name, toolCallId, operate) =>
+    toolCall(toolCallId, async () =>
+      recordTold(
+        await ctx.activity(name, async () => {
+          beforeLiveTool();
+          return onLiveComputer(operate);
+        }),
+      ),
+    );
   /** A file tool: one activity, re-run after a crash, and a live call like `shell`'s. */
   const fileTool =
     <Input, Output extends object>(
@@ -420,13 +439,8 @@ export async function runLoop(
       ) => Promise<Output>,
     ) =>
     (input: Input, context?: { toolCallId?: string }) =>
-      toolCall(context?.toolCallId, async () =>
-        recordTold(
-          await ctx.activity(name, async () => {
-            beforeLiveTool();
-            return onLiveComputer((computer, live) => run(computer, owner.botId, input, live));
-          }),
-        ),
+      computerCall(name, context?.toolCallId, (computer, live) =>
+        run(computer, owner.botId, input, live),
       );
   const computerTools = [
     shell,
@@ -443,7 +457,7 @@ export async function runLoop(
       systemPrompts,
       tools,
       ended = () => false,
-    } = await options.setup({ liveActivity, computerTools });
+    } = await options.setup({ liveActivity, computerTools, computerCall });
     let reminded = false;
     for (;;) {
       let engine: ChatMiddlewareContext | undefined;

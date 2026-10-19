@@ -254,6 +254,7 @@ describe("a Helper's report", () => {
       "write",
       "edit",
       "list",
+      "web_search",
     ]);
     expect(inputOf(helperFake.calls[0])).toEqual([
       { role: "user", content: "Count the files in /home/user/shared." },
