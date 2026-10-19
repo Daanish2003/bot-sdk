@@ -82,7 +82,13 @@ afterEach(async () => {
   // A stream a test leaves open keeps following its Turn, and a hint or its 2 s re-read wakes it to
   // query; one the test closes follows until the abort reaches the server. Those queries must end
   // before the next test truncates the tables.
-  await expect.poll(() => openFollowers, { timeout: 5_000 }).toBe(0);
+  await expect.poll(() => openFollowers, { timeout: 5_000 }).toBeLessThanOrEqual(followersBefore);
+});
+
+/** The open subscriptions as the test starts: one a failed test leaked must not fail the rest. */
+let followersBefore = 0;
+beforeEach(() => {
+  followersBefore = openFollowers;
 });
 
 /**
@@ -205,14 +211,16 @@ async function sendSaved(
   client: ReturnType<typeof chatRpc>,
   botId: string,
   text: string,
-  id = uuidv7(),
+  { id = uuidv7(), timeZone }: { id?: string; timeZone?: string } = {},
 ) {
   const leave = new AbortController();
-  const stream = await client.bot.send({ botId, id, text }, { signal: leave.signal });
-  const saved = await stream.next();
-  leave.abort();
-  await stream.return(undefined);
-  return saved.done ? undefined : saved.value;
+  try {
+    const stream = await client.bot.send({ botId, id, text, timeZone }, { signal: leave.signal });
+    const saved = await stream.next();
+    return saved.done ? undefined : saved.value;
+  } finally {
+    leave.abort();
+  }
 }
 
 /** The stream's events, with each Message cut down to its role and text. */
@@ -641,8 +649,7 @@ describe("a Turn off the request", () => {
 describe("bot.stop", () => {
   it("ends a queued Turn stopped at once, and its job never runs", async () => {
     const { client, botId, fake } = await botWith([round(text("Never."))], { idle: true });
-    const stream = await client.bot.send({ botId, id: uuidv7(), text: "hi" });
-    await stream.next();
+    await sendSaved(client, botId, "hi");
 
     await client.bot.stop({ botId });
 
@@ -698,10 +705,7 @@ describe("bot.stop", () => {
   it("stopTurns, on a Ban, ends the running Turn of each of the user's Bots stopped", async () => {
     const { client, deps, user, botId, fake } = await botWith([], { idle: true });
     const { id: otherBotId } = await client.bot.create({ name: "Grace", model });
-    for (const id of [botId, otherBotId]) {
-      const stream = await client.bot.send({ botId: id, id: uuidv7(), text: "hi" });
-      await stream.next();
-    }
+    for (const id of [botId, otherBotId]) await sendSaved(client, id, "hi");
 
     await deps.plugin("bot").stopTurns(user.id);
 
@@ -967,25 +971,13 @@ describe("batching quick Messages", () => {
       .filter((entry) => entry.role === "user")
       .map((entry) => withoutNotice(entry.content));
 
-  /** Sends `text` with `timeZone` and reads only the saved Message. */
-  async function sendFrom(
-    client: ReturnType<typeof chatRpc>,
-    botId: string,
-    text: string,
-    timeZone?: string,
-  ) {
-    const stream = await client.bot.send({ botId, id: uuidv7(), text, timeZone });
-    await stream.next();
-    await stream.return(undefined);
-  }
-
   // 13:05 UTC on 19 October 2026: London is on summer time, so its clock reads 14:05.
   const noon = new Date("2026-10-19T13:05:00.000Z");
 
   it("opens the Turn's newest input with the current time in the sender's zone", async () => {
     const { fake, client, botId, advance, runDue } = await batchingBot([round()], { at: noon });
 
-    await sendFrom(client, botId, "What is on today?", "Europe/London");
+    await sendSaved(client, botId, "What is on today?", { timeZone: "Europe/London" });
     advance(500);
     await runDue();
 
@@ -998,7 +990,7 @@ describe("batching quick Messages", () => {
   it("shows the time in UTC when the send carries no zone", async () => {
     const { fake, client, botId, advance, runDue } = await batchingBot([round()], { at: noon });
 
-    await sendFrom(client, botId, "What is on today?");
+    await sendSaved(client, botId, "What is on today?");
     advance(500);
     await runDue();
 
@@ -1011,8 +1003,8 @@ describe("batching quick Messages", () => {
   it("puts the time on only the newest of the Messages a Turn took", async () => {
     const { fake, client, botId, advance, runDue } = await batchingBot([round()], { at: noon });
 
-    await sendFrom(client, botId, "one", "Europe/London");
-    await sendFrom(client, botId, "two", "Asia/Tokyo");
+    await sendSaved(client, botId, "one", { timeZone: "Europe/London" });
+    await sendSaved(client, botId, "two", { timeZone: "Asia/Tokyo" });
     advance(500);
     await runDue();
 
@@ -1034,11 +1026,11 @@ describe("batching quick Messages", () => {
     const { client, botId, conversationId } = await batchingBot([round()]);
     expect(await newestTimeZone(getTestDb(), conversationId)).toBeUndefined();
 
-    await sendFrom(client, botId, "one", "Europe/London");
+    await sendSaved(client, botId, "one", { timeZone: "Europe/London" });
     expect(await newestTimeZone(getTestDb(), conversationId)).toBe("Europe/London");
-    await sendFrom(client, botId, "two", "Asia/Tokyo");
+    await sendSaved(client, botId, "two", { timeZone: "Asia/Tokyo" });
     expect(await newestTimeZone(getTestDb(), conversationId)).toBe("Asia/Tokyo");
-    await sendFrom(client, botId, "three");
+    await sendSaved(client, botId, "three");
     expect(await newestTimeZone(getTestDb(), conversationId)).toBeUndefined();
   });
 
@@ -1193,8 +1185,7 @@ describe("a resent Message", () => {
     );
     const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
     const id = uuidv7();
-    const first = await client.bot.send({ botId, id, text: "hi" });
-    expect(await first.next()).toMatchObject({ value: { message: { id } } });
+    expect(await sendSaved(client, botId, "hi", { id })).toMatchObject({ message: { id } });
     await expect.poll(() => fake.calls.length).toBe(1);
 
     const resent = await client.bot.send({ botId, id, text: "hi" });
@@ -1214,7 +1205,7 @@ describe("a resent Message", () => {
   it("streams the Turn's Messages and turnEnded when its Turn has ended", async () => {
     const { client, botId } = await botWith([round(sends({ text: "Hello!", endTurn: true }))]);
     const id = uuidv7();
-    await sendSaved(client, botId, "hi", id);
+    await sendSaved(client, botId, "hi", { id });
     await endedTurn(botId);
 
     const events = await (async () => {
@@ -1256,7 +1247,7 @@ describe("a resent Message", () => {
       { getQuota: quotaLookup({ budgetUsd: 0.0002, window: "day" }) },
     );
     const id = uuidv7();
-    await sendSaved(client, botId, "hi", id);
+    await sendSaved(client, botId, "hi", { id });
     await endedTurn(botId);
     await getTestDb().insert(usage).values({
       id: uuidv7(),
@@ -1283,7 +1274,7 @@ describe("a resent Message", () => {
     const { client, botId } = await botWith([round(text("ok"))]);
     const other = await botWith([round(text("ok"))]);
     const id = uuidv7();
-    await sendSaved(client, botId, "mine", id);
+    await sendSaved(client, botId, "mine", { id });
 
     await expect(
       other.client.bot.send({ botId: other.botId, id, text: "x" }),
@@ -1654,7 +1645,8 @@ describe("a Turn that resumes after a crash", () => {
       return rows[0]?.xmin;
     };
     const before = await version();
-    return () => expect.poll(version).not.toBe(before);
+    expect(before).toBeDefined();
+    return () => expect.poll(version, { timeout: 5_000 }).not.toBe(before);
   }
 
   /** Another connection takes the locks `take` takes, and holds them until `release()`. */
