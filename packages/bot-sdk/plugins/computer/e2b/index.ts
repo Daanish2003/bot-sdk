@@ -17,7 +17,12 @@ import { boundedOutput } from "./bounded-output";
 export type E2bProviderOptions = {
   apiKey: string;
   apiUrl: string;
-  sandboxUrl: string;
+  /**
+   * Where the self-hosted E2B serves sandbox ports (`E2B_SANDBOX_URL`), routing each request by its
+   * `E2b-Sandbox-Id` and `E2b-Sandbox-Port` headers. Unset, a port is reached at its own host
+   * (`https://<port>-<id>.<domain>`).
+   */
+  sandboxUrl?: string;
   /** The template's name, which is its version (for example `ai-chat-computer-v1`). */
   template: string;
 };
@@ -96,14 +101,19 @@ export function e2bProvider({
       return { sandboxId: sandbox.sandboxId };
     },
 
-    async hostUrl(sandboxId, port) {
-      const host = await withSandbox(sandboxId, async (sandbox) => sandbox.getHost(port));
-      return `https://${host}`;
-    },
-
-    async trafficHeaders(sandboxId): Promise<Record<string, string>> {
-      const token = await withSandbox(sandboxId, async (sandbox) => sandbox.trafficAccessToken);
-      return token ? { "e2b-traffic-access-token": token } : {};
+    async endpoint(sandboxId, port) {
+      const sandbox = await withSandbox(sandboxId, async (sandbox) => sandbox);
+      const token = sandbox.trafficAccessToken;
+      const headers: Record<string, string> = token ? { "e2b-traffic-access-token": token } : {};
+      // The Embed serves every port at `sandboxUrl` and routes by these headers, as the SDK
+      // does for envd; a port's own host (`*.e2b.app`) is E2B Cloud's.
+      if (sandboxUrl) {
+        return {
+          url: sandboxUrl.replace(/\/+$/, ""),
+          headers: { ...headers, "E2b-Sandbox-Id": sandboxId, "E2b-Sandbox-Port": String(port) },
+        };
+      }
+      return { url: `https://${sandbox.getHost(port)}`, headers };
     },
 
     async resume(sandboxId, { timeoutMs }) {

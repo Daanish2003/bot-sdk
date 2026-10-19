@@ -15,6 +15,7 @@ export {
   SandboxGoneError,
   type CommandResult,
   type ComputerProvider,
+  type Endpoint,
   type FileEntry,
   type TimedOutCommand,
 } from "./provider";

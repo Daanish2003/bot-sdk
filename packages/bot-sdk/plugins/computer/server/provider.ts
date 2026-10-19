@@ -4,6 +4,13 @@ export type CommandResult = { exitCode: number; stdout: string; stderr: string }
 /** A command killed at its time limit: what it printed until then, and no exit code. */
 export type TimedOutCommand = { timedOut: true; stdout: string; stderr: string };
 
+/**
+ * Where a port of a sandbox is reached from outside: the URL (scheme and host, and any path prefix,
+ * without a trailing slash) and the headers every request to it must carry. Sandboxes are created
+ * with public traffic off, so a request without them is refused (403).
+ */
+export type Endpoint = { url: string; headers: Record<string, string> };
+
 /** One entry of a directory listing. */
 export type FileEntry = { name: string; kind: "file" | "directory"; size: number };
 
@@ -32,13 +39,10 @@ export type ComputerProvider = {
    */
   create: (options: { timeoutMs: number }) => Promise<{ sandboxId: string }>;
   /**
-   * The URL, scheme and host without a path, at which `port` of the sandbox is reached from
-   * outside. Sandboxes are created with public traffic off, so a request to it is refused (403)
-   * without the sandbox's traffic access token.
+   * Where `port` of the sandbox is reached from outside: its URL, and the headers that carry the
+   * sandbox's traffic access token and whatever routes the request to the sandbox and port.
    */
-  hostUrl: (sandboxId: string, port: number) => Promise<string>;
-  /** The headers a request to a `hostUrl` must carry: the sandbox's traffic access token. */
-  trafficHeaders: (sandboxId: string) => Promise<Record<string, string>>;
+  endpoint: (sandboxId: string, port: number) => Promise<Endpoint>;
   /**
    * Resumes a paused sandbox, which then pauses itself once `timeoutMs` passes. A sandbox that no
    * longer exists (its snapshot lost, or killed) is `"gone"`, and the plugin rebuilds it.

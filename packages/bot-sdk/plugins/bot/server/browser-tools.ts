@@ -117,8 +117,8 @@ export class BrowserSession {
   }
 
   private async connect(computer: ComputerHandle): Promise<Browser> {
-    const { cdpUrl, headers } = await computer.screenUrls(this.slot);
-    return chromium.connectOverCDP(cdpUrl, { headers, timeout: navigationTimeoutMs });
+    const { cdp } = await computer.screenUrls(this.slot);
+    return chromium.connectOverCDP(cdp.url, { headers: cdp.headers, timeout: navigationTimeoutMs });
   }
 
   private drop() {

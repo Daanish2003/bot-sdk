@@ -9,7 +9,11 @@ vi.mock("e2b", async (importOriginal) => ({
   ...(await importOriginal<typeof import("e2b")>()),
   Sandbox: {
     create: sandbox.create,
-    connect: vi.fn(async () => ({ sandboxId: "sbx1", getHost: sandbox.getHost })),
+    connect: vi.fn(async () => ({
+      sandboxId: "sbx1",
+      getHost: sandbox.getHost,
+      trafficAccessToken: "traffic-1",
+    })),
   },
 }));
 
@@ -24,7 +28,12 @@ const provider = e2bProvider({
 
 beforeEach(() => {
   sandbox.create.mockReset();
-  sandbox.create.mockResolvedValue({ sandboxId: "sbx1", getHost: sandbox.getHost });
+  sandbox.getHost.mockClear();
+  sandbox.create.mockResolvedValue({
+    sandboxId: "sbx1",
+    getHost: sandbox.getHost,
+    trafficAccessToken: "traffic-1",
+  });
 });
 
 describe("e2bProvider.create", () => {
@@ -36,10 +45,40 @@ describe("e2bProvider.create", () => {
       expect.objectContaining({ network: { allowPublicTraffic: false }, timeoutMs: 1000 }),
     );
   });
+});
 
-  it("gives the https URL of a port of the sandbox", async () => {
+describe("e2bProvider.endpoint", () => {
+  it("routes a port through sandboxUrl with the routing headers and the traffic token", async () => {
     const { sandboxId } = await provider.create({ timeoutMs: 1000 });
 
-    expect(await provider.hostUrl(sandboxId, 6081)).toBe("https://6081-sbx1.e2b.test");
+    expect(await provider.endpoint(sandboxId, 9223)).toEqual({
+      url: "http://sandbox.test",
+      headers: {
+        "e2b-traffic-access-token": "traffic-1",
+        "E2b-Sandbox-Id": "sbx1",
+        "E2b-Sandbox-Port": "9223",
+      },
+    });
+  });
+
+  it("never names a host of the sandbox domain when sandboxUrl is set", async () => {
+    const { sandboxId } = await provider.create({ timeoutMs: 1000 });
+
+    const endpoints = [
+      await provider.endpoint(sandboxId, 6081),
+      await provider.endpoint(sandboxId, 9223),
+    ];
+
+    expect(sandbox.getHost).not.toHaveBeenCalled();
+    for (const { url } of endpoints) expect(new URL(url).host).toBe("sandbox.test");
+  });
+
+  it("gives the https URL of the port with the traffic token when sandboxUrl is unset", async () => {
+    const cloud = e2bProvider({ apiKey: "key", apiUrl: "http://api.test", template: "t" });
+
+    expect(await cloud.endpoint("sbx1", 6081)).toEqual({
+      url: "https://6081-sbx1.e2b.test",
+      headers: { "e2b-traffic-access-token": "traffic-1" },
+    });
   });
 });

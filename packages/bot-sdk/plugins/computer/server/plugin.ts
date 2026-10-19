@@ -13,6 +13,7 @@ import { runnerJobs } from "../../runner/server/plugin";
 import {
   type CommandResult,
   type ComputerProvider,
+  type Endpoint,
   type FileEntry,
   SandboxGoneError,
   type TimedOutCommand,
@@ -171,9 +172,9 @@ export type ComputerHandle = {
   closeScreen: (slot: number) => Promise<void>;
   /**
    * An open Screen's Chromium DevTools endpoint and its noVNC link, which carries the token that
-   * `openScreen` made. Both are refused without the sandbox's traffic access token, which
-   * `headers` carries (the CDP connection sends them; the noVNC link doesn't yet). Throws when
-   * the Screen isn't open.
+   * `openScreen` made. Each comes with the headers a request to it must carry: the sandbox's
+   * traffic access token, and whatever routes it to the sandbox and port, so a client never uses
+   * one endpoint's headers for the other. Throws when the Screen isn't open.
    */
   screenUrls: (slot: number) => Promise<ScreenUrls>;
   /** Makes an open Screen's x11vnc view-only (`view`) or lets a viewer drive it (`control`). */
@@ -185,8 +186,11 @@ export type ComputerHandle = {
   heartbeat: () => Promise<void>;
 };
 
-/** The URLs of one Screen. */
-export type ScreenUrls = { cdpUrl: string; novncUrl: string; headers: Record<string, string> };
+/**
+ * The endpoints of one Screen: Chromium's DevTools, and the noVNC page (`url` is the page's link,
+ * `vnc.html` with its query).
+ */
+export type ScreenUrls = { cdp: Endpoint; novnc: Endpoint };
 
 /** Whether a Screen's viewer only watches, or drives it. */
 export type ScreenControl = "view" | "control";
@@ -361,21 +365,16 @@ export function computer({ provider }: ComputerOptions): ComputerPlugin {
               return operate(async (id) => {
                 const token = await provider.readFile(id, screenTokenPath(slot));
                 if (!token) throw new ScreenNotOpenError(slot);
-                const [novnc, cdpUrl, headers] = await Promise.all([
-                  provider.hostUrl(id, novncPort(slot)),
-                  provider.hostUrl(id, cdpPort(slot)),
-                  provider.trafficHeaders(id),
+                const [novnc, cdp] = await Promise.all([
+                  provider.endpoint(id, novncPort(slot)),
+                  provider.endpoint(id, cdpPort(slot)),
                 ]);
                 const query = new URLSearchParams({
                   path: `websockify?token=${new TextDecoder().decode(token)}`,
                   autoconnect: "1",
                   resize: "scale",
                 });
-                return {
-                  cdpUrl,
-                  headers,
-                  novncUrl: `${novnc}/vnc.html?${query}`,
-                };
+                return { cdp, novnc: { ...novnc, url: `${novnc.url}/vnc.html?${query}` } };
               });
             },
             setScreenControl: async (slot, mode) => {

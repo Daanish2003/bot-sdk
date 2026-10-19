@@ -129,7 +129,7 @@ export async function screenView(
   // The proxy goes on from these, not an address from before a reopen.
   rememberScreenUrls(sdk, userId, slot, urls);
   const base = `${screenViewPath}/${mintViewToken(sdk, { helperId, userId })}`;
-  const page = new URL(urls.novncUrl);
+  const page = new URL(urls.novnc.url);
   const query = new URLSearchParams(page.search);
   // noVNC opens its socket at this path of the page's own host: the proxy's.
   query.set("path", `${base.slice(1)}/websockify`);
@@ -161,7 +161,7 @@ type Upstream = {
   isSocket: boolean;
   /** websockify's socket with the Screen's token, as the page's own link would open it. */
   socketUrl: string;
-  /** Every header `screenUrls` gives: the traffic token, and whatever else routes to the sandbox. */
+  /** Every header of the noVNC endpoint: the traffic token, and whatever routes to the sandbox and port. */
   headers: Record<string, string>;
 };
 
@@ -223,7 +223,7 @@ async function upstreamOf(sdk: BotSdkContext, request: Request): Promise<Upstrea
   const screen = await heldScreen(sdk, view.userId, view.helperId);
   if (typeof screen === "string") return new Response(null, { status: 404 });
   const urls = await cachedScreenUrls(sdk, view.userId, screen.slot);
-  const page = new URL(urls.novncUrl);
+  const page = new URL(urls.novnc.url);
   // Relative to the page's directory, so a provider URL with a path prefix keeps it.
   const directory = new URL(".", page);
   const socket = new URL(page.searchParams.get("path") ?? "websockify", directory);
@@ -236,7 +236,7 @@ async function upstreamOf(sdk: BotSdkContext, request: Request): Promise<Upstrea
     url: new URL(`${rest.join("/")}${search}`, directory).href,
     isSocket: rest.join("/") === "websockify",
     socketUrl: socket.href,
-    headers: urls.headers,
+    headers: urls.novnc.headers,
   };
 }
 

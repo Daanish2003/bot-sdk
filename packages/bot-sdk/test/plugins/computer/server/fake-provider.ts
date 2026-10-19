@@ -37,7 +37,7 @@ type Lifecycle = "create" | "resume";
  */
 export type FakeCall =
   | { [Type in Lifecycle]: { type: Type; sandboxId: string; timeoutMs: number } }[Lifecycle]
-  | { type: "host-url"; sandboxId: string; port: number }
+  | { type: "endpoint"; sandboxId: string; port: number }
   | { type: "pause"; sandboxId: string }
   | { type: "timeout"; sandboxId: string; timeoutMs: number }
   | ({ type: "run" } & FakeCommand)
@@ -129,14 +129,14 @@ export function fakeComputerProvider({
       calls.push({ type: "create", sandboxId, timeoutMs });
       return { sandboxId };
     },
-    hostUrl: async (sandboxId, port) => {
+    endpoint: async (sandboxId, port) => {
       if (!disks.has(sandboxId)) throw new SandboxGoneError(sandboxId);
-      calls.push({ type: "host-url", sandboxId, port });
-      return hostUrl(sandboxId, port);
-    },
-    trafficHeaders: async (sandboxId) => {
-      if (!disks.has(sandboxId)) throw new SandboxGoneError(sandboxId);
-      return { "e2b-traffic-access-token": `traffic-${sandboxId}` };
+      calls.push({ type: "endpoint", sandboxId, port });
+      // Each port's endpoint carries headers of its own, as the Embed's routing headers do.
+      return {
+        url: hostUrl(sandboxId, port),
+        headers: { "e2b-traffic-access-token": `traffic-${sandboxId}`, "fake-port": String(port) },
+      };
     },
     resume: async (sandboxId, { timeoutMs }) => {
       failIfTold("resume");

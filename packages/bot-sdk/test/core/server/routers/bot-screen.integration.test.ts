@@ -245,7 +245,7 @@ describe("the live view's proxy", () => {
     const { client, deps, helper, novnc, computerFake } = await waitingHelper();
     const { url } = await client.bot.screen.view({ helperId: helper.id });
     const handler = deps.plugin("bot").screenHandler;
-    const asked = () => computerFake.callsOf("host-url").length;
+    const asked = () => computerFake.callsOf("endpoint").length;
     const askedByLink = asked();
 
     const page = await handler(pageRequest(url));
@@ -259,9 +259,15 @@ describe("the live view's proxy", () => {
     // The Screen's address the link asked for is reused, not asked for again for each file.
     expect(asked()).toBe(askedByLink);
     const { sandboxId } = sandboxOf(computerFake);
-    expect(novnc.requests.map((request) => request.headers["e2b-traffic-access-token"])).toEqual([
-      `traffic-${sandboxId}`,
-      `traffic-${sandboxId}`,
+    // The noVNC endpoint's own headers, not the DevTools one's: on the Embed they pick the port.
+    expect(
+      novnc.requests.map((request) => [
+        request.headers["e2b-traffic-access-token"],
+        request.headers["fake-port"],
+      ]),
+    ).toEqual([
+      [`traffic-${sandboxId}`, expect.stringMatching(/^608[1-4]$/)],
+      [`traffic-${sandboxId}`, expect.stringMatching(/^608[1-4]$/)],
     ]);
   });
 
@@ -335,6 +341,7 @@ describe("the live view's proxy", () => {
         path: `/websockify?token=${screenToken}`,
         headers: expect.objectContaining({
           "e2b-traffic-access-token": `traffic-${sandboxId}`,
+          "fake-port": expect.stringMatching(/^608[1-4]$/),
           "sec-websocket-protocol": "binary",
         }),
       }),

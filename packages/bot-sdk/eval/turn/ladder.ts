@@ -38,8 +38,7 @@ const resultsDir = join(here, "results");
 const emptyComputer: ComputerProvider = {
   template: "ladder-eval-empty",
   create: async () => ({ sandboxId: "ladder-eval-sandbox" }),
-  hostUrl: async (_id, port) => `https://${port}-ladder-eval.invalid`,
-  trafficHeaders: async () => ({}),
+  endpoint: async (_id, port) => ({ url: `https://${port}-ladder-eval.invalid`, headers: {} }),
   resume: async () => "resumed",
   kill: async () => {},
   pause: async () => {},

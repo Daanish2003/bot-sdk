@@ -1126,13 +1126,19 @@ describe("Screens", () => {
     const urls = await handle.screenUrls(3);
 
     const id = created?.sandboxId;
-    expect(urls.cdpUrl).toBe(`https://9225-${id}.fake.test`);
-    expect(urls.headers).toEqual({ "e2b-traffic-access-token": `traffic-${id}` });
-    const novnc = new URL(urls.novncUrl);
+    expect(urls.cdp).toEqual({
+      url: `https://9225-${id}.fake.test`,
+      headers: { "e2b-traffic-access-token": `traffic-${id}`, "fake-port": "9225" },
+    });
+    expect(urls.novnc.headers).toEqual({
+      "e2b-traffic-access-token": `traffic-${id}`,
+      "fake-port": "6083",
+    });
+    const novnc = new URL(urls.novnc.url);
     expect(novnc.origin).toBe(`https://6083-${id}.fake.test`);
     expect(novnc.pathname).toBe("/vnc.html");
     expect(novnc.searchParams.get("path")).toBe(`websockify?token=${token}`);
-    expect(fake.callsOf("host-url").map((call) => call.port)).toEqual([6083, 9225]);
+    expect(fake.callsOf("endpoint").map((call) => call.port)).toEqual([6083, 9225]);
   });
 
   it("refuses the links of a Screen that isn't open", async () => {
