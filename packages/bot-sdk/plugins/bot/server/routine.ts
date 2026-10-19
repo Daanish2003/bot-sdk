@@ -1,3 +1,5 @@
+import { createHash, randomBytes } from "node:crypto";
+
 import { and, asc, desc, eq, inArray, isNull, like, lt, lte, min, or, sql } from "drizzle-orm";
 
 import { bot, botRoutine, botTrigger, botTurn, job, message } from "../../../core/server/db/schema";
@@ -145,13 +147,35 @@ export function slotOf(triggerId: string): Date | undefined {
   return at && !Number.isNaN(at.getTime()) ? at : undefined;
 }
 
+/** A new webhook token (ADR 0021): 256 random bits, as base64url. */
+export function newWebhookToken(): string {
+  return randomBytes(32).toString("base64url");
+}
+
+/** What `chat.bot_routine` keeps of a webhook token (ADR 0021): its SHA-256, as hex. */
+export function webhookTokenHash(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+/**
+ * What a webhook Routine holds in place of a token's hash until its first Approval issues one: no
+ * token hashes to it, so its URL answers 404.
+ */
+const unissuedToken = (routineId: string) => `unissued:${routineId}`;
+
+/** The tool error for a Routine given both a schedule and a webhook, or neither. */
+export const scheduleOrWebhookError =
+  "Not saved: give exactly one of schedule or webhook. A Routine runs on a schedule, or whenever " +
+  "its webhook URL is called (webhook: true), never both.";
+
 /** What `create_routine` returns once the Routine is saved: it waits for the user's Approval. */
 export const routineSavedResult = "Saved; it runs once the user approves it.";
 
 /**
  * Saves the Routine a Turn's `create_routine` call asked for (#538), `pending` until the user's
- * Approval, in the zone of the Conversation's newest user Message (UTC when it carried none).
- * Returns the tool's result: saved, or an error the Model can act on.
+ * Approval, in the zone of the Conversation's newest user Message (UTC when it carried none). It has
+ * exactly one of a schedule and a webhook; a webhook Routine has no token until its first Approval
+ * issues one (ADR 0021). Returns the tool's result: saved, or an error the Model can act on.
  */
 export async function saveRoutine(
   tx: Transaction,
@@ -162,6 +186,7 @@ export async function saveRoutine(
     name,
     prompt,
     schedule,
+    webhook,
     now,
   }: {
     botId: string;
@@ -169,19 +194,23 @@ export async function saveRoutine(
     turnId: string;
     name: string;
     prompt: string;
-    schedule: RoutineSchedule;
+    schedule?: RoutineSchedule;
+    webhook?: boolean;
     now: Date;
   },
 ): Promise<{ saved: string } | { error: string }> {
+  if (Boolean(schedule) === Boolean(webhook)) return { error: scheduleOrWebhookError };
   const timeZone = (await newestTimeZone(tx, conversationId)) ?? defaultTimeZone;
+  const id = uuidv7();
   const saved = await tx
     .insert(botRoutine)
     .values({
-      id: uuidv7(),
+      id,
       botId,
       name,
       prompt,
-      schedule,
+      schedule: schedule ?? null,
+      webhookTokenHash: webhook ? unissuedToken(id) : null,
       timeZone,
       state: "pending",
       createdByTurnId: turnId,
@@ -234,6 +263,13 @@ export async function updateRoutine(
     .where(and(eq(botRoutine.botId, botId), eq(botRoutine.name, name)))
     .for("update");
   if (!routine) return { error: noRoutineNamed(name) };
+  if (schedule !== undefined && routine.webhookTokenHash !== null) {
+    return {
+      error:
+        `Not saved: "${name}" is a webhook Routine. It runs whenever its URL is called and can't ` +
+        "also have a schedule. To run on a schedule, create a separate Routine.",
+    };
+  }
   const promptChanged = prompt !== undefined && prompt !== routine.prompt;
   const scheduleChanged =
     schedule !== undefined &&
@@ -298,7 +334,8 @@ export async function routinesPrompt(
     .orderBy(asc(botRoutine.name));
   if (rows.length === 0) return undefined;
   const lines = rows.map((row) => {
-    const when = row.schedule ? scheduleText(row.schedule) : "";
+    // Only that it runs on a webhook: the Model never sees the token (ADR 0021).
+    const when = row.schedule ? scheduleText(row.schedule) : "on webhook";
     const firstLine = row.prompt.split("\n")[0]?.trim() ?? "";
     const waiting = row.state === "pending" ? " (waiting for OK)" : "";
     return `${row.name}  ${when} ${row.timeZone}  ${JSON.stringify(firstLine)}${waiting}`;
@@ -355,6 +392,7 @@ export async function listRoutines(db: Database, botId: string): Promise<BotRout
       name: botRoutine.name,
       prompt: botRoutine.prompt,
       schedule: botRoutine.schedule,
+      webhook: sql<boolean>`(${botRoutine.webhookTokenHash} is not null)`,
       timeZone: botRoutine.timeZone,
       state: botRoutine.state,
       approvedAt: botRoutine.approvedAt,
@@ -370,14 +408,20 @@ export async function listRoutines(db: Database, botId: string): Promise<BotRout
 }
 
 /**
- * The user's Approval of a pending Routine: it turns `active` with `approvedAt`. A Routine that is
- * no longer pending stays as it is. Nothing wakes the Bot.
+ * The user's Approval of a pending Routine: it turns `active` with `approvedAt`. A webhook Routine
+ * gets a new token, returned this once as `webhookToken` (ADR 0021). A Routine that is no longer
+ * pending stays as it is. Nothing wakes the Bot.
  */
 export async function approveRoutine(
   deps: BotSdkContext,
   userId: string,
   routineId: string,
-): Promise<{ id: string; state: BotRoutine["state"]; approvedAt: Date | null }> {
+): Promise<{
+  id: string;
+  state: BotRoutine["state"];
+  approvedAt: Date | null;
+  webhookToken?: string;
+}> {
   const now = deps.clock();
   return deps.db.transaction(async (tx) => {
     await ownedRoutine(tx, userId, routineId);
@@ -385,16 +429,59 @@ export async function approveRoutine(
       .update(botRoutine)
       .set({ state: "active", approvedAt: now, updatedAt: now })
       .where(and(eq(botRoutine.id, routineId), eq(botRoutine.state, "pending")))
-      .returning({ schedule: botRoutine.schedule, timeZone: botRoutine.timeZone });
+      .returning({
+        schedule: botRoutine.schedule,
+        timeZone: botRoutine.timeZone,
+        webhookTokenHash: botRoutine.webhookTokenHash,
+      });
     // Approving starts the chain of fires (ADR 0011, the #537 amendment): the first is queued.
     if (approved?.schedule) {
       await queueFire(deps, tx, routineId, nextSlot(approved.schedule, approved.timeZone, now));
     }
+    // A webhook Routine's first Approval issues its token. One sent back for approval by an edit
+    // keeps its token, so the URL the user connected goes on working once approved again.
+    const webhookToken =
+      approved?.webhookTokenHash === unissuedToken(routineId)
+        ? await newToken(tx, routineId, now)
+        : undefined;
     const [row] = await tx
       .select({ id: botRoutine.id, state: botRoutine.state, approvedAt: botRoutine.approvedAt })
       .from(botRoutine)
       .where(eq(botRoutine.id, routineId));
-    return row!;
+    return { ...row!, ...(webhookToken && { webhookToken }) };
+  });
+}
+
+/** Gives the webhook Routine `routineId` a new token, in `tx`: the old URL stops working at once. */
+async function newToken(tx: Transaction, routineId: string, now: Date): Promise<string> {
+  const token = newWebhookToken();
+  await tx
+    .update(botRoutine)
+    .set({ webhookTokenHash: webhookTokenHash(token), updatedAt: now })
+    .where(eq(botRoutine.id, routineId));
+  return token;
+}
+
+/**
+ * The user rotates an approved webhook Routine's URL (ADR 0021): it gets a new token, returned this
+ * once, and the old URL answers 404 from then on. A scheduled or pending Routine has no URL to
+ * rotate.
+ */
+export async function rotateWebhook(
+  deps: BotSdkContext,
+  userId: string,
+  routineId: string,
+): Promise<{ webhookToken: string }> {
+  return deps.db.transaction(async (tx) => {
+    const routine = await lockedRoutine(tx, userId, routineId);
+    if (!routine.webhookTokenHash || routine.state === "pending") {
+      throw rpcError(
+        "BAD_REQUEST",
+        "error.routineNotWebhook",
+        "Only an approved webhook Routine has a URL to rotate",
+      );
+    }
+    return { webhookToken: await newToken(tx, routineId, deps.clock()) };
   });
 }
 

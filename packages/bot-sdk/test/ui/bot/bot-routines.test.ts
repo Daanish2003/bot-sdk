@@ -3,7 +3,7 @@ import { eventIterator, os } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createElement } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import type { BotRoutine } from "../../../plugins/bot/shared/routine";
@@ -13,6 +13,7 @@ import { providerFor } from "../fake-dictionary";
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
 });
 
 const createdAt = new Date("2026-10-19T09:00:00.000Z");
@@ -30,6 +31,7 @@ const morningBrief = (afterMessageId: string): BotRoutine => ({
   name: "morning-brief",
   prompt: "Summarize today's calendar.",
   schedule: { days: ["mon", "tue", "wed", "thu", "fri"], at: "08:00" },
+  webhook: false,
   timeZone: "Europe/London",
   state: "pending",
   approvedAt: null,
@@ -55,6 +57,7 @@ function fakeBotServer(
   const paused: string[] = [];
   const resumed: string[] = [];
   const deleted: string[] = [];
+  const rotated: string[] = [];
   const setState = (routineId: string, state: BotRoutine["state"]) => {
     const routine = routines.find((row) => row.id === routineId)!;
     routine.state = state;
@@ -88,7 +91,12 @@ function fakeBotServer(
           const routine = routines.find((row) => row.id === input.routineId)!;
           routine.state = "active";
           routine.approvedAt = createdAt;
-          return { id: routine.id, state: routine.state, approvedAt: routine.approvedAt };
+          return {
+            id: routine.id,
+            state: routine.state,
+            approvedAt: routine.approvedAt,
+            ...(routine.webhook && { webhookToken: "approved-token" }),
+          };
         }),
         decline: os.input(z.object({ routineId: z.string() })).handler(({ input }) => {
           declined.push(input.routineId);
@@ -112,6 +120,10 @@ function fakeBotServer(
             1,
           );
         }),
+        rotate: os.input(z.object({ routineId: z.string() })).handler(({ input }) => {
+          rotated.push(input.routineId);
+          return { webhookToken: `rotated-token-${rotated.length}` };
+        }),
       },
     },
   };
@@ -126,6 +138,7 @@ function fakeBotServer(
     paused,
     resumed,
     deleted,
+    rotated,
     routines,
     /** What `bot.get` says of the latest Turn from now on, as a Turn run elsewhere moves on. */
     setTurnStatus: (status: "running" | "complete" | null) => {
@@ -421,5 +434,119 @@ describe("the approved divider", () => {
 
     await waitFor(() => expect(divider()).toBeNull());
     expect(server.deleted).toEqual(["r1"]);
+  });
+});
+
+describe("a webhook Routine", () => {
+  const payouts = (state: BotRoutine["state"], id = "r4", name = "stripe-payouts"): BotRoutine => ({
+    ...morningBrief("m1"),
+    id,
+    name,
+    prompt: "Check the payout.",
+    schedule: null,
+    webhook: true,
+    state,
+    approvedAt: state === "pending" ? null : createdAt,
+  });
+  const urlOf = (token: string) => `${window.location.origin}/api/routines/webhook/${token}`;
+
+  const open = async (count: number) => {
+    fireEvent.click(await screen.findByRole("button", { name: new RegExp(`^Routines ${count}`) }));
+    return screen.findByRole("list", { name: "Routines" });
+  };
+  const row = (list: HTMLElement, name: string) =>
+    within(list)
+      .getAllByRole("listitem")
+      .find((item) => item.textContent?.includes(name))!;
+
+  it("shows 'on webhook' on its approval card", async () => {
+    mount(fakeBotServer([said("m1", "user", "Watch my payouts")], [payouts("pending")]));
+
+    const card = await screen.findByRole("group", { name: "Created stripe-payouts routine" });
+    expect(card.textContent).toContain("on webhook");
+    expect(card.textContent).not.toContain("weekdays");
+  });
+
+  it("shows the URL with Copy and Rotate only on an approved webhook Routine's popover row", async () => {
+    const server = fakeBotServer(
+      [said("m1", "user", "Watch my payouts")],
+      [
+        { ...morningBrief("m1"), state: "active", approvedAt: createdAt },
+        payouts("pending", "r5", "github-issues"),
+        payouts("active"),
+      ],
+    );
+    mount(server);
+
+    const list = await open(2);
+
+    expect(within(row(list, "stripe-payouts")).getByText(/on webhook/)).toBeTruthy();
+    expect(
+      within(row(list, "stripe-payouts")).getByRole("button", { name: "Rotate" }),
+    ).toBeTruthy();
+    expect(within(row(list, "morning-brief")).queryByRole("button", { name: "Rotate" })).toBeNull();
+    expect(within(row(list, "morning-brief")).queryByText(/routines.webhook/)).toBeNull();
+    expect(within(row(list, "github-issues")).queryAllByRole("button")).toEqual([]);
+    expect(within(row(list, "github-issues")).queryByText(/routines.webhook/)).toBeNull();
+  });
+
+  it("rotates through the router, then shows the new URL to copy", async () => {
+    const writeText = vi.fn(async () => {});
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+    const server = fakeBotServer([said("m1", "user", "Watch my payouts")], [payouts("active")]);
+    mount(server);
+    const list = await open(1);
+    // Only its hash is stored, so the URL shows once: after approving, or after a rotate.
+    expect(within(row(list, "stripe-payouts")).queryByRole("button", { name: "Copy" })).toBeNull();
+
+    fireEvent.click(within(row(list, "stripe-payouts")).getByRole("button", { name: "Rotate" }));
+
+    await waitFor(() => expect(server.rotated).toEqual(["r4"]));
+    const url = await within(row(list, "stripe-payouts")).findByText(urlOf("rotated-token-1"));
+    expect(url.className).toContain("font-mono");
+    fireEvent.click(within(row(list, "stripe-payouts")).getByRole("button", { name: "Copy" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(urlOf("rotated-token-1")));
+  });
+
+  it("shows the URL approving it gave, under its approved divider and in the popover", async () => {
+    const server = fakeBotServer([said("m1", "user", "Watch my payouts")], [payouts("pending")]);
+    mount(server);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
+    await screen.findByText(/stripe-payouts approved/);
+    expect(await screen.findByText(urlOf("approved-token"))).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Copy" })).toBeTruthy();
+    const list = await open(1);
+
+    expect(within(row(list, "stripe-payouts")).getByText(urlOf("approved-token"))).toBeTruthy();
+  });
+
+  it("gives its run a divider with a webhook icon", async () => {
+    const at = new Date("2026-10-19T10:42:00.000Z");
+    const server = fakeBotServer(
+      [
+        {
+          ...said("m2", "assistant", "That payout looks off."),
+          createdAt: new Date(at.getTime() + 2000),
+        },
+      ],
+      [],
+      [
+        {
+          id: "t2",
+          status: "complete",
+          startedAt: new Date(at.getTime() + 1000),
+          endedAt: new Date(at.getTime() + 5000),
+          sent: true,
+          triggers: [{ source: "routine", channel: "webhook", routineName: "stripe-payouts", at }],
+        },
+      ],
+    );
+    const { container } = mount(server);
+
+    await screen.findByText("That payout looks off.");
+    const divider = container.querySelector<HTMLElement>("[data-run=stripe-payouts]")!;
+    expect(divider.querySelector(".lucide-webhook")).not.toBeNull();
+    expect(divider.querySelector(".lucide-clock")).toBeNull();
   });
 });

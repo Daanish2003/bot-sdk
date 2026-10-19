@@ -4,7 +4,12 @@ import { ClockIcon } from "lucide-react";
 
 import { useI18n } from "../../../core/client/react/provider";
 import { type BotRoutine, scheduleText } from "../shared/routine";
-import { RoutineActions, type RoutineActionHandlers } from "./routine-card";
+import {
+  RoutineActions,
+  type RoutineActionHandlers,
+  RoutineIcon,
+  WebhookUrl,
+} from "./routine-card";
 
 const stateKeys = {
   pending: "bots.routinePending",
@@ -14,12 +19,20 @@ const stateKeys = {
 
 /**
  * The Bot header's "Routines N" button (prototype variant A), N counting the approved ones. It opens
- * a popover listing every Routine with its schedule and state, and Pause / Resume and Delete.
+ * a popover listing every Routine with its schedule and state, and Pause / Resume and Delete. An
+ * approved webhook Routine's row also has its URL, with Copy and Rotate (variant B's row).
  */
 export function RoutinesPopover({
   routines,
+  webhookTokens,
+  onRotate,
   ...actions
-}: { routines: BotRoutine[] } & RoutineActionHandlers) {
+}: {
+  routines: BotRoutine[];
+  /** The webhook tokens approving or rotating gave on this page, by Routine. */
+  webhookTokens: Record<string, string>;
+  onRotate: (routineId: string) => Promise<void>;
+} & RoutineActionHandlers) {
   const { t } = useI18n();
   const approved = routines.filter((routine) => routine.state !== "pending").length;
   return (
@@ -30,16 +43,27 @@ export function RoutinesPopover({
       <PopoverContent className="w-96">
         <ul aria-label={t("bots.routines")} className="flex flex-col gap-2 text-sm">
           {routines.map((routine) => (
-            <li key={routine.id} className="flex items-center gap-2">
-              <ClockIcon className="size-4 shrink-0" />
-              <span className="font-medium">{routine.name}</span>
-              {routine.schedule && (
-                <span className="text-muted-foreground">{scheduleText(routine.schedule)}</span>
+            <li key={routine.id} className="flex flex-col gap-1">
+              <div className="flex items-center gap-2">
+                <RoutineIcon routine={routine} className="size-4 shrink-0" />
+                <span className="font-medium">{routine.name}</span>
+                <span className="text-muted-foreground">
+                  {routine.schedule ? scheduleText(routine.schedule) : t("bots.onWebhook")}
+                </span>
+                <span className="ml-auto text-xs text-muted-foreground">
+                  {t(stateKeys[routine.state])}
+                </span>
+                <RoutineActions routine={routine} {...actions} />
+              </div>
+              {routine.webhook && routine.state !== "pending" && (
+                <div className="pl-6">
+                  <WebhookUrl
+                    routineId={routine.id}
+                    token={webhookTokens[routine.id]}
+                    onRotate={onRotate}
+                  />
+                </div>
               )}
-              <span className="ml-auto text-xs text-muted-foreground">
-                {t(stateKeys[routine.state])}
-              </span>
-              <RoutineActions routine={routine} {...actions} />
             </li>
           ))}
         </ul>

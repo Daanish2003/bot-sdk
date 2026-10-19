@@ -7,28 +7,31 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { ClockIcon } from "lucide-react";
+import { ClockIcon, WebhookIcon } from "lucide-react";
 import { useId, useState } from "react";
 import { toast } from "sonner";
 
 import { useI18n } from "../../../core/client/react/provider";
 import { serverErrorText } from "../../../core/client/rpc-error";
-import { type BotRoutine, scheduleText } from "../shared/routine";
+import { type BotRoutine, routineWebhookPath, scheduleText } from "../shared/routine";
 import { runTime } from "./run-divider";
 
 /**
  * A Routine in its Bot's Conversation, after the Turn that created it (#538, prototype variant A):
  * pending, a card titled "Created <name> routine" with its schedule, zone and prompt, and Approve /
  * Decline; approved, a one-line divider with its next run ("<name> paused" while paused), with
- * Pause / Resume and Delete.
+ * Pause / Resume and Delete. A webhook Routine approved on this page shows its URL under it, once.
  */
 export function RoutineCard({
   routine,
+  webhookToken,
   onApprove,
   onDecline,
   ...actions
 }: {
   routine: BotRoutine;
+  /** The token approving it gave on this page (ADR 0021). */
+  webhookToken: string | undefined;
   onApprove: (routineId: string) => Promise<void>;
   onDecline: (routineId: string) => Promise<void>;
 } & RoutineActionHandlers) {
@@ -38,7 +41,7 @@ export function RoutineCard({
   const [busy, act] = useRoutineAction(routine.id);
 
   if (routine.state !== "pending") {
-    return (
+    const divider = (
       <div
         data-routine={routine.name}
         data-state={routine.state}
@@ -46,7 +49,7 @@ export function RoutineCard({
       >
         <span className="h-px w-8 bg-border" />
         <span className="inline-flex items-center gap-1">
-          <ClockIcon className="size-3" />
+          <RoutineIcon routine={routine} className="size-3" />
           {routine.state === "paused"
             ? t("bots.routinePaused", { name: routine.name })
             : routine.nextRunAt
@@ -59,6 +62,15 @@ export function RoutineCard({
         <RoutineActions routine={routine} {...actions} />
         <span className="h-px w-8 bg-border" />
       </div>
+    );
+    if (!routine.webhook || !webhookToken) return divider;
+    return (
+      <>
+        {divider}
+        <div className="w-full max-w-md self-center">
+          <WebhookUrl routineId={routine.id} token={webhookToken} />
+        </div>
+      </>
     );
   }
 
@@ -73,14 +85,14 @@ export function RoutineCard({
     >
       <CardHeader>
         <CardTitle id={titleId}>{t("bots.routineCreated", { name: routine.name })}</CardTitle>
-        {routine.schedule && (
-          <CardDescription>
-            {t("bots.routineRuns", {
-              schedule: scheduleText(routine.schedule),
-              timeZone: routine.timeZone,
-            })}
-          </CardDescription>
-        )}
+        <CardDescription>
+          {routine.schedule
+            ? t("bots.routineRuns", {
+                schedule: scheduleText(routine.schedule),
+                timeZone: routine.timeZone,
+              })
+            : t("bots.routineRunsOnWebhook")}
+        </CardDescription>
       </CardHeader>
       <CardContent className="text-sm whitespace-pre-wrap">{routine.prompt}</CardContent>
       <CardFooter className="gap-2">
@@ -95,6 +107,61 @@ export function RoutineCard({
   );
 }
 
+/** A Routine's icon: a webhook for a webhook Routine, a clock for a scheduled one. */
+export function RoutineIcon({ routine, className }: { routine: BotRoutine; className: string }) {
+  return routine.webhook ? (
+    <WebhookIcon className={className} />
+  ) : (
+    <ClockIcon className={className} />
+  );
+}
+
+/**
+ * An approved webhook Routine's URL in monospace, with Copy, and Rotate when `onRotate` is given.
+ * Only the token's hash is stored (ADR 0021), so the URL shows once, after approving or rotating
+ * on this page; otherwise Rotate gives a new one.
+ */
+export function WebhookUrl({
+  routineId,
+  token,
+  onRotate,
+}: {
+  routineId: string;
+  token: string | undefined;
+  onRotate?: (routineId: string) => Promise<void>;
+}) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const [busy, act] = useRoutineAction(routineId);
+  const url = token && `${window.location.origin}${routineWebhookPath}/${token}`;
+  const copy = (text: string) =>
+    navigator.clipboard
+      .writeText(text)
+      .then(() => toast.success(t("bots.copied")))
+      .catch((error) => toast.error(serverErrorText(i18n, error)));
+  return (
+    <div className="flex items-center gap-1 text-xs">
+      {url ? (
+        <span className="min-w-0 truncate font-mono">{url}</span>
+      ) : (
+        <span className="text-muted-foreground">{t("bots.webhookUrlHidden")}</span>
+      )}
+      <span className="ml-auto inline-flex shrink-0 gap-1">
+        {url && (
+          <Button size="xs" variant="ghost" onClick={() => void copy(url)}>
+            {t("bots.copy")}
+          </Button>
+        )}
+        {onRotate && (
+          <Button size="xs" variant="ghost" disabled={busy} onClick={() => act(onRotate)}>
+            {t("bots.rotate")}
+          </Button>
+        )}
+      </span>
+    </div>
+  );
+}
+
 /** What the user can do to an approved Routine: pause, resume and delete it. */
 export type RoutineActionHandlers = {
   onPause: (routineId: string) => Promise<void>;
@@ -103,7 +170,7 @@ export type RoutineActionHandlers = {
 };
 
 /** Runs one action on Routine `routineId` at a time; a refusal says why in a toast. */
-function useRoutineAction(routineId: string) {
+export function useRoutineAction(routineId: string) {
   const i18n = useI18n();
   const [busy, setBusy] = useState(false);
   const act = (action: (routineId: string) => Promise<void>) => {

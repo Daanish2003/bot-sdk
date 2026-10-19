@@ -39,7 +39,8 @@ function BotConversationView({ botId }: { botId: string }) {
       },
     });
 
-  const { routines, approve, decline, pause, resume, remove } = useBotRoutines(botId, working);
+  const { routines, webhookTokens, approve, decline, pause, resume, remove, rotate } =
+    useBotRoutines(botId, working);
   const actions = { onPause: pause, onResume: resume, onDelete: remove };
 
   if (error) {
@@ -62,6 +63,7 @@ function BotConversationView({ botId }: { botId: string }) {
     <RoutineCard
       key={routine.id}
       routine={routine}
+      webhookToken={webhookTokens[routine.id]}
       onApprove={approve}
       onDecline={decline}
       {...actions}
@@ -94,7 +96,13 @@ function BotConversationView({ botId }: { botId: string }) {
     const before = next?.id ?? "";
     runsBefore.set(before, [
       ...(runsBefore.get(before) ?? []),
-      <RunDivider key={turn.id} name={fired.routineName ?? ""} at={fired.at} quiet={quiet} />,
+      <RunDivider
+        key={turn.id}
+        name={fired.routineName ?? ""}
+        at={fired.at}
+        quiet={quiet}
+        webhook={fired.channel === "webhook"}
+      />,
     ]);
   }
 
@@ -107,7 +115,14 @@ function BotConversationView({ botId }: { botId: string }) {
       <header className="flex items-center gap-3 border-b px-4 py-3">
         <BotAvatar name={bot.name} size={28} />
         <h1 className="font-semibold">{bot.name}</h1>
-        {routines.length > 0 && <RoutinesPopover routines={routines} {...actions} />}
+        {routines.length > 0 && (
+          <RoutinesPopover
+            routines={routines}
+            webhookTokens={webhookTokens}
+            onRotate={rotate}
+            {...actions}
+          />
+        )}
       </header>
       <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-4">
         {messages.length === 0 && (

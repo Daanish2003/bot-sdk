@@ -19,6 +19,13 @@ export const botsMessages = {
   "bots.routineCreated": ({ name }: { name: string }) => `Created ${name} routine`,
   "bots.routineRuns": ({ schedule, timeZone }: { schedule: string; timeZone: string }) =>
     `Runs ${schedule} (${timeZone}). It won't run until you approve.`,
+  "bots.routineRunsOnWebhook":
+    "Runs on webhook, whenever its URL is called. It won't run until you approve.",
+  "bots.onWebhook": "on webhook",
+  "bots.webhookUrlHidden": "URL shown once. Rotate for a new one.",
+  "bots.copy": "Copy",
+  "bots.copied": "URL copied",
+  "bots.rotate": "Rotate",
   "bots.routineApproved": ({ name }: { name: string }) => `${name} approved`,
   "bots.routineApprovedNext": ({ name, time }: { name: string; time: string }) =>
     `${name} approved · next run ${time}`,

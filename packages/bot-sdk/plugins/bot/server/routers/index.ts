@@ -13,6 +13,7 @@ import {
   pauseRoutine,
   removeRoutine,
   resumeRoutine,
+  rotateWebhook,
 } from "../routine";
 import { isTimeZone } from "../time-zone";
 import { sendToBot, stopBot } from "../turn";
@@ -135,6 +136,16 @@ const botRouter = {
       .input(z.object({ routineId: z.uuid() }))
       .handler(({ context, input }) =>
         removeRoutine(context.sdk, context.user.id, input.routineId),
+      ),
+
+    /**
+     * Gives an approved webhook Routine a new URL (ADR 0021): the new token comes back this once, and
+     * the old URL answers 404 from then on. Another user's is not found.
+     */
+    rotate: protectedProcedure
+      .input(z.object({ routineId: z.uuid() }))
+      .handler(({ context, input }) =>
+        rotateWebhook(context.sdk, context.user.id, input.routineId),
       ),
   },
 };

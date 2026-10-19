@@ -31,7 +31,10 @@ export type BotRoutine = {
   id: string;
   name: string;
   prompt: string;
+  /** Null on a webhook Routine: a Routine has exactly one of a schedule and a webhook. */
   schedule: RoutineSchedule | null;
+  /** Whether it runs when its webhook URL is called (ADR 0021), in place of a schedule. */
+  webhook: boolean;
   timeZone: string;
   state: RoutineState;
   approvedAt: Date | null;
@@ -39,6 +42,12 @@ export type BotRoutine = {
   afterMessageId: string | null;
   nextRunAt: Date | null;
 };
+
+/**
+ * Where a Host mounts the Bot SDK's webhook handler (ADR 0021): a webhook Routine's URL is this
+ * path, then its token.
+ */
+export const routineWebhookPath = "/api/routines/webhook";
 
 const weekdays: readonly RoutineDay[] = ["mon", "tue", "wed", "thu", "fri"];
 
