@@ -204,7 +204,8 @@ const mondaySlot = "2026-10-19T07:00:00.000Z";
 
 const wakeNotice =
   `Routine "morning-brief" ran at Mon 2026-10-19 08:00 (Europe/London). The user didn't send ` +
-  `this; it's their approved Routine. If there's nothing worth telling the user, send nothing.`;
+  `this; it's their approved Routine. If there's nothing new worth telling the user, send ` +
+  `nothing, not even to say so.`;
 
 describe("a scheduled Routine", () => {
   it("queues its first fire when approved, and past Monday 08:00 London makes one routine / schedule Trigger with the prompt snapshot, then queues Tuesday's", async () => {
