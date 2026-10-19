@@ -60,13 +60,15 @@ const botRouter = {
       const found = await findBot(context.sdk.db, context.user.id, input.botId);
       if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
       const { conversationId, ...bot } = found;
-      const [messages, turnStatus, userStatus] = await Promise.all([
+      const [messages, turnStatus] = await Promise.all([
         botMessages(context.sdk.db, conversationId),
         latestTurnStatus(context.sdk.db, bot.id),
-        userTurnStatus(context.sdk.db, conversationId),
       ]);
       // Each Turn's Triggers and whether it sent anything, for the dividers of Routine runs.
-      const turns = await turnProvenance(context.sdk.db, bot.id, messages);
+      const [turns, userStatus] = await Promise.all([
+        turnProvenance(context.sdk.db, bot.id, messages),
+        userTurnStatus(context.sdk.db, messages),
+      ]);
       return { bot: { ...bot, turnStatus, userTurnStatus: userStatus }, messages, turns };
     }),
 

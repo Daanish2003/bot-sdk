@@ -40,6 +40,8 @@ function fakeBotServer(messages: BotMessage[] = []) {
   let turnStatus: TurnStatus | "running" | null = null;
   // The status of the Turn that took the user's last Message.
   let userTurnStatus: TurnStatus | "running" | null = null;
+  // Whether a Routine's Turn runs after the user's, so the user's ending leaves the latest running.
+  let otherTurn = false;
   const push = (event: BotSendEvent | "end" | "drop") => {
     queue.push(event);
     wake();
@@ -82,6 +84,13 @@ function fakeBotServer(messages: BotMessage[] = []) {
             const next = queue.shift()!;
             if (next === "end") return;
             if (next === "drop") throw new Error("The connection dropped");
+            // The server saves what the Turn streams, so a later bot.get reads it too.
+            if (next.type === "message" && !messages.some((saved) => saved.id === next.message.id))
+              messages.push(next.message);
+            if (next.type === "turnEnded") {
+              userTurnStatus = next.status;
+              if (!otherTurn) turnStatus = next.status;
+            }
             yield next;
           }
         }),
@@ -118,6 +127,11 @@ function fakeBotServer(messages: BotMessage[] = []) {
       userTurnStatus = status;
     },
     /** What `bot.get` says of the Turn that took the user's last Message, when another Turn ran since. */
+    /** Starts a Routine's Turn on the server, after the user's: the latest Turn now runs. */
+    startOtherTurn: () => {
+      otherTurn = true;
+      turnStatus = "running";
+    },
     setUserTurnStatus: (status: TurnStatus | "running" | null) => {
       userTurnStatus = status;
     },
@@ -517,6 +531,21 @@ describe("a quiet background run after the user's Message", () => {
 
     expect(await screen.findByText("Couldn't reply")).toBeTruthy();
     expect(screen.queryByText("Seen ✓")).toBeNull();
+  });
+});
+
+describe("a Turn that starts as the user's ends", () => {
+  it("keeps showing ••• for a Routine run already running when the user's Turn ends", async () => {
+    const server = fakeBotServer();
+    mount(server);
+
+    await type("hi");
+    await server.stream({ type: "message", message: said("m1", "user", "hi") });
+    // A Routine's fire started the next Turn while the user's was ending.
+    server.startOtherTurn();
+    await server.stream({ type: "turnEnded", status: "complete" }, "end");
+
+    expect(await screen.findByRole("status", { name: "Typing" })).toBeTruthy();
   });
 });
 

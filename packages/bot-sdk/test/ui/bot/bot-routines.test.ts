@@ -335,14 +335,18 @@ describe("a Routine's runs", () => {
       );
       const { container } = mount(server);
       await screen.findByText("Morning to you.");
+      expect(screen.queryByText(/next run/)).toBeNull();
 
       // The Routine runs on the server; this page sends nothing.
       messages.push(sentAt("m3", "assistant", "Three meetings today.", "2026-10-19T07:00:02.000Z"));
       turns.push(run(true));
+      // A run too quick to be seen running still moves the Routine on to its next slot.
+      server.routines[0]!.nextRunAt = new Date("2026-10-20T07:00:00.000Z");
       await act(() => vi.advanceTimersByTimeAsync(backgroundPollMs));
 
       await screen.findByText("Three meetings today.");
       expect(timeline(container)[2]).toMatch(/^run:morning-brief · /);
+      await screen.findByText(/morning-brief approved · next run/);
     } finally {
       vi.useRealTimers();
     }

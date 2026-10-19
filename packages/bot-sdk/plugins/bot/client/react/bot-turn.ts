@@ -1,6 +1,6 @@
 import { ORPCError } from "@orpc/client";
 import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useSyncExternalStore } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 
 import { type BotSdkOrpc, useChatAdapter } from "../../../../core/client/react/provider";
 import { uuidv7 } from "../../../../core/shared/uuidv7";
@@ -157,7 +157,6 @@ async function runSend(
   }));
   const withoutPending = (turn: LocalTurn | undefined) =>
     turn && { ...turn, pending: turn.pending.filter((shown) => shown !== pending) };
-  let ended = false;
   // The stream's first event is the saved user Message: an error before it is a refusal.
   let saved = false;
   try {
@@ -180,7 +179,6 @@ async function runSend(
         if (event.message.role === "user")
           void queryClient.invalidateQueries({ queryKey: listKey });
       } else {
-        ended = true;
         // The stream follows the Turn that took this send's Message.
         update((data) => ({
           ...data,
@@ -196,8 +194,9 @@ async function runSend(
       onRefused?.(text, error);
     }
   } finally {
-    // A stream that never ended leaves the cached Turn status stale, so ask the server.
-    if (!ended) void queryClient.invalidateQueries({ queryKey: getKey });
+    // Ask the server once the stream is done: one that never ended leaves the cached Turn status
+    // stale, and by the end of one that did, a Routine or Check-in may already run the next Turn.
+    void queryClient.invalidateQueries({ queryKey: getKey });
     changeLocalTurn(queryClient, botId, (turn) => {
       const rest = withoutPending(turn);
       return rest && rest.streams > 1 ? { ...rest, streams: rest.streams - 1 } : undefined;
@@ -210,17 +209,27 @@ async function runSend(
 export const backgroundPollMs = 15_000;
 
 /**
- * Asks for Bot `botId`'s Conversation every `backgroundPollMs` while `expected`: an approved
- * Routine or a pending Check-in may run with no one sending, so its run shows without a reload. A
- * run it finds running is then followed every 2 s by `useBotTurn`, and the lists refresh once it
- * ends.
+ * Asks again for Bot `botId`'s Conversation, Routines and Check-ins every `backgroundPollMs` while
+ * `expected`: an approved Routine or a pending Check-in may run with no one sending, so its run
+ * and what it changed show without a reload, even a run too quick to be seen running. A run found
+ * running is then followed every 2 s by `useBotTurn`.
  */
 export function useBackgroundRuns(botId: string, expected: boolean) {
   const { orpc } = useChatAdapter();
-  useQuery({
-    ...orpc.bot.get.queryOptions({ input: { botId } }),
-    refetchInterval: expected ? backgroundPollMs : false,
-  });
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (!expected) return;
+    const input = { input: { botId } };
+    const keys = [
+      orpc.bot.get.queryKey(input),
+      orpc.bot.routine.list.queryKey(input),
+      orpc.bot.checkIn.list.queryKey(input),
+    ];
+    const timer = setInterval(() => {
+      for (const queryKey of keys) void queryClient.invalidateQueries({ queryKey });
+    }, backgroundPollMs);
+    return () => clearInterval(timer);
+  }, [botId, expected, orpc, queryClient]);
 }
 
 /** The Bots whose Turn a `send` on this client is running, so a sidebar row can say "Working…". */
