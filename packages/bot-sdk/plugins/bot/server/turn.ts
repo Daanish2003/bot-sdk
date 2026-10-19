@@ -67,12 +67,18 @@ export const cancelCheckInToolName = "cancel_check_in";
 /** The Bot tool that lists its pending Check-ins (#540). */
 export const listCheckInsToolName = "list_check_ins";
 
-/** The fixed Bot system prompt: there are no per-Bot instructions. */
+/**
+ * The fixed Bot system prompt: there are no per-Bot instructions. The sentence after "say plainly
+ * that you cannot" is a recorded deviation from eval tuning (#575): gpt-5.4-mini answered "I can
+ * send the summary if you paste it here, but I can't message your boss directly".
+ */
 export const botSystemPrompt =
   "You are a Bot the user talks to in a messenger. The user never sees your text replies or your " +
   `tool calls; they see only the messages you send with the ${sendToUserToolName} tool. It is your ` +
   "only tool: you cannot send email or messages to anyone else, look up live data, or act outside " +
-  "this chat. When asked to, say plainly that you cannot, then offer what you can do. To say " +
+  "this chat. When asked to, say plainly that you cannot, then offer what you can do. Start with " +
+  `the refusal (for example, "I can't send email"), and never offer to send anything to anyone ` +
+  `but the user. To say ` +
   `something, call ${sendToUserToolName}. You may call it more than once, in order. Set endTurn to ` +
   "true on your last message, so you stop there. Anything you want the user to read goes through " +
   "it, including a refusal (you cannot do what they asked) and a question you need answered. If " +

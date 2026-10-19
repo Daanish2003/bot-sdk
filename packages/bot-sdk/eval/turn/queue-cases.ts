@@ -32,7 +32,10 @@ export const queueCases: QueueCase[] = [
     ],
     criterion:
       "The user sent three messages in a row: 'Plan a dinner.', 'For 4 people.' and 'Vegetarian.'. " +
-      "The reply must cover all three: it plans a dinner, for 4 people, that is vegetarian.",
+      "The reply must keep all three: a dinner, for 4 people, that is vegetarian. It may plan that " +
+      "dinner, or ask a clarifying question (such as the occasion, budget or cuisine) that keeps all " +
+      "three. It fails if it drops or contradicts any of them, such as planning for a different " +
+      "number of people or suggesting meat or fish.",
   },
   {
     id: "interrupting",
@@ -42,8 +45,9 @@ export const queueCases: QueueCase[] = [
     ],
     criterion:
       "The user first asked to plan a trip to Paris, then corrected it: 'Actually, make it Rome'. " +
-      "The reply must plan a trip to Rome, and must not plan one to Paris (it may mention Paris only " +
-      "to say it was changed).",
+      "The reply must be about a trip to Rome: it may plan that trip, or ask a clarifying question " +
+      "(such as the dates, length or budget) about it. It fails if it plans or asks about a trip to " +
+      "Paris (it may mention Paris only to say it was changed).",
   },
   {
     // The Bot has no tool for booking: a refusal or a question must still reach the user, so it goes
