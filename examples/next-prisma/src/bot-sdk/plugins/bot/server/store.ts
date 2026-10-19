@@ -3,6 +3,7 @@ import { and, asc, desc, eq, gte, inArray } from "drizzle-orm";
 import { deleteConversations } from "../../../core/server/chat/delete-conversations";
 import {
   bot,
+  botTrigger,
   botTurn,
   conversation,
   message,
@@ -83,6 +84,25 @@ async function latestTurnStatuses(db: Database | Transaction, botIds: string[]) 
 /** The latest Turn's status of one Bot, `null` before its first Turn. */
 export async function latestTurnStatus(db: Database | Transaction, botId: string) {
   return (await latestTurnStatuses(db, [botId])).get(botId) ?? null;
+}
+
+/**
+ * The status of the Turn that took the user's last Message in Conversation `conversationId`: `null`
+ * before their first and while it waits in the Conversation queue. A later Routine or Check-in run
+ * leaves it as it is.
+ */
+export async function userTurnStatus(
+  db: Database | Transaction,
+  conversationId: string,
+): Promise<BotTurnStatus | null> {
+  const [row] = await db
+    .select({ status: botTurn.status })
+    .from(botTrigger)
+    .leftJoin(botTurn, eq(botTurn.id, botTrigger.turnId))
+    .where(and(eq(botTrigger.conversationId, conversationId), eq(botTrigger.source, "user")))
+    .orderBy(desc(botTrigger.receivedAt), desc(botTrigger.id))
+    .limit(1);
+  return row?.status ?? null;
 }
 
 /**

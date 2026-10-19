@@ -9,9 +9,9 @@ import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
 import { type BotRoutine, type RoutineSchedule, scheduleText } from "../shared/routine";
 import { lockConversation } from "./router";
-import { knownZone, nextSlot } from "./schedule";
+import { nextSlot } from "./schedule";
 import { newestTimeZone } from "./store";
-import { defaultTimeZone } from "./time-zone";
+import { defaultTimeZone, formatterIn, knownZone } from "./time-zone";
 
 /** The runner job of one scheduled fire of a Routine (`routine-fire.ts`). */
 export const routineFireJobName = "bot.routine_fire";
@@ -98,22 +98,21 @@ async function stopRoutine(deps: BotSdkContext, tx: Transaction, routineId: stri
     );
 }
 
-const snapshotTime = (zone: string) =>
-  new Intl.DateTimeFormat("en-GB", {
-    timeZone: zone,
-    weekday: "short",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  });
+const snapshotTime: Intl.DateTimeFormatOptions = {
+  weekday: "short",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+};
 
 /** `at` as the notices of a Routine run and a Check-in write it, in `zone`: `Mon 2026-10-19 08:00`. */
 export function zonedTime(at: Date, zone: string): string {
   const part: Record<string, string> = {};
-  for (const { type, value } of snapshotTime(zone).formatToParts(at)) part[type] = value;
+  for (const { type, value } of formatterIn(zone, snapshotTime).formatToParts(at))
+    part[type] = value;
   return `${part.weekday} ${part.year}-${part.month}-${part.day} ${part.hour}:${part.minute}`;
 }
 

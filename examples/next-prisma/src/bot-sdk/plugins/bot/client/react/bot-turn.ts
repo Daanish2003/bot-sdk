@@ -111,7 +111,7 @@ async function sendWithRetry(
  *
  * The user's Message shows at once, and the stream's first event (the saved Message) replaces it.
  * Each Message the Bot sends joins the cached Conversation as it arrives, and `turnEnded` sets the
- * cached Bot's Turn status, which "Seen ✓" reads.
+ * cached Bot's Turn statuses, which "Seen ✓" reads.
  *
  * The send makes one uuidv7 for its Message and sends it as `id`. A request that fails on the network
  * before the server answers is made again with the same `id` (#498), after a short wait, so a Message
@@ -181,7 +181,11 @@ async function runSend(
           void queryClient.invalidateQueries({ queryKey: listKey });
       } else {
         ended = true;
-        update((data) => ({ ...data, bot: { ...data.bot, turnStatus: event.status } }));
+        // The stream follows the Turn that took this send's Message.
+        update((data) => ({
+          ...data,
+          bot: { ...data.bot, turnStatus: event.status, userTurnStatus: event.status },
+        }));
       }
     }
   } catch (error) {
@@ -202,6 +206,23 @@ async function runSend(
   }
 }
 
+/** How often an idle Conversation is asked for again while a Routine or Check-in may run in it. */
+export const backgroundPollMs = 15_000;
+
+/**
+ * Asks for Bot `botId`'s Conversation every `backgroundPollMs` while `expected`: an approved
+ * Routine or a pending Check-in may run with no one sending, so its run shows without a reload. A
+ * run it finds running is then followed every 2 s by `useBotTurn`, and the lists refresh once it
+ * ends.
+ */
+export function useBackgroundRuns(botId: string, expected: boolean) {
+  const { orpc } = useChatAdapter();
+  useQuery({
+    ...orpc.bot.get.queryOptions({ input: { botId } }),
+    refetchInterval: expected ? backgroundPollMs : false,
+  });
+}
+
 /** The Bots whose Turn a `send` on this client is running, so a sidebar row can say "Working…". */
 export function useSendingBotIds(): ReadonlySet<string> {
   return new Set(useLocalTurns().keys());
@@ -211,8 +232,8 @@ export function useSendingBotIds(): ReadonlySet<string> {
  * The client side of a Bot's Conversation: its Messages and its latest Turn's status, from the
  * server, plus the `send` this client has in flight. `working` is a Turn running anywhere: here, in
  * another tab, or before a reload. `seenMessageId` is the last Message when it is the user's and the
- * latest Turn ended `complete` (the Bot read it and stayed quiet); `failedMessageId` is that
- * Message when the Turn ended `error`. `onRefusedSend` gets the text of a send the server refused.
+ * Turn that took it ended `complete` (the Bot read it and stayed quiet), whatever a Routine or
+ * Check-in ran since; `failedMessageId` is that Message when its Turn ended `error`. `onRefusedSend` gets the text of a send the server refused.
  */
 export function useBotTurn(
   botId: string,
@@ -231,8 +252,8 @@ export function useBotTurn(
 
   const messages: ShownBotMessage[] = [...(query.data?.messages ?? []), ...(local?.pending ?? [])];
   const last = messages.at(-1);
-  const status = query.data?.bot.turnStatus;
-  const working = sending || status === "running";
+  const working = sending || query.data?.bot.turnStatus === "running";
+  const status = query.data?.bot.userTurnStatus;
   const answered = !working && last?.role === "user" ? last.id : undefined;
   return {
     bot: query.data?.bot,

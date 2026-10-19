@@ -8,9 +8,8 @@ import { rpcError } from "../../../core/server/rpc-error";
 import type { BotCheckIn } from "../shared/check-in";
 import { lockConversation } from "./router";
 import { lastMessageOfTurn, zonedTime } from "./routine";
-import { knownZone } from "./schedule";
 import { newestTimeZone } from "./store";
-import { defaultTimeZone } from "./time-zone";
+import { defaultTimeZone, knownZone } from "./time-zone";
 
 /** The runner job of one Check-in's fire (`check-in-fire.ts`). */
 export const checkInFireJobName = "bot.check_in_fire";

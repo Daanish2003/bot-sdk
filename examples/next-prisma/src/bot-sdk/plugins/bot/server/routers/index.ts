@@ -3,7 +3,14 @@ import { z } from "zod";
 
 import { protectedProcedure } from "../../../../core/server/procedures";
 import { rpcError } from "../../../../core/server/rpc-error";
-import { botMessages, createBot, findBot, latestTurnStatus, listBots } from "../store";
+import {
+  botMessages,
+  createBot,
+  findBot,
+  latestTurnStatus,
+  listBots,
+  userTurnStatus,
+} from "../store";
 import { botSendEventSchema } from "../../shared/turn";
 import { turnProvenance } from "../provenance";
 import {
@@ -43,8 +50,9 @@ const botRouter = {
   list: protectedProcedure.handler(({ context }) => listBots(context.sdk.db, context.user.id)),
 
   /**
-   * One of the caller's Bots with its latest Turn's status, its Conversation's Messages, and its
-   * Turns' provenance; another user's is not found.
+   * One of the caller's Bots with its latest Turn's status and the status of the Turn that took the
+   * user's last Message, its Conversation's Messages, and its Turns' provenance; another user's is
+   * not found.
    */
   get: protectedProcedure
     .input(z.object({ botId: z.uuid() }))
@@ -52,13 +60,14 @@ const botRouter = {
       const found = await findBot(context.sdk.db, context.user.id, input.botId);
       if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
       const { conversationId, ...bot } = found;
-      const [messages, turnStatus] = await Promise.all([
+      const [messages, turnStatus, userStatus] = await Promise.all([
         botMessages(context.sdk.db, conversationId),
         latestTurnStatus(context.sdk.db, bot.id),
+        userTurnStatus(context.sdk.db, conversationId),
       ]);
       // Each Turn's Triggers and whether it sent anything, for the dividers of Routine runs.
       const turns = await turnProvenance(context.sdk.db, bot.id, messages);
-      return { bot: { ...bot, turnStatus }, messages, turns };
+      return { bot: { ...bot, turnStatus, userTurnStatus: userStatus }, messages, turns };
     }),
 
   /**
