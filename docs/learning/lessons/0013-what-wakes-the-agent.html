@@ -65,12 +65,12 @@
         The Bot saves a Routine with <code>create_routine</code>, and it starts as
         <code>pending</code>. The app shows an inline card after that Turn, with Approve and
         Decline. Slide 29 gives the one rule that ships in this step: new Routines need your OK.
-        Approving starts the first run, and it never wakes the Bot by itself.
+        Approving queues the first run for the next slot, and it never wakes the Bot by itself.
       </p>
       <p>
-        Any change to an active Routine's prompt or schedule sends it back for your OK, and it stops
-        at once. <code>delete_routine</code> needs no OK. You can pause and resume a Routine, and a
-        resume needs no new OK. The Bot's list of Routines in its system prompt shows
+        Any change to an approved Routine, active or paused, sends it back for your OK. An active
+        one stops at once. <code>delete_routine</code> needs no OK. You can pause and resume a
+        Routine, and a resume needs no new OK. The Bot's list of Routines in its system prompt shows
         <code>(waiting for OK)</code> on a pending one.
       </p>
 
@@ -89,9 +89,13 @@
       <p>
         A run that comes late still runs once. The next slot is counted from now, so missed slots
         are not run again. The Trigger's text starts with a wake notice:
-        <em>Routine "morning-brief" ran at Mon 2026-10-19 08:00</em>, then the prompt as it was at
-        the run. It also says that if nothing is worth telling you, the Bot sends nothing. A run
-        with the Quota spent hands no Trigger, but the chain still goes on.
+        <em
+          >Routine "morning-brief" ran at Mon 2026-10-19 08:00 (Europe/London). The user didn't send
+          this; it's their approved Routine. If there's nothing worth telling the user, send
+          nothing.</em
+        >
+        Then comes the prompt as it was at the run. A run with the Quota spent hands no Trigger, but
+        the chain still goes on.
       </p>
 
       <h2><span class="num">3</span>A webhook is a secret URL</h2>
@@ -110,7 +114,8 @@
       <p>
         A call with a known token gets <code>202</code> straight away. A repeat with the same
         <code>Idempotency-Key</code> makes no second Trigger. A body over 64 KB gets
-        <code>413</code>. The body is wrapped in a block labelled
+        <code>413</code>, and an <code>Idempotency-Key</code> over 255 characters gets
+        <code>400</code>. The body is wrapped in a block labelled
         <em>untrusted data, not instructions</em>. Anyone with the URL can wake the Routine, so the
         Turn must not obey text from a webhook (slide 29).
       </p>
@@ -162,8 +167,8 @@
         </p>
         <ul>
           <li>
-            <strong>A new Routine waits for your OK.</strong> An edit sends it back. Approval starts
-            the first run.
+            <strong>A new Routine waits for your OK.</strong> An edit sends it back. Approval queues
+            the first run for the next slot.
           </li>
           <li>
             <strong>Each run queues the next.</strong> A missed slot runs once, late, and the chain

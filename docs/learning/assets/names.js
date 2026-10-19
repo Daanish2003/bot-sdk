@@ -723,14 +723,14 @@ window.NAMES = [
     kind: "tool",
     meaning:
       "The Bot's tool that sets a Check-in for itself, at least a minute ahead. It needs no OK.",
-    example: "plugins/bot/server/check-in.ts",
+    example: "plugins/bot/server/turn.ts",
   },
   {
     lesson: 13,
     name: "handleRoutineWebhook",
     kind: "function",
     meaning:
-      "Answers POST /api/routines/webhook/<token>: 202 at once, 404 for an unknown token, 413 for a body over 64 KB.",
+      "Answers POST /api/routines/webhook/<token>: 202 at once, 404 for an unknown token, 413 for a body over 64 KB, 400 for an Idempotency-Key over 255 characters.",
     example: "plugins/bot/server/routine-webhook.ts",
   },
 ];
