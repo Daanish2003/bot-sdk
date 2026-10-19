@@ -290,10 +290,14 @@ describe("a scheduled Routine", () => {
     await runDue();
 
     const input = inputOf(fake.calls.at(-1));
+    // The Turn's newest input is the fire, so the time opens it, not the answered user Message.
     expect(input.at(-1)).toEqual({
       role: "user",
-      content: `${wakeNotice}\n\n${morningBrief.prompt}`,
+      content:
+        `[Current time: Monday, 19 October 2026 at 08:00 (Europe/London)]\n\n` +
+        `${wakeNotice}\n\n${morningBrief.prompt}`,
     });
+    expect(input[0]).toEqual({ role: "user", content: "Set it up, please" });
     const { messages } = await client.bot.get({ botId });
     expect(messages.filter((sent) => sent.role === "user").map((sent) => sent.text)).toEqual([
       "Set it up, please",

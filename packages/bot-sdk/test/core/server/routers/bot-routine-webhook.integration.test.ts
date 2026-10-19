@@ -110,7 +110,7 @@ async function botWithRoutine({
 
   await send("Tell me when a payout looks off");
   const routines = await client.bot.routine.list({ botId });
-  return { fake, deps, client, user, botId, conversationId, routines, runDue, send, call };
+  return { fake, deps, client, user, botId, conversationId, routines, timer, runDue, send, call };
 }
 
 /** A Bot with the webhook Routine `payouts`, approved: its token is the one approving revealed. */
@@ -274,6 +274,25 @@ describe("a webhook Routine's URL", () => {
     expect(seen).not.toContain(token);
     expect(seen).not.toContain(rotated);
     expect(seen).toContain("stripe-payouts  on webhook Europe/London");
+  });
+  it("gives the Turn it wakes the whole payload, and later Turns only its first 2 KB, marked cut", async () => {
+    const { fake, token, call, send, timer, runDue } = await approvedWebhook([round(), round()]);
+    const payload = JSON.stringify({ blob: "x".repeat(10_000) });
+
+    timer.advance(1_000);
+    await call(token, payload);
+    timer.advance(500);
+    await runDue();
+    const fromWebhook = (call: TextOptions | undefined) =>
+      (call?.messages ?? [])
+        .map((entry) => String(entry.content))
+        .find((content) => content.includes("From a webhook"))!;
+    // The Turn the webhook woke reads it whole, after the time.
+    const woken = fromWebhook(fake.calls.at(-1)).replace(/^\[Current time: [^\]]*\]\n\n/, "");
+    expect(woken).toContain(payload);
+
+    await send("Anything new?");
+    expect(fromWebhook(fake.calls.at(-1))).toBe(`${woken.slice(0, 2048)}\n[truncated]`);
   });
 });
 

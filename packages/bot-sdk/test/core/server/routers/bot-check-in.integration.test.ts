@@ -203,7 +203,10 @@ describe("a Check-in", () => {
 
     advanceTo("2026-10-22T08:00:00.500Z");
     await runDue();
-    expect(inputOf(fake.calls.at(-1)).at(-1)).toEqual({ role: "user", content: notice });
+    expect(inputOf(fake.calls.at(-1)).at(-1)).toEqual({
+      role: "user",
+      content: `[Current time: Thursday, 22 October 2026 at 09:00 (Europe/London)]\n\n${notice}`,
+    });
     expect(await queuedJobs()).toEqual([]);
   });
 

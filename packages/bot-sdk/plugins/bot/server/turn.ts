@@ -682,11 +682,16 @@ async function endTurn(
   await tx.update(botTurn).set(ending).where(eq(botTurn.id, turnId));
 }
 
+/** How much of an earlier Turn's Trigger text later Turns replay: a webhook payload can be 64 KB. */
+const earlierTriggerTextLimit = 2_048;
+
 /**
  * The Turn's model input: each user Message as a user turn, each Trigger with no Message (such as a
  * Routine's fire) as an input turn of its text, and each earlier Turn as its transcript, in order.
- * The newest user Message opens with the current time in its zone. The Bot's sent Messages are not replayed as text: the transcripts hold them as
- * SendToUser calls. Only what came before the Turn counts, so every attempt reads the same input.
+ * The Turn's newest input opens with the current time in the newest user Message's zone. A Trigger
+ * an earlier Turn took replays only its first `earlierTriggerTextLimit` characters. The Bot's sent
+ * Messages are not replayed as text: the transcripts hold them as SendToUser calls. Only what came
+ * before the Turn counts, so every attempt reads the same input.
  */
 async function modelInput(db: Database | Transaction, turn: TurnFacts): Promise<ModelMessage[]> {
   const [users, woken, turns] = await Promise.all([
@@ -704,7 +709,11 @@ async function modelInput(db: Database | Transaction, turn: TurnFacts): Promise<
     // The Triggers that carry no Message (a Routine's fire, #539), taken by this Turn or an earlier
     // one: never one taken later, so every attempt reads the same input.
     db
-      .select({ text: botTrigger.text, receivedAt: botTrigger.receivedAt })
+      .select({
+        text: botTrigger.text,
+        receivedAt: botTrigger.receivedAt,
+        turnId: botTrigger.turnId,
+      })
       .from(botTrigger)
       .innerJoin(botTurn, eq(botTurn.id, botTrigger.turnId))
       .where(
@@ -722,26 +731,29 @@ async function modelInput(db: Database | Transaction, turn: TurnFacts): Promise<
       .where(and(eq(botTurn.botId, turn.botId), lt(botTurn.startedAt, turn.startedAt)))
       .orderBy(asc(botTurn.startedAt), asc(botTurn.id)),
   ]);
-  const entries = [
-    ...users.map((row, index) => ({
-      at: row.createdAt.getTime(),
-      messages: [
-        {
-          role: "user" as const,
-          // The newest one opens with the time, as of the Turn's start so every attempt reads the same.
-          content:
-            index === users.length - 1
-              ? `${timeNotice(turn.startedAt, row.parts.timeZone)}
-
-${searchTextOf(row.parts)}`
-              : searchTextOf(row.parts),
-        },
-      ],
-    })),
+  const inputs = [
+    ...users.map((row) => ({ at: row.createdAt.getTime(), content: searchTextOf(row.parts) })),
     // One input turn each, never a user Message: its text opens with a notice of what woke the Bot.
     ...woken.map((row) => ({
       at: row.receivedAt.getTime(),
-      messages: [{ role: "user" as const, content: row.text! }],
+      content:
+        row.turnId === turn.id || row.text!.length <= earlierTriggerTextLimit
+          ? row.text!
+          : `${row.text!.slice(0, earlierTriggerTextLimit)}\n[truncated]`,
+    })),
+  ];
+  // The newest input opens with the time, as of the Turn's start so every attempt reads the same.
+  const newest = inputs.reduce<(typeof inputs)[number] | undefined>(
+    (latest, input) => (latest && latest.at > input.at ? latest : input),
+    undefined,
+  );
+  if (newest) {
+    newest.content = `${timeNotice(turn.startedAt, users.at(-1)?.parts.timeZone)}\n\n${newest.content}`;
+  }
+  const entries = [
+    ...inputs.map((input) => ({
+      at: input.at,
+      messages: [{ role: "user" as const, content: input.content }],
     })),
     ...turns.map((row) => ({ at: row.startedAt.getTime(), messages: row.transcript ?? [] })),
   ];
