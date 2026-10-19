@@ -56,6 +56,8 @@ function fakeBotServer(state: Record<string, ServerBot> = {}) {
         bot: {
           ...bots.find((bot) => bot.id === input.botId)!,
           turnStatus: state[input.botId]?.turnStatus ?? null,
+          // Only the user's Turns run here, so the latest Turn is the one that took their last Message.
+          userTurnStatus: state[input.botId]?.turnStatus ?? null,
         },
         messages: state[input.botId]?.messages ?? [],
       })),

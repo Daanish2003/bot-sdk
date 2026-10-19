@@ -1,6 +1,6 @@
 import { ORPCError } from "@orpc/client";
 import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useSyncExternalStore } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 
 import { type BotSdkOrpc, useChatAdapter } from "../../../../core/client/react/provider";
 import { uuidv7 } from "../../../../core/shared/uuidv7";
@@ -81,8 +81,17 @@ const sendAttempts = 3;
 /** The wait before retry `n` (from 1), longer each time. */
 const retryDelayMs = (n: number) => 250 * n;
 
+/** The browser's IANA time zone, sent with each Message so the Bot knows the user's "now". */
+function browserTimeZone(): string | undefined {
+  // An empty zone is left out: the server refuses one, and a Message without one reads as UTC.
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+}
+
 /** Calls `bot.send`, again with the same input while the request fails on the network. */
-async function sendWithRetry(orpc: BotSdkOrpc, input: { botId: string; id: string; text: string }) {
+async function sendWithRetry(
+  orpc: BotSdkOrpc,
+  input: { botId: string; id: string; text: string; timeZone?: string },
+) {
   for (let attempt = 1; ; attempt++) {
     try {
       return await orpc.bot.send.call(input);
@@ -102,7 +111,7 @@ async function sendWithRetry(orpc: BotSdkOrpc, input: { botId: string; id: strin
  *
  * The user's Message shows at once, and the stream's first event (the saved Message) replaces it.
  * Each Message the Bot sends joins the cached Conversation as it arrives, and `turnEnded` sets the
- * cached Bot's Turn status, which "Seen ✓" reads.
+ * cached Bot's Turn statuses, which "Seen ✓" reads.
  *
  * The send makes one uuidv7 for its Message and sends it as `id`. A request that fails on the network
  * before the server answers is made again with the same `id` (#498), after a short wait, so a Message
@@ -148,11 +157,15 @@ async function runSend(
   }));
   const withoutPending = (turn: LocalTurn | undefined) =>
     turn && { ...turn, pending: turn.pending.filter((shown) => shown !== pending) };
-  let ended = false;
   // The stream's first event is the saved user Message: an error before it is a refusal.
   let saved = false;
   try {
-    for await (const event of await sendWithRetry(orpc, { botId, id, text })) {
+    for await (const event of await sendWithRetry(orpc, {
+      botId,
+      id,
+      text,
+      timeZone: browserTimeZone(),
+    })) {
       await cancelRefetch();
       if (event.type === "message") {
         saved = true;
@@ -166,8 +179,11 @@ async function runSend(
         if (event.message.role === "user")
           void queryClient.invalidateQueries({ queryKey: listKey });
       } else {
-        ended = true;
-        update((data) => ({ ...data, bot: { ...data.bot, turnStatus: event.status } }));
+        // The stream follows the Turn that took this send's Message.
+        update((data) => ({
+          ...data,
+          bot: { ...data.bot, turnStatus: event.status, userTurnStatus: event.status },
+        }));
       }
     }
   } catch (error) {
@@ -178,14 +194,42 @@ async function runSend(
       onRefused?.(text, error);
     }
   } finally {
-    // A stream that never ended leaves the cached Turn status stale, so ask the server.
-    if (!ended) void queryClient.invalidateQueries({ queryKey: getKey });
+    // Ask the server once the stream is done: one that never ended leaves the cached Turn status
+    // stale, and by the end of one that did, a Routine or Check-in may already run the next Turn.
+    void queryClient.invalidateQueries({ queryKey: getKey });
     changeLocalTurn(queryClient, botId, (turn) => {
       const rest = withoutPending(turn);
       return rest && rest.streams > 1 ? { ...rest, streams: rest.streams - 1 } : undefined;
     });
     void queryClient.invalidateQueries({ queryKey: listKey });
   }
+}
+
+/** How often an idle Conversation is asked for again while a Routine or Check-in may run in it. */
+export const backgroundPollMs = 15_000;
+
+/**
+ * Asks again for Bot `botId`'s Conversation, Routines and Check-ins every `backgroundPollMs` while
+ * `expected`: an approved Routine or a pending Check-in may run with no one sending, so its run
+ * and what it changed show without a reload, even a run too quick to be seen running. A run found
+ * running is then followed every 2 s by `useBotTurn`.
+ */
+export function useBackgroundRuns(botId: string, expected: boolean) {
+  const { orpc } = useChatAdapter();
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (!expected) return;
+    const input = { input: { botId } };
+    const keys = [
+      orpc.bot.get.queryKey(input),
+      orpc.bot.routine.list.queryKey(input),
+      orpc.bot.checkIn.list.queryKey(input),
+    ];
+    const timer = setInterval(() => {
+      for (const queryKey of keys) void queryClient.invalidateQueries({ queryKey });
+    }, backgroundPollMs);
+    return () => clearInterval(timer);
+  }, [botId, expected, orpc, queryClient]);
 }
 
 /** The Bots whose Turn a `send` on this client is running, so a sidebar row can say "Working…". */
@@ -197,8 +241,8 @@ export function useSendingBotIds(): ReadonlySet<string> {
  * The client side of a Bot's Conversation: its Messages and its latest Turn's status, from the
  * server, plus the `send` this client has in flight. `working` is a Turn running anywhere: here, in
  * another tab, or before a reload. `seenMessageId` is the last Message when it is the user's and the
- * latest Turn ended `complete` (the Bot read it and stayed quiet); `failedMessageId` is that
- * Message when the Turn ended `error`. `onRefusedSend` gets the text of a send the server refused.
+ * Turn that took it ended `complete` (the Bot read it and stayed quiet), whatever a Routine or
+ * Check-in ran since; `failedMessageId` is that Message when its Turn ended `error`. `onRefusedSend` gets the text of a send the server refused.
  */
 export function useBotTurn(
   botId: string,
@@ -217,13 +261,15 @@ export function useBotTurn(
 
   const messages: ShownBotMessage[] = [...(query.data?.messages ?? []), ...(local?.pending ?? [])];
   const last = messages.at(-1);
-  const status = query.data?.bot.turnStatus;
-  const working = sending || status === "running";
+  const working = sending || query.data?.bot.turnStatus === "running";
+  const status = query.data?.bot.userTurnStatus;
   const answered = !working && last?.role === "user" ? last.id : undefined;
   return {
     bot: query.data?.bot,
     error: query.error,
     messages,
+    /** Each Turn's provenance: the Triggers it took, and whether it sent anything. */
+    turns: query.data?.turns ?? [],
     working,
     seenMessageId: status === "complete" ? answered : undefined,
     failedMessageId: status === "error" ? answered : undefined,

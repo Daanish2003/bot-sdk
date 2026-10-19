@@ -479,6 +479,17 @@ The payload is the hook's payload: ids, the ending, the Model and flags. It neve
 
 User-configured webhooks, where a user enters a URL in settings, are out of scope (ADR 0017 and ADR 0018).
 
+## Inbound webhooks for Routines
+
+A Bot's Routine can run whenever an outside service calls its secret URL (ADR 0021). The `bot` plugin exports the handler. Mount it for `POST` at `/api/routines/webhook/<token>`, outside the chat handler and with no sign-in, since the token is the authentication:
+
+```ts
+// For example, a TanStack Start route at /api/routines/webhook/$token
+const handle = ({ request }: { request: Request }) => sdk.plugin("bot").webhookHandler(request);
+```
+
+It answers `202` at once, `413` to a body over 64 KB, and `404` to a token that matches no active Routine. With an `Idempotency-Key` header, a retried delivery wakes the Bot once. The token is stored only as a hash, so the app shows a Routine's URL once, after it is approved or rotated.
+
 ## Several processes: `redisRuntime()`
 
 A Run is shared between the processes of your app through its `runtime`. The default, `memoryRuntime()`, keeps Runs in one process's memory, which is fine for local development and for a Host that runs as a single process.

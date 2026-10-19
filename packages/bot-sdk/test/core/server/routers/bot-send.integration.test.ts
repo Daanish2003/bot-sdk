@@ -19,7 +19,7 @@ import { appendMessage } from "../../../../core/server/chat/message-tree";
 import { bot } from "../../../../plugins/bot/server/plugin";
 import { receive } from "../../../../plugins/bot/server/router";
 import { turnTimeLimitMs } from "../../../../plugins/bot/server/store";
-import { findBot, textParts } from "../../../../plugins/bot/server/store";
+import { findBot, newestTimeZone, textParts } from "../../../../plugins/bot/server/store";
 import { sendToBot } from "../../../../plugins/bot/server/turn";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { quotaLookup } from "../../../../plugins/models/server/quota";
@@ -228,6 +228,10 @@ async function triggersOf(conversationId: string) {
     .orderBy(asc(botTrigger.receivedAt), asc(botTrigger.id));
 }
 
+/** A user Message's content without the time note that opens the newest one. */
+const withoutNotice = (content: unknown) =>
+  String(content).replace(/^\[Current time: [^\]]*\]\n\n/, "");
+
 /** The model input of one call: its messages, as the adapter got them. */
 const inputOf = (call: TextOptions | undefined) => (call?.messages ?? []) as ModelMessage[];
 
@@ -367,7 +371,8 @@ describe("bot.send", () => {
       endTurn: true,
     });
     expect(input[1]?.content).toBe("Private note.");
-    expect(input[3]).toMatchObject({ role: "user", content: "thanks" });
+    expect(input[3]).toMatchObject({ role: "user" });
+    expect(withoutNotice(input[3]?.content)).toBe("thanks");
   });
 
   it("gives another user not-found for a Bot that isn't theirs", async () => {
@@ -595,12 +600,11 @@ describe("a Turn off the request", () => {
     await send(client, botId, "hi");
 
     const [turn] = await turnsOf(botId);
-    const [row] = await getTestDb().select().from(job).where(eq(job.id, turn!.jobId!));
-    expect(row).toMatchObject({
-      name: "bot.turn",
-      payload: { turnId: turn!.id },
-      status: "succeeded",
-    });
+    // The stream ends with the Turn's last Checkpoint; the runner marks the job succeeded only
+    // after its run returns, so the test waits for that write.
+    await expect
+      .poll(async () => (await getTestDb().select().from(job).where(eq(job.id, turn!.jobId!)))[0])
+      .toMatchObject({ name: "bot.turn", payload: { turnId: turn!.id }, status: "succeeded" });
   });
 
   it("follows the Turn on its 2 s re-read when a hint is lost", async () => {
@@ -708,7 +712,7 @@ describe("one Turn at a time", () => {
     expect(taken.map((row) => row.turnId)).toEqual([turns[0]!.id, turns[1]!.id, turns[1]!.id]);
     expect(fake.calls).toHaveLength(2);
     const users = inputOf(fake.calls[1]).filter((entry) => entry.role === "user");
-    expect(users.map((entry) => entry.content)).toEqual(["one", "two", "three"]);
+    expect(users.map((entry) => withoutNotice(entry.content))).toEqual(["one", "two", "three"]);
   });
 
   it("starts the next Turn when the running one ends error", async () => {
@@ -751,7 +755,7 @@ describe("skipping the line", () => {
   const userTexts = (call: TextOptions | undefined) =>
     inputOf(call)
       .filter((entry) => entry.role === "user")
-      .map((entry) => entry.content);
+      .map((entry) => withoutNotice(entry.content));
 
   it("interrupts a running Turn: it ends stopped and keeps its sent Messages, and a new Turn takes the Message with its transcript in view", async () => {
     const first = round(sends({ text: "On it…", endTurn: false }));
@@ -817,7 +821,8 @@ describe("skipping the line", () => {
     expect(input[0]).toMatchObject({ role: "user", content: "Book the meeting for Wednesday" });
     expect(JSON.stringify(input.slice(1, -1))).toContain("On it…");
     expect(JSON.stringify(input)).not.toContain("Wednesday it is.");
-    expect(input.at(-1)).toMatchObject({ role: "user", content: "Actually, make it Thursday" });
+    expect(input.at(-1)).toMatchObject({ role: "user" });
+    expect(withoutNotice(input.at(-1)?.content)).toBe("Actually, make it Thursday");
   });
 
   it("makes one replacement Turn for several sends while the old Turn aborts", async () => {
@@ -905,8 +910,8 @@ describe("batching quick Messages", () => {
    * A Bot on an idle runner and a clock the test moves. `runDue()` claims a Turn's job only once
    * it is due at the clock's time, and runs it.
    */
-  async function batchingBot(rounds: Round[], { manual = false } = {}) {
-    const timer = fakeJobClock(new Date());
+  async function batchingBot(rounds: Round[], { manual = false, at = new Date() } = {}) {
+    const timer = fakeJobClock(at);
     const { fake, deps, client, user, botId } = await botWith(rounds, {
       idle: true,
       manual,
@@ -940,7 +945,82 @@ describe("batching quick Messages", () => {
   const userTexts = (call: TextOptions | undefined) =>
     inputOf(call)
       .filter((entry) => entry.role === "user")
-      .map((entry) => entry.content);
+      .map((entry) => withoutNotice(entry.content));
+
+  /** Sends `text` with `timeZone` and reads only the saved Message. */
+  async function sendFrom(
+    client: ReturnType<typeof chatRpc>,
+    botId: string,
+    text: string,
+    timeZone?: string,
+  ) {
+    const stream = await client.bot.send({ botId, id: uuidv7(), text, timeZone });
+    await stream.next();
+    await stream.return(undefined);
+  }
+
+  // 13:05 UTC on 19 October 2026: London is on summer time, so its clock reads 14:05.
+  const noon = new Date("2026-10-19T13:05:00.000Z");
+
+  it("opens the Turn's newest input with the current time in the sender's zone", async () => {
+    const { fake, client, botId, advance, runDue } = await batchingBot([round()], { at: noon });
+
+    await sendFrom(client, botId, "What is on today?", "Europe/London");
+    advance(500);
+    await runDue();
+
+    const [message] = inputOf(fake.calls[0]).filter((entry) => entry.role === "user");
+    expect(message?.content).toBe(
+      "[Current time: Monday, 19 October 2026 at 14:05 (Europe/London)]\n\nWhat is on today?",
+    );
+  });
+
+  it("shows the time in UTC when the send carries no zone", async () => {
+    const { fake, client, botId, advance, runDue } = await batchingBot([round()], { at: noon });
+
+    await sendFrom(client, botId, "What is on today?");
+    advance(500);
+    await runDue();
+
+    const [message] = inputOf(fake.calls[0]).filter((entry) => entry.role === "user");
+    expect(message?.content).toBe(
+      "[Current time: Monday, 19 October 2026 at 13:05 (UTC)]\n\nWhat is on today?",
+    );
+  });
+
+  it("puts the time on only the newest of the Messages a Turn took", async () => {
+    const { fake, client, botId, advance, runDue } = await batchingBot([round()], { at: noon });
+
+    await sendFrom(client, botId, "one", "Europe/London");
+    await sendFrom(client, botId, "two", "Asia/Tokyo");
+    advance(500);
+    await runDue();
+
+    const users = inputOf(fake.calls[0]).filter((entry) => entry.role === "user");
+    expect(users[0]?.content).toBe("one");
+    expect(users[1]?.content).toMatch(/^\[Current time: .* 22:05 \(Asia\/Tokyo\)\]\n\ntwo$/);
+  });
+
+  it("refuses a time zone that is not an IANA zone with BAD_REQUEST", async () => {
+    const { client, botId, conversationId } = await batchingBot([round()]);
+
+    await expect(
+      client.bot.send({ botId, id: uuidv7(), text: "hi", timeZone: "Mars/Olympus" }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(await triggersOf(conversationId)).toEqual([]);
+  });
+
+  it("reads the zone of the Conversation's newest user Message", async () => {
+    const { client, botId, conversationId } = await batchingBot([round()]);
+    expect(await newestTimeZone(getTestDb(), conversationId)).toBeUndefined();
+
+    await sendFrom(client, botId, "one", "Europe/London");
+    expect(await newestTimeZone(getTestDb(), conversationId)).toBe("Europe/London");
+    await sendFrom(client, botId, "two", "Asia/Tokyo");
+    expect(await newestTimeZone(getTestDb(), conversationId)).toBe("Asia/Tokyo");
+    await sendFrom(client, botId, "three");
+    expect(await newestTimeZone(getTestDb(), conversationId)).toBeUndefined();
+  });
 
   it("answers three sends 200 ms apart with one Turn that took all three Triggers", async () => {
     const { fake, botId, conversationId, advance, sendNow, runDue } = await batchingBot([round()]);
@@ -1431,7 +1511,8 @@ describe("a Turn that resumes after a crash", () => {
     expect(fake.calls).toHaveLength(4);
     expect(modelSees(inputOf(fake.calls[3]))).toEqual(modelSees(inputOf(fake.calls[2])));
     const [userTurn, ...soFar] = inputOf(fake.calls[3]);
-    expect(userTurn).toMatchObject({ role: "user", content: "count to three" });
+    expect(userTurn).toMatchObject({ role: "user" });
+    expect(withoutNotice(userTurn?.content)).toBe("count to three");
     expect(modelSees(turn?.transcript?.slice(0, soFar.length) ?? [])).toEqual(modelSees(soFar));
     // The follow saw each Message once, though the Turn ended on another process.
     expect(shapes(await readUntil(stream, () => false))).toEqual([

@@ -50,6 +50,11 @@ export const job = chatSchema.table(
     uniqueIndex("job_idempotency_key_active_idx")
       .on(table.idempotencyKey)
       .where(sql`${table.status} in ('queued', 'running')`),
+    // `text_pattern_ops` lets a prefix `LIKE` (a Routine's `routine:<id>:%`) use the index under any collation.
+    index("job_idempotency_key_prefix_idx").using(
+      "btree",
+      table.idempotencyKey.op("text_pattern_ops"),
+    ),
     index("job_claim_idx").on(table.status, table.runAfter),
   ],
 );

@@ -1,10 +1,30 @@
 import type { BotSdkPlugin } from "../../../core/server/plugin";
 import { isInProcessRunner } from "../../runner/server/jobs/in-process";
 import { runnerJobs } from "../../runner/server/plugin";
+import { cancelUserCheckIns } from "./check-in";
+import { cancelUserFires } from "./routine";
+import { startRoutineReconcile } from "./routine-fire";
+import "./check-in-fire";
+import { handleRoutineWebhook } from "./routine-webhook";
 import { botPluginRouter } from "./routers/index";
 import { botUserDelete, exportBots, hasTurnUsingComputer, userHasBot } from "./store";
 
 export type BotPlugin = BotSdkPlugin<"bot", never, never>;
+
+/** What the `bot` plugin gives the Host (`sdk.plugin("bot")`). */
+export type BotApi = {
+  /**
+   * The inbound webhook handler of webhook Routines (ADR 0021), Request → Response. The Host mounts
+   * it at `/api/routines/webhook/<token>` with no sign-in: the token is the authentication.
+   */
+  webhookHandler: (request: Request) => Promise<Response>;
+};
+
+declare module "../../../core/server/plugin" {
+  interface PluginApis {
+    bot: BotApi;
+  }
+}
 
 /**
  * The `bot` plugin (ADR 0020): always-on Bots, each a name and a Model talking to its user in one
@@ -33,9 +53,21 @@ export function bot(): BotPlugin {
         // Only a user with a Bot gets a Computer, so a Turn racing the user's delete creates none.
         computer.addOwnerCheck(userHasBot);
       }
+      const api: BotApi = { webhookHandler: (request) => handleRoutineWebhook(sdk, request) };
+      return { api };
     },
+    // Repairs a Routine whose chain of fires broke, now and then hourly (#578).
+    start: startRoutineReconcile,
     router: botPluginRouter,
-    deleteUser: botUserDelete,
+    deleteUser: {
+      // No Routine or Check-in fires for a deleted user: its queued jobs are cancelled.
+      before: async (sdk, args) => {
+        await cancelUserFires(sdk, args.tx, args.userId);
+        await cancelUserCheckIns(sdk, args.tx, args.userId);
+        return botUserDelete.before(sdk, args);
+      },
+      after: botUserDelete.after,
+    },
     exportUser: (_sdk, userId, tx) => exportBots(tx, userId),
   };
 }

@@ -124,6 +124,17 @@ const toolResultOf = (call: TextOptions | undefined) =>
 /** The names of the tools a model call offered. */
 const toolNamesOf = (call: TextOptions | undefined) => (call?.tools ?? []).map((tool) => tool.name);
 
+/** The Bot's tools with no Computer: SendToUser, then the Routine and Check-in tools (spec #543). */
+const botTools = [
+  "send_to_user",
+  "create_routine",
+  "update_routine",
+  "delete_routine",
+  "set_check_in",
+  "cancel_check_in",
+  "list_check_ins",
+];
+
 const computerRow = async (userId: string) =>
   (await getTestDb().select().from(computerTable).where(eq(computerTable.userId, userId)))[0];
 
@@ -215,7 +226,7 @@ describe("the shell tool", () => {
     await send(client, botId, "hi");
 
     expect(toolNamesOf(fake.calls[0])).toEqual([
-      "send_to_user",
+      ...botTools,
       "shell",
       "read",
       "write",
@@ -233,7 +244,7 @@ describe("the shell tool", () => {
 
     await send(client, botId, "hi");
 
-    expect(toolNamesOf(fake.calls[0])).toEqual(["send_to_user"]);
+    expect(toolNamesOf(fake.calls[0])).toEqual(botTools);
     expect(fake.calls[0]?.systemPrompts).toEqual([botSystemPrompt]);
     expect(JSON.stringify(fake.calls[0]?.systemPrompts)).not.toMatch(
       /computer|shell|\/home\/user/i,
@@ -857,7 +868,7 @@ describe("the file tools", () => {
     await send(client, botId, "go");
 
     expect(toolNamesOf(fake.calls[0])).toEqual([
-      "send_to_user",
+      ...botTools,
       "shell",
       "read",
       "write",

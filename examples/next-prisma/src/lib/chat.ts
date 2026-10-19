@@ -1,5 +1,6 @@
 import { createBotSdk } from "@ai-chat/bot-sdk/core/server";
 import { assistant, type HostToolContext } from "@ai-chat/bot-sdk/plugins/assistant/server";
+import { bot } from "@ai-chat/bot-sdk/plugins/bot/server";
 import { e2bProvider } from "@ai-chat/bot-sdk/plugins/computer/e2b";
 import { computer } from "@ai-chat/bot-sdk/plugins/computer/server";
 import { models } from "@ai-chat/bot-sdk/plugins/models/server";
@@ -52,5 +53,6 @@ export const chat = createBotSdk({
       ? [computer({ provider: e2bProvider({ ...e2b, template: "ai-chat-computer-v2" }) })]
       : []),
     assistant({ tools: [serverTime] }),
+    bot(),
   ],
 });

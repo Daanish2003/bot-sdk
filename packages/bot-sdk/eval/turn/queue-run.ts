@@ -11,6 +11,7 @@ import { sendToBot } from "../../plugins/bot/server/turn";
 import { freshBot, type TurnEnv } from "./case";
 import type { QueueCase } from "./queue-cases";
 import { judge, scoreQueue } from "./queue-score";
+import { toolCallsOf } from "./routine-score";
 import { sentTexts } from "./score";
 
 /** The judge's completion; the eval run builds it from `EVAL_JUDGE_MODEL`. */
@@ -24,6 +25,8 @@ export type QueueRunResult = {
   judge: { correct: boolean; reason: string } | null;
   /** The text the last Turn sent. */
   reply: string[];
+  /** Every tool call the Turns that took the Messages made, in order, with its args. */
+  toolCalls: { name: string; args: unknown }[];
   ms: number;
   error?: string;
 };
@@ -55,6 +58,7 @@ export async function runQueueCase(
 ): Promise<QueueRunResult> {
   const started = Date.now();
   let reply: string[] = [];
+  let toolCalls: QueueRunResult["toolCalls"] = [];
   try {
     const { userId, bot } = await freshBot(env, evalCase.id, repeat);
     const ids: string[] = [];
@@ -94,6 +98,7 @@ export async function runQueueCase(
       .filter((turn) => turn.triggerIds.length > 0);
     const structural = scoreQueue(evalCase.id, { triggerIds: ids, turns: taking });
     reply = sentTexts(taking.at(-1)?.transcript);
+    toolCalls = taking.flatMap((turn) => toolCallsOf(turn.transcript));
     const verdict = reply.length
       ? await judge(complete, { criterion: evalCase.criterion, reply: reply.join("\n") })
       : null;
@@ -103,6 +108,7 @@ export async function runQueueCase(
       structural,
       judge: verdict,
       reply,
+      toolCalls,
       ms: Date.now() - started,
     };
   } catch (caught) {
@@ -113,6 +119,7 @@ export async function runQueueCase(
       structural: { passed: false, reasons: [`error: ${error}`] },
       judge: null,
       reply,
+      toolCalls,
       ms: Date.now() - started,
       error,
     };

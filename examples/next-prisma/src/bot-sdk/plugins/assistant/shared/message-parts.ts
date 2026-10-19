@@ -148,6 +148,8 @@ export const storedPartSchema = z.discriminatedUnion("type", [
 export const storedPartsSchema = z.object({
   schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5)]),
   parts: z.array(storedPartSchema),
+  /** The IANA time zone a Bot user's Message was sent from, when the client sent one. */
+  timeZone: z.string().optional(),
 });
 
 export type StoredPart = z.infer<typeof storedPartSchema>;

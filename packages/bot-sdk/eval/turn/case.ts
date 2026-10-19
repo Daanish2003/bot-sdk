@@ -17,6 +17,7 @@ import { sendToBot, sendToUserToolName } from "../../plugins/bot/server/turn";
 import { saveCredentials } from "../../plugins/models/server/credentials/store";
 import type { Credentials } from "../../plugins/assistant/server/deps";
 import type { TurnCase } from "./cases";
+import { toolCallsOf } from "./routine-score";
 import { type Observed, observeTranscript, type Score, scoreTurn } from "./score";
 
 /** Everything a run needs that is shared by the whole eval. */
@@ -37,6 +38,8 @@ export type TurnRunResult = {
   score: Score;
   /** The text of each Message the Bot sent. */
   sent: string[];
+  /** Every tool call the Turn made, in order, with its args. */
+  toolCalls: { name: string; args: unknown }[];
   ms: number;
   error?: string;
 };
@@ -163,6 +166,7 @@ export async function runCase(
       expected: evalCase.expected,
       score: scoreTurn(evalCase, observed),
       sent,
+      toolCalls: toolCallsOf(turn?.transcript),
       ms: Date.now() - started,
     };
   } catch (caught) {
@@ -178,6 +182,7 @@ export async function runCase(
         reasons: [`error: ${error}`],
       },
       sent,
+      toolCalls: [],
       ms: Date.now() - started,
       error,
     };

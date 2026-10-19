@@ -80,19 +80,20 @@ The same run also plays six cases of the Router and queue (spec #510, #531) with
 client ids, `EVAL_REPEATS` times each. Each has a structural check and an LLM-judge check:
 
 - **batching:** "Plan a dinner." / "For 4 people." / "Vegetarian." sent 200 ms apart. Structural:
-  exactly one Turn took all three Triggers, completed and sent a reply. Judge: the reply covers all
-  three.
+  exactly one Turn took all three Triggers, completed and sent a reply. Judge: the reply keeps all
+  three (it plans the dinner, or asks a clarifying question that keeps them, #575).
 - **interrupting:** "Plan a trip to Paris", then, once the Turn's job is running, "Actually, make it
   Rome". Structural: the first Turn ended `stopped`, a second Turn took the correction, completed and
-  sent a reply. Judge: the reply plans a trip to Rome, not Paris. The case asks for something the Bot
-  can answer in a message: asked to book a meeting, which it has no tool for, the Model answered in
+  sent a reply. Judge: the reply plans a trip to Rome, or asks a clarifying question about it, and
+  not about Paris (#575). The case asks for something the Bot can answer in a message: asked to book a meeting, which it has no tool for, the Model answered in
   plain text, which the user never sees (#516).
 - **unavailable:** "Book the meeting for Thursday", which the Bot has no tool for. Structural: one Turn
   took the Message, completed and sent at least one Message (a refusal or a question goes through
   SendToUser too, never as plain text, #516). Judge: the reply says it cannot book or asks for details,
   and does not claim the meeting is booked.
 - **no-email:** "Send this summary to my boss", which the Bot cannot do. Structural: as for unavailable.
-  Judge: the reply says it cannot send email, and does not claim it sent anything.
+  Judge: the reply says it cannot send email, and does not claim it sent anything. The prompt tells the
+  Bot to start with the refusal and never offer to send anything to anyone but the user (#575).
 - **unclear:** "Fix it", with no earlier context. Structural: as for unavailable. Judge: the reply asks
   what "it" is.
 - **no-live-data:** "What's the weather in Delhi right now?". Structural: as for unavailable. Judge:
@@ -107,3 +108,42 @@ The structural check reads Turns and Triggers, never the Model's text. The judge
 `Reason:`, both printed per run and saved in the results file. `EVAL_JUDGE_MODEL` (an `openai:`,
 `anthropic:` or `openrouter:` Model) sets the judge; it defaults to `EVAL_BOT_MODEL`, so that must be one of those
 Providers unless you set it. `--limit` limits only the week-one cases.
+
+## Routine and Check-in evals (spec #543, #550)
+
+Six more cases play after the queue cases, `EVAL_REPEATS` times each, with the real `bot` plugin. The
+first three start from a user Message. The last three start from a Trigger, handed to the Router the way
+a Routine's fire or a fired Check-in does (`routineSnapshot` and `checkInNotice` make its text), after
+the same kind of seeded history. The Bot has no tool to look anything up, so a Routine's prompt carries
+the data it reads. Each case has a structural check on the Turn's tool calls and Messages, and most have a
+judge check (same judge as above):
+
+- **routine-recurring:** "Every weekday at 8am, give me a short summary of the top tech news."
+  Structural: `create_routine` called. Judge: reads the call, a slug name, a prompt for the summary,
+  mon to fri at 08:00.
+- **routine-one-off:** "What's the capital of Australia?". Structural: `create_routine` not called, and
+  a Message sent. No judge.
+- **routine-check-back:** "I sent the contract to Priya. Check back with me Thursday." Structural:
+  `set_check_in` called and `create_routine` not. Judge: reads the call, whose `at` is a Thursday
+  (the weekday is computed and shown to the judge) and whose note mentions the contract or Priya.
+- **routine-run-nothing-new:** a Routine run whose prompt shows the same versions today as yesterday.
+  Structural: the Turn completes and sends no Message. No judge.
+- **routine-run-something-new:** the same with vite at a new version. Structural: exactly one Message.
+  Judge: it reports the new vite version and not a react one.
+- **check-in-fired:** a Check-in whose note says to ask whether Priya replied. Structural: at least one
+  Message. Judge: it asks about the reply or offers a reminder.
+
+Results are saved as `routineRates` and `routineRuns` in the results file. Run the whole script, as above:
+the same `--fake` dry run plays these cases too.
+
+## Judge Model and results
+
+- **Use a stronger judge than the Bot.** Set `EVAL_JUDGE_MODEL` to a different, stronger Model than
+  `EVAL_BOT_MODEL` (it can be another Provider: the run reads that Provider's key, such as
+  `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`). A small Model judging its own replies once misread the
+  routine-run-something-new criterion.
+- The tally prints `judge n/a` for a case with no judge check, and the judge rate is over the judged
+  runs only.
+- Every run in the results file has `toolCalls`, the tool calls of its Turn(s) in order with their
+  arguments (week-one, queue and routine runs), so a run that sent nothing shows whether the Bot called a
+  tool or nothing at all.

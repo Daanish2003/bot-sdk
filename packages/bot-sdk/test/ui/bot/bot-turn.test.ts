@@ -5,7 +5,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createElement, Fragment } from "react";
 import { Toaster } from "sonner";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { rpcError } from "../../../core/server/rpc-error";
@@ -14,7 +14,10 @@ import type { BotMessage, BotSendEvent, TurnStatus } from "../../../plugins/bot/
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
 import { providerFor } from "../fake-dictionary";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 const createdAt = new Date("2026-10-17T09:00:00.000Z");
 const ada = { id: "b2", name: "Ada", model: "openai:gpt-5.6", createdAt };
@@ -35,6 +38,10 @@ function fakeBotServer(messages: BotMessage[] = []) {
   const queue: (BotSendEvent | "end" | "drop")[] = [];
   let wake = () => {};
   let turnStatus: TurnStatus | "running" | null = null;
+  // The status of the Turn that took the user's last Message.
+  let userTurnStatus: TurnStatus | "running" | null = null;
+  // Whether a Routine's Turn runs after the user's, so the user's ending leaves the latest running.
+  let otherTurn = false;
   const push = (event: BotSendEvent | "end" | "drop") => {
     queue.push(event);
     wake();
@@ -48,7 +55,7 @@ function fakeBotServer(messages: BotMessage[] = []) {
   const router = {
     bot: {
       get: os.handler(async () => {
-        const read = { bot: { ...ada, turnStatus }, messages: [...messages] };
+        const read = { bot: { ...ada, turnStatus, userTurnStatus }, messages: [...messages] };
         await held;
         return read;
       }),
@@ -56,7 +63,14 @@ function fakeBotServer(messages: BotMessage[] = []) {
         stops.push(input);
       }),
       send: os
-        .input(z.object({ botId: z.string(), id: z.string(), text: z.string() }))
+        .input(
+          z.object({
+            botId: z.string(),
+            id: z.string(),
+            text: z.string(),
+            timeZone: z.string().optional(),
+          }),
+        )
         .output(eventIterator(z.custom<BotSendEvent>()))
         .handler(async function* ({ input }) {
           sends.push(input);
@@ -70,6 +84,13 @@ function fakeBotServer(messages: BotMessage[] = []) {
             const next = queue.shift()!;
             if (next === "end") return;
             if (next === "drop") throw new Error("The connection dropped");
+            // The server saves what the Turn streams, so a later bot.get reads it too.
+            if (next.type === "message" && !messages.some((saved) => saved.id === next.message.id))
+              messages.push(next.message);
+            if (next.type === "turnEnded") {
+              userTurnStatus = next.status;
+              if (!otherTurn) turnStatus = next.status;
+            }
             yield next;
           }
         }),
@@ -103,6 +124,16 @@ function fakeBotServer(messages: BotMessage[] = []) {
     /** What `bot.get` says of the latest Turn from now on, as the server's Turn moves on. */
     setTurnStatus: (status: TurnStatus | "running" | null) => {
       turnStatus = status;
+      userTurnStatus = status;
+    },
+    /** What `bot.get` says of the Turn that took the user's last Message, when another Turn ran since. */
+    /** Starts a Routine's Turn on the server, after the user's: the latest Turn now runs. */
+    startOtherTurn: () => {
+      otherTurn = true;
+      turnStatus = "running";
+    },
+    setUserTurnStatus: (status: TurnStatus | "running" | null) => {
+      userTurnStatus = status;
     },
     /** Fails the next `count` send requests on the network, before the server sees them. */
     dropNext: (count = 1) => {
@@ -174,12 +205,34 @@ describe("talking to a Bot", () => {
     expect(bubbles(container)).toEqual([["user", "hello"]]);
     await waitFor(() =>
       expect(server.sends).toEqual([
-        { botId: ada.id, id: expect.stringMatching(uuidv7Shape), text: "hello" },
+        {
+          botId: ada.id,
+          id: expect.stringMatching(uuidv7Shape),
+          text: "hello",
+          timeZone: expect.any(String),
+        },
       ]),
     );
     await server.stream({ type: "message", message: said("m1", "user", "hello") });
     expect(bubbles(container)).toEqual([["user", "hello"]]);
     expect(container.querySelector("[data-bot-message][data-id=m1]")).toBeTruthy();
+  });
+
+  it("sends the browser's IANA time zone with each Message", async () => {
+    vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockReturnValue({
+      timeZone: "Asia/Tokyo",
+    } as Intl.ResolvedDateTimeFormatOptions);
+    const server = fakeBotServer();
+    mount(server);
+
+    await type("first");
+    await type("second");
+
+    await waitFor(() => expect(server.sends).toHaveLength(2));
+    expect((server.sends as { timeZone?: string }[]).map((send) => send.timeZone)).toEqual([
+      "Asia/Tokyo",
+      "Asia/Tokyo",
+    ]);
   });
 
   it("shows only the sent Messages, the user's on the right and the Bot's on the left", async () => {
@@ -312,8 +365,18 @@ describe("sending while the Bot works", () => {
     ]);
     await waitFor(() =>
       expect(server.sends).toEqual([
-        { botId: ada.id, id: expect.stringMatching(uuidv7Shape), text: "hi" },
-        { botId: ada.id, id: expect.stringMatching(uuidv7Shape), text: "and one more thing" },
+        {
+          botId: ada.id,
+          id: expect.stringMatching(uuidv7Shape),
+          text: "hi",
+          timeZone: expect.any(String),
+        },
+        {
+          botId: ada.id,
+          id: expect.stringMatching(uuidv7Shape),
+          text: "and one more thing",
+          timeZone: expect.any(String),
+        },
       ]),
     );
     expect(screen.getByRole<HTMLTextAreaElement>("textbox", { name: "Message" }).value).toBe("");
@@ -444,6 +507,45 @@ describe("a Turn that didn't reply", () => {
 
     expect(screen.queryByText("Couldn't reply")).toBeNull();
     expect(screen.queryByText("Seen ✓")).toBeNull();
+  });
+});
+
+describe("a quiet background run after the user's Message", () => {
+  it("reads the user's Message's own Turn, not the run: no Seen ✓ after a stopped one", async () => {
+    const server = fakeBotServer([said("m1", "user", "hi")]);
+    // A Routine's quiet run, the latest Turn, ended complete after the user's Turn was stopped.
+    server.setTurnStatus("complete");
+    server.setUserTurnStatus("stopped");
+    mount(server);
+
+    await screen.findByText("hi");
+    expect(screen.queryByText("Seen ✓")).toBeNull();
+    expect(screen.queryByText("Couldn't reply")).toBeNull();
+  });
+
+  it("shows Couldn't reply after the user's failed Turn, not Seen ✓", async () => {
+    const server = fakeBotServer([said("m1", "user", "hi")]);
+    server.setTurnStatus("complete");
+    server.setUserTurnStatus("error");
+    mount(server);
+
+    expect(await screen.findByText("Couldn't reply")).toBeTruthy();
+    expect(screen.queryByText("Seen ✓")).toBeNull();
+  });
+});
+
+describe("a Turn that starts as the user's ends", () => {
+  it("keeps showing ••• for a Routine run already running when the user's Turn ends", async () => {
+    const server = fakeBotServer();
+    mount(server);
+
+    await type("hi");
+    await server.stream({ type: "message", message: said("m1", "user", "hi") });
+    // A Routine's fire started the next Turn while the user's was ending.
+    server.startOtherTurn();
+    await server.stream({ type: "turnEnded", status: "complete" }, "end");
+
+    expect(await screen.findByRole("status", { name: "Typing" })).toBeTruthy();
   });
 });
 
