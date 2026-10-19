@@ -5,7 +5,10 @@
 /** One user Message of a case, and when it is sent. */
 export type QueueMessage = {
   text: string;
-  /** Sent this long after the previous Message was sent. */
+  /**
+   * Sent this long after the previous Message was due, on a fixed schedule from the case's start,
+   * however long the previous send took (#603).
+   */
   afterMs?: number;
   /** Sent once the previous Message's Turn has started, so it interrupts that Turn (#500). */
   afterTurnStarts?: true;
