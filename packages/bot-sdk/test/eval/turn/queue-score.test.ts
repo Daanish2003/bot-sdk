@@ -7,6 +7,7 @@ import {
   parseVerdict,
   type QueueObserved,
   scoreQueue,
+  formatJudge,
   tallyQueue,
 } from "../../../eval/turn/queue-score";
 import { sentTexts } from "../../../eval/turn/score";
@@ -178,9 +179,14 @@ describe("tallyQueue", () => {
         { caseId: "interrupting", structural: true, judge: false },
       ]),
     ).toEqual({
-      batching: { runs: 2, structural: 1, judge: 1 },
-      interrupting: { runs: 1, structural: 1, judge: 0 },
+      batching: { runs: 2, structural: 1, judge: 1, judged: 1 },
+      interrupting: { runs: 1, structural: 1, judge: 0, judged: 1 },
     });
+  });
+
+  it("prints n/a for a case with no judged run, and a rate over the judged runs otherwise", () => {
+    expect(formatJudge({ judge: 0, judged: 0 })).toBe("judge n/a");
+    expect(formatJudge({ judge: 1, judged: 2 })).toBe("judge 1/2");
   });
 });
 

@@ -61,8 +61,9 @@ export const queueCases: QueueCase[] = [
     messages: [{ text: "Send this summary to my boss" }],
     criterion:
       "The user asked the assistant to send a summary to their boss, but it cannot send email. The " +
-      "reply must say it cannot send email (it may offer to help write the summary, or ask what to " +
-      "send), and must not claim it sent anything.",
+      "reply must say it cannot send email, and must not claim it sent anything. It may offer to " +
+      "help write the summary, ask what to send, or offer what the assistant can do itself, such as " +
+      "setting a reminder (a Check-in) or saving a recurring Routine.",
   },
   {
     id: "unclear",

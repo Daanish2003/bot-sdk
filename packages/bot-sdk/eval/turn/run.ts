@@ -37,7 +37,7 @@ import { type RoutineCase, routineCases } from "./routine-cases";
 import { nextThursday } from "./routine-score";
 import { runRoutineCase, type RoutineRunResult } from "./routine-run";
 import { type Complete, runQueueCase, type QueueRunResult } from "./queue-run";
-import { tallyQueue } from "./queue-score";
+import { formatJudge, tallyQueue } from "./queue-score";
 import { tally } from "./score";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
@@ -355,15 +355,11 @@ Routine and Check-in evals: ${routineCases.length} cases x ${repeats} repeats, j
   }
 
   for (const [name, row] of Object.entries(queueRates)) {
-    console.log(
-      `${name.padEnd(12)} structural ${row.structural}/${row.runs}, judge ${row.judge}/${row.runs}`,
-    );
+    console.log(`${name.padEnd(12)} structural ${row.structural}/${row.runs}, ${formatJudge(row)}`);
   }
 
   for (const [name, row] of Object.entries(routineRates)) {
-    console.log(
-      `${name.padEnd(26)} structural ${row.structural}/${row.runs}, judge ${row.judge}/${row.runs}`,
-    );
+    console.log(`${name.padEnd(26)} structural ${row.structural}/${row.runs}, ${formatJudge(row)}`);
   }
 
   await mkdir(resultsDir, { recursive: true });
