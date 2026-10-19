@@ -189,7 +189,7 @@ describe("a Check-in", () => {
     const [row] = await checkIns(botId);
     const notice =
       `Check-in you set on Mon 2026-10-19 10:00 for Thu 2026-10-22 09:00 (Europe/London): ` +
-      `"${note}"`;
+      `"${note}". It's due now: do what the note says.`;
     expect(await checkInTriggers(conversationId)).toEqual([
       expect.objectContaining({
         id: `check_in:${row!.id}`,

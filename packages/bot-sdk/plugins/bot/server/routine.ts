@@ -136,7 +136,8 @@ export function routineSnapshot({
   const when = zonedTime(slot, zone);
   return (
     `Routine ${JSON.stringify(name)} ran at ${when} (${zone}). The user didn't send this; it's ` +
-    `their approved Routine. If there's nothing worth telling the user, send nothing.\n\n${prompt}`
+    `their approved Routine. If there's nothing new worth telling the user, send nothing, not ` +
+    `even to say so.\n\n${prompt}`
   );
 }
 
