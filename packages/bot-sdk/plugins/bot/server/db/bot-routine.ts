@@ -27,8 +27,13 @@ export const botRoutine = chatSchema.table(
     /** A slug the Bot chooses, unique per Bot. */
     name: text("name").notNull(),
     prompt: text("prompt").notNull(),
-    /** Days of the week at a time, in `timeZone`. */
+    /** Days of the week at a time, in `timeZone`; null on a webhook Routine. */
     schedule: jsonb("schedule").$type<RoutineSchedule>(),
+    /**
+     * A webhook Routine's token as its SHA-256 (ADR 0021): the token itself is never stored. Null on
+     * a scheduled Routine: a Routine has exactly one of a schedule and a webhook.
+     */
+    webhookTokenHash: text("webhook_token_hash"),
     /** IANA, from the user's newest Message when the Routine was created. */
     timeZone: text("time_zone").notNull(),
     state: botRoutineState("state").notNull(),
@@ -40,5 +45,8 @@ export const botRoutine = chatSchema.table(
     createdAt: timestamp("created_at").notNull(),
     updatedAt: timestamp("updated_at").notNull(),
   },
-  (table) => [uniqueIndex("bot_routine_bot_id_name_idx").on(table.botId, table.name)],
+  (table) => [
+    uniqueIndex("bot_routine_bot_id_name_idx").on(table.botId, table.name),
+    uniqueIndex("bot_routine_webhook_token_hash_idx").on(table.webhookTokenHash),
+  ],
 );

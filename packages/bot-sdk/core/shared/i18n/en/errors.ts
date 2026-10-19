@@ -10,6 +10,7 @@ export const errorMessages = {
   "error.projectNotFound": "Project not found",
   "error.botNotFound": "Bot not found",
   "error.routineNotFound": "Routine not found",
+  "error.routineNotWebhook": "Only an approved webhook Routine has a URL to rotate",
   "error.checkInNotFound": "Check-in not found",
   "error.messageIdTaken": "That message id is already used",
   "error.sharedLinkNotFound": "Shared link not found",

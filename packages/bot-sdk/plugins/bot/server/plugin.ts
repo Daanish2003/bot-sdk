@@ -6,10 +6,26 @@ import { cancelUserFires } from "./routine";
 // Registers the Routine fire job, which nothing else here imports.
 import "./routine-fire";
 import "./check-in-fire";
+import { handleRoutineWebhook } from "./routine-webhook";
 import { botPluginRouter } from "./routers/index";
 import { botUserDelete, exportBots } from "./store";
 
 export type BotPlugin = BotSdkPlugin<"bot", never, never>;
+
+/** What the `bot` plugin gives the Host (`sdk.plugin("bot")`). */
+export type BotApi = {
+  /**
+   * The inbound webhook handler of webhook Routines (ADR 0021), Request → Response. The Host mounts
+   * it at `/api/routines/webhook/<token>` with no sign-in: the token is the authentication.
+   */
+  webhookHandler: (request: Request) => Promise<Response>;
+};
+
+declare module "../../../core/server/plugin" {
+  interface PluginApis {
+    bot: BotApi;
+  }
+}
 
 /**
  * The `bot` plugin (ADR 0020): always-on Bots, each a name and a Model talking to its user in one
@@ -27,6 +43,8 @@ export function bot(): BotPlugin {
           "The bot plugin needs the in-process runner: a Trigger.dev retry starts a Turn over and would send its Messages again",
         );
       }
+      const api: BotApi = { webhookHandler: (request) => handleRoutineWebhook(sdk, request) };
+      return { api };
     },
     router: botPluginRouter,
     deleteUser: {

@@ -6,7 +6,12 @@ import { useI18n } from "../../../core/client/react/provider";
 import type { BotCheckIn } from "../shared/check-in";
 import { type BotRoutine, scheduleText } from "../shared/routine";
 import { CancelCheckIn, type CheckInActionHandlers, checkInText } from "./check-in-line";
-import { RoutineActions, type RoutineActionHandlers } from "./routine-card";
+import {
+  RoutineActions,
+  type RoutineActionHandlers,
+  RoutineIcon,
+  WebhookUrl,
+} from "./routine-card";
 
 const stateKeys = {
   pending: "bots.routinePending",
@@ -17,14 +22,23 @@ const stateKeys = {
 /**
  * The Bot header's "Routines N · Check-ins M" button (prototype variant A), N counting the approved
  * Routines and M the pending Check-ins. It opens a popover listing every Routine with its schedule
- * and state, and Pause / Resume and Delete, then the pending Check-ins, with Cancel.
+ * and state, and Pause / Resume and Delete, then the pending Check-ins, with Cancel. An approved
+ * webhook Routine's row also has its URL, with Copy and Rotate (variant B's row).
  */
 export function RoutinesPopover({
   routines,
   checkIns,
   onCancelCheckIn,
+  webhookTokens,
+  onRotate,
   ...actions
-}: { routines: BotRoutine[]; checkIns: BotCheckIn[] } & CheckInActionHandlers &
+}: {
+  routines: BotRoutine[];
+  checkIns: BotCheckIn[];
+  /** The webhook tokens approving or rotating gave on this page, by Routine. */
+  webhookTokens: Record<string, string>;
+  onRotate: (routineId: string) => Promise<void>;
+} & CheckInActionHandlers &
   RoutineActionHandlers) {
   const i18n = useI18n();
   const { t } = i18n;
@@ -38,16 +52,27 @@ export function RoutinesPopover({
       <PopoverContent className="w-96">
         <ul aria-label={t("bots.routines")} className="flex flex-col gap-2 text-sm">
           {routines.map((routine) => (
-            <li key={routine.id} className="flex items-center gap-2">
-              <ClockIcon className="size-4 shrink-0" />
-              <span className="font-medium">{routine.name}</span>
-              {routine.schedule && (
-                <span className="text-muted-foreground">{scheduleText(routine.schedule)}</span>
+            <li key={routine.id} className="flex flex-col gap-1">
+              <div className="flex items-center gap-2">
+                <RoutineIcon routine={routine} className="size-4 shrink-0" />
+                <span className="font-medium">{routine.name}</span>
+                <span className="text-muted-foreground">
+                  {routine.schedule ? scheduleText(routine.schedule) : t("bots.onWebhook")}
+                </span>
+                <span className="ml-auto text-xs text-muted-foreground">
+                  {t(stateKeys[routine.state])}
+                </span>
+                <RoutineActions routine={routine} {...actions} />
+              </div>
+              {routine.webhook && routine.state !== "pending" && (
+                <div className="pl-6">
+                  <WebhookUrl
+                    routineId={routine.id}
+                    token={webhookTokens[routine.id]}
+                    onRotate={onRotate}
+                  />
+                </div>
               )}
-              <span className="ml-auto text-xs text-muted-foreground">
-                {t(stateKeys[routine.state])}
-              </span>
-              <RoutineActions routine={routine} {...actions} />
             </li>
           ))}
         </ul>

@@ -41,7 +41,8 @@ function BotConversationView({ botId }: { botId: string }) {
       },
     });
 
-  const { routines, approve, decline, pause, resume, remove } = useBotRoutines(botId, working);
+  const { routines, webhookTokens, approve, decline, pause, resume, remove, rotate } =
+    useBotRoutines(botId, working);
   const { checkIns, cancel: cancelCheckIn } = useBotCheckIns(botId, working);
   const actions = { onPause: pause, onResume: resume, onDelete: remove };
 
@@ -65,6 +66,7 @@ function BotConversationView({ botId }: { botId: string }) {
     <RoutineCard
       key={routine.id}
       routine={routine}
+      webhookToken={webhookTokens[routine.id]}
       onApprove={approve}
       onDecline={decline}
       {...actions}
@@ -112,6 +114,7 @@ function BotConversationView({ botId }: { botId: string }) {
         name={fired.source === "check_in" ? t("bots.checkIn") : (fired.routineName ?? "")}
         at={fired.at}
         quiet={quiet}
+        webhook={fired.channel === "webhook"}
       />,
     ]);
   }
@@ -130,6 +133,8 @@ function BotConversationView({ botId }: { botId: string }) {
             routines={routines}
             checkIns={checkIns}
             onCancelCheckIn={cancelCheckIn}
+            webhookTokens={webhookTokens}
+            onRotate={rotate}
             {...actions}
           />
         )}
