@@ -1,5 +1,5 @@
 import type { RoutineDay, RoutineSchedule } from "../shared/routine";
-import { defaultTimeZone, isTimeZone } from "./time-zone";
+import { formatterIn, knownZone } from "./time-zone";
 
 const minuteMs = 60_000;
 const dayMs = 86_400_000;
@@ -7,30 +7,20 @@ const dayMs = 86_400_000;
 /** `Date.getUTCDay()`'s order. */
 const dayNames: readonly RoutineDay[] = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
 
-const formatters = new Map<string, Intl.DateTimeFormat>();
-
-function formatterOf(zone: string): Intl.DateTimeFormat {
-  let formatter = formatters.get(zone);
-  if (!formatter) {
-    formatter = new Intl.DateTimeFormat("en-GB", {
-      timeZone: zone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hourCycle: "h23",
-    });
-    formatters.set(zone, formatter);
-  }
-  return formatter;
-}
+const wallClock: Intl.DateTimeFormatOptions = {
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+};
 
 /** What the clock in `zone` reads at `at`, as the UTC instant with the same reading, in ms. */
 function wallClockOf(at: number, zone: string): number {
   const parts: Record<string, number> = {};
-  for (const part of formatterOf(zone).formatToParts(at)) {
+  for (const part of formatterIn(zone, wallClock).formatToParts(at)) {
     if (part.type !== "literal") parts[part.type] = Number(part.value);
   }
   return Date.UTC(
@@ -56,11 +46,6 @@ function firstInstantOf(wall: number, zone: string): number | undefined {
     .filter((at) => wallClockOf(at, zone) === wall)
     .sort((a, b) => a - b);
   return matches[0];
-}
-
-/** `zone`, or UTC when this runtime doesn't know it, so a stored zone never stops a Routine. */
-export function knownZone(zone: string): string {
-  return isTimeZone(zone) ? zone : defaultTimeZone;
 }
 
 /**
