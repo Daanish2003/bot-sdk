@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const sandbox = vi.hoisted(() => ({
   create: vi.fn(),
@@ -27,6 +27,9 @@ const provider = e2bProvider({
 });
 
 beforeEach(() => {
+  // The SDK reads these when an option is unset; a developer's shell must not change the outcome.
+  vi.stubEnv("E2B_SANDBOX_URL", "");
+  vi.stubEnv("E2B_DEBUG", "");
   sandbox.create.mockReset();
   sandbox.getHost.mockClear();
   sandbox.create.mockResolvedValue({
@@ -34,6 +37,10 @@ beforeEach(() => {
     getHost: sandbox.getHost,
     trafficAccessToken: "traffic-1",
   });
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe("e2bProvider.create", () => {
@@ -80,5 +87,27 @@ describe("e2bProvider.endpoint", () => {
       url: "https://6081-sbx1.e2b.test",
       headers: { "e2b-traffic-access-token": "traffic-1" },
     });
+  });
+
+  it("routes through E2B_SANDBOX_URL when the option is unset, as the SDK does for envd", async () => {
+    vi.stubEnv("E2B_SANDBOX_URL", "http://embed.test/");
+    const embed = e2bProvider({ apiKey: "key", apiUrl: "http://api.test", template: "t" });
+
+    expect(await embed.endpoint("sbx1", 9223)).toEqual({
+      url: "http://embed.test",
+      headers: {
+        "e2b-traffic-access-token": "traffic-1",
+        "E2b-Sandbox-Id": "sbx1",
+        "E2b-Sandbox-Port": "9223",
+      },
+    });
+    expect(sandbox.getHost).not.toHaveBeenCalled();
+  });
+
+  it("gives a plain-HTTP URL in the SDK's debug mode", async () => {
+    vi.stubEnv("E2B_DEBUG", "true");
+    const debug = e2bProvider({ apiKey: "key", apiUrl: "http://api.test", template: "t" });
+
+    expect((await debug.endpoint("sbx1", 6081)).url).toBe("http://6081-sbx1.e2b.test");
   });
 });

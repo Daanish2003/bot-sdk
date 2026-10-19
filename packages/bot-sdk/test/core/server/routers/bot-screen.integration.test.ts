@@ -259,15 +259,15 @@ describe("the live view's proxy", () => {
     // The Screen's address the link asked for is reused, not asked for again for each file.
     expect(asked()).toBe(askedByLink);
     const { sandboxId } = sandboxOf(computerFake);
-    // The noVNC endpoint's own headers, not the DevTools one's: on the Embed they pick the port.
+    // Screen 1's noVNC endpoint's own headers, not the DevTools one's: on the Embed they pick the port.
     expect(
       novnc.requests.map((request) => [
         request.headers["e2b-traffic-access-token"],
         request.headers["fake-port"],
       ]),
     ).toEqual([
-      [`traffic-${sandboxId}`, expect.stringMatching(/^608[1-4]$/)],
-      [`traffic-${sandboxId}`, expect.stringMatching(/^608[1-4]$/)],
+      [`traffic-${sandboxId}`, "6081"],
+      [`traffic-${sandboxId}`, "6081"],
     ]);
   });
 
@@ -341,7 +341,7 @@ describe("the live view's proxy", () => {
         path: `/websockify?token=${screenToken}`,
         headers: expect.objectContaining({
           "e2b-traffic-access-token": `traffic-${sandboxId}`,
-          "fake-port": expect.stringMatching(/^608[1-4]$/),
+          "fake-port": "6081",
           "sec-websocket-protocol": "binary",
         }),
       }),
