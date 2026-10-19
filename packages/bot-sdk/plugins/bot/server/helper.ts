@@ -15,6 +15,7 @@ import {
   maxScreens,
 } from "../../computer/server/plugin";
 import { BrowserSession, browserTools } from "./browser-tools";
+import { desktopTools } from "./desktop-tools";
 import { computerOf } from "./computer-tools";
 import { type LoopKit, type LoopResult, runLoop } from "./loop";
 import { lockConversation, receive } from "./router";
@@ -63,12 +64,12 @@ export const generalHelperPrompt =
   "around it.";
 
 /**
- * The Computer-use Helper's system prompt (#573). Its `desktop` and `ask_user` sentences come with
- * those tools.
+ * The Computer-use Helper's system prompt (#573). Its `ask_user` sentence comes with that tool.
  */
 export const computerUseHelperPrompt =
   `${helperPromptOpening} Use the browser tools first: read the page with \`browser_snapshot\` ` +
-  "and act by ref.";
+  "and act by ref. Use `desktop` only for what the browser can't reach, such as desktop apps and " +
+  "system dialogs.";
 
 /** The reports of a Helper that ended before it finished. */
 export const helperEndings = {
@@ -335,7 +336,13 @@ function playHelper(
       }
       return {
         systemPrompts: [computerUseHelperPrompt],
-        tools: browserTools(session, helper.botId, kit.computerCall),
+        tools: [
+          ...browserTools(session, helper.botId, kit.computerCall),
+          ...desktopTools(session.slot, kit.computerCall, async () => {
+            const model = await deps.plugin("models").resolveModel(helper.userId, helper.model);
+            return model?.images ?? false;
+          }),
+        ],
       };
     },
   });
