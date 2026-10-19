@@ -176,6 +176,6 @@ export async function checkInNotice(
   const zone = knownZone(await newestTimeZone(tx, conversationId));
   return (
     `Check-in you set on ${zonedTime(row.createdAt, zone)} for ${zonedTime(row.at, zone)} ` +
-    `(${zone}): ${JSON.stringify(row.note)}`
+    `(${zone}): ${JSON.stringify(row.note)}. It's due now: do what the note says.`
   );
 }
