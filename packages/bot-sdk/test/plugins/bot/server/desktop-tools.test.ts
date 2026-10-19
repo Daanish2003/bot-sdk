@@ -14,7 +14,10 @@ describe("the Desktop tool", () => {
     const canSee = vi.fn(async () => false);
     const [desktop] = desktopTools(1, replayed, canSee);
 
-    const parts = await desktop!.execute!({ action: "screenshot" }, { toolCallId: "call-1" });
+    const parts = await desktop!.execute!(
+      { action: "screenshot" },
+      { toolCallId: "call-1", emitCustomEvent: () => {} },
+    );
 
     expect(parts).toEqual([
       { type: "text", content: JSON.stringify({ result: "screenshot" }) },
