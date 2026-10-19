@@ -9,6 +9,7 @@ import {
   type WebSearchOutput,
   webSearchToolName,
 } from "../../assistant/shared/chat/web-search";
+import type { ToolCall } from "../../models/server/credentials/resolve";
 import { tavilyService } from "../../models/shared/credentials/services";
 import type { LoopKit } from "./loop";
 
@@ -28,36 +29,51 @@ const webSearchDefinition = toolDefinition({
 
 /**
  * The `web_search` tool of a Turn's or a Helper's loop. It is the `bot` plugin's own: it searches
- * with the user's Tavily Tool credential, else the Host's, through `models`. One search is one
- * activity, so a replay returns its recorded result without searching again. The Quota is checked
- * before a search and the search recorded after it, as the assistant's is (ADR 0007). A failure is
- * the tool's result, so the loop goes on.
+ * with the user's Tavily Tool credential, else the Host's, through `models`. The search runs
+ * outside any transaction, and a replay returns its recorded result without searching again. The
+ * Quota is checked before a search, as the assistant's is (ADR 0007), and the search is recorded in
+ * the Checkpoint after it, so it is billed once. A failure is the tool's result, so the loop goes on.
  */
 export function webSearchTool(
   deps: BotSdkContext,
   userId: string,
-  liveActivity: LoopKit["liveActivity"],
+  liveRequest: LoopKit["liveRequest"],
 ) {
   const client = createTavilyClient(deps.fetch);
-  return webSearchDefinition.server(({ query }, context) =>
-    liveActivity(webSearchToolName, context?.toolCallId, async (): Promise<WebSearchOutput> => {
-      const call = await deps.plugin("models").resolveToolCall(userId, tavilyService);
-      if (!call) return { error: webSearchUnavailableError };
-      if (!(await call.meter.mayRun()).ok) {
-        return { error: searchErrorMessages.quota_exceeded, reason: "quota_exceeded" };
-      }
-      try {
-        const results = await client.search(query, call.credentials, {
-          signal: context?.abortSignal,
-        });
-        await call.meter.record();
-        return { results };
-      } catch (caught) {
-        // A stopped Turn or an expired time limit leaves the call unanswered, not failed.
-        if (context?.abortSignal?.aborted || !(caught instanceof SearchError)) throw caught;
-        const reason = caught.reason;
-        return { error: searchErrorMessages[reason], reason };
-      }
-    }),
-  );
+  const resolve = () => deps.plugin("models").resolveToolCall(userId, tavilyService);
+  return webSearchDefinition.server(async ({ query }, context) => {
+    // What the live search ran on; an attempt that resumes at the write resolves it again.
+    let call: ToolCall | null | undefined;
+    let usageRecorded = () => {};
+    const output = await liveRequest(
+      webSearchToolName,
+      context?.toolCallId,
+      async (): Promise<WebSearchOutput> => {
+        call = await resolve();
+        if (!call) return { error: webSearchUnavailableError };
+        if (!(await call.meter.mayRun()).ok) {
+          return { error: searchErrorMessages.quota_exceeded, reason: "quota_exceeded" };
+        }
+        try {
+          return {
+            results: await client.search(query, call.credentials, {
+              signal: context?.abortSignal,
+            }),
+          };
+        } catch (caught) {
+          // A stopped Turn or an expired time limit leaves the call unanswered, not failed.
+          if (context?.abortSignal?.aborted || !(caught instanceof SearchError)) throw caught;
+          const reason = caught.reason;
+          return { error: searchErrorMessages[reason], reason };
+        }
+      },
+      async (tx, searched) => {
+        if (!("results" in searched)) return;
+        call ??= await resolve();
+        if (call) usageRecorded = await call.meter.recordIn(tx);
+      },
+    );
+    usageRecorded();
+    return output;
+  });
 }

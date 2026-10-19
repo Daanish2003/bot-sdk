@@ -59,6 +59,18 @@ export type LoopKit = {
     toolCallId: string | undefined,
     write: (tx: Transaction) => Promise<T>,
   ) => Promise<T>;
+  /**
+   * A live call outside the database, as tool call `toolCallId`, then a write with its result: `run`
+   * is one activity with no transaction, re-run after a crash before its Checkpoint is saved, and
+   * `write` is a second activity whose writes commit with its own Checkpoint, so they happen once.
+   * Both run only live; a replay returns `run`'s recorded result.
+   */
+  liveRequest: <T>(
+    name: string,
+    toolCallId: string | undefined,
+    run: () => Promise<T>,
+    write: (tx: Transaction, result: T) => Promise<void>,
+  ) => Promise<T>;
   /** The Computer's tools: Shell, then the file tools Read, Write, Edit and List. */
   computerTools: AnyServerTool[];
   /**
@@ -321,6 +333,19 @@ export async function runLoop(
         return write(tx);
       }),
     );
+  const liveRequest: LoopKit["liveRequest"] = (name, toolCallId, run, write) =>
+    toolCall(toolCallId, async () => {
+      const result = await ctx.activity(name, async () => {
+        beforeLiveTool();
+        return run();
+      });
+      // Not past a limit or a Stop: what `run` did is written, whenever it ran.
+      await ctx.activity(`${name}:write`, async (tx) => {
+        await write(tx, result);
+        return null;
+      });
+      return result;
+    });
 
   let userComputer: ComputerHandle | undefined;
   // The latest rebuild of the Computer the Bot was told of, read on its first Computer call
@@ -463,7 +488,7 @@ export async function runLoop(
       systemPrompts,
       tools,
       ended = () => false,
-    } = await options.setup({ liveActivity, computerTools, computerCall });
+    } = await options.setup({ liveActivity, liveRequest, computerTools, computerCall });
     let reminded = false;
     for (;;) {
       let engine: ChatMiddlewareContext | undefined;

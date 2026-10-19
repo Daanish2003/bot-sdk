@@ -371,7 +371,7 @@ async function playHelper(
       if (!session) {
         return {
           systemPrompts: [generalHelperPrompt],
-          tools: [...kit.computerTools, webSearchTool(deps, helper.userId, kit.liveActivity)],
+          tools: [...kit.computerTools, webSearchTool(deps, helper.userId, kit.liveRequest)],
         };
       }
       // A Screen that won't open now is opened again by the first Browser tool, which tells the

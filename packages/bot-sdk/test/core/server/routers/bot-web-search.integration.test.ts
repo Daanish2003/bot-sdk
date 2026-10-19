@@ -1,5 +1,5 @@
 import type { ModelMessage, TextOptions } from "@tanstack/ai";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { botHelper, usage } from "../../../../core/server/db/schema";
@@ -31,14 +31,18 @@ afterEach(async () => {
   for (const jobs of started.splice(0)) await jobs.stop();
 });
 
-/** A Tavily that answers every search with one result, and keeps the requests it got. */
-function fakeTavily() {
+/**
+ * A Tavily that answers every search with one result, and keeps the requests it got. `onSearch`
+ * runs while a search is in flight.
+ */
+function fakeTavily(onSearch?: () => Promise<void>) {
   const requests: { authorization: string | null; query: string }[] = [];
   const fetch: typeof globalThis.fetch = async (_input, init) => {
     requests.push({
       authorization: new Headers(init?.headers).get("authorization"),
       query: JSON.parse(String(init?.body)).query,
     });
+    await onSearch?.();
     return Response.json({
       results: [{ title: "Delhi weather", url: "https://wx.example/delhi", content: "31 degrees" }],
     });
@@ -80,15 +84,17 @@ async function botWith(
     host = false,
     withComputer = false,
     helperRounds = [],
+    onSearch,
     ...overrides
   }: {
     own?: boolean;
     host?: boolean;
     withComputer?: boolean;
     helperRounds?: Rounds;
+    onSearch?: () => Promise<void>;
   } & Pick<TestDepsOverrides, "getQuota"> = {},
 ) {
-  const tavily = fakeTavily();
+  const tavily = fakeTavily(onSearch);
   const turnFake = createFakeAdapter({ rounds });
   const helperFake = createFakeAdapter({ rounds: helperRounds });
   const adapter = {
@@ -184,6 +190,26 @@ describe("the Bot's web search", () => {
 
     const rows = (await usageOf(user.id)).filter((row) => row.kind === "web_search");
     expect(rows).toMatchObject([{ model: "tavily", costMicros: 10_000 }]);
+  });
+
+  it("searches with no transaction open, and records the search once", async () => {
+    const openDuringSearch: (number | undefined)[] = [];
+    const { client, botId, user } = await botWith([round(search("news")), round(done)], {
+      host: true,
+      onSearch: async () => {
+        const { rows } = await getTestDb().execute<{ n: number }>(
+          sql`select count(*)::int as n from pg_stat_activity
+              where datname = current_database() and state = 'idle in transaction'`,
+        );
+        openDuringSearch.push(rows[0]?.n);
+      },
+    });
+
+    await send(client, botId, "news?");
+
+    expect(openDuringSearch).toEqual([0]);
+    const rows = (await usageOf(user.id)).filter((row) => row.kind === "web_search");
+    expect(rows).toHaveLength(1);
   });
 
   it("does not search once a search has spent the Quota", async () => {
