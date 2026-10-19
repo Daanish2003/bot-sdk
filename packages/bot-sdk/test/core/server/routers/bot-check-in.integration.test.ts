@@ -274,7 +274,7 @@ describe("a Check-in", () => {
     expect(await checkInTriggers(conversationId)).toEqual([]);
   });
 
-  it("is fired, with no Trigger, once its fire fails every attempt, so it never stays pending", async () => {
+  it("is failed, with no Trigger, once its fire fails every attempt, so it never stays pending", async () => {
     let failing = false;
     const { botId, conversationId, runDue, advanceTo } = await botTurn({
       rounds: [round(setCheckIn(setThursday)), round()],
@@ -299,7 +299,7 @@ describe("a Check-in", () => {
       .from(job)
       .where(like(job.idempotencyKey, "check_in:%"));
     expect(failed).toEqual([{ status: "failed" }]);
-    expect((await checkIns(botId)).map((row) => row.state)).toEqual(["fired"]);
+    expect((await checkIns(botId)).map((row) => row.state)).toEqual(["failed"]);
     expect(await checkInTriggers(conversationId)).toEqual([]);
   });
 

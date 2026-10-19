@@ -22,12 +22,12 @@ export const checkInFireJob = defineJob({
     deps.plugin("runner").wake();
     await hintChanged(deps, fired.conversationId);
   },
-  // A fire that failed for good marked nothing (its Checkpoint rolled back): mark it `fired` here,
+  // A fire that failed for good marked nothing (its Checkpoint rolled back): mark it `failed` here,
   // with no Trigger, so it never stays pending.
   onFailed: async ({ checkInId }, _error, deps) => {
     await deps.db
       .update(botCheckIn)
-      .set({ state: "fired", updatedAt: deps.clock() })
+      .set({ state: "failed", updatedAt: deps.clock() })
       .where(and(eq(botCheckIn.id, checkInId), eq(botCheckIn.state, "pending")));
   },
 });

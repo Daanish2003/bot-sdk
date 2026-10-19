@@ -116,6 +116,21 @@ describe("a Check-in the Bot set", () => {
     expect(line().querySelector(".line-through")?.textContent).toMatch(/Has Acme replied/);
   });
 
+  it("shows a Check-in whose fire failed as failed, with no Cancel", async () => {
+    const server = fakeBotServer(
+      [said("m1", "user", "Tell me Thursday")],
+      [{ ...acme("m1"), state: "failed" }],
+    );
+    const { container } = mount(server);
+
+    await screen.findByText(/Check-in set for/);
+
+    const line = container.querySelector<HTMLElement>("[data-check-in]")!;
+    expect(line.dataset.state).toBe("failed");
+    expect(line.textContent).toMatch(/Has Acme replied?.*failed/i);
+    expect(within(line).queryByRole("button", { name: "Cancel" })).toBeNull();
+  });
+
   it("lists the pending Check-ins in the header popover, with Cancel", async () => {
     const server = fakeBotServer(
       [said("m1", "user", "Tell me Thursday")],

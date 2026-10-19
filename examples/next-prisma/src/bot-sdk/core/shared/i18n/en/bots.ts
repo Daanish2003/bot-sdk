@@ -48,6 +48,7 @@ export const botsMessages = {
   "bots.checkIn": "Check-in",
   "bots.checkInSet": ({ time, note }: { time: string; note: string }) =>
     `Check-in set for ${time}: "${note}"`,
+  "bots.checkInFailed": "failed",
   "bots.cancel": "Cancel",
   "bots.routinePending": "waiting for OK",
   "bots.routineActive": "active",
