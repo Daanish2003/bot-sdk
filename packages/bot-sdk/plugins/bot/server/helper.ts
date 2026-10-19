@@ -12,6 +12,7 @@ import { createWorkflow, type WorkflowContext } from "../../runner/server/workfl
 import { type LoopKit, type LoopResult, runLoop } from "./loop";
 import { lockConversation, receive } from "./router";
 import { hintChanged } from "./turn";
+import { webSearchTool } from "./web-search";
 
 /** The runner job that runs one Helper (#565). */
 export const botHelperJobName = "bot.helper";
@@ -58,12 +59,12 @@ const startHelperDefinition = toolDefinition({
   name: startHelperToolName,
   description:
     "Hand a complete task to a Helper, which works on it in the background while you keep talking " +
-    "to the user. A general Helper has the shell and files. It sees only the task, " +
+    "to the user. A general Helper has the shell, files and web search. It sees only the task, " +
     "nothing of this conversation, so write the task so it stands alone: the goal, everything it " +
     "needs to know, and what to report. Its short report comes back to you later; tell the user " +
     "what matters in it. It returns the Helper's id.",
   inputSchema: z.object({
-    type: z.enum(["general"]).meta({ description: "general: the shell and files." }),
+    type: z.enum(["general"]).meta({ description: "general: the shell, files and web search." }),
     task: z.string().trim().min(1, "task must not be empty").meta({
       description: "The complete task, written so it stands alone.",
     }),
@@ -214,7 +215,10 @@ function playHelper(
     attempt,
     // The Bot isn't told by its Helper's results: its own next Computer call tells it.
     tellsBot: false,
-    setup: async (kit) => ({ systemPrompts: [generalHelperPrompt], tools: kit.computerTools }),
+    setup: async (kit) => ({
+      systemPrompts: [generalHelperPrompt],
+      tools: [...kit.computerTools, webSearchTool(deps, helper.userId, kit.liveActivity)],
+    }),
   });
 }
 
