@@ -60,7 +60,7 @@ export function describeCall(
 ): string {
   const json = `${tool} ${JSON.stringify(input)}`;
   const at = typeof input.at === "string" ? input.at : "";
-  const date = /^(d{4})-(d{2})-(d{2})/.exec(at);
+  const date = /^(\d{4})-(\d{2})-(\d{2})/.exec(at);
   if (tool !== "set_check_in" || !date) return json;
   const day = new Date(Date.UTC(Number(date[1]), Number(date[2]) - 1, Number(date[3])));
   const when = new Date(at).getTime() > now.getTime() ? "in the future" : "in the past";
