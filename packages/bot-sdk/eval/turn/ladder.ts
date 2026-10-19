@@ -5,8 +5,9 @@
 // with `pnpm -F @ai-chat/bot-sdk eval:ladder`; see eval/turn/README.md.
 //
 // A Helper started in a run never runs: its job is queued for a day from now, so the run scores the
-// main agent's choice alone. The Computer is a provider that fails every call, since no case should
-// reach it. Tavily is answered by the eval itself.
+// main agent's choice alone. The Computer is a provider whose calls succeed with empty output, so the
+// Bot's own shell or files call looks like a working tool. Tavily is answered by the eval itself
+// with a few short results, too thin to finish a multi-step task.
 //
 // `--fake` (or EVAL_FAKE=1) plays each case's scripted calls instead of a Model, for checking the
 // script without a key. `--limit=<n>` runs the first n cases.
@@ -29,16 +30,25 @@ import { formatJudge, tallyQueue } from "./queue-score";
 const here = fileURLToPath(new URL(".", import.meta.url));
 const resultsDir = join(here, "results");
 
-/** A Computer no case should reach: every call on it fails. */
-const unusedComputer = new Proxy(
-  { template: "ladder-eval-unused" },
-  {
-    get: (target, key) =>
-      key in target
-        ? target[key as keyof typeof target]
-        : () => Promise.reject(new Error("The ladder eval never reaches a Computer")),
-  },
-) as unknown as ComputerProvider;
+/**
+ * A Computer whose calls all succeed with nothing in them: an empty directory, a command that
+ * exits 0 and prints nothing. The Bot's own `shell` or `files` call then looks like a working
+ * tool, not a broken one. A Helper's job never runs (see `main`), so nothing here does real work.
+ */
+const emptyComputer: ComputerProvider = {
+  template: "ladder-eval-empty",
+  create: async () => ({ sandboxId: "ladder-eval-sandbox" }),
+  hostUrl: async (_id, port) => `https://${port}-ladder-eval.invalid`,
+  trafficHeaders: async () => ({}),
+  resume: async () => "resumed",
+  kill: async () => {},
+  pause: async () => {},
+  setTimeout: async () => {},
+  run: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
+  readFile: async () => null,
+  writeFile: async () => {},
+  list: async () => [],
+};
 
 /** What the fake Model plays for a case: its tool calls, one per model call, then a reply. */
 function fakeScript(evalCase: LadderCase) {
@@ -53,21 +63,39 @@ function fakeScript(evalCase: LadderCase) {
   ];
 }
 
-/** Answers Tavily with one result for any query, and everything else with the real fetch. */
+/** A few short, plausible results for any query: enough for a search to look like it works, not enough to finish a task. */
+function tavilyResults(query: string) {
+  const slug = query
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 60);
+  return [
+    {
+      title: `Best picks for: ${query}`,
+      url: `https://www.example-reviews.com/guides/${slug}`,
+      content: `A roundup touching on ${query}. It names a few popular models and says prices, warranty terms and delivery vary by seller and city.`,
+    },
+    {
+      title: `${query} - buyer's guide`,
+      url: `https://www.example-buyers.org/${slug}`,
+      content: `What to look for when comparing options for ${query}: build quality, warranty length, return policy and recent owner reviews.`,
+    },
+    {
+      title: `Owners discuss ${query}`,
+      url: `https://forum.example-community.net/t/${slug}`,
+      content: `Owners share mixed experiences about ${query}. Several recommend checking each maker's own site for current prices and delivery areas.`,
+    },
+  ];
+}
+
+/** Answers Tavily with a few results for any query, and everything else with the real fetch. */
 function tavilyAnswered(real: typeof globalThis.fetch): typeof globalThis.fetch {
   return async (input, init) => {
     const url = input instanceof Request ? input.url : String(input);
     if (!url.startsWith("https://api.tavily.com/")) return real(input, init);
     const { query } = JSON.parse(String(init?.body)) as { query: string };
-    return Response.json({
-      results: [
-        {
-          title: "Search result",
-          url: "https://example.com/result",
-          content: `A page about: ${query}`,
-        },
-      ],
-    });
+    return Response.json({ results: tavilyResults(query) });
   };
 }
 
@@ -106,7 +134,7 @@ async function main() {
   const scripts = new Map<string, LadderCase>();
   const sdk = createComputerSdk({
     db,
-    provider: unusedComputer,
+    provider: emptyComputer,
     more: [bot()],
     wrapFetch: tavilyAnswered,
     models: (real) =>
