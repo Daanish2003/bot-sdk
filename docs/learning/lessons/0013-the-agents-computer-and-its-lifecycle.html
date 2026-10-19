@@ -1,0 +1,593 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lesson 13 · The agent's computer and its lifecycle</title>
+    <link rel="stylesheet" href="../assets/style.css" />
+  </head>
+  <body>
+    <main>
+      <p class="kicker">ai-chat architecture · Lesson 13</p>
+      <h1>The agent's computer and its lifecycle</h1>
+      <p class="subtitle">
+        Each user has one Computer. It wakes when a Bot uses it, and a check job puts it to sleep
+        when it is idle, but never in the middle of a Turn.
+      </p>
+      <p class="meta">
+        About 14 minutes · a browser · you'll write <code>nextCheck(...)</code>, the rule a sleep
+        check follows each time it runs
+      </p>
+
+      <section class="words">
+        <h2>Words you'll need</h2>
+        <dl>
+          <dt>Sandbox</dt>
+          <dd>A small virtual machine that runs the Computer, kept apart from the server.</dd>
+          <dt>Pause</dt>
+          <dd>Freeze the sandbox with its memory and disk saved. Resume starts it again.</dd>
+          <dt>Sleep check</dt>
+          <dd>A job that decides whether to put the Computer to sleep, or to check again later.</dd>
+          <dt>Busy check</dt>
+          <dd>A question another plugin answers: "is something still using the Computer?"</dd>
+        </dl>
+        <p class="hint">
+          Forgot a code name? Press the <strong>Names?</strong> button in the bottom-right corner.
+        </p>
+      </section>
+
+      <figure id="video"></figure>
+
+      <div
+        class="quiz"
+        data-answer="1"
+        data-why="The Router takes all three Triggers into one batch. The job runs 500 ms after the newest, so one Turn answers all three."
+      >
+        <div class="label">Warm-up · Lesson 12</div>
+        <p class="q">Three Messages arrive 200 ms apart. How many Turns answer them?</p>
+        <ol class="opts">
+          <li data-why="Each Trigger would start its own Turn only if they were far apart.">
+            Three, one for each Message
+          </li>
+          <li>
+            One. The batch runs 500 ms after the newest Message (and no later than 2.5 s after the
+            first).
+          </li>
+          <li data-why="The Turn does start. Only a Stop leaves the queue empty.">None</li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+
+      <h2><span class="num">1</span>A sandbox that pauses</h2>
+      <figure id="states">
+        <figcaption>
+          Any file or shell call wakes the Computer; a sleep check pauses it again.
+        </figcaption>
+      </figure>
+      <p>
+        A Bot should run real commands, but not on the web server. So each user gets one
+        <strong>sandbox</strong>: a Firecracker microVM on self-hosted E2B. It has its own kernel
+        and its own disk, so a bad command can only hurt that one Computer. All of a user's Bots
+        share it.
+      </p>
+      <p>
+        <strong>Pause</strong> saves the sandbox's memory and disk. A process started before the
+        pause is still running after the resume, so sleep is invisible to the Bot. An idle sandbox
+        resumed in about 110–150 ms when measured, so the Bot sees no "starting your computer…"
+        notice. If a wake fails, the tool result says so.
+      </p>
+
+      <h2><span class="num">2</span>Operations, then tools</h2>
+      <figure id="layers">
+        <figcaption>The tools call operations; only the operations know about waking.</figcaption>
+      </figure>
+      <p>
+        <a href="../../../packages/bot-sdk/plugins/computer/server/plugin.ts"
+          ><code>computer</code></a
+        >
+        exposes operations, not tools. <code>sdk.plugin("computer").forUser(userId)</code> returns a
+        handle with <code>run</code>, <code>readFile</code>, <code>writeFile</code> and
+        <code>list</code>. Each operation wakes the Computer first, and records activity when it
+        starts and when it ends.
+      </p>
+      <p>
+        <a href="../../../packages/bot-sdk/plugins/bot/server/computer-tools.ts"
+          ><code>bot</code></a
+        >
+        builds its five tools (<code>shell</code>, <code>read</code>, <code>write</code>,
+        <code>edit</code>, <code>list</code>) from those operations. Helpers and Skills will use the
+        same handle later, so there is one Computer and one lifecycle. Without
+        <code>computer</code>, <code>sdk.hasPlugin("computer")</code> is false, and a Turn has no
+        Computer tools and no mention of them.
+      </p>
+
+      <h2><span class="num">3</span>Files live on the server</h2>
+      <figure id="sync">
+        <figcaption>
+          At each sleep the files go to the blob store; a rebuild brings them back.
+        </figcaption>
+      </figure>
+      <p>
+        A snapshot can be lost, and a new template version replaces every sandbox. So the files do
+        not live only in the sandbox ("the virtual machine can then always be rebuilt"). Before each
+        pause, <code>syncFiles</code> lists the files in <code>bots</code> and <code>shared</code>,
+        without <code>.outputs/</code>, and hashes the list. This hash is the
+        <strong>fingerprint</strong>. If it matches <code>sync_fingerprint</code>, nothing changed
+        and nothing uploads. If not, one <code>tar</code> archive goes to the blob store, up to 100
+        MB.
+      </p>
+      <p>
+        A wake <strong>rebuilds</strong> when the template name changed, or when the provider says
+        the sandbox is gone. It creates a new sandbox, extracts the archive into
+        <code>/home/user</code>, and tells the Bot once that installed programs may be missing. If
+        the extract fails, the wake fails, so a failed restore never hands back an empty Computer.
+        The archive is as fresh as the last good sync: if a sync failed or was over the cap, the
+        rebuild restores an older one.
+      </p>
+
+      <h2><span class="num">4</span>Going to sleep, never mid-Turn</h2>
+      <figure id="chain">
+        <figcaption>
+          One check per awake period: it either ends, sleeps, or arms the next.
+        </figcaption>
+      </figure>
+      <p>
+        Every wake queues one <code>computer.sleep</code> job for 5 minutes later. The runner has no
+        reschedule call, so the job chains: each run either puts the Computer to sleep, or queues
+        the next check at <code>max(lastActiveAt + 5 min, now + 1 min)</code>. A check sleeps the
+        Computer only when it is idle (no operation for over 5 minutes) and every
+        <strong>busy check</strong> says no. <code>bot</code> adds one: a running Turn of this
+        user's Bots that started before <code>last_active_at</code> keeps the Computer awake.
+      </p>
+      <p>
+        The check holds the row lock on <code>chat.computer</code> from its idle test until it
+        commits. An operation that arrives meanwhile waits at its start update, then sees
+        <code>asleep</code> and wakes the Computer the normal way. A sync failure is logged and the
+        pause goes ahead. A pause failure leaves the row <code>awake</code> and throws, so the
+        runner retries, and <code>onFailed</code> arms a fresh check in 5 minutes.
+      </p>
+
+      <h2>Try it</h2>
+      <div id="ex1"></div>
+      <figure id="payoff">
+        <div class="toy-out">
+          <div id="payoff-pic"></div>
+          <span id="pay-out"
+            >Pass the tests first. Then your <code>nextCheck</code> decides three sample
+            checks.</span
+          >
+        </div>
+        <figcaption>Each row is one check. The label is what your rule decided.</figcaption>
+      </figure>
+
+      <div
+        class="quiz"
+        data-answer="2"
+        data-why="The sleep holds the row lock until it commits. The call's start update waits, sees asleep, and wakes the Computer. A call that starts after the lock is released never meets a half-paused sandbox."
+      >
+        <div class="label">Quiz</div>
+        <p class="q">
+          A sleep check is pausing the Computer when a <code>shell</code> call arrives. What
+          happens?
+        </p>
+        <ol class="opts">
+          <li data-why="Commands do not run on a sandbox that is being paused.">
+            The command runs on the sandbox while it pauses
+          </li>
+          <li data-why="The tool result is the command's output. The Bot sees no error.">
+            The call fails and the Bot sees an error
+          </li>
+          <li>
+            The call waits for the lock, sees <code>asleep</code>, wakes the Computer and runs.
+          </li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+
+      <div
+        class="quiz"
+        data-answer="1"
+        data-why="The archive is the only copy outside the sandbox. If the extract failed and the wake went on, the Bot would find an empty home directory and think its files were gone."
+      >
+        <div class="label">Quiz</div>
+        <p class="q">A rebuild cannot extract the archive. What does the wake do?</p>
+        <ol class="opts">
+          <li data-why="An empty Computer would look like lost work.">
+            Hands back an empty Computer
+          </li>
+          <li>Kills the new sandbox and fails, so the next call tries again.</li>
+          <li data-why="The old sandbox is already gone or stale. The row keeps its old id.">
+            Resumes the old sandbox
+          </li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+
+      <section class="takeaways">
+        <h2>Key takeaways</h2>
+        <p class="one-thing">
+          <strong>If you remember only one thing:</strong> the Computer is a sandbox that can always
+          be rebuilt from the server's copy of its files, and it sleeps only when it is idle and
+          nothing is using it.
+        </p>
+        <ul>
+          <li>
+            <strong>Operations, not tools.</strong> The plugin wakes the Computer; <code>bot</code>
+            only builds tools on top.
+          </li>
+          <li>
+            <strong>The server keeps the files.</strong> One archive per user, skipped when the
+            fingerprint is unchanged, restored on a rebuild.
+          </li>
+          <li>
+            <strong>One chain, one lock.</strong> A check sleeps, ends, or arms the next one, and
+            the row lock settles a race with a call, and the busy checks cover a running Turn.
+          </li>
+        </ul>
+        <p class="selftest">
+          Self-test: cover this box and say who decides "never mid-Turn", and what stops a call from
+          racing a sleep.
+        </p>
+      </section>
+
+      <details class="deeper">
+        <summary>Go deeper: sources, side notes and a challenge</summary>
+        <h3>The lecture and the decisions</h3>
+        <ul>
+          <li>
+            Slide 15: the Computer "sleeps a few minutes after the last activity, never mid-turn",
+            and because its files are kept on the server, "the virtual machine can then always be
+            rebuilt". Slides 13, 16, 22, 28, 32 and 33 give the rest: the tools, long outputs going
+            to files, and a tool set that never changes mid-conversation.
+          </li>
+          <li>
+            Spec:
+            <a href="https://github.com/Daanish2003/ai-chat/issues/519"
+              >Bot step 5, The Computer (#519)</a
+            >. Map: <a href="https://github.com/Daanish2003/ai-chat/issues/416">#416</a>.
+          </li>
+          <li>
+            Decisions:
+            <a href="https://github.com/Daanish2003/ai-chat/issues/396"
+              >the agent's computer (#396)</a
+            >,
+            <a href="https://github.com/Daanish2003/ai-chat/issues/506"
+              >the plugin and its seams (#506)</a
+            >,
+            <a href="https://github.com/Daanish2003/ai-chat/issues/507"
+              >Shell and Files tools (#507)</a
+            >,
+            <a href="https://github.com/Daanish2003/ai-chat/issues/508"
+              >putting the Computer to sleep (#508)</a
+            >
+            and
+            <a href="https://github.com/Daanish2003/ai-chat/issues/509"
+              >syncing and rebuilding (#509)</a
+            >. The plugin model is
+            <a href="../../../docs/adr/0020-one-core-sdk-with-plugins.md">ADR 0020</a>; the runner
+            is
+            <a href="../../../docs/adr/0011-background-jobs-through-durable-runner.md">ADR 0011</a>.
+          </li>
+        </ul>
+        <h3>Side notes</h3>
+        <ul>
+          <li>
+            The provider seam (<a
+              href="../../../packages/bot-sdk/plugins/computer/server/provider.ts"
+              ><code>provider.ts</code></a
+            >) is the only place that says "sandbox". It has two adapters: E2B
+            (<code>plugins/computer/e2b</code>, its own subpath so other Hosts never load the
+            <code>e2b</code> package) and a fake for tests, which needs no KVM.
+          </li>
+          <li>
+            A <code>shell</code> call is not re-run after a crash. A <code>shell_start</code> marker
+            is saved first, and a resumed Turn that finds it with no result answers "interrupted by
+            a restart" instead of running the command again. File tools are re-run safely.
+          </li>
+          <li>
+            Outputs over 10,000 characters go to <code>.outputs/&lt;toolCallId&gt;.txt</code>, and
+            the result keeps the first and last 2,000 characters. The cap is applied before the
+            Checkpoint is saved.
+          </li>
+          <li>
+            Two facts were checked on real E2B while building. Pause-on-timeout works on the
+            self-hosted Embed, so the 1-hour backstop pauses a sandbox when the server is dead. The
+            template's root disk is only about 800 MB, so the template stays small.
+          </li>
+          <li>
+            Deleting a user removes the <code>chat.computer</code> row in the delete's transaction,
+            then kills the sandbox and deletes the archive, both best-effort. Deleting a Bot leaves
+            its files.
+          </li>
+          <li>
+            Tests: <code>test/plugins/computer/server/computer.integration.test.ts</code> (the
+            lifecycle, with a fake provider and the runner running due jobs) and
+            <code>test/core/server/routers/bot-computer.integration.test.ts</code> (the tools in a
+            Turn). The hand-run evals against real E2B are in <code>eval/computer/</code>.
+          </li>
+        </ul>
+        <h3>What was left out, and what comes next</h3>
+        <p>
+          Background commands, Screens and the browser, a manual rebuild, per-user quotas and more
+          than one E2B node are left out. Step 6 (Helpers) adds the long-running work and the
+          Screens.
+        </p>
+        <h3>Challenge</h3>
+        <p>
+          In <code>sleepCheck</code>, a check ends when the row is <code>asleep</code>. Why can a
+          stray duplicate check never put an awake Computer to sleep too early? Tell your teacher.
+        </p>
+      </details>
+
+      <div class="footer-box">
+        <p>
+          <strong>Primary source:</strong>
+          <a href="../../../packages/bot-sdk/plugins/computer/server/plugin.ts"
+            ><code>plugin.ts</code></a
+          >, then
+          <a href="../../../packages/bot-sdk/plugins/bot/server/computer-tools.ts"
+            ><code>computer-tools.ts</code></a
+          >.
+        </p>
+        <p>
+          <strong>Cheat sheets:</strong> <a href="../reference/package-map.html">Package map</a> ·
+          <a href="../reference/names.html">Names</a>
+        </p>
+        <p>
+          <strong>Stuck or curious?</strong> Ask your teacher (Claude) anything: "why a chain and
+          not a cron?", "show me a chat.computer row", or "quiz me again".
+        </p>
+        <div class="nav">
+          <a href="0012-one-turn-at-a-time-per-conversation.html">← Lesson 12: One turn at a time</a
+          ><a href="0014-what-wakes-the-agent.html">Lesson 14: What wakes the agent →</a>
+        </div>
+      </div>
+    </main>
+
+    <script src="../assets/diagrams.js"></script>
+    <script src="../assets/names.js" data-upto="13"></script>
+    <script src="../assets/explainer.js"></script>
+    <script src="../assets/quiz.js"></script>
+    <script src="../assets/exercise.js"></script>
+    <script>
+      const D = Diagrams;
+
+      // Section 1: the two states.
+      D.render(
+        "#states",
+        D.svg(
+          760,
+          170,
+          D.box(40, 40, 200, 56, "asleep", {
+            tone: "blue",
+            sub: "paused: memory + disk saved",
+          }) +
+            D.arrow(240, 56, 520, 56, { label: "any file or shell call" }) +
+            D.box(520, 40, 200, 56, "awake", { tone: "ok", sub: "commands run" }) +
+            D.arrow(520, 82, 240, 82, { label: "sleep check", dashed: true }) +
+            D.text(40, 140, "~110–150 ms to resume an idle sandbox", { tone: "faint", size: 12 }),
+          { label: "The Computer is asleep or awake; calls wake it and the sleep check pauses it" },
+        ),
+      );
+
+      // Section 2: operations under the tools.
+      D.render(
+        "#layers",
+        D.svg(
+          760,
+          190,
+          D.box(30, 20, 700, 44, "shell · read · write · edit · list", {
+            tone: "blue",
+            sub: "tools in bot",
+          }) +
+            D.arrow(380, 64, 380, 90) +
+            D.box(30, 90, 700, 44, "forUser(userId): run · readFile · writeFile · list", {
+              tone: "ok",
+              sub: "operations in computer: wake + record activity",
+            }) +
+            D.arrow(380, 134, 380, 154) +
+            D.box(30, 154, 700, 30, "ComputerProvider: E2B or the fake", { mono: true }),
+          { label: "Tools call operations, and operations call the provider" },
+        ),
+      );
+
+      // Section 3: sync and rebuild.
+      D.render(
+        "#sync",
+        D.svg(
+          760,
+          190,
+          D.box(30, 30, 200, 56, "sandbox", { tone: "ok", sub: "bots/ + shared/" }) +
+            D.arrow(230, 50, 370, 50, { label: "sleep: tar" }) +
+            D.box(370, 30, 200, 56, "blob store", { tone: "blue", sub: "computer/<userId>" }) +
+            D.arrow(370, 76, 230, 130, { label: "rebuild: extract", dashed: true }) +
+            D.box(30, 110, 200, 56, "new sandbox", { tone: "warn", sub: "from the template" }) +
+            D.text(600, 52, "skip if the", { tone: "faint", size: 12 }) +
+            D.text(600, 70, "fingerprint matches", { tone: "faint", size: 12 }),
+          { label: "Files go up as one archive at each sleep and come back on a rebuild" },
+        ),
+      );
+
+      // Section 4: the chain.
+      D.render(
+        "#chain",
+        D.svg(
+          760,
+          210,
+          D.box(10, 70, 140, 50, "wake", { tone: "ok", sub: "arms a check" }) +
+            D.arrow(150, 95, 200, 95, { label: "+5 min" }) +
+            D.box(200, 70, 170, 50, "sleep check", { tone: "warn", sub: "holds the row lock" }) +
+            D.arrow(370, 85, 470, 40, { label: "asleep" }) +
+            D.box(470, 15, 270, 40, "end: the chain stops", {}) +
+            D.arrow(370, 95, 470, 95, { label: "idle, not busy" }) +
+            D.box(470, 72, 270, 40, "sync, pause, asleep", { tone: "blue" }) +
+            D.arrow(370, 108, 470, 150, { label: "busy or recent" }) +
+            D.box(470, 128, 270, 40, "arm the next check", { tone: "ok" }) +
+            D.text(10, 195, "busy = a Turn is running that started before last_active_at", {
+              tone: "faint",
+              size: 12,
+            }),
+          { label: "Each check ends, sleeps the Computer, or arms the next check" },
+        ),
+      );
+
+      // Video.
+      Explainer.mount("#video", {
+        title: "Lesson 13 in about 1 minute",
+        width: 760,
+        height: 300,
+        scenes: [
+          {
+            say: "Each user has one Computer, a small sandbox on E2B. A Bot's file or shell call wakes it, so the user never waits on a message.",
+            draw: (t, A) =>
+              D.box(40, 110, 180, 50, "Bot call", { tone: "blue" }) +
+              D.box(280, 110, 180, 50, "Computer awake", {
+                tone: "ok",
+                opacity: A.step(t, 0.3, 0.7),
+              }),
+          },
+          {
+            say: "When it sleeps, the sandbox is paused with its memory and disk, so a running process survives.",
+            draw: (t, A) =>
+              D.box(40, 110, 180, 50, "awake", { tone: "ok" }) +
+              D.box(280, 110, 220, 50, "paused: memory + disk", {
+                tone: "blue",
+                opacity: A.step(t, 0.3, 0.7),
+              }),
+          },
+          {
+            say: "Before each pause, the files are saved to the server as one archive. If the sandbox is ever lost, a new one is built and the archive is restored.",
+            draw: (t, A) =>
+              D.box(40, 110, 160, 50, "sandbox files", { tone: "ok" }) +
+              D.box(280, 110, 160, 50, "archive", { tone: "blue", opacity: A.step(t, 0.3, 0.6) }) +
+              D.box(520, 110, 160, 50, "new sandbox", {
+                tone: "warn",
+                opacity: A.step(t, 0.6, 0.9),
+              }),
+          },
+          {
+            say: "A check job decides when to sleep. It runs five minutes after each wake. If the Computer is busy, it queues the next check instead.",
+            show: "max(last + 5 min, now + 1 min)",
+            draw: (t, A) =>
+              D.box(40, 110, 160, 50, "check", { tone: "warn" }) +
+              D.box(280, 110, 160, 50, "busy: next check", {
+                tone: "ok",
+                opacity: A.step(t, 0.3, 0.6),
+              }) +
+              D.box(520, 110, 160, 50, "idle: sleep", {
+                tone: "blue",
+                opacity: A.step(t, 0.6, 0.9),
+              }),
+          },
+          {
+            say: "Next, write the rule that a sleep check follows.",
+            show: "Next: write nextCheck(...).",
+            draw: () =>
+              D.text(380, 130, "Write nextCheck(...)", {
+                tone: "accent",
+                anchor: "middle",
+                weight: 600,
+              }),
+          },
+        ],
+      });
+
+      // Try it: nextCheck.
+      let learnerNextCheck = null;
+      const MIN = 60_000;
+      const SAMPLES = [
+        {
+          name: "asleep already",
+          arg: { state: "asleep", lastActiveAt: 0, now: 6 * MIN, busy: false },
+        },
+        {
+          name: "idle for 6 min, nothing busy",
+          arg: { state: "awake", lastActiveAt: 0, now: 6 * MIN, busy: false },
+        },
+        {
+          name: "idle for 6 min, a Turn is running",
+          arg: { state: "awake", lastActiveAt: 0, now: 6 * MIN, busy: true },
+        },
+      ];
+      const describe = (r) => (r === "end" || r === "sleep" ? r : `next check at ${r / MIN} min`);
+      function showNextCheck() {
+        const picOut = document.getElementById("payoff-pic");
+        const payOut = document.getElementById("pay-out");
+        if (!learnerNextCheck) {
+          picOut.innerHTML = "";
+          payOut.innerHTML =
+            "Pass the tests first. Then your <code>nextCheck</code> decides three sample checks.";
+          return;
+        }
+        const results = SAMPLES.map((s) => learnerNextCheck({ ...s.arg }));
+        const rows = SAMPLES.map((s, i) => {
+          const y = 28 + i * 40;
+          return (
+            D.text(30, y, s.name, { tone: "faint", size: 12 }) +
+            D.dot(330, y - 4, 6, { tone: results[i] === "sleep" ? "ok" : "blue" }) +
+            D.text(346, y, describe(results[i]), { size: 12 })
+          );
+        }).join("");
+        picOut.innerHTML = D.svg(760, 120, rows, {
+          label: "What your nextCheck decided for three sample checks",
+        });
+        payOut.innerHTML = `Your rule: ${results.map(describe).join("; ")}.`;
+      }
+      Exercise.mount("#ex1", {
+        title: "Write nextCheck({ state, lastActiveAt, now, busy })",
+        task: 'All times are in ms. If the Computer is <code>asleep</code>, return <code>"end"</code>. If it is idle (<code>now - lastActiveAt</code> is more than 5 minutes) and not <code>busy</code>, return <code>"sleep"</code>. Otherwise return the time of the next check: the later of <code>lastActiveAt</code> + 5 minutes and <code>now</code> + 1 minute.',
+        storageKey: "ai-chat-sdk-l13-nextcheck",
+        fnName: "nextCheck",
+        starter: `// 5 minutes = 300000 ms, 1 minute = 60000 ms.
+// Example: awake, lastActiveAt 200000, now 250000 → not idle → max(500000, 310000) = 500000.
+// Hint: check "asleep" first, then idle and not busy, then compute the follow-up.
+function nextCheck({ state, lastActiveAt, now, busy }) {
+  return "end";
+}`,
+        solution: `function nextCheck({ state, lastActiveAt, now, busy }) {
+  if (state === "asleep") return "end";
+  const idle = now - lastActiveAt > 300000;
+  if (idle && !busy) return "sleep";
+  return Math.max(lastActiveAt + 300000, now + 60000);
+}`,
+        tests: [
+          {
+            name: "asleep → end",
+            args: [{ state: "asleep", lastActiveAt: 0, now: 400000, busy: false }],
+            expect: "end",
+          },
+          {
+            name: "idle 400 s, not busy → sleep",
+            args: [{ state: "awake", lastActiveAt: 0, now: 400000, busy: false }],
+            expect: "sleep",
+          },
+          {
+            name: "exactly 300 s is not idle yet → 360000",
+            args: [{ state: "awake", lastActiveAt: 0, now: 300000, busy: false }],
+            expect: 360000,
+          },
+          {
+            name: "idle but busy → 460000 (now + 1 min)",
+            args: [{ state: "awake", lastActiveAt: 0, now: 400000, busy: true }],
+            expect: 460000,
+          },
+          {
+            name: "recent activity → 500000 (last + 5 min)",
+            args: [{ state: "awake", lastActiveAt: 200000, now: 250000, busy: false }],
+            expect: 500000,
+          },
+          {
+            name: "asleep wins even when busy → end",
+            args: [{ state: "asleep", lastActiveAt: 0, now: 400000, busy: true }],
+            expect: "end",
+          },
+        ],
+        onResult(fn, all) {
+          learnerNextCheck = all ? fn : null;
+          showNextCheck();
+        },
+      });
+      showNextCheck();
+    </script>
+  </body>
+</html>

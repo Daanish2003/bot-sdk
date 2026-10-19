@@ -43,7 +43,7 @@ const botRouter = {
           { model: input.model },
         );
       }
-      return createBot(context.sdk.db, context.user.id, input);
+      return createBot(context.sdk.db, context.user.id, input, context.sdk.clock());
     }),
 
   /** The caller's Bots, the newest activity first, with their last sent Message and Turn status. */

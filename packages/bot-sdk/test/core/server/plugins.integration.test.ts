@@ -137,6 +137,28 @@ describe("createBotSdk plugins", () => {
     expect(seen).toEqual([{ answer: 42 }]);
   });
 
+  it("inits a plugin after the plugins it uses when they're enabled, and without them when not", () => {
+    const seen: unknown[] = [];
+    const user: BotSdkPlugin = {
+      id: "user",
+      uses: ["source"],
+      init: (context) => {
+        if (context.hasPlugin("source")) {
+          seen.push((context.plugin as (id: string) => unknown)("source"));
+        }
+      },
+    };
+
+    // Listed before what it uses, so the order comes from `uses`, not the list.
+    createBotSdk({
+      ...core,
+      plugins: [user, { id: "source", init: () => ({ api: { answer: 42 } }) }],
+    });
+    createBotSdk({ ...core, plugins: [user] });
+
+    expect(seen).toEqual([{ answer: 42 }]);
+  });
+
   it("throws from plugin(id) for a plugin that isn't enabled", () => {
     const sdk = createBotSdk({ ...core, plugins: [{ id: "first" }] });
 

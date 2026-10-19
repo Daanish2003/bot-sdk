@@ -21,4 +21,9 @@ export const bot = chatSchema.table("bot", {
   /** The Model the Bot runs on, `"provider:model"`, picked from the `models` plugin's list. */
   model: text("model").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  /**
+   * The latest rebuild of the user's Computer (`chat.computer.rebuilt_at`) the Bot was told of,
+   * or its creation time, since an older rebuild cost it nothing. Null for a Bot from before it.
+   */
+  computerRebuildSeenAt: timestamp("computer_rebuild_seen_at", { withTimezone: true }),
 });

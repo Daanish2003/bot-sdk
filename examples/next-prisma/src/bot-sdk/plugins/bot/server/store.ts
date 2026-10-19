@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lt, or } from "drizzle-orm";
 
 import { deleteConversations } from "../../../core/server/chat/delete-conversations";
 import {
@@ -46,22 +46,100 @@ export function toBotMessage(
   return { id: row.id, role: row.role, text: searchTextOf(row.parts), createdAt: row.createdAt };
 }
 
-/** Creates a Bot and its empty Conversation (kind `bot`, no title) in one transaction. */
+/**
+ * Creates a Bot and its empty Conversation (kind `bot`, no title) in one transaction, at `now`:
+ * a rebuild of the user's Computer before then is no news to it.
+ */
 export async function createBot(
   db: Database,
   userId: string,
   { name, model }: { name: string; model: string },
+  now: Date,
 ): Promise<Bot> {
   return db.transaction(async (tx) => {
     const conversationId = uuidv7();
     await tx.insert(conversation).values({ id: conversationId, userId, kind: botKind });
     const [row] = await tx
       .insert(bot)
-      .values({ id: uuidv7(), userId, conversationId, name, model })
+      .values({ id: uuidv7(), userId, conversationId, name, model, computerRebuildSeenAt: now })
       .returning(botColumns);
     if (!row) throw new Error("Inserting the Bot returned no row");
     return row;
   });
+}
+
+/**
+ * How much later than the Computer's last activity a running Turn may be stamped and still hold
+ * it: the Turn's start and the activity are stamped by different clocks (#558).
+ */
+export const turnStartSkewMs = 30_000;
+
+/**
+ * Whether a Turn of one of the user's Bots is running and started before `lastActiveAt`, the
+ * Computer's last activity, give or take `turnStartSkewMs`, so it may still use the Computer:
+ * `bot`'s busy check (#508). A Turn that started later hasn't used it yet.
+ */
+export async function hasTurnUsingComputer(
+  db: Database,
+  userId: string,
+  lastActiveAt: Date,
+): Promise<boolean> {
+  const [running] = await db
+    .select({ id: botTurn.id })
+    .from(botTurn)
+    .innerJoin(bot, eq(bot.id, botTurn.botId))
+    .where(
+      and(
+        eq(bot.userId, userId),
+        eq(botTurn.status, "running"),
+        lt(botTurn.startedAt, new Date(lastActiveAt.getTime() + turnStartSkewMs)),
+      ),
+    )
+    .limit(1);
+  return running !== undefined;
+}
+
+/**
+ * Whether the user has a Bot, read under a lock that the user's delete waits for: `bot`'s owner
+ * check, so a Turn racing that delete creates no Computer (#554).
+ */
+export async function userHasBot(tx: Transaction, userId: string): Promise<boolean> {
+  const [found] = await tx
+    .select({ id: bot.id })
+    .from(bot)
+    .where(eq(bot.userId, userId))
+    .limit(1)
+    .for("key share");
+  return found !== undefined;
+}
+
+/**
+ * The latest rebuild of the user's Computer the Bot was told of, or its creation (null for a Bot
+ * from before the column, or one deleted meanwhile).
+ */
+export async function computerRebuildSeenAt(db: Database, botId: string): Promise<Date | null> {
+  const [row] = await db
+    .select({ seenAt: bot.computerRebuildSeenAt })
+    .from(bot)
+    .where(eq(bot.id, botId));
+  return row?.seenAt ?? null;
+}
+
+/** Records that the Bot was told of the Computer's rebuild at `rebuiltAt`. */
+export async function markComputerRebuildSeen(
+  db: Database,
+  botId: string,
+  rebuiltAt: Date,
+): Promise<void> {
+  await db
+    .update(bot)
+    .set({ computerRebuildSeenAt: rebuiltAt })
+    .where(
+      and(
+        eq(bot.id, botId),
+        or(isNull(bot.computerRebuildSeenAt), lt(bot.computerRebuildSeenAt, rebuiltAt)),
+      ),
+    );
 }
 
 /** The longest a Turn may run; past it, it ends `error` with `timed_out`. */

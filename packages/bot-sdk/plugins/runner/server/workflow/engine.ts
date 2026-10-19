@@ -45,8 +45,15 @@ export type WorkflowContext<Tx> = {
    *   save runs it again.
    * - `activity(name, (tx) => …)`: `fn` gets the transaction its Checkpoint is saved in, so a write
    *   to the same database commits exactly once. A function that declares a parameter gets one.
+   *
+   * With `yields: false`, a yield never stops the workflow at this Checkpoint, only at the next
+   * one: for a marker that what follows must run after, in the same attempt.
    */
-  activity: <T>(name: string, fn: (tx: Tx) => Promise<T> | T) => Promise<T>;
+  activity: <T>(
+    name: string,
+    fn: (tx: Tx) => Promise<T> | T,
+    options?: { yields?: boolean },
+  ) => Promise<T>;
   /** The current time, recorded, so a replay returns the same time. */
   now: () => Promise<Date>;
   /** A random number in [0, 1), recorded, so a replay returns the same number. */
@@ -191,28 +198,29 @@ export function createWorkflow<Tx>({
     seq += 1;
     return value;
   };
-  // Called once an activity's Checkpoint is saved: a yield requested by then stops the workflow here.
-  const checkpointed = <T>(result: T): T => {
-    if (!yieldSignal?.aborted) return result;
+  // Called once an activity's Checkpoint is saved: a yield requested by then stops the workflow
+  // here, unless the activity doesn't yield.
+  const checkpointed = <T>(result: T, yields = true): T => {
+    if (!yields || !yieldSignal?.aborted) return result;
     failure = new WorkflowYieldedError();
     throw failure;
   };
 
   const context: WorkflowContext<Tx> = {
-    activity: <T>(name: string, fn: (tx: Tx) => Promise<T> | T) =>
+    activity: <T>(name: string, fn: (tx: Tx) => Promise<T> | T, { yields = true } = {}) =>
       oneAtATime(async (): Promise<T> => {
         const call: Call = { kind: "activity", name };
         const entry = replay(call);
         if (entry) return entry.result as T;
         if (fn.length === 0) {
-          return checkpointed(await record(call, await (fn as () => Promise<T> | T)()));
+          return checkpointed(await record(call, await (fn as () => Promise<T> | T)()), yields);
         }
         const saved = await store.saveWith({ seq: seq + 1, ...call }, async (tx) =>
           asJson(await fn(tx)),
         );
         if (!saved.saved) return lost();
         seq += 1;
-        return checkpointed(saved.result);
+        return checkpointed(saved.result, yields);
       }),
 
     now: () =>

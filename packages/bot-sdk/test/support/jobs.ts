@@ -16,6 +16,8 @@ export type DrainJobsOptions = {
    * need not move a clock. `true` runs only the jobs due at the real time, then returns.
    */
   respectRunAfter?: boolean;
+  /** With `respectRunAfter`, the time the jobs must be due by. Defaults to the real time. */
+  now?: Date;
 };
 
 /**
@@ -26,13 +28,14 @@ export type DrainJobsOptions = {
 export async function drainJobs({
   db = getTestDb(),
   respectRunAfter = false,
+  now,
   deps,
 }: DrainJobsOptions = {}): Promise<number> {
   const silent = { error: () => {} };
   const jobDeps = deps ?? createTestSdk({ db });
   let ran = 0;
   for (;;) {
-    const claimed = await claimJob(db, new Date(), { respectRunAfter });
+    const claimed = await claimJob(db, now ?? new Date(), { respectRunAfter });
     if (!claimed) return ran;
     await runClaimedJob(db, claimed, {
       clock: systemClock,

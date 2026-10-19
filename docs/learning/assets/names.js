@@ -704,6 +704,68 @@ window.NAMES = [
   },
   {
     lesson: 13,
+    name: "computer",
+    kind: "plugin",
+    meaning:
+      "The plugin that gives each user one Computer on a provider. It exposes operations, not tools.",
+    example: "plugins/computer/server/plugin.ts",
+  },
+  {
+    lesson: 13,
+    name: "forUser(userId)",
+    kind: "function",
+    meaning:
+      "Returns the handle of a user’s Computer: run, readFile, writeFile, list. Each call wakes the Computer and records activity.",
+    example: 'sdk.plugin("computer").forUser(userId)',
+  },
+  {
+    lesson: 13,
+    name: "ComputerProvider",
+    kind: "type",
+    meaning:
+      "The seam between the plugin and what runs a sandbox: create, resume, pause, kill, run and file calls. E2B and a fake implement it.",
+    example: "plugins/computer/server/provider.ts",
+  },
+  {
+    lesson: 13,
+    name: "chat.computer",
+    kind: "table/column",
+    meaning:
+      "One row per user: sandbox_id, template, state (asleep or awake), last_active_at and the synced_* columns.",
+    example: "plugins/computer/server/db/computer.ts",
+  },
+  {
+    lesson: 13,
+    name: "computer.sleep",
+    kind: "function",
+    meaning:
+      "The self-chaining sleep check job. Each run ends, sleeps the Computer, or queues the next check.",
+    example: "plugins/computer/server/plugin.ts",
+  },
+  {
+    lesson: 13,
+    name: "addBusyCheck",
+    kind: "function",
+    meaning: 'Lets another plugin say "the Computer is in use". bot adds one for running Turns.',
+    example: "plugins/computer/server/plugin.ts",
+  },
+  {
+    lesson: 13,
+    name: "sync_fingerprint",
+    kind: "table/column",
+    meaning: "The hash of the synced files’ listing. A sleep skips the upload when it matches.",
+    example: "chat.computer.sync_fingerprint",
+  },
+  {
+    lesson: 13,
+    name: "hasPlugin",
+    kind: "function",
+    meaning:
+      "Tells whether a plugin is on, so bot can leave out the Computer tools when computer is off.",
+    example: 'sdk.hasPlugin("computer")',
+  },
+  {
+    lesson: 14,
     name: "create_routine",
     kind: "tool",
     meaning:
@@ -711,14 +773,14 @@ window.NAMES = [
     example: "plugins/bot/server/turn.ts",
   },
   {
-    lesson: 13,
+    lesson: 14,
     name: "routine:<id>:<slot>",
     kind: "ID",
     meaning: "The ID of a scheduled run's Trigger. A slot never makes a second Trigger.",
     example: "plugins/bot/server/routine.ts (fireKey)",
   },
   {
-    lesson: 13,
+    lesson: 14,
     name: "set_check_in",
     kind: "tool",
     meaning:
@@ -726,7 +788,7 @@ window.NAMES = [
     example: "plugins/bot/server/turn.ts",
   },
   {
-    lesson: 13,
+    lesson: 14,
     name: "handleRoutineWebhook",
     kind: "function",
     meaning:

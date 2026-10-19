@@ -15,12 +15,18 @@ import { appendMessage } from "../../../core/server/chat/message-tree";
 import { bot, botTrigger, botTurn, message } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
+import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { rpcError } from "../../../core/server/rpc-error";
 import { searchTextOf } from "../../../core/shared/message-parts";
 import { conversationChannel } from "../../assistant/server/memory/notice";
 import { addUsage, promptCharactersOf, reportedUsageOf } from "../../models/server/run-usage";
 import { parseModelId } from "../../models/shared/models";
 import type { MessageUsage } from "../../models/shared/usage";
+import {
+  type ComputerHandle,
+  ComputerOperationError,
+  ComputerUnavailableError,
+} from "../../computer/server/plugin";
 import { defineJob, PermanentJobError } from "../../runner/server/jobs/define";
 import { loadHistory } from "../../runner/server/jobs/history";
 import {
@@ -39,8 +45,41 @@ import {
   waitingIn,
 } from "./router";
 import { cancelCheckInTool, pendingCheckIns, saveCheckIn } from "./check-in";
+import {
+  capOutput,
+  computerOf,
+  computerPrompt,
+  computerOperationError,
+  computerUnavailableError,
+  defaultShellTimeoutSeconds,
+  editDefinition,
+  editTool,
+  type FileToolOptions,
+  interruptedShellError,
+  listDefinition,
+  listTool,
+  readDefinition,
+  readTool,
+  rebuiltNote,
+  resolvePath,
+  shellDefinition,
+  shellStartActivity,
+  shellToolName,
+  spillPath,
+  timedOutHint,
+  writeDefinition,
+  writeTool,
+} from "./computer-tools";
+import {
+  botMessages,
+  computerRebuildSeenAt,
+  findBot,
+  markComputerRebuildSeen,
+  textParts,
+  toBotMessage,
+  turnTimeLimitMs,
+} from "./store";
 import { deleteRoutine, routinesPrompt, saveRoutine, updateRoutine } from "./routine";
-import { botMessages, findBot, textParts, toBotMessage, turnTimeLimitMs } from "./store";
 import { timeNotice } from "./time-zone";
 
 /** The most Steps a Turn may take; one more ends it `error` with `step_limit`. */
@@ -67,19 +106,29 @@ export const cancelCheckInToolName = "cancel_check_in";
 /** The Bot tool that lists its pending Check-ins (#540). */
 export const listCheckInsToolName = "list_check_ins";
 
-/**
- * The fixed Bot system prompt: there are no per-Bot instructions. The sentence after "say plainly
- * that you cannot" is a recorded deviation from eval tuning (#575): gpt-5.4-mini answered "I can
- * send the summary if you paste it here, but I can't message your boss directly".
- */
-export const botSystemPrompt =
+const promptOpening =
   "You are a Bot the user talks to in a messenger. The user never sees your text replies or your " +
-  `tool calls; they see only the messages you send with the ${sendToUserToolName} tool. It is your ` +
-  "only tool: you cannot send email or messages to anyone else, look up live data, or act outside " +
-  "this chat. When asked to, say plainly that you cannot, then offer what you can do. Start with " +
-  `the refusal (for example, "I can't send email"), and never offer to send anything to anyone ` +
-  `but the user. To say ` +
-  `something, call ${sendToUserToolName}. You may call it more than once, in order. Set endTurn to ` +
+  `tool calls; they see only the messages you send with the ${sendToUserToolName} tool. `;
+
+/** What the Bot can't do, with no Computer. */
+const onlyToolLimits =
+  "It is your only tool: you cannot send email or messages to anyone else, look up live data, or act " +
+  "outside this chat. ";
+
+/** What the Bot can't do, with its Computer. */
+const computerLimits =
+  "Besides it, you have only your computer (below): you cannot send email or messages to anyone " +
+  "else. ";
+
+/**
+ * The Bot's rules, with or without its Computer. The sentence after "say plainly that you cannot"
+ * is a recorded deviation from eval tuning (#575): gpt-5.4-mini answered "I can send the summary if
+ * you paste it here, but I can't message your boss directly".
+ */
+const promptRules =
+  "When asked to, say plainly that you cannot, then offer what you can do. Start with the refusal " +
+  `(for example, "I can't send email"), and never offer to send anything to anyone but the user. ` +
+  `To say something, call ${sendToUserToolName}. You may call it more than once, in order. Set endTurn to ` +
   "true on your last message, so you stop there. Anything you want the user to read goes through " +
   "it, including a refusal (you cannot do what they asked) and a question you need answered. If " +
   "there is nothing worth saying (the user just acknowledged, said goodbye for now, or needs no " +
@@ -91,6 +140,18 @@ export const botSystemPrompt =
   `the ones you have pending, and ${cancelCheckInToolName} cancels one. When a Routine run finds ` +
   "nothing new worth telling the user, send nothing, not even to say so. When a Check-in you set " +
   "fires, do what its note says.";
+
+/** The fixed Bot system prompt with no Computer: there are no per-Bot instructions. */
+export const botSystemPrompt = promptOpening + onlyToolLimits + promptRules;
+
+/**
+ * The system prompts of a Bot's Turn. With `computer` on, the Bot's limits allow its Computer, and
+ * a second prompt names its own directory and the shared one; with it off, it is `botSystemPrompt`.
+ */
+export function botSystemPrompts(botId: string, withComputer: boolean): string[] {
+  if (!withComputer) return [botSystemPrompt];
+  return [promptOpening + computerLimits + promptRules, computerPrompt(botId)];
+}
 
 /** What SendToUser returns for an empty `text`: what went wrong, and what to do instead. */
 export const emptyTextError =
@@ -933,48 +994,194 @@ async function playTurn(
   } as unknown as AnyTextAdapter;
 
   /**
-   * A Turn's activity other than a model call: its writes commit with its Checkpoint, so they
-   * happen once across a crash. `write` runs only live, so a recorded call still replays: past the
-   * limit, a resumed Turn writes nothing more, and never answers a question from long ago. A failure
-   * to save, or a yield, is the attempt's `failure`; a tool call's `toolCallId` is then unanswered.
+   * One tool call. A call that throws recorded nothing: it stays unanswered and ends the attempt,
+   * and only a throw that no time limit or stop caused is a failure to retry.
    */
-  const liveActivity = async <T>(
-    name: string,
-    toolCallId: string | undefined,
-    write: (tx: Transaction) => Promise<T>,
-  ): Promise<T> => {
+  const toolCallOf = async <T>(toolCallId: string | undefined, call: () => Promise<T>) => {
     try {
-      return await ctx.activity(name, async (tx) => {
-        if (attempt && (expired || timeLeftMs() <= 0)) timeUp();
-        abortController.signal.throwIfAborted();
-        return write(tx);
-      });
+      return await call();
     } catch (caught) {
-      // A time limit or a stop recorded nothing, and isn't a failure to retry.
       if (!abortController.signal.aborted) failure ??= caught;
       if (toolCallId) unanswered.add(toolCallId);
       abortController.abort();
       throw caught;
     }
   };
+  /**
+   * Called first in a tool's activity, which runs only live, so a recorded call still replays:
+   * past the limit, a resumed Turn does nothing more, and never answers a question from long ago.
+   */
+  const beforeLiveTool = () => {
+    if (attempt && (expired || timeLeftMs() <= 0)) timeUp();
+    abortController.signal.throwIfAborted();
+  };
 
-  const sendToUser = sendToUserDefinition.server(async ({ text, endTurn: last }, context) => {
-    const result = await liveActivity(sendToUserToolName, context?.toolCallId, async (tx) => {
-      if (!text.trim()) return { error: emptyTextError };
-      await appendMessage(tx, turn.conversationId, {
-        role: "assistant",
-        parts: textParts(text),
-        status: "complete",
-        createdAt: deps.clock(),
+  const sendToUser = sendToUserDefinition.server(({ text, endTurn: last }, context) =>
+    toolCallOf(context?.toolCallId, async () => {
+      // The Message commits with its Checkpoint, so it is sent once across a crash.
+      const result = await ctx.activity(sendToUserToolName, async (tx) => {
+        beforeLiveTool();
+        if (!text.trim()) return { error: emptyTextError };
+        await appendMessage(tx, turn.conversationId, {
+          role: "assistant",
+          parts: textParts(text),
+          status: "complete",
+          createdAt: deps.clock(),
+        });
+        return { sent: true };
       });
-      return { sent: true };
-    });
-    if ("sent" in result) {
-      if (last) endTurn = true;
-      await hintChanged(deps, turn.conversationId);
+      if ("sent" in result) {
+        if (last) endTurn = true;
+        await hintChanged(deps, turn.conversationId);
+      }
+      return result;
+    }),
+  );
+
+  // The Computer's tools, whenever `computer` is on: the tool set never changes mid-conversation.
+  const withComputer = deps.hasPlugin("computer");
+  let userComputer: ComputerHandle | undefined;
+  // The latest rebuild of the Computer the Bot was told of, read on its first Computer call
+  // (undefined until then), and the one the latest result tells, recorded once it is saved.
+  let rebuildSeenAt: Date | null | undefined;
+  let telling: Date | undefined;
+  /**
+   * The Computer's operation for a live tool call. A failed wake, or an operation the provider
+   * failed, is the tool's result, unless the Turn was stopped or ran out of time meanwhile: then
+   * the call stays unanswered. A database failure throws, so the Turn's job retries it. After a
+   * rebuild the Bot wasn't told of, the result carries the rebuilt note (#553).
+   */
+  const onComputer = async <T extends object>(
+    operate: (computer: ComputerHandle) => Promise<T>,
+  ) => {
+    const computer = (userComputer ??= computerOf(deps, turn.userId));
+    try {
+      const result = await operate(computer);
+      const rebuild = computer.rebuild();
+      if (!rebuild) return result;
+      if (rebuildSeenAt === undefined)
+        rebuildSeenAt = await computerRebuildSeenAt(deps.db, turn.botId);
+      if (rebuildSeenAt && rebuild.rebuiltAt <= rebuildSeenAt) return result;
+      telling = rebuild.rebuiltAt;
+      return { ...result, note: rebuiltNote(rebuild) };
+    } catch (caught) {
+      if (!abortController.signal.aborted) {
+        if (caught instanceof ComputerUnavailableError) return { error: computerUnavailableError };
+        if (caught instanceof ComputerOperationError) {
+          return { error: computerOperationError(caught.message) };
+        }
+      }
+      throw caught;
+    }
+  };
+  /**
+   * `onComputer` for a live call: the Turn's time limit, like a Stop, stops its operations
+   * through `live`'s signal, and its commands run no later than `live`'s deadline.
+   */
+  const onLiveComputer = async <T extends object>(
+    operate: (computer: ComputerHandle, live: FileToolOptions) => Promise<T>,
+  ) => {
+    inLiveCall = true;
+    try {
+      return await onComputer((computer) =>
+        operate(computer, {
+          deadline: new Date(turn.startedAt.getTime() + turnTimeLimitMs),
+          signal: abortController.signal,
+        }),
+      );
+    } finally {
+      inLiveCall = false;
+    }
+  };
+  /**
+   * After a Computer tool's Checkpoint is saved: the rebuild its result told is recorded as told.
+   * A crash before then tells it again in the retried attempt rather than never.
+   */
+  const recordTold = async <T>(result: T): Promise<T> => {
+    if (telling) {
+      await markComputerRebuildSeen(deps.db, turn.botId, telling);
+      rebuildSeenAt = telling;
+      telling = undefined;
     }
     return result;
-  });
+  };
+  const shell = shellDefinition.server(({ command, cwd, timeoutSeconds }, context) =>
+    toolCallOf(context?.toolCallId, async () => {
+      // The start marker: a resumed Turn that replays it with no result never runs the command
+      // again, since it may have partly run. A yield waits for the command's own Checkpoint, so
+      // the marker never stands for a command that didn't start. No transaction: the command runs
+      // on the Computer, not in the database.
+      let startedHere = false;
+      await ctx.activity(
+        shellStartActivity,
+        async () => {
+          beforeLiveTool();
+          startedHere = true;
+          return null;
+        },
+        { yields: false },
+      );
+      const result = await ctx.activity(shellToolName, async () => {
+        beforeLiveTool();
+        if (!startedHere) return { error: interruptedShellError };
+        return onLiveComputer(async (computer, live) => {
+          const result = await computer.run(command, {
+            ...live,
+            cwd: resolvePath(turn.botId, cwd),
+            timeoutMs: (timeoutSeconds ?? defaultShellTimeoutSeconds) * 1000,
+          });
+          // The cap is applied here, so the Checkpoint holds only the truncated form.
+          const capped = await capOutput(
+            result,
+            spillPath(turn.botId, context?.toolCallId ?? uuidv7()),
+            computer.writeFile,
+          );
+          return "timedOut" in capped ? { ...capped, hint: timedOutHint } : capped;
+        });
+      });
+      return recordTold(result);
+    }),
+  );
+  /** A file tool: one activity, re-run after a crash, and a live call like `shell`'s. */
+  const fileTool =
+    <Input, Output extends object>(
+      name: string,
+      run: (
+        computer: ComputerHandle,
+        botId: string,
+        input: Input,
+        options: FileToolOptions,
+      ) => Promise<Output>,
+    ) =>
+    (input: Input, context?: { toolCallId?: string }) =>
+      toolCallOf(context?.toolCallId, async () =>
+        recordTold(
+          await ctx.activity(name, async () => {
+            beforeLiveTool();
+            return onLiveComputer((computer, live) => run(computer, turn.botId, input, live));
+          }),
+        ),
+      );
+  const read = readDefinition.server(fileTool("read", readTool));
+  const write = writeDefinition.server(fileTool("write", writeTool));
+  const edit = editDefinition.server(fileTool("edit", editTool));
+  const list = listDefinition.server(fileTool("list", listTool));
+
+  /**
+   * A database write of the Turn's: it commits with its Checkpoint, so it happens once across a
+   * crash, and runs only live, like a tool's activity.
+   */
+  const liveActivity = <T>(
+    name: string,
+    toolCallId: string | undefined,
+    write: (tx: Transaction) => Promise<T>,
+  ) =>
+    toolCallOf(toolCallId, () =>
+      ctx.activity(name, async (tx) => {
+        beforeLiveTool();
+        return write(tx);
+      }),
+    );
 
   // The Turn carries on once the Routine is saved: the Approval is the Routine's, not the call's.
   const createRoutine = createRoutineDefinition.server(async (input, context) =>
@@ -1049,7 +1256,10 @@ async function playTurn(
       const stream = chat({
         adapter: durableAdapter,
         messages: [...input, ...messages],
-        systemPrompts: routines ? [botSystemPrompt, routines] : [botSystemPrompt],
+        systemPrompts: [
+          ...botSystemPrompts(turn.botId, withComputer),
+          ...(routines ? [routines] : []),
+        ],
         tools: [
           sendToUser,
           createRoutine,
@@ -1058,6 +1268,7 @@ async function playTurn(
           setCheckInTool,
           cancelCheckInToolImpl,
           listCheckInsTool,
+          ...(withComputer ? [shell, read, write, edit, list] : []),
         ],
         // One call at a time, in call order, which is a workflow's identity.
         toolExecution: "sequential",
