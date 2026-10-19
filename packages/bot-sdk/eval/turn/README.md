@@ -97,7 +97,8 @@ client ids, `EVAL_REPEATS` times each. Each has a structural check and an LLM-ju
 - **unclear:** "Fix it", with no earlier context. Structural: as for unavailable. Judge: the reply asks
   what "it" is.
 - **no-live-data:** "What's the weather in Delhi right now?". Structural: as for unavailable. Judge:
-  the reply says it has no live data, and makes up no forecast.
+  the reply says it cannot look the weather up, and makes up no forecast. The Bot has `web_search`
+  (#592), but the eval user has no Tavily key, so the tool answers that search is not set up (#598).
 
 The four refusal and question cases (unavailable and the three above, #531) are the ones a Model once
 answered in plain text, which the user never sees.
@@ -147,3 +148,36 @@ the same `--fake` dry run plays these cases too.
 - Every run in the results file has `toolCalls`, the tool calls of its Turn(s) in order with their
   arguments (week-one, queue and routine runs), so a run that sent nothing shows whether the Bot called a
   tool or nothing at all.
+
+## Ladder evals (spec #587, #598)
+
+Five cases of the main agent's cheapest-first ladder, with the `computer` plugin on so the Turn has
+the Computer system prompt and the Helper tools. They run in their own script, because the Computer
+changes the prompt and tools of every Turn:
+
+```sh
+EVAL_DATABASE_URL=postgresql://postgres:password@127.0.0.1:5435/ai-chat_eval EVAL_BOT_MODEL=openai:gpt-5.4-mini EVAL_JUDGE_MODEL=anthropic:claude-haiku-4-5 OPENAI_API_KEY=... ANTHROPIC_API_KEY=... pnpm -F @ai-chat/bot-sdk eval:ladder
+```
+
+`EVAL_BOT_MODEL`, `EVAL_JUDGE_MODEL`, `EVAL_REPEATS`, `EVAL_CONCURRENCY`, `--limit=<n>` and `--fake` work as
+above. No Computer or E2B is needed: a Helper the Bot starts never runs (its job is queued a day on),
+the Computer is a provider that fails every call, and the eval answers Tavily itself, so the run scores
+only the main agent's choice. Each case has a structural check on the Turn's `start_helper` calls and
+Messages, and a judge check (same judge and results file format as above, saved as
+`eval/turn/results/ladder-<time>.json`):
+
+- **quick-question:** "What's the capital of Australia?". Structural: no `start_helper` call, at least
+  one Message. Judge: the reply says Canberra.
+- **research-task:** five standing desks under 30,000 rupees, compared and saved to a file, after an
+  earlier exchange where the user said they are in Pune. Structural: exactly one `start_helper`, a
+  `general` one. Judge: reads the task and checks it stands alone (the goal, the limit and the Pune
+  delivery, which only the earlier exchange says).
+- **website-task:** the movies showing on bookmyshow.com in Pune this weekend. Structural: exactly one
+  `start_helper`, a `computer_use` one. Judge: the task names the site, the city, the weekend and what
+  to report.
+- **helper-report:** a `helper` Trigger with a General Helper's report of three desks. Structural: no
+  `start_helper`, exactly one Message. Judge: the Message gives the useful result from the report and
+  invents nothing.
+- **broken-tool:** a live score, with the user's Tavily key missing, so `web_search` says it isn't set
+  up. Structural: no `computer_use` `start_helper` call, at least one Message. Judge: the reply tells
+  the user it cannot look it up and asks what to do, and makes up no score.

@@ -37,11 +37,14 @@ class StaleRefError extends Error {}
 export class BrowserSession {
   private browser: Browser | undefined;
   private current: Page | undefined;
+  readonly slot: number;
+  private readonly profileKey: string;
 
-  constructor(
-    readonly slot: number,
-    private readonly profileKey: string,
-  ) {}
+  // Not parameter properties: the hand-run evals load this file in Node's strip-only mode.
+  constructor(slot: number, profileKey: string) {
+    this.slot = slot;
+    this.profileKey = profileKey;
+  }
 
   /** Connects to the Screen's Chrome, opening the Screen first when it isn't open. */
   async open(computer: ComputerHandle): Promise<void> {

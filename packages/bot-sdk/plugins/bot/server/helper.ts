@@ -206,6 +206,7 @@ async function freeScreen(tx: Transaction, userId: string): Promise<number | nul
  */
 export const botHelperJob = defineJob({
   name: botHelperJobName,
+  lane: "helper",
   payload: z.object({ helperId: z.uuid(), waitedSince: z.iso.datetime().optional() }),
   run: ({ helperId, waitedSince }, ctx) => runHelperJob(ctx.deps, helperId, ctx, waitedSince),
   onFailed: ({ helperId, waitedSince }, _error, deps) => endLostHelper(deps, helperId, waitedSince),

@@ -87,6 +87,20 @@ defineJob({
   },
 });
 
+/** Released by the test that holds `test.helper` jobs; until then each one keeps running. */
+let helperGate: Promise<void> | undefined;
+
+defineJob({
+  name: "test.helper",
+  lane: "helper",
+  payload: z.object({ label: z.string() }),
+  run: async ({ label }) => {
+    started.push(label);
+    await helperGate;
+    ran.push(label);
+  },
+});
+
 /** Every `chat.job` row, read straight from the test database. */
 const jobRows = () => getTestDb().select().from(job);
 
@@ -112,6 +126,7 @@ beforeEach(() => {
   gate = undefined;
   holding = false;
   releaseHold = undefined;
+  helperGate = undefined;
 });
 
 afterEach(() => {
@@ -267,6 +282,64 @@ describe("the in-process runner", () => {
 
     release();
     await expect.poll(() => ran.length).toBe(3);
+    await runner.stop();
+  });
+
+  it("runs a job while four Helper-lane jobs are running, with the default budgets", async () => {
+    const runner = inProcessRunner({
+      db: getTestDb(),
+      logger: silent,
+      deps: jobDeps,
+      clock: fakeJobClock(start).clock,
+    });
+    let releaseHelpers!: () => void;
+    helperGate = new Promise((resolve) => {
+      releaseHelpers = resolve;
+    });
+    const helpers = ["h1", "h2", "h3", "h4"];
+    for (const label of helpers) await runner.enqueue("test.helper", { label });
+
+    await runner.start();
+    await expect.poll(() => started.length).toBe(4);
+    await runner.enqueue("test.record", { label: "turn" });
+
+    await expect.poll(() => ran).toEqual(["turn"]);
+    releaseHelpers();
+    await expect.poll(() => ran.length).toBe(5);
+    await runner.stop();
+  });
+
+  it("holds each lane to its own budget: four Helper-lane jobs and two others at once", async () => {
+    const runner = inProcessRunner({
+      db: getTestDb(),
+      logger: silent,
+      deps: jobDeps,
+      clock: fakeJobClock(start).clock,
+    });
+    let releaseHelpers!: () => void;
+    helperGate = new Promise((resolve) => {
+      releaseHelpers = resolve;
+    });
+    let releaseOthers!: () => void;
+    gate = new Promise((resolve) => {
+      releaseOthers = resolve;
+    });
+    for (const label of ["h1", "h2", "h3", "h4", "h5"]) {
+      await runner.enqueue("test.helper", { label });
+    }
+    for (const label of ["a", "b", "c"]) await runner.enqueue("test.record", { label });
+
+    await runner.start();
+    await expect.poll(() => started.length).toBe(6);
+    await sleep(50);
+    expect(started.filter((label) => label.startsWith("h"))).toHaveLength(4);
+    expect(started.filter((label) => !label.startsWith("h"))).toHaveLength(2);
+
+    releaseHelpers();
+    await expect.poll(() => ran.filter((label) => label.startsWith("h"))).toHaveLength(5);
+    expect(started.filter((label) => !label.startsWith("h"))).toHaveLength(2);
+    releaseOthers();
+    await expect.poll(() => ran.length).toBe(8);
     await runner.stop();
   });
 

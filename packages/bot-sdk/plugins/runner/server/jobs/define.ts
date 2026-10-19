@@ -27,9 +27,16 @@ export type JobContext = WorkflowContext<Transaction> & {
   deps: BotSdkContext;
 };
 
+/**
+ * The runner lane a job runs in. Each lane has its own concurrency budget in the in-process runner,
+ * so long `helper` jobs never take a Turn's slot (#602). Jobs with no lane share the default one.
+ */
+export type JobLane = "helper";
+
 /** A job as internal code declares it. Jobs are internal: a Host can't register its own. */
 export type JobDefinition<P> = {
   name: string;
+  lane?: JobLane;
   payload: z.ZodType<P>;
   run: (payload: P, context: JobContext) => Promise<void>;
   /** Runs once, after the final failure (the last attempt, or a `PermanentJobError`). */
@@ -44,6 +51,7 @@ export type JobDefinition<P> = {
 /** A definition as the runner holds it, with its payload type erased. */
 export type RegisteredJob = {
   name: string;
+  lane?: JobLane;
   payload: z.ZodType<unknown>;
   run: (payload: unknown, context: JobContext) => Promise<void>;
   onFailed?: (payload: unknown, error: unknown, deps: BotSdkContext) => Promise<void> | void;
@@ -63,6 +71,11 @@ export function defineJob<P>(definition: JobDefinition<P>): JobDefinition<P> {
 
 export function registeredJob(name: string): RegisteredJob | undefined {
   return registry.get(name);
+}
+
+/** The names of the registered jobs in `lane`. */
+export function jobNamesInLane(lane: JobLane): string[] {
+  return [...registry.values()].filter((job) => job.lane === lane).map((job) => job.name);
 }
 
 /**

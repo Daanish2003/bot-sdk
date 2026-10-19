@@ -10,10 +10,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { type AnyTextAdapter, chat } from "@tanstack/ai";
-import { type AnthropicChatModel, createAnthropicChat } from "@tanstack/ai-anthropic";
-import { type OpenAIChatModel, createOpenaiChat } from "@tanstack/ai-openai";
-import { createOpenRouterText } from "@tanstack/ai-openrouter";
+import type { AnyTextAdapter } from "@tanstack/ai";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 
 import { postgresBlobStore } from "../../core/server/blob/postgres";
@@ -36,6 +33,7 @@ import { queueCases } from "./queue-cases";
 import { type RoutineCase, routineCases } from "./routine-cases";
 import { nextThursday } from "./routine-score";
 import { runRoutineCase, type RoutineRunResult } from "./routine-run";
+import { fail, judgeCompletion, keyVariables } from "./judge-model";
 import { type Complete, runQueueCase, type QueueRunResult } from "./queue-run";
 import { formatJudge, tallyQueue } from "./queue-score";
 import { tally } from "./score";
@@ -45,41 +43,6 @@ const resultsDir = join(here, "results");
 
 /** The key the eval's own credentials are encrypted with. Test data only: nothing is kept. */
 const evalKeySecret = "eval-turn-key-secret-not-for-production";
-
-/** The API key environment variable of each Provider the eval may use. */
-const keyVariables: Record<string, string> = {
-  anthropic: "ANTHROPIC_API_KEY",
-  openai: "OPENAI_API_KEY",
-  gemini: "GEMINI_API_KEY",
-  openrouter: "OPENROUTER_API_KEY",
-};
-
-/** The judge's completion at temperature 0, on OpenAI, Anthropic or OpenRouter (the pattern of eval/memory/run.ts). */
-function judgeCompletion(model: string, apiKey: string): Complete {
-  const provider = model.split(":")[0]!;
-  const modelId = model.slice(provider.length + 1);
-  let adapter;
-  if (provider === "openai") adapter = createOpenaiChat(modelId as OpenAIChatModel, apiKey);
-  else if (provider === "anthropic") {
-    adapter = createAnthropicChat(modelId as AnthropicChatModel, apiKey);
-  } else if (provider === "openrouter") {
-    adapter = createOpenRouterText(modelId as Parameters<typeof createOpenRouterText>[0], apiKey);
-  } else fail(`EVAL_JUDGE_MODEL must be an openai, anthropic or openrouter Model, not "${model}"`);
-  return async (prompt) => {
-    const result = await chat({
-      adapter,
-      messages: [{ role: "user", content: prompt }],
-      stream: false,
-      modelOptions: { temperature: 0 },
-    });
-    return result.text;
-  };
-}
-
-function fail(message: string): never {
-  console.error(message);
-  process.exit(1);
-}
 
 /** Makes the database's tables, as the test database does: the auth tables first, then the chat schema. */
 async function prepareSchema(url: string): Promise<Database> {

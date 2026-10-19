@@ -80,8 +80,9 @@ export const queueCases: QueueCase[] = [
     id: "no-live-data",
     messages: [{ text: "What's the weather in Delhi right now?" }],
     criterion:
-      "The user asked for the weather in Delhi right now, but the assistant has no live data. The " +
-      "reply must say it has no live or current weather data, and must not make up a current " +
-      "forecast or temperature (it may describe typical weather or point to a weather service).",
+      "The user asked for the weather in Delhi right now, and the assistant's web search is not set " +
+      "up (its web_search tool says so), so it cannot look it up. The reply must say it cannot look up " +
+      "the current weather, and must not make up a current forecast or temperature (it may describe " +
+      "typical weather, point to a weather service, or suggest setting up search).",
   },
 ];
