@@ -195,6 +195,7 @@ async function freeScreen(tx: Transaction, userId: string): Promise<number | nul
 /** The runner job of one Helper, keyed by `helper:<id>` (ADR 0011, the #565 amendment). */
 export const botHelperJob = defineJob({
   name: botHelperJobName,
+  lane: "helper",
   payload: z.object({ helperId: z.uuid() }),
   run: ({ helperId }, ctx) => runHelperJob(ctx.deps, helperId, ctx),
   onFailed: ({ helperId }, _error, deps) => endLostHelper(deps, helperId),

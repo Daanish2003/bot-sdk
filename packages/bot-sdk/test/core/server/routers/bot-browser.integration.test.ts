@@ -141,12 +141,10 @@ async function userWith(
       port > 9222 ? chromeOf(sandboxId).url : `https://${port}-${sandboxId}.fake.test`,
   });
   let deps: TestDeps | undefined;
-  // Room for the Turns beside the Helpers that keep running.
   const jobs = inProcessRunner({
     db: getTestDb(),
     logger: silent,
     drainMs: 50,
-    concurrency: 8,
     deps: () => deps!,
   });
   deps = createTestSdk({
