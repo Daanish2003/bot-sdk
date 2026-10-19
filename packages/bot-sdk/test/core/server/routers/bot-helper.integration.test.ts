@@ -1,5 +1,6 @@
 import type { AnyTextAdapter, ModelMessage, TextOptions } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/node-postgres";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -11,6 +12,8 @@ import {
   job,
   usage,
 } from "../../../../core/server/db/schema";
+import type { Database } from "../../../../core/server/db/index";
+import { relations } from "../../../../core/server/db/relations";
 import { deleteUserData } from "../../../../core/server/user-data";
 import type { HostProvider } from "../../../../plugins/assistant/server/deps";
 import {
@@ -22,6 +25,7 @@ import {
   helperTimeLimitMs,
   tooManyGeneralHelpersError,
 } from "../../../../plugins/bot/server/helper";
+import { listHelpers } from "../../../../plugins/bot/server/helper-card";
 import { bot } from "../../../../plugins/bot/server/plugin";
 import { computer } from "../../../../plugins/computer/server/plugin";
 import type { CommandResult } from "../../../../plugins/computer/server/provider";
@@ -678,6 +682,33 @@ describe("the Conversation's Helpers (#590)", () => {
       latest: null,
       report: "There are 3 files.",
     });
+  });
+
+  it("reads the list in the same few queries however many Helpers are live", async () => {
+    const { client, botId } = await botWith(
+      [
+        round(
+          startHelper("One."),
+          startHelper("Two."),
+          startHelper("Three."),
+          sends({ text: "On it.", endTurn: true }),
+        ),
+      ],
+      [round(text("Never comes.")), round(text("Never comes.")), round(text("Never comes."))],
+      { manualHelpers: true },
+    );
+    await send(client, botId, "go");
+    const queries: string[] = [];
+    const counted = drizzle({
+      client: getTestDb().$client,
+      relations,
+      logger: { logQuery: (query) => queries.push(query) },
+    }) as unknown as Database;
+
+    const helpers = await listHelpers(counted, botId);
+
+    expect(helpers.map((helper) => helper.status)).toEqual(["running", "running", "running"]);
+    expect(queries).toHaveLength(3);
   });
 
   it("is empty for a Bot with no Helpers, and a Bot of another user is not found", async () => {
