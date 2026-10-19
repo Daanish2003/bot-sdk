@@ -600,12 +600,11 @@ describe("a Turn off the request", () => {
     await send(client, botId, "hi");
 
     const [turn] = await turnsOf(botId);
-    const [row] = await getTestDb().select().from(job).where(eq(job.id, turn!.jobId!));
-    expect(row).toMatchObject({
-      name: "bot.turn",
-      payload: { turnId: turn!.id },
-      status: "succeeded",
-    });
+    // The stream ends with the Turn's last Checkpoint; the runner marks the job succeeded only
+    // after its run returns, so the test waits for that write.
+    await expect
+      .poll(async () => (await getTestDb().select().from(job).where(eq(job.id, turn!.jobId!)))[0])
+      .toMatchObject({ name: "bot.turn", payload: { turnId: turn!.id }, status: "succeeded" });
   });
 
   it("follows the Turn on its 2 s re-read when a hint is lost", async () => {
