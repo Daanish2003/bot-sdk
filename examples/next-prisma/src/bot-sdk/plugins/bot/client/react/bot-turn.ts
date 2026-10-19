@@ -81,8 +81,17 @@ const sendAttempts = 3;
 /** The wait before retry `n` (from 1), longer each time. */
 const retryDelayMs = (n: number) => 250 * n;
 
+/** The browser's IANA time zone, sent with each Message so the Bot knows the user's "now". */
+function browserTimeZone(): string | undefined {
+  // An empty zone is left out: the server refuses one, and a Message without one reads as UTC.
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+}
+
 /** Calls `bot.send`, again with the same input while the request fails on the network. */
-async function sendWithRetry(orpc: BotSdkOrpc, input: { botId: string; id: string; text: string }) {
+async function sendWithRetry(
+  orpc: BotSdkOrpc,
+  input: { botId: string; id: string; text: string; timeZone?: string },
+) {
   for (let attempt = 1; ; attempt++) {
     try {
       return await orpc.bot.send.call(input);
@@ -152,7 +161,12 @@ async function runSend(
   // The stream's first event is the saved user Message: an error before it is a refusal.
   let saved = false;
   try {
-    for await (const event of await sendWithRetry(orpc, { botId, id, text })) {
+    for await (const event of await sendWithRetry(orpc, {
+      botId,
+      id,
+      text,
+      timeZone: browserTimeZone(),
+    })) {
       await cancelRefetch();
       if (event.type === "message") {
         saved = true;
@@ -224,6 +238,8 @@ export function useBotTurn(
     bot: query.data?.bot,
     error: query.error,
     messages,
+    /** Each Turn's provenance: the Triggers it took, and whether it sent anything. */
+    turns: query.data?.turns ?? [],
     working,
     seenMessageId: status === "complete" ? answered : undefined,
     failedMessageId: status === "error" ? answered : undefined,

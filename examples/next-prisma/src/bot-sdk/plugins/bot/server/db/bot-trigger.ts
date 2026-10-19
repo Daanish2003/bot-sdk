@@ -5,11 +5,19 @@ import { chatSchema } from "../../../../core/server/db/chat-schema";
 import { conversation, message } from "../../../../core/server/db/schema";
 import { botTurn } from "./bot-turn";
 
-/** Who sent a Trigger. Step 3 has only the user; each later wake source adds its own (#502). */
-export const botTriggerSource = chatSchema.enum("bot_trigger_source", ["user"]);
+/** Who sent a Trigger: the user, one of the Bot's Routines, or a Check-in it set (#539). */
+export const botTriggerSource = chatSchema.enum("bot_trigger_source", [
+  "user",
+  "routine",
+  "check_in",
+]);
 
-/** Where a Trigger came in. Step 3 has only the web app; each later Channel adds its own (#502). */
-export const botTriggerChannel = chatSchema.enum("bot_trigger_channel", ["web"]);
+/** Where a Trigger came in: the web app, a schedule, or an inbound webhook (#539). */
+export const botTriggerChannel = chatSchema.enum("bot_trigger_channel", [
+  "web",
+  "schedule",
+  "webhook",
+]);
 
 /**
  * One Trigger the Router received for a Conversation (#499). Untaken (`turn_id` null), it waits in
@@ -30,6 +38,11 @@ export const botTrigger = chatSchema.table(
     messageId: uuid("message_id").references((): AnyPgColumn => message.id, {
       onDelete: "set null",
     }),
+    /**
+     * What a Trigger that carries no Message gives the Model: a wake notice and a snapshot taken when
+     * it fired, such as a Routine's prompt, so an edit made later never changes it.
+     */
+    text: text("text"),
     /** The Turn that took the Trigger; null while it waits in the Conversation queue. */
     turnId: uuid("turn_id").references((): AnyPgColumn => botTurn.id, { onDelete: "cascade" }),
     receivedAt: timestamp("received_at").notNull(),
