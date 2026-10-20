@@ -182,7 +182,7 @@ async function recordOutcome(
  *
  * An aborted handler can go on after that, until it sees its signal: a lost attempt's ends its
  * Turn, then acknowledges the cancel. `handlers` holds each handler's end while it runs, so the
- * caller can wait for it.
+ * caller must wait for it: the in-process runner's `stop()` does.
  */
 export async function runClaimedJob(
   db: Database,
@@ -200,7 +200,7 @@ export async function runClaimedJob(
     deps: () => BotSdkContext;
     drain?: AbortSignal;
     shutdown?: AbortSignal;
-    handlers?: Set<Promise<void>>;
+    handlers: Set<Promise<void>>;
   },
 ): Promise<void> {
   const definition = registeredJob(claimed.name);
@@ -303,8 +303,8 @@ export async function runClaimedJob(
         () => ended(),
         (error: unknown) => ended({ error }),
       )
-      .finally(() => handlers?.delete(handled));
-    handlers?.add(handled);
+      .finally(() => handlers.delete(handled));
+    handlers.add(handled);
   }
   await done;
 }

@@ -26,13 +26,10 @@ import { quotaLookup } from "../../../../plugins/models/server/quota";
 import {
   inProcessRunner,
   type InProcessRunner,
+  type JobClock,
 } from "../../../../plugins/runner/server/jobs/in-process";
 import type { JobRunner } from "../../../../plugins/runner/server/jobs/runner";
-import {
-  claimJob,
-  reapStaleJobs,
-  runClaimedJob,
-} from "../../../../plugins/runner/server/jobs/store";
+import { claimJob, reapStaleJobs } from "../../../../plugins/runner/server/jobs/store";
 import { createTestSdk, type TestDeps, type TestDepsOverrides } from "../../../support/deps";
 import {
   createFakeAdapter,
@@ -95,15 +92,24 @@ beforeEach(() => {
  * A Bot-enabled SDK over `overrides`, whose in-process runner runs the Turns' jobs. It is started
  * and stopped after the test; it drains for only 50 ms, so a Turn a test leaves hanging is aborted.
  */
-async function sdkWithRunner(overrides: TestDepsOverrides, { idle = false } = {}) {
+async function sdkWithRunner(
+  overrides: TestDepsOverrides,
+  { idle = false, jobClock }: { idle?: boolean; jobClock?: JobClock } = {},
+) {
   let deps: TestDeps | undefined;
-  const jobs = inProcessRunner({ db: getTestDb(), logger: silent, drainMs: 50, deps: () => deps! });
+  const jobs = inProcessRunner({
+    db: getTestDb(),
+    logger: silent,
+    drainMs: 50,
+    clock: jobClock,
+    deps: () => deps!,
+  });
   const pubsub = countingPubSub(overrides.pubsub ?? createMemoryPubSub());
   deps = createTestSdk({ plugins: [bot()], jobs, ...overrides, pubsub });
   // An idle runner never claims a job, so a Turn stays queued.
   if (!idle) await jobs.start();
   started.push(jobs);
-  return deps;
+  return { deps, jobs };
 }
 
 /** A user with an OpenAI key, a Bot on `model`, and a client over a Bot-enabled SDK whose Model plays `rounds`. */
@@ -114,10 +120,17 @@ async function botWith(
     pubsub,
     clock,
     idle = false,
-  }: { manual?: boolean; idle?: boolean } & Pick<TestDepsOverrides, "pubsub" | "clock"> = {},
+    jobClock,
+  }: { manual?: boolean; idle?: boolean; jobClock?: JobClock } & Pick<
+    TestDepsOverrides,
+    "pubsub" | "clock"
+  > = {},
 ) {
   const fake = createFakeAdapter({ rounds, manual });
-  const deps = await sdkWithRunner({ adapterFor: () => fake.adapter, pubsub, clock }, { idle });
+  const { deps, jobs } = await sdkWithRunner(
+    { adapterFor: () => fake.adapter, pubsub, clock },
+    { idle, jobClock },
+  );
   const user = await insertUser();
   await saveCredentials(deps, user.id, {
     service: "openai",
@@ -127,7 +140,7 @@ async function botWith(
   });
   const client = chatRpc({ user, deps });
   const created = await client.bot.create({ name: "Ada", model });
-  return { fake, deps, client, user, botId: created.id };
+  return { fake, deps, jobs, client, user, botId: created.id };
 }
 
 const hostModel = "anthropic:claude-sonnet-5-5";
@@ -150,7 +163,11 @@ const hostProviders: HostProvider[] = [
 /** A user with no key of their own, and a Bot on the Host's Model. */
 async function hostBotWith(rounds: Round[], overrides: Pick<TestDepsOverrides, "getQuota"> = {}) {
   const fake = createFakeAdapter({ rounds });
-  const deps = await sdkWithRunner({ hostProviders, adapterFor: () => fake.adapter, ...overrides });
+  const { deps } = await sdkWithRunner({
+    hostProviders,
+    adapterFor: () => fake.adapter,
+    ...overrides,
+  });
   const user = await insertUser();
   const client = chatRpc({ user, deps });
   const created = await client.bot.create({ name: "Ada", model: hostModel });
@@ -936,10 +953,11 @@ describe("batching quick Messages", () => {
    */
   async function batchingBot(rounds: Round[], { manual = false, at = new Date() } = {}) {
     const timer = fakeJobClock(at);
-    const { fake, deps, client, user, botId } = await botWith(rounds, {
+    const { fake, jobs, client, user, botId } = await botWith(rounds, {
       idle: true,
       manual,
       clock: timer.clock.now,
+      jobClock: timer.clock,
     });
     const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
     return {
@@ -956,11 +974,7 @@ describe("batching quick Messages", () => {
       runDue: async () => {
         const claimed = await claimJob(getTestDb(), timer.clock.now(), { respectRunAfter: true });
         if (!claimed) return false;
-        await runClaimedJob(getTestDb(), claimed, {
-          clock: timer.clock,
-          logger: silent,
-          deps: () => deps,
-        });
+        await jobs.runClaimed(claimed);
         return true;
       },
     };

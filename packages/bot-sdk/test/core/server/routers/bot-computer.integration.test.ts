@@ -26,11 +26,7 @@ import {
   inProcessRunner,
   type InProcessRunner,
 } from "../../../../plugins/runner/server/jobs/in-process";
-import {
-  claimJob,
-  reapStaleJobs,
-  runClaimedJob,
-} from "../../../../plugins/runner/server/jobs/store";
+import { claimJob, reapStaleJobs } from "../../../../plugins/runner/server/jobs/store";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
 import { drainJobs, fakeJobClock } from "../../../support/jobs";
@@ -462,20 +458,26 @@ describe("a shell call whose attempt is cut off", () => {
     const fake = createFakeAdapter({ rounds });
     const computerFake = fakeComputerProvider({ onCommand: command.onCommand });
     const timer = fakeJobClock(new Date());
+    // Each instance's runner, which runs its attempts.
+    const runners = new Map<TestDeps, InProcessRunner>();
     const instance = () => {
       let deps: TestDeps | undefined;
-      // Never started: the test claims and runs each attempt.
+      // Never started: the test claims and runs each attempt. Stopped after the test, which
+      // waits for its attempts' handlers, lost ones included.
       const jobs = inProcessRunner({
         db: getTestDb(),
         logger: silent,
         clock: timer.clock,
+        drainMs: 1_000,
         deps: () => deps!,
       });
+      started.push(jobs);
       deps = createTestSdk({
         plugins: [bot(), computer({ provider: computerFake.provider })],
         jobs,
         adapterFor: () => fake.adapter,
       });
+      runners.set(deps, jobs);
       return deps;
     };
     const deps = instance();
@@ -503,11 +505,7 @@ describe("a shell call whose attempt is cut off", () => {
       attempt: async (on: TestDeps = deps) => {
         const claimed = await claimJob(getTestDb(), timer.clock.now(), { respectRunAfter: false });
         if (!claimed) throw new Error("Nothing to claim");
-        return runClaimedJob(getTestDb(), claimed, {
-          clock: timer.clock,
-          logger: silent,
-          deps: () => on,
-        });
+        return runners.get(on)!.runClaimed(claimed);
       },
     };
   }

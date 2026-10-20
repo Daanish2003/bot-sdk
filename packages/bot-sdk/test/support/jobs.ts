@@ -1,6 +1,6 @@
 import type { Database } from "../../core/server/db/index";
-import { systemClock, type JobClock } from "../../plugins/runner/server/jobs/in-process";
-import { claimJob, runClaimedJob } from "../../plugins/runner/server/jobs/store";
+import { inProcessRunner, type JobClock } from "../../plugins/runner/server/jobs/in-process";
+import { claimJob } from "../../plugins/runner/server/jobs/store";
 import { createTestSdk, type TestDeps } from "./deps";
 import { getTestDb } from "./test-database";
 
@@ -23,7 +23,8 @@ export type DrainJobsOptions = {
 /**
  * Runs queued jobs inline, one after another, until none are left, and returns how many ran. A
  * job that enqueues another has that one run too. A failing job is retried in the same drain, up
- * to its attempts, so the drain always ends. Failures are recorded on the row, not thrown.
+ * to its attempts, so the drain always ends. Failures are recorded on the row, not thrown. It
+ * returns once every handler has ended, a lost attempt's included.
  */
 export async function drainJobs({
   db = getTestDb(),
@@ -33,17 +34,17 @@ export async function drainJobs({
 }: DrainJobsOptions = {}): Promise<number> {
   const silent = { error: () => {} };
   const jobDeps = deps ?? createTestSdk({ db });
+  // Never started: it runs the attempts claimed here, and its `stop()` waits for their handlers.
+  const runner = inProcessRunner({ db, logger: silent, deps: () => jobDeps });
   let ran = 0;
   for (;;) {
     const claimed = await claimJob(db, now ?? new Date(), { respectRunAfter });
-    if (!claimed) return ran;
-    await runClaimedJob(db, claimed, {
-      clock: systemClock,
-      logger: silent,
-      deps: () => jobDeps,
-    });
+    if (!claimed) break;
+    await runner.runClaimed(claimed);
     ran += 1;
   }
+  await runner.stop();
+  return ran;
 }
 
 /** A clock the test moves by hand; `tick()` fires every timer (poll and heartbeat). */

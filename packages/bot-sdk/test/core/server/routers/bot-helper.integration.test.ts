@@ -35,11 +35,7 @@ import {
   inProcessRunner,
   type InProcessRunner,
 } from "../../../../plugins/runner/server/jobs/in-process";
-import {
-  claimJob,
-  reapStaleJobs,
-  runClaimedJob,
-} from "../../../../plugins/runner/server/jobs/store";
+import { claimJob, reapStaleJobs } from "../../../../plugins/runner/server/jobs/store";
 import { createTestSdk, type TestDeps, type TestDepsOverrides } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall, withUsage } from "../../../support/fake-adapter";
 import { fakeJobClock } from "../../../support/jobs";
@@ -371,8 +367,10 @@ describe("a Helper's limits", () => {
       db: getTestDb(),
       logger: silent,
       clock: timer.clock,
+      drainMs: 1_000,
       deps: () => deps!,
     });
+    started.push(jobs);
     deps = createTestSdk({
       plugins: [bot(), computer({ provider: fakeComputerProvider().provider })],
       jobs,
@@ -390,11 +388,7 @@ describe("a Helper's limits", () => {
     const attempt = async () => {
       const claimed = await claimJob(getTestDb(), timer.clock.now(), { respectRunAfter: false });
       if (!claimed) throw new Error("Nothing to claim");
-      return runClaimedJob(getTestDb(), claimed, {
-        clock: timer.clock,
-        logger: silent,
-        deps: () => deps!,
-      });
+      return jobs.runClaimed(claimed);
     };
     await client.bot.send({ botId, id: uuidv7(), text: "go" });
     // The Turn's job: it starts the Helper and ends.

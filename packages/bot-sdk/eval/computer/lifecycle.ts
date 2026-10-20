@@ -21,8 +21,8 @@ import { computer as computerTable } from "../../core/server/db/schema";
 import { bot } from "../../plugins/bot/server/plugin";
 import { computerBlobKey, computerIdleMs } from "../../plugins/computer/server/plugin";
 import type { ComputerProvider } from "../../plugins/computer/server";
-import { systemClock } from "../../plugins/runner/server/jobs/in-process";
-import { claimJob, runClaimedJob } from "../../plugins/runner/server/jobs/store";
+import { inProcessRunner } from "../../plugins/runner/server/jobs/in-process";
+import { claimJob } from "../../plugins/runner/server/jobs/store";
 import { checkScreens } from "./screens";
 import {
   createComputerSdk,
@@ -101,12 +101,15 @@ async function main() {
     // Jobs left in a reused scratch database (earlier runs) are due first and are run too, so the loop
     // goes on until this user is asleep. It is bounded because a check that keeps the Computer awake
     // queues its follow-up inside the window.
+    // Never started: it runs the checks claimed here, and its `stop()` waits for their handlers.
+    const runner = inProcessRunner({ db, logger: console, deps: () => over });
     for (let ran = 0; ran < 1000; ran++) {
       if ((await row())?.state === "asleep") break;
       const claimed = await claimJob(db, due);
       if (!claimed) break;
-      await runClaimedJob(db, claimed, { clock: systemClock, logger: console, deps: () => over });
+      await runner.runClaimed(claimed);
     }
+    await runner.stop();
     return Date.now() - started;
   };
   /** Makes the Computer look idle: its last activity is past the idle limit. */

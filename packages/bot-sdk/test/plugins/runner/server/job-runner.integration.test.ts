@@ -11,6 +11,7 @@ import { defineJob, PermanentJobError } from "../../../../plugins/runner/server/
 import { inProcessRunner } from "../../../../plugins/runner/server/jobs/in-process";
 import type { JobRunner } from "../../../../plugins/runner/server/jobs/runner";
 import {
+  cancelJob,
   claimJob,
   pruneFinishedJobs,
   reapStaleJobs,
@@ -99,6 +100,22 @@ defineJob({
       signal.addEventListener("abort", () => resolve(), { once: true }),
     );
     // Work a handler does after its attempt is aborted, such as ending a Turn.
+    await lingerGate;
+    ran.push(label);
+  },
+});
+
+defineJob({
+  name: "test.self-cancel",
+  payload: z.object({ label: z.string() }),
+  run: async ({ label }, ctx) => {
+    // A cancel commits while the job runs, so its next Checkpoint finds its row gone.
+    await cancelJob(getTestDb(), label, new Date());
+    try {
+      await ctx.activity("after-cancel", async () => label);
+    } catch {
+      // The attempt has lost its job; the handler goes on, as a Turn's ends its Turn.
+    }
     await lingerGate;
     ran.push(label);
   },
@@ -455,6 +472,32 @@ describe("drainJobs", () => {
 
     expect(ran).toEqual(["a", "b"]);
     expect((await jobRows()).map((row) => row.status)).toEqual(["succeeded", "succeeded"]);
+  });
+
+  it("returns only once a lost attempt's handler has ended", async () => {
+    let release!: () => void;
+    lingerGate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const runner = inProcessRunner({
+      db: getTestDb(),
+      logger: silent,
+      deps: jobDeps,
+      clock: fakeJobClock(start).clock,
+    });
+    await runner.enqueue("test.self-cancel", { label: "a" }, { idempotencyKey: "a" });
+
+    let drained = false;
+    const draining = drainJobs().then((count) => {
+      drained = true;
+      return count;
+    });
+    await sleep(100);
+    expect(drained).toBe(false);
+    release();
+
+    expect(await draining).toBe(1);
+    expect(ran).toEqual(["a"]);
   });
 
   it("ignores retry backoff by default, so a failing job ends failed within one drain", async () => {
