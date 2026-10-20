@@ -45,6 +45,8 @@ pnpm run dev
 
 Open [http://localhost:3001](http://localhost:3001) in your browser to see the fullstack application.
 
+To connect a ChatGPT plan (optional), set `CHATGPT_CLIENT_ID` and `CHATGPT_HOST_ID` in `apps/web/.env` and keep `BETTER_AUTH_URL=http://localhost:3001`. ChatGPT's redirect lands on `http://127.0.0.1:3001/auth/callback` and bounces back to `localhost`, where the session cookie lives.
+
 ## Testing
 
 Vitest runs every package's tests from the root config (`vitest.config.ts`):

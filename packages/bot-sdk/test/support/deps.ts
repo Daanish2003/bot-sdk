@@ -108,6 +108,7 @@ export function createTestSdk({ limits, plugins, ...overrides }: TestDepsOverrid
     hostProviders: overrides.hostProviders ?? [],
     hostTools: overrides.hostTools ?? [],
     byok: overrides.byok ?? true,
+    linkedCredentials: overrides.linkedCredentials,
     defaultBackgroundModel: overrides.defaultBackgroundModel ?? null,
     defaultImageModel: overrides.defaultImageModel ?? null,
     getQuota: overrides.getQuota ?? (async () => null),

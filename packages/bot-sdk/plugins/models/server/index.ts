@@ -7,6 +7,8 @@ export type {
   HostProvider,
   HostTool,
   HostTranscriptionModel,
+  LinkedCredentials,
+  LinkedCredentialsHook,
   Quota,
   QuotaSetting,
 } from "./types";

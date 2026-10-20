@@ -101,6 +101,7 @@ export const chatMessages = {
 
   "chat.errorInvalidKey": "The Provider rejected your API key.",
   "chat.errorRateLimited": "The Provider rate limited this request. Try again in a moment.",
+  "chat.errorReconnectChatgpt": "Reconnect ChatGPT on the Keys page.",
   "chat.errorProvider": "The Provider returned an error.",
   "chat.errorProviderWith": ({ error }: { error: string }) =>
     `The Provider returned an error: ${error}`,

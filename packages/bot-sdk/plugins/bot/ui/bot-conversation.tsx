@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { useI18n } from "../../../core/client/react/provider";
 import { serverErrorText } from "../../../core/client/rpc-error";
+import type { BotTurnProvenance } from "../shared/turn";
 import { useBackgroundRuns, useBotTurn } from "../client/react/bot-turn";
 import { useBotCheckIns } from "../client/react/check-ins";
 import { allHelpers, useBotHelpers } from "../client/react/helpers";
@@ -32,16 +33,32 @@ import { TodoPopover } from "./todo-popover";
 export function BotConversation({
   botId,
   headerEnd,
+  afterTurn,
 }: {
   botId: string;
   /** Header buttons the Host adds after the Bot's own, such as the `memory` plugin's Memory popover. */
   headerEnd?: ReactNode;
+  /**
+   * What the Host shows under the last Bot Message a Turn sent, such as the `memory` plugin's
+   * "Memory updated" chip. It may return nothing.
+   */
+  afterTurn?: (turn: BotTurnProvenance) => ReactNode;
 }) {
   // One instance per Bot, so a Turn's state never shows on another Bot.
-  return <BotConversationView key={botId} botId={botId} headerEnd={headerEnd} />;
+  return (
+    <BotConversationView key={botId} botId={botId} headerEnd={headerEnd} afterTurn={afterTurn} />
+  );
 }
 
-function BotConversationView({ botId, headerEnd }: { botId: string; headerEnd?: ReactNode }) {
+function BotConversationView({
+  botId,
+  headerEnd,
+  afterTurn,
+}: {
+  botId: string;
+  headerEnd?: ReactNode;
+  afterTurn?: (turn: BotTurnProvenance) => ReactNode;
+}) {
   const i18n = useI18n();
   const { t } = i18n;
   const [draft, setDraft] = useState("");
@@ -155,6 +172,31 @@ function BotConversationView({ botId, headerEnd }: { botId: string; headerEnd?: 
     ]);
   }
 
+  // Each Turn's `afterTurn` under the last Bot Message it sent: the last one saved in its span.
+  const afterTurnOf = new Map<string, ReactNode[]>();
+  if (afterTurn) {
+    for (const [index, turn] of turns.entries()) {
+      const from = turn.startedAt.getTime();
+      // Up to its end, and never into the next Turn (a Turn that never ended has no end).
+      const until = Math.min(
+        turn.endedAt?.getTime() ?? Infinity,
+        turns[index + 1]?.startedAt.getTime() ?? Infinity,
+      );
+      const sent = messages
+        .filter((message) => {
+          const at = message.createdAt.getTime();
+          return message.role === "assistant" && at >= from && at <= until;
+        })
+        .at(-1);
+      const shown = sent && afterTurn(turn);
+      if (shown)
+        afterTurnOf.set(sent.id, [
+          ...(afterTurnOf.get(sent.id) ?? []),
+          <Fragment key={turn.id}>{shown}</Fragment>,
+        ]);
+    }
+  }
+
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) submit(event);
   };
@@ -202,6 +244,7 @@ function BotConversationView({ botId, headerEnd }: { botId: string; headerEnd?: 
             >
               {message.text}
             </div>
+            {afterTurnOf.get(message.id)}
             {message.computer && (
               <ComputerCard
                 card={message.computer}

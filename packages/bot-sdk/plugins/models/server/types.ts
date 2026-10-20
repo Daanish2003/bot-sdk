@@ -13,6 +13,19 @@ import type { ProviderId } from "../shared/credentials/services";
 export type Credentials = Record<string, string>;
 
 /**
+ * What the Host's `linkedCredentials` hook returns for a user and a service (ADR 0023): the linked
+ * Provider credentials (a ChatGPT plan's access token as OpenAI's `apiKey`), nothing, or
+ * `"needs-reconnect"` when the link is broken.
+ */
+export type LinkedCredentials = Credentials | "needs-reconnect" | null | undefined;
+
+/** The Host's hook for linked Provider credentials (ADR 0023). Asked only for OpenAI today. */
+export type LinkedCredentialsHook = (
+  userId: string,
+  service: ProviderId,
+) => LinkedCredentials | Promise<LinkedCredentials>;
+
+/**
  * A Model the Host pays for (ADR 0007). Prices are per 1M tokens, kept with the Model so a
  * third-party price snapshot never changes the Host's spending. Capability flags default to off.
  */
@@ -110,7 +123,11 @@ export type ModelsDeps = {
   adapterFor: (
     model: string,
     credentials: Credentials,
-    options?: { maxOutputTokens?: number },
+    options?: {
+      maxOutputTokens?: number;
+      /** The credentials are a linked ChatGPT plan's: the call goes the plan's way (ADR 0023). */
+      linked?: boolean;
+    },
   ) => AnyTextAdapter;
   /**
    * Builds the TanStack AI image adapter for an Image Model (spec #278), from the credentials it
@@ -134,6 +151,8 @@ export type ModelsDeps = {
   hostTools: HostTool[];
   /** Whether users may use their own Provider credentials (`byok`, ADR 0007). */
   byok: boolean;
+  /** The Host's hook for linked Provider credentials, or none (ADR 0023). */
+  linkedCredentials?: LinkedCredentialsHook;
   /** The Host's default Background Model, a Host Model's id, or `null` (`defaultBackgroundModel`). */
   defaultBackgroundModel: string | null;
   /** The Host's default Image Model, a Host Image Model's id, or `null` (`defaultImageModel`). */

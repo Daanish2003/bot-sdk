@@ -369,6 +369,11 @@ describe("the post-turn memory pass", () => {
     await expect
       .poll(() => events)
       .toEqual([{ type: "bot_memory_updated", turnId: turn!.id, changes }]);
+
+    // A reload reads the list from the Conversation read, with the Conversation's id for the stream.
+    const read = await client.bot.get({ botId: ada });
+    expect(read.conversationId).toBe(conversationId);
+    expect(read.turns.map((t) => t.memoryChanges)).toEqual([changes]);
   });
 
   it("saves no change list when nothing changed", async () => {
@@ -380,6 +385,9 @@ describe("the post-turn memory pass", () => {
 
     const [turn] = await getTestDb().select().from(botTurn).where(eq(botTurn.botId, ada));
     expect(turn?.memoryChanges).toBeNull();
+    expect((await client.bot.get({ botId: ada })).turns.map((t) => t.memoryChanges)).toEqual([
+      null,
+    ]);
   });
 });
 

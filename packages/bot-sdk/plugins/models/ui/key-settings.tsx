@@ -39,10 +39,24 @@ import { BackgroundModelSelect } from "../../assistant/ui/settings/background-mo
 import { ImageModelSelect } from "../../assistant/ui/settings/image-model-select";
 
 /**
+ * What the Host provides for linked credentials (ADR 0023): how a user links and unlinks their
+ * ChatGPT plan. The Bot SDK has no auth, so the Host owns both.
+ */
+export type LinkedCredentialsHost = {
+  /** Starts linking ChatGPT; the Host's auth takes the browser away and returns to the Keys page. */
+  connect: () => void | Promise<void>;
+  disconnect: () => void | Promise<void>;
+};
+
+/**
  * Keys & settings: the user's Provider and Tool credentials, the Background Model and the Instructions.
  * With `byok` off the credential sections are left out; the settings stay.
  */
-export function KeySettingsPage() {
+export function KeySettingsPage({
+  linkedCredentials,
+}: {
+  linkedCredentials?: LinkedCredentialsHost;
+}) {
   const orpc = useOrpc();
   const { plugins } = useChatAdapter();
   const byok = useByok();
@@ -68,6 +82,7 @@ export function KeySettingsPage() {
                   key={row.id}
                   row={row}
                   loading={credentials.isPending}
+                  linkedCredentials={row.id === "openai" ? linkedCredentials : undefined}
                   editing={row.service !== null && editing === row.service}
                   onEdit={setEditing}
                   onDone={() => setEditing(null)}
@@ -131,12 +146,14 @@ const statusDot: Record<ProviderRowStatus, { className: string; label: MessageKe
 function ProviderRowItem({
   row,
   loading,
+  linkedCredentials,
   editing,
   onEdit,
   onDone,
 }: {
   row: ProviderRow | ToolRow;
   loading: boolean;
+  linkedCredentials?: LinkedCredentialsHost;
   editing: boolean;
   onEdit: (service: CredentialService) => void;
   onDone: () => void;
@@ -210,8 +227,79 @@ function ProviderRowItem({
         )}
       </div>
 
+      {linkedCredentials && <ChatgptLink host={linkedCredentials} />}
+
       {service && editing && <CredentialForm service={service} onDone={onDone} />}
     </li>
+  );
+}
+
+/** The OpenAI row's ChatGPT plan, by `credentials.openaiState`: a saved key wins over a link. */
+function ChatgptLink({ host }: { host: LinkedCredentialsHost }) {
+  const queryClient = useQueryClient();
+  const orpc = useOrpc();
+  const i18n = useI18n();
+  const { t } = i18n;
+  const state = useQuery(orpc.credentials.openaiState.queryOptions());
+  const connect = useMutation({
+    mutationFn: () => Promise.resolve(host.connect()),
+    onError: (error) => toast.error(serverErrorText(i18n, error)),
+  });
+  const disconnect = useMutation({
+    mutationFn: () => Promise.resolve(host.disconnect()),
+    onSuccess: () => invalidateCredentials(queryClient, orpc),
+    onError: (error) => toast.error(serverErrorText(i18n, error)),
+  });
+
+  if (!state.data) return null;
+  return (
+    <div className="flex items-center gap-3 pl-5 text-xs text-muted-foreground">
+      {state.data === "key" && <span>{t("pages.chatgptKeyWins")}</span>}
+      {state.data === "linked" && (
+        <>
+          <span className="flex-1">{t("pages.chatgptConnected")}</span>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={connect.isPending}
+            onClick={() => connect.mutate()}
+          >
+            {t("pages.chatgptReconnect")}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={disconnect.isPending}
+            onClick={() => disconnect.mutate()}
+          >
+            {t("pages.chatgptDisconnect")}
+          </Button>
+        </>
+      )}
+      {state.data === "needs-reconnect" && (
+        <>
+          <span className="flex-1">{t("pages.chatgptNeedsReconnect")}</span>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={connect.isPending}
+            onClick={() => connect.mutate()}
+          >
+            {t("pages.chatgptReconnect")}
+          </Button>
+        </>
+      )}
+      {state.data === "none" && (
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={connect.isPending}
+          onClick={() => connect.mutate()}
+        >
+          {t("pages.chatgptConnect")}
+        </Button>
+      )}
+    </div>
   );
 }
 

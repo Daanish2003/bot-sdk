@@ -4,9 +4,16 @@ import { checkCredentials } from "../credentials/check";
 import {
   credentialHint,
   credentialServices,
+  type OpenaiCredentialsState,
   saveCredentialsInput,
 } from "../../shared/credentials/services";
-import { deleteCredentials, listCredentials, saveCredentials } from "../credentials/store";
+import { shownLinkedPlan } from "../credentials/resolve";
+import {
+  deleteCredentials,
+  listCredentials,
+  loadCredentials,
+  saveCredentials,
+} from "../credentials/store";
 import { protectedProcedure } from "../../../../core/server/procedures";
 import { modelsDeps } from "../state";
 import { rpcError } from "../../../../core/server/rpc-error";
@@ -16,6 +23,19 @@ export const credentialsRouter = {
   list: protectedProcedure.handler(({ context }) =>
     listCredentials(modelsDeps(context), context.user.id),
   ),
+
+  /**
+   * The OpenAI row's state on the Keys page (ADR 0023): a saved key wins, then the Host's linked
+   * ChatGPT plan (linked, or needing a reconnect), else none. With `byok` off neither is used: none.
+   */
+  openaiState: protectedProcedure.handler(async ({ context }): Promise<OpenaiCredentialsState> => {
+    const deps = modelsDeps(context);
+    if (!deps.byok) return "none";
+    if (await loadCredentials(deps, context.user.id, "openai")) return "key";
+    const linked = await shownLinkedPlan(deps, context.user.id);
+    if (!linked) return "none";
+    return linked === "needs-reconnect" ? "needs-reconnect" : "linked";
+  }),
 
   /** Whether the user may bring their own Provider credentials (`byok`, ADR 0007). */
   mode: protectedProcedure.handler(({ context }) => ({ byok: modelsDeps(context).byok })),

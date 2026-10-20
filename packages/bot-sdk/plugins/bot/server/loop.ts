@@ -225,9 +225,7 @@ export async function runLoop(
       const call = await models.resolveModelCall(owner.userId, owner.model);
       if (!call) throw new Error(`"${owner.model}" is not an available Model`);
       return {
-        adapter: models.adapterFor(owner.model, call.credentials, {
-          maxOutputTokens: call.maxOutputTokens,
-        }),
+        adapter: models.adapterForCall(owner.model, call),
         record: (tx, usage, reportedCost) =>
           call.meter.recordIn(tx, { kind: options.usageKind, usage, reportedCost }),
       };

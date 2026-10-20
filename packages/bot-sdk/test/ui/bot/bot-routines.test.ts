@@ -273,6 +273,7 @@ describe("a Routine's runs", () => {
     startedAt: at("2026-10-19T07:00:01.000Z"),
     endedAt: at("2026-10-19T07:00:05.000Z"),
     sent,
+    memoryChanges: null,
     triggers: [
       {
         source: "routine",
@@ -288,6 +289,7 @@ describe("a Routine's runs", () => {
     startedAt: at("2026-10-19T06:00:01.000Z"),
     endedAt: at("2026-10-19T06:00:05.000Z"),
     sent: true,
+    memoryChanges: null,
     triggers: [
       { source: "user", channel: "web", routineName: null, at: at("2026-10-19T06:00:00.000Z") },
     ],
@@ -611,6 +613,7 @@ describe("a webhook Routine", () => {
           startedAt: new Date(at.getTime() + 1000),
           endedAt: new Date(at.getTime() + 5000),
           sent: true,
+          memoryChanges: null,
           triggers: [{ source: "routine", channel: "webhook", routineName: "stripe-payouts", at }],
         },
       ],

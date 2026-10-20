@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { saveBackgroundModel } from "../../../../plugins/assistant/server/settings/store";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestSdk } from "../../../support/deps";
+import { createTestSdk, type TestDepsOverrides } from "../../../support/deps";
 import { createFakeAdapter, round, runError, text } from "../../../support/fake-adapter";
 import { insertUser } from "../../../support/users";
 import { chatRpc, sendAs } from "../../../support/sdk";
@@ -43,13 +43,19 @@ async function titleOfConversation(id: string) {
 async function setup({
   scripts = [[round(text("Paris is the capital."))], [round(text("Capital of France"))]],
   defaultBackgroundModel = null,
-}: { scripts?: Rounds[]; defaultBackgroundModel?: string | null } = {}) {
+  linkedCredentials,
+}: {
+  scripts?: Rounds[];
+  defaultBackgroundModel?: string | null;
+  linkedCredentials?: TestDepsOverrides["linkedCredentials"];
+} = {}) {
   const user = await insertUser();
   const fakes = scripts.map((rounds) => createFakeAdapter({ rounds }));
   const adapterCalls: Array<{ model: string; credentials: Record<string, string> }> = [];
   const adapters: AnyTextAdapter[] = fakes.map((fake) => fake.adapter);
   const deps = createTestSdk({
     defaultBackgroundModel,
+    linkedCredentials,
     adapterFor: (model, credentials) => {
       adapterCalls.push({ model, credentials });
       const next = adapters.shift();
@@ -119,6 +125,21 @@ describe("automatic titles", () => {
     expect(adapterCalls[1]).toEqual({
       model: cheapModel,
       credentials: { apiKey: "sk-openai-test-key" },
+    });
+  });
+
+  it("titles on the user's linked ChatGPT plan when the Background Model is a plan Model (ADR 0023)", async () => {
+    const { user, deps, send, titleOf, adapterCalls } = await setup({
+      linkedCredentials: async () => ({ apiKey: "chatgpt-access-token" }),
+    });
+    await saveBackgroundModel(deps, user.id, "openai:gpt-6-luna");
+
+    await send();
+
+    await vi.waitFor(async () => expect(await titleOf()).toBe("Capital of France"));
+    expect(adapterCalls[1]).toEqual({
+      model: "openai:gpt-6-luna",
+      credentials: { apiKey: "chatgpt-access-token" },
     });
   });
 

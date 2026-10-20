@@ -78,9 +78,7 @@ async function generateTitle(
       },
     ];
     const result = await chat({
-      adapter: deps
-        .plugin("models")
-        .adapterFor(model, call.credentials, { maxOutputTokens: call.maxOutputTokens }),
+      adapter: deps.plugin("models").adapterForCall(model, call),
       systemPrompts: [titlePrompt],
       messages,
       stream: false,
