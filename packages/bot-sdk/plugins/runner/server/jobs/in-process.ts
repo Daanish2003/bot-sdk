@@ -1,7 +1,7 @@
 import type { Database } from "../../../../core/server/db/index";
 import type { BotSdkContext } from "../../../../core/server/plugin";
 import { jobNamesInLane } from "./define";
-import { cancelJob, claimJob, enqueueJob, readJob, runClaimedJob } from "./store";
+import { cancelJob, claimJob, enqueueJob, readJob, runClaimedJob, type ClaimedJob } from "./store";
 import type { JobRunner } from "./runner";
 
 type Logger = Pick<Console, "error">;
@@ -31,7 +31,10 @@ export type InProcessRunnerOptions = {
   helperConcurrency?: number;
   /** How often an idle runner polls `chat.job`. Enqueue wakes it sooner. */
   pollMs?: number;
-  /** How long `stop()` lets running jobs finish or yield before it aborts them. */
+  /**
+   * How long `stop()` lets running jobs finish or yield before it aborts them, and then how long
+   * it waits for the aborted handlers to end.
+   */
   drainMs?: number;
   clock?: JobClock;
   /** The core context, read when a job runs. The `runner` plugin passes its instance's. */
@@ -55,6 +58,12 @@ async function waitUpTo(promise: Promise<unknown>, ms: number): Promise<void> {
 export type InProcessRunner = JobRunner & {
   /** Claims due jobs now instead of at the next poll, as `enqueue` does. Does nothing before `start()`. */
   wake: () => void;
+  /**
+   * Runs one attempt of a job claimed elsewhere, as one of this runner's: `stop()` waits for its
+   * handler. `drain` stands in for the runner's own deploy signal. Tests claim and run attempts
+   * by hand through it.
+   */
+  runClaimed: (claimed: ClaimedJob, options?: { drain?: AbortSignal }) => Promise<void>;
 };
 
 /** The runners `inProcessRunner` made. */
@@ -72,6 +81,8 @@ export function isInProcessRunner(jobs: JobRunner): jobs is InProcessRunner {
  * `stop()` takes no new jobs and asks each running workflow to yield: at its next Checkpoint its row
  * is handed back `queued`, uncounted, for another process to resume. It waits up to `drainMs` for
  * the running jobs to finish or yield, then aborts the rest and leaves their leases to expire.
+ * Handlers go on until they see their abort, lost attempts' included, so it then waits up to
+ * `drainMs` more for every handler to end: it resolves within twice `drainMs`.
  */
 export function inProcessRunner({
   db,
@@ -91,6 +102,11 @@ export function inProcessRunner({
   let claims: Promise<void> = Promise.resolve();
   const helpersInFlight = new Set<Promise<void>>();
   const othersInFlight = new Set<Promise<void>>();
+  // Every running handler, an attempt's that has ended included, until the handler ends too.
+  const handlers = new Set<Promise<void>>();
+
+  const run = (claimed: ClaimedJob, signals: { drain?: AbortSignal; shutdown?: AbortSignal }) =>
+    runClaimedJob(db, claimed, { clock, logger, deps, ...signals, handlers });
 
   const claimUpToConcurrency = async () => {
     const helperNames = jobNamesInLane("helper");
@@ -114,10 +130,7 @@ export function inProcessRunner({
         return;
       }
       if (!claimed) return;
-      const work: Promise<void> = runClaimedJob(db, claimed, {
-        clock,
-        logger,
-        deps,
+      const work: Promise<void> = run(claimed, {
         drain: drain?.signal,
         shutdown: shutdown?.signal,
       })
@@ -155,6 +168,9 @@ export function inProcessRunner({
 
     wake: requestClaim,
 
+    runClaimed: (claimed, options = {}) =>
+      run(claimed, { drain: options.drain, shutdown: shutdown?.signal }),
+
     async start() {
       if (running) return;
       running = true;
@@ -171,9 +187,13 @@ export function inProcessRunner({
       clock.clearInterval(timer);
       timer = undefined;
       await claims;
-      await waitUpTo(Promise.all([...helpersInFlight, ...othersInFlight]), drainMs);
+      await waitUpTo(Promise.all([...helpersInFlight, ...othersInFlight, ...handlers]), drainMs);
       shutdown?.abort();
       await Promise.all([...helpersInFlight, ...othersInFlight]);
+      await waitUpTo(Promise.all(handlers), drainMs);
+      if (handlers.size > 0) {
+        logger.error(`${handlers.size} background job handler(s) still running after stop`);
+      }
     },
   };
   inProcessRunners.add(jobs);

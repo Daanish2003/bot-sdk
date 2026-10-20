@@ -87,6 +87,23 @@ defineJob({
   },
 });
 
+/** Released by the test that runs `test.linger`; until then its handler goes on after its abort. */
+let lingerGate: Promise<void> | undefined;
+
+defineJob({
+  name: "test.linger",
+  payload: z.object({ label: z.string() }),
+  run: async ({ label }, { signal }) => {
+    started.push(label);
+    await new Promise<void>((resolve) =>
+      signal.addEventListener("abort", () => resolve(), { once: true }),
+    );
+    // Work a handler does after its attempt is aborted, such as ending a Turn.
+    await lingerGate;
+    ran.push(label);
+  },
+});
+
 /** Released by the test that holds `test.helper` jobs; until then each one keeps running. */
 let helperGate: Promise<void> | undefined;
 
@@ -127,6 +144,7 @@ beforeEach(() => {
   holding = false;
   releaseHold = undefined;
   helperGate = undefined;
+  lingerGate = undefined;
 });
 
 afterEach(() => {
@@ -799,6 +817,57 @@ describe("stop", () => {
 
     expect(ran).toEqual(["a"]);
     expect(await statusOf("test.record")).toBe("succeeded");
+  });
+});
+
+describe("stop and lost attempts", () => {
+  /** A started runner whose `test.linger` job has lost its attempt to a cancel. */
+  async function lostAttempt(drainMs: number) {
+    const timer = fakeJobClock(start);
+    const runner = inProcessRunner({
+      db: getTestDb(),
+      logger: silent,
+      deps: jobDeps,
+      clock: timer.clock,
+      drainMs,
+    });
+    await runner.enqueue("test.linger", { label: "a" }, { idempotencyKey: "k" });
+    await runner.start();
+    await expect.poll(() => started).toEqual(["a"]);
+    await runner.cancel("k");
+    timer.advance(10_000);
+    timer.tick();
+    return runner;
+  }
+
+  it("waits for a lost attempt's handler to end", async () => {
+    let release!: () => void;
+    lingerGate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const runner = await lostAttempt(2_000);
+
+    let stopped = false;
+    const stopping = runner.stop().then(() => {
+      stopped = true;
+    });
+    await sleep(50);
+    expect(stopped).toBe(false);
+    release();
+    await stopping;
+
+    expect(ran).toEqual(["a"]);
+    // Its last write, acknowledging the cancel, is done too.
+    expect(await jobRows()).toMatchObject([{ status: "cancelled", heartbeatAt: null }]);
+  });
+
+  it("stops waiting for a handler that never ends, drainMs after aborting it", async () => {
+    lingerGate = new Promise(() => {});
+    const runner = await lostAttempt(20);
+
+    await runner.stop();
+
+    expect(ran).toEqual([]);
   });
 });
 

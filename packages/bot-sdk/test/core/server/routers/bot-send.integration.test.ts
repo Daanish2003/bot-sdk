@@ -1404,6 +1404,8 @@ describe("a Turn that resumes after a crash", () => {
     const timer = fakeJobClock(new Date());
     // One pub/sub across the processes, as Redis is.
     const pubsub = countingPubSub(createMemoryPubSub());
+    // Each process's runner, which runs its attempts.
+    const runners = new Map<TestDeps, InProcessRunner>();
     const instance = () => {
       let deps: TestDeps | undefined;
       // Never started: the test claims and runs each attempt.
@@ -1421,6 +1423,7 @@ describe("a Turn that resumes after a crash", () => {
         hooks,
         ...(host && { hostProviders }),
       });
+      runners.set(deps, jobs);
       return deps;
     };
     const deps = instance();
@@ -1451,13 +1454,15 @@ describe("a Turn that resumes after a crash", () => {
       attempt: async (on: TestDeps = deps, drain?: AbortSignal) => {
         const claimed = await claimJob(getTestDb(), timer.clock.now(), { respectRunAfter: false });
         if (!claimed) throw new Error("Nothing to claim");
-        return runClaimedJob(getTestDb(), claimed, {
-          clock: timer.clock,
-          logger: silent,
-          deps: () => on,
-          drain,
-        });
+        return runners.get(on)!.runClaimed(claimed, { drain });
       },
+      /**
+       * Stops the process `on`'s runner, which waits for its attempts' handlers to end. A lost
+       * attempt's handler goes on after `attempt()` resolves: it ends the Turn if it still runs,
+       * then acknowledges the cancel. Left running, that write can run into the next test's
+       * truncate, a deadlock.
+       */
+      stopRunner: (on: TestDeps = deps) => runners.get(on)!.stop(),
       /**
        * The process running the Turn stops: its lease expires, the reaper re-queues the job (or
        * fails it after its last attempt), and the lost attempt's next heartbeat finds it gone.
@@ -1629,26 +1634,6 @@ describe("a Turn that resumes after a crash", () => {
     return rows[0]?.n;
   };
 
-  /**
-   * Returns a wait for the lost attempt of the cancelled job `jobId` to end. `attempt()` resolves
-   * once the attempt loses its job, while its handler goes on: it ends the Turn if it still runs,
-   * then acknowledges the cancel on the job row, its last write. Left running, that transaction can
-   * run into the next test's truncate, a deadlock. Call it before the attempt can see the cancel:
-   * the wait ends once the job row is written again (Postgres gives each write of a row a new
-   * `xmin`).
-   */
-  async function cancelAcknowledged(jobId: string) {
-    const version = async () => {
-      const { rows } = await getTestDb().execute<{ xmin: string }>(
-        sql`select xmin::text as xmin from ${job} where ${job.id} = ${jobId}`,
-      );
-      return rows[0]?.xmin;
-    };
-    const before = await version();
-    expect(before).toBeDefined();
-    return () => expect.poll(version, { timeout: 5_000 }).not.toBe(before);
-  }
-
   /** Another connection takes the locks `take` takes, and holds them until `release()`. */
   async function holdLocks(take: (tx: Transaction) => Promise<unknown>) {
     let release = () => {};
@@ -1702,7 +1687,7 @@ describe("a Turn that resumes after a crash", () => {
   });
 
   it("ends the Turn stopped when its job is cancelled just before its last Checkpoint", async () => {
-    const { fake, client, botId, attempt, instance } = await crashableBot([
+    const { fake, client, botId, attempt, instance, stopRunner } = await crashableBot([
       round(text("Nothing to add.")),
     ]);
     const stream = await client.bot.send({ botId, id: uuidv7(), text: "ok" });
@@ -1720,10 +1705,9 @@ describe("a Turn that resumes after a crash", () => {
     // this is a stop whose cancel committed just before that Checkpoint began.
     const [turnBefore] = await turnsOf(botId);
     await instance().plugin("runner").cancel(turnBefore!.id);
-    const acknowledged = await cancelAcknowledged(turnBefore!.jobId!);
     await turnRow.release();
     await running;
-    await acknowledged();
+    await stopRunner();
 
     const turn = await endedTurn(botId);
     expect(turn).toMatchObject({ status: "stopped", error: null });
@@ -1755,7 +1739,7 @@ describe("a Turn that resumes after a crash", () => {
   }
 
   it("ends an interrupted Turn whose process died stopped from the sweep, and the next Turn takes the Message", async () => {
-    const { fake, client, botId, attempt, die, tick } = await crashableBot([
+    const { fake, client, botId, attempt, die, tick, stopRunner } = await crashableBot([
       round(sends({ text: "On it…", endTurn: false })),
       round(sends({ text: "Never sent.", endTurn: true })),
     ]);
@@ -1774,16 +1758,15 @@ describe("a Turn that resumes after a crash", () => {
     expect(taken?.turnId).toBe(next?.id);
 
     // The lost attempt finds its job gone once it runs again, and changes nothing.
-    const acknowledged = await cancelAcknowledged(turn!.jobId!);
     tick();
     await fake.releaseAll();
     await lost;
-    await acknowledged();
+    await stopRunner();
     expect((await turnsOf(botId)).find(({ id }) => id === turn?.id)).toEqual(turn);
   });
 
   it("ends a stopped Turn whose process died stopped from the sweep, and starts nothing after it", async () => {
-    const { fake, client, botId, attempt, die, tick } = await crashableBot([
+    const { fake, client, botId, attempt, die, tick, stopRunner } = await crashableBot([
       round(sends({ text: "On it…", endTurn: false })),
       round(sends({ text: "Never sent.", endTurn: true })),
     ]);
@@ -1799,11 +1782,10 @@ describe("a Turn that resumes after a crash", () => {
     const [taken] = await getTestDb().select().from(botTrigger).where(eq(botTrigger.id, savedId));
     expect(taken?.turnId).toBe(turns[0]?.id);
 
-    const acknowledged = await cancelAcknowledged(turns[0]!.jobId!);
     tick();
     await fake.releaseAll();
     await lost;
-    await acknowledged();
+    await stopRunner();
   });
 
   it("bot.stop on a queued Turn that already sent a Message keeps its transcript and usage", async () => {
