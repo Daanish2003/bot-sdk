@@ -7,6 +7,7 @@ import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { deleteUserData } from "../../../../core/server/user-data";
 import type { HostProvider } from "../../../../plugins/assistant/server/deps";
 import { bot } from "../../../../plugins/bot/server/plugin";
+import { changeNotesFraming } from "../../../../plugins/bot/server/change-notes";
 import { routineFireJobName } from "../../../../plugins/bot/server/routine";
 import { findBot } from "../../../../plugins/bot/server/store";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
@@ -310,6 +311,8 @@ describe("a scheduled Routine", () => {
       role: "user",
       content:
         `[Current time: Monday, 19 October 2026 at 08:00 (Europe/London)]\n\n` +
+        `[What changed since your prompt was built]\n${changeNotesFraming}\n` +
+        `Routine approved: morning-brief  weekdays 08:00 Europe/London  "${morningBrief.prompt}"\n\n` +
         `${wakeNotice}\n\n${morningBrief.prompt}`,
     });
     // The answered Message stays as its own Turn sent it, with that Turn's time.
@@ -338,9 +341,10 @@ describe("a scheduled Routine", () => {
     advanceTo("2026-10-19T07:00:00.500Z");
     await runDue();
 
-    const content = JSON.stringify(inputOf(fake.calls.at(-1)));
-    expect(content).toContain(morningBrief.prompt);
-    expect(content).not.toContain("Something else entirely.");
+    // The fire's text is the one the Turn read when it started; the edit is only a Change note.
+    const newest = String(inputOf(fake.calls.at(-1)).at(-1)?.content);
+    expect(newest.endsWith(`\n\n${morningBrief.prompt}`)).toBe(true);
+    expect(newest).toContain("Routine approved: morning-brief");
   });
 
   it("joins the Turn of user Messages waiting to start, which takes both", async () => {

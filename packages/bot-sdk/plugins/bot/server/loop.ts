@@ -102,6 +102,11 @@ export type LoopSetup = {
   tools: AnyServerTool[];
   /** Whether a tool call of the Step asked to end the loop with no further model call. */
   ended?: () => boolean;
+  /**
+   * The newest message, when setup builds it (a Turn's, which holds Change notes read in setup):
+   * it follows `input` in what the loop sends.
+   */
+  newest?: ModelMessage[];
 } & (
   | { systemPrompts: string[]; promptStart?: never }
   | {
@@ -584,9 +589,10 @@ export async function runLoop(
     const systemPrompts = promptStart
       ? promptStart.system.map((block) => block.text)
       : setup.systemPrompts;
+    const history = [...options.input, ...(setup.newest ?? [])];
     const input: ModelMessage[] = promptStart
-      ? [{ role: "user", content: promptStart.firstMessage }, ...options.input]
-      : options.input;
+      ? [{ role: "user", content: promptStart.firstMessage }, ...history]
+      : history;
     let reminded = false;
     for (;;) {
       let engine: ChatMiddlewareContext | undefined;
