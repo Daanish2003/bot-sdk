@@ -12,6 +12,7 @@ import {
 import type { PromptHash } from "../../../core/server/chat/hooks";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
+import { withCacheControl } from "../../models/server/cache-control";
 import { addUsage, promptCharactersOf, reportedUsageOf } from "../../models/server/run-usage";
 import type { ModelUsage } from "../../models/server/meter";
 import { parseModelId } from "../../models/shared/models";
@@ -320,7 +321,13 @@ export async function runLoop(
           inLiveCall = true;
           try {
             const { adapter } = await liveCall();
-            for await (const chunk of adapter.chatStream(pruned)) {
+            // The cache controls of the Model's Provider: the Bot's key, or its Helper's.
+            const cached = withCacheControl(
+              provider,
+              options.usageKind === "helper" ? `helper:${options.sourceId}` : `bot:${owner.botId}`,
+              pruned,
+            );
+            for await (const chunk of adapter.chatStream(cached)) {
               chunks.push(withoutRaw(chunk));
             }
           } catch (caught) {
