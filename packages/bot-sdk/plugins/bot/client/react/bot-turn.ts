@@ -272,6 +272,8 @@ export function useBotTurn(
     messages,
     /** Each Turn's provenance: the Triggers it took, and whether it sent anything. */
     turns: query.data?.turns ?? [],
+    /** The calls that warmed the Bot's cache, oldest first (#677). */
+    warmings: query.data?.warmings ?? [],
     working,
     seenMessageId: status === "complete" ? answered : undefined,
     failedMessageId: status === "error" ? answered : undefined,

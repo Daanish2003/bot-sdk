@@ -132,6 +132,20 @@ export type PromptStartParts = {
   memory: boolean;
 };
 
+/** The id of the Bot's latest Prompt start, or `undefined` before its first Turn builds one. */
+export async function latestPromptStartId(
+  db: Database | Transaction,
+  botId: string,
+): Promise<string | undefined> {
+  const [latest] = await db
+    .select({ id: botPromptStart.id })
+    .from(botPromptStart)
+    .where(eq(botPromptStart.botId, botId))
+    .orderBy(desc(botPromptStart.builtAt), desc(botPromptStart.id))
+    .limit(1);
+  return latest?.id;
+}
+
 /**
  * The id of the Prompt start a Turn sends, in `tx`: the Bot's latest, or, for its first Turn, one
  * built from `parts` and stored. It is set on the Turn's row. Call it in a recorded activity, so a
@@ -139,13 +153,7 @@ export type PromptStartParts = {
  */
 export async function promptStartFor(tx: Transaction, parts: PromptStartParts): Promise<string> {
   const { turn } = parts;
-  const [latest] = await tx
-    .select({ id: botPromptStart.id })
-    .from(botPromptStart)
-    .where(eq(botPromptStart.botId, turn.botId))
-    .orderBy(desc(botPromptStart.builtAt), desc(botPromptStart.id))
-    .limit(1);
-  const id = latest?.id ?? (await buildPromptStart(tx, parts));
+  const id = (await latestPromptStartId(tx, turn.botId)) ?? (await buildPromptStart(tx, parts));
   await tx.update(botTurn).set({ promptStartId: id }).where(eq(botTurn.id, turn.id));
   return id;
 }

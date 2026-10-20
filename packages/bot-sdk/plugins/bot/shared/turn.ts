@@ -83,3 +83,6 @@ export type BotTurnProvenance = {
   /** Its Steps, oldest first, for the cache chip (#675). */
   steps: BotTurnStep[];
 };
+
+/** A call that warmed a Bot's cache (#677), for the muted line in its thread. */
+export type BotWarming = { id: string; at: Date; costMicros: number };
