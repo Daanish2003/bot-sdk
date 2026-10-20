@@ -232,7 +232,6 @@ export async function previousTurnCall(
   return row?.hashes ? { promptStartId: row.promptStartId, hashes: row.hashes } : undefined;
 }
 
-/** What one model call sends of a Prompt start and history. */
 /** A section's hash, with its size estimated at 4 characters a token. */
 const hashed = (name: string, text: string): PromptHash => ({
   name,
@@ -240,6 +239,7 @@ const hashed = (name: string, text: string): PromptHash => ({
   tokens: Math.ceil(text.length / 4),
 });
 
+/** What one model call sends of a Prompt start and history. */
 type SentPrompt = {
   tools: unknown[];
   systemPrompts: SystemPrompt[];

@@ -24,7 +24,7 @@ const costOf = (micros: number) => `$${(micros / 1_000_000).toFixed(micros < 10_
 const percentOf = (steps: BotTurnStep[]) => {
   const input = steps.reduce((sum, step) => sum + step.inputTokens, 0);
   const read = steps.reduce((sum, step) => sum + step.cacheReadTokens, 0);
-  return input === 0 ? 0 : Math.round((read / input) * 100);
+  return input === 0 ? 0 : Math.min(100, Math.round((read / input) * 100));
 };
 
 /**
@@ -65,7 +65,7 @@ function StepDetail({ step, number }: { step: BotTurnStep; number: number }) {
       <div className="flex h-3 w-full overflow-hidden rounded" aria-hidden>
         {step.sections.map((section, index) => (
           <div
-            key={section.name}
+            key={index}
             className={`${stateClass[states[index]!]} border-r border-background/60`}
             style={{ width: `${Math.max(1.5, (section.tokens / total) * 100)}%` }}
           />
@@ -74,7 +74,7 @@ function StepDetail({ step, number }: { step: BotTurnStep; number: number }) {
       <ul className="flex flex-col">
         {step.sections.map((section, index) => (
           <li
-            key={section.name}
+            key={index}
             className={`flex gap-2 ${states[index] === "missed" ? "text-red-600" : ""}`}
           >
             <span className="flex-1">
