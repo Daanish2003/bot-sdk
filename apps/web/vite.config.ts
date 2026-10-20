@@ -8,6 +8,9 @@ import { defineConfig } from "vite";
 export default defineConfig({
   server: {
     port: 3001,
+    // IPv4: ChatGPT's sign-in redirects to 127.0.0.1 (ADR 0023), and on Windows `localhost` alone
+    // binds only ::1. Browsers reach `localhost` through it too.
+    host: "127.0.0.1",
   },
   resolve: {
     tsconfigPaths: true,
