@@ -51,7 +51,13 @@ export type MemoryLine = { line: number; text: string };
 export type ProfileLine = MemoryLine & { fact: string };
 
 /** A Log line: its date (`YYYY-MM-DD`), its importance from 1 to 10, and the event. */
-export type LogLine = MemoryLine & { date: string; importance: number; event: string };
+export type LogLine = MemoryLine & {
+  /** The monthly file (`YYYY-MM`) the line is in. */
+  month: string;
+  date: string;
+  importance: number;
+  event: string;
+};
 
 /** A Notes line: its date and the detail. */
 export type NoteLine = MemoryLine & { date: string; detail: string };
@@ -89,7 +95,13 @@ export function parseLog(content: string, month: string): LogLine[] {
     const rest = dated ? entry.text.slice(dated[0].length) : entry.text;
     const tagged = importancePattern.exec(rest);
     const importance = tagged ? clampImportance(Number(tagged[1])) : defaultImportance;
-    return { ...entry, date, importance, event: tagged ? rest.slice(tagged[0].length) : rest };
+    return {
+      ...entry,
+      month,
+      date,
+      importance,
+      event: tagged ? rest.slice(tagged[0].length) : rest,
+    };
   });
 }
 
@@ -171,7 +183,7 @@ export async function readText(
 /** What a Turn's snapshot holds, before it is written out. */
 export type BotMemorySnapshot = {
   /** The Profile facts, own first, then the other Bots' labelled with their name. */
-  profile: { botId: string; botName: string | null; fact: string }[];
+  profile: { botId: string; botName: string | null; fact: string; line: number }[];
   /** The Log lines in the prompt, newest first. */
   log: LogLine[];
   /** The Notes in the prompt, in file order. */
@@ -216,7 +228,7 @@ export async function readBotMemory(
     })),
   ];
   fill: for (const source of sources) {
-    for (const { fact } of parseProfile(source.content)) {
+    for (const { fact, line } of parseProfile(source.content)) {
       if (seen.has(fact)) continue;
       const length = profileFactText(source.botName, fact).length;
       if (profile.length >= profileFactLimit || characters + length > profileCharacterLimit) {
@@ -224,7 +236,7 @@ export async function readBotMemory(
       }
       seen.add(fact);
       characters += length;
-      profile.push({ botId: source.botId, botName: source.botName, fact });
+      profile.push({ botId: source.botId, botName: source.botName, fact, line });
     }
   }
 
