@@ -10,6 +10,7 @@ import {
   botTurn,
   computer as computerTable,
   job,
+  jobEvent,
   usage,
 } from "../../../../core/server/db/schema";
 import type { Database } from "../../../../core/server/db/index";
@@ -867,6 +868,43 @@ describe("checking on a Helper (#591)", () => {
     expect(errors).toEqual(Array.from({ length: 5 }, () => ({ error: noHelperError })));
     expect((await helpersOf(other.botId))[0]?.status).toBe("running");
     expect(await getTestDb().select().from(botHelperMessage)).toEqual([]);
+  });
+});
+
+describe("a long check_helper result (#665)", () => {
+  it("is saved on the Computer after its Checkpoint commits, not inside its transaction", async () => {
+    const ids: string[] = [];
+    const task = `Count every file. ${"x".repeat(12_000)}`;
+    const { client, botId, computerFake } = await botWith(
+      [
+        handsOff(task),
+        () => round(checkHelper(ids[0]!), sends({ text: "Still counting.", endTurn: true })),
+      ],
+      [],
+      { manualHelpers: true },
+    );
+    await send(client, botId, "count them");
+    ids.push((await helpersOf(botId))[0]!.id);
+    // At each spill, whether check_helper's Checkpoint was already committed.
+    const committedAtSpill: boolean[] = [];
+    const writeFile = computerFake.provider.writeFile;
+    computerFake.provider.writeFile = async (sandboxId, path, content) => {
+      if (path.includes("/.outputs/")) {
+        const saved = await getTestDb()
+          .select({ name: jobEvent.name })
+          .from(jobEvent)
+          .where(eq(jobEvent.name, "check_helper"));
+        committedAtSpill.push(saved.length > 0);
+      }
+      return writeFile(sandboxId, path, content);
+    };
+
+    await send(client, botId, "how is it going?");
+
+    expect(committedAtSpill).toEqual([true]);
+    const [, turn] = await turnsOf(botId);
+    const result = (turn?.transcript ?? []).find((entry) => entry.role === "tool");
+    expect(String(result?.content)).toMatch(/The full text is saved at .*.outputs/);
   });
 });
 

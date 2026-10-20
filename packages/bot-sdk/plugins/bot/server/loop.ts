@@ -27,6 +27,7 @@ import { type WorkflowContext, WorkflowYieldedError } from "../../runner/server/
 import {
   capOutput,
   capResult,
+  isLong,
   computerOf,
   computerOperationError,
   computerToolDefinitions,
@@ -61,7 +62,8 @@ export type LoopKit = {
    * A database write of the loop's, as tool call `toolCallId` when it is one: it commits with its
    * Checkpoint, so it happens once across a crash, and runs only live, like a tool's activity. A
    * tool call's result over the long-output limit is recorded, and returned, as its cut text
-   * (`capResult`); with no `toolCallId` (the loop's own reads, such as setup's), it is never cut.
+   * (`capResult`), cut in a second activity once the write commits, so the save is outside its
+   * transaction; with no `toolCallId` (the loop's own reads, such as setup's), it is never cut.
    */
   liveActivity: <T>(
     name: string,
@@ -547,7 +549,8 @@ export async function runLoop(
    * A tool call's result as the Model reads it: over the limit, it is its cut text (typed as the
    * result, since only a long one changes shape), with the rest saved on the Computer when there is
    * one. A result with no `toolCallId` is the loop's own (setup's reads), which callers read as
-   * the value it is: it is never cut.
+   * the value it is: it is never cut. The save stops on a Stop or the time limit, and the cut text
+   * then says the rest was not saved. Never called in a transaction: a save may wake the Computer.
    */
   const capLong = async <T>(result: T, toolCallId: string | undefined): Promise<T> => {
     if (toolCallId === undefined) return result;
@@ -557,16 +560,23 @@ export async function runLoop(
     return (await capResult(
       result,
       spillPath(owner.botId, toolCallId),
-      computer && ((path, content) => computer.writeFile(path, content)),
+      computer &&
+        ((path, content) => computer.writeFile(path, content, { signal: abortController.signal })),
     )) as T;
   };
   const liveActivity: LoopKit["liveActivity"] = (name, toolCallId, write) =>
-    toolCall(toolCallId, () =>
-      ctx.activity(name, async (tx) => {
+    toolCall(toolCallId, async () => {
+      const result = await ctx.activity(name, async (tx) => {
         beforeLiveTool();
-        return await capLong(await write(tx), toolCallId);
-      }),
-    );
+        return await write(tx);
+      });
+      // A long result is cut in an activity of its own, after the write commits, as
+      // `computerCall` cuts outside any transaction: saving the rest may wake the Computer, which
+      // must not hold the write's row locks. Its Checkpoint holds the cut form, so a replay never
+      // saves again; a short result, or one recorded already cut, adds no activity.
+      if (toolCallId === undefined || !isLong(result)) return result;
+      return ctx.activity(`${name}:cut`, () => capLong(result, toolCallId));
+    });
   const liveRequest: LoopKit["liveRequest"] = (name, toolCallId, run, write) =>
     toolCall(toolCallId, async () => {
       const result = await ctx.activity(name, async () => {
