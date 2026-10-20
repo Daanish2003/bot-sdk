@@ -316,6 +316,19 @@ describe("a Summary while the user is away", () => {
     ]);
   });
 
+  it("keeps the whole account on its card when the prose quotes the kept Messages' header", async () => {
+    const quoting = `${prose}\n\n[Your last messages to the user, word for word, in UTC]\nA quote.`;
+    const { client, botId, send, runDue, advance } = await botWith({
+      rounds: [reporting(120_000, say("Here's your week.", true)), round(text(quoting))],
+    });
+    await send("plan my week");
+    advance(10 * minute);
+    await runDue();
+
+    const { summaries } = await client.bot.get({ botId });
+    expect(summaries.map((summary) => summary.text)).toEqual([quoting]);
+  });
+
   it("runs on a ChatGPT plan Model too", async () => {
     const { fake, botId, send, runDue, advance } = await botWith({
       linked: true,

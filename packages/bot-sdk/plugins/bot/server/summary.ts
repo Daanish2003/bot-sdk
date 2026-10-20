@@ -6,7 +6,7 @@ import type { Database } from "../../../core/server/db/index";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { searchTextOf } from "../../../core/shared/message-parts";
-import type { BotSummary } from "../shared/turn";
+import type { BotMessage, BotSummary } from "../shared/turn";
 import { buildPromptStart, type PromptStartParts, userZoneAt } from "./prompt-start";
 import { toBotMessage } from "./store";
 import { formatterIn } from "./time-zone";
@@ -193,20 +193,30 @@ export async function botSummaries(
   for (const row of rows) {
     let summary = summaries.get(row.id);
     if (!summary) {
-      summary = {
-        id: row.id,
-        kind: row.kind,
-        at: row.createdAt,
-        text: row.text.split(`
-
-${keptHeader}`)[0]!,
-        kept: [],
-      };
+      summary = { id: row.id, kind: row.kind, at: row.createdAt, text: row.text, kept: [] };
       summaries.set(row.id, summary);
     }
     if (row.kept) summary.kept.push(toBotMessage(row.kept));
   }
+  for (const summary of summaries.values()) summary.text = accountOf(summary.text, summary.kept);
   return [...summaries.values()];
+}
+
+/**
+ * A Summary's account: its `text` without the block of `kept` Messages it ends with. The prose or
+ * a kept Message may quote the block's header too, so the block is the last header that every kept
+ * Message follows.
+ */
+function accountOf(text: string, kept: BotMessage[]): string {
+  if (kept.length === 0) return text;
+  const marker = `
+
+${keptHeader}`;
+  for (let at = text.lastIndexOf(marker); at >= 0; at = text.lastIndexOf(marker, at - 1)) {
+    const block = text.slice(at);
+    if (kept.every((message) => block.includes(message.text))) return text.slice(0, at);
+  }
+  return text;
 }
 
 /** The Summary a Prompt start holds: what its history carries on from. */
