@@ -60,7 +60,8 @@ export type LoopKit = {
   /**
    * A database write of the loop's, as tool call `toolCallId` when it is one: it commits with its
    * Checkpoint, so it happens once across a crash, and runs only live, like a tool's activity. A
-   * result over the long-output limit is recorded, and returned, as its cut text (`capResult`).
+   * tool call's result over the long-output limit is recorded, and returned, as its cut text
+   * (`capResult`); with no `toolCallId` (the loop's own reads, such as setup's), it is never cut.
    */
   liveActivity: <T>(
     name: string,
@@ -71,8 +72,9 @@ export type LoopKit = {
    * A live call outside the database, as tool call `toolCallId`, then a write with its result: `run`
    * is one activity with no transaction, re-run after a crash before its Checkpoint is saved, and
    * `write` is a second activity whose writes commit with its own Checkpoint, so they happen once.
-   * Both run only live; a replay returns `run`'s recorded result. A result over the long-output
-   * limit is recorded, and returned, as its cut text (`capResult`).
+   * Both run only live; a replay returns `run`'s recorded result. A tool call's result over the
+   * long-output limit is recorded, and returned, as its cut text (`capResult`), as for
+   * `liveActivity`.
    */
   liveRequest: <T>(
     name: string,
@@ -85,9 +87,11 @@ export type LoopKit = {
   /**
    * A Computer tool call of the loop's, as tool call `toolCallId`: one activity, re-run after a
    * crash, that `operate`s live on the Computer. A failed wake or operation is its result, and
-   * after a rebuild the Bot wasn't told of, the result carries the rebuilt note. A result over the
-   * long-output limit is recorded as its cut text (`capResult`), unless `capped` is false: for a
-   * tool that keeps its own result short, such as `read`'s pages.
+   * after a rebuild the Bot wasn't told of, the result carries the rebuilt note. A tool call's result
+   * over the long-output limit is recorded as its cut text (`capResult`), unless `capped` is false:
+   * for a tool that keeps its own result short, such as `read`'s pages. A call with no
+   * `toolCallId` (setup's reads, such as the memory snapshot) is never cut: the Model never sees
+   * its result as is.
    */
   computerCall: <T extends object>(
     name: string,
@@ -536,16 +540,19 @@ export async function runLoop(
   };
   let userComputer: ComputerHandle | undefined;
   /**
-   * A tool result as the Model reads it: over the limit, it is its cut text (typed as the result,
-   * since only a long one changes shape), with the rest saved on the Computer when there is one.
+   * A tool call's result as the Model reads it: over the limit, it is its cut text (typed as the
+   * result, since only a long one changes shape), with the rest saved on the Computer when there is
+   * one. A result with no `toolCallId` is the loop's own (setup's reads), which callers read as
+   * the value it is: it is never cut.
    */
   const capLong = async <T>(result: T, toolCallId: string | undefined): Promise<T> => {
+    if (toolCallId === undefined) return result;
     const computer = deps.hasPlugin("computer")
       ? (userComputer ??= computerOf(deps, owner.userId))
       : undefined;
     return (await capResult(
       result,
-      spillPath(owner.botId, toolCallId ?? uuidv7()),
+      spillPath(owner.botId, toolCallId),
       computer && ((path, content) => computer.writeFile(path, content)),
     )) as T;
   };

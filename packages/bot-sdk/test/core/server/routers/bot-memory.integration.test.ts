@@ -2,7 +2,7 @@ import type { TextOptions } from "@tanstack/ai";
 import { eq, inArray } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { botPromptStart, job } from "../../../../core/server/db/schema";
+import { botPromptStart, botTurn, job } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { bot } from "../../../../plugins/bot/server/plugin";
 import { computer } from "../../../../plugins/computer/server/plugin";
@@ -244,6 +244,20 @@ describe("the memory snapshot in a Bot's Turn", () => {
       "- 2030-03-15 Call the bank",
       "- Buy milk",
     ]);
+  });
+
+  it("is sent whole past the long-output limit, which cuts only tool results", async () => {
+    const { client, botIds, fake, seed } = await botsWith([round()]);
+    const [ada] = botIds as [string];
+    // Notes have no character cap: 60 of 250 characters is over 10,000.
+    const notes = Array.from({ length: 60 }, (_, i) => `- 2030-03-15 Note ${i} ${"x".repeat(230)}`);
+    seed(ada, "notes.md", notes);
+
+    await send(client, ada, "hi");
+
+    const [turn] = await getTestDb().select().from(botTurn).where(eq(botTurn.botId, ada));
+    expect(turn).toMatchObject({ status: "complete", error: null });
+    expect(sectionOf(memoryBlockOf(fake.calls[0]), "Notes")).toEqual(notes);
   });
 });
 
