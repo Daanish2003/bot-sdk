@@ -271,9 +271,7 @@ async function buildPlan(
     context: { userId, conversationId: owned.id },
     effort,
     offered,
-    adapter: deps.plugin("models").adapterFor(model.id, call.credentials, {
-      maxOutputTokens: call.maxOutputTokens,
-    }),
+    adapter: deps.plugin("models").adapterForCall(model.id, call),
     messages: sent.flatMap((entry) => entry.messages),
     systemPrompts: [
       ...systemPromptsFor({
