@@ -35,6 +35,10 @@ export const errorMessages = {
   "error.memoryTextBlank": "A Memory can't be blank",
   "error.memoryNeedsEmbeddingModel":
     "Memory needs an embedding Model. Add an OpenAI or Gemini key.",
+  "error.memoryLineChanged": "That line changed since you opened it. Reload and try again.",
+  "error.memoryLogMonth": "A Log file needs a month, YYYY-MM",
+  "error.memoryNeedsComputer": "Bot memory needs a Computer",
+  "error.memoryComputerUnavailable": "Your Computer can't be reached right now",
   "error.attachmentTooLarge": ({ name }: { name: string }) => `"${name}" is larger than 5 MB`,
   "error.attachmentNotSupported": ({ name }: { name: string }) =>
     `"${name}" can't be attached: only images, PDFs and text files can`,
