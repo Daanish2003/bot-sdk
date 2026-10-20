@@ -450,6 +450,27 @@ describe("bot.send", () => {
     );
   });
 
+  it("renders only what came after a Turn from before stored inputs, never every past Message", async () => {
+    const { client, botId, fake } = await botWith([
+      round(sends({ text: "Hello!", endTurn: true })),
+      round(sends({ text: "Noted.", endTurn: true })),
+      round(sends({ text: "You're welcome.", endTurn: true })),
+    ]);
+    await send(client, botId, "hi");
+    await send(client, botId, "remember the milk");
+    // As Turns were stored before they kept their input and Prompt start.
+    await getTestDb()
+      .update(botTurn)
+      .set({ input: null, promptStartId: null })
+      .where(eq(botTurn.botId, botId));
+
+    await send(client, botId, "thanks");
+
+    const [, , third] = await turnsOf(botId);
+    expect(third!.input!.map((message) => withoutNotice(message.content))).toEqual(["thanks"]);
+    expect(inputOf(fake.calls[2]).at(-1)).toEqual(third!.input!.at(-1));
+  });
+
   it("gives another user not-found for a Bot that isn't theirs", async () => {
     const { botId, deps } = await botWith([]);
     const other = chatRpc({ user: await insertUser(), deps });
