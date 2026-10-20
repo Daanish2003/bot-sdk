@@ -573,6 +573,38 @@ describe("exportUser, Bot memory", () => {
     ]);
   });
 
+  it("leaves out a Bot whose files the Computer fails to read, and keeps the rest", async () => {
+    const fake = fakeComputerProvider();
+    const deps = createTestSdk({ plugins: [computer({ provider: fake.provider })] });
+    const owner = await insertUser();
+    const ada = await insertBot(owner, "Ada", new Date("2026-10-01T10:00:00Z"));
+    const bea = await insertBot(owner, "Bea", new Date("2026-10-02T10:00:00Z"));
+    await deps.plugin("computer").forUser(owner.id).run("true");
+    // Ada's profile.md is a directory, so reading it fails.
+    fake.files.set(`${profilePath(ada)}/stray.md`, new TextEncoder().encode("x"));
+    fake.files.set(profilePath(bea), new TextEncoder().encode("- Works at a bakery\n"));
+
+    const exported = await exportUserData(deps, owner.id);
+
+    expect(exported.botMemory).toEqual([
+      { botId: bea, profile: "- Works at a bakery\n", notes: "", log: [] },
+    ]);
+  });
+
+  it("exports the rest, with no Bot memory, when the Computer can't be woken", async () => {
+    const fake = fakeComputerProvider();
+    const deps = createTestSdk({ plugins: [computer({ provider: fake.provider })] });
+    const owner = await insertUser();
+    await insertBot(owner, "Ada", new Date("2026-10-01T10:00:00Z"));
+    await deps.plugin("computer").forUser(owner.id).run("true");
+    fake.lose(fake.callsOf("create")[0]!.sandboxId);
+    fake.failing.add("create");
+
+    const exported = await exportUserData(deps, owner.id);
+
+    expect(exported.botMemory).toEqual([]);
+  });
+
   it("reads nothing and creates no Computer for a user who has none", async () => {
     const fake = fakeComputerProvider();
     const deps = createTestSdk({ plugins: [computer({ provider: fake.provider })] });

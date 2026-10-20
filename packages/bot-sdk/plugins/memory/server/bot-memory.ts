@@ -2,7 +2,12 @@ import { asc, eq } from "drizzle-orm";
 
 import { bot, computer as computerTable } from "../../../core/server/db/schema";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
-import type { ComputerHandle, FileOperationOptions } from "../../computer/server/plugin";
+import {
+  ComputerOperationError,
+  ComputerUnavailableError,
+  type ComputerHandle,
+  type FileOperationOptions,
+} from "../../computer/server/plugin";
 import { memoryEnabledFor } from "./manage";
 
 /*
@@ -198,6 +203,8 @@ export type ExportedBotMemory = {
  * Every Bot's memory files of user `userId` (ADR 0022), read from the user's Computer for the
  * export, in the export's snapshot `tx`. It wakes the Computer. A user with no Computer row has
  * no files, so none is woken or created, and an instance without the `computer` plugin has none.
+ * A Bot whose files the Computer fails to read is left out, and all of them when it can't be
+ * woken, so the rest of the export still succeeds.
  */
 export async function exportBotMemory(
   sdk: BotSdkContext,
@@ -213,25 +220,37 @@ export async function exportBotMemory(
   const computer = sdk.plugin("computer").forUser(userId);
   const exported: ExportedBotMemory[] = [];
   for (const { id: botId } of await botsOf({ db: tx }, userId)) {
-    const entries = (await computer.list(`${memoryDirectory(botId)}/log`)) ?? [];
-    const months = entries
-      .filter((entry) => entry.kind === "file")
-      .map((entry) => logFilePattern.exec(entry.name)?.[1])
-      .filter((month): month is string => month !== undefined)
-      .sort();
-    exported.push({
-      botId,
-      profile: await readText(computer, profilePath(botId)),
-      notes: await readText(computer, notesPath(botId)),
-      log: await Promise.all(
-        months.map(async (month) => ({
-          month,
-          text: await readText(computer, logPath(botId, month)),
-        })),
-      ),
-    });
+    try {
+      exported.push(await exportOneBot(computer, botId));
+    } catch (caught) {
+      const unavailable = caught instanceof ComputerUnavailableError;
+      if (!unavailable && !(caught instanceof ComputerOperationError)) throw caught;
+      sdk.logger.error(`Exporting the memory of Bot ${botId} failed`, caught);
+      if (unavailable) return [];
+    }
   }
   return exported;
+}
+
+/** Bot `botId`'s memory files, as the export holds them. */
+async function exportOneBot(computer: ComputerHandle, botId: string): Promise<ExportedBotMemory> {
+  const entries = (await computer.list(`${memoryDirectory(botId)}/log`)) ?? [];
+  const months = entries
+    .filter((entry) => entry.kind === "file")
+    .map((entry) => logFilePattern.exec(entry.name)?.[1])
+    .filter((month): month is string => month !== undefined)
+    .sort();
+  return {
+    botId,
+    profile: await readText(computer, profilePath(botId)),
+    notes: await readText(computer, notesPath(botId)),
+    log: await Promise.all(
+      months.map(async (month) => ({
+        month,
+        text: await readText(computer, logPath(botId, month)),
+      })),
+    ),
+  };
 }
 
 /** What a Turn's snapshot holds, before it is written out. */
