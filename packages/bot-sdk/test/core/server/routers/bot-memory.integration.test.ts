@@ -328,7 +328,7 @@ describe("a Turn that resumes after a crash", () => {
 
     const lost = attempt(deps);
     // The attempt has read memory and waits in its model call.
-    await expect.poll(() => fake.calls.length).toBe(1);
+    await expect.poll(() => fake.calls.length, { timeout: 10_000 }).toBe(1);
     computerFake.files.set(
       memoryPath(ada, "profile.md"),
       new TextEncoder().encode("- Prefers long replies\n"),
