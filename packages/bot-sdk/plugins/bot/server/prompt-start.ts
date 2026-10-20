@@ -74,7 +74,7 @@ export function listedToolNames(firstMessage: string): Set<string> {
     firstMessage
       .slice(start)
       .split("\n")
-      .flatMap((line) => /^([^s:]+): /.exec(line)?.[1] ?? []),
+      .flatMap((line) => /^([^\s:]+): /.exec(line)?.[1] ?? []),
   );
 }
 
