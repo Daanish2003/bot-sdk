@@ -884,7 +884,7 @@ async function playTurn(
   // so its bytes never change. What an earlier Turn sent is in its input; only what came after the
   // last such Turn started is new.
   const earlier = await earlierTurns(db, turn);
-  const since = earlier.findLast((row) => row.input !== null)?.startedAt;
+  const since = earlier.filter((row) => row.input !== null).at(-1)?.startedAt;
   const rendered = await newestInput(db, turn, since, todo, cutTrigger);
   // Stored before the first model call, so a stopped or interrupted Turn keeps what it sent, and a
   // replay reads the recorded input.
