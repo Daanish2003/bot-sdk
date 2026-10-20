@@ -33,7 +33,10 @@ export type MemoryApi = {
    */
   recallPrompt: (args: {
     userId: string;
-    conversationId: string;
+    /** The Run's Conversation's Project, which scopes the Memories; null for a general one. */
+    projectId: string | null;
+    /** Whether the Run's Conversation is a Temporary Conversation. */
+    temporary: boolean;
     /** The latest user Message's text, which the similar Memories are found by. */
     latestText: string | null;
   }) => Promise<string | null>;

@@ -34,7 +34,7 @@ export function MemorySection() {
   const i18n = useI18n();
   const { t } = i18n;
   const status = useQuery(orpc.memory.status.queryOptions());
-  const list = useQuery(orpc.memory.list.queryOptions());
+  const list = useQuery({ ...orpc.memory.list.queryOptions(), enabled: status.isSuccess });
   const refresh = useMemoryRefresh();
   const setEnabled = useMutation(
     orpc.memory.setEnabled.mutationOptions({

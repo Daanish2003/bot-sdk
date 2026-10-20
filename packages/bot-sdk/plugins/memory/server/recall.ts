@@ -67,22 +67,20 @@ export async function recalledMemoriesPrompt(
   deps: BotSdkContext,
   {
     userId,
-    conversationId,
+    projectId,
+    temporary,
     latestText,
   }: {
     userId: string;
-    /** The Run's Conversation, whose Project scopes the Memories. */
-    conversationId: string;
+    /** The Run's Conversation's Project, which scopes the Memories; null for a general one. */
+    projectId: string | null;
+    /** Whether the Run's Conversation is a Temporary Conversation, which recalls nothing. */
+    temporary: boolean;
     /** The latest user Message's text, which the similar Memories are found by. */
     latestText: string | null;
   },
 ): Promise<string | null> {
-  const [owned] = await deps.db
-    .select({ projectId: conversation.projectId, temporary: conversation.temporary })
-    .from(conversation)
-    .where(eq(conversation.id, conversationId));
-  if (!owned || owned.temporary || !(await memoryEnabledFor(deps, userId))) return null;
-  const { projectId } = owned;
+  if (temporary || !(await memoryEnabledFor(deps, userId))) return null;
 
   const scope = inScope(userId, projectId);
   const newest = await deps.db

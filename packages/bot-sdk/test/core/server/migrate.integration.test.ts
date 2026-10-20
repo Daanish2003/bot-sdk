@@ -366,7 +366,7 @@ describe("chat.migrate()", () => {
     expect(oldTable).toEqual([]);
   });
 
-  it("copies each user's memory_enabled into chat.memory_settings, then drops the old column", async () => {
+  it("copies each memory_enabled that is off into chat.memory_settings, then drops the old column", async () => {
     const url = await scratchDatabase("memory_settings");
     // A database at the migration before the Memory plugin's, with two users' settings.
     await migrateUpTo(url, "20261020044023_bot_helper_screenshot");
@@ -382,10 +382,9 @@ describe("chat.migrate()", () => {
       url,
       "select user_id, enabled from chat.memory_settings order by user_id",
     );
-    expect(settings).toEqual([
-      { user_id: "user-off", enabled: false },
-      { user_id: "user-on", enabled: true },
-    ]);
+    // Only a switch turned off is copied: a user with no row has Memory on, so nothing is left
+    // behind for a Host without the memory plugin to keep after a user delete.
+    expect(settings).toEqual([{ user_id: "user-off", enabled: false }]);
     const oldColumn = await rows(
       url,
       `select 1 from information_schema.columns

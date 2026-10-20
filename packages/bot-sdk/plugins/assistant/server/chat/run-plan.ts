@@ -286,7 +286,8 @@ async function buildPlan(
         memories: deps.hasPlugin("memory")
           ? await deps.plugin("memory").recallPrompt({
               userId,
-              conversationId: owned.id,
+              projectId: owned.projectId,
+              temporary: owned.temporary,
               latestText:
                 send?.text ??
                 history.filter((row) => row.role === "user").at(-1)?.searchText ??
