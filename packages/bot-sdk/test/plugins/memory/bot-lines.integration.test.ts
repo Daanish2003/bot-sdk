@@ -16,10 +16,10 @@ const now = new Date("2030-03-15T12:00:00Z");
 const dir = (botId: string) => `/home/user/bots/${botId}/memory`;
 
 /** Two Bots of one user on a fake Computer, and a second user with a Bot of their own. */
-async function setup() {
+async function setup({ withComputer = true } = {}) {
   const computerFake = fakeComputerProvider();
   const deps = createTestSdk({
-    plugins: [bot(), computer({ provider: computerFake.provider })],
+    plugins: withComputer ? [bot(), computer({ provider: computerFake.provider })] : [bot()],
     clock: () => now,
   });
   const make = async () => {
@@ -63,6 +63,7 @@ describe("the Bot memory procedures", () => {
     const list = await mine.client.memory.botList({ botId: mine.ada });
 
     expect(list.enabled).toBe(true);
+    expect(list.available).toBe(true);
     // The duplicate "Lives in Berlin" of Bea's is not in the prompt.
     expect(list.profile).toEqual([
       { botId: mine.ada, botName: null, line: 1, text: "Lives in Berlin", inPrompt: true },
@@ -85,11 +86,38 @@ describe("the Bot memory procedures", () => {
     await getTestDb().insert(memorySettings).values({ userId: mine.user.id, enabled: false });
 
     expect(await mine.client.memory.botList({ botId: mine.ada })).toEqual({
+      available: true,
       enabled: false,
       profile: [],
       log: [],
       notes: [],
     });
+  });
+
+  it("lists every Log month, the older ones search only", async () => {
+    const { mine, write } = await setup();
+    write(`${dir(mine.ada)}/log/2029-11.md`, ["- 2029-11-05 (importance 9) Got married"]);
+    write(`${dir(mine.ada)}/log/2030-03.md`, ["- 2030-03-10 (importance 8) Moved flat"]);
+
+    const list = await mine.client.memory.botList({ botId: mine.ada });
+
+    expect(list.log.map((l) => [l.month, l.body, l.inPrompt])).toEqual([
+      ["2030-03", "Moved flat", true],
+      ["2029-11", "Got married", false],
+    ]);
+  });
+
+  it("says Bot memory is unavailable, and reads nothing, with no computer plugin", async () => {
+    const { mine } = await setup({ withComputer: false });
+
+    expect(await mine.client.memory.botList({ botId: mine.ada })).toEqual({
+      available: false,
+      enabled: true,
+      profile: [],
+      log: [],
+      notes: [],
+    });
+    expect((await mine.client.memory.status()).botMemoryAvailable).toBe(false);
   });
 
   it("edits, deletes and adds lines, and edits another Bot's Profile line", async () => {
@@ -147,11 +175,31 @@ describe("the Bot memory procedures", () => {
     expect(await mine.client.memory.botReadFile({ file })).toEqual({
       content: "- 2030-02-02 Hello\n",
     });
-    await mine.client.memory.botSaveFile({ file, content: "- 2030-02-03 Bye\n" });
+    await mine.client.memory.botSaveFile({
+      file,
+      expected: "- 2030-02-02 Hello\n",
+      content: "- 2030-02-03 Bye\n",
+    });
     expect(read(`${dir(mine.ada)}/log/2030-02.md`)).toBe("- 2030-02-03 Bye\n");
     expect(
       await mine.client.memory.botReadFile({ file: { botId: mine.bea, tier: "notes" } }),
     ).toEqual({ content: "" });
+  });
+
+  it("refuses to save a file whole that changed since it was read", async () => {
+    const { mine, write, read } = await setup();
+    const file = { botId: mine.ada, tier: "profile" as const };
+    write(`${dir(mine.ada)}/profile.md`, ["- Lives in Pune"]);
+
+    await expect(
+      mine.client.memory.botSaveFile({
+        file,
+        expected: "- Lives in Berlin\n",
+        content: "- Lives in Paris\n",
+      }),
+    ).rejects.toMatchObject({ data: { code: "error.memoryLineChanged" } });
+
+    expect(read(`${dir(mine.ada)}/profile.md`)).toBe("- Lives in Pune\n");
   });
 
   it("refuses a blank line and a Log file with no month", async () => {
@@ -181,9 +229,9 @@ describe("the Bot memory procedures", () => {
       other.client.memory.botAddLine({ botId: mine.ada, tier: "profile", text: "x" }),
     ).rejects.toMatchObject(notFound);
     await expect(other.client.memory.botReadFile({ file })).rejects.toMatchObject(notFound);
-    await expect(other.client.memory.botSaveFile({ file, content: "x" })).rejects.toMatchObject(
-      notFound,
-    );
+    await expect(
+      other.client.memory.botSaveFile({ file, expected: "", content: "x" }),
+    ).rejects.toMatchObject(notFound);
     await expect(
       chatRpc({ user: null, deps: undefined }).memory.botList({ botId: mine.ada }),
     ).rejects.toBeDefined();

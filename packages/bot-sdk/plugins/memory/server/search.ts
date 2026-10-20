@@ -4,8 +4,8 @@ import {
   decay,
   defaultImportance,
   importanceWeight,
+  logMonthsOf,
   logPath,
-  memoryDirectory,
   type MemoryBot,
   notesPath,
   parseLog,
@@ -58,12 +58,7 @@ export async function searchBotMemory(
   const today = dayOf(now);
   const others = bots.filter((other) => other.id !== botId);
 
-  const entries = await computer.list(`${memoryDirectory(botId)}/log`, { signal });
-  const months = (entries ?? [])
-    .filter((entry) => entry.kind === "file")
-    .map((entry) => /^(\d{4}-\d{2})\.md$/.exec(entry.name)?.[1])
-    .filter((month): month is string => month !== undefined)
-    .sort();
+  const months = await logMonthsOf(computer, botId, { signal });
   const [own, notes, logs, profiles] = await Promise.all([
     read(profilePath(botId)),
     read(notesPath(botId)),

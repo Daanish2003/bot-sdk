@@ -108,9 +108,9 @@ export const memoryRouter = {
       content: await readBotFile(context.sdk, { userId: context.user.id, file: input.file }),
     })),
 
-  /** Saves a Bot memory file whole. */
+  /** Saves a Bot memory file whole; refused when it no longer reads `expected`. */
   botSaveFile: protectedProcedure
-    .input(z.object({ file: fileInput, content: z.string() }))
+    .input(z.object({ file: fileInput, expected: z.string(), content: z.string() }))
     .handler(async ({ context, input }) => {
       await saveBotFile(context.sdk, { userId: context.user.id, ...input });
     }),

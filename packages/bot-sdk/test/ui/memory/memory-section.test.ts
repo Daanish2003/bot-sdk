@@ -62,6 +62,7 @@ function seed(overrides: Seed = {}) {
     queryClient.setQueryData(client.orpc.memory.status.queryKey(), {
       enabled: overrides.enabled ?? true,
       embeddingAvailable: overrides.embeddingAvailable ?? true,
+      botMemoryAvailable: true,
     });
     queryClient.setQueryData(client.orpc.memory.list.queryKey(), {
       groups: overrides.groups ?? groups,

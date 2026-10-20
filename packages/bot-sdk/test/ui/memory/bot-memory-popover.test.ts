@@ -18,6 +18,7 @@ afterEach(() => {
 });
 
 const list = {
+  available: true,
   enabled: true,
   profile: [
     { botId: "ada", botName: null, line: 1, text: "Lives in Berlin", inPrompt: true },
@@ -60,12 +61,21 @@ const calledWith = (calls: { url: string; body: string }[], procedure: string) =
   calls.find((call) => call.url.includes(`memory/${procedure}`));
 
 function renderPopover(
-  { data = list, file = "- Lives in Berlin\n" }: { data?: typeof list; file?: string } = {},
+  {
+    data = list,
+    file = "- Lives in Berlin\n",
+    botMemoryAvailable = true,
+  }: { data?: typeof list; file?: string; botMemoryAvailable?: boolean } = {},
   fetch = recordingFetch().fetch,
 ) {
   render(
     providerFor(createElement(BotMemoryPopover, { botId: "ada" }), {
       seed: (queryClient: QueryClient, client: BotSdkClient) => {
+        queryClient.setQueryData(client.orpc.memory.status.queryKey(), {
+          enabled: true,
+          embeddingAvailable: true,
+          botMemoryAvailable,
+        });
         queryClient.setQueryData(
           client.orpc.memory.botList.queryKey({ input: { botId: "ada" } }),
           data,
@@ -82,7 +92,8 @@ function renderPopover(
       plugins: [modelsClient(), assistantClient(), memoryClient(), botClient()],
     }),
   );
-  fireEvent.click(screen.getByRole("button", { name: "Memory" }));
+  const button = screen.queryByRole("button", { name: "Memory" });
+  if (button) fireEvent.click(button);
 }
 
 describe("BotMemoryPopover", () => {
@@ -101,10 +112,16 @@ describe("BotMemoryPopover", () => {
   });
 
   it("says Memory is off with the switch off", () => {
-    renderPopover({ data: { enabled: false, profile: [], log: [], notes: [] } });
+    renderPopover({ data: { available: true, enabled: false, profile: [], log: [], notes: [] } });
 
     expect(screen.getByRole("status").textContent).toMatch(/Memory is off/);
     expect(screen.queryByRole("region", { name: "Profile" })).toBeNull();
+  });
+
+  it("has no Memory button without the computer plugin", () => {
+    renderPopover({ botMemoryAvailable: false });
+
+    expect(screen.queryByRole("button", { name: "Memory" })).toBeNull();
   });
 
   it("filters the lines", () => {
@@ -196,6 +213,7 @@ describe("BotMemoryPopover", () => {
     await waitFor(() => expect(calledWith(calls, "botSaveFile")).toBeTruthy());
     expect(JSON.parse(calledWith(calls, "botSaveFile")!.body).json).toEqual({
       file: { botId: "ada", tier: "profile" },
+      expected: "- Lives in Berlin\n",
       content: "- Lives in Pune\n",
     });
   });

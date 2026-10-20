@@ -6,9 +6,8 @@ import {
   dayOf,
   defaultImportance,
   logPath,
+  logMonthsOf,
   memoryLines,
-  monthsUpTo,
-  logMonths,
   notesPath,
   parseLog,
   parseNotes,
@@ -64,6 +63,8 @@ export type ListedNoteLine = {
 
 /** What the Memory popover shows for one Bot. */
 export type BotMemoryList = {
+  /** False without the `computer` plugin: Bot memory is skipped, and nothing is read. */
+  available: boolean;
   /** The user's Memory switch; with it off nothing else is read. */
   enabled: boolean;
   profile: ListedProfileLine[];
@@ -116,7 +117,7 @@ async function requireOwnBot(deps: BotSdkContext, userId: string, botId: string)
 
 /**
  * Bot `botId`'s memory for the popover as of `now`: its own and the other Bots' Profile lines, its
- * Log lines of the snapshot's months and its Notes, each with whether the Turn's snapshot holds it
+ * Log lines of every month and its Notes, each with whether the Turn's snapshot holds it
  * (the snapshot's own selection, read the same way).
  */
 export async function listBotMemory(
@@ -124,9 +125,9 @@ export async function listBotMemory(
   { userId, botId, now }: { userId: string; botId: string; now: Date },
 ): Promise<BotMemoryList> {
   const bots = await requireOwnBot(deps, userId, botId);
-  if (!(await memoryEnabledFor(deps, userId))) {
-    return { enabled: false, profile: [], log: [], notes: [] };
-  }
+  const available = deps.hasPlugin("computer");
+  const enabled = await memoryEnabledFor(deps, userId);
+  if (!available || !enabled) return { available, enabled, profile: [], log: [], notes: [] };
   return onComputer(async () => {
     const computer = computerOf(deps, userId);
     const snapshot = await readBotMemory(computer, { botId, bots, now });
@@ -144,14 +145,15 @@ export async function listBotMemory(
         lines: parseProfile(await readText(computer, profilePath(owner.id))),
       })),
     );
-    const months = monthsUpTo(now, logMonths);
+    const months = await logMonthsOf(computer, botId);
     const logs = await Promise.all(
       months.map(async (month) => parseLog(await readText(computer, logPath(botId, month)), month)),
     );
     const notes = parseNotes(await readText(computer, notesPath(botId)), dayOf(now));
 
     return {
-      enabled: true,
+      available,
+      enabled,
       profile: profiles.flatMap(({ owner, lines }) =>
         lines.map((entry) => ({
           botId: owner.id,
@@ -304,13 +306,24 @@ export async function readBotFile(
   return onComputer(() => readText(computer, path));
 }
 
-/** Saves a file's whole text, replacing what is there. */
+/**
+ * Saves a file's whole text, replacing what is there; refused when the file no longer reads
+ * `expected`, the text the user started from.
+ */
 export async function saveBotFile(
   deps: BotSdkContext,
-  { userId, file, content }: { userId: string; file: MemoryFileRef; content: string },
+  {
+    userId,
+    file,
+    expected,
+    content,
+  }: { userId: string; file: MemoryFileRef; expected: string; content: string },
 ) {
   await requireOwnBot(deps, userId, file.botId);
   const path = memoryFilePath(file);
   const computer = computerOf(deps, userId);
-  await onComputer(() => computer.writeFile(path, content));
+  await onComputer(async () => {
+    if ((await readText(computer, path)) !== expected) throw changedUnderneath();
+    await computer.writeFile(path, content);
+  });
 }

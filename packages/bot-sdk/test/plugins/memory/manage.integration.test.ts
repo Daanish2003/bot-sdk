@@ -151,6 +151,7 @@ describe("the Memory page procedures", () => {
     expect(await rpc.memory.status()).toEqual({
       enabled: true,
       embeddingAvailable: false,
+      botMemoryAvailable: false,
     });
 
     await rpc.memory.setEnabled({ enabled: false });

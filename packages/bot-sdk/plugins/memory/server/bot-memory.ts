@@ -188,6 +188,20 @@ export async function readText(
 /** A Log file's name, `YYYY-MM.md`, by its month. */
 const logFilePattern = /^(\d{4}-\d{2})\.md$/;
 
+/** The months of every Log file Bot `botId` has, oldest first. */
+export async function logMonthsOf(
+  computer: ComputerHandle,
+  botId: string,
+  options?: FileOperationOptions,
+): Promise<string[]> {
+  const entries = (await computer.list(`${memoryDirectory(botId)}/log`, options)) ?? [];
+  return entries
+    .filter((entry) => entry.kind === "file")
+    .map((entry) => logFilePattern.exec(entry.name)?.[1])
+    .filter((month): month is string => month !== undefined)
+    .sort();
+}
+
 /** One Bot's memory files as the user's export holds them: the text, as written. */
 export type ExportedBotMemory = {
   botId: string;
@@ -234,12 +248,7 @@ export async function exportBotMemory(
 
 /** Bot `botId`'s memory files, as the export holds them. */
 async function exportOneBot(computer: ComputerHandle, botId: string): Promise<ExportedBotMemory> {
-  const entries = (await computer.list(`${memoryDirectory(botId)}/log`)) ?? [];
-  const months = entries
-    .filter((entry) => entry.kind === "file")
-    .map((entry) => logFilePattern.exec(entry.name)?.[1])
-    .filter((month): month is string => month !== undefined)
-    .sort();
+  const months = await logMonthsOf(computer, botId);
   return {
     botId,
     profile: await readText(computer, profilePath(botId)),
