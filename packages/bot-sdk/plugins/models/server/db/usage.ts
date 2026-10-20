@@ -1,5 +1,6 @@
 import { bigint, boolean, index, integer, jsonb, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
+import type { PromptHash } from "../../../../core/server/chat/hooks";
 import { chatSchema } from "../../../../core/server/db/chat-schema";
 
 /**
@@ -47,7 +48,7 @@ export const usage = chatSchema.table(
     /** The Bot Turn or Helper (or, for warming, the Bot) the call was made for. */
     sourceId: text("source_id"),
     /** The hash of each section of the prompt the call sent, in order. */
-    promptHashes: jsonb("prompt_hashes").$type<{ name: string; hash: string }[]>(),
+    promptHashes: jsonb("prompt_hashes").$type<PromptHash[]>(),
     /** The cost in millionths of a US dollar. */
     costMicros: bigint("cost_micros", { mode: "number" }).notNull(),
     /** True when the cost is an estimate from characters, not from the Provider's usage. */

@@ -225,19 +225,21 @@ describe("the shell tool", () => {
 
     await send(client, botId, "hi");
 
-    expect(toolNamesOf(fake.calls[0])).toEqual([
-      ...botTools,
-      "search_memory",
-      "shell",
-      "read",
-      "write",
-      "edit",
-      "list",
-      "start_helper",
-      "check_helper",
-      "message_helper",
-      "stop_helpers",
-    ]);
+    expect(toolNamesOf(fake.calls[0])).toEqual(
+      [
+        ...botTools,
+        "search_memory",
+        "shell",
+        "read",
+        "write",
+        "edit",
+        "list",
+        "start_helper",
+        "check_helper",
+        "message_helper",
+        "stop_helpers",
+      ].sort(),
+    );
     const prompt = JSON.stringify(fake.calls[0]?.systemPrompts);
     expect(prompt).toContain(`/home/user/bots/${botId}`);
     expect(prompt).toContain("/home/user/shared");
@@ -287,7 +289,7 @@ describe("the shell tool", () => {
 
     await send(client, botId, "hi");
 
-    expect(toolNamesOf(fake.calls[0])).toEqual(botTools);
+    expect(toolNamesOf(fake.calls[0])).toEqual([...botTools].sort());
     expect(fake.calls[0]?.systemPrompts).toEqual([botSystemPrompt]);
     expect(JSON.stringify(fake.calls[0]?.systemPrompts)).not.toMatch(
       /computer|shell|\/home\/user/i,
@@ -948,19 +950,21 @@ describe("the file tools", () => {
 
     await send(client, botId, "go");
 
-    expect(toolNamesOf(fake.calls[0])).toEqual([
-      ...botTools,
-      "search_memory",
-      "shell",
-      "read",
-      "write",
-      "edit",
-      "list",
-      "start_helper",
-      "check_helper",
-      "message_helper",
-      "stop_helpers",
-    ]);
+    expect(toolNamesOf(fake.calls[0])).toEqual(
+      [
+        ...botTools,
+        "search_memory",
+        "shell",
+        "read",
+        "write",
+        "edit",
+        "list",
+        "start_helper",
+        "check_helper",
+        "message_helper",
+        "stop_helpers",
+      ].sort(),
+    );
     expect(await computerRow(user.id)).toMatchObject({ state: "awake" });
   });
 });

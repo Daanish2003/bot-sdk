@@ -8,6 +8,7 @@ import {
   botHelperStatus,
   botHelperType,
 } from "./db/bot-helper";
+import { botPromptStart } from "./db/bot-prompt-start";
 import { botRoutine, botRoutineState } from "./db/bot-routine";
 import { botTrigger, botTriggerChannel, botTriggerSource } from "./db/bot-trigger";
 import { botTurn, botTurnStatus } from "./db/bot-turn";
@@ -15,15 +16,17 @@ import { botTurn, botTurnStatus } from "./db/bot-turn";
 export * from "./db/bot";
 export * from "./db/bot-check-in";
 export * from "./db/bot-helper";
+export * from "./db/bot-prompt-start";
 export * from "./db/bot-routine";
 export * from "./db/bot-trigger";
 export * from "./db/bot-turn";
 
-/** The `bot` plugin's schema module: its `bot`, `bot_turn`, `bot_trigger`, `bot_routine`, `bot_check_in`, `bot_helper`, `bot_helper_message` and `bot_helper_screenshot` tables. It adds no fields to core tables. */
+/** The `bot` plugin's schema module: its `bot`, `bot_turn`, `bot_prompt_start`, `bot_trigger`, `bot_routine`, `bot_check_in`, `bot_helper`, `bot_helper_message` and `bot_helper_screenshot` tables. It adds no fields to core tables. */
 export const botSchema = {
   tables: {
     bot,
     botTurn,
+    botPromptStart,
     botTrigger,
     botRoutine,
     botCheckIn,

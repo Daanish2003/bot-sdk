@@ -9,6 +9,7 @@ import {
   type TextOptions,
 } from "@tanstack/ai";
 
+import type { PromptHash } from "../../../core/server/chat/hooks";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { addUsage, promptCharactersOf, reportedUsageOf } from "../../models/server/run-usage";
@@ -47,6 +48,7 @@ import {
   writeTool,
 } from "./computer-tools";
 import { pruneScreenshots, resolveScreenshots } from "./desktop-tools";
+import { type LoopPromptStart, type PreviousCall, promptHashesOf } from "./prompt-start";
 import { computerRebuildSeenAt, markComputerRebuildSeen } from "./store";
 
 /** What a loop lends the tools of whoever runs it: a Turn today, a Helper next. */
@@ -91,13 +93,25 @@ export type LoopKit = {
   ) => Promise<T | { error: string }>;
 };
 
-/** What a loop's `setup` hands it: the system prompts, the tools, and what ends it early. */
+/**
+ * What a loop's `setup` hands it: the system prompts, or the Prompt start a Turn sends in their
+ * place, the tools, and what ends it early.
+ */
 export type LoopSetup = {
-  systemPrompts: string[];
   tools: AnyServerTool[];
   /** Whether a tool call of the Step asked to end the loop with no further model call. */
   ended?: () => boolean;
-};
+} & (
+  | { systemPrompts: string[]; promptStart?: never }
+  | {
+      /**
+       * Sent on every model call: its system blocks and its tool definitions in place of the live
+       * tools' own, and its first message before the input. Each call records its section hashes.
+       */
+      promptStart: LoopPromptStart;
+      systemPrompts?: never;
+    }
+);
 
 export type LoopOptions = {
   /** Whose Model the loop calls and whose Computer it works. */
@@ -150,10 +164,14 @@ export type LoopResult = {
   failure?: unknown;
 };
 
-/** What one model call recorded: its chunks, and what it bills (`null` for nothing). */
+/**
+ * What one model call recorded: its chunks, what it bills (`null` for nothing) and, with a Prompt
+ * start, the hash of each section it sent.
+ */
 type RecordedModelCall = {
   chunks: StreamChunk[];
   usage: { usage: MessageUsage; reportedCost?: number } | null;
+  hashes?: PromptHash[];
 };
 
 /** The Model's own failure in a live model call, as opposed to a failure to save its Checkpoint. */
@@ -171,6 +189,7 @@ type ModelCallRecorder = (
   tx: Transaction,
   usage: MessageUsage,
   reportedCost: number | undefined,
+  promptHashes: PromptHash[] | undefined,
 ) => Promise<() => void>;
 
 /**
@@ -238,15 +257,21 @@ export async function runLoop(
         : models.freeModelMeter(owner.userId, owner.model);
       return {
         adapter: models.adapterForCall(owner.model, call),
-        record: (tx, usage, reportedCost) =>
+        record: (tx, usage, reportedCost, promptHashes) =>
           meter.recordIn(tx, {
             kind: options.usageKind,
             usage,
             reportedCost,
             sourceId: options.sourceId,
+            promptHashes,
           }),
       };
     })());
+
+  /** The Prompt start the setup gave, if any. */
+  let promptStart: LoopPromptStart | undefined;
+  /** The model call before the next one, once known: `null` when there was none. */
+  let previousCall: PreviousCall | null | undefined;
 
   // The model call as an activity: replayed, it plays the recorded chunks without calling the Model.
   // The call runs outside a transaction; its bill is the next activity, written in that activity's
@@ -263,14 +288,32 @@ export async function runLoop(
           // Read off the clock too: a timer that is due may not have fired yet.
           if (attempt && (expired || timeLeftMs() <= 0)) timeUp();
           abortController.signal.throwIfAborted();
+          // A Prompt start's stored tool definitions go to the Model, never the live tools' own.
+          const sent = promptStart
+            ? { ...chatOptions, tools: promptStart.tools as TextOptions["tools"] }
+            : chatOptions;
+          let hashes: PromptHash[] | undefined;
+          if (promptStart) {
+            if (previousCall === undefined)
+              previousCall = (await promptStart.previousCall()) ?? null;
+            hashes = promptHashesOf(
+              promptStart,
+              {
+                tools: sent.tools ?? [],
+                systemPrompts: sent.systemPrompts ?? [],
+                messages: sent.messages as ModelMessage[],
+              },
+              previousCall ?? undefined,
+            );
+          }
           // Only the newest screenshots go to the Model, read from the blob store now: the
           // transcript and the Checkpoints hold their refs (#608). Outside the Model's own
           // failure, so a failed read is retried like a Checkpoint that failed to save.
           const pruned = {
-            ...chatOptions,
+            ...sent,
             messages: await resolveScreenshots(
               deps.blobStore,
-              pruneScreenshots(chatOptions.messages as ModelMessage[]),
+              pruneScreenshots(sent.messages as ModelMessage[]),
             ),
           };
           const chunks: StreamChunk[] = [];
@@ -288,15 +331,18 @@ export async function runLoop(
           // A call cut off before its end records nothing and bills nothing; a resume calls it again.
           abortController.signal.throwIfAborted();
           const usage = callUsage(deps, provider, chunks, chatOptions.messages as ModelMessage[]);
-          return { chunks, usage: usage ?? null };
+          return { chunks, usage: usage ?? null, ...(hashes ? { hashes } : {}) };
         });
+        if (promptStart && recorded.hashes) {
+          previousCall = { promptStartId: promptStart.id, hashes: recorded.hashes };
+        }
         const bill = recorded.usage;
         if (bill) {
           let fire: (() => void) | undefined;
           try {
             await ctx.activity("bill", async (tx) => {
               const { record } = await liveCall();
-              fire = await record(tx, bill.usage, bill.reportedCost);
+              fire = await record(tx, bill.usage, bill.reportedCost, recorded.hashes);
               return null;
             });
           } catch (caught) {
@@ -525,17 +571,21 @@ export async function runLoop(
   /** What the loop's model calls and tool calls added to its input, in order. */
   const messages: ModelMessage[] = [];
   try {
-    const {
-      systemPrompts,
-      tools,
-      ended = () => false,
-    } = await options.setup({ liveActivity, liveRequest, computerTools, computerCall });
+    const setup = await options.setup({ liveActivity, liveRequest, computerTools, computerCall });
+    const { tools, ended = () => false } = setup;
+    promptStart = setup.promptStart;
+    const systemPrompts = promptStart
+      ? promptStart.system.map((block) => block.text)
+      : setup.systemPrompts;
+    const input: ModelMessage[] = promptStart
+      ? [{ role: "user", content: promptStart.firstMessage }, ...options.input]
+      : options.input;
     let reminded = false;
     for (;;) {
       let engine: ChatMiddlewareContext | undefined;
       const stream = chat({
         adapter: durableAdapter,
-        messages: [...options.input, ...messages],
+        messages: [...input, ...messages],
         systemPrompts,
         tools,
         // One call at a time, in call order, which is a workflow's identity.

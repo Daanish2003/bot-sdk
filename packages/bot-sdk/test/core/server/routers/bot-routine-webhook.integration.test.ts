@@ -2,7 +2,7 @@ import type { TextOptions } from "@tanstack/ai";
 import { and, asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { botRoutine, botTrigger } from "../../../../core/server/db/schema";
+import { botPromptStart, botRoutine, botTrigger } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { bot } from "../../../../plugins/bot/server/plugin";
 import { computer } from "../../../../plugins/computer/server/plugin";
@@ -289,8 +289,10 @@ describe("a webhook Routine's URL", () => {
   });
 
   it("never shows the Model the token, in its input or a tool result", async () => {
-    const { fake, client, routineId, token, call, send } = await approvedWebhook([round()]);
+    const { fake, client, botId, routineId, token, call, send } = await approvedWebhook([round()]);
     const { webhookToken: rotated } = await client.bot.routine.rotate({ routineId });
+    // A Prompt start built after the Routine was saved lists it, as a Summary would build it.
+    await getTestDb().delete(botPromptStart).where(eq(botPromptStart.botId, botId));
 
     await call(rotated, '{"amount":1200}');
     await send("Anything new?");

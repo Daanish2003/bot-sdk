@@ -1,5 +1,22 @@
 import type { Logger } from "../create-chat";
 
+/**
+ * The sha256 of one section of a Bot's prompt, as one model call sent it (#670): `tools`, each
+ * system block, `first_message`, then `history`, the messages after the first one.
+ */
+export type PromptHash = {
+  name: string;
+  hash: string;
+  /** For `history`: how many messages it covers, so the next call can hash the same ones. */
+  messages?: number;
+  /**
+   * On the first section that differs from the call before: `bug` when the Prompt start is the
+   * same, so the cache missed before the newest message; `expected` right after a new Prompt start.
+   * On `history`, it is the messages the call before sent that differ.
+   */
+  changed?: "bug" | "expected";
+};
+
 /** One `chat.usage` row, as the SDK wrote it (ADR 0007). */
 export type UsageEvent = {
   id: string;
@@ -28,7 +45,7 @@ export type UsageEvent = {
   /** The Bot Turn or Helper (or, for warming, the Bot) a Model call was made for, else `null`. */
   sourceId: string | null;
   /** The hash of each section of the prompt a Model call sent, else `null`. */
-  promptHashes: { name: string; hash: string }[] | null;
+  promptHashes: PromptHash[] | null;
   /** The cost in millionths of a US dollar. */
   costMicros: number;
   estimated: boolean;

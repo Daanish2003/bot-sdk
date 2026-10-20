@@ -28,6 +28,7 @@ import { capText, computerOf, computerPrompt, spillPath, spillThreshold } from "
 import { type TodoItem, todoList } from "./helper";
 import { helperTools } from "./helper-tools";
 import { type LoopKit, type LoopResult, type LoopSetup, runLoop } from "./loop";
+import { loopPromptStart, previousTurnCall, promptStartFor } from "./prompt-start";
 import { botMessages, findBot, textParts, toBotMessage, turnTimeLimitMs } from "./store";
 import { deleteRoutine, routinesPrompt, saveRoutine, updateRoutine } from "./routine";
 import { formatterIn, knownZone, timeNotice } from "./time-zone";
@@ -905,12 +906,22 @@ async function playTurn(
     timeLimitMs: turnTimeLimitMs,
     plainTextReminder: undeliveredTextReminder,
     attempt,
-    setup: (kit) => turnSetup(deps, turn, kit),
+    setup: (kit) => turnSetup(deps, turn, kit, db),
   });
 }
 
-/** The Turn's system prompts and tools, given the loop's `kit`. */
-async function turnSetup(deps: BotSdkContext, turn: TurnFacts, kit: LoopKit): Promise<LoopSetup> {
+/**
+ * The Turn's tools and its Prompt start, given the loop's `kit`: the Bot's latest, or the one its
+ * first Turn builds from the system blocks and tools as they are now. Memory and Routines are still
+ * read every Turn (ADR 0022, amended), but the Prompt start keeps them as they were when it was
+ * built. `db` reads the stored Prompt start.
+ */
+async function turnSetup(
+  deps: BotSdkContext,
+  turn: TurnFacts,
+  kit: LoopKit,
+  db: Database | Transaction,
+): Promise<LoopSetup> {
   const { liveActivity } = kit;
   let endTurn = false;
 
@@ -1017,24 +1028,40 @@ async function turnSetup(deps: BotSdkContext, turn: TurnFacts, kit: LoopKit): Pr
         })),
       )
     : null;
+  const tools = [
+    sendToUser,
+    createRoutine,
+    updateRoutineTool,
+    deleteRoutineTool,
+    setCheckInTool,
+    cancelCheckInToolImpl,
+    listCheckInsTool,
+    webSearchTool(deps, turn.userId, kit.liveRequest),
+    ...(searchMemory ? [searchMemory] : []),
+    ...(withComputer ? [...kit.computerTools, ...helperTools(deps, turn, liveActivity)] : []),
+  ];
+  const [rules, computerBlock] = botSystemPrompts(turn.botId, withComputer);
+  // Recorded, so a replay sends the row its attempt chose.
+  const { id } = await liveActivity("prompt_start", undefined, async (tx) => ({
+    id: await promptStartFor(tx, {
+      turn,
+      now: deps.clock(),
+      system: [
+        { name: "rules", text: rules! },
+        ...(computerBlock ? [{ name: "computer", text: computerBlock }] : []),
+        ...(memory ? [{ name: "memory", text: memory }] : []),
+        ...(routines ? [{ name: "routines", text: routines }] : []),
+      ],
+      tools,
+      computer: withComputer,
+      memory: memory !== null,
+    }),
+  }));
   return {
-    systemPrompts: [
-      ...botSystemPrompts(turn.botId, withComputer),
-      ...(memory ? [memory] : []),
-      ...(routines ? [routines] : []),
-    ],
-    tools: [
-      sendToUser,
-      createRoutine,
-      updateRoutineTool,
-      deleteRoutineTool,
-      setCheckInTool,
-      cancelCheckInToolImpl,
-      listCheckInsTool,
-      webSearchTool(deps, turn.userId, kit.liveRequest),
-      ...(searchMemory ? [searchMemory] : []),
-      ...(withComputer ? [...kit.computerTools, ...helperTools(deps, turn, liveActivity)] : []),
-    ],
+    promptStart: await loopPromptStart(db, id, () =>
+      previousTurnCall(deps.db, turn.botId, turn.id),
+    ),
+    tools,
     ended: () => endTurn,
   };
 }

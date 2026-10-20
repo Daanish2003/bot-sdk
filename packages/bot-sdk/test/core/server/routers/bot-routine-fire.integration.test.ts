@@ -207,7 +207,9 @@ const turnsOf = (botId: string) =>
     .where(eq(botTurn.botId, botId))
     .orderBy(asc(botTurn.startedAt), asc(botTurn.id));
 
-const inputOf = (call: TextOptions | undefined) => (call?.messages ?? []) as ModelMessage[];
+/** A model call's messages after the Prompt start's first message. */
+const inputOf = (call: TextOptions | undefined) =>
+  ((call?.messages ?? []) as ModelMessage[]).slice(1);
 
 // Sunday 18 October 2026, 11:00 in London (summer time, UTC+1).
 const sunday = new Date("2026-10-18T10:00:00.000Z");

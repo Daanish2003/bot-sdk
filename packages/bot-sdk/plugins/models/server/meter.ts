@@ -4,7 +4,7 @@ import type { MessageUsage } from "../shared/usage";
 import { usage as usageRows } from "../../../core/server/db/schema";
 import type { ModelsDeps, HostImageModel, HostModel } from "./types";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
-import type { UsageEvent } from "../../../core/server/chat/hooks";
+import type { PromptHash, UsageEvent } from "../../../core/server/chat/hooks";
 import type { Transaction } from "../../../core/server/plugin";
 import { quotaRefusal } from "./quota";
 
@@ -52,7 +52,7 @@ export type ModelUsage = {
   /** The Bot Turn or Helper (or, for warming, the Bot) the call was made for. */
   sourceId?: string;
   /** The hash of each section of the prompt the call sent, in order. */
-  promptHashes?: { name: string; hash: string }[];
+  promptHashes?: PromptHash[];
 };
 export type ModelMeter = TxMeter<ModelUsage>;
 

@@ -1,8 +1,8 @@
 import type { TextOptions } from "@tanstack/ai";
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { job } from "../../../../core/server/db/schema";
+import { botPromptStart, job } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { bot } from "../../../../plugins/bot/server/plugin";
 import { computer } from "../../../../plugins/computer/server/plugin";
@@ -121,6 +121,8 @@ describe("the memory snapshot in a Bot's Turn", () => {
     seed(ada, "profile.md", ["- Prefers short replies"]);
 
     await send(client, ada, "save a routine");
+    // A Prompt start built after the Routine was saved, as a Summary would build it.
+    await getTestDb().delete(botPromptStart).where(eq(botPromptStart.botId, ada));
     await send(client, ada, "hi");
 
     const prompts = promptsOf(fake.calls.at(-1));

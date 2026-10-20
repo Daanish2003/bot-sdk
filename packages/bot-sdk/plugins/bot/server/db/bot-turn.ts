@@ -15,6 +15,7 @@ import { job } from "../../../runner/server/db/job";
 import type { BotMemoryChange } from "../../../memory/shared/changes";
 import type { MessageUsage } from "../../../models/shared/usage";
 import { bot } from "./bot";
+import { botPromptStart } from "./bot-prompt-start";
 
 /** How a Turn stands: `running` until it ends `complete`, `error` or `stopped`. */
 export const botTurnStatus = chatSchema.enum("bot_turn_status", [
@@ -56,6 +57,13 @@ export const botTurn = chatSchema.table(
      * model call, and for a Turn that never got that far.
      */
     input: jsonb("input").$type<ModelMessage[]>(),
+    /**
+     * The Prompt start the Turn's model calls send, set before its first one: the Bot's latest, or
+     * the one its first Turn builds.
+     */
+    promptStartId: uuid("prompt_start_id").references((): AnyPgColumn => botPromptStart.id, {
+      onDelete: "set null",
+    }),
     /** The Turn's model messages, after its input. Null until the Turn ends. */
     transcript: jsonb("transcript").$type<ModelMessage[]>(),
     /**

@@ -303,8 +303,9 @@ describe("the Bot's web search", () => {
   it("does not search once a search has spent the Quota", async () => {
     const { client, botId, turnFake, tavily } = await botWith(
       [round(search("news")), round(search("more news")), round(done)],
-      // 200 micros a day: the first search (10,000) spends it.
-      { host: true, getQuota: quotaLookup({ budgetUsd: 0.0002, window: "day" }) },
+      // 8,000 micros a day: the first model call (its Prompt start's first message included) fits,
+      // and the first search (10,000) spends it.
+      { host: true, getQuota: quotaLookup({ budgetUsd: 0.008, window: "day" }) },
     );
 
     await send(client, botId, "news?");

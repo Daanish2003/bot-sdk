@@ -274,8 +274,9 @@ async function triggersOf(conversationId: string) {
 const withoutNotice = (content: unknown) =>
   String(content).replace(/^\[Current time: [^\]]*\]\n\n/, "");
 
-/** The model input of one call: its messages, as the adapter got them. */
-const inputOf = (call: TextOptions | undefined) => (call?.messages ?? []) as ModelMessage[];
+/** The model input of one call: its messages after the Prompt start's first message, as the adapter got them. */
+const inputOf = (call: TextOptions | undefined) =>
+  ((call?.messages ?? []) as ModelMessage[]).slice(1);
 
 /**
  * Saves a user Message and hands its Trigger to the Router directly, as a later wake source would:
