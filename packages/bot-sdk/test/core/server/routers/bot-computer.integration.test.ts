@@ -328,7 +328,11 @@ describe("shell at its limits", () => {
     });
     expect(computerFake.callsOf("run")[0]?.timeoutMs).toBe(50);
     expect(computerFake.callsOf("kill")).toEqual([
-      { type: "kill", sandboxId: "fake-sandbox-1", command: "make all" },
+      {
+        type: "kill",
+        sandboxId: computerFake.callsOf("create")[0]?.sandboxId,
+        command: "make all",
+      },
     ]);
   });
 
@@ -530,7 +534,11 @@ describe("a shell call whose attempt is cut off", () => {
     await running;
 
     expect(computerFake.callsOf("kill")).toEqual([
-      { type: "kill", sandboxId: "fake-sandbox-1", command: "sleep 600" },
+      {
+        type: "kill",
+        sandboxId: computerFake.callsOf("create")[0]?.sandboxId,
+        command: "sleep 600",
+      },
     ]);
     const events = [];
     for await (const event of stream) events.push(event);
