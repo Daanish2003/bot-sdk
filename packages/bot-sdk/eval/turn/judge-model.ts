@@ -5,6 +5,8 @@ import { chat } from "@tanstack/ai";
 import { type OpenAIChatModel, createOpenaiChat } from "@tanstack/ai-openai";
 import { createOpenRouterText } from "@tanstack/ai-openrouter";
 
+import { chatgptPlanFetch } from "../../plugins/models/server/chatgpt-plan";
+
 import type { Complete } from "./queue-run";
 
 /** The API key environment variable of each Provider the eval may use. */
@@ -15,13 +17,26 @@ export const keyVariables: Record<string, string> = {
   openrouter: "OPENROUTER_API_KEY",
 };
 
-/** The judge's completion at temperature 0, on OpenAI, Anthropic or OpenRouter (the pattern of eval/memory/run.ts). */
-export function judgeCompletion(model: string, apiKey: string): Complete {
+/**
+ * The judge's completion at temperature 0, on OpenAI, Anthropic or OpenRouter (the pattern of
+ * eval/memory/run.ts). With `plan`, the OpenAI key is a ChatGPT plan's access token (ADR 0023): the
+ * call goes through the plan's fetch, without a temperature, which the plan's route refuses.
+ */
+export function judgeCompletion(
+  model: string,
+  apiKey: string,
+  options?: { plan?: boolean },
+): Complete {
   const provider = model.split(":")[0]!;
   const modelId = model.slice(provider.length + 1);
   let adapter;
-  if (provider === "openai") adapter = createOpenaiChat(modelId as OpenAIChatModel, apiKey);
-  else if (provider === "anthropic") {
+  if (provider === "openai") {
+    adapter = createOpenaiChat(
+      modelId as OpenAIChatModel,
+      apiKey,
+      options?.plan ? { fetch: chatgptPlanFetch() } : undefined,
+    );
+  } else if (provider === "anthropic") {
     adapter = createAnthropicChat(modelId as AnthropicChatModel, apiKey);
   } else if (provider === "openrouter") {
     adapter = createOpenRouterText(modelId as Parameters<typeof createOpenRouterText>[0], apiKey);
@@ -31,7 +46,7 @@ export function judgeCompletion(model: string, apiKey: string): Complete {
       adapter,
       messages: [{ role: "user", content: prompt }],
       stream: false,
-      modelOptions: { temperature: 0 },
+      ...(!options?.plan && { modelOptions: { temperature: 0 } }),
     });
     return result.text;
   };

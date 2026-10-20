@@ -8,7 +8,7 @@
 // `--limit=<n>` runs the first n cases.
 
 import { randomUUID } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -114,7 +114,16 @@ async function main() {
   }
   const model = process.env.EVAL_BOT_MODEL ?? defaultModel;
   const judgeModel = process.env.EVAL_JUDGE_MODEL ?? model;
+  // A ChatGPT plan's access token (ADR 0023) runs the `openai:` Models the plan's way, in place of
+  // OPENAI_API_KEY: the Bots as a linked plan, the judge through the plan's fetch.
+  const tokenFile = fake ? undefined : process.env.EVAL_CHATGPT_TOKEN_FILE;
+  const planToken = tokenFile
+    ? ((JSON.parse(await readFile(tokenFile, "utf8")) as { accessToken?: string }).accessToken ??
+      fail("EVAL_CHATGPT_TOKEN_FILE has no accessToken"))
+    : null;
+  const onPlan = (modelId: string) => planToken !== null && modelId.startsWith("openai:");
   const keyOf = (modelId: string): string => {
+    if (onPlan(modelId)) return planToken!;
     const provider = modelId.split(":")[0]!;
     const variable = keyVariables[provider];
     const value = fake ? "sk-fake" : process.env[variable ?? ""];
@@ -126,7 +135,9 @@ async function main() {
   const judgeKey = keyOf(judgeModel);
   const databaseUrl = databaseUrlFromEnv();
 
-  const complete = fake ? null : judgeCompletion(judgeModel, judgeKey);
+  const complete = fake
+    ? null
+    : judgeCompletion(judgeModel, judgeKey, { plan: onPlan(judgeModel) });
   const ask: Ask = async (claim, lines, fakeAnswer) => {
     if (lines.length === 0) return false;
     if (!complete) return lines.some((line) => fakeAnswer.test(line));
@@ -157,7 +168,9 @@ async function main() {
               return adapter;
             },
           }
-        : real,
+        : onPlan(model)
+          ? { ...real, linkedCredentials: async () => ({ apiKey: planToken! }) }
+          : real,
   });
   const jobs = runnerJobs(sdk);
   await jobs.start();
@@ -191,12 +204,15 @@ async function main() {
           }).adapter,
         );
       }
-      await saveCredentials(sdk, userId, {
-        service: model.split(":")[0]!,
-        fields: { apiKey },
-        hint: "eval",
-        verified: true,
-      });
+      // A stored OpenAI key would come before the linked plan, so a plan run stores none.
+      if (!onPlan(model)) {
+        await saveCredentials(sdk, userId, {
+          service: model.split(":")[0]!,
+          fields: { apiKey },
+          hint: "eval",
+          verified: true,
+        });
+      }
       const botIds: string[] = [];
       for (const name of evalCase.bots) {
         botIds.push((await createBot(db, userId, { name, model }, new Date())).id);
