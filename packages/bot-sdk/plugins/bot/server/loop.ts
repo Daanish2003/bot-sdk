@@ -351,10 +351,13 @@ export async function runLoop(
       : messages;
   /**
    * A model call's options as sent: with a Prompt start, its stored tool definitions (never the
-   * live tools' own) and its system blocks, and the messages as `sendable` gives them.
+   * live tools' own) and its system blocks, and the messages as `sendable` gives them. Only the
+   * newest screenshots stay in the messages (`pruneScreenshots`), so the hashes cover what is
+   * sent. The window slides: each new screenshot replaces the oldest one kept, so the cache is
+   * written again from that message on. Between two screenshots, every call sends the same bytes.
    */
-  const sentOptions = (chatOptions: TextOptions): TextOptions =>
-    promptStart
+  const sentOptions = (chatOptions: TextOptions): TextOptions => {
+    const sent = promptStart
       ? {
           ...chatOptions,
           tools: promptStart.tools as TextOptions["tools"],
@@ -362,6 +365,8 @@ export async function runLoop(
           messages: sendable(chatOptions.messages as ModelMessage[]),
         }
       : chatOptions;
+    return { ...sent, messages: pruneScreenshots(sent.messages as ModelMessage[]) };
+  };
 
   /**
    * A live model call of `sent`, inside a model call's activity: its chunks, without the raw events.
@@ -371,15 +376,12 @@ export async function runLoop(
     // Read off the clock too: a timer that is due may not have fired yet.
     if (attempt && (expired || timeLeftMs() <= 0)) timeUp();
     abortController.signal.throwIfAborted();
-    // Only the newest screenshots go to the Model, read from the blob store now: the transcript
-    // and the Checkpoints hold their refs (#608). Outside the Model's own failure, so a failed read
-    // is retried like a Checkpoint that failed to save.
+    // The screenshots `sentOptions` kept go to the Model, read from the blob store now: the
+    // transcript and the Checkpoints hold their refs (#608). Outside the Model's own failure, so a
+    // failed read is retried like a Checkpoint that failed to save.
     const pruned = {
       ...sent,
-      messages: await resolveScreenshots(
-        deps.blobStore,
-        pruneScreenshots(sent.messages as ModelMessage[]),
-      ),
+      messages: await resolveScreenshots(deps.blobStore, sent.messages as ModelMessage[]),
     };
     const chunks: StreamChunk[] = [];
     inLiveCall = true;
