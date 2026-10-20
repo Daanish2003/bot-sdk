@@ -58,6 +58,7 @@ describe("bot.create", () => {
       conversationId: botConversation!.id,
       messages: [],
       turns: [],
+      warmings: [],
     });
   });
 
