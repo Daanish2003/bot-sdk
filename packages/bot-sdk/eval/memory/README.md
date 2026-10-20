@@ -28,6 +28,23 @@ pnpm -F @ai-chat/bot-sdk eval:memory
 It prints accuracy per question type and overall, then writes every answer, its judge reply and its
 verdict to `eval/memory/results/memory-<time>.json` (gitignored).
 
+### On a ChatGPT plan
+
+With `EVAL_CHATGPT_USER_ID` and the web app's settings set (see "On a ChatGPT plan" in
+`eval/turn/README.md`), the plan's Models (`openai:gpt-6.1-sol`, `openai:gpt-6-luna`) run on the
+linked plan, and the judge defaults to `openai:gpt-6-luna`. No OpenAI key is saved, because a saved key
+would come before the plan. So every `openai:` Model has to be a plan Model, and embeddings use
+Gemini: set `GEMINI_API_KEY` (the free tier is enough). The judge runs without temperature 0, so its
+verdicts can vary between runs.
+
+```sh
+EVAL_DATABASE_URL=postgresql://postgres:password@127.0.0.1:5435/ai-chat_eval \
+EVAL_BACKGROUND_MODEL=openai:gpt-6-luna EVAL_ANSWER_MODEL=openai:gpt-6.1-sol \
+EVAL_CHATGPT_USER_ID=<your user id> DATABASE_URL=... BETTER_AUTH_URL=... BETTER_AUTH_SECRET=... \
+CHATGPT_CLIENT_ID=... CHATGPT_HOST_ID=... GEMINI_API_KEY=... \
+pnpm -F @ai-chat/bot-sdk eval:memory
+```
+
 ## What it costs
 
 About 4M input tokens a run, mostly the Background Model's extraction calls (about 2,000 pairs over

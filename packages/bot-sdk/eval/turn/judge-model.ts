@@ -1,10 +1,12 @@
-// The judge Model and the API keys the Turn evals share (eval/turn/run.ts and eval/turn/ladder.ts).
+// The judge Model and the API keys the Turn evals share (eval/turn/run.ts and eval/turn/ladder.ts),
+// or the owner's ChatGPT plan in place of an OpenAI key (eval/chatgpt-plan.ts).
 
 import { type AnthropicChatModel, createAnthropicChat } from "@tanstack/ai-anthropic";
 import { chat } from "@tanstack/ai";
 import { type OpenAIChatModel, createOpenaiChat } from "@tanstack/ai-openai";
 import { createOpenRouterText } from "@tanstack/ai-openrouter";
 
+import { type ChatgptPlan, planJudgeCompletion } from "../chatgpt-plan";
 import type { Complete } from "./queue-run";
 
 /** The API key environment variable of each Provider the eval may use. */
@@ -15,8 +17,31 @@ export const keyVariables: Record<string, string> = {
   openrouter: "OPENROUTER_API_KEY",
 };
 
-/** The judge's completion at temperature 0, on OpenAI, Anthropic or OpenRouter (the pattern of eval/memory/run.ts). */
-export function judgeCompletion(model: string, apiKey: string): Complete {
+/**
+ * The API key a real run uses for `model`, or `null` when `model` runs on the owner's ChatGPT plan.
+ * Fails when neither is there; `what` names the Model in that message.
+ */
+export function keyFor(model: string, plan: ChatgptPlan | null, what = ""): string | null {
+  if (plan?.serves(model)) return null;
+  const variable = keyVariables[model.split(":")[0]!];
+  return (
+    (variable && process.env[variable]) ||
+    fail(`${variable ?? `A key for ${model}`} is not set${what}`)
+  );
+}
+
+/**
+ * The judge's completion at temperature 0, on OpenAI, Anthropic or OpenRouter (the pattern of
+ * eval/memory/run.ts), or on the ChatGPT plan when `apiKey` is `null` (no temperature there).
+ */
+export function judgeCompletion(
+  model: string,
+  apiKey: string | null,
+  plan: ChatgptPlan | null,
+): Complete {
+  if (apiKey === null) {
+    return plan ? planJudgeCompletion(model, plan) : fail(`No key for the judge "${model}"`);
+  }
   const provider = model.split(":")[0]!;
   const modelId = model.slice(provider.length + 1);
   let adapter;

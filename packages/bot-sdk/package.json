@@ -78,6 +78,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@ai-chat/auth": "workspace:*",
     "@ai-chat/config": "workspace:*",
     "@cloudflare/workers-types": "4.20260702.1",
     "@testing-library/react": "^16.3.3",
@@ -86,6 +87,7 @@
     "@types/react-dom": "catalog:",
     "drizzle-kit": "1.0.0-rc.4",
     "jsdom": "^30.1.2",
+    "tsx": "^4.23.15",
     "typescript": "catalog:",
     "varlock": "catalog:",
     "vitest": "^5.0.3"

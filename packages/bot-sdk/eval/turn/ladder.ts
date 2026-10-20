@@ -21,7 +21,8 @@ import type { ComputerProvider } from "../../plugins/computer/server";
 import { runnerJobs } from "../../plugins/runner/server/plugin";
 import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adapter";
 import { createComputerSdk, databaseUrlFromEnv, prepareSchema } from "../computer/setup";
-import { fail, judgeCompletion, keyVariables } from "./judge-model";
+import { chatgptPlanFromEnv } from "../chatgpt-plan";
+import { fail, judgeCompletion, keyFor } from "./judge-model";
 import { type LadderCase, ladderCases } from "./ladder-cases";
 import { type LadderRunResult, runLadderCase } from "./ladder-run";
 import type { Complete } from "./queue-run";
@@ -115,18 +116,15 @@ async function main() {
     ? (process.env.EVAL_BOT_MODEL ?? "openai:gpt-5.4-mini")
     : process.env.EVAL_BOT_MODEL;
   if (!model) fail("EVAL_BOT_MODEL is not set. See packages/bot-sdk/eval/turn/README.md.");
-  const provider = model.split(":")[0]!;
-  const apiKey = fake ? "sk-fake" : process.env[keyVariables[provider] ?? ""];
-  if (!apiKey) fail(`${keyVariables[provider] ?? `A key for ${provider}`} is not set`);
+  // `null`: the Model runs on the owner's ChatGPT plan (eval/chatgpt-plan.ts), not on a key.
+  const plan = fake ? null : await chatgptPlanFromEnv();
+  const apiKey = fake ? "sk-fake" : keyFor(model, plan);
 
   const judgeModel = process.env.EVAL_JUDGE_MODEL ?? model;
-  const judgeProvider = judgeModel.split(":")[0]!;
-  const judgeKey = fake ? "sk-fake" : process.env[keyVariables[judgeProvider] ?? ""];
-  if (!judgeKey)
-    fail(`${keyVariables[judgeProvider] ?? `A key for ${judgeProvider}`} is not set (the judge)`);
+  const judgeKey = fake ? "sk-fake" : keyFor(judgeModel, plan, " (the judge)");
   const complete: Complete = fake
     ? async () => "Verdict: yes\nReason: fake judge"
-    : judgeCompletion(judgeModel, judgeKey);
+    : judgeCompletion(judgeModel, judgeKey, plan);
 
   const db = await prepareSchema(databaseUrlFromEnv());
   /** The fake Model's case for each run, found by the run's own API key. */
@@ -146,7 +144,7 @@ async function main() {
               return createFakeAdapter({ rounds: fakeScript(evalCase) }).adapter;
             },
           }
-        : real,
+        : { ...real, linkedCredentials: plan?.linkedCredentials },
   });
   // A Helper's job waits a day, so it never runs: the run scores the main agent's choice.
   const runner = sdk.plugin("runner");
@@ -168,7 +166,7 @@ async function main() {
     sdk,
     model,
     credentialsFor: (caseId: string, repeat: number) => {
-      if (!fake) return { apiKey };
+      if (!fake) return apiKey === null ? null : { apiKey };
       const key = `fake-${caseId}-${repeat}`;
       scripts.set(
         key,
