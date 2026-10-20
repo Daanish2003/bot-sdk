@@ -16,7 +16,10 @@
     "./plugins/bot/client": "./plugins/bot/client/index.ts",
     "./plugins/bot/ui": "./plugins/bot/ui/index.ts",
     "./plugins/computer/server": "./plugins/computer/server/index.ts",
-    "./plugins/computer/e2b": "./plugins/computer/e2b/index.ts"
+    "./plugins/computer/e2b": "./plugins/computer/e2b/index.ts",
+    "./plugins/memory/server": "./plugins/memory/server/index.ts",
+    "./plugins/memory/client": "./plugins/memory/client/index.ts",
+    "./plugins/memory/ui": "./plugins/memory/ui/index.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",

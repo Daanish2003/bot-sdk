@@ -18,7 +18,6 @@ import { pastChatsOffered } from "../search/past-chats";
 import { mcpToolsFor, type McpTools } from "../mcp/tools";
 import { projectInstructionsOf } from "../project/store";
 import { loadSettings } from "../settings/store";
-import { recalledMemoriesPrompt } from "../memory/recall";
 import { knowledgeSearchFor } from "../knowledge/search";
 import type { ResolvedImageModel } from "../../../models/server/image-models";
 import type { ModelsApi } from "../../../models/server/plugin";
@@ -282,14 +281,18 @@ async function buildPlan(
         // The Project's Instructions are read from the Conversation's Project at the same moment (spec 5).
         projectInstructions: await projectInstructionsOf(deps, owned.projectId),
         knowledgeFiles: offered.knowledge?.fileNames ?? null,
-        // The Memories recalled for this Run, found by the Message it answers (ADR 0013).
-        memories: await recalledMemoriesPrompt(deps, {
-          userId,
-          projectId: owned.projectId,
-          temporary: owned.temporary,
-          latestText:
-            send?.text ?? history.filter((row) => row.role === "user").at(-1)?.searchText ?? null,
-        }),
+        // The Memories recalled for this Run, found by the Message it answers (ADR 0013), when
+        // the Host installs the `memory` plugin.
+        memories: deps.hasPlugin("memory")
+          ? await deps.plugin("memory").recallPrompt({
+              userId,
+              conversationId: owned.id,
+              latestText:
+                send?.text ??
+                history.filter((row) => row.role === "user").at(-1)?.searchText ??
+                null,
+            })
+          : null,
       }),
       // The latest version of each Artifact on the path comes after the system prompts (ADR 0016).
       ...(offered.artifacts ? await artifactContextPrompts(deps, owned.id, input.leafId) : []),
@@ -334,8 +337,8 @@ async function offeredFor(
   const webSearch = webAsked
     ? await deps.plugin("models").resolveToolCall(userId, tavilyService)
     : null;
-  // The past-chats search is offered while Memory is on for the Host and the user and the
-  // Conversation is not Temporary (spec #263).
+  // The past-chats search is offered while the `memory` plugin is installed, the user's Memory is
+  // on and the Conversation is not Temporary (spec #263).
   const pastChats = (await pastChatsOffered(deps, userId, owned.temporary))
     ? { projectId: owned.projectId }
     : null;

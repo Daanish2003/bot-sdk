@@ -1,4 +1,4 @@
-import { sql, eq } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 
 import type { PastChatsSearchPart } from "../../shared/message-parts";
 import {
@@ -7,31 +7,25 @@ import {
   pastChatSnippetLength,
 } from "../../shared/chat/past-chats";
 import { snippetAround } from "../../../../core/shared/search/text";
-import { userSettings } from "../../../../core/server/db/schema";
 import type { BotSdkContext } from "../../../../core/server/plugin";
-import { assistantState } from "../state";
 import { assistantKind } from "../chat/kind";
 
-type Deps = Pick<BotSdkContext, "db" | "plugin">;
+type Deps = Pick<BotSdkContext, "db" | "plugin" | "hasPlugin">;
 
 /** The Conversations a `search_past_chats` call found, each with its snippets (spec #263). */
 export type PastChatHit = PastChatsSearchPart["conversations"][number];
 
 /**
- * Whether the assistant may search past chats for this user's Run: Memory is on for the Host and
- * for the user, and the Conversation is not Temporary (spec #263). Memory on by default.
+ * Whether the assistant may search past chats for this user's Run: the Host installs the `memory`
+ * plugin, the user's Memory is on, and the Conversation is not Temporary (spec #263).
  */
 export async function pastChatsOffered(
   deps: Deps,
   userId: string,
   temporary: boolean,
 ): Promise<boolean> {
-  if (!assistantState(deps).memory || temporary) return false;
-  const [row] = await deps.db
-    .select({ memoryEnabled: userSettings.memoryEnabled })
-    .from(userSettings)
-    .where(eq(userSettings.userId, userId));
-  return row?.memoryEnabled ?? true;
+  if (!deps.hasPlugin("memory") || temporary) return false;
+  return deps.plugin("memory").isEnabled(userId);
 }
 
 /** The words of a query that a snippet can centre on: the first one the text holds. */

@@ -6,7 +6,6 @@ import { and, eq, isNull, lt, or } from "drizzle-orm";
 import type { BotSdkContext } from "../../../../core/server/plugin";
 import { cancelRunningCalls, searchTextOf } from "../../shared/chat/parts";
 import type { RunEndEvent } from "../../../../core/server/chat/hooks";
-import { enqueueMemories } from "../memory/make";
 import { titleConversation } from "./title";
 import type { ModelMeter } from "../../../models/server/meter";
 import type { MessageUsage } from "../../../models/shared/usage";
@@ -172,14 +171,22 @@ export async function endRun(
     if (ending.status === "complete") void titleConversation(deps, messageId);
     // `error`, a hidden reply (owner decision on #286) and a Run waiting for Approval make no
     // Memories; the resumed Run does.
-    if (saved && !hidden && (ending.status === "complete" || ending.status === "stopped")) {
-      void enqueueMemories(deps, {
-        userId: run.userId,
-        conversationId: run.conversationId,
-        replyId: messageId,
-      }).catch((caught: unknown) =>
-        deps.logger.error(`Queuing the Memories of ${messageId} failed`, caught),
-      );
+    if (
+      saved &&
+      !hidden &&
+      (ending.status === "complete" || ending.status === "stopped") &&
+      deps.hasPlugin("memory")
+    ) {
+      void deps
+        .plugin("memory")
+        .afterRun({
+          userId: run.userId,
+          conversationId: run.conversationId,
+          replyId: messageId,
+        })
+        .catch((caught: unknown) =>
+          deps.logger.error(`Queuing the Memories of ${messageId} failed`, caught),
+        );
     }
   }
   return event;

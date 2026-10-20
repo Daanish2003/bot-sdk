@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import type { MemoryUpdatedEvent } from "../../../plugins/assistant/shared/memory/changes";
+import type { MemoryUpdatedEvent } from "../../../plugins/memory/shared/changes";
 import { hintChanged } from "../../../plugins/bot/server/turn";
-import { publishMemoryUpdated } from "../../../plugins/assistant/server/memory/notice";
+import { publishMemoryUpdated } from "../../../plugins/memory/server/notice";
 import { insertConversation } from "../../support/conversations";
 import { createTestSdk } from "../../support/deps";
 import { sendAs } from "../../support/sdk";

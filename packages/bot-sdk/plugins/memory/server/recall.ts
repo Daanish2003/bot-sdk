@@ -1,8 +1,8 @@
 import { and, desc, eq, isNull, notInArray, or, sql } from "drizzle-orm";
 
-import { conversation, memory, userSettings } from "../../../../core/server/db/schema";
-import type { BotSdkContext } from "../../../../core/server/plugin";
-import { assistantState } from "../state";
+import { conversation, memory } from "../../../core/server/db/schema";
+import type { BotSdkContext } from "../../../core/server/plugin";
+import { memoryEnabledFor } from "./manage";
 
 /** With this many valid Memories in scope or fewer, all are sent and nothing is embedded (ADR 0013). */
 const allCount = 30;
@@ -58,7 +58,7 @@ const recalledColumns = {
 
 /**
  * The Memories block of a Run's system prompts, or `null` when the Run recalls none (ADR 0013).
- * Off for a Temporary Conversation and when Memory is off for the Host or the user. With 30 or
+ * Off for a Temporary Conversation and when the user turned Memory off. With 30 or
  * fewer valid Memories in scope, all are sent. Past that, the 20 newest make the profile and the
  * 10 closest to `latestText` the rest, found with the user's embedding Model. When the embedding
  * fails, or there is none, the Run goes ahead with the profile only.
@@ -67,24 +67,22 @@ export async function recalledMemoriesPrompt(
   deps: BotSdkContext,
   {
     userId,
-    projectId,
-    temporary,
+    conversationId,
     latestText,
   }: {
     userId: string;
-    /** The Conversation's Project; null for a general Conversation. */
-    projectId: string | null;
-    temporary: boolean;
+    /** The Run's Conversation, whose Project scopes the Memories. */
+    conversationId: string;
     /** The latest user Message's text, which the similar Memories are found by. */
     latestText: string | null;
   },
 ): Promise<string | null> {
-  if (!assistantState(deps).memory || temporary) return null;
-  const [settings] = await deps.db
-    .select({ memoryEnabled: userSettings.memoryEnabled })
-    .from(userSettings)
-    .where(eq(userSettings.userId, userId));
-  if (settings && !settings.memoryEnabled) return null;
+  const [owned] = await deps.db
+    .select({ projectId: conversation.projectId, temporary: conversation.temporary })
+    .from(conversation)
+    .where(eq(conversation.id, conversationId));
+  if (!owned || owned.temporary || !(await memoryEnabledFor(deps, userId))) return null;
+  const { projectId } = owned;
 
   const scope = inScope(userId, projectId);
   const newest = await deps.db

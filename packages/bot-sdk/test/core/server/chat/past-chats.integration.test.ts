@@ -2,7 +2,7 @@ import { asc, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
-import { conversation, message, project, userSettings } from "../../../../core/server/db/schema";
+import { conversation, message, project, memorySettings } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { loadSharedConversation } from "../../../../plugins/assistant/server/share/store";
 import type { ChatCommand } from "../../../../plugins/assistant/shared/chat/command";
@@ -282,15 +282,13 @@ describe("the search_past_chats tool", () => {
     expect(searched).toMatchObject({ metadata: { redacted: true } });
   });
 
-  it("isn't offered with Memory off for the Host, off for the user, or in a Temporary Conversation", async () => {
+  it("isn't offered without the memory plugin, with Memory off for the user, or in a Temporary Conversation", async () => {
     const hostOff = await setup([round(text("Done."))], { memory: false });
     await sendIn(hostOff.deps, hostOff.user, (await insertConversation(hostOff.user, {})).id);
     expect(offeredTools(hostOff.fake)).not.toContain("search_past_chats");
 
     const userOff = await setup([round(text("Done."))]);
-    await getTestDb()
-      .insert(userSettings)
-      .values({ userId: userOff.user.id, memoryEnabled: false });
+    await getTestDb().insert(memorySettings).values({ userId: userOff.user.id, enabled: false });
     await sendIn(userOff.deps, userOff.user, (await insertConversation(userOff.user, {})).id);
     expect(offeredTools(userOff.fake)).not.toContain("search_past_chats");
 

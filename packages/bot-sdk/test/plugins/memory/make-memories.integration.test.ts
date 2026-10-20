@@ -3,26 +3,26 @@ import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
-import { createHookEmitter } from "../../../../core/server/chat/hooks";
-import { conversationChannel } from "../../../../core/server/chat/conversation-events";
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
+import { createHookEmitter } from "../../../core/server/chat/hooks";
+import { conversationChannel } from "../../../core/server/chat/conversation-events";
+import { saveCredentials } from "../../../plugins/models/server/credentials/store";
 import {
   conversation,
   message,
   project,
   job,
   memory,
-  userSettings,
+  memorySettings,
   usage,
-} from "../../../../core/server/db/schema";
-import type { HostProvider } from "../../../../plugins/assistant/server/deps";
-import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestSdk, type TestDeps, type TestDepsOverrides } from "../../../support/deps";
-import { createFakeAdapter, round, runError, text } from "../../../support/fake-adapter";
-import { drainJobs } from "../../../support/jobs";
-import { chatRpc, sendAs } from "../../../support/sdk";
-import { getTestDb } from "../../../support/test-database";
-import { insertUser } from "../../../support/users";
+} from "../../../core/server/db/schema";
+import type { HostProvider } from "../../../plugins/assistant/server/deps";
+import { insertConversation, insertMessage } from "../../support/conversations";
+import { createTestSdk, type TestDeps, type TestDepsOverrides } from "../../support/deps";
+import { createFakeAdapter, round, runError, text } from "../../support/fake-adapter";
+import { drainJobs } from "../../support/jobs";
+import { chatRpc, sendAs } from "../../support/sdk";
+import { getTestDb } from "../../support/test-database";
+import { insertUser } from "../../support/users";
 
 const replyModel = "anthropic:claude-sonnet-5-5";
 const backgroundModel = "anthropic:claude-haiku-4-5";
@@ -242,7 +242,7 @@ describe("making Memories after a Run", () => {
 
   it("makes no job when the user has Memory off", async () => {
     const { user, deps, send } = await setup();
-    await getTestDb().insert(userSettings).values({ userId: user.id, memoryEnabled: false });
+    await getTestDb().insert(memorySettings).values({ userId: user.id, enabled: false });
 
     await send();
 
@@ -250,7 +250,7 @@ describe("making Memories after a Run", () => {
     expect(await memoriesOf(user.id)).toEqual([]);
   });
 
-  it("makes no job when the Host has Memory off", async () => {
+  it("makes no job without the memory plugin", async () => {
     const { user, deps, send } = await setup({ deps: { memory: false } });
 
     await send();

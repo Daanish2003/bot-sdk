@@ -91,7 +91,7 @@ export function createComputerSdk(options: {
         rateLimits: resolveRateLimits(),
       },
       models: models ? models(real) : real,
-      assistant: { memory: false },
+      assistant: {},
       plugins: [computer({ provider }), ...more],
     },
     { basePath: "/api/chat", getUser: () => null, logger: { error: () => {} } },

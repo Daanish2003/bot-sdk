@@ -31,7 +31,6 @@ export const errorMessages = {
   "error.pinLimit": ({ max }: { max: string }) =>
     `You can pin up to ${max} Conversations. Unpin one first.`,
   "error.byokOff": "Your own keys are turned off on this app",
-  "error.memoryOff": "Memory is turned off on this app",
   "error.memoryNotFound": "Memory not found",
   "error.memoryTextBlank": "A Memory can't be blank",
   "error.memoryNeedsEmbeddingModel":

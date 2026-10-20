@@ -1,8 +1,8 @@
 import { buttonVariants } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import type { TurnChange } from "../../shared/memory/changes";
-import { useChatAdapter, useI18n } from "../../../../core/client/react/provider";
+import type { TurnChange } from "../shared/changes";
+import { useChatAdapter, useI18n } from "../../../core/client/react/provider";
 
 /**
  * The "Memory updated · N changes" chip under a reply whose turn changed the user's Memories

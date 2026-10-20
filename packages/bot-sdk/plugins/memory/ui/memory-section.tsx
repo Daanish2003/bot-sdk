@@ -4,8 +4,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { useChatAdapter, useI18n, useOrpc } from "../../../../core/client/react/provider";
-import { serverErrorText } from "../../../../core/client/rpc-error";
+import { useChatAdapter, useI18n, useOrpc } from "../../../core/client/react/provider";
+import { serverErrorText } from "../../../core/client/rpc-error";
 
 type ListedMemory = {
   id: string;
@@ -26,18 +26,15 @@ type MemoryGroup = {
 /**
  * Settings: the Memories the assistant has learned, General first and then by Project, with the
  * "Use and make Memories" switch and Delete all at the top. Each Memory links to the Message it came
- * from; edit and delete show on hover, and editing is inline (Enter saves, Esc cancels). Hidden when
- * the Host turns Memory off.
+ * from; edit and delete show on hover, and editing is inline (Enter saves, Esc cancels). Render it
+ * only when the Host installs the `memory` plugin.
  */
 export function MemorySection() {
   const orpc = useOrpc();
   const i18n = useI18n();
   const { t } = i18n;
   const status = useQuery(orpc.memory.status.queryOptions());
-  const list = useQuery({
-    ...orpc.memory.list.queryOptions(),
-    enabled: status.data?.hostEnabled === true,
-  });
+  const list = useQuery(orpc.memory.list.queryOptions());
   const refresh = useMemoryRefresh();
   const setEnabled = useMutation(
     orpc.memory.setEnabled.mutationOptions({
@@ -56,7 +53,7 @@ export function MemorySection() {
   );
   const [confirmingDeleteAll, setConfirmingDeleteAll] = useState(false);
 
-  if (status.isPending || status.data?.hostEnabled !== true) return null;
+  if (!status.data) return null;
   const { enabled, embeddingAvailable } = status.data;
   const groups: MemoryGroup[] = list.data?.groups ?? [];
 

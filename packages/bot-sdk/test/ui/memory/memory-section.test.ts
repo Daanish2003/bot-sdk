@@ -5,7 +5,12 @@ import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { BotSdkClient } from "../../../core/client/chat-client";
-import { MemorySection } from "../../../plugins/assistant/ui/settings/memory-section";
+import type { BotSdkClientPlugin } from "../../../core/client/plugin";
+import { assistantClient } from "../../../plugins/assistant/client/index";
+import { memoryClient } from "../../../plugins/memory/client/index";
+import { MemorySection } from "../../../plugins/memory/ui/memory-section";
+import { modelsClient } from "../../../plugins/models/client/index";
+import { KeySettingsPage } from "../../../plugins/models/ui/key-settings";
 import { providerFor } from "../fake-dictionary";
 
 afterEach(() => {
@@ -47,7 +52,6 @@ const groups = [
 ];
 
 type Seed = {
-  hostEnabled?: boolean;
   enabled?: boolean;
   embeddingAvailable?: boolean;
   groups?: typeof groups;
@@ -56,7 +60,6 @@ type Seed = {
 function seed(overrides: Seed = {}) {
   return (queryClient: QueryClient, client: BotSdkClient) => {
     queryClient.setQueryData(client.orpc.memory.status.queryKey(), {
-      hostEnabled: overrides.hostEnabled ?? true,
       enabled: overrides.enabled ?? true,
       embeddingAvailable: overrides.embeddingAvailable ?? true,
     });
@@ -88,10 +91,23 @@ function renderSection(options: Seed = {}, fetch = recordingFetch().fetch) {
 }
 
 describe("MemorySection", () => {
-  it("is hidden when the Host turns Memory off", () => {
-    const { container } = renderSection({ hostEnabled: false });
+  it("is on the keys page only when the Host installs the memory plugin", () => {
+    const page = (plugins: BotSdkClientPlugin[]) =>
+      render(
+        providerFor(createElement(KeySettingsPage), {
+          seed: seed(),
+          fetch: recordingFetch().fetch,
+          messages: {},
+          plugins,
+        }),
+      );
 
-    expect(container.innerHTML).toBe("");
+    page([modelsClient(), assistantClient()]);
+    expect(screen.queryByText("Lives in Pune")).toBeNull();
+    cleanup();
+
+    page([modelsClient(), assistantClient(), memoryClient()]);
+    expect(screen.getByText("Lives in Pune")).toBeTruthy();
   });
 
   it("lists General first, then each Project, with counts", () => {

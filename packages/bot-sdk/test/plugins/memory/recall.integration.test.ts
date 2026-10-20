@@ -4,23 +4,24 @@ import { embed } from "@tanstack/ai";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
-import { fakeEmbeddingAdapter } from "../../../../plugins/models/server/fake-embedding-adapter";
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
+import { fakeEmbeddingAdapter } from "../../../plugins/models/server/fake-embedding-adapter";
+import { saveCredentials } from "../../../plugins/models/server/credentials/store";
 import {
   conversation,
   project,
   memory,
   userSettings,
+  memorySettings,
   usage,
-} from "../../../../core/server/db/schema";
-import type { HostProvider } from "../../../../plugins/assistant/server/deps";
-import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { insertConversation } from "../../../support/conversations";
-import { createTestSdk, type TestDepsOverrides } from "../../../support/deps";
-import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
-import { sendAs } from "../../../support/sdk";
-import { getTestDb } from "../../../support/test-database";
-import { insertUser } from "../../../support/users";
+} from "../../../core/server/db/schema";
+import type { HostProvider } from "../../../plugins/assistant/server/deps";
+import { uuidv7 } from "../../../core/server/lib/uuidv7";
+import { insertConversation } from "../../support/conversations";
+import { createTestSdk, type TestDepsOverrides } from "../../support/deps";
+import { createFakeAdapter, round, text } from "../../support/fake-adapter";
+import { sendAs } from "../../support/sdk";
+import { getTestDb } from "../../support/test-database";
+import { insertUser } from "../../support/users";
 
 const replyModel = "anthropic:claude-sonnet-5-5";
 const embeddingModel = "openai:text-embedding-3-small";
@@ -270,7 +271,7 @@ describe("recalling Memories in a Run", () => {
 
   it("sends nothing with Memory off for the user", async () => {
     const { user, conv, send, replyFake } = await setup();
-    await getTestDb().insert(userSettings).values({ userId: user.id, memoryEnabled: false });
+    await getTestDb().insert(memorySettings).values({ userId: user.id, enabled: false });
     await seedMemories(user.id, conv.id, [
       { text: "Is vegetarian", createdAt: new Date("2026-09-01T00:00:00Z") },
     ]);
@@ -280,7 +281,7 @@ describe("recalling Memories in a Run", () => {
     expect(blockOf(replyFake)).toBeUndefined();
   });
 
-  it("sends nothing with Memory off for the Host", async () => {
+  it("sends nothing without the memory plugin", async () => {
     const { user, conv, send, replyFake } = await setup({ deps: { memory: false } });
     await seedMemories(user.id, conv.id, [
       { text: "Is vegetarian", createdAt: new Date("2026-09-01T00:00:00Z") },

@@ -201,7 +201,7 @@ async function main() {
         rateLimits: resolveRateLimits(),
       },
       models: modelsDeps,
-      assistant: { memory: false },
+      assistant: {},
       plugins: [bot()],
     },
     { basePath: "/api/chat", getUser: () => null, logger: { error: () => {} } },

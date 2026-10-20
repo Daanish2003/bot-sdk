@@ -1,16 +1,16 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
-import { project, memory, userSettings } from "../../../../core/server/db/schema";
-import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestSdk, type TestDeps } from "../../../support/deps";
-import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
-import { drainJobs } from "../../../support/jobs";
-import { chatRpc, sendAs } from "../../../support/sdk";
-import { getTestDb } from "../../../support/test-database";
-import { insertUser } from "../../../support/users";
-import type { TestUser } from "../../../support/users";
+import { saveCredentials } from "../../../plugins/models/server/credentials/store";
+import { project, memory, memorySettings } from "../../../core/server/db/schema";
+import { insertConversation, insertMessage } from "../../support/conversations";
+import { createTestSdk, type TestDeps } from "../../support/deps";
+import { createFakeAdapter, round, text } from "../../support/fake-adapter";
+import { drainJobs } from "../../support/jobs";
+import { chatRpc, sendAs } from "../../support/sdk";
+import { getTestDb } from "../../support/test-database";
+import { insertUser } from "../../support/users";
+import type { TestUser } from "../../support/users";
 
 const replyModel = "anthropic:claude-sonnet-5-5";
 const backgroundModel = "anthropic:claude-haiku-4-5";
@@ -149,7 +149,6 @@ describe("the Memory page procedures", () => {
     const { user, rpc } = await setup();
 
     expect(await rpc.memory.status()).toEqual({
-      hostEnabled: true,
       enabled: true,
       embeddingAvailable: false,
     });
@@ -157,9 +156,9 @@ describe("the Memory page procedures", () => {
     await rpc.memory.setEnabled({ enabled: false });
     const [settings] = await getTestDb()
       .select()
-      .from(userSettings)
-      .where(eq(userSettings.userId, user.id));
-    expect(settings?.memoryEnabled).toBe(false);
+      .from(memorySettings)
+      .where(eq(memorySettings.userId, user.id));
+    expect(settings?.enabled).toBe(false);
     expect((await rpc.memory.status()).enabled).toBe(false);
   });
 
@@ -175,13 +174,13 @@ describe("the Memory page procedures", () => {
     expect((await rpc.memory.status()).embeddingAvailable).toBe(true);
   });
 
-  it("refuses every procedure when the Host has Memory off, and says so in status", async () => {
+  it("has no procedures without the memory plugin", async () => {
     const { user, conv, message } = await setup();
     const deps = createTestSdk({ memory: false });
     await insertMemory(user, conv.id, message.id);
     const rpc = chatRpc({ user, deps });
 
-    expect(await rpc.memory.status()).toMatchObject({ hostEnabled: false });
+    await expect(rpc.memory.status()).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(rpc.memory.list()).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(rpc.memory.deleteAll()).rejects.toMatchObject({ code: "NOT_FOUND" });
     expect(await memoriesOf(user.id)).toHaveLength(1);

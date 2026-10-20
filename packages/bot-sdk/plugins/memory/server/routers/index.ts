@@ -6,20 +6,18 @@ import {
   editMemory,
   listMemories,
   memoryStatus,
-  requireHostMemory,
   setMemoryEnabled,
-} from "../memory/manage";
+} from "../manage";
 import { protectedProcedure } from "../../../../core/server/procedures";
 import { rpcError } from "../../../../core/server/rpc-error";
 
-/** The Memory page's procedures (#289). With the Host's `memory: false` they refuse, and the page is hidden. */
+/** The Memory page's procedures (#289). A Host without the `memory` plugin has none, and the page is hidden. */
 export const memoryRouter = {
-  /** Whether Memory is on for the Host, the user's switch, and whether an embedding Model is there. */
+  /** The user's switch, and whether an embedding Model is there. */
   status: protectedProcedure.handler(({ context }) => memoryStatus(context.sdk, context.user.id)),
 
   /** The user's valid Memories, grouped General first and then by Project. */
   list: protectedProcedure.handler(async ({ context }) => {
-    requireHostMemory(context.sdk);
     return { groups: await listMemories(context.sdk, context.user.id) };
   }),
 
@@ -27,7 +25,6 @@ export const memoryRouter = {
   edit: protectedProcedure
     .input(z.object({ id: z.uuid(), text: z.string() }))
     .handler(async ({ context, input }) => {
-      requireHostMemory(context.sdk);
       const text = input.text.trim();
       if (text === "")
         throw rpcError("BAD_REQUEST", "error.memoryTextBlank", "Text can't be blank");
@@ -38,13 +35,11 @@ export const memoryRouter = {
   delete: protectedProcedure
     .input(z.object({ id: z.uuid() }))
     .handler(async ({ context, input }) => {
-      requireHostMemory(context.sdk);
       await deleteMemory(context.sdk, context.user.id, input.id);
     }),
 
   /** Hard-deletes every Memory the user has. */
   deleteAll: protectedProcedure.handler(async ({ context }) => {
-    requireHostMemory(context.sdk);
     await deleteAllMemories(context.sdk, context.user.id);
   }),
 
@@ -52,7 +47,9 @@ export const memoryRouter = {
   setEnabled: protectedProcedure
     .input(z.object({ enabled: z.boolean() }))
     .handler(async ({ context, input }) => {
-      requireHostMemory(context.sdk);
       await setMemoryEnabled(context.sdk, context.user.id, input.enabled);
     }),
 };
+
+/** The `memory` plugin's routers, by key. */
+export type MemoryRouter = { memory: typeof memoryRouter };

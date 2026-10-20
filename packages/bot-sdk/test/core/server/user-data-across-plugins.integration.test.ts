@@ -17,6 +17,7 @@ import {
   savedPrompt,
   usage,
   userSettings,
+  memorySettings,
 } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkPlugin } from "../../../core/server/plugin";
@@ -91,7 +92,7 @@ async function activeJobsNaming(ids: string[]) {
  * A user with a row in every table that has a `user_id` column: a Conversation with an Attachment,
  * a Shared link, a Generated image and a Memory; a Project with a Conversation, a Generated image
  * and a Knowledge file whose processing job is queued; an unused Attachment; settings, a Saved
- * prompt, an MCP connection, credentials and usage; a Bot; a Computer. Returns the blob keys and ids it made.
+ * prompt, an MCP connection, credentials and usage; the Memory switch; a Bot; a Computer. Returns the blob keys and ids it made.
  */
 async function seedEverything(user: TestUser, deps: TestDeps) {
   const conv = await insertConversation(user, { title: "Mine" });
@@ -147,6 +148,7 @@ async function seedEverything(user: TestUser, deps: TestDeps) {
   await deps.plugin("computer").forUser(user.id).run("true");
 
   await getTestDb().insert(userSettings).values({ userId: user.id, instructions: "Be terse." });
+  await getTestDb().insert(memorySettings).values({ userId: user.id, enabled: false });
   await getTestDb()
     .insert(savedPrompt)
     .values({ id: uuidv7(), userId: user.id, name: "review", text: "Review this." });

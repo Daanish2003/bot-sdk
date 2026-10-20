@@ -12,8 +12,6 @@ export type AssistantState = {
   mcpServers: McpServerConfig[];
   /** Whether Artifacts are on: the `create_artifact` tool, the panel and the version route (`assistant({ artifacts })`). */
   artifacts: boolean;
-  /** Whether Memory is on for the Host (`assistant({ memory })`, ADR 0013). */
-  memory: boolean;
   searchClient: SearchClient;
   /** Every Run's chunk log, which its POST response and any joiner read (ADR 0006). */
   runStreams: RunStreams;

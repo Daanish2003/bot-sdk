@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
 import { assistant } from "../../../plugins/assistant/server/plugin";
+import { memory as memoryPlugin } from "../../../plugins/memory/server/plugin";
 import { runner } from "../../../plugins/runner/server/plugin";
 import { models } from "../../../plugins/models/server/plugin";
 import { saveCredentials } from "../../../plugins/models/server/credentials/store";
@@ -17,6 +18,7 @@ import {
   savedPrompt,
   sharedLink,
   userSettings,
+  memorySettings,
 } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { insertAttachment, linkTestAttachments } from "../../support/attachments";
@@ -38,7 +40,7 @@ function chatFor() {
     getUser: () => null,
     keyEncryptionSecrets: [testKey],
     basePath: "/api/chat",
-    plugins: [models(), runner(), assistant()],
+    plugins: [models(), runner(), memoryPlugin(), assistant()],
   });
 }
 
@@ -456,7 +458,7 @@ describe("createBotSdk().exportUser, Memories", () => {
       .update(memory)
       .set({ replacedById: current.id })
       .where(eq(memory.id, replaced.id));
-    await getTestDb().insert(userSettings).values({ userId: owner.id, memoryEnabled: false });
+    await getTestDb().insert(memorySettings).values({ userId: owner.id, enabled: false });
 
     const exported = await chatFor().exportUser(owner.id);
 

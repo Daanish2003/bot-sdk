@@ -1,22 +1,19 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
-import {
-  moveConversation,
-  deleteConversation,
-} from "../../../../plugins/assistant/server/chat/store";
-import { project, memory } from "../../../../core/server/db/schema";
-import { deleteUserData } from "../../../../core/server/user-data";
-import { deleteProject } from "../../../../plugins/assistant/server/project/store";
-import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { insertConversation } from "../../../support/conversations";
-import { createTestSdk } from "../../../support/deps";
-import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
-import { insertMemory } from "../../../support/memories";
-import { chatRpc, sendAs } from "../../../support/sdk";
-import { getTestDb } from "../../../support/test-database";
-import { insertUser } from "../../../support/users";
+import { saveCredentials } from "../../../plugins/models/server/credentials/store";
+import { moveConversation, deleteConversation } from "../../../plugins/assistant/server/chat/store";
+import { project, memory } from "../../../core/server/db/schema";
+import { deleteUserData } from "../../../core/server/user-data";
+import { deleteProject } from "../../../plugins/assistant/server/project/store";
+import { uuidv7 } from "../../../core/server/lib/uuidv7";
+import { insertConversation } from "../../support/conversations";
+import { createTestSdk } from "../../support/deps";
+import { createFakeAdapter, round, text } from "../../support/fake-adapter";
+import { insertMemory } from "../../support/memories";
+import { chatRpc, sendAs } from "../../support/sdk";
+import { getTestDb } from "../../support/test-database";
+import { insertUser } from "../../support/users";
 
 async function memoryIds(userId: string) {
   const rows = await getTestDb()

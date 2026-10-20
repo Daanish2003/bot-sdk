@@ -20,14 +20,19 @@ import { toast } from "sonner";
 
 import type { MessageKey } from "../../../core/shared/i18n";
 import { useByok } from "../client/react/byok";
-import { type BotSdkOrpc, useI18n, useOrpc } from "../../../core/client/react/provider";
+import {
+  type BotSdkOrpc,
+  useChatAdapter,
+  useI18n,
+  useOrpc,
+} from "../../../core/client/react/provider";
 import { serverErrorText } from "../../../core/client/rpc-error";
 import { ArchivedConversationsSection } from "../../assistant/ui/settings/archived-conversations";
 import { ConnectionsSection } from "../../assistant/ui/settings/connections-section";
 import { DeleteAllConversationsSection } from "../../assistant/ui/settings/delete-all-conversations";
 import { ExportDataButton } from "../../../ui/settings/export-data-button";
 import { InstructionsField } from "../../assistant/ui/settings/instructions-field";
-import { MemorySection } from "../../assistant/ui/settings/memory-section";
+import { MemorySection } from "../../memory/ui/memory-section";
 import { SavedPromptsSection } from "../../assistant/ui/settings/saved-prompts";
 import { SharedLinksSection } from "../../assistant/ui/settings/shared-links";
 import { BackgroundModelSelect } from "../../assistant/ui/settings/background-model-select";
@@ -39,6 +44,7 @@ import { ImageModelSelect } from "../../assistant/ui/settings/image-model-select
  */
 export function KeySettingsPage() {
   const orpc = useOrpc();
+  const { plugins } = useChatAdapter();
   const byok = useByok();
   const { t } = useI18n();
   const credentials = useQuery(orpc.credentials.list.queryOptions());
@@ -97,7 +103,7 @@ export function KeySettingsPage() {
 
       <InstructionsField />
 
-      <MemorySection />
+      {plugins.includes("memory") && <MemorySection />}
 
       <SavedPromptsSection />
 

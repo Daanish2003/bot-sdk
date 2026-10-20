@@ -237,6 +237,10 @@ export const chat = createBotSdk({
 
 `chat.plugin("runner").runJob(name, payload)` runs a job's handler in the calling process, after validating the payload with the job's schema. It rejects an unknown name or a bad payload, and a handler's error reaches the task, so Trigger.dev's retries apply. The Trigger.dev runner supports `enqueue` only: `cancel`, `status` and `schedule` throw until they are needed. Trigger.dev's idempotency keys also match runs that have finished, so unlike the in-process runner, an `idempotencyKey` can't be reused after its job ends.
 
+## Memory: `memory`
+
+The `memory` plugin keeps what the assistant learns about each user (ADR 0013) and the user's Memory switch. A Host installs it beside the assistant: `plugins: [models(), runner(), memory(), assistant()]`, with `memoryClient()` on the client. It's imported from `@ai-chat/bot-sdk/plugins/memory/server` (and `/client`, `/ui`). A Host turns Memory off by leaving it out: Runs then recall and make no Memories, past chats aren't searched, and the keys page shows no Memory section.
+
 ## A Computer for Bots: `computer`
 
 The `computer` plugin gives each user one Computer, a real machine where their Bots run shell commands and keep files. It requires `runner`, and it is imported from `@ai-chat/bot-sdk/plugins/computer/server`. Leave it out and Bots run without a Computer: no tools, and no mention of them in the system prompt.

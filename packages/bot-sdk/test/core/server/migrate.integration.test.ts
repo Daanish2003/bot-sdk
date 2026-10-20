@@ -1,8 +1,11 @@
 import { createHash } from "node:crypto";
-import { readFileSync, readdirSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { drizzle } from "drizzle-orm/node-postgres";
+import { migrate as applyMigrations } from "drizzle-orm/node-postgres/migrator";
 import { Client } from "pg";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -37,6 +40,33 @@ async function rows<T extends object>(url: string, text: string): Promise<T[]> {
     return (await client.query<T>(text)).rows;
   } finally {
     await client.end();
+  }
+}
+
+/** Applies the bundled migrations up to and including `last`, as `chat.migrate()` would have then. */
+async function migrateUpTo(url: string, last: string) {
+  const bundled = fileURLToPath(new URL("../../../core/server/migrations", import.meta.url));
+  const folder = mkdtempSync(join(tmpdir(), "chat-migrations-"));
+  try {
+    for (const name of readdirSync(bundled).filter((name) => name <= last)) {
+      cpSync(join(bundled, name), join(folder, name), { recursive: true });
+    }
+    const client = new Client({ connectionString: url });
+    await client.connect();
+    try {
+      await client.query("create schema chat");
+      await client.query("create extension if not exists pg_trgm");
+      await client.query("create extension if not exists vector");
+      await applyMigrations(drizzle({ client }), {
+        migrationsFolder: folder,
+        migrationsSchema: "chat",
+        migrationsTable: "__migrations",
+      });
+    } finally {
+      await client.end();
+    }
+  } finally {
+    rmSync(folder, { recursive: true, force: true });
   }
 }
 
@@ -77,6 +107,7 @@ const sdkTables = [
   "knowledge_file",
   "mcp_connection",
   "memory",
+  "memory_settings",
   "message",
   "message_attachment",
   "project",
@@ -335,6 +366,41 @@ describe("chat.migrate()", () => {
     expect(oldTable).toEqual([]);
   });
 
+  it("copies each user's memory_enabled into chat.memory_settings, then drops the old column", async () => {
+    const url = await scratchDatabase("memory_settings");
+    // A database at the migration before the Memory plugin's, with two users' settings.
+    await migrateUpTo(url, "20261020044023_bot_helper_screenshot");
+    await rows(
+      url,
+      `insert into chat.user_settings (user_id, memory_enabled, instructions)
+       values ('user-off', false, 'Be brief'), ('user-on', true, null)`,
+    );
+
+    await chatFor(url).migrate();
+
+    const settings = await rows<{ user_id: string; enabled: boolean }>(
+      url,
+      "select user_id, enabled from chat.memory_settings order by user_id",
+    );
+    expect(settings).toEqual([
+      { user_id: "user-off", enabled: false },
+      { user_id: "user-on", enabled: true },
+    ]);
+    const oldColumn = await rows(
+      url,
+      `select 1 from information_schema.columns
+       where table_schema = 'chat' and table_name = 'user_settings' and column_name = 'memory_enabled'`,
+    );
+    expect(oldColumn).toEqual([]);
+    // The rest of the user's settings stay.
+    expect(
+      await rows(url, "select user_id, instructions from chat.user_settings order by user_id"),
+    ).toEqual([
+      { user_id: "user-off", instructions: "Be brief" },
+      { user_id: "user-on", instructions: null },
+    ]);
+  });
+
   it("creates the vector extension, so Knowledge can store embeddings", async () => {
     const url = await scratchDatabase("k358_vector");
 
@@ -440,7 +506,7 @@ describe("chat.migrate()", () => {
     await expect(Promise.all([chat.migrate(), chat.migrate()])).resolves.toBeDefined();
 
     const applied = await rows<{ count: string }>(url, "select count(*) from chat.__migrations");
-    expect(applied).toEqual([{ count: "44" }]);
+    expect(applied).toEqual([{ count: "45" }]);
   });
 
   it("gives a Conversation's tool settings empty lists by default, so existing rows read as empty", async () => {

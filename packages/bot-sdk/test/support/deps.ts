@@ -11,6 +11,7 @@ import type { GivenContext } from "../../core/server/create-chat";
 import type { BotSdkPlugin } from "../../core/server/plugin";
 import { createBotSdkOver, type SdkOver } from "../../plugins/assistant/server/over";
 import type { Limits } from "../../plugins/assistant/server/deps";
+import { memory } from "../../plugins/memory/server/plugin";
 import type { ModelsDeps } from "../../plugins/models/server/types";
 import type { JobRunner } from "../../plugins/runner/server/jobs/runner";
 import { resolveRateLimits } from "../../core/server/rate-limits";
@@ -37,6 +38,8 @@ export type TestDepsOverrides = Partial<
       jobs: JobRunner;
       /** More plugins, enabled after `models` and the assistant. */
       plugins: readonly BotSdkPlugin[];
+      /** Whether the `memory` plugin is installed; `true` by default. */
+      memory: boolean;
     }
 >;
 
@@ -114,7 +117,6 @@ export function createTestSdk({ limits, plugins, ...overrides }: TestDepsOverrid
     tools: overrides.tools ?? [],
     mcpServers: overrides.mcpServers ?? [],
     artifacts: overrides.artifacts ?? false,
-    memory: overrides.memory ?? true,
     runStreams,
     runs: overrides.runs ?? new Map(),
     // Overrides merge, so a test that sets one limit keeps the rest.
@@ -129,8 +131,9 @@ export function createTestSdk({ limits, plugins, ...overrides }: TestDepsOverrid
       ...limits,
     },
   };
+  const installed = [...(overrides.memory === false ? [] : [memory()]), ...(plugins ?? [])];
   return createBotSdkOver(
-    { context, models, assistant, jobs: overrides.jobs, ...(plugins && { plugins }) },
+    { context, models, assistant, jobs: overrides.jobs, plugins: installed },
     { basePath: "/api/chat", getUser: () => null, logger: { error: () => {} } },
   ).sdk;
 }

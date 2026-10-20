@@ -3,8 +3,8 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { TurnChange } from "../../../plugins/assistant/shared/memory/changes";
-import { MemoryChip } from "../../../plugins/assistant/ui/chat/memory-changes";
+import type { TurnChange } from "../../../plugins/memory/shared/changes";
+import { MemoryChip } from "../../../plugins/memory/ui/memory-changes";
 import { providerFor } from "../fake-dictionary";
 
 afterEach(() => {
