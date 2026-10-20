@@ -57,6 +57,9 @@ export const cancelCheckInToolName = "cancel_check_in";
 /** The Bot tool that lists its pending Check-ins (#540). */
 export const listCheckInsToolName = "list_check_ins";
 
+/** The tool that searches the Bot's memory files (ADR 0022). */
+export const searchMemoryToolName = "search_memory";
+
 const promptOpening =
   "You are a Bot the user talks to in a messenger. The user never sees your text replies or your " +
   `tool calls; they see only the messages you send with the ${sendToUserToolName} tool. `;
@@ -241,6 +244,17 @@ const cancelCheckInDefinition = toolDefinition({
   description:
     "Cancel one of your pending Check-ins, by the id list_check_ins or set_check_in gave.",
   inputSchema: z.object({ id: z.uuid().meta({ description: "The Check-in id." }) }),
+});
+
+const searchMemoryDefinition = toolDefinition({
+  name: searchMemoryToolName,
+  description:
+    "Search your memory: your Profile, every Log month and your Notes, and all the Bots' " +
+    "Profiles. Returns the 10 best matching lines with file and date. Use it for what the " +
+    "memory in your prompt doesn't hold.",
+  inputSchema: z.object({
+    query: z.string().min(1).meta({ description: "What to look for in your memory" }),
+  }),
 });
 
 const listCheckInsDefinition = toolDefinition({
@@ -953,6 +967,21 @@ async function turnSetup(deps: BotSdkContext, turn: TurnFacts, kit: LoopKit): Pr
   const withComputer = deps.hasPlugin("computer");
   const memory =
     withComputer && deps.hasPlugin("memory") ? await memorySnapshot(deps, turn, kit) : null;
+  // Present whenever the snapshot is: it reads through the Computer like the snapshot does.
+  const searchMemory = memory
+    ? searchMemoryDefinition.server(async ({ query }, context) =>
+        kit.computerCall(searchMemoryToolName, context?.toolCallId, async (_computer, live) => ({
+          results: await deps.plugin("memory").searchBotMemory({
+            userId: turn.userId,
+            botId: turn.botId,
+            query,
+            now: deps.clock(),
+            computer: computerOf(deps, turn.userId),
+            signal: live.signal,
+          }),
+        })),
+      )
+    : null;
   return {
     systemPrompts: [
       ...botSystemPrompts(turn.botId, withComputer),
@@ -968,6 +997,7 @@ async function turnSetup(deps: BotSdkContext, turn: TurnFacts, kit: LoopKit): Pr
       cancelCheckInToolImpl,
       listCheckInsTool,
       webSearchTool(deps, turn.userId, kit.liveRequest),
+      ...(searchMemory ? [searchMemory] : []),
       ...(withComputer ? [...kit.computerTools, ...helperTools(deps, turn, liveActivity)] : []),
     ],
     ended: () => endTurn,
