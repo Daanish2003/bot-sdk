@@ -40,3 +40,8 @@ Research ([#216](https://github.com/Daanish2003/ai-chat/issues/216), `docs/resea
 - **The eval** is a hand-run LongMemEval script of 40 cases in `packages/chat-sdk/eval/memory/`, outside CI.
 
 Consequence updated: there is no new dependency on `@tanstack/ai-memory`. New schema: `chat.memory`, `user_settings.memory_enabled`, `conversation.temporary`, and `title_model` renamed `background_model`.
+
+## Amendment: a `memory` plugin, and Bots keep files (2026-10-20, #616, #622)
+
+- **A plugin.** Memory moves out of the assistant into a `memory` plugin, without changing how it works. The plugin requires `models` and `runner`. A Host turns Memory off by not installing the plugin, which replaces `memory?: boolean`. `memory_enabled` moves to `chat.memory_settings`, and the switch now covers Bots too. `background_model` stays in the assistant. `chat.memory` keeps its name.
+- **Bots don't use this ADR.** A Bot's memory is plain files on its Computer (ADR 0022). The assistant keeps everything above, and its Memories are not shared with Bots' Profiles.
