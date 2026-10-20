@@ -70,7 +70,7 @@ const botRouter = {
       ]);
       // Each Turn's Triggers and whether it sent anything, for the dividers of Routine runs.
       const [turns, userStatus] = await Promise.all([
-        turnProvenance(context.sdk.db, bot.id, messages),
+        turnProvenance(context.sdk.db, context.user.id, bot.id, messages),
         userTurnStatus(context.sdk.db, messages),
       ]);
       return {

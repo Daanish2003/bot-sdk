@@ -1,8 +1,14 @@
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 
-import { botTrigger, botTurn } from "../../../core/server/db/schema";
+import { botTrigger, botTurn, usage } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
-import type { BotMessage, BotTurnProvenance, BotTurnTrigger } from "../shared/turn";
+import type {
+  BotMessage,
+  BotStepSection,
+  BotTurnProvenance,
+  BotTurnStep,
+  BotTurnTrigger,
+} from "../shared/turn";
 import { routineNameOf, slotOf } from "./routine";
 
 /**
@@ -14,6 +20,7 @@ import { routineNameOf, slotOf } from "./routine";
  */
 export async function turnProvenance(
   db: Database,
+  userId: string,
   botId: string,
   messages: BotMessage[],
 ): Promise<BotTurnProvenance[]> {
@@ -43,6 +50,11 @@ export async function turnProvenance(
       .where(eq(botTurn.botId, botId))
       .orderBy(asc(botTrigger.receivedAt), asc(botTrigger.id)),
   ]);
+  const stepsOf = await turnSteps(
+    db,
+    userId,
+    turns.map((turn) => turn.id),
+  );
   const triggersOf = new Map<string, BotTurnTrigger[]>();
   for (const trigger of triggers) {
     const taken = triggersOf.get(trigger.turnId!) ?? [];
@@ -64,8 +76,63 @@ export async function turnProvenance(
       ...turn,
       sent: next !== undefined && next <= (turn.endedAt?.getTime() ?? Infinity),
       triggers: triggersOf.get(turn.id) ?? [],
+      steps: stepsOf.get(turn.id) ?? [],
     };
   });
+}
+
+/**
+ * Each Turn's Steps: the user's `turn` usage rows read by `source_id`, narrowed by the user's
+ * `(user_id, created_at)` index (`source_id` has no index of its own). A flagged
+ * section carries the hash it had in the Step before, across Turns.
+ */
+async function turnSteps(
+  db: Database,
+  userId: string,
+  turnIds: string[],
+): Promise<Map<string, BotTurnStep[]>> {
+  const stepsOf = new Map<string, BotTurnStep[]>();
+  if (turnIds.length === 0) return stepsOf;
+  const rows = await db
+    .select({
+      id: usage.id,
+      sourceId: usage.sourceId,
+      inputTokens: usage.inputTokens,
+      cacheReadTokens: usage.cacheReadTokens,
+      cacheWriteTokens: usage.cacheWriteTokens,
+      costMicros: usage.costMicros,
+      promptHashes: usage.promptHashes,
+    })
+    .from(usage)
+    .where(and(eq(usage.userId, userId), eq(usage.kind, "turn"), inArray(usage.sourceId, turnIds)))
+    .orderBy(asc(usage.createdAt), asc(usage.id));
+  let before: BotStepSection[] = [];
+  for (const row of rows) {
+    const hashes = row.promptHashes ?? [];
+    const flagged = hashes.find((entry) => entry.changed);
+    const sections = hashes.map((entry): BotStepSection => {
+      const was = entry.changed ? before.find((old) => old.name === entry.name)?.hash : undefined;
+      return {
+        name: entry.name,
+        tokens: entry.tokens ?? 0,
+        hash: entry.hash,
+        ...(was === undefined ? {} : { was }),
+      };
+    });
+    const steps = stepsOf.get(row.sourceId!) ?? [];
+    steps.push({
+      id: row.id,
+      inputTokens: row.inputTokens,
+      cacheReadTokens: row.cacheReadTokens,
+      cacheWriteTokens: row.cacheWriteTokens,
+      costMicros: row.costMicros,
+      sections,
+      changed: flagged ? { section: flagged.name, kind: flagged.changed! } : null,
+    });
+    stepsOf.set(row.sourceId!, steps);
+    before = sections;
+  }
+  return stepsOf;
 }
 
 /** The index of the first of the ascending `times` at or after `at` (`times.length` for none). */
