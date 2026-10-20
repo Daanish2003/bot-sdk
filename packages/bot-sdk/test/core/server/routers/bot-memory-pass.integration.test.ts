@@ -10,6 +10,7 @@ import type { HostProvider } from "../../../../plugins/assistant/server/deps";
 import { bot } from "../../../../plugins/bot/server/plugin";
 import { findBot } from "../../../../plugins/bot/server/store";
 import { computer } from "../../../../plugins/computer/server/plugin";
+import { botMemoryPassJob } from "../../../../plugins/memory/server/bot-pass";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { quotaLookup } from "../../../../plugins/models/server/quota";
 import {
@@ -17,6 +18,8 @@ import {
   type InProcessRunner,
   systemClock,
 } from "../../../../plugins/runner/server/jobs/in-process";
+import { unrecordedStore } from "../../../../plugins/runner/server/jobs/history";
+import { createWorkflow } from "../../../../plugins/runner/server/workflow/engine";
 import { createTestSdk, type TestDeps, type TestDepsOverrides } from "../../../support/deps";
 import { createFakeAdapter, round, runError, text, withUsage } from "../../../support/fake-adapter";
 import { chatRpc } from "../../../support/sdk";
@@ -336,6 +339,40 @@ describe("the post-turn memory pass", () => {
 
     expect(fake.calls).toHaveLength(1);
     expect(read(ada, "profile.md")).toBe("- Prefers short replies\n");
+  });
+
+  it("applies the recorded operations on a retry, even once the Quota is spent", async () => {
+    const usageOfCall = { promptTokens: 100, completionTokens: 10, totalTokens: 110 };
+    // 200 micros a day; the Turn spends 450, so the Quota is spent by the retry.
+    const { client, botIds, deps, read } = await botsWith([withUsage(round(), usageOfCall)], {
+      host: true,
+      getQuota: quotaLookup({ budgetUsd: 0.0002, window: "day" }),
+    });
+    const [ada] = botIds as [string];
+    await send(client, ada, "I live in Berlin");
+    await passesEnded(1);
+    const [turn] = await getTestDb().select().from(botTurn).where(eq(botTurn.botId, ada));
+
+    // A retry of an attempt that recorded its operations, then failed before applying them.
+    const workflow = createWorkflow({
+      history: [
+        {
+          seq: 1,
+          kind: "activity",
+          name: "memory_ops",
+          result: { shown: [], ops: [{ op: "add", tier: "profile", text: "Lives in Berlin" }] },
+        },
+      ],
+      store: unrecordedStore(getTestDb()),
+      now: () => now,
+    });
+    await botMemoryPassJob.run(
+      { turnId: turn!.id },
+      { ...workflow.context, signal: new AbortController().signal, deps },
+    );
+
+    expect(() => workflow.finish()).not.toThrow();
+    expect(read(ada, "profile.md")).toBe("- Lives in Berlin\n");
   });
 
   it("saves the Turn's change list and announces it on the Conversation event stream", async () => {

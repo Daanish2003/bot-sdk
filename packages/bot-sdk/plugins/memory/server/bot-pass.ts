@@ -115,7 +115,8 @@ export async function enqueueBotMemoryPass(
  * Runs Turn `turnId`'s pass on the Bot's own Model, one pass at a time per Bot, as recorded
  * activities: a retried job applies the operations its first call returned, with no second call.
  * Ends quietly, with nothing changed, with Memory off, no `computer`, no Model call or the Quota
- * spent, and when the call fails or returns invalid output. A Computer failure throws.
+ * spent (as its first attempt found them), and when the call fails or returns invalid output. A
+ * Computer failure throws.
  */
 async function runBotMemoryPass(
   deps: BotSdkContext,
@@ -136,10 +137,7 @@ async function runBotMemoryPass(
     .innerJoin(bot, eq(bot.id, botTurn.botId))
     .where(eq(botTurn.id, turnId));
   if (!turn || (turn.status !== "complete" && turn.status !== "stopped")) return;
-  if (!deps.hasPlugin("computer") || !(await memoryEnabledFor(deps, turn.userId))) return;
-  const call = await deps.plugin("models").resolveModelCall(turn.userId, turn.model);
-  if (!call || !(await call.meter.mayRun()).ok) return;
-  const computer = deps.plugin("computer").forUser(turn.userId);
+  const computer = () => deps.plugin("computer").forUser(turn.userId);
 
   const changes = await deps.db.transaction(async (lock) => {
     // One pass at a time per Bot, as the assistant's Memory job does per user: a later pass is
@@ -147,8 +145,13 @@ async function runBotMemoryPass(
     await lock.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${`memory-pass:${turn.botId}`}, 0))`,
     );
+    // The checks are part of the recorded call: a retry applies the operations its first attempt
+    // planned, even once Memory is off or the Quota is spent.
     const planned = await activity("memory_ops", async () => {
-      const shown = await shownLines(computer, {
+      if (!deps.hasPlugin("computer") || !(await memoryEnabledFor(deps, turn.userId))) return null;
+      const call = await deps.plugin("models").resolveModelCall(turn.userId, turn.model);
+      if (!call || !(await call.meter.mayRun()).ok) return null;
+      const shown = await shownLines(computer(), {
         botId: turn.botId,
         turnStartedAt: turn.startedAt,
         signal,
@@ -169,7 +172,7 @@ async function runBotMemoryPass(
     if (!planned) return [];
     // The writes and the change list, once: a retry after the Checkpoint reads the change list.
     return activity("memory_apply", async (tx) => {
-      const applied = await applyMemoryOps(computer, {
+      const applied = await applyMemoryOps(computer(), {
         botId: turn.botId,
         ...planned,
         now: deps.clock(),
