@@ -923,8 +923,8 @@ async function playTurn(
  * first Turn builds from the system blocks and tools as they are now. Memory and Routines are still
  * read every Turn (ADR 0022, amended), but the Prompt start keeps them as they were when it was
  * built. History is the `earlier` Turns from its Summary on. A Summary written mid-Turn builds the
- * next Prompt start from the system blocks and tools as they are then. `db` reads the stored
- * Prompt start.
+ * next Prompt start from the tools and the system blocks as this Turn read them at its start.
+ * `db` reads the stored Prompt start.
  */
 async function turnSetup(
   deps: BotSdkContext,

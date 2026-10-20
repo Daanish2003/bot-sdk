@@ -13,7 +13,14 @@ import {
 } from "../../../../plugins/runner/server/jobs/in-process";
 import { claimJob, reapStaleJobs } from "../../../../plugins/runner/server/jobs/store";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
-import { createFakeAdapter, round, text, toolCall, withUsage } from "../../../support/fake-adapter";
+import {
+  createFakeAdapter,
+  round,
+  runError,
+  text,
+  toolCall,
+  withUsage,
+} from "../../../support/fake-adapter";
 import { fakeJobClock } from "../../../support/jobs";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
@@ -137,7 +144,8 @@ describe("a Turn that nears the context window", () => {
     expect(newStart!.summaryId).toBe(summary!.id);
     const newFirst = newStart!.sections.at(-1)!.text;
     expect(newFirst).toContain(summary!.text);
-    expect(turn!.promptStartId).toBe(newStart!.id);
+    // The Turn keeps the Prompt start it started with.
+    expect(turn!.promptStartId).toBe(oldStart!.id);
 
     // The Turn carries on: the new first message, its own input word for word, then the note.
     const resumed = messagesOf(after);
@@ -208,6 +216,66 @@ describe("a Turn that nears the context window", () => {
       .from(usage)
       .where(and(eq(usage.kind, "turn"), eq(usage.sourceId, second!.id)));
     expect(hashes[0]!.promptHashes!.filter((entry) => entry.changed)).toEqual([]);
+  });
+
+  it("names the next Turn's new first message as expected when the Turn ended right after its Summary", async () => {
+    const { client, botId } = await botWith([
+      reporting(800_000, say("Looking into it now.")),
+      round(text("The user asked Ada to research flights.")),
+      round(runError("Overloaded")),
+      round(),
+    ]);
+
+    await send(client, botId, "find me flights");
+    await send(client, botId, "thanks");
+
+    const [, second] = await turnsOf(botId);
+    const [row] = await getTestDb()
+      .select({ promptHashes: usage.promptHashes })
+      .from(usage)
+      .where(and(eq(usage.kind, "turn"), eq(usage.sourceId, second!.id)));
+    expect(
+      row!
+        .promptHashes!.filter((entry) => entry.changed)
+        .map(({ name, changed }) => [name, changed]),
+    ).toEqual([["first_message", "expected"]]);
+  });
+
+  it("ends the Turn with the Model's error when the summary call fails", async () => {
+    const { fake, client, botId } = await botWith([
+      reporting(800_000, say("Looking into it now.")),
+      round(runError("Prompt is too long")),
+    ]);
+
+    await send(client, botId, "find me flights");
+
+    expect(fake.calls).toHaveLength(2);
+    const [turn] = await turnsOf(botId);
+    expect(turn).toMatchObject({ status: "error", error: "Prompt is too long" });
+    expect(await summariesOf(botId)).toEqual([]);
+  });
+
+  it("carries on without a Summary when the summary call writes none", async () => {
+    const { fake, client, botId } = await botWith([
+      reporting(800_000, say("Looking into it now.")),
+      reporting(800_100, say("Still looking.")),
+      say("Found three flights.", true),
+    ]);
+
+    await send(client, botId, "find me flights");
+
+    expect(await summariesOf(botId)).toEqual([]);
+    expect(await startsOf(botId)).toHaveLength(1);
+    // The Step after it sends what it would have, with no note.
+    expect(messagesOf(fake.calls[2]).slice(0, messagesOf(fake.calls[0]).length)).toEqual(
+      messagesOf(fake.calls[0]),
+    );
+    expect(JSON.stringify(fake.calls[2]?.messages)).not.toContain(note);
+    const [usageRow] = await getTestDb()
+      .select({ kind: usage.kind })
+      .from(usage)
+      .where(eq(usage.kind, "summary"));
+    expect(usageRow).toBeDefined();
   });
 });
 

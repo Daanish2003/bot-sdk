@@ -1,7 +1,7 @@
 import type { ModelMessage } from "@tanstack/ai";
 import { and, desc, eq, lte } from "drizzle-orm";
 
-import { botPromptStart, botSummary, botTurn, message } from "../../../core/server/db/schema";
+import { botPromptStart, botSummary, message } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
 import type { Transaction } from "../../../core/server/plugin";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
@@ -66,7 +66,9 @@ async function lastMessagesToUser(
 /**
  * Writes a Summary in `tx`: the model's `prose`, then the Bot's last 3 Messages to the user word for
  * word with their times. It builds a new Prompt start from `parts` whose first message holds it, and
- * a `mid_turn` Summary points its Turn at that Prompt start. Returns the new Prompt start's id.
+ * returns its id. A `mid_turn` Summary's Turn keeps the Prompt start it started with: the next
+ * Turn's first call compares with that, so a Turn stopped right after its Summary reads as an
+ * expected change, never a bug.
  */
 export async function writeSummary(
   tx: Transaction,
@@ -91,11 +93,7 @@ export async function writeSummary(
     turnId: kind === "mid_turn" ? turn.id : null,
     createdAt: now,
   });
-  const promptStartId = await buildPromptStart(tx, parts, { id, text });
-  if (kind === "mid_turn") {
-    await tx.update(botTurn).set({ promptStartId }).where(eq(botTurn.id, turn.id));
-  }
-  return promptStartId;
+  return buildPromptStart(tx, parts, { id, text });
 }
 
 /** The Summary a Prompt start holds: what its history carries on from. */

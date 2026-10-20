@@ -346,6 +346,41 @@ export async function runLoop(
         }
       : chatOptions;
 
+  /**
+   * A live model call of `sent`, inside a model call's activity: its chunks, without the raw events.
+   * The Model's own failure throws a `ModelCallError`.
+   */
+  const liveChunks = async (sent: TextOptions): Promise<StreamChunk[]> => {
+    // Read off the clock too: a timer that is due may not have fired yet.
+    if (attempt && (expired || timeLeftMs() <= 0)) timeUp();
+    abortController.signal.throwIfAborted();
+    // Only the newest screenshots go to the Model, read from the blob store now: the transcript
+    // and the Checkpoints hold their refs (#608). Outside the Model's own failure, so a failed read
+    // is retried like a Checkpoint that failed to save.
+    const pruned = {
+      ...sent,
+      messages: await resolveScreenshots(
+        deps.blobStore,
+        pruneScreenshots(sent.messages as ModelMessage[]),
+      ),
+    };
+    const chunks: StreamChunk[] = [];
+    inLiveCall = true;
+    try {
+      const { adapter } = await liveCall();
+      for await (const chunk of adapter.chatStream(pruned)) {
+        chunks.push(withoutRaw(chunk));
+      }
+    } catch (caught) {
+      throw new ModelCallError(caught);
+    } finally {
+      inLiveCall = false;
+    }
+    // A call cut off before its end records nothing and bills nothing; a resume calls it again.
+    abortController.signal.throwIfAborted();
+    return chunks;
+  };
+
   // The model call as an activity: replayed, it plays the recorded chunks without calling the Model.
   // The call runs outside a transaction; its bill is the next activity, written in that activity's
   // Checkpoint transaction, so it commits once.
@@ -359,9 +394,6 @@ export async function runLoop(
       let recorded: RecordedModelCall;
       try {
         recorded = await ctx.activity("model", async (): Promise<RecordedModelCall> => {
-          // Read off the clock too: a timer that is due may not have fired yet.
-          if (attempt && (expired || timeLeftMs() <= 0)) timeUp();
-          abortController.signal.throwIfAborted();
           const sent = sentOptions(chatOptions);
           let hashes: PromptHash[] | undefined;
           if (promptStart) {
@@ -377,30 +409,7 @@ export async function runLoop(
               previousCall ?? undefined,
             );
           }
-          // Only the newest screenshots go to the Model, read from the blob store now: the
-          // transcript and the Checkpoints hold their refs (#608). Outside the Model's own
-          // failure, so a failed read is retried like a Checkpoint that failed to save.
-          const pruned = {
-            ...sent,
-            messages: await resolveScreenshots(
-              deps.blobStore,
-              pruneScreenshots(sent.messages as ModelMessage[]),
-            ),
-          };
-          const chunks: StreamChunk[] = [];
-          inLiveCall = true;
-          try {
-            const { adapter } = await liveCall();
-            for await (const chunk of adapter.chatStream(pruned)) {
-              chunks.push(withoutRaw(chunk));
-            }
-          } catch (caught) {
-            throw new ModelCallError(caught);
-          } finally {
-            inLiveCall = false;
-          }
-          // A call cut off before its end records nothing and bills nothing; a resume calls it again.
-          abortController.signal.throwIfAborted();
+          const chunks = await liveChunks(sent);
           const usage = callUsage(deps, provider, chunks, sent.messages as ModelMessage[]);
           return { chunks, usage: usage ?? null, ...(hashes ? { hashes } : {}) };
         });
@@ -451,45 +460,35 @@ export async function runLoop(
     const written = await ctx.activity(
       "summary",
       async (): Promise<{ prose: string; usage: RecordedModelCall["usage"] }> => {
-        if (attempt && (expired || timeLeftMs() <= 0)) timeUp();
-        abortController.signal.throwIfAborted();
         const messages: ModelMessage[] = [
           ...(sent.messages as ModelMessage[]),
           { role: "user", content: summarizeInstruction },
         ];
-        const chunks: StreamChunk[] = [];
-        inLiveCall = true;
-        try {
-          const { adapter } = await liveCall();
-          const call = {
-            ...sent,
-            messages: await resolveScreenshots(deps.blobStore, pruneScreenshots(messages)),
-          };
-          for await (const chunk of adapter.chatStream(call)) chunks.push(withoutRaw(chunk));
-        } finally {
-          inLiveCall = false;
-        }
-        abortController.signal.throwIfAborted();
+        const chunks = await liveChunks({ ...sent, messages });
+        // The Model's own failure ends the loop `error`, as a Step's does: retrying sends the same.
         const failed = chunks.find((chunk) => chunk.type === EventType.RUN_ERROR);
-        if (failed) throw new Error(`The summary call failed: ${failed.message}`);
+        if (failed) throw new ModelCallError(new Error(failed.message));
         const prose = chunks
           .map((chunk) => (chunk.type === EventType.TEXT_MESSAGE_CONTENT ? chunk.delta : ""))
           .join("");
         return { prose, usage: callUsage(deps, provider, chunks, messages) };
       },
     );
+    // The previous Step's input is checked once: the next Step checks its own.
+    lastInput = undefined;
     const id = await billing("summary:write", async (tx, onCommit) => {
       const bill = written.usage;
       if (bill) {
         const { record } = await liveCall();
         onCommit(await record(tx, bill.usage, bill.reportedCost, undefined, "summary"));
       }
-      return write(tx, written.prose);
+      // A reply with no summary (only tool calls, or nothing) is billed but never replaces the
+      // context: the Turn carries on as it was.
+      return written.prose.trim() ? write(tx, written.prose) : null;
     });
+    if (id === null) return false;
     promptStart = await load(id);
     summarizedAt = all.length;
-    // The next Step's check reads its own input, which no longer holds the summarized Steps.
-    lastInput = undefined;
     return true;
   };
 
@@ -741,6 +740,8 @@ export async function runLoop(
                 const all = [...(config.providerMessages ?? config.messages), ...added];
                 if (await summarizeIfFull(all)) added.push({ role: "user", content: midTurnNote });
               } catch (caught) {
+                // The summary call's Model failure ends the loop `error`, as a Step's does.
+                if (caught instanceof ModelCallError) throw caught.cause;
                 // It recorded nothing: the job retries it, as for a model call's Checkpoint.
                 if (!abortController.signal.aborted) {
                   failure ??= caught;

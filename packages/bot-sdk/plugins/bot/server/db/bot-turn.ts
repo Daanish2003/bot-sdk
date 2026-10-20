@@ -59,7 +59,7 @@ export const botTurn = chatSchema.table(
     input: jsonb("input").$type<ModelMessage[]>(),
     /**
      * The Prompt start the Turn's model calls send, set before its first one: the Bot's latest, or
-     * the one its first Turn builds.
+     * the one its first Turn builds. After a mid-Turn Summary, its later calls send the Summary's.
      */
     promptStartId: uuid("prompt_start_id").references((): AnyPgColumn => botPromptStart.id, {
       onDelete: "set null",
