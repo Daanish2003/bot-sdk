@@ -175,6 +175,28 @@ describe("a Turn that nears the context window", () => {
     expect(changed.map((entry) => entry.changed)).toEqual(["expected"]);
   });
 
+  it("counts the summary call in the Turn's usage and shows it in the Turn's chip", async () => {
+    const { client, botId } = await botWith([
+      reporting(800_000, say("Looking into it now.")),
+      reporting(800_100, round(text("The user asked Ada to research flights."))),
+      say("Found three flights.", true),
+    ]);
+
+    await send(client, botId, "find me flights");
+
+    const [turn] = await turnsOf(botId);
+    const rows = await getTestDb()
+      .select({ id: usage.id, kind: usage.kind, inputTokens: usage.inputTokens })
+      .from(usage)
+      .where(eq(usage.sourceId, turn!.id))
+      .orderBy(asc(usage.createdAt), asc(usage.id));
+    expect(turn!.usage!.input).toBe(rows.reduce((sum, row) => sum + row.inputTokens, 0));
+    const { turns } = await client.bot.get({ botId });
+    expect(turns[0]!.steps.map((step) => [step.id, step.kind])).toEqual(
+      rows.map((row) => [row.id, row.kind]),
+    );
+  });
+
   it("does not summarize while the previous Step stays under 75% of the context window", async () => {
     const { fake, client, botId } = await botWith([
       reporting(787_000, say("Looking into it now.")),

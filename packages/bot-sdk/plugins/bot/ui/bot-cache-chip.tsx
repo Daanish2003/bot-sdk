@@ -54,6 +54,17 @@ function StepDetail({ step, number }: { step: BotTurnStep; number: number }) {
   const { t } = useI18n();
   const states = sectionStates(step);
   const total = step.sections.reduce((sum, section) => sum + section.tokens, 0) || 1;
+  // A mid-Turn summary call hashes nothing: one line with its cache use and cost.
+  if (step.kind === "summary") {
+    return (
+      <li className="text-muted-foreground">
+        {t("bots.cacheSummaryStep", {
+          percent: percentOf([step]),
+          cost: costOf(step.costMicros),
+        })}
+      </li>
+    );
+  }
   return (
     <li className="flex flex-col gap-1">
       <div className="text-muted-foreground">
@@ -102,8 +113,9 @@ function StepDetail({ step, number }: { step: BotTurnStep; number: number }) {
 /**
  * The cache chip under a Turn (#675, prototype variant A with B's bars): how much of its input came
  * from the cache, its Steps and cost, red when a section changed that should not have. It expands to
- * each Step's prompt as a bar of sections sized by tokens, with every section's hash. Shows nothing
- * for a Turn with no Steps.
+ * each Step's prompt as a bar of sections sized by tokens, with every section's hash. A mid-Turn
+ * summary call counts in its cost and hit rate, as a line of its own, but not as a Step. Shows
+ * nothing for a Turn with no Steps.
  */
 export function BotCacheChip({ steps }: { steps: BotTurnStep[] }) {
   const { t } = useI18n();
@@ -111,6 +123,7 @@ export function BotCacheChip({ steps }: { steps: BotTurnStep[] }) {
   if (steps.length === 0) return null;
   const bug = steps.find((step) => step.changed?.kind === "bug");
   const cost = costOf(steps.reduce((sum, step) => sum + step.costMicros, 0));
+  const count = steps.filter((step) => step.kind !== "summary").length;
   return (
     <div className="self-start text-xs text-muted-foreground">
       <button
@@ -120,13 +133,17 @@ export function BotCacheChip({ steps }: { steps: BotTurnStep[] }) {
         onClick={() => setOpen(!open)}
       >
         {bug
-          ? t("bots.cacheMiss", { section: bug.changed!.section, steps: steps.length, cost })
-          : t("bots.cacheChip", { percent: percentOf(steps), steps: steps.length, cost })}
+          ? t("bots.cacheMiss", { section: bug.changed!.section, steps: count, cost })
+          : t("bots.cacheChip", { percent: percentOf(steps), steps: count, cost })}
       </button>
       {open && (
         <ol className="mt-1 flex flex-col gap-3 rounded-lg border p-2">
           {steps.map((step, index) => (
-            <StepDetail key={step.id} step={step} number={index + 1} />
+            <StepDetail
+              key={step.id}
+              step={step}
+              number={steps.slice(0, index + 1).filter((each) => each.kind !== "summary").length}
+            />
           ))}
         </ol>
       )}

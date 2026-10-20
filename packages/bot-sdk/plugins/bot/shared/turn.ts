@@ -62,6 +62,8 @@ export type BotStepSection = {
  */
 export type BotTurnStep = {
   id: string;
+  /** A model call of the Turn (`turn`), or its mid-Turn summary call (`summary`), which hashes nothing. */
+  kind: "turn" | "summary";
   inputTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;

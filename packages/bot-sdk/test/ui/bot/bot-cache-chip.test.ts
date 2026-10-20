@@ -26,6 +26,7 @@ const section = (name: string, tokens: number, hash: string, was?: string) => ({
 /** A Step that read the first 800 of its 1000 tokens, wrote 100 and left 100 uncached. */
 const warm: BotTurnStep = {
   id: "s1",
+  kind: "turn",
   inputTokens: 1000,
   cacheReadTokens: 800,
   cacheWriteTokens: 100,
@@ -87,6 +88,24 @@ describe("BotCacheChip", () => {
     fireEvent.click(chip);
 
     expect(screen.getByText(/^Expected: first_message changed/)).toBeTruthy();
+  });
+
+  it("adds a mid-Turn summary call to the cost, as a line of its own, not a Step", () => {
+    const summary: BotTurnStep = {
+      ...warm,
+      id: "sum",
+      kind: "summary",
+      costMicros: 1500,
+      sections: [],
+      changed: null,
+    };
+    show([warm, summary, { ...warm, id: "s2", costMicros: 1000 }]);
+
+    const chip = screen.getByRole("button", { name: "Cache 80% · 2 Steps · $0.0050" });
+    fireEvent.click(chip);
+
+    expect(screen.getByText("Summary · 80% cached · $0.0015")).toBeTruthy();
+    expect(screen.getByText("Step 2 · 80% cached · $0.0010")).toBeTruthy();
   });
 
   it("shows nothing for a Turn with no Steps", () => {

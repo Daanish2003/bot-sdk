@@ -512,6 +512,8 @@ export async function runLoop(
       // context: the Turn carries on as it was.
       return written.prose.trim() ? write(tx, written.prose) : null;
     });
+    // The summary call is part of what the Turn cost.
+    if (written.usage) billed.push(written.usage.usage);
     if (id === null) return false;
     promptStart = await load(id);
     summarizedAt = all.length;
