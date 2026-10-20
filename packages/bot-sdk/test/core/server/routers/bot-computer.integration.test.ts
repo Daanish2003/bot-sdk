@@ -53,13 +53,13 @@ afterEach(async () => {
 /**
  * A user with an OpenAI key and a Bot, over an SDK whose Model plays `rounds` and whose in-process
  * runner runs the Turns. With `withComputer`, `computer` is on over a fake provider whose commands
- * `onCommand` answers. `memory` is installed unless `withMemory` is false.
+ * `onCommand` answers. `memory` is installed only `withMemory`, so no memory pass takes a round.
  */
 async function botWith(
   rounds: Round[],
   {
     withComputer = true,
-    withMemory = true,
+    withMemory = false,
     onCommand,
     clock,
   }: {
@@ -480,6 +480,7 @@ describe("a shell call whose attempt is cut off", () => {
         plugins: [bot(), computer({ provider: computerFake.provider })],
         jobs,
         adapterFor: () => fake.adapter,
+        memory: false,
       });
       runners.set(deps, jobs);
       return deps;

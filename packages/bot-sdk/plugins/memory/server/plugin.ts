@@ -4,6 +4,7 @@ import { memory as memoryTable, memorySettings } from "../../../core/server/db/s
 import type { BotSdkContext, BotSdkPlugin, Transaction } from "../../../core/server/plugin";
 import type { TurnChange } from "../shared/changes";
 import { botMemorySnapshot, type BotSnapshotArgs } from "./bot-memory";
+import { enqueueBotMemoryPass } from "./bot-pass";
 import { enqueueMemories, type MakeMemoriesPayload } from "./make";
 import { memoryEnabledFor } from "./manage";
 import { turnChangesOf } from "./notice";
@@ -53,6 +54,12 @@ export type MemoryApi = {
    * user's Memory off. A Computer failure throws.
    */
   botSnapshot: (args: BotSnapshotArgs) => Promise<string | null>;
+  /**
+   * Queues Turn `turnId`'s post-turn pass (ADR 0022) in `tx`, the transaction that ends it, when it
+   * ended `complete` or `stopped` and the user's Memory is on with a `computer` plugin. Call the
+   * runner's `wake()` once `tx` has committed.
+   */
+  afterTurn: (tx: Transaction, turnId: string) => Promise<void>;
   /** The user's switch and every Memory, valid and outdated, read in the export's snapshot `tx`. */
   exportRows: (
     tx: Transaction,
@@ -96,6 +103,7 @@ function memoryApi(sdk: BotSdkContext): MemoryApi {
     isEnabled: (userId) => memoryEnabledFor(sdk, userId),
     turnChanges: (userMessageIds) => turnChangesOf(sdk, userMessageIds),
     botSnapshot: (args) => botMemorySnapshot(sdk, args),
+    afterTurn: (tx, turnId) => enqueueBotMemoryPass(sdk, tx, turnId),
     exportRows: async (tx, userId) => ({
       enabled: await memoryEnabledFor({ db: tx }, userId),
       memories: await tx

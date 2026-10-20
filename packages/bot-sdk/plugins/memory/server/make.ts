@@ -425,10 +425,17 @@ async function extractMemories(
   };
 }
 
-/** One call on the Background Model, recorded against the Quota when it is on Host credentials (ADR 0007). */
-async function askBackground(
+/**
+ * One call on the Background Model, recorded against the Quota when it is on Host credentials (ADR
+ * 0007). A Bot's post-turn pass calls it on the Bot's Model.
+ */
+export async function askBackground(
   deps: BotSdkContext,
-  { plan, system, user }: { plan: MemoryPlan; system: string; user: string },
+  {
+    plan,
+    system,
+    user,
+  }: { plan: Pick<MemoryPlan, "model" | "call">; system: string; user: string },
 ): Promise<string> {
   const messages: ModelMessage[] = [{ role: "user", content: user }];
   const result = await chat({
@@ -452,7 +459,7 @@ async function askBackground(
 }
 
 /** Parses a Background Model reply as JSON and validates it with Zod, after stripping code fences. */
-function parseReply<T extends z.ZodType>(schema: T, reply: string): z.infer<T> {
+export function parseReply<T extends z.ZodType>(schema: T, reply: string): z.infer<T> {
   const json = reply.trim().replace(/^```(?:json)?\s*|\s*```$/g, "");
   return schema.parse(JSON.parse(json));
 }

@@ -50,8 +50,16 @@ export type MemoryLine = { line: number; text: string };
 /** A Profile line: a fact with no date. */
 export type ProfileLine = MemoryLine & { fact: string };
 
-/** A Log line: its date (`YYYY-MM-DD`), its importance from 1 to 10, and the event. */
-export type LogLine = MemoryLine & { date: string; importance: number; event: string };
+/**
+ * A Log line: its date (`YYYY-MM-DD`), its importance from 1 to 10, the event, and the month
+ * (`YYYY-MM`) of the file it is in.
+ */
+export type LogLine = MemoryLine & {
+  date: string;
+  importance: number;
+  event: string;
+  month: string;
+};
 
 /** A Notes line: its date and the detail. */
 export type NoteLine = MemoryLine & { date: string; detail: string };
@@ -89,7 +97,8 @@ export function parseLog(content: string, month: string): LogLine[] {
     const rest = dated ? entry.text.slice(dated[0].length) : entry.text;
     const tagged = importancePattern.exec(rest);
     const importance = tagged ? clampImportance(Number(tagged[1])) : defaultImportance;
-    return { ...entry, date, importance, event: tagged ? rest.slice(tagged[0].length) : rest };
+    const event = tagged ? rest.slice(tagged[0].length) : rest;
+    return { ...entry, date, importance, event, month };
   });
 }
 

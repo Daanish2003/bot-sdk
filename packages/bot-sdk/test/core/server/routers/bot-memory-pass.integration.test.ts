@@ -1,0 +1,396 @@
+import type { TextOptions } from "@tanstack/ai";
+import { and, eq, inArray } from "drizzle-orm";
+import { afterEach, describe, expect, it } from "vitest";
+
+import { conversationChannel } from "../../../../core/server/chat/conversation-events";
+import { createMemoryPubSub } from "../../../../core/server/chat/pubsub";
+import { botTurn, job, usage } from "../../../../core/server/db/schema";
+import { uuidv7 } from "../../../../core/server/lib/uuidv7";
+import type { HostProvider } from "../../../../plugins/assistant/server/deps";
+import { bot } from "../../../../plugins/bot/server/plugin";
+import { findBot } from "../../../../plugins/bot/server/store";
+import { computer } from "../../../../plugins/computer/server/plugin";
+import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
+import { quotaLookup } from "../../../../plugins/models/server/quota";
+import {
+  inProcessRunner,
+  type InProcessRunner,
+  systemClock,
+} from "../../../../plugins/runner/server/jobs/in-process";
+import { createTestSdk, type TestDeps, type TestDepsOverrides } from "../../../support/deps";
+import { createFakeAdapter, round, runError, text, withUsage } from "../../../support/fake-adapter";
+import { chatRpc } from "../../../support/sdk";
+import { getTestDb } from "../../../support/test-database";
+import { insertUser } from "../../../support/users";
+import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
+
+const model = "openai:gpt-5.6";
+const silent = { error: () => {} };
+const passJob = "memory.bot-pass";
+
+type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
+
+/** The fake clock's "now": the pass dates its adds 2030-03-15, in the 2030-03 Log. */
+const now = new Date("2030-03-15T12:00:00Z");
+
+const hostModel = "anthropic:claude-sonnet-5-5";
+const hostProviders: HostProvider[] = [
+  {
+    provider: "anthropic",
+    credentials: { apiKey: "sk-host-secret-never-stored" },
+    models: [
+      {
+        modelId: "claude-sonnet-5-5",
+        maxOutputTokens: 512,
+        inputUsdPerMillion: 3,
+        outputUsdPerMillion: 15,
+      },
+    ],
+  },
+];
+
+const started: InProcessRunner[] = [];
+
+afterEach(async () => {
+  for (const jobs of started.splice(0)) await jobs.stop();
+});
+
+const memoryPath = (botId: string, file: string) => `/home/user/bots/${botId}/memory/${file}`;
+
+/**
+ * A user and the Bots `names` (oldest first), over an SDK with `memory()` and `computer` whose
+ * Model plays `rounds`, on a clock that reads `now`. With `host`, the Bots run on the Host's Model
+ * (metered); otherwise on the user's own key.
+ */
+async function botsWith(
+  rounds: Round[],
+  {
+    names = ["Ada"],
+    host = false,
+    getQuota,
+  }: { names?: string[]; host?: boolean } & Pick<TestDepsOverrides, "getQuota"> = {},
+) {
+  const fake = createFakeAdapter({ rounds });
+  const computerFake = fakeComputerProvider();
+  const pubsub = createMemoryPubSub();
+  const offset = now.getTime() - Date.now();
+  const clock = () => new Date(Date.now() + offset);
+  let deps: TestDeps | undefined;
+  const jobs = inProcessRunner({
+    db: getTestDb(),
+    logger: silent,
+    drainMs: 50,
+    clock: { ...systemClock, now: clock },
+    deps: () => deps!,
+  });
+  deps = createTestSdk({
+    plugins: [bot(), computer({ provider: computerFake.provider })],
+    jobs,
+    adapterFor: () => fake.adapter,
+    clock,
+    pubsub,
+    ...(host && { hostProviders }),
+    ...(getQuota && { getQuota }),
+  });
+  await jobs.start();
+  started.push(jobs);
+  const user = await insertUser();
+  if (!host) {
+    await saveCredentials(deps, user.id, {
+      service: "openai",
+      fields: { apiKey: "openai-test-key" },
+      hint: "…-key",
+      verified: true,
+    });
+  }
+  const client = chatRpc({ user, deps });
+  const botIds: string[] = [];
+  for (const name of names) {
+    botIds.push((await client.bot.create({ name, model: host ? hostModel : model })).id);
+  }
+  const seed = (botId: string, file: string, lines: string[]) =>
+    computerFake.files.set(
+      memoryPath(botId, file),
+      new TextEncoder().encode(`${lines.join("\n")}\n`),
+    );
+  const read = (botId: string, file: string) => {
+    const bytes = computerFake.files.get(memoryPath(botId, file));
+    return bytes ? new TextDecoder().decode(bytes) : null;
+  };
+  return { fake, computerFake, deps, client, user, botIds, seed, read, pubsub };
+}
+
+async function send(client: ReturnType<typeof chatRpc>, botId: string, text: string) {
+  for await (const _event of await client.bot.send({ botId, id: uuidv7(), text })) {
+    // Read to the end of the Turn.
+  }
+}
+
+/** The pass jobs queued so far. */
+const passJobs = () => getTestDb().select().from(job).where(eq(job.name, passJob));
+
+/** Waits until `count` pass jobs have ended, and returns them. */
+async function passesEnded(count = 1) {
+  await expect
+    .poll(
+      async () =>
+        (
+          await getTestDb()
+            .select({ id: job.id })
+            .from(job)
+            .where(and(eq(job.name, passJob), inArray(job.status, ["succeeded", "failed"])))
+        ).length,
+      { timeout: 4_000 },
+    )
+    .toBe(count);
+  return passJobs();
+}
+
+/** A round whose reply is the pass's operations. */
+const ops = (...list: unknown[]) => round(text(JSON.stringify({ ops: list })));
+
+const userTextOf = (call: TextOptions | undefined) =>
+  (call?.messages ?? []).map((message) => String(message.content)).join("\n");
+
+describe("the post-turn memory pass", () => {
+  it("is queued once after a complete Turn, and not after an error Turn", async () => {
+    const { client, botIds } = await botsWith([round(), ops(), round(runError("Provider down"))]);
+    const [ada] = botIds as [string];
+
+    await send(client, ada, "hi");
+    expect(await passesEnded(1)).toHaveLength(1);
+
+    await send(client, ada, "again");
+    // The error Turn queued no pass.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(await passJobs()).toHaveLength(1);
+  });
+
+  it("is queued after a stopped Turn", async () => {
+    const { client, botIds } = await botsWith([ops()]);
+    const [ada] = botIds as [string];
+
+    // The Turn's job waits out its batch, so the stop finds it queued.
+    await client.bot.send({ botId: ada, id: uuidv7(), text: "hi" });
+    await client.bot.stop({ botId: ada });
+
+    expect(await passesEnded(1)).toHaveLength(1);
+    const [turn] = await getTestDb().select().from(botTurn).where(eq(botTurn.botId, ada));
+    expect(turn?.status).toBe("stopped");
+  });
+
+  it("shows numbered lines and the Turn, and applies add, replace and remove", async () => {
+    const { client, botIds, fake, seed, read } = await botsWith([
+      round(),
+      ops(
+        { op: "add", tier: "profile", text: "Lives in Berlin" },
+        { op: "add", tier: "log", text: "Signed the lease", importance: 8 },
+        { op: "add", tier: "notes", text: "Travelling until Thursday" },
+        { op: "replace", line: 2, text: "Is vegan" },
+        { op: "remove", line: 3 },
+        { op: "replace", line: 4, text: "Met Bob for lunch" },
+      ),
+    ]);
+    const [ada] = botIds as [string];
+    seed(ada, "profile.md", ["- Prefers long replies", "- Is vegetarian"]);
+    seed(ada, "notes.md", ["- 2030-03-15 Call the bank"]);
+    seed(ada, "log/2030-03.md", ["- 2030-03-14 (importance 3) Met Bob"]);
+
+    await send(client, ada, "I'm vegan now, and I signed the lease");
+    await passesEnded(1);
+
+    const shown = userTextOf(fake.calls[1]);
+    expect(shown).toContain("I'm vegan now, and I signed the lease");
+    expect(shown).toContain("1. Prefers long replies");
+    expect(shown).toContain("2. Is vegetarian");
+    expect(shown).toContain("3. 2030-03-15 Call the bank");
+    expect(shown).toContain("4. 2030-03-14 (importance 3) Met Bob");
+
+    expect(read(ada, "profile.md")).toBe("- Prefers long replies\n- Is vegan\n- Lives in Berlin\n");
+    expect(read(ada, "notes.md")).toBe("- 2030-03-15 Travelling until Thursday\n");
+    expect(read(ada, "log/2030-03.md")).toBe(
+      "- 2030-03-14 (importance 3) Met Bob for lunch\n- 2030-03-15 (importance 8) Signed the lease\n",
+    );
+  });
+
+  it("skips an operation citing an unshown line or one edited since", async () => {
+    let setup: ReturnType<typeof botsWith> extends Promise<infer T> ? T : never;
+    const { client, botIds, read } = (setup = await botsWith([
+      round(),
+      () => {
+        // The user edits line 1 while the pass is thinking.
+        setup.seed(setup.botIds[0]!, "profile.md", ["- Prefers terse replies", "- Is vegetarian"]);
+        return ops(
+          { op: "replace", line: 1, text: "Prefers long replies" },
+          { op: "remove", line: 9 },
+          { op: "replace", line: 0, text: "Nope" },
+          { op: "remove", line: 2 },
+        );
+      },
+    ]));
+    const [ada] = botIds as [string];
+    setup.seed(ada, "profile.md", ["- Prefers short replies", "- Is vegetarian"]);
+
+    await send(client, ada, "hi");
+    await passesEnded(1);
+
+    expect(read(ada, "profile.md")).toBe("- Prefers terse replies\n");
+  });
+
+  it("never writes another Bot's files", async () => {
+    const { client, botIds, seed, computerFake, read } = await botsWith(
+      [
+        round(),
+        ops({ op: "add", tier: "profile", text: "Lives in Berlin" }, { op: "remove", line: 2 }),
+      ],
+      { names: ["Ada", "Bea"] },
+    );
+    const [ada, bea] = botIds as [string, string];
+    seed(ada, "profile.md", ["- Prefers short replies"]);
+    seed(bea, "profile.md", ["- Works at a bakery"]);
+    const before = new Map(computerFake.files);
+
+    await send(client, ada, "hi");
+    await passesEnded(1);
+
+    expect(read(bea, "profile.md")).toBe("- Works at a bakery\n");
+    expect(read(ada, "profile.md")).toBe("- Prefers short replies\n- Lives in Berlin\n");
+    const changed = [...computerFake.files.keys()].filter(
+      (path) => computerFake.files.get(path) !== before.get(path),
+    );
+    expect(changed.every((path) => path.startsWith(`/home/user/bots/${ada}/memory/`))).toBe(true);
+  });
+
+  it("changes nothing on invalid output", async () => {
+    const { client, botIds, seed, read } = await botsWith([
+      round(),
+      round(text("Sure! I'll remember that.")),
+      round(),
+      ops({ op: "add", tier: "profile", text: "Lives in Berlin" }, { op: "explode", line: 1 }),
+    ]);
+    const [ada] = botIds as [string];
+    seed(ada, "profile.md", ["- Prefers short replies"]);
+
+    await send(client, ada, "hi");
+    await passesEnded(1);
+    await send(client, ada, "again");
+    const ended = await passesEnded(2);
+
+    expect(ended.every((row) => row.status === "succeeded")).toBe(true);
+    expect(read(ada, "profile.md")).toBe("- Prefers short replies\n");
+  });
+
+  it("refuses Profile adds and replaces past the cap, and a line that reads as a heading", async () => {
+    const { client, botIds, seed, read } = await botsWith([
+      round(),
+      ops(
+        { op: "add", tier: "profile", text: "One too many" },
+        { op: "replace", line: 1, text: "x".repeat(4_000) },
+        { op: "add", tier: "notes", text: "#1 priority is the visa" },
+      ),
+    ]);
+    const [ada] = botIds as [string];
+    const full = Array.from({ length: 100 }, (_, i) => `- Fact ${i + 1}`);
+    seed(ada, "profile.md", full);
+
+    await send(client, ada, "hi");
+    await passesEnded(1);
+
+    expect(read(ada, "profile.md")).toBe(`${full.join("\n")}\n`);
+    expect(read(ada, "notes.md")).toBeNull();
+  });
+
+  it("records its usage as memory on Host credentials", async () => {
+    const usageOfCall = { promptTokens: 100, completionTokens: 10, totalTokens: 110 };
+    const { client, botIds, user } = await botsWith([round(), withUsage(ops(), usageOfCall)], {
+      host: true,
+    });
+
+    await send(client, botIds[0]!, "hi");
+    await passesEnded(1);
+
+    const rows = await getTestDb().select().from(usage).where(eq(usage.userId, user.id));
+    expect(rows.map((row) => row.kind).sort()).toEqual(["memory", "turn"]);
+    expect(rows.find((row) => row.kind === "memory")).toMatchObject({
+      model: hostModel,
+      inputTokens: 100,
+      outputTokens: 10,
+    });
+  });
+
+  it("is skipped once the Turn has spent the Quota", async () => {
+    const usageOfCall = { promptTokens: 100, completionTokens: 10, totalTokens: 110 };
+    // 200 micros a day; the Turn spends 450.
+    const { client, botIds, fake, seed, read } = await botsWith(
+      [
+        withUsage(round(), usageOfCall),
+        ops({ op: "add", tier: "profile", text: "Lives in Berlin" }),
+      ],
+      { host: true, getQuota: quotaLookup({ budgetUsd: 0.0002, window: "day" }) },
+    );
+    const [ada] = botIds as [string];
+    seed(ada, "profile.md", ["- Prefers short replies"]);
+
+    await send(client, ada, "hi");
+    await passesEnded(1);
+
+    expect(fake.calls).toHaveLength(1);
+    expect(read(ada, "profile.md")).toBe("- Prefers short replies\n");
+  });
+
+  it("saves the Turn's change list and announces it on the Conversation event stream", async () => {
+    const { client, botIds, seed, pubsub, user } = await botsWith([
+      round(),
+      ops(
+        { op: "add", tier: "log", text: "Moved to Berlin", importance: 7 },
+        { op: "replace", line: 1, text: "Is vegan" },
+        { op: "remove", line: 2 },
+      ),
+    ]);
+    const [ada] = botIds as [string];
+    seed(ada, "profile.md", ["- Is vegetarian", "- Likes jazz"]);
+    const { conversationId } = (await findBot(getTestDb(), user.id, ada))!;
+    const events: unknown[] = [];
+    await pubsub.subscribe(conversationChannel(conversationId), (message) => {
+      const event = JSON.parse(message) as { type?: string };
+      if (event.type === "bot_memory_updated") events.push(event);
+    });
+
+    await send(client, ada, "I moved to Berlin and I'm vegan now");
+    await passesEnded(1);
+
+    const [turn] = await getTestDb().select().from(botTurn).where(eq(botTurn.botId, ada));
+    const changes = [
+      { kind: "remembered", tier: "log", text: "Moved to Berlin" },
+      { kind: "changed", tier: "profile", from: "Is vegetarian", text: "Is vegan" },
+      { kind: "forgot", tier: "profile", text: "Likes jazz" },
+    ];
+    expect(turn?.memoryChanges).toEqual(changes);
+    await expect
+      .poll(() => events)
+      .toEqual([{ type: "bot_memory_updated", turnId: turn!.id, changes }]);
+  });
+
+  it("saves no change list when nothing changed", async () => {
+    const { client, botIds } = await botsWith([round(), ops()]);
+    const [ada] = botIds as [string];
+
+    await send(client, ada, "hi");
+    await passesEnded(1);
+
+    const [turn] = await getTestDb().select().from(botTurn).where(eq(botTurn.botId, ada));
+    expect(turn?.memoryChanges).toBeNull();
+  });
+});
+
+describe("a Bot with no pass", () => {
+  it("queues none with Memory off", async () => {
+    const { client, botIds } = await botsWith([round()]);
+    await client.memory.setEnabled({ enabled: false });
+
+    await send(client, botIds[0]!, "hi");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    expect(await passJobs()).toHaveLength(0);
+  });
+});
