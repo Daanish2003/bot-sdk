@@ -45,7 +45,7 @@ import {
   writeDefinition,
   writeTool,
 } from "./computer-tools";
-import { pruneScreenshots } from "./desktop-tools";
+import { pruneScreenshots, resolveScreenshots } from "./desktop-tools";
 import { computerRebuildSeenAt, markComputerRebuildSeen } from "./store";
 
 /** What a loop lends the tools of whoever runs it: a Turn today, a Helper next. */
@@ -252,10 +252,14 @@ export async function runLoop(
           inLiveCall = true;
           try {
             const { adapter } = await liveCall();
-            // Only the newest screenshots go to the Model; the Checkpoints keep them all.
+            // Only the newest screenshots go to the Model, read from the blob store now: the
+            // transcript and the Checkpoints hold their refs (#608).
             const pruned = {
               ...chatOptions,
-              messages: pruneScreenshots(chatOptions.messages as ModelMessage[]),
+              messages: await resolveScreenshots(
+                deps.blobStore,
+                pruneScreenshots(chatOptions.messages as ModelMessage[]),
+              ),
             };
             for await (const chunk of adapter.chatStream(pruned)) {
               chunks.push(withoutRaw(chunk));

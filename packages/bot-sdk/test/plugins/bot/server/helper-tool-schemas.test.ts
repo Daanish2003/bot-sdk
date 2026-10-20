@@ -24,7 +24,7 @@ describe("the Computer-use Helper's tool schemas", () => {
     const stub = (async () => ({})) as never;
     const tools = [
       ...browserTools(new BrowserSession(1, "bot") as never, "bot", stub),
-      ...desktopTools(1, stub, async () => true),
+      ...desktopTools(1, stub, async () => true, stub),
       askUserTool(() => "reason"),
     ];
     expect(tools.length).toBeGreaterThan(5);

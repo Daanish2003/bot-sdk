@@ -85,3 +85,21 @@ export const botHelperMessage = chatSchema.table(
   },
   (table) => [index("bot_helper_message_helper_id_idx").on(table.helperId, table.createdAt)],
 );
+
+/**
+ * A screenshot a Computer-use Helper's Desktop tool took (#608). Its PNG is in the blob store under
+ * `screenshot/<id>`, stored once; the Helper's transcript and its `desktop` Checkpoints hold only
+ * the id. The row goes with its Helper, so a delete reads the keys first (ADR 0015).
+ */
+export const botHelperScreenshot = chatSchema.table(
+  "bot_helper_screenshot",
+  {
+    /** uuidv7, generated in app code. */
+    id: uuid("id").primaryKey(),
+    helperId: uuid("helper_id")
+      .notNull()
+      .references((): AnyPgColumn => botHelper.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").notNull(),
+  },
+  (table) => [index("bot_helper_screenshot_helper_id_idx").on(table.helperId)],
+);

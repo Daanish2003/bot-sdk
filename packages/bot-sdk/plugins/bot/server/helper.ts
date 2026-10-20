@@ -16,7 +16,7 @@ import {
   maxScreens,
 } from "../../computer/server/plugin";
 import { BrowserSession, browserTools } from "./browser-tools";
-import { desktopTools } from "./desktop-tools";
+import { desktopTools, storeScreenshot } from "./desktop-tools";
 import { computerOf } from "./computer-tools";
 import { type LoopKit, type LoopResult, runLoop, totalUsage } from "./loop";
 import { lockConversation, receive } from "./router";
@@ -431,10 +431,15 @@ async function playHelper(
         systemPrompts: [computerUseHelperPrompt],
         tools: [
           ...browserTools(session, helper.botId, kit.computerCall),
-          ...desktopTools(session.slot, kit.computerCall, async () => {
-            const model = await deps.plugin("models").resolveModel(helper.userId, helper.model);
-            return model?.images ?? false;
-          }),
+          ...desktopTools(
+            session.slot,
+            kit.computerCall,
+            async () => {
+              const model = await deps.plugin("models").resolveModel(helper.userId, helper.model);
+              return model?.images ?? false;
+            },
+            (png) => storeScreenshot(deps, helper.id, png),
+          ),
           askUserTool((reason) => (askedUser ??= reason)),
         ],
         ended: () => askedUser !== undefined,
