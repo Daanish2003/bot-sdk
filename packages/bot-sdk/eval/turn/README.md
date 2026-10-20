@@ -81,6 +81,10 @@ CHATGPT_CLIENT_ID=... CHATGPT_HOST_ID=... \
 pnpm -F @ai-chat/bot-sdk eval:turn
 ```
 
+- Or run it in one command: `pnpm -F @ai-chat/bot-sdk eval:plan <turn|ladder|memory> [--limit=<n>]`
+  (`eval/plan.ts`). It loads `apps/web/.env`, finds the user who linked ChatGPT, defaults the Models
+  to the plan's and `EVAL_DATABASE_URL` to the local `ai-chat_eval`, then runs that eval. Variables
+  you set yourself win over the file and the defaults.
 - The token is read from the link on each call through Better Auth, which refreshes it and saves the
   new tokens, so the web app's link keeps working.
 - The plan refuses `temperature`, so its judge runs at the Model's default. Its verdicts can vary
