@@ -1,6 +1,11 @@
 "use client";
 
-import { BotConversation, BotsApp, BotsHomePage } from "@ai-chat/bot-sdk/plugins/bot/ui";
+import {
+  BotCacheChip,
+  BotConversation,
+  BotsApp,
+  BotsHomePage,
+} from "@ai-chat/bot-sdk/plugins/bot/ui";
 import { BotMemoryChip, BotMemoryLive, BotMemoryPopover } from "@ai-chat/bot-sdk/plugins/memory/ui";
 import type { ReactNode } from "react";
 
@@ -13,7 +18,7 @@ export function BotsHome() {
   return <BotsHomePage />;
 }
 
-/** One Bot's Conversation, with the Memory live indicator, popover and per-Turn chip (as in apps/web). */
+/** One Bot's Conversation, with the Memory live indicator, popover and per-Turn chips (as in apps/web). */
 export function BotRoute({ botId }: { botId: string }) {
   return (
     <BotConversation
@@ -24,7 +29,12 @@ export function BotRoute({ botId }: { botId: string }) {
           <BotMemoryPopover botId={botId} />
         </>
       }
-      afterTurn={(turn) => <BotMemoryChip changes={turn.memoryChanges} />}
+      afterTurn={(turn) => (
+        <>
+          <BotMemoryChip changes={turn.memoryChanges} />
+          <BotCacheChip steps={turn.steps} />
+        </>
+      )}
     />
   );
 }

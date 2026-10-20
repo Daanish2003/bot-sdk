@@ -4,7 +4,7 @@ import type { MessageUsage } from "../shared/usage";
 import { usage as usageRows } from "../../../core/server/db/schema";
 import type { ModelsDeps, HostImageModel, HostModel } from "./types";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
-import type { UsageEvent } from "../../../core/server/chat/hooks";
+import type { PromptHash, UsageEvent } from "../../../core/server/chat/hooks";
 import type { Transaction } from "../../../core/server/plugin";
 import { quotaRefusal } from "./quota";
 
@@ -40,12 +40,19 @@ export type TxMeter<Usage> = Meter<Usage> & {
   recordIn(tx: Transaction, usage: Usage): Promise<() => void>;
 };
 
-/** One call to a Model: a Run, a title, one of a Memory job's calls, a Bot's Turn, or a Helper's. */
+/**
+ * One call to a Model: a Run, a title, one of a Memory job's calls, a Bot's Turn, a Helper's, the
+ * writing of a Summary, or a call that warms the cache.
+ */
 export type ModelUsage = {
-  kind: "run" | "title" | "memory" | "turn" | "helper";
+  kind: "run" | "title" | "memory" | "turn" | "helper" | "summary" | "warm";
   usage: MessageUsage;
   /** The Provider's reported cost in USD, when it reported one for the whole call. */
   reportedCost?: number;
+  /** The Bot Turn or Helper (or, for warming, the Bot) the call was made for. */
+  sourceId?: string;
+  /** The hash of each section of the prompt the call sent, in order. */
+  promptHashes?: PromptHash[];
 };
 export type ModelMeter = TxMeter<ModelUsage>;
 
@@ -86,7 +93,23 @@ type MeterDeps = Pick<ModelsDeps, "db" | "hooks" | "getQuota" | "logger">;
 type UsageRow = Pick<
   UsageEvent,
   "kind" | "model" | "inputTokens" | "outputTokens" | "costMicros" | "estimated"
->;
+> &
+  Partial<Pick<UsageEvent, "cacheReadTokens" | "cacheWriteTokens" | "sourceId" | "promptHashes">>;
+
+/** A usage event of `userId`'s from its row, created now. */
+function eventOf(userId: string, row: UsageRow): UsageEvent {
+  return {
+    id: uuidv7(),
+    userId,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    sourceId: null,
+    promptHashes: null,
+    ...row,
+    // Set in app code, like the window the Quota sums (chat/quota.ts), so a fake clock agrees.
+    createdAt: new Date(),
+  };
+}
 
 /**
  * A meter of `userId`'s calls. With `onHost`, `mayRun` checks the Quota. `rowOf` prices one call's
@@ -108,8 +131,7 @@ function meterOf<Usage>(
     record: async (usage) => {
       const row = rowOf(usage);
       if (!row) return;
-      // Set in app code, like the window the Quota sums (chat/quota.ts), so a fake clock agrees.
-      const event: UsageEvent = { id: uuidv7(), userId, ...row, createdAt: new Date() };
+      const event = eventOf(userId, row);
       try {
         await deps.db.insert(usageRows).values(event);
       } catch (caught) {
@@ -122,7 +144,7 @@ function meterOf<Usage>(
     recordIn: async (tx, usage) => {
       const row = rowOf(usage);
       if (!row) return () => {};
-      const event: UsageEvent = { id: uuidv7(), userId, ...row, createdAt: new Date() };
+      const event = eventOf(userId, row);
       await tx.insert(usageRows).values(event);
       return () => deps.hooks.fire("onUsage", event);
     },
@@ -130,18 +152,46 @@ function meterOf<Usage>(
 }
 
 /** A Host Model's price, per 1M tokens (ADR 0007). */
-export type HostPrice = Pick<HostModel, "inputUsdPerMillion" | "outputUsdPerMillion">;
+export type HostPrice = Pick<
+  HostModel,
+  | "inputUsdPerMillion"
+  | "outputUsdPerMillion"
+  | "cacheReadUsdPerMillion"
+  | "cacheWriteUsdPerMillion"
+>;
 
 /**
  * The cost of a call to a Host Model, in millionths of a US dollar (ADR 0007). The Provider's
  * reported cost wins when the call completed with one; otherwise the tokens summed (or estimated)
- * are priced. A price is per 1M tokens, so a token costs as many micros as its price.
+ * are priced: uncached input, cache reads and cache writes each at their price, a missing cache
+ * price being the input price. A price is per 1M tokens, so a token costs as many micros as its price.
  */
 function modelCostMicros({ usage, reportedCost }: ModelUsage, price: HostPrice): number {
   if (!usage.estimated && reportedCost !== undefined) return Math.round(reportedCost * 1_000_000);
+  const cacheWrite = usage.cacheWrite ?? 0;
+  const uncached = usage.input - usage.cached - cacheWrite;
   return Math.round(
-    usage.input * price.inputUsdPerMillion + usage.output * price.outputUsdPerMillion,
+    uncached * price.inputUsdPerMillion +
+      usage.cached * (price.cacheReadUsdPerMillion ?? price.inputUsdPerMillion) +
+      cacheWrite * (price.cacheWriteUsdPerMillion ?? price.inputUsdPerMillion) +
+      usage.output * price.outputUsdPerMillion,
   );
+}
+
+/** The row of a call to `model`, at `costMicros`. */
+function modelRowOf(model: string, call: ModelUsage, costMicros: number): UsageRow {
+  return {
+    kind: call.kind,
+    model,
+    inputTokens: call.usage.input,
+    outputTokens: call.usage.output,
+    cacheReadTokens: call.usage.cached,
+    cacheWriteTokens: call.usage.cacheWrite ?? 0,
+    sourceId: call.sourceId ?? null,
+    promptHashes: call.promptHashes ?? null,
+    costMicros,
+    estimated: call.usage.estimated,
+  };
 }
 
 /** The meter of calls to the Host Model `model` (`"provider:model"`) at its `price`. */
@@ -151,14 +201,18 @@ export function hostModelMeter(
   model: string,
   price: HostPrice,
 ): ModelMeter {
-  return meterOf(deps, userId, true, (call: ModelUsage) => ({
-    kind: call.kind,
-    model,
-    inputTokens: call.usage.input,
-    outputTokens: call.usage.output,
-    costMicros: modelCostMicros(call, price),
-    estimated: call.usage.estimated,
-  }));
+  return meterOf(deps, userId, true, (call: ModelUsage) =>
+    modelRowOf(model, call, modelCostMicros(call, price)),
+  );
+}
+
+/**
+ * The meter of calls to `model` on the user's own key or linked plan that are still recorded: never
+ * refused, and at cost 0, so a Bot's cache use shows whoever pays (#667) while the Quota's spend is
+ * unchanged.
+ */
+export function freeModelMeter(deps: MeterDeps, userId: string, model: string): ModelMeter {
+  return meterOf(deps, userId, false, (call: ModelUsage) => modelRowOf(model, call, 0));
 }
 
 /** The meter of web searches on the Host's Tavily key, at its price per search. */

@@ -9,11 +9,14 @@ import {
   type TextOptions,
 } from "@tanstack/ai";
 
+import type { PromptHash } from "../../../core/server/chat/hooks";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
+import { withCacheControl } from "../../models/server/cache-control";
 import { addUsage, promptCharactersOf, reportedUsageOf } from "../../models/server/run-usage";
 import type { ModelUsage } from "../../models/server/meter";
 import { parseModelId } from "../../models/shared/models";
+import { modelsDevSnapshot } from "../../models/shared/models-snapshot";
 import type { MessageUsage } from "../../models/shared/usage";
 import {
   type ComputerHandle,
@@ -23,8 +26,10 @@ import {
 import { type WorkflowContext, WorkflowYieldedError } from "../../runner/server/workflow/engine";
 import {
   capOutput,
+  capResult,
   computerOf,
   computerOperationError,
+  computerToolDefinitions,
   computerUnavailableError,
   defaultShellTimeoutSeconds,
   editDefinition,
@@ -46,13 +51,16 @@ import {
   writeTool,
 } from "./computer-tools";
 import { pruneScreenshots, resolveScreenshots } from "./desktop-tools";
+import { type LoopPromptStart, type PreviousCall, promptHashesOf } from "./prompt-start";
 import { computerRebuildSeenAt, markComputerRebuildSeen } from "./store";
+import { midTurnNote, summarizeInstruction } from "./summary";
 
 /** What a loop lends the tools of whoever runs it: a Turn today, a Helper next. */
 export type LoopKit = {
   /**
    * A database write of the loop's, as tool call `toolCallId` when it is one: it commits with its
-   * Checkpoint, so it happens once across a crash, and runs only live, like a tool's activity.
+   * Checkpoint, so it happens once across a crash, and runs only live, like a tool's activity. A
+   * result over the long-output limit is recorded, and returned, as its cut text (`capResult`).
    */
   liveActivity: <T>(
     name: string,
@@ -63,41 +71,78 @@ export type LoopKit = {
    * A live call outside the database, as tool call `toolCallId`, then a write with its result: `run`
    * is one activity with no transaction, re-run after a crash before its Checkpoint is saved, and
    * `write` is a second activity whose writes commit with its own Checkpoint, so they happen once.
-   * Both run only live; a replay returns `run`'s recorded result.
+   * Both run only live; a replay returns `run`'s recorded result. A result over the long-output
+   * limit is recorded, and returned, as its cut text (`capResult`).
    */
   liveRequest: <T>(
     name: string,
     toolCallId: string | undefined,
     run: () => Promise<T>,
-    write: (tx: Transaction, result: T) => Promise<void>,
-  ) => Promise<T>;
+    write: (tx: Transaction, result: T | string) => Promise<void>,
+  ) => Promise<T | string>;
   /** The Computer's tools: Shell, then the file tools Read, Write, Edit and List. */
   computerTools: AnyServerTool[];
   /**
    * A Computer tool call of the loop's, as tool call `toolCallId`: one activity, re-run after a
    * crash, that `operate`s live on the Computer. A failed wake or operation is its result, and
-   * after a rebuild the Bot wasn't told of, the result carries the rebuilt note.
+   * after a rebuild the Bot wasn't told of, the result carries the rebuilt note. A result over the
+   * long-output limit is recorded as its cut text (`capResult`), unless `capped` is false: for a
+   * tool that keeps its own result short, such as `read`'s pages.
    */
   computerCall: <T extends object>(
     name: string,
     toolCallId: string | undefined,
     operate: (computer: ComputerHandle, live: FileToolOptions) => Promise<T>,
+    capped?: boolean,
   ) => Promise<T | { error: string }>;
 };
 
-/** What a loop's `setup` hands it: the system prompts, the tools, and what ends it early. */
+/**
+ * What a loop's `setup` hands it: the system prompts, or the Prompt start a Turn sends in their
+ * place, the tools, and what ends it early.
+ */
 export type LoopSetup = {
-  systemPrompts: string[];
   tools: AnyServerTool[];
   /** Whether a tool call of the Step asked to end the loop with no further model call. */
   ended?: () => boolean;
-};
+  /**
+   * The newest message, when setup builds it (a Turn's, which holds Change notes read in setup):
+   * it follows `input` in what the loop sends.
+   */
+  newest?: ModelMessage[];
+} & (
+  | { systemPrompts: string[]; promptStart?: never }
+  | {
+      /**
+       * Sent on every model call: its system blocks and its tool definitions in place of the live
+       * tools' own, and its first message before the input. Each call records its section hashes.
+       */
+      promptStart: LoopPromptStart;
+      systemPrompts?: never;
+      /** The messages sent between the first message and the loop's input. */
+      history?: ModelMessage[];
+      /**
+       * Lets the loop summarize mid-Turn (slide 34): before a Step whose previous Step's input
+       * passed `summaryThreshold` of the model's context window. `write` stores the Summary's
+       * `prose` in `tx` with a new Prompt start and returns its id, which `load` reads.
+       */
+      summarize?: {
+        write: (tx: Transaction, prose: string) => Promise<string>;
+        load: (id: string) => Promise<LoopPromptStart>;
+      };
+    }
+);
+
+/** The share of the model's context window past which a loop summarizes before its next Step. */
+export const summaryThreshold = 0.75;
 
 export type LoopOptions = {
   /** Whose Model the loop calls and whose Computer it works. */
   owner: { userId: string; botId: string; model: string };
   /** What its model calls are billed as. */
   usageKind: ModelUsage["kind"];
+  /** The Turn or Helper its model calls are recorded for. */
+  sourceId: string;
   /** The model input before the loop's own Steps. */
   input: ModelMessage[];
   /** When the loop started: its time limit counts from here. */
@@ -139,13 +184,19 @@ export type LoopResult = {
   finished: boolean;
   transcript: ModelMessage[];
   usage: MessageUsage | null;
+  /** The input its last model call reported, or estimated: what queues a Summary while away. */
+  lastInput: number | undefined;
   failure?: unknown;
 };
 
-/** What one model call recorded: its chunks, and what it bills (`null` for nothing). */
+/**
+ * What one model call recorded: its chunks, what it bills (`null` for nothing) and, with a Prompt
+ * start, the hash of each section it sent.
+ */
 type RecordedModelCall = {
   chunks: StreamChunk[];
   usage: { usage: MessageUsage; reportedCost?: number } | null;
+  hashes?: PromptHash[];
 };
 
 /** The Model's own failure in a live model call, as opposed to a failure to save its Checkpoint. */
@@ -163,6 +214,8 @@ type ModelCallRecorder = (
   tx: Transaction,
   usage: MessageUsage,
   reportedCost: number | undefined,
+  promptHashes: PromptHash[] | undefined,
+  kind?: ModelUsage["kind"],
 ) => Promise<() => void>;
 
 /**
@@ -224,12 +277,128 @@ export async function runLoop(
       const models = deps.plugin("models");
       const call = await models.resolveModelCall(owner.userId, owner.model);
       if (!call) throw new Error(`"${owner.model}" is not an available Model`);
+      // On the user's own key or plan, a call is still recorded, at cost 0, so its cache use shows.
+      const meter = call.meter.onHost
+        ? call.meter
+        : models.freeModelMeter(owner.userId, owner.model);
       return {
         adapter: models.adapterForCall(owner.model, call),
-        record: (tx, usage, reportedCost) =>
-          call.meter.recordIn(tx, { kind: options.usageKind, usage, reportedCost }),
+        record: (tx, usage, reportedCost, promptHashes, kind = options.usageKind) =>
+          meter.recordIn(tx, {
+            kind,
+            usage,
+            reportedCost,
+            sourceId: options.sourceId,
+            promptHashes,
+          }),
       };
     })());
+
+  /** The Prompt start the setup gave, if any. */
+  let promptStart: LoopPromptStart | undefined;
+  /** The model call before the next one, once known: `null` when there was none. */
+  let previousCall: PreviousCall | null | undefined;
+  /** The input the last model call reported, until a Summary: what the next Step checks. */
+  let lastInput: number | undefined;
+  /** The input the last model call reported, a Summary or not. */
+  let lastStepInput: number | undefined;
+  /** The options of the last model call, which a summary call sends again with its instruction. */
+  let lastChatOptions: TextOptions | undefined;
+  /**
+   * After a mid-Turn Summary, where its note sits in the loop's messages: the calls after it send
+   * the new first message, the loop's own input, then the messages from the note on.
+   */
+  let summarizedAt: number | undefined;
+  /** The loop's own input, then the newest message setup built: what a Summary's calls re-send. */
+  let newest: ModelMessage[] = [];
+  /**
+   * An activity that bills a model call in its Checkpoint's transaction: what `write` hands
+   * `onCommit` fires once that has committed, and never on a replay.
+   */
+  const billing = async <T>(
+    name: string,
+    write: (tx: Transaction, onCommit: (fire: () => void) => void) => Promise<T>,
+  ): Promise<T> => {
+    let fire: (() => void) | undefined;
+    let result: T;
+    try {
+      result = await ctx.activity(name, (tx) =>
+        write(tx, (onUsage) => {
+          fire = onUsage;
+        }),
+      );
+    } catch (caught) {
+      // A yield is thrown once the Checkpoint has committed: its next attempt replays it, so it
+      // fires now or never.
+      if (caught instanceof WorkflowYieldedError) fire?.();
+      throw caught;
+    }
+    fire?.();
+    return result;
+  };
+  /** What a model call sends of the loop's `messages`, its first message first. */
+  const sendable = (messages: ModelMessage[]): ModelMessage[] =>
+    promptStart && summarizedAt !== undefined
+      ? [
+          { role: "user", content: promptStart.firstMessage },
+          ...newest,
+          ...messages.slice(summarizedAt),
+        ]
+      : messages;
+  /**
+   * A model call's options as sent: with a Prompt start, its stored tool definitions (never the
+   * live tools' own) and its system blocks, and the messages as `sendable` gives them.
+   */
+  const sentOptions = (chatOptions: TextOptions): TextOptions =>
+    promptStart
+      ? {
+          ...chatOptions,
+          tools: promptStart.tools as TextOptions["tools"],
+          systemPrompts: promptStart.system.map((block) => block.text),
+          messages: sendable(chatOptions.messages as ModelMessage[]),
+        }
+      : chatOptions;
+
+  /**
+   * A live model call of `sent`, inside a model call's activity: its chunks, without the raw events.
+   * The Model's own failure throws a `ModelCallError`.
+   */
+  const liveChunks = async (sent: TextOptions): Promise<StreamChunk[]> => {
+    // Read off the clock too: a timer that is due may not have fired yet.
+    if (attempt && (expired || timeLeftMs() <= 0)) timeUp();
+    abortController.signal.throwIfAborted();
+    // Only the newest screenshots go to the Model, read from the blob store now: the transcript
+    // and the Checkpoints hold their refs (#608). Outside the Model's own failure, so a failed read
+    // is retried like a Checkpoint that failed to save.
+    const pruned = {
+      ...sent,
+      messages: await resolveScreenshots(
+        deps.blobStore,
+        pruneScreenshots(sent.messages as ModelMessage[]),
+      ),
+    };
+    const chunks: StreamChunk[] = [];
+    inLiveCall = true;
+    try {
+      const { adapter } = await liveCall();
+      // The cache controls of the Model's Provider: the Bot's key, or its Helper's.
+      const cached = withCacheControl(
+        provider,
+        options.usageKind === "helper" ? `helper:${options.sourceId}` : `bot:${owner.botId}`,
+        pruned,
+      );
+      for await (const chunk of adapter.chatStream(cached)) {
+        chunks.push(withoutRaw(chunk));
+      }
+    } catch (caught) {
+      throw new ModelCallError(caught);
+    } finally {
+      inLiveCall = false;
+    }
+    // A call cut off before its end records nothing and bills nothing; a resume calls it again.
+    abortController.signal.throwIfAborted();
+    return chunks;
+  };
 
   // The model call as an activity: replayed, it plays the recorded chunks without calling the Model.
   // The call runs outside a transaction; its bill is the next activity, written in that activity's
@@ -240,56 +409,41 @@ export async function runLoop(
     model: parseModelId(owner.model)?.modelId ?? owner.model,
     chatStream: async function* (chatOptions: TextOptions) {
       steps += 1;
+      lastChatOptions = chatOptions;
       let recorded: RecordedModelCall;
       try {
         recorded = await ctx.activity("model", async (): Promise<RecordedModelCall> => {
-          // Read off the clock too: a timer that is due may not have fired yet.
-          if (attempt && (expired || timeLeftMs() <= 0)) timeUp();
-          abortController.signal.throwIfAborted();
-          // Only the newest screenshots go to the Model, read from the blob store now: the
-          // transcript and the Checkpoints hold their refs (#608). Outside the Model's own
-          // failure, so a failed read is retried like a Checkpoint that failed to save.
-          const pruned = {
-            ...chatOptions,
-            messages: await resolveScreenshots(
-              deps.blobStore,
-              pruneScreenshots(chatOptions.messages as ModelMessage[]),
-            ),
-          };
-          const chunks: StreamChunk[] = [];
-          inLiveCall = true;
-          try {
-            const { adapter } = await liveCall();
-            for await (const chunk of adapter.chatStream(pruned)) {
-              chunks.push(withoutRaw(chunk));
-            }
-          } catch (caught) {
-            throw new ModelCallError(caught);
-          } finally {
-            inLiveCall = false;
+          const sent = sentOptions(chatOptions);
+          let hashes: PromptHash[] | undefined;
+          if (promptStart) {
+            if (previousCall === undefined)
+              previousCall = (await promptStart.previousCall()) ?? null;
+            hashes = promptHashesOf(
+              promptStart,
+              {
+                tools: sent.tools ?? [],
+                systemPrompts: sent.systemPrompts ?? [],
+                messages: sent.messages as ModelMessage[],
+              },
+              previousCall ?? undefined,
+            );
           }
-          // A call cut off before its end records nothing and bills nothing; a resume calls it again.
-          abortController.signal.throwIfAborted();
-          const usage = callUsage(deps, provider, chunks, chatOptions.messages as ModelMessage[]);
-          return { chunks, usage: usage ?? null };
+          const chunks = await liveChunks(sent);
+          const usage = callUsage(deps, provider, chunks, sent.messages as ModelMessage[]);
+          return { chunks, usage: usage ?? null, ...(hashes ? { hashes } : {}) };
         });
+        if (promptStart && recorded.hashes) {
+          previousCall = { promptStartId: promptStart.id, hashes: recorded.hashes };
+        }
+        lastInput = recorded.usage?.usage.input;
+        lastStepInput = lastInput;
         const bill = recorded.usage;
         if (bill) {
-          let fire: (() => void) | undefined;
-          try {
-            await ctx.activity("bill", async (tx) => {
-              const { record } = await liveCall();
-              fire = await record(tx, bill.usage, bill.reportedCost);
-              return null;
-            });
-          } catch (caught) {
-            // A yield is thrown once the bill's Checkpoint has committed: its next attempt replays
-            // the bill, so it fires now or never.
-            if (caught instanceof WorkflowYieldedError) fire?.();
-            throw caught;
-          }
-          // Only once the bill has committed, and never on a replay.
-          fire?.();
+          await billing("bill", async (tx, onCommit) => {
+            const { record } = await liveCall();
+            onCommit(await record(tx, bill.usage, bill.reportedCost, recorded.hashes));
+            return null;
+          });
           billed.push(bill.usage);
         }
       } catch (caught) {
@@ -306,6 +460,57 @@ export async function runLoop(
       yield* recorded.chunks;
     },
   } as unknown as AnyTextAdapter;
+
+  /** How the setup lets the loop summarize mid-Turn, if it does. */
+  let summarize: Extract<LoopSetup, { promptStart: LoopPromptStart }>["summarize"];
+  const contextWindow = modelsDevSnapshot[owner.model]?.contextWindow ?? null;
+  /**
+   * Before a Step, with `all` the messages it would send: when the previous Step's input passed
+   * `summaryThreshold` of the context window, a Summary (slide 34). The summary call sends the same
+   * Prompt start and history with `summarizeInstruction` after them, as the recorded activity
+   * `summary`, so a replay reuses it; its bill and the Summary with its new Prompt start commit in
+   * one Checkpoint. The Steps after it send the new Prompt start, the loop's own input, then the
+   * messages from the note on. Returns whether it summarized.
+   */
+  const summarizeIfFull = async (all: ModelMessage[]): Promise<boolean> => {
+    if (!summarize || !promptStart || !lastChatOptions || !contextWindow) return false;
+    if (lastInput === undefined || lastInput <= summaryThreshold * contextWindow) return false;
+    const { write, load } = summarize;
+    const sent = sentOptions({ ...lastChatOptions, messages: all });
+    const written = await ctx.activity(
+      "summary",
+      async (): Promise<{ prose: string; usage: RecordedModelCall["usage"] }> => {
+        const messages: ModelMessage[] = [
+          ...(sent.messages as ModelMessage[]),
+          { role: "user", content: summarizeInstruction },
+        ];
+        const chunks = await liveChunks({ ...sent, messages });
+        // The Model's own failure ends the loop `error`, as a Step's does: retrying sends the same.
+        const failed = chunks.find((chunk) => chunk.type === EventType.RUN_ERROR);
+        if (failed) throw new ModelCallError(new Error(failed.message));
+        const prose = chunks
+          .map((chunk) => (chunk.type === EventType.TEXT_MESSAGE_CONTENT ? chunk.delta : ""))
+          .join("");
+        return { prose, usage: callUsage(deps, provider, chunks, messages) };
+      },
+    );
+    // The previous Step's input is checked once: the next Step checks its own.
+    lastInput = undefined;
+    const id = await billing("summary:write", async (tx, onCommit) => {
+      const bill = written.usage;
+      if (bill) {
+        const { record } = await liveCall();
+        onCommit(await record(tx, bill.usage, bill.reportedCost, undefined, "summary"));
+      }
+      // A reply with no summary (only tool calls, or nothing) is billed but never replaces the
+      // context: the Turn carries on as it was.
+      return written.prose.trim() ? write(tx, written.prose) : null;
+    });
+    if (id === null) return false;
+    promptStart = await load(id);
+    summarizedAt = all.length;
+    return true;
+  };
 
   /**
    * One tool call. A call that throws recorded nothing: it stays unanswered and ends the attempt,
@@ -329,18 +534,33 @@ export async function runLoop(
     if (attempt && (expired || timeLeftMs() <= 0)) timeUp();
     abortController.signal.throwIfAborted();
   };
+  let userComputer: ComputerHandle | undefined;
+  /**
+   * A tool result as the Model reads it: over the limit, it is its cut text (typed as the result,
+   * since only a long one changes shape), with the rest saved on the Computer when there is one.
+   */
+  const capLong = async <T>(result: T, toolCallId: string | undefined): Promise<T> => {
+    const computer = deps.hasPlugin("computer")
+      ? (userComputer ??= computerOf(deps, owner.userId))
+      : undefined;
+    return (await capResult(
+      result,
+      spillPath(owner.botId, toolCallId ?? uuidv7()),
+      computer && ((path, content) => computer.writeFile(path, content)),
+    )) as T;
+  };
   const liveActivity: LoopKit["liveActivity"] = (name, toolCallId, write) =>
     toolCall(toolCallId, () =>
       ctx.activity(name, async (tx) => {
         beforeLiveTool();
-        return write(tx);
+        return await capLong(await write(tx), toolCallId);
       }),
     );
   const liveRequest: LoopKit["liveRequest"] = (name, toolCallId, run, write) =>
     toolCall(toolCallId, async () => {
       const result = await ctx.activity(name, async () => {
         beforeLiveTool();
-        return run();
+        return capLong(await run(), toolCallId);
       });
       // Not past a limit or a Stop: what `run` did is written, whenever it ran.
       await ctx.activity(`${name}:write`, async (tx) => {
@@ -350,7 +570,6 @@ export async function runLoop(
       return result;
     });
 
-  let userComputer: ComputerHandle | undefined;
   // The latest rebuild of the Computer the Bot was told of, read on its first Computer call
   // (undefined until then), and the one the latest result tells, recorded once it is saved.
   let rebuildSeenAt: Date | null | undefined;
@@ -452,12 +671,15 @@ export async function runLoop(
       return recordTold(result);
     }),
   );
-  const computerCall: LoopKit["computerCall"] = (name, toolCallId, operate) =>
+  const computerCall: LoopKit["computerCall"] = (name, toolCallId, operate, cap = true) =>
     toolCall(toolCallId, async () =>
       recordTold(
         await ctx.activity(name, async () => {
           beforeLiveTool();
-          return onLiveComputer(operate);
+          const result = await onLiveComputer(operate);
+          // Cut inside the activity, so the Checkpoint holds only the cut form. A rebuilt note
+          // is the result's last field, so it stays in the cut text's end.
+          return cap ? await capLong(result, toolCallId) : result;
         }),
       ),
     );
@@ -471,33 +693,53 @@ export async function runLoop(
         input: Input,
         options: FileToolOptions,
       ) => Promise<Output>,
+      cap = true,
     ) =>
     (input: Input, context?: { toolCallId?: string }) =>
-      computerCall(name, context?.toolCallId, (computer, live) =>
-        run(computer, owner.botId, input, live),
+      computerCall(
+        name,
+        context?.toolCallId,
+        (computer, live) => run(computer, owner.botId, input, live),
+        cap,
       );
-  const computerTools = [
-    shell,
-    readDefinition.server(fileTool("read", readTool)),
-    writeDefinition.server(fileTool("write", writeTool)),
-    editDefinition.server(fileTool("edit", editTool)),
-    listDefinition.server(fileTool("list", listTool)),
-  ];
+  const computerToolsByName: Record<string, AnyServerTool> = {
+    [shellDefinition.name]: shell,
+    [readDefinition.name]: readDefinition.server(fileTool("read", readTool, false)),
+    [writeDefinition.name]: writeDefinition.server(fileTool("write", writeTool)),
+    [editDefinition.name]: editDefinition.server(fileTool("edit", editTool)),
+    [listDefinition.name]: listDefinition.server(fileTool("list", listTool)),
+  };
+  // In the shared order, which an away Summary's Prompt start sends too.
+  const computerTools = computerToolDefinitions.map((definition) => {
+    const tool = computerToolsByName[definition.name];
+    if (!tool) throw new Error(`No implementation for the Computer tool ${definition.name}`);
+    return tool;
+  });
 
   /** What the loop's model calls and tool calls added to its input, in order. */
   const messages: ModelMessage[] = [];
   try {
-    const {
-      systemPrompts,
-      tools,
-      ended = () => false,
-    } = await options.setup({ liveActivity, liveRequest, computerTools, computerCall });
+    const setup = await options.setup({ liveActivity, liveRequest, computerTools, computerCall });
+    const { tools, ended = () => false } = setup;
+    promptStart = setup.promptStart;
+    summarize = setup.promptStart ? setup.summarize : undefined;
+    const systemPrompts = setup.promptStart
+      ? setup.promptStart.system.map((block) => block.text)
+      : setup.systemPrompts;
+    newest = [...options.input, ...(setup.newest ?? [])];
+    const input: ModelMessage[] = setup.promptStart
+      ? [
+          { role: "user", content: setup.promptStart.firstMessage },
+          ...(setup.history ?? []),
+          ...newest,
+        ]
+      : newest;
     let reminded = false;
     for (;;) {
       let engine: ChatMiddlewareContext | undefined;
       const stream = chat({
         adapter: durableAdapter,
-        messages: [...options.input, ...messages],
+        messages: [...input, ...messages],
         systemPrompts,
         tools,
         // One call at a time, in call order, which is a workflow's identity.
@@ -511,14 +753,22 @@ export async function runLoop(
             onStart: (middlewareCtx) => {
               engine = middlewareCtx;
             },
-            // Before each model call: what the inbox holds joins the input, and stays in it.
+            // Before each model call: what the inbox holds joins the input, and stays in it. Then,
+            // past the threshold, a Summary, whose note stays in it too.
             onConfig: async (middlewareCtx, config) => {
+              if (middlewareCtx.phase !== "beforeModel") return;
               const { inbox } = options;
-              if (!inbox || middlewareCtx.phase !== "beforeModel") return;
-              let arrived: string[];
+              const added: ModelMessage[] = [];
               try {
-                arrived = await ctx.activity("inbox", inbox);
+                if (inbox) {
+                  const arrived = await ctx.activity("inbox", inbox);
+                  added.push(...arrived.map((content) => ({ role: "user" as const, content })));
+                }
+                const all = [...(config.providerMessages ?? config.messages), ...added];
+                if (await summarizeIfFull(all)) added.push({ role: "user", content: midTurnNote });
               } catch (caught) {
+                // The summary call's Model failure ends the loop `error`, as a Step's does.
+                if (caught instanceof ModelCallError) throw caught.cause;
                 // It recorded nothing: the job retries it, as for a model call's Checkpoint.
                 if (!abortController.signal.aborted) {
                   failure ??= caught;
@@ -526,11 +776,10 @@ export async function runLoop(
                 }
                 throw caught;
               }
-              if (arrived.length === 0) return;
-              const turns = arrived.map((content) => ({ role: "user" as const, content }));
+              if (added.length === 0) return;
               return {
-                messages: [...config.messages, ...turns],
-                providerMessages: [...(config.providerMessages ?? config.messages), ...turns],
+                messages: [...config.messages, ...added],
+                providerMessages: [...(config.providerMessages ?? config.messages), ...added],
               };
             },
             onShouldContinue: (_middlewareCtx, state) => {
@@ -580,6 +829,7 @@ export async function runLoop(
     finished,
     transcript: answeredCalls(messages.filter((entry) => !unanswered.has(entry.toolCallId ?? ""))),
     usage: billed.length > 0 ? totalUsage(billed) : null,
+    lastInput: lastStepInput,
     failure,
   };
 }
@@ -588,7 +838,7 @@ export async function runLoop(
  * What one model call bills: the usage its Provider reported, else an estimate from its input and
  * output. A call that failed with no usage reported bills nothing.
  */
-function callUsage(
+export function callUsage(
   deps: BotSdkContext,
   provider: string,
   chunks: StreamChunk[],

@@ -394,6 +394,7 @@ async function playHelper(
   const played = await runLoop(deps, ctx, {
     owner: helper,
     usageKind: "helper",
+    sourceId: helper.id,
     input,
     startedAt: helper.startedAt,
     stepLimit: helperStepLimit - stepsIn(input),

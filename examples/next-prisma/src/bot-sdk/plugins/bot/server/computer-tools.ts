@@ -139,6 +139,44 @@ export function spillPath(botId: string, toolCallId: string): string {
 const keepEnds = (text: string) =>
   `${text.slice(0, spillKeep)}\n[... ${text.length - 2 * spillKeep} characters left out ...]\n${text.slice(-spillKeep)}`;
 
+/** What a cut text says when the Bot has no Computer to hold the rest. */
+export const notSavedNote = "The rest was not saved.";
+
+/**
+ * Text over `spillThreshold` characters, cut to its first and last characters, with the full text
+ * saved at `path` by `save` and the note that says where. With no `save` (no Computer), or when it
+ * fails, the note says the rest was not saved. Shorter text comes back whole.
+ */
+export async function capText(
+  text: string,
+  path: string,
+  save?: (path: string, content: string) => Promise<void>,
+): Promise<string> {
+  if (text.length <= spillThreshold) return text;
+  // The text exists already, so a failed save must not fail the call: it goes without the file.
+  const saved = save
+    ? await save(path, text).then(
+        () => true,
+        () => false,
+      )
+    : false;
+  return `${keepEnds(text)}\n${saved ? `The full text is saved at ${path}.` : notSavedNote}`;
+}
+
+/**
+ * A tool's result as the Model reads it: JSON over `spillThreshold` characters becomes its cut
+ * text (see `capText`), anything else stays as it is.
+ */
+export async function capResult<T>(
+  result: T,
+  path: string,
+  save?: (path: string, content: string) => Promise<void>,
+): Promise<T | string> {
+  const text = JSON.stringify(result);
+  if (text === undefined || text.length <= spillThreshold) return result;
+  return capText(text, path, save);
+}
+
 /**
  * Caps a command's result. When stdout or stderr is over the threshold, `save` stores the full
  * output (both streams, labelled, when both are long) at `path`, and the result keeps the first
@@ -199,11 +237,11 @@ const notUtf8Error = (path: string) =>
 /** The most bytes of a file that `edit` loads. Over it, edit returns an error that suggests `shell`. */
 export const maxTextBytes = 5_000_000;
 
-/**
- * The most bytes of lines one `read` fetches: base64 makes it a third bigger, which stays well
- * under the 1 MiB characters at each end of a command's output that a provider keeps.
- */
-export const maxPageBytes = 512 * 1024;
+/** The most characters of numbered lines one `read` returns. */
+export const maxPageCharacters = 10_000;
+
+/** The most bytes of lines one `read` fetches: enough for a full page of 4-byte characters. */
+export const maxFetchedBytes = 4 * maxPageCharacters;
 
 /**
  * How much of each line `read` fetches, in bytes: `maxLineLength` characters of up to 4 bytes,
@@ -228,7 +266,7 @@ const notRegular = [
  * `read`'s one command, after `p=<path> o=<first line> n=<lines>`. Unless the path isn't a regular
  * file, it reports `binary` or `notutf8` from the whole file (two passes on the Computer, so no
  * byte moves), or else `lines <count>` and then the range, base64: each line cut to
- * `fetchedLineBytes`, and only the lines that fit in `maxPageBytes`. Any failed step fails the
+ * `fetchedLineBytes`, and only the lines that fit in `maxFetchedBytes`. Any failed step fails the
  * command. The UTF-8 check needs the C.UTF-8 locale (Debian has it); without it, only the
  * fetched lines are checked.
  */
@@ -246,7 +284,7 @@ export const readScript = [
   `echo "lines $lines"`,
   `e=$((o + n - 1)); [ "$e" -gt "$lines" ] && e=$lines`,
   `[ "$n" -gt 0 ] && [ "$o" -le "$e" ] || exit 0`,
-  `sed -n "$o,\${e}p;\${e}q" "$p" | cut -b 1-${fetchedLineBytes} | LC_ALL=C awk -v max=${maxPageBytes} '!cut { if (t + length($0) + 1 > max) cut = 1; else { t += length($0) + 1; print } }' | base64 -w0`,
+  `sed -n "$o,\${e}p;\${e}q" "$p" | cut -b 1-${fetchedLineBytes} | LC_ALL=C awk -v max=${maxFetchedBytes} '!cut { if (t + length($0) + 1 > max) cut = 1; else { t += length($0) + 1; print } }' | base64 -w0`,
 ].join("\n");
 
 /** `edit`'s look-up, after `p=<path>`: unless the path isn't a regular file, `bytes <size>`. */
@@ -332,18 +370,24 @@ function splitTail(bytes: Uint8Array, start: number, end: number): number {
 
 /**
  * Numbered lines from `rangeText`, which holds the file's lines from line `start` (1-based) on, out
- * of `totalLines`.
+ * of `totalLines`. The page keeps the lines that fit in `maxPageCharacters` (the first always
+ * does), and `nextOffset` is the line after them when more remains.
  */
 export function numberLines(rangeText: string, start: number, totalLines: number) {
   const lines = rangeText.split("\n");
   if (lines.at(-1) === "") lines.pop();
-  const content = lines
-    .map((line, index) => {
-      const cut = line.length > maxLineLength ? `${line.slice(0, maxLineLength)}…` : line;
-      return `${start + index}\t${cut}`;
-    })
-    .join("\n");
-  const next = start + lines.length;
+  const page: string[] = [];
+  let size = 0;
+  for (const [index, line] of lines.entries()) {
+    const cut = line.length > maxLineLength ? `${line.slice(0, maxLineLength)}…` : line;
+    const numbered = `${start + index}\t${cut}`;
+    // The newline joining it to the line before counts too.
+    if (page.length > 0 && size + 1 + numbered.length > maxPageCharacters) break;
+    size += (page.length > 0 ? 1 : 0) + numbered.length;
+    page.push(numbered);
+  }
+  const content = page.join("\n");
+  const next = start + page.length;
   return next <= totalLines ? { content, totalLines, nextOffset: next } : { content, totalLines };
 }
 
@@ -353,8 +397,8 @@ export const readDefinition = toolDefinition({
   name: "read",
   description:
     `Read a text file from your computer, as numbered lines. By default it returns the first ` +
-    `${defaultReadLines} lines, with lines over ${maxLineLength} characters cut; if more remains ` +
-    "it gives the nextOffset to read from.",
+    `${defaultReadLines} lines, with lines over ${maxLineLength} characters cut, and at most ` +
+    `${maxPageCharacters} characters; if more remains it gives the nextOffset to read from.`,
   inputSchema: z.object({
     path: pathField,
     offset: z.number().int().optional().meta({ description: "The line to start at, from 1." }),
@@ -392,9 +436,21 @@ export const listDefinition = toolDefinition({
 });
 
 /**
+ * The Computer tools a Bot is given, in the order its Prompt start sends them: the loop builds its
+ * tools in this order, and an away Summary sends these definitions when it builds a Prompt start.
+ */
+export const computerToolDefinitions = [
+  shellDefinition,
+  readDefinition,
+  writeDefinition,
+  editDefinition,
+  listDefinition,
+];
+
+/**
  * The `read` tool's result, from one command on the Computer: it checks the whole file there and
  * fetches only the lines it returns, with `sed`, so paging through a huge file doesn't move the
- * file. A page whose lines are over `maxPageBytes` stops early, with a hint to read on.
+ * file. A page whose lines are over `maxPageCharacters` stops early, with a hint to read on.
  */
 export async function readTool(
   computer: ComputerHandle,
@@ -425,7 +481,7 @@ export async function readTool(
   return {
     ...page,
     hint:
-      `This read stopped before line ${nextOffset}: one read returns at most ${maxPageBytes} bytes of lines. ` +
+      `This read stopped before line ${nextOffset}: one read returns at most ${maxPageCharacters} characters. ` +
       `Read on with offset ${nextOffset}, or use ${shellToolName} (for example sed, head or grep).`,
   };
 }

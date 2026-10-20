@@ -12,6 +12,7 @@ import { useBackgroundRuns, useBotTurn } from "../client/react/bot-turn";
 import { useBotCheckIns } from "../client/react/check-ins";
 import { allHelpers, useBotHelpers } from "../client/react/helpers";
 import { useBotRoutines } from "../client/react/routines";
+import { useCacheWarming } from "../client/react/warm";
 import { BotAvatar } from "./bot-avatar";
 import { CheckInLine } from "./check-in-line";
 import { ComputerCard } from "./computer-card";
@@ -20,13 +21,15 @@ import { isLiveHelper } from "../shared/helper";
 import { RoutineCard } from "./routine-card";
 import { RoutinesPopover } from "./routines-popover";
 import { RunDivider } from "./run-divider";
+import { SummaryCard } from "./summary-card";
 import { TodoPopover } from "./todo-popover";
+import { WarmLine } from "./warm-line";
 
 /**
  * A Bot's Conversation: the Messages sent in it, the user's on the right and the Bot's on the left,
  * ••• while a Turn runs, and "Seen ✓" under the user's last Message when the Bot stayed quiet, or "Couldn't reply" when the
  * Turn failed. A Routine the Bot created shows after the Turn that created it, as does a Check-in
- * it set, and each Helper it started shows as a card after it (a hand-off Message is followed by its Computer card), and each run of a Routine or fired Check-in gets a divider above what it sent, or one of its own when it stayed quiet. The Bot's Messages are
+ * it set, and each Helper it started shows as a card after it (a hand-off Message is followed by its Computer card), and each run of a Routine or fired Check-in gets a divider above what it sent, or one of its own when it stayed quiet. Where a Summary replaced the Bot's context, a card that expands to it sits before the next Message. The Bot's Messages are
  * never collapsed. The header lists the Routines, to pause, resume or delete them, and the To-do
  * list of live Helpers, to stop them.
  */
@@ -62,15 +65,27 @@ function BotConversationView({
   const i18n = useI18n();
   const { t } = i18n;
   const [draft, setDraft] = useState("");
-  const { bot, error, messages, turns, working, seenMessageId, failedMessageId, send, stop } =
-    useBotTurn(botId, {
-      // A refused send puts its text back in the composer and says why.
-      onRefusedSend: (text, refusal) => {
-        setDraft(text);
-        toast.error(serverErrorText(i18n, refusal));
-      },
-    });
+  const {
+    bot,
+    error,
+    messages,
+    turns,
+    summaries,
+    warmings,
+    working,
+    seenMessageId,
+    failedMessageId,
+    send,
+    stop,
+  } = useBotTurn(botId, {
+    // A refused send puts its text back in the composer and says why.
+    onRefusedSend: (text, refusal) => {
+      setDraft(text);
+      toast.error(serverErrorText(i18n, refusal));
+    },
+  });
 
+  const warmCache = useCacheWarming(botId);
   const { routines, webhookTokens, acting, approve, decline, pause, resume, remove, rotate } =
     useBotRoutines(botId, working);
   const {
@@ -172,6 +187,27 @@ function BotConversationView({
     ]);
   }
 
+  // Each Summary's card before the first Message saved at or after it ("" after the last).
+  const summariesBefore = new Map<string, ReactNode[]>();
+  for (const summary of summaries) {
+    const before =
+      messages.find((message) => message.createdAt.getTime() >= summary.at.getTime())?.id ?? "";
+    summariesBefore.set(before, [
+      ...(summariesBefore.get(before) ?? []),
+      <SummaryCard key={summary.id} summary={summary} />,
+    ]);
+  }
+
+  // Each warming call's line before the first Message saved after it ("" after the last).
+  const warmingsBefore = new Map<string, ReactNode[]>();
+  for (const warming of warmings) {
+    const before = messages.find((message) => message.createdAt.getTime() >= warming.at.getTime());
+    warmingsBefore.set(before?.id ?? "", [
+      ...(warmingsBefore.get(before?.id ?? "") ?? []),
+      <WarmLine key={warming.id} warming={warming} />,
+    ]);
+  }
+
   // Each Turn's `afterTurn` under the last Bot Message it sent: the last one saved in its span.
   const afterTurnOf = new Map<string, ReactNode[]>();
   if (afterTurn) {
@@ -229,6 +265,8 @@ function BotConversationView({
         )}
         {messages.map((message) => (
           <Fragment key={message.id}>
+            {summariesBefore.get(message.id)}
+            {warmingsBefore.get(message.id)}
             {runsBefore.get(message.id)}
             <div
               data-bot-message
@@ -264,6 +302,8 @@ function BotConversationView({
             {helpersAfter.get(message.id)?.map(helperCard)}
           </Fragment>
         ))}
+        {summariesBefore.get("")}
+        {warmingsBefore.get("")}
         {runsBefore.get("")}
         {routinesAfter.get("")?.map(routineCard)}
         {checkInsAfter.get("")?.map(checkInLine)}
@@ -283,7 +323,11 @@ function BotConversationView({
           aria-label={t("bots.message")}
           placeholder={t("bots.message")}
           value={draft}
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={(event) => {
+            // The first keystroke of a draft warms the cache while the user is still writing.
+            if (!draft && event.target.value) warmCache();
+            setDraft(event.target.value);
+          }}
           onKeyDown={onKeyDown}
           rows={1}
           className="max-h-40 min-h-10 resize-none"

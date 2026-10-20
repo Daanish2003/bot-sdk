@@ -40,6 +40,7 @@ import {
   transcriptionAdapterFor,
   transcriptionProviders,
 } from "./transcription";
+import { freeModelMeter, type ModelMeter } from "./meter";
 import { reconnectChatgptAdapter } from "./chatgpt-plan";
 import type {
   Credentials,
@@ -131,6 +132,11 @@ export type ModelsApi = {
    * plan's way (ADR 0023). A broken link gives an adapter that fails asking to reconnect ChatGPT.
    */
   adapterForCall: (model: string, call: ModelCall) => AnyTextAdapter;
+  /**
+   * The meter of a call to `model` on the user's own key or linked plan that is still recorded, at
+   * cost 0: a Bot's calls, so its cache use shows whoever pays (#667).
+   */
+  freeModelMeter: (userId: string, model: string) => ModelMeter;
   /** The image adapter for an Image Model, or `undefined` (`ModelsDeps.imageAdapterFor`). */
   imageAdapterFor: ModelsDeps["imageAdapterFor"];
   /** The size and provider options one image call sends (spec #278). */
@@ -281,6 +287,7 @@ function modelsApi(deps: ModelsDeps): ModelsApi {
             maxOutputTokens: call.maxOutputTokens,
             ...(call.linked === "plan" && { linked: true }),
           }),
+    freeModelMeter: (userId, model) => freeModelMeter(deps, userId, model),
     imageAdapterFor: (model, credentials) => deps.imageAdapterFor(model, credentials),
     imageRequestFor,
     get byok() {

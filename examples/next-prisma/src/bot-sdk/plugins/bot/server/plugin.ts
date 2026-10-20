@@ -7,6 +7,7 @@ import { cancelUserHelpers, hasRunningHelper } from "./helper";
 import { cancelUserFires } from "./routine";
 import { startRoutineReconcile } from "./routine-fire";
 import "./check-in-fire";
+import "./summary-away";
 import { handleRoutineWebhook } from "./routine-webhook";
 import { botPluginRouter } from "./routers/index";
 import { handleScreenRequest, type ScreenSocketHooks, screenSocketHooks } from "./screen-view";
