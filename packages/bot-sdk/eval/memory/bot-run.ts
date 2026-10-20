@@ -8,7 +8,7 @@
 // `--limit=<n>` runs the first n cases.
 
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -31,7 +31,8 @@ import { runnerJobs } from "../../plugins/runner/server/plugin";
 import { createFakeAdapter, round, text, toolCall } from "../../test/support/fake-adapter";
 import { fakeComputerProvider } from "../../test/plugins/computer/server/fake-provider";
 import { createComputerSdk, databaseUrlFromEnv, prepareSchema } from "../computer/setup";
-import { fail, judgeCompletion, keyVariables } from "../turn/judge-model";
+import { chatgptPlanFromEnv } from "../chatgpt-plan";
+import { fail, judgeCompletion, keyFor } from "../turn/judge-model";
 import { type Ask, botMemoryCases, type BotMemoryCase, type Files, tallyCases } from "./bot-cases";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
@@ -114,30 +115,13 @@ async function main() {
   }
   const model = process.env.EVAL_BOT_MODEL ?? defaultModel;
   const judgeModel = process.env.EVAL_JUDGE_MODEL ?? model;
-  // A ChatGPT plan's access token (ADR 0023) runs the `openai:` Models the plan's way, in place of
-  // OPENAI_API_KEY: the Bots as a linked plan, the judge through the plan's fetch.
-  const tokenFile = fake ? undefined : process.env.EVAL_CHATGPT_TOKEN_FILE;
-  const planToken = tokenFile
-    ? ((JSON.parse(await readFile(tokenFile, "utf8")) as { accessToken?: string }).accessToken ??
-      fail("EVAL_CHATGPT_TOKEN_FILE has no accessToken"))
-    : null;
-  const onPlan = (modelId: string) => planToken !== null && modelId.startsWith("openai:");
-  const keyOf = (modelId: string): string => {
-    if (onPlan(modelId)) return planToken!;
-    const provider = modelId.split(":")[0]!;
-    const variable = keyVariables[provider];
-    const value = fake ? "sk-fake" : process.env[variable ?? ""];
-    return (
-      value || fail(`${variable ?? `A key for ${provider}`} is not set (no Model key: nothing ran)`)
-    );
-  };
-  const botKey = keyOf(model);
-  const judgeKey = keyOf(judgeModel);
+  // `null`: the Model runs on the owner's ChatGPT plan (eval/chatgpt-plan.ts), not on a key.
+  const plan = fake ? null : await chatgptPlanFromEnv();
+  const botKey = fake ? "sk-fake" : keyFor(model, plan, " (no Model key: nothing ran)");
+  const judgeKey = fake ? "sk-fake" : keyFor(judgeModel, plan, " (the judge)");
   const databaseUrl = databaseUrlFromEnv();
 
-  const complete = fake
-    ? null
-    : judgeCompletion(judgeModel, judgeKey, { plan: onPlan(judgeModel) });
+  const complete = fake ? null : judgeCompletion(judgeModel, judgeKey, plan);
   const ask: Ask = async (claim, lines, fakeAnswer) => {
     if (lines.length === 0) return false;
     if (!complete) return lines.some((line) => fakeAnswer.test(line));
@@ -168,9 +152,7 @@ async function main() {
               return adapter;
             },
           }
-        : onPlan(model)
-          ? { ...real, linkedCredentials: async () => ({ apiKey: planToken! }) }
-          : real,
+        : { ...real, linkedCredentials: plan?.linkedCredentials },
   });
   const jobs = runnerJobs(sdk);
   await jobs.start();
@@ -187,10 +169,11 @@ async function main() {
       await db
         .insert(userTable)
         .values({ id: userId, name: "Eval", email: `${userId}@eval.invalid` });
-      const apiKey = fake ? `fake-${evalCase.id}-${repeat}-${randomUUID()}` : botKey;
+      const fakeKey = `fake-${evalCase.id}-${repeat}-${randomUUID()}`;
+      const apiKey = fake ? fakeKey : botKey;
       if (fake) {
         adapters.set(
-          apiKey,
+          fakeKey,
           createFakeAdapter({
             rounds: evalCase.fake.flatMap((turn) => [
               round(
@@ -205,7 +188,7 @@ async function main() {
         );
       }
       // A stored OpenAI key would come before the linked plan, so a plan run stores none.
-      if (!onPlan(model)) {
+      if (apiKey !== null) {
         await saveCredentials(sdk, userId, {
           service: model.split(":")[0]!,
           fields: { apiKey },

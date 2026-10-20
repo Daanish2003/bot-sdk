@@ -42,7 +42,10 @@ export type EvalEnv = {
   /** The SDK's dependencies, with the Models and the clock left for each case to set. */
   base: EvalDeps;
   answerModel: string;
-  /** The Providers the run's Models use, plus OpenAI for embeddings; each gets the user's key. */
+  /**
+   * The Providers the run's Models use, plus OpenAI for embeddings (Gemini on the ChatGPT plan);
+   * each gets the user's key. A Model on the plan has no key here.
+   */
   providers: string[];
   keyFor: (provider: string) => Credentials;
   /** The judge Model's completion, at temperature 0. */

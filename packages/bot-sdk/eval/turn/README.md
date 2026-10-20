@@ -64,6 +64,30 @@ between Providers. Suggested defaults:
 
 The id must be one of the SDK's curated Models; the run fails at the first Turn when it is not.
 
+## On a ChatGPT plan
+
+With no API key, the runs can use a ChatGPT plan linked on the web app's Keys page (#637). Set
+`EVAL_CHATGPT_USER_ID` to the id of the user who linked it, plus the web app's own `DATABASE_URL`,
+`BETTER_AUTH_URL`, `BETTER_AUTH_SECRET`, `CHATGPT_CLIENT_ID` and `CHATGPT_HOST_ID` (from
+`apps/web/.env`). Then the plan's Models, `openai:gpt-6.1-sol` and `openai:gpt-6-luna`, run on the
+plan with no `OPENAI_API_KEY`, the same way they do in the web app. That covers the Bot and the judge.
+This works for `eval:turn` and `eval:ladder`.
+
+```sh
+EVAL_DATABASE_URL=postgresql://postgres:password@127.0.0.1:5435/ai-chat_eval \
+EVAL_BOT_MODEL=openai:gpt-6-luna EVAL_JUDGE_MODEL=openai:gpt-6.1-sol \
+EVAL_CHATGPT_USER_ID=<your user id> DATABASE_URL=... BETTER_AUTH_URL=... BETTER_AUTH_SECRET=... \
+CHATGPT_CLIENT_ID=... CHATGPT_HOST_ID=... \
+pnpm -F @ai-chat/bot-sdk eval:turn
+```
+
+- The token is read from the link on each call through Better Auth, which refreshes it and saves the
+  new tokens, so the web app's link keeps working.
+- The plan refuses `temperature`, so its judge runs at the Model's default. Its verdicts can vary
+  between runs and aren't comparable with runs judged at temperature 0.
+- The plan has a usage limit, so a 429 fails the run that hit it. Lower `EVAL_CONCURRENCY` or
+  `EVAL_REPEATS` if that happens.
+
 ## Dry run
 
 `--fake` (or `EVAL_FAKE=1`) runs the same wiring with the SDK's fake chat adapter, which plays what each

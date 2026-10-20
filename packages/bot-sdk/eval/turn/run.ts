@@ -33,7 +33,8 @@ import { queueCases } from "./queue-cases";
 import { type RoutineCase, routineCases } from "./routine-cases";
 import { nextThursday } from "./routine-score";
 import { runRoutineCase, type RoutineRunResult } from "./routine-run";
-import { fail, judgeCompletion, keyVariables } from "./judge-model";
+import { chatgptPlanFromEnv } from "../chatgpt-plan";
+import { fail, judgeCompletion, keyFor } from "./judge-model";
 import { type Complete, runQueueCase, type QueueRunResult } from "./queue-run";
 import { formatJudge, tallyQueue } from "./queue-score";
 import { tally } from "./score";
@@ -137,22 +138,19 @@ async function main() {
   ] as const) {
     if (!Number.isInteger(value) || value < 1) fail(`${name} must be a whole number, 1 or more`);
   }
-  const provider = model.split(":")[0]!;
   const databaseUrl = process.env.EVAL_DATABASE_URL;
   if (!databaseUrl) fail("EVAL_DATABASE_URL is not set: a scratch Postgres with pgvector.");
 
-  const apiKey = fake ? "sk-fake" : process.env[keyVariables[provider] ?? ""];
-  if (!apiKey) fail(`${keyVariables[provider] ?? `A key for ${provider}`} is not set`);
+  // `null`: the Model runs on the owner's ChatGPT plan (eval/chatgpt-plan.ts), not on a key.
+  const plan = fake ? null : await chatgptPlanFromEnv();
+  const apiKey = fake ? "sk-fake" : keyFor(model, plan);
 
   // The judge defaults to the Bot's own Model when that is an OpenAI or Anthropic one.
   const judgeModel = process.env.EVAL_JUDGE_MODEL ?? model;
-  const judgeProvider = judgeModel.split(":")[0]!;
-  const judgeKey = fake ? "sk-fake" : process.env[keyVariables[judgeProvider] ?? ""];
-  if (!judgeKey)
-    fail(`${keyVariables[judgeProvider] ?? `A key for ${judgeProvider}`} is not set (the judge)`);
+  const judgeKey = fake ? "sk-fake" : keyFor(judgeModel, plan, " (the judge)");
   const complete: Complete = fake
     ? async () => "Verdict: yes\nReason: fake judge"
-    : judgeCompletion(judgeModel, judgeKey);
+    : judgeCompletion(judgeModel, judgeKey, plan);
 
   const cases = limit === undefined ? turnCases : turnCases.slice(0, limit);
   const db = await prepareSchema(databaseUrl);
@@ -162,7 +160,7 @@ async function main() {
   const keyring = [evalKeySecret];
   const realModels = productionDeps(
     { db, keyring, events, logger, fetch } as unknown as BotSdkContext,
-    { defaultBackgroundModel: undefined },
+    { defaultBackgroundModel: undefined, linkedCredentials: plan?.linkedCredentials },
   );
   /** The fake Model's case for each run, found by the run's own API key. */
   const scripts = new Map<string, { id: string; rounds: () => ReturnType<typeof round>[] }>();
@@ -216,7 +214,7 @@ async function main() {
     sdk,
     model,
     credentialsFor: (caseId: string, repeat: number) => {
-      if (!fake) return { apiKey };
+      if (!fake) return apiKey === null ? null : { apiKey };
       const key = `fake-${caseId}-${repeat}`;
       const turnCase = cases.find((c) => c.id === caseId);
       const routineCase = routineCases.find((c) => c.id === caseId);
