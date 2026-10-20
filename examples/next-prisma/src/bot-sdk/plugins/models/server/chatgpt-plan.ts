@@ -1,7 +1,7 @@
 import { type AdapterYieldChunk, type AnyTextAdapter, EventType } from "@tanstack/ai";
 
-/** What a call on a broken ChatGPT link fails with (ADR 0023). */
-export const reconnectChatgptMessage = "Reconnect ChatGPT on the Keys page";
+import { reconnectChatgptMessage } from "../shared/chatgpt-plan";
+
 /** The error code of that failure: a Provider error, not a rejected API key. */
 const reconnectChatgptCode = "chatgpt_reconnect";
 
@@ -15,7 +15,7 @@ const reconnectChatgptCode = "chatgpt_reconnect";
  *   see a tool call. The items the stream sent (`response.output_item.done`) are put back in.
  *
  * A rejected token (401) means a broken link, so its message asks to reconnect; a 403 keeps
- * OpenAI's own message. The plan's
+ * OpenAI's own message, and so does a 429 (see {@link planRateLimitResponse}). The plan's
  * stream has no content-type, so nothing here branches on it.
  */
 export function chatgptPlanFetch(
@@ -24,6 +24,7 @@ export function chatgptPlanFetch(
   return async (input, init) => {
     const response = await base(input, withPlanBody(init));
     if (response.status === 401) return reconnectResponse(response);
+    if (response.status === 429) return planRateLimitResponse(response);
     if (!response.ok || !response.body) return response;
     return new Response(response.body.pipeThrough(fillCompletedOutput()), {
       status: response.status,
@@ -46,6 +47,32 @@ function withPlanBody(init: RequestInit | undefined): RequestInit | undefined {
   const reasoning = body.reasoning as { effort?: string } | undefined;
   if (reasoning?.effort === "none") body.reasoning = { ...reasoning, effort: "low" };
   return { ...init, body: JSON.stringify(body) };
+}
+
+/**
+ * A 429 from the plan with a code of its own, so the Run is stored as a Provider error that quotes
+ * OpenAI's message ("You've hit your usage limit") instead of the generic rate-limit text. A body
+ * that isn't JSON with an `error` object is passed on as it came.
+ */
+async function planRateLimitResponse(response: Response): Promise<Response> {
+  const text = await response.text();
+  const init = {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  };
+  try {
+    const body = JSON.parse(text) as { error?: Record<string, unknown> };
+    if (body.error && typeof body.error === "object") {
+      body.error.code = "chatgpt_plan_rate_limited";
+      const headers = new Headers(response.headers);
+      headers.delete("content-length");
+      return new Response(JSON.stringify(body), { ...init, headers });
+    }
+  } catch {
+    // Not JSON: nothing to rewrite.
+  }
+  return new Response(text, init);
 }
 
 /** A 401 with the reconnect message, keeping its status; the code marks it as a broken link. */
