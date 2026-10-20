@@ -16,7 +16,8 @@ import {
   maxScreens,
 } from "../../computer/server/plugin";
 import { BrowserSession, browserTools } from "./browser-tools";
-import { desktopTools, storeScreenshot } from "./desktop-tools";
+import { desktopTools } from "./desktop-tools";
+import { storeScreenshot } from "./screenshots";
 import { computerOf } from "./computer-tools";
 import { type LoopKit, type LoopResult, runLoop, totalUsage } from "./loop";
 import { lockConversation, receive } from "./router";

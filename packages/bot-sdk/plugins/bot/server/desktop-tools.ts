@@ -1,15 +1,11 @@
 import { type ContentPart, type ModelMessage, toolDefinition } from "@tanstack/ai";
-import { eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
-import { type BlobStore, deleteBlobsBestEffort } from "../../../core/server/blob/store";
-import { bot, botHelper, botHelperScreenshot } from "../../../core/server/db/schema";
-import { uuidv7 } from "../../../core/server/lib/uuidv7";
-import type { BotSdkContext, ConversationDeleteHooks } from "../../../core/server/plugin";
-
+import type { BlobStore } from "../../../core/server/blob/store";
 import type { ComputerHandle } from "../../computer/server/plugin";
 import type { FileToolOptions } from "./computer-tools";
 import type { LoopKit } from "./loop";
+import { screenshotBlobKey } from "./screenshots";
 
 /** What the Desktop tool returns on a model that can't take images. */
 export const noVisionError =
@@ -251,24 +247,6 @@ export function pruneScreenshots(messages: readonly ModelMessage[]): ModelMessag
 /** How a stored screenshot's image part names it: `screenshot:<id>`, never a real URL. */
 const screenshotRef = "screenshot:";
 
-/** The blob key of a Helper's screenshot (#608). */
-export const screenshotBlobKey = (screenshotId: string) => `screenshot/${screenshotId}`;
-
-/**
- * Stores one of Helper `helperId`'s screenshots: its row, then its PNG in the blob store, so a
- * row never lacks the key its bytes may sit under. Returns its id.
- */
-export async function storeScreenshot(
-  deps: Pick<BotSdkContext, "db" | "blobStore" | "clock">,
-  helperId: string,
-  png: Uint8Array,
-): Promise<string> {
-  const id = uuidv7();
-  await deps.db.insert(botHelperScreenshot).values({ id, helperId, createdAt: deps.clock() });
-  await deps.blobStore.put(screenshotBlobKey(id), png, { contentType: "image/png" });
-  return id;
-}
-
 /**
  * A model call's input with each screenshot ref resolved to its PNG from the blob store: run after
  * `pruneScreenshots`, so only the kept ones are read. One whose bytes are gone becomes
@@ -311,21 +289,3 @@ function isRef(
     part.source.value.startsWith(screenshotRef)
   );
 }
-
-/**
- * The bot plugin's hooks on every Conversation delete: a Bot goes with its Conversation, and its
- * Helpers' screenshots with it. Their rows go by cascade, so `before` reads their keys inside the
- * delete's transaction, and `after` deletes their bytes once it commits (ADR 0015).
- */
-export const screenshotsConversationDelete: ConversationDeleteHooks<string[]> = {
-  before: async (_sdk, { conversationIds, tx }) => {
-    const rows = await tx
-      .select({ id: botHelperScreenshot.id })
-      .from(botHelperScreenshot)
-      .innerJoin(botHelper, eq(botHelper.id, botHelperScreenshot.helperId))
-      .innerJoin(bot, eq(bot.id, botHelper.botId))
-      .where(inArray(bot.conversationId, conversationIds));
-    return rows.map((row) => screenshotBlobKey(row.id));
-  },
-  after: (sdk, { collected }) => deleteBlobsBestEffort(sdk, collected),
-};

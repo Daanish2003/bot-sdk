@@ -2,7 +2,7 @@ import type { BotSdkPlugin } from "../../../core/server/plugin";
 import { isInProcessRunner } from "../../runner/server/jobs/in-process";
 import { runnerJobs } from "../../runner/server/plugin";
 import { cancelUserCheckIns } from "./check-in";
-import { screenshotsConversationDelete } from "./desktop-tools";
+import { screenshotsConversationDelete } from "./screenshots";
 import { cancelUserHelpers, hasRunningHelper } from "./helper";
 import { cancelUserFires } from "./routine";
 import { startRoutineReconcile } from "./routine-fire";
