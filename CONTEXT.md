@@ -61,8 +61,8 @@ One specific LLM offered by a Provider. A Conversation has a selected Model, and
 _Avoid_: Engine, LLM (as a noun for one choice)
 
 **Provider credentials**:
-What one user supplies to reach one Provider: usually an API key, sometimes with an account or region, or just a host for a local Provider. When a user has them for a Provider, their runs on it always use them and never count against their Quota.
-_Avoid_: Provider key, API key (ambiguous), token, BYOK key
+What one user supplies to reach one Provider: usually an API key, sometimes with an account or region, or just a host for a local Provider. For OpenAI it can instead be a linked ChatGPT plan, made by signing in to ChatGPT, which reaches only the Models the plan offers and is used only when the user has no OpenAI API key. When a user has them for a Provider, their runs on it always use them and never count against their Quota.
+_Avoid_: Provider key, API key (ambiguous), token, BYOK key, ChatGPT Connection
 
 **Host credentials**:
 Provider or Tool credentials the Host supplies for all its users, with the Models it offers on them. Runs on them count against the user's Quota.
