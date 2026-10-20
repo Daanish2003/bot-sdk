@@ -17,7 +17,7 @@ Shared by the orchestrator and every implementer. Each bullet cost a past run a 
 - **Scripted edits:** this machine has no `python`; use `node -e`.
 - **Fresh worktrees:** the first `pnpm exec` in a worktree with no `node_modules` runs a `pnpm install`. Two at once can fail with `ERR_PNPM_LOCKFILE_RENAME_FILE`; retry once the install has finished.
 - **Merged branches:** GitHub deletes the remote branch when a PR merges, so `git push origin --delete <branch>` fails afterwards with "remote ref does not exist" (#644). Run `git fetch --prune` and move on.
-- **Repo rename:** `gh` reports the repo moved to `Daanish2003/bot-sdk` (#638 run). The old `Daanish2003/ai-chat` URLs redirect, but update `origin` when a push or `gh` call complains.
+- **Repo name:** the GitHub repo is `Daanish2003/bot-sdk` (renamed from `Daanish2003/ai-chat`; old URLs redirect). `origin` points at it since 2026-10-20.
 
 ## Databases and services
 
