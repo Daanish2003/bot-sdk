@@ -272,6 +272,8 @@ export function useBotTurn(
     messages,
     /** Each Turn's provenance: the Triggers it took, and whether it sent anything. */
     turns: query.data?.turns ?? [],
+    /** The Bot's Summaries, oldest first (#676). */
+    summaries: query.data?.summaries ?? [],
     working,
     seenMessageId: status === "complete" ? answered : undefined,
     failedMessageId: status === "error" ? answered : undefined,

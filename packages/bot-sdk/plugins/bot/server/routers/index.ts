@@ -27,6 +27,7 @@ import { listHelpers } from "../helper-card";
 import { helperDone } from "../hand-off";
 import { stopBotHelpers } from "../helper-tools";
 import { screenControl, screenView } from "../screen-view";
+import { botSummaries } from "../summary";
 import { isTimeZone } from "../time-zone";
 import { sendToBot, stopBot } from "../turn";
 
@@ -55,8 +56,8 @@ const botRouter = {
 
   /**
    * One of the caller's Bots with its latest Turn's status and the status of the Turn that took the
-   * user's last Message, its Conversation's id and Messages, and its Turns' provenance; another user's is
-   * not found.
+   * user's last Message, its Conversation's id and Messages, its Turns' provenance and its Summaries;
+   * another user's is not found.
    */
   get: protectedProcedure
     .input(z.object({ botId: z.uuid() }))
@@ -69,15 +70,17 @@ const botRouter = {
         latestTurnStatus(context.sdk.db, bot.id),
       ]);
       // Each Turn's Triggers and whether it sent anything, for the dividers of Routine runs.
-      const [turns, userStatus] = await Promise.all([
+      const [turns, userStatus, summaries] = await Promise.all([
         turnProvenance(context.sdk.db, context.user.id, bot.id, messages),
         userTurnStatus(context.sdk.db, messages),
+        botSummaries(context.sdk.db, bot.id, conversationId),
       ]);
       return {
         bot: { ...bot, turnStatus, userTurnStatus: userStatus },
         conversationId,
         messages,
         turns,
+        summaries,
       };
     }),
 

@@ -29,6 +29,7 @@ import {
   capResult,
   computerOf,
   computerOperationError,
+  computerToolDefinitions,
   computerUnavailableError,
   defaultShellTimeoutSeconds,
   editDefinition,
@@ -183,6 +184,8 @@ export type LoopResult = {
   finished: boolean;
   transcript: ModelMessage[];
   usage: MessageUsage | null;
+  /** The input its last model call reported, or estimated: what queues a Summary while away. */
+  lastInput: number | undefined;
   failure?: unknown;
 };
 
@@ -297,6 +300,8 @@ export async function runLoop(
   let previousCall: PreviousCall | null | undefined;
   /** The input the last model call reported, until a Summary: what the next Step checks. */
   let lastInput: number | undefined;
+  /** The input the last model call reported, a Summary or not. */
+  let lastStepInput: number | undefined;
   /** The options of the last model call, which a summary call sends again with its instruction. */
   let lastChatOptions: TextOptions | undefined;
   /**
@@ -431,6 +436,7 @@ export async function runLoop(
           previousCall = { promptStartId: promptStart.id, hashes: recorded.hashes };
         }
         lastInput = recorded.usage?.usage.input;
+        lastStepInput = lastInput;
         const bill = recorded.usage;
         if (bill) {
           await billing("bill", async (tx, onCommit) => {
@@ -696,13 +702,19 @@ export async function runLoop(
         (computer, live) => run(computer, owner.botId, input, live),
         cap,
       );
-  const computerTools = [
-    shell,
-    readDefinition.server(fileTool("read", readTool, false)),
-    writeDefinition.server(fileTool("write", writeTool)),
-    editDefinition.server(fileTool("edit", editTool)),
-    listDefinition.server(fileTool("list", listTool)),
-  ];
+  const computerToolsByName: Record<string, AnyServerTool> = {
+    [shellDefinition.name]: shell,
+    [readDefinition.name]: readDefinition.server(fileTool("read", readTool, false)),
+    [writeDefinition.name]: writeDefinition.server(fileTool("write", writeTool)),
+    [editDefinition.name]: editDefinition.server(fileTool("edit", editTool)),
+    [listDefinition.name]: listDefinition.server(fileTool("list", listTool)),
+  };
+  // In the shared order, which an away Summary's Prompt start sends too.
+  const computerTools = computerToolDefinitions.map((definition) => {
+    const tool = computerToolsByName[definition.name];
+    if (!tool) throw new Error(`No implementation for the Computer tool ${definition.name}`);
+    return tool;
+  });
 
   /** What the loop's model calls and tool calls added to its input, in order. */
   const messages: ModelMessage[] = [];
@@ -817,6 +829,7 @@ export async function runLoop(
     finished,
     transcript: answeredCalls(messages.filter((entry) => !unanswered.has(entry.toolCallId ?? ""))),
     usage: billed.length > 0 ? totalUsage(billed) : null,
+    lastInput: lastStepInput,
     failure,
   };
 }
@@ -825,7 +838,7 @@ export async function runLoop(
  * What one model call bills: the usage its Provider reported, else an estimate from its input and
  * output. A call that failed with no usage reported bills nothing.
  */
-function callUsage(
+export function callUsage(
   deps: BotSdkContext,
   provider: string,
   chunks: StreamChunk[],

@@ -31,7 +31,14 @@ import {
 import { type EarlierTurn, changeNotesFor } from "./change-notes";
 import type { PromptStartTool } from "./db/bot-prompt-start";
 import { cancelCheckInTool, pendingCheckIns, saveCheckIn } from "./check-in";
-import { capText, computerOf, computerPrompt, spillPath, spillThreshold } from "./computer-tools";
+import {
+  capText,
+  computerOf,
+  computerPrompt,
+  computerToolDefinitions,
+  spillPath,
+  spillThreshold,
+} from "./computer-tools";
 import { type TodoItem, todoList } from "./helper";
 import { helperTools } from "./helper-tools";
 import { type LoopKit, type LoopResult, type LoopSetup, runLoop } from "./loop";
@@ -42,7 +49,7 @@ import {
   type PromptStartParts,
   promptStartFor,
 } from "./prompt-start";
-import { historyFrom, summaryOf, writeSummary } from "./summary";
+import { historyFrom, queueAwaySummary, summaryOf, writeSummary } from "./summary";
 import { botMessages, findBot, textParts, toBotMessage, turnTimeLimitMs } from "./store";
 import {
   createRoutineToolName,
@@ -467,13 +474,16 @@ async function cancelTurn(deps: BotSdkContext, tx: Transaction, turnId: string):
   // history can't grow while it replays. It reads on `tx`, which holds those locks.
   const turn = await turnFacts(tx, turnId);
   const played = turn ? await replayedTurn(deps, tx, turn) : { transcript: [], usage: null };
+  const endedAt = deps.clock();
   await endTurn(tx, turnId, {
     status: "stopped",
     error: null,
     transcript: played.transcript,
     usage: played.usage,
-    endedAt: deps.clock(),
+    endedAt,
   });
+  if (turn)
+    await queueAwaySummary(deps, tx, { botId: turn.botId, lastInput: played.lastInput, endedAt });
   await turnEnded(deps, tx, turnId);
   return true;
 }
@@ -541,6 +551,9 @@ async function* followTurn(
   }
 }
 
+/** What a Turn played: its transcript and usage, and its last Step's input when known. */
+type PlayedTurn = Pick<LoopResult, "transcript" | "usage"> & { lastInput?: number };
+
 /** What a Turn's job reads once per attempt: facts set when the Turn was created. */
 type TurnFacts = {
   id: string;
@@ -606,12 +619,14 @@ async function runTurnJob(
     if (played.failure !== undefined) throw played.failure;
     await ctx.activity("end_turn", async (tx) => {
       await lockConversation(tx, turn.conversationId);
+      const endedAt = deps.clock();
       await endTurn(tx, turnId, {
         ...endingOf(played),
         transcript: played.transcript,
         usage: played.usage,
-        endedAt: deps.clock(),
+        endedAt,
       });
+      await queueAwaySummary(deps, tx, { botId: turn.botId, lastInput: played.lastInput, endedAt });
       await turnEnded(deps, tx, turnId);
     });
   } catch (caught) {
@@ -629,11 +644,7 @@ async function runTurnJob(
  * when the attempt dies first. A lost lease or a shutdown leaves it `running`: the next attempt
  * resumes it.
  */
-async function stopIfCancelled(
-  deps: BotSdkContext,
-  turn: TurnFacts,
-  played: Pick<LoopResult, "transcript" | "usage">,
-) {
+async function stopIfCancelled(deps: BotSdkContext, turn: TurnFacts, played: PlayedTurn) {
   const cancelled = turn.jobId && (await deps.plugin("runner").status(turn.jobId));
   if (!cancelled || cancelled.status !== "cancelled") return;
   await endRunningTurn(deps, turn, { status: "stopped", error: null }, played);
@@ -665,7 +676,7 @@ async function endFromCheckpoints(
   const turn = await turnFacts(deps.db, turnId);
   // A Turn that has already ended stays as it is, so there is nothing to replay.
   if (turn?.status !== "running") return;
-  let played: Pick<LoopResult, "transcript" | "usage"> = { transcript: [], usage: null };
+  let played: PlayedTurn = { transcript: [], usage: null };
   try {
     played = await replayedTurn(deps, deps.db, turn);
   } catch (caught) {
@@ -684,16 +695,18 @@ async function endRunningTurn(
   deps: BotSdkContext,
   turn: TurnFacts,
   ending: { status: TurnStatus; error: string | null },
-  played: Pick<LoopResult, "transcript" | "usage">,
+  played: PlayedTurn,
 ) {
   const ended = await deps.db.transaction(async (tx) => {
     await lockConversation(tx, turn.conversationId);
+    const endedAt = deps.clock();
     const rows = await tx
       .update(botTurn)
-      .set({ ...ending, transcript: played.transcript, usage: played.usage, endedAt: deps.clock() })
+      .set({ ...ending, transcript: played.transcript, usage: played.usage, endedAt })
       .where(and(eq(botTurn.id, turn.id), eq(botTurn.status, "running")))
       .returning({ id: botTurn.id });
     if (rows.length === 0) return false;
+    await queueAwaySummary(deps, tx, { botId: turn.botId, lastInput: played.lastInput, endedAt });
     await turnEnded(deps, tx, turn.id);
     return true;
   });
@@ -709,7 +722,7 @@ async function replayedTurn(
   deps: BotSdkContext,
   db: Database | Transaction,
   turn: TurnFacts,
-): Promise<Pick<LoopResult, "transcript" | "usage">> {
+): Promise<PlayedTurn> {
   const history = turn.jobId ? await loadHistory(db, turn.jobId) : [];
   const ended = AbortSignal.abort(new Error("The Turn's job has ended"));
   const workflow = createWorkflow<Transaction>({
@@ -948,9 +961,80 @@ async function turnSetup(
   earlier: Awaited<ReturnType<typeof earlierTurns>>,
   renderNewest: (changeNotes: string | undefined) => Promise<ModelMessage[]>,
 ): Promise<LoopSetup> {
-  const { liveActivity } = kit;
   let endTurn = false;
+  // The Bot's Routines as the Turn starts, read once: a replay reads the recorded list.
+  const routines = await kit.liveActivity(
+    "routines",
+    undefined,
+    async (tx) => (await routinesPrompt(tx, turn.botId)) ?? null,
+  );
+  // The Computer's tools and Helpers, whenever `computer` is on: the tool set never changes
+  // mid-conversation.
+  const withComputer = deps.hasPlugin("computer");
+  const memory =
+    withComputer && deps.hasPlugin("memory") ? await memorySnapshot(deps, turn, kit) : null;
+  const tools = turnTools(deps, turn, kit, {
+    withComputer,
+    // Present whenever the snapshot is: it reads through the Computer like the snapshot does.
+    withMemorySearch: memory !== null,
+    onLastMessage: () => {
+      endTurn = true;
+    },
+  });
+  /** What a Prompt start is built from now: by the Bot's first Turn, or by a Summary. */
+  const parts = (): PromptStartParts =>
+    startParts(turn, deps.clock(), { tools, withComputer, memory, routines });
+  // Recorded, so a replay sends the row its attempt chose.
+  const { id } = await kit.liveActivity("prompt_start", undefined, async (tx) => ({
+    id: await promptStartFor(tx, parts()),
+  }));
+  const promptStart = await loopPromptStart(db, id, () => previousTurnCall(deps.db, turn));
+  const summary = await summaryOf(db, id);
+  // A mid-Turn Summary's Prompt start was built from what its Turn read at its start, so what the
+  // Bot saw and did in that Turn counts as seen since it too.
+  const seenSince: EarlierTurn[] = earlier.map((row) =>
+    summary?.kind === "mid_turn" && row.id === summary.turnId ? { ...row, promptStartId: id } : row,
+  );
+  // What changed since the Prompt start, from what this Turn read: the memory block and Routines
+  // as recorded above, and the live tools.
+  const changeNotes = await changeNotesFor(db, id, seenSince, {
+    memory,
+    routines: routines ?? null,
+    tools: definitionsOf(tools),
+  });
+  // A tool a deploy removed stays defined, as the Prompt start sends it, and says it is gone.
+  const live = new Set(tools.map((tool) => tool.name));
+  const retired = promptStart.tools.filter((tool) => !live.has(tool.name)).map(retiredTool);
+  return {
+    promptStart,
+    history: historyFrom(earlier, summary),
+    summarize: {
+      write: (tx, prose) => writeSummary(tx, { parts: parts(), prose, kind: "mid_turn" }),
+      load: (summarized) => loopPromptStart(db, summarized, async () => undefined),
+    },
+    tools: [...tools.map(checkedTool), ...retired],
+    ended: () => endTurn,
+    newest: await renderNewest(changeNotes),
+  };
+}
 
+/**
+ * The Bot's tools for a Turn, run through the loop's `kit`: SendToUser, the Routine and Check-in
+ * tools, web search, `search_memory` with `withMemorySearch`, and with `withComputer` the
+ * Computer's tools and the Helper tools. `onLastMessage` runs when SendToUser sends the Turn's last
+ * Message.
+ */
+function turnTools(
+  deps: BotSdkContext,
+  turn: TurnFacts,
+  kit: LoopKit,
+  {
+    withComputer,
+    withMemorySearch,
+    onLastMessage,
+  }: { withComputer: boolean; withMemorySearch: boolean; onLastMessage: () => void },
+): AnyServerTool[] {
+  const { liveActivity } = kit;
   const sendToUser = sendToUserDefinition.server(async ({ text, endTurn: last }, context) => {
     // The Message commits with its Checkpoint, so it is sent once across a crash.
     const result = await liveActivity(sendToUserToolName, context?.toolCallId, async (tx) => {
@@ -964,7 +1048,7 @@ async function turnSetup(
       return { sent: true };
     });
     if ("sent" in result) {
-      if (last) endTurn = true;
+      if (last) onLastMessage();
       await hintChanged(deps, turn.conversationId);
     }
     return result;
@@ -1028,19 +1112,7 @@ async function turnSetup(
     })),
   );
 
-  // The Bot's Routines as the Turn starts, read once: a replay reads the recorded list.
-  const routines = await liveActivity(
-    "routines",
-    undefined,
-    async (tx) => (await routinesPrompt(tx, turn.botId)) ?? null,
-  );
-  // The Computer's tools and Helpers, whenever `computer` is on: the tool set never changes
-  // mid-conversation.
-  const withComputer = deps.hasPlugin("computer");
-  const memory =
-    withComputer && deps.hasPlugin("memory") ? await memorySnapshot(deps, turn, kit) : null;
-  // Present whenever the snapshot is: it reads through the Computer like the snapshot does.
-  const searchMemory = memory
+  const searchMemory = withMemorySearch
     ? searchMemoryDefinition.server(async ({ query }, context) =>
         kit.computerCall(searchMemoryToolName, context?.toolCallId, async (_computer, live) => ({
           results: await deps.plugin("memory").searchBotMemory({
@@ -1054,7 +1126,7 @@ async function turnSetup(
         })),
       )
     : null;
-  const tools = [
+  return [
     sendToUser,
     createRoutine,
     updateRoutineTool,
@@ -1066,11 +1138,28 @@ async function turnSetup(
     ...(searchMemory ? [searchMemory] : []),
     ...(withComputer ? [...kit.computerTools, ...helperTools(deps, turn, liveActivity)] : []),
   ];
+}
+
+/** What a Prompt start built at `now` holds: the system blocks in their fixed order, and `tools`. */
+function startParts(
+  turn: PromptStartParts["turn"],
+  now: Date,
+  {
+    tools,
+    withComputer,
+    memory,
+    routines,
+  }: {
+    tools: AnyServerTool[];
+    withComputer: boolean;
+    memory: string | null;
+    routines: string | null;
+  },
+): PromptStartParts {
   const [rules, computerBlock] = botSystemPrompts(turn.botId, withComputer);
-  /** What a Prompt start is built from now: by the Bot's first Turn, or by a Summary. */
-  const parts = (): PromptStartParts => ({
+  return {
     turn,
-    now: deps.clock(),
+    now,
     system: [
       { name: "rules", text: rules! },
       ...(computerBlock ? [{ name: "computer", text: computerBlock }] : []),
@@ -1080,39 +1169,42 @@ async function turnSetup(
     tools,
     computer: withComputer,
     memory: Boolean(memory),
-  });
-  // Recorded, so a replay sends the row its attempt chose.
-  const { id } = await liveActivity("prompt_start", undefined, async (tx) => ({
-    id: await promptStartFor(tx, parts()),
-  }));
-  const promptStart = await loopPromptStart(db, id, () => previousTurnCall(deps.db, turn));
-  const summary = await summaryOf(db, id);
-  // A mid-Turn Summary's Prompt start was built from what its Turn read at its start, so what the
-  // Bot saw and did in that Turn counts as seen since it too.
-  const seenSince: EarlierTurn[] = earlier.map((row) =>
-    summary?.kind === "mid_turn" && row.id === summary.turnId ? { ...row, promptStartId: id } : row,
-  );
-  // What changed since the Prompt start, from what this Turn read: the memory block and Routines
-  // as recorded above, and the live tools.
-  const changeNotes = await changeNotesFor(db, id, seenSince, {
-    memory,
-    routines: routines ?? null,
-    tools: definitionsOf(tools),
-  });
-  // A tool a deploy removed stays defined, as the Prompt start sends it, and says it is gone.
-  const live = new Set(tools.map((tool) => tool.name));
-  const retired = promptStart.tools.filter((tool) => !live.has(tool.name)).map(retiredTool);
-  return {
-    promptStart,
-    history: historyFrom(earlier, summary),
-    summarize: {
-      write: (tx, prose) => writeSummary(tx, { parts: parts(), prose, kind: "mid_turn" }),
-      load: (summarized) => loopPromptStart(db, summarized, async () => undefined),
-    },
-    tools: [...tools.map(checkedTool), ...retired],
-    ended: () => endTurn,
-    newest: await renderNewest(changeNotes),
   };
+}
+
+/** Stands in for a tool built only for its definition, which is never called. */
+const definitionOnly = (): never => {
+  throw new Error("A tool built only for its definition was called");
+};
+
+/**
+ * What a Summary written while the user is away builds its Prompt start from, at `now`: the Bot's
+ * tools and system blocks as a Turn starting now reads them, the Routines read in `tx` and
+ * `memory`, the memory block read just before (null with Memory off or unreadable). `turn` is the
+ * Bot's newest Turn, which the Summary follows.
+ */
+export async function awayStartParts(
+  deps: BotSdkContext,
+  tx: Transaction,
+  turn: Omit<TurnFacts, "startedAt" | "jobId">,
+  now: Date,
+  memory: string | null,
+): Promise<PromptStartParts> {
+  const withComputer = deps.hasPlugin("computer");
+  const kit: LoopKit = {
+    liveActivity: definitionOnly,
+    liveRequest: definitionOnly,
+    computerCall: definitionOnly,
+    computerTools: computerToolDefinitions.map((definition) => definition.server(definitionOnly)),
+  };
+  const facts: TurnFacts = { ...turn, startedAt: now, jobId: null };
+  const tools = turnTools(deps, facts, kit, {
+    withComputer,
+    withMemorySearch: memory !== null,
+    onLastMessage: definitionOnly,
+  });
+  const routines = (await routinesPrompt(tx, turn.botId)) ?? null;
+  return startParts(facts, now, { tools, withComputer, memory, routines });
 }
 
 type Issue = { message: string; path?: readonly (PropertyKey | { key: PropertyKey })[] };

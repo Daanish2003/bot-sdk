@@ -1,12 +1,14 @@
 import type { ModelMessage } from "@tanstack/ai";
-import { and, desc, eq, lte } from "drizzle-orm";
+import { and, asc, desc, eq, lte, sql } from "drizzle-orm";
 
 import { botPromptStart, botSummary, message } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
-import type { Transaction } from "../../../core/server/plugin";
+import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { searchTextOf } from "../../../core/shared/message-parts";
+import type { BotSummary } from "../shared/turn";
 import { buildPromptStart, type PromptStartParts, userZoneAt } from "./prompt-start";
+import { toBotMessage } from "./store";
 import { formatterIn } from "./time-zone";
 
 /**
@@ -25,6 +27,54 @@ export const midTurnNote = "[Your earlier work on this Turn is in the Summary.]"
 
 /** How many of the Bot's last Messages to the user a Summary keeps word for word. */
 const keptMessages = 3;
+
+/** What opens the kept Messages in a Summary's text, before the time zone they are dated in. */
+const keptHeader = "[Your last messages to the user, word for word, in ";
+
+/** The runner job that summarizes a Bot's Conversation while the user is away (`summary-away.ts`). */
+export const summarizeAwayJobName = "bot.summarize-away";
+
+/** The key of a Bot's away Summary job: one per Bot at a time. */
+export const awaySummaryKey = (botId: string) => `summary-away:${botId}`;
+
+/** A Turn whose last Step's input was over this many tokens queues a Summary while away. */
+export const awaySummaryTokens = 100_000;
+
+/** How long after such a Turn the Summary runs: while the cache is still warm (slide 34). */
+export const awaySummaryDelayMs = 10 * 60_000;
+
+/**
+ * Queues the away Summary of a Turn's Bot, in the transaction that ends the Turn, when its last
+ * Step's input was over `awaySummaryTokens`: `awaySummaryDelayMs` after it ended, keyed
+ * `summary-away:<botId>`. One already queued is replaced, so it counts from this Turn.
+ */
+export async function queueAwaySummary(
+  deps: BotSdkContext,
+  tx: Transaction,
+  { botId, lastInput, endedAt }: { botId: string; lastInput: number | undefined; endedAt: Date },
+): Promise<void> {
+  if (lastInput === undefined || lastInput <= awaySummaryTokens) return;
+  const runner = deps.plugin("runner");
+  await runner.cancelIn(tx, awaySummaryKey(botId));
+  await runner.enqueueIn(
+    tx,
+    summarizeAwayJobName,
+    { botId },
+    {
+      idempotencyKey: awaySummaryKey(botId),
+      runAfter: new Date(endedAt.getTime() + awaySummaryDelayMs),
+    },
+  );
+}
+
+/** Cancels the Bot's away Summary, queued or running, in `tx`: a Turn is starting. */
+export async function cancelAwaySummary(
+  deps: BotSdkContext,
+  tx: Transaction,
+  botId: string,
+): Promise<void> {
+  await deps.plugin("runner").cancelIn(tx, awaySummaryKey(botId));
+}
 
 const sentTime: Intl.DateTimeFormatOptions = {
   weekday: "short",
@@ -79,9 +129,7 @@ export async function writeSummary(
   const kept = await lastMessagesToUser(tx, turn.conversationId, now, zone);
   const text = [
     prose.trim(),
-    ...(kept.length > 0
-      ? ["", `[Your last messages to the user, word for word, in ${zone}]`, ...kept]
-      : []),
+    ...(kept.length > 0 ? ["", `${keptHeader}${zone}]`, ...kept] : []),
   ].join("\n");
   const id = uuidv7();
   await tx.insert(botSummary).values({
@@ -94,6 +142,71 @@ export async function writeSummary(
     createdAt: now,
   });
   return buildPromptStart(tx, parts, { id, text });
+}
+
+/**
+ * The Bot's Summaries, oldest first, for their cards in the thread: each one's account, without the
+ * kept Messages its text ends with, and those Messages as the Conversation holds them.
+ */
+export async function botSummaries(
+  db: Database,
+  botId: string,
+  conversationId: string,
+): Promise<BotSummary[]> {
+  // Each Summary's kept Messages, picked as `writeSummary` picks them, in one query.
+  const kept = db
+    .select({
+      id: message.id,
+      role: message.role,
+      parts: message.parts,
+      createdAt: message.createdAt,
+    })
+    .from(message)
+    .where(
+      and(
+        eq(message.conversationId, conversationId),
+        eq(message.role, "assistant"),
+        lte(message.createdAt, botSummary.createdAt),
+      ),
+    )
+    .orderBy(desc(message.createdAt), desc(message.id))
+    .limit(keptMessages)
+    .as("kept");
+  const rows = await db
+    .select({
+      id: botSummary.id,
+      kind: botSummary.kind,
+      text: botSummary.text,
+      createdAt: botSummary.createdAt,
+      kept: {
+        id: kept.id,
+        role: kept.role,
+        parts: kept.parts,
+        createdAt: kept.createdAt,
+      },
+    })
+    .from(botSummary)
+    .leftJoinLateral(kept, sql`true`)
+    .where(eq(botSummary.botId, botId))
+    .orderBy(asc(botSummary.createdAt), asc(botSummary.id), asc(kept.createdAt), asc(kept.id));
+  const summaries = new Map<string, BotSummary>();
+  for (const row of rows) {
+    let summary = summaries.get(row.id);
+    if (!summary) {
+      summary = {
+        id: row.id,
+        kind: row.kind,
+        at: row.createdAt,
+        text: row.text.split(`
+
+${keptHeader}`)[0]!,
+        kept: [],
+      };
+      summaries.set(row.id, summary);
+    }
+    if (row.kept) summary.kept.push(toBotMessage(row.kept));
+  }
+  return [...summaries.values()];
 }
 
 /** The Summary a Prompt start holds: what its history carries on from. */

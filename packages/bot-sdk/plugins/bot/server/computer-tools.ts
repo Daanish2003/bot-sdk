@@ -436,6 +436,18 @@ export const listDefinition = toolDefinition({
 });
 
 /**
+ * The Computer tools a Bot is given, in the order its Prompt start sends them: the loop builds its
+ * tools in this order, and an away Summary sends these definitions when it builds a Prompt start.
+ */
+export const computerToolDefinitions = [
+  shellDefinition,
+  readDefinition,
+  writeDefinition,
+  editDefinition,
+  listDefinition,
+];
+
+/**
  * The `read` tool's result, from one command on the Computer: it checks the whole file there and
  * fetches only the lines it returns, with `sed`, so paging through a huge file doesn't move the
  * file. A page whose lines are over `maxPageCharacters` stops early, with a hint to read on.

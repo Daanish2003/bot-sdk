@@ -83,3 +83,16 @@ export type BotTurnProvenance = {
   /** Its Steps, oldest first, for the cache chip (#675). */
   steps: BotTurnStep[];
 };
+
+/**
+ * A Summary of the Bot's Conversation (#676), for its card in the thread: written while the user
+ * was away or mid-Turn, the model's account, and the Bot's last Messages to the user it kept word
+ * for word, oldest first.
+ */
+export type BotSummary = {
+  id: string;
+  kind: "away" | "mid_turn";
+  at: Date;
+  text: string;
+  kept: BotMessage[];
+};

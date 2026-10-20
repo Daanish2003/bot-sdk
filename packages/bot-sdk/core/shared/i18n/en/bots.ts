@@ -130,6 +130,9 @@ export const botsMessages = {
     `A bug: ${section} changed, so everything after it was written again.`,
   "bots.cacheExpected": ({ section }: { section: string }) =>
     `Expected: ${section} changed with a new Prompt start.`,
+  "bots.summaryAway": ({ time }: { time: string }) => `Summarized while you were away · ${time}`,
+  "bots.summaryMidTurn": ({ time }: { time: string }) => `Summarized mid-Turn · ${time}`,
+  "bots.summaryKept": "Kept word for word:",
   "bots.routinePending": "waiting for OK",
   "bots.routineActive": "active",
   "bots.routineStatePaused": "paused",

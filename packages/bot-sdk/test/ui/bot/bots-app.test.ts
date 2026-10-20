@@ -50,6 +50,7 @@ function seed(queryClient: QueryClient, client: BotSdkClient) {
     conversationId: "c1",
     messages: [],
     turns: [],
+    summaries: [],
   });
 }
 
@@ -136,5 +137,48 @@ describe("a Bot's Conversation", () => {
 
     expect(screen.getByRole("heading", { name: "Ada" })).toBeTruthy();
     expect(screen.getByText("No messages yet")).toBeTruthy();
+  });
+
+  it("shows a Summary card before the first Message saved after it", () => {
+    const message = (id: string, role: "user" | "assistant", text: string, minute: number) => ({
+      id,
+      role,
+      text,
+      createdAt: new Date(2026, 9, 21, 14, minute),
+    });
+    render(
+      providerFor(createElement(BotConversation, { botId: ada.id }), {
+        messages: {},
+        seed: (queryClient, client) => {
+          seed(queryClient, client);
+          queryClient.setQueryData(client.orpc.bot.get.queryKey({ input: { botId: ada.id } }), {
+            bot: { ...ada, turnStatus: null, userTurnStatus: null },
+            conversationId: "c1",
+            messages: [
+              message("m1", "user", "Plan my week", 0),
+              message("m2", "assistant", "Here's your week.", 1),
+              message("m3", "user", "Thanks", 30),
+            ],
+            turns: [],
+            summaries: [
+              {
+                id: "s1",
+                kind: "away",
+                at: new Date(2026, 9, 21, 14, 10),
+                text: "The user planned their week.",
+                kept: [message("m2", "assistant", "Here's your week.", 1)],
+              },
+            ],
+          });
+        },
+      }),
+    );
+
+    const card = screen.getByRole("button", { name: "Summarized while you were away · 14:10" });
+    const order = [...document.querySelectorAll("[data-bot-message], [data-summary]")].map(
+      (node) => node.getAttribute("data-id") ?? node.getAttribute("data-summary"),
+    );
+    expect(order).toEqual(["m1", "m2", "s1", "m3"]);
+    expect(card).toBeTruthy();
   });
 });
