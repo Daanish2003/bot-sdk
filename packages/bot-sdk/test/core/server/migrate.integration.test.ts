@@ -106,7 +106,6 @@ const sdkTables = [
   "knowledge_chunk",
   "knowledge_file",
   "mcp_connection",
-  "memory",
   "memory_settings",
   "message",
   "message_attachment",
@@ -147,7 +146,6 @@ describe("chat.migrate()", () => {
       "computer_state",
       "job_status",
       "knowledge_file_status",
-      "memory_origin",
       "message_error_reason",
       "message_rating",
       "message_role",
@@ -400,6 +398,43 @@ describe("chat.migrate()", () => {
     ]);
   });
 
+  it("drops the assistant's Memories and their queued jobs, and keeps the Memory switch (#650)", async () => {
+    const url = await scratchDatabase("drop_memory");
+    // A database at the migration before the drop, with a Memory switch and the Memory jobs.
+    await migrateUpTo(url, "20261020095556_bot_turn_memory_changes");
+    await rows(
+      url,
+      "insert into chat.memory_settings (user_id, enabled) values ('user-off', false)",
+    );
+    await rows(
+      url,
+      `insert into chat.job (id, name, payload) values
+         (gen_random_uuid(), 'memory.make', '{}'),
+         (gen_random_uuid(), 'memory.reembed', '{}'),
+         (gen_random_uuid(), 'memory.bot-pass', '{}')`,
+    );
+
+    await chatFor(url).migrate();
+
+    const table = await rows(
+      url,
+      "select 1 from information_schema.tables where table_schema = 'chat' and table_name = 'memory'",
+    );
+    expect(table).toEqual([]);
+    const origin = await rows(
+      url,
+      `select 1 from pg_type t join pg_namespace n on n.oid = t.typnamespace
+       where n.nspname = 'chat' and t.typname = 'memory_origin'`,
+    );
+    expect(origin).toEqual([]);
+    expect(await rows(url, "select name from chat.job order by name")).toEqual([
+      { name: "memory.bot-pass" },
+    ]);
+    expect(await rows(url, "select user_id, enabled from chat.memory_settings")).toEqual([
+      { user_id: "user-off", enabled: false },
+    ]);
+  });
+
   it("creates the vector extension, so Knowledge can store embeddings", async () => {
     const url = await scratchDatabase("k358_vector");
 
@@ -505,7 +540,7 @@ describe("chat.migrate()", () => {
     await expect(Promise.all([chat.migrate(), chat.migrate()])).resolves.toBeDefined();
 
     const applied = await rows<{ count: string }>(url, "select count(*) from chat.__migrations");
-    expect(applied).toEqual([{ count: "46" }]);
+    expect(applied).toEqual([{ count: "47" }]);
   });
 
   it("gives a Conversation's tool settings empty lists by default, so existing rows read as empty", async () => {

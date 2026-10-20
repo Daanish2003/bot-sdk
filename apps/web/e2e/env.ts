@@ -56,7 +56,7 @@ export const serverEnv = {
   ]),
   HOST_QUOTA_BUDGET_USD: "1",
   HOST_QUOTA_WINDOW: "day",
-  // The Background Model the Memory job calls (#290). The e2e user brings their own Ollama key
+  // The Background Model titles are made with. The e2e user brings their own Ollama key
   // (`addFakeOllama`), so these calls are not metered against the Quota.
   HOST_BACKGROUND_MODEL: `ollama:${fakeModel}`,
   // Knowledge's embedding Model (spec #357): the fake adapter answers it, and the Host offers

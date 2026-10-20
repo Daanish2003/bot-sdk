@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 
-import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
@@ -15,7 +14,6 @@ import {
   bot,
   project,
   knowledgeFile,
-  memory,
   savedPrompt,
   sharedLink,
   userSettings,
@@ -30,7 +28,6 @@ import type { TestUser } from "../../support/users";
 import { insertAttachment, linkTestAttachments } from "../../support/attachments";
 import { fakePngBase64 } from "../../../plugins/models/server/fake-image-adapter";
 import { insertConversation, insertMessage } from "../../support/conversations";
-import { insertMemory } from "../../support/memories";
 import { insertGeneratedImage } from "../../support/generated-images";
 import { createTestSdk } from "../../support/deps";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
@@ -441,67 +438,14 @@ describe("createBotSdk().exportUser, a Hidden reply's Rating", () => {
   });
 });
 
-describe("createBotSdk().exportUser, Memories", () => {
-  it("includes every Memory, valid and outdated, with its source Conversation and replacement", async () => {
+describe("createBotSdk().exportUser, the Memory switch", () => {
+  it("includes the user's Memory switch", async () => {
     const owner = await insertUser();
-    const conv = await insertConversation(owner, { title: "Chat" });
-    const replaced = await insertMemory(owner, {
-      conversationId: conv.id,
-      text: "Runs 5k in 25 minutes",
-      origin: "extracted",
-      invalidAt: new Date("2026-10-02T10:00:00Z"),
-      createdAt: new Date("2026-09-01T10:00:00Z"),
-      updatedAt: new Date("2026-10-02T10:00:00Z"),
-    });
-    const current = await insertMemory(owner, {
-      conversationId: conv.id,
-      text: "Runs 5k in 22 minutes",
-      origin: "said",
-      createdAt: new Date("2026-10-02T10:00:00Z"),
-      updatedAt: new Date("2026-10-02T10:00:00Z"),
-    });
-    await getTestDb()
-      .update(memory)
-      .set({ replacedById: current.id })
-      .where(eq(memory.id, replaced.id));
     await getTestDb().insert(memorySettings).values({ userId: owner.id, enabled: false });
 
     const exported = await chatFor().exportUser(owner.id);
 
-    expect(exported.memories).toEqual([
-      {
-        id: replaced.id,
-        text: "Runs 5k in 25 minutes",
-        origin: "extracted",
-        conversationId: conv.id,
-        replacedById: current.id,
-        invalidAt: new Date("2026-10-02T10:00:00Z"),
-        createdAt: new Date("2026-09-01T10:00:00Z"),
-        updatedAt: new Date("2026-10-02T10:00:00Z"),
-      },
-      {
-        id: current.id,
-        text: "Runs 5k in 22 minutes",
-        origin: "said",
-        conversationId: conv.id,
-        replacedById: null,
-        invalidAt: null,
-        createdAt: new Date("2026-10-02T10:00:00Z"),
-        updatedAt: new Date("2026-10-02T10:00:00Z"),
-      },
-    ]);
     expect(exported.settings.memoryEnabled).toBe(false);
-  });
-
-  it("leaves out other users' Memories", async () => {
-    const owner = await insertUser();
-    const other = await insertUser();
-    const conv = await insertConversation(other, { title: "Theirs" });
-    await insertMemory(other, { conversationId: conv.id, text: "Not yours" });
-
-    const exported = await chatFor().exportUser(owner.id);
-
-    expect(exported.memories).toEqual([]);
   });
 });
 

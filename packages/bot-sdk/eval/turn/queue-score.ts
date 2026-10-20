@@ -1,6 +1,5 @@
 // Scores the step-3 eval cases (spec #510). The structural check reads the Turns and the Triggers
-// they took, never the Model's text. The judge reads the Bot's reply: the pattern of
-// eval/memory/judge.ts, with a yes or no and a reason.
+// they took, never the Model's text. The judge reads the Bot's reply, with a yes or no and a reason.
 
 import { type QueueCase, refusalCaseIds } from "./queue-cases";
 

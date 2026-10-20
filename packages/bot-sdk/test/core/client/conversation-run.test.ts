@@ -12,13 +12,12 @@ import {
   useConversationRun,
 } from "../../../plugins/assistant/client/react/conversation-run";
 import type { ActiveBranchMessage } from "../../../plugins/assistant/shared/chat/client-message";
-import type { TurnChange } from "../../../plugins/memory/shared/changes";
 import { providerFor } from "../../ui/fake-dictionary";
 
 /*
  * The client side of a Conversation's Runs, through the hook's interface. The Run's connection
  * (`POST` to send, `GET ?runId=` to join) goes to a stubbed global `fetch` that streams SSE chunks;
- * the RPC calls go to a fake oRPC router; the Memory events come from a fake `EventSource`.
+ * the RPC calls go to a fake oRPC router.
  */
 
 const toastError = vi.hoisted(() => vi.fn());
@@ -50,7 +49,6 @@ function message(
     hidden: false,
     createdAt: new Date("2026-10-15T00:00:00.000Z"),
     siblings: { index: 0, count: 1, previousId: null, nextId: null },
-    memoryChanges: [],
     ...extra,
   } as ActiveBranchMessage;
 }
@@ -138,26 +136,8 @@ function stubRun(
   );
 }
 
-/** The fake `EventSource`s opened, so a test can send a Memory event down one. */
-class FakeEventSource {
-  static opened: FakeEventSource[] = [];
-  onmessage: ((event: MessageEvent<string>) => void) | null = null;
-  closed = false;
-  constructor(readonly url: string) {
-    FakeEventSource.opened.push(this);
-  }
-  emit(data: unknown) {
-    this.onmessage?.(new MessageEvent("message", { data: JSON.stringify(data) }));
-  }
-  close() {
-    this.closed = true;
-  }
-}
-
 beforeEach(() => {
   runRequests.length = 0;
-  FakeEventSource.opened = [];
-  vi.stubGlobal("EventSource", FakeEventSource);
 });
 
 afterEach(() => {
@@ -408,19 +388,5 @@ describe("useConversationRun", () => {
 
     await waitFor(() => expect(messageInfo(result.current.messages[1]!).rating).toBe("down"));
     expect(toastError).toHaveBeenCalledOnce();
-  });
-
-  it("adds a Memory event's changes to its reply", () => {
-    const changes: TurnChange[] = [{ kind: "added", memoryId: "m1", text: "Is vegetarian" }];
-    const { result, unmount } = renderRun(conversationWith([question, answer]));
-
-    const [source] = FakeEventSource.opened;
-    expect(source?.url).toBe(`http://localhost/api/chat/events?conversationId=${conversationId}`);
-    act(() => source!.emit({ type: "memory_updated", messageId: "a1", changes }));
-
-    expect(messageInfo(result.current.messages[1]!).memoryChanges).toEqual(changes);
-    expect(messageInfo(result.current.messages[0]!).memoryChanges).toEqual([]);
-    unmount();
-    expect(source!.closed).toBe(true);
   });
 });

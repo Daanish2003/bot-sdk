@@ -25,7 +25,7 @@ import {
   readBotMemory,
   readText,
 } from "./bot-memory";
-import { askBackground, parseReply } from "./make";
+import { askBackground, parseReply } from "./ask";
 import { memoryEnabledFor } from "./manage";
 
 /*

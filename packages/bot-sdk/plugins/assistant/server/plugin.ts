@@ -127,7 +127,7 @@ function assistantPlugin(buildState: (sdk: BotSdkContext) => AssistantState): As
   return {
     id: "assistant",
     requires: ["models", "runner"],
-    // Softly: without it, Runs recall and make no Memories, and past chats aren't searched.
+    // Softly: without it, past chats aren't searched.
     uses: ["memory"],
     router: appRouter,
     routes: assistantRoutes,

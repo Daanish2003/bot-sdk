@@ -279,19 +279,6 @@ async function buildPlan(
         // The Project's Instructions are read from the Conversation's Project at the same moment (spec 5).
         projectInstructions: await projectInstructionsOf(deps, owned.projectId),
         knowledgeFiles: offered.knowledge?.fileNames ?? null,
-        // The Memories recalled for this Run, found by the Message it answers (ADR 0013), when
-        // the Host installs the `memory` plugin.
-        memories: deps.hasPlugin("memory")
-          ? await deps.plugin("memory").recallPrompt({
-              userId,
-              projectId: owned.projectId,
-              temporary: owned.temporary,
-              latestText:
-                send?.text ??
-                history.filter((row) => row.role === "user").at(-1)?.searchText ??
-                null,
-            })
-          : null,
       }),
       // The latest version of each Artifact on the path comes after the system prompts (ADR 0016).
       ...(offered.artifacts ? await artifactContextPrompts(deps, owned.id, input.leafId) : []),

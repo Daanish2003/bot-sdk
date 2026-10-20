@@ -73,7 +73,6 @@ function renderPopover(
       seed: (queryClient: QueryClient, client: BotSdkClient) => {
         queryClient.setQueryData(client.orpc.memory.status.queryKey(), {
           enabled: true,
-          embeddingAvailable: true,
           botMemoryAvailable,
         });
         queryClient.setQueryData(

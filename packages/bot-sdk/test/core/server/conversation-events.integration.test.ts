@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { MemoryUpdatedEvent } from "../../../plugins/memory/shared/changes";
 import { hintChanged } from "../../../plugins/bot/server/turn";
-import { publishMemoryUpdated } from "../../../plugins/memory/server/notice";
 import { insertConversation } from "../../support/conversations";
 import { createTestSdk } from "../../support/deps";
 import { sendAs } from "../../support/sdk";
@@ -24,19 +22,6 @@ async function nextEvent(reader: ReadableStreamDefaultReader<Uint8Array>) {
 }
 
 describe("GET /api/chat/events, served by the core (#625)", () => {
-  it("streams the assistant's memory_updated event to the owner", async () => {
-    const deps = createTestSdk();
-    const user = await insertUser();
-    const conv = await insertConversation(user);
-    const reader = (await sendAs(eventsRequest(conv.id), user, deps)).body!.getReader();
-
-    const event: MemoryUpdatedEvent = { type: "memory_updated", messageId: "m1", changes: [] };
-    await publishMemoryUpdated(deps, conv.id, event);
-
-    expect(await nextEvent(reader)).toEqual(event);
-    await reader.cancel();
-  });
-
   it("streams a Bot's Turn event on the Bot's Conversation", async () => {
     const deps = createTestSdk();
     const user = await insertUser();

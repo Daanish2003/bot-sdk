@@ -24,7 +24,6 @@
   "scripts": {
     "check-types": "tsc --noEmit",
     "copy": "node scripts/copy.ts",
-    "eval:memory": "node --import ./eval/memory/register-ts.mjs eval/memory/run.ts",
     "eval:bot-memory": "node --import ./eval/memory/register-ts.mjs eval/memory/bot-run.ts",
     "eval:turn": "node --import ./eval/memory/register-ts.mjs eval/turn/run.ts",
     "eval:ladder": "node --import ./eval/memory/register-ts.mjs eval/turn/ladder.ts",

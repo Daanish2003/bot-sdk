@@ -6,15 +6,7 @@ import { toast } from "sonner";
 import type { AssistantRouterClient } from "../../server/routers/index";
 import type { AttachmentInfo } from "../../../../core/shared/attachments/kinds";
 import type { ChatCommand } from "../../shared/chat/command";
-import type { MemoryUpdatedEvent } from "../../../memory/shared/changes";
-import {
-  branchFrom,
-  hideReply,
-  isModeratedChunk,
-  messageInfo,
-  toUIMessages,
-  withMemoryChanges,
-} from "../chat";
+import { branchFrom, hideReply, isModeratedChunk, messageInfo, toUIMessages } from "../chat";
 import { ModeratedError } from "../../../../core/client/moderation";
 import { runFetch } from "../../../../core/client/rate-limit";
 import { serverErrorText } from "../../../../core/client/rpc-error";
@@ -45,14 +37,14 @@ export type ConversationRunOptions = {
  * `useChat` is the truth while a Run streams; when it ends, the Active Branch is refetched and
  * replaces `useChat`'s messages. A reply still streaming when the page opens (a reload, or a second
  * tab) is joined from its Run's log, so it continues live. A `moderated` chunk hides the reply it
- * ends (#269), and the Memory job's `memory_updated` event adds its chip to a reply (#290).
+ * ends (#269).
  */
 export function useConversationRun(
   conversation: ConversationData,
   { onDecided, onSynced, onRefusedSend, webSearchAvailable, connections }: ConversationRunOptions,
 ) {
   const queryClient = useQueryClient();
-  const { orpc, chatUrl, eventsUrl, i18n } = useChatAdapter();
+  const { orpc, chatUrl, i18n } = useChatAdapter();
   const { t } = i18n;
   // The server writes the new Messages before it streams, so the first chunk means "sent".
   const awaitingFirstChunk = useRef(false);
@@ -143,18 +135,6 @@ export function useConversationRun(
       toast.error(t("chat.stopFailed", { message: serverErrorText(i18n, caught) }));
     }
   };
-
-  // A turn's Memory job publishes what it changed once it has finished, so an open tab shows the
-  // "Memory updated" chip then, without a reload (#290). Without EventSource, the chip shows on reload.
-  useEffect(() => {
-    if (typeof EventSource === "undefined") return;
-    const source = new EventSource(`${eventsUrl}?conversationId=${conversation.id}`);
-    source.onmessage = (event: MessageEvent<string>) => {
-      const update = JSON.parse(event.data) as MemoryUpdatedEvent;
-      setMessages(withMemoryChanges(latestMessages.current, update.messageId, update.changes));
-    };
-    return () => source.close();
-  }, [conversation.id, eventsUrl]);
 
   // A Rating shows at once on its reply, and is taken back if the server refuses it. The rollback
   // reads the latest Messages, so a stream update that arrived meanwhile is kept.
