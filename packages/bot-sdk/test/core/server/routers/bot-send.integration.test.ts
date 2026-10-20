@@ -471,6 +471,30 @@ describe("bot.send", () => {
     expect(inputOf(fake.calls[2]).at(-1)).toEqual(third!.input!.at(-1));
   });
 
+  it("still renders what a Turn that never ran took", async () => {
+    const { client, botId } = await botWith([
+      round(sends({ text: "Hello!", endTurn: true })),
+      round(sends({ text: "Noted.", endTurn: true })),
+      round(sends({ text: "You're welcome.", endTurn: true })),
+    ]);
+    await send(client, botId, "hi");
+    await send(client, botId, "remember the milk");
+    // As a Turn stopped while it was still queued: no input, no Prompt start, no transcript.
+    const [, second] = await turnsOf(botId);
+    await getTestDb()
+      .update(botTurn)
+      .set({ input: null, promptStartId: null, transcript: null })
+      .where(eq(botTurn.id, second!.id));
+
+    await send(client, botId, "thanks");
+
+    const [, , third] = await turnsOf(botId);
+    expect(third!.input!.map((message) => withoutNotice(message.content))).toEqual([
+      "remember the milk",
+      "thanks",
+    ]);
+  });
+
   it("gives another user not-found for a Bot that isn't theirs", async () => {
     const { botId, deps } = await botWith([]);
     const other = chatRpc({ user: await insertUser(), deps });

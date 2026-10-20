@@ -209,14 +209,14 @@ export async function botSummaries(
  */
 function accountOf(text: string, kept: BotMessage[]): string {
   if (kept.length === 0) return text;
-  const marker = `
-
-${keptHeader}`;
-  for (let at = text.lastIndexOf(marker); at >= 0; at = text.lastIndexOf(marker, at - 1)) {
+  const marker = `\n\n${keptHeader}`;
+  const last = text.lastIndexOf(marker);
+  for (let at = last; at >= 0; at = at > 0 ? text.lastIndexOf(marker, at - 1) : -1) {
     const block = text.slice(at);
     if (kept.every((message) => block.includes(message.text))) return text.slice(0, at);
   }
-  return text;
+  // The kept Messages no longer read as they were written: the block is the last header.
+  return last >= 0 ? text.slice(0, last) : text;
 }
 
 /** The Summary a Prompt start holds: what its history carries on from. */

@@ -317,9 +317,9 @@ describe("a webhook Routine's URL", () => {
       (call?.messages ?? [])
         .map((entry) => String(entry.content))
         .find((content) => content.includes("From a webhook"))!;
-    // The Turn the webhook woke reads it whole, after the time.
+    // The Turn the webhook woke reads it whole, after the time and its Change notes.
     const woken = fromWebhook(fake.calls.at(-1));
-    expect(woken).toMatch(/^\[Current time: [^\]]*\]\n\n/);
+    expect(woken).toMatch(/^\[Current time: [^\]]*\]\n/);
     expect(woken).toContain(payload);
 
     await send("Anything new?");

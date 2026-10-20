@@ -1,5 +1,5 @@
 import { type AnyServerTool, type ModelMessage, toolDefinition } from "@tanstack/ai";
-import { and, asc, desc, eq, gt, gte, isNotNull, isNull, lt, lte, ne, or } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, isNotNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { appendMessage } from "../../../core/server/chat/message-tree";
@@ -785,8 +785,8 @@ function todoNotice(todo: TodoItem[], stored: string | undefined): string {
 
 /**
  * When the Bot's last Turn before `turn` that took its input started: the last one that stored its
- * input, or one from before Turns stored it (no input and no Prompt start), whose Messages are
- * not rendered again. `undefined` for the Bot's first Turn.
+ * input, or one from before Turns stored it (a transcript and no input), whose Messages are not
+ * rendered again. `undefined` for the Bot's first Turn.
  */
 async function lastInputAt(db: Database | Transaction, turn: TurnFacts): Promise<Date | undefined> {
   const [row] = await db
@@ -796,7 +796,10 @@ async function lastInputAt(db: Database | Transaction, turn: TurnFacts): Promise
       and(
         eq(botTurn.botId, turn.botId),
         lt(botTurn.startedAt, turn.startedAt),
-        or(isNotNull(botTurn.input), isNull(botTurn.promptStartId)),
+        // A Turn stores its input before its first model call, so one with a transcript and no
+        // input is from before inputs were stored. One that never ran (stopped while queued, or
+        // failed before its first call) has neither, and what it took is still new.
+        or(isNotNull(botTurn.input), sql`jsonb_array_length(${botTurn.transcript}) > 0`),
       ),
     )
     .orderBy(desc(botTurn.startedAt), desc(botTurn.id))

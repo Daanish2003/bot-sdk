@@ -310,7 +310,7 @@ describe("a scheduled Routine", () => {
     expect(input.at(-1)).toEqual({
       role: "user",
       content:
-        `[Current time: Monday, 19 October 2026 at 08:00 (Europe/London)]\n\n` +
+        `[Current time: Monday, 19 October 2026 at 08:00 (Europe/London)]\n` +
         `[What changed since your prompt was built]\n${changeNotesFraming}\n` +
         `Routine approved: morning-brief  weekdays 08:00 Europe/London  "${morningBrief.prompt}"\n\n` +
         `${wakeNotice}\n\n${morningBrief.prompt}`,

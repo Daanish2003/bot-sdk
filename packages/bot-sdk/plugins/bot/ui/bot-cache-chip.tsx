@@ -124,6 +124,8 @@ export function BotCacheChip({ steps }: { steps: BotTurnStep[] }) {
   const bug = steps.find((step) => step.changed?.kind === "bug");
   const cost = costOf(steps.reduce((sum, step) => sum + step.costMicros, 0));
   const count = steps.filter((step) => step.kind !== "summary").length;
+  /** The number of the Step being listed: a summary call takes none. */
+  let number = 0;
   return (
     <div className="self-start text-xs text-muted-foreground">
       <button
@@ -138,13 +140,10 @@ export function BotCacheChip({ steps }: { steps: BotTurnStep[] }) {
       </button>
       {open && (
         <ol className="mt-1 flex flex-col gap-3 rounded-lg border p-2">
-          {steps.map((step, index) => (
-            <StepDetail
-              key={step.id}
-              step={step}
-              number={steps.slice(0, index + 1).filter((each) => each.kind !== "summary").length}
-            />
-          ))}
+          {steps.map((step) => {
+            if (step.kind !== "summary") number += 1;
+            return <StepDetail key={step.id} step={step} number={number} />;
+          })}
         </ol>
       )}
     </div>

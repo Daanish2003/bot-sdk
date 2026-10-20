@@ -8,7 +8,7 @@ import {
 } from "@tanstack/ai";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 
-import { botPromptStart, botTurn, usage } from "../../../core/server/db/schema";
+import { botTurn, usage } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
@@ -17,7 +17,7 @@ import type { BotWarming } from "../shared/turn";
 import { promptCharactersOf, reportedUsageOf } from "../../models/server/run-usage";
 import { parseModelId } from "../../models/shared/models";
 import { pruneScreenshots, resolveScreenshots } from "./desktop-tools";
-import { loopPromptStart } from "./prompt-start";
+import { latestPromptStart, loopPromptStart } from "./prompt-start";
 import { findBot, latestTurnStatus } from "./store";
 import { historyAfter } from "./summary";
 
@@ -110,12 +110,7 @@ export async function warmBot(
       sql`select pg_try_advisory_xact_lock(hashtextextended(${`warm:${botId}`}, 0)) as locked`,
     );
     if (!locked.rows[0]?.locked) return { warmed: false, skipped: "still_warm" };
-    const [start] = await tx
-      .select({ id: botPromptStart.id, builtAt: botPromptStart.builtAt })
-      .from(botPromptStart)
-      .where(eq(botPromptStart.botId, botId))
-      .orderBy(desc(botPromptStart.builtAt), desc(botPromptStart.id))
-      .limit(1);
+    const start = await latestPromptStart(tx, botId);
     if (!start) return { warmed: false, skipped: "nothing_cached" };
     // Usage rows are stamped with the host's clock, so it is compared with that. A Prompt start
     // built after the last call (a Summary while away) has never been cached.
@@ -214,15 +209,24 @@ async function warmCall(
     return "unavailable";
   }
   const reported = reportedUsageOf(provider, finished);
-  return meter.recordIn(tx, {
-    kind: "warm",
-    sourceId: botId,
-    usage: models.messageUsage(reported.usage, {
-      promptCharacters: promptCharactersOf(messages),
-      parts: [],
-    }),
-    reportedCost: reported.cost,
-  });
+  // In a savepoint: the call is made, so a row that fails to save is logged, as `meter.record`
+  // does, and never fails the warm.
+  try {
+    return await tx.transaction((savepoint) =>
+      meter.recordIn(savepoint, {
+        kind: "warm",
+        sourceId: botId,
+        usage: models.messageUsage(reported.usage, {
+          promptCharacters: promptCharactersOf(messages),
+          parts: [],
+        }),
+        reportedCost: reported.cost,
+      }),
+    );
+  } catch (caught) {
+    deps.logger.error(`Recording the warm of Bot ${botId} failed`, caught);
+    return () => {};
+  }
 }
 
 /** The Bot's warming calls, oldest first, for the muted lines in its thread. */
