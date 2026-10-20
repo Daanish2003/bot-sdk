@@ -18,6 +18,7 @@ import { parseModelId } from "../../models/shared/models";
 import { pruneScreenshots, resolveScreenshots } from "./desktop-tools";
 import { latestPromptStartId, loopPromptStart } from "./prompt-start";
 import { findBot, latestTurnStatus } from "./store";
+import { historyAfter } from "./summary";
 
 const minute = 60_000;
 
@@ -114,12 +115,8 @@ export async function warmBot(
   if (!(await meter.mayRun()).ok) return { warmed: false, skipped: "unavailable" };
 
   const start = await loopPromptStart(deps.db, startId, async () => undefined);
-  const turns = await deps.db
-    .select({ input: botTurn.input, transcript: botTurn.transcript })
-    .from(botTurn)
-    .where(eq(botTurn.botId, botId))
-    .orderBy(asc(botTurn.startedAt), asc(botTurn.id));
-  const history = turns.flatMap((turn) => [...(turn.input ?? []), ...(turn.transcript ?? [])]);
+  // From the latest Summary on, as the next Turn sends it.
+  const history = await historyAfter(deps.db, botId, startId);
   const messages: ModelMessage[] = await resolveScreenshots(
     deps.blobStore,
     pruneScreenshots([{ role: "user", content: start.firstMessage }, ...history]),

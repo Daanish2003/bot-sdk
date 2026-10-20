@@ -12,7 +12,8 @@ import {
   systemClock,
 } from "../../../../plugins/runner/server/jobs/in-process";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
-import { createFakeAdapter, round, withUsage } from "../../../support/fake-adapter";
+import { claimJob } from "../../../../plugins/runner/server/jobs/store";
+import { createFakeAdapter, round, text, withUsage } from "../../../support/fake-adapter";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
@@ -62,7 +63,7 @@ async function botWith(
   }
   const client = chatRpc({ user, deps });
   const { id: botId } = await client.bot.create({ name: "Ada", model: modelId });
-  return { fake, deps, user, client, botId };
+  return { fake, deps, jobs, user, client, botId };
 }
 
 async function send(client: ReturnType<typeof chatRpc>, botId: string, text: string) {
@@ -119,6 +120,44 @@ describe("bot.warm", () => {
     const [first] = messages[0]!.content as { content: string }[];
     expect(first!.content).toBe(start!.sections.at(-1)!.text);
     expect(JSON.stringify(messages[0]?.content)).toContain('"cache_control"');
+  });
+
+  it("after a Summary while away, sends what the next Turn's first call sends before its newest message", async () => {
+    const { fake, jobs, user, client, botId } = await botWith(
+      [
+        withUsage(round(), { promptTokens: 120_000, completionTokens: 10, totalTokens: 120_010 }),
+        // The away Summary.
+        round(text("The user said hi.")),
+        warmRound(),
+        round(),
+      ],
+      "anthropic:claude-sonnet-5-5",
+    );
+    await send(client, botId, "hi");
+    // The away Summary, run now rather than 10 minutes on.
+    const claimed = await claimJob(getTestDb(), new Date(), {
+      respectRunAfter: false,
+      names: { only: ["bot.summarize-away"] },
+    });
+    await jobs.runClaimed(claimed!);
+    expect(
+      await getTestDb().select().from(botPromptStart).where(eq(botPromptStart.botId, botId)),
+    ).toHaveLength(2);
+    await ageCalls(user.id, 56);
+
+    expect(await client.bot.warm({ botId })).toEqual({ warmed: true });
+    await send(client, botId, "back again");
+
+    expect(fake.calls).toHaveLength(4);
+    const [, , warm, next] = fake.calls as TextOptions[];
+    // Where the cache breakpoints sit differs; the prompt itself must not.
+    const plain = (messages: TextOptions["messages"]) =>
+      JSON.parse(
+        JSON.stringify(messages, (key, value) => (key === "cache_control" ? undefined : value)),
+      );
+    const warmed = plain(warm!.messages);
+    expect(plain(next!.messages).slice(0, warmed.length)).toEqual(warmed);
+    expect(next!.messages.length).toBeGreaterThan(warmed.length);
   });
 
   it("is recorded as a warm call with the Bot as its source, and shown by bot.get", async () => {

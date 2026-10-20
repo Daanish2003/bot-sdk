@@ -1,7 +1,7 @@
 import type { ModelMessage } from "@tanstack/ai";
-import { and, asc, desc, eq, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lte, or, sql } from "drizzle-orm";
 
-import { botPromptStart, botSummary, message } from "../../../core/server/db/schema";
+import { botPromptStart, botSummary, botTurn, message } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
@@ -258,6 +258,40 @@ export function historyFrom(
     }
     return row.startedAt < summary.coversUntil ? [] : [...input, ...transcript];
   });
+}
+
+/**
+ * The history the Bot's next Turn sends after Prompt start `promptStartId`, as `historyFrom` keeps
+ * it: what a summary call or a warming call sends too, so each reads or writes the Turn's cache.
+ * Only the Turns it keeps are read: those since the Summary, and the one a mid-Turn one was written in.
+ */
+export async function historyAfter(
+  db: Database | Transaction,
+  botId: string,
+  promptStartId: string,
+): Promise<ModelMessage[]> {
+  const summary = await summaryOf(db, promptStartId);
+  const turns = await db
+    .select({
+      id: botTurn.id,
+      startedAt: botTurn.startedAt,
+      input: botTurn.input,
+      transcript: botTurn.transcript,
+    })
+    .from(botTurn)
+    .where(
+      and(
+        eq(botTurn.botId, botId),
+        summary
+          ? or(
+              gte(botTurn.startedAt, summary.coversUntil),
+              summary.turnId ? eq(botTurn.id, summary.turnId) : undefined,
+            )
+          : undefined,
+      ),
+    )
+    .orderBy(asc(botTurn.startedAt), asc(botTurn.id));
+  return historyFrom(turns, summary);
 }
 
 /** `transcript` from its last mid-Turn note on, or nothing when it has none. */

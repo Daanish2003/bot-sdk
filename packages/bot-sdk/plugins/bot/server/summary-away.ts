@@ -6,14 +6,13 @@ import {
   type StreamChunk,
   type TextOptions,
 } from "@tanstack/ai";
-import { and, asc, desc, eq, gte, inArray, isNotNull, lte, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, lte } from "drizzle-orm";
 import { z } from "zod";
 
 import {
   bot,
   botCheckIn,
   botHelper,
-  botPromptStart,
   botRoutine,
   botTrigger,
   botTurn,
@@ -25,11 +24,11 @@ import { defineJob, type JobContext } from "../../runner/server/jobs/define";
 import { computerOf } from "./computer-tools";
 import { pruneScreenshots, resolveScreenshots } from "./desktop-tools";
 import { callUsage } from "./loop";
-import { loopPromptStart } from "./prompt-start";
+import { latestPromptStartId, loopPromptStart } from "./prompt-start";
 import { lockConversation, waitingIn } from "./router";
 import { nextSlot } from "./schedule";
 import {
-  historyFrom,
+  historyAfter,
   summarizeAwayJobName,
   summarizeInstruction,
   summaryOf,
@@ -79,29 +78,7 @@ async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext
   const written = await ctx.activity("summary", async () => {
     if (!(await meter.mayRun()).ok) return null;
     const start = await loopPromptStart(deps.db, seen.promptStartId, async () => undefined);
-    const summary = await summaryOf(deps.db, seen.promptStartId);
-    // Only the Turns the history keeps: those since the Summary, and the one it was written in.
-    const turns = await deps.db
-      .select({
-        id: botTurn.id,
-        startedAt: botTurn.startedAt,
-        input: botTurn.input,
-        transcript: botTurn.transcript,
-      })
-      .from(botTurn)
-      .where(
-        and(
-          eq(botTurn.botId, botId),
-          summary
-            ? or(
-                gte(botTurn.startedAt, summary.coversUntil),
-                summary.turnId ? eq(botTurn.id, summary.turnId) : undefined,
-              )
-            : undefined,
-        ),
-      )
-      .orderBy(asc(botTurn.startedAt), asc(botTurn.id));
-    const history = historyFrom(turns, summary);
+    const history = await historyAfter(deps.db, botId, seen.promptStartId);
     const messages: ModelMessage[] = await resolveScreenshots(
       deps.blobStore,
       pruneScreenshots([
@@ -200,7 +177,7 @@ async function toSummarize(deps: BotSdkContext, botId: string): Promise<Seen | n
   if (!owner) return null;
   const newest = await newestTurn(deps.db, botId);
   if (!newest || newest.status === "running") return null;
-  const promptStartId = await latestPromptStart(deps.db, botId);
+  const promptStartId = await latestPromptStartId(deps.db, botId);
   if (!promptStartId) return null;
   // Nothing happened since the current Summary. A mid-Turn one's Turn went on after it, so it may
   // have grown again.
@@ -224,20 +201,6 @@ async function newestTurn(db: BotSdkContext["db"] | Transaction, botId: string) 
     .orderBy(desc(botTurn.startedAt), desc(botTurn.id))
     .limit(1);
   return row;
-}
-
-/** The id of the Prompt start the Bot's next Turn uses: its latest. */
-async function latestPromptStart(
-  db: BotSdkContext["db"] | Transaction,
-  botId: string,
-): Promise<string | undefined> {
-  const [row] = await db
-    .select({ id: botPromptStart.id })
-    .from(botPromptStart)
-    .where(eq(botPromptStart.botId, botId))
-    .orderBy(desc(botPromptStart.builtAt), desc(botPromptStart.id))
-    .limit(1);
-  return row?.id;
 }
 
 /**
@@ -288,7 +251,7 @@ async function wakesSoon(
 async function turnedSince(tx: Transaction, botId: string, seen: Seen): Promise<boolean> {
   const newest = await newestTurn(tx, botId);
   if (newest?.id !== seen.turnId) return true;
-  return (await latestPromptStart(tx, botId)) !== seen.promptStartId;
+  return (await latestPromptStartId(tx, botId)) !== seen.promptStartId;
 }
 
 /**
