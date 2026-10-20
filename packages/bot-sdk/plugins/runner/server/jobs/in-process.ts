@@ -59,9 +59,9 @@ export type InProcessRunner = JobRunner & {
   /** Claims due jobs now instead of at the next poll, as `enqueue` does. Does nothing before `start()`. */
   wake: () => void;
   /**
-   * Runs one attempt of a job claimed elsewhere, as one of this runner's: `stop()` waits for its
-   * handler. `drain` stands in for the runner's own deploy signal. Tests claim and run attempts
-   * by hand through it.
+   * Runs one attempt of a job claimed elsewhere, outside the lanes' budgets, with this runner's
+   * signals: `stop()` drains and aborts it, and waits for its handler. `drain` stands in for the
+   * runner's deploy signal. Tests claim and run attempts by hand through it.
    */
   runClaimed: (claimed: ClaimedJob, options?: { drain?: AbortSignal }) => Promise<void>;
 };
@@ -96,8 +96,9 @@ export function inProcessRunner({
 }: InProcessRunnerOptions): InProcessRunner {
   let running = false;
   let timer: unknown;
-  let drain: AbortController | undefined;
-  let shutdown: AbortController | undefined;
+  // Made now, so that attempts run through `runClaimed` before `start()` get them too.
+  let drain = new AbortController();
+  let shutdown = new AbortController();
   // Claims run one after another on this chain, so no lane's budget is ever exceeded.
   let claims: Promise<void> = Promise.resolve();
   const helpersInFlight = new Set<Promise<void>>();
@@ -105,7 +106,7 @@ export function inProcessRunner({
   // Every running handler, an attempt's that has ended included, until the handler ends too.
   const handlers = new Set<Promise<void>>();
 
-  const run = (claimed: ClaimedJob, signals: { drain?: AbortSignal; shutdown?: AbortSignal }) =>
+  const run = (claimed: ClaimedJob, signals: { drain: AbortSignal; shutdown: AbortSignal }) =>
     runClaimedJob(db, claimed, { clock, logger, deps, ...signals, handlers });
 
   const claimUpToConcurrency = async () => {
@@ -131,8 +132,8 @@ export function inProcessRunner({
       }
       if (!claimed) return;
       const work: Promise<void> = run(claimed, {
-        drain: drain?.signal,
-        shutdown: shutdown?.signal,
+        drain: drain.signal,
+        shutdown: shutdown.signal,
       })
         .catch((error: unknown) => logger.error(`Background job "${claimed.name}" failed`, error))
         .finally(() => {
@@ -169,13 +170,15 @@ export function inProcessRunner({
     wake: requestClaim,
 
     runClaimed: (claimed, options = {}) =>
-      run(claimed, { drain: options.drain, shutdown: shutdown?.signal }),
+      run(claimed, { drain: options.drain ?? drain.signal, shutdown: shutdown.signal }),
 
     async start() {
       if (running) return;
       running = true;
-      drain = new AbortController();
-      shutdown = new AbortController();
+      if (shutdown.signal.aborted) {
+        drain = new AbortController();
+        shutdown = new AbortController();
+      }
       timer = clock.setInterval(requestClaim, pollMs);
       requestClaim();
       await claims;
@@ -183,12 +186,12 @@ export function inProcessRunner({
 
     async stop() {
       running = false;
-      drain?.abort();
+      drain.abort();
       clock.clearInterval(timer);
       timer = undefined;
       await claims;
-      await waitUpTo(Promise.all([...helpersInFlight, ...othersInFlight, ...handlers]), drainMs);
-      shutdown?.abort();
+      await waitUpTo(Promise.all([...helpersInFlight, ...othersInFlight]), drainMs);
+      shutdown.abort();
       await Promise.all([...helpersInFlight, ...othersInFlight]);
       await waitUpTo(Promise.all(handlers), drainMs);
       if (handlers.size > 0) {

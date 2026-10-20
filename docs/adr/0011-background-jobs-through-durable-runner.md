@@ -40,6 +40,7 @@ Before anything was built, the runner moved out of its own package. The Chat SDK
   _Amended 2026-10-13 ([#368](https://github.com/Daanish2003/ai-chat/issues/368)): file parsing runs in-process, on the job runner. The SDK is copied into Hosts as TypeScript source, so there's no built entry for a worker to load, and the runner already keeps parsing off the request path._
 - **Recurring jobs:** `schedule(name, { everyMs })`, with no cron. Each slot is enqueued under the key `name:<slot>`, so exactly one process fires it. They're designed now and built with Synced sources.
 - **Shutdown and retention.** `stop()` stops taking jobs and drains for `drainMs`, then aborts the rest; their leases expire and another process re-runs them. Succeeded and cancelled jobs are deleted after 7 days, failed ones after 30.
+  _Amended 2026-10-20 ([#613](https://github.com/Daanish2003/ai-chat/issues/613)): an aborted handler goes on until it sees its signal, and a lost attempt's still ends its Turn and acknowledges the cancel. After aborting, `stop()` waits up to `drainMs` more for every handler, lost attempts' included, so it resolves within twice `drainMs`._
 - **Jobs are internal.** `defineJob({ name, payload, run, onFailed })` isn't public, and a Host can't register its own jobs.
 
 ## Amendment: the runner is a plugin of the Bot SDK (2026-10-17, [#479](https://github.com/Daanish2003/ai-chat/issues/479))

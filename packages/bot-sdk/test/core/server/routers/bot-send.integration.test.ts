@@ -1408,13 +1408,16 @@ describe("a Turn that resumes after a crash", () => {
     const runners = new Map<TestDeps, InProcessRunner>();
     const instance = () => {
       let deps: TestDeps | undefined;
-      // Never started: the test claims and runs each attempt.
+      // Never started: the test claims and runs each attempt. Stopped after the test, which
+      // waits for its attempts' handlers, lost ones included.
       const jobs = inProcessRunner({
         db: getTestDb(),
         logger: silent,
         clock: timer.clock,
+        drainMs: 1_000,
         deps: () => deps!,
       });
+      started.push(jobs);
       deps = createTestSdk({
         plugins: [bot()],
         jobs,
@@ -1457,10 +1460,9 @@ describe("a Turn that resumes after a crash", () => {
         return runners.get(on)!.runClaimed(claimed, { drain });
       },
       /**
-       * Stops the process `on`'s runner, which waits for its attempts' handlers to end. A lost
-       * attempt's handler goes on after `attempt()` resolves: it ends the Turn if it still runs,
-       * then acknowledges the cancel. Left running, that write can run into the next test's
-       * truncate, a deadlock.
+       * Stops the process `on`'s runner, which waits for its attempts' handlers to end: a lost
+       * attempt's handler goes on after `attempt()` resolves, to end the Turn if it still runs,
+       * then acknowledge the cancel.
        */
       stopRunner: (on: TestDeps = deps) => runners.get(on)!.stop(),
       /**

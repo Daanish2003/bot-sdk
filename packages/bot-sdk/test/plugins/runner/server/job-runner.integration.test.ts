@@ -822,21 +822,25 @@ describe("stop", () => {
 
 describe("stop and lost attempts", () => {
   /** A started runner whose `test.linger` job has lost its attempt to a cancel. */
-  async function lostAttempt(drainMs: number) {
+  async function lostAttempt(drainMs: number, logger = silent) {
     const timer = fakeJobClock(start);
     const runner = inProcessRunner({
       db: getTestDb(),
-      logger: silent,
+      logger,
       deps: jobDeps,
       clock: timer.clock,
+      concurrency: 1,
       drainMs,
     });
     await runner.enqueue("test.linger", { label: "a" }, { idempotencyKey: "k" });
     await runner.start();
     await expect.poll(() => started).toEqual(["a"]);
+    // Waits for the only slot, which the attempt frees once it has lost its job.
+    await runner.enqueue("test.record", { label: "b" });
     await runner.cancel("k");
     timer.advance(10_000);
     timer.tick();
+    await expect.poll(() => ran).toEqual(["b"]);
     return runner;
   }
 
@@ -856,18 +860,25 @@ describe("stop and lost attempts", () => {
     release();
     await stopping;
 
-    expect(ran).toEqual(["a"]);
+    expect(ran).toEqual(["b", "a"]);
     // Its last write, acknowledging the cancel, is done too.
-    expect(await jobRows()).toMatchObject([{ status: "cancelled", heartbeatAt: null }]);
+    const [linger] = await getTestDb().select().from(job).where(eq(job.name, "test.linger"));
+    expect(linger).toMatchObject({ status: "cancelled", heartbeatAt: null });
   });
 
   it("stops waiting for a handler that never ends, drainMs after aborting it", async () => {
     lingerGate = new Promise(() => {});
-    const runner = await lostAttempt(20);
+    const logger = { error: vi.fn() };
+    const runner = await lostAttempt(20, logger);
 
+    const stopping = Date.now();
     await runner.stop();
 
-    expect(ran).toEqual([]);
+    expect(Date.now() - stopping).toBeLessThan(1_000);
+    expect(ran).toEqual(["b"]);
+    expect(logger.error).toHaveBeenCalledWith(
+      "1 background job handler(s) still running after stop",
+    );
   });
 });
 
