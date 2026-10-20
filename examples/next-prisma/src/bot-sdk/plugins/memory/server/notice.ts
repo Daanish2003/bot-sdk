@@ -1,9 +1,9 @@
 import { asc, inArray } from "drizzle-orm";
 
-import { conversationChannel } from "../../../../core/server/chat/conversation-events";
-import { memory } from "../../../../core/server/db/schema";
-import type { BotSdkContext } from "../../../../core/server/plugin";
-import type { MemoryUpdatedEvent, TurnChange } from "../../shared/memory/changes";
+import { conversationChannel } from "../../../core/server/chat/conversation-events";
+import { memory } from "../../../core/server/db/schema";
+import type { BotSdkContext } from "../../../core/server/plugin";
+import type { MemoryUpdatedEvent, TurnChange } from "../shared/changes";
 
 /**
  * Publishes a turn's changes on the Conversation's channel, after they are written. Never throws:

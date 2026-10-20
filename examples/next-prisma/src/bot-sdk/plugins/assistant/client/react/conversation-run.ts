@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import type { AssistantRouterClient } from "../../server/routers/index";
 import type { AttachmentInfo } from "../../../../core/shared/attachments/kinds";
 import type { ChatCommand } from "../../shared/chat/command";
-import type { MemoryUpdatedEvent } from "../../shared/memory/changes";
+import type { MemoryUpdatedEvent } from "../../../memory/shared/changes";
 import {
   branchFrom,
   hideReply,

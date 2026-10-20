@@ -1,16 +1,13 @@
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { conversation, project, memory, userSettings } from "../../../../core/server/db/schema";
-import type { BotSdkContext } from "../../../../core/server/plugin";
-import { defineJob } from "../../../runner/server/jobs/define";
-import { rpcError } from "../../../../core/server/rpc-error";
-import { assistantState } from "../state";
+import { conversation, project, memory, memorySettings } from "../../../core/server/db/schema";
+import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
+import { defineJob } from "../../runner/server/jobs/define";
+import { rpcError } from "../../../core/server/rpc-error";
 
 /** What the Memory page shows about the user's Memories and whether Memory can work. */
 export type MemoryStatus = {
-  /** Whether the Host turns Memory on (`createBotSdk({ memory })`). */
-  hostEnabled: boolean;
   /** The user's "Use and make Memories" switch. */
   enabled: boolean;
   /** Whether an embedding Model is available to the user, which Memory needs. */
@@ -35,24 +32,23 @@ export type MemoryGroup = {
   items: ListedMemory[];
 };
 
-/** Refuses the procedures when the Host has turned Memory off, so the page can't reach them. */
-export function requireHostMemory(deps: Pick<BotSdkContext, "plugin">) {
-  if (!assistantState(deps).memory)
-    throw rpcError("NOT_FOUND", "error.memoryOff", "Memory is off for this Host");
+/** The user's Memory switch: on for a user who never saved it. */
+export async function memoryEnabledFor(
+  deps: { db: Pick<Transaction, "select"> },
+  userId: string,
+): Promise<boolean> {
+  const [settings] = await deps.db
+    .select({ enabled: memorySettings.enabled })
+    .from(memorySettings)
+    .where(eq(memorySettings.userId, userId));
+  return settings?.enabled ?? true;
 }
 
 /** The user's Memory switch and whether an embedding Model is there for it. */
 export async function memoryStatus(deps: BotSdkContext, userId: string): Promise<MemoryStatus> {
-  const [settings] = await deps.db
-    .select({ memoryEnabled: userSettings.memoryEnabled })
-    .from(userSettings)
-    .where(eq(userSettings.userId, userId));
-  const embedding = assistantState(deps).memory
-    ? await deps.plugin("models").defaultEmbeddingModel(userId)
-    : null;
+  const embedding = await deps.plugin("models").defaultEmbeddingModel(userId);
   return {
-    hostEnabled: assistantState(deps).memory,
-    enabled: settings?.memoryEnabled ?? true,
+    enabled: await memoryEnabledFor(deps, userId),
     embeddingAvailable: embedding !== null,
   };
 }
@@ -60,9 +56,9 @@ export async function memoryStatus(deps: BotSdkContext, userId: string): Promise
 /** Saves the "Use and make Memories" switch. Off keeps every Memory; it only stops using and making them. */
 export async function setMemoryEnabled(deps: BotSdkContext, userId: string, enabled: boolean) {
   await deps.db
-    .insert(userSettings)
-    .values({ userId, memoryEnabled: enabled })
-    .onConflictDoUpdate({ target: userSettings.userId, set: { memoryEnabled: enabled } });
+    .insert(memorySettings)
+    .values({ userId, enabled })
+    .onConflictDoUpdate({ target: memorySettings.userId, set: { enabled } });
 }
 
 /**

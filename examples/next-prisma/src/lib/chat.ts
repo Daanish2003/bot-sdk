@@ -3,6 +3,7 @@ import { assistant, type HostToolContext } from "@ai-chat/bot-sdk/plugins/assist
 import { bot } from "@ai-chat/bot-sdk/plugins/bot/server";
 import { e2bProvider } from "@ai-chat/bot-sdk/plugins/computer/e2b";
 import { computer } from "@ai-chat/bot-sdk/plugins/computer/server";
+import { memory } from "@ai-chat/bot-sdk/plugins/memory/server";
 import { models } from "@ai-chat/bot-sdk/plugins/models/server";
 import { runner } from "@ai-chat/bot-sdk/plugins/runner/server";
 import { toolDefinition } from "@tanstack/ai";
@@ -52,6 +53,7 @@ export const chat = createBotSdk({
     ...(e2b
       ? [computer({ provider: e2bProvider({ ...e2b, template: "ai-chat-computer-v3" }) })]
       : []),
+    memory(),
     assistant({ tools: [serverTime] }),
     bot(),
   ],

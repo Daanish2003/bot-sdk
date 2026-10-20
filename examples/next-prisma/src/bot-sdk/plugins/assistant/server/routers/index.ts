@@ -6,7 +6,6 @@ import { chatRouter } from "./chat";
 import { connectionsRouter } from "./connections";
 import { conversationRouter } from "./conversation";
 import { knowledgeRouter } from "./knowledge";
-import { memoryRouter } from "./memory";
 import { projectRouter } from "./project";
 import { savedPromptRouter } from "./saved-prompt";
 import { settingsRouter } from "./settings";
@@ -19,7 +18,6 @@ export const appRouter = {
   connections: connectionsRouter,
   conversation: conversationRouter,
   knowledge: knowledgeRouter,
-  memory: memoryRouter,
   project: projectRouter,
   savedPrompt: savedPromptRouter,
   settings: settingsRouter,
