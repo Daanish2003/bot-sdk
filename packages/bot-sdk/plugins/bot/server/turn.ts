@@ -1054,13 +1054,11 @@ async function turnSetup(
       ],
       tools,
       computer: withComputer,
-      memory: memory !== null,
+      memory: Boolean(memory),
     }),
   }));
   return {
-    promptStart: await loopPromptStart(db, id, () =>
-      previousTurnCall(deps.db, turn.botId, turn.id),
-    ),
+    promptStart: await loopPromptStart(db, id, () => previousTurnCall(deps.db, turn)),
     tools,
     ended: () => endTurn,
   };

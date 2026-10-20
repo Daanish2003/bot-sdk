@@ -197,26 +197,36 @@ export async function loopPromptStart(
   if (!row) throw new Error(`Prompt start ${id} no longer exists`);
   const system = row.sections.filter((section) => section.name !== firstMessageSection);
   const first = row.sections.find((section) => section.name === firstMessageSection);
+  if (!first) throw new Error(`Prompt start ${id} has no first message`);
   return {
     id,
     tools: row.tools,
     system: system.map(({ name, text }) => ({ name, text })),
-    firstMessage: first?.text ?? "",
+    firstMessage: first.text,
     previousCall,
   };
 }
 
-/** The prompt hashes of the Bot's last recorded model call in a Turn before `turnId`. */
+/**
+ * The prompt hashes of the Bot's last recorded model call in a Turn before `turn`'s. It reads the
+ * user's usage rows newest first, on their `(user_id, created_at)` index.
+ */
 export async function previousTurnCall(
   db: Database | Transaction,
-  botId: string,
-  turnId: string,
+  turn: { id: string; botId: string; userId: string },
 ): Promise<PreviousCall | undefined> {
   const [row] = await db
     .select({ hashes: usage.promptHashes, promptStartId: botTurn.promptStartId })
     .from(usage)
     .innerJoin(botTurn, eq(sql`${botTurn.id}::text`, usage.sourceId))
-    .where(and(eq(botTurn.botId, botId), ne(botTurn.id, turnId), eq(usage.kind, "turn")))
+    .where(
+      and(
+        eq(usage.userId, turn.userId),
+        eq(usage.kind, "turn"),
+        eq(botTurn.botId, turn.botId),
+        ne(botTurn.id, turn.id),
+      ),
+    )
     .orderBy(desc(usage.createdAt), desc(usage.id))
     .limit(1);
   return row?.hashes ? { promptStartId: row.promptStartId, hashes: row.hashes } : undefined;
