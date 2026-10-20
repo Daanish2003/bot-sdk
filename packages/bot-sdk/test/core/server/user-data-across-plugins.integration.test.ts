@@ -35,7 +35,6 @@ import { insertAttachment, linkTestAttachments } from "../../support/attachments
 import { insertConversation, insertMessage } from "../../support/conversations";
 import { createTestSdk, type TestDeps } from "../../support/deps";
 import { insertGeneratedImage } from "../../support/generated-images";
-import { insertMemory } from "../../support/memories";
 import { chatRpc } from "../../support/sdk";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 import { fakeComputerProvider } from "../../plugins/computer/server/fake-provider";
@@ -91,7 +90,7 @@ async function activeJobsNaming(ids: string[]) {
 
 /**
  * A user with a row in every table that has a `user_id` column: a Conversation with an Attachment,
- * a Shared link, a Generated image and a Memory; a Project with a Conversation, a Generated image
+ * a Shared link and a Generated image; a Project with a Conversation, a Generated image
  * and a Knowledge file whose processing job is queued; an unused Attachment; settings, a Saved
  * prompt, an MCP connection, credentials and usage; the Memory switch; a Bot; a Computer. Returns the blob keys and ids it made.
  */
@@ -119,7 +118,6 @@ async function seedEverything(
   }
   await chatRpc({ user, deps }).share.upsert({ conversationId: conv.id });
   const image = await insertGeneratedImage(deps, user, conv.id);
-  await insertMemory(user, { conversationId: conv.id });
 
   const projectId = uuidv7();
   await getTestDb().insert(project).values({ id: projectId, userId: user.id, name: "Work" });

@@ -4,17 +4,13 @@ import type { AttachmentInfo } from "../../../core/shared/attachments/kinds";
 import type { SiblingPosition } from "../../../core/shared/chat/branches";
 import type { ActiveBranchMessage, ClientMessage } from "../shared/chat/client-message";
 import type { SharedConversation } from "../shared/share/conversation";
-import type { TurnChange } from "../../memory/shared/changes";
 import type { UIMessage } from "@tanstack/ai-client";
 
 /** What the server knows about a Message beyond its parts, kept in `UIMessage.metadata`. */
 export type MessageInfo = Pick<
   ClientMessage,
   "model" | "reasoningEffort" | "status" | "error" | "errorReason" | "usage" | "rating" | "hidden"
-> & {
-  /** What the Memory job changed for this reply's turn, for its "Memory updated" chip (#290). */
-  memoryChanges: TurnChange[];
-};
+>;
 
 /**
  * An attachment as a chip. A Shared link shows only its filename and type; the user's own
@@ -42,7 +38,6 @@ export function toUIMessages(messages: ActiveBranchMessage[]): UIMessage[] {
       hidden,
       siblings,
       attachments,
-      memoryChanges,
     }) => ({
       id,
       role,
@@ -57,7 +52,6 @@ export function toUIMessages(messages: ActiveBranchMessage[]): UIMessage[] {
         usage,
         rating,
         hidden,
-        memoryChanges,
         contextStartId,
         siblings,
         attachments,
@@ -107,10 +101,9 @@ export function sharedToUIMessages(messages: SharedConversation["messages"]): UI
       error: null,
       errorReason: null,
       usage: null,
-      // A Shared link carries no Ratings, and no Memory changes (#290).
+      // A Shared link carries no Ratings.
       rating: null,
       hidden,
-      memoryChanges: [],
       attachments,
     } satisfies MessageInfo & {
       attachments: AttachmentChip[];
@@ -157,24 +150,7 @@ export function messageInfo(message: UIMessage): MessageInfo {
     usage: info?.usage ?? null,
     rating: info?.rating ?? null,
     hidden: info?.hidden ?? false,
-    memoryChanges: info?.memoryChanges ?? [],
   };
-}
-
-/**
- * The Messages with one reply's Memory changes replaced, as the live `memory_updated` event sends
- * them (#290). Other Messages are passed through as they are.
- */
-export function withMemoryChanges(
-  messages: UIMessage[],
-  messageId: string,
-  changes: TurnChange[],
-): UIMessage[] {
-  return messages.map((message) =>
-    message.id === messageId
-      ? { ...message, metadata: { ...message.metadata, memoryChanges: changes } }
-      : message,
-  );
 }
 
 /** Whether a stream chunk is the `moderated` custom chunk that ends a hidden reply's Run log (#269). */

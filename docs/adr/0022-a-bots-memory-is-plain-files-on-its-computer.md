@@ -20,7 +20,7 @@ The lecture says "What the agent knows lives in files" (slides 10, 11, 35), so a
 - **Search.** `search_memory({ query })` ranks the lines of the Bot's own files and all the Profiles by BM25 × importance × decay, in plain TypeScript, with no embeddings or index.
 - **Where the code lives.** All of it is in the `memory` plugin, which `uses: ["computer"]`. With Memory off, or no `computer` plugin, there's no snapshot and no pass.
 
-The assistant keeps ADR 0013. It has no Computer, and the lecture covers only Bots. Its Memories and the Bots' Profiles are not shared either way.
+The assistant kept ADR 0013 at first: it has no Computer, and the lecture covers only Bots. Its Memories were removed in #650, so ADR 0013 is superseded and only Bots remember.
 
 ## Considered Options
 

@@ -31,8 +31,8 @@ export function keyFor(model: string, plan: ChatgptPlan | null, what = ""): stri
 }
 
 /**
- * The judge's completion at temperature 0, on OpenAI, Anthropic or OpenRouter (the pattern of
- * eval/memory/run.ts), or on the ChatGPT plan when `apiKey` is `null` (no temperature there).
+ * The judge's completion at temperature 0, on OpenAI, Anthropic or OpenRouter, or on the ChatGPT
+ * plan when `apiKey` is `null` (no temperature there).
  */
 export function judgeCompletion(
   model: string,

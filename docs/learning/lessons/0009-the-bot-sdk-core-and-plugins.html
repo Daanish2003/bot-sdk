@@ -76,7 +76,7 @@
         Think of the Bot SDK as a house. The core is the foundation: the database, the blob store,
         pub/sub, logging, and the Conversation with its Messages and attachments. Every Host gets
         it. The plugins are rooms the Host adds: <code>models</code> (keys, quota and usage) and
-        <code>assistant</code> (Runs, tools, Memory and more).
+        <code>assistant</code> (Runs, tools and more; its Memory was removed in #650).
       </p>
       <p>
         A plugin calls another plugin only when it lists that plugin in <code>requires</code>, as

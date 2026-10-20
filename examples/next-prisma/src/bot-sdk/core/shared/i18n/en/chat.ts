@@ -205,13 +205,6 @@ export const chatMessages = {
   "chat.ratingFailed": ({ message }: { message: string }) => `Rating failed: ${message}`,
   "chat.goodReply": "Good reply",
   "chat.badReply": "Bad reply",
-  // A reply's "Memory updated" chip and its popover (#290).
-  "chat.memoryUpdated": ({ count }: { count: number }) =>
-    count === 1 ? "Memory updated · 1 change" : `Memory updated · ${count} changes`,
-  "chat.memoryAdded": ({ text }: { text: string }) => `Added: ${text}`,
-  "chat.memoryUpdatedPrefix": "Updated:",
-  "chat.memoryForgot": ({ text }: { text: string }) => `Forgot: ${text}`,
-  "chat.manageMemory": "Manage Memory",
   "chat.moderatedDefault": "This message can't be sent",
   "chat.savedPrompts": "Saved prompts",
   "chat.noSavedPrompts": "No Saved prompts yet. Save text you send often and insert it with /name.",

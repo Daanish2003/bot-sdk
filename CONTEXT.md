@@ -129,8 +129,7 @@ A passage of Knowledge the assistant read during an assistant Message, shown as 
 _Avoid_: Source (that is a web page), chunk, snippet, Knowledge source
 
 **Memory**:
-One fact about a user that the assistant learned in a Conversation and reuses in later ones. Memories made in a Project stay in that Project, which also uses the general ones; the rest are general. Each remembers the Message it came from and goes when that Conversation is deleted. One the user corrects is kept as outdated; one they delete or ask the assistant to forget is gone. A user can turn Memory off, for the assistant and their Bots alike.
-A Bot's memory is different: plain files in its own directory on the Computer, which it reads and edits itself, in three tiers (its Profile, its Log and its Notes), with everything older found by search. Every Bot reads all of the user's Profiles, but each Bot writes only its own files.
+What a Bot knows about the user and keeps between Turns: plain files in its own directory on the Computer, which it reads and edits itself, in three tiers (its Profile, its Log and its Notes), with everything older found by search. Every Bot reads all of the user's Profiles, but each Bot writes only its own files. A user can turn Memory off for all their Bots. The assistant has no Memory (#650).
 _Avoid_: Fact, saved memory, Instructions (those the user writes)
 
 **Profile**:

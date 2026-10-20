@@ -1,9 +1,4 @@
-import {
-  conversation,
-  message,
-  type MessageRow,
-  sharedLink,
-} from "../../../../core/server/db/schema";
+import { conversation, message, sharedLink } from "../../../../core/server/db/schema";
 import { and, desc, eq, inArray, isNotNull, isNull, type SQL, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
@@ -14,7 +9,6 @@ import type { BotSdkContext } from "../../../../core/server/plugin";
 import { deleteConversations } from "../../../../core/server/chat/delete-conversations";
 import { newestLeaf, pathTo, siblingPosition } from "../../../../core/shared/chat/branches";
 import { type ActiveBranchMessage, toClientMessage } from "../../shared/chat/client-message";
-import type { TurnChange } from "../../../memory/shared/changes";
 import type { ReasoningChoice } from "../../../models/shared/models";
 import { assistantConversation, withModel } from "./kind";
 import { liveConversation } from "./temporary";
@@ -445,35 +439,10 @@ export async function loadActiveBranch(
     deps,
     path.map((row) => row.id),
   );
-  const owners = memoryOwnerReplies(rows);
-  const changes = deps.hasPlugin("memory")
-    ? await deps
-        .plugin("memory")
-        .turnChanges(path.filter((row) => row.role === "user").map((row) => row.id))
-    : new Map<string, TurnChange[]>();
   return path.map((row) => ({
     ...toClientMessage(row, attachments.get(row.id)),
     siblings: siblingPosition(rows, row),
-    memoryChanges:
-      row.parentId !== null && owners.get(row.parentId) === row.id
-        ? (changes.get(row.parentId) ?? [])
-        : [],
   }));
-}
-
-/**
- * The reply that owns each user Message's Memory changes (#290): the first of its replies that
- * ended `complete` or `stopped`, since a regenerated reply makes no Memories of its own.
- */
-function memoryOwnerReplies(rows: MessageRow[]): Map<string, string> {
-  const owners = new Map<string, string>();
-  const oldestFirst = [...rows].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
-  for (const row of oldestFirst) {
-    if (row.role !== "assistant" || row.parentId === null || row.hiddenAt !== null) continue;
-    if (row.status !== "complete" && row.status !== "stopped") continue;
-    if (!owners.has(row.parentId)) owners.set(row.parentId, row.id);
-  }
-  return owners;
 }
 
 /**

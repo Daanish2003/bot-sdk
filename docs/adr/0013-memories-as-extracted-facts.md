@@ -1,5 +1,5 @@
 ---
-Status: accepted
+Status: superseded by ADR 0022
 ---
 
 # Memories are facts extracted after a Run, behind @tanstack/ai-memory
@@ -45,3 +45,7 @@ Consequence updated: there is no new dependency on `@tanstack/ai-memory`. New sc
 
 - **A plugin.** Memory moves out of the assistant into a `memory` plugin, without changing how it works. The plugin requires `models` and `runner`. A Host turns Memory off by not installing the plugin, which replaces `memory?: boolean`. `memory_enabled` moves to `chat.memory_settings`, and the switch now covers Bots too. `background_model` stays in the assistant. `chat.memory` keeps its name.
 - **Bots don't use this ADR.** A Bot's memory is plain files on its Computer (ADR 0022). The assistant keeps everything above, and its Memories are not shared with Bots' Profiles.
+
+## Superseded: the assistant's Memories are removed (2026-10-20, #650)
+
+The owner removed the assistant's Memory: only Bots remember, through their files (ADR 0022). Nothing saves, recalls, lists or re-embeds Memories, and the assistant's replies carry no "Memory updated" notice. A migration drops `chat.memory` with its embeddings and indexes, and the `memory_origin` enum, and deletes the queued `memory.make` and `memory.reembed` jobs; the Memories' data is deleted. The assistant Memory eval and its LongMemEval data go too. `chat.memory_settings`, the Memory switch, stays and now covers only Bots. `search_past_chats` stays: it searches Conversations, not Memories, and is still offered only with the switch on.

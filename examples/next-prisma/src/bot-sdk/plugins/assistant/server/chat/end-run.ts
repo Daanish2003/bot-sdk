@@ -41,7 +41,7 @@ export type EndingRun = {
   parts?: StoredParts;
   /**
    * Set when the process that ran the Run ends it. Unset for a Run ended without its owner (stopped
-   * from another process, or reaped), which saves no usage and starts no title or Memory job.
+   * from another process, or reaped), which saves no usage and starts no title job.
    */
   owner?: {
     /** The usage saved on the Message: the Provider's, or an estimate. */
@@ -70,8 +70,7 @@ export type EndingRun = {
  * 2. The owner's output check (#268), which can hide the reply, and its Host usage row.
  * 3. Ends the Run's log, with the `moderated` chunk for a hidden reply (#269), and closes it.
  * 4. `onRunEnd`, last, and only when the ending was saved (#265).
- * 5. The owner's follow-on jobs: a title for a `complete` Run, Memories for a saved `complete` or
- *    `stopped` one that isn't hidden (ADR 0013).
+ * 5. The owner's follow-on job: a title for a `complete` Run.
  *
  * Answers the Run's `onRunEnd` event, or `undefined` when the Message had already ended. With
  * `fire: false` the event isn't fired: a caller inside a transaction fires it once it commits.
@@ -169,25 +168,6 @@ export async function endRun(
     // Title the Conversation, fire-and-forget. A reply waiting for Approval is titled once its
     // resumed Run completes.
     if (ending.status === "complete") void titleConversation(deps, messageId);
-    // `error`, a hidden reply (owner decision on #286) and a Run waiting for Approval make no
-    // Memories; the resumed Run does.
-    if (
-      saved &&
-      !hidden &&
-      (ending.status === "complete" || ending.status === "stopped") &&
-      deps.hasPlugin("memory")
-    ) {
-      void deps
-        .plugin("memory")
-        .afterRun({
-          userId: run.userId,
-          conversationId: run.conversationId,
-          replyId: messageId,
-        })
-        .catch((caught: unknown) =>
-          deps.logger.error(`Queuing the Memories of ${messageId} failed`, caught),
-        );
-    }
   }
   return event;
 }

@@ -31,10 +31,7 @@ export const errorMessages = {
   "error.pinLimit": ({ max }: { max: string }) =>
     `You can pin up to ${max} Conversations. Unpin one first.`,
   "error.byokOff": "Your own keys are turned off on this app",
-  "error.memoryNotFound": "Memory not found",
   "error.memoryTextBlank": "A Memory can't be blank",
-  "error.memoryNeedsEmbeddingModel":
-    "Memory needs an embedding Model. Add an OpenAI or Gemini key.",
   "error.memoryLineChanged": "That line changed since you opened it. Reload and try again.",
   "error.memoryLogMonth": "A Log file needs a month, YYYY-MM",
   "error.memoryNeedsComputer": "Bot memory needs a Computer",

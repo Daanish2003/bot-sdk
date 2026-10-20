@@ -1,5 +1,4 @@
 import type { AttachmentInfo } from "../../../../core/shared/attachments/kinds";
-import type { TurnChange } from "../../../memory/shared/changes";
 import type { MessageRecord } from "./message-record";
 import type { SiblingPosition } from "../../../../core/shared/chat/branches";
 import { parseStoredParts, toUIParts } from "./parts";
@@ -32,6 +31,4 @@ export type ClientMessage = ReturnType<typeof toClientMessage>;
 /** A Message of the Active Branch as `conversation.get` returns it, with its ‹ n/m › position. */
 export type ActiveBranchMessage = ClientMessage & {
   siblings: SiblingPosition;
-  /** What the Memory job changed for this reply's turn, for its "Memory updated" chip (#290). */
-  memoryChanges: TurnChange[];
 };
