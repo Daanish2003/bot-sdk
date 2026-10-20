@@ -283,6 +283,7 @@ function memoryRules(botId: string): string {
       `${profileCharacterLimit.toLocaleString("en-US")} characters, your ${logLineLimit} most ` +
       `relevant Log lines from the last ${logMonths} months, and your Notes from the last ` +
       `${noteDays} days. Older lines stay in the files.`,
+    "- Find older or other memory with search_memory: it returns the best matching lines with file and date.",
   ].join("\n");
 }
 

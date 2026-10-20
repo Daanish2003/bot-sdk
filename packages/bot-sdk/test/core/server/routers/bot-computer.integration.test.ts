@@ -227,6 +227,7 @@ describe("the shell tool", () => {
 
     expect(toolNamesOf(fake.calls[0])).toEqual([
       ...botTools,
+      "search_memory",
       "shell",
       "read",
       "write",
@@ -917,6 +918,7 @@ describe("the file tools", () => {
 
     expect(toolNamesOf(fake.calls[0])).toEqual([
       ...botTools,
+      "search_memory",
       "shell",
       "read",
       "write",
