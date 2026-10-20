@@ -104,6 +104,8 @@ export type LoopOptions = {
   owner: { userId: string; botId: string; model: string };
   /** What its model calls are billed as. */
   usageKind: ModelUsage["kind"];
+  /** The Turn or Helper its model calls are recorded for. */
+  sourceId: string;
   /** The model input before the loop's own Steps. */
   input: ModelMessage[];
   /** When the loop started: its time limit counts from here. */
@@ -230,10 +232,19 @@ export async function runLoop(
       const models = deps.plugin("models");
       const call = await models.resolveModelCall(owner.userId, owner.model);
       if (!call) throw new Error(`"${owner.model}" is not an available Model`);
+      // On the user's own key or plan, a call is still recorded, at cost 0, so its cache use shows.
+      const meter = call.meter.onHost
+        ? call.meter
+        : models.freeModelMeter(owner.userId, owner.model);
       return {
         adapter: models.adapterForCall(owner.model, call),
         record: (tx, usage, reportedCost) =>
-          call.meter.recordIn(tx, { kind: options.usageKind, usage, reportedCost }),
+          meter.recordIn(tx, {
+            kind: options.usageKind,
+            usage,
+            reportedCost,
+            sourceId: options.sourceId,
+          }),
       };
     })());
 

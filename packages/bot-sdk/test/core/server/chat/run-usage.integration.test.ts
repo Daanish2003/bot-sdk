@@ -114,6 +114,7 @@ describe("the Run's usage", () => {
       output: 15,
       reasoning: 0,
       cached: 0,
+      cacheWrite: 0,
       estimated: false,
     });
   });
@@ -137,6 +138,7 @@ describe("the Run's usage", () => {
       output: 4,
       reasoning: 0,
       cached: 30,
+      cacheWrite: 5,
       estimated: false,
     });
   });
@@ -161,6 +163,7 @@ describe("the Run's usage", () => {
       output: 9,
       reasoning: 6,
       cached: 30,
+      cacheWrite: 0,
       estimated: false,
     });
   });
@@ -183,6 +186,7 @@ describe("the Run's usage", () => {
       output: 4,
       reasoning: 0,
       cached: 0,
+      cacheWrite: 0,
       estimated: true,
     });
   });
@@ -199,6 +203,7 @@ describe("the Run's usage", () => {
       output: 2,
       reasoning: 0,
       cached: 0,
+      cacheWrite: 0,
       estimated: true,
     });
   });
@@ -215,7 +220,7 @@ describe("the Run's usage", () => {
 
     expect(read.messages.map((row) => row.usage)).toEqual([
       null,
-      { input: 7, output: 3, reasoning: 0, cached: 0, estimated: false },
+      { input: 7, output: 3, reasoning: 0, cached: 0, cacheWrite: 0, estimated: false },
     ]);
   });
 
@@ -237,6 +242,7 @@ describe("the Run's usage", () => {
       output: 3,
       reasoning: 0,
       cached: 0,
+      cacheWrite: 0,
       estimated: false,
     });
   });

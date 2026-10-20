@@ -13,11 +13,22 @@ export type UsageEvent = {
     | "embedding"
     | "memory"
     | "turn"
-    | "helper";
+    | "helper"
+    | "summary"
+    | "warm";
   /** The `"provider:model"` id, `"tavily"` for a web search, or the transcription or image model's id. */
   model: string;
+  /** Every input token, cache reads and writes included. */
   inputTokens: number;
   outputTokens: number;
+  /** The input tokens read from the Provider's prompt cache. */
+  cacheReadTokens: number;
+  /** The input tokens written to the Provider's prompt cache. */
+  cacheWriteTokens: number;
+  /** The Bot Turn or Helper (or, for warming, the Bot) a Model call was made for, else `null`. */
+  sourceId: string | null;
+  /** The hash of each section of the prompt a Model call sent, else `null`. */
+  promptHashes: { name: string; hash: string }[] | null;
   /** The cost in millionths of a US dollar. */
   costMicros: number;
   estimated: boolean;
@@ -106,7 +117,11 @@ export type ModerationResult = { allow: true } | { allow: false; reason?: string
  * `moderate` is typed now and wired by #267.
  */
 export type EventHooks = {
-  /** Fires after each usage row on Host credentials is written: a Run, a title, a web search, a transcription or a generated image. */
+  /**
+   * Fires after each usage row is written: a call on Host credentials (a Run, a title, a web search,
+   * a transcription, a generated image, a Bot's Turn or Helper), or, at `costMicros` 0, a generated
+   * image or a Bot's model call on the user's own key or linked plan (#667).
+   */
   onUsage?: (usage: UsageEvent) => unknown;
   /** Fires once for every Run, whichever way it ends, after the ending is written (#265). */
   onRunEnd?: (run: RunEndEvent) => unknown;

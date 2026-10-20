@@ -458,15 +458,16 @@ describe("a Helper's Quota and usage", () => {
     await settled(botId);
 
     const rows = (await usageOf(user.id)).filter((row) => row.kind === "helper");
-    expect(rows).toMatchObject([
-      { kind: "helper", model: hostModel, inputTokens: 100, outputTokens: 10 },
-      { kind: "helper", model: hostModel, inputTokens: 100, outputTokens: 10 },
-    ]);
     const [helper] = await helpersOf(botId);
+    const sourceId = helper!.id;
+    expect(rows).toMatchObject([
+      { kind: "helper", model: hostModel, inputTokens: 100, outputTokens: 10, sourceId },
+      { kind: "helper", model: hostModel, inputTokens: 100, outputTokens: 10, sourceId },
+    ]);
     expect(helper?.usage).toMatchObject({ input: 200, output: 20 });
   });
 
-  it("runs on the user's linked ChatGPT plan, with no usage row, when the Bot is on a plan Model (ADR 0023)", async () => {
+  it("runs on the user's linked ChatGPT plan, with usage rows at cost 0, when the Bot is on a plan Model (ADR 0023)", async () => {
     const { client, botId, user, helperFake, adapterCredentials } = await botWith(
       [handsOff("Count."), round()],
       [round(shell("true")), round(text("Done."))],
@@ -482,7 +483,9 @@ describe("a Helper's Quota and usage", () => {
     expect(new Set(adapterCredentials.map((credentials) => credentials.apiKey))).toEqual(
       new Set([planCredentials.apiKey]),
     );
-    expect(await usageOf(user.id)).toEqual([]);
+    const planRows = await usageOf(user.id);
+    expect(planRows.filter((row) => row.kind === "helper")).toHaveLength(2);
+    expect(planRows.every((row) => row.costMicros === 0)).toBe(true);
   });
 
   it("refuses start_helper once the Quota is spent, with a next step", async () => {

@@ -39,6 +39,10 @@ export type HostModel = {
   maxOutputTokens: number;
   inputUsdPerMillion: number;
   outputUsdPerMillion: number;
+  /** The price of input read from the prompt cache. Unset, it is `inputUsdPerMillion`. */
+  cacheReadUsdPerMillion?: number;
+  /** The price of input written to the prompt cache. Unset, it is `inputUsdPerMillion`. */
+  cacheWriteUsdPerMillion?: number;
 };
 
 /** A user's Quota on Host credentials (ADR 0007): a budget in USD over a fixed UTC day or calendar month. */

@@ -34,6 +34,7 @@ import { createVercelGatewayImage, createVercelGatewayText } from "@tanstack/ai-
 import { createBytePlusImage } from "@tanstack/ai-byteplus";
 
 import { chatgptPlanFetch } from "./chatgpt-plan";
+import { withOpenaiCacheWrites } from "./openai-cache-writes";
 import type { Credentials } from "./types";
 import type { AspectRatio } from "../../assistant/shared/chat/generated-image";
 import { isKnownModel, parseModelId } from "../shared/models";
@@ -44,8 +45,9 @@ type ModelOf<Factory extends (model: never, ...rest: never[]) => unknown> = Para
 /**
  * Builds the real TanStack AI text adapter for a `"provider:model"` id (curated, or from the live
  * OpenRouter or Ollama list) from the user's Provider credentials, each through its
- * explicit-credential factory. The production `deps.adapterFor`. On a linked ChatGPT plan
- * (`options.linked`), OpenAI's adapter sends through the plan's `fetch` (ADR 0023).
+ * explicit-credential factory. The production `deps.adapterFor`. OpenAI's adapter reports cache
+ * writes too (`withOpenaiCacheWrites`), and on a linked ChatGPT plan (`options.linked`) sends
+ * through the plan's `fetch` (ADR 0023).
  */
 export function adapterFor(
   model: string,
@@ -69,10 +71,9 @@ export function adapterFor(
     case "anthropic":
       return createAnthropicChat(modelId as AnthropicChatModel, apiKey);
     case "openai":
-      return createOpenaiChat(
-        modelId as OpenAIChatModel,
-        apiKey,
-        options?.linked ? { fetch: chatgptPlanFetch() } : undefined,
+      return withOpenaiCacheWrites(
+        (fetch) => createOpenaiChat(modelId as OpenAIChatModel, apiKey, { fetch }),
+        options?.linked ? chatgptPlanFetch() : undefined,
       );
     case "gemini":
       return createGeminiChat(modelId as GeminiTextModel, apiKey);

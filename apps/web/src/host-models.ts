@@ -36,6 +36,8 @@ const hostModel = z.object({
   maxOutputTokens: z.number().int().positive(),
   inputUsdPerMillion: z.number().nonnegative(),
   outputUsdPerMillion: z.number().nonnegative(),
+  cacheReadUsdPerMillion: z.number().nonnegative().optional(),
+  cacheWriteUsdPerMillion: z.number().nonnegative().optional(),
 });
 
 /** The Host's Provider credentials and Models, or none when the variables are unset. */
