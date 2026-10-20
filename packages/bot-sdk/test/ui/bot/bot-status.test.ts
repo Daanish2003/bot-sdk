@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { eventIterator, os } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createElement, Fragment, useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -155,7 +155,8 @@ describe("a Turn that outlives the Conversation view", () => {
     expect(screen.getByRole("status", { name: "Typing" })).toBeTruthy();
 
     await server.stream({ type: "turnEnded", status: "complete" }, "end");
-    expect(screen.queryByText("Working…")).toBeNull();
+    // The sidebar row clears once its refetch of `bot.list` answers.
+    await waitFor(() => expect(screen.queryByText("Working…")).toBeNull());
     expect(screen.queryByRole("status", { name: "Typing" })).toBeNull();
   });
 });

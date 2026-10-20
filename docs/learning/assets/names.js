@@ -795,6 +795,54 @@ window.NAMES = [
       "Answers POST /api/routines/webhook/<token>: 202 at once, 404 for an unknown token, 413 for a body over 64 KB, 400 for an Idempotency-Key over 255 characters.",
     example: "plugins/bot/server/routine-webhook.ts",
   },
+  {
+    lesson: 15,
+    name: "start_helper",
+    kind: "tool",
+    meaning:
+      "The Bot's tool that hands a complete task to a Helper: a row in chat.bot_helper and a bot.helper job. A Helper sees only the task.",
+    example: "plugins/bot/server/helper.ts",
+  },
+  {
+    lesson: 15,
+    name: "helper:<id>:<n>",
+    kind: "ID",
+    meaning:
+      "The ID of a Helper's report Trigger, source helper. A retried finish makes no second one.",
+    example: "plugins/bot/server/helper.ts (endHelper)",
+  },
+  {
+    lesson: 15,
+    name: "todoList",
+    kind: "function",
+    meaning:
+      "The Bot's running and waiting Helpers, read at the start of a Turn and shown after the time notice. It has no table.",
+    example: "plugins/bot/server/helper.ts",
+  },
+  {
+    lesson: 15,
+    name: "ask_user",
+    kind: "tool",
+    meaning:
+      "The Computer-use Helper's tool that hands its Screen to the user. It saves the transcript, writes a Computer card and ends the job.",
+    example: "plugins/bot/server/hand-off.ts",
+  },
+  {
+    lesson: 15,
+    name: "helperDone",
+    kind: "function",
+    meaning:
+      "The user's Done on a waiting Helper: card done, status running, a fresh job that answers the ask_user call.",
+    example: "plugins/bot/server/hand-off.ts",
+  },
+  {
+    lesson: 15,
+    name: "screenHandler / screenSocket",
+    kind: "function",
+    meaning:
+      "The live view's page proxy and WebSocket hooks, which the Host mounts under /api/screens. The view token in the path is the only sign-in.",
+    example: "plugins/bot/server/screen-view.ts",
+  },
 ];
 
 (function () {

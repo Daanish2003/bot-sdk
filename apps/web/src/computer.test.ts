@@ -26,16 +26,16 @@ describe("computerPluginsOf", () => {
   it("offers no Computer plugin and does not load the E2B adapter when E2B is unset", async () => {
     // Re-evaluates the module, so a static import of the adapter would count as a load here.
     const { computerPluginsOf } = await import("./computer");
-    expect(await computerPluginsOf(undefined, "ai-chat-computer-v2")).toEqual([]);
+    expect(await computerPluginsOf(undefined, "ai-chat-computer-v3")).toEqual([]);
     expect(adapterLoads.count).toBe(0);
     expect(e2bProvider).not.toHaveBeenCalled();
   });
 
   it("loads the E2B adapter and offers the Computer plugin when E2B is set", async () => {
     const { computerPluginsOf } = await import("./computer");
-    const plugins = await computerPluginsOf(e2b, "ai-chat-computer-v2");
+    const plugins = await computerPluginsOf(e2b, "ai-chat-computer-v3");
     expect(adapterLoads.count).toBe(1);
-    expect(e2bProvider).toHaveBeenCalledWith({ ...e2b, template: "ai-chat-computer-v2" });
+    expect(e2bProvider).toHaveBeenCalledWith({ ...e2b, template: "ai-chat-computer-v3" });
     expect(plugins).toHaveLength(1);
   });
 });

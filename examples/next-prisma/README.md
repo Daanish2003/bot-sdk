@@ -10,6 +10,7 @@ The chat lives in `src/bot-sdk/`, a committed copy made by the SDK's copy script
 - `src/bot-sdk/`: the copied SDK, reached through the `@ai-chat/bot-sdk/*` alias in `tsconfig.json`. `core/` and each plugin's server and client code are replaced on every copy; every `ui/` folder is the Host's to edit. `VERSION` records the commit and time of the copy.
 - `src/lib/chat.ts`: `createBotSdk({ plugins: [models(), runner(), assistant()] })` (plus `computer` when the E2B variables are set) with `getUser` from `auth()`.
 - `src/app/api/chat/[...path]/route.ts`: the catch-all handler under `/api/chat`.
+- `src/app/api/screens/[...path]/route.ts`: the live view's page and files (`bot.screenHandler`), under `/api/screens`. Its socket is not mounted here: a Next route handler cannot upgrade a WebSocket, so the live view of a Screen does not connect until a WebSocket-capable server mounts `bot.screenSocket` at `/api/screens/<token>/websockify`. The Bot still works the Screen and hands off without it. `apps/web` shows how (`server/routes/api/screens/[token]/websockify.ts`, beside `src/routes/api/screens/$.ts`).
 - `src/instrumentation.ts` and `src/instrumentation-node.ts`: `chat.start()` and the SIGTERM drain.
 - `src/components/chat-root.tsx`: `<ChatProvider>` with a `router` adapter on `next/link` and `next/navigation`.
 - `prisma/schema.prisma`: Auth.js's `User` (with a scrypt `passwordHash`), in `public`.

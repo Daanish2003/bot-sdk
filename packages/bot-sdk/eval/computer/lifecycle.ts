@@ -6,18 +6,24 @@
 //   1. Write a file and start a process.
 //   2. Age the Computer and run the sleep check: it is asleep and its archive is stored.
 //   3. Run an operation: the file and the process survived.
-//   4. Change the template name: the next operation rebuilds and restores the file.
+//   4. Open a Screen: the live-view link is 403 without its token, real noVNC loads under its CSP
+//      sandbox, and the displays and Chrome survive a pause and resume.
+//   5. Change the template name: the next operation rebuilds and restores the file.
 
 import { randomUUID } from "node:crypto";
+import { mkdir } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 
 import { user as userTable } from "@ai-chat/db/schema/auth";
 import { eq } from "drizzle-orm";
 
 import { computer as computerTable } from "../../core/server/db/schema";
+import { bot } from "../../plugins/bot/server/plugin";
 import { computerBlobKey, computerIdleMs } from "../../plugins/computer/server/plugin";
 import type { ComputerProvider } from "../../plugins/computer/server";
-import { systemClock } from "../../plugins/runner/server/jobs/in-process";
-import { claimJob, runClaimedJob } from "../../plugins/runner/server/jobs/store";
+import { inProcessRunner } from "../../plugins/runner/server/jobs/in-process";
+import { claimJob } from "../../plugins/runner/server/jobs/store";
+import { checkScreens } from "./screens";
 import {
   createComputerSdk,
   databaseUrlFromEnv,
@@ -50,6 +56,13 @@ function timed(provider: ComputerProvider, timings: Map<string, number[]>): Comp
   };
 }
 
+/** Where the run's screenshots go (gitignored). */
+async function resultsDirectory() {
+  const directory = fileURLToPath(new URL("results", import.meta.url));
+  await mkdir(directory, { recursive: true });
+  return directory;
+}
+
 async function main() {
   const rebuildTemplate = process.env.EVAL_REBUILD_TEMPLATE ?? `${defaultTemplate}-eval`;
   const template = process.env.EVAL_TEMPLATE ?? defaultTemplate;
@@ -57,6 +70,13 @@ async function main() {
   const db = await prepareSchema(databaseUrlFromEnv());
   const timings = new Map<string, number[]>();
   const sdk = createComputerSdk({ db, provider: timed(localE2bProvider(template), timings) });
+  // The same Computer through an instance with the `bot` plugin, whose live view step 4 loads. A
+  // user with no Bot has no use for a Computer there, so only that step uses it.
+  const withBot = createComputerSdk({
+    db,
+    provider: timed(localE2bProvider(template), timings),
+    more: [bot()],
+  });
   const rebuilt = createComputerSdk({
     db,
     provider: timed(localE2bProvider(rebuildTemplate), timings),
@@ -81,11 +101,17 @@ async function main() {
     // Jobs left in a reused scratch database (earlier runs) are due first and are run too, so the loop
     // goes on until this user is asleep. It is bounded because a check that keeps the Computer awake
     // queues its follow-up inside the window.
-    for (let ran = 0; ran < 1000; ran++) {
-      if ((await row())?.state === "asleep") break;
-      const claimed = await claimJob(db, due);
-      if (!claimed) break;
-      await runClaimedJob(db, claimed, { clock: systemClock, logger: console, deps: () => over });
+    // Never started: it runs the checks claimed here, and its `stop()` waits for their handlers.
+    const runner = inProcessRunner({ db, logger: console, deps: () => over });
+    try {
+      for (let ran = 0; ran < 1000; ran++) {
+        if ((await row())?.state === "asleep") break;
+        const claimed = await claimJob(db, due);
+        if (!claimed) break;
+        await runner.runClaimed(claimed);
+      }
+    } finally {
+      await runner.stop();
     }
     return Date.now() - started;
   };
@@ -142,8 +168,24 @@ async function main() {
       awake?.state === "awake" && awake.sandboxId === first?.sandboxId,
     );
 
-    // 4. Change the template name: the next operation rebuilds and restores the file.
-    console.log("4. change the template name");
+    // 4. A Screen: the live view, and its displays and Chrome across a pause and resume.
+    console.log("4. open a Screen, view it live, pause and resume");
+    await checkScreens({
+      sdk: withBot,
+      db,
+      userId,
+      computer: handle,
+      check,
+      shotDirectory: await resultsDirectory(),
+      pause: async () => {
+        await ageComputer();
+        await runSleepCheck(sdk);
+        check("the Computer with an open Screen is asleep", (await row())?.state === "asleep");
+      },
+    });
+
+    // 5. Change the template name: the next operation rebuilds and restores the file.
+    console.log("5. change the template name");
     await ageComputer();
     await runSleepCheck(sdk);
     check("the Computer is asleep again", (await row())?.state === "asleep");

@@ -5,6 +5,7 @@ import { postgresBlobStore } from "../../../../core/server/blob/postgres";
 import type { BlobStore } from "../../../../core/server/blob/store";
 import {
   bot as botTable,
+  botHelper,
   botTurn,
   computer as computerTable,
   job,
@@ -370,7 +371,23 @@ describe("bot's busy check", () => {
     await setup.sdk.plugin("computer").forUser(user.id).run("true");
     const insertTurn = (status: "running" | "complete", startedAt: Date) =>
       getTestDb().insert(botTurn).values({ id: uuidv7(), botId: created.id, status, startedAt });
-    return { ...setup, user, lastActive, insertTurn };
+    /** A General Helper of the Bot, started by a Turn that has ended. */
+    const insertHelper = async (status: "running" | "waiting" | "complete", startedAt: Date) => {
+      const turnId = uuidv7();
+      await getTestDb()
+        .insert(botTurn)
+        .values({ id: turnId, botId: created.id, status: "complete", startedAt });
+      await getTestDb().insert(botHelper).values({
+        id: uuidv7(),
+        botId: created.id,
+        type: "general",
+        task: "Count the files.",
+        status,
+        startedByTurnId: turnId,
+        startedAt,
+      });
+    };
+    return { ...setup, user, lastActive, insertTurn, insertHelper };
   }
 
   it("keeps the Computer awake while a Turn that started before its last activity runs", async () => {
@@ -399,6 +416,28 @@ describe("bot's busy check", () => {
   it("doesn't hold the Computer for a Turn that started well after its last activity", async () => {
     const { sdk, clock, user, lastActive, insertTurn } = await idleWithBot();
     await insertTurn("running", after(lastActive, minuteMs));
+
+    clock.now = after(lastActive, 10 * minuteMs);
+    await runDueJobs(sdk, clock.now);
+
+    expect((await computerRow(user.id))?.state).toBe("asleep");
+  });
+
+  it("keeps the Computer awake while a Helper runs, however long ago it started", async () => {
+    const { sdk, fake, clock, user, lastActive, insertHelper } = await idleWithBot();
+    await insertHelper("running", after(lastActive, minuteMs));
+
+    clock.now = after(lastActive, 10 * minuteMs);
+    await runDueJobs(sdk, clock.now);
+
+    expect(fake.callsOf("pause")).toEqual([]);
+    expect((await computerRow(user.id))?.state).toBe("awake");
+  });
+
+  it("doesn't hold the Computer for a Helper waiting for the user, or one that ended", async () => {
+    const { sdk, clock, user, lastActive, insertHelper } = await idleWithBot();
+    await insertHelper("waiting", after(lastActive, -1_000));
+    await insertHelper("complete", after(lastActive, -1_000));
 
     clock.now = after(lastActive, 10 * minuteMs);
     await runDueJobs(sdk, clock.now);
@@ -1047,6 +1086,147 @@ describe("a long operation", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("Screens", () => {
+  const screenCommands = (fake: ReturnType<typeof sdkWith>["fake"]) =>
+    fake
+      .callsOf("run")
+      .map((call) => call.command)
+      .filter((command) => command.startsWith("/usr/local/bin/ai-chat-screen"));
+
+  it("opens a Screen with a fresh token and the profile key, and closes it", async () => {
+    const { sdk, fake } = sdkWith();
+    const user = await insertUser();
+    const handle = sdk.plugin("computer").forUser(user.id);
+
+    await handle.openScreen(2, "work");
+    const firstToken = text(fake.files.get("/tmp/screens/2/token"));
+    await handle.openScreen(2, "work");
+    await handle.closeScreen(2);
+
+    expect(firstToken).toMatch(/^[0-9a-f]{48}$/);
+    expect(text(fake.files.get("/tmp/screens/2/token"))).not.toBe(firstToken);
+    expect(screenCommands(fake)).toEqual([
+      "/usr/local/bin/ai-chat-screen start 2 work",
+      "/usr/local/bin/ai-chat-screen start 2 work",
+      "/usr/local/bin/ai-chat-screen stop 2",
+    ]);
+  });
+
+  it("gives the CDP endpoint and the tokened noVNC link of an open Screen", async () => {
+    const { sdk, fake } = sdkWith();
+    const user = await insertUser();
+    const handle = sdk.plugin("computer").forUser(user.id);
+    await handle.openScreen(3, "work");
+    const [created] = fake.callsOf("create");
+    const token = text(fake.files.get("/tmp/screens/3/token"));
+
+    const urls = await handle.screenUrls(3);
+
+    const id = created?.sandboxId;
+    expect(urls.cdp).toEqual({
+      url: `https://9225-${id}.fake.test`,
+      headers: { "e2b-traffic-access-token": `traffic-${id}`, "fake-port": "9225" },
+    });
+    expect(urls.novnc.headers).toEqual({
+      "e2b-traffic-access-token": `traffic-${id}`,
+      "fake-port": "6083",
+    });
+    const novnc = new URL(urls.novnc.url);
+    expect(novnc.origin).toBe(`https://6083-${id}.fake.test`);
+    expect(novnc.pathname).toBe("/vnc.html");
+    expect(novnc.searchParams.get("path")).toBe(`websockify?token=${token}`);
+    expect(fake.callsOf("endpoint").map((call) => call.port)).toEqual([6083, 9225]);
+  });
+
+  it("refuses the links of a Screen that isn't open", async () => {
+    const { sdk } = sdkWith();
+    const user = await insertUser();
+    const handle = sdk.plugin("computer").forUser(user.id);
+
+    await expect(handle.screenUrls(1)).rejects.toBeInstanceOf(ComputerOperationError);
+  });
+
+  it("switches a Screen between view-only and control", async () => {
+    const { sdk, fake } = sdkWith();
+    const user = await insertUser();
+    const handle = sdk.plugin("computer").forUser(user.id);
+
+    await handle.setScreenControl(1, "control");
+    await handle.setScreenControl(1, "view");
+
+    expect(screenCommands(fake)).toEqual([
+      "/usr/local/bin/ai-chat-screen control 1",
+      "/usr/local/bin/ai-chat-screen view 1",
+    ]);
+  });
+
+  it("counts a live view's heartbeat as activity, without waking an asleep Computer", async () => {
+    const setup = sdkWith();
+    const { sdk, fake, clock } = setup;
+    const user = await insertUser();
+    const handle = sdk.plugin("computer").forUser(user.id);
+    await handle.openScreen(1, "work");
+    const start = clock.now;
+
+    // Four minutes in, the live view's heartbeat; seven minutes in, the sleep check finds it active.
+    clock.now = after(start, 4 * minuteMs);
+    await handle.heartbeat();
+    clock.now = after(start, 7 * minuteMs);
+    await runDueJobs(sdk, clock.now);
+
+    expect(fake.callsOf("pause")).toEqual([]);
+    expect(await computerRow(user.id)).toMatchObject({
+      state: "awake",
+      lastActiveAt: after(start, 4 * minuteMs),
+    });
+
+    await sleepNow(setup);
+    const calls = fake.calls.length;
+    await handle.heartbeat();
+
+    expect(fake.calls).toHaveLength(calls);
+    expect((await computerRow(user.id))?.state).toBe("asleep");
+  });
+
+  it("fails an open whose start script fails, with its message", async () => {
+    const { sdk } = sdkWith({
+      onCommand: () => ({ exitCode: 1, stdout: "", stderr: "Xvfb did not start" }),
+    });
+    const user = await insertUser();
+    const handle = sdk.plugin("computer").forUser(user.id);
+
+    await expect(handle.openScreen(1, "work")).rejects.toThrow(/Xvfb did not start/);
+  });
+
+  it("rejects a slot outside 1 to 4 and a profile key with other characters, before waking", async () => {
+    const { sdk, fake } = sdkWith();
+    const user = await insertUser();
+    const handle = sdk.plugin("computer").forUser(user.id);
+
+    await expect(handle.openScreen(5, "work")).rejects.toThrow(RangeError);
+    await expect(handle.closeScreen(0)).rejects.toThrow(RangeError);
+    await expect(handle.openScreen(1, "a'; rm -rf ~; '")).rejects.toThrow(RangeError);
+
+    expect(fake.calls).toEqual([]);
+  });
+
+  it("keeps Chrome profiles out of the synced archive", async () => {
+    const setup = sdkWith();
+    const { sdk, fake } = setup;
+    const user = await insertUser();
+    const handle = sdk.plugin("computer").forUser(user.id);
+    await handle.writeFile("/home/user/bots/b1/note.txt", "keep");
+    await handle.writeFile("/home/user/.chrome-profiles/work/Cookies", "secret");
+    await sleepNow(setup);
+    const [first] = fake.callsOf("create");
+    fake.lose(first!.sandboxId);
+
+    await handle.list("/home/user");
+
+    expect([...fake.files.keys()]).toEqual(["/home/user/bots/b1/note.txt"]);
   });
 });
 

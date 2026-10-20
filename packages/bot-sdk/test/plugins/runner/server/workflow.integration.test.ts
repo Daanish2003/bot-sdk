@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { asc, eq } from "drizzle-orm";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { createBotSdk } from "../../../../core/server/create-chat";
@@ -11,12 +11,11 @@ import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { assistant } from "../../../../plugins/assistant/server/plugin";
 import { models } from "../../../../plugins/models/server/plugin";
 import { defineJob, type JobContext } from "../../../../plugins/runner/server/jobs/define";
-import { inProcessRunner } from "../../../../plugins/runner/server/jobs/in-process";
 import {
-  claimJob,
-  reapStaleJobs,
-  runClaimedJob,
-} from "../../../../plugins/runner/server/jobs/store";
+  inProcessRunner,
+  type InProcessRunner,
+} from "../../../../plugins/runner/server/jobs/in-process";
+import { claimJob, reapStaleJobs } from "../../../../plugins/runner/server/jobs/store";
 import { runner } from "../../../../plugins/runner/server/plugin";
 import { NonDeterminismError } from "../../../../plugins/runner/server/workflow/engine";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
@@ -233,9 +232,25 @@ beforeEach(() => {
 
 const db = () => getTestDb();
 
+/** Each test's runners, keyed by their clock. Never started: the tests run each attempt. */
+const runners = new Map<ReturnType<typeof fakeJobClock>, InProcessRunner>();
+
+// Stopping a runner waits for its attempts' handlers, lost ones included.
+afterEach(async () => {
+  for (const runner of runners.values()) await runner.stop();
+  runners.clear();
+});
+
 async function enqueue(name: string) {
   const timer = fakeJobClock(start);
-  const runner = inProcessRunner({ db: db(), logger: silent, deps: jobDeps, clock: timer.clock });
+  const runner = inProcessRunner({
+    db: db(),
+    logger: silent,
+    deps: jobDeps,
+    clock: timer.clock,
+    drainMs: 1_000,
+  });
+  runners.set(timer, runner);
   const id = await runner.enqueue(name, {});
   return { timer, id };
 }
@@ -244,7 +259,7 @@ async function enqueue(name: string) {
 async function attempt(timer: ReturnType<typeof fakeJobClock>) {
   const claimed = await claimJob(db(), timer.clock.now(), { respectRunAfter: false });
   if (!claimed) throw new Error("Nothing to claim");
-  return runClaimedJob(db(), claimed, { clock: timer.clock, logger: silent, deps: jobDeps });
+  return runners.get(timer)!.runClaimed(claimed);
 }
 
 /** The process running the job stops: its lease expires and the reaper re-queues the job. */

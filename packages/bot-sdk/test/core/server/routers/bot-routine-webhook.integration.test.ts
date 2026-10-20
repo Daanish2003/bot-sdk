@@ -12,7 +12,7 @@ import {
   inProcessRunner,
   type InProcessRunner,
 } from "../../../../plugins/runner/server/jobs/in-process";
-import { claimJob, runClaimedJob } from "../../../../plugins/runner/server/jobs/store";
+import { claimJob } from "../../../../plugins/runner/server/jobs/store";
 import { createTestSdk, type TestDeps, type TestDepsOverrides } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
 import { fakeJobClock } from "../../../support/jobs";
@@ -86,11 +86,7 @@ async function botWithRoutine({
     for (;;) {
       const claimed = await claimJob(getTestDb(), timer.clock.now(), { respectRunAfter: true });
       if (!claimed) return;
-      await runClaimedJob(getTestDb(), claimed, {
-        clock: timer.clock,
-        logger: silent,
-        deps: () => deps!,
-      });
+      await jobs.runClaimed(claimed);
     }
   };
   const send = async (text: string) => {

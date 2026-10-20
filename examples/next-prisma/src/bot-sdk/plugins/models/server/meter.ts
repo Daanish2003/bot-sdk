@@ -40,9 +40,9 @@ export type TxMeter<Usage> = Meter<Usage> & {
   recordIn(tx: Transaction, usage: Usage): Promise<() => void>;
 };
 
-/** One call to a Model: a Run, a title, one of a Memory job's calls, or a Bot's Turn. */
+/** One call to a Model: a Run, a title, one of a Memory job's calls, a Bot's Turn, or a Helper's. */
 export type ModelUsage = {
-  kind: "run" | "title" | "memory" | "turn";
+  kind: "run" | "title" | "memory" | "turn" | "helper";
   usage: MessageUsage;
   /** The Provider's reported cost in USD, when it reported one for the whole call. */
   reportedCost?: number;
@@ -166,7 +166,7 @@ export function hostSearchMeter(
   deps: MeterDeps,
   userId: string,
   pricePerSearchUsd: number,
-): SearchMeter {
+): TxMeter<void> {
   return meterOf<void>(deps, userId, true, () => ({
     kind: "web_search",
     model: "tavily",

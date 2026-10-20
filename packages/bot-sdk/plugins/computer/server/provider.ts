@@ -4,6 +4,13 @@ export type CommandResult = { exitCode: number; stdout: string; stderr: string }
 /** A command killed at its time limit: what it printed until then, and no exit code. */
 export type TimedOutCommand = { timedOut: true; stdout: string; stderr: string };
 
+/**
+ * Where a port of a sandbox is reached from outside: the URL (scheme and host, and any path prefix,
+ * without a trailing slash) and the headers every request to it must carry. Sandboxes are created
+ * with public traffic off, so a request without them is refused (403).
+ */
+export type Endpoint = { url: string; headers: Record<string, string> };
+
 /** One entry of a directory listing. */
 export type FileEntry = { name: string; kind: "file" | "directory"; size: number };
 
@@ -27,10 +34,15 @@ export type ComputerProvider = {
   /** The template a new sandbox is built from, recorded on `chat.computer` as `template`. */
   template: string;
   /**
-   * Creates a sandbox from `template`, running, and returns its id. It pauses itself once
+   * Creates a sandbox from `template`, running, with public traffic off, and returns its id. It pauses itself once
    * `timeoutMs` passes (the backstop for a sleep that never runs).
    */
   create: (options: { timeoutMs: number }) => Promise<{ sandboxId: string }>;
+  /**
+   * Where `port` of the sandbox is reached from outside: its URL, and the headers that carry the
+   * sandbox's traffic access token and whatever routes the request to the sandbox and port.
+   */
+  endpoint: (sandboxId: string, port: number) => Promise<Endpoint>;
   /**
    * Resumes a paused sandbox, which then pauses itself once `timeoutMs` passes. A sandbox that no
    * longer exists (its snapshot lost, or killed) is `"gone"`, and the plugin rebuilds it.

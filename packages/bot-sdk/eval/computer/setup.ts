@@ -23,7 +23,7 @@ import type { ModelsDeps } from "../../plugins/models/server/types";
 const evalKeySecret = "eval-computer-key-secret-not-for-production";
 
 /** The template the Host builds Computers from (`apps/web`'s `computerTemplate`). */
-export const defaultTemplate = "ai-chat-computer-v2";
+export const defaultTemplate = "ai-chat-computer-v3";
 
 export function fail(message: string): never {
   console.error(message);
@@ -60,17 +60,20 @@ export async function prepareSchema(url: string): Promise<Database> {
 /**
  * A real SDK instance over `db` with the `computer` plugin on `provider`, plus `more` plugins.
  * `models` may replace the Models bundle (the dry run's fake Model); by default it is the real one.
+ * `wrapFetch` may wrap the guarded fetch the SDK and the Models use (the ladder eval answers Tavily itself).
  */
 export function createComputerSdk(options: {
   db: Database;
   provider: ComputerProvider;
   more?: readonly BotSdkPlugin[];
   models?: (real: ModelsDeps) => ModelsDeps;
+  wrapFetch?: (real: typeof globalThis.fetch) => typeof globalThis.fetch;
 }) {
-  const { db, provider, more = [], models } = options;
+  const { db, provider, more = [], models, wrapFetch } = options;
   const logger: Pick<Console, "error"> = console;
   const events = createHookEmitter(undefined, logger);
-  const fetch = createGuardedFetch({ schemes: "http-and-https" });
+  const guarded = createGuardedFetch({ schemes: "http-and-https" });
+  const fetch = wrapFetch ? wrapFetch(guarded) : guarded;
   const keyring = [evalKeySecret];
   const real = productionDeps({ db, keyring, events, logger, fetch } as unknown as BotSdkContext, {
     defaultBackgroundModel: undefined,

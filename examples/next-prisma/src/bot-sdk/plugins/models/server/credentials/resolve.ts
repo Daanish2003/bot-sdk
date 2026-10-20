@@ -4,7 +4,7 @@ import {
   hostModelMeter,
   hostSearchMeter,
   type ModelMeter,
-  type SearchMeter,
+  type TxMeter,
 } from "../meter";
 import type { ModelsDeps, Credentials, HostModel, HostProvider, HostTool } from "../types";
 import { listCredentials, loadCredentials } from "./store";
@@ -90,7 +90,7 @@ export async function resolveModelCall(
 }
 
 /** What a Tool call uses: the credentials, and the meter that prices each search on the Host's Tool. */
-export type ToolCall = { credentials: Credentials; meter: SearchMeter };
+export type ToolCall = { credentials: Credentials; meter: TxMeter<void> };
 
 /**
  * The credentials a Tool call uses (`resolvePayer`), the same rule as a Model's: the user's own Tool

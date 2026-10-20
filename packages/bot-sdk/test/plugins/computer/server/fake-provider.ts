@@ -37,6 +37,7 @@ type Lifecycle = "create" | "resume";
  */
 export type FakeCall =
   | { [Type in Lifecycle]: { type: Type; sandboxId: string; timeoutMs: number } }[Lifecycle]
+  | { type: "endpoint"; sandboxId: string; port: number }
   | { type: "pause"; sandboxId: string }
   | { type: "timeout"; sandboxId: string; timeoutMs: number }
   | ({ type: "run" } & FakeCommand)
@@ -85,8 +86,11 @@ export function fakeComputerProvider({
   template = "fake-computer-v1",
   onCommand = () => ({ exitCode: 0, stdout: "", stderr: "" }),
   onPause = () => {},
+  hostUrl = (sandboxId, port) => `https://${port}-${sandboxId}.fake.test`,
 }: {
   template?: string;
+  /** The URL of a port of a sandbox: a test can point a Screen's DevTools port at a real Chromium. */
+  hostUrl?: (sandboxId: string, port: number) => string;
   onCommand?: (command: FakeCommandRun) => CommandResult | Promise<CommandResult>;
   onPause?: (sandboxId: string) => void | Promise<void>;
 } = {}) {
@@ -124,6 +128,15 @@ export function fakeComputerProvider({
       disks.set(sandboxId, current);
       calls.push({ type: "create", sandboxId, timeoutMs });
       return { sandboxId };
+    },
+    endpoint: async (sandboxId, port) => {
+      if (!disks.has(sandboxId)) throw new SandboxGoneError(sandboxId);
+      calls.push({ type: "endpoint", sandboxId, port });
+      // Each port's endpoint carries headers of its own, as the Embed's routing headers do.
+      return {
+        url: hostUrl(sandboxId, port),
+        headers: { "e2b-traffic-access-token": `traffic-${sandboxId}`, "fake-port": String(port) },
+      };
     },
     resume: async (sandboxId, { timeoutMs }) => {
       failIfTold("resume");

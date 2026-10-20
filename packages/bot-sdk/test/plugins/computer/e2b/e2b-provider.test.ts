@@ -41,7 +41,7 @@ describe.skipIf(!apiKey || !apiUrl || !sandboxUrl)("e2bProvider on a real E2B", 
     apiKey: apiKey!,
     apiUrl: apiUrl!,
     sandboxUrl: sandboxUrl!,
-    template: "ai-chat-computer-v2",
+    template: "ai-chat-computer-v3",
   });
   // One sandbox at a time, killed when its test ends: the local E2B Embed has room for a few.
   const created: string[] = [];
@@ -175,7 +175,7 @@ describe.skipIf(!apiKey || !apiUrl || !sandboxUrl)("e2bProvider on a real E2B", 
       apiKey: apiKey!,
       apiUrl: apiUrl!,
       sandboxUrl: sandboxUrl!,
-      template: "ai-chat-computer-v2",
+      template: "ai-chat-computer-v3",
     }).kill(sandboxId);
     await expect(provider.readFile(sandboxId, "/home/user/a.txt")).rejects.toBeInstanceOf(
       SandboxGoneError,

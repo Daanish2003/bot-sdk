@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -13,6 +13,7 @@ import { runnerJobs } from "../../runner/server/plugin";
 import {
   type CommandResult,
   type ComputerProvider,
+  type Endpoint,
   type FileEntry,
   SandboxGoneError,
   type TimedOutCommand,
@@ -73,6 +74,33 @@ const archiveCommand = `tar -czf ${archivePath} --exclude=.outputs ${syncedTrees
 /** The blob key of a user's Computer archive. */
 export const computerBlobKey = (userId: string) => `computer/${userId}`;
 
+/** The most Screens a Computer holds at once. */
+export const maxScreens = 4;
+
+/** A Screen's ports inside the sandbox, from the template's `ai-chat-screen` script. */
+const novncPort = (slot: number) => 6080 + slot;
+const cdpPort = (slot: number) => 9222 + slot;
+
+/** Where a Screen's link token is kept in the sandbox, for `screenUrls` and the start script. */
+const screenTokenPath = (slot: number) => `/tmp/screens/${slot}/token`;
+
+const screenScript = "/usr/local/bin/ai-chat-screen";
+
+/** How long the start script, which waits for Chromium's DevTools port, may run. */
+const screenCommandTimeoutMs = 60_000;
+
+function assertProfileKey(profileKey: string) {
+  if (!/^[A-Za-z0-9_-]+$/.test(profileKey)) {
+    throw new RangeError("A profile key is letters, digits, - and _");
+  }
+}
+
+function assertSlot(slot: number) {
+  if (!Number.isInteger(slot) || slot < 1 || slot > maxScreens) {
+    throw new RangeError(`Screen slot must be 1 to ${maxScreens}, got ${slot}`);
+  }
+}
+
 /** The self-chaining sleep check's job name. */
 const sleepJobName = "computer.sleep";
 
@@ -132,7 +160,40 @@ export type ComputerHandle = {
   writeFile: (path: string, content: string, options?: FileOperationOptions) => Promise<void>;
   /** A directory's entries, one level deep, or null when there is no such directory. */
   list: (path: string, options?: FileOperationOptions) => Promise<FileEntry[] | null>;
+  /**
+   * Opens Screen `slot` (1 to 4): a 1280x800 display with its own Chromium, started on the Chrome
+   * profile `profileKey` (letters, digits, `-` and `_`), an x11vnc that is view-only and a noVNC
+   * reached only with a fresh token. An open Screen is reopened (its processes restarted, view-only
+   * again, its profile kept). Chrome profiles live in `/home/user/.chrome-profiles`, outside the synced
+   * trees, so they are never sent to server storage and a rebuild loses them.
+   */
+  openScreen: (slot: number, profileKey: string) => Promise<void>;
+  /** Closes Screen `slot`: kills its processes. Its profile stays on disk. */
+  closeScreen: (slot: number) => Promise<void>;
+  /**
+   * An open Screen's Chromium DevTools endpoint and its noVNC link, which carries the token that
+   * `openScreen` made. Each comes with the headers a request to it must carry: the sandbox's
+   * traffic access token, and whatever routes it to the sandbox and port, so a client never uses
+   * one endpoint's headers for the other. Throws when the Screen isn't open.
+   */
+  screenUrls: (slot: number) => Promise<ScreenUrls>;
+  /** Makes an open Screen's x11vnc view-only (`view`) or lets a viewer drive it (`control`). */
+  setScreenControl: (slot: number, mode: ScreenControl) => Promise<void>;
+  /**
+   * Records activity now, without waking the Computer: a live view of a Screen calls it while it is
+   * open, so the Computer stays awake while the user watches.
+   */
+  heartbeat: () => Promise<void>;
 };
+
+/**
+ * The endpoints of one Screen: Chromium's DevTools, and the noVNC page (`url` is the page's link,
+ * `vnc.html` with its query).
+ */
+export type ScreenUrls = { cdp: Endpoint; novnc: Endpoint };
+
+/** Whether a Screen's viewer only watches, or drives it. */
+export type ScreenControl = "view" | "control";
 
 /**
  * A file operation's stop: once `signal` aborts, the operation throws its reason before it
@@ -160,6 +221,17 @@ export class ComputerOperationError extends Error {
   constructor(cause: unknown) {
     super(cause instanceof Error ? cause.message : String(cause), { cause });
     this.name = "ComputerOperationError";
+  }
+}
+
+/**
+ * What `screenUrls` fails with, as the cause of its `ComputerOperationError`, when the Screen isn't
+ * open (never opened, closed, or lost to a rebuild).
+ */
+export class ScreenNotOpenError extends Error {
+  constructor(slot: number) {
+    super(`Screen ${slot} is not open`);
+    this.name = "ScreenNotOpenError";
   }
 }
 
@@ -260,8 +332,56 @@ export function computer({ provider }: ComputerOptions): ComputerPlugin {
               await recordActivity(sdk, userId);
             }
           };
+          /** Runs the template's `ai-chat-screen` script, failing on a non-zero exit. */
+          const screenCommand = (id: string, args: string) =>
+            provider
+              .run(id, `${screenScript} ${args}`, { timeoutMs: screenCommandTimeoutMs })
+              .then((result) => {
+                if ("timedOut" in result || result.exitCode !== 0) {
+                  const detail = "timedOut" in result ? "timed out" : result.stderr.trim();
+                  throw new Error(`${screenScript} ${args} failed: ${detail}`);
+                }
+              });
           return {
             rebuild: () => latestRebuild,
+            openScreen: async (slot, profileKey) => {
+              assertSlot(slot);
+              assertProfileKey(profileKey);
+              return operate(async (id) => {
+                await provider.writeFile(
+                  id,
+                  screenTokenPath(slot),
+                  randomBytes(24).toString("hex"),
+                );
+                await screenCommand(id, `start ${slot} ${profileKey}`);
+              });
+            },
+            closeScreen: async (slot) => {
+              assertSlot(slot);
+              return operate((id) => screenCommand(id, `stop ${slot}`));
+            },
+            screenUrls: async (slot) => {
+              assertSlot(slot);
+              return operate(async (id) => {
+                const token = await provider.readFile(id, screenTokenPath(slot));
+                if (!token) throw new ScreenNotOpenError(slot);
+                const [novnc, cdp] = await Promise.all([
+                  provider.endpoint(id, novncPort(slot)),
+                  provider.endpoint(id, cdpPort(slot)),
+                ]);
+                const query = new URLSearchParams({
+                  path: `websockify?token=${new TextDecoder().decode(token)}`,
+                  autoconnect: "1",
+                  resize: "scale",
+                });
+                return { cdp, novnc: { ...novnc, url: `${novnc.url}/vnc.html?${query}` } };
+              });
+            },
+            setScreenControl: async (slot, mode) => {
+              assertSlot(slot);
+              return operate((id) => screenCommand(id, `${mode} ${slot}`));
+            },
+            heartbeat: () => recordActivity(sdk, userId),
             run: (command, { cwd, timeoutMs = defaultCommandTimeoutMs, deadline, signal } = {}) =>
               operate((id) => {
                 // A stop during the wake runs nothing.

@@ -11,6 +11,7 @@ import { defineJob, PermanentJobError } from "../../../../plugins/runner/server/
 import { inProcessRunner } from "../../../../plugins/runner/server/jobs/in-process";
 import type { JobRunner } from "../../../../plugins/runner/server/jobs/runner";
 import {
+  cancelJob,
   claimJob,
   pruneFinishedJobs,
   reapStaleJobs,
@@ -87,6 +88,53 @@ defineJob({
   },
 });
 
+/** Released by the test that runs `test.linger`; until then its handler goes on after its abort. */
+let lingerGate: Promise<void> | undefined;
+
+defineJob({
+  name: "test.linger",
+  payload: z.object({ label: z.string() }),
+  run: async ({ label }, { signal }) => {
+    started.push(label);
+    await new Promise<void>((resolve) =>
+      signal.addEventListener("abort", () => resolve(), { once: true }),
+    );
+    // Work a handler does after its attempt is aborted, such as ending a Turn.
+    await lingerGate;
+    ran.push(label);
+  },
+});
+
+defineJob({
+  name: "test.self-cancel",
+  payload: z.object({ label: z.string() }),
+  run: async ({ label }, ctx) => {
+    // A cancel commits while the job runs, so its next Checkpoint finds its row gone.
+    await cancelJob(getTestDb(), label, new Date());
+    try {
+      await ctx.activity("after-cancel", async () => label);
+    } catch {
+      // The attempt has lost its job; the handler goes on, as a Turn's ends its Turn.
+    }
+    await lingerGate;
+    ran.push(label);
+  },
+});
+
+/** Released by the test that holds `test.helper` jobs; until then each one keeps running. */
+let helperGate: Promise<void> | undefined;
+
+defineJob({
+  name: "test.helper",
+  lane: "helper",
+  payload: z.object({ label: z.string() }),
+  run: async ({ label }) => {
+    started.push(label);
+    await helperGate;
+    ran.push(label);
+  },
+});
+
 /** Every `chat.job` row, read straight from the test database. */
 const jobRows = () => getTestDb().select().from(job);
 
@@ -112,6 +160,8 @@ beforeEach(() => {
   gate = undefined;
   holding = false;
   releaseHold = undefined;
+  helperGate = undefined;
+  lingerGate = undefined;
 });
 
 afterEach(() => {
@@ -270,6 +320,64 @@ describe("the in-process runner", () => {
     await runner.stop();
   });
 
+  it("runs a job while four Helper-lane jobs are running, with the default budgets", async () => {
+    const runner = inProcessRunner({
+      db: getTestDb(),
+      logger: silent,
+      deps: jobDeps,
+      clock: fakeJobClock(start).clock,
+    });
+    let releaseHelpers!: () => void;
+    helperGate = new Promise((resolve) => {
+      releaseHelpers = resolve;
+    });
+    const helpers = ["h1", "h2", "h3", "h4"];
+    for (const label of helpers) await runner.enqueue("test.helper", { label });
+
+    await runner.start();
+    await expect.poll(() => started.length).toBe(4);
+    await runner.enqueue("test.record", { label: "turn" });
+
+    await expect.poll(() => ran).toEqual(["turn"]);
+    releaseHelpers();
+    await expect.poll(() => ran.length).toBe(5);
+    await runner.stop();
+  });
+
+  it("holds each lane to its own budget: four Helper-lane jobs and two others at once", async () => {
+    const runner = inProcessRunner({
+      db: getTestDb(),
+      logger: silent,
+      deps: jobDeps,
+      clock: fakeJobClock(start).clock,
+    });
+    let releaseHelpers!: () => void;
+    helperGate = new Promise((resolve) => {
+      releaseHelpers = resolve;
+    });
+    let releaseOthers!: () => void;
+    gate = new Promise((resolve) => {
+      releaseOthers = resolve;
+    });
+    for (const label of ["h1", "h2", "h3", "h4", "h5"]) {
+      await runner.enqueue("test.helper", { label });
+    }
+    for (const label of ["a", "b", "c"]) await runner.enqueue("test.record", { label });
+
+    await runner.start();
+    await expect.poll(() => started.length).toBe(6);
+    await sleep(50);
+    expect(started.filter((label) => label.startsWith("h"))).toHaveLength(4);
+    expect(started.filter((label) => !label.startsWith("h"))).toHaveLength(2);
+
+    releaseHelpers();
+    await expect.poll(() => ran.filter((label) => label.startsWith("h"))).toHaveLength(5);
+    expect(started.filter((label) => !label.startsWith("h"))).toHaveLength(2);
+    releaseOthers();
+    await expect.poll(() => ran.length).toBe(8);
+    await runner.stop();
+  });
+
   it("never runs the same job twice when two runners share one database", async () => {
     const { clock } = fakeJobClock(start);
     const db = getTestDb();
@@ -364,6 +472,32 @@ describe("drainJobs", () => {
 
     expect(ran).toEqual(["a", "b"]);
     expect((await jobRows()).map((row) => row.status)).toEqual(["succeeded", "succeeded"]);
+  });
+
+  it("returns only once a lost attempt's handler has ended", async () => {
+    let release!: () => void;
+    lingerGate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const runner = inProcessRunner({
+      db: getTestDb(),
+      logger: silent,
+      deps: jobDeps,
+      clock: fakeJobClock(start).clock,
+    });
+    await runner.enqueue("test.self-cancel", { label: "a" }, { idempotencyKey: "a" });
+
+    let drained = false;
+    const draining = drainJobs().then((count) => {
+      drained = true;
+      return count;
+    });
+    await sleep(100);
+    expect(drained).toBe(false);
+    release();
+
+    expect(await draining).toBe(1);
+    expect(ran).toEqual(["a"]);
   });
 
   it("ignores retry backoff by default, so a failing job ends failed within one drain", async () => {
@@ -726,6 +860,68 @@ describe("stop", () => {
 
     expect(ran).toEqual(["a"]);
     expect(await statusOf("test.record")).toBe("succeeded");
+  });
+});
+
+describe("stop and lost attempts", () => {
+  /** A started runner whose `test.linger` job has lost its attempt to a cancel. */
+  async function lostAttempt(drainMs: number, logger = silent) {
+    const timer = fakeJobClock(start);
+    const runner = inProcessRunner({
+      db: getTestDb(),
+      logger,
+      deps: jobDeps,
+      clock: timer.clock,
+      concurrency: 1,
+      drainMs,
+    });
+    await runner.enqueue("test.linger", { label: "a" }, { idempotencyKey: "k" });
+    await runner.start();
+    await expect.poll(() => started).toEqual(["a"]);
+    // Waits for the only slot, which the attempt frees once it has lost its job.
+    await runner.enqueue("test.record", { label: "b" });
+    await runner.cancel("k");
+    timer.advance(10_000);
+    timer.tick();
+    await expect.poll(() => ran).toEqual(["b"]);
+    return runner;
+  }
+
+  it("waits for a lost attempt's handler to end", async () => {
+    let release!: () => void;
+    lingerGate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const runner = await lostAttempt(2_000);
+
+    let stopped = false;
+    const stopping = runner.stop().then(() => {
+      stopped = true;
+    });
+    await sleep(50);
+    expect(stopped).toBe(false);
+    release();
+    await stopping;
+
+    expect(ran).toEqual(["b", "a"]);
+    // Its last write, acknowledging the cancel, is done too.
+    const [linger] = await getTestDb().select().from(job).where(eq(job.name, "test.linger"));
+    expect(linger).toMatchObject({ status: "cancelled", heartbeatAt: null });
+  });
+
+  it("stops waiting for a handler that never ends, drainMs after aborting it", async () => {
+    lingerGate = new Promise(() => {});
+    const logger = { error: vi.fn() };
+    const runner = await lostAttempt(20, logger);
+
+    const stopping = Date.now();
+    await runner.stop();
+
+    expect(Date.now() - stopping).toBeLessThan(1_000);
+    expect(ran).toEqual(["b"]);
+    expect(logger.error).toHaveBeenCalledWith(
+      "1 background job handler(s) still running after stop",
+    );
   });
 });
 

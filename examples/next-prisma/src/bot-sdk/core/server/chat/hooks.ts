@@ -12,7 +12,8 @@ export type UsageEvent = {
     | "image"
     | "embedding"
     | "memory"
-    | "turn";
+    | "turn"
+    | "helper";
   /** The `"provider:model"` id, `"tavily"` for a web search, or the transcription or image model's id. */
   model: string;
   inputTokens: number;

@@ -108,7 +108,8 @@ export type BotSdk = {
    * Sets `stopping`, stops each plugin in reverse dependency order, then closes the runtime's
    * connections. The assistant refuses new Runs with 503 and lets local Runs finish for up to
    * `drainMs` (250 s), then ends the rest as interrupted; after it, the runner drains its jobs for
-   * up to 250 s, then aborts the rest. A plugin whose stop
+   * up to 250 s, then aborts the rest and waits up to 250 s more for their handlers to end. A
+   * plugin whose stop
    * throws doesn't stop the others; its error is rethrown once the runtime closes. Call it on
    * SIGTERM.
    */

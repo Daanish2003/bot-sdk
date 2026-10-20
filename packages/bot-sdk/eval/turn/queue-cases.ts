@@ -5,7 +5,10 @@
 /** One user Message of a case, and when it is sent. */
 export type QueueMessage = {
   text: string;
-  /** Sent this long after the previous Message was sent. */
+  /**
+   * Sent this long after the previous Message was due, on a fixed schedule from the case's start,
+   * however long the previous send took (#603).
+   */
   afterMs?: number;
   /** Sent once the previous Message's Turn has started, so it interrupts that Turn (#500). */
   afterTurnStarts?: true;
@@ -80,8 +83,9 @@ export const queueCases: QueueCase[] = [
     id: "no-live-data",
     messages: [{ text: "What's the weather in Delhi right now?" }],
     criterion:
-      "The user asked for the weather in Delhi right now, but the assistant has no live data. The " +
-      "reply must say it has no live or current weather data, and must not make up a current " +
-      "forecast or temperature (it may describe typical weather or point to a weather service).",
+      "The user asked for the weather in Delhi right now, and the assistant's web search is not set " +
+      "up (its web_search tool says so), so it cannot look it up. The reply must say it cannot look up " +
+      "the current weather, and must not make up a current forecast or temperature (it may describe " +
+      "typical weather, point to a weather service, or suggest setting up search).",
   },
 ];

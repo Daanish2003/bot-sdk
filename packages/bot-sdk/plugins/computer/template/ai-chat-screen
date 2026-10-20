@@ -1,0 +1,82 @@
+#!/bin/bash
+# Starts, stops and switches a Screen: a 1280x800 display with its own Chromium, profile, x11vnc and
+# noVNC. Usage: ai-chat-screen start <slot> <profileKey> | stop <slot> | view <slot> | control <slot>
+# Slot N (1 to 4) is display :N, VNC on 5900+N, noVNC on 6080+N, Chromium's DevTools on 9222+N.
+# `start` reads the link's token from /tmp/screens/<slot>/token (the plugin writes it first).
+set -eu
+
+action=${1:-}
+slot=${2:-}
+case "$slot" in
+  1 | 2 | 3 | 4) ;;
+  *) echo "slot must be 1 to 4" >&2; exit 2 ;;
+esac
+
+dir=/tmp/screens/$slot
+vnc=$((5900 + slot))
+novnc=$((6080 + slot))
+cdp=$((9222 + slot))
+
+# Kills the Screen's processes. `start` uses it, and keeps the token it was given.
+stop_processes() {
+  for pidfile in "$dir"/*.pid; do
+    [ -e "$pidfile" ] || continue
+    kill -KILL -- "-$(cat "$pidfile")" 2>/dev/null || true
+    rm -f "$pidfile"
+  done
+  rm -f "/tmp/.X11-unix/X$slot" "/tmp/.X$slot-lock"
+}
+
+# Closes the Screen: its processes, and its token, so nothing treats it as open.
+stop() {
+  stop_processes
+  rm -f "$dir/token" "$dir/tokens"
+}
+
+# Runs a command in its own process group, so `stop` reaches its children.
+launch() {
+  name=$1
+  shift
+  setsid "$@" >"$dir/$name.log" 2>&1 < /dev/null &
+  echo $! >"$dir/$name.pid"
+}
+
+start_screen() {
+  key=${1:-}
+  case "$key" in
+    "" | *[!A-Za-z0-9_-]*) echo "profile key must be letters, digits, - and _" >&2; return 2 ;;
+  esac
+  [ -s "$dir/token" ] || { echo "no token at $dir/token" >&2; return 2; }
+  stop_processes
+  mkdir -p "$dir" "/home/user/.chrome-profiles/$key"
+  rm -f "/home/user/.chrome-profiles/$key"/Singleton*
+  echo "$(cat "$dir/token"): 127.0.0.1:$vnc" >"$dir/tokens"
+  launch xvfb Xvfb ":$slot" -screen 0 1280x800x24
+  for _ in $(seq 50); do [ -e "/tmp/.X11-unix/X$slot" ] && break; sleep 0.1; done
+  [ -e "/tmp/.X11-unix/X$slot" ] || { echo "Xvfb did not start" >&2; return 1; }
+  launch x11vnc x11vnc -display ":$slot" -rfbport "$vnc" -localhost -forever -shared -nopw -viewonly
+  launch websockify websockify --web /usr/share/novnc --token-plugin TokenFile \
+    --token-source "$dir/tokens" "$novnc"
+  DISPLAY=":$slot" launch chromium chromium --user-data-dir="/home/user/.chrome-profiles/$key" \
+    --remote-debugging-port="$cdp" --remote-debugging-address=0.0.0.0 \
+    --window-position=0,0 --window-size=1280,800 --no-first-run --no-default-browser-check
+  for _ in $(seq 100); do curl -fs "http://127.0.0.1:$cdp/json/version" >/dev/null && return 0; sleep 0.2; done
+  echo "Chromium's DevTools port did not answer" >&2
+  return 1
+}
+
+case "$action" in
+  start)
+    start_screen "${3:-}" || { code=$?; stop; exit "$code"; }
+    ;;
+  stop)
+    stop
+    ;;
+  view | control)
+    x11vnc -display ":$slot" -R "$([ "$action" = view ] && echo viewonly || echo noviewonly)" >/dev/null
+    ;;
+  *)
+    echo "usage: ai-chat-screen start <slot> <profileKey> | stop <slot> | view <slot> | control <slot>" >&2
+    exit 2
+    ;;
+esac

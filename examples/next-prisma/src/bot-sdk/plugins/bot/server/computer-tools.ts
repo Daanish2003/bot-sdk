@@ -67,6 +67,20 @@ export function botDirectory(botId: string): string {
   return `/home/user/bots/${botId}`;
 }
 
+/**
+ * The cheapest-first ladder in the Computer system prompt (spec #587, #573), word for word. The
+ * rungs are what the Bot knows or has in its files, `web_search`, then a Helper; connectors are
+ * not named. It sits in the stable prefix, so it is the same on every Turn.
+ */
+export const ladderPrompt =
+  "Try the cheapest way first: what you already know or have in your files, then `web_search`, " +
+  "then a Helper. If you can do it yourself in a few tool calls, do it. Hand anything bigger to a " +
+  "Helper with `start_helper` so you can keep talking to the user: a general Helper for shell, " +
+  "files and web search; a computer-use Helper when it needs a website or app. Write the task so " +
+  "it stands alone, since the Helper sees nothing else. Its report comes back to you; tell the " +
+  "user what matters in it. Your to-do list shows the Helpers still working or waiting for the " +
+  "user. If a tool is broken, tell the user and ask; never work around it with a browser.";
+
 /** What the system prompt says about the Computer, with the Bot's own directory in it. */
 export function computerPrompt(botId: string): string {
   return (
@@ -75,7 +89,8 @@ export function computerPrompt(botId: string): string {
     "there unless you give another cwd, so keep your files there. The user's Bots share " +
     `${sharedDirectory}, to hand files to each other. Keep to your own directory and the shared ` +
     "one, and don't change other Bots' files. The user never sees the computer: tell them what " +
-    "you did through your messages."
+    "you did through your messages. " +
+    ladderPrompt
   );
 }
 

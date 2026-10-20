@@ -40,6 +40,7 @@ Before anything was built, the runner moved out of its own package. The Chat SDK
   _Amended 2026-10-13 ([#368](https://github.com/Daanish2003/ai-chat/issues/368)): file parsing runs in-process, on the job runner. The SDK is copied into Hosts as TypeScript source, so there's no built entry for a worker to load, and the runner already keeps parsing off the request path._
 - **Recurring jobs:** `schedule(name, { everyMs })`, with no cron. Each slot is enqueued under the key `name:<slot>`, so exactly one process fires it. They're designed now and built with Synced sources.
 - **Shutdown and retention.** `stop()` stops taking jobs and drains for `drainMs`, then aborts the rest; their leases expire and another process re-runs them. Succeeded and cancelled jobs are deleted after 7 days, failed ones after 30.
+  _Amended 2026-10-20 ([#613](https://github.com/Daanish2003/ai-chat/issues/613)): an aborted handler goes on until it sees its signal, and a lost attempt's still ends its Turn and acknowledges the cancel. After aborting, `stop()` waits up to `drainMs` more for every handler, lost attempts' included, so it resolves within twice `drainMs`._
 - **Jobs are internal.** `defineJob({ name, payload, run, onFailed })` isn't public, and a Host can't register its own jobs.
 
 ## Amendment: the runner is a plugin of the Bot SDK (2026-10-17, [#479](https://github.com/Daanish2003/ai-chat/issues/479))
@@ -107,3 +108,11 @@ Step 4 needs schedules like "weekdays 8:00" in the user's time zone. `everyMs` c
 - **`schedule(name, { everyMs })` stays unbuilt** until something needs a fixed interval.
 - **Missed fires run once, late.** A job whose `runAfter` passed while nothing ran fires when the runner is back, and the next slot is counted from then. Older slots aren't replayed.
 - **Durable sleep stays deferred.** No workflow waits mid-run yet. The `sleep` history kind arrives with the first one, probably Helpers in step 6.
+
+## Amendment: a Helper is its own job, and the hand-off ends it (2026-10-19, [#565](https://github.com/Daanish2003/ai-chat/issues/565), [#568](https://github.com/Daanish2003/ai-chat/issues/568))
+
+Step 6 was expected to bring child workflows and durable sleep. It brings neither.
+
+- **A Helper is its own `bot.helper` job, not a child workflow of the Turn.** It outlives the Turn that started it, so nothing waits on it. Its finish reaches the Bot as a `helper` Trigger through the Router, like any other Trigger. The Turn and the Helper run the same one-activity-per-call loop.
+- **Handing the Screen to a person ends the job.** The Helper saves its transcript on its row and ends `waiting`. Tapping **Done** enqueues a fresh `bot.helper` job, which loads the transcript and answers the hand-off call. This replaces the durable wait (send and receive in the runner) that The Computer ([#396](https://github.com/Daanish2003/ai-chat/issues/396)) planned. A hand-off has no timeout, and it can wait days across deploys. A parked job would hold a runner row and a replay history for all that time, to gain nothing over a row that says `waiting`.
+- **Durable sleep, messages into a running workflow and child workflows stay unbuilt.** Messages to a Helper are rows its loop reads in an activity before each model call, so a replay reads the same ones.

@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lt, notInArray, or, sql } from "drizzle-orm";
 
 import type { Database } from "../../../../core/server/db/index";
 import type { BotSdkContext, Transaction } from "../../../../core/server/plugin";
@@ -64,13 +64,25 @@ export async function enqueueJob(
 /**
  * Takes the next queued job, marking it running and counting the attempt. `FOR UPDATE SKIP LOCKED`
  * keeps two processes from taking the same job. `respectRunAfter: false` ignores the backoff.
+ * `names` limits the claim to the jobs with `only` these names, or to all `except` them.
  */
 export async function claimJob(
   db: Database,
   now: Date,
-  { respectRunAfter = true }: { respectRunAfter?: boolean } = {},
+  {
+    respectRunAfter = true,
+    names,
+  }: {
+    respectRunAfter?: boolean;
+    names?: { only: string[] } | { except: string[] };
+  } = {},
 ): Promise<ClaimedJob | undefined> {
   const due = respectRunAfter ? sql`and run_after <= ${now}` : sql``;
+  const named = !names
+    ? sql``
+    : "only" in names
+      ? sql`and ${inArray(job.name, names.only)}`
+      : sql`and ${notInArray(job.name, names.except)}`;
   const { rows } = await db.execute<{
     id: string;
     name: string;
@@ -82,7 +94,7 @@ export async function claimJob(
     set status = 'running', attempts = attempts + 1, heartbeat_at = ${now}, updated_at = ${now}
     where id = (
       select id from chat.job
-      where status = 'queued' ${due}
+      where status = 'queued' ${due} ${named}
       order by run_after, created_at
       limit 1
       for update skip locked
@@ -167,6 +179,10 @@ async function recordOutcome(
  *   row is handed back `queued` without counting the attempt, for another process to resume;
  * - `shutdown` aborts, so the handler is aborted and nothing is written. The lease is left to
  *   expire, and another process re-runs the job.
+ *
+ * An aborted handler can go on after that, until it sees its signal: a lost attempt's ends its
+ * Turn, then acknowledges the cancel. `handlers` holds each handler's end while it runs, so the
+ * caller must wait for it: the in-process runner's `stop()` does.
  */
 export async function runClaimedJob(
   db: Database,
@@ -177,12 +193,14 @@ export async function runClaimedJob(
     deps,
     drain,
     shutdown,
+    handlers,
   }: {
     clock: JobClock;
     logger: Logger;
     deps: () => BotSdkContext;
     drain?: AbortSignal;
     shutdown?: AbortSignal;
+    handlers: Set<Promise<void>>;
   },
 ): Promise<void> {
   const definition = registeredJob(claimed.name);
@@ -280,10 +298,13 @@ export async function runClaimedJob(
       }
       await settle(failure);
     };
-    run.then(
-      () => ended(),
-      (error: unknown) => ended({ error }),
-    );
+    const handled: Promise<void> = run
+      .then(
+        () => ended(),
+        (error: unknown) => ended({ error }),
+      )
+      .finally(() => handlers.delete(handled));
+    handlers.add(handled);
   }
   await done;
 }

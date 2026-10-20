@@ -35,7 +35,7 @@ import { trustedIpHeadersOf } from "./trusted-ip";
 
 // The template Computers are built from, named by its version (spec #519). It matches the SDK's
 // Dockerfile, built into E2B as this name; changing it rebuilds every Computer on its next wake.
-export const computerTemplate = "ai-chat-computer-v2";
+export const computerTemplate = "ai-chat-computer-v3";
 
 // The three E2B values are set together or not at all, so a typo does not silently turn Computers off.
 const e2bValues = [ENV.E2B_API_KEY, ENV.E2B_API_URL, ENV.E2B_SANDBOX_URL];

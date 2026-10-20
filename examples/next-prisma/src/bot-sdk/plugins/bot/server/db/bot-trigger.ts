@@ -5,18 +5,20 @@ import { chatSchema } from "../../../../core/server/db/chat-schema";
 import { conversation, message } from "../../../../core/server/db/schema";
 import { botTurn } from "./bot-turn";
 
-/** Who sent a Trigger: the user, one of the Bot's Routines, or a Check-in it set (#539). */
+/** Who sent a Trigger: the user, one of the Bot's Routines, a Check-in it set (#539), or a Helper (#565). */
 export const botTriggerSource = chatSchema.enum("bot_trigger_source", [
   "user",
   "routine",
   "check_in",
+  "helper",
 ]);
 
-/** Where a Trigger came in: the web app, a schedule, or an inbound webhook (#539). */
+/** Where a Trigger came in: the web app, a schedule, an inbound webhook (#539), or a Helper's report (#565). */
 export const botTriggerChannel = chatSchema.enum("bot_trigger_channel", [
   "web",
   "schedule",
   "webhook",
+  "helper",
 ]);
 
 /**

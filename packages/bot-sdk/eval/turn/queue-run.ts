@@ -63,9 +63,18 @@ export async function runQueueCase(
     const { userId, bot } = await freshBot(env, evalCase.id, repeat);
     const ids: string[] = [];
     const streams: Promise<void>[] = [];
+    // When the next Message is due: `afterMs` counts from the previous Message's due time, not from
+    // when its send returned, so a slow send under load doesn't stretch the gaps past the batch's
+    // quiet window (#603).
+    let due = Date.now();
     for (const message of evalCase.messages) {
-      if (message.afterTurnStarts) await waitForTurnStart(env, bot.id);
-      else if (message.afterMs) await sleep(message.afterMs);
+      if (message.afterTurnStarts) {
+        await waitForTurnStart(env, bot.id);
+        due = Date.now();
+      } else if (message.afterMs) {
+        due += message.afterMs;
+        await sleep(Math.max(0, due - Date.now()));
+      }
       const id = uuidv7();
       ids.push(id);
       const stream = await sendToBot(env.sdk, { userId, botId: bot.id, id, text: message.text });

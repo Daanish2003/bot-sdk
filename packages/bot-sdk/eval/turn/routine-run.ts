@@ -44,7 +44,7 @@ export type RoutineRunResult = {
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Waits until the Turn `turnId` is no longer running, and returns it. */
-async function waitForTurn(env: TurnEnv, turnId: string, timeoutMs = 120_000) {
+export async function waitForTurn(env: TurnEnv, turnId: string, timeoutMs = 120_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const [turn] = await env.db
