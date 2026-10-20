@@ -17,6 +17,7 @@ import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { PromptStartSection, PromptStartTool } from "./db/bot-prompt-start";
 import { botDirectory, sharedDirectory } from "./computer-tools";
 import { formatterIn, knownZone } from "./time-zone";
+import { describeToolName, runToolName } from "./tool-search";
 
 /** The name of a Prompt start's first message among its sections. */
 export const firstMessageSection = "first_message";
@@ -62,6 +63,21 @@ export function definitionsOf(tools: AnyServerTool[]): PromptStartTool[] {
     .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 }
 
+const toolsHeader = "[Your tools]";
+const deferredHeader = `[Deferred tools: call ${describeToolName} with the name first, then ${runToolName}]`;
+
+/** The names of the tools a first message lists, deferred ones included. */
+export function listedToolNames(firstMessage: string): Set<string> {
+  const start = firstMessage.indexOf(`${toolsHeader}\n`);
+  if (start < 0) return new Set();
+  return new Set(
+    firstMessage
+      .slice(start)
+      .split("\n")
+      .flatMap((line) => /^([^s:]+): /.exec(line)?.[1] ?? []),
+  );
+}
+
 const builtTime: Intl.DateTimeFormatOptions = {
   weekday: "long",
   day: "numeric",
@@ -75,7 +91,8 @@ const builtTime: Intl.DateTimeFormatOptions = {
 /**
  * The first message: the Bot's environment (its name, the user's time zone, when the Prompt start
  * was built, and which of Computer, Memory and Helpers are on, with their directories), then every
- * tool's name with the first sentence of its description.
+ * tool's name with the first sentence of its description: the tools every call sends, then the
+ * deferred ones, which need `describe_tool` first.
  */
 function firstMessageOf({
   botId,
@@ -85,6 +102,7 @@ function firstMessageOf({
   computer,
   memory,
   tools,
+  deferred,
 }: {
   botId: string;
   name: string;
@@ -93,6 +111,7 @@ function firstMessageOf({
   computer: boolean;
   memory: boolean;
   tools: PromptStartTool[];
+  deferred: PromptStartTool[];
 }): string {
   const environment = [
     "[Your environment]",
@@ -106,8 +125,14 @@ function firstMessageOf({
     // Helpers run on the Computer, so they are on with it.
     computer ? "Helpers: on." : "Helpers: off.",
   ];
-  const toolLines = tools.map((tool) => `${tool.name}: ${firstSentence(tool.description)}`);
-  return [...environment, "", "[Your tools]", ...toolLines].join("\n");
+  const lineOf = (tool: PromptStartTool) => `${tool.name}: ${firstSentence(tool.description)}`;
+  return [
+    ...environment,
+    "",
+    toolsHeader,
+    ...tools.map(lineOf),
+    ...(deferred.length > 0 ? ["", deferredHeader, ...deferred.map(lineOf)] : []),
+  ].join("\n");
 }
 
 /** A section of `name` holding `text`, hashed. */
@@ -123,7 +148,10 @@ export type PromptStartParts = {
   now: Date;
   /** The system blocks in their fixed order: rules, Computer, memory snapshot, Routines. */
   system: { name: string; text: string }[];
+  /** The tools every call sends. */
   tools: AnyServerTool[];
+  /** The tools listed in the first message only, loaded on demand. */
+  deferred: PromptStartTool[];
   computer: boolean;
   memory: boolean;
 };
@@ -171,6 +199,7 @@ async function buildPromptStart(tx: Transaction, parts: PromptStartParts): Promi
     computer: parts.computer,
     memory: parts.memory,
     tools,
+    deferred: parts.deferred,
   });
   const id = uuidv7();
   await tx.insert(botPromptStart).values({

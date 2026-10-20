@@ -5,8 +5,9 @@ import { botPromptStart } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
 import type { Transaction } from "../../../core/server/plugin";
 import type { PromptStartTool } from "./db/bot-prompt-start";
-import { canonicalJson, sha256 } from "./prompt-start";
+import { canonicalJson, firstMessageSection, listedToolNames, sha256 } from "./prompt-start";
 import { createRoutineToolName, deleteRoutineToolName, updateRoutineToolName } from "./routine";
+import { describeToolName, runToolName } from "./tool-search";
 
 /*
  * Change notes (slide 31, ADR 0022 amended): the Prompt start freezes the memory snapshot, the
@@ -36,7 +37,7 @@ export type CurrentState = {
   memory: string | null;
   /** The Routines block, or null when the Bot has none. */
   routines: string | null;
-  /** The live tools' definitions. */
+  /** The definitions of every tool the code has now, deferred ones included. */
   tools: PromptStartTool[];
 };
 
@@ -51,8 +52,10 @@ type MemoryLines = Record<Tier, string[]>;
 type Seen = {
   memory: MemoryLines | null;
   routines: Map<string, string>;
-  /** Each tool's definition hash. */
+  /** Each sent tool's definition hash. */
   tools: Map<string, string>;
+  /** Every tool name the Bot was told of: sent, or listed in the first message or a note. */
+  listed: Set<string>;
 };
 
 const waiting = "(waiting for OK)";
@@ -130,6 +133,8 @@ function applyNotes(seen: Seen, notes: string[]) {
     if (routine) seen.routines.set(routine[1]!.split("  ")[0]!, routine[1]!);
     const deleted = /^Routine deleted: (.*)$/.exec(note);
     if (deleted) seen.routines.delete(deleted[1]!);
+    const added = /^\[Tool added: (.+?)\. /.exec(note);
+    if (added) seen.listed.add(added[1]!);
     const tool = /^\[Tool changed: (.+?)\. .*\(definition ([0-9a-f]{8})\)\]$/.exec(note);
     if (tool) seen.tools.set(tool[1]!, tool[2]!);
   }
@@ -175,26 +180,32 @@ function applyOwnCalls(botId: string, seen: Seen, transcript: ModelMessage[]) {
   for (const call of transcript.flatMap((entry) => entry.toolCalls ?? [])) {
     if (failed.has(call.id)) continue;
     let args: CallArguments;
+    let toolName = call.function.name;
     try {
       args = JSON.parse(call.function.arguments) as CallArguments;
+      // A call through `run_tool` is the named tool's call.
+      if (toolName === runToolName) {
+        const wrapped = args as { name?: unknown; args?: unknown };
+        if (typeof wrapped.name !== "string" || typeof wrapped.args !== "object" || !wrapped.args)
+          continue;
+        toolName = wrapped.name;
+        args = wrapped.args as CallArguments;
+      }
     } catch {
       continue;
     }
     if (typeof args.name === "string") {
-      if (
-        call.function.name === createRoutineToolName ||
-        call.function.name === updateRoutineToolName
-      ) {
+      if (toolName === createRoutineToolName || toolName === updateRoutineToolName) {
         seen.routines.set(args.name, ownRoutine);
-      } else if (call.function.name === deleteRoutineToolName) {
+      } else if (toolName === deleteRoutineToolName) {
         seen.routines.delete(args.name);
       }
     }
-    if (!memory || (call.function.name !== "write" && call.function.name !== "edit")) continue;
+    if (!memory || (toolName !== "write" && toolName !== "edit")) continue;
     const target = typeof args.path === "string" ? memoryTarget(botId, args.path) : undefined;
     if (!target) continue;
     const lines = memory[target.tier];
-    if (call.function.name === "write" && typeof args.content === "string") {
+    if (toolName === "write" && typeof args.content === "string") {
       // The file is replaced whole: its own lines in `seen` go, and what it holds now is seen.
       const own = (line: string) =>
         target.tier === "profile"
@@ -238,6 +249,7 @@ export async function changeNotesFor(
     memory: memoryBlock === undefined ? null : memoryLinesOf(memoryBlock),
     routines: routinesOf(block("routines")),
     tools: new Map(start.tools.map((tool) => [tool.name, toolHash(tool)])),
+    listed: listedToolNames(block(firstMessageSection) ?? ""),
   };
   for (const row of earlier.filter((row) => row.promptStartId === startId)) {
     for (const message of row.input ?? []) applyNotes(seen, notesIn(message));
@@ -277,7 +289,14 @@ export async function changeNotesFor(
   for (const tool of current.tools) {
     const before = seen.tools.get(tool.name);
     const hash = toolHash(tool);
-    if (before !== undefined && before !== hash) {
+    if (before === undefined) {
+      // A deferred tool is described on demand, so only a tool the Bot was never told of is news.
+      if (seen.listed.has(tool.name)) continue;
+      notes.push(
+        `[Tool added: ${tool.name}. A deploy added it; call ${describeToolName} for it, then ` +
+          `${runToolName}.]`,
+      );
+    } else if (before !== hash) {
       notes.push(
         `[Tool changed: ${tool.name}. Its description or arguments changed in a deploy; call it ` +
           `the way it is described now. (definition ${hash})]`,

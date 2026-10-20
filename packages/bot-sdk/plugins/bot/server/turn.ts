@@ -1,9 +1,4 @@
-import {
-  type AnyServerTool,
-  convertSchemaToJsonSchema,
-  type ModelMessage,
-  toolDefinition,
-} from "@tanstack/ai";
+import { type ModelMessage, toolDefinition } from "@tanstack/ai";
 import { and, asc, desc, eq, gt, gte, isNotNull, lt, lte, ne, or } from "drizzle-orm";
 import { z } from "zod";
 
@@ -47,6 +42,7 @@ import {
   updateRoutineToolName,
 } from "./routine";
 import { formatterIn, knownZone, timeNotice } from "./time-zone";
+import { checkedTool, isDirectTool, toolSearchTools } from "./tool-search";
 import { webSearchTool } from "./web-search";
 
 /** The most Steps a Turn may take; one more ends it `error` with `step_limit`. */
@@ -1043,7 +1039,9 @@ async function turnSetup(
         })),
       )
     : null;
-  const tools = [
+  // Every tool the code has now. The Prompt start sends the direct ones and `describe_tool` and
+  // `run_tool`; the rest are listed by name in its first message and reached through those two.
+  const live = [
     sendToUser,
     createRoutine,
     updateRoutineTool,
@@ -1055,6 +1053,8 @@ async function turnSetup(
     ...(searchMemory ? [searchMemory] : []),
     ...(withComputer ? [...kit.computerTools, ...helperTools(deps, turn, liveActivity)] : []),
   ];
+  const searchTools = toolSearchTools(live);
+  const sent = [...live.filter(isDirectTool), ...searchTools];
   const [rules, computerBlock] = botSystemPrompts(turn.botId, withComputer);
   // Recorded, so a replay sends the row its attempt chose.
   const { id } = await liveActivity("prompt_start", undefined, async (tx) => ({
@@ -1067,7 +1067,8 @@ async function turnSetup(
         ...(memory ? [{ name: "memory", text: memory }] : []),
         ...(routines ? [{ name: "routines", text: routines }] : []),
       ],
-      tools,
+      tools: sent,
+      deferred: definitionsOf(live.filter((tool) => !isDirectTool(tool))),
       computer: withComputer,
       memory: Boolean(memory),
     }),
@@ -1078,50 +1079,16 @@ async function turnSetup(
   const changeNotes = await changeNotesFor(db, id, earlier, {
     memory,
     routines: routines ?? null,
-    tools: definitionsOf(tools),
+    tools: definitionsOf(live),
   });
   // A tool a deploy removed stays defined, as the Prompt start sends it, and says it is gone.
-  const live = new Set(tools.map((tool) => tool.name));
-  const retired = promptStart.tools.filter((tool) => !live.has(tool.name)).map(retiredTool);
+  const known = new Set([...live, ...searchTools].map((tool) => tool.name));
+  const retired = promptStart.tools.filter((tool) => !known.has(tool.name)).map(retiredTool);
   return {
     promptStart,
-    tools: [...tools.map(checkedTool), ...retired],
+    tools: [...[...live, ...searchTools].map(checkedTool), ...retired],
     ended: () => endTurn,
     newest: await renderNewest(changeNotes),
-  };
-}
-
-type Issue = { message: string; path?: readonly (PropertyKey | { key: PropertyKey })[] };
-
-/**
- * `tool` with its arguments checked against its schema as the code has it now, which may differ
- * from the definition the Prompt start sent (a deploy changed it). A mismatch is an error that
- * names the arguments at fault and gives the current schema, so the Bot calls it again the new way.
- */
-function checkedTool(tool: AnyServerTool): AnyServerTool {
-  const schema = tool.inputSchema;
-  if (!schema || !tool.execute || !("~standard" in schema)) return tool;
-  const { execute } = tool;
-  return {
-    ...tool,
-    // The engine's own check says too little; this one runs in `execute`.
-    inputSchema: z.looseObject({}),
-    execute: async (args, context) => {
-      const checked = await schema["~standard"].validate(args);
-      if (!checked.issues) return execute(checked.value, context);
-      const problems = checked.issues.map((issue: Issue) => {
-        const path = (issue.path ?? []).map((key) =>
-          String(typeof key === "object" ? key.key : key),
-        );
-        return path.length > 0 ? `${path.join(".")}: ${issue.message}` : issue.message;
-      });
-      return {
-        error:
-          `Invalid arguments for ${tool.name} (${problems.join("; ")}). Call ${tool.name} again ` +
-          `with arguments that match its current definition: ` +
-          JSON.stringify(convertSchemaToJsonSchema(schema)),
-      };
-    },
   };
 }
 

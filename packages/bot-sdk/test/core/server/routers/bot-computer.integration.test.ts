@@ -123,17 +123,8 @@ const toolResultOf = (call: TextOptions | undefined) =>
 /** The names of the tools a model call offered. */
 const toolNamesOf = (call: TextOptions | undefined) => (call?.tools ?? []).map((tool) => tool.name);
 
-/** The Bot's tools with no Computer: SendToUser, then the Routine and Check-in tools (spec #543). */
-const botTools = [
-  "send_to_user",
-  "create_routine",
-  "update_routine",
-  "delete_routine",
-  "set_check_in",
-  "cancel_check_in",
-  "list_check_ins",
-  "web_search",
-];
+/** The Bot's tools with no Computer: SendToUser, web search and the two that reach the deferred tools (spec #665). */
+const botTools = ["send_to_user", "web_search", "describe_tool", "run_tool"];
 
 const computerRow = async (userId: string) =>
   (await getTestDb().select().from(computerTable).where(eq(computerTable.userId, userId)))[0];
@@ -235,9 +226,6 @@ describe("the shell tool", () => {
         "edit",
         "list",
         "start_helper",
-        "check_helper",
-        "message_helper",
-        "stop_helpers",
       ].sort(),
     );
     const prompt = JSON.stringify(fake.calls[0]?.systemPrompts);
@@ -962,9 +950,6 @@ describe("the file tools", () => {
         "edit",
         "list",
         "start_helper",
-        "check_helper",
-        "message_helper",
-        "stop_helpers",
       ].sort(),
     );
     expect(await computerRow(user.id)).toMatchObject({ state: "awake" });
