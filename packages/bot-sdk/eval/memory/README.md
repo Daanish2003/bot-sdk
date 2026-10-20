@@ -1,8 +1,12 @@
-# Memory eval
+# Assistant Memory eval
 
-A hand-run score for Memory (spec #263). Each run takes 40 LongMemEval cases through the real SDK path
-(Memories made after each reply, recall, and `search_past_chats`) and saves every answer, so a change
-to the approach can be measured. It is not in CI and is excluded from the SDK copy script.
+Two evals live here: this one, for the assistant's Memory (Memories as database rows found by
+embedding search), and the [Bot memory eval](#bot-memory-eval) below, for a Bot's file memory, which
+uses no embeddings.
+
+A hand-run score for the assistant's Memory (spec #263). Each run takes 40 LongMemEval cases through
+the real SDK path (Memories made after each reply, recall, and `search_past_chats`) and saves every
+answer, so a change to the approach can be measured. It is not in CI and is excluded from the SDK copy script.
 
 ## Run it
 
@@ -84,11 +88,13 @@ A hand-run score for a Bot's file memory (ADR 0022, spec #624, ticket #633). It 
 excluded from the SDK copy script. Each case is a fresh user with one or two Bots on the SDK's fake
 Computer disk. The Turns go through the real `bot` plugin, each Turn's post-turn pass runs on the Bot's
 own Model, and then the Bot's memory files (`profile.md`, `notes.md`, `log/YYYY-MM.md`) are scored.
+Bot memory is plain files and `search_memory` ranks lines with BM25, so this eval needs no embedding
+Model or key.
 
 ## Run it
 
-It needs the same scratch Postgres with pgvector as above (created before the first run) and an
-OpenRouter key:
+It needs the same scratch Postgres with pgvector as above (created before the first run; the SDK's
+schema has vector columns, though this eval writes none) and an OpenRouter key:
 
 ```sh
 EVAL_DATABASE_URL=postgresql://postgres:password@127.0.0.1:5435/ai-chat_eval \
