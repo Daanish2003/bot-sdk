@@ -3,6 +3,7 @@ import { asc, eq } from "drizzle-orm";
 import { memory as memoryTable, memorySettings } from "../../../core/server/db/schema";
 import type { BotSdkContext, BotSdkPlugin, Transaction } from "../../../core/server/plugin";
 import type { TurnChange } from "../shared/changes";
+import { botMemorySnapshot } from "./bot-memory";
 import { enqueueMemories, type MakeMemoriesPayload } from "./make";
 import { memoryEnabledFor } from "./manage";
 import { turnChangesOf } from "./notice";
@@ -46,6 +47,12 @@ export type MemoryApi = {
   isEnabled: (userId: string) => Promise<boolean>;
   /** What each turn changed, by the user Message's id, for the replies' "Memory updated" chips (#290). */
   turnChanges: (userMessageIds: string[]) => Promise<Map<string, TurnChange[]>>;
+  /**
+   * The memory block of Bot `botId`'s Turn (ADR 0022), read from the user's Computer as of `now`,
+   * waking it: the Profiles, the top Log lines, the recent Notes and the rules. Null with the
+   * user's Memory off or no `computer` plugin. A Computer failure throws.
+   */
+  botSnapshot: (args: { userId: string; botId: string; now: Date }) => Promise<string | null>;
   /** The user's switch and every Memory, valid and outdated, read in the export's snapshot `tx`. */
   exportRows: (
     tx: Transaction,
@@ -88,6 +95,7 @@ function memoryApi(sdk: BotSdkContext): MemoryApi {
     afterRun: (payload) => enqueueMemories(sdk, payload),
     isEnabled: (userId) => memoryEnabledFor(sdk, userId),
     turnChanges: (userMessageIds) => turnChangesOf(sdk, userMessageIds),
+    botSnapshot: (args) => botMemorySnapshot(sdk, args),
     exportRows: async (tx, userId) => ({
       enabled: await memoryEnabledFor({ db: tx }, userId),
       memories: await tx

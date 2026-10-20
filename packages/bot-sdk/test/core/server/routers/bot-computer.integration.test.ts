@@ -53,16 +53,18 @@ afterEach(async () => {
 /**
  * A user with an OpenAI key and a Bot, over an SDK whose Model plays `rounds` and whose in-process
  * runner runs the Turns. With `withComputer`, `computer` is on over a fake provider whose commands
- * `onCommand` answers.
+ * `onCommand` answers. `memory` is installed unless `withMemory` is false.
  */
 async function botWith(
   rounds: Round[],
   {
     withComputer = true,
+    withMemory = true,
     onCommand,
     clock,
   }: {
     withComputer?: boolean;
+    withMemory?: boolean;
     clock?: () => Date;
     onCommand?: (command: FakeCommandRun) => CommandResult | Promise<CommandResult>;
   } = {},
@@ -75,6 +77,7 @@ async function botWith(
     plugins: withComputer ? [bot(), computer({ provider: computerFake.provider })] : [bot()],
     jobs,
     adapterFor: () => fake.adapter,
+    memory: withMemory,
     ...(clock ? { clock } : {}),
   });
   await jobs.start();
@@ -430,11 +433,12 @@ describe("an operation the Computer fails", () => {
 
 describe("a user's Computer", () => {
   it("is created on its first operation, not before", async () => {
-    const { client, botId, user } = await botWith([round()]);
+    const { client, botId, user } = await botWith([round()], { withMemory: false });
 
     await send(client, botId, "hi");
 
-    // A Turn that used no Computer tool leaves the Computer alone.
+    // Without Memory, which reads the Computer at Turn start, a Turn that used no Computer tool
+    // leaves the Computer alone.
     expect(await computerRow(user.id)).toBeUndefined();
   });
 });
@@ -644,7 +648,7 @@ describe("the file tools", () => {
     expect(middle).toEqual({ content: "3\tc\n4\td", totalLines: 6, nextOffset: 5 });
     expect(tail).toEqual({ content: "5\te\n6\tlast", totalLines: 6 });
     expect(beyond).toEqual({ content: "", totalLines: 6 });
-    expect(load).not.toHaveBeenCalled();
+    expect(load.mock.calls.filter(([, path]) => path === "/tmp/big.log")).toEqual([]);
   });
 
   it("returns an error that suggests shell when edit's file is over the size limit", async () => {

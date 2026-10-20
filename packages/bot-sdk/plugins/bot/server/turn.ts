@@ -9,6 +9,7 @@ import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
 import { searchTextOf } from "../../../core/shared/message-parts";
 import { conversationChannel } from "../../../core/server/chat/conversation-events";
+import { ComputerOperationError, ComputerUnavailableError } from "../../computer/server/plugin";
 import type { MessageUsage } from "../../models/shared/usage";
 import { defineJob, PermanentJobError } from "../../runner/server/jobs/define";
 import { loadHistory } from "../../runner/server/jobs/history";
@@ -951,8 +952,14 @@ async function turnSetup(deps: BotSdkContext, turn: TurnFacts, kit: LoopKit): Pr
   // The Computer's tools and Helpers, whenever `computer` is on: the tool set never changes
   // mid-conversation.
   const withComputer = deps.hasPlugin("computer");
+  const memory =
+    withComputer && deps.hasPlugin("memory") ? await memorySnapshot(deps, turn, kit) : null;
   return {
-    systemPrompts: [...botSystemPrompts(turn.botId, withComputer), ...(routines ? [routines] : [])],
+    systemPrompts: [
+      ...botSystemPrompts(turn.botId, withComputer),
+      ...(memory ? [memory] : []),
+      ...(routines ? [routines] : []),
+    ],
     tools: [
       sendToUser,
       createRoutine,
@@ -966,6 +973,38 @@ async function turnSetup(deps: BotSdkContext, turn: TurnFacts, kit: LoopKit): Pr
     ],
     ended: () => endTurn,
   };
+}
+
+/**
+ * The Bot's memory block as the Turn starts (ADR 0022), read once from the Computer: a replay
+ * reads the recorded block. Null with Memory off, or when the Computer can't be woken or read, so
+ * the Turn goes on without it.
+ */
+async function memorySnapshot(
+  deps: BotSdkContext,
+  turn: TurnFacts,
+  kit: LoopKit,
+): Promise<string | null> {
+  return kit.liveRequest(
+    "memory",
+    undefined,
+    async () => {
+      try {
+        return await deps
+          .plugin("memory")
+          .botSnapshot({ userId: turn.userId, botId: turn.botId, now: turn.startedAt });
+      } catch (caught) {
+        if (
+          caught instanceof ComputerUnavailableError ||
+          caught instanceof ComputerOperationError
+        ) {
+          return null;
+        }
+        throw caught;
+      }
+    },
+    async () => {},
+  );
 }
 
 /** How a Turn ended, and why when it failed: a limit's code or the Provider's error. */
