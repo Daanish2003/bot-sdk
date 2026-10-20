@@ -107,7 +107,7 @@ async function startLink(auth: Auth, cookie: string) {
 
 async function linkChatgpt(auth: Auth, cookie: string, chatgptEmail: string) {
   const { authorize, cookie: cookies } = await startLink(auth, cookie);
-  fakeTokenEndpoint(
+  const calls = fakeTokenEndpoint(
     tokenReply({
       access_token: "chatgpt-access-1",
       refresh_token: "chatgpt-refresh-1",
@@ -118,7 +118,8 @@ async function linkChatgpt(auth: Auth, cookie: string, chatgptEmail: string) {
   const callback = new URL(`${BASE}/api/auth/callback/chatgpt`);
   callback.searchParams.set("code", "code-1");
   callback.searchParams.set("state", authorize.searchParams.get("state") ?? "");
-  return auth.handler(new Request(callback, { headers: { cookie: cookies } }));
+  const response = await auth.handler(new Request(callback, { headers: { cookie: cookies } }));
+  return { response, tokenRequest: calls[0] };
 }
 
 function chatgptRows(userId: string) {
@@ -152,7 +153,7 @@ describe("the chatgpt provider", () => {
       "https://auth.openai.com/api/accounts/authorize",
     );
     expect(authorize.searchParams.get("client_id")).toBe("oaiapp_test");
-    expect(authorize.searchParams.get("redirect_uri")).toBe(`${BASE}/api/auth/callback/chatgpt`);
+    expect(authorize.searchParams.get("redirect_uri")).toBe(`${BASE}/auth/callback`);
     expect(authorize.searchParams.get("code_challenge_method")).toBe("S256");
     expect(authorize.searchParams.get("resource")).toBe("https://api.openai.com/v1");
     expect(authorize.searchParams.get("ext_agent_host_id")).toBe("urn:uuid:test-host");
@@ -172,9 +173,16 @@ describe("the chatgpt provider", () => {
     const auth = newAuth();
     const { cookie, userId } = await signedIn(auth, `link-${randomUUID()}@example.com`);
 
-    const callback = await linkChatgpt(auth, cookie, `other-${randomUUID()}@openai.test`);
+    const { response: callback, tokenRequest } = await linkChatgpt(
+      auth,
+      cookie,
+      `other-${randomUUID()}@openai.test`,
+    );
 
     expect(callback.headers.get("location")).not.toContain("error");
+    expect(tokenRequest.get("redirect_uri")).toBe(`${BASE}/auth/callback`);
+    expect(tokenRequest.get("resource")).toBe("https://api.openai.com/v1");
+    expect(tokenRequest.get("code_verifier")).toBeTruthy();
     const [linked] = await chatgptRows(userId);
     expect(linked).toBeDefined();
     expect(linked.accessToken).toBeTruthy();
