@@ -1,8 +1,9 @@
 import type { AnyTextAdapter, ModelMessage, TextOptions } from "@tanstack/ai";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, like } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { botHelper } from "../../../../core/server/db/schema";
+import { blob, botHelper, jobEvent } from "../../../../core/server/db/schema";
+import { deleteUserData } from "../../../../core/server/user-data";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import {
   keptScreenshots,
@@ -38,8 +39,8 @@ afterEach(async () => {
 const isHelperCall = (options: TextOptions) =>
   (options.systemPrompts ?? []).some((prompt) => String(prompt).startsWith("You are a Helper"));
 
-/** A user whose Bot runs on `model`, over `computer` with a fake provider that photographs `png`. */
-async function userWith(model: string, turns: Round[], helpers: Round[]) {
+/** A user whose Bot runs on `model`, over `computer` with a fake provider that photographs `shot`. */
+async function userWith(model: string, turns: Round[], helpers: Round[], shot = png) {
   const turnFake = createFakeAdapter({ rounds: turns });
   const helperFake = createFakeAdapter({ rounds: helpers });
   const adapter = {
@@ -53,7 +54,7 @@ async function userWith(model: string, turns: Round[], helpers: Round[]) {
     // A screenshot lands where `scrot` was told to write it.
     onCommand: ({ command }) => {
       const path = command.match(/scrot -o (\S+)$/)?.[1];
-      if (path) computerFake.files.set(path, png);
+      if (path) computerFake.files.set(path, shot);
       return { exitCode: 0, stdout: "", stderr: "" };
     },
   });
@@ -81,7 +82,7 @@ async function userWith(model: string, turns: Round[], helpers: Round[]) {
   });
   const client = chatRpc({ user, deps });
   const botId = (await client.bot.create({ name: "Ada", model })).id;
-  return { helperFake, computerFake, client, botId };
+  return { helperFake, computerFake, client, botId, deps, user };
 }
 
 const startComputerUse = toolCall({
@@ -211,6 +212,63 @@ describe("a Computer-use Helper's desktop", () => {
     // The call before it still had all but the oldest.
     const before = toolMessages(helperFake.calls.at(-2)!);
     expect(before.filter((entry) => imagesIn(entry).length > 0)).toHaveLength(keptScreenshots);
+  }, 60_000);
+
+  it("stores each screenshot once: the transcript and the Checkpoints hold refs", async () => {
+    // About 300 KB of base64 a screenshot, like a real 1280x800 PNG.
+    const big = new Uint8Array(225_000).map((_, i) => (i * 31 + 7) % 251);
+    const { client, botId, helperFake, deps, user } = await userWith(
+      "openai:gpt-5.6",
+      [handsOff, round()],
+      [
+        ...Array.from({ length: 5 }, () => round(desktop({ action: "screenshot" }))),
+        round(text("Looked.")),
+      ],
+      big,
+    );
+
+    const helper = await ran(client, botId);
+
+    expect(helper.status).toBe("complete");
+    const base64 = Buffer.from(big).toString("base64");
+    expect(base64.length).toBe(300_000);
+    // Before: the transcript held all 5 screenshots' base64, about 1.5 MB, and each `desktop`
+    // Checkpoint its own 300 KB. Now they hold refs.
+    const transcript = JSON.stringify(helper.transcript);
+    expect(transcript).not.toContain(base64.slice(0, 100));
+    expect(transcript.length).toBeLessThan(5_000);
+    const desktopResults = (
+      await getTestDb()
+        .select({ result: jobEvent.result })
+        .from(jobEvent)
+        .where(and(eq(jobEvent.jobId, helper.jobId!), eq(jobEvent.name, "desktop")))
+    ).map((row) => JSON.stringify(row.result));
+    expect(desktopResults).toHaveLength(5);
+    for (const result of desktopResults) expect(result.length).toBeLessThan(500);
+    // Each screenshot is in the blob store once.
+    const stored = await getTestDb()
+      .select({ bytes: blob.bytes })
+      .from(blob)
+      .where(like(blob.key, "screenshot/%"));
+    expect(stored).toHaveLength(5);
+    for (const row of stored) expect(Buffer.from(row.bytes).equals(Buffer.from(big))).toBe(true);
+    // The Model still receives the newest screenshots as images.
+    const images = toolMessages(helperFake.calls.at(-1)!).flatMap(imagesIn);
+    expect(images).toEqual(
+      Array.from({ length: keptScreenshots }, () => ({
+        type: "image",
+        source: { type: "data", value: base64, mimeType: "image/png" },
+      })),
+    );
+
+    // They go with their user.
+    await deleteUserData(deps, user.id);
+
+    const left = await getTestDb()
+      .select({ key: blob.key })
+      .from(blob)
+      .where(like(blob.key, "screenshot/%"));
+    expect(left).toEqual([]);
   }, 60_000);
 
   it("is present on a model without image input and says it can't see", async () => {

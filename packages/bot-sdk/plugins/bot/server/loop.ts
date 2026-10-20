@@ -45,7 +45,7 @@ import {
   writeDefinition,
   writeTool,
 } from "./computer-tools";
-import { pruneScreenshots } from "./desktop-tools";
+import { pruneScreenshots, resolveScreenshots } from "./desktop-tools";
 import { computerRebuildSeenAt, markComputerRebuildSeen } from "./store";
 
 /** What a loop lends the tools of whoever runs it: a Turn today, a Helper next. */
@@ -248,15 +248,20 @@ export async function runLoop(
           // Read off the clock too: a timer that is due may not have fired yet.
           if (attempt && (expired || timeLeftMs() <= 0)) timeUp();
           abortController.signal.throwIfAborted();
+          // Only the newest screenshots go to the Model, read from the blob store now: the
+          // transcript and the Checkpoints hold their refs (#608). Outside the Model's own
+          // failure, so a failed read is retried like a Checkpoint that failed to save.
+          const pruned = {
+            ...chatOptions,
+            messages: await resolveScreenshots(
+              deps.blobStore,
+              pruneScreenshots(chatOptions.messages as ModelMessage[]),
+            ),
+          };
           const chunks: StreamChunk[] = [];
           inLiveCall = true;
           try {
             const { adapter } = await liveCall();
-            // Only the newest screenshots go to the Model; the Checkpoints keep them all.
-            const pruned = {
-              ...chatOptions,
-              messages: pruneScreenshots(chatOptions.messages as ModelMessage[]),
-            };
             for await (const chunk of adapter.chatStream(pruned)) {
               chunks.push(withoutRaw(chunk));
             }
