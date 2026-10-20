@@ -43,7 +43,7 @@ export function sha256(text: string): string {
 }
 
 /** `value` as JSON with every object's keys sorted, so equal values have equal bytes. */
-function canonicalJson(value: unknown): string {
+export function canonicalJson(value: unknown): string {
   return JSON.stringify(value, (_key, entry: unknown) =>
     entry && typeof entry === "object" && !Array.isArray(entry)
       ? Object.fromEntries(Object.entries(entry).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
@@ -52,7 +52,7 @@ function canonicalJson(value: unknown): string {
 }
 
 /** The definitions of `tools` as a model call sends them, sorted by name. */
-function definitionsOf(tools: AnyServerTool[]): PromptStartTool[] {
+export function definitionsOf(tools: AnyServerTool[]): PromptStartTool[] {
   return tools
     .map((tool) => ({
       name: tool.name,

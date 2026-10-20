@@ -1,4 +1,9 @@
-import { type ModelMessage, toolDefinition } from "@tanstack/ai";
+import {
+  type AnyServerTool,
+  convertSchemaToJsonSchema,
+  type ModelMessage,
+  toolDefinition,
+} from "@tanstack/ai";
 import { and, asc, desc, eq, gt, gte, isNotNull, lt, lte, ne, or } from "drizzle-orm";
 import { z } from "zod";
 
@@ -23,14 +28,24 @@ import {
   turnStarted,
   waitingIn,
 } from "./router";
+import { type EarlierTurn, changeNotesFor } from "./change-notes";
+import type { PromptStartTool } from "./db/bot-prompt-start";
 import { cancelCheckInTool, pendingCheckIns, saveCheckIn } from "./check-in";
 import { capText, computerOf, computerPrompt, spillPath, spillThreshold } from "./computer-tools";
 import { type TodoItem, todoList } from "./helper";
 import { helperTools } from "./helper-tools";
 import { type LoopKit, type LoopResult, type LoopSetup, runLoop } from "./loop";
-import { loopPromptStart, previousTurnCall, promptStartFor } from "./prompt-start";
+import { definitionsOf, loopPromptStart, previousTurnCall, promptStartFor } from "./prompt-start";
 import { botMessages, findBot, textParts, toBotMessage, turnTimeLimitMs } from "./store";
-import { deleteRoutine, routinesPrompt, saveRoutine, updateRoutine } from "./routine";
+import {
+  createRoutineToolName,
+  deleteRoutine,
+  deleteRoutineToolName,
+  routinesPrompt,
+  saveRoutine,
+  updateRoutine,
+  updateRoutineToolName,
+} from "./routine";
 import { formatterIn, knownZone, timeNotice } from "./time-zone";
 import { webSearchTool } from "./web-search";
 
@@ -39,15 +54,6 @@ export const turnStepLimit = 10;
 
 /** The Bot's tool for reaching the user: the only way it does. */
 export const sendToUserToolName = "send_to_user";
-
-/** The Bot's tool that saves a Routine for the user's Approval (#538). */
-export const createRoutineToolName = "create_routine";
-
-/** The Bot's tool that changes one of its Routines (#538). */
-export const updateRoutineToolName = "update_routine";
-
-/** The Bot's tool that deletes one of its Routines, with no OK (#538). */
-export const deleteRoutineToolName = "delete_routine";
 
 /** The Bot tool that sets a Check-in for itself, with no Approval (#540). */
 export const setCheckInToolName = "set_check_in";
@@ -764,7 +770,12 @@ function todoNotice(todo: TodoItem[], stored: string | undefined): string {
 /** The Bot's Turns before `turn`, in Turn order: what its history is made of. */
 function earlierTurns(db: Database | Transaction, turn: TurnFacts) {
   return db
-    .select({ startedAt: botTurn.startedAt, input: botTurn.input, transcript: botTurn.transcript })
+    .select({
+      startedAt: botTurn.startedAt,
+      input: botTurn.input,
+      transcript: botTurn.transcript,
+      promptStartId: botTurn.promptStartId,
+    })
     .from(botTurn)
     .where(and(eq(botTurn.botId, turn.botId), lt(botTurn.startedAt, turn.startedAt)))
     .orderBy(asc(botTurn.startedAt), asc(botTurn.id));
@@ -775,7 +786,7 @@ function earlierTurns(db: Database | Transaction, turn: TurnFacts) {
  * that stored its input, in order. Each user Message is a user turn, and each Trigger with no Message (such as a Routine's
  * fire) an input turn of its text, through `cutTrigger`, which cuts a long one once (#668). The
  * newest opens with the time in the newest user Message's zone, as of the Turn's start, then the
- * to-do list as the Turn's start Checkpoint recorded it. Only what came before the Turn counts, so
+ * Change notes (#671), then the to-do list as the Turn's start Checkpoint recorded it. Only what came before the Turn counts, so
  * every attempt reads the same.
  */
 async function newestInput(
@@ -783,6 +794,7 @@ async function newestInput(
   turn: TurnFacts,
   since: Date | undefined,
   todo: TodoItem[] | null,
+  changeNotes: string | undefined,
   cutTrigger: (id: string, text: string) => Promise<string>,
 ): Promise<ModelMessage[]> {
   const beforeTurn = and(
@@ -836,6 +848,7 @@ async function newestInput(
     const zone = newestUser?.parts.timeZone;
     const notices = [
       timeNotice(turn.startedAt, zone),
+      ...(changeNotes ? [changeNotes] : []),
       ...(todo?.length ? [todoNotice(todo, zone)] : []),
     ];
     newest.content = `${notices.join("\n\n")}\n\n${newest.content}`;
@@ -886,27 +899,27 @@ async function playTurn(
   // last such Turn started is new.
   const earlier = await earlierTurns(db, turn);
   const since = earlier.filter((row) => row.input !== null).at(-1)?.startedAt;
-  const rendered = await newestInput(db, turn, since, todo, cutTrigger);
-  // Stored before the first model call, so a stopped or interrupted Turn keeps what it sent, and a
-  // replay reads the recorded input.
-  const input = await ctx.activity(turnInputActivity, async (tx) => {
-    await tx.update(botTurn).set({ input: rendered }).where(eq(botTurn.id, turn.id));
-    return rendered;
-  });
+  // The newest message holds the Change notes, which are read in the loop's setup: it is rendered
+  // there, once the Turn's Prompt start is chosen. Stored before the first model call, so a
+  // stopped or interrupted Turn keeps what it sent, and a replay reads the recorded input.
+  const renderNewest = async (changeNotes: string | undefined) => {
+    const rendered = await newestInput(db, turn, since, todo, changeNotes, cutTrigger);
+    return ctx.activity(turnInputActivity, async (tx) => {
+      await tx.update(botTurn).set({ input: rendered }).where(eq(botTurn.id, turn.id));
+      return rendered;
+    });
+  };
   return runLoop(deps, ctx, {
     owner: turn,
     usageKind: "turn",
     sourceId: turn.id,
-    input: [
-      ...earlier.flatMap((row) => [...(row.input ?? []), ...(row.transcript ?? [])]),
-      ...input,
-    ],
+    input: earlier.flatMap((row) => [...(row.input ?? []), ...(row.transcript ?? [])]),
     startedAt: turn.startedAt,
     stepLimit: turnStepLimit,
     timeLimitMs: turnTimeLimitMs,
     plainTextReminder: undeliveredTextReminder,
     attempt,
-    setup: (kit) => turnSetup(deps, turn, kit, db),
+    setup: (kit) => turnSetup(deps, turn, kit, db, earlier, renderNewest),
   });
 }
 
@@ -921,6 +934,8 @@ async function turnSetup(
   turn: TurnFacts,
   kit: LoopKit,
   db: Database | Transaction,
+  earlier: EarlierTurn[],
+  renderNewest: (changeNotes: string | undefined) => Promise<ModelMessage[]>,
 ): Promise<LoopSetup> {
   const { liveActivity } = kit;
   let endTurn = false;
@@ -1057,12 +1072,70 @@ async function turnSetup(
       memory: Boolean(memory),
     }),
   }));
+  const promptStart = await loopPromptStart(db, id, () => previousTurnCall(deps.db, turn));
+  // What changed since the Prompt start, from what this Turn read: the memory block and Routines
+  // as recorded above, and the live tools.
+  const changeNotes = await changeNotesFor(db, id, earlier, {
+    memory,
+    routines: routines ?? null,
+    tools: definitionsOf(tools),
+  });
+  // A tool a deploy removed stays defined, as the Prompt start sends it, and says it is gone.
+  const live = new Set(tools.map((tool) => tool.name));
+  const retired = promptStart.tools.filter((tool) => !live.has(tool.name)).map(retiredTool);
   return {
-    promptStart: await loopPromptStart(db, id, () => previousTurnCall(deps.db, turn)),
-    tools,
+    promptStart,
+    tools: [...tools.map(checkedTool), ...retired],
     ended: () => endTurn,
+    newest: await renderNewest(changeNotes),
   };
 }
+
+type Issue = { message: string; path?: readonly (PropertyKey | { key: PropertyKey })[] };
+
+/**
+ * `tool` with its arguments checked against its schema as the code has it now, which may differ
+ * from the definition the Prompt start sent (a deploy changed it). A mismatch is an error that
+ * names the arguments at fault and gives the current schema, so the Bot calls it again the new way.
+ */
+function checkedTool(tool: AnyServerTool): AnyServerTool {
+  const schema = tool.inputSchema;
+  if (!schema || !tool.execute || !("~standard" in schema)) return tool;
+  const { execute } = tool;
+  return {
+    ...tool,
+    // The engine's own check says too little; this one runs in `execute`.
+    inputSchema: z.looseObject({}),
+    execute: async (args, context) => {
+      const checked = await schema["~standard"].validate(args);
+      if (!checked.issues) return execute(checked.value, context);
+      const problems = checked.issues.map((issue: Issue) => {
+        const path = (issue.path ?? []).map((key) =>
+          String(typeof key === "object" ? key.key : key),
+        );
+        return path.length > 0 ? `${path.join(".")}: ${issue.message}` : issue.message;
+      });
+      return {
+        error:
+          `Invalid arguments for ${tool.name} (${problems.join("; ")}). Call ${tool.name} again ` +
+          `with arguments that match its current definition: ` +
+          JSON.stringify(convertSchemaToJsonSchema(schema)),
+      };
+    },
+  };
+}
+
+/** A tool the Prompt start sent that the code no longer has: it answers that it is gone. */
+const retiredTool = (stored: PromptStartTool) =>
+  toolDefinition({
+    name: stored.name,
+    description: stored.description,
+    inputSchema: z.object({}).passthrough(),
+  }).server(async () => ({
+    error:
+      `${stored.name} is no longer available (a deploy removed it, or the feature behind it is ` +
+      "off). Don't call it again; use another tool for the job, or tell the user it can't be done.",
+  }));
 
 /**
  * The Bot's memory block as the Turn starts (ADR 0022), read once from the Computer as a Computer

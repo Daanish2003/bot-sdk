@@ -13,6 +13,15 @@ import { nextSlot } from "./schedule";
 import { newestTimeZone } from "./store";
 import { defaultTimeZone, formatterIn, knownZone } from "./time-zone";
 
+/** The Bot's tool that saves a Routine for the user's Approval (#538). */
+export const createRoutineToolName = "create_routine";
+
+/** The Bot's tool that changes one of its Routines (#538). */
+export const updateRoutineToolName = "update_routine";
+
+/** The Bot's tool that deletes one of its Routines, with no OK (#538). */
+export const deleteRoutineToolName = "delete_routine";
+
 /** The runner job of one scheduled fire of a Routine (`routine-fire.ts`). */
 export const routineFireJobName = "bot.routine_fire";
 
