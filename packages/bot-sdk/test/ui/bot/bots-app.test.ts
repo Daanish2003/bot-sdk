@@ -50,6 +50,7 @@ function seed(queryClient: QueryClient, client: BotSdkClient) {
     conversationId: "c1",
     messages: [],
     turns: [],
+    warmings: [],
   });
 }
 

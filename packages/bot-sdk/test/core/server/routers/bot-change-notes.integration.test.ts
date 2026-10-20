@@ -13,7 +13,7 @@ import {
   systemClock,
 } from "../../../../plugins/runner/server/jobs/in-process";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
-import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
+import { createFakeAdapter, round, text, toolCall, withUsage } from "../../../support/fake-adapter";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
@@ -179,6 +179,43 @@ describe("Change notes", () => {
     const third = newestWith(fake.calls, "turn three");
     expect(third).toContain("Memory added (Profile): Lives in Berlin");
     expect(third).not.toContain("Likes");
+  });
+
+  it("still work after a mid-Turn Summary: the stored input is re-sent, own writes stay seen", async () => {
+    const { fake, computerFake, client, botId } = await botWith([
+      // The Step's input passes 75% of the context window, so a Summary comes before the next.
+      withUsage(
+        round(
+          toolCall({
+            name: "write",
+            input: { path: "memory/profile.md", content: "- Prefers short replies\n- Likes tea\n" },
+          }),
+        ),
+        { promptTokens: 800_000, completionTokens: 10, totalTokens: 800_010 },
+      ),
+      round(text("The user asked for tea notes; I saved that they like tea.")),
+      round(),
+      round(),
+    ]);
+    computerFake.files.set(profilePath(botId), encode("- Prefers short replies\n"));
+
+    await send(client, botId, "turn one");
+    const [first] = await turnsOf(botId);
+    const afterSummary = turnCalls(fake.calls).find((call) =>
+      String(messagesOf(call)[0]?.content).includes("[Summary of your conversation so far]"),
+    );
+    // The new first message, then the Turn's stored input as it was sent.
+    expect(messagesOf(afterSummary)[1]).toEqual(first!.input![0]);
+
+    computerFake.files.set(
+      profilePath(botId),
+      encode("- Prefers short replies\n- Likes tea\n- Lives in Berlin\n"),
+    );
+    await send(client, botId, "turn two");
+
+    const second = newestWith(fake.calls, "turn two");
+    expect(second).toContain("Memory added (Profile): Lives in Berlin");
+    expect(second).not.toContain("Likes");
   });
 
   it("note a Routine created, approved and deleted, once each", async () => {

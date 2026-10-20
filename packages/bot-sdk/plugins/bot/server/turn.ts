@@ -30,7 +30,14 @@ import { capText, computerOf, computerPrompt, spillPath, spillThreshold } from "
 import { type TodoItem, todoList } from "./helper";
 import { helperTools } from "./helper-tools";
 import { type LoopKit, type LoopResult, type LoopSetup, runLoop } from "./loop";
-import { definitionsOf, loopPromptStart, previousTurnCall, promptStartFor } from "./prompt-start";
+import {
+  definitionsOf,
+  loopPromptStart,
+  previousTurnCall,
+  type PromptStartParts,
+  promptStartFor,
+} from "./prompt-start";
+import { historyFrom, summaryOf, writeSummary } from "./summary";
 import { botMessages, findBot, textParts, toBotMessage, turnTimeLimitMs } from "./store";
 import {
   createRoutineToolName,
@@ -767,6 +774,7 @@ function todoNotice(todo: TodoItem[], stored: string | undefined): string {
 function earlierTurns(db: Database | Transaction, turn: TurnFacts) {
   return db
     .select({
+      id: botTurn.id,
       startedAt: botTurn.startedAt,
       input: botTurn.input,
       transcript: botTurn.transcript,
@@ -890,9 +898,9 @@ async function playTurn(
           },
           { yields: false },
         );
-  // History is each earlier Turn's stored input, then its transcript: nothing is rendered again,
-  // so its bytes never change. What an earlier Turn sent is in its input; only what came after the
-  // last such Turn started is new.
+  // History is each earlier Turn's stored input, then its transcript, from the Prompt start's
+  // Summary on (`turnSetup`): nothing is rendered again, so its bytes never change. What an earlier
+  // Turn sent is in its input; only what came after the last such Turn started is new.
   const earlier = await earlierTurns(db, turn);
   const since = earlier.filter((row) => row.input !== null).at(-1)?.startedAt;
   // The newest message holds the Change notes, which are read in the loop's setup: it is rendered
@@ -909,7 +917,8 @@ async function playTurn(
     owner: turn,
     usageKind: "turn",
     sourceId: turn.id,
-    input: earlier.flatMap((row) => [...(row.input ?? []), ...(row.transcript ?? [])]),
+    // The history and the newest message come from the setup, once the Prompt start is chosen.
+    input: [],
     startedAt: turn.startedAt,
     stepLimit: turnStepLimit,
     timeLimitMs: turnTimeLimitMs,
@@ -923,14 +932,16 @@ async function playTurn(
  * The Turn's tools and its Prompt start, given the loop's `kit`: the Bot's latest, or the one its
  * first Turn builds from the system blocks and tools as they are now. Memory and Routines are still
  * read every Turn (ADR 0022, amended), but the Prompt start keeps them as they were when it was
- * built. `db` reads the stored Prompt start.
+ * built. History is the `earlier` Turns from its Summary on. A Summary written mid-Turn builds the
+ * next Prompt start from the tools and the system blocks as this Turn read them at its start.
+ * `db` reads the stored Prompt start.
  */
 async function turnSetup(
   deps: BotSdkContext,
   turn: TurnFacts,
   kit: LoopKit,
   db: Database | Transaction,
-  earlier: EarlierTurn[],
+  earlier: Awaited<ReturnType<typeof earlierTurns>>,
   renderNewest: (changeNotes: string | undefined) => Promise<ModelMessage[]>,
 ): Promise<LoopSetup> {
   const { liveActivity } = kit;
@@ -1056,27 +1067,35 @@ async function turnSetup(
   const searchTools = toolSearchTools(live);
   const sent = [...live.filter(isDirectTool), ...searchTools];
   const [rules, computerBlock] = botSystemPrompts(turn.botId, withComputer);
+  /** What a Prompt start is built from now: by the Bot's first Turn, or by a Summary. */
+  const parts = (): PromptStartParts => ({
+    turn,
+    now: deps.clock(),
+    system: [
+      { name: "rules", text: rules! },
+      ...(computerBlock ? [{ name: "computer", text: computerBlock }] : []),
+      ...(memory ? [{ name: "memory", text: memory }] : []),
+      ...(routines ? [{ name: "routines", text: routines }] : []),
+    ],
+    tools: sent,
+    deferred: definitionsOf(live.filter((tool) => !isDirectTool(tool))),
+    computer: withComputer,
+    memory: Boolean(memory),
+  });
   // Recorded, so a replay sends the row its attempt chose.
   const { id } = await liveActivity("prompt_start", undefined, async (tx) => ({
-    id: await promptStartFor(tx, {
-      turn,
-      now: deps.clock(),
-      system: [
-        { name: "rules", text: rules! },
-        ...(computerBlock ? [{ name: "computer", text: computerBlock }] : []),
-        ...(memory ? [{ name: "memory", text: memory }] : []),
-        ...(routines ? [{ name: "routines", text: routines }] : []),
-      ],
-      tools: sent,
-      deferred: definitionsOf(live.filter((tool) => !isDirectTool(tool))),
-      computer: withComputer,
-      memory: Boolean(memory),
-    }),
+    id: await promptStartFor(tx, parts()),
   }));
   const promptStart = await loopPromptStart(db, id, () => previousTurnCall(deps.db, turn));
+  const summary = await summaryOf(db, id);
+  // A mid-Turn Summary's Prompt start was built from what its Turn read at its start, so what the
+  // Bot saw and did in that Turn counts as seen since it too.
+  const seenSince: EarlierTurn[] = earlier.map((row) =>
+    summary?.kind === "mid_turn" && row.id === summary.turnId ? { ...row, promptStartId: id } : row,
+  );
   // What changed since the Prompt start, from what this Turn read: the memory block and Routines
   // as recorded above, and the live tools.
-  const changeNotes = await changeNotesFor(db, id, earlier, {
+  const changeNotes = await changeNotesFor(db, id, seenSince, {
     memory,
     routines: routines ?? null,
     tools: definitionsOf(live),
@@ -1086,6 +1105,11 @@ async function turnSetup(
   const retired = promptStart.tools.filter((tool) => !known.has(tool.name)).map(retiredTool);
   return {
     promptStart,
+    history: historyFrom(earlier, summary),
+    summarize: {
+      write: (tx, prose) => writeSummary(tx, { parts: parts(), prose, kind: "mid_turn" }),
+      load: (summarized) => loopPromptStart(db, summarized, async () => undefined),
+    },
     tools: [...[...live, ...searchTools].map(checkedTool), ...retired],
     ended: () => endTurn,
     newest: await renderNewest(changeNotes),

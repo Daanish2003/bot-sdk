@@ -122,6 +122,7 @@ export const botsMessages = {
     percent: number;
     cost: string;
   }) => `Step ${number} · ${percent}% cached · ${cost}`,
+  "bots.cacheWarmed": ({ cost }: { cost: string }) => `Cache warmed · ${cost}`,
   "bots.cacheRead": "Read from cache",
   "bots.cacheWritten": "Written to cache",
   "bots.cacheMissed": "Cache miss (a bug)",

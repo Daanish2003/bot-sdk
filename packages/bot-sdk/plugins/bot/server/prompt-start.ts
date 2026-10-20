@@ -70,9 +70,11 @@ const deferredHeader = `[Deferred tools: call ${describeToolName} with the name 
 export function listedToolNames(firstMessage: string): Set<string> {
   const start = firstMessage.indexOf(`${toolsHeader}\n`);
   if (start < 0) return new Set();
+  const end = firstMessage.indexOf("\n\n[Summary of your conversation so far]");
   return new Set(
     firstMessage
-      .slice(start)
+      // The Summary, when there is one, follows the tool lists.
+      .slice(start, end < 0 ? undefined : end)
       .split("\n")
       .flatMap((line) => /^([^\s:]+): /.exec(line)?.[1] ?? []),
   );
@@ -92,7 +94,7 @@ const builtTime: Intl.DateTimeFormatOptions = {
  * The first message: the Bot's environment (its name, the user's time zone, when the Prompt start
  * was built, and which of Computer, Memory and Helpers are on, with their directories), then every
  * tool's name with the first sentence of its description: the tools every call sends, then the
- * deferred ones, which need `describe_tool` first.
+ * deferred ones, which need `describe_tool` first, then the Summary when there is one.
  */
 function firstMessageOf({
   botId,
@@ -103,6 +105,7 @@ function firstMessageOf({
   memory,
   tools,
   deferred,
+  summary,
 }: {
   botId: string;
   name: string;
@@ -112,6 +115,7 @@ function firstMessageOf({
   memory: boolean;
   tools: PromptStartTool[];
   deferred: PromptStartTool[];
+  summary: string | undefined;
 }): string {
   const environment = [
     "[Your environment]",
@@ -126,12 +130,15 @@ function firstMessageOf({
     computer ? "Helpers: on." : "Helpers: off.",
   ];
   const lineOf = (tool: PromptStartTool) => `${tool.name}: ${firstSentence(tool.description)}`;
+  const summaryLines =
+    summary === undefined ? [] : ["", "[Summary of your conversation so far]", summary];
   return [
     ...environment,
     "",
     toolsHeader,
     ...tools.map(lineOf),
     ...(deferred.length > 0 ? ["", deferredHeader, ...deferred.map(lineOf)] : []),
+    ...summaryLines,
   ].join("\n");
 }
 
@@ -156,6 +163,20 @@ export type PromptStartParts = {
   memory: boolean;
 };
 
+/** The id of the Bot's latest Prompt start, or `undefined` before its first Turn builds one. */
+export async function latestPromptStartId(
+  db: Database | Transaction,
+  botId: string,
+): Promise<string | undefined> {
+  const [latest] = await db
+    .select({ id: botPromptStart.id })
+    .from(botPromptStart)
+    .where(eq(botPromptStart.botId, botId))
+    .orderBy(desc(botPromptStart.builtAt), desc(botPromptStart.id))
+    .limit(1);
+  return latest?.id;
+}
+
 /**
  * The id of the Prompt start a Turn sends, in `tx`: the Bot's latest, or, for its first Turn, one
  * built from `parts` and stored. It is set on the Turn's row. Call it in a recorded activity, so a
@@ -163,21 +184,54 @@ export type PromptStartParts = {
  */
 export async function promptStartFor(tx: Transaction, parts: PromptStartParts): Promise<string> {
   const { turn } = parts;
-  const [latest] = await tx
-    .select({ id: botPromptStart.id })
-    .from(botPromptStart)
-    .where(eq(botPromptStart.botId, turn.botId))
-    .orderBy(desc(botPromptStart.builtAt), desc(botPromptStart.id))
-    .limit(1);
-  const id = latest?.id ?? (await buildPromptStart(tx, parts));
+  const id = (await latestPromptStartId(tx, turn.botId)) ?? (await buildPromptStart(tx, parts));
   await tx.update(botTurn).set({ promptStartId: id }).where(eq(botTurn.id, turn.id));
   return id;
 }
 
-async function buildPromptStart(tx: Transaction, parts: PromptStartParts): Promise<string> {
+/**
+ * Builds and stores a Prompt start from `parts`, its first message ending with `summary` when
+ * given, and returns its id.
+ */
+export async function buildPromptStart(
+  tx: Transaction,
+  parts: PromptStartParts,
+  summary?: { id: string; text: string },
+): Promise<string> {
   const { turn } = parts;
   const [owner] = await tx.select({ name: bot.name }).from(bot).where(eq(bot.id, turn.botId));
-  // The user's zone is the newest user Message's before the Turn, as for the time notice.
+  const tools = definitionsOf(parts.tools);
+  const firstMessage = firstMessageOf({
+    botId: turn.botId,
+    name: owner?.name ?? "",
+    zone: await userZoneAt(tx, turn),
+    builtAt: parts.now,
+    computer: parts.computer,
+    memory: parts.memory,
+    tools,
+    deferred: parts.deferred,
+    summary: summary?.text,
+  });
+  const id = uuidv7();
+  await tx.insert(botPromptStart).values({
+    id,
+    botId: turn.botId,
+    builtAt: parts.now,
+    summaryId: summary?.id ?? null,
+    tools,
+    sections: [
+      ...parts.system.map((block) => sectionOf(block.name, block.text)),
+      sectionOf(firstMessageSection, firstMessage),
+    ],
+  });
+  return id;
+}
+
+/** The user's time zone for a Turn: the newest user Message's before it, as for the time notice. */
+export async function userZoneAt(
+  tx: Transaction,
+  turn: Pick<PromptStartParts["turn"], "conversationId" | "startedAt">,
+): Promise<string> {
   const [newestUser] = await tx
     .select({ parts: message.parts })
     .from(message)
@@ -190,30 +244,7 @@ async function buildPromptStart(tx: Transaction, parts: PromptStartParts): Promi
     )
     .orderBy(desc(message.createdAt), desc(message.id))
     .limit(1);
-  const tools = definitionsOf(parts.tools);
-  const firstMessage = firstMessageOf({
-    botId: turn.botId,
-    name: owner?.name ?? "",
-    zone: knownZone(newestUser?.parts.timeZone),
-    builtAt: parts.now,
-    computer: parts.computer,
-    memory: parts.memory,
-    tools,
-    deferred: parts.deferred,
-  });
-  const id = uuidv7();
-  await tx.insert(botPromptStart).values({
-    id,
-    botId: turn.botId,
-    builtAt: parts.now,
-    summaryId: null,
-    tools,
-    sections: [
-      ...parts.system.map((block) => sectionOf(block.name, block.text)),
-      sectionOf(firstMessageSection, firstMessage),
-    ],
-  });
-  return id;
+  return knownZone(newestUser?.parts.timeZone);
 }
 
 /** The stored Prompt start `id`, as a loop sends it. */

@@ -3,6 +3,7 @@ import { type AnyPgColumn, index, jsonb, timestamp, uuid } from "drizzle-orm/pg-
 
 import { chatSchema } from "../../../../core/server/db/chat-schema";
 import { bot } from "./bot";
+import { botSummary } from "./bot-summary";
 
 /** A tool's definition exactly as a Prompt start sends it: its name, description and JSON Schema. */
 export type PromptStartTool = { name: string; description: string; inputSchema?: JSONSchema };
@@ -25,7 +26,9 @@ export const botPromptStart = chatSchema.table(
       .references((): AnyPgColumn => bot.id, { onDelete: "cascade" }),
     builtAt: timestamp("built_at").notNull(),
     /** The Summary its first message holds. Null for the Bot's first Prompt start. */
-    summaryId: uuid("summary_id"),
+    summaryId: uuid("summary_id").references((): AnyPgColumn => botSummary.id, {
+      onDelete: "cascade",
+    }),
     /** The tool definitions sent, sorted by name. */
     tools: jsonb("tools").$type<PromptStartTool[]>().notNull(),
     /** The system blocks in their fixed order, then the first message. */
