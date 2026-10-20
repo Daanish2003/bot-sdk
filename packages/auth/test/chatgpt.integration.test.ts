@@ -153,7 +153,7 @@ describe("the chatgpt provider", () => {
       "https://auth.openai.com/api/accounts/authorize",
     );
     expect(authorize.searchParams.get("client_id")).toBe("oaiapp_test");
-    expect(authorize.searchParams.get("redirect_uri")).toBe(`${BASE}/auth/callback`);
+    expect(authorize.searchParams.get("redirect_uri")).toBe("http://127.0.0.1:3000/auth/callback");
     expect(authorize.searchParams.get("code_challenge_method")).toBe("S256");
     expect(authorize.searchParams.get("resource")).toBe("https://api.openai.com/v1");
     expect(authorize.searchParams.get("ext_agent_host_id")).toBe("urn:uuid:test-host");
@@ -180,7 +180,7 @@ describe("the chatgpt provider", () => {
     );
 
     expect(callback.headers.get("location")).not.toContain("error");
-    expect(tokenRequest.get("redirect_uri")).toBe(`${BASE}/auth/callback`);
+    expect(tokenRequest.get("redirect_uri")).toBe("http://127.0.0.1:3000/auth/callback");
     expect(tokenRequest.get("resource")).toBe("https://api.openai.com/v1");
     expect(tokenRequest.get("code_verifier")).toBeTruthy();
     const [linked] = await chatgptRows(userId);

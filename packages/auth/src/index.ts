@@ -123,9 +123,9 @@ export function createAuth(
                 "chatgpt.tokens.use.direct",
               ],
               pkce: true,
-              // The client is registered with this redirect; apps/web forwards it to Better Auth's
-              // callback for the provider (`/api/auth/callback/chatgpt`).
-              redirectURI: `${env.BETTER_AUTH_URL}/auth/callback`,
+              // The client is registered with the 127.0.0.1 form of the app's origin; apps/web's
+              // `/auth/callback` bounces it back to `/api/auth/callback/chatgpt` on BETTER_AUTH_URL.
+              redirectURI: `${env.BETTER_AUTH_URL.replace("//localhost", "//127.0.0.1")}/auth/callback`,
               // Link-only (the `hooks.before` below also refuses sign-in): no user is ever created.
               disableSignUp: true,
               authorizationUrlParams: {

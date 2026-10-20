@@ -8,19 +8,23 @@ describe("chatgptCallbackRedirect", () => {
 
     const response = chatgptCallbackRedirect(
       new Request(`http://127.0.0.1:3001/auth/callback${query}`),
+      "http://localhost:3001",
     );
 
     expect(response.status).toBe(302);
     expect(response.headers.get("location")).toBe(
-      `http://127.0.0.1:3001/api/auth/callback/chatgpt${query}`,
+      `http://localhost:3001/api/auth/callback/chatgpt${query}`,
     );
   });
 
   it("sends a callback with no query as it is", () => {
-    const response = chatgptCallbackRedirect(new Request("http://127.0.0.1:3001/auth/callback"));
+    const response = chatgptCallbackRedirect(
+      new Request("http://127.0.0.1:3001/auth/callback"),
+      "http://localhost:3001",
+    );
 
     expect(response.headers.get("location")).toBe(
-      "http://127.0.0.1:3001/api/auth/callback/chatgpt",
+      "http://localhost:3001/api/auth/callback/chatgpt",
     );
   });
 });
