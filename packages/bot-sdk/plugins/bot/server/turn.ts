@@ -28,7 +28,13 @@ import { capText, computerOf, computerPrompt, spillPath, spillThreshold } from "
 import { type TodoItem, todoList } from "./helper";
 import { helperTools } from "./helper-tools";
 import { type LoopKit, type LoopResult, type LoopSetup, runLoop } from "./loop";
-import { loopPromptStart, previousTurnCall, promptStartFor } from "./prompt-start";
+import {
+  loopPromptStart,
+  previousTurnCall,
+  type PromptStartParts,
+  promptStartFor,
+} from "./prompt-start";
+import { historyFrom, summaryOf, writeSummary } from "./summary";
 import { botMessages, findBot, textParts, toBotMessage, turnTimeLimitMs } from "./store";
 import { deleteRoutine, routinesPrompt, saveRoutine, updateRoutine } from "./routine";
 import { formatterIn, knownZone, timeNotice } from "./time-zone";
@@ -764,7 +770,12 @@ function todoNotice(todo: TodoItem[], stored: string | undefined): string {
 /** The Bot's Turns before `turn`, in Turn order: what its history is made of. */
 function earlierTurns(db: Database | Transaction, turn: TurnFacts) {
   return db
-    .select({ startedAt: botTurn.startedAt, input: botTurn.input, transcript: botTurn.transcript })
+    .select({
+      id: botTurn.id,
+      startedAt: botTurn.startedAt,
+      input: botTurn.input,
+      transcript: botTurn.transcript,
+    })
     .from(botTurn)
     .where(and(eq(botTurn.botId, turn.botId), lt(botTurn.startedAt, turn.startedAt)))
     .orderBy(asc(botTurn.startedAt), asc(botTurn.id));
@@ -881,9 +892,9 @@ async function playTurn(
           },
           { yields: false },
         );
-  // History is each earlier Turn's stored input, then its transcript: nothing is rendered again,
-  // so its bytes never change. What an earlier Turn sent is in its input; only what came after the
-  // last such Turn started is new.
+  // History is each earlier Turn's stored input, then its transcript, from the Prompt start's
+  // Summary on (`turnSetup`): nothing is rendered again, so its bytes never change. What an earlier
+  // Turn sent is in its input; only what came after the last such Turn started is new.
   const earlier = await earlierTurns(db, turn);
   const since = earlier.filter((row) => row.input !== null).at(-1)?.startedAt;
   const rendered = await newestInput(db, turn, since, todo, cutTrigger);
@@ -897,16 +908,13 @@ async function playTurn(
     owner: turn,
     usageKind: "turn",
     sourceId: turn.id,
-    input: [
-      ...earlier.flatMap((row) => [...(row.input ?? []), ...(row.transcript ?? [])]),
-      ...input,
-    ],
+    input,
     startedAt: turn.startedAt,
     stepLimit: turnStepLimit,
     timeLimitMs: turnTimeLimitMs,
     plainTextReminder: undeliveredTextReminder,
     attempt,
-    setup: (kit) => turnSetup(deps, turn, kit, db),
+    setup: (kit) => turnSetup(deps, turn, kit, db, earlier),
   });
 }
 
@@ -914,13 +922,16 @@ async function playTurn(
  * The Turn's tools and its Prompt start, given the loop's `kit`: the Bot's latest, or the one its
  * first Turn builds from the system blocks and tools as they are now. Memory and Routines are still
  * read every Turn (ADR 0022, amended), but the Prompt start keeps them as they were when it was
- * built. `db` reads the stored Prompt start.
+ * built. History is the `earlier` Turns from its Summary on. A Summary written mid-Turn builds the
+ * next Prompt start from the system blocks and tools as they are then. `db` reads the stored
+ * Prompt start.
  */
 async function turnSetup(
   deps: BotSdkContext,
   turn: TurnFacts,
   kit: LoopKit,
   db: Database | Transaction,
+  earlier: Awaited<ReturnType<typeof earlierTurns>>,
 ): Promise<LoopSetup> {
   const { liveActivity } = kit;
   let endTurn = false;
@@ -1041,24 +1052,31 @@ async function turnSetup(
     ...(withComputer ? [...kit.computerTools, ...helperTools(deps, turn, liveActivity)] : []),
   ];
   const [rules, computerBlock] = botSystemPrompts(turn.botId, withComputer);
+  /** What a Prompt start is built from now: by the Bot's first Turn, or by a Summary. */
+  const parts = (): PromptStartParts => ({
+    turn,
+    now: deps.clock(),
+    system: [
+      { name: "rules", text: rules! },
+      ...(computerBlock ? [{ name: "computer", text: computerBlock }] : []),
+      ...(memory ? [{ name: "memory", text: memory }] : []),
+      ...(routines ? [{ name: "routines", text: routines }] : []),
+    ],
+    tools,
+    computer: withComputer,
+    memory: Boolean(memory),
+  });
   // Recorded, so a replay sends the row its attempt chose.
   const { id } = await liveActivity("prompt_start", undefined, async (tx) => ({
-    id: await promptStartFor(tx, {
-      turn,
-      now: deps.clock(),
-      system: [
-        { name: "rules", text: rules! },
-        ...(computerBlock ? [{ name: "computer", text: computerBlock }] : []),
-        ...(memory ? [{ name: "memory", text: memory }] : []),
-        ...(routines ? [{ name: "routines", text: routines }] : []),
-      ],
-      tools,
-      computer: withComputer,
-      memory: Boolean(memory),
-    }),
+    id: await promptStartFor(tx, parts()),
   }));
   return {
     promptStart: await loopPromptStart(db, id, () => previousTurnCall(deps.db, turn)),
+    history: historyFrom(earlier, await summaryOf(db, id)),
+    summarize: {
+      write: (tx, prose) => writeSummary(tx, { parts: parts(), prose, kind: "mid_turn" }),
+      load: (summarized) => loopPromptStart(db, summarized, async () => undefined),
+    },
     tools,
     ended: () => endTurn,
   };

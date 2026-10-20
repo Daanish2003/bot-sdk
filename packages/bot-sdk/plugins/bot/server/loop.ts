@@ -15,6 +15,7 @@ import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { addUsage, promptCharactersOf, reportedUsageOf } from "../../models/server/run-usage";
 import type { ModelUsage } from "../../models/server/meter";
 import { parseModelId } from "../../models/shared/models";
+import { modelsDevSnapshot } from "../../models/shared/models-snapshot";
 import type { MessageUsage } from "../../models/shared/usage";
 import {
   type ComputerHandle,
@@ -50,6 +51,7 @@ import {
 import { pruneScreenshots, resolveScreenshots } from "./desktop-tools";
 import { type LoopPromptStart, type PreviousCall, promptHashesOf } from "./prompt-start";
 import { computerRebuildSeenAt, markComputerRebuildSeen } from "./store";
+import { midTurnNote, summarizeInstruction } from "./summary";
 
 /** What a loop lends the tools of whoever runs it: a Turn today, a Helper next. */
 export type LoopKit = {
@@ -110,8 +112,22 @@ export type LoopSetup = {
        */
       promptStart: LoopPromptStart;
       systemPrompts?: never;
+      /** The messages sent between the first message and the loop's input. */
+      history?: ModelMessage[];
+      /**
+       * Lets the loop summarize mid-Turn (slide 34): before a Step whose previous Step's input
+       * passed `summaryThreshold` of the model's context window. `write` stores the Summary's
+       * `prose` in `tx` with a new Prompt start and returns its id, which `load` reads.
+       */
+      summarize?: {
+        write: (tx: Transaction, prose: string) => Promise<string>;
+        load: (id: string) => Promise<LoopPromptStart>;
+      };
     }
 );
+
+/** The share of the model's context window past which a loop summarizes before its next Step. */
+export const summaryThreshold = 0.75;
 
 export type LoopOptions = {
   /** Whose Model the loop calls and whose Computer it works. */
@@ -190,6 +206,7 @@ type ModelCallRecorder = (
   usage: MessageUsage,
   reportedCost: number | undefined,
   promptHashes: PromptHash[] | undefined,
+  kind?: ModelUsage["kind"],
 ) => Promise<() => void>;
 
 /**
@@ -257,9 +274,9 @@ export async function runLoop(
         : models.freeModelMeter(owner.userId, owner.model);
       return {
         adapter: models.adapterForCall(owner.model, call),
-        record: (tx, usage, reportedCost, promptHashes) =>
+        record: (tx, usage, reportedCost, promptHashes, kind = options.usageKind) =>
           meter.recordIn(tx, {
-            kind: options.usageKind,
+            kind,
             usage,
             reportedCost,
             sourceId: options.sourceId,
@@ -272,6 +289,62 @@ export async function runLoop(
   let promptStart: LoopPromptStart | undefined;
   /** The model call before the next one, once known: `null` when there was none. */
   let previousCall: PreviousCall | null | undefined;
+  /** The input the last model call reported, until a Summary: what the next Step checks. */
+  let lastInput: number | undefined;
+  /** The options of the last model call, which a summary call sends again with its instruction. */
+  let lastChatOptions: TextOptions | undefined;
+  /**
+   * After a mid-Turn Summary, where its note sits in the loop's messages: the calls after it send
+   * the new first message, the loop's own input, then the messages from the note on.
+   */
+  let summarizedAt: number | undefined;
+  /**
+   * An activity that bills a model call in its Checkpoint's transaction: what `write` hands
+   * `onCommit` fires once that has committed, and never on a replay.
+   */
+  const billing = async <T>(
+    name: string,
+    write: (tx: Transaction, onCommit: (fire: () => void) => void) => Promise<T>,
+  ): Promise<T> => {
+    let fire: (() => void) | undefined;
+    let result: T;
+    try {
+      result = await ctx.activity(name, (tx) =>
+        write(tx, (onUsage) => {
+          fire = onUsage;
+        }),
+      );
+    } catch (caught) {
+      // A yield is thrown once the Checkpoint has committed: its next attempt replays it, so it
+      // fires now or never.
+      if (caught instanceof WorkflowYieldedError) fire?.();
+      throw caught;
+    }
+    fire?.();
+    return result;
+  };
+  /** What a model call sends of the loop's `messages`, its first message first. */
+  const sendable = (messages: ModelMessage[]): ModelMessage[] =>
+    promptStart && summarizedAt !== undefined
+      ? [
+          { role: "user", content: promptStart.firstMessage },
+          ...options.input,
+          ...messages.slice(summarizedAt),
+        ]
+      : messages;
+  /**
+   * A model call's options as sent: with a Prompt start, its stored tool definitions (never the
+   * live tools' own) and its system blocks, and the messages as `sendable` gives them.
+   */
+  const sentOptions = (chatOptions: TextOptions): TextOptions =>
+    promptStart
+      ? {
+          ...chatOptions,
+          tools: promptStart.tools as TextOptions["tools"],
+          systemPrompts: promptStart.system.map((block) => block.text),
+          messages: sendable(chatOptions.messages as ModelMessage[]),
+        }
+      : chatOptions;
 
   // The model call as an activity: replayed, it plays the recorded chunks without calling the Model.
   // The call runs outside a transaction; its bill is the next activity, written in that activity's
@@ -282,16 +355,14 @@ export async function runLoop(
     model: parseModelId(owner.model)?.modelId ?? owner.model,
     chatStream: async function* (chatOptions: TextOptions) {
       steps += 1;
+      lastChatOptions = chatOptions;
       let recorded: RecordedModelCall;
       try {
         recorded = await ctx.activity("model", async (): Promise<RecordedModelCall> => {
           // Read off the clock too: a timer that is due may not have fired yet.
           if (attempt && (expired || timeLeftMs() <= 0)) timeUp();
           abortController.signal.throwIfAborted();
-          // A Prompt start's stored tool definitions go to the Model, never the live tools' own.
-          const sent = promptStart
-            ? { ...chatOptions, tools: promptStart.tools as TextOptions["tools"] }
-            : chatOptions;
+          const sent = sentOptions(chatOptions);
           let hashes: PromptHash[] | undefined;
           if (promptStart) {
             if (previousCall === undefined)
@@ -330,29 +401,20 @@ export async function runLoop(
           }
           // A call cut off before its end records nothing and bills nothing; a resume calls it again.
           abortController.signal.throwIfAborted();
-          const usage = callUsage(deps, provider, chunks, chatOptions.messages as ModelMessage[]);
+          const usage = callUsage(deps, provider, chunks, sent.messages as ModelMessage[]);
           return { chunks, usage: usage ?? null, ...(hashes ? { hashes } : {}) };
         });
         if (promptStart && recorded.hashes) {
           previousCall = { promptStartId: promptStart.id, hashes: recorded.hashes };
         }
+        lastInput = recorded.usage?.usage.input;
         const bill = recorded.usage;
         if (bill) {
-          let fire: (() => void) | undefined;
-          try {
-            await ctx.activity("bill", async (tx) => {
-              const { record } = await liveCall();
-              fire = await record(tx, bill.usage, bill.reportedCost, recorded.hashes);
-              return null;
-            });
-          } catch (caught) {
-            // A yield is thrown once the bill's Checkpoint has committed: its next attempt replays
-            // the bill, so it fires now or never.
-            if (caught instanceof WorkflowYieldedError) fire?.();
-            throw caught;
-          }
-          // Only once the bill has committed, and never on a replay.
-          fire?.();
+          await billing("bill", async (tx, onCommit) => {
+            const { record } = await liveCall();
+            onCommit(await record(tx, bill.usage, bill.reportedCost, recorded.hashes));
+            return null;
+          });
           billed.push(bill.usage);
         }
       } catch (caught) {
@@ -369,6 +431,67 @@ export async function runLoop(
       yield* recorded.chunks;
     },
   } as unknown as AnyTextAdapter;
+
+  /** How the setup lets the loop summarize mid-Turn, if it does. */
+  let summarize: Extract<LoopSetup, { promptStart: LoopPromptStart }>["summarize"];
+  const contextWindow = modelsDevSnapshot[owner.model]?.contextWindow ?? null;
+  /**
+   * Before a Step, with `all` the messages it would send: when the previous Step's input passed
+   * `summaryThreshold` of the context window, a Summary (slide 34). The summary call sends the same
+   * Prompt start and history with `summarizeInstruction` after them, as the recorded activity
+   * `summary`, so a replay reuses it; its bill and the Summary with its new Prompt start commit in
+   * one Checkpoint. The Steps after it send the new Prompt start, the loop's own input, then the
+   * messages from the note on. Returns whether it summarized.
+   */
+  const summarizeIfFull = async (all: ModelMessage[]): Promise<boolean> => {
+    if (!summarize || !promptStart || !lastChatOptions || !contextWindow) return false;
+    if (lastInput === undefined || lastInput <= summaryThreshold * contextWindow) return false;
+    const { write, load } = summarize;
+    const sent = sentOptions({ ...lastChatOptions, messages: all });
+    const written = await ctx.activity(
+      "summary",
+      async (): Promise<{ prose: string; usage: RecordedModelCall["usage"] }> => {
+        if (attempt && (expired || timeLeftMs() <= 0)) timeUp();
+        abortController.signal.throwIfAborted();
+        const messages: ModelMessage[] = [
+          ...(sent.messages as ModelMessage[]),
+          { role: "user", content: summarizeInstruction },
+        ];
+        const chunks: StreamChunk[] = [];
+        inLiveCall = true;
+        try {
+          const { adapter } = await liveCall();
+          const call = {
+            ...sent,
+            messages: await resolveScreenshots(deps.blobStore, pruneScreenshots(messages)),
+          };
+          for await (const chunk of adapter.chatStream(call)) chunks.push(withoutRaw(chunk));
+        } finally {
+          inLiveCall = false;
+        }
+        abortController.signal.throwIfAborted();
+        const failed = chunks.find((chunk) => chunk.type === EventType.RUN_ERROR);
+        if (failed) throw new Error(`The summary call failed: ${failed.message}`);
+        const prose = chunks
+          .map((chunk) => (chunk.type === EventType.TEXT_MESSAGE_CONTENT ? chunk.delta : ""))
+          .join("");
+        return { prose, usage: callUsage(deps, provider, chunks, messages) };
+      },
+    );
+    const id = await billing("summary:write", async (tx, onCommit) => {
+      const bill = written.usage;
+      if (bill) {
+        const { record } = await liveCall();
+        onCommit(await record(tx, bill.usage, bill.reportedCost, undefined, "summary"));
+      }
+      return write(tx, written.prose);
+    });
+    promptStart = await load(id);
+    summarizedAt = all.length;
+    // The next Step's check reads its own input, which no longer holds the summarized Steps.
+    lastInput = undefined;
+    return true;
+  };
 
   /**
    * One tool call. A call that throws recorded nothing: it stays unanswered and ends the attempt,
@@ -574,11 +697,16 @@ export async function runLoop(
     const setup = await options.setup({ liveActivity, liveRequest, computerTools, computerCall });
     const { tools, ended = () => false } = setup;
     promptStart = setup.promptStart;
-    const systemPrompts = promptStart
-      ? promptStart.system.map((block) => block.text)
+    summarize = setup.promptStart ? setup.summarize : undefined;
+    const systemPrompts = setup.promptStart
+      ? setup.promptStart.system.map((block) => block.text)
       : setup.systemPrompts;
-    const input: ModelMessage[] = promptStart
-      ? [{ role: "user", content: promptStart.firstMessage }, ...options.input]
+    const input: ModelMessage[] = setup.promptStart
+      ? [
+          { role: "user", content: setup.promptStart.firstMessage },
+          ...(setup.history ?? []),
+          ...options.input,
+        ]
       : options.input;
     let reminded = false;
     for (;;) {
@@ -599,13 +727,19 @@ export async function runLoop(
             onStart: (middlewareCtx) => {
               engine = middlewareCtx;
             },
-            // Before each model call: what the inbox holds joins the input, and stays in it.
+            // Before each model call: what the inbox holds joins the input, and stays in it. Then,
+            // past the threshold, a Summary, whose note stays in it too.
             onConfig: async (middlewareCtx, config) => {
+              if (middlewareCtx.phase !== "beforeModel") return;
               const { inbox } = options;
-              if (!inbox || middlewareCtx.phase !== "beforeModel") return;
-              let arrived: string[];
+              const added: ModelMessage[] = [];
               try {
-                arrived = await ctx.activity("inbox", inbox);
+                if (inbox) {
+                  const arrived = await ctx.activity("inbox", inbox);
+                  added.push(...arrived.map((content) => ({ role: "user" as const, content })));
+                }
+                const all = [...(config.providerMessages ?? config.messages), ...added];
+                if (await summarizeIfFull(all)) added.push({ role: "user", content: midTurnNote });
               } catch (caught) {
                 // It recorded nothing: the job retries it, as for a model call's Checkpoint.
                 if (!abortController.signal.aborted) {
@@ -614,11 +748,10 @@ export async function runLoop(
                 }
                 throw caught;
               }
-              if (arrived.length === 0) return;
-              const turns = arrived.map((content) => ({ role: "user" as const, content }));
+              if (added.length === 0) return;
               return {
-                messages: [...config.messages, ...turns],
-                providerMessages: [...(config.providerMessages ?? config.messages), ...turns],
+                messages: [...config.messages, ...added],
+                providerMessages: [...(config.providerMessages ?? config.messages), ...added],
               };
             },
             onShouldContinue: (_middlewareCtx, state) => {
