@@ -28,7 +28,7 @@ import {
   turnStarted,
   waitingIn,
 } from "./router";
-import { changeNotesFor } from "./change-notes";
+import { type EarlierTurn, changeNotesFor } from "./change-notes";
 import type { PromptStartTool } from "./db/bot-prompt-start";
 import { cancelCheckInTool, pendingCheckIns, saveCheckIn } from "./check-in";
 import { capText, computerOf, computerPrompt, spillPath, spillThreshold } from "./computer-tools";
@@ -37,7 +37,15 @@ import { helperTools } from "./helper-tools";
 import { type LoopKit, type LoopResult, type LoopSetup, runLoop } from "./loop";
 import { definitionsOf, loopPromptStart, previousTurnCall, promptStartFor } from "./prompt-start";
 import { botMessages, findBot, textParts, toBotMessage, turnTimeLimitMs } from "./store";
-import { deleteRoutine, routinesPrompt, saveRoutine, updateRoutine } from "./routine";
+import {
+  createRoutineToolName,
+  deleteRoutine,
+  deleteRoutineToolName,
+  routinesPrompt,
+  saveRoutine,
+  updateRoutine,
+  updateRoutineToolName,
+} from "./routine";
 import { formatterIn, knownZone, timeNotice } from "./time-zone";
 import { webSearchTool } from "./web-search";
 
@@ -46,15 +54,6 @@ export const turnStepLimit = 10;
 
 /** The Bot's tool for reaching the user: the only way it does. */
 export const sendToUserToolName = "send_to_user";
-
-/** The Bot's tool that saves a Routine for the user's Approval (#538). */
-export const createRoutineToolName = "create_routine";
-
-/** The Bot's tool that changes one of its Routines (#538). */
-export const updateRoutineToolName = "update_routine";
-
-/** The Bot's tool that deletes one of its Routines, with no OK (#538). */
-export const deleteRoutineToolName = "delete_routine";
 
 /** The Bot tool that sets a Check-in for itself, with no Approval (#540). */
 export const setCheckInToolName = "set_check_in";
@@ -771,7 +770,12 @@ function todoNotice(todo: TodoItem[], stored: string | undefined): string {
 /** The Bot's Turns before `turn`, in Turn order: what its history is made of. */
 function earlierTurns(db: Database | Transaction, turn: TurnFacts) {
   return db
-    .select({ startedAt: botTurn.startedAt, input: botTurn.input, transcript: botTurn.transcript })
+    .select({
+      startedAt: botTurn.startedAt,
+      input: botTurn.input,
+      transcript: botTurn.transcript,
+      promptStartId: botTurn.promptStartId,
+    })
     .from(botTurn)
     .where(and(eq(botTurn.botId, turn.botId), lt(botTurn.startedAt, turn.startedAt)))
     .orderBy(asc(botTurn.startedAt), asc(botTurn.id));
@@ -915,7 +919,7 @@ async function playTurn(
     timeLimitMs: turnTimeLimitMs,
     plainTextReminder: undeliveredTextReminder,
     attempt,
-    setup: (kit) => turnSetup(deps, turn, kit, db, renderNewest),
+    setup: (kit) => turnSetup(deps, turn, kit, db, earlier, renderNewest),
   });
 }
 
@@ -930,6 +934,7 @@ async function turnSetup(
   turn: TurnFacts,
   kit: LoopKit,
   db: Database | Transaction,
+  earlier: EarlierTurn[],
   renderNewest: (changeNotes: string | undefined) => Promise<ModelMessage[]>,
 ): Promise<LoopSetup> {
   const { liveActivity } = kit;
@@ -1070,7 +1075,7 @@ async function turnSetup(
   const promptStart = await loopPromptStart(db, id, () => previousTurnCall(deps.db, turn));
   // What changed since the Prompt start, from what this Turn read: the memory block and Routines
   // as recorded above, and the live tools.
-  const changeNotes = await changeNotesFor(db, turn, id, {
+  const changeNotes = await changeNotesFor(db, id, earlier, {
     memory,
     routines: routines ?? null,
     tools: definitionsOf(tools),
@@ -1128,8 +1133,8 @@ const retiredTool = (stored: PromptStartTool) =>
     inputSchema: z.object({}).passthrough(),
   }).server(async () => ({
     error:
-      `${stored.name} is no longer available: a deploy removed it. Don't call it again; use ` +
-      "another tool for the job, or tell the user it can't be done.",
+      `${stored.name} is no longer available (a deploy removed it, or the feature behind it is ` +
+      "off). Don't call it again; use another tool for the job, or tell the user it can't be done.",
   }));
 
 /**

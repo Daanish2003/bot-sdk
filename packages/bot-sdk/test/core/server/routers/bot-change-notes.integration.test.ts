@@ -221,6 +221,24 @@ describe("Change notes", () => {
     expect(timesSent(fake.calls, "Routine created: morning-brief")).toBe(1);
   });
 
+  it("give no note for a Routine call of the Bot's that failed", async () => {
+    const { fake, client, botId } = await botWith([
+      round(
+        toolCall({
+          name: "create_routine",
+          input: { name: "Not A Slug", prompt: "x", schedule: { days: ["mon"], at: "08:00" } },
+        }),
+      ),
+      round(),
+      round(),
+    ]);
+
+    await send(client, botId, "turn one");
+    await send(client, botId, "turn two");
+
+    expect(newestWith(fake.calls, "turn two")).not.toContain("Routine");
+  });
+
   it("note a tool whose definition changed in a deploy, once, and run it against the current schema", async () => {
     const { fake, client, botId } = await botWith([
       round(),
