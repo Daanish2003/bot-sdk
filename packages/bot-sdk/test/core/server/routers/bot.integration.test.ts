@@ -46,7 +46,8 @@ describe("bot.create", () => {
     const created = await client.bot.create({ name: "  Inbox Manager  ", model });
 
     expect(created).toMatchObject({ name: "Inbox Manager", model });
-    expect(await conversationOf(created.id)).toMatchObject({
+    const botConversation = await conversationOf(created.id);
+    expect(botConversation).toMatchObject({
       userId: user.id,
       kind: "bot",
       title: null,
@@ -54,6 +55,7 @@ describe("bot.create", () => {
     });
     await expect(client.bot.get({ botId: created.id })).resolves.toEqual({
       bot: { ...created, turnStatus: null, userTurnStatus: null },
+      conversationId: botConversation!.id,
       messages: [],
       turns: [],
     });
