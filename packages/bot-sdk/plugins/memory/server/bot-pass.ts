@@ -40,7 +40,8 @@ const passPayload = z.object({ turnId: z.string() });
 
 type PassPayload = z.infer<typeof passPayload>;
 
-const importance = z.number().min(1).max(10).optional();
+/** Any number, or none: the code clamps it to 1–10, and takes 5 for none (spec #624). */
+const importance = z.number().nullish();
 
 /** What the pass's Model returns (spec #624). */
 const passReply = z.object({
@@ -364,8 +365,8 @@ function cleanText(text: string): string {
   return cleaned.startsWith("#") ? "" : cleaned;
 }
 
-function roundImportance(value: number | undefined): number {
-  return value === undefined ? defaultImportance : Math.min(10, Math.max(1, Math.round(value)));
+function roundImportance(value: number | null | undefined): number {
+  return value == null ? defaultImportance : Math.min(10, Math.max(1, Math.round(value)));
 }
 
 /**

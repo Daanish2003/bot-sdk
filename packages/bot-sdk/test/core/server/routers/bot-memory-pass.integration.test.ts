@@ -283,6 +283,27 @@ describe("the post-turn memory pass", () => {
     expect(read(ada, "profile.md")).toBe("- Prefers short replies\n");
   });
 
+  it("clamps an importance out of range, and takes 5 for a null one", async () => {
+    const { client, botIds, read } = await botsWith([
+      round(),
+      ops(
+        { op: "add", tier: "log", text: "Lost a sock", importance: 0 },
+        { op: "add", tier: "log", text: "Got married", importance: 12 },
+        { op: "add", tier: "log", text: "Bought bread", importance: null },
+      ),
+    ]);
+    const [ada] = botIds as [string];
+
+    await send(client, ada, "hi");
+    await passesEnded(1);
+
+    expect(read(ada, "log/2030-03.md")).toBe(
+      "- 2030-03-15 (importance 1) Lost a sock\n" +
+        "- 2030-03-15 (importance 10) Got married\n" +
+        "- 2030-03-15 (importance 5) Bought bread\n",
+    );
+  });
+
   it("refuses Profile adds and replaces past the cap, and a line that reads as a heading", async () => {
     const { client, botIds, seed, read } = await botsWith([
       round(),
