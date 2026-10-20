@@ -24,6 +24,7 @@ export function normalizeUsage(provider: string, usage: TokenUsage): RunUsage {
     output: usage.completionTokens,
     reasoning: usage.completionTokensDetails?.reasoningTokens ?? 0,
     cached,
+    cacheWrite: cacheWritten,
   };
 }
 
@@ -35,6 +36,7 @@ export function addUsage(total: RunUsage | undefined, next: RunUsage): RunUsage 
     output: total.output + next.output,
     reasoning: total.reasoning + next.reasoning,
     cached: total.cached + next.cached,
+    cacheWrite: total.cacheWrite + next.cacheWrite,
   };
 }
 

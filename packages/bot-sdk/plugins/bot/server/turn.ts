@@ -864,6 +864,7 @@ async function playTurn(
   return runLoop(deps, ctx, {
     owner: turn,
     usageKind: "turn",
+    sourceId: turn.id,
     input,
     startedAt: turn.startedAt,
     stepLimit: turnStepLimit,

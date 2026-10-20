@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createHookEmitter, type UsageEvent } from "../../../../core/server/chat/hooks";
 import {
   freeMeter,
+  freeModelMeter,
   hostEmbeddingMeter,
   hostModelMeter,
   hostSearchMeter,
@@ -18,7 +19,14 @@ import { insertUser } from "../../../support/users";
 const sonnet = "anthropic:claude-sonnet-5-5";
 // $3 per 1M input tokens and $15 per 1M output tokens, so a token costs as many micros as its price.
 const price = { inputUsdPerMillion: 3, outputUsdPerMillion: 15 };
-const usageOf = { input: 100, output: 20, reasoning: 0, cached: 0, estimated: false };
+const usageOf = {
+  input: 100,
+  output: 20,
+  reasoning: 0,
+  cached: 0,
+  cacheWrite: 0,
+  estimated: false,
+};
 
 async function rowsOf(userId: string) {
   return getTestDb().select().from(usage).where(eq(usage.userId, userId));
@@ -43,6 +51,33 @@ describe("the free meter", () => {
   });
 });
 
+describe("the free meter of a Model call", () => {
+  it("records the call at cost 0 and never refuses it, so a Quota's spend is unchanged", async () => {
+    const user = await insertUser();
+    const { deps, events } = depsWithHook({
+      getQuota: async () => ({ budgetUsd: 0, window: "day" }),
+    });
+    const meter = freeModelMeter(deps, user.id, sonnet);
+    const cachedCall = { ...usageOf, input: 1000, cached: 600, cacheWrite: 200 };
+
+    await meter.record({ kind: "turn", usage: cachedCall, sourceId: "turn-1" });
+
+    expect(meter.onHost).toBe(false);
+    await expect(meter.mayRun()).resolves.toEqual({ ok: true });
+    const [row] = await rowsOf(user.id);
+    expect(row).toMatchObject({
+      kind: "turn",
+      model: sonnet,
+      inputTokens: 1000,
+      cacheReadTokens: 600,
+      cacheWriteTokens: 200,
+      sourceId: "turn-1",
+      costMicros: 0,
+    });
+    await vi.waitFor(() => expect(events).toEqual([expect.objectContaining({ id: row!.id })]));
+  });
+});
+
 describe("a Host meter", () => {
   it("prices a Model call, writes its usage row and fires onUsage", async () => {
     const user = await insertUser();
@@ -61,6 +96,43 @@ describe("a Host meter", () => {
       estimated: false,
     });
     await vi.waitFor(() => expect(events).toEqual([expect.objectContaining({ id: row!.id })]));
+  });
+
+  it("prices cache reads and writes at the Model's cache prices, and keeps the split and the source", async () => {
+    const user = await insertUser();
+    const meter = hostModelMeter(createTestSdk(), user.id, sonnet, {
+      ...price,
+      cacheReadUsdPerMillion: 0.3,
+      cacheWriteUsdPerMillion: 6,
+    });
+    const cachedCall = { ...usageOf, input: 1000, cached: 600, cacheWrite: 200 };
+
+    await meter.record({ kind: "turn", usage: cachedCall, sourceId: "turn-1" });
+
+    expect((await rowsOf(user.id))[0]).toMatchObject({
+      kind: "turn",
+      inputTokens: 1000,
+      cacheReadTokens: 600,
+      cacheWriteTokens: 200,
+      sourceId: "turn-1",
+      // 200 uncached at $3, 600 read at $0.30, 200 written at $6, 20 out at $15.
+      costMicros: 600 + 180 + 1200 + 300,
+    });
+  });
+
+  it("prices cached tokens at the input rate when the Model has no cache prices", async () => {
+    const user = await insertUser();
+    const meter = hostModelMeter(createTestSdk(), user.id, sonnet, price);
+    const cachedCall = { ...usageOf, input: 1000, cached: 600, cacheWrite: 200 };
+
+    await meter.record({ kind: "helper", usage: cachedCall, sourceId: "helper-1" });
+
+    expect((await rowsOf(user.id))[0]).toMatchObject({
+      cacheReadTokens: 600,
+      cacheWriteTokens: 200,
+      sourceId: "helper-1",
+      costMicros: 1000 * 3 + 20 * 15,
+    });
   });
 
   it("takes the Provider's reported cost over the token price", async () => {

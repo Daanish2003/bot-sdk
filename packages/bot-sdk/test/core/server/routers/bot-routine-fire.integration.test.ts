@@ -563,7 +563,7 @@ describe("a scheduled Routine", () => {
     expect(await queuedFires(routineId)).toEqual(["2026-10-20T07:00:00.000Z"]);
   });
 
-  it("fires on the user's linked ChatGPT plan, with no usage row, when the Bot is on a plan Model (ADR 0023)", async () => {
+  it("fires on the user's linked ChatGPT plan, with usage rows at cost 0, when the Bot is on a plan Model (ADR 0023)", async () => {
     const { user, conversationId, adapterCredentials, runDue, advanceTo } = await approvedRoutine({
       at: sunday,
       linked: true,
@@ -581,7 +581,9 @@ describe("a scheduled Routine", () => {
     expect(new Set(adapterCredentials.map((credentials) => credentials.apiKey))).toEqual(
       new Set([planCredentials.apiKey]),
     );
-    expect(await getTestDb().select().from(usage).where(eq(usage.userId, user.id))).toEqual([]);
+    const planRows = await getTestDb().select().from(usage).where(eq(usage.userId, user.id));
+    expect(planRows.length).toBeGreaterThan(0);
+    expect(planRows.every((row) => row.costMicros === 0)).toBe(true);
   });
 
   it("makes no Trigger while the user is Banned, still queues the next fire, and fires again once the Ban ends", async () => {

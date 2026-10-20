@@ -276,7 +276,14 @@ describe("the chat view with the dictionary", () => {
     expectTranslated(createElement(UsageInfo, { usage: null, reasoningEffort: "high" }));
     expectTranslated(
       createElement(UsageBreakdown, {
-        usage: { input: 10, output: 5, reasoning: 0, cached: 0, estimated: true } as never,
+        usage: {
+          input: 10,
+          output: 5,
+          reasoning: 0,
+          cached: 0,
+          cacheWrite: 0,
+          estimated: true,
+        } as never,
       }),
     );
     expectTranslated(createElement(QuotaMeter), seedAll);

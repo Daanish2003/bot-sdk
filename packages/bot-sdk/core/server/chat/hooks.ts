@@ -13,11 +13,22 @@ export type UsageEvent = {
     | "embedding"
     | "memory"
     | "turn"
-    | "helper";
+    | "helper"
+    | "summary"
+    | "warm";
   /** The `"provider:model"` id, `"tavily"` for a web search, or the transcription or image model's id. */
   model: string;
+  /** Every input token, cache reads and writes included. */
   inputTokens: number;
   outputTokens: number;
+  /** The input tokens read from the Provider's prompt cache. */
+  cacheReadTokens: number;
+  /** The input tokens written to the Provider's prompt cache. */
+  cacheWriteTokens: number;
+  /** The Bot Turn or Helper (or, for warming, the Bot) a Model call was made for, else `null`. */
+  sourceId: string | null;
+  /** The hash of each section of the prompt a Model call sent, else `null`. */
+  promptHashes: { name: string; hash: string }[] | null;
   /** The cost in millionths of a US dollar. */
   costMicros: number;
   estimated: boolean;

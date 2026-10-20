@@ -110,6 +110,7 @@ export function messageUsage(
     output: tokensOf(text + thinking),
     reasoning: tokensOf(thinking),
     cached: 0,
+    cacheWrite: 0,
     estimated: true,
   };
 }

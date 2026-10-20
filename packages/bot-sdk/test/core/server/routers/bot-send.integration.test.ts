@@ -144,7 +144,8 @@ async function botWith(
 }
 
 const hostModel = "anthropic:claude-sonnet-5-5";
-// $3 per 1M input tokens and $15 per 1M output tokens, so a token costs as many micros as its price.
+// $3 per 1M input tokens, $0.30 read from the cache, $6 written to it and $15 per 1M output tokens,
+// so a token costs as many micros as its price.
 const hostProviders: HostProvider[] = [
   {
     provider: "anthropic",
@@ -155,6 +156,8 @@ const hostProviders: HostProvider[] = [
         maxOutputTokens: 512,
         inputUsdPerMillion: 3,
         outputUsdPerMillion: 15,
+        cacheReadUsdPerMillion: 0.3,
+        cacheWriteUsdPerMillion: 6,
       },
     ],
   },
@@ -1351,6 +1354,7 @@ describe("a Turn's Quota and usage", () => {
     await send(client, botId, "hi");
 
     const rows = await usageOf(user.id);
+    const [turn] = await turnsOf(botId);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
       kind: "turn",
@@ -1359,9 +1363,35 @@ describe("a Turn's Quota and usage", () => {
       outputTokens: 10,
       costMicros: 100 * 3 + 10 * 15,
       estimated: false,
+      sourceId: turn!.id,
     });
-    const [turn] = await turnsOf(botId);
     expect(turn?.usage).toMatchObject({ input: 100, output: 10, estimated: false });
+  });
+
+  it("records an Anthropic Turn's cache reads and writes, with input as the total, at the cache prices", async () => {
+    const cachedTurn = withUsage(round(sends({ text: "Hello!", endTurn: true })), {
+      // Anthropic reports input without its cache reads and writes.
+      promptTokens: 10,
+      completionTokens: 10,
+      totalTokens: 20,
+      promptTokensDetails: { cachedTokens: 80, cacheWriteTokens: 10 },
+    });
+    const { client, user, botId } = await hostBotWith([cachedTurn]);
+
+    await send(client, botId, "hi");
+
+    const [turn] = await turnsOf(botId);
+    expect(await usageOf(user.id)).toMatchObject([
+      {
+        kind: "turn",
+        inputTokens: 100,
+        cacheReadTokens: 80,
+        cacheWriteTokens: 10,
+        sourceId: turn!.id,
+        costMicros: 10 * 3 + 80 * 0.3 + 10 * 6 + 10 * 15,
+      },
+    ]);
+    expect(turn?.usage).toMatchObject({ input: 100, cached: 80, cacheWrite: 10 });
   });
 
   it("bills each finished model call once when the Turn fails, and a failed call nothing", async () => {
@@ -1388,12 +1418,28 @@ describe("a Turn's Quota and usage", () => {
     expect(turn?.usage).toMatchObject({ input: 200, output: 20, estimated: false });
   });
 
-  it("records nothing on the user's own key", async () => {
-    const { client, user, botId } = await botWith([oneTurn]);
+  it("records each model call at cost 0 on the user's own key, with its cache split", async () => {
+    const cachedTurn = withUsage(round(sends({ text: "Hello!", endTurn: true })), {
+      promptTokens: 100,
+      completionTokens: 10,
+      totalTokens: 110,
+      promptTokensDetails: { cachedTokens: 60 },
+    });
+    const { client, user, botId } = await botWith([cachedTurn]);
 
     await send(client, botId, "hi");
 
-    expect(await usageOf(user.id)).toEqual([]);
+    const [turn] = await turnsOf(botId);
+    expect(await usageOf(user.id)).toMatchObject([
+      {
+        kind: "turn",
+        inputTokens: 100,
+        cacheReadTokens: 60,
+        cacheWriteTokens: 0,
+        costMicros: 0,
+        sourceId: turn!.id,
+      },
+    ]);
   });
 });
 describe("a Turn that resumes after a crash", () => {
@@ -1590,6 +1636,7 @@ describe("a Turn that resumes after a crash", () => {
       output: 20,
       reasoning: 0,
       cached: 0,
+      cacheWrite: 0,
       estimated: false,
     });
   });
