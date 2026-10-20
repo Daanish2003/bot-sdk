@@ -27,7 +27,7 @@ export type BotSdkFetch = (request: Request) => Promise<Response>;
 
 /**
  * The headless client: no React, no router. A client plugin adds its URLs to it by declaration
- * merging (the assistant adds `chatUrl`, `eventsUrl` and the rest).
+ * merging (the assistant adds `chatUrl` and the rest).
  */
 export interface BotSdkClient {
   /** The typed RPC client for the chat's procedures. */
@@ -36,6 +36,8 @@ export interface BotSdkClient {
   orpc: BotSdkOrpc;
   /** The signed-in user's export, a JSON download (`GET`). */
   exportUrl: string;
+  /** The owner's live stream of a Conversation's events (`GET ?conversationId=`). */
+  eventsUrl: string;
   /** The transport every RPC call goes through. */
   fetch: BotSdkFetch;
   /** The ids of the client plugins this client was created with, in order. */
@@ -67,6 +69,7 @@ export function createBotSdkClient({
       rpc,
       orpc: createTanstackQueryUtils(rpc),
       exportUrl: `${base}/export`,
+      eventsUrl: `${base}/events`,
       fetch,
       plugins: plugins.map((plugin) => plugin.id),
     },

@@ -40,7 +40,8 @@ const passPayload = z.object({ turnId: z.string() });
 
 type PassPayload = z.infer<typeof passPayload>;
 
-const importance = z.number().min(1).max(10).optional();
+/** Any number, or none: the code clamps it to 1–10, and takes 5 for none (spec #624). */
+const importance = z.number().nullish();
 
 /** What the pass's Model returns (spec #624). */
 const passReply = z.object({
@@ -115,7 +116,8 @@ export async function enqueueBotMemoryPass(
  * Runs Turn `turnId`'s pass on the Bot's own Model, one pass at a time per Bot, as recorded
  * activities: a retried job applies the operations its first call returned, with no second call.
  * Ends quietly, with nothing changed, with Memory off, no `computer`, no Model call or the Quota
- * spent, and when the call fails or returns invalid output. A Computer failure throws.
+ * spent (as its first attempt found them), and when the call fails or returns invalid output. A
+ * Computer failure throws.
  */
 async function runBotMemoryPass(
   deps: BotSdkContext,
@@ -136,10 +138,7 @@ async function runBotMemoryPass(
     .innerJoin(bot, eq(bot.id, botTurn.botId))
     .where(eq(botTurn.id, turnId));
   if (!turn || (turn.status !== "complete" && turn.status !== "stopped")) return;
-  if (!deps.hasPlugin("computer") || !(await memoryEnabledFor(deps, turn.userId))) return;
-  const call = await deps.plugin("models").resolveModelCall(turn.userId, turn.model);
-  if (!call || !(await call.meter.mayRun()).ok) return;
-  const computer = deps.plugin("computer").forUser(turn.userId);
+  const computer = () => deps.plugin("computer").forUser(turn.userId);
 
   const changes = await deps.db.transaction(async (lock) => {
     // One pass at a time per Bot, as the assistant's Memory job does per user: a later pass is
@@ -147,8 +146,13 @@ async function runBotMemoryPass(
     await lock.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${`memory-pass:${turn.botId}`}, 0))`,
     );
+    // The checks are part of the recorded call: a retry applies the operations its first attempt
+    // planned, even once Memory is off or the Quota is spent.
     const planned = await activity("memory_ops", async () => {
-      const shown = await shownLines(computer, {
+      if (!deps.hasPlugin("computer") || !(await memoryEnabledFor(deps, turn.userId))) return null;
+      const call = await deps.plugin("models").resolveModelCall(turn.userId, turn.model);
+      if (!call || !(await call.meter.mayRun()).ok) return null;
+      const shown = await shownLines(computer(), {
         botId: turn.botId,
         turnStartedAt: turn.startedAt,
         signal,
@@ -169,7 +173,7 @@ async function runBotMemoryPass(
     if (!planned) return [];
     // The writes and the change list, once: a retry after the Checkpoint reads the change list.
     return activity("memory_apply", async (tx) => {
-      const applied = await applyMemoryOps(computer, {
+      const applied = await applyMemoryOps(computer(), {
         botId: turn.botId,
         ...planned,
         now: deps.clock(),
@@ -236,8 +240,9 @@ async function shownLines(
 type FileEdit = { lines: (string | null)[]; touched: Set<number>; added: string[] };
 
 /**
- * Applies the pass's operations to Bot `botId`'s own files, read fresh, as of `now`, and returns
- * what changed, in operation order. Each file is written once, at the end.
+ * Applies the pass's operations to Bot `botId`'s own files as of `now`, and returns what changed,
+ * in operation order. Each file is read, edited and written in turn, so a write that lands while
+ * the pass works on another file is kept.
  *
  * - `add` appends a line: a Profile fact, unless the Profile is at its cap; a Log line dated today
  *   in this month's file, with its importance (5 when it has none); a Notes line dated today. A
@@ -259,91 +264,91 @@ export async function applyMemoryOps(
   }: { botId: string; shown: ShownLine[]; ops: MemoryOp[]; now: Date; signal?: AbortSignal },
 ): Promise<BotMemoryChange[]> {
   const today = dayOf(now);
-  const edits = new Map<string, FileEdit>();
-  const edit = async (path: string): Promise<FileEdit> => {
-    const open = edits.get(path);
-    if (open) return open;
-    const content = await readText(computer, path, { signal });
-    const lines = content.split(/\r?\n/);
-    // A trailing newline is not a line.
-    if (lines.at(-1) === "") lines.pop();
-    const opened: FileEdit = { lines, touched: new Set(), added: [] };
-    edits.set(path, opened);
-    return opened;
+  const pathOf = (op: MemoryOp): string | undefined => {
+    if (op.op !== "add") return shown[op.line - 1]?.path;
+    if (op.tier === "profile") return profilePath(botId);
+    if (op.tier === "notes") return notesPath(botId);
+    return logPath(botId, today.slice(0, 7));
   };
+  // The operations by file, each with its place in operation order.
+  const byPath = new Map<string, { op: MemoryOp; index: number }[]>();
+  ops.forEach((op, index) => {
+    const path = pathOf(op);
+    if (path) byPath.set(path, [...(byPath.get(path) ?? []), { op, index }]);
+  });
   const textsOf = (file: FileEdit) =>
     memoryLines([...file.lines.filter((line) => line !== null), ...file.added].join("\n")).map(
       (entry) => entry.text,
     );
 
-  const changes: BotMemoryChange[] = [];
-  for (const op of ops) {
-    if (op.op === "add") {
-      const text = cleanText(op.text);
-      if (!text) continue;
-      const path =
-        op.tier === "profile"
-          ? profilePath(botId)
-          : op.tier === "notes"
-            ? notesPath(botId)
-            : logPath(botId, today.slice(0, 7));
-      const line =
-        op.tier === "profile"
-          ? text
-          : op.tier === "notes"
-            ? `${today} ${text}`
-            : `${today} (importance ${roundImportance(op.importance)}) ${text}`;
-      const file = await edit(path);
-      const texts = textsOf(file);
-      if (texts.includes(line)) continue;
-      if (op.tier === "profile") {
-        const characters = texts.reduce((sum, fact) => sum + fact.length, 0);
-        if (texts.length >= profileFactLimit || characters + text.length > profileCharacterLimit) {
-          continue;
+  const changes: { index: number; change: BotMemoryChange }[] = [];
+  for (const [path, fileOps] of byPath) {
+    const lines = (await readText(computer, path, { signal })).split(/\r?\n/);
+    // A trailing newline is not a line.
+    if (lines.at(-1) === "") lines.pop();
+    const file: FileEdit = { lines, touched: new Set(), added: [] };
+
+    for (const { op, index: order } of fileOps) {
+      const changed = (change: BotMemoryChange) => changes.push({ index: order, change });
+      if (op.op === "add") {
+        const text = cleanText(op.text);
+        if (!text) continue;
+        const line =
+          op.tier === "profile"
+            ? text
+            : op.tier === "notes"
+              ? `${today} ${text}`
+              : `${today} (importance ${roundImportance(op.importance)}) ${text}`;
+        const texts = textsOf(file);
+        if (texts.includes(line)) continue;
+        if (op.tier === "profile") {
+          const characters = texts.reduce((sum, fact) => sum + fact.length, 0);
+          if (
+            texts.length >= profileFactLimit ||
+            characters + text.length > profileCharacterLimit
+          ) {
+            continue;
+          }
         }
+        file.added.push(`- ${line}`);
+        changed({ kind: "remembered", tier: op.tier, text });
+        continue;
       }
-      file.added.push(`- ${line}`);
-      changes.push({ kind: "remembered", tier: op.tier, text });
-      continue;
+
+      const target = shown[op.line - 1]!;
+      const index = target.line - 1;
+      const current = file.lines[index];
+      if (file.touched.has(index) || current == null) continue;
+      if (memoryLines(current)[0]?.text !== target.text) continue;
+      file.touched.add(index);
+      if (op.op === "remove") {
+        file.lines[index] = null;
+        changed({ kind: "forgot", tier: target.tier, text: target.content });
+        continue;
+      }
+      const text = cleanText(op.text);
+      const characters = textsOf(file).reduce((sum, fact) => sum + fact.length, 0);
+      const overCap =
+        target.tier === "profile" &&
+        characters - target.text.length + text.length > profileCharacterLimit;
+      if (!text || overCap) {
+        file.touched.delete(index);
+        continue;
+      }
+      file.lines[index] =
+        target.tier === "profile"
+          ? `- ${text}`
+          : target.tier === "notes"
+            ? `- ${target.date} ${text}`
+            : `- ${target.date} (importance ${roundImportance(op.importance ?? target.importance)}) ${text}`;
+      changed({ kind: "changed", tier: target.tier, from: target.content, text });
     }
 
-    const target = shown[op.line - 1];
-    if (!target) continue;
-    const file = await edit(target.path);
-    const index = target.line - 1;
-    const current = file.lines[index];
-    if (file.touched.has(index) || current == null) continue;
-    if (memoryLines(current)[0]?.text !== target.text) continue;
-    file.touched.add(index);
-    if (op.op === "remove") {
-      file.lines[index] = null;
-      changes.push({ kind: "forgot", tier: target.tier, text: target.content });
-      continue;
-    }
-    const text = cleanText(op.text);
-    const characters = textsOf(file).reduce((sum, fact) => sum + fact.length, 0);
-    const overCap =
-      target.tier === "profile" &&
-      characters - target.text.length + text.length > profileCharacterLimit;
-    if (!text || overCap) {
-      file.touched.delete(index);
-      continue;
-    }
-    file.lines[index] =
-      target.tier === "profile"
-        ? `- ${text}`
-        : target.tier === "notes"
-          ? `- ${target.date} ${text}`
-          : `- ${target.date} (importance ${roundImportance(op.importance ?? target.importance)}) ${text}`;
-    changes.push({ kind: "changed", tier: target.tier, from: target.content, text });
-  }
-
-  for (const [path, file] of edits) {
     if (file.touched.size === 0 && file.added.length === 0) continue;
-    const lines = [...file.lines.filter((line) => line !== null), ...file.added];
-    await computer.writeFile(path, lines.length > 0 ? `${lines.join("\n")}\n` : "", { signal });
+    const kept = [...file.lines.filter((line) => line !== null), ...file.added];
+    await computer.writeFile(path, kept.length > 0 ? `${kept.join("\n")}\n` : "", { signal });
   }
-  return changes;
+  return changes.sort((a, b) => a.index - b.index).map(({ change }) => change);
 }
 
 /**
@@ -361,8 +366,8 @@ function cleanText(text: string): string {
   return cleaned.startsWith("#") ? "" : cleaned;
 }
 
-function roundImportance(value: number | undefined): number {
-  return value === undefined ? defaultImportance : Math.min(10, Math.max(1, Math.round(value)));
+function roundImportance(value: number | null | undefined): number {
+  return value == null ? defaultImportance : Math.min(10, Math.max(1, Math.round(value)));
 }
 
 /**

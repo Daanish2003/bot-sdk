@@ -12,6 +12,8 @@ export type MemoryStatus = {
   enabled: boolean;
   /** Whether an embedding Model is available to the user, which Memory needs. */
   embeddingAvailable: boolean;
+  /** Whether Bots can have memory, which needs the `computer` plugin (ADR 0022). */
+  botMemoryAvailable: boolean;
 };
 
 /** One Memory as the Memory page lists it: valid only, with the Conversation it came from. */
@@ -44,12 +46,13 @@ export async function memoryEnabledFor(
   return settings?.enabled ?? true;
 }
 
-/** The user's Memory switch and whether an embedding Model is there for it. */
+/** The user's Memory switch, whether an embedding Model is there for it, and whether Bots can have memory. */
 export async function memoryStatus(deps: BotSdkContext, userId: string): Promise<MemoryStatus> {
   const embedding = await deps.plugin("models").defaultEmbeddingModel(userId);
   return {
     enabled: await memoryEnabledFor(deps, userId),
     embeddingAvailable: embedding !== null,
+    botMemoryAvailable: deps.hasPlugin("computer"),
   };
 }
 

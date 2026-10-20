@@ -35,7 +35,8 @@ type Row = {
  * (shared, the other Bots' lines labelled), Log and Notes. A line has a dot for in the prompt or
  * search only, edits in place (Enter saves, Esc cancels) and deletes on hover. Each section has an
  * "Add to …" box and **View as file**, the raw text with **Save**; a filter box narrows the lines.
- * With Memory off it says so. Render it only when the Host installs the `memory` plugin.
+ * With Memory off it says so. Render it only when the Host installs the `memory` plugin; without
+ * the `computer` plugin it renders nothing, as Bot memory is skipped then.
  */
 export function BotMemoryPopover({ botId }: { botId: string }) {
   const i18n = useI18n();
@@ -43,6 +44,7 @@ export function BotMemoryPopover({ botId }: { botId: string }) {
   const orpc = useOrpc();
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
+  const status = useQuery(orpc.memory.status.queryOptions());
   const list = useQuery({
     ...orpc.memory.botList.queryOptions({ input: { botId } }),
     enabled: open,
@@ -85,6 +87,8 @@ export function BotMemoryPopover({ botId }: { botId: string }) {
             }));
     return needle ? all.filter((row) => row.text.toLowerCase().includes(needle)) : all;
   };
+
+  if (status.data?.botMemoryAvailable === false) return null;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -345,7 +349,10 @@ function LineRow({ row }: { row: Row }) {
   );
 }
 
-/** A file's raw text in a box, with **Save** to write it whole. */
+/**
+ * A file's raw text in a box, with **Save** to write it whole. The save is refused, with the
+ * changed-underneath message, when the file changed since it was read.
+ */
 function FileView({
   file: initial,
   months,
@@ -364,6 +371,8 @@ function FileView({
   const [month, setMonth] = useState(initial.month);
   const file: FileRef = { ...initial, month };
   const [edited, setEdited] = useState<string | null>(null);
+  // The text the edit started from, which the save checks the file still reads.
+  const [base, setBase] = useState("");
   const read = useQuery(orpc.memory.botReadFile.queryOptions({ input: { file } }));
   const save = useMutation(
     orpc.memory.botSaveFile.mutationOptions({
@@ -406,13 +415,16 @@ function FileView({
         className="min-h-32 rounded border bg-transparent p-2 font-mono text-xs"
         value={content}
         disabled={read.isPending || read.isError}
-        onChange={(event) => setEdited(event.target.value)}
+        onChange={(event) => {
+          if (edited === null) setBase(read.data?.content ?? "");
+          setEdited(event.target.value);
+        }}
       />
       <div className="flex gap-2">
         <Button
           size="sm"
           disabled={edited === null || save.isPending}
-          onClick={() => save.mutate({ file, content })}
+          onClick={() => save.mutate({ file, expected: base, content })}
         >
           {t("bots.memorySave")}
         </Button>
