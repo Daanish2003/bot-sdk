@@ -2,14 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { contextFill, lastRunTokens } from "../../../plugins/assistant/client/context-ring";
 
-const usage = {
-  input: 1000,
-  output: 200,
-  reasoning: 0,
-  cached: 0,
-  cacheWrite: 0,
-  estimated: false,
-};
+const usage = { input: 1000, output: 200, reasoning: 0, cached: 0, estimated: false };
 
 describe("lastRunTokens", () => {
   it("takes the newest assistant Message with usage on the Branch: input plus output", () => {

@@ -117,7 +117,11 @@ export type ModerationResult = { allow: true } | { allow: false; reason?: string
  * `moderate` is typed now and wired by #267.
  */
 export type EventHooks = {
-  /** Fires after each usage row on Host credentials is written: a Run, a title, a web search, a transcription or a generated image. */
+  /**
+   * Fires after each usage row is written: a call on Host credentials (a Run, a title, a web search,
+   * a transcription, a generated image, a Bot's Turn or Helper), or, at `costMicros` 0, a generated
+   * image or a Bot's model call on the user's own key or linked plan (#667).
+   */
   onUsage?: (usage: UsageEvent) => unknown;
   /** Fires once for every Run, whichever way it ends, after the ending is written (#265). */
   onRunEnd?: (run: RunEndEvent) => unknown;

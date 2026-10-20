@@ -168,11 +168,12 @@ export type HostPrice = Pick<
  */
 function modelCostMicros({ usage, reportedCost }: ModelUsage, price: HostPrice): number {
   if (!usage.estimated && reportedCost !== undefined) return Math.round(reportedCost * 1_000_000);
-  const uncached = usage.input - usage.cached - usage.cacheWrite;
+  const cacheWrite = usage.cacheWrite ?? 0;
+  const uncached = usage.input - usage.cached - cacheWrite;
   return Math.round(
     uncached * price.inputUsdPerMillion +
       usage.cached * (price.cacheReadUsdPerMillion ?? price.inputUsdPerMillion) +
-      usage.cacheWrite * (price.cacheWriteUsdPerMillion ?? price.inputUsdPerMillion) +
+      cacheWrite * (price.cacheWriteUsdPerMillion ?? price.inputUsdPerMillion) +
       usage.output * price.outputUsdPerMillion,
   );
 }
@@ -185,7 +186,7 @@ function modelRowOf(model: string, call: ModelUsage, costMicros: number): UsageR
     inputTokens: call.usage.input,
     outputTokens: call.usage.output,
     cacheReadTokens: call.usage.cached,
-    cacheWriteTokens: call.usage.cacheWrite,
+    cacheWriteTokens: call.usage.cacheWrite ?? 0,
     sourceId: call.sourceId ?? null,
     promptHashes: call.promptHashes ?? null,
     costMicros,

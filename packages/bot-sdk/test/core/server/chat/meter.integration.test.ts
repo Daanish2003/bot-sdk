@@ -135,6 +135,19 @@ describe("a Host meter", () => {
     });
   });
 
+  it("prices usage recorded before cache writes were kept as writing none", async () => {
+    const user = await insertUser();
+    const meter = hostModelMeter(createTestSdk(), user.id, sonnet, price);
+    const { cacheWrite: _absent, ...recordedBefore } = usageOf;
+
+    await meter.record({ kind: "turn", usage: recordedBefore });
+
+    expect((await rowsOf(user.id))[0]).toMatchObject({
+      cacheWriteTokens: 0,
+      costMicros: 100 * 3 + 20 * 15,
+    });
+  });
+
   it("takes the Provider's reported cost over the token price", async () => {
     const user = await insertUser();
     const meter = hostModelMeter(createTestSdk(), user.id, sonnet, price);

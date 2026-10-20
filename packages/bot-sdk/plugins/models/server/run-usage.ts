@@ -36,7 +36,7 @@ export function addUsage(total: RunUsage | undefined, next: RunUsage): RunUsage 
     output: total.output + next.output,
     reasoning: total.reasoning + next.reasoning,
     cached: total.cached + next.cached,
-    cacheWrite: total.cacheWrite + next.cacheWrite,
+    cacheWrite: (total.cacheWrite ?? 0) + (next.cacheWrite ?? 0),
   };
 }
 
