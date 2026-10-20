@@ -310,7 +310,12 @@ describe("a scheduled Routine", () => {
         `[Current time: Monday, 19 October 2026 at 08:00 (Europe/London)]\n\n` +
         `${wakeNotice}\n\n${morningBrief.prompt}`,
     });
-    expect(input[0]).toEqual({ role: "user", content: "Set it up, please" });
+    // The answered Message stays as its own Turn sent it, with that Turn's time.
+    expect(input[0]).toEqual({
+      role: "user",
+      content:
+        "[Current time: Sunday, 18 October 2026 at 11:00 (Europe/London)]\n\nSet it up, please",
+    });
     const { messages } = await client.bot.get({ botId });
     expect(messages.filter((sent) => sent.role === "user").map((sent) => sent.text)).toEqual([
       "Set it up, please",

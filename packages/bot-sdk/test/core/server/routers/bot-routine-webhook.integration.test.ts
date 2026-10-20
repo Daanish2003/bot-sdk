@@ -303,7 +303,7 @@ describe("a webhook Routine's URL", () => {
     expect(seen).not.toContain(rotated);
     expect(seen).toContain("stripe-payouts  on webhook Europe/London");
   });
-  it("gives the Turn it wakes the whole payload, and later Turns only its first 2 KB, marked cut", async () => {
+  it("gives the Turn it wakes the whole payload, and later Turns the same text, time included", async () => {
     const { fake, token, call, send, timer, runDue } = await approvedWebhook([round(), round()]);
     const payload = JSON.stringify({ blob: "x".repeat(5_000) });
 
@@ -316,11 +316,12 @@ describe("a webhook Routine's URL", () => {
         .map((entry) => String(entry.content))
         .find((content) => content.includes("From a webhook"))!;
     // The Turn the webhook woke reads it whole, after the time.
-    const woken = fromWebhook(fake.calls.at(-1)).replace(/^\[Current time: [^\]]*\]\n\n/, "");
+    const woken = fromWebhook(fake.calls.at(-1));
+    expect(woken).toMatch(/^\[Current time: [^\]]*\]\n\n/);
     expect(woken).toContain(payload);
 
     await send("Anything new?");
-    expect(fromWebhook(fake.calls.at(-1))).toBe(`${woken.slice(0, 2048)}\n[truncated]`);
+    expect(fromWebhook(fake.calls.at(-1))).toBe(woken);
   });
 
   describe("with a payload over 10,000 characters", () => {
@@ -367,6 +368,31 @@ describe("a webhook Routine's URL", () => {
       expect(seen).toContain("The rest was not saved.");
       expect(seen).toMatch(/\[\.\.\. \d+ characters left out \.\.\.\]/);
       expect(seen.length).toBeLessThan(4_600);
+    });
+
+    it("cuts it once: later Turns read the same cut text, and the file is written once", async () => {
+      const computerFake = fakeComputerProvider({});
+      const { fake, token, call, send, timer, runDue } = await approvedWebhook(
+        [round(), round(), round(), round()],
+        { computerFake },
+      );
+      // The Turns' model calls, not the memory pass's.
+      const lastTurnCall = () =>
+        fake.calls.findLast((made) => JSON.stringify(made.systemPrompts).includes("send_to_user"));
+
+      timer.advance(1_000);
+      await call(token, payload);
+      timer.advance(500);
+      await runDue();
+      const seen = fromWebhook(lastTurnCall());
+      const outputs = () =>
+        [...computerFake.files.keys()].filter((path) => path.includes("/.outputs/"));
+      const files = outputs();
+      expect(files).toHaveLength(1);
+
+      await send("Anything new?");
+      expect(fromWebhook(lastTurnCall())).toBe(seen);
+      expect(outputs()).toEqual(files);
     });
   });
 });

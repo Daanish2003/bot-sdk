@@ -1,5 +1,5 @@
 import { type ModelMessage, toolDefinition } from "@tanstack/ai";
-import { and, asc, eq, isNotNull, lt, lte, ne } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, isNotNull, lt, lte, ne, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { appendMessage } from "../../../core/server/chat/message-tree";
@@ -132,6 +132,9 @@ export const undeliveredTextReminder =
 
 /** The first Checkpoint of a Turn's job, which starts the Turn (#501). */
 const startTurnActivity = "start_turn";
+
+/** The Checkpoint that stores the Turn's newest message, before its first model call. */
+const turnInputActivity = "turn_input";
 
 /** How often `bot.send` re-reads its Turn when no hint has come (#483). */
 export const followPollMs = 2_000;
@@ -694,6 +697,7 @@ async function replayedTurn(
   turn: TurnFacts,
 ): Promise<Pick<LoopResult, "transcript" | "usage">> {
   const history = turn.jobId ? await loadHistory(db, turn.jobId) : [];
+  const ended = AbortSignal.abort(new Error("The Turn's job has ended"));
   const workflow = createWorkflow<Transaction>({
     history,
     store: {
@@ -701,14 +705,20 @@ async function replayedTurn(
       saveWith: async () => ({ saved: false }),
     },
     now: deps.clock,
-    signal: AbortSignal.abort(new Error("The Turn's job has ended")),
+    signal: ended,
   });
-  // A job that never started recorded no start.
-  const todo =
-    history.length > 0
-      ? await workflow.context.activity<TodoItem[] | null>(startTurnActivity, async () => null)
-      : null;
-  return playTurn(deps, turn, workflow.context, { db, todo });
+  try {
+    // A job that never started recorded no start.
+    const todo =
+      history.length > 0
+        ? await workflow.context.activity<TodoItem[] | null>(startTurnActivity, async () => null)
+        : null;
+    return await playTurn(deps, turn, workflow.context, { db, todo });
+  } catch (caught) {
+    // The job ended before it stored the Turn's input, so the Turn sent nothing.
+    if (caught === ended.reason) return { transcript: [], usage: null };
+    throw caught;
+  }
 }
 
 /** Ends the Turn's row, in its last Checkpoint's transaction. */
@@ -750,45 +760,46 @@ function todoNotice(todo: TodoItem[], stored: string | undefined): string {
   );
 }
 
-/** How much of an earlier Turn's Trigger text later Turns replay: a webhook payload can be 64 KB. */
-const earlierTriggerTextLimit = 2_048;
+/** The Bot's Turns before `turn`, in Turn order: what its history is made of. */
+function earlierTurns(db: Database | Transaction, turn: TurnFacts) {
+  return db
+    .select({ startedAt: botTurn.startedAt, input: botTurn.input, transcript: botTurn.transcript })
+    .from(botTurn)
+    .where(and(eq(botTurn.botId, turn.botId), lt(botTurn.startedAt, turn.startedAt)))
+    .orderBy(asc(botTurn.startedAt), asc(botTurn.id));
+}
 
 /**
- * The Turn's model input: each user Message as a user turn, each Trigger with no Message (such as a
- * Routine's fire) as an input turn of its text, and each earlier Turn as its transcript, in order.
- * The Turn's newest input opens with the current time in the newest user Message's zone. A Trigger
- * an earlier Turn took replays only its first `earlierTriggerTextLimit` characters. The Bot's sent
- * Messages are not replayed as text: the transcripts hold them as SendToUser calls. Only what came
- * before the Turn counts, so every attempt reads the same input. The Turn's own Trigger text goes
- * through `cutTrigger`, which cuts a long one (#668).
+ * The Turn's newest message, rendered once: what arrived since `since`, the start of the last Turn
+ * that stored its input, in order. Each user Message is a user turn, and each Trigger with no Message (such as a Routine's
+ * fire) an input turn of its text, through `cutTrigger`, which cuts a long one once (#668). The
+ * newest opens with the time in the newest user Message's zone, as of the Turn's start, then the
+ * to-do list as the Turn's start Checkpoint recorded it. Only what came before the Turn counts, so
+ * every attempt reads the same.
  */
-async function modelInput(
+async function newestInput(
   db: Database | Transaction,
   turn: TurnFacts,
+  since: Date | undefined,
   todo: TodoItem[] | null,
   cutTrigger: (id: string, text: string) => Promise<string>,
 ): Promise<ModelMessage[]> {
-  const [users, woken, turns] = await Promise.all([
+  const beforeTurn = and(
+    eq(message.conversationId, turn.conversationId),
+    eq(message.role, "user"),
+    lt(message.createdAt, turn.startedAt),
+  );
+  const [users, woken, [newestUser]] = await Promise.all([
     db
       .select({ parts: message.parts, createdAt: message.createdAt })
       .from(message)
-      .where(
-        and(
-          eq(message.conversationId, turn.conversationId),
-          eq(message.role, "user"),
-          lt(message.createdAt, turn.startedAt),
-        ),
-      )
+      .where(and(beforeTurn, since && gte(message.createdAt, since)))
       .orderBy(asc(message.createdAt), asc(message.id)),
-    // The Triggers that carry no Message (a Routine's fire, #539), taken by this Turn or an earlier
-    // one: never one taken later, so every attempt reads the same input.
+    // The Triggers that carry no Message (a Routine's fire, #539), taken and received by the time
+    // this Turn started: never one taken later. A Turn's input holds the ones taken and received by
+    // its start, so one a Stop handed to it later goes to the next Turn, once.
     db
-      .select({
-        id: botTrigger.id,
-        text: botTrigger.text,
-        receivedAt: botTrigger.receivedAt,
-        turnId: botTrigger.turnId,
-      })
+      .select({ id: botTrigger.id, text: botTrigger.text, receivedAt: botTrigger.receivedAt })
       .from(botTrigger)
       .innerJoin(botTurn, eq(botTurn.id, botTrigger.turnId))
       .where(
@@ -797,59 +808,39 @@ async function modelInput(
           ne(botTrigger.source, "user"),
           isNotNull(botTrigger.text),
           lte(botTurn.startedAt, turn.startedAt),
+          lte(botTrigger.receivedAt, turn.startedAt),
+          since && or(gt(botTurn.startedAt, since), gt(botTrigger.receivedAt, since)),
         ),
       )
       .orderBy(asc(botTrigger.receivedAt), asc(botTrigger.id)),
     db
-      .select({ transcript: botTurn.transcript, startedAt: botTurn.startedAt })
-      .from(botTurn)
-      .where(and(eq(botTurn.botId, turn.botId), lt(botTurn.startedAt, turn.startedAt)))
-      .orderBy(asc(botTurn.startedAt), asc(botTurn.id)),
+      .select({ parts: message.parts })
+      .from(message)
+      .where(beforeTurn)
+      .orderBy(desc(message.createdAt), desc(message.id))
+      .limit(1),
   ]);
+  const inputs = users.map((row) => ({
+    at: row.createdAt.getTime(),
+    content: searchTextOf(row.parts),
+  }));
   // One at a time: each long one is an activity, in a stable order.
-  const cutWoken = async (rows: typeof woken) => {
-    const cut: { at: number; content: string }[] = [];
-    for (const row of rows) {
-      const text = row.text!;
-      const content =
-        row.turnId === turn.id
-          ? await cutTrigger(row.id, text)
-          : text.length <= earlierTriggerTextLimit
-            ? text
-            : `${text.slice(0, earlierTriggerTextLimit)}\n[truncated]`;
-      cut.push({ at: row.receivedAt.getTime(), content });
-    }
-    return cut;
-  };
-  const inputs = [
-    ...users.map((row) => ({ at: row.createdAt.getTime(), content: searchTextOf(row.parts) })),
-    // One input turn each, never a user Message: its text opens with a notice of what woke the Bot.
-    ...(await cutWoken(woken)),
-  ];
-  // The newest input opens with the time, as of the Turn's start so every attempt reads the same,
-  // then the to-do list as the Turn's start Checkpoint recorded it.
-  const newest = inputs.reduce<(typeof inputs)[number] | undefined>(
-    (latest, input) => (latest && latest.at > input.at ? latest : input),
-    undefined,
-  );
+  for (const row of woken) {
+    inputs.push({ at: row.receivedAt.getTime(), content: await cutTrigger(row.id, row.text!) });
+  }
+  // A stable sort keeps a user Message before a Trigger received at the same time.
+  inputs.sort((a, b) => a.at - b.at);
+  const newest = inputs.at(-1);
   if (newest) {
-    const zone = users.at(-1)?.parts.timeZone;
+    const zone = newestUser?.parts.timeZone;
     const notices = [
       timeNotice(turn.startedAt, zone),
       ...(todo?.length ? [todoNotice(todo, zone)] : []),
     ];
     newest.content = `${notices.join("\n\n")}\n\n${newest.content}`;
   }
-  const entries = [
-    ...inputs.map((input) => ({
-      at: input.at,
-      messages: [{ role: "user" as const, content: input.content }],
-    })),
-    ...turns.map((row) => ({ at: row.startedAt.getTime(), messages: row.transcript ?? [] })),
-  ];
-  // A stable sort keeps a user Message or a Trigger before a Turn that started at the same time.
-  entries.sort((a, b) => a.at - b.at);
-  return entries.flatMap((entry) => entry.messages);
+  // One input turn each, never a user Message: a Trigger's text opens with what woke the Bot.
+  return inputs.map((input) => ({ role: "user", content: input.content }));
 }
 
 /**
@@ -889,12 +880,26 @@ async function playTurn(
           },
           { yields: false },
         );
-  const input = await modelInput(db, turn, todo, cutTrigger);
+  // History is each earlier Turn's stored input, then its transcript: nothing is rendered again,
+  // so its bytes never change. What an earlier Turn sent is in its input; only what came after the
+  // last such Turn started is new.
+  const earlier = await earlierTurns(db, turn);
+  const since = earlier.findLast((row) => row.input !== null)?.startedAt;
+  const rendered = await newestInput(db, turn, since, todo, cutTrigger);
+  // Stored before the first model call, so a stopped or interrupted Turn keeps what it sent, and a
+  // replay reads the recorded input.
+  const input = await ctx.activity(turnInputActivity, async (tx) => {
+    await tx.update(botTurn).set({ input: rendered }).where(eq(botTurn.id, turn.id));
+    return rendered;
+  });
   return runLoop(deps, ctx, {
     owner: turn,
     usageKind: "turn",
     sourceId: turn.id,
-    input,
+    input: [
+      ...earlier.flatMap((row) => [...(row.input ?? []), ...(row.transcript ?? [])]),
+      ...input,
+    ],
     startedAt: turn.startedAt,
     stepLimit: turnStepLimit,
     timeLimitMs: turnTimeLimitMs,

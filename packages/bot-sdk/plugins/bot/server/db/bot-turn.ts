@@ -49,6 +49,13 @@ export const botTurn = chatSchema.table(
      * before Turns ran as jobs.
      */
     jobId: uuid("job_id").references((): AnyPgColumn => job.id, { onDelete: "set null" }),
+    /**
+     * The newest message the Turn sent, exactly as sent: what arrived since the last Turn that sent
+     * one, the newest opening with its time and to-do notes. Later Turns replay it, then the
+     * `transcript`, so history only grows at the end. Null until the Turn saves it before its first
+     * model call, and for a Turn that never got that far.
+     */
+    input: jsonb("input").$type<ModelMessage[]>(),
     /** The Turn's model messages, after its input. Null until the Turn ends. */
     transcript: jsonb("transcript").$type<ModelMessage[]>(),
     /**
