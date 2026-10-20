@@ -35,6 +35,13 @@ export type AuthConfig = {
 };
 
 // ChatGPT sign-in endpoints, scopes and audience (spec #638).
+// ChatGPT's client is registered for 127.0.0.1, not localhost; any other host is left as it is.
+function chatgptOrigin(baseUrl: string): string {
+  const url = new URL(baseUrl);
+  if (url.hostname === "localhost") url.hostname = "127.0.0.1";
+  return url.origin;
+}
+
 const CHATGPT_PROVIDER = "chatgpt";
 const CHATGPT_RESOURCE = "https://api.openai.com/v1";
 
@@ -125,7 +132,7 @@ export function createAuth(
               pkce: true,
               // The client is registered with the 127.0.0.1 form of the app's origin; apps/web's
               // `/auth/callback` bounces it back to `/api/auth/callback/chatgpt` on BETTER_AUTH_URL.
-              redirectURI: `${env.BETTER_AUTH_URL.replace("//localhost", "//127.0.0.1")}/auth/callback`,
+              redirectURI: `${chatgptOrigin(env.BETTER_AUTH_URL)}/auth/callback`,
               // Link-only (the `hooks.before` below also refuses sign-in): no user is ever created.
               disableSignUp: true,
               authorizationUrlParams: {
