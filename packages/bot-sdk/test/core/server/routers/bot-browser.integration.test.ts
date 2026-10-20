@@ -105,7 +105,9 @@ afterEach(async () => {
 });
 
 const isHelperCall = (options: TextOptions) =>
-  (options.systemPrompts ?? []).some((prompt) => String(prompt).startsWith("You are a Helper"));
+  (options.systemPrompts ?? []).some((prompt) =>
+    (typeof prompt === "string" ? prompt : prompt.content).startsWith("You are a Helper"),
+  );
 
 /**
  * A user with an OpenAI key, over an SDK with `computer` on, whose fake provider points each

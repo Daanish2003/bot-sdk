@@ -276,7 +276,9 @@ describe("the shell tool", () => {
     // The Helper's own model calls share the fake; the Bot's are the ones without its prompt.
     const turnCalls = fake.calls.filter(
       (call) =>
-        !(call.systemPrompts ?? []).some((prompt) => String(prompt).startsWith("You are a Helper")),
+        !(call.systemPrompts ?? []).some((prompt) =>
+          (typeof prompt === "string" ? prompt : prompt.content).startsWith("You are a Helper"),
+        ),
     );
     const names = turnCalls.map(toolNamesOf);
     expect(names.length).toBeGreaterThanOrEqual(3);

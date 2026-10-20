@@ -62,7 +62,9 @@ afterEach(async () => {
 
 /** Whether a model call is a Helper's: its system prompt says so. */
 const isHelperCall = (options: TextOptions) =>
-  (options.systemPrompts ?? []).some((prompt) => String(prompt).startsWith("You are a Helper"));
+  (options.systemPrompts ?? []).some((prompt) =>
+    (typeof prompt === "string" ? prompt : prompt.content).startsWith("You are a Helper"),
+  );
 
 /**
  * One adapter over two scripts, so a Helper's job and a Turn never race for the same round: the

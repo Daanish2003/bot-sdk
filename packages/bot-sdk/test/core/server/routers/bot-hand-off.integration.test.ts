@@ -38,7 +38,9 @@ afterEach(async () => {
 });
 
 const isHelperCall = (options: TextOptions) =>
-  (options.systemPrompts ?? []).some((prompt) => String(prompt).startsWith("You are a Helper"));
+  (options.systemPrompts ?? []).some((prompt) =>
+    (typeof prompt === "string" ? prompt : prompt.content).startsWith("You are a Helper"),
+  );
 
 /**
  * A user with an OpenAI key and a Bot, over an SDK with `computer` on. The Turns play `turns` and
