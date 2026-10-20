@@ -13,8 +13,8 @@ const askedAt = new Map<string, number>();
  * Asks the server to warm Bot `botId`'s cache (slide 32), once now (the Conversation just opened)
  * and again whenever the returned function is called, which the composer does on the first keystroke
  * of a draft. Each Bot is asked for at most once a minute per tab; the server decides whether the
- * cache needs it. A warm that was made adds its line to the thread. A failed ask is ignored: the
- * next Turn simply finds the cache cold.
+ * cache needs it. A warm that was made adds its line to the thread. A failed ask is ignored, and may be
+ * made again at once: the next Turn simply finds the cache cold.
  */
 export function useCacheWarming(botId: string): () => void {
   const { orpc } = useChatAdapter();
@@ -32,7 +32,10 @@ export function useCacheWarming(botId: string): () => void {
           queryKey: orpc.bot.get.queryOptions({ input: { botId } }).queryKey,
         });
       })
-      .catch(() => {});
+      .catch(() => {
+        // Nothing was warmed, so the next ask may try again.
+        askedAt.delete(botId);
+      });
   }, [botId, orpc, queryClient]);
   useEffect(warm, [warm]);
   return warm;

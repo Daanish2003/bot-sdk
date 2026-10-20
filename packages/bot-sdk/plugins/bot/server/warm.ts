@@ -47,14 +47,15 @@ function warmableProvider(model: string): "anthropic" | "openai" | undefined {
   const parsed = parseModelId(model);
   if (parsed?.provider === "anthropic") return "anthropic";
   if (parsed?.provider !== "openai") return undefined;
-  const version = /^gpt-(\d+)\.(\d+)/.exec(parsed.modelId);
-  const [major, minor] = [Number(version?.[1]), Number(version?.[2])];
+  const version = /^gpt-(\d+)(?:\.(\d+))?/.exec(parsed.modelId);
+  const [major, minor] = [Number(version?.[1]), Number(version?.[2] ?? 0)];
   return major > 5 || (major === 5 && minor >= 6) ? "openai" : undefined;
 }
 
 /**
- * When the Bot last called its Model for a Turn or a warm: the user's newest `turn` row of a Bot's
- * Turn, or `warm` row of the Bot, read on the user's `(user_id, created_at)` index.
+ * When the Bot last called its Model for a Turn or a warm: the newest of the user's `turn` rows of
+ * the Bot's Turns and `warm` rows of the Bot, each read newest first on the user's
+ * `(user_id, created_at)` index.
  */
 async function lastCallAt(deps: BotSdkContext, userId: string, botId: string) {
   const [turn, warm] = await Promise.all([
