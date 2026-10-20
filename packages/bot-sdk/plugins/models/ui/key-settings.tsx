@@ -51,7 +51,7 @@ export function KeySettingsPage({
   linkedCredentials,
 }: {
   linkedCredentials?: LinkedCredentialsHost;
-} = {}) {
+}) {
   const orpc = useOrpc();
   const byok = useByok();
   const { t } = useI18n();

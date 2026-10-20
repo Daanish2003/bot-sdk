@@ -13,7 +13,12 @@ const chatgpt: LinkedCredentialsHost = {
     if (error) throw new Error(error.message);
   },
   disconnect: async () => {
-    const { error } = await authClient.unlinkAccount({ providerId: "chatgpt" });
+    // Better Auth unlinks by account row id, so the ChatGPT row is found first.
+    const { data: accounts, error: listError } = await authClient.listAccounts();
+    if (listError) throw new Error(listError.message);
+    const linked = accounts?.find((account) => account.providerId === "chatgpt");
+    if (!linked) return;
+    const { error } = await authClient.unlinkAccount({ accountId: linked.id });
     if (error) throw new Error(error.message);
   },
 };
