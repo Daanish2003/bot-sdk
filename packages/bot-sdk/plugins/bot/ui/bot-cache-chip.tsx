@@ -19,7 +19,8 @@ const stateKey = {
   notCached: "bots.cacheNotCached",
 } as const satisfies Record<CacheState, string>;
 
-const costOf = (micros: number) => `$${(micros / 1_000_000).toFixed(micros < 10_000 ? 4 : 2)}`;
+export const costOf = (micros: number) =>
+  `$${(micros / 1_000_000).toFixed(micros < 10_000 ? 4 : 2)}`;
 
 const percentOf = (steps: BotTurnStep[]) => {
   const input = steps.reduce((sum, step) => sum + step.inputTokens, 0);
