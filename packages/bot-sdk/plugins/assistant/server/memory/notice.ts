@@ -1,17 +1,9 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
-import { z } from "zod";
+import { asc, inArray } from "drizzle-orm";
 
-import type { ChatUser } from "../../../../core/server/context";
-import { conversation, memory } from "../../../../core/server/db/schema";
+import { conversationChannel } from "../../../../core/server/chat/conversation-events";
+import { memory } from "../../../../core/server/db/schema";
 import type { BotSdkContext } from "../../../../core/server/plugin";
 import type { MemoryUpdatedEvent, TurnChange } from "../../shared/memory/changes";
-import { assistantConversation } from "../chat/kind";
-
-/** The pub/sub channel of a Conversation: its Memory jobs publish here (#290). */
-export const conversationChannel = (conversationId: string) => `conversation:${conversationId}`;
-
-/** How often the live stream sends a comment, so an idle connection isn't dropped (#290). */
-const heartbeatMs = 25_000;
 
 /**
  * Publishes a turn's changes on the Conversation's channel, after they are written. Never throws:
@@ -65,64 +57,4 @@ export async function turnChangesOf(
     changes.set(row.sourceMessageId, [...(changes.get(row.sourceMessageId) ?? []), change]);
   }
   return changes;
-}
-
-/**
- * `GET ${basePath}/events?conversationId=…`: the owner's live stream of `memory_updated` events for
- * a Conversation, as server-sent events, until the page closes it. Never answers a Shared link.
- */
-export async function handleConversationEvents(
-  request: Request,
-  user: ChatUser,
-  deps: BotSdkContext,
-): Promise<Response> {
-  const id = z.uuid().safeParse(new URL(request.url).searchParams.get("conversationId"));
-  const [owned] = id.success
-    ? await deps.db
-        .select({ id: conversation.id })
-        .from(conversation)
-        .where(
-          and(
-            eq(conversation.id, id.data),
-            eq(conversation.userId, user.id),
-            assistantConversation(),
-          ),
-        )
-    : [];
-  if (!owned) {
-    return Response.json({ code: "error.conversationNotFound", params: {} }, { status: 404 });
-  }
-
-  const encoder = new TextEncoder();
-  let close = () => {};
-  const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      let open = true;
-      const unsubscribe = await deps.pubsub.subscribe(conversationChannel(owned.id), (message) => {
-        if (open) controller.enqueue(encoder.encode(`data: ${message}\n\n`));
-      });
-      const heartbeat = setInterval(() => {
-        if (open) controller.enqueue(encoder.encode(": ping\n\n"));
-      }, heartbeatMs);
-      close = () => {
-        if (!open) return;
-        open = false;
-        clearInterval(heartbeat);
-        void unsubscribe();
-        // Throws when the stream was cancelled first, which already closed it.
-        try {
-          controller.close();
-        } catch {
-          // Already closed.
-        }
-      };
-      request.signal.addEventListener("abort", close, { once: true });
-    },
-    cancel() {
-      close();
-    },
-  });
-  return new Response(stream, {
-    headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
-  });
 }

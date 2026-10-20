@@ -4,7 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
 import { createHookEmitter } from "../../../../core/server/chat/hooks";
-import { conversationChannel } from "../../../../plugins/assistant/server/memory/notice";
+import { conversationChannel } from "../../../../core/server/chat/conversation-events";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
   conversation,

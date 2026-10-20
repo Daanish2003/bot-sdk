@@ -23,7 +23,6 @@ import { rotateConnectionKeys } from "./mcp/connections";
 import { createLifecycle, type Lifecycle } from "./lifecycle";
 import { callbackRoute, connectRoute } from "./mcp/routes";
 import { checkMcpServers, type McpServerConfig } from "./mcp/servers";
-import { handleConversationEvents } from "./memory/notice";
 import type { BotSdkContext, BotSdkPlugin, Route } from "../../../core/server/plugin";
 import { defaultRateLimits, type RateLimit } from "../../../core/server/rate-limits";
 import { appRouter } from "./routers/index";
@@ -204,11 +203,6 @@ const assistantRoutes: Route[] = [
     method: "GET",
     path: "/run",
     handle: (request, { user, sdk }) => handleJoin(request, user, sdk),
-  },
-  {
-    method: "GET",
-    path: "/events",
-    handle: (request, { user, sdk }) => handleConversationEvents(request, user, sdk),
   },
   {
     method: "GET",
