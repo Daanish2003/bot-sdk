@@ -26,8 +26,11 @@ export type TurnEnv = {
   sdk: SdkOver;
   /** The Bot's Model, a curated `"provider:model"`. */
   model: string;
-  /** The Credentials the user saves for the Model's Provider. */
-  credentialsFor: (caseId: string, repeat: number) => Credentials;
+  /**
+   * The Credentials the user saves for the Model's Provider, or `null` when the Model runs on the
+   * owner's linked ChatGPT plan (eval/chatgpt-plan.ts), so no key is saved.
+   */
+  credentialsFor: (caseId: string, repeat: number) => Credentials | null;
 };
 
 /** What one run produced. */
@@ -110,12 +113,15 @@ export async function freshBot(env: TurnEnv, caseId: string, repeat: number) {
     .insert(userTable)
     .values({ id: userId, name: "Eval", email: `${userId}@eval.invalid` });
   const provider = env.model.split(":")[0]!;
-  await saveCredentials(env.sdk, userId, {
-    service: provider,
-    fields: env.credentialsFor(caseId, repeat),
-    hint: "eval",
-    verified: true,
-  });
+  const fields = env.credentialsFor(caseId, repeat);
+  if (fields) {
+    await saveCredentials(env.sdk, userId, {
+      service: provider,
+      fields,
+      hint: "eval",
+      verified: true,
+    });
+  }
   const bot = await createBot(env.db, userId, { name: "Eval", model: env.model }, new Date());
   const found = await findBot(env.db, userId, bot.id);
   return { userId, bot, found };

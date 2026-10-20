@@ -27,6 +27,7 @@ import { resolveRateLimits } from "../../core/server/rate-limits";
 import { memoryRuntime } from "../../core/server/runtime";
 import type { JobRunner } from "../../plugins/runner/server/jobs/runner";
 import { createFakeAdapter, round, text } from "../../test/support/fake-adapter";
+import { chatgptPlanFromEnv, planJudgeCompletion } from "../chatgpt-plan";
 import { type CaseResult, type EvalEnv, runCase } from "./case";
 import { categories, selectCases, tally } from "./cases";
 import { datasetRevision, loadDataset } from "./dataset";
@@ -131,6 +132,7 @@ async function main() {
   const limitArg = process.argv.find((arg) => arg.startsWith("--limit="));
   const limit = limitArg ? Number(limitArg.slice("--limit=".length)) : fake ? 2 : undefined;
   const concurrency = Number(process.env.EVAL_CONCURRENCY ?? 4);
+  const plan = fake ? null : await chatgptPlanFromEnv();
 
   const models = {
     background: fake
@@ -139,15 +141,19 @@ async function main() {
     answer: fake
       ? (process.env.EVAL_ANSWER_MODEL ?? "anthropic:claude-sonnet-5-5")
       : required("EVAL_ANSWER_MODEL"),
-    judge: process.env.EVAL_JUDGE_MODEL ?? "openai:gpt-4o-mini",
+    judge: process.env.EVAL_JUDGE_MODEL ?? (plan ? "openai:gpt-6-luna" : "openai:gpt-4o-mini"),
   };
   const databaseUrl = process.env.EVAL_DATABASE_URL;
   if (!databaseUrl) fail("EVAL_DATABASE_URL is not set: a scratch Postgres with pgvector.");
 
   // Keys come from the environment, never from the repo. In fake mode every Provider gets a placeholder.
-  const providers = [
-    ...new Set([providerOf(models.background), providerOf(models.answer), "openai"]),
-  ];
+  // On the ChatGPT plan no OpenAI key is saved (a saved key would come before the plan), so the plan's
+  // Models need none and embeddings use Gemini.
+  const onKeys = [models.background, models.answer].filter((model) => !plan?.serves(model));
+  const providers = [...new Set([...onKeys.map(providerOf), plan ? "gemini" : "openai"])];
+  if (plan && providers.includes("openai")) {
+    fail("On the ChatGPT plan, every openai Model must be a plan Model: no OpenAI key is saved");
+  }
   const keyOf = (provider: string): string => {
     if (fake) return "sk-fake";
     const variable = keyVariables[provider];
@@ -167,7 +173,7 @@ async function main() {
   const keyring = [evalKeySecret];
   const realModels = productionDeps(
     { db, keyring, events, logger, fetch } as unknown as BotSdkContext,
-    { defaultBackgroundModel: models.background },
+    { defaultBackgroundModel: models.background, linkedCredentials: plan?.linkedCredentials },
   );
   const modelsDeps: ModelsDeps = fake
     ? {
@@ -215,7 +221,11 @@ async function main() {
     answerModel: models.answer,
     providers,
     keyFor: (provider) => ({ apiKey: keyOf(provider) }),
-    complete: fake ? async () => "yes" : judgeCompletion(models.judge, keyOf),
+    complete: fake
+      ? async () => "yes"
+      : plan?.serves(models.judge)
+        ? planJudgeCompletion(models.judge, plan)
+        : judgeCompletion(models.judge, keyOf),
   };
 
   const startedAt = new Date().toISOString();
