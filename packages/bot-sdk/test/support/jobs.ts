@@ -35,16 +35,19 @@ export async function drainJobs({
   const silent = { error: () => {} };
   const jobDeps = deps ?? createTestSdk({ db });
   // Never started: it runs the attempts claimed here, and its `stop()` waits for their handlers.
-  const runner = inProcessRunner({ db, logger: silent, deps: () => jobDeps });
+  // A handler still running 5 s after its abort is reported, not waited on for the default 250 s.
+  const runner = inProcessRunner({ db, logger: silent, drainMs: 5_000, deps: () => jobDeps });
   let ran = 0;
-  for (;;) {
-    const claimed = await claimJob(db, now ?? new Date(), { respectRunAfter });
-    if (!claimed) break;
-    await runner.runClaimed(claimed);
-    ran += 1;
+  try {
+    for (;;) {
+      const claimed = await claimJob(db, now ?? new Date(), { respectRunAfter });
+      if (!claimed) return ran;
+      await runner.runClaimed(claimed);
+      ran += 1;
+    }
+  } finally {
+    await runner.stop();
   }
-  await runner.stop();
-  return ran;
 }
 
 /** A clock the test moves by hand; `tick()` fires every timer (poll and heartbeat). */

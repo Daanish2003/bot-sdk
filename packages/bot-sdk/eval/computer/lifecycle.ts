@@ -103,13 +103,16 @@ async function main() {
     // queues its follow-up inside the window.
     // Never started: it runs the checks claimed here, and its `stop()` waits for their handlers.
     const runner = inProcessRunner({ db, logger: console, deps: () => over });
-    for (let ran = 0; ran < 1000; ran++) {
-      if ((await row())?.state === "asleep") break;
-      const claimed = await claimJob(db, due);
-      if (!claimed) break;
-      await runner.runClaimed(claimed);
+    try {
+      for (let ran = 0; ran < 1000; ran++) {
+        if ((await row())?.state === "asleep") break;
+        const claimed = await claimJob(db, due);
+        if (!claimed) break;
+        await runner.runClaimed(claimed);
+      }
+    } finally {
+      await runner.stop();
     }
-    await runner.stop();
     return Date.now() - started;
   };
   /** Makes the Computer look idle: its last activity is past the idle limit. */

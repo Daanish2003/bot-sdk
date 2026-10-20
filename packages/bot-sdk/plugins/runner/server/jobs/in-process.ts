@@ -103,6 +103,8 @@ export function inProcessRunner({
   let claims: Promise<void> = Promise.resolve();
   const helpersInFlight = new Set<Promise<void>>();
   const othersInFlight = new Set<Promise<void>>();
+  // Attempts run through `runClaimed`, outside the lanes, until their outcome is decided.
+  const runByHand = new Set<Promise<void>>();
   // Every running handler, an attempt's that has ended included, until the handler ends too.
   const handlers = new Set<Promise<void>>();
 
@@ -169,8 +171,14 @@ export function inProcessRunner({
 
     wake: requestClaim,
 
-    runClaimed: (claimed, options = {}) =>
-      run(claimed, { drain: options.drain ?? drain.signal, shutdown: shutdown.signal }),
+    runClaimed: (claimed, options = {}) => {
+      const work = run(claimed, {
+        drain: options.drain ?? drain.signal,
+        shutdown: shutdown.signal,
+      }).finally(() => runByHand.delete(work));
+      runByHand.add(work);
+      return work;
+    },
 
     async start() {
       if (running) return;
@@ -190,9 +198,9 @@ export function inProcessRunner({
       clock.clearInterval(timer);
       timer = undefined;
       await claims;
-      await waitUpTo(Promise.all([...helpersInFlight, ...othersInFlight]), drainMs);
+      await waitUpTo(Promise.all([...helpersInFlight, ...othersInFlight, ...runByHand]), drainMs);
       shutdown.abort();
-      await Promise.all([...helpersInFlight, ...othersInFlight]);
+      await Promise.allSettled([...helpersInFlight, ...othersInFlight, ...runByHand]);
       await waitUpTo(Promise.all(handlers), drainMs);
       if (handlers.size > 0) {
         logger.error(`${handlers.size} background job handler(s) still running after stop`);
