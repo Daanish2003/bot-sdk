@@ -1,1 +1,1 @@
-export { KeySettingsPage } from "./key-settings";
+export { KeySettingsPage, type LinkedCredentialsHost } from "./key-settings";

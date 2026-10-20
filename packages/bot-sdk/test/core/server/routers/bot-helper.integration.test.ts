@@ -92,16 +92,20 @@ async function botWith(
     withComputer = true,
     onCommand,
     manualHelpers,
+    linked = false,
     ...overrides
   }: {
     withComputer?: boolean;
     manualHelpers?: boolean;
+    /** The Bot is on a ChatGPT plan Model and the user has a linked plan, not a key (ADR 0023). */
+    linked?: boolean;
     onCommand?: (command: FakeCommandRun) => CommandResult | Promise<CommandResult>;
   } & Pick<TestDepsOverrides, "clock" | "getQuota" | "hostProviders"> = {},
 ) {
   const fakes = splitAdapter(turns, helpers, manualHelpers);
   const computerFake = fakeComputerProvider({ onCommand });
   let deps: TestDeps | undefined;
+  const adapterCredentials: Array<Record<string, string>> = [];
   const jobs = inProcessRunner({
     db: getTestDb(),
     logger: silent,
@@ -111,7 +115,11 @@ async function botWith(
   deps = createTestSdk({
     plugins: withComputer ? [bot(), computer({ provider: computerFake.provider })] : [bot()],
     jobs,
-    adapterFor: () => fakes.adapter,
+    adapterFor: (_model, credentials) => {
+      adapterCredentials.push(credentials);
+      return fakes.adapter;
+    },
+    ...(linked && { linkedCredentials: async () => planCredentials }),
     // No memory pass takes a Turn's round.
     memory: false,
     ...overrides,
@@ -119,7 +127,7 @@ async function botWith(
   await jobs.start();
   started.push(jobs);
   const user = await insertUser();
-  if (!overrides.hostProviders) {
+  if (!overrides.hostProviders && !linked) {
     await saveCredentials(deps, user.id, {
       service: "openai",
       fields: { apiKey: "openai-test-key" },
@@ -130,12 +138,14 @@ async function botWith(
   const client = chatRpc({ user, deps });
   const created = await client.bot.create({
     name: "Ada",
-    model: overrides.hostProviders ? hostModel : model,
+    model: overrides.hostProviders ? hostModel : linked ? planModel : model,
   });
-  return { ...fakes, computerFake, deps, client, user, botId: created.id };
+  return { ...fakes, adapterCredentials, computerFake, deps, client, user, botId: created.id };
 }
 
 const hostModel = "anthropic:claude-sonnet-5-5";
+const planModel = "openai:gpt-6.1-sol";
+const planCredentials = { apiKey: "chatgpt-access-token" };
 
 /** Sends `text` to the Bot and reads the whole stream. */
 async function send(client: ReturnType<typeof chatRpc>, botId: string, text: string) {
@@ -454,6 +464,25 @@ describe("a Helper's Quota and usage", () => {
     ]);
     const [helper] = await helpersOf(botId);
     expect(helper?.usage).toMatchObject({ input: 200, output: 20 });
+  });
+
+  it("runs on the user's linked ChatGPT plan, with no usage row, when the Bot is on a plan Model (ADR 0023)", async () => {
+    const { client, botId, user, helperFake, adapterCredentials } = await botWith(
+      [handsOff("Count."), round()],
+      [round(shell("true")), round(text("Done."))],
+      { linked: true },
+    );
+
+    await send(client, botId, "go");
+    await settled(botId);
+
+    const [helper] = await helpersOf(botId);
+    expect(helper).toMatchObject({ status: "complete", report: "Done." });
+    expect(helperFake.calls).toHaveLength(2);
+    expect(new Set(adapterCredentials.map((credentials) => credentials.apiKey))).toEqual(
+      new Set([planCredentials.apiKey]),
+    );
+    expect(await usageOf(user.id)).toEqual([]);
   });
 
   it("refuses start_helper once the Quota is spent, with a next step", async () => {
