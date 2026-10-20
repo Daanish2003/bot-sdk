@@ -631,14 +631,17 @@ describe("the file tools", () => {
   });
 
   it("reads a range without loading the file, and shows the rest by nextOffset", async () => {
-    const { client, botId, fake, computerFake } = await botWith([
-      round(
-        file("read", { path: "/tmp/big.log", offset: 3, limit: 2 }),
-        file("read", { path: "/tmp/big.log", offset: 5, limit: 2 }),
-        file("read", { path: "/tmp/big.log", offset: 9 }),
-      ),
-      round(),
-    ]);
+    const { client, botId, fake, computerFake } = await botWith(
+      [
+        round(
+          file("read", { path: "/tmp/big.log", offset: 3, limit: 2 }),
+          file("read", { path: "/tmp/big.log", offset: 5, limit: 2 }),
+          file("read", { path: "/tmp/big.log", offset: 9 }),
+        ),
+        round(),
+      ],
+      { withMemory: false },
+    );
     computerFake.files.set("/tmp/big.log", new TextEncoder().encode("a\nb\nc\nd\ne\nlast"));
     const load = vi.spyOn(computerFake.provider, "readFile");
 
@@ -648,7 +651,7 @@ describe("the file tools", () => {
     expect(middle).toEqual({ content: "3\tc\n4\td", totalLines: 6, nextOffset: 5 });
     expect(tail).toEqual({ content: "5\te\n6\tlast", totalLines: 6 });
     expect(beyond).toEqual({ content: "", totalLines: 6 });
-    expect(load.mock.calls.filter(([, path]) => path === "/tmp/big.log")).toEqual([]);
+    expect(load).not.toHaveBeenCalled();
   });
 
   it("returns an error that suggests shell when edit's file is over the size limit", async () => {

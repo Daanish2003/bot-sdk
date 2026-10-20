@@ -2,7 +2,7 @@ import { asc, eq } from "drizzle-orm";
 
 import { bot } from "../../../core/server/db/schema";
 import type { BotSdkContext } from "../../../core/server/plugin";
-import type { ComputerHandle } from "../../computer/server/plugin";
+import type { ComputerHandle, FileOperationOptions } from "../../computer/server/plugin";
 import { memoryEnabledFor } from "./manage";
 
 /*
@@ -159,8 +159,12 @@ export async function botsOf(
 }
 
 /** A file's text, or "" when there is none. */
-export async function readText(computer: ComputerHandle, path: string): Promise<string> {
-  const bytes = await computer.readFile(path);
+export async function readText(
+  computer: ComputerHandle,
+  path: string,
+  options?: FileOperationOptions,
+): Promise<string> {
+  const bytes = await computer.readFile(path, options);
   return bytes ? new TextDecoder().decode(bytes) : "";
 }
 
@@ -178,20 +182,26 @@ export type BotMemorySnapshot = {
  * Reads Bot `botId`'s snapshot from the Computer, as of `now`: every Profile, own first then the
  * other Bots' oldest first, with exact duplicates dropped, up to 100 facts in 4,000 characters;
  * the 30 top-scoring Log lines of the last 3 monthly files, newest first; and the Notes dated
- * within the last 2 days. A Computer failure throws.
+ * within the last 2 days. A Computer failure throws, and so does `signal`'s abort.
  */
 export async function readBotMemory(
   computer: ComputerHandle,
-  { botId, bots, now }: { botId: string; bots: MemoryBot[]; now: Date },
+  {
+    botId,
+    bots,
+    now,
+    signal,
+  }: { botId: string; bots: MemoryBot[]; now: Date; signal?: AbortSignal },
 ): Promise<BotMemorySnapshot> {
+  const read = (path: string) => readText(computer, path, { signal });
   const others = bots.filter((other) => other.id !== botId);
   const months = monthsUpTo(now, logMonths);
   const today = dayOf(now);
   const [ownProfile, otherProfiles, logs, notes] = await Promise.all([
-    readText(computer, profilePath(botId)),
-    Promise.all(others.map((other) => readText(computer, profilePath(other.id)))),
-    Promise.all(months.map((month) => readText(computer, logPath(botId, month)))),
-    readText(computer, notesPath(botId)),
+    read(profilePath(botId)),
+    Promise.all(others.map((other) => read(profilePath(other.id)))),
+    Promise.all(months.map((month) => read(logPath(botId, month)))),
+    read(notesPath(botId)),
   ]);
 
   const profile: BotMemorySnapshot["profile"] = [];
@@ -288,20 +298,28 @@ export function botMemoryPrompt(botId: string, snapshot: BotMemorySnapshot): str
   ].join("\n\n");
 }
 
+/** What the memory block of a Bot's Turn is read with. */
+export type BotSnapshotArgs = {
+  userId: string;
+  botId: string;
+  /** The Turn's start: what the Log's ages and the Notes' days count from. */
+  now: Date;
+  /** The user's Computer, which is woken only with Memory on. */
+  computer: ComputerHandle;
+  /** Stops the reads, as a Stop or the Turn's time limit does. */
+  signal?: AbortSignal;
+};
+
 /**
- * The memory block of Bot `botId`'s Turn, read from the Computer as of `now`, or null with the
- * user's Memory off or no `computer` plugin. A Computer failure throws.
+ * The memory block of Bot `botId`'s Turn, read from `computer` as of `now`, or null with the
+ * user's Memory off, which leaves the Computer alone. A Computer failure throws.
  */
 export async function botMemorySnapshot(
-  deps: BotSdkContext,
-  { userId, botId, now }: { userId: string; botId: string; now: Date },
+  deps: Pick<BotSdkContext, "db">,
+  { userId, botId, now, computer, signal }: BotSnapshotArgs,
 ): Promise<string | null> {
-  if (!deps.hasPlugin("computer") || !(await memoryEnabledFor(deps, userId))) return null;
+  if (!(await memoryEnabledFor(deps, userId))) return null;
   const bots = await botsOf(deps, userId);
-  const snapshot = await readBotMemory(deps.plugin("computer").forUser(userId), {
-    botId,
-    bots,
-    now,
-  });
+  const snapshot = await readBotMemory(computer, { botId, bots, now, signal });
   return botMemoryPrompt(botId, snapshot);
 }

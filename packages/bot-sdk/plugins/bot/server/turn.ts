@@ -9,7 +9,6 @@ import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
 import { searchTextOf } from "../../../core/shared/message-parts";
 import { conversationChannel } from "../../../core/server/chat/conversation-events";
-import { ComputerOperationError, ComputerUnavailableError } from "../../computer/server/plugin";
 import type { MessageUsage } from "../../models/shared/usage";
 import { defineJob, PermanentJobError } from "../../runner/server/jobs/define";
 import { loadHistory } from "../../runner/server/jobs/history";
@@ -25,7 +24,7 @@ import {
   waitingIn,
 } from "./router";
 import { cancelCheckInTool, pendingCheckIns, saveCheckIn } from "./check-in";
-import { computerPrompt } from "./computer-tools";
+import { computerOf, computerPrompt } from "./computer-tools";
 import { type TodoItem, todoList } from "./helper";
 import { helperTools } from "./helper-tools";
 import { type LoopKit, type LoopResult, type LoopSetup, runLoop } from "./loop";
@@ -976,35 +975,27 @@ async function turnSetup(deps: BotSdkContext, turn: TurnFacts, kit: LoopKit): Pr
 }
 
 /**
- * The Bot's memory block as the Turn starts (ADR 0022), read once from the Computer: a replay
- * reads the recorded block. Null with Memory off, or when the Computer can't be woken or read, so
- * the Turn goes on without it.
+ * The Bot's memory block as the Turn starts (ADR 0022), read once from the Computer as a Computer
+ * call of the loop's, so a Stop or the time limit stops it: a replay reads the recorded block.
+ * It reads through its own handle, so a rebuild is still told in the first tool result (#553).
+ * Null with Memory off, or when the Computer can't be woken or read, so the Turn goes on without
+ * it.
  */
 async function memorySnapshot(
   deps: BotSdkContext,
   turn: TurnFacts,
   kit: LoopKit,
 ): Promise<string | null> {
-  return kit.liveRequest(
-    "memory",
-    undefined,
-    async () => {
-      try {
-        return await deps
-          .plugin("memory")
-          .botSnapshot({ userId: turn.userId, botId: turn.botId, now: turn.startedAt });
-      } catch (caught) {
-        if (
-          caught instanceof ComputerUnavailableError ||
-          caught instanceof ComputerOperationError
-        ) {
-          return null;
-        }
-        throw caught;
-      }
-    },
-    async () => {},
-  );
+  const read = await kit.computerCall("memory", undefined, async (_computer, live) => ({
+    prompt: await deps.plugin("memory").botSnapshot({
+      userId: turn.userId,
+      botId: turn.botId,
+      now: turn.startedAt,
+      computer: computerOf(deps, turn.userId),
+      signal: live.signal,
+    }),
+  }));
+  return "error" in read ? null : read.prompt;
 }
 
 /** How a Turn ended, and why when it failed: a limit's code or the Provider's error. */
