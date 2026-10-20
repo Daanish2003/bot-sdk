@@ -240,6 +240,40 @@ describe("the post-turn memory pass", () => {
     expect(read(ada, "profile.md")).toBe("- Prefers terse replies\n");
   });
 
+  it("keeps a write to a file that lands while it reads another", async () => {
+    let setup: ReturnType<typeof botsWith> extends Promise<infer T> ? T : never;
+    const { client, botIds, read } = (setup = await botsWith([
+      round(),
+      () => {
+        // Once the pass applies its operations, reading the Notes lets the Bot add to its Profile.
+        const { provider } = setup.computerFake;
+        const readFile = provider.readFile;
+        provider.readFile = async (sandboxId, path) => {
+          if (path === memoryPath(setup.botIds[0]!, "notes.md")) {
+            const profile = setup.read(setup.botIds[0]!, "profile.md") ?? "";
+            setup.computerFake.files.set(
+              memoryPath(setup.botIds[0]!, "profile.md"),
+              new TextEncoder().encode(`${profile}- Likes jazz\n`),
+            );
+          }
+          return readFile(sandboxId, path);
+        };
+        return ops(
+          { op: "add", tier: "profile", text: "Lives in Berlin" },
+          { op: "add", tier: "notes", text: "Travelling until Thursday" },
+        );
+      },
+    ]));
+    const [ada] = botIds as [string];
+    setup.seed(ada, "profile.md", ["- Prefers short replies"]);
+
+    await send(client, ada, "hi");
+    await passesEnded(1);
+
+    expect(read(ada, "profile.md")).toContain("- Likes jazz\n");
+    expect(read(ada, "profile.md")).toContain("- Lives in Berlin\n");
+  });
+
   it("never writes another Bot's files", async () => {
     const { client, botIds, seed, computerFake, read } = await botsWith(
       [

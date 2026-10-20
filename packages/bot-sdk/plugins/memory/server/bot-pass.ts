@@ -240,8 +240,9 @@ async function shownLines(
 type FileEdit = { lines: (string | null)[]; touched: Set<number>; added: string[] };
 
 /**
- * Applies the pass's operations to Bot `botId`'s own files, read fresh, as of `now`, and returns
- * what changed, in operation order. Each file is written once, at the end.
+ * Applies the pass's operations to Bot `botId`'s own files as of `now`, and returns what changed,
+ * in operation order. Each file is read, edited and written in turn, so a write that lands while
+ * the pass works on another file is kept.
  *
  * - `add` appends a line: a Profile fact, unless the Profile is at its cap; a Log line dated today
  *   in this month's file, with its importance (5 when it has none); a Notes line dated today. A
@@ -263,91 +264,91 @@ export async function applyMemoryOps(
   }: { botId: string; shown: ShownLine[]; ops: MemoryOp[]; now: Date; signal?: AbortSignal },
 ): Promise<BotMemoryChange[]> {
   const today = dayOf(now);
-  const edits = new Map<string, FileEdit>();
-  const edit = async (path: string): Promise<FileEdit> => {
-    const open = edits.get(path);
-    if (open) return open;
-    const content = await readText(computer, path, { signal });
-    const lines = content.split(/\r?\n/);
-    // A trailing newline is not a line.
-    if (lines.at(-1) === "") lines.pop();
-    const opened: FileEdit = { lines, touched: new Set(), added: [] };
-    edits.set(path, opened);
-    return opened;
+  const pathOf = (op: MemoryOp): string | undefined => {
+    if (op.op !== "add") return shown[op.line - 1]?.path;
+    if (op.tier === "profile") return profilePath(botId);
+    if (op.tier === "notes") return notesPath(botId);
+    return logPath(botId, today.slice(0, 7));
   };
+  // The operations by file, each with its place in operation order.
+  const byPath = new Map<string, { op: MemoryOp; index: number }[]>();
+  ops.forEach((op, index) => {
+    const path = pathOf(op);
+    if (path) byPath.set(path, [...(byPath.get(path) ?? []), { op, index }]);
+  });
   const textsOf = (file: FileEdit) =>
     memoryLines([...file.lines.filter((line) => line !== null), ...file.added].join("\n")).map(
       (entry) => entry.text,
     );
 
-  const changes: BotMemoryChange[] = [];
-  for (const op of ops) {
-    if (op.op === "add") {
-      const text = cleanText(op.text);
-      if (!text) continue;
-      const path =
-        op.tier === "profile"
-          ? profilePath(botId)
-          : op.tier === "notes"
-            ? notesPath(botId)
-            : logPath(botId, today.slice(0, 7));
-      const line =
-        op.tier === "profile"
-          ? text
-          : op.tier === "notes"
-            ? `${today} ${text}`
-            : `${today} (importance ${roundImportance(op.importance)}) ${text}`;
-      const file = await edit(path);
-      const texts = textsOf(file);
-      if (texts.includes(line)) continue;
-      if (op.tier === "profile") {
-        const characters = texts.reduce((sum, fact) => sum + fact.length, 0);
-        if (texts.length >= profileFactLimit || characters + text.length > profileCharacterLimit) {
-          continue;
+  const changes: { index: number; change: BotMemoryChange }[] = [];
+  for (const [path, fileOps] of byPath) {
+    const lines = (await readText(computer, path, { signal })).split(/\r?\n/);
+    // A trailing newline is not a line.
+    if (lines.at(-1) === "") lines.pop();
+    const file: FileEdit = { lines, touched: new Set(), added: [] };
+
+    for (const { op, index: order } of fileOps) {
+      const changed = (change: BotMemoryChange) => changes.push({ index: order, change });
+      if (op.op === "add") {
+        const text = cleanText(op.text);
+        if (!text) continue;
+        const line =
+          op.tier === "profile"
+            ? text
+            : op.tier === "notes"
+              ? `${today} ${text}`
+              : `${today} (importance ${roundImportance(op.importance)}) ${text}`;
+        const texts = textsOf(file);
+        if (texts.includes(line)) continue;
+        if (op.tier === "profile") {
+          const characters = texts.reduce((sum, fact) => sum + fact.length, 0);
+          if (
+            texts.length >= profileFactLimit ||
+            characters + text.length > profileCharacterLimit
+          ) {
+            continue;
+          }
         }
+        file.added.push(`- ${line}`);
+        changed({ kind: "remembered", tier: op.tier, text });
+        continue;
       }
-      file.added.push(`- ${line}`);
-      changes.push({ kind: "remembered", tier: op.tier, text });
-      continue;
+
+      const target = shown[op.line - 1]!;
+      const index = target.line - 1;
+      const current = file.lines[index];
+      if (file.touched.has(index) || current == null) continue;
+      if (memoryLines(current)[0]?.text !== target.text) continue;
+      file.touched.add(index);
+      if (op.op === "remove") {
+        file.lines[index] = null;
+        changed({ kind: "forgot", tier: target.tier, text: target.content });
+        continue;
+      }
+      const text = cleanText(op.text);
+      const characters = textsOf(file).reduce((sum, fact) => sum + fact.length, 0);
+      const overCap =
+        target.tier === "profile" &&
+        characters - target.text.length + text.length > profileCharacterLimit;
+      if (!text || overCap) {
+        file.touched.delete(index);
+        continue;
+      }
+      file.lines[index] =
+        target.tier === "profile"
+          ? `- ${text}`
+          : target.tier === "notes"
+            ? `- ${target.date} ${text}`
+            : `- ${target.date} (importance ${roundImportance(op.importance ?? target.importance)}) ${text}`;
+      changed({ kind: "changed", tier: target.tier, from: target.content, text });
     }
 
-    const target = shown[op.line - 1];
-    if (!target) continue;
-    const file = await edit(target.path);
-    const index = target.line - 1;
-    const current = file.lines[index];
-    if (file.touched.has(index) || current == null) continue;
-    if (memoryLines(current)[0]?.text !== target.text) continue;
-    file.touched.add(index);
-    if (op.op === "remove") {
-      file.lines[index] = null;
-      changes.push({ kind: "forgot", tier: target.tier, text: target.content });
-      continue;
-    }
-    const text = cleanText(op.text);
-    const characters = textsOf(file).reduce((sum, fact) => sum + fact.length, 0);
-    const overCap =
-      target.tier === "profile" &&
-      characters - target.text.length + text.length > profileCharacterLimit;
-    if (!text || overCap) {
-      file.touched.delete(index);
-      continue;
-    }
-    file.lines[index] =
-      target.tier === "profile"
-        ? `- ${text}`
-        : target.tier === "notes"
-          ? `- ${target.date} ${text}`
-          : `- ${target.date} (importance ${roundImportance(op.importance ?? target.importance)}) ${text}`;
-    changes.push({ kind: "changed", tier: target.tier, from: target.content, text });
-  }
-
-  for (const [path, file] of edits) {
     if (file.touched.size === 0 && file.added.length === 0) continue;
-    const lines = [...file.lines.filter((line) => line !== null), ...file.added];
-    await computer.writeFile(path, lines.length > 0 ? `${lines.join("\n")}\n` : "", { signal });
+    const kept = [...file.lines.filter((line) => line !== null), ...file.added];
+    await computer.writeFile(path, kept.length > 0 ? `${kept.join("\n")}\n` : "", { signal });
   }
-  return changes;
+  return changes.sort((a, b) => a.index - b.index).map(({ change }) => change);
 }
 
 /**
