@@ -14,7 +14,8 @@ const reconnectChatgptCode = "chatgpt_reconnect";
  * - its stream is "lite": `response.completed` has an empty `output`, so the adapter would never
  *   see a tool call. The items the stream sent (`response.output_item.done`) are put back in.
  *
- * A rejected token (401, 403) means a broken link, so its message asks to reconnect. The plan's
+ * A rejected token (401) means a broken link, so its message asks to reconnect; a 403 keeps
+ * OpenAI's own message. The plan's
  * stream has no content-type, so nothing here branches on it.
  */
 export function chatgptPlanFetch(
@@ -22,7 +23,7 @@ export function chatgptPlanFetch(
 ): typeof fetch {
   return async (input, init) => {
     const response = await base(input, withPlanBody(init));
-    if (response.status === 401 || response.status === 403) return reconnectResponse(response);
+    if (response.status === 401) return reconnectResponse(response);
     if (!response.ok || !response.body) return response;
     return new Response(response.body.pipeThrough(fillCompletedOutput()), {
       status: response.status,
@@ -47,7 +48,7 @@ function withPlanBody(init: RequestInit | undefined): RequestInit | undefined {
   return { ...init, body: JSON.stringify(body) };
 }
 
-/** A 401 or 403 with the reconnect message, keeping its status; the code marks it as a broken link. */
+/** A 401 with the reconnect message, keeping its status; the code marks it as a broken link. */
 async function reconnectResponse(response: Response): Promise<Response> {
   await response.body?.cancel();
   return new Response(
@@ -101,7 +102,8 @@ function fillCompletedOutput(): TransformStream<Uint8Array, Uint8Array> {
   };
   return new TransformStream({
     transform(chunk, controller) {
-      buffer += decoder.decode(chunk, { stream: true }).replaceAll("\r\n", "\n");
+      // Normalized on the whole buffer: a "\r\n" can be split across two chunks.
+      buffer = (buffer + decoder.decode(chunk, { stream: true })).replaceAll("\r\n", "\n");
       let end: number;
       while ((end = buffer.indexOf("\n\n")) !== -1) {
         controller.enqueue(encoder.encode(`${rewrite(buffer.slice(0, end))}\n\n`));

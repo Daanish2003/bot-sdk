@@ -126,6 +126,39 @@ describe("a call on a linked ChatGPT plan (ADR 0023, #639)", () => {
     expect(JSON.stringify(requests[1]?.input)).toContain("function_call_output");
   });
 
+  it("runs the tool call when the stream's CRLF event breaks fall across chunks", async () => {
+    // Every event ends "\r\n\r\n", and each chunk ends inside that break, after its "\r".
+    const crlf = liteToolCallStream().replaceAll("\n", "\r\n");
+    const chunks = crlf
+      .split("\r\n\r")
+      .map((part, index, all) => (index < all.length - 1 ? `${part}\r\n\r` : part));
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
+        controller.close();
+      },
+    });
+    stubOpenai([new Response(body, { status: 200 }), liteTextStream("Sunny.")]);
+    const ran: unknown[] = [];
+    const adapter = adapterFor("openai:gpt-6.1-sol", { apiKey: "t" }, { linked: true });
+
+    await chat({
+      adapter,
+      messages: [{ role: "user", content: "Weather in Pune?" }],
+      tools: [
+        weather.server(async (input) => {
+          ran.push(input);
+          return { forecast: "sunny" };
+        }),
+      ],
+      stream: false,
+    });
+
+    expect(chunks.join("")).toBe(crlf);
+    expect(ran).toEqual([{ city: "Pune" }]);
+  });
+
   it("sends reasoning effort none as low, which the plan's Models accept", async () => {
     const requests = stubOpenai([liteTextStream("Hi.")]);
     const adapter = adapterFor("openai:gpt-6.1-sol", { apiKey: "t" }, { linked: true });

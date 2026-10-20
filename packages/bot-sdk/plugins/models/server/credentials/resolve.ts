@@ -131,6 +131,22 @@ export async function linkedPlan(
   return (await deps.linkedCredentials(userId, "openai")) ?? null;
 }
 
+/**
+ * {@link linkedPlan} for what the user is shown (the Model picker, the Keys page): a failing hook
+ * is logged and shown as no link, so those pages keep working. A Model call still fails with it.
+ */
+export async function shownLinkedPlan(
+  deps: Pick<ModelsDeps, "byok" | "linkedCredentials" | "logger">,
+  userId: string,
+): Promise<Credentials | "needs-reconnect" | null> {
+  try {
+    return await linkedPlan(deps, userId);
+  } catch (error) {
+    deps.logger.error("The Host's linkedCredentials hook failed", error);
+    return null;
+  }
+}
+
 /** What a Tool call uses: the credentials, and the meter that prices each search on the Host's Tool. */
 export type ToolCall = { credentials: Credentials; meter: TxMeter<void> };
 

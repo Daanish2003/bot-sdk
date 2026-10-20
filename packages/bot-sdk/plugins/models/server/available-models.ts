@@ -1,7 +1,7 @@
 import { conversation } from "../../../core/server/db/schema";
 import { and, desc, eq, isNotNull } from "drizzle-orm";
 
-import { linkedPlan, resolvedServices, hostModelList } from "./credentials/resolve";
+import { shownLinkedPlan, resolvedServices, hostModelList } from "./credentials/resolve";
 import { loadCredentials } from "./credentials/store";
 import { chatgptPlanModels, tavilyService } from "../shared/credentials/services";
 import type { ModelsDeps } from "./types";
@@ -28,6 +28,7 @@ type Deps = Pick<
   | "hostTools"
   | "byok"
   | "linkedCredentials"
+  | "logger"
   | "defaultBackgroundModel"
   | "defaultImageModel"
 >;
@@ -58,7 +59,7 @@ export async function listAvailableModels(
   // A linked plan offers its Models when the user has no OpenAI key; a broken link still lists
   // them, so picking one asks to reconnect rather than running on the Host (ADR 0023).
   const planModels =
-    !services.includes("openai") && (await linkedPlan(deps, userId))
+    !services.includes("openai") && (await shownLinkedPlan(deps, userId))
       ? curatedModels.filter((model) => chatgptPlanModels.includes(model.id))
       : [];
   const own = [

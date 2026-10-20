@@ -235,6 +235,20 @@ describe("A linked ChatGPT plan in the Model picker and the Keys page (ADR 0023)
     ]);
   });
 
+  it("keeps the picker and the Keys page working when the Host's hook fails, showing no link", async () => {
+    const { client } = await clientWith(null, {
+      hostProviders: hostOffers("gpt-5.6"),
+      linkedCredentials: async () => {
+        throw new Error("The auth database is down");
+      },
+    });
+
+    expect((await client.models.list()).models.map((model) => model.id)).toEqual([
+      "openai:gpt-5.6",
+    ]);
+    expect(await client.credentials.openaiState()).toBe("none");
+  });
+
   it("reports the OpenAI row as key, linked, needs reconnect or none", async () => {
     const withKey = await clientWith(linked);
     await saveCredentials(withKey.deps, withKey.user.id, {
@@ -250,6 +264,15 @@ describe("A linked ChatGPT plan in the Model picker and the Keys page (ADR 0023)
       "needs-reconnect",
     );
     expect(await (await clientWith(null)).client.credentials.openaiState()).toBe("none");
+    // With byok off, neither a link nor a key is used.
+    const byokOff = await clientWith(linked, { byok: false });
+    await saveCredentials(byokOff.deps, byokOff.user.id, {
+      service: "openai",
+      fields: { apiKey: "sk-own-openai" },
+      hint: "…enai",
+      verified: true,
+    });
+    expect(await byokOff.client.credentials.openaiState()).toBe("none");
 
     // A Host without the hook: only the stored key counts.
     const user = await insertUser();
