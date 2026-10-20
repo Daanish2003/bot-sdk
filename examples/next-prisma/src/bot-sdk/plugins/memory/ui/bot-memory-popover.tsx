@@ -88,7 +88,8 @@ export function BotMemoryPopover({ botId }: { botId: string }) {
     return needle ? all.filter((row) => row.text.toLowerCase().includes(needle)) : all;
   };
 
-  if (status.data?.botMemoryAvailable === false) return null;
+  // Shown once the server says Bots can have memory, so it never flickers in and out.
+  if (!status.data?.botMemoryAvailable) return null;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>

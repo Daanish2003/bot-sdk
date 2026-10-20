@@ -217,8 +217,8 @@ export type ExportedBotMemory = {
  * Every Bot's memory files of user `userId` (ADR 0022), read from the user's Computer for the
  * export, in the export's snapshot `tx`. It wakes the Computer. A user with no Computer row has
  * no files, so none is woken or created, and an instance without the `computer` plugin has none.
- * A Bot whose files the Computer fails to read is left out, and all of them when it can't be
- * woken, so the rest of the export still succeeds.
+ * A Bot whose files the Computer fails to read is left out, and the Bots not yet read once it
+ * can't be woken, so the rest of the export still succeeds.
  */
 export async function exportBotMemory(
   sdk: BotSdkContext,
@@ -240,7 +240,7 @@ export async function exportBotMemory(
       const unavailable = caught instanceof ComputerUnavailableError;
       if (!unavailable && !(caught instanceof ComputerOperationError)) throw caught;
       sdk.logger.error(`Exporting the memory of Bot ${botId} failed`, caught);
-      if (unavailable) return [];
+      if (unavailable) return exported;
     }
   }
   return exported;
