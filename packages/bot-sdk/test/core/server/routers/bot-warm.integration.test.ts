@@ -1,8 +1,8 @@
 import type { ModelMessage, TextOptions } from "@tanstack/ai";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { botPromptStart, botTurn, usage } from "../../../../core/server/db/schema";
+import { bot as botTable, botPromptStart, botTurn, usage } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { bot } from "../../../../plugins/bot/server/plugin";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
@@ -72,12 +72,23 @@ async function send(client: ReturnType<typeof chatRpc>, botId: string, text: str
   }
 }
 
-/** Makes the Bot's recorded model calls `minutes` old, as if the Turn ran that long ago. */
-const ageCalls = (userId: string, minutes: number) =>
-  getTestDb()
-    .update(usage)
-    .set({ createdAt: new Date(Date.now() - minutes * minute) })
-    .where(eq(usage.userId, userId));
+/**
+ * Makes the user's recorded model calls `minutes` old, as if the Turn ran that long ago, and their
+ * Bots' Prompt starts as old, so no Prompt start is newer than the calls that sent it.
+ */
+const ageCalls = async (userId: string, minutes: number) => {
+  const at = new Date(Date.now() - minutes * minute);
+  await getTestDb().update(usage).set({ createdAt: at }).where(eq(usage.userId, userId));
+  await getTestDb()
+    .update(botPromptStart)
+    .set({ builtAt: new Date(at.getTime() - 1000) })
+    .where(
+      inArray(
+        botPromptStart.botId,
+        getTestDb().select({ id: botTable.id }).from(botTable).where(eq(botTable.userId, userId)),
+      ),
+    );
+};
 
 const usageKinds = async (userId: string) =>
   (
@@ -224,6 +235,45 @@ describe("bot.warm", () => {
     expect(await client.bot.warm({ botId })).toEqual({ warmed: false, skipped: "still_warm" });
 
     expect(fake.calls).toHaveLength(2);
+  });
+
+  it("warms once when two tabs ask at the same time", async () => {
+    const { fake, user, client, botId } = await botWith(
+      [round(), warmRound(), warmRound()],
+      "anthropic:claude-sonnet-5-5",
+    );
+    await send(client, botId, "hi");
+    await ageCalls(user.id, 56);
+
+    const results = await Promise.all([client.bot.warm({ botId }), client.bot.warm({ botId })]);
+
+    expect(results).toEqual(
+      expect.arrayContaining([{ warmed: true }, { warmed: false, skipped: "still_warm" }]),
+    );
+    expect(fake.calls).toHaveLength(2);
+    expect(await usageKinds(user.id)).toEqual(["turn", "warm"]);
+  });
+
+  it("warms after a Summary while away, whose new Prompt start no call has cached yet", async () => {
+    const { fake, jobs, client, botId } = await botWith(
+      [
+        withUsage(round(), { promptTokens: 120_000, completionTokens: 10, totalTokens: 120_010 }),
+        // The away Summary.
+        round(text("The user said hi.")),
+        warmRound(),
+      ],
+      "anthropic:claude-sonnet-5-5",
+    );
+    await send(client, botId, "hi");
+    const claimed = await claimJob(getTestDb(), new Date(), {
+      respectRunAfter: false,
+      names: { only: ["bot.summarize-away"] },
+    });
+    await jobs.runClaimed(claimed!);
+
+    // The Turn's call was moments ago, but before the new Prompt start was built.
+    expect(await client.bot.warm({ botId })).toEqual({ warmed: true });
+    expect(fake.calls).toHaveLength(3);
   });
 
   it("skips while a Turn runs", async () => {
