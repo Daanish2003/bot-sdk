@@ -133,7 +133,7 @@ async function main() {
     const reply = await complete(
       "You check memory lines and replies against a claim.\n\n" +
         `Texts:\n${lines.map((line) => `- ${line}`).join("\n")}\n\n` +
-        `Does at least one of the texts above say something that ${claim}? ` +
+        `Is it true that at least one of the texts above ${claim}? ` +
         "Answer yes or no only.",
     );
     return /^\W*yes\b/i.test(reply.trim());
