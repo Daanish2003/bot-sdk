@@ -103,6 +103,12 @@ export const botsMessages = {
   "bots.memorySave": "Save",
   "bots.memoryCloseFile": "Close file",
   "bots.memorySaved": "Memory file saved",
+  "bots.memoryUpdated": ({ count }: { count: number }) => `Memory updated · ${count}`,
+  "bots.memoryRemembered": ({ text, tier }: { text: string; tier: string }) =>
+    `Remembered: ${text} (${tier})`,
+  "bots.memoryChangedPrefix": "Changed:",
+  "bots.memoryForgot": ({ text, tier }: { text: string; tier: string }) =>
+    `Forgot: ${text} (${tier})`,
   "bots.routinePending": "waiting for OK",
   "bots.routineActive": "active",
   "bots.routineStatePaused": "paused",

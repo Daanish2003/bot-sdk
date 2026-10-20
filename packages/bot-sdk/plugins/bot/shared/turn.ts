@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import type { BotMemoryChange } from "../../memory/shared/changes";
 import { computerCardSchema } from "./helper";
 
 /**
@@ -52,4 +53,6 @@ export type BotTurnProvenance = {
   endedAt: Date | null;
   sent: boolean;
   triggers: BotTurnTrigger[];
+  /** What the Turn's post-turn memory pass changed (ADR 0022), or null when it changed nothing. */
+  memoryChanges: BotMemoryChange[] | null;
 };
