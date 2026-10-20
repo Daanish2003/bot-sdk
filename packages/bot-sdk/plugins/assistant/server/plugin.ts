@@ -23,7 +23,6 @@ import { rotateConnectionKeys } from "./mcp/connections";
 import { createLifecycle, type Lifecycle } from "./lifecycle";
 import { callbackRoute, connectRoute } from "./mcp/routes";
 import { checkMcpServers, type McpServerConfig } from "./mcp/servers";
-import { handleConversationEvents } from "./memory/notice";
 import type { BotSdkContext, BotSdkPlugin, Route } from "../../../core/server/plugin";
 import { defaultRateLimits, type RateLimit } from "../../../core/server/rate-limits";
 import { appRouter } from "./routers/index";
@@ -47,11 +46,6 @@ export type AssistantOptions = {
    * panel and the version route. Off by default, and then none of them exist.
    */
   artifacts?: boolean;
-  /**
-   * Turns Memory on or off for the whole Host (ADR 0013). On by default: the assistant learns facts
-   * from what users say, in the background, on the Background Model. `false` makes no Memories.
-   */
-  memory?: boolean;
 };
 
 /**
@@ -91,9 +85,9 @@ const assistantRateLimits: Record<AssistantRule, RateLimit> = {
 };
 
 /**
- * The `assistant` plugin (ADR 0020): Runs and their streams, tools, MCP servers, Artifacts, Memory,
- * Knowledge and the reaper. It reaches `models`, and `runner` for its background jobs, only
- * through `plugin(id)`.
+ * The `assistant` plugin (ADR 0020): Runs and their streams, tools, MCP servers, Artifacts,
+ * Knowledge and the reaper. It reaches `models`, `runner` for its background jobs, and `memory`
+ * when the Host installs it, only through `plugin(id)`.
  */
 export function assistant(options: AssistantOptions = {}): AssistantPlugin {
   const builtIns = [
@@ -133,6 +127,8 @@ function assistantPlugin(buildState: (sdk: BotSdkContext) => AssistantState): As
   return {
     id: "assistant",
     requires: ["models", "runner"],
+    // Softly: without it, Runs recall and make no Memories, and past chats aren't searched.
+    uses: ["memory"],
     router: appRouter,
     routes: assistantRoutes,
     rateLimits: assistantRateLimits,
@@ -144,7 +140,7 @@ function assistantPlugin(buildState: (sdk: BotSdkContext) => AssistantState): As
     },
     databaseHooks: { conversation: { delete: assistantConversationDelete } },
     deleteUser: assistantUserDelete,
-    exportUser: (_sdk, userId, tx) => exportAssistantData(tx, userId),
+    exportUser: (sdk, userId, tx) => exportAssistantData(sdk, tx, userId),
     rotateKeys: async (sdk) => {
       const { reencrypted, unreadable } = await rotateConnectionKeys(sdk);
       if (unreadable > 0) {
@@ -165,7 +161,6 @@ function productionState(sdk: BotSdkContext, options: AssistantOptions): Assista
     tools: options.tools ?? [],
     mcpServers: options.mcpServers ?? [],
     artifacts: options.artifacts ?? false,
-    memory: options.memory ?? true,
     searchClient: createTavilyClient(globalThis.fetch),
     runStreams: sdk.runtime.runStreams,
     runs: new Map(),
@@ -204,11 +199,6 @@ const assistantRoutes: Route[] = [
     method: "GET",
     path: "/run",
     handle: (request, { user, sdk }) => handleJoin(request, user, sdk),
-  },
-  {
-    method: "GET",
-    path: "/events",
-    handle: (request, { user, sdk }) => handleConversationEvents(request, user, sdk),
   },
   {
     method: "GET",

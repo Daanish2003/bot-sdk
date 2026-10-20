@@ -1,5 +1,5 @@
 import type { AttachmentInfo } from "../../../../core/shared/attachments/kinds";
-import type { TurnChange } from "../memory/changes";
+import type { TurnChange } from "../../../memory/shared/changes";
 import type { MessageRecord } from "./message-record";
 import type { SiblingPosition } from "../../../../core/shared/chat/branches";
 import { parseStoredParts, toUIParts } from "./parts";

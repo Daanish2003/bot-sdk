@@ -120,6 +120,8 @@ async function botWith(
       return fakes.adapter;
     },
     ...(linked && { linkedCredentials: async () => planCredentials }),
+    // No memory pass takes a Turn's round.
+    memory: false,
     ...overrides,
   });
   await jobs.start();
@@ -385,6 +387,7 @@ describe("a Helper's limits", () => {
       plugins: [bot(), computer({ provider: fakeComputerProvider().provider })],
       jobs,
       adapterFor: () => fakes.adapter,
+      memory: false,
     });
     const user = await insertUser();
     await saveCredentials(deps, user.id, {

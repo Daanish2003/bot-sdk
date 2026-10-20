@@ -4,6 +4,7 @@ import { RPCHandler } from "@orpc/server/fetch";
 import type { UserExport } from "../../plugins/assistant/server/export-user";
 import { postgresBlobStore } from "./blob/postgres";
 import type { BlobStore } from "./blob/store";
+import { handleConversationEvents } from "./chat/conversation-events";
 import { createHookEmitter } from "./chat/hooks";
 import type { ChatUser, Context } from "./context";
 import { createDb } from "./db/index";
@@ -138,6 +139,11 @@ const coreRateLimits: Record<CoreRule, RateLimit> = {
 /** The core's non-RPC routes, under `basePath`. */
 function coreRoutes(exportUser: BotSdk["exportUser"]): Route[] {
   return [
+    {
+      method: "GET",
+      path: "/events",
+      handle: (request, { user, sdk }) => handleConversationEvents(request, user, sdk),
+    },
     {
       method: "GET",
       path: "/export",

@@ -49,7 +49,7 @@ import {
 } from "./attachments";
 
 import { type EditSource, GeneratedImageBlock } from "./generated-image-block";
-import { MemoryChip } from "./memory-changes";
+import { MemoryChip } from "../../../memory/ui/memory-changes";
 import { ReadAloud } from "./read-aloud";
 import { ArtifactCard, artifactIdOf, type ArtifactRef } from "./artifact-card";
 import { KnowledgeSearchRow } from "./knowledge-search-row";

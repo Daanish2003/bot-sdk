@@ -13,8 +13,6 @@ declare module "../../../core/client/chat-client" {
   interface BotSdkClient {
     /** Where a Run is posted (`POST`) and joined (`GET ?runId=`). */
     chatUrl: string;
-    /** The owner's live stream of a Conversation's `memory_updated` events (`GET ?conversationId=`). */
-    eventsUrl: string;
     /** A Generated image's bytes, by id (`GET <generatedImagesUrl>/<id>`, `?download=1` to save). */
     generatedImagesUrl: string;
     /** A Generated image on a Shared link, by its token and id (`GET <base>/shared/<token>/generated-images/<id>`). */
@@ -26,20 +24,19 @@ declare module "../../../core/client/chat-client" {
 
 type AssistantUrls = Pick<
   BotSdkClient,
-  "chatUrl" | "eventsUrl" | "generatedImagesUrl" | "sharedGeneratedImagesUrl" | "connectionsUrl"
+  "chatUrl" | "generatedImagesUrl" | "sharedGeneratedImagesUrl" | "connectionsUrl"
 >;
 
 export type AssistantClientPlugin = BotSdkClientPlugin<"assistant", AppRouter> & {
   urls: (base: string) => AssistantUrls;
 };
 
-/** The `assistant` plugin's client: its routers, and the URLs of its Runs, events, images and MCP sign-in. */
+/** The `assistant` plugin's client: its routers, and the URLs of its Runs, images and MCP sign-in. */
 export function assistantClient(): AssistantClientPlugin {
   return {
     id: "assistant",
     urls: (base) => ({
       chatUrl: `${base}/run`,
-      eventsUrl: `${base}/events`,
       generatedImagesUrl: `${base}/generated-images`,
       sharedGeneratedImagesUrl: (token) => `${base}/shared/${token}/generated-images`,
       connectionsUrl: `${base}/mcp`,

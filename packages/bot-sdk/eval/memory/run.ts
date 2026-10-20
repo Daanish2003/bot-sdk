@@ -17,6 +17,7 @@ import { postgresBlobStore } from "../../core/server/blob/postgres";
 import { fakeEmbeddingAdapter } from "../../plugins/models/server/fake-embedding-adapter";
 import { createDb, type Database } from "../../core/server/db/index";
 import { createBotSdkOver } from "../../plugins/assistant/server/over";
+import { memory } from "../../plugins/memory/server/plugin";
 import { createHookEmitter } from "../../core/server/chat/hooks";
 import { createGuardedFetch } from "../../core/server/lib/guarded-fetch";
 import type { ModelsDeps } from "../../plugins/models/server/types";
@@ -209,8 +210,9 @@ async function main() {
         rateLimits: resolveRateLimits(),
       },
       models: modelsDeps,
-      assistant: { memory: true },
+      assistant: {},
       jobs: noJobs,
+      plugins: [memory()],
     },
     { basePath: "/api/chat", getUser: () => null, logger: { error: () => {} } },
   );

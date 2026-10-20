@@ -5,20 +5,28 @@ import { describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
 import { assistant } from "../../../plugins/assistant/server/plugin";
+import { memory as memoryPlugin } from "../../../plugins/memory/server/plugin";
 import { runner } from "../../../plugins/runner/server/plugin";
 import { models } from "../../../plugins/models/server/plugin";
 import { saveCredentials } from "../../../plugins/models/server/credentials/store";
 import {
   artifact,
   artifactVersion,
+  bot,
   project,
   knowledgeFile,
   memory,
   savedPrompt,
   sharedLink,
   userSettings,
+  memorySettings,
 } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
+import { exportUserData } from "../../../core/server/user-data";
+import { computer } from "../../../plugins/computer/server/plugin";
+import { logPath, notesPath, profilePath } from "../../../plugins/memory/server/bot-memory";
+import { fakeComputerProvider } from "../../plugins/computer/server/fake-provider";
+import type { TestUser } from "../../support/users";
 import { insertAttachment, linkTestAttachments } from "../../support/attachments";
 import { fakePngBase64 } from "../../../plugins/models/server/fake-image-adapter";
 import { insertConversation, insertMessage } from "../../support/conversations";
@@ -38,7 +46,7 @@ function chatFor() {
     getUser: () => null,
     keyEncryptionSecrets: [testKey],
     basePath: "/api/chat",
-    plugins: [models(), runner(), assistant()],
+    plugins: [models(), runner(), memoryPlugin(), assistant()],
   });
 }
 
@@ -456,7 +464,7 @@ describe("createBotSdk().exportUser, Memories", () => {
       .update(memory)
       .set({ replacedById: current.id })
       .where(eq(memory.id, replaced.id));
-    await getTestDb().insert(userSettings).values({ userId: owner.id, memoryEnabled: false });
+    await getTestDb().insert(memorySettings).values({ userId: owner.id, enabled: false });
 
     const exported = await chatFor().exportUser(owner.id);
 
@@ -516,5 +524,96 @@ describe("createBotSdk().exportUser, Knowledge files", () => {
     expect(exported.knowledgeFiles).toEqual([
       { name: "draft.md", mediaType: "text/markdown", projectId },
     ]);
+  });
+});
+
+/** A Bot of `owner`, made at `createdAt`, with its own Conversation as the `bot` plugin makes it. */
+async function insertBot(owner: TestUser, name: string, createdAt: Date): Promise<string> {
+  const conversation = await insertConversation(owner, { kind: "bot", model: null });
+  const id = uuidv7();
+  await getTestDb().insert(bot).values({
+    id,
+    userId: owner.id,
+    conversationId: conversation.id,
+    name,
+    model: "anthropic:claude-sonnet-5-5",
+    createdAt,
+  });
+  return id;
+}
+
+describe("exportUser, Bot memory", () => {
+  it("holds each Bot's profile, its Log months and its notes as the Computer has them", async () => {
+    const fake = fakeComputerProvider();
+    const deps = createTestSdk({ plugins: [computer({ provider: fake.provider })] });
+    const owner = await insertUser();
+    const ada = await insertBot(owner, "Ada", new Date("2026-10-01T10:00:00Z"));
+    const bea = await insertBot(owner, "Bea", new Date("2026-10-02T10:00:00Z"));
+    // Creates the user's Computer, so its disk is the one the files go on.
+    await deps.plugin("computer").forUser(owner.id).run("true");
+    const text = (content: string) => new TextEncoder().encode(content);
+    fake.files.set(profilePath(ada), text("- Prefers short replies\n"));
+    fake.files.set(notesPath(ada), text("- 2026-10-20 Waiting on the landlord\n"));
+    fake.files.set(logPath(ada, "2026-10"), text("- 2026-10-03 (importance 7) Moved to Berlin\n"));
+    fake.files.set(logPath(ada, "2026-09"), text("- 2026-09-02 (importance 6) Started a job\n"));
+
+    const exported = await exportUserData(deps, owner.id);
+
+    expect(exported.botMemory).toEqual([
+      {
+        botId: ada,
+        profile: "- Prefers short replies\n",
+        notes: "- 2026-10-20 Waiting on the landlord\n",
+        log: [
+          { month: "2026-09", text: "- 2026-09-02 (importance 6) Started a job\n" },
+          { month: "2026-10", text: "- 2026-10-03 (importance 7) Moved to Berlin\n" },
+        ],
+      },
+      { botId: bea, profile: "", notes: "", log: [] },
+    ]);
+  });
+
+  it("leaves out a Bot whose files the Computer fails to read, and keeps the rest", async () => {
+    const fake = fakeComputerProvider();
+    const deps = createTestSdk({ plugins: [computer({ provider: fake.provider })] });
+    const owner = await insertUser();
+    const ada = await insertBot(owner, "Ada", new Date("2026-10-01T10:00:00Z"));
+    const bea = await insertBot(owner, "Bea", new Date("2026-10-02T10:00:00Z"));
+    await deps.plugin("computer").forUser(owner.id).run("true");
+    // Ada's profile.md is a directory, so reading it fails.
+    fake.files.set(`${profilePath(ada)}/stray.md`, new TextEncoder().encode("x"));
+    fake.files.set(profilePath(bea), new TextEncoder().encode("- Works at a bakery\n"));
+
+    const exported = await exportUserData(deps, owner.id);
+
+    expect(exported.botMemory).toEqual([
+      { botId: bea, profile: "- Works at a bakery\n", notes: "", log: [] },
+    ]);
+  });
+
+  it("exports the rest, with no Bot memory, when the Computer can't be woken", async () => {
+    const fake = fakeComputerProvider();
+    const deps = createTestSdk({ plugins: [computer({ provider: fake.provider })] });
+    const owner = await insertUser();
+    await insertBot(owner, "Ada", new Date("2026-10-01T10:00:00Z"));
+    await deps.plugin("computer").forUser(owner.id).run("true");
+    fake.lose(fake.callsOf("create")[0]!.sandboxId);
+    fake.failing.add("create");
+
+    const exported = await exportUserData(deps, owner.id);
+
+    expect(exported.botMemory).toEqual([]);
+  });
+
+  it("reads nothing and creates no Computer for a user who has none", async () => {
+    const fake = fakeComputerProvider();
+    const deps = createTestSdk({ plugins: [computer({ provider: fake.provider })] });
+    const owner = await insertUser();
+    await insertBot(owner, "Ada", new Date("2026-10-01T10:00:00Z"));
+
+    const exported = await exportUserData(deps, owner.id);
+
+    expect(exported.botMemory).toEqual([]);
+    expect(fake.callsOf("create")).toEqual([]);
   });
 });

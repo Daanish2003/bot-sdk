@@ -53,16 +53,18 @@ afterEach(async () => {
 /**
  * A user with an OpenAI key and a Bot, over an SDK whose Model plays `rounds` and whose in-process
  * runner runs the Turns. With `withComputer`, `computer` is on over a fake provider whose commands
- * `onCommand` answers.
+ * `onCommand` answers. `memory` is installed only `withMemory`, so no memory pass takes a round.
  */
 async function botWith(
   rounds: Round[],
   {
     withComputer = true,
+    withMemory = false,
     onCommand,
     clock,
   }: {
     withComputer?: boolean;
+    withMemory?: boolean;
     clock?: () => Date;
     onCommand?: (command: FakeCommandRun) => CommandResult | Promise<CommandResult>;
   } = {},
@@ -75,6 +77,7 @@ async function botWith(
     plugins: withComputer ? [bot(), computer({ provider: computerFake.provider })] : [bot()],
     jobs,
     adapterFor: () => fake.adapter,
+    memory: withMemory,
     ...(clock ? { clock } : {}),
   });
   await jobs.start();
@@ -218,12 +221,13 @@ describe("the shell tool", () => {
   });
 
   it("names the Bot's directory and the shared one in the system prompt", async () => {
-    const { client, botId, fake } = await botWith([round()]);
+    const { client, botId, fake } = await botWith([round()], { withMemory: true });
 
     await send(client, botId, "hi");
 
     expect(toolNamesOf(fake.calls[0])).toEqual([
       ...botTools,
+      "search_memory",
       "shell",
       "read",
       "write",
@@ -324,7 +328,11 @@ describe("shell at its limits", () => {
     });
     expect(computerFake.callsOf("run")[0]?.timeoutMs).toBe(50);
     expect(computerFake.callsOf("kill")).toEqual([
-      { type: "kill", sandboxId: "fake-sandbox-1", command: "make all" },
+      {
+        type: "kill",
+        sandboxId: computerFake.callsOf("create")[0]?.sandboxId,
+        command: "make all",
+      },
     ]);
   });
 
@@ -430,11 +438,12 @@ describe("an operation the Computer fails", () => {
 
 describe("a user's Computer", () => {
   it("is created on its first operation, not before", async () => {
-    const { client, botId, user } = await botWith([round()]);
+    const { client, botId, user } = await botWith([round()], { withMemory: false });
 
     await send(client, botId, "hi");
 
-    // A Turn that used no Computer tool leaves the Computer alone.
+    // Without Memory, which reads the Computer at Turn start, a Turn that used no Computer tool
+    // leaves the Computer alone.
     expect(await computerRow(user.id)).toBeUndefined();
   });
 });
@@ -476,6 +485,7 @@ describe("a shell call whose attempt is cut off", () => {
         plugins: [bot(), computer({ provider: computerFake.provider })],
         jobs,
         adapterFor: () => fake.adapter,
+        memory: false,
       });
       runners.set(deps, jobs);
       return deps;
@@ -524,7 +534,11 @@ describe("a shell call whose attempt is cut off", () => {
     await running;
 
     expect(computerFake.callsOf("kill")).toEqual([
-      { type: "kill", sandboxId: "fake-sandbox-1", command: "sleep 600" },
+      {
+        type: "kill",
+        sandboxId: computerFake.callsOf("create")[0]?.sandboxId,
+        command: "sleep 600",
+      },
     ]);
     const events = [];
     for await (const event of stream) events.push(event);
@@ -627,14 +641,17 @@ describe("the file tools", () => {
   });
 
   it("reads a range without loading the file, and shows the rest by nextOffset", async () => {
-    const { client, botId, fake, computerFake } = await botWith([
-      round(
-        file("read", { path: "/tmp/big.log", offset: 3, limit: 2 }),
-        file("read", { path: "/tmp/big.log", offset: 5, limit: 2 }),
-        file("read", { path: "/tmp/big.log", offset: 9 }),
-      ),
-      round(),
-    ]);
+    const { client, botId, fake, computerFake } = await botWith(
+      [
+        round(
+          file("read", { path: "/tmp/big.log", offset: 3, limit: 2 }),
+          file("read", { path: "/tmp/big.log", offset: 5, limit: 2 }),
+          file("read", { path: "/tmp/big.log", offset: 9 }),
+        ),
+        round(),
+      ],
+      { withMemory: false },
+    );
     computerFake.files.set("/tmp/big.log", new TextEncoder().encode("a\nb\nc\nd\ne\nlast"));
     const load = vi.spyOn(computerFake.provider, "readFile");
 
@@ -904,12 +921,15 @@ describe("the file tools", () => {
   });
 
   it("offers all five tools, and wakes the Computer on a file operation", async () => {
-    const { client, botId, fake, user } = await botWith([round(file("list", {})), round()]);
+    const { client, botId, fake, user } = await botWith([round(file("list", {})), round()], {
+      withMemory: true,
+    });
 
     await send(client, botId, "go");
 
     expect(toolNamesOf(fake.calls[0])).toEqual([
       ...botTools,
+      "search_memory",
       "shell",
       "read",
       "write",

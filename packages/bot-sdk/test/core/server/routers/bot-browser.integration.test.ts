@@ -151,6 +151,8 @@ async function userWith(
     plugins: [bot(), computer({ provider: computerFake.provider })],
     jobs,
     adapterFor: () => adapter,
+    // No memory pass takes a Turn's round.
+    memory: false,
   });
   await jobs.start();
   started.push(jobs);

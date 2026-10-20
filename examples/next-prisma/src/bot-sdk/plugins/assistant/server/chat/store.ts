@@ -12,9 +12,9 @@ import { attachmentsOfMessages } from "../../../../core/server/attachments/store
 import { loadMessages } from "../../../../core/server/chat/message-tree";
 import type { BotSdkContext } from "../../../../core/server/plugin";
 import { deleteConversations } from "../../../../core/server/chat/delete-conversations";
-import { turnChangesOf } from "../memory/notice";
 import { newestLeaf, pathTo, siblingPosition } from "../../../../core/shared/chat/branches";
 import { type ActiveBranchMessage, toClientMessage } from "../../shared/chat/client-message";
+import type { TurnChange } from "../../../memory/shared/changes";
 import type { ReasoningChoice } from "../../../models/shared/models";
 import { assistantConversation, withModel } from "./kind";
 import { liveConversation } from "./temporary";
@@ -434,7 +434,7 @@ export async function rateMessage(
 
 /** The Active Branch for the client, each Message with where it sits among its siblings. */
 export async function loadActiveBranch(
-  deps: Deps,
+  deps: Pick<BotSdkContext, "db" | "plugin" | "hasPlugin">,
   conversationId: string,
   leafId: string | null,
 ): Promise<ActiveBranchMessage[]> {
@@ -446,10 +446,11 @@ export async function loadActiveBranch(
     path.map((row) => row.id),
   );
   const owners = memoryOwnerReplies(rows);
-  const changes = await turnChangesOf(
-    deps,
-    path.filter((row) => row.role === "user").map((row) => row.id),
-  );
+  const changes = deps.hasPlugin("memory")
+    ? await deps
+        .plugin("memory")
+        .turnChanges(path.filter((row) => row.role === "user").map((row) => row.id))
+    : new Map<string, TurnChange[]>();
   return path.map((row) => ({
     ...toClientMessage(row, attachments.get(row.id)),
     siblings: siblingPosition(rows, row),

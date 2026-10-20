@@ -898,6 +898,28 @@ describe("a sleep check left queued", () => {
     const [check] = await getTestDb().select({ status: job.status }).from(job);
     expect(check?.status).toBe("succeeded");
   });
+
+  it("by an earlier process over the same database pauses none of this process's sandboxes", async () => {
+    // An earlier process (the memory eval's last run) left a user's Computer awake, with its check.
+    const earlier = sdkWith();
+    const left = await insertUser();
+    await earlier.sdk.plugin("computer").forUser(left.id).run("true");
+
+    // This process's provider starts afresh, and a user of its own uses their Computer.
+    const { sdk, fake, clock } = sdkWith();
+    clock.now = after(earlier.clock.now, 5 * minuteMs);
+    const user = await insertUser();
+    const own = sdk.plugin("computer").forUser(user.id);
+    await own.run("true");
+
+    // The left check comes due here: the sandbox its row names is no sandbox of this provider.
+    clock.now = after(clock.now, minuteMs);
+    await runDueJobs(sdk, clock.now);
+
+    expect(fake.callsOf("pause")).toEqual([]);
+    expect((await computerRow(left.id))?.state).toBe("asleep");
+    expect(await own.run("true")).toEqual(ok);
+  });
 });
 
 describe("deleting", () => {

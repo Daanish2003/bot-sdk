@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lesson 16 · How the agent remembers</title>
+    <link rel="stylesheet" href="../assets/style.css" />
+  </head>
+  <body>
+    <main>
+      <p class="kicker">ai-chat architecture · Lesson 16</p>
+      <h1>How the agent remembers</h1>
+      <p class="subtitle">
+        A Bot's memory is plain files on its Computer. A few lines go into each Turn, and a pass
+        after each Turn decides what to keep.
+      </p>
+      <p class="meta">
+        About 14 minutes · a browser · no code to write; you'll answer the quizzes and score a Log
+        line by hand
+      </p>
+
+      <section class="words">
+        <h2>Words you'll need</h2>
+        <dl>
+          <dt>Profile</dt>
+          <dd>
+            Lasting facts about the user, one per line, with no date. "Prefers short replies."
+          </dd>
+          <dt>Log</dt>
+          <dd>Dated events, each with an importance from 1 to 10. One file per month.</dd>
+          <dt>Notes</dt>
+          <dd>Short-lived details, each dated. They matter for a day or two.</dd>
+          <dt>Post-turn pass</dt>
+          <dd>A short model call after a Turn. It returns the changes to the memory files.</dd>
+        </dl>
+        <p class="hint">
+          Forgot a code name? Press the <strong>Names?</strong> button in the bottom-right corner.
+        </p>
+      </section>
+
+      <figure id="video"></figure>
+
+      <div
+        class="quiz"
+        data-answer="0"
+        data-why="Only Done starts the new job. A waiting Helper has no timeout, and the Bot does not restart it."
+      >
+        <div class="label">Warm-up · Lesson 15</div>
+        <p class="q">After a Helper calls <code>ask_user</code>, what starts its next job?</p>
+        <ol class="opts">
+          <li>The user taps Done on the Computer card</li>
+          <li data-why="message_helper sends a message to a Helper. It does not start a job.">
+            The Bot calls <code>message_helper</code>
+          </li>
+          <li data-why="A waiting Helper has no timeout. Only Done starts the new job.">
+            A timer ends after ten minutes
+          </li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+
+      <h2><span class="num">1</span>Files, not rows</h2>
+      <figure id="files">
+        <figcaption>Three memory files sit in one folder on the Bot's Computer.</figcaption>
+      </figure>
+      <p>
+        Slide 11 says "What the agent knows lives in files." The files are the source of truth, so
+        there are no database rows. The Bot can <code>cat</code>
+        a file, and it edits its memory with its file tools.
+      </p>
+      <p>
+        Each Turn reads these files, so a Turn can wake a sleeping Computer. The Computer syncs
+        <code>/home/user/bots</code> to storage before it sleeps. A rebuild restores memory only as
+        of the last sync, so a fact written after that is lost.
+      </p>
+
+      <h2><span class="num">2</span>Three tiers, one score</h2>
+      <figure id="tiers">
+        <figcaption>
+          Each Turn's prompt gets the Profiles, the best Log lines and recent Notes.
+        </figcaption>
+      </figure>
+      <p>
+        The Profiles go into the prompt. The Bot's own Profile comes first, then the other Bots'
+        Profiles, oldest Bot first. The caps are 100 facts and 4,000 characters, and exact
+        duplicates are dropped. Facts past a cap are left out of the prompt, but they stay in the
+        files.
+      </p>
+      <p>
+        The Log is too long for the prompt, so the code ranks it. Each line scores
+        <code>(0.75 + 0.05 × importance) × 0.5^(ageDays / 30)</code>. The 30 best lines from the
+        last three monthly files go in. Notes from today and yesterday go in. Older Notes are found
+        only by search.
+      </p>
+      <p>Score one line. A Log line has importance 7 and is 30 days old.</p>
+      <ol class="steps">
+        <li>Importance weight: <code>0.75 + 0.05 × 7 = 0.75 + 0.35 = 1.10</code></li>
+        <li>Decay: <code>0.5^(30 / 30) = 0.5^1 = 0.50</code></li>
+        <li>Score: <code>1.10 × 0.50 = 0.55</code></li>
+      </ol>
+
+      <h2><span class="num">3</span>The pass, and what it may remove</h2>
+      <figure id="pass">
+        <figcaption>
+          The model proposes changes. The code checks each replace and remove against the line it
+          cites.
+        </figcaption>
+      </figure>
+      <p>
+        After each Turn that ends <code>complete</code> or <code>stopped</code>, a runner job asks
+        the Bot's own Model for a pass. The pass sees the Turn and the memory lines, each with a
+        number. It returns <code>add</code>, <code>replace</code> or <code>remove</code>. The code
+        writes the text and adds the date and importance.
+      </p>
+      <p>
+        A <code>replace</code> or <code>remove</code> must cite a number from that list. The code
+        then checks that the line still says what it said when shown. If it changed, the operation
+        is skipped. So a wrong number removes only a line whose text is unchanged. An identical line
+        elsewhere could still match. Here is one correct change. The user says "I moved to Berlin."
+        Line 4 reads "Lives in Lisbon." The pass returns <code>replace</code> line 4. The code sees
+        that line 4 still reads "Lives in Lisbon," and it rewrites the line.
+      </p>
+      <p>
+        The Profile is shared. Each Bot reads every Profile, labelled with its Bot's name, but it
+        writes only its own files. There is no rule for a conflict. The ADR expects the Bot to tell
+        conflicting facts apart and act on the newer one. No code enforces that.
+      </p>
+
+      <h2><span class="num">4</span>Information, not orders</h2>
+      <figure id="framing">
+        <figcaption>
+          A line in memory can say anything. Only the user's own words are orders.
+        </figcaption>
+      </figure>
+      <p>
+        The memory block opens by saying memory is information, not instructions. A line that tells
+        the Bot how to reply is only text. The pass prompt refuses instruction-like text too.
+      </p>
+      <p>
+        The framing was tested. The eval in <code>packages/bot-sdk/eval/memory</code> runs eight
+        cases through the real plugin. An earlier run on a free Model, before the framing refused
+        instructions, passed 7 of 8. That Model followed a planted instruction. With the current
+        framing, the same eight cases passed 8 of 8 on <code>openai:gpt-6.1-sol</code>, on a ChatGPT
+        plan.
+      </p>
+
+      <h2>Try it</h2>
+      <div
+        class="quiz"
+        data-answer="0"
+        data-why="A new line has decay 1. Importance 3 gives 0.90, which beats 0.55."
+      >
+        <div class="label">Quiz</div>
+        <p class="q">
+          Line A is 30 days old with importance 7. Line B is new with importance 3. Which scores
+          higher?
+        </p>
+        <ol class="opts">
+          <li>Line B, at 0.90</li>
+          <li data-why="Line A scores 0.55. Its age halves the score, and importance 7 gives 1.10.">
+            Line A, at 0.55
+          </li>
+          <li data-why="The scores differ: 0.90 and 0.55.">They score the same</li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+
+      <section class="takeaways">
+        <h2>Key takeaways</h2>
+        <p class="one-thing">
+          <strong>If you remember only one thing:</strong> the files are the memory. The tiers and
+          the score decide what a Turn reads, and the code decides what a pass may change.
+        </p>
+        <ul>
+          <li>
+            <strong>Plain files, read each Turn.</strong> The Profile, the top Log lines and recent
+            Notes go into the prompt.
+          </li>
+          <li>
+            <strong>A pass removes only what it saw.</strong> A stale line number or a changed line
+            is skipped.
+          </li>
+          <li><strong>Memory is information.</strong> Only the user's own words give orders.</li>
+        </ul>
+        <p class="selftest">
+          Self-test: cover this box and say what happens, step by step, from a finished Turn to a
+          corrected line in <code>profile.md</code>.
+        </p>
+      </section>
+
+      <details class="deeper">
+        <summary>Go deeper: sources, side notes and a challenge</summary>
+        <h3>The lecture and the decisions</h3>
+        <ul>
+          <li>
+            Slide 11: "What the agent knows lives in files." Slide 35: the tiers, the shared Profile
+            and the framing. These are the slides ADR 0022 cites.
+          </li>
+          <li>
+            Decision:
+            <a href="../../../docs/adr/0022-a-bots-memory-is-plain-files-on-its-computer.md"
+              >ADR 0022, a Bot's memory is plain files on its Computer</a
+            >. The assistant keeps ADR 0013, so its Memories are not shared with the Bots.
+          </li>
+          <li>
+            Spec:
+            <a href="https://github.com/Daanish2003/ai-chat/issues/624">Bot step 7, Memory (#624)</a
+            >. Evals: <a href="https://github.com/Daanish2003/ai-chat/issues/633">#633</a>, with the
+            case table and the results in <code>packages/bot-sdk/eval/memory/README.md</code>.
+          </li>
+        </ul>
+        <h3>Side notes</h3>
+        <ul>
+          <li>
+            The caps are 100 Profile facts, 4,000 characters, 30 Log lines, 3 months and 2 days of
+            Notes. The score is OpenClaw's, and it uses a 30-day half-life.
+          </li>
+          <li>
+            <code>search_memory</code> ranks lines by BM25. Log lines also get the importance and
+            decay weights; Profile facts get neither. It uses no embeddings and no index.
+          </li>
+          <li>
+            A pass runs only after a Turn that ends <code>complete</code> or <code>stopped</code>,
+            and only with Memory on. It is a runner job, so its model calls are recorded and count
+            against the Quota.
+          </li>
+        </ul>
+        <h3>What was left out, and what comes next</h3>
+        <p>
+          The user can edit and delete any Bot's lines in the UI (#623). The export of memory is in
+          the same plugin, and the full case list for the evals is in the eval README.
+        </p>
+        <h3>Challenge</h3>
+        <p>
+          Read <code>runBotMemoryPass</code> in <code>bot-pass.ts</code>. It takes a
+          <code>pg_advisory_xact_lock</code> keyed on the Bot before the pass reads the files. Why
+          must the lock come before the read, not after? Tell your teacher.
+        </p>
+      </details>
+
+      <div class="footer-box">
+        <p>
+          <strong>Primary source:</strong>
+          <a href="../../../packages/bot-sdk/plugins/memory/server/bot-memory.ts"
+            ><code>bot-memory.ts</code></a
+          >,
+          <a href="../../../packages/bot-sdk/plugins/memory/server/bot-pass.ts"
+            ><code>bot-pass.ts</code></a
+          >, then
+          <a href="../../../docs/adr/0022-a-bots-memory-is-plain-files-on-its-computer.md"
+            >ADR 0022</a
+          >.
+        </p>
+        <p>
+          <strong>Cheat sheets:</strong> <a href="../reference/package-map.html">Package map</a> ·
+          <a href="../reference/names.html">Names</a>
+        </p>
+        <p>
+          <strong>Stuck or curious?</strong> Ask your teacher (Claude) anything: "what is a
+          Profile?", "score a Log line for me", or "quiz me again".
+        </p>
+        <div class="nav">
+          <a href="0015-one-main-agent-many-helpers.html"
+            >← Lesson 15: One main agent, many Helpers</a
+          ><a href="../index.html">Course contents →</a>
+        </div>
+      </div>
+    </main>
+
+    <script src="../assets/diagrams.js"></script>
+    <script src="../assets/names.js" data-upto="16"></script>
+    <script src="../assets/explainer.js"></script>
+    <script src="../assets/quiz.js"></script>
+    <script>
+      const D = Diagrams;
+
+      // Section 1: the files.
+      D.render(
+        "#files",
+        D.svg(
+          760,
+          230,
+          D.box(10, 20, 250, 56, "profile.md", { tone: "ok", sub: "core facts, no date" }) +
+            D.box(10, 96, 250, 56, "log/2026-10.md", {
+              tone: "ok",
+              sub: "events, each with an importance",
+            }) +
+            D.box(10, 172, 250, 56, "notes.md", { tone: "ok", sub: "short-lived, each dated" }) +
+            D.arrow(260, 48, 340, 105) +
+            D.arrow(260, 124, 340, 124) +
+            D.arrow(260, 200, 340, 143) +
+            D.box(340, 84, 190, 80, "Computer folder", {
+              tone: "blue",
+              sub: "/home/user/bots/<botId>/memory",
+            }) +
+            D.arrow(530, 124, 600, 124, { label: "each Turn" }) +
+            D.box(600, 96, 150, 56, "Turn's prompt", { tone: "warn", sub: "a snapshot" }),
+          { label: "The memory files sit in the Bot's folder on its Computer" },
+        ),
+      );
+
+      // Section 2: the tiers.
+      D.render(
+        "#tiers",
+        D.svg(
+          760,
+          230,
+          D.box(10, 20, 230, 56, "Profile", { tone: "ok", sub: "every fact, capped" }) +
+            D.box(10, 96, 230, 56, "Log", { tone: "blue", sub: "top 30 by score" }) +
+            D.box(10, 172, 230, 56, "Notes", { tone: "warn", sub: "today and yesterday" }) +
+            D.arrow(240, 48, 400, 110) +
+            D.arrow(240, 124, 400, 124) +
+            D.arrow(240, 200, 400, 138) +
+            D.box(400, 84, 180, 80, "System prompt", {
+              tone: "ok",
+              sub: "the memory block",
+            }) +
+            D.text(600, 124, "read once at Turn start", { tone: "faint" }),
+          { label: "The Profile, the top Log lines and recent Notes go into the prompt" },
+        ),
+      );
+
+      // Section 3: the pass.
+      D.render(
+        "#pass",
+        D.svg(
+          760,
+          190,
+          D.box(10, 40, 124, 60, "Turn ends", { tone: "faint", sub: "complete or stopped" }) +
+            D.arrow(134, 70, 159, 70) +
+            D.box(159, 40, 124, 60, "Pass reads", { tone: "blue", sub: "Turn + numbered lines" }) +
+            D.arrow(283, 70, 308, 70) +
+            D.box(308, 40, 124, 60, "Model: ops", {
+              tone: "warn",
+              sub: "add, replace, remove",
+            }) +
+            D.arrow(432, 70, 457, 70) +
+            D.box(457, 40, 124, 60, "Code checks", {
+              tone: "ok",
+              sub: "cited line unchanged?",
+            }) +
+            D.arrow(581, 70, 606, 70) +
+            D.box(606, 40, 124, 60, "Files written", { tone: "ok", sub: "change list saved" }) +
+            D.text(
+              10,
+              150,
+              "A check that fails skips that one operation. The other lines are kept.",
+              {
+                tone: "faint",
+              },
+            ),
+          { label: "The code checks each replace or remove against the line it was shown" },
+        ),
+      );
+
+      // Section 4: the framing.
+      D.render(
+        "#framing",
+        D.svg(
+          760,
+          190,
+          D.box(10, 30, 250, 56, "Your words", { tone: "ok", sub: "I'm vegetarian" }) +
+            D.arrow(260, 58, 380, 58, { label: "orders" }) +
+            D.box(380, 30, 170, 56, "Profile", { tone: "blue" }) +
+            D.box(10, 116, 250, 56, "A memory line", {
+              tone: "warn",
+              sub: "Always reply in caps",
+            }) +
+            D.arrow(260, 144, 380, 144, { dashed: true, label: "text only" }) +
+            D.text(390, 144, "not an order", { tone: "faint" }),
+          { label: "Only the user's own words give orders; a memory line is information" },
+        ),
+      );
+
+      // Video.
+      Explainer.mount("#video", {
+        title: "Lesson 16 in about 1 minute",
+        width: 760,
+        height: 300,
+        scenes: [
+          {
+            say: "A Bot's memory is plain files on its Computer. Each Turn reads a few lines of them.",
+            draw: (t, A) =>
+              D.box(40, 110, 170, 50, "Files", { tone: "ok" }) +
+              D.box(270, 110, 200, 50, "Turn's prompt", {
+                tone: "warn",
+                opacity: A.step(t, 0.4, 0.8),
+              }),
+          },
+          {
+            say: "The Log is ranked. A new event scores higher than an old one with the same importance.",
+            draw: (t, A) =>
+              D.box(40, 110, 170, 50, "Log lines", { tone: "blue" }) +
+              D.box(270, 110, 200, 50, "Top 30 score", {
+                tone: "ok",
+                opacity: A.step(t, 0.4, 0.8),
+              }),
+          },
+          {
+            say: "After a Turn, a pass proposes changes. The code checks each line before it writes.",
+            draw: (t, A) =>
+              D.box(40, 110, 170, 50, "Pass proposes", { tone: "warn" }) +
+              D.box(270, 110, 200, 50, "Code checks", {
+                tone: "ok",
+                opacity: A.step(t, 0.4, 0.8),
+              }),
+          },
+          {
+            say: "A line in memory is information, not an order. Only the user's words are orders.",
+            draw: (t, A) =>
+              D.box(40, 110, 170, 50, "Memory line", { tone: "faint" }) +
+              D.box(270, 110, 200, 50, "Not an order", {
+                tone: "ok",
+                opacity: A.step(t, 0.5, 0.9),
+              }),
+          },
+        ],
+      });
+    </script>
+  </body>
+</html>

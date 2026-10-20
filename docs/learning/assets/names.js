@@ -843,6 +843,38 @@ window.NAMES = [
       "The live view's page proxy and WebSocket hooks, which the Host mounts under /api/screens. The view token in the path is the only sign-in.",
     example: "plugins/bot/server/screen-view.ts",
   },
+  {
+    lesson: 16,
+    name: "profile.md",
+    kind: "file",
+    meaning:
+      "A Bot's Profile: lasting facts about the user, one per line, with no date. Profile facts go into each Turn's prompt, up to the caps.",
+    example: "/home/user/bots/<botId>/memory/profile.md: - Prefers short replies",
+  },
+  {
+    lesson: 16,
+    name: "log/YYYY-MM.md",
+    kind: "file",
+    meaning:
+      "A Bot's Log for one month: dated events, each with an importance from 1 to 10. The top 30 by score go in each Turn's prompt.",
+    example: "- 2026-10-20 (importance 7) Moved to Berlin",
+  },
+  {
+    lesson: 16,
+    name: "importance score",
+    kind: "function",
+    meaning:
+      "How a Log line ranks in the prompt: (0.75 + 0.05 × importance) × 0.5^(ageDays / 30). A 30-day half-life.",
+    example: "importance 7, 30 days old: 1.10 × 0.50 = 0.55",
+  },
+  {
+    lesson: 16,
+    name: "memory.bot-pass",
+    kind: "job",
+    meaning:
+      "The runner job that runs a Bot's post-turn pass after a Turn ends complete or stopped. It returns add, replace and remove operations.",
+    example: "key memory-pass:<turnId>",
+  },
 ];
 
 (function () {

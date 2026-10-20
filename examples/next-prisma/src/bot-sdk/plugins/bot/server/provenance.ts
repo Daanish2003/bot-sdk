@@ -24,6 +24,7 @@ export async function turnProvenance(
         status: botTurn.status,
         startedAt: botTurn.startedAt,
         endedAt: botTurn.endedAt,
+        memoryChanges: botTurn.memoryChanges,
       })
       .from(botTurn)
       .where(eq(botTurn.botId, botId))

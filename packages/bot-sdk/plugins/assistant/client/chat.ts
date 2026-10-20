@@ -4,7 +4,7 @@ import type { AttachmentInfo } from "../../../core/shared/attachments/kinds";
 import type { SiblingPosition } from "../../../core/shared/chat/branches";
 import type { ActiveBranchMessage, ClientMessage } from "../shared/chat/client-message";
 import type { SharedConversation } from "../shared/share/conversation";
-import type { TurnChange } from "../shared/memory/changes";
+import type { TurnChange } from "../../memory/shared/changes";
 import type { UIMessage } from "@tanstack/ai-client";
 
 /** What the server knows about a Message beyond its parts, kept in `UIMessage.metadata`. */

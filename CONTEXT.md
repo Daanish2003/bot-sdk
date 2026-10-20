@@ -129,8 +129,21 @@ A passage of Knowledge the assistant read during an assistant Message, shown as 
 _Avoid_: Source (that is a web page), chunk, snippet, Knowledge source
 
 **Memory**:
-One fact about a user that the assistant learned in a Conversation and reuses in later ones. Memories made in a Project stay in that Project, which also uses the general ones; the rest are general. Each remembers the Message it came from and goes when that Conversation is deleted. One the user corrects is kept as outdated; one they delete or ask the assistant to forget is gone. A user can turn Memory off. A user's Bots share the facts about them, and each Bot writes its own; the Bots' Memory build step replaces these rules with the lecture's tiers.
-_Avoid_: Fact, profile, saved memory, Instructions (those the user writes)
+One fact about a user that the assistant learned in a Conversation and reuses in later ones. Memories made in a Project stay in that Project, which also uses the general ones; the rest are general. Each remembers the Message it came from and goes when that Conversation is deleted. One the user corrects is kept as outdated; one they delete or ask the assistant to forget is gone. A user can turn Memory off, for the assistant and their Bots alike.
+A Bot's memory is different: plain files in its own directory on the Computer, which it reads and edits itself, in three tiers (its Profile, its Log and its Notes), with everything older found by search. Every Bot reads all of the user's Profiles, but each Bot writes only its own files.
+_Avoid_: Fact, saved memory, Instructions (those the user writes)
+
+**Profile**:
+A Bot's file of core facts about the user, one per line, always in its prompt. A Bot's prompt holds its own Profile first, then the other Bots' Profiles, up to 100 facts in 4,000 characters.
+_Avoid_: User profile, about me
+
+**Log**:
+A Bot's dated record of events, one per line, kept in a file per month; the most relevant recent ones are in its prompt. Only that Bot's own Log is in its prompt.
+_Avoid_: Journal, history, diary
+
+**Note**:
+A short-term detail a Bot keeps, dated, that is in its prompt for two days and after that is only found by search.
+_Avoid_: Scratchpad, reminder, Check-in (that wakes the Bot)
 
 **Temporary Conversation**:
 A Conversation the user makes temporary before its first Message, which it stays. It is in no Project, neither uses nor makes Memories, isn't searched by the assistant, has no title, stays out of the sidebar and search, can't be shared, and is deleted 30 days after its last Message.
@@ -145,7 +158,7 @@ The Model a user picks for Generated images, independent of the Model they chat 
 _Avoid_: Image generator, image Provider
 
 **Bot**:
-An always-on agent a user has: it runs on the server, wakes on Triggers, keeps its memory and Skills, and talks to the user only through the Messages it sends. It has one Conversation with the user and can work across others, such as group chats later. A user can have many Bots; they share the facts about the user and one Computer.
+An always-on agent a user has: it runs on the server, wakes on Triggers, keeps its memory and Skills, and talks to the user only through the Messages it sends. It has one Conversation with the user and can work across others, such as group chats later. A user can have many Bots; they share the Profiles and one Computer.
 _Avoid_: Agent, assistant (that answers in assistant Conversations), persona
 
 **Turn**:
@@ -194,7 +207,7 @@ The one cloud machine a user's Bots share, with its files, installed tools and b
 _Avoid_: Sandbox, VM, machine, desktop
 
 **Screen**:
-One display on the Computer, with its own Chrome and profile, for one active Bot. It is open only while that Bot's Computer-use Helper works on it, at most four at once per Computer; its Chrome sign-ins stay on the Computer and are lost if it is rebuilt.
+One display on the Computer, with its own Chrome and Chrome profile, for one active Bot. It is open only while that Bot's Computer-use Helper works on it, at most four at once per Computer; its Chrome sign-ins stay on the Computer and are lost if it is rebuilt.
 _Avoid_: Display, desktop, browser
 
 **Auto-review**:

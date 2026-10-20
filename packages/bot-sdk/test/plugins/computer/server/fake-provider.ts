@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { posix } from "node:path";
 
 import {
@@ -110,6 +111,10 @@ export function fakeComputerProvider({
     if (!disk) throw new SandboxGoneError(sandboxId);
     return disk;
   };
+  // A real provider never hands out an id twice. A fake over a database that an earlier process
+  // used (the memory eval's) would otherwise reuse its ids, and that process's queued sleep
+  // checks would pause this one's sandboxes.
+  const instance = randomBytes(4).toString("hex");
   let created = 0;
   let writes = 0;
   const write = (disk: Disk, path: string, bytes: Uint8Array) => {
@@ -122,7 +127,7 @@ export function fakeComputerProvider({
       // A sandbox takes a moment to start, so operations that race a wake overlap it.
       await new Promise((resolve) => setTimeout(resolve, 10));
       failIfTold("create");
-      const sandboxId = `fake-sandbox-${++created}`;
+      const sandboxId = `fake-sandbox-${instance}-${++created}`;
       // A sandbox built from the template starts with nothing of an earlier one's.
       if (created > 1) current = newDisk();
       disks.set(sandboxId, current);

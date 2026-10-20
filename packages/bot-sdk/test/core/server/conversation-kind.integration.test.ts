@@ -10,7 +10,7 @@ import { models } from "../../../plugins/models/server/plugin";
 import { saveCredentials } from "../../../plugins/models/server/credentials/store";
 import { insertConversation, insertMessage } from "../../support/conversations";
 import { createTestSdk } from "../../support/deps";
-import { chatRpc, sendAs } from "../../support/sdk";
+import { chatRpc } from "../../support/sdk";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 import { insertUser } from "../../support/users";
 
@@ -114,8 +114,8 @@ describe("the assistant's own Conversations", () => {
     expect(exported.conversations.map((row) => row.id)).toEqual([own.id]);
   });
 
-  it("leaves another plugin's Conversations out of Memory's past chats and its live events", async () => {
-    const { user, own, bot } = await userWithABotConversation();
+  it("leaves another plugin's Conversations out of Memory's past chats", async () => {
+    const { user, own } = await userWithABotConversation();
     const deps = createTestSdk();
     const current = await insertConversation(user);
 
@@ -124,13 +124,7 @@ describe("the assistant's own Conversations", () => {
       { userId: user.id, conversationId: current.id, projectId: null },
       "otters",
     );
-    const events = await sendAs(
-      new Request(`http://localhost/api/chat/events?conversationId=${bot.id}`),
-      user,
-      deps,
-    );
 
     expect(hits.map((hit) => hit.conversationId)).toEqual([own.id]);
-    expect(events.status).toBe(404);
   });
 });

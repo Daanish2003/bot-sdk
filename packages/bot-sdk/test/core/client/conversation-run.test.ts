@@ -12,7 +12,7 @@ import {
   useConversationRun,
 } from "../../../plugins/assistant/client/react/conversation-run";
 import type { ActiveBranchMessage } from "../../../plugins/assistant/shared/chat/client-message";
-import type { TurnChange } from "../../../plugins/assistant/shared/memory/changes";
+import type { TurnChange } from "../../../plugins/memory/shared/changes";
 import { providerFor } from "../../ui/fake-dictionary";
 
 /*

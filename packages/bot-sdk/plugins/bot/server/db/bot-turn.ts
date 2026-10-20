@@ -12,6 +12,7 @@ import {
 
 import { chatSchema } from "../../../../core/server/db/chat-schema";
 import { job } from "../../../runner/server/db/job";
+import type { BotMemoryChange } from "../../../memory/shared/changes";
 import type { MessageUsage } from "../../../models/shared/usage";
 import { bot } from "./bot";
 
@@ -50,6 +51,11 @@ export const botTurn = chatSchema.table(
     jobId: uuid("job_id").references((): AnyPgColumn => job.id, { onDelete: "set null" }),
     /** The Turn's model messages, after its input. Null until the Turn ends. */
     transcript: jsonb("transcript").$type<ModelMessage[]>(),
+    /**
+     * What the Turn's post-turn memory pass changed (ADR 0022), for its "Memory updated" chip.
+     * Null until a pass changes something, and with no `memory` plugin.
+     */
+    memoryChanges: jsonb("memory_changes").$type<BotMemoryChange[]>(),
   },
   (table) => [
     index("bot_turn_bot_id_started_at_idx").on(table.botId, table.startedAt.desc()),

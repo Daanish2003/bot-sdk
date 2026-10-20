@@ -9,6 +9,7 @@ import {
 } from "@ai-chat/bot-sdk/core/server";
 import { assistant } from "@ai-chat/bot-sdk/plugins/assistant/server";
 import { bot } from "@ai-chat/bot-sdk/plugins/bot/server";
+import { memory } from "@ai-chat/bot-sdk/plugins/memory/server";
 import {
   fakeEmbeddingAdapter,
   fakeImageAdapter,
@@ -145,6 +146,8 @@ export const sdk = (shared.botSdk ??= createBotSdk({
     runner(),
     // The Bots' Computer (spec #519): on only when self-hosted E2B is configured.
     ...(await computerPluginsOf(e2b, computerTemplate)),
+    // Memory (ADR 0013): the assistant's Memories and the user's Memory switch.
+    memory(),
     assistant({
       mcpServers: mcpServersOf(ENV),
       // Artifacts (spec #304): the assistant's create_artifact tool, the side panel and its version route.

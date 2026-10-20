@@ -12,7 +12,7 @@ import { conversation, message, type MessageRow } from "../../core/server/db/sch
 import type { Database } from "../../core/server/db/index";
 import type { Credentials } from "../../plugins/assistant/server/deps";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
-import { makeMemoriesJob } from "../../plugins/assistant/server/memory/make";
+import { makeMemoriesJob } from "../../plugins/memory/server/make";
 import { runRegisteredJob } from "../../plugins/runner/server/jobs/define";
 import { storedParts } from "../../plugins/assistant/shared/message-parts";
 import { type Category, type EvalCase, historyOf, parseDate } from "./cases";

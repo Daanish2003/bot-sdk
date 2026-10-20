@@ -8,7 +8,7 @@ import type { Database } from "../../../core/server/db/index";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
 import { searchTextOf } from "../../../core/shared/message-parts";
-import { conversationChannel } from "../../assistant/server/memory/notice";
+import { conversationChannel } from "../../../core/server/chat/conversation-events";
 import type { MessageUsage } from "../../models/shared/usage";
 import { defineJob, PermanentJobError } from "../../runner/server/jobs/define";
 import { loadHistory } from "../../runner/server/jobs/history";
@@ -24,7 +24,7 @@ import {
   waitingIn,
 } from "./router";
 import { cancelCheckInTool, pendingCheckIns, saveCheckIn } from "./check-in";
-import { computerPrompt } from "./computer-tools";
+import { computerOf, computerPrompt } from "./computer-tools";
 import { type TodoItem, todoList } from "./helper";
 import { helperTools } from "./helper-tools";
 import { type LoopKit, type LoopResult, type LoopSetup, runLoop } from "./loop";
@@ -56,6 +56,9 @@ export const cancelCheckInToolName = "cancel_check_in";
 
 /** The Bot tool that lists its pending Check-ins (#540). */
 export const listCheckInsToolName = "list_check_ins";
+
+/** The tool that searches the Bot's memory files (ADR 0022). */
+export const searchMemoryToolName = "search_memory";
 
 const promptOpening =
   "You are a Bot the user talks to in a messenger. The user never sees your text replies or your " +
@@ -241,6 +244,17 @@ const cancelCheckInDefinition = toolDefinition({
   description:
     "Cancel one of your pending Check-ins, by the id list_check_ins or set_check_in gave.",
   inputSchema: z.object({ id: z.uuid().meta({ description: "The Check-in id." }) }),
+});
+
+const searchMemoryDefinition = toolDefinition({
+  name: searchMemoryToolName,
+  description:
+    "Search your memory: your Profile, every Log month and your Notes, and all the Bots' " +
+    "Profiles. Returns the 10 best matching lines with file and date. Use it for what the " +
+    "memory in your prompt doesn't hold.",
+  inputSchema: z.object({
+    query: z.string().min(1).meta({ description: "What to look for in your memory" }),
+  }),
 });
 
 const listCheckInsDefinition = toolDefinition({
@@ -951,8 +965,29 @@ async function turnSetup(deps: BotSdkContext, turn: TurnFacts, kit: LoopKit): Pr
   // The Computer's tools and Helpers, whenever `computer` is on: the tool set never changes
   // mid-conversation.
   const withComputer = deps.hasPlugin("computer");
+  const memory =
+    withComputer && deps.hasPlugin("memory") ? await memorySnapshot(deps, turn, kit) : null;
+  // Present whenever the snapshot is: it reads through the Computer like the snapshot does.
+  const searchMemory = memory
+    ? searchMemoryDefinition.server(async ({ query }, context) =>
+        kit.computerCall(searchMemoryToolName, context?.toolCallId, async (_computer, live) => ({
+          results: await deps.plugin("memory").searchBotMemory({
+            userId: turn.userId,
+            botId: turn.botId,
+            query,
+            now: deps.clock(),
+            computer: computerOf(deps, turn.userId),
+            signal: live.signal,
+          }),
+        })),
+      )
+    : null;
   return {
-    systemPrompts: [...botSystemPrompts(turn.botId, withComputer), ...(routines ? [routines] : [])],
+    systemPrompts: [
+      ...botSystemPrompts(turn.botId, withComputer),
+      ...(memory ? [memory] : []),
+      ...(routines ? [routines] : []),
+    ],
     tools: [
       sendToUser,
       createRoutine,
@@ -962,10 +997,35 @@ async function turnSetup(deps: BotSdkContext, turn: TurnFacts, kit: LoopKit): Pr
       cancelCheckInToolImpl,
       listCheckInsTool,
       webSearchTool(deps, turn.userId, kit.liveRequest),
+      ...(searchMemory ? [searchMemory] : []),
       ...(withComputer ? [...kit.computerTools, ...helperTools(deps, turn, liveActivity)] : []),
     ],
     ended: () => endTurn,
   };
+}
+
+/**
+ * The Bot's memory block as the Turn starts (ADR 0022), read once from the Computer as a Computer
+ * call of the loop's, so a Stop or the time limit stops it: a replay reads the recorded block.
+ * It reads through its own handle, so a rebuild is still told in the first tool result (#553).
+ * Null with Memory off, or when the Computer can't be woken or read, so the Turn goes on without
+ * it.
+ */
+async function memorySnapshot(
+  deps: BotSdkContext,
+  turn: TurnFacts,
+  kit: LoopKit,
+): Promise<string | null> {
+  const read = await kit.computerCall("memory", undefined, async (_computer, live) => ({
+    prompt: await deps.plugin("memory").botSnapshot({
+      userId: turn.userId,
+      botId: turn.botId,
+      now: turn.startedAt,
+      computer: computerOf(deps, turn.userId),
+      signal: live.signal,
+    }),
+  }));
+  return "error" in read ? null : read.prompt;
 }
 
 /** How a Turn ended, and why when it failed: a limit's code or the Provider's error. */
