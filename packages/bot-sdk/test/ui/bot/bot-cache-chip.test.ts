@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createElement } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { botClient } from "../../../plugins/bot/client/index";
-import type { BotTurnStep } from "../../../plugins/bot/shared/turn";
+import type { BotMessage, BotTurnProvenance, BotTurnStep } from "../../../plugins/bot/shared/turn";
 import { BotCacheChip } from "../../../plugins/bot/ui/bot-cache-chip";
+import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
 import { modelsClient } from "../../../plugins/models/client/index";
 import { providerFor } from "../fake-dictionary";
 
@@ -91,5 +92,74 @@ describe("BotCacheChip", () => {
   it("shows nothing for a Turn with no Steps", () => {
     const { container } = show([]);
     expect(container.innerHTML).toBe("");
+  });
+});
+
+const createdAt = new Date("2026-10-20T09:00:00.000Z");
+const at = (minute: number) => new Date(createdAt.getTime() + minute * 60_000);
+const said = (id: string, role: BotMessage["role"], text: string, minute: number): BotMessage => ({
+  id,
+  role,
+  text,
+  createdAt: at(minute),
+});
+const turnAt = (id: string, minute: number, sent: boolean): BotTurnProvenance => ({
+  id,
+  status: sent ? "complete" : "error",
+  startedAt: at(minute),
+  endedAt: at(minute + 1),
+  sent,
+  triggers: [{ source: "user", channel: "web", routineName: null, at: at(minute) }],
+  memoryChanges: null,
+  steps: [{ ...warm, id: `${id}-s1` }],
+});
+
+describe("the cache chip in a Bot's thread", () => {
+  it("shows under a Turn that sent no Message, after the last Message before its end", () => {
+    render(
+      providerFor(
+        createElement(BotConversation, {
+          botId: "b2",
+          afterTurn: (turn: BotTurnProvenance) =>
+            createElement(BotCacheChip, { steps: turn.steps }),
+        }),
+        {
+          messages: {},
+          plugins,
+          // A fetch that never answers: the seeded data is all the thread shows.
+          fetch: vi.fn(async () => new Promise<Response>(() => {})),
+          seed: (queryClient, client) =>
+            queryClient.setQueryData(client.orpc.bot.get.queryKey({ input: { botId: "b2" } }), {
+              bot: {
+                id: "b2",
+                name: "Ada",
+                model: "openai:gpt-5.6",
+                createdAt,
+                turnStatus: "error" as const,
+                userTurnStatus: "error" as const,
+              },
+              conversationId: "c1",
+              messages: [
+                said("m1", "user", "Hi", 0),
+                said("m2", "assistant", "Hello!", 0.5),
+                said("m3", "user", "Still there?", 5),
+              ],
+              // The second Turn failed before it sent anything.
+              turns: [turnAt("t1", 0, true), turnAt("t2", 5, false)],
+              summaries: [],
+              warmings: [],
+            }),
+        },
+      ),
+    );
+
+    const chips = screen.getAllByRole("button", { name: /Cache 80%/ });
+    expect(chips).toHaveLength(2);
+    expect(document.querySelector('[data-id="m2"]')!.nextElementSibling?.contains(chips[0]!)).toBe(
+      true,
+    );
+    expect(document.querySelector('[data-id="m3"]')!.nextElementSibling?.contains(chips[1]!)).toBe(
+      true,
+    );
   });
 });

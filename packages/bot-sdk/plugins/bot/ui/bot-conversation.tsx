@@ -208,7 +208,9 @@ function BotConversationView({
     ]);
   }
 
-  // Each Turn's `afterTurn` under the last Bot Message it sent: the last one saved in its span.
+  // Each Turn's `afterTurn` under the last Bot Message it sent: the last one saved in its span. A
+  // Turn that sent none (quiet, or failed) has it under the last Message saved before its end
+  // ("" with none), so its Steps still show.
   const afterTurnOf = new Map<string, ReactNode[]>();
   if (afterTurn) {
     for (const [index, turn] of turns.entries()) {
@@ -218,16 +220,16 @@ function BotConversationView({
         turn.endedAt?.getTime() ?? Infinity,
         turns[index + 1]?.startedAt.getTime() ?? Infinity,
       );
-      const sent = messages
-        .filter((message) => {
-          const at = message.createdAt.getTime();
-          return message.role === "assistant" && at >= from && at <= until;
-        })
-        .at(-1);
-      const shown = sent && afterTurn(turn);
+      const before = messages.filter((message) => message.createdAt.getTime() <= until);
+      const anchor =
+        before
+          .filter((message) => message.role === "assistant" && message.createdAt.getTime() >= from)
+          .at(-1) ?? before.at(-1);
+      const shown = afterTurn(turn);
+      const key = anchor?.id ?? "";
       if (shown)
-        afterTurnOf.set(sent.id, [
-          ...(afterTurnOf.get(sent.id) ?? []),
+        afterTurnOf.set(key, [
+          ...(afterTurnOf.get(key) ?? []),
           <Fragment key={turn.id}>{shown}</Fragment>,
         ]);
     }
@@ -305,6 +307,7 @@ function BotConversationView({
         {summariesBefore.get("")}
         {warmingsBefore.get("")}
         {runsBefore.get("")}
+        {afterTurnOf.get("")}
         {routinesAfter.get("")?.map(routineCard)}
         {checkInsAfter.get("")?.map(checkInLine)}
         {helpersAfter.get("")?.map(helperCard)}
