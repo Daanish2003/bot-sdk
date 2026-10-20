@@ -3,7 +3,7 @@ import { asc, eq } from "drizzle-orm";
 import { memory as memoryTable, memorySettings } from "../../../core/server/db/schema";
 import type { BotSdkContext, BotSdkPlugin, Transaction } from "../../../core/server/plugin";
 import type { TurnChange } from "../shared/changes";
-import { botMemorySnapshot, type BotSnapshotArgs } from "./bot-memory";
+import { botMemorySnapshot, exportBotMemory, type BotSnapshotArgs } from "./bot-memory";
 import { enqueueMemories, type MakeMemoriesPayload } from "./make";
 import { memoryEnabledFor } from "./manage";
 import { turnChangesOf } from "./notice";
@@ -86,6 +86,9 @@ export function memory(): MemoryPlugin {
       },
       after: async () => {},
     },
+    exportUser: async (sdk, userId, tx) => ({
+      botMemory: await exportBotMemory(sdk, tx, userId),
+    }),
   };
 }
 

@@ -26,7 +26,8 @@ import { knowledgeBlobKey } from "../../../plugins/assistant/server/blob-keys";
 import { knowledgeJobKey } from "../../../plugins/assistant/server/knowledge/process";
 import { readTokens, saveTokens } from "../../../plugins/assistant/server/mcp/connections";
 import { assistant } from "../../../plugins/assistant/server/plugin";
-import { computer } from "../../../plugins/computer/server/plugin";
+import { computer, computerBlobKey } from "../../../plugins/computer/server/plugin";
+import { profilePath } from "../../../plugins/memory/server/bot-memory";
 import { runner } from "../../../plugins/runner/server/plugin";
 import { listCredentials, saveCredentials } from "../../../plugins/models/server/credentials/store";
 import { models } from "../../../plugins/models/server/plugin";
@@ -94,7 +95,11 @@ async function activeJobsNaming(ids: string[]) {
  * and a Knowledge file whose processing job is queued; an unused Attachment; settings, a Saved
  * prompt, an MCP connection, credentials and usage; the Memory switch; a Bot; a Computer. Returns the blob keys and ids it made.
  */
-async function seedEverything(user: TestUser, deps: TestDeps) {
+async function seedEverything(
+  user: TestUser,
+  deps: TestDeps,
+  fake: ReturnType<typeof fakeComputerProvider>,
+) {
   const conv = await insertConversation(user, { title: "Mine" });
   const question = await insertMessage({ conversationId: conv.id, role: "user", text: "Hi" });
   await insertMessage({
@@ -137,8 +142,9 @@ async function seedEverything(user: TestUser, deps: TestDeps) {
     .enqueue("knowledge.process", { fileId }, { idempotencyKey: knowledgeJobKey(fileId) });
 
   const botConversation = await insertConversation(user, { kind: "bot", model: null });
+  const botId = uuidv7();
   await getTestDb().insert(bot).values({
-    id: uuidv7(),
+    id: botId,
     userId: user.id,
     conversationId: botConversation.id,
     name: "Ada",
@@ -146,6 +152,11 @@ async function seedEverything(user: TestUser, deps: TestDeps) {
   });
 
   await deps.plugin("computer").forUser(user.id).run("true");
+  // The Bot's memory files, on the disk of the sandbox the run above made, and the Computer's archive.
+  fake.files.set(profilePath(botId), new TextEncoder().encode("- Lives in Berlin\n"));
+  await deps.blobStore.put(computerBlobKey(user.id), new Uint8Array([1]), {
+    contentType: "application/gzip",
+  });
 
   await getTestDb().insert(userSettings).values({ userId: user.id, instructions: "Be terse." });
   await getTestDb().insert(memorySettings).values({ userId: user.id, enabled: false });
@@ -180,6 +191,7 @@ async function seedEverything(user: TestUser, deps: TestDeps) {
       `generated-image/${image}`,
       `generated-image/${projectImage}`,
       knowledgeBlobKey(fileId),
+      computerBlobKey(user.id),
     ],
     ids: [user.id, fileId],
   };
@@ -188,14 +200,17 @@ async function seedEverything(user: TestUser, deps: TestDeps) {
 describe("deleteUser across plugins", () => {
   it("leaves nothing of the user in any user_id table, the blob store or the jobs queue, and the other user's data untouched", async () => {
     const { store, held } = fakeBlobStore();
+    const fake = fakeComputerProvider();
     const deps = createTestSdk({
       blobStore: store,
-      plugins: [computer({ provider: fakeComputerProvider().provider })],
+      plugins: [computer({ provider: fake.provider })],
     });
     const owner = await insertUser();
     const other = await insertUser();
-    const own = await seedEverything(owner, deps);
-    const kept = await seedEverything(other, deps);
+    const own = await seedEverything(owner, deps, fake);
+    // The owner's Computer is the first sandbox the run made; the Bot's files are on its disk.
+    const ownSandbox = fake.callsOf("create")[0]?.sandboxId;
+    const kept = await seedEverything(other, deps, fake);
     const before = await rowsByTable(other.id);
     // Every table with a user_id column must be seeded here, so a new one can't pass unchecked.
     expect(Object.keys(await rowsByTable(owner.id))).toEqual(
@@ -210,6 +225,9 @@ describe("deleteUser across plugins", () => {
     expect(await activeJobsNaming(own.ids)).toEqual([]);
     expect(await rowsByTable(other.id)).toEqual(before);
     expect(kept.blobKeys.filter((key) => !held.has(key))).toEqual([]);
+    // Their Computer's sandbox, with the Bot's memory files on its disk, is killed.
+    expect(ownSandbox).toEqual(expect.any(String));
+    expect(fake.callsOf("kill-sandbox").map((call) => call.sandboxId)).toEqual([ownSandbox]);
     // Their Knowledge file's processing and their Computer's sleep check.
     expect(await activeJobsNaming(kept.ids)).toHaveLength(2);
   });

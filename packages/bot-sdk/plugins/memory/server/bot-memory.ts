@@ -1,7 +1,7 @@
 import { asc, eq } from "drizzle-orm";
 
-import { bot } from "../../../core/server/db/schema";
-import type { BotSdkContext } from "../../../core/server/plugin";
+import { bot, computer as computerTable } from "../../../core/server/db/schema";
+import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import type { ComputerHandle, FileOperationOptions } from "../../computer/server/plugin";
 import { memoryEnabledFor } from "./manage";
 
@@ -148,7 +148,7 @@ export type MemoryBot = { id: string; name: string };
 
 /** The user's Bots, oldest first. */
 export async function botsOf(
-  deps: Pick<BotSdkContext, "db">,
+  deps: { db: Pick<Transaction, "select"> },
   userId: string,
 ): Promise<MemoryBot[]> {
   return deps.db
@@ -166,6 +166,60 @@ export async function readText(
 ): Promise<string> {
   const bytes = await computer.readFile(path, options);
   return bytes ? new TextDecoder().decode(bytes) : "";
+}
+
+/** A Log file's name, `YYYY-MM.md`, by its month. */
+const logFilePattern = /^(\d{4}-\d{2})\.md$/;
+
+/** One Bot's memory files as the user's export holds them: the text, as written. */
+export type ExportedBotMemory = {
+  botId: string;
+  /** `profile.md`'s text, "" when the Bot has none. */
+  profile: string;
+  /** `notes.md`'s text, "" when the Bot has none. */
+  notes: string;
+  /** Each Log file, by its month, oldest first. */
+  log: { month: string; text: string }[];
+};
+
+/**
+ * Every Bot's memory files of user `userId` (ADR 0022), read from the user's Computer for the
+ * export, in the export's snapshot `tx`. It wakes the Computer. A user with no Computer row has
+ * no files, so none is woken or created, and an instance without the `computer` plugin has none.
+ */
+export async function exportBotMemory(
+  sdk: BotSdkContext,
+  tx: Transaction,
+  userId: string,
+): Promise<ExportedBotMemory[]> {
+  if (!sdk.hasPlugin("computer")) return [];
+  const [row] = await tx
+    .select({ userId: computerTable.userId })
+    .from(computerTable)
+    .where(eq(computerTable.userId, userId));
+  if (!row) return [];
+  const computer = sdk.plugin("computer").forUser(userId);
+  const exported: ExportedBotMemory[] = [];
+  for (const { id: botId } of await botsOf({ db: tx }, userId)) {
+    const entries = (await computer.list(`${memoryDirectory(botId)}/log`)) ?? [];
+    const months = entries
+      .filter((entry) => entry.kind === "file")
+      .map((entry) => logFilePattern.exec(entry.name)?.[1])
+      .filter((month): month is string => month !== undefined)
+      .sort();
+    exported.push({
+      botId,
+      profile: await readText(computer, profilePath(botId)),
+      notes: await readText(computer, notesPath(botId)),
+      log: await Promise.all(
+        months.map(async (month) => ({
+          month,
+          text: await readText(computer, logPath(botId, month)),
+        })),
+      ),
+    });
+  }
+  return exported;
 }
 
 /** What a Turn's snapshot holds, before it is written out. */
