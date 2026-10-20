@@ -18,6 +18,8 @@ Shared by the orchestrator and every implementer. Each bullet cost a past run a 
 - **Fresh worktrees:** the first `pnpm exec` in a worktree with no `node_modules` runs a `pnpm install`. Two at once can fail with `ERR_PNPM_LOCKFILE_RENAME_FILE`; retry once the install has finished.
 - **Merged branches:** GitHub deletes the remote branch when a PR merges, so `git push origin --delete <branch>` fails afterwards with "remote ref does not exist" (#644). Run `git fetch --prune` and move on.
 - **Repo name:** the GitHub repo is `Daanish2003/bot-sdk` (renamed from `Daanish2003/ai-chat`; old URLs redirect). `origin` points at it since 2026-10-20.
+- **Main moves during the run (#624):** another session merged a PR touching the same eval files while #648 was open, so the PR showed `CONFLICTING` and CI never started (`gh pr checks` said "no checks reported"). After opening the PR, check `gh pr view <n> --json mergeable`; merge `origin/main` in (with `-c core.autocrlf=false`; the #624 run forgot it once and had to repair 61 CRLF files).
+- **A fast-forward that skips verify can carry a stale test (#624):** #631 changed `bot.get`, its agent ran only the affected tests, and the next full verify failed on an untouched test in `bot.integration`. Skip the verify only when the agent ran the whole suite.
 
 ## Databases and services
 
@@ -38,6 +40,7 @@ Shared by the orchestrator and every implementer. Each bullet cost a past run a 
 
 - **Where vitest runs:** always from the **repo root**. From a package, it skips the root `globalSetup`, and tests fail with "database does not exist".
 - **Integration files run in parallel**, one database copy per worker, with the module graph shared per worker (`isolate: false`). A file that calls `vi.mock` runs in the `integration-mocked` project instead (vitest.config.ts finds them). Other global state a file changes (fake timers, stubbed globals, env) must be restored by that file.
+- **`expect.poll` defaults to 1 s (#624):** a crash-resume test polling the fake Model passed alone and timed out in a full verify. Bot integration tests pass `{ timeout: 10_000 }`; do the same in new ones.
 - **Read the exit code**, not only the summary. Vitest exits 1 on unhandled errors while every test passes. Also read the **skip count**: turbo's strict env drops variables missing from `passThroughEnv`, and the suites gated on them skip silently.
 - **Runs stay in the foreground:** agents hand back with background runs still going, and those runs die with them. Stop an old verify (TaskStop) before starting a new one.
 - **Timestamps:** tests that compare a Postgres-default timestamp (the Docker clock) with a JS one (the host clock) are flaky. Set timestamps explicitly. Test helpers that insert rows count too: `insertMessage` let `created_at` default to the Docker clock, which drifts from the host by seconds, and 5 tests failed on main (#510 run). Never hard-code "today" in a test either: a Bot list test dated 2026-10-17 broke once the real clock passed it.
@@ -78,6 +81,8 @@ Shared by the orchestrator and every implementer. Each bullet cost a past run a 
 
 - **The batching case in `eval:turn` is timing-sensitive:** it depends on how messages land between Model calls, and it went from failing to 9/10 only after the #603 harness fix. Compare it A/B against main before calling a change a regression.
 - **Embed slow resume:** after a resume with an open Screen, Chrome's CDP took 5–52 s. Twice in 5 lifecycle runs, the Embed proxy then reset the first live-view connections (ECONNRESET). Re-run the lifecycle eval before treating that as real.
+- **Kept eval databases replay old jobs (#624):** `eval:bot-memory` reused `ai-chat_eval_633`, and sleep checks queued by earlier runs fired in the next one. With the fake provider numbering sandboxes from 1 per process, they paused this run's sandboxes ("Sandbox fake-sandbox-N is paused", 6/8 once). Fixed in dff09a2f (ids unique per provider); still prefer a fresh eval database per run.
+- **Model for real evals (#624):** OpenRouter credits ran out mid-run, and free OpenRouter models 404 or score lower. The owner's ChatGPT plan works through `EVAL_CHATGPT_USER_ID` (#637) with `openai:gpt-6.1-sol`. Ask the user before using it.
 
 ## Permissions
 
