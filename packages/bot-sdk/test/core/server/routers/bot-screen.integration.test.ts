@@ -43,7 +43,9 @@ afterEach(async () => {
 });
 
 const isHelperCall = (options: TextOptions) =>
-  (options.systemPrompts ?? []).some((prompt) => String(prompt).startsWith("You are a Helper"));
+  (options.systemPrompts ?? []).some((prompt) =>
+    (typeof prompt === "string" ? prompt : prompt.content).startsWith("You are a Helper"),
+  );
 
 const task = "Read the deals on the Salesforce dashboard.";
 const reason = "Sign in to Salesforce: enter your password and the code from your phone.";

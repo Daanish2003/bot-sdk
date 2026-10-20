@@ -2,7 +2,7 @@ import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { botPromptStart, botTurn, job, usage } from "../../../../core/server/db/schema";
+import { botHelper, botPromptStart, botTurn, job, usage } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { bot } from "../../../../plugins/bot/server/plugin";
 import { computer } from "../../../../plugins/computer/server/plugin";
@@ -42,7 +42,7 @@ const encode = (text: string) => new TextEncoder().encode(text);
  * A user with an OpenAI key and a Bot "Ada", over an SDK whose Model plays `rounds`, on a clock
  * that reads `now`. With `withComputer` (the default), `computer` and `memory` are on.
  */
-async function botWith(rounds: Round[], { withComputer = true } = {}) {
+async function botWith(rounds: Round[], { withComputer = true, modelId = model } = {}) {
   const fake = createFakeAdapter({ rounds });
   const computerFake = fakeComputerProvider();
   const offset = now.getTime() - Date.now();
@@ -66,13 +66,13 @@ async function botWith(rounds: Round[], { withComputer = true } = {}) {
   started.push(jobs);
   const user = await insertUser();
   await saveCredentials(deps, user.id, {
-    service: "openai",
-    fields: { apiKey: "openai-test-key" },
+    service: modelId.split(":")[0]!,
+    fields: { apiKey: "test-key" },
     hint: "…-key",
     verified: true,
   });
   const client = chatRpc({ user, deps });
-  const { id: botId } = await client.bot.create({ name: "Ada", model });
+  const { id: botId } = await client.bot.create({ name: "Ada", model: modelId });
   return { fake, computerFake, client, botId };
 }
 
@@ -268,6 +268,34 @@ describe("the prompt hashes of a model call", () => {
     expect(flagged(calls[1]!)).toEqual([{ name: "rules", changed: "bug" }]);
   });
 
+  it("reads each Turn's Steps with their usage and the flagged section, by source_id", async () => {
+    const { client, botId } = await botWith([round(), round()], { withComputer: false });
+
+    await send(client, botId, "hi");
+    const [start] = await promptStartsOf(botId);
+    await getTestDb()
+      .update(botPromptStart)
+      .set({
+        sections: start!.sections.map((section) =>
+          section.name === "rules" ? { ...section, text: `${section.text} ` } : section,
+        ),
+      })
+      .where(eq(botPromptStart.id, start!.id));
+    await send(client, botId, "again");
+
+    const { turns } = await client.bot.get({ botId });
+    const [first, second] = turns.map((turn) => turn.steps);
+    expect(first).toHaveLength(1);
+    expect(second).toHaveLength(1);
+    expect(first![0]!.changed).toBeNull();
+    expect(first![0]!.sections.every((section) => section.tokens > 0)).toBe(true);
+    const rules = (step: NonNullable<typeof first>[number]) =>
+      step.sections.find((section) => section.name === "rules")!;
+    expect(second![0]!.changed).toEqual({ section: "rules", kind: "bug" });
+    expect(rules(second![0]!).was).toBe(rules(first![0]!).hash);
+    expect(rules(second![0]!).hash).not.toBe(rules(first![0]!).hash);
+  });
+
   it("names a change to the history the previous call sent as a bug", async () => {
     const { client, botId } = await botWith([round(), round()], { withComputer: false });
 
@@ -381,5 +409,56 @@ describe("a Turn that resumes after a crash", () => {
     expect(fake.calls).toHaveLength(2);
     expect(promptStartSent(fake.calls[1])).toBe(promptStartSent(fake.calls[0]));
     expect((await turnsOf(botId)).map((turn) => turn.promptStartId)).toEqual([start!.id]);
+  });
+});
+
+describe("a Bot's cache controls (#673)", () => {
+  const helperStarter = toolCall({
+    name: "start_helper",
+    input: { type: "general", task: "Look it up." },
+  });
+  const isHelperCall = (call: TextOptions) =>
+    (call.systemPrompts ?? []).some((prompt) =>
+      (typeof prompt === "string" ? prompt : prompt.content).startsWith("You are a Helper"),
+    );
+  const oneHour = { type: "ephemeral", ttl: "1h" };
+
+  it("sends OpenAI's prompt_cache_key per Bot and per Helper, with no retention", async () => {
+    const { fake, client, botId } = await botWith([round(helperStarter), round(), round()]);
+
+    await send(client, botId, "hi");
+
+    const [helper] = await getTestDb()
+      .select({ id: botHelper.id })
+      .from(botHelper)
+      .where(eq(botHelper.botId, botId));
+    const keyed = fake.calls.filter((call) => call.modelOptions);
+    for (const call of keyed) {
+      expect(call.modelOptions).toEqual({
+        prompt_cache_key: isHelperCall(call) ? `helper:${helper!.id}` : `bot:${botId}`,
+      });
+    }
+    expect(keyed.some(isHelperCall)).toBe(true);
+    expect(keyed.some((call) => !isHelperCall(call))).toBe(true);
+  });
+
+  it("puts Anthropic's 1-hour breakpoints on a Turn and on a Helper", async () => {
+    const { fake, client, botId } = await botWith([round(helperStarter), round(), round()], {
+      modelId: "anthropic:claude-sonnet-5-5",
+    });
+
+    await send(client, botId, "hi");
+
+    const sent = fake.calls.filter((call) => call.modelOptions);
+    expect(sent.some(isHelperCall)).toBe(true);
+    for (const call of sent) {
+      expect(call.modelOptions).toEqual({ cache_control: oneHour });
+      const system = call.systemPrompts as { metadata?: unknown }[];
+      expect(system.at(-1)?.metadata).toEqual({ cache_control: oneHour });
+      expect(JSON.stringify(system.slice(0, -1))).not.toContain("cache_control");
+      expect(JSON.stringify((call.messages as ModelMessage[])[0]?.content)).toContain(
+        '"cache_control":{"type":"ephemeral","ttl":"1h"}',
+      );
+    }
   });
 });

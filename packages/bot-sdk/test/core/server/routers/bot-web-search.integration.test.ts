@@ -105,7 +105,9 @@ async function botWith(
   const adapter = {
     ...turnFake.adapter,
     chatStream: (options: TextOptions) =>
-      (options.systemPrompts ?? []).some((prompt) => String(prompt).startsWith("You are a Helper"))
+      (options.systemPrompts ?? []).some((prompt) =>
+        (typeof prompt === "string" ? prompt : prompt.content).startsWith("You are a Helper"),
+      )
         ? helperFake.adapter.chatStream(options)
         : turnFake.adapter.chatStream(options),
   } as typeof turnFake.adapter;

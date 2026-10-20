@@ -12,6 +12,7 @@ import {
 import type { PromptHash } from "../../../core/server/chat/hooks";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
+import { withCacheControl } from "../../models/server/cache-control";
 import { addUsage, promptCharactersOf, reportedUsageOf } from "../../models/server/run-usage";
 import type { ModelUsage } from "../../models/server/meter";
 import { parseModelId } from "../../models/shared/models";
@@ -103,6 +104,11 @@ export type LoopSetup = {
   tools: AnyServerTool[];
   /** Whether a tool call of the Step asked to end the loop with no further model call. */
   ended?: () => boolean;
+  /**
+   * The newest message, when setup builds it (a Turn's, which holds Change notes read in setup):
+   * it follows `input` in what the loop sends.
+   */
+  newest?: ModelMessage[];
 } & (
   | { systemPrompts: string[]; promptStart?: never }
   | {
@@ -298,6 +304,8 @@ export async function runLoop(
    * the new first message, the loop's own input, then the messages from the note on.
    */
   let summarizedAt: number | undefined;
+  /** The loop's own input, then the newest message setup built: what a Summary's calls re-send. */
+  let newest: ModelMessage[] = [];
   /**
    * An activity that bills a model call in its Checkpoint's transaction: what `write` hands
    * `onCommit` fires once that has committed, and never on a replay.
@@ -328,7 +336,7 @@ export async function runLoop(
     promptStart && summarizedAt !== undefined
       ? [
           { role: "user", content: promptStart.firstMessage },
-          ...options.input,
+          ...newest,
           ...messages.slice(summarizedAt),
         ]
       : messages;
@@ -368,7 +376,13 @@ export async function runLoop(
     inLiveCall = true;
     try {
       const { adapter } = await liveCall();
-      for await (const chunk of adapter.chatStream(pruned)) {
+      // The cache controls of the Model's Provider: the Bot's key, or its Helper's.
+      const cached = withCacheControl(
+        provider,
+        options.usageKind === "helper" ? `helper:${options.sourceId}` : `bot:${owner.botId}`,
+        pruned,
+      );
+      for await (const chunk of adapter.chatStream(cached)) {
         chunks.push(withoutRaw(chunk));
       }
     } catch (caught) {
@@ -700,13 +714,14 @@ export async function runLoop(
     const systemPrompts = setup.promptStart
       ? setup.promptStart.system.map((block) => block.text)
       : setup.systemPrompts;
+    newest = [...options.input, ...(setup.newest ?? [])];
     const input: ModelMessage[] = setup.promptStart
       ? [
           { role: "user", content: setup.promptStart.firstMessage },
           ...(setup.history ?? []),
-          ...options.input,
+          ...newest,
         ]
-      : options.input;
+      : newest;
     let reminded = false;
     for (;;) {
       let engine: ChatMiddlewareContext | undefined;

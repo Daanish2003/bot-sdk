@@ -157,6 +157,7 @@ describe("a Check-in the Bot set", () => {
       endedAt: new Date("2026-10-22T08:00:05.000Z"),
       sent: true,
       memoryChanges: null,
+      steps: [],
       triggers: [
         {
           source: "check_in",

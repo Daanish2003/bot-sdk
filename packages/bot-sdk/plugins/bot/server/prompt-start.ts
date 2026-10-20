@@ -43,7 +43,7 @@ export function sha256(text: string): string {
 }
 
 /** `value` as JSON with every object's keys sorted, so equal values have equal bytes. */
-function canonicalJson(value: unknown): string {
+export function canonicalJson(value: unknown): string {
   return JSON.stringify(value, (_key, entry: unknown) =>
     entry && typeof entry === "object" && !Array.isArray(entry)
       ? Object.fromEntries(Object.entries(entry).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
@@ -52,7 +52,7 @@ function canonicalJson(value: unknown): string {
 }
 
 /** The definitions of `tools` as a model call sends them, sorted by name. */
-function definitionsOf(tools: AnyServerTool[]): PromptStartTool[] {
+export function definitionsOf(tools: AnyServerTool[]): PromptStartTool[] {
   return tools
     .map((tool) => ({
       name: tool.name,
@@ -252,6 +252,13 @@ export async function previousTurnCall(
   return row?.hashes ? { promptStartId: row.promptStartId, hashes: row.hashes } : undefined;
 }
 
+/** A section's hash, with its size estimated at 4 characters a token. */
+const hashed = (name: string, text: string): PromptHash => ({
+  name,
+  hash: sha256(text),
+  tokens: Math.ceil(text.length / 4),
+});
+
 /** What one model call sends of a Prompt start and history. */
 type SentPrompt = {
   tools: unknown[];
@@ -272,19 +279,20 @@ export function promptHashesOf(
 ): PromptHash[] {
   const [first, ...history] = sent.messages;
   const sections: PromptHash[] = [
-    { name: "tools", hash: sha256(canonicalJson(sent.tools)) },
-    ...sent.systemPrompts.map((prompt, index) => ({
-      name: start.system[index]?.name ?? `system_${index}`,
-      hash: sha256(typeof prompt === "string" ? prompt : prompt.content),
-    })),
-    {
-      name: firstMessageSection,
-      hash: sha256(typeof first?.content === "string" ? first.content : canonicalJson(first)),
-    },
+    hashed("tools", canonicalJson(sent.tools)),
+    ...sent.systemPrompts.map((prompt, index) =>
+      hashed(
+        start.system[index]?.name ?? `system_${index}`,
+        typeof prompt === "string" ? prompt : prompt.content,
+      ),
+    ),
+    hashed(
+      firstMessageSection,
+      typeof first?.content === "string" ? first.content : canonicalJson(first),
+    ),
   ];
   const sentHistory: PromptHash = {
-    name: "history",
-    hash: sha256(canonicalJson(history)),
+    ...hashed("history", canonicalJson(history)),
     messages: history.length,
   };
   if (!previous) return [...sections, sentHistory];

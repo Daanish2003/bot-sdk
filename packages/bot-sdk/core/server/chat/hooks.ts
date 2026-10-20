@@ -7,6 +7,8 @@ import type { Logger } from "../create-chat";
 export type PromptHash = {
   name: string;
   hash: string;
+  /** An estimate of the section's size (characters / 4), to draw the prompt bar (#675). */
+  tokens?: number;
   /** For `history`: how many messages it covers, so the next call can hash the same ones. */
   messages?: number;
   /**

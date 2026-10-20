@@ -37,7 +37,9 @@ afterEach(async () => {
 });
 
 const isHelperCall = (options: TextOptions) =>
-  (options.systemPrompts ?? []).some((prompt) => String(prompt).startsWith("You are a Helper"));
+  (options.systemPrompts ?? []).some((prompt) =>
+    (typeof prompt === "string" ? prompt : prompt.content).startsWith("You are a Helper"),
+  );
 
 /** A user whose Bot runs on `model`, over `computer` with a fake provider that photographs `shot`. */
 async function userWith(model: string, turns: Round[], helpers: Round[], shot = png) {
