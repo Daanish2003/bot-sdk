@@ -309,6 +309,40 @@ describe("making Memories after a Run", () => {
     expect(kinds).toEqual(["embedding", "memory"]);
   });
 
+  it("writes Memory on the user's linked ChatGPT plan when the Background Model is a plan Model (ADR 0023)", async () => {
+    const planModel = "openai:gpt-6.1-sol";
+    const replyFake = createFakeAdapter({ rounds: [round(text("Noted."))] });
+    const memoryFake = createFakeAdapter({
+      rounds: [round(text('{"facts": ["Is vegetarian", "Lives in Pune"]}'))],
+    });
+    const memoryCalls: Array<Record<string, string>> = [];
+    const { user, send, deps } = await setup({
+      ownEmbeddingKey: false,
+      deps: {
+        hostProviders: [hostOpenAI],
+        defaultBackgroundModel: planModel,
+        linkedCredentials: async () => ({ apiKey: "chatgpt-access-token" }),
+        adapterFor: (model, credentials) => {
+          if (model === replyModel) return replyFake.adapter;
+          memoryCalls.push(credentials);
+          return memoryFake.adapter;
+        },
+        getQuota: async () => ({ budgetUsd: 10, window: "day" }),
+      },
+    });
+
+    await send();
+    await drainMemory(deps);
+
+    expect(await memoriesOf(user.id)).toHaveLength(2);
+    expect(memoryCalls).toEqual([{ apiKey: "chatgpt-access-token" }]);
+    // The embeddings ran on the Host's credentials; the Background Model's call was the user's.
+    const kinds = (await getTestDb().select().from(usage).where(eq(usage.userId, user.id))).map(
+      (row) => row.kind,
+    );
+    expect(kinds).toEqual(["embedding"]);
+  });
+
   it("adds nothing when the same user Message is processed again", async () => {
     const { user, deps, conv, send, memoryFake } = await setup();
     await send();

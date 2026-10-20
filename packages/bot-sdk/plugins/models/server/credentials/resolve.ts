@@ -1,3 +1,4 @@
+import { chatgptPlanModels } from "../../shared/credentials/services";
 import { findModel, parseModelId, type CuratedModel, unknownReasoning } from "../../shared/models";
 import {
   freeMeter,
@@ -15,6 +16,7 @@ export type ResolveDeps = Pick<
   | "db"
   | "keyEncryptionSecrets"
   | "byok"
+  | "linkedCredentials"
   | "hostProviders"
   | "hostTools"
   | "hooks"
@@ -64,12 +66,17 @@ export type ModelCall = {
   maxOutputTokens?: number;
   /** Checks the Quota before the call and records it: the free meter on the user's own key. */
   meter: ModelMeter;
+  /**
+   * Set on a linked ChatGPT plan (ADR 0023): `"plan"` runs the call the plan's way, and
+   * `"needs-reconnect"` fails it asking the user to reconnect, never falling back to the Host.
+   */
+  linked?: "plan" | "needs-reconnect";
 };
 
 /**
  * The credentials a call to the `"provider:model"` id uses (`resolvePayer`): the user's own key for
- * its Provider, else the Host's credentials when the Host offers that Model, metered at its price.
- * `null` when neither applies.
+ * its Provider, else their linked plan for a Model it offers (ADR 0023), else the Host's
+ * credentials when the Host offers that Model, metered at its price. `null` when none applies.
  */
 export async function resolveModelCall(
   deps: ResolveDeps,
@@ -79,14 +86,49 @@ export async function resolveModelCall(
   const provider = parseModelId(id)?.provider;
   if (!provider) return null;
   const resolved = await resolvePayer(deps, userId, [provider], () => hostEntry(deps, id));
+  if (resolved?.payer === "user") return { credentials: resolved.credentials, meter: freeMeter };
+  // No stored credentials: a linked plan comes before the Host's credentials (ADR 0023).
+  const linked = await linkedModelCall(deps, userId, id);
+  if (linked) return linked;
   if (!resolved) return null;
-  if (resolved.payer === "user") return { credentials: resolved.credentials, meter: freeMeter };
   const { hostProvider, model } = resolved.offer;
   return {
     credentials: hostProvider.credentials,
     maxOutputTokens: model.maxOutputTokens,
     meter: hostModelMeter(deps, userId, id, model),
   };
+}
+
+/**
+ * The user's linked ChatGPT plan for a Model it offers (ADR 0023): paid by the user, so the free
+ * meter and no output cap. `null` with `byok` off, without the Host's hook, for any other Model, or
+ * when nothing is linked.
+ */
+async function linkedModelCall(
+  deps: Pick<ModelsDeps, "byok" | "linkedCredentials">,
+  userId: string,
+  id: string,
+): Promise<ModelCall | null> {
+  if (!chatgptPlanModels.includes(id)) return null;
+  const linked = await linkedPlan(deps, userId);
+  if (!linked) return null;
+  if (linked === "needs-reconnect") {
+    return { credentials: {}, meter: freeMeter, linked: "needs-reconnect" };
+  }
+  return { credentials: linked, meter: freeMeter, linked: "plan" };
+}
+
+/**
+ * What the Host's hook says of the user's linked ChatGPT plan (ADR 0023): its credentials,
+ * `"needs-reconnect"`, or `null` when nothing is linked, the Host has no hook, or `byok` is off.
+ * The caller decides whether a stored OpenAI key comes first.
+ */
+export async function linkedPlan(
+  deps: Pick<ModelsDeps, "byok" | "linkedCredentials">,
+  userId: string,
+): Promise<Credentials | "needs-reconnect" | null> {
+  if (!deps.byok || !deps.linkedCredentials) return null;
+  return (await deps.linkedCredentials(userId, "openai")) ?? null;
 }
 
 /** What a Tool call uses: the credentials, and the meter that prices each search on the Host's Tool. */

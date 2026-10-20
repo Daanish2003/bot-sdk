@@ -1,9 +1,9 @@
 import { conversation } from "../../../core/server/db/schema";
 import { and, desc, eq, isNotNull } from "drizzle-orm";
 
-import { resolvedServices, hostModelList } from "./credentials/resolve";
+import { linkedPlan, resolvedServices, hostModelList } from "./credentials/resolve";
 import { loadCredentials } from "./credentials/store";
-import { tavilyService } from "../shared/credentials/services";
+import { chatgptPlanModels, tavilyService } from "../shared/credentials/services";
 import type { ModelsDeps } from "./types";
 import { ollamaModels, openRouterModels } from "./live-models";
 import { listImageModels } from "./image-models";
@@ -27,6 +27,7 @@ type Deps = Pick<
   | "hostProviders"
   | "hostTools"
   | "byok"
+  | "linkedCredentials"
   | "defaultBackgroundModel"
   | "defaultImageModel"
 >;
@@ -35,7 +36,7 @@ type Deps = Pick<
  * The Models the user can chat with: those of Providers they have their own credentials for (with
  * the live OpenRouter and Ollama lists), then the Host's Models for the other Providers, marked as
  * running on Host credentials (ADR 0007). The user's own key for a Provider wins, so its Host
- * Models are not listed. The Model a new Conversation starts on: the Model of their most recent
+ * Models are not listed; so does a linked ChatGPT plan for the Models it offers (ADR 0023). The Model a new Conversation starts on: the Model of their most recent
  * Conversation while it is still available, else the code default of the first Provider they added
  * or the Host offers (or that Provider's first Model, when the default isn't listed).
  */
@@ -54,15 +55,25 @@ export async function listAvailableModels(
   webSearchOnHost: boolean;
 }> {
   const services = deps.byok ? await resolvedServices(deps, userId) : [];
+  // A linked plan offers its Models when the user has no OpenAI key; a broken link still lists
+  // them, so picking one asks to reconnect rather than running on the Host (ADR 0023).
+  const planModels =
+    !services.includes("openai") && (await linkedPlan(deps, userId))
+      ? curatedModels.filter((model) => chatgptPlanModels.includes(model.id))
+      : [];
   const own = [
     ...curatedModels.filter((model) => services.includes(model.provider)),
+    ...planModels,
     ...(
       await Promise.all(
         services.filter(isLiveListProvider).map((provider) => liveModels(deps, userId, provider)),
       )
     ).flat(),
   ];
-  const hosted = hostModelList(deps).filter((model) => !services.includes(model.provider));
+  const hosted = hostModelList(deps).filter(
+    (model) =>
+      !services.includes(model.provider) && !planModels.some((plan) => plan.id === model.id),
+  );
   const models: ListedModel[] = [
     ...own.map((model) => ({ ...model, onHostCredentials: false })),
     ...hosted.map((model) => ({ ...model, onHostCredentials: true })),
@@ -76,15 +87,21 @@ export async function listAvailableModels(
     .orderBy(desc(conversation.lastMessageAt), desc(conversation.id))
     .limit(1);
   const recentModel = models.find((model) => model.id === recent?.model)?.id;
-  const firstProvider = [...services, ...deps.hostProviders.map((host) => host.provider)]
+  const firstProvider = [
+    ...services,
+    ...(planModels.length > 0 ? ["openai"] : []),
+    ...deps.hostProviders.map((host) => host.provider),
+  ]
     .map((service) => models.find((model) => model.provider === service)?.provider)
     .find((provider) => provider !== undefined);
+  // The user's own Models of that Provider come first: a linked plan's, not the Host's beside them.
+  const ofFirst = models.filter((model) => model.provider === firstProvider);
+  const pool = ofFirst.some((model) => !model.onHostCredentials)
+    ? ofFirst.filter((model) => !model.onHostCredentials)
+    : ofFirst;
   const providerDefault =
     firstProvider &&
-    (
-      models.find((model) => model.id === defaultModelFor(firstProvider)) ??
-      models.find((model) => model.provider === firstProvider)
-    )?.id;
+    (pool.find((model) => model.id === defaultModelFor(firstProvider)) ?? pool[0])?.id;
 
   return {
     models,
