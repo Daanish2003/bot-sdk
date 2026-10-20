@@ -4,8 +4,8 @@ import { type EmailMessage, type EmailSender, renderTemplate } from "@ai-chat/em
 import { passkey } from "@better-auth/passkey";
 import { drizzleAdapter } from "@better-auth/drizzle-adapter/relations-v2";
 import { betterAuth } from "better-auth";
-import { createAuthMiddleware, isAPIError } from "better-auth/api";
-import { admin, twoFactor } from "better-auth/plugins";
+import { APIError, createAuthMiddleware, isAPIError } from "better-auth/api";
+import { admin, genericOAuth, twoFactor } from "better-auth/plugins";
 import { createAccessControl } from "better-auth/plugins/access";
 import { defaultStatements } from "better-auth/plugins/admin/access";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
@@ -28,7 +28,15 @@ export type AuthConfig = {
   GITHUB_CLIENT_SECRET: string;
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;
+  // ChatGPT is registered only when both are set: the public PKCE client id, and the fixed
+  // `ext_agent_host_id` it was registered under (ADR 0023).
+  CHATGPT_CLIENT_ID?: string;
+  CHATGPT_HOST_ID?: string;
 };
+
+// ChatGPT sign-in endpoints, scopes and audience (spec #638).
+const CHATGPT_PROVIDER = "chatgpt";
+const CHATGPT_RESOURCE = "https://api.openai.com/v1";
 
 // Social sign-in. Better Auth links to an existing account only when the provider reports the email
 // as verified (its default); neither provider is in `trustedProviders`, so an unverified provider
@@ -97,6 +105,37 @@ export function createAuth(
       );
   }
 
+  const chatgpt =
+    env.CHATGPT_CLIENT_ID && env.CHATGPT_HOST_ID
+      ? genericOAuth({
+          config: [
+            {
+              providerId: CHATGPT_PROVIDER,
+              clientId: env.CHATGPT_CLIENT_ID,
+              authorizationUrl: "https://auth.openai.com/api/accounts/authorize",
+              tokenUrl: "https://auth.openai.com/api/accounts/oauth/token",
+              scopes: [
+                "openid",
+                "profile",
+                "email",
+                "offline_access",
+                "resource.invoke",
+                "chatgpt.tokens.use.direct",
+              ],
+              pkce: true,
+              // Link-only (the `hooks.before` below also refuses sign-in): no user is ever created.
+              disableSignUp: true,
+              authorizationUrlParams: {
+                resource: CHATGPT_RESOURCE,
+                ext_agent_host_id: env.CHATGPT_HOST_ID,
+              },
+              tokenUrlParams: { resource: CHATGPT_RESOURCE },
+              refreshTokenParams: { resource: CHATGPT_RESOURCE },
+            },
+          ],
+        })
+      : undefined;
+
   return betterAuth({
     database: drizzleAdapter(database, {
       provider: "pg",
@@ -116,6 +155,18 @@ export function createAuth(
         // Better Auth adds its own default scopes unless told not to, which would repeat these.
         disableDefaultScope: true,
         scope: ["openid", "email", "profile"],
+      },
+    },
+    account: {
+      // Tokens at rest are encrypted, GitHub and Google included; plaintext rows written before
+      // this was on are still read as they are, and are encrypted when next refreshed.
+      encryptOAuthTokens: true,
+      accountLinking: {
+        // A user links ChatGPT on purpose, under another email than their own. Better Auth has
+        // no per-provider switch, so this applies to GitHub and Google links too: a signed-in
+        // user may link either under a different email. Linking still needs the provider to
+        // report the email as verified.
+        allowDifferentEmails: true,
       },
     },
     databaseHooks: {
@@ -208,6 +259,15 @@ export function createAuth(
       },
     },
     hooks: {
+      // ChatGPT is link-only. `disableSignUp` alone would still sign in an existing user whose
+      // email matches, so every social sign-in for it is refused, the ID-token form included.
+      before: createAuthMiddleware(async (ctx) => {
+        if (ctx.path === "/sign-in/social" && ctx.body?.provider === CHATGPT_PROVIDER) {
+          throw new APIError("BAD_REQUEST", {
+            message: "ChatGPT can only be linked, not signed in with",
+          });
+        }
+      }),
       // Changing a password while signed in (`/change-password`) doesn't run `onPasswordReset`,
       // so its notice is sent from here. Only a successful change has a `user` in its response.
       // The two-factor steps below send their notices, and turning 2FA on signs out the other sessions.
@@ -292,6 +352,7 @@ export function createAuth(
       // Passkeys for password-free sign-in (spec #277). The relying party id defaults to the
       // hostname of `baseURL` (BETTER_AUTH_URL).
       passkey({ rpName: env.APP_NAME }),
+      ...(chatgpt ? [chatgpt] : []),
       tanstackStartCookies(),
     ],
   });
