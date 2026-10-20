@@ -62,19 +62,24 @@ export function BotMemoryChip({ changes }: { changes: BotMemoryChange[] | null }
 export function BotMemoryLive({ botId }: { botId: string }) {
   const { orpc, eventsUrl } = useChatAdapter();
   const queryClient = useQueryClient();
-  const getOptions = orpc.bot.get.queryOptions({ input: { botId } });
-  const conversationId = useQuery(getOptions).data?.conversationId;
-  const queryKey = getOptions.queryKey;
+  const conversationId = useQuery(orpc.bot.get.queryOptions({ input: { botId } })).data
+    ?.conversationId;
   useEffect(() => {
     if (!conversationId || typeof EventSource === "undefined") return;
     const source = new EventSource(`${eventsUrl}?conversationId=${conversationId}`);
     source.onmessage = (event: MessageEvent<string>) => {
-      const update = JSON.parse(event.data) as Partial<BotMemoryUpdatedEvent>;
+      let update: Partial<BotMemoryUpdatedEvent>;
+      try {
+        update = JSON.parse(event.data);
+      } catch {
+        return;
+      }
       if (update.type === "bot_memory_updated") {
+        const { queryKey } = orpc.bot.get.queryOptions({ input: { botId } });
         void queryClient.invalidateQueries({ queryKey });
       }
     };
     return () => source.close();
-  }, [conversationId, eventsUrl, queryClient, queryKey]);
+  }, [botId, conversationId, eventsUrl, orpc, queryClient]);
   return null;
 }

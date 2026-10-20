@@ -175,9 +175,13 @@ function BotConversationView({
   // Each Turn's `afterTurn` under the last Bot Message it sent: the last one saved in its span.
   const afterTurnOf = new Map<string, ReactNode[]>();
   if (afterTurn) {
-    for (const turn of turns) {
+    for (const [index, turn] of turns.entries()) {
       const from = turn.startedAt.getTime();
-      const until = turn.endedAt?.getTime() ?? Infinity;
+      // Up to its end, and never into the next Turn (a Turn that never ended has no end).
+      const until = Math.min(
+        turn.endedAt?.getTime() ?? Infinity,
+        turns[index + 1]?.startedAt.getTime() ?? Infinity,
+      );
       const sent = messages
         .filter((message) => {
           const at = message.createdAt.getTime();
