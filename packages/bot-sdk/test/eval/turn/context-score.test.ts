@@ -111,7 +111,10 @@ describe("scoreSummary", () => {
     expect(scoreSummary({ ...base, status: "error" }).passed).toBe(false);
   });
 
-  it("matches facts without regard to case", () => {
+  it("matches facts without regard to case or thousands commas", () => {
+    expect(scoreSummary({ ...base, facts: ["2,400"], reply: ["It is 2400 euros"] }).passed).toBe(
+      true,
+    );
     expect(scoreSummary({ ...base, reply: ["biscuit!"] }).passed).toBe(true);
   });
 });

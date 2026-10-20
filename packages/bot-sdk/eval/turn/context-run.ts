@@ -165,7 +165,7 @@ async function userTurn(env: ContextEnv, ids: { userId: string; botId: string },
 }
 
 /** The key a run's Model is reached with: a fake one with its adapter registered, or the real key. */
-function keyFor(env: ContextEnv, caseId: string, rounds: () => Rounds): string | null {
+function modelKeyFor(env: ContextEnv, caseId: string, rounds: () => Rounds): string | null {
   if (!env.fake) return env.apiKey;
   const key = `fake-${caseId}-${randomUUID()}`;
   env.adapters.set(key, createFakeAdapter({ rounds: rounds() }).adapter);
@@ -225,7 +225,7 @@ async function cacheCalls(db: Database, userId: string): Promise<CacheCall[]> {
 export async function runCacheCase(env: ContextEnv, repeat: number): Promise<ContextRunResult> {
   const started = Date.now();
   try {
-    const key = keyFor(env, "cache", () => {
+    const key = modelKeyFor(env, "cache", () => {
       let turns = 0;
       return cacheSteps.flatMap((step) => {
         if (step.kind === "warm") return [withUsage(round(), fakeUsage(false, 12_000, 0))];
@@ -302,6 +302,7 @@ export async function runCacheCase(env: ContextEnv, repeat: number): Promise<Con
     }
     const calls = await cacheCalls(env.db, userId);
     const score = scoreCache(calls, { readsCache: true, warmed: warm.warmed });
+    if (!warm.warmed) score.reasons.push(`warmBot skipped: ${warm.skipped}`);
     return {
       caseId: "cache",
       repeat,
@@ -343,7 +344,7 @@ export async function runSummaryCase(env: ContextEnv, repeat: number): Promise<C
   const started = Date.now();
   try {
     const answers = plantedFacts.map((fact) => fact.answer);
-    const key = keyFor(env, "summary", () => [
+    const key = modelKeyFor(env, "summary", () => [
       withUsage(
         round(
           toolCall({
@@ -379,14 +380,10 @@ export async function runSummaryCase(env: ContextEnv, repeat: number): Promise<C
       "Thanks for filing all of those. That's everything for today.",
     );
     const [queued] = await env.db
-      .select({ id: job.id })
+      .select({ id: job.id, status: job.status })
       .from(job)
       .where(
-        and(
-          eq(job.name, summarizeAwayJobName),
-          eq(job.idempotencyKey, awaySummaryKey(bot.id)),
-          eq(job.status, "queued"),
-        ),
+        and(eq(job.name, summarizeAwayJobName), eq(job.idempotencyKey, awaySummaryKey(bot.id))),
       );
     if (!queued) {
       const [last] = await env.db
@@ -400,7 +397,9 @@ export async function runSummaryCase(env: ContextEnv, repeat: number): Promise<C
       );
     }
     // The job waits 10 minutes after the Turn so the cache stays warm; the eval brings it forward.
-    await env.db.update(job).set({ runAfter: new Date() }).where(eq(job.id, queued.id));
+    if (queued.status === "queued") {
+      await env.db.update(job).set({ runAfter: new Date() }).where(eq(job.id, queued.id));
+    }
     env.sdk.plugin("runner").wake();
     const summary = await summaryWritten(env.db, bot.id);
 
@@ -503,7 +502,7 @@ export async function runToolSearchCase(
   try {
     const helperId = uuidv7();
     const args = evalCase.tool === "check_helper" ? { helperId } : evalCase.fakeArgs;
-    const key = keyFor(env, evalCase.id, () => [
+    const key = modelKeyFor(env, evalCase.id, () => [
       round(toolCall({ name: "describe_tool", input: { name: evalCase.tool } })),
       round(toolCall({ name: "run_tool", input: { name: evalCase.tool, args } })),
       round(

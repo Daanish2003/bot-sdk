@@ -35,7 +35,7 @@ export function promptStartTokens(hashes: readonly PromptHash[] | null): number 
 }
 
 /**
- * Scores a scripted multi-Turn Conversation's calls, oldest first. With `readsCache` off (the dry
+ * Scores a scripted multi-Turn Conversation's calls, oldest first. With `readsCache` off (for a run whose
  * run, whose fake Model reports whatever the script says) only the hashes are checked.
  *
  * - No call is flagged `bug`: a section that differs from the call before while the Prompt start is
@@ -54,8 +54,8 @@ export function scoreCache(
     reasons.push(`only ${turns.length} Turn call(s) were recorded, expected 2 or more`);
   }
   for (const [index, call] of calls.entries()) {
-    const flagged = (call.promptHashes ?? []).find((entry) => entry.changed);
-    if (flagged?.changed === "bug") {
+    const flagged = (call.promptHashes ?? []).find((entry) => entry.changed === "bug");
+    if (flagged) {
       reasons.push(
         `call ${index + 1} (${call.kind}): section ${flagged.name} changed with no new Prompt start`,
       );
@@ -122,10 +122,11 @@ export function scoreSummary(observed: {
   if (observed.status !== "complete") {
     reasons.push(`the Turn ended ${observed.status}, expected complete`);
   }
-  const reply = observed.reply.join("\n").toLowerCase();
+  const reply = observed.reply.join("\n").toLowerCase().replaceAll(",", "");
   if (!reply) reasons.push("the Turn after the Summary sent no Message");
   for (const fact of observed.facts) {
-    if (!reply.includes(fact.toLowerCase())) reasons.push(`the reply lacks the fact "${fact}"`);
+    if (!reply.includes(fact.toLowerCase().replaceAll(",", "")))
+      reasons.push(`the reply lacks the fact "${fact}"`);
   }
   return scored(reasons);
 }
