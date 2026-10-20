@@ -17,6 +17,7 @@ import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { PromptStartSection, PromptStartTool } from "./db/bot-prompt-start";
 import { botDirectory, sharedDirectory } from "./computer-tools";
 import { formatterIn, knownZone } from "./time-zone";
+import { describeToolName, runToolName } from "./tool-search";
 
 /** The name of a Prompt start's first message among its sections. */
 export const firstMessageSection = "first_message";
@@ -62,6 +63,23 @@ export function definitionsOf(tools: AnyServerTool[]): PromptStartTool[] {
     .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 }
 
+const toolsHeader = "[Your tools]";
+const deferredHeader = `[Deferred tools: call ${describeToolName} with the name first, then ${runToolName}]`;
+
+/** The names of the tools a first message lists, deferred ones included. */
+export function listedToolNames(firstMessage: string): Set<string> {
+  const start = firstMessage.indexOf(`${toolsHeader}\n`);
+  if (start < 0) return new Set();
+  const end = firstMessage.indexOf("\n\n[Summary of your conversation so far]");
+  return new Set(
+    firstMessage
+      // The Summary, when there is one, follows the tool lists.
+      .slice(start, end < 0 ? undefined : end)
+      .split("\n")
+      .flatMap((line) => /^([^\s:]+): /.exec(line)?.[1] ?? []),
+  );
+}
+
 const builtTime: Intl.DateTimeFormatOptions = {
   weekday: "long",
   day: "numeric",
@@ -75,7 +93,8 @@ const builtTime: Intl.DateTimeFormatOptions = {
 /**
  * The first message: the Bot's environment (its name, the user's time zone, when the Prompt start
  * was built, and which of Computer, Memory and Helpers are on, with their directories), then every
- * tool's name with the first sentence of its description, then the Summary when there is one.
+ * tool's name with the first sentence of its description: the tools every call sends, then the
+ * deferred ones, which need `describe_tool` first, then the Summary when there is one.
  */
 function firstMessageOf({
   botId,
@@ -85,6 +104,7 @@ function firstMessageOf({
   computer,
   memory,
   tools,
+  deferred,
   summary,
 }: {
   botId: string;
@@ -94,6 +114,7 @@ function firstMessageOf({
   computer: boolean;
   memory: boolean;
   tools: PromptStartTool[];
+  deferred: PromptStartTool[];
   summary: string | undefined;
 }): string {
   const environment = [
@@ -108,10 +129,17 @@ function firstMessageOf({
     // Helpers run on the Computer, so they are on with it.
     computer ? "Helpers: on." : "Helpers: off.",
   ];
-  const toolLines = tools.map((tool) => `${tool.name}: ${firstSentence(tool.description)}`);
+  const lineOf = (tool: PromptStartTool) => `${tool.name}: ${firstSentence(tool.description)}`;
   const summaryLines =
     summary === undefined ? [] : ["", "[Summary of your conversation so far]", summary];
-  return [...environment, "", "[Your tools]", ...toolLines, ...summaryLines].join("\n");
+  return [
+    ...environment,
+    "",
+    toolsHeader,
+    ...tools.map(lineOf),
+    ...(deferred.length > 0 ? ["", deferredHeader, ...deferred.map(lineOf)] : []),
+    ...summaryLines,
+  ].join("\n");
 }
 
 /** A section of `name` holding `text`, hashed. */
@@ -127,10 +155,27 @@ export type PromptStartParts = {
   now: Date;
   /** The system blocks in their fixed order: rules, Computer, memory snapshot, Routines. */
   system: { name: string; text: string }[];
+  /** The tools every call sends. */
   tools: AnyServerTool[];
+  /** The tools listed in the first message only, loaded on demand. */
+  deferred: PromptStartTool[];
   computer: boolean;
   memory: boolean;
 };
+
+/** The id of the Bot's latest Prompt start, or `undefined` before its first Turn builds one. */
+export async function latestPromptStartId(
+  db: Database | Transaction,
+  botId: string,
+): Promise<string | undefined> {
+  const [latest] = await db
+    .select({ id: botPromptStart.id })
+    .from(botPromptStart)
+    .where(eq(botPromptStart.botId, botId))
+    .orderBy(desc(botPromptStart.builtAt), desc(botPromptStart.id))
+    .limit(1);
+  return latest?.id;
+}
 
 /**
  * The id of the Prompt start a Turn sends, in `tx`: the Bot's latest, or, for its first Turn, one
@@ -139,13 +184,7 @@ export type PromptStartParts = {
  */
 export async function promptStartFor(tx: Transaction, parts: PromptStartParts): Promise<string> {
   const { turn } = parts;
-  const [latest] = await tx
-    .select({ id: botPromptStart.id })
-    .from(botPromptStart)
-    .where(eq(botPromptStart.botId, turn.botId))
-    .orderBy(desc(botPromptStart.builtAt), desc(botPromptStart.id))
-    .limit(1);
-  const id = latest?.id ?? (await buildPromptStart(tx, parts));
+  const id = (await latestPromptStartId(tx, turn.botId)) ?? (await buildPromptStart(tx, parts));
   await tx.update(botTurn).set({ promptStartId: id }).where(eq(botTurn.id, turn.id));
   return id;
 }
@@ -170,6 +209,7 @@ export async function buildPromptStart(
     computer: parts.computer,
     memory: parts.memory,
     tools,
+    deferred: parts.deferred,
     summary: summary?.text,
   });
   const id = uuidv7();

@@ -59,6 +59,7 @@ describe("bot.create", () => {
       messages: [],
       turns: [],
       summaries: [],
+      warmings: [],
     });
   });
 

@@ -274,6 +274,8 @@ export function useBotTurn(
     turns: query.data?.turns ?? [],
     /** The Bot's Summaries, oldest first (#676). */
     summaries: query.data?.summaries ?? [],
+    /** The calls that warmed the Bot's cache, oldest first (#677). */
+    warmings: query.data?.warmings ?? [],
     working,
     seenMessageId: status === "complete" ? answered : undefined,
     failedMessageId: status === "error" ? answered : undefined,

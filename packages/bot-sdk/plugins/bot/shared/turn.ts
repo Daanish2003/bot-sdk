@@ -96,3 +96,6 @@ export type BotSummary = {
   text: string;
   kept: BotMessage[];
 };
+
+/** A call that warmed a Bot's cache (#677), for the muted line in its thread. */
+export type BotWarming = { id: string; at: Date; costMicros: number };

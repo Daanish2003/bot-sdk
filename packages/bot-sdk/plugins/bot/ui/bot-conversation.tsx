@@ -12,6 +12,7 @@ import { useBackgroundRuns, useBotTurn } from "../client/react/bot-turn";
 import { useBotCheckIns } from "../client/react/check-ins";
 import { allHelpers, useBotHelpers } from "../client/react/helpers";
 import { useBotRoutines } from "../client/react/routines";
+import { useCacheWarming } from "../client/react/warm";
 import { BotAvatar } from "./bot-avatar";
 import { CheckInLine } from "./check-in-line";
 import { ComputerCard } from "./computer-card";
@@ -22,6 +23,7 @@ import { RoutinesPopover } from "./routines-popover";
 import { RunDivider } from "./run-divider";
 import { SummaryCard } from "./summary-card";
 import { TodoPopover } from "./todo-popover";
+import { WarmLine } from "./warm-line";
 
 /**
  * A Bot's Conversation: the Messages sent in it, the user's on the right and the Bot's on the left,
@@ -69,6 +71,7 @@ function BotConversationView({
     messages,
     turns,
     summaries,
+    warmings,
     working,
     seenMessageId,
     failedMessageId,
@@ -82,6 +85,7 @@ function BotConversationView({
     },
   });
 
+  const warmCache = useCacheWarming(botId);
   const { routines, webhookTokens, acting, approve, decline, pause, resume, remove, rotate } =
     useBotRoutines(botId, working);
   const {
@@ -194,6 +198,16 @@ function BotConversationView({
     ]);
   }
 
+  // Each warming call's line before the first Message saved after it ("" after the last).
+  const warmingsBefore = new Map<string, ReactNode[]>();
+  for (const warming of warmings) {
+    const before = messages.find((message) => message.createdAt.getTime() >= warming.at.getTime());
+    warmingsBefore.set(before?.id ?? "", [
+      ...(warmingsBefore.get(before?.id ?? "") ?? []),
+      <WarmLine key={warming.id} warming={warming} />,
+    ]);
+  }
+
   // Each Turn's `afterTurn` under the last Bot Message it sent: the last one saved in its span.
   const afterTurnOf = new Map<string, ReactNode[]>();
   if (afterTurn) {
@@ -252,6 +266,7 @@ function BotConversationView({
         {messages.map((message) => (
           <Fragment key={message.id}>
             {summariesBefore.get(message.id)}
+            {warmingsBefore.get(message.id)}
             {runsBefore.get(message.id)}
             <div
               data-bot-message
@@ -288,6 +303,7 @@ function BotConversationView({
           </Fragment>
         ))}
         {summariesBefore.get("")}
+        {warmingsBefore.get("")}
         {runsBefore.get("")}
         {routinesAfter.get("")?.map(routineCard)}
         {checkInsAfter.get("")?.map(checkInLine)}
@@ -307,7 +323,11 @@ function BotConversationView({
           aria-label={t("bots.message")}
           placeholder={t("bots.message")}
           value={draft}
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={(event) => {
+            // The first keystroke of a draft warms the cache while the user is still writing.
+            if (!draft && event.target.value) warmCache();
+            setDraft(event.target.value);
+          }}
           onKeyDown={onKeyDown}
           rows={1}
           className="max-h-40 min-h-10 resize-none"

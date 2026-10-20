@@ -30,6 +30,7 @@ import { screenControl, screenView } from "../screen-view";
 import { botSummaries } from "../summary";
 import { isTimeZone } from "../time-zone";
 import { sendToBot, stopBot } from "../turn";
+import { botWarmings, warmBot } from "../warm";
 
 const botRouter = {
   /**
@@ -56,7 +57,7 @@ const botRouter = {
 
   /**
    * One of the caller's Bots with its latest Turn's status and the status of the Turn that took the
-   * user's last Message, its Conversation's id and Messages, its Turns' provenance and its Summaries;
+   * user's last Message, its Conversation's id and Messages, its Turns' provenance, its Summaries and its cache warmings;
    * another user's is not found.
    */
   get: protectedProcedure
@@ -70,10 +71,11 @@ const botRouter = {
         latestTurnStatus(context.sdk.db, bot.id),
       ]);
       // Each Turn's Triggers and whether it sent anything, for the dividers of Routine runs.
-      const [turns, userStatus, summaries] = await Promise.all([
+      const [turns, userStatus, summaries, warmings] = await Promise.all([
         turnProvenance(context.sdk.db, context.user.id, bot.id, messages),
         userTurnStatus(context.sdk.db, messages),
         botSummaries(context.sdk.db, bot.id, conversationId),
+        botWarmings(context.sdk, context.user.id, bot.id),
       ]);
       return {
         bot: { ...bot, turnStatus, userTurnStatus: userStatus },
@@ -81,6 +83,7 @@ const botRouter = {
         messages,
         turns,
         summaries,
+        warmings,
       };
     }),
 
@@ -114,6 +117,16 @@ const botRouter = {
   stop: protectedProcedure
     .input(z.object({ botId: z.uuid() }))
     .handler(({ context, input }) => stopBot(context.sdk, context.user.id, input.botId)),
+
+  /**
+   * Warms the cache of the caller's Bot (slide 32), which the Bot page asks for when the
+   * Conversation opens and on the first keystroke of a draft. It does nothing while a Turn runs,
+   * while the cache is still warm, or for a Model with no warming call; `skipped` says which.
+   * Another user's Bot is not found.
+   */
+  warm: protectedProcedure
+    .input(z.object({ botId: z.uuid() }))
+    .handler(({ context, input }) => warmBot(context.sdk, context.user.id, input.botId)),
 
   /** The Routines of the caller's Bots (#538). Approving or declining one never wakes the Bot. */
   routine: {

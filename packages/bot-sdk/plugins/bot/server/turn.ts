@@ -1,9 +1,4 @@
-import {
-  type AnyServerTool,
-  convertSchemaToJsonSchema,
-  type ModelMessage,
-  toolDefinition,
-} from "@tanstack/ai";
+import { type AnyServerTool, type ModelMessage, toolDefinition } from "@tanstack/ai";
 import { and, asc, desc, eq, gt, gte, isNotNull, lt, lte, ne, or } from "drizzle-orm";
 import { z } from "zod";
 
@@ -61,6 +56,7 @@ import {
   updateRoutineToolName,
 } from "./routine";
 import { formatterIn, knownZone, timeNotice } from "./time-zone";
+import { checkedTool, isDirectTool, toolSearchTools } from "./tool-search";
 import { webSearchTool } from "./web-search";
 
 /** The most Steps a Turn may take; one more ends it `error` with `step_limit`. */
@@ -981,6 +977,8 @@ async function turnSetup(
       endTurn = true;
     },
   });
+  // `describe_tool` and `run_tool`, which reach the tools the Prompt start lists by name only.
+  const searchTools = toolSearchTools(tools);
   /** What a Prompt start is built from now: by the Bot's first Turn, or by a Summary. */
   const parts = (): PromptStartParts =>
     startParts(turn, deps.clock(), { tools, withComputer, memory, routines });
@@ -1003,8 +1001,8 @@ async function turnSetup(
     tools: definitionsOf(tools),
   });
   // A tool a deploy removed stays defined, as the Prompt start sends it, and says it is gone.
-  const live = new Set(tools.map((tool) => tool.name));
-  const retired = promptStart.tools.filter((tool) => !live.has(tool.name)).map(retiredTool);
+  const known = new Set([...tools, ...searchTools].map((tool) => tool.name));
+  const retired = promptStart.tools.filter((tool) => !known.has(tool.name)).map(retiredTool);
   return {
     promptStart,
     history: historyFrom(earlier, summary),
@@ -1012,7 +1010,7 @@ async function turnSetup(
       write: (tx, prose) => writeSummary(tx, { parts: parts(), prose, kind: "mid_turn" }),
       load: (summarized) => loopPromptStart(db, summarized, async () => undefined),
     },
-    tools: [...tools.map(checkedTool), ...retired],
+    tools: [...[...tools, ...searchTools].map(checkedTool), ...retired],
     ended: () => endTurn,
     newest: await renderNewest(changeNotes),
   };
@@ -1140,7 +1138,11 @@ function turnTools(
   ];
 }
 
-/** What a Prompt start built at `now` holds: the system blocks in their fixed order, and `tools`. */
+/**
+ * What a Prompt start built at `now` holds: the system blocks in their fixed order, and of every
+ * tool the code has now (`tools`), the direct ones and `describe_tool` and `run_tool`; the rest are
+ * listed by name in its first message and reached through those two.
+ */
 function startParts(
   turn: PromptStartParts["turn"],
   now: Date,
@@ -1166,7 +1168,8 @@ function startParts(
       ...(memory ? [{ name: "memory", text: memory }] : []),
       ...(routines ? [{ name: "routines", text: routines }] : []),
     ],
-    tools,
+    tools: [...tools.filter(isDirectTool), ...toolSearchTools(tools)],
+    deferred: definitionsOf(tools.filter((tool) => !isDirectTool(tool))),
     computer: withComputer,
     memory: Boolean(memory),
   };
@@ -1205,40 +1208,6 @@ export async function awayStartParts(
   });
   const routines = (await routinesPrompt(tx, turn.botId)) ?? null;
   return startParts(facts, now, { tools, withComputer, memory, routines });
-}
-
-type Issue = { message: string; path?: readonly (PropertyKey | { key: PropertyKey })[] };
-
-/**
- * `tool` with its arguments checked against its schema as the code has it now, which may differ
- * from the definition the Prompt start sent (a deploy changed it). A mismatch is an error that
- * names the arguments at fault and gives the current schema, so the Bot calls it again the new way.
- */
-function checkedTool(tool: AnyServerTool): AnyServerTool {
-  const schema = tool.inputSchema;
-  if (!schema || !tool.execute || !("~standard" in schema)) return tool;
-  const { execute } = tool;
-  return {
-    ...tool,
-    // The engine's own check says too little; this one runs in `execute`.
-    inputSchema: z.looseObject({}),
-    execute: async (args, context) => {
-      const checked = await schema["~standard"].validate(args);
-      if (!checked.issues) return execute(checked.value, context);
-      const problems = checked.issues.map((issue: Issue) => {
-        const path = (issue.path ?? []).map((key) =>
-          String(typeof key === "object" ? key.key : key),
-        );
-        return path.length > 0 ? `${path.join(".")}: ${issue.message}` : issue.message;
-      });
-      return {
-        error:
-          `Invalid arguments for ${tool.name} (${problems.join("; ")}). Call ${tool.name} again ` +
-          `with arguments that match its current definition: ` +
-          JSON.stringify(convertSchemaToJsonSchema(schema)),
-      };
-    },
-  };
 }
 
 /** A tool the Prompt start sent that the code no longer has: it answers that it is gone. */

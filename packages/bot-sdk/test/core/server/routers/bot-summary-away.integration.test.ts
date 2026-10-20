@@ -258,6 +258,12 @@ describe("a Summary while the user is away", () => {
     expect(newStart!.summaryId).toBe(summary!.id);
     expect(newStart!.sections.at(-1)!.text).toContain(summary!.text);
     expect(newStart!.tools).toEqual(oldStart!.tools);
+    // The same tool list, deferred tools included, then the Summary.
+    expect(oldStart!.sections.at(-1)!.text).toContain("[Deferred tools:");
+    const toolsOf = (text: string) => text.slice(text.indexOf("[Your tools]"));
+    expect(toolsOf(newStart!.sections.at(-1)!.text)).toContain(
+      `${toolsOf(oldStart!.sections.at(-1)!.text)}\n\n[Summary`,
+    );
 
     const [row] = await getTestDb()
       .select({ sourceId: usage.sourceId })

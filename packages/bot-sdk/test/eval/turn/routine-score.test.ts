@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { routineCases } from "../../../eval/turn/routine-cases";
 import {
   callInputs,
+  callNames,
   callsToJudge,
   describeCall,
   failEmptyJudgement,
@@ -250,5 +251,30 @@ describe("turnIdOf", () => {
 
   it("throws when the Trigger waits for a running Turn", () => {
     expect(() => turnIdOf({ waitsFor: "turn-0" })).toThrow(/waits for/);
+  });
+});
+
+describe("a call through run_tool", () => {
+  const wrapped: ModelMessage[] = [
+    {
+      role: "assistant",
+      content: "",
+      toolCalls: [
+        {
+          id: "c0",
+          type: "function",
+          function: {
+            name: "run_tool",
+            arguments: JSON.stringify({ name: "create_routine", args: { name: "brief" } }),
+          },
+        },
+      ],
+    },
+  ];
+
+  it("counts as the tool it names", () => {
+    expect(callNames(wrapped)).toEqual(["create_routine"]);
+    expect(callInputs(wrapped, "create_routine")).toEqual([{ name: "brief" }]);
+    expect(toolCallsOf(wrapped)).toEqual([{ name: "create_routine", args: { name: "brief" } }]);
   });
 });

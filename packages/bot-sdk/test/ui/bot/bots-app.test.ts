@@ -51,6 +51,7 @@ function seed(queryClient: QueryClient, client: BotSdkClient) {
     messages: [],
     turns: [],
     summaries: [],
+    warmings: [],
   });
 }
 
@@ -169,6 +170,7 @@ describe("a Bot's Conversation", () => {
                 kept: [message("m2", "assistant", "Here's your week.", 1)],
               },
             ],
+            warmings: [],
           });
         },
       }),
