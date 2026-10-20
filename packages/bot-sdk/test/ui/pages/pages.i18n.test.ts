@@ -36,6 +36,7 @@ const ownedContent = [
   "Claude Haiku 4.5",
   "Anthropic",
   "Thesis",
+  "abcd",
   "Trip planning",
   "Where to next",
   "October 1, 2026",
@@ -177,6 +178,32 @@ describe("the pages with the dictionary", () => {
       queryClient.setQueryData(client.orpc.connections.list.queryKey(), { servers: [] });
       seedModels(queryClient, client);
     });
+  });
+
+  it("shows no untranslated text on the OpenAI row's ChatGPT link, in each state", () => {
+    const linkedCredentials = { connect: () => {}, disconnect: () => {} };
+    for (const state of ["none", "linked", "needs-reconnect", "key"] as const) {
+      const html = expectTranslated(
+        createElement(KeySettingsPage, { linkedCredentials }),
+        (queryClient, client) => {
+          queryClient.setQueryData(client.orpc.credentials.mode.queryKey(), { byok: true });
+          queryClient.setQueryData(
+            client.orpc.credentials.list.queryKey(),
+            state === "key" ? [{ service: "openai", hint: "abcd", verified: true }] : [],
+          );
+          queryClient.setQueryData(client.orpc.credentials.openaiState.queryKey(), state);
+          queryClient.setQueryData(client.orpc.settings.get.queryKey(), {
+            backgroundModel: null,
+            imageModel: null,
+            instructions: null,
+          });
+          queryClient.setQueryData(client.orpc.share.list.queryKey(), []);
+          queryClient.setQueryData(client.orpc.connections.list.queryKey(), { servers: [] });
+          seedModels(queryClient, client);
+        },
+      );
+      expect(html).toContain("ChatGPT");
+    }
   });
 
   it("shows no untranslated text on a Shared link, signed out", () => {
