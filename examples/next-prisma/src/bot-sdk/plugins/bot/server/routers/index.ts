@@ -55,7 +55,7 @@ const botRouter = {
 
   /**
    * One of the caller's Bots with its latest Turn's status and the status of the Turn that took the
-   * user's last Message, its Conversation's Messages, and its Turns' provenance; another user's is
+   * user's last Message, its Conversation's id and Messages, and its Turns' provenance; another user's is
    * not found.
    */
   get: protectedProcedure
@@ -73,7 +73,12 @@ const botRouter = {
         turnProvenance(context.sdk.db, bot.id, messages),
         userTurnStatus(context.sdk.db, messages),
       ]);
-      return { bot: { ...bot, turnStatus, userTurnStatus: userStatus }, messages, turns };
+      return {
+        bot: { ...bot, turnStatus, userTurnStatus: userStatus },
+        conversationId,
+        messages,
+        turns,
+      };
     }),
 
   /**

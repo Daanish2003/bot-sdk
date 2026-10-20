@@ -1,8 +1,8 @@
 import { and, desc, eq, isNull, notInArray, or, sql } from "drizzle-orm";
 
-import { conversation, memory, userSettings } from "../../../../core/server/db/schema";
-import type { BotSdkContext } from "../../../../core/server/plugin";
-import { assistantState } from "../state";
+import { conversation, memory } from "../../../core/server/db/schema";
+import type { BotSdkContext } from "../../../core/server/plugin";
+import { memoryEnabledFor } from "./manage";
 
 /** With this many valid Memories in scope or fewer, all are sent and nothing is embedded (ADR 0013). */
 const allCount = 30;
@@ -58,7 +58,7 @@ const recalledColumns = {
 
 /**
  * The Memories block of a Run's system prompts, or `null` when the Run recalls none (ADR 0013).
- * Off for a Temporary Conversation and when Memory is off for the Host or the user. With 30 or
+ * Off for a Temporary Conversation and when the user turned Memory off. With 30 or
  * fewer valid Memories in scope, all are sent. Past that, the 20 newest make the profile and the
  * 10 closest to `latestText` the rest, found with the user's embedding Model. When the embedding
  * fails, or there is none, the Run goes ahead with the profile only.
@@ -72,19 +72,15 @@ export async function recalledMemoriesPrompt(
     latestText,
   }: {
     userId: string;
-    /** The Conversation's Project; null for a general Conversation. */
+    /** The Run's Conversation's Project, which scopes the Memories; null for a general one. */
     projectId: string | null;
+    /** Whether the Run's Conversation is a Temporary Conversation, which recalls nothing. */
     temporary: boolean;
     /** The latest user Message's text, which the similar Memories are found by. */
     latestText: string | null;
   },
 ): Promise<string | null> {
-  if (!assistantState(deps).memory || temporary) return null;
-  const [settings] = await deps.db
-    .select({ memoryEnabled: userSettings.memoryEnabled })
-    .from(userSettings)
-    .where(eq(userSettings.userId, userId));
-  if (settings && !settings.memoryEnabled) return null;
+  if (temporary || !(await memoryEnabledFor(deps, userId))) return null;
 
   const scope = inScope(userId, projectId);
   const newest = await deps.db

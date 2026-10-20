@@ -2,30 +2,29 @@ import { chat, type ModelMessage } from "@tanstack/ai";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { isKnownModel, parseModelId } from "../../../models/shared/models";
-import type { ResolvedEmbeddingModel } from "../../../models/server/embedding-models";
-import { loadPath } from "../../../../core/server/chat/message-tree";
-import { promptCharactersOf, reportedUsageOf } from "../../../models/server/run-usage";
+import { isKnownModel, parseModelId } from "../../models/shared/models";
+import type { ResolvedEmbeddingModel } from "../../models/server/embedding-models";
+import { loadPath } from "../../../core/server/chat/message-tree";
+import { promptCharactersOf, reportedUsageOf } from "../../models/server/run-usage";
 import {
   conversation,
   type MessageRow,
   memory,
   userSettings,
-} from "../../../../core/server/db/schema";
-import type { BotSdkContext } from "../../../../core/server/plugin";
-import type { ModelCall } from "../../../models/server/credentials/resolve";
-import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { defineJob } from "../../../runner/server/jobs/define";
-import type { TurnChange } from "../../shared/memory/changes";
+} from "../../../core/server/db/schema";
+import type { BotSdkContext } from "../../../core/server/plugin";
+import type { ModelCall } from "../../models/server/credentials/resolve";
+import { uuidv7 } from "../../../core/server/lib/uuidv7";
+import { defineJob } from "../../runner/server/jobs/define";
+import type { TurnChange } from "../shared/changes";
 import { publishMemoryUpdated } from "./notice";
-import { reembedMemoriesJob } from "./manage";
+import { memoryEnabledFor, reembedMemoriesJob } from "./manage";
 import {
   factExtractionPrompt,
   forgetMatchPrompt,
   memoryDecisionMessage,
   memoryDecisionPrompt,
 } from "./prompt";
-import { assistantState } from "../state";
 
 /** The Messages of a Run the job reads: its reply and the Conversation it is in. */
 const makeMemoriesPayload = z.object({
@@ -79,7 +78,7 @@ type Decision = { event: "ADD" | "UPDATE" | "DELETE" | "NONE"; text: string; of?
 
 /**
  * Whether Memory may run for a Run in this Conversation, and the Models it would use (ADR 0013).
- * Off for a Temporary Conversation, when Memory is off for the Host or the user, and with no
+ * Off for a Temporary Conversation, when the user turned Memory off, and with no
  * Background Model (the user's, else the Host's: never the reply's Model) or no embedding
  * Model. `null` when it may not run.
  */
@@ -88,20 +87,16 @@ async function memoryPlanOf(
   userId: string,
   conversationId: string,
 ): Promise<MemoryPlan | null> {
-  if (!assistantState(deps).memory) return null;
   const [row] = await deps.db
     .select({ temporary: conversation.temporary, projectId: conversation.projectId })
     .from(conversation)
     .where(eq(conversation.id, conversationId));
   if (!row || row.temporary) return null;
+  if (!(await memoryEnabledFor(deps, userId))) return null;
   const [settings] = await deps.db
-    .select({
-      memoryEnabled: userSettings.memoryEnabled,
-      backgroundModel: userSettings.backgroundModel,
-    })
+    .select({ backgroundModel: userSettings.backgroundModel })
     .from(userSettings)
     .where(eq(userSettings.userId, userId));
-  if (settings && !settings.memoryEnabled) return null;
   const model = settings?.backgroundModel ?? deps.plugin("models").defaultBackgroundModel;
   if (!model || !isKnownModel(model)) return null;
   const call = await deps.plugin("models").resolveModelCall(userId, model);
@@ -430,10 +425,17 @@ async function extractMemories(
   };
 }
 
-/** One call on the Background Model, recorded against the Quota when it is on Host credentials (ADR 0007). */
-async function askBackground(
+/**
+ * One call on the Background Model, recorded against the Quota when it is on Host credentials (ADR
+ * 0007). A Bot's post-turn pass calls it on the Bot's Model.
+ */
+export async function askBackground(
   deps: BotSdkContext,
-  { plan, system, user }: { plan: MemoryPlan; system: string; user: string },
+  {
+    plan,
+    system,
+    user,
+  }: { plan: Pick<MemoryPlan, "model" | "call">; system: string; user: string },
 ): Promise<string> {
   const messages: ModelMessage[] = [{ role: "user", content: user }];
   const result = await chat({
@@ -455,7 +457,7 @@ async function askBackground(
 }
 
 /** Parses a Background Model reply as JSON and validates it with Zod, after stripping code fences. */
-function parseReply<T extends z.ZodType>(schema: T, reply: string): z.infer<T> {
+export function parseReply<T extends z.ZodType>(schema: T, reply: string): z.infer<T> {
   const json = reply.trim().replace(/^```(?:json)?\s*|\s*```$/g, "");
   return schema.parse(JSON.parse(json));
 }

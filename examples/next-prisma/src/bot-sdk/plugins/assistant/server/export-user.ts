@@ -12,10 +12,11 @@ import {
   knowledgeFile,
   savedPrompt,
   sharedLink,
-  memory,
   userSettings,
 } from "../../../core/server/db/schema";
-import type { Transaction } from "../../../core/server/plugin";
+import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
+import type { ExportedBotMemory } from "../../memory/server/bot-memory";
+import type { ExportedMemory } from "../../memory/server/plugin";
 import { assistantConversation, withModel } from "./chat/kind";
 import { liveConversation } from "./chat/temporary";
 import type { ArtifactKind } from "../shared/chat/artifact";
@@ -35,7 +36,7 @@ export type UserExport = BotExport & {
     backgroundModel: string | null;
     imageModel: string | null;
     instructions: string | null;
-    /** Whether the assistant uses and makes Memories for the user (ADR 0013). */
+    /** The user's Memory switch (ADR 0013), kept by the `memory` plugin; `true` without it. */
     memoryEnabled: boolean;
   };
   projects: {
@@ -78,18 +79,16 @@ export type UserExport = BotExport & {
       generatedImages: { id: string; model: string; prompt: string | null }[];
     }[];
   }[];
-  /** Every Memory the user has, valid and outdated: the source Conversation and what replaced it. */
-  memories: {
-    id: string;
-    text: string;
-    origin: "extracted" | "said";
-    conversationId: string;
-    replacedById: string | null;
-    /** When the Memory was outdated; null while it is valid. */
-    invalidAt: Date | null;
-    createdAt: Date;
-    updatedAt: Date;
-  }[];
+  /**
+   * Every Memory the user has, valid and outdated: the source Conversation and what replaced it.
+   * Empty without the `memory` plugin.
+   */
+  memories: ExportedMemory[];
+  /**
+   * Each Bot's memory files, as the user's Computer holds them (ADR 0022). Empty without the
+   * `memory` and `computer` plugins, or with no Computer. Kept by the `memory` plugin.
+   */
+  botMemory: ExportedBotMemory[];
   /** The user's Shared links: the token, the Conversation it shares and when it was shared. */
   sharedLinks: { token: string; conversationId: string; createdAt: Date }[];
   /** The user's Saved prompts, by name. */
@@ -112,14 +111,19 @@ export type UserExport = BotExport & {
   }[];
 };
 
-/** The assistant's part of the export: every key but the core's `version` and `exportedAt`, and the `bot` plugin's. */
-export type AssistantExport = Omit<UserExport, "version" | "exportedAt" | keyof BotExport>;
+/** The assistant's part of the export: every key but the core's `version`, `exportedAt`, and the `bot` and `memory` plugins'. */
+export type AssistantExport = Omit<
+  UserExport,
+  "version" | "exportedAt" | keyof BotExport | "botMemory"
+>;
 
 /**
  * The assistant's part of `sdk.exportUser`, read in the export's snapshot `tx` and built in memory.
- * An unknown user id gives empty lists and the default settings.
+ * An unknown user id gives empty lists and the default settings. The Memories and the Memory
+ * switch are the `memory` plugin's rows, when the Host installs it.
  */
 export async function exportAssistantData(
+  sdk: Pick<BotSdkContext, "plugin" | "hasPlugin">,
   tx: Transaction,
   userId: string,
 ): Promise<AssistantExport> {
@@ -128,7 +132,6 @@ export async function exportAssistantData(
       backgroundModel: userSettings.backgroundModel,
       imageModel: userSettings.imageModel,
       instructions: userSettings.instructions,
-      memoryEnabled: userSettings.memoryEnabled,
     })
     .from(userSettings)
     .where(eq(userSettings.userId, userId));
@@ -213,20 +216,9 @@ export async function exportAssistantData(
       ),
     ),
   );
-  const memories = await tx
-    .select({
-      id: memory.id,
-      text: memory.text,
-      origin: memory.origin,
-      conversationId: memory.conversationId,
-      replacedById: memory.replacedById,
-      invalidAt: memory.invalidAt,
-      createdAt: memory.createdAt,
-      updatedAt: memory.updatedAt,
-    })
-    .from(memory)
-    .where(eq(memory.userId, userId))
-    .orderBy(asc(memory.createdAt), asc(memory.id));
+  const memoryRows = sdk.hasPlugin("memory")
+    ? await sdk.plugin("memory").exportRows(tx, userId)
+    : { enabled: true, memories: [] };
 
   const savedPrompts = await tx
     .select({
@@ -293,7 +285,7 @@ export async function exportAssistantData(
       backgroundModel: settings?.backgroundModel ?? null,
       imageModel: settings?.imageModel ?? null,
       instructions: settings?.instructions ?? null,
-      memoryEnabled: settings?.memoryEnabled ?? true,
+      memoryEnabled: memoryRows.enabled,
     },
     projects,
     conversations: conversations.map((conv) => ({
@@ -330,7 +322,7 @@ export async function exportAssistantData(
         })),
       })),
     })),
-    memories,
+    memories: memoryRows.memories,
     sharedLinks: links,
     savedPrompts,
     knowledgeFiles,
