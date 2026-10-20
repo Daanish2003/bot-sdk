@@ -173,4 +173,20 @@ describe("BotMemoryLive", () => {
     unmount();
     expect(FakeEventSource.all[0]!.closed).toBe(true);
   });
+
+  it("listens on the core's events URL in a Host without the assistant", async () => {
+    FakeEventSource.all = [];
+    vi.stubGlobal("EventSource", FakeEventSource);
+    render(
+      providerFor(createElement(BotMemoryLive, { botId: "b2" }), {
+        messages: {},
+        plugins: [modelsClient(), memoryClient(), botClient()],
+        fetch: recordingFetch().fetch,
+        seed: (queryClient, client) => seedGet(queryClient, client, [turn("t1", 0, null)]),
+      }),
+    );
+
+    await waitFor(() => expect(FakeEventSource.all).toHaveLength(1));
+    expect(FakeEventSource.all[0]!.url).toBe("http://localhost/api/chat/events?conversationId=c1");
+  });
 });
