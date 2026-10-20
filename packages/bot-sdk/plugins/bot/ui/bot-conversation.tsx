@@ -29,12 +29,19 @@ import { TodoPopover } from "./todo-popover";
  * never collapsed. The header lists the Routines, to pause, resume or delete them, and the To-do
  * list of live Helpers, to stop them.
  */
-export function BotConversation({ botId }: { botId: string }) {
+export function BotConversation({
+  botId,
+  headerEnd,
+}: {
+  botId: string;
+  /** Header buttons the Host adds after the Bot's own, such as the `memory` plugin's Memory popover. */
+  headerEnd?: ReactNode;
+}) {
   // One instance per Bot, so a Turn's state never shows on another Bot.
-  return <BotConversationView key={botId} botId={botId} />;
+  return <BotConversationView key={botId} botId={botId} headerEnd={headerEnd} />;
 }
 
-function BotConversationView({ botId }: { botId: string }) {
+function BotConversationView({ botId, headerEnd }: { botId: string; headerEnd?: ReactNode }) {
   const i18n = useI18n();
   const { t } = i18n;
   const [draft, setDraft] = useState("");
@@ -171,6 +178,7 @@ function BotConversationView({ botId }: { botId: string }) {
           {todo.length > 0 && (
             <TodoPopover helpers={todo} onStop={onStopHelper} acting={actingHelpers} />
           )}
+          {headerEnd}
         </div>
       </header>
       <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-4">

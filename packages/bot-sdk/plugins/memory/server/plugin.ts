@@ -2,14 +2,16 @@ import { asc, eq } from "drizzle-orm";
 
 import { memory as memoryTable, memorySettings } from "../../../core/server/db/schema";
 import type { BotSdkContext, BotSdkPlugin, Transaction } from "../../../core/server/plugin";
+import type { ComputerHandle } from "../../computer/server/plugin";
 import type { TurnChange } from "../shared/changes";
-import { botMemorySnapshot, type BotSnapshotArgs } from "./bot-memory";
+import { botMemorySnapshot, botsOf, exportBotMemory, type BotSnapshotArgs } from "./bot-memory";
 import { enqueueBotMemoryPass } from "./bot-pass";
 import { enqueueMemories, type MakeMemoriesPayload } from "./make";
 import { memoryEnabledFor } from "./manage";
 import { turnChangesOf } from "./notice";
 import { recalledMemoriesPrompt } from "./recall";
 import { memoryRouter } from "./routers/index";
+import { type MemoryHit, searchBotMemory } from "./search";
 
 /** One Memory as the user's export holds it, valid or outdated. */
 export type ExportedMemory = {
@@ -60,6 +62,18 @@ export type MemoryApi = {
    * runner's `wake()` once `tx` has committed.
    */
   afterTurn: (tx: Transaction, turnId: string) => Promise<void>;
+  /**
+   * Searches Bot `botId`'s memory for `query` as of `now` (ADR 0022): its own files and every
+   * Bot's Profile, ranked by BM25 x importance x decay, the top 10. A Computer failure throws.
+   */
+  searchBotMemory: (args: {
+    userId: string;
+    botId: string;
+    query: string;
+    now: Date;
+    computer: ComputerHandle;
+    signal?: AbortSignal;
+  }) => Promise<MemoryHit[]>;
   /** The user's switch and every Memory, valid and outdated, read in the export's snapshot `tx`. */
   exportRows: (
     tx: Transaction,
@@ -93,6 +107,9 @@ export function memory(): MemoryPlugin {
       },
       after: async () => {},
     },
+    exportUser: async (sdk, userId, tx) => ({
+      botMemory: await exportBotMemory(sdk, tx, userId),
+    }),
   };
 }
 
@@ -104,6 +121,8 @@ function memoryApi(sdk: BotSdkContext): MemoryApi {
     turnChanges: (userMessageIds) => turnChangesOf(sdk, userMessageIds),
     botSnapshot: (args) => botMemorySnapshot(sdk, args),
     afterTurn: (tx, turnId) => enqueueBotMemoryPass(sdk, tx, turnId),
+    searchBotMemory: async ({ userId, botId, query, now, computer, signal }) =>
+      searchBotMemory(computer, { botId, bots: await botsOf(sdk, userId), query, now, signal }),
     exportRows: async (tx, userId) => ({
       enabled: await memoryEnabledFor({ db: tx }, userId),
       memories: await tx

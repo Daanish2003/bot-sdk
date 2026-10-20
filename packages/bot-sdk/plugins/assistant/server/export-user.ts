@@ -15,6 +15,7 @@ import {
   userSettings,
 } from "../../../core/server/db/schema";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
+import type { ExportedBotMemory } from "../../memory/server/bot-memory";
 import type { ExportedMemory } from "../../memory/server/plugin";
 import { assistantConversation, withModel } from "./chat/kind";
 import { liveConversation } from "./chat/temporary";
@@ -83,6 +84,11 @@ export type UserExport = BotExport & {
    * Empty without the `memory` plugin.
    */
   memories: ExportedMemory[];
+  /**
+   * Each Bot's memory files, as the user's Computer holds them (ADR 0022). Empty without the
+   * `memory` and `computer` plugins, or with no Computer. Kept by the `memory` plugin.
+   */
+  botMemory: ExportedBotMemory[];
   /** The user's Shared links: the token, the Conversation it shares and when it was shared. */
   sharedLinks: { token: string; conversationId: string; createdAt: Date }[];
   /** The user's Saved prompts, by name. */
@@ -105,8 +111,11 @@ export type UserExport = BotExport & {
   }[];
 };
 
-/** The assistant's part of the export: every key but the core's `version` and `exportedAt`, and the `bot` plugin's. */
-export type AssistantExport = Omit<UserExport, "version" | "exportedAt" | keyof BotExport>;
+/** The assistant's part of the export: every key but the core's `version`, `exportedAt`, and the `bot` and `memory` plugins'. */
+export type AssistantExport = Omit<
+  UserExport,
+  "version" | "exportedAt" | keyof BotExport | "botMemory"
+>;
 
 /**
  * The assistant's part of `sdk.exportUser`, read in the export's snapshot `tx` and built in memory.

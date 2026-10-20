@@ -221,12 +221,13 @@ describe("the shell tool", () => {
   });
 
   it("names the Bot's directory and the shared one in the system prompt", async () => {
-    const { client, botId, fake } = await botWith([round()]);
+    const { client, botId, fake } = await botWith([round()], { withMemory: true });
 
     await send(client, botId, "hi");
 
     expect(toolNamesOf(fake.calls[0])).toEqual([
       ...botTools,
+      "search_memory",
       "shell",
       "read",
       "write",
@@ -912,12 +913,15 @@ describe("the file tools", () => {
   });
 
   it("offers all five tools, and wakes the Computer on a file operation", async () => {
-    const { client, botId, fake, user } = await botWith([round(file("list", {})), round()]);
+    const { client, botId, fake, user } = await botWith([round(file("list", {})), round()], {
+      withMemory: true,
+    });
 
     await send(client, botId, "go");
 
     expect(toolNamesOf(fake.calls[0])).toEqual([
       ...botTools,
+      "search_memory",
       "shell",
       "read",
       "write",

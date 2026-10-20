@@ -1,7 +1,7 @@
 import { asc, eq } from "drizzle-orm";
 
-import { bot } from "../../../core/server/db/schema";
-import type { BotSdkContext } from "../../../core/server/plugin";
+import { bot, computer as computerTable } from "../../../core/server/db/schema";
+import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import type { ComputerHandle, FileOperationOptions } from "../../computer/server/plugin";
 import { memoryEnabledFor } from "./manage";
 
@@ -50,15 +50,13 @@ export type MemoryLine = { line: number; text: string };
 /** A Profile line: a fact with no date. */
 export type ProfileLine = MemoryLine & { fact: string };
 
-/**
- * A Log line: its date (`YYYY-MM-DD`), its importance from 1 to 10, the event, and the month
- * (`YYYY-MM`) of the file it is in.
- */
+/** A Log line: its date (`YYYY-MM-DD`), its importance from 1 to 10, and the event. */
 export type LogLine = MemoryLine & {
+  /** The monthly file (`YYYY-MM`) the line is in. */
+  month: string;
   date: string;
   importance: number;
   event: string;
-  month: string;
 };
 
 /** A Notes line: its date and the detail. */
@@ -97,8 +95,13 @@ export function parseLog(content: string, month: string): LogLine[] {
     const rest = dated ? entry.text.slice(dated[0].length) : entry.text;
     const tagged = importancePattern.exec(rest);
     const importance = tagged ? clampImportance(Number(tagged[1])) : defaultImportance;
-    const event = tagged ? rest.slice(tagged[0].length) : rest;
-    return { ...entry, date, importance, event, month };
+    return {
+      ...entry,
+      month,
+      date,
+      importance,
+      event: tagged ? rest.slice(tagged[0].length) : rest,
+    };
   });
 }
 
@@ -157,7 +160,7 @@ export type MemoryBot = { id: string; name: string };
 
 /** The user's Bots, oldest first. */
 export async function botsOf(
-  deps: Pick<BotSdkContext, "db">,
+  deps: { db: Pick<Transaction, "select"> },
   userId: string,
 ): Promise<MemoryBot[]> {
   return deps.db
@@ -177,10 +180,64 @@ export async function readText(
   return bytes ? new TextDecoder().decode(bytes) : "";
 }
 
+/** A Log file's name, `YYYY-MM.md`, by its month. */
+const logFilePattern = /^(\d{4}-\d{2})\.md$/;
+
+/** One Bot's memory files as the user's export holds them: the text, as written. */
+export type ExportedBotMemory = {
+  botId: string;
+  /** `profile.md`'s text, "" when the Bot has none. */
+  profile: string;
+  /** `notes.md`'s text, "" when the Bot has none. */
+  notes: string;
+  /** Each Log file, by its month, oldest first. */
+  log: { month: string; text: string }[];
+};
+
+/**
+ * Every Bot's memory files of user `userId` (ADR 0022), read from the user's Computer for the
+ * export, in the export's snapshot `tx`. It wakes the Computer. A user with no Computer row has
+ * no files, so none is woken or created, and an instance without the `computer` plugin has none.
+ */
+export async function exportBotMemory(
+  sdk: BotSdkContext,
+  tx: Transaction,
+  userId: string,
+): Promise<ExportedBotMemory[]> {
+  if (!sdk.hasPlugin("computer")) return [];
+  const [row] = await tx
+    .select({ userId: computerTable.userId })
+    .from(computerTable)
+    .where(eq(computerTable.userId, userId));
+  if (!row) return [];
+  const computer = sdk.plugin("computer").forUser(userId);
+  const exported: ExportedBotMemory[] = [];
+  for (const { id: botId } of await botsOf({ db: tx }, userId)) {
+    const entries = (await computer.list(`${memoryDirectory(botId)}/log`)) ?? [];
+    const months = entries
+      .filter((entry) => entry.kind === "file")
+      .map((entry) => logFilePattern.exec(entry.name)?.[1])
+      .filter((month): month is string => month !== undefined)
+      .sort();
+    exported.push({
+      botId,
+      profile: await readText(computer, profilePath(botId)),
+      notes: await readText(computer, notesPath(botId)),
+      log: await Promise.all(
+        months.map(async (month) => ({
+          month,
+          text: await readText(computer, logPath(botId, month)),
+        })),
+      ),
+    });
+  }
+  return exported;
+}
+
 /** What a Turn's snapshot holds, before it is written out. */
 export type BotMemorySnapshot = {
   /** The Profile facts, own first, then the other Bots' labelled with their name. */
-  profile: { botId: string; botName: string | null; fact: string }[];
+  profile: { botId: string; botName: string | null; fact: string; line: number }[];
   /** The Log lines in the prompt, newest first. */
   log: LogLine[];
   /** The Notes in the prompt, in file order. */
@@ -225,7 +282,7 @@ export async function readBotMemory(
     })),
   ];
   fill: for (const source of sources) {
-    for (const { fact } of parseProfile(source.content)) {
+    for (const { fact, line } of parseProfile(source.content)) {
       if (seen.has(fact)) continue;
       const length = profileFactText(source.botName, fact).length;
       if (profile.length >= profileFactLimit || characters + length > profileCharacterLimit) {
@@ -233,7 +290,7 @@ export async function readBotMemory(
       }
       seen.add(fact);
       characters += length;
-      profile.push({ botId: source.botId, botName: source.botName, fact });
+      profile.push({ botId: source.botId, botName: source.botName, fact, line });
     }
   }
 
@@ -280,6 +337,7 @@ function memoryRules(botId: string): string {
       `${profileCharacterLimit.toLocaleString("en-US")} characters, your ${logLineLimit} most ` +
       `relevant Log lines from the last ${logMonths} months, and your Notes from the last ` +
       `${noteDays} days. Older lines stay in the files.`,
+    "- Find older or other memory with search_memory: it returns the best matching lines with file and date.",
   ].join("\n");
 }
 
