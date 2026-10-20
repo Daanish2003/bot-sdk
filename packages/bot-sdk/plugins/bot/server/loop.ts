@@ -23,6 +23,7 @@ import {
 import { type WorkflowContext, WorkflowYieldedError } from "../../runner/server/workflow/engine";
 import {
   capOutput,
+  capResult,
   computerOf,
   computerOperationError,
   computerUnavailableError,
@@ -52,7 +53,8 @@ import { computerRebuildSeenAt, markComputerRebuildSeen } from "./store";
 export type LoopKit = {
   /**
    * A database write of the loop's, as tool call `toolCallId` when it is one: it commits with its
-   * Checkpoint, so it happens once across a crash, and runs only live, like a tool's activity.
+   * Checkpoint, so it happens once across a crash, and runs only live, like a tool's activity. A
+   * result over the long-output limit is recorded, and returned, as its cut text (`capResult`).
    */
   liveActivity: <T>(
     name: string,
@@ -63,25 +65,29 @@ export type LoopKit = {
    * A live call outside the database, as tool call `toolCallId`, then a write with its result: `run`
    * is one activity with no transaction, re-run after a crash before its Checkpoint is saved, and
    * `write` is a second activity whose writes commit with its own Checkpoint, so they happen once.
-   * Both run only live; a replay returns `run`'s recorded result.
+   * Both run only live; a replay returns `run`'s recorded result. A result over the long-output
+   * limit is recorded, and returned, as its cut text (`capResult`).
    */
   liveRequest: <T>(
     name: string,
     toolCallId: string | undefined,
     run: () => Promise<T>,
-    write: (tx: Transaction, result: T) => Promise<void>,
-  ) => Promise<T>;
+    write: (tx: Transaction, result: T | string) => Promise<void>,
+  ) => Promise<T | string>;
   /** The Computer's tools: Shell, then the file tools Read, Write, Edit and List. */
   computerTools: AnyServerTool[];
   /**
    * A Computer tool call of the loop's, as tool call `toolCallId`: one activity, re-run after a
    * crash, that `operate`s live on the Computer. A failed wake or operation is its result, and
-   * after a rebuild the Bot wasn't told of, the result carries the rebuilt note.
+   * after a rebuild the Bot wasn't told of, the result carries the rebuilt note. A result over the
+   * long-output limit is recorded as its cut text (`capResult`), unless `capped` is false: for a
+   * tool that keeps its own result short, such as `read`'s pages.
    */
   computerCall: <T extends object>(
     name: string,
     toolCallId: string | undefined,
     operate: (computer: ComputerHandle, live: FileToolOptions) => Promise<T>,
+    capped?: boolean,
   ) => Promise<T | { error: string }>;
 };
 
@@ -329,18 +335,33 @@ export async function runLoop(
     if (attempt && (expired || timeLeftMs() <= 0)) timeUp();
     abortController.signal.throwIfAborted();
   };
+  let userComputer: ComputerHandle | undefined;
+  /**
+   * A tool result as the Model reads it: over the limit, it is its cut text (typed as the result,
+   * since only a long one changes shape), with the rest saved on the Computer when there is one.
+   */
+  const capLong = async <T>(result: T, toolCallId: string | undefined): Promise<T> => {
+    const computer = deps.hasPlugin("computer")
+      ? (userComputer ??= computerOf(deps, owner.userId))
+      : undefined;
+    return (await capResult(
+      result,
+      spillPath(owner.botId, toolCallId ?? uuidv7()),
+      computer && ((path, content) => computer.writeFile(path, content)),
+    )) as T;
+  };
   const liveActivity: LoopKit["liveActivity"] = (name, toolCallId, write) =>
     toolCall(toolCallId, () =>
       ctx.activity(name, async (tx) => {
         beforeLiveTool();
-        return write(tx);
+        return await capLong(await write(tx), toolCallId);
       }),
     );
   const liveRequest: LoopKit["liveRequest"] = (name, toolCallId, run, write) =>
     toolCall(toolCallId, async () => {
       const result = await ctx.activity(name, async () => {
         beforeLiveTool();
-        return run();
+        return capLong(await run(), toolCallId);
       });
       // Not past a limit or a Stop: what `run` did is written, whenever it ran.
       await ctx.activity(`${name}:write`, async (tx) => {
@@ -350,7 +371,6 @@ export async function runLoop(
       return result;
     });
 
-  let userComputer: ComputerHandle | undefined;
   // The latest rebuild of the Computer the Bot was told of, read on its first Computer call
   // (undefined until then), and the one the latest result tells, recorded once it is saved.
   let rebuildSeenAt: Date | null | undefined;
@@ -452,12 +472,15 @@ export async function runLoop(
       return recordTold(result);
     }),
   );
-  const computerCall: LoopKit["computerCall"] = (name, toolCallId, operate) =>
+  const computerCall: LoopKit["computerCall"] = (name, toolCallId, operate, cap = true) =>
     toolCall(toolCallId, async () =>
       recordTold(
         await ctx.activity(name, async () => {
           beforeLiveTool();
-          return onLiveComputer(operate);
+          const result = await onLiveComputer(operate);
+          // Cut inside the activity, so the Checkpoint holds only the cut form. A rebuilt note
+          // is the result's last field, so it stays in the cut text's end.
+          return cap ? await capLong(result, toolCallId) : result;
         }),
       ),
     );
@@ -471,14 +494,18 @@ export async function runLoop(
         input: Input,
         options: FileToolOptions,
       ) => Promise<Output>,
+      cap = true,
     ) =>
     (input: Input, context?: { toolCallId?: string }) =>
-      computerCall(name, context?.toolCallId, (computer, live) =>
-        run(computer, owner.botId, input, live),
+      computerCall(
+        name,
+        context?.toolCallId,
+        (computer, live) => run(computer, owner.botId, input, live),
+        cap,
       );
   const computerTools = [
     shell,
-    readDefinition.server(fileTool("read", readTool)),
+    readDefinition.server(fileTool("read", readTool, false)),
     writeDefinition.server(fileTool("write", writeTool)),
     editDefinition.server(fileTool("edit", editTool)),
     listDefinition.server(fileTool("list", listTool)),

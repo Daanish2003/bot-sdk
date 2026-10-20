@@ -798,10 +798,10 @@ describe("the file tools", () => {
     const { client, botId, fake, computerFake } = await botWith([
       round(file("read", { path: "/tmp/wide.log" })),
       round(),
-      round(file("read", { path: "/tmp/wide.log", offset: 2401 })),
+      round(file("read", { path: "/tmp/wide.log", offset: 2495 })),
       round(),
     ]);
-    // 2,500 lines of 1,500 characters: a default page is 3 MB, more than one fetch can carry.
+    // 2,500 lines of 1,500 characters: a default page would be 3 MB, but a read returns at most 10,000 characters.
     const line = (n: number) => `${String(n).padStart(4, "0")}${"x".repeat(1496)}`;
     const lines = Array.from({ length: 2500 }, (_, index) => line(index + 1));
     computerFake.files.set("/tmp/wide.log", new TextEncoder().encode(`${lines.join("\n")}\n`));
@@ -821,6 +821,27 @@ describe("the file tools", () => {
     expect(last.content.split("\n").at(-1)).toBe(`2500\t${line(2500)}`);
     expect(last).not.toHaveProperty("nextOffset");
     expect(last).not.toHaveProperty("hint");
+  });
+
+  it("pages at 10,000 characters, with a nextOffset that continues exactly where the page stopped", async () => {
+    const { client, botId, fake, computerFake } = await botWith([
+      round(file("read", { path: "/tmp/pages.log" })),
+      round(file("read", { path: "/tmp/pages.log", offset: 10 })),
+      round(),
+    ]);
+    // 40 lines of 1,000 characters: nine numbered lines fit in a page, ten do not.
+    const line = (n: number) => `${String(n).padStart(4, "0")}${"y".repeat(996)}`;
+    const lines = Array.from({ length: 40 }, (_, index) => line(index + 1));
+    computerFake.files.set("/tmp/pages.log", new TextEncoder().encode(`${lines.join("\n")}\n`));
+
+    await send(client, botId, "read it");
+
+    const [first, second] = toolResultsOf(fake.calls[2]);
+    expect(first.content.length).toBeLessThanOrEqual(10_000);
+    expect(first.nextOffset).toBe(first.content.split("\n").length + 1);
+    expect(first.nextOffset).toBe(10);
+    expect(first.hint).toContain("Read on with offset 10");
+    expect(second.content.split("\n")[0]).toBe(`10\t${line(10)}`);
   });
 
   it("reads a file with a huge line, cut, without fetching the whole line", async () => {
@@ -977,6 +998,47 @@ describe("a long shell output", () => {
 
     expect(toolResultOf(fake.calls[1]).stdout).toHaveLength(10_000);
     expect(computerFake.files.size).toBe(0);
+  });
+});
+
+describe("a long list result", () => {
+  it("is cut to its ends, and the full listing is saved under .outputs/", async () => {
+    const { client, botId, fake, computerFake } = await botWith([
+      round(file("list", { path: "/tmp/many" })),
+      round(),
+    ]);
+    for (let n = 0; n < 400; n++) {
+      computerFake.files.set(
+        `/tmp/many/file-${String(n).padStart(4, "0")}-notes.txt`,
+        new Uint8Array(3),
+      );
+    }
+
+    await send(client, botId, "list it");
+
+    const text = String(inputOf(fake.calls[1]).findLast((entry) => entry.role === "tool")?.content);
+    const path = [...computerFake.files.keys()].find((name) => name.includes("/.outputs/"));
+    expect(path?.startsWith(`/home/user/bots/${botId}/.outputs/`)).toBe(true);
+    const saved = JSON.parse(new TextDecoder().decode(computerFake.files.get(path!)));
+    expect(saved.entries).toHaveLength(400);
+    expect(text).toContain(`The full text is saved at ${path}.`);
+    expect(text).toMatch(/[... d+ characters left out ...]/);
+    expect(text.length).toBeLessThan(4300);
+    expect(text).toContain("file-0000-notes.txt");
+    expect(text).not.toContain("file-0200-notes.txt");
+  });
+
+  it("leaves a result at the limit whole", async () => {
+    const { client, botId, fake, computerFake } = await botWith([
+      round(file("list", { path: "/tmp/few" })),
+      round(),
+    ]);
+    computerFake.files.set("/tmp/few/a.txt", new Uint8Array(3));
+
+    await send(client, botId, "list it");
+
+    expect(toolResultOf(fake.calls[1]).entries).toHaveLength(1);
+    expect([...computerFake.files.keys()].some((name) => name.includes(".outputs"))).toBe(false);
   });
 });
 

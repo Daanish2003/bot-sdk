@@ -24,7 +24,7 @@ import {
   waitingIn,
 } from "./router";
 import { cancelCheckInTool, pendingCheckIns, saveCheckIn } from "./check-in";
-import { computerOf, computerPrompt } from "./computer-tools";
+import { capText, computerOf, computerPrompt, spillPath, spillThreshold } from "./computer-tools";
 import { type TodoItem, todoList } from "./helper";
 import { helperTools } from "./helper-tools";
 import { type LoopKit, type LoopResult, type LoopSetup, runLoop } from "./loop";
@@ -759,12 +759,14 @@ const earlierTriggerTextLimit = 2_048;
  * The Turn's newest input opens with the current time in the newest user Message's zone. A Trigger
  * an earlier Turn took replays only its first `earlierTriggerTextLimit` characters. The Bot's sent
  * Messages are not replayed as text: the transcripts hold them as SendToUser calls. Only what came
- * before the Turn counts, so every attempt reads the same input.
+ * before the Turn counts, so every attempt reads the same input. The Turn's own Trigger text goes
+ * through `cutTrigger`, which cuts a long one (#668).
  */
 async function modelInput(
   db: Database | Transaction,
   turn: TurnFacts,
   todo: TodoItem[] | null,
+  cutTrigger: (id: string, text: string) => Promise<string>,
 ): Promise<ModelMessage[]> {
   const [users, woken, turns] = await Promise.all([
     db
@@ -782,6 +784,7 @@ async function modelInput(
     // one: never one taken later, so every attempt reads the same input.
     db
       .select({
+        id: botTrigger.id,
         text: botTrigger.text,
         receivedAt: botTrigger.receivedAt,
         turnId: botTrigger.turnId,
@@ -803,16 +806,25 @@ async function modelInput(
       .where(and(eq(botTurn.botId, turn.botId), lt(botTurn.startedAt, turn.startedAt)))
       .orderBy(asc(botTurn.startedAt), asc(botTurn.id)),
   ]);
+  // One at a time: each long one is an activity, in a stable order.
+  const cutWoken = async (rows: typeof woken) => {
+    const cut: { at: number; content: string }[] = [];
+    for (const row of rows) {
+      const text = row.text!;
+      const content =
+        row.turnId === turn.id
+          ? await cutTrigger(row.id, text)
+          : text.length <= earlierTriggerTextLimit
+            ? text
+            : `${text.slice(0, earlierTriggerTextLimit)}\n[truncated]`;
+      cut.push({ at: row.receivedAt.getTime(), content });
+    }
+    return cut;
+  };
   const inputs = [
     ...users.map((row) => ({ at: row.createdAt.getTime(), content: searchTextOf(row.parts) })),
     // One input turn each, never a user Message: its text opens with a notice of what woke the Bot.
-    ...woken.map((row) => ({
-      at: row.receivedAt.getTime(),
-      content:
-        row.turnId === turn.id || row.text!.length <= earlierTriggerTextLimit
-          ? row.text!
-          : `${row.text!.slice(0, earlierTriggerTextLimit)}\n[truncated]`,
-    })),
+    ...(await cutWoken(woken)),
   ];
   // The newest input opens with the time, as of the Turn's start so every attempt reads the same,
   // then the to-do list as the Turn's start Checkpoint recorded it.
@@ -860,7 +872,24 @@ async function playTurn(
     todo,
   }: { attempt?: AbortSignal; db?: Database | Transaction; todo: TodoItem[] | null },
 ): Promise<LoopResult> {
-  const input = await modelInput(db, turn, todo);
+  // A long Trigger of this Turn is cut once, in an activity: the full text goes to the Computer,
+  // and a replay reads the recorded cut text without waking it.
+  const cutTrigger = (id: string, text: string) =>
+    text.length <= spillThreshold
+      ? Promise.resolve(text)
+      : ctx.activity(
+          "trigger_text",
+          async () => {
+            const computer = deps.hasPlugin("computer") ? computerOf(deps, turn.userId) : undefined;
+            return capText(
+              text,
+              spillPath(turn.botId, id),
+              computer && ((path, content) => computer.writeFile(path, content)),
+            );
+          },
+          { yields: false },
+        );
+  const input = await modelInput(db, turn, todo, cutTrigger);
   return runLoop(deps, ctx, {
     owner: turn,
     usageKind: "turn",

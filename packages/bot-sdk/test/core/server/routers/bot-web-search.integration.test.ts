@@ -36,7 +36,7 @@ afterEach(async () => {
  * A Tavily that answers every search with one result, and keeps the requests it got. `onSearch`
  * runs while a search is in flight.
  */
-function fakeTavily(onSearch?: () => Promise<void>) {
+function fakeTavily(onSearch?: () => Promise<void>, content = "31 degrees") {
   const requests: { authorization: string | null; query: string }[] = [];
   const fetch: typeof globalThis.fetch = async (_input, init) => {
     requests.push({
@@ -45,7 +45,7 @@ function fakeTavily(onSearch?: () => Promise<void>) {
     });
     await onSearch?.();
     return Response.json({
-      results: [{ title: "Delhi weather", url: "https://wx.example/delhi", content: "31 degrees" }],
+      results: [{ title: "Delhi weather", url: "https://wx.example/delhi", content }],
     });
   };
   return { fetch, requests };
@@ -86,6 +86,7 @@ async function botWith(
     withComputer = false,
     helperRounds = [],
     onSearch,
+    snippet,
     ...overrides
   }: {
     own?: boolean;
@@ -93,9 +94,12 @@ async function botWith(
     withComputer?: boolean;
     helperRounds?: Rounds;
     onSearch?: () => Promise<void>;
+    /** What the one result says (a short one by default). */
+    snippet?: string;
   } & Pick<TestDepsOverrides, "getQuota" | "hooks"> = {},
 ) {
-  const tavily = fakeTavily(onSearch);
+  const tavily = fakeTavily(onSearch, snippet);
+  const computerFake = fakeComputerProvider({});
   const turnFake = createFakeAdapter({ rounds });
   const helperFake = createFakeAdapter({ rounds: helperRounds });
   const adapter = {
@@ -108,9 +112,7 @@ async function botWith(
   let deps: TestDeps | undefined;
   const jobs = inProcessRunner({ db: getTestDb(), logger: silent, drainMs: 50, deps: () => deps! });
   deps = createTestSdk({
-    plugins: withComputer
-      ? [bot(), computer({ provider: fakeComputerProvider({}).provider })]
-      : [bot()],
+    plugins: withComputer ? [bot(), computer({ provider: computerFake.provider })] : [bot()],
     jobs,
     adapterFor: () => adapter,
     fetch: tavily.fetch,
@@ -145,7 +147,7 @@ async function botWith(
   }
   const client = chatRpc({ user, deps });
   const created = await client.bot.create({ name: "Ada", model: host ? hostModel : model });
-  return { turnFake, helperFake, tavily, client, user, botId: created.id, jobs };
+  return { turnFake, helperFake, computerFake, tavily, client, user, botId: created.id, jobs };
 }
 
 async function send(client: ReturnType<typeof chatRpc>, botId: string, message: string) {
@@ -159,6 +161,49 @@ const usageOf = (userId: string) =>
   getTestDb().select().from(usage).where(eq(usage.userId, userId)).orderBy(asc(usage.createdAt));
 
 const done = sends({ text: "ok", endTurn: true });
+
+/** The raw text of the last tool result the Model got: a cut one is not JSON. */
+const lastToolText = (call: TextOptions | undefined) =>
+  String(inputOf(call).findLast((entry) => entry.role === "tool")?.content);
+
+describe("a long web search result", () => {
+  const snippet = `${"a".repeat(6000)}${"b".repeat(6000)}`;
+
+  it("is cut to its ends, saved in full on the Computer, and still billed", async () => {
+    const { client, botId, turnFake, computerFake, user } = await botWith(
+      [round(search("history")), round(done)],
+      { host: true, withComputer: true, snippet },
+    );
+
+    await send(client, botId, "history?");
+
+    const text = lastToolText(turnFake.calls[1]);
+    const [path] = [...computerFake.files.keys()];
+    expect(path?.startsWith(`/home/user/bots/${botId}/.outputs/`)).toBe(true);
+    expect(path?.endsWith(".txt")).toBe(true);
+    expect(new TextDecoder().decode(computerFake.files.get(path!))).toContain(snippet);
+    expect(text).toContain(`The full text is saved at ${path}.`);
+    expect(text).toMatch(/[... d+ characters left out ...]/);
+    expect(text).not.toContain("a".repeat(2001));
+    expect(text.length).toBeLessThan(4300);
+    const rows = (await usageOf(user.id)).filter((row) => row.kind === "web_search");
+    expect(rows).toHaveLength(1);
+  });
+
+  it("is cut with no file when the Bot has no Computer", async () => {
+    const { client, botId, turnFake } = await botWith([round(search("history")), round(done)], {
+      own: true,
+      snippet,
+    });
+
+    await send(client, botId, "history?");
+
+    const text = lastToolText(turnFake.calls[1]);
+    expect(text).toContain("The rest was not saved.");
+    expect(text).toMatch(/[... d+ characters left out ...]/);
+    expect(text.length).toBeLessThan(4300);
+  });
+});
 
 describe("the Bot's web search", () => {
   it("searches with the user's own Tavily key, with or without a Computer", async () => {

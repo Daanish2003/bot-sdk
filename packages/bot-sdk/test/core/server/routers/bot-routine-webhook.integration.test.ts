@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { botRoutine, botTrigger } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { bot } from "../../../../plugins/bot/server/plugin";
+import { computer } from "../../../../plugins/computer/server/plugin";
 import { webhookTokenHash } from "../../../../plugins/bot/server/routine";
 import { findBot } from "../../../../plugins/bot/server/store";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
@@ -19,6 +20,7 @@ import { fakeJobClock } from "../../../support/jobs";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
+import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
 
 const model = "openai:gpt-5.6";
 const silent = { error: () => {} };
@@ -52,7 +54,13 @@ async function botWithRoutine({
   routine = payouts,
   rounds = [],
   isUserBlocked,
-}: { routine?: unknown; rounds?: Round[] } & Pick<TestDepsOverrides, "isUserBlocked"> = {}) {
+  computerFake,
+}: {
+  routine?: unknown;
+  rounds?: Round[];
+  /** The fake Computer to install `computer` over; with none, the Bot has no Computer. */
+  computerFake?: ReturnType<typeof fakeComputerProvider>;
+} & Pick<TestDepsOverrides, "isUserBlocked"> = {}) {
   const timer = fakeJobClock(at);
   const fake = createFakeAdapter({ rounds: [round(createRoutine(routine)), round(), ...rounds] });
   let deps: TestDeps | undefined;
@@ -64,7 +72,7 @@ async function botWithRoutine({
     deps: () => deps!,
   });
   deps = createTestSdk({
-    plugins: [bot()],
+    plugins: computerFake ? [bot(), computer({ provider: computerFake.provider })] : [bot()],
     jobs,
     adapterFor: () => fake.adapter,
     clock: timer.clock.now,
@@ -114,9 +122,14 @@ async function botWithRoutine({
 /** A Bot with the webhook Routine `payouts`, approved: its token is the one approving revealed. */
 async function approvedWebhook(
   rounds: Round[] = [],
-  { isUserBlocked }: Pick<TestDepsOverrides, "isUserBlocked"> = {},
+  {
+    isUserBlocked,
+    computerFake,
+  }: Pick<TestDepsOverrides, "isUserBlocked"> & {
+    computerFake?: ReturnType<typeof fakeComputerProvider>;
+  } = {},
 ) {
-  const made = await botWithRoutine({ rounds, isUserBlocked });
+  const made = await botWithRoutine({ rounds, isUserBlocked, computerFake });
   const routineId = made.routines[0]!.id;
   const { webhookToken } = await made.client.bot.routine.approve({ routineId });
   return { ...made, routineId, token: webhookToken! };
@@ -292,7 +305,7 @@ describe("a webhook Routine's URL", () => {
   });
   it("gives the Turn it wakes the whole payload, and later Turns only its first 2 KB, marked cut", async () => {
     const { fake, token, call, send, timer, runDue } = await approvedWebhook([round(), round()]);
-    const payload = JSON.stringify({ blob: "x".repeat(10_000) });
+    const payload = JSON.stringify({ blob: "x".repeat(5_000) });
 
     timer.advance(1_000);
     await call(token, payload);
@@ -308,6 +321,53 @@ describe("a webhook Routine's URL", () => {
 
     await send("Anything new?");
     expect(fromWebhook(fake.calls.at(-1))).toBe(`${woken.slice(0, 2048)}\n[truncated]`);
+  });
+
+  describe("with a payload over 10,000 characters", () => {
+    const payload = JSON.stringify({ head: "a".repeat(6_000), tail: "b".repeat(6_000) });
+    const fromWebhook = (call: TextOptions | undefined) =>
+      (call?.messages ?? [])
+        .map((entry) => String(entry.content))
+        .find((content) => content.includes("From a webhook"))!;
+
+    it("cuts the Trigger's text to its ends and saves the full text on the Computer", async () => {
+      const computerFake = fakeComputerProvider({});
+      const { fake, botId, token, call, timer, runDue } = await approvedWebhook([round()], {
+        computerFake,
+      });
+
+      timer.advance(1_000);
+      await call(token, payload);
+      timer.advance(500);
+      await runDue();
+
+      const seen = fromWebhook(fake.calls.at(-1));
+      const [path] = [...computerFake.files.keys()];
+      expect(path?.startsWith(`/home/user/bots/${botId}/.outputs/`)).toBe(true);
+      const saved = new TextDecoder().decode(computerFake.files.get(path!));
+      expect(saved).toContain(payload);
+      expect(saved.startsWith("Routine")).toBe(true);
+      expect(seen).toContain(`The full text is saved at ${path}.`);
+      expect(seen).toMatch(/\[\.\.\. \d+ characters left out \.\.\.\]/);
+      expect(seen).not.toContain("a".repeat(2_001));
+      // The cut keeps the start of the text, where the prompt is, and the end of the payload.
+      expect(seen).toContain("Check the payout against the expected amount.");
+      expect(seen.length).toBeLessThan(4_600);
+    });
+
+    it("cuts it the same way with no Computer, saying the rest was not saved", async () => {
+      const { fake, token, call, timer, runDue } = await approvedWebhook([round()]);
+
+      timer.advance(1_000);
+      await call(token, payload);
+      timer.advance(500);
+      await runDue();
+
+      const seen = fromWebhook(fake.calls.at(-1));
+      expect(seen).toContain("The rest was not saved.");
+      expect(seen).toMatch(/\[\.\.\. \d+ characters left out \.\.\.\]/);
+      expect(seen.length).toBeLessThan(4_600);
+    });
   });
 });
 
