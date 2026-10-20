@@ -863,9 +863,11 @@ async function newestInput(
   const newest = inputs.at(-1);
   if (newest) {
     const zone = newestUser?.parts.timeZone;
+    // The Change notes share the time's block, which holds no user text: only there are they read
+    // back as told (`notesIn`).
+    const time = timeNotice(turn.startedAt, zone);
     const notices = [
-      timeNotice(turn.startedAt, zone),
-      ...(changeNotes ? [changeNotes] : []),
+      changeNotes ? `${time}\n${changeNotes}` : time,
       ...(todo?.length ? [todoNotice(todo, zone)] : []),
     ];
     newest.content = `${notices.join("\n\n")}\n\n${newest.content}`;
