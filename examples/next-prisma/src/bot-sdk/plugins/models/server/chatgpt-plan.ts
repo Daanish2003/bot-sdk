@@ -15,7 +15,7 @@ const reconnectChatgptCode = "chatgpt_reconnect";
  *   see a tool call. The items the stream sent (`response.output_item.done`) are put back in.
  *
  * A rejected token (401) means a broken link, so its message asks to reconnect; a 403 keeps
- * OpenAI's own message, and so does a 429 (see {@link planRateLimitResponse}). The plan's
+ * OpenAI's own message, and so do a 403 and a 429 (see {@link planErrorResponse}). The plan's
  * stream has no content-type, so nothing here branches on it.
  */
 export function chatgptPlanFetch(
@@ -24,7 +24,8 @@ export function chatgptPlanFetch(
   return async (input, init) => {
     const response = await base(input, withPlanBody(init));
     if (response.status === 401) return reconnectResponse(response);
-    if (response.status === 429) return planRateLimitResponse(response);
+    if (response.status === 429) return planErrorResponse(response, "chatgpt_plan_rate_limited");
+    if (response.status === 403) return planErrorResponse(response, "chatgpt_plan_forbidden");
     if (!response.ok || !response.body) return response;
     return new Response(response.body.pipeThrough(fillCompletedOutput()), {
       status: response.status,
@@ -50,11 +51,12 @@ function withPlanBody(init: RequestInit | undefined): RequestInit | undefined {
 }
 
 /**
- * A 429 from the plan with a code of its own, so the Run is stored as a Provider error that quotes
- * OpenAI's message ("You've hit your usage limit") instead of the generic rate-limit text. A body
- * that isn't JSON with an `error` object is passed on as it came.
+ * A 403 or 429 from the plan with a code of its own, so the Run is stored as a Provider error that
+ * quotes OpenAI's message ("You've hit your usage limit") instead of the generic rate-limit text, or,
+ * for a user with no API key, "The Provider rejected your API key". A body that isn't JSON with an
+ * `error` object is passed on as it came.
  */
-async function planRateLimitResponse(response: Response): Promise<Response> {
+async function planErrorResponse(response: Response, code: string): Promise<Response> {
   const text = await response.text();
   const init = {
     status: response.status,
@@ -64,7 +66,7 @@ async function planRateLimitResponse(response: Response): Promise<Response> {
   try {
     const body = JSON.parse(text) as { error?: Record<string, unknown> };
     if (body.error && typeof body.error === "object") {
-      body.error.code = "chatgpt_plan_rate_limited";
+      body.error.code = code;
       const headers = new Headers(response.headers);
       headers.delete("content-length");
       return new Response(JSON.stringify(body), { ...init, headers });
@@ -123,7 +125,8 @@ function fillCompletedOutput(): TransformStream<Uint8Array, Uint8Array> {
       items.length > 0
     ) {
       data.response.output = items.filter(Boolean);
-      return event.replace(line, `data: ${JSON.stringify(data)}`);
+      const rewritten = `data: ${JSON.stringify(data)}`;
+      return event.replace(line, () => rewritten);
     }
     return event;
   };
