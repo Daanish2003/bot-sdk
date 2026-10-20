@@ -75,6 +75,7 @@ const turn = (
   sent: true,
   triggers: [{ source: "user", channel: "web", routineName: null, at: at(minute) }],
   memoryChanges,
+  steps: [],
 });
 
 /** A fetch that never answers, recording each request's URL. */

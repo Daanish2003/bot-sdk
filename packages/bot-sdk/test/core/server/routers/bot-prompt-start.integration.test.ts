@@ -268,6 +268,34 @@ describe("the prompt hashes of a model call", () => {
     expect(flagged(calls[1]!)).toEqual([{ name: "rules", changed: "bug" }]);
   });
 
+  it("reads each Turn's Steps with their usage and the flagged section, by source_id", async () => {
+    const { client, botId } = await botWith([round(), round()], { withComputer: false });
+
+    await send(client, botId, "hi");
+    const [start] = await promptStartsOf(botId);
+    await getTestDb()
+      .update(botPromptStart)
+      .set({
+        sections: start!.sections.map((section) =>
+          section.name === "rules" ? { ...section, text: `${section.text} ` } : section,
+        ),
+      })
+      .where(eq(botPromptStart.id, start!.id));
+    await send(client, botId, "again");
+
+    const { turns } = await client.bot.get({ botId });
+    const [first, second] = turns.map((turn) => turn.steps);
+    expect(first).toHaveLength(1);
+    expect(second).toHaveLength(1);
+    expect(first![0]!.changed).toBeNull();
+    expect(first![0]!.sections.every((section) => section.tokens > 0)).toBe(true);
+    const rules = (step: NonNullable<typeof first>[number]) =>
+      step.sections.find((section) => section.name === "rules")!;
+    expect(second![0]!.changed).toEqual({ section: "rules", kind: "bug" });
+    expect(rules(second![0]!).was).toBe(rules(first![0]!).hash);
+    expect(rules(second![0]!).hash).not.toBe(rules(first![0]!).hash);
+  });
+
   it("names a change to the history the previous call sent as a bug", async () => {
     const { client, botId } = await botWith([round(), round()], { withComputer: false });
 

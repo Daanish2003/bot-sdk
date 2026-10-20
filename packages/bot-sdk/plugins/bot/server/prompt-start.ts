@@ -232,6 +232,13 @@ export async function previousTurnCall(
   return row?.hashes ? { promptStartId: row.promptStartId, hashes: row.hashes } : undefined;
 }
 
+/** A section's hash, with its size estimated at 4 characters a token. */
+const hashed = (name: string, text: string): PromptHash => ({
+  name,
+  hash: sha256(text),
+  tokens: Math.ceil(text.length / 4),
+});
+
 /** What one model call sends of a Prompt start and history. */
 type SentPrompt = {
   tools: unknown[];
@@ -252,19 +259,20 @@ export function promptHashesOf(
 ): PromptHash[] {
   const [first, ...history] = sent.messages;
   const sections: PromptHash[] = [
-    { name: "tools", hash: sha256(canonicalJson(sent.tools)) },
-    ...sent.systemPrompts.map((prompt, index) => ({
-      name: start.system[index]?.name ?? `system_${index}`,
-      hash: sha256(typeof prompt === "string" ? prompt : prompt.content),
-    })),
-    {
-      name: firstMessageSection,
-      hash: sha256(typeof first?.content === "string" ? first.content : canonicalJson(first)),
-    },
+    hashed("tools", canonicalJson(sent.tools)),
+    ...sent.systemPrompts.map((prompt, index) =>
+      hashed(
+        start.system[index]?.name ?? `system_${index}`,
+        typeof prompt === "string" ? prompt : prompt.content,
+      ),
+    ),
+    hashed(
+      firstMessageSection,
+      typeof first?.content === "string" ? first.content : canonicalJson(first),
+    ),
   ];
   const sentHistory: PromptHash = {
-    name: "history",
-    hash: sha256(canonicalJson(history)),
+    ...hashed("history", canonicalJson(history)),
     messages: history.length,
   };
   if (!previous) return [...sections, sentHistory];
