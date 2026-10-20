@@ -55,7 +55,9 @@ export const db = createDb(ENV);
 // provider's sign-in fail at the provider rather than at boot.
 export const auth = createAuth(
   {
-    ...ENV,
+    // Named one by one: varlock's ENV is a Proxy with only a `get` trap, so spreading it copies nothing.
+    BETTER_AUTH_URL: ENV.BETTER_AUTH_URL,
+    BETTER_AUTH_SECRET: ENV.BETTER_AUTH_SECRET,
     APP_NAME: appName,
     GITHUB_CLIENT_ID: ENV.GITHUB_CLIENT_ID ?? "",
     GITHUB_CLIENT_SECRET: ENV.GITHUB_CLIENT_SECRET ?? "",
