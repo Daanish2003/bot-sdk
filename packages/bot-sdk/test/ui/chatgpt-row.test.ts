@@ -57,6 +57,15 @@ describe("the OpenAI row's ChatGPT link", () => {
     await waitFor(() => expect(linked.disconnect).toHaveBeenCalledOnce());
   });
 
+  it("also offers Reconnect on a linked row, for a token that was revoked before it expired", async () => {
+    const linked = host();
+    page(linked, "linked");
+
+    fireEvent.click(screen.getByRole("button", { name: "Reconnect ChatGPT" }));
+
+    await waitFor(() => expect(linked.connect).toHaveBeenCalledOnce());
+  });
+
   it("offers Reconnect when the link is broken, which calls the Host's connect", async () => {
     const linked = host();
     page(linked, "needs-reconnect");

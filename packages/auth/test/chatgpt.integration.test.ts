@@ -236,7 +236,8 @@ describe("the ChatGPT access token", () => {
 
     const result = await chatgptAccessToken(auth, database, userId);
 
-    expect(result).toEqual({ status: "ok", accessToken: "fresh-access" });
+    expect(result).toMatchObject({ status: "ok", accessToken: "fresh-access" });
+    expect(result.status === "ok" && result.expiresAt?.getTime()).toBeGreaterThan(Date.now());
     expect(calls).toHaveLength(1);
     expect(calls[0].get("grant_type")).toBe("refresh_token");
     expect(calls[0].get("refresh_token")).toBe("refresh-old");
@@ -250,7 +251,7 @@ describe("the ChatGPT access token", () => {
     const { auth, userId } = await withLinkedAccount(new Date(Date.now() + 3_600_000));
     const calls = fakeTokenEndpoint(tokenReply({ access_token: "never" }));
 
-    expect(await chatgptAccessToken(auth, database, userId)).toEqual({
+    expect(await chatgptAccessToken(auth, database, userId)).toMatchObject({
       status: "ok",
       accessToken: "stale-access",
     });
@@ -293,5 +294,70 @@ describe("token encryption", () => {
     const { accessToken } = await auth.api.getAccessToken({ body: { accountId: id, userId } });
 
     expect(accessToken).toBe("gho_plaintext");
+  });
+});
+
+describe("unlinking an account", () => {
+  // A user who signed up through GitHub: a github row and a link-only chatgpt row, no password.
+  async function githubOnlyWithChatgpt() {
+    const auth = newAuth();
+    const { cookie, userId } = await signedIn(auth, `unlink-${randomUUID()}@example.com`);
+    await database.delete(account).where(eq(account.userId, userId));
+    const now = new Date();
+    const row = (providerId: string) => ({
+      id: randomUUID(),
+      accountId: `${providerId}-${randomUUID()}`,
+      providerId,
+      userId,
+      accessToken: "token",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const github = row("github");
+    const chatgpt = row("chatgpt");
+    await database.insert(account).values([github, chatgpt]);
+    return { auth, cookie, userId, github, chatgpt };
+  }
+
+  const unlink = (auth: Auth, cookie: string, accountId: string) =>
+    post(auth, "/unlink-account", { accountId }, cookie);
+
+  it("refuses to unlink the last way to sign in when only the link-only chatgpt row would stay", async () => {
+    const { auth, cookie, userId, github } = await githubOnlyWithChatgpt();
+
+    const response = await unlink(auth, cookie, github.id);
+
+    expect(response.status).toBe(400);
+    expect(((await response.json()) as { code: string }).code).toBe(
+      "FAILED_TO_UNLINK_LAST_ACCOUNT",
+    );
+    const rows = await database.select().from(account).where(eq(account.userId, userId));
+    expect(rows).toHaveLength(2);
+  });
+
+  it("always lets the user unlink chatgpt itself", async () => {
+    const { auth, cookie, userId, chatgpt } = await githubOnlyWithChatgpt();
+
+    const response = await unlink(auth, cookie, chatgpt.id);
+
+    expect(response.status).toBe(200);
+    expect(await chatgptRows(userId)).toHaveLength(0);
+  });
+
+  it("unlinks a sign-in method while another one stays", async () => {
+    const { auth, cookie, userId, github } = await githubOnlyWithChatgpt();
+    const now = new Date();
+    await database.insert(account).values({
+      id: randomUUID(),
+      accountId: `google-${randomUUID()}`,
+      providerId: "google",
+      userId,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const response = await unlink(auth, cookie, github.id);
+
+    expect(response.status).toBe(200);
   });
 });

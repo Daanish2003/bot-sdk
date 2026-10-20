@@ -30,7 +30,8 @@ import {
   hostProvidersOf,
   quotaOf,
 } from "./host-models";
-import { linkedCredentialsOf } from "./linked-credentials";
+import { linkedCredentialsHook } from "./chatgpt-link";
+import { cachedTokenFor, linkedCredentialsOf } from "./linked-credentials";
 import { computerPluginsOf } from "./computer";
 import { mcpServersOf } from "./mcp-server";
 import { trustedIpHeadersOf } from "./trusted-ip";
@@ -133,7 +134,10 @@ export const sdk = (shared.botSdk ??= createBotSdk({
       // A user's Quota: an Admin's override, else the Host's default (spec #277).
       getQuota: (userId) => getQuota(db, ENV, userId),
       // A linked ChatGPT plan is the user's OpenAI credentials when they saved no key (ADR 0023).
-      linkedCredentials: linkedCredentialsOf((userId) => chatgptAccessToken(auth, db, userId)),
+      ...linkedCredentialsHook(
+        ENV,
+        linkedCredentialsOf(cachedTokenFor((userId) => chatgptAccessToken(auth, db, userId))),
+      ),
     }),
     // Background jobs (ADR 0011): the in-process runner, which Knowledge and Memory share.
     runner(),

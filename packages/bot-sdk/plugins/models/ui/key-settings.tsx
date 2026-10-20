@@ -255,6 +255,14 @@ function ChatgptLink({ host }: { host: LinkedCredentialsHost }) {
           <Button
             size="sm"
             variant="ghost"
+            disabled={connect.isPending}
+            onClick={() => connect.mutate()}
+          >
+            {t("pages.chatgptReconnect")}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
             disabled={disconnect.isPending}
             onClick={() => disconnect.mutate()}
           >

@@ -7,7 +7,7 @@ import type { createAuth } from "./index";
 
 // What the Host's `linkedCredentials` hook needs from the user's linked ChatGPT plan (ADR 0023).
 export type ChatgptAccessToken =
-  | { status: "ok"; accessToken: string }
+  | { status: "ok"; accessToken: string; expiresAt?: Date }
   // The user has not linked ChatGPT.
   | { status: "none" }
   // The link exists but its token can't be refreshed (revoked or rejected): the user must link again.
@@ -31,10 +31,10 @@ export async function chatgptAccessToken(
     .limit(1);
   if (!linked) return { status: "none" };
   try {
-    const { accessToken } = await auth.api.getAccessToken({
+    const { accessToken, accessTokenExpiresAt } = await auth.api.getAccessToken({
       body: { accountId: linked.id, userId },
     });
-    return { status: "ok", accessToken };
+    return { status: "ok", accessToken, expiresAt: accessTokenExpiresAt };
   } catch (error) {
     // Better Auth answers every refresh failure with this one code. Anything else (a broken
     // database, say) is not the user's to fix by linking again.

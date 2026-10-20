@@ -4,7 +4,8 @@ import { type EmailMessage, type EmailSender, renderTemplate } from "@ai-chat/em
 import { passkey } from "@better-auth/passkey";
 import { drizzleAdapter } from "@better-auth/drizzle-adapter/relations-v2";
 import { betterAuth } from "better-auth";
-import { APIError, createAuthMiddleware, isAPIError } from "better-auth/api";
+import { BASE_ERROR_CODES } from "@better-auth/core/error";
+import { APIError, createAuthMiddleware, getSessionFromCtx, isAPIError } from "better-auth/api";
 import { admin, genericOAuth, twoFactor } from "better-auth/plugins";
 import { createAccessControl } from "better-auth/plugins/access";
 import { defaultStatements } from "better-auth/plugins/admin/access";
@@ -276,6 +277,19 @@ export function createAuth(
           throw new APIError("BAD_REQUEST", {
             message: "ChatGPT can only be linked, not signed in with",
           });
+        }
+        // The link-only chatgpt row counts toward Better Auth's "last account" guard, so a user whose
+        // only sign-in method is GitHub could unlink it and be locked out. Unlinking chatgpt is always fine.
+        if (ctx.path === "/unlink-account") {
+          const session = await getSessionFromCtx(ctx);
+          if (!session) return;
+          const accounts = await ctx.context.internalAdapter.findAccounts(session.user.id);
+          const target = accounts.find((linked) => linked.id === ctx.body?.accountId);
+          if (!target || target.providerId === CHATGPT_PROVIDER) return;
+          const left = accounts.filter((linked) => linked.id !== target.id);
+          if (left.length > 0 && left.every((linked) => linked.providerId === CHATGPT_PROVIDER)) {
+            throw APIError.from("BAD_REQUEST", BASE_ERROR_CODES.FAILED_TO_UNLINK_LAST_ACCOUNT);
+          }
         }
       }),
       // Changing a password while signed in (`/change-password`) doesn't run `onPasswordReset`,
