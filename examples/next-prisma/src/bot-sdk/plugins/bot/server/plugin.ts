@@ -2,6 +2,7 @@ import type { BotSdkPlugin } from "../../../core/server/plugin";
 import { isInProcessRunner } from "../../runner/server/jobs/in-process";
 import { runnerJobs } from "../../runner/server/plugin";
 import { cancelUserCheckIns } from "./check-in";
+import { screenshotsConversationDelete } from "./screenshots";
 import { cancelUserHelpers, hasRunningHelper } from "./helper";
 import { cancelUserFires } from "./routine";
 import { startRoutineReconcile } from "./routine-fire";
@@ -101,5 +102,7 @@ export function bot(): BotPlugin {
       after: botUserDelete.after,
     },
     exportUser: (_sdk, userId, tx) => exportBots(tx, userId),
+    // A Bot's Helpers' screenshots go with its Conversation (#608).
+    databaseHooks: { conversation: { delete: screenshotsConversationDelete } },
   };
 }

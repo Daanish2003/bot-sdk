@@ -179,6 +179,10 @@ async function recordOutcome(
  *   row is handed back `queued` without counting the attempt, for another process to resume;
  * - `shutdown` aborts, so the handler is aborted and nothing is written. The lease is left to
  *   expire, and another process re-runs the job.
+ *
+ * An aborted handler can go on after that, until it sees its signal: a lost attempt's ends its
+ * Turn, then acknowledges the cancel. `handlers` holds each handler's end while it runs, so the
+ * caller must wait for it: the in-process runner's `stop()` does.
  */
 export async function runClaimedJob(
   db: Database,
@@ -189,12 +193,14 @@ export async function runClaimedJob(
     deps,
     drain,
     shutdown,
+    handlers,
   }: {
     clock: JobClock;
     logger: Logger;
     deps: () => BotSdkContext;
     drain?: AbortSignal;
     shutdown?: AbortSignal;
+    handlers: Set<Promise<void>>;
   },
 ): Promise<void> {
   const definition = registeredJob(claimed.name);
@@ -292,10 +298,13 @@ export async function runClaimedJob(
       }
       await settle(failure);
     };
-    run.then(
-      () => ended(),
-      (error: unknown) => ended({ error }),
-    );
+    const handled: Promise<void> = run
+      .then(
+        () => ended(),
+        (error: unknown) => ended({ error }),
+      )
+      .finally(() => handlers.delete(handled));
+    handlers.add(handled);
   }
   await done;
 }

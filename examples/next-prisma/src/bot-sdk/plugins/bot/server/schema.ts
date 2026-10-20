@@ -1,7 +1,13 @@
 import type { CoreTableName, PluginSchema } from "../../../core/server/db/plugin-schema";
 import { bot } from "./db/bot";
 import { botCheckIn, botCheckInState } from "./db/bot-check-in";
-import { botHelper, botHelperMessage, botHelperStatus, botHelperType } from "./db/bot-helper";
+import {
+  botHelper,
+  botHelperMessage,
+  botHelperScreenshot,
+  botHelperStatus,
+  botHelperType,
+} from "./db/bot-helper";
 import { botRoutine, botRoutineState } from "./db/bot-routine";
 import { botTrigger, botTriggerChannel, botTriggerSource } from "./db/bot-trigger";
 import { botTurn, botTurnStatus } from "./db/bot-turn";
@@ -13,9 +19,18 @@ export * from "./db/bot-routine";
 export * from "./db/bot-trigger";
 export * from "./db/bot-turn";
 
-/** The `bot` plugin's schema module: its `bot`, `bot_turn`, `bot_trigger`, `bot_routine`, `bot_check_in`, `bot_helper` and `bot_helper_message` tables. It adds no fields to core tables. */
+/** The `bot` plugin's schema module: its `bot`, `bot_turn`, `bot_trigger`, `bot_routine`, `bot_check_in`, `bot_helper`, `bot_helper_message` and `bot_helper_screenshot` tables. It adds no fields to core tables. */
 export const botSchema = {
-  tables: { bot, botTurn, botTrigger, botRoutine, botCheckIn, botHelper, botHelperMessage },
+  tables: {
+    bot,
+    botTurn,
+    botTrigger,
+    botRoutine,
+    botCheckIn,
+    botHelper,
+    botHelperMessage,
+    botHelperScreenshot,
+  },
   enums: {
     botTurnStatus,
     botTriggerSource,
