@@ -34,6 +34,8 @@ afterEach(async () => {
 });
 
 const hostModel = "anthropic:claude-sonnet-5-5";
+const planModel = "openai:gpt-6-luna";
+const planCredentials = { apiKey: "chatgpt-access-token" };
 const hostProviders: HostProvider[] = [
   {
     provider: "anthropic",
@@ -81,6 +83,7 @@ async function approvedRoutine({
   rounds = [],
   manual = false,
   host = false,
+  linked = false,
   getQuota,
   isUserBlocked,
 }: {
@@ -90,11 +93,14 @@ async function approvedRoutine({
   rounds?: Round[];
   manual?: boolean;
   host?: boolean;
+  /** The Bot is on a ChatGPT plan Model and the user has a linked plan, not a key (ADR 0023). */
+  linked?: boolean;
 } & Pick<TestDepsOverrides, "getQuota" | "isUserBlocked">) {
   const timer = fakeJobClock(at);
   const creation = [round(createRoutine(routine)), round()];
   const fake = createFakeAdapter({ rounds: [...creation, ...rounds], manual });
   let deps: TestDeps | undefined;
+  const adapterCredentials: Array<Record<string, string>> = [];
   const jobs = inProcessRunner({
     db: getTestDb(),
     logger: silent,
@@ -105,15 +111,19 @@ async function approvedRoutine({
   deps = createTestSdk({
     plugins: [bot()],
     jobs,
-    adapterFor: () => fake.adapter,
+    adapterFor: (_model, credentials) => {
+      adapterCredentials.push(credentials);
+      return fake.adapter;
+    },
     clock: timer.clock.now,
     ...(host && { hostProviders }),
+    ...(linked && { linkedCredentials: async () => planCredentials }),
     getQuota,
     isUserBlocked,
   });
   started.push(jobs);
   const user = await insertUser();
-  if (!host) {
+  if (!host && !linked) {
     await saveCredentials(deps, user.id, {
       service: "openai",
       fields: { apiKey: "openai-test-key" },
@@ -122,7 +132,10 @@ async function approvedRoutine({
     });
   }
   const client = chatRpc({ user, deps });
-  const created = await client.bot.create({ name: "Ada", model: host ? hostModel : model });
+  const created = await client.bot.create({
+    name: "Ada",
+    model: host ? hostModel : linked ? planModel : model,
+  });
   const botId = created.id;
   const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
 
@@ -151,6 +164,7 @@ async function approvedRoutine({
 
   return {
     fake,
+    adapterCredentials,
     deps,
     client,
     user,
@@ -547,6 +561,27 @@ describe("a scheduled Routine", () => {
 
     expect(await routineTriggers(conversationId)).toEqual([]);
     expect(await queuedFires(routineId)).toEqual(["2026-10-20T07:00:00.000Z"]);
+  });
+
+  it("fires on the user's linked ChatGPT plan, with no usage row, when the Bot is on a plan Model (ADR 0023)", async () => {
+    const { user, conversationId, adapterCredentials, runDue, advanceTo } = await approvedRoutine({
+      at: sunday,
+      linked: true,
+      rounds: [round()],
+    });
+
+    advanceTo(mondaySlot);
+    await runDue();
+    advanceTo("2026-10-19T07:00:00.500Z");
+    await runDue();
+
+    expect(await routineTriggers(conversationId)).toHaveLength(1);
+    // The creation Turn and the fire's Turn both ran on the plan.
+    expect(adapterCredentials.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(adapterCredentials.map((credentials) => credentials.apiKey))).toEqual(
+      new Set([planCredentials.apiKey]),
+    );
+    expect(await getTestDb().select().from(usage).where(eq(usage.userId, user.id))).toEqual([]);
   });
 
   it("makes no Trigger while the user is Banned, still queues the next fire, and fires again once the Ban ends", async () => {

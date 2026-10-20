@@ -25,6 +25,15 @@ export const providers = [
 
 export type ProviderId = (typeof providers)[number]["id"];
 
+/**
+ * The OpenAI Models a linked ChatGPT plan offers (ADR 0023), from the #639 probe: linked
+ * credentials reach only these. The plan refuses the other curated OpenAI Models.
+ */
+export const chatgptPlanModels: readonly string[] = ["openai:gpt-6.1-sol", "openai:gpt-6-luna"];
+
+/** The OpenAI row's state on the Keys page: a saved key, a linked ChatGPT plan, a broken link, or none. */
+export type OpenaiCredentialsState = "key" | "linked" | "needs-reconnect" | "none";
+
 const apiKey = z.string().trim().min(1, "Enter an API key");
 const accountId = z.string().trim().min(1, "Enter your account id");
 const region = z

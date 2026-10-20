@@ -1,3 +1,4 @@
+import { reconnectChatgptMessage } from "../../models/shared/chatgpt-plan";
 import type { I18n } from "../../../core/shared/i18n";
 import type { AttachmentInfo } from "../../../core/shared/attachments/kinds";
 import type { SiblingPosition } from "../../../core/shared/chat/branches";
@@ -205,6 +206,10 @@ export function describeError({ t }: I18n, { error, errorReason }: MessageInfo) 
     case "rate_limited":
       return { text: t("chat.errorRateLimited"), keySettings: false };
     case "provider_error":
+      // A Run on a broken ChatGPT link (ADR 0023) stores the reconnect message, maybe after a status.
+      if (error?.endsWith(reconnectChatgptMessage)) {
+        return { text: t("chat.errorReconnectChatgpt"), keySettings: true };
+      }
       return {
         text: error ? t("chat.errorProviderWith", { error }) : t("chat.errorProvider"),
         keySettings: false,

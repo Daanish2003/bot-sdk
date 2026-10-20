@@ -1,3 +1,5 @@
+import type { AnyTextAdapter } from "@tanstack/ai";
+
 import type { BotSdkContext, BotSdkPlugin } from "../../../core/server/plugin";
 import { defaultRateLimits } from "../../../core/server/rate-limits";
 import {
@@ -38,7 +40,15 @@ import {
   transcriptionAdapterFor,
   transcriptionProviders,
 } from "./transcription";
-import type { Credentials, HostProvider, HostTool, ModelsDeps, QuotaSetting } from "./types";
+import { reconnectChatgptAdapter } from "./chatgpt-plan";
+import type {
+  Credentials,
+  HostProvider,
+  HostTool,
+  LinkedCredentialsHook,
+  ModelsDeps,
+  QuotaSetting,
+} from "./types";
 import { messageUsage, usageByDay, usageTotals, type UsageByDay, type UsageTotal } from "./usage";
 
 export type ModelsOptions = {
@@ -77,6 +87,13 @@ export type ModelsOptions = {
    * paid call (spec #357, ticket #370).
    */
   embeddingAdapterFor?: ModelsDeps["embeddingAdapterFor"];
+  /**
+   * The Host's linked Provider credentials (ADR 0023): for a user and a service, the credentials
+   * the Host holds for them (a ChatGPT plan's access token as OpenAI's `apiKey`), nothing, or
+   * `"needs-reconnect"`. Asked only for OpenAI, for the plan's Models, when the user has no key.
+   * Without it, no one has linked credentials.
+   */
+  linkedCredentials?: LinkedCredentialsHook;
 };
 
 /**
@@ -109,6 +126,11 @@ export type ModelsApi = {
   loadCredentials: (userId: string, service: string) => Promise<Credentials | null>;
   /** The text adapter for a `"provider:model"` id (`ModelsDeps.adapterFor`). */
   adapterFor: ModelsDeps["adapterFor"];
+  /**
+   * The text adapter a resolved call runs on: its credentials, the Host's output cap, and a linked
+   * plan's way (ADR 0023). A broken link gives an adapter that fails asking to reconnect ChatGPT.
+   */
+  adapterForCall: (model: string, call: ModelCall) => AnyTextAdapter;
   /** The image adapter for an Image Model, or `undefined` (`ModelsDeps.imageAdapterFor`). */
   imageAdapterFor: ModelsDeps["imageAdapterFor"];
   /** The size and provider options one image call sends (spec #278). */
@@ -226,6 +248,7 @@ export function productionDeps(sdk: BotSdkContext, options: ModelsOptions): Mode
     hostProviders: (options.hostProviders ?? []).filter(isHostProvider),
     hostTools: (options.hostProviders ?? []).filter(isHostTool),
     byok: options.byok ?? true,
+    linkedCredentials: options.linkedCredentials,
     defaultBackgroundModel: options.defaultBackgroundModel ?? null,
     defaultImageModel: options.defaultImageModel ?? null,
     getQuota: quotaLookup(options.getQuota),
@@ -251,6 +274,13 @@ function modelsApi(deps: ModelsDeps): ModelsApi {
     loadCredentials: (userId, service) => loadCredentials(deps, userId, service),
     adapterFor: (model, credentials, adapterOptions) =>
       deps.adapterFor(model, credentials, adapterOptions),
+    adapterForCall: (model, call) =>
+      call.linked === "needs-reconnect"
+        ? reconnectChatgptAdapter(model)
+        : deps.adapterFor(model, call.credentials, {
+            maxOutputTokens: call.maxOutputTokens,
+            ...(call.linked === "plan" && { linked: true }),
+          }),
     imageAdapterFor: (model, credentials) => deps.imageAdapterFor(model, credentials),
     imageRequestFor,
     get byok() {

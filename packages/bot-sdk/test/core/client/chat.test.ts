@@ -265,6 +265,18 @@ describe("describeError", () => {
     });
   });
 
+  it("tells a Run on a broken ChatGPT link to reconnect, with a link to Key settings", () => {
+    for (const error of [
+      "Reconnect ChatGPT on the Keys page",
+      "401 Reconnect ChatGPT on the Keys page",
+    ]) {
+      expect(describeError(i18n, info({ error, errorReason: "provider_error" }))).toEqual({
+        text: "Reconnect ChatGPT on the Keys page.",
+        keySettings: true,
+      });
+    }
+  });
+
   it("explains a rate limit", () => {
     expect(
       describeError(i18n, info({ error: "Too many requests", errorReason: "rate_limited" })),

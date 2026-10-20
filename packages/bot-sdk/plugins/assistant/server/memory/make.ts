@@ -437,9 +437,7 @@ async function askBackground(
 ): Promise<string> {
   const messages: ModelMessage[] = [{ role: "user", content: user }];
   const result = await chat({
-    adapter: deps.plugin("models").adapterFor(plan.model, plan.call.credentials, {
-      maxOutputTokens: plan.call.maxOutputTokens,
-    }),
+    adapter: deps.plugin("models").adapterForCall(plan.model, plan.call),
     systemPrompts: [system],
     messages,
     stream: false,
