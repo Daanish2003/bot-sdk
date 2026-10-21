@@ -144,7 +144,8 @@ async function botWith(
 }
 
 const hostModel = "anthropic:claude-sonnet-5-5";
-// $3 per 1M input tokens and $15 per 1M output tokens, so a token costs as many micros as its price.
+// $3 per 1M input tokens, $0.30 read from the cache, $6 written to it and $15 per 1M output tokens,
+// so a token costs as many micros as its price.
 const hostProviders: HostProvider[] = [
   {
     provider: "anthropic",
@@ -155,6 +156,8 @@ const hostProviders: HostProvider[] = [
         maxOutputTokens: 512,
         inputUsdPerMillion: 3,
         outputUsdPerMillion: 15,
+        cacheReadUsdPerMillion: 0.3,
+        cacheWriteUsdPerMillion: 6,
       },
     ],
   },
@@ -271,8 +274,9 @@ async function triggersOf(conversationId: string) {
 const withoutNotice = (content: unknown) =>
   String(content).replace(/^\[Current time: [^\]]*\]\n\n/, "");
 
-/** The model input of one call: its messages, as the adapter got them. */
-const inputOf = (call: TextOptions | undefined) => (call?.messages ?? []) as ModelMessage[];
+/** The model input of one call: its messages after the Prompt start's first message, as the adapter got them. */
+const inputOf = (call: TextOptions | undefined) =>
+  ((call?.messages ?? []) as ModelMessage[]).slice(1);
 
 /**
  * Saves a user Message and hands its Trigger to the Router directly, as a later wake source would:
@@ -402,7 +406,8 @@ describe("bot.send", () => {
     expect(JSON.stringify(second?.systemPrompts)).toContain("send_to_user");
     const input = inputOf(second);
     expect(input.map((message) => message.role)).toEqual(["user", "assistant", "tool", "user"]);
-    expect(input[0]).toMatchObject({ role: "user", content: "hi" });
+    expect(input[0]).toMatchObject({ role: "user" });
+    expect(withoutNotice(input[0]?.content)).toBe("hi");
     // The Model sees its send as a SendToUser call, never as plain assistant text.
     expect(input[1]?.toolCalls?.map((call) => call.function.name)).toEqual([sendToUser]);
     expect(JSON.parse(input[1]?.toolCalls?.[0]?.function.arguments ?? "{}")).toEqual({
@@ -412,6 +417,82 @@ describe("bot.send", () => {
     expect(input[1]?.content).toBe("Private note.");
     expect(input[3]).toMatchObject({ role: "user" });
     expect(withoutNotice(input[3]?.content)).toBe("thanks");
+  });
+
+  it("only adds to history: the input sent to Turn N+1 starts with exactly Turn N's input and transcript", async () => {
+    const { client, botId, fake } = await botWith([
+      round(text("Private note."), sends({ text: "Hello!", endTurn: true })),
+      round(sends({ text: "Noted.", endTurn: true })),
+      round(text("Quiet now.")),
+    ]);
+
+    await send(client, botId, "hi");
+    await send(client, botId, "remember the milk");
+    await send(client, botId, "thanks");
+
+    const turns = await turnsOf(botId);
+    expect(turns).toHaveLength(3);
+    // Each Turn stores the newest message exactly as it sent it, with its time.
+    // As JSON, the way it is stored and sent: the adapter gets each message's createdAt as a Date.
+    const asSent = (call: TextOptions | undefined) => JSON.parse(JSON.stringify(inputOf(call)));
+    for (const [index, turn] of turns.entries()) {
+      const sent = asSent(fake.calls[index]);
+      const before = turns
+        .slice(0, index)
+        .flatMap((earlier) => [...(earlier.input ?? []), ...(earlier.transcript ?? [])]);
+      expect(sent.slice(0, before.length)).toEqual(before);
+      expect(sent.slice(before.length)).toEqual(turn.input);
+      expect(String(turn.input?.at(-1)?.content)).toMatch(/^\[Current time: /);
+    }
+    // The earlier time notes stay, byte for byte.
+    expect(asSent(fake.calls[2]).slice(0, inputOf(fake.calls[1]).length)).toEqual(
+      asSent(fake.calls[1]),
+    );
+  });
+
+  it("renders only what came after a Turn from before stored inputs, never every past Message", async () => {
+    const { client, botId, fake } = await botWith([
+      round(sends({ text: "Hello!", endTurn: true })),
+      round(sends({ text: "Noted.", endTurn: true })),
+      round(sends({ text: "You're welcome.", endTurn: true })),
+    ]);
+    await send(client, botId, "hi");
+    await send(client, botId, "remember the milk");
+    // As Turns were stored before they kept their input and Prompt start.
+    await getTestDb()
+      .update(botTurn)
+      .set({ input: null, promptStartId: null })
+      .where(eq(botTurn.botId, botId));
+
+    await send(client, botId, "thanks");
+
+    const [, , third] = await turnsOf(botId);
+    expect(third!.input!.map((message) => withoutNotice(message.content))).toEqual(["thanks"]);
+    expect(inputOf(fake.calls[2]).at(-1)).toEqual(third!.input!.at(-1));
+  });
+
+  it("still renders what a Turn that never ran took", async () => {
+    const { client, botId } = await botWith([
+      round(sends({ text: "Hello!", endTurn: true })),
+      round(sends({ text: "Noted.", endTurn: true })),
+      round(sends({ text: "You're welcome.", endTurn: true })),
+    ]);
+    await send(client, botId, "hi");
+    await send(client, botId, "remember the milk");
+    // As a Turn stopped while it was still queued: no input, no Prompt start, no transcript.
+    const [, second] = await turnsOf(botId);
+    await getTestDb()
+      .update(botTurn)
+      .set({ input: null, promptStartId: null, transcript: null })
+      .where(eq(botTurn.id, second!.id));
+
+    await send(client, botId, "thanks");
+
+    const [, , third] = await turnsOf(botId);
+    expect(third!.input!.map((message) => withoutNotice(message.content))).toEqual([
+      "remember the milk",
+      "thanks",
+    ]);
   });
 
   it("gives another user not-found for a Bot that isn't theirs", async () => {
@@ -869,7 +950,8 @@ describe("skipping the line", () => {
     ]);
     // The new Turn's input: the interrupted Turn's transcript, then the new Message.
     const input = inputOf(fake.calls.at(-1));
-    expect(input[0]).toMatchObject({ role: "user", content: "Book the meeting for Wednesday" });
+    expect(input[0]).toMatchObject({ role: "user" });
+    expect(withoutNotice(input[0]?.content)).toBe("Book the meeting for Wednesday");
     expect(JSON.stringify(input.slice(1, -1))).toContain("On it…");
     expect(JSON.stringify(input)).not.toContain("Wednesday it is.");
     expect(input.at(-1)).toMatchObject({ role: "user" });
@@ -902,6 +984,9 @@ describe("skipping the line", () => {
     ]);
     expect(fake.calls).toHaveLength(2);
     expect(userTexts(fake.calls[1])).toEqual(["one", "two", "three"]);
+    // The interrupted Turn keeps the input it sent, and the next Turn's history starts with it.
+    expect(turns[0]!.input).toEqual(inputOf(fake.calls[0]));
+    expect(inputOf(fake.calls[1]).slice(0, turns[0]!.input!.length)).toEqual(turns[0]!.input);
   });
 
   it("Stop after a send starts nothing: the stopped Turn takes the waiting Triggers, and the next send's Turn reads their Messages", async () => {
@@ -1351,6 +1436,7 @@ describe("a Turn's Quota and usage", () => {
     await send(client, botId, "hi");
 
     const rows = await usageOf(user.id);
+    const [turn] = await turnsOf(botId);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
       kind: "turn",
@@ -1359,9 +1445,35 @@ describe("a Turn's Quota and usage", () => {
       outputTokens: 10,
       costMicros: 100 * 3 + 10 * 15,
       estimated: false,
+      sourceId: turn!.id,
     });
-    const [turn] = await turnsOf(botId);
     expect(turn?.usage).toMatchObject({ input: 100, output: 10, estimated: false });
+  });
+
+  it("records an Anthropic Turn's cache reads and writes, with input as the total, at the cache prices", async () => {
+    const cachedTurn = withUsage(round(sends({ text: "Hello!", endTurn: true })), {
+      // Anthropic reports input without its cache reads and writes.
+      promptTokens: 10,
+      completionTokens: 10,
+      totalTokens: 20,
+      promptTokensDetails: { cachedTokens: 80, cacheWriteTokens: 10 },
+    });
+    const { client, user, botId } = await hostBotWith([cachedTurn]);
+
+    await send(client, botId, "hi");
+
+    const [turn] = await turnsOf(botId);
+    expect(await usageOf(user.id)).toMatchObject([
+      {
+        kind: "turn",
+        inputTokens: 100,
+        cacheReadTokens: 80,
+        cacheWriteTokens: 10,
+        sourceId: turn!.id,
+        costMicros: 10 * 3 + 80 * 0.3 + 10 * 6 + 10 * 15,
+      },
+    ]);
+    expect(turn?.usage).toMatchObject({ input: 100, cached: 80, cacheWrite: 10 });
   });
 
   it("bills each finished model call once when the Turn fails, and a failed call nothing", async () => {
@@ -1388,12 +1500,28 @@ describe("a Turn's Quota and usage", () => {
     expect(turn?.usage).toMatchObject({ input: 200, output: 20, estimated: false });
   });
 
-  it("records nothing on the user's own key", async () => {
-    const { client, user, botId } = await botWith([oneTurn]);
+  it("records each model call at cost 0 on the user's own key, with its cache split", async () => {
+    const cachedTurn = withUsage(round(sends({ text: "Hello!", endTurn: true })), {
+      promptTokens: 100,
+      completionTokens: 10,
+      totalTokens: 110,
+      promptTokensDetails: { cachedTokens: 60 },
+    });
+    const { client, user, botId } = await botWith([cachedTurn]);
 
     await send(client, botId, "hi");
 
-    expect(await usageOf(user.id)).toEqual([]);
+    const [turn] = await turnsOf(botId);
+    expect(await usageOf(user.id)).toMatchObject([
+      {
+        kind: "turn",
+        inputTokens: 100,
+        cacheReadTokens: 60,
+        cacheWriteTokens: 0,
+        costMicros: 0,
+        sourceId: turn!.id,
+      },
+    ]);
   });
 });
 describe("a Turn that resumes after a crash", () => {
@@ -1590,6 +1718,7 @@ describe("a Turn that resumes after a crash", () => {
       output: 20,
       reasoning: 0,
       cached: 0,
+      cacheWrite: 0,
       estimated: false,
     });
   });

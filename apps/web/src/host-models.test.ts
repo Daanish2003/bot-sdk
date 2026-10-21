@@ -56,6 +56,19 @@ describe("hostProvidersOf", () => {
     ]);
   });
 
+  it("keeps a Model's optional cache read and write prices", () => {
+    const cached = { ...model, cacheReadUsdPerMillion: 0.1, cacheWriteUsdPerMillion: 2 };
+    expect(hostProvidersOf({ ...hostEnv, HOST_MODELS: JSON.stringify([cached]) })).toEqual([
+      { provider: "ollama", credentials: { host: "http://localhost:11434" }, models: [cached] },
+    ]);
+    expect(() =>
+      hostProvidersOf({
+        ...hostEnv,
+        HOST_MODELS: JSON.stringify([{ ...model, cacheReadUsdPerMillion: -1 }]),
+      }),
+    ).toThrow();
+  });
+
   it("refuses a partial set, since a Host Model needs its credentials and its price", () => {
     expect(() => hostProvidersOf({ HOST_PROVIDER: "ollama" })).toThrow(
       /HOST_PROVIDER, HOST_CREDENTIALS and HOST_MODELS/,

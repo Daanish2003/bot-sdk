@@ -45,6 +45,33 @@ export type BotTurnTrigger = {
   at: Date;
 };
 
+/** One section of the prompt a Step sent: its size, hash, and the hash it had in the Step before. */
+export type BotStepSection = {
+  name: string;
+  /** An estimate, to size the prompt bar. */
+  tokens: number;
+  hash: string;
+  /** The Step before's hash of this section, when this one is flagged as changed. */
+  was?: string;
+};
+
+/**
+ * One Step of a Turn (one model call): what it sent, what the Provider's cache did with it, and
+ * what it cost (#675). `changed` names the first section that differs from the Step before: a
+ * `bug` (the Prompt start was the same) or `expected` (a new Prompt start).
+ */
+export type BotTurnStep = {
+  id: string;
+  /** A model call of the Turn (`turn`), or its mid-Turn summary call (`summary`), which hashes nothing. */
+  kind: "turn" | "summary";
+  inputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  costMicros: number;
+  sections: BotStepSection[];
+  changed: { section: string; kind: "bug" | "expected" } | null;
+};
+
 /** A Turn's provenance (#539): the Triggers it took, and whether it sent the user anything. */
 export type BotTurnProvenance = {
   id: string;
@@ -55,4 +82,22 @@ export type BotTurnProvenance = {
   triggers: BotTurnTrigger[];
   /** What the Turn's post-turn memory pass changed (ADR 0022), or null when it changed nothing. */
   memoryChanges: BotMemoryChange[] | null;
+  /** Its Steps, oldest first, for the cache chip (#675). */
+  steps: BotTurnStep[];
 };
+
+/**
+ * A Summary of the Bot's Conversation (#676), for its card in the thread: written while the user
+ * was away or mid-Turn, the model's account, and the Bot's last Messages to the user it kept word
+ * for word, oldest first.
+ */
+export type BotSummary = {
+  id: string;
+  kind: "away" | "mid_turn";
+  at: Date;
+  text: string;
+  kept: BotMessage[];
+};
+
+/** A call that warmed a Bot's cache (#677), for the muted line in its thread. */
+export type BotWarming = { id: string; at: Date; costMicros: number };

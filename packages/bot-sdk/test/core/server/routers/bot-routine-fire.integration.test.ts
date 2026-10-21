@@ -7,6 +7,7 @@ import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { deleteUserData } from "../../../../core/server/user-data";
 import type { HostProvider } from "../../../../plugins/assistant/server/deps";
 import { bot } from "../../../../plugins/bot/server/plugin";
+import { changeNotesFraming } from "../../../../plugins/bot/server/change-notes";
 import { routineFireJobName } from "../../../../plugins/bot/server/routine";
 import { findBot } from "../../../../plugins/bot/server/store";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
@@ -207,7 +208,9 @@ const turnsOf = (botId: string) =>
     .where(eq(botTurn.botId, botId))
     .orderBy(asc(botTurn.startedAt), asc(botTurn.id));
 
-const inputOf = (call: TextOptions | undefined) => (call?.messages ?? []) as ModelMessage[];
+/** A model call's messages after the Prompt start's first message. */
+const inputOf = (call: TextOptions | undefined) =>
+  ((call?.messages ?? []) as ModelMessage[]).slice(1);
 
 // Sunday 18 October 2026, 11:00 in London (summer time, UTC+1).
 const sunday = new Date("2026-10-18T10:00:00.000Z");
@@ -307,10 +310,17 @@ describe("a scheduled Routine", () => {
     expect(input.at(-1)).toEqual({
       role: "user",
       content:
-        `[Current time: Monday, 19 October 2026 at 08:00 (Europe/London)]\n\n` +
+        `[Current time: Monday, 19 October 2026 at 08:00 (Europe/London)]\n` +
+        `[What changed since your prompt was built]\n${changeNotesFraming}\n` +
+        `Routine approved: morning-brief  weekdays 08:00 Europe/London  "${morningBrief.prompt}"\n\n` +
         `${wakeNotice}\n\n${morningBrief.prompt}`,
     });
-    expect(input[0]).toEqual({ role: "user", content: "Set it up, please" });
+    // The answered Message stays as its own Turn sent it, with that Turn's time.
+    expect(input[0]).toEqual({
+      role: "user",
+      content:
+        "[Current time: Sunday, 18 October 2026 at 11:00 (Europe/London)]\n\nSet it up, please",
+    });
     const { messages } = await client.bot.get({ botId });
     expect(messages.filter((sent) => sent.role === "user").map((sent) => sent.text)).toEqual([
       "Set it up, please",
@@ -331,9 +341,10 @@ describe("a scheduled Routine", () => {
     advanceTo("2026-10-19T07:00:00.500Z");
     await runDue();
 
-    const content = JSON.stringify(inputOf(fake.calls.at(-1)));
-    expect(content).toContain(morningBrief.prompt);
-    expect(content).not.toContain("Something else entirely.");
+    // The fire's text is the one the Turn read when it started; the edit is only a Change note.
+    const newest = String(inputOf(fake.calls.at(-1)).at(-1)?.content);
+    expect(newest.endsWith(`\n\n${morningBrief.prompt}`)).toBe(true);
+    expect(newest).toContain("Routine approved: morning-brief");
   });
 
   it("joins the Turn of user Messages waiting to start, which takes both", async () => {
@@ -563,7 +574,7 @@ describe("a scheduled Routine", () => {
     expect(await queuedFires(routineId)).toEqual(["2026-10-20T07:00:00.000Z"]);
   });
 
-  it("fires on the user's linked ChatGPT plan, with no usage row, when the Bot is on a plan Model (ADR 0023)", async () => {
+  it("fires on the user's linked ChatGPT plan, with usage rows at cost 0, when the Bot is on a plan Model (ADR 0023)", async () => {
     const { user, conversationId, adapterCredentials, runDue, advanceTo } = await approvedRoutine({
       at: sunday,
       linked: true,
@@ -581,7 +592,9 @@ describe("a scheduled Routine", () => {
     expect(new Set(adapterCredentials.map((credentials) => credentials.apiKey))).toEqual(
       new Set([planCredentials.apiKey]),
     );
-    expect(await getTestDb().select().from(usage).where(eq(usage.userId, user.id))).toEqual([]);
+    const planRows = await getTestDb().select().from(usage).where(eq(usage.userId, user.id));
+    expect(planRows.length).toBeGreaterThan(0);
+    expect(planRows.every((row) => row.costMicros === 0)).toBe(true);
   });
 
   it("makes no Trigger while the user is Banned, still queues the next fire, and fires again once the Ban ends", async () => {

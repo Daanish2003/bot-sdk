@@ -109,6 +109,33 @@ export const botsMessages = {
   "bots.memoryChangedPrefix": "Changed:",
   "bots.memoryForgot": ({ text, tier }: { text: string; tier: string }) =>
     `Forgot: ${text} (${tier})`,
+  "bots.cacheChip": ({ percent, steps, cost }: { percent: number; steps: number; cost: string }) =>
+    `Cache ${percent}% · ${steps} ${steps === 1 ? "Step" : "Steps"} · ${cost}`,
+  "bots.cacheMiss": ({ section, steps, cost }: { section: string; steps: number; cost: string }) =>
+    `⚠ Cache miss: ${section} · ${steps} ${steps === 1 ? "Step" : "Steps"} · ${cost}`,
+  "bots.cacheStep": ({
+    number,
+    percent,
+    cost,
+  }: {
+    number: number;
+    percent: number;
+    cost: string;
+  }) => `Step ${number} · ${percent}% cached · ${cost}`,
+  "bots.cacheSummaryStep": ({ percent, cost }: { percent: number; cost: string }) =>
+    `Summary · ${percent}% cached · ${cost}`,
+  "bots.cacheWarmed": ({ cost }: { cost: string }) => `Cache warmed · ${cost}`,
+  "bots.cacheRead": "Read from cache",
+  "bots.cacheWritten": "Written to cache",
+  "bots.cacheMissed": "Cache miss (a bug)",
+  "bots.cacheNotCached": "Not cached",
+  "bots.cacheBug": ({ section }: { section: string }) =>
+    `A bug: ${section} changed, so everything after it was written again.`,
+  "bots.cacheExpected": ({ section }: { section: string }) =>
+    `Expected: ${section} changed with a new Prompt start.`,
+  "bots.summaryAway": ({ time }: { time: string }) => `Summarized while you were away · ${time}`,
+  "bots.summaryMidTurn": ({ time }: { time: string }) => `Summarized mid-Turn · ${time}`,
+  "bots.summaryKept": "Kept word for word:",
   "bots.routinePending": "waiting for OK",
   "bots.routineActive": "active",
   "bots.routineStatePaused": "paused",

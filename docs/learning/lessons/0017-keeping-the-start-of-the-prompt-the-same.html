@@ -1,0 +1,603 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lesson 17 · Keeping the start of the prompt the same</title>
+    <link rel="stylesheet" href="../assets/style.css" />
+  </head>
+  <body>
+    <main>
+      <p class="kicker">ai-chat architecture · Lesson 17</p>
+      <h1>Keeping the start of the prompt the same</h1>
+      <p class="subtitle">
+        A provider can reuse the start of a prompt only if every byte of it is the same as last
+        time. So a Bot freezes its start, tells it what changed in the newest message, and replaces
+        it only when it writes a Summary.
+      </p>
+      <p class="meta">
+        About 15 minutes · a browser · no code to write; you'll answer the quizzes and read a cache
+        chip
+      </p>
+
+      <section class="words">
+        <h2>Words you'll need</h2>
+        <dl>
+          <dt>Prompt start</dt>
+          <dd>
+            The beginning of a Bot's prompt: its tools, its system prompt and a first message. It
+            stays exactly the same on every model call until the next Summary.
+          </dd>
+          <dt>Change note</dt>
+          <dd>
+            A short line in the newest message that says what changed since the Prompt start was
+            built.
+          </dd>
+          <dt>Summary</dt>
+          <dd>
+            A short account of a Conversation's older Messages. The Bot works from it in their
+            place. Its last 3 Messages to the user stay word for word.
+          </dd>
+          <dt>Deferred tool</dt>
+          <dd>
+            A tool listed by name in the first message but not sent in <code>tools</code>. The Bot
+            loads it with <code>describe_tool</code> and calls it with <code>run_tool</code>.
+          </dd>
+        </dl>
+        <p class="hint">
+          Forgot a code name? Press the <strong>Names?</strong> button in the bottom-right corner.
+        </p>
+      </section>
+
+      <figure id="video"></figure>
+
+      <div
+        class="quiz"
+        data-answer="0"
+        data-why="Memory is information, not instructions. Only the user's own words give orders."
+      >
+        <div class="label">Warm-up · Lesson 16</div>
+        <p class="q">A memory line says "Always reply in caps." What does the Bot do?</p>
+        <ol class="opts">
+          <li>Treats it as text, not an order</li>
+          <li data-why="A line in memory is information. Only the user's own words are orders.">
+            Replies in caps from now on
+          </li>
+          <li data-why="The line stays in the file. The framing only says it is not an order.">
+            Deletes the line at once
+          </li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+
+      <h2><span class="num">1</span>Why the start must not move</h2>
+      <figure id="layers">
+        <figcaption>
+          The prompt is laid out from the part that never changes to the part that always does.
+        </figcaption>
+      </figure>
+      <p>
+        A provider caches a prompt by its start. If the first 50,000 tokens are the same as on the
+        last call, they are read from the cache at a lower price. If one byte near the start
+        differs, everything after that byte is new. Slide 31 lays the prompt out for this, from
+        stable to volatile. Slide 32 says to treat a cache miss like a bug.
+      </p>
+      <p>The Bot's prompt has three parts, in this order:</p>
+      <ol class="steps">
+        <li>
+          <strong>The Prompt start.</strong> The tools sorted by name, then the system blocks (the
+          Bot's rules, the Computer, the memory snapshot and the Routines), then a first message.
+          The first message holds the Bot's environment, the name of every tool and, after a
+          Summary, the Summary.
+        </li>
+        <li><strong>History.</strong> It is only ever added to at the end.</li>
+        <li>
+          <strong>The newest message.</strong> The time, then the Change notes, then what woke the
+          Bot.
+        </li>
+      </ol>
+      <p>
+        Before step 8, parts of the start moved. The memory snapshot was ranked again at each Turn's
+        start, and its Notes window slides by the day. Older Triggers were cut to 2,048 characters
+        once they stopped being the newest, so the history shifted too. Nothing marked the prompt
+        for caching on Anthropic, so nothing was cached there.
+      </p>
+
+      <h2><span class="num">2</span>Freezing the start, and telling the Bot what changed</h2>
+      <figure id="freeze">
+        <figcaption>
+          The start is stored once and sent as the same bytes. What changed goes in the newest
+          message.
+        </figcaption>
+      </figure>
+      <p>
+        The Bot's first Turn builds a Prompt start and stores it in the
+        <code>bot_prompt_start</code> table. The sections are stored with a hash of each one. Every
+        model call, and every replay of a Turn after a crash, sends those stored bytes. The tools
+        are stored too, so a deploy cannot change the definitions a Step sends.
+      </p>
+      <p>
+        The world still moves. The Turn still reads memory and the Routines every time. It compares
+        them with what the Bot has already seen (the Prompt start plus the notes in earlier inputs)
+        and writes the difference as Change notes, after the time. The notes start with
+        <code>[What changed since your prompt was built]</code>. They cover three things:
+      </p>
+      <ul>
+        <li>memory lines added or removed, with their text;</li>
+        <li>Routines created, approved, changed or deleted;</li>
+        <li>tools whose definition changed in a deploy.</li>
+      </ul>
+      <p>The Bot's own file writes during a Turn get no note. It knows what it wrote.</p>
+      <p>
+        Two more rules keep the history from changing. The exact newest message is stored in
+        <code>bot_turn.input</code>, and later Turns read it back instead of building it again. So
+        the time and the Change notes stay in the history as they were. And the tool list never
+        changes: only a short list of tools is sent in <code>tools</code>, and the rest (Routines,
+        Check-ins, Helper management, and browser, desktop, plugin and connector tools) are
+
+        <em>Deferred tools</em>, listed by name in the first message. A tool a deploy adds is
+        deferred too, so it can be called through <code>run_tool</code> without a new start.
+      </p>
+
+      <h2><span class="num">3</span>Keeping the context small</h2>
+      <p>
+        A small context is cheaper to cache and to read (slide 33). Two rules keep big things out of
+        it. A tool result or Trigger text over 10,000 characters keeps its first and last 2,000
+        characters, with
+        <code>[... N characters left out ...]</code> between them. The full text goes to
+        <code>.outputs/&lt;id&gt;.txt</code> on the Computer, and the result names the path. The
+        <code>read</code> tool pages at 10,000 characters and returns a <code>nextOffset</code>.
+      </p>
+      <p>
+        A conversation can still grow. That is what a Summary is for. Writing one builds a
+        <em>new</em> Prompt start: the memory snapshot and the Routines are read again, and the
+        Summary goes at the end of the first message. After the Bot's first Turn, this is the only
+        time the start moves. It happens in two ways:
+      </p>
+      <figure id="summary">
+        <figcaption>
+          A Summary is written while the user is away, or mid-Turn. Either way a new Prompt start
+          follows it.
+        </figcaption>
+      </figure>
+      <ul>
+        <li>
+          <strong>While the user is away.</strong> A Turn whose last Step sent more than 100,000
+          tokens queues a <code>bot.summarize-away</code> job for 10 minutes after the Turn ends,
+          while the cache is still warm. A new Turn cancels it. It is skipped if a Helper, a queued
+          Trigger, or a Check-in or Routine due within 50 minutes is about to wake the Bot anyway.
+          If a Turn started after the newest one it saw, its result is thrown away.
+        </li>
+        <li>
+          <strong>Mid-Turn.</strong> Before a Step's model call, if the previous Step's input was
+          over 75% of the model's context window, the Turn writes a Summary first. It is a recorded
+          activity, so a crash reuses it and it is billed once. The Turn goes on with the new Prompt
+          start and its own input sent again.
+        </li>
+      </ul>
+
+      <h2><span class="num">4</span>Telling each provider</h2>
+      <p>
+        The stable start only helps if the provider is asked to cache it. The code in
+        <code>cache-control.ts</code> adds the settings for each provider:
+      </p>
+      <ul>
+        <li>
+          <strong>Anthropic:</strong> a breakpoint on the last system block, one on the first
+          message and an automatic one for the moving end of history. All three last 1 hour, not the
+          default 5 minutes, so a Summary 10 minutes later still reads the cache.
+        </li>
+        <li>
+          <strong>OpenAI:</strong> a <code>prompt_cache_key</code> of
+          <code>bot:&lt;botId&gt;</code> (a Helper uses <code>helper:&lt;helperId&gt;</code>), so
+          calls land on the same cache.
+        </li>
+        <li>
+          <strong>The ChatGPT plan:</strong> it sends the same key but is treated as uncached. The
+          probe in #664 found the plan caches nothing.
+        </li>
+        <li><strong>Gemini and the rest:</strong> nothing extra.</li>
+      </ul>
+      <p>
+        The meter records cache reads and writes. A cache read costs the Model's
+        <code>cacheReadUsdPerMillion</code> from <code>HOST_MODELS</code>, and a write costs its
+        <code>cacheWriteUsdPerMillion</code>. When the Host has not set one, that price is the input
+        rate. Anthropic prices a 1-hour write at 2× input, so a Host on Anthropic sets the write
+        price itself. The user's own key and the ChatGPT plan still write rows, with cost 0.
+      </p>
+      <p>
+        The page can also warm the cache (slide 32). It calls <code>bot.warm</code> when the
+        Conversation opens and on the first keystroke of a draft, at most once a minute per tab. A
+        warm is skipped while a Turn runs, while the last model call is less than the cache lifetime
+        minus 5 minutes ago, and for providers with no warming call.
+      </p>
+
+      <h2><span class="num">5</span>Reading the cache chip</h2>
+      <figure id="chip">
+        <figcaption>
+          Each model call records a hash of every section it sent. The chip shows what that meant.
+        </figcaption>
+      </figure>
+      <p>
+        On every model call the code hashes each section: the tools, each system block, the first
+        message and the history. It compares them, in order, with the Bot's previous call. The
+        <em>first</em> section that differs is flagged, because everything after it is new anyway.
+        The flag is <code>bug</code> if the previous call sent the same Prompt start, and
+        <code>expected</code> if it sent another one. For history, only the newest message may be
+        new.
+      </p>
+      <p>
+        Under each Turn in the thread, the chip reads
+        <code>Cache 66% · 3 Steps · $x</code>. The percent is the cache-read tokens over the input
+        tokens of all the Turn's Steps. It turns red and reads
+        <code>⚠ Cache miss: &lt;section&gt;</code>
+        when any Step has a bug miss. Click it to see each Step's prompt as a bar sized by tokens,
+        with every section's short hash.
+      </p>
+      <p>
+        Here is one Turn with three Steps. The numbers are made up to teach with. They are not a
+        measurement.
+      </p>
+      <ol class="steps">
+        <li>
+          <strong>Step 1 sent 20,000 tokens and read 0.</strong> Suppose the cache is cold, as on
+          the Bot's very first call or after a Summary. The tokens are written to the cache. (A
+          later Turn on the same Prompt start normally reads the cache from its first Step.)
+        </li>
+        <li>
+          <strong>Step 2 sent 20,500 and read 20,000.</strong> The Prompt start is the same, and
+          history grew by one message. The 20,000 come from the cache, and the new 500 are written.
+        </li>
+        <li><strong>Step 3 sent 21,000 and read 20,500.</strong> The same again.</li>
+      </ol>
+      <p>
+        The chip: 40,500 read of 61,500 sent is
+        <code>Cache 66% · 3 Steps</code>. Here Step 1 holds the Turn's percent down. That is the
+        cost of a cold write.
+      </p>
+      <p>
+        <strong>A bug miss.</strong> Suppose a change puts the current time into a system block.
+        Step 2 now sends a different hash for that block than Step 1 did, and the Prompt start is
+        the same one. The chip turns red: <code>⚠ Cache miss: &lt;that block&gt;</code>. Expanded,
+        the section row reads <code>#a1b2c3 → #d4e5f6</code>, and the Step says "A bug: that block
+        changed, so everything after it was written again." The fix is to move the time out of the
+        system block into the newest message, where it belongs.
+      </p>
+      <p>
+        <strong>An expected miss.</strong> Now suppose the user was away and a Summary was written.
+        Their next Turn starts on the new Prompt start. Its first Step differs from the earlier
+        call, and the Prompt start id is different too. If memory and the Routines did not change,
+        the first section to differ is <code>first_message</code>, which now holds the Summary. The
+        step reads "Expected: first_message changed with a new Prompt start." and the chip stays its
+        normal colour. The next Step is back to reading the cache. If the Summary came 10 minutes
+        after the last Turn, the 1-hour breakpoints are why the Summary call itself still read the
+        old cache.
+      </p>
+      <p>
+        When there is a Summary, a card also shows in the thread: "Summarized while you were away"
+        or "Summarized mid-Turn". Expand it to read the text and the 3 Messages kept word for word.
+        A warm shows as a one-line note: "Cache warmed" with its cost.
+      </p>
+      <p class="hint">
+        Real-model eval results for this step are not in yet. The cache eval is run by hand on a
+        real Anthropic key and fails on any bug miss (ticket #678). The numbers above are not from
+        it.
+      </p>
+
+      <h2>Try it</h2>
+      <div
+        class="quiz"
+        data-answer="1"
+        data-why="A memory line added since the Prompt start goes in a Change note. The start stays the same until a Summary."
+      >
+        <div class="label">Quiz 1</div>
+        <p class="q">
+          Midway through a day, a new memory line is saved. Where does the Bot learn about it?
+        </p>
+        <ol class="opts">
+          <li data-why="That would change the start and miss the cache. The start is frozen.">
+            In a rebuilt system prompt on the next call
+          </li>
+          <li>In a Change note in the next Turn's newest message</li>
+          <li
+            data-why="The Bot would not know about it until a Summary. A Change note tells it sooner."
+          >
+            It doesn't, until the next Summary
+          </li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+      <div
+        class="quiz"
+        data-answer="0"
+        data-why="Same Prompt start, but a section differs from the previous call, so it is a bug. Only a new Prompt start makes a miss expected."
+      >
+        <div class="label">Quiz 2</div>
+        <p class="q">
+          Step 4 of a Turn shows a red cache miss on a system block. No Summary was written. Is it a
+          bug?
+        </p>
+        <ol class="opts">
+          <li>Yes. The Prompt start is the same, so no section should differ</li>
+          <li
+            data-why="Expected misses need a different Prompt start, which only a Summary builds."
+          >
+            No. Every Step may miss a little
+          </li>
+          <li data-why="A Turn is not a Prompt start. The previous call sent the same one.">
+            No. A new Turn always builds a new start
+          </li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+
+      <section class="takeaways">
+        <h2>Key takeaways</h2>
+        <p class="one-thing">
+          <strong>If you remember only one thing:</strong> the start of the prompt is stored and
+          never changes until a Summary, so a provider can reuse it. What changes goes at the end.
+        </p>
+        <ul>
+          <li>
+            <strong>A stored Prompt start.</strong> Tools, system blocks and a first message, sent
+            as the same bytes on every call and every replay.
+          </li>
+          <li>
+            <strong>Change notes, not a new start.</strong> Memory, Routines and tool changes go
+            into the newest message, which is then stored.
+          </li>
+          <li>
+            <strong>A Summary is the only reset.</strong> It builds a new start, and the one miss
+            after it is flagged as expected.
+          </li>
+          <li>
+            <strong>A hash per section, per call.</strong> The first section that changed names the
+            bug.
+          </li>
+        </ul>
+        <p class="selftest">
+          Self-test: cover this box and say what happens, step by step, from a memory line being
+          added to the next Turn's newest message, and what the chip shows for that Turn.
+        </p>
+      </section>
+
+      <details class="deeper">
+        <summary>Go deeper: sources, side notes and a challenge</summary>
+        <h3>The lecture and the decisions</h3>
+        <ul>
+          <li>
+            Slides 24, 31, 32, 33 and 34 of the lecture: tools kept small, the prompt laid out from
+            stable to volatile, cache misses treated as bugs and warming, a small main context, and
+            summarizing while the user is away.
+          </li>
+          <li>
+            Decision:
+            <a href="../../../docs/adr/0022-a-bots-memory-is-plain-files-on-its-computer.md"
+              >ADR 0022</a
+            >, amended so the memory snapshot and Routines in the Prompt start stay frozen until a
+            Summary.
+          </li>
+          <li>
+            Spec:
+            <a href="https://github.com/Daanish2003/ai-chat/issues/665"
+              >Bot step 8, Context engineering (#665)</a
+            >.
+          </li>
+        </ul>
+        <h3>Side notes</h3>
+        <ul>
+          <li>
+            Section sizes in the chip are estimates, at 4 characters a token. The provider's own
+            read and write counts are laid over them as fractions of the input.
+          </li>
+          <li>
+            The tool schemas are checked to stay under 4,000 characters of description and schema
+            each (slide 24).
+          </li>
+          <li>
+            A deploy cannot break a Step: Steps send the stored definitions, but calls run against
+            the current code, whose schema checks the arguments and answers with what to do next. A
+            removed tool answers "no longer available".
+          </li>
+        </ul>
+        <h3>What was left out</h3>
+        <p>
+          The cache is not shared between Bots: each Bot has its own key and its own start. The
+          real-model cache eval is being run by hand, and this lesson has no results from it.
+        </p>
+        <h3>Challenge</h3>
+        <p>
+          Read <code>promptHashesOf</code> in <code>prompt-start.ts</code>. When no section differs,
+          how does it decide whether history is a bug? Why is it enough to compare only the messages
+          the previous call sent? Tell your teacher.
+        </p>
+      </details>
+
+      <div class="footer-box">
+        <p>
+          <strong>Primary source:</strong>
+          <a href="../../../packages/bot-sdk/plugins/bot/server/prompt-start.ts"
+            ><code>prompt-start.ts</code></a
+          >,
+          <a href="../../../packages/bot-sdk/plugins/bot/server/change-notes.ts"
+            ><code>change-notes.ts</code></a
+          >,
+          <a href="../../../packages/bot-sdk/plugins/bot/server/summary.ts"
+            ><code>summary.ts</code></a
+          >, then
+          <a href="../../../packages/bot-sdk/plugins/bot/ui/bot-cache-chip.tsx"
+            ><code>bot-cache-chip.tsx</code></a
+          >.
+        </p>
+        <p>
+          <strong>Cheat sheets:</strong> <a href="../reference/package-map.html">Package map</a> ·
+          <a href="../reference/names.html">Names</a>
+        </p>
+        <p>
+          <strong>Stuck or curious?</strong> Ask your teacher (Claude) anything: "what is a Prompt
+          start?", "why is that miss expected?", or "quiz me again".
+        </p>
+        <div class="nav">
+          <a href="0016-how-the-agent-remembers.html">← Lesson 16: How the agent remembers</a
+          ><a href="../index.html">Course contents →</a>
+        </div>
+      </div>
+    </main>
+
+    <script src="../assets/diagrams.js"></script>
+    <script src="../assets/names.js" data-upto="17"></script>
+    <script src="../assets/explainer.js"></script>
+    <script src="../assets/quiz.js"></script>
+    <script>
+      const D = Diagrams;
+
+      // Section 1: the layers.
+      D.render(
+        "#layers",
+        D.svg(
+          760,
+          250,
+          D.box(10, 20, 330, 56, "Prompt start", {
+            tone: "ok",
+            sub: "tools, system blocks, first message",
+          }) +
+            D.text(360, 52, "never changes until a Summary", { tone: "faint" }) +
+            D.box(10, 96, 330, 56, "History", { tone: "blue", sub: "only added to at the end" }) +
+            D.text(360, 128, "grows by appending", { tone: "faint" }) +
+            D.box(10, 172, 330, 56, "Newest message", {
+              tone: "warn",
+              sub: "time, Change notes, what woke the Bot",
+            }) +
+            D.text(360, 204, "new on every Turn", { tone: "faint" }),
+          { label: "The prompt from stable to volatile: Prompt start, history, newest message" },
+        ),
+      );
+
+      // Section 2: freezing the start.
+      D.render(
+        "#freeze",
+        D.svg(
+          760,
+          230,
+          D.box(10, 20, 220, 56, "Memory, Routines, tools", {
+            tone: "warn",
+            sub: "read live each Turn",
+          }) +
+            D.arrow(230, 48, 300, 48, { label: "compare" }) +
+            D.box(300, 20, 200, 56, "Change notes", { tone: "blue", sub: "the difference" }) +
+            D.arrow(500, 48, 560, 48) +
+            D.box(560, 20, 190, 56, "Newest message", { tone: "warn", sub: "stored as input" }) +
+            D.box(10, 132, 220, 56, "bot_prompt_start", {
+              tone: "ok",
+              sub: "stored sections + hashes",
+            }) +
+            D.arrow(230, 160, 300, 160, { label: "same bytes" }) +
+            D.box(300, 132, 200, 56, "Every call", { tone: "ok", sub: "and every replay" }),
+          { label: "The Prompt start is stored and resent; changes go in the newest message" },
+        ),
+      );
+
+      // Section 3: the Summary.
+      D.render(
+        "#summary",
+        D.svg(
+          760,
+          190,
+          D.box(10, 40, 170, 60, "Big Turn ends", { tone: "faint", sub: "over 100,000 tokens" }) +
+            D.arrow(180, 70, 215, 70, { label: "10 min" }) +
+            D.box(215, 40, 150, 60, "Summary", { tone: "blue", sub: "written while warm" }) +
+            D.arrow(365, 70, 400, 70) +
+            D.box(400, 40, 160, 60, "New Prompt start", {
+              tone: "ok",
+              sub: "Summary in message 1",
+            }) +
+            D.arrow(560, 70, 595, 70) +
+            D.box(595, 40, 155, 60, "Next Turn", { tone: "ok", sub: "one expected miss" }) +
+            D.text(
+              10,
+              150,
+              "Mid-Turn, the same happens when a Step's input passes 75% of the window.",
+              {
+                tone: "faint",
+              },
+            ),
+          { label: "A Summary builds a new Prompt start; the next Turn has one expected miss" },
+        ),
+      );
+
+      // Section 5: the chip.
+      D.render(
+        "#chip",
+        D.svg(
+          760,
+          230,
+          D.box(10, 20, 150, 56, "Step 1", { tone: "blue", sub: "all written" }) +
+            D.box(180, 20, 150, 56, "Step 2", { tone: "ok", sub: "read + 500 new" }) +
+            D.box(350, 20, 150, 56, "Step 3", { tone: "ok", sub: "read + 500 new" }) +
+            D.arrow(500, 48, 560, 48) +
+            D.box(560, 20, 190, 56, "Cache 66% · 3 Steps", { tone: "ok", sub: "made-up numbers" }) +
+            D.box(10, 132, 230, 56, "Bug: a section changed", {
+              tone: "warn",
+              sub: "same Prompt start",
+            }) +
+            D.arrow(240, 160, 300, 160) +
+            D.box(300, 132, 260, 56, "⚠ Cache miss: <section>", { tone: "warn", sub: "red chip" }) +
+            D.text(
+              10,
+              214,
+              "After a Summary the first Step is flagged expected, and the chip stays normal.",
+              {
+                tone: "faint",
+              },
+            ),
+          { label: "The chip shows the Turn's cache percent, red on a bug miss" },
+        ),
+      );
+
+      // Video.
+      Explainer.mount("#video", {
+        title: "Lesson 17 in about 1 minute",
+        width: 760,
+        height: 300,
+        scenes: [
+          {
+            say: "A provider reuses the start of a prompt only if it is the same, byte for byte.",
+            draw: (t, A) =>
+              D.box(40, 110, 200, 50, "Same start", { tone: "ok" }) +
+              D.box(300, 110, 170, 50, "Cache read", {
+                tone: "blue",
+                opacity: A.step(t, 0.4, 0.8),
+              }),
+          },
+          {
+            say: "So the Prompt start is stored and frozen. What changed goes into the newest message as a Change note.",
+            draw: (t, A) =>
+              D.box(40, 110, 200, 50, "Frozen start", { tone: "ok" }) +
+              D.box(300, 110, 200, 50, "Change note", {
+                tone: "warn",
+                opacity: A.step(t, 0.4, 0.8),
+              }),
+          },
+          {
+            say: "Only a Summary builds a new start. The next Step misses the cache once, and that is expected.",
+            draw: (t, A) =>
+              D.box(40, 110, 200, 50, "Summary", { tone: "blue" }) +
+              D.box(300, 110, 200, 50, "New start", {
+                tone: "ok",
+                opacity: A.step(t, 0.4, 0.8),
+              }),
+          },
+          {
+            say: "Every call hashes each section. A change with no new start is a bug, and the chip turns red.",
+            draw: (t, A) =>
+              D.box(40, 110, 200, 50, "Hash changed", { tone: "warn" }) +
+              D.box(300, 110, 200, 50, "Red chip", {
+                tone: "warn",
+                opacity: A.step(t, 0.5, 0.9),
+              }),
+          },
+        ],
+      });
+    </script>
+  </body>
+</html>

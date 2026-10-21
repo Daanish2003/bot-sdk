@@ -10,6 +10,7 @@ import {
   botTurn,
   computer as computerTable,
   job,
+  jobEvent,
   usage,
 } from "../../../../core/server/db/schema";
 import type { Database } from "../../../../core/server/db/index";
@@ -62,7 +63,9 @@ afterEach(async () => {
 
 /** Whether a model call is a Helper's: its system prompt says so. */
 const isHelperCall = (options: TextOptions) =>
-  (options.systemPrompts ?? []).some((prompt) => String(prompt).startsWith("You are a Helper"));
+  (options.systemPrompts ?? []).some((prompt) =>
+    (typeof prompt === "string" ? prompt : prompt.content).startsWith("You are a Helper"),
+  );
 
 /**
  * One adapter over two scripts, so a Helper's job and a Turn never race for the same round: the
@@ -458,15 +461,16 @@ describe("a Helper's Quota and usage", () => {
     await settled(botId);
 
     const rows = (await usageOf(user.id)).filter((row) => row.kind === "helper");
-    expect(rows).toMatchObject([
-      { kind: "helper", model: hostModel, inputTokens: 100, outputTokens: 10 },
-      { kind: "helper", model: hostModel, inputTokens: 100, outputTokens: 10 },
-    ]);
     const [helper] = await helpersOf(botId);
+    const sourceId = helper!.id;
+    expect(rows).toMatchObject([
+      { kind: "helper", model: hostModel, inputTokens: 100, outputTokens: 10, sourceId },
+      { kind: "helper", model: hostModel, inputTokens: 100, outputTokens: 10, sourceId },
+    ]);
     expect(helper?.usage).toMatchObject({ input: 200, output: 20 });
   });
 
-  it("runs on the user's linked ChatGPT plan, with no usage row, when the Bot is on a plan Model (ADR 0023)", async () => {
+  it("runs on the user's linked ChatGPT plan, with usage rows at cost 0, when the Bot is on a plan Model (ADR 0023)", async () => {
     const { client, botId, user, helperFake, adapterCredentials } = await botWith(
       [handsOff("Count."), round()],
       [round(shell("true")), round(text("Done."))],
@@ -482,7 +486,9 @@ describe("a Helper's Quota and usage", () => {
     expect(new Set(adapterCredentials.map((credentials) => credentials.apiKey))).toEqual(
       new Set([planCredentials.apiKey]),
     );
-    expect(await usageOf(user.id)).toEqual([]);
+    const planRows = await usageOf(user.id);
+    expect(planRows.filter((row) => row.kind === "helper")).toHaveLength(2);
+    expect(planRows.every((row) => row.costMicros === 0)).toBe(true);
   });
 
   it("refuses start_helper once the Quota is spent, with a next step", async () => {
@@ -862,6 +868,43 @@ describe("checking on a Helper (#591)", () => {
     expect(errors).toEqual(Array.from({ length: 5 }, () => ({ error: noHelperError })));
     expect((await helpersOf(other.botId))[0]?.status).toBe("running");
     expect(await getTestDb().select().from(botHelperMessage)).toEqual([]);
+  });
+});
+
+describe("a long check_helper result (#665)", () => {
+  it("is saved on the Computer after its Checkpoint commits, not inside its transaction", async () => {
+    const ids: string[] = [];
+    const task = `Count every file. ${"x".repeat(12_000)}`;
+    const { client, botId, computerFake } = await botWith(
+      [
+        handsOff(task),
+        () => round(checkHelper(ids[0]!), sends({ text: "Still counting.", endTurn: true })),
+      ],
+      [],
+      { manualHelpers: true },
+    );
+    await send(client, botId, "count them");
+    ids.push((await helpersOf(botId))[0]!.id);
+    // At each spill, whether check_helper's Checkpoint was already committed.
+    const committedAtSpill: boolean[] = [];
+    const writeFile = computerFake.provider.writeFile;
+    computerFake.provider.writeFile = async (sandboxId, path, content) => {
+      if (path.includes("/.outputs/")) {
+        const saved = await getTestDb()
+          .select({ name: jobEvent.name })
+          .from(jobEvent)
+          .where(eq(jobEvent.name, "check_helper"));
+        committedAtSpill.push(saved.length > 0);
+      }
+      return writeFile(sandboxId, path, content);
+    };
+
+    await send(client, botId, "how is it going?");
+
+    expect(committedAtSpill).toEqual([true]);
+    const [, turn] = await turnsOf(botId);
+    const result = (turn?.transcript ?? []).find((entry) => entry.role === "tool");
+    expect(String(result?.content)).toMatch(/The full text is saved at .*.outputs/);
   });
 });
 

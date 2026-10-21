@@ -875,6 +875,70 @@ window.NAMES = [
       "The runner job that runs a Bot's post-turn pass after a Turn ends complete or stopped. It returns add, replace and remove operations.",
     example: "key memory-pass:<turnId>",
   },
+  {
+    lesson: 17,
+    name: "bot_prompt_start",
+    kind: "table/column",
+    meaning:
+      "A Bot's stored Prompt start: the exact tool definitions sent and the sections (name, text, hash). Every model call and replay sends these bytes. bot_turn.prompt_start_id points at it.",
+    example: "sections: [{ name: 'first_message', text, hash }]",
+  },
+  {
+    lesson: 17,
+    name: "bot_turn.input",
+    kind: "table/column",
+    meaning:
+      "The exact newest message a Turn sent, time and Change notes included. Later Turns read it back, so history is never built again.",
+    example: "[What changed since your prompt was built]",
+  },
+  {
+    lesson: 17,
+    name: "bot_summary",
+    kind: "table/column",
+    meaning:
+      "A Summary of a Bot's older Messages, with its kind (away or mid_turn). Writing one builds a new Prompt start.",
+    example: "kind: 'away'",
+  },
+  {
+    lesson: 17,
+    name: "describe_tool / run_tool",
+    kind: "function",
+    meaning:
+      "The two tools that reach Deferred tools, listed by name in the first message. describe_tool loads a definition; run_tool calls the tool.",
+    example: "run_tool({ name: 'create_routine', args })",
+  },
+  {
+    lesson: 17,
+    name: "withCacheControl",
+    kind: "function",
+    meaning:
+      "Adds each provider's cache settings: 1-hour breakpoints on Anthropic, a prompt_cache_key on OpenAI and the ChatGPT plan.",
+    example: "prompt_cache_key: 'bot:<botId>'",
+  },
+  {
+    lesson: 17,
+    name: "promptHashesOf",
+    kind: "function",
+    meaning:
+      "Hashes every section a model call sends and flags the first one that differs from the previous call: bug, or expected after a new Prompt start.",
+    example: "{ name: 'first_message', hash, changed: 'expected' }",
+  },
+  {
+    lesson: 17,
+    name: "bot.summarize-away",
+    kind: "job",
+    meaning:
+      "The runner job that writes a Summary 10 minutes after a Turn whose last Step sent over 100,000 tokens. A new Turn cancels it.",
+    example: "key summary-away:<botId>",
+  },
+  {
+    lesson: 17,
+    name: "bot.warm",
+    kind: "route",
+    meaning:
+      "The procedure the page calls when a Conversation opens or a draft starts, to refill the provider's cache. It skips while a Turn runs or the cache is still warm.",
+    example: "at most once a minute per tab",
+  },
 ];
 
 (function () {

@@ -203,7 +203,8 @@ export function desktopTools(
           ? act(computer, slot, input as Input, live, keep)
           : { error: noVisionError },
       );
-      if ("error" in done) return done;
+      // A result over the long-output limit comes back as its cut text, a string.
+      if (typeof done === "string" || "error" in done) return done;
       const { result, screenshotId, ...rest } = done as DesktopResult & { note?: string };
       const parts: ContentPart[] = [
         { type: "text", content: JSON.stringify({ result, ...rest }) },

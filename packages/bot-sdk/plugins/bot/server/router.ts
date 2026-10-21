@@ -11,6 +11,7 @@ import {
 } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
+import { cancelAwaySummary } from "./summary";
 
 /** The runner job that runs one Turn (`botTurnJob` in `turn.ts`). */
 export const botTurnJobName = "bot.turn";
@@ -153,7 +154,10 @@ export async function turnEnded(
   return startTurn(deps, tx, ended.conversationId);
 }
 
-/** Creates a Turn that takes every Trigger waiting in the Conversation queue, and queues its job. */
+/**
+ * Creates a Turn that takes every Trigger waiting in the Conversation queue, and queues its job. It
+ * cancels the Bot's away Summary, so the user's Turn is never delayed by one.
+ */
 async function startTurn(
   deps: BotSdkContext,
   tx: Transaction,
@@ -167,6 +171,7 @@ async function startTurn(
     .from(bot)
     .where(eq(bot.conversationId, conversationId));
   if (!owner) throw new Error(`Conversation ${conversationId} has no Bot`);
+  await cancelAwaySummary(deps, tx, owner.id);
   // Until its job starts and sets it (`turnStarted`), the Turn starts after every Message its
   // Triggers carry, even one stamped by a process whose clock runs ahead.
   const [newest] = await tx

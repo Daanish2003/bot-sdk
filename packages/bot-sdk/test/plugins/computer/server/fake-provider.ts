@@ -10,7 +10,7 @@ import {
 } from "../../../../plugins/computer/server/provider";
 import {
   fetchedLineBytes,
-  maxPageBytes,
+  maxFetchedBytes,
   readScript,
   sizeScript,
 } from "../../../../plugins/bot/server/computer-tools";
@@ -383,7 +383,7 @@ function fileToolCommand(disk: Disk, command: string, cwd: string): CommandResul
   let page = "";
   for (const line of lines.slice(first - 1, last)) {
     const cut = line.slice(0, fetchedLineBytes);
-    if (page.length + cut.length + 1 > maxPageBytes) break;
+    if (page.length + cut.length + 1 > maxFetchedBytes) break;
     page += `${cut}\n`;
   }
   return report(header + Buffer.from(page, "latin1").toString("base64"));

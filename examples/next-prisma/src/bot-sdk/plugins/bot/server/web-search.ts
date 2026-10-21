@@ -69,7 +69,8 @@ export function webSearchTool(
         }
       },
       async (tx, searched) => {
-        if (!("results" in searched)) return;
+        // A long result is recorded as its cut text, and is billed like any that found results.
+        if (typeof searched !== "string" && !("results" in searched)) return;
         call ??= await resolve();
         if (call) usageRecorded = await call.meter.recordIn(tx);
       },

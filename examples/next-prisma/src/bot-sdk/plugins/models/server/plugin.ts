@@ -40,6 +40,7 @@ import {
   transcriptionAdapterFor,
   transcriptionProviders,
 } from "./transcription";
+import { freeModelMeter, type ModelMeter } from "./meter";
 import { reconnectChatgptAdapter } from "./chatgpt-plan";
 import type {
   Credentials,
@@ -131,6 +132,11 @@ export type ModelsApi = {
    * plan's way (ADR 0023). A broken link gives an adapter that fails asking to reconnect ChatGPT.
    */
   adapterForCall: (model: string, call: ModelCall) => AnyTextAdapter;
+  /**
+   * The meter of a call to `model` on the user's own key or linked plan that is still recorded, at
+   * cost 0: a Bot's calls, so its cache use shows whoever pays (#667).
+   */
+  freeModelMeter: (userId: string, model: string) => ModelMeter;
   /** The image adapter for an Image Model, or `undefined` (`ModelsDeps.imageAdapterFor`). */
   imageAdapterFor: ModelsDeps["imageAdapterFor"];
   /** The size and provider options one image call sends (spec #278). */
@@ -143,7 +149,10 @@ export type ModelsApi = {
   readonly defaultImageModel: string | null;
   // `usageTotals`, `usage` and `quota` are server-only reads for the Host's Admin views (spec #277).
   // No HTTP route: the Host decides who may call them. They never return Conversation content.
-  /** Every user's calls on Host credentials created in `[since, until)`. */
+  /**
+   * Every user's recorded calls created in `[since, until)`: on Host credentials, and at cost 0 on
+   * their own key or linked plan (#667).
+   */
   usageTotals: (range: { since: Date; until: Date }) => Promise<UsageTotal[]>;
   /** One user's calls per UTC day and Model in `[since, until)` (spec #277). */
   usage: (args: { userId: string; since: Date; until: Date }) => Promise<UsageByDay[]>;
@@ -281,6 +290,7 @@ function modelsApi(deps: ModelsDeps): ModelsApi {
             maxOutputTokens: call.maxOutputTokens,
             ...(call.linked === "plan" && { linked: true }),
           }),
+    freeModelMeter: (userId, model) => freeModelMeter(deps, userId, model),
     imageAdapterFor: (model, credentials) => deps.imageAdapterFor(model, credentials),
     imageRequestFor,
     get byok() {

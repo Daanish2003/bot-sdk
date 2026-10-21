@@ -15,6 +15,7 @@ import { job } from "../../../runner/server/db/job";
 import type { BotMemoryChange } from "../../../memory/shared/changes";
 import type { MessageUsage } from "../../../models/shared/usage";
 import { bot } from "./bot";
+import { botPromptStart } from "./bot-prompt-start";
 
 /** How a Turn stands: `running` until it ends `complete`, `error` or `stopped`. */
 export const botTurnStatus = chatSchema.enum("bot_turn_status", [
@@ -49,6 +50,20 @@ export const botTurn = chatSchema.table(
      * before Turns ran as jobs.
      */
     jobId: uuid("job_id").references((): AnyPgColumn => job.id, { onDelete: "set null" }),
+    /**
+     * The newest message the Turn sent, exactly as sent: what arrived since the last Turn that sent
+     * one, the newest opening with its time and to-do notes. Later Turns replay it, then the
+     * `transcript`, so history only grows at the end. Null until the Turn saves it before its first
+     * model call, and for a Turn that never got that far.
+     */
+    input: jsonb("input").$type<ModelMessage[]>(),
+    /**
+     * The Prompt start the Turn's model calls send, set before its first one: the Bot's latest, or
+     * the one its first Turn builds. After a mid-Turn Summary, its later calls send the Summary's.
+     */
+    promptStartId: uuid("prompt_start_id").references((): AnyPgColumn => botPromptStart.id, {
+      onDelete: "set null",
+    }),
     /** The Turn's model messages, after its input. Null until the Turn ends. */
     transcript: jsonb("transcript").$type<ModelMessage[]>(),
     /**

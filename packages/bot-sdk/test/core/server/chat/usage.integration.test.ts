@@ -102,6 +102,10 @@ describe("chat.usage for a Run", () => {
         inputTokens: 100,
         outputTokens: 50,
         // 100 × $3/M + 50 × $15/M = $0.00105
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        sourceId: null,
+        promptHashes: null,
         costMicros: 1050,
         estimated: false,
       },

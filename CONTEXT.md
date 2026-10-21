@@ -220,3 +220,15 @@ _Avoid_: App, surface, client, platform
 **Summary**:
 A short account of a Conversation's older Messages that a Bot works from in their place. The Bot's last few Messages to the user stay word for word.
 _Avoid_: Compaction, recap, digest
+
+**Prompt start**:
+The beginning of a Bot's prompt that stays exactly the same on every model call until the next Summary: its tools, its system prompt (including the memory snapshot and Routines as they were when it was built), and a first message with the Bot's environment and the names of its tools.
+_Avoid_: Prefix, header, preamble
+
+**Deferred tool**:
+A Bot tool that is listed by name in the first message but not sent in `tools`, so the tool list never changes. The Bot loads its definition with `describe_tool` and calls it with `run_tool`. Routine, Check-in and Helper management tools are deferred, and so are any tools a deploy adds.
+_Avoid_: Hidden tool, lazy tool
+
+**Change note**:
+A short line in the newest message telling a Bot what changed since its Prompt start was built, such as memory lines added or removed, a Routine created, or a tool changed by a deploy.
+_Avoid_: Diff, update, notice

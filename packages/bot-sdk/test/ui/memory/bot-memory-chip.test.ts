@@ -75,6 +75,7 @@ const turn = (
   sent: true,
   triggers: [{ source: "user", channel: "web", routineName: null, at: at(minute) }],
   memoryChanges,
+  steps: [],
 });
 
 /** A fetch that never answers, recording each request's URL. */
@@ -105,6 +106,8 @@ const seedGet = (queryClient: QueryClient, client: BotSdkClient, turns: BotTurnP
       said("m4", "assistant", "Anytime", 5.5),
     ],
     turns,
+    summaries: [],
+    warmings: [],
   });
 
 describe("the Memory updated chip on a Bot's Turn", () => {

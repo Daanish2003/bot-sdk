@@ -257,16 +257,21 @@ export function browserTools(
       ) => Promise<{ result?: string; snapshot: string } | { error: string }>,
     ) =>
     (input: Input, context?: { toolCallId?: string }) =>
-      computerCall(name, context?.toolCallId, async (computer) => {
-        const read = await run(computer, input);
-        if ("error" in read) return read;
-        const capped = await capSnapshot(
-          read.snapshot,
-          spillPath(botId, context?.toolCallId ?? uuidv7()),
-          computer.writeFile,
-        );
-        return read.result === undefined ? capped : { result: read.result, ...capped };
-      });
+      computerCall(
+        name,
+        context?.toolCallId,
+        async (computer) => {
+          const read = await run(computer, input);
+          if ("error" in read) return read;
+          const capped = await capSnapshot(
+            read.snapshot,
+            spillPath(botId, context?.toolCallId ?? uuidv7()),
+            computer.writeFile,
+          );
+          return read.result === undefined ? capped : { result: read.result, ...capped };
+        },
+        false,
+      );
 
   return [
     navigateDefinition.server(

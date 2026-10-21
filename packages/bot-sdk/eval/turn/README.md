@@ -205,3 +205,51 @@ Messages, and a judge check (same judge and results file format as above, saved 
 - **broken-tool:** a live score, with the user's Tavily key missing, so `web_search` says it isn't set
   up. Structural: no `computer_use` `start_helper` call, at least one Message. Judge: the reply tells
   the user it cannot look it up and asks what to do, and makes up no score.
+
+## Context engineering evals (spec #665, #678)
+
+Three evals of Bot step 8, in their own script (`eval/turn/context.ts`) because they use the `bot` and
+`memory` plugins together and a direct Anthropic key:
+
+```sh
+EVAL_DATABASE_URL=postgresql://postgres:password@127.0.0.1:5435/ai-chat_eval_context EVAL_BOT_MODEL=anthropic:claude-haiku-4-5 EVAL_JUDGE_MODEL=anthropic:claude-sonnet-4-5 ANTHROPIC_API_KEY=... pnpm -F @ai-chat/bot-sdk eval:context
+```
+
+`EVAL_BOT_MODEL`, `EVAL_JUDGE_MODEL`, `EVAL_REPEATS`, `EVAL_CONCURRENCY` and `--fake` work as above.
+`--only=cache,summary,tools` runs some of the three. `EVAL_REPEATS` defaults to 1 for the cache and
+Summary evals (each is big) and 3 for the tool search cases. The cache eval fails at start unless
+`EVAL_BOT_MODEL` is an `anthropic:` Model. Use a fresh `EVAL_DATABASE_URL` database (with pgvector)
+per run. Results are saved as `eval/turn/results/context-<time>.json`, with each run's usage rows,
+Summary text, replies and tool calls.
+
+- **cache:** a scripted Conversation of four user Messages and a Routine's run, a memory line added
+  twice between Turns, then a warm that is due (the Bot's usage rows are made two hours old and
+  `warmBot` runs), then one more Turn. Structural, from the user's `turn` and `warm` usage rows: no call
+  has a `bug` flag in `prompt_hashes`; every Turn call after the first reads at least 80% of the
+  Prompt start's estimated size (`tools`, system blocks, `first_message`) from the cache, unless it
+  is flagged `expected`; `warmBot` returns `warmed: true` and its `warm` row wrote or read the cache
+  with no output. That last part is the check of the Anthropic `max_tokens: 0` warming call (#677),
+  which no test has run against the real API: a rejection shows as `warmBot` skipping with
+  `unavailable` and a logged error ("Warming the cache of Bot ... failed").
+- **summary:** the Bot is told three facts (a dog's name, a flight number, a budget), then filed 45
+  pasted notes of 12,000 characters (about 120,000 tokens, over the away Summary's 100,000). One more
+  Turn ends over the threshold and queues the away Summary; the eval brings that job forward (it
+  waits 10 minutes otherwise) and waits for the Summary. Structural: a Summary is written, its text
+  holds the Bot's last 3 Messages to the user word for word, and a Turn that asks for the three facts
+  answers with all of them. Judge: the reply gives all three correctly. The mid-Turn Summary
+  (0.75 of the context window) is covered by the integration tests, not this eval.
+- **tool-reminder, tool-routine, tool-helper:** "remind me on Friday to renew my passport", "every
+  Monday at 9am send me my priorities" and "how is that desk research going?" (a running Helper is
+  seeded). Structural: `describe_tool` is called for `set_check_in`, `create_routine` or
+  `check_helper`, then `run_tool` with that name, the call is not an error, it is not called
+  directly, and the right row is there: a Check-in, a Routine, or the seeded Helper's task in
+  `check_helper`'s result.
+
+`--fake` plays a scripted Model instead of a real one. It proves the wiring and the scoring (the
+cache numbers are the script's own), not the cache or the Model.
+
+### Results
+
+Real results are pending: the three evals were built and checked offline (`--fake` and the scoring's
+unit tests) only. The summarize instruction (`summarizeInstruction` in `plugins/bot/server/summary.ts`)
+and the tool-name list in the Prompt start are to be tuned until these pass; record each run here.

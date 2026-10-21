@@ -3,7 +3,7 @@ import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { appendMessage } from "../../../../core/server/chat/message-tree";
-import { botRoutine, botTurn } from "../../../../core/server/db/schema";
+import { botPromptStart, botRoutine, botTurn } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { deleteUserData } from "../../../../core/server/user-data";
 import { bot } from "../../../../plugins/bot/server/plugin";
@@ -179,7 +179,7 @@ describe("createRoutine", () => {
 });
 
 describe("the system prompt's Routines", () => {
-  it("lists the Bot's Routines on the next Turn, sorted by name, pending ones marked (waiting for OK)", async () => {
+  it("lists the Bot's Routines in the next Prompt start built, sorted by name, pending ones marked (waiting for OK)", async () => {
     const { fake, client, botId } = await botWith([
       round(
         createRoutine(morningBrief),
@@ -197,6 +197,9 @@ describe("the system prompt's Routines", () => {
       (routine) => routine.name === "morning-brief",
     );
     await client.bot.routine.approve({ routineId: first!.id });
+    // The Prompt start keeps the Routines it was built with; the next one built (as a Summary
+    // would build it) lists them.
+    await getTestDb().delete(botPromptStart).where(eq(botPromptStart.botId, botId));
 
     await send(client, botId, "Thanks");
 

@@ -15,10 +15,27 @@ export type RoutineObserved = {
 
 export type RoutineScore = { passed: boolean; reasons: string[] };
 
+type Call = NonNullable<ModelMessage["toolCalls"]>[number];
+
+/** A call's tool name and arguments as text; a `run_tool` call is the tool it names. */
+function unwrapped(call: Call): { name: string; arguments: string } {
+  const { name, arguments: text } = call.function;
+  if (name !== "run_tool") return { name, arguments: text };
+  try {
+    const wrapped = JSON.parse(text) as { name?: unknown; args?: unknown };
+    if (typeof wrapped.name === "string") {
+      return { name: wrapped.name, arguments: JSON.stringify(wrapped.args ?? {}) };
+    }
+  } catch {
+    // Not JSON: it stays a `run_tool` call.
+  }
+  return { name, arguments: text };
+}
+
 /** The name of each tool call in a Turn's transcript, in order. */
 export function callNames(transcript: readonly ModelMessage[] | null | undefined): string[] {
   return (transcript ?? []).flatMap((entry) =>
-    (entry.toolCalls ?? []).map((call) => call.function.name),
+    (entry.toolCalls ?? []).map((call) => unwrapped(call).name),
   );
 }
 
@@ -29,9 +46,10 @@ export function callInputs(
 ): Record<string, unknown>[] {
   return (transcript ?? []).flatMap((entry) =>
     (entry.toolCalls ?? []).flatMap((call) => {
-      if (call.function.name !== tool) return [];
+      const { name, arguments: text } = unwrapped(call);
+      if (name !== tool) return [];
       try {
-        return [JSON.parse(call.function.arguments) as Record<string, unknown>];
+        return [JSON.parse(text) as Record<string, unknown>];
       } catch {
         return [];
       }
@@ -45,10 +63,11 @@ export function toolCallsOf(
 ): { name: string; args: unknown }[] {
   return (transcript ?? []).flatMap((entry) =>
     (entry.toolCalls ?? []).map((call) => {
+      const { name, arguments: text } = unwrapped(call);
       try {
-        return { name: call.function.name, args: JSON.parse(call.function.arguments) as unknown };
+        return { name, args: JSON.parse(text) as unknown };
       } catch {
-        return { name: call.function.name, args: call.function.arguments };
+        return { name, args: text };
       }
     }),
   );
