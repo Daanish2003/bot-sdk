@@ -258,6 +258,20 @@ cache numbers are the script's own), not the cache or the Model.
 
 ### Results
 
-Real results are pending: the three evals were built and checked offline (`--fake` and the scoring's
-unit tests) only. The summarize instruction (`summarizeInstruction` in `plugins/bot/server/summary.ts`)
-and the tool-name list in the Prompt start are to be tuned until these pass; record each run here.
+The summarize instruction (`summarizeInstruction` in `plugins/bot/server/summary.ts`) and the
+tool-name list in the Prompt start are tuned until these pass. Record each run here.
+
+**2026-10-21, ChatGPT plan, `openai:gpt-6.1-sol` (Bot and judge), `--only=summary,tools`:**
+
+- **First run:** summary 0/1, tool-reminder 0/3, tool-routine 3/3 and tool-helper 3/3.
+  - **Summary:** `seedHistory` stored the seeded Turns with no `input`. A Turn with no `input` reads
+    as one from before inputs were stored, so its user Messages were never rendered, and the Turn
+    sent about 5k tokens instead of 120k. It now stores the input a real Turn stores.
+  - **tool-reminder:** the Bot used `create_routine`, with a prompt that deletes itself after one
+    run. The one-line summaries now say a Routine repeats and is "never a one-time reminder", and
+    that a Check-in is "a one-time reminder or wake-up". The Routine rule in the system prompt points
+    one-time reminders at `set_check_in`.
+- **After those fixes:** summary 1/1 (judge 1/1), tool-reminder 3/3, tool-routine 3/3 and
+  tool-helper 3/3. Results: `context-2026-10-21T05-45-41-242Z.json`.
+
+**cache: not run yet.** It needs a direct Anthropic key, because the plan caches nothing (#664).
