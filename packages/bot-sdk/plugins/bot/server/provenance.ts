@@ -53,7 +53,10 @@ export async function turnProvenance(
       // A Demonstration's drafting pass wakes the Bot with `demonstration:<id>` (#720).
       .leftJoin(
         botDemonstration,
-        eq(botTrigger.id, sql`'demonstration:' || ${botDemonstration.id}::text`),
+        and(
+          eq(botDemonstration.botId, botId),
+          eq(botTrigger.id, sql`'demonstration:' || ${botDemonstration.id}::text`),
+        ),
       )
       .where(eq(botTurn.botId, botId))
       .orderBy(asc(botTrigger.receivedAt), asc(botTrigger.id)),
@@ -82,10 +85,12 @@ export async function turnProvenance(
     .sort((a, b) => a - b);
   return turns.map((turn) => {
     const next = sentAt[firstAtOrAfter(sentAt, turn.startedAt.getTime())];
-    // The Skill a drafting pass saved shows on the chip of the Turn it woke, before the Turn's own.
+    // The Skill a drafting pass saved shows on the chip of the Turn it woke, before the Turn's own
+    // changes, which keep its edits of that Skill.
     const drafted = draftedOf.get(turn.id) ?? [];
     const own = (turn.skillChanges ?? []).filter(
-      (change) => !drafted.some((saved) => saved.name === change.name),
+      (change) =>
+        !drafted.some((saved) => saved.name === change.name && saved.kind === change.kind),
     );
     return {
       ...turn,

@@ -39,6 +39,8 @@ const hostProviders: HostProvider[] = [
     models: [
       {
         modelId: "claude-sonnet-5-5",
+        // Listed without image input, so a drafting call on it sends no screenshot.
+        images: false,
         maxOutputTokens: 512,
         inputUsdPerMillion: 3,
         outputUsdPerMillion: 15,
@@ -415,6 +417,64 @@ describe("the drafting pass", () => {
         .from(usage)
         .where(and(eq(usage.userId, user.id), eq(usage.kind, "skill_draft"))),
     ).toEqual([]);
+  });
+
+  it("sends no screenshot to a model that can't read images", async () => {
+    const { fake, done, demonstrationId } = await demonstrating({
+      host: true,
+      drafts: [round(text(skillText("copy-payouts")))],
+    });
+
+    await done();
+
+    const [call] = fake.calls.filter(isDraft);
+    expect(hasImage(call!)).toBe(false);
+    expect(textOf((call!.messages ?? []) as ModelMessage[])).toContain("Export week");
+    expect(await rowOf(demonstrationId)).toMatchObject({ state: "saved" });
+  });
+
+  it("sets failed, writing nothing, when the draft isn't a usable Skill", async () => {
+    const broken = skillText("copy-payouts").replace(
+      "description: Use this when",
+      "description: Copies",
+    );
+    const { done, computerFake, demonstrationId } = await demonstrating({
+      drafts: [round(text(broken))],
+    });
+
+    await done();
+
+    expect(await rowOf(demonstrationId)).toMatchObject({ state: "failed", skillName: null });
+    expect([...computerFake.files.keys()].filter((path) => path.includes("/skills/"))).toEqual([]);
+    expect((await triggerOf(demonstrationId))?.text).toContain(
+      'description must start with "Use this when"',
+    );
+  });
+
+  it("keeps the woken Turn's own edit of the drafted Skill on its chip", async () => {
+    const { done, client, botId } = await demonstrating({
+      drafts: [round(text(skillText("copy-payouts")))],
+      turns: [
+        round(
+          toolCall({
+            name: "write",
+            input: {
+              path: "skills/copy-payouts/SKILL.md",
+              content: skillText("copy-payouts").replace("1. Open", "1. Sign in, then open"),
+            },
+          }),
+        ),
+        round(),
+      ],
+    });
+
+    await done();
+
+    const { turns } = await client.bot.get({ botId });
+    expect(turns.at(-1)?.skillChanges).toEqual([
+      { kind: "saved", name: "copy-payouts" },
+      { kind: "updated", name: "copy-payouts" },
+    ]);
   });
 });
 

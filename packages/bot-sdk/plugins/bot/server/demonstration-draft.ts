@@ -9,7 +9,7 @@ import type { ComputerHandle } from "../../computer/server/plugin";
 import { parseModelId } from "../../models/shared/models";
 import { promptCharactersOf, reportedUsageOf } from "../../models/server/run-usage";
 import { defineJob } from "../../runner/server/jobs/define";
-import { nameLimit, skillsDirectory } from "../../skills/server/skills";
+import { nameLimit, problemOf, skillsDirectory } from "../../skills/server/skills";
 import { computerOf } from "./computer-tools";
 import {
   demonstrationDraftJobName,
@@ -31,6 +31,9 @@ export const demonstrationDraftMarker = "You turn a recorded demonstration into 
 
 /** The most screenshots one drafting call is shown, spread evenly over the steps. */
 const screenshotLimit = 40;
+
+/** The most screenshot bytes one drafting call carries, well under a Provider's request limit. */
+const screenshotBytesLimit = 16 * 1024 * 1024;
 
 /**
  * Adapted from workflow-use's workflow builder prompt (browser-use/workflow-use,
@@ -83,23 +86,34 @@ async function draftedFacts(
 
 /**
  * The drafting call's input: the goal and inputs, then each step as a line, each screenshot shown
- * (up to `screenshotLimit`, spread evenly) right after its step's line. A pause mark reads as the
- * gap it was; a screenshot whose bytes are gone is left out.
+ * (up to `screenshotLimit`, spread evenly, and `screenshotBytesLimit` in all) right after its
+ * step's line, when the model reads `images`. A pause mark reads as the gap it was; a screenshot
+ * whose bytes are gone is left out.
  */
-async function draftInput(deps: BotSdkContext, demonstration: Drafted): Promise<ContentPart[]> {
+async function draftInput(
+  deps: BotSdkContext,
+  demonstration: Drafted,
+  images: boolean,
+): Promise<ContentPart[]> {
   const events = await deps.db
     .select()
     .from(botDemonstrationEvent)
     .where(eq(botDemonstrationEvent.demonstrationId, demonstration.id))
     .orderBy(asc(botDemonstrationEvent.sequence));
-  const shot = events.filter((event) => event.screenshotKey !== null);
+  const shot = images ? events.filter((event) => event.screenshotKey !== null) : [];
   const every = Math.max(1, shot.length / screenshotLimit);
-  const shown = new Set(
-    Array.from(
-      { length: Math.min(shot.length, screenshotLimit) },
-      (_, index) => shot[Math.floor(index * every)]!.id,
+  const picked = Array.from(
+    { length: Math.min(shot.length, screenshotLimit) },
+    (_, index) => shot[Math.floor(index * every)]!,
+  );
+  const bytesOf = new Map(
+    await Promise.all(
+      picked.map(
+        async (event) => [event.id, await deps.blobStore.get(event.screenshotKey!)] as const,
+      ),
     ),
   );
+  let budget = screenshotBytesLimit;
   const inputs = demonstration.inputs.length > 0 ? demonstration.inputs.join("; ") : "(none)";
   const parts: ContentPart[] = [
     {
@@ -126,9 +140,9 @@ async function draftInput(deps: BotSdkContext, demonstration: Drafted): Promise<
       event.url && `on ${event.url}`,
     ].filter(Boolean);
     parts.push({ type: "text", content: fields.join(", ") });
-    if (!event.screenshotKey || !shown.has(event.id)) continue;
-    const bytes = await deps.blobStore.get(event.screenshotKey);
-    if (!bytes) continue;
+    const bytes = bytesOf.get(event.id);
+    if (!bytes || bytes.byteLength > budget) continue;
+    budget -= bytes.byteLength;
     parts.push({
       type: "image",
       source: { type: "data", value: Buffer.from(bytes).toString("base64"), mimeType: "image/png" },
@@ -150,8 +164,10 @@ async function draftSkill(
   const call = await models.resolveModelCall(demonstration.userId, demonstration.model);
   if (!call) return { error: "the Bot's model can't be called" };
   if (!(await call.meter.mayRun()).ok) return { error: "the user's Quota is spent" };
+  // A model that can't read images drafts from the steps alone.
+  const images = (await models.resolveModel(demonstration.userId, demonstration.model))?.images;
   const messages: ModelMessage[] = [
-    { role: "user", content: await draftInput(deps, demonstration) },
+    { role: "user", content: await draftInput(deps, demonstration, images ?? false) },
   ];
   try {
     const result = await chat({
@@ -181,16 +197,24 @@ async function draftSkill(
 /** A frontmatter's `name:` line. */
 const nameLine = /^name:.*$/m;
 
-/** The reply's SKILL.md, code fences stripped; null when it has no frontmatter with a name. */
-function skillOf(reply: string): string | null {
+/**
+ * The reply's SKILL.md, code fences stripped and its `name` made a valid one, with that name; or
+ * why it isn't a usable Skill, checked as the Skills block checks one.
+ */
+function draftedSkill(
+  reply: string,
+  goal: string,
+): { skill: string; name: string } | { error: string } {
   const text = reply
+    .replaceAll("\r\n", "\n")
     .trim()
     .replace(/^```[a-z]*\n/i, "")
     .replace(/\n```$/, "")
     .trim();
-  const end = text.startsWith("---\n") ? text.indexOf("\n---", 3) : -1;
-  if (end < 0 || !nameLine.test(text.slice(0, end))) return null;
-  return text;
+  const name = baseName(text, goal);
+  const skill = text.replace(nameLine, `name: ${name}`);
+  const problem = problemOf(name, skill);
+  return problem ? { error: `the draft isn't a usable Skill (${problem})` } : { skill, name };
 }
 
 /** A Skill name from the one the model chose, or from the goal when that one has nothing usable. */
@@ -213,9 +237,8 @@ function baseName(skill: string, goal: string): string {
  */
 async function saveDraft(
   computer: ComputerHandle,
-  { botId, skill, goal }: { botId: string; skill: string; goal: string },
+  { botId, skill, base }: { botId: string; skill: string; base: string },
 ): Promise<string> {
-  const base = baseName(skill, goal);
   const directory = skillsDirectory(botId);
   const taken = new Set(
     ((await computer.list(directory)) ?? [])
@@ -299,15 +322,13 @@ export const demonstrationDraftJob = defineJob({
     if (demonstration?.state !== "drafting") return;
     const drafted = await activity("skill_draft", () => draftSkill(deps, demonstration));
     if ("error" in drafted) return finish(deps, demonstration, drafted);
-    const skill = skillOf(drafted.reply);
-    if (skill === null) {
-      return finish(deps, demonstration, { error: "the draft had no frontmatter with a name" });
-    }
+    const skill = draftedSkill(drafted.reply, demonstration.goal);
+    if ("error" in skill) return finish(deps, demonstration, skill);
     const name = await activity("skill_save", () =>
       saveDraft(computerOf(deps, demonstration.userId), {
         botId: demonstration.botId,
-        skill,
-        goal: demonstration.goal,
+        skill: skill.skill,
+        base: skill.name,
       }),
     );
     await finish(deps, demonstration, { name });
@@ -315,7 +336,7 @@ export const demonstrationDraftJob = defineJob({
   onFailed: async ({ demonstrationId }, _error, deps) => {
     const demonstration = await draftedFacts(deps, demonstrationId);
     if (demonstration?.state !== "drafting") return;
-    await finish(deps, demonstration, { error: "saving it on the Computer failed" });
+    await finish(deps, demonstration, { error: "something went wrong while writing it" });
   },
 });
 
