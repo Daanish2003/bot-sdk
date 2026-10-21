@@ -198,15 +198,19 @@ An agent a Bot hands one complete task to, which works in its own fresh context,
 _Avoid_: Sub-agent, worker, child agent
 
 **Skill**:
-Written instructions for one kind of task, starting with when to use them, that a Bot reads only when it needs them. A Bot can save one from watching the user do the task on its Computer.
+Written instructions for one kind of task, starting with when to use them, kept as a file in its Bot's own directory on the Computer, which the Bot reads only when it needs them. The Bot or the user writes one, or the Bot drafts one from a Demonstration. A Skill is never permission to act.
 _Avoid_: Plugin, prompt, Instructions (those apply to every reply)
+
+**Demonstration**:
+A Bot watching the user do a task once in the browser on its Screen, from Start to Done, so it can save the task as a Skill. Unlike taking control, the Bot sees what the user does, except while paused.
+_Avoid_: Recording, teach mode, takeover
 
 **Computer**:
 The one cloud machine a user's Bots share, with its files, installed tools and browser sign-ins, asleep whenever nothing needs it.
 _Avoid_: Sandbox, VM, machine, desktop
 
 **Screen**:
-One display on the Computer, with its own Chrome and Chrome profile, for one active Bot. It is open only while that Bot's Computer-use Helper works on it, at most four at once per Computer; its Chrome sign-ins stay on the Computer and are lost if it is rebuilt.
+One display on the Computer, with its own Chrome and Chrome profile, for one active Bot. It is open only while that Bot's Computer-use Helper or a Demonstration uses it, never both, at most four at once per Computer; its Chrome sign-ins stay on the Computer and are lost if it is rebuilt.
 _Avoid_: Display, desktop, browser
 
 **Auto-review**:
