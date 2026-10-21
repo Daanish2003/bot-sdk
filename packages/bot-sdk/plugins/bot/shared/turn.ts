@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type { BotMemoryChange } from "../../memory/shared/changes";
+import type { BotSkillChange } from "../../skills/shared/changes";
 import { computerCardSchema } from "./helper";
 import { secretRequestSchema } from "./secret";
 
@@ -86,6 +87,8 @@ export type BotTurnProvenance = {
   triggers: BotTurnTrigger[];
   /** What the Turn's post-turn memory pass changed (ADR 0022), or null when it changed nothing. */
   memoryChanges: BotMemoryChange[] | null;
+  /** The Skills the Turn saved or updated (spec #713), or null when it wrote none. */
+  skillChanges: BotSkillChange[] | null;
   /** Its Steps, oldest first, for the cache chip (#675). */
   steps: BotTurnStep[];
 };

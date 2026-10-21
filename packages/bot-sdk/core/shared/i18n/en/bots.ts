@@ -109,6 +109,8 @@ export const botsMessages = {
   "bots.memoryChangedPrefix": "Changed:",
   "bots.memoryForgot": ({ text, tier }: { text: string; tier: string }) =>
     `Forgot: ${text} (${tier})`,
+  "bots.skillSaved": ({ name }: { name: string }) => `📘 Skill saved: ${name}`,
+  "bots.skillUpdated": ({ name }: { name: string }) => `📘 Skill updated: ${name}`,
   "bots.cacheChip": ({ percent, steps, cost }: { percent: number; steps: number; cost: string }) =>
     `Cache ${percent}% · ${steps} ${steps === 1 ? "Step" : "Steps"} · ${cost}`,
   "bots.cacheMiss": ({ section, steps, cost }: { section: string; steps: number; cost: string }) =>

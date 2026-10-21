@@ -1,8 +1,8 @@
 import type { ModelMessage, TextOptions } from "@tanstack/ai";
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { botPromptStart } from "../../../../core/server/db/schema";
+import { botPromptStart, botTurn } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { bot } from "../../../../plugins/bot/server/plugin";
 import { computer } from "../../../../plugins/computer/server/plugin";
@@ -445,5 +445,92 @@ describe("the Skills rules", () => {
     expect(system).toContain("description: Use this when");
     expect(system).toContain("## Steps");
     expect(system).toContain("## How to check");
+  });
+});
+
+describe("the Skill chip's record on the Turn", () => {
+  const changesOf = async (botId: string) =>
+    (
+      await getTestDb()
+        .select({ skillChanges: botTurn.skillChanges })
+        .from(botTurn)
+        .where(eq(botTurn.botId, botId))
+        .orderBy(asc(botTurn.startedAt), asc(botTurn.id))
+    ).map((row) => row.skillChanges);
+
+  it("records a new SKILL.md as saved, a changed one as updated, and ignores other writes", async () => {
+    const { computerFake, client, botId } = await botWith([
+      round(
+        toolCall({
+          name: "write",
+          input: {
+            path: "skills/weekly-report/SKILL.md",
+            content: skillFile(
+              "weekly-report",
+              "Use this when the user asks for the weekly report.",
+            ),
+          },
+        }),
+      ),
+      round(),
+      round(
+        toolCall({
+          name: "edit",
+          input: {
+            path: "skills/weekly-report/SKILL.md",
+            oldText: "1. Do it.",
+            newText: "1. Do it twice.",
+          },
+        }),
+      ),
+      round(),
+      round(
+        toolCall({ name: "write", input: { path: "notes/a.txt", content: "one" } }),
+        toolCall({
+          name: "write",
+          input: { path: "skills/not-a-skill.md", content: "x" },
+        }),
+        toolCall({
+          name: "write",
+          input: {
+            path: "/home/user/bots/other-bot/skills/theirs/SKILL.md",
+            content: skillFile("theirs", "Use this when it is theirs."),
+          },
+        }),
+      ),
+      round(),
+      round(
+        toolCall({
+          name: "write",
+          input: {
+            path: "skills/weekly-report/SKILL.md",
+            content: skillFile("weekly-report", "Use this when the user asks for a summary."),
+          },
+        }),
+        toolCall({
+          name: "write",
+          input: {
+            path: "skills/expense-sheet/SKILL.md",
+            content: skillFile("expense-sheet", "Use this when an expense needs logging."),
+          },
+        }),
+      ),
+      round(),
+    ]);
+    await send(client, botId, "turn one");
+    await send(client, botId, "turn two");
+    await send(client, botId, "turn three");
+    await send(client, botId, "turn four");
+
+    expect(computerFake.files.has(skillPath(botId, "weekly-report"))).toBe(true);
+    expect(await changesOf(botId)).toEqual([
+      [{ kind: "saved", name: "weekly-report" }],
+      [{ kind: "updated", name: "weekly-report" }],
+      null,
+      [
+        { kind: "updated", name: "weekly-report" },
+        { kind: "saved", name: "expense-sheet" },
+      ],
+    ]);
   });
 });
