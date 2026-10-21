@@ -2,6 +2,7 @@ import { toolDefinition } from "@tanstack/ai";
 import { and, asc, eq, inArray, max, sql } from "drizzle-orm";
 import { z } from "zod";
 
+import { deleteBlobsBestEffort } from "../../../core/server/blob/store";
 import { appendMessage } from "../../../core/server/chat/message-tree";
 import {
   bot,
@@ -242,7 +243,8 @@ async function startDemonstration(
 /**
  * The state each action moves a Demonstration to, from the states it acts in. Done goes to
  * `drafting`, which ends it and queues the drafting pass, which moves it on from there. Each move
- * that ends one also queues the deletion of its events and screenshots 7 days on.
+ * that ends one also queues the deletion of its events and screenshots 7 days on; Cancel deletes
+ * them at once.
  */
 const moves: Record<
   DemonstrationAction,
@@ -259,6 +261,8 @@ type Moved = {
   state: DemonstrationState;
   /** Whether this move ended it, so its Screen is to be released. */
   ended: boolean;
+  /** The screenshots of the steps a Cancel threw away, whose bytes go once it has committed. */
+  discarded: string[];
   userId: string;
   screen: number;
   conversationId: string;
@@ -300,13 +304,21 @@ async function moveIn(
   if (!row) return undefined;
   const facts = { userId: row.userId, screen: row.screen, conversationId: owned.conversationId };
   const next = moves[action][row.state];
-  if (!next) return { ...facts, state: row.state, ended: false };
+  if (!next) return { ...facts, state: row.state, ended: false, discarded: [] };
   const ended = !isLiveDemonstration(next);
   const now = deps.clock();
   await tx
     .update(botDemonstration)
     .set({ state: next, ...(ended && { endedAt: now }) })
     .where(eq(botDemonstration.id, demonstrationId));
+  // Cancel throws away everything captured (spec #713); the row stays as a record.
+  const discarded =
+    next === "cancelled"
+      ? await tx
+          .delete(botDemonstrationEvent)
+          .where(eq(botDemonstrationEvent.demonstrationId, demonstrationId))
+          .returning({ key: botDemonstrationEvent.screenshotKey })
+      : [];
   // The mark the step list shows as the gap while paused (#719).
   if (next === "paused") {
     await tx.insert(botDemonstrationEvent).values({
@@ -342,7 +354,7 @@ async function moveIn(
       },
     );
   }
-  return { ...facts, state: next, ended };
+  return { ...facts, state: next, ended, discarded: discarded.flatMap((row) => row.key ?? []) };
 }
 
 /** The sequence of Demonstration `demonstrationId`'s next event, in `tx`. */
@@ -383,8 +395,8 @@ export async function rewriteCard(
 }
 
 /**
- * Applies `action` to a Demonstration, then, once that has committed, releases the Screen of one it
- * ended and tells the Conversation's followers. Returns its state now, or undefined when there is
+ * Applies `action` to a Demonstration, then, once that has committed, deletes the screenshots a
+ * Cancel threw away, releases the Screen of one it ended and tells the Conversation's followers. Returns its state now, or undefined when there is
  * none (of `userId`, when given).
  */
 export async function move(
@@ -397,6 +409,7 @@ export async function move(
     moveIn(deps, tx, demonstrationId, action, userId),
   );
   if (!moved) return undefined;
+  await deleteBlobsBestEffort(deps, moved.discarded);
   if (moved.ended) {
     await closeScreen(deps, { id: demonstrationId, userId: moved.userId, screen: moved.screen });
     // The drafting pass, queued with the move, runs now.

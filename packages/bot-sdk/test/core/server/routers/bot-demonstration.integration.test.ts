@@ -2,7 +2,12 @@ import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { botDemonstration, botHelper, botTurn } from "../../../../core/server/db/schema";
+import {
+  botDemonstration,
+  botDemonstrationEvent,
+  botHelper,
+  botTurn,
+} from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import {
   computerUseHelperHoldsScreenError,
@@ -432,13 +437,32 @@ describe("the Demonstration's routes", () => {
     await expect(act.view({ demonstrationId })).rejects.toMatchObject({ code: "CONFLICT" });
   });
 
-  it("Cancel ends it cancelled and releases its Screen", async () => {
-    const { client, botId, computerFake, demonstrationId } = await demonstrating();
+  it("Cancel ends it cancelled, throws away its steps and screenshots, and releases its Screen", async () => {
+    const { client, botId, computerFake, demonstrationId, deps } = await demonstrating();
+    const key = `demonstration/${demonstrationId}/step`;
+    await deps.blobStore.put(key, new Uint8Array([1, 2, 3]), { contentType: "image/png" });
+    await getTestDb().insert(botDemonstrationEvent).values({
+      id: uuidv7(),
+      demonstrationId,
+      sequence: 1,
+      offsetMs: 0,
+      kind: "click",
+      url: "https://example.test/",
+      screenshotKey: key,
+    });
 
     expect(await client.bot.demonstration.cancel({ demonstrationId })).toEqual({
       state: "cancelled",
     });
 
+    // The row stays as a record; nothing it captured does.
+    expect(
+      await getTestDb()
+        .select()
+        .from(botDemonstrationEvent)
+        .where(eq(botDemonstrationEvent.demonstrationId, demonstrationId)),
+    ).toEqual([]);
+    expect(await deps.blobStore.get(key)).toBeNull();
     expect(await stateOf(botId)).toBe("cancelled");
     expect((await cardOf(client, botId))?.state).toBe("cancelled");
     expect(screenCommands(computerFake).at(-1)).toBe(`${screenScript} stop 1`);
