@@ -12,7 +12,7 @@ import type { Database } from "../../../core/server/db/index";
 import { rpcError } from "../../../core/server/rpc-error";
 import type { BotSdkContext } from "../../../core/server/plugin";
 import type { BotSecret } from "../shared/secret";
-import { secretEncryption } from "./secret-values";
+import { minSecretLength, secretEncryption, usableSecretValue } from "./secret-values";
 import { hintChanged } from "./turn";
 import { receive } from "./router";
 import { findBot } from "./store";
@@ -32,10 +32,16 @@ const savedTriggerId = (userId: string, name: string, at: Date) =>
 export async function saveSecret(
   sdk: BotSdkContext,
   userId: string,
-  { botId, name, value }: { botId: string; name: string; value: string },
+  { botId, name, value: given }: { botId: string; name: string; value: string },
 ): Promise<void> {
   const found = await findBot(sdk.db, userId, botId);
   if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
+  const value = usableSecretValue(given);
+  if (!value) {
+    throw rpcError("BAD_REQUEST", "error.secretTooShort", "Secret value is too short", {
+      min: minSecretLength,
+    });
+  }
   // The save always stores the Secret. It wakes the Bot only while the Bot can run, as a Check-in
   // fire does: no Turn starts on a Model the user can't use or once their Quota is spent.
   const call = await sdk.plugin("models").resolveModelCall(userId, found.model);

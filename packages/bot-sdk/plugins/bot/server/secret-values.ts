@@ -7,6 +7,15 @@ import type { BotSdkContext } from "../../../core/server/plugin";
 /** What a masked value is replaced with in a result the Model reads. */
 export const maskedValue = "***";
 
+/** A Secret shorter than this, once trimmed, is refused and never masked: it would mask ordinary text. */
+export const minSecretLength = 4;
+
+/** The form of a Secret's value that is stored and masked: trimmed, or undefined when too short. */
+export function usableSecretValue(value: string): string | undefined {
+  const trimmed = value.trim();
+  return trimmed.length >= minSecretLength ? trimmed : undefined;
+}
+
 /** Binds a Secret's ciphertext to its row, so a row copied elsewhere won't decrypt. */
 export const secretEncryption = (
   sdk: Pick<BotSdkContext, "keyring">,
@@ -30,7 +39,8 @@ export async function loadSecretValues(
   const values = new Map<string, string>();
   for (const row of rows) {
     const result = decryptCredentials(row.encrypted, secretEncryption(sdk, userId, row.name));
-    if (result.ok && result.credentials.value) values.set(row.name, result.credentials.value);
+    const value = result.ok ? usableSecretValue(result.credentials.value ?? "") : undefined;
+    if (value) values.set(row.name, value);
   }
   return values;
 }
