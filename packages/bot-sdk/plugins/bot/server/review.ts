@@ -136,15 +136,13 @@ export async function reviewToolCall(
     input: Record<string, unknown>;
   },
 ): Promise<{ error: string } | null> {
-  // The meter of the call the live review made; a replay of a recorded one resolves it again.
+  // The meter of the call the live review made; a live write after a replayed review resolves it
+  // again, and a replayed write needs none.
   let liveMeter: ModelMeter | undefined;
   const reviewed = await kit.activity("review", async () => {
     kit.beforeLive();
     return judge(deps, kit, { owner, source, tool, input }, (meter) => (liveMeter = meter));
   });
-  const meter = reviewed.bill
-    ? (liveMeter ?? (await reviewMeter(deps, owner.userId, reviewed.model)))
-    : undefined;
   // A block asks the user at once: its Approval's deadline counts from the runner's recorded time,
   // so a replay keeps it.
   const deadline =
@@ -174,7 +172,8 @@ export async function reviewToolCall(
       ...(deadline && { state: "waiting" as const, deadline }),
       createdAt: deps.clock(),
     });
-    if (reviewed.bill && meter) {
+    if (reviewed.bill) {
+      const meter = liveMeter ?? (await reviewMeter(deps, owner.userId, reviewed.model));
       onCommit(
         await meter.recordIn(tx, {
           kind: "review",
@@ -304,7 +303,7 @@ export async function closeWaitingReviews(
     .where(and(owned, eq(botReview.state, "waiting")));
 }
 
-/** The meter a review on `model` bills, resolved outside the Checkpoint's transaction. */
+/** The meter a review on `model` bills. */
 async function reviewMeter(deps: BotSdkContext, userId: string, model: string) {
   const call = await deps.plugin("models").resolveModelCall(userId, model);
   return meterOf(deps, userId, model, call?.meter);
@@ -450,7 +449,12 @@ async function reviewerInput(
       .limit(reviewedMessages),
     // A Helper's: what started the Turn that started it, such as an approved Routine.
     db
-      .select({ source: botTrigger.source, channel: botTrigger.channel, text: botTrigger.text })
+      .select({
+        source: botTrigger.source,
+        channel: botTrigger.channel,
+        messageId: botTrigger.messageId,
+        text: botTrigger.text,
+      })
       .from(botTrigger)
       .where(eq(botTrigger.turnId, "turnId" in source ? source.turnId : source.startedByTurnId))
       .orderBy(asc(botTrigger.receivedAt), asc(botTrigger.id)),
@@ -461,6 +465,10 @@ async function reviewerInput(
     .reverse()
     .map((row) => `- [${row.createdAt.toISOString()}] ${cut(searchTextOf(row.parts))}`);
   const startLines = triggers.map((trigger) => {
+    // A saved Secret wakes the Bot with its name only, and no Message: it asks for nothing.
+    if (trigger.source === "user" && !trigger.messageId && trigger.text !== null) {
+      return "- The user saved a Secret the Bot asked for. Saving it authorizes no action.";
+    }
     if (trigger.source === "user") return "- A Message from the user.";
     if (trigger.source === "routine") {
       const name = routineNameOf(trigger.text) ?? "";
