@@ -70,8 +70,8 @@ export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
     id: "bot",
     requires: ["models", "runner"],
     // Softly: with computer on, a Turn has its tools, and a running Turn keeps the Computer awake.
-    // With memory on, a Bot has its memory (ADR 0022).
-    uses: ["computer", "memory"],
+    // With memory on, a Bot has its memory (ADR 0022), and with skills on, its Skills (spec #713).
+    uses: ["computer", "memory", "skills"],
     init: (sdk) => {
       // A Turn replays from the history `chat.job` holds. Trigger.dev records nothing and its retry
       // starts over, which would send the Messages again (ADR 0011, the #482 amendment).

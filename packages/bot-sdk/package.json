@@ -19,7 +19,8 @@
     "./plugins/computer/e2b": "./plugins/computer/e2b/index.ts",
     "./plugins/memory/server": "./plugins/memory/server/index.ts",
     "./plugins/memory/client": "./plugins/memory/client/index.ts",
-    "./plugins/memory/ui": "./plugins/memory/ui/index.ts"
+    "./plugins/memory/ui": "./plugins/memory/ui/index.ts",
+    "./plugins/skills/server": "./plugins/skills/server/index.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",

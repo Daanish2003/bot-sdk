@@ -153,7 +153,7 @@ const sectionOf = (name: string, text: string): PromptStartSection => ({
 export type PromptStartParts = {
   turn: { id: string; botId: string; conversationId: string; startedAt: Date };
   now: Date;
-  /** The system blocks in their fixed order: rules, Computer, memory snapshot, Routines. */
+  /** The system blocks in their fixed order: rules, Computer, memory snapshot, Skills, Routines. */
   system: { name: string; text: string }[];
   /** The tools every call sends. */
   tools: AnyServerTool[];
