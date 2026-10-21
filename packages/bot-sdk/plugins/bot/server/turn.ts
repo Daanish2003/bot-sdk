@@ -460,7 +460,7 @@ export async function stopBot(deps: BotSdkContext, userId: string, botId: string
     // before the denial below reads it, or fails its fence and rolls back.
     const ended = await cancelTurn(deps, tx, running);
     // A Stop during an Approval wait counts as no (ADR 0024).
-    await closeWaitingReviews(deps, tx, running, "denied");
+    await closeWaitingReviews(deps, tx, { turnId: running }, "denied");
     return ended;
   });
   if (!ended) return;
@@ -731,7 +731,7 @@ async function endRunningTurn(
       .returning({ id: botTurn.id });
     if (rows.length === 0) return false;
     // A Turn cut off mid-wait (its time limit) leaves no request open.
-    await closeWaitingReviews(deps, tx, turn.id, "expired");
+    await closeWaitingReviews(deps, tx, { turnId: turn.id }, "expired");
     await queueAwaySummary(deps, tx, { botId: turn.botId, lastInput: played.lastInput, endedAt });
     await turnEnded(deps, tx, turn.id);
     return true;

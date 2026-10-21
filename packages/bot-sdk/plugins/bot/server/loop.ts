@@ -95,13 +95,15 @@ export type LoopKit = {
    * over the long-output limit is recorded as its cut text (`capResult`), unless `capped` is false:
    * for a tool that keeps its own result short, such as `read`'s pages. A call with no
    * `toolCallId` (setup's reads, such as the memory snapshot) is never cut: the Model never sees
-   * its result as is.
+   * its result as is. With `reviewed`, the call's input, the call gets Auto-review first (spec
+   * #691): a block is its result, and nothing runs.
    */
   computerCall: <T extends object>(
     name: string,
     toolCallId: string | undefined,
     operate: (computer: ComputerHandle, live: FileToolOptions) => Promise<T>,
     capped?: boolean,
+    reviewed?: Record<string, unknown>,
   ) => Promise<T | { error: string }>;
 };
 
@@ -182,8 +184,9 @@ export type LoopOptions = {
    */
   inbox?: (tx: Transaction) => Promise<string[]>;
   /**
-   * Where the loop's reviewed calls come from (a Turn's): each `shell` call gets Auto-review before
-   * it runs. With none, nothing is reviewed.
+   * Where the loop's reviewed calls come from (a Turn's or a Helper's): each `shell` call, and each
+   * `computerCall` given its input to review, gets Auto-review before it runs. With none, nothing
+   * is reviewed.
    */
   review?: ReviewSource;
 };
@@ -662,38 +665,41 @@ export async function runLoop(
     }
     return result;
   };
+  /**
+   * Auto-review of a reviewed tool's call, before it runs: the error the Model gets for a block, or
+   * `null` to run it. A loop with no `review` source reviews nothing.
+   */
+  const review = async (
+    tool: string,
+    toolCallId: string | undefined,
+    input: Record<string, unknown>,
+  ): Promise<{ error: string } | null> => {
+    if (!options.review) return null;
+    // The live review is a model call: the loop's time limit cuts it off, as a Stop does.
+    return reviewToolCall(
+      deps,
+      {
+        activity: ctx.activity,
+        billing,
+        now: ctx.now,
+        beforeLive: () => {
+          beforeLiveTool();
+          inLiveCall = true;
+        },
+        signal: abortController.signal,
+        usageOf: (reviewProvider, chunks, sent) => callUsage(deps, reviewProvider, chunks, sent),
+      },
+      { owner, source: options.review, toolCallId, tool, input },
+    ).finally(() => {
+      inLiveCall = false;
+    });
+  };
   const shell = shellDefinition.server((input, context) =>
     toolCall(context?.toolCallId, async () => {
       const { command, cwd, timeoutSeconds, secrets } = input;
       // Auto-review first: a blocked command never starts.
-      if (options.review) {
-        // The live review is a model call: the loop's time limit cuts it off, as a Stop does.
-        const blocked = await reviewToolCall(
-          deps,
-          {
-            activity: ctx.activity,
-            billing,
-            now: ctx.now,
-            beforeLive: () => {
-              beforeLiveTool();
-              inLiveCall = true;
-            },
-            signal: abortController.signal,
-            usageOf: (reviewProvider, chunks, sent) =>
-              callUsage(deps, reviewProvider, chunks, sent),
-          },
-          {
-            owner,
-            source: options.review,
-            toolCallId: context?.toolCallId,
-            tool: shellToolName,
-            input,
-          },
-        ).finally(() => {
-          inLiveCall = false;
-        });
-        if (blocked) return blocked;
-      }
+      const blocked = await review(shellToolName, context?.toolCallId, input);
+      if (blocked) return blocked;
       // The start marker: a resumed loop that replays it with no result never runs the command
       // again, since it may have partly run. A yield waits for the command's own Checkpoint, so
       // the marker never stands for a command that didn't start. No transaction: the command runs
@@ -743,9 +749,12 @@ export async function runLoop(
       return recordTold(result);
     }),
   );
-  const computerCall: LoopKit["computerCall"] = (name, toolCallId, operate, cap = true) =>
-    toolCall(toolCallId, async () =>
-      recordTold(
+  const computerCall: LoopKit["computerCall"] = (name, toolCallId, operate, cap = true, reviewed) =>
+    toolCall(toolCallId, async () => {
+      // Auto-review first: a blocked call never reaches the Computer.
+      const blocked = reviewed && (await review(name, toolCallId, reviewed));
+      if (blocked) return blocked;
+      return recordTold(
         await ctx.activity(name, async () => {
           beforeLiveTool();
           const result = await onLiveComputer(operate);
@@ -753,8 +762,8 @@ export async function runLoop(
           // is the result's last field, so it stays in the cut text's end.
           return cap ? await capLong(result, toolCallId) : result;
         }),
-      ),
-    );
+      );
+    });
   /** A file tool: one activity, re-run after a crash, and a live call like `shell`'s. */
   const fileTool =
     <Input, Output extends object>(

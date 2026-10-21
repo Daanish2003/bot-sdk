@@ -114,7 +114,8 @@ function BotConversationView({
     acting: actingReviews,
     allow: allowReview,
     deny: denyReview,
-  } = useBotReviews(botId, working);
+    // A live Helper's calls are reviewed too, while no Turn runs.
+  } = useBotReviews(botId, working || helpers.some((helper) => isLiveHelper(helper.status)));
   const {
     secrets,
     acting: actingSecrets,
@@ -169,13 +170,27 @@ function BotConversationView({
   const checkInLine = (checkIn: (typeof checkIns)[number]) => (
     <CheckInLine key={checkIn.id} checkIn={checkIn} {...checkInActions} />
   );
+  const reviewRequest = (review: (typeof reviews)[number]) => (
+    <ReviewRequest
+      key={review.id}
+      review={review}
+      onAllow={allowReview}
+      onDeny={denyReview}
+      acting={actingReviews.has(review.id)}
+    />
+  );
+  // A Helper's Approval requests nest under its line.
   const helperCard = (helper: (typeof helpers)[number]) => (
     <HelperCard
       key={helper.id}
       helper={helper}
       onStop={onStopHelper}
       stopping={actingHelpers.has(helper.id) || actingHelpers.has(allHelpers)}
-    />
+    >
+      {reviews
+        .filter((review) => review.verdict === "block" && review.helperId === helper.id)
+        .map(reviewRequest)}
+    </HelperCard>
   );
   // Each run's divider, before the Message it goes above ("" after the last): a run that
   // sent something above its first Message, a quiet one where it ran. One still running and quiet
@@ -270,16 +285,7 @@ function BotConversationView({
     if (review.verdict !== "block" || !review.turnId || review.helperId) continue;
     const key =
       messages.filter((message) => message.createdAt <= review.createdAt).at(-1)?.id ?? "";
-    requestsAfter.set(key, [
-      ...(requestsAfter.get(key) ?? []),
-      <ReviewRequest
-        key={review.id}
-        review={review}
-        onAllow={allowReview}
-        onDeny={denyReview}
-        acting={actingReviews.has(review.id)}
-      />,
-    ]);
+    requestsAfter.set(key, [...(requestsAfter.get(key) ?? []), reviewRequest(review)]);
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {

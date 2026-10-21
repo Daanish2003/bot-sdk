@@ -20,6 +20,7 @@ import { desktopTools } from "./desktop-tools";
 import { storeScreenshot } from "./screenshots";
 import { computerOf } from "./computer-tools";
 import { type LoopKit, type LoopResult, runLoop, totalUsage } from "./loop";
+import { closeWaitingReviews } from "./review";
 import { lockConversation, receive } from "./router";
 import { hintChanged } from "./turn";
 import { webSearchTool } from "./web-search";
@@ -231,6 +232,8 @@ type HelperFacts = {
   botId: string;
   userId: string;
   model: string;
+  /** Its Bot's Conversation, where its Approval requests show. */
+  conversationId: string;
   type: "general" | "computer_use";
   task: string;
   status: string;
@@ -262,6 +265,7 @@ async function helperFacts(
       usage: botHelper.usage,
       userId: bot.userId,
       model: bot.model,
+      conversationId: bot.conversationId,
     })
     .from(botHelper)
     .innerJoin(bot, eq(bot.id, botHelper.botId))
@@ -403,6 +407,8 @@ async function playHelper(
     // The Bot isn't told by its Helper's results: its own next Computer call tells it.
     tellsBot: false,
     inbox: (tx) => deliverMessages(deps, tx, helper.id),
+    // Its risky calls get Auto-review, with its task as the Bot's words (spec #691).
+    review: { helperId: helper.id, conversationId: helper.conversationId, task: helper.task },
     setup: async (kit) => {
       if (!session) {
         return {
@@ -578,6 +584,8 @@ async function endHelper(
     .where(and(eq(botHelper.id, helper.id), eq(botHelper.status, "running")))
     .returning({ id: botHelper.id });
   if (rows.length === 0) return null;
+  // A Helper cut off mid-wait (its time limit, or a lost job) leaves no request open.
+  await closeWaitingReviews(deps, tx, { helperId: helper.id }, "expired");
   const kind = helper.type === "general" ? "General Helper" : "Computer-use Helper";
   await receive(deps, tx, {
     id: `helper:${helper.id}`,

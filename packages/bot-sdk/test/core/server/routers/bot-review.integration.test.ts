@@ -1,8 +1,8 @@
-import type { ModelMessage, TextOptions } from "@tanstack/ai";
+import type { AnyTextAdapter, ModelMessage, TextOptions } from "@tanstack/ai";
 import { asc, eq, inArray } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { botReview, botTurn, job, usage } from "../../../../core/server/db/schema";
+import { botHelper, botReview, botTurn, job, usage } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { deleteUserData } from "../../../../core/server/user-data";
 import { interruptedShellError } from "../../../../plugins/bot/server/computer-tools";
@@ -50,9 +50,16 @@ afterEach(async () => {
   for (const jobs of started.splice(0)) await jobs.stop();
 });
 
+/** Whether a model call is a Helper's: its system prompt says so. */
+const isHelperCall = (options: TextOptions) =>
+  (options.systemPrompts ?? []).some((prompt) =>
+    (typeof prompt === "string" ? prompt : prompt.content).startsWith("You are a Helper"),
+  );
+
 /**
- * A user with an OpenAI key and a Bot with its Computer, whose Model plays `rounds` and whose
- * Auto-review calls go to `reviewer` (on whichever Model, recorded in `reviewedOn`).
+ * A user with an OpenAI key and a Bot with its Computer, whose Turns play `rounds`, whose Helpers
+ * play `helpers`, and whose Auto-review calls go to `reviewer` (on whichever Model, recorded in
+ * `reviewedOn`).
  */
 async function botWith(
   rounds: Round[],
@@ -60,13 +67,24 @@ async function botWith(
     reviewer = fakeReviewer(),
     reviewModel,
     onCommand,
+    helpers = [],
   }: {
     reviewer?: FakeReviewer;
     reviewModel?: string;
     onCommand?: (command: FakeCommandRun) => CommandResult | Promise<CommandResult>;
+    helpers?: Round[];
   } = {},
 ) {
   const fake = createFakeAdapter({ rounds });
+  const helperFake = createFakeAdapter({ rounds: helpers });
+  // One script for the Turns and one for the Helpers, so the two never race for a round.
+  const adapter = {
+    ...fake.adapter,
+    chatStream: (options: TextOptions) =>
+      isHelperCall(options)
+        ? helperFake.adapter.chatStream(options)
+        : fake.adapter.chatStream(options),
+  } as AnyTextAdapter;
   const computerFake = fakeComputerProvider({ onCommand });
   const reviewedOn: string[] = [];
   // The real time plus `skewMs`, for the SDK and the runner alike: a test moves it past a deadline.
@@ -84,7 +102,7 @@ async function botWith(
     plugins: [bot({ reviewModel }), computer({ provider: computerFake.provider })],
     jobs,
     clock,
-    adapterFor: () => fake.adapter,
+    adapterFor: () => adapter,
     reviewAdapterFor: (reviewing) => {
       reviewedOn.push(reviewing);
       return reviewer.adapter;
@@ -104,6 +122,7 @@ async function botWith(
   const { id: botId } = await client.bot.create({ name: "Ada", model });
   return {
     fake,
+    helperFake,
     reviewer,
     reviewedOn,
     computerFake,
@@ -713,6 +732,122 @@ describe("an Approval wait cut off by a crash", () => {
     expect(computerFake.callsOf("run").map((call) => call.command)).toEqual(["make deploy"]);
     expect(toolResultOf(fake.calls[1])).toEqual({ error: interruptedShellError });
     expect((await turnsOf(botId))[0]).toMatchObject({ status: "complete" });
+  });
+});
+
+describe("Auto-review of a Helper's calls", () => {
+  const handsOff = (type: "general" | "computer_use", task: string) =>
+    round(toolCall({ name: "start_helper", input: { type, task } }), sends("On it.", true));
+  const call = (name: string, input: object = {}) => toolCall({ name, input });
+
+  const helpersOf = (botId: string) =>
+    getTestDb().select().from(botHelper).where(eq(botHelper.botId, botId));
+
+  /** The Bot's one Helper, once it has ended. */
+  async function helperEnded(botId: string) {
+    await expect
+      .poll(async () => (await helpersOf(botId))[0]?.status, { timeout: 20_000 })
+      .toMatch(/complete|error|stopped/);
+    return (await helpersOf(botId))[0]!;
+  }
+
+  it("reviews a Computer-use Helper's acting calls, not its looking ones, with its task as the Bot's words", async () => {
+    const reviewer = fakeReviewer();
+    const { client, botId, user } = await botWith(
+      [handsOff("computer_use", "Order the blue mug from the shop."), round()],
+      {
+        reviewer,
+        helpers: [
+          round(call("browser_navigate", { url: "https://shop.example" })),
+          round(call("browser_snapshot")),
+          round(call("browser_tabs", { action: "list" })),
+          round(call("browser_click", { ref: "e1" })),
+          round(call("browser_type", { ref: "e2", text: "blue" })),
+          round(call("browser_select", { ref: "e3", values: ["blue"] })),
+          round(call("browser_press", { key: "Enter" })),
+          round(call("desktop", { action: "left_click", coordinate: [10, 20] })),
+          round(text("Done.")),
+        ],
+      },
+    );
+
+    await send(client, botId, "buy me a mug");
+    const helper = await helperEnded(botId);
+
+    const rows = await reviewsOf(botId);
+    expect(rows.map((row) => row.tool)).toEqual([
+      "browser_click",
+      "browser_type",
+      "browser_select",
+      "browser_press",
+      "desktop",
+    ]);
+    for (const row of rows) expect(row).toMatchObject({ helperId: helper.id, turnId: null });
+    expect(rows[0]?.input).toEqual({ ref: "e1" });
+    expect(reviewer.calls).toHaveLength(5);
+    const sent = sentText(reviewer.calls[0]);
+    expect(sent).toContain("buy me a mug");
+    expect(sent).toContain("Order the blue mug from the shop.");
+    expect(sent).toContain("the Bot's words, not the user's");
+    expect(sent).toContain("Tool: browser_click");
+    expect((await reviewUsage(user.id)).map((row) => row.sourceId)).toEqual(
+      rows.map(() => helper.id),
+    );
+  }, 30_000);
+
+  it("asks the user for a Helper's blocked call while no Turn is live, and Allow runs it", async () => {
+    const reviewer = reviewerPlaying(
+      verdict({ outcome: "block", reason: "You didn't ask to deploy.", summary: "Deploy" }),
+    );
+    const { client, botId, helperFake, computerFake } = await botWith(
+      [handsOff("general", "Run the tests."), round()],
+      { reviewer, helpers: [round(shell("make deploy")), round(text("Deployed."))] },
+    );
+
+    await send(client, botId, "run the tests");
+    const waiting = await waitingReview(botId);
+
+    // The Turn that started the Helper has ended: the request is the Helper's alone.
+    expect((await turnsOf(botId)).map((turn) => turn.status)).toEqual(["complete"]);
+    const [helper] = await helpersOf(botId);
+    expect(waiting).toMatchObject({ helperId: helper!.id, turnId: null, tool: "shell" });
+    expect(await client.bot.review.list({ botId })).toEqual([
+      expect.objectContaining({ id: waiting.id, helperId: helper!.id, state: "waiting" }),
+    ]);
+    expect(computerFake.callsOf("run")).toEqual([]);
+
+    await client.bot.review.allow({ reviewId: waiting.id });
+    expect(await helperEnded(botId)).toMatchObject({ status: "complete", report: "Deployed." });
+
+    expect(computerFake.callsOf("run").map((run) => run.command)).toEqual(["make deploy"]);
+    expect(toolResultOf(helperFake.calls[1])).toMatchObject({ exitCode: 0 });
+    expect(await reviewsOf(botId)).toEqual([
+      expect.objectContaining({ id: waiting.id, state: "allowed" }),
+    ]);
+  });
+
+  it("denies a Helper's waiting call when the user stops the Helper", async () => {
+    const reviewer = reviewerPlaying(
+      verdict({ outcome: "block", reason: "You didn't ask to deploy.", summary: "Deploy" }),
+    );
+    const { client, botId, computerFake } = await botWith(
+      [handsOff("general", "Run the tests."), round()],
+      { reviewer, helpers: [round(shell("make deploy")), round(text("Deployed."))] },
+    );
+
+    await send(client, botId, "run the tests");
+    const waiting = await waitingReview(botId);
+    await client.bot.helper.stop({ botId, helperId: waiting.helperId! });
+
+    expect(await helperEnded(botId)).toMatchObject({ status: "stopped" });
+    expect(await reviewsOf(botId)).toEqual([
+      expect.objectContaining({ id: waiting.id, state: "denied", decidedAt: expect.any(Date) }),
+    ]);
+    expect(await client.bot.review.allow({ reviewId: waiting.id })).toEqual({
+      decided: false,
+      state: "denied",
+    });
+    expect(computerFake.callsOf("run")).toEqual([]);
   });
 });
 

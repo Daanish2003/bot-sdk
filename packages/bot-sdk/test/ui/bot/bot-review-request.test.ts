@@ -6,6 +6,7 @@ import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
+import type { BotHelper } from "../../../plugins/bot/shared/helper";
 import type { BotReview } from "../../../plugins/bot/shared/review";
 import type { BotMessage, BotSendEvent, BotTurnProvenance } from "../../../plugins/bot/shared/turn";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
@@ -63,8 +64,25 @@ const messages = [
   said("m3", "assistant", "Done.", 3),
 ];
 
-/** A stand-in for the server's `bot` router whose one review is `review()`, with its answers. */
-function fakeBotServer(review: () => BotReview) {
+/** A General Helper that Turn t1 started after m2, still working. */
+const helper: BotHelper = {
+  id: "h1",
+  type: "general",
+  task: "Run the tests.",
+  gist: "Run the tests.",
+  status: "running",
+  steps: 1,
+  latest: "shell: make deploy",
+  report: null,
+  startedAt: at(1),
+  afterMessageId: "m2",
+};
+
+/**
+ * A stand-in for the server's `bot` router whose one review is `review()`, and whose Helpers are
+ * `helpers`, with its answers.
+ */
+function fakeBotServer(review: () => BotReview, helpers: BotHelper[] = []) {
   const answers: Array<{ answer: string; reviewId: string }> = [];
   const decide = (answer: "allowed" | "denied") =>
     os.input(z.object({ reviewId: z.string() })).handler(({ input }) => {
@@ -88,7 +106,7 @@ function fakeBotServer(review: () => BotReview) {
       warm: os.handler(() => ({ warmed: false as const, skipped: "still_warm" as const })),
       routine: { list: os.handler(() => []) },
       checkIn: { list: os.handler(() => []) },
-      helper: { list: os.handler(() => []) },
+      helper: { list: os.handler(() => helpers) },
       review: {
         list: os.handler(() => [review()]),
         allow: decide("allowed"),
@@ -160,6 +178,29 @@ describe("the Approval request card", () => {
       await screen.findByText("Blocked, no answer in 15 s: Push to the main branch"),
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
+  });
+
+  it("nests a Helper's request, and its divider, under that Helper's line", async () => {
+    const helperBlock = (state: BotReview["state"]): BotReview => ({
+      ...blockOf(state, new Date()),
+      turnId: null,
+      helperId: "h1",
+      input: { command: "make deploy" },
+      summary: "Deploy",
+    });
+    const waiting = fakeBotServer(() => helperBlock("waiting"), [helper]);
+    const { unmount } = mount(waiting.fetch);
+
+    const card = (await screen.findByText("Deploy")).closest("[data-review]")!;
+    expect(card.closest('[data-helper="h1"]')).toBeTruthy();
+    expect(card.querySelector("code")?.textContent).toBe("make deploy");
+    fireEvent.click(await screen.findByRole("button", { name: "Allow" }));
+    await waitFor(() => expect(waiting.answers).toEqual([{ answer: "allowed", reviewId: "r1" }]));
+    unmount();
+
+    mount(fakeBotServer(() => helperBlock("allowed"), [helper]).fetch);
+    const divider = (await screen.findByText("Allowed by you: Deploy")).closest("[data-review]")!;
+    expect(divider.closest('[data-helper="h1"]')).toBeTruthy();
   });
 
   it.each([
