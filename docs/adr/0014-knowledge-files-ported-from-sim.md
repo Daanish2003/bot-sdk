@@ -1,5 +1,5 @@
 ---
-Status: accepted
+Status: superseded by ADR 0025
 ---
 
 # Knowledge file processing is ported from Sim Studio, not from bcatalyst
