@@ -1,5 +1,5 @@
 import { type AnyServerTool, type ModelMessage, toolDefinition } from "@tanstack/ai";
-import { and, asc, desc, eq, gt, gte, isNotNull, lt, lte, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, isNotNull, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { appendMessage } from "../../../core/server/chat/message-tree";
@@ -44,8 +44,17 @@ import {
   type PromptStartParts,
   promptStartFor,
 } from "./prompt-start";
+import { closeWaitingReviews } from "./review";
 import { historyFrom, historyTurns, queueAwaySummary, summaryOf, writeSummary } from "./summary";
-import { botMessages, findBot, textParts, toBotMessage, turnTimeLimitMs } from "./store";
+import {
+  botMessages,
+  findBot,
+  secretRequestParts,
+  textParts,
+  toBotMessage,
+  turnTimeLimitMs,
+} from "./store";
+import { secretNameSchema } from "../shared/secret";
 import {
   createRoutineToolName,
   deleteRoutine,
@@ -168,6 +177,20 @@ const sendToUserDefinition = toolDefinition({
     endTurn: z.boolean().meta({
       description: "true on your last message of this turn, false when you will send more.",
     }),
+    secret: z
+      .object({
+        name: secretNameSchema.meta({
+          description: "The Secret's name, an environment-variable name like GITHUB_TOKEN.",
+        }),
+        why: z.string().meta({ description: "Why you need it, in a sentence the user reads." }),
+      })
+      .optional()
+      .meta({
+        description:
+          "Ask the user for a password or token. The message shows a secure field; the value goes " +
+          "straight to the server and you never see it. You are woken with 'Saved secret NAME' " +
+          "once they save it. Use it by naming it in the secrets of a shell call.",
+      }),
   }),
 });
 
@@ -433,7 +456,12 @@ export async function stopBot(deps: BotSdkContext, userId: string, botId: string
     const running = await runningTurnOf(tx, botId);
     if (!running) return false;
     await tx.update(botTrigger).set({ turnId: running }).where(waitingIn(found.conversationId));
-    return cancelTurn(deps, tx, running);
+    // Cancelled first: under the job's row lock, a `waiting` row's Checkpoint either committed
+    // before the denial below reads it, or fails its fence and rolls back.
+    const ended = await cancelTurn(deps, tx, running);
+    // A Stop during an Approval wait counts as no (ADR 0024).
+    await closeWaitingReviews(deps, tx, { turnId: running }, "denied");
+    return ended;
   });
   if (!ended) return;
   deps.plugin("runner").wake();
@@ -702,6 +730,8 @@ async function endRunningTurn(
       .where(and(eq(botTurn.id, turn.id), eq(botTurn.status, "running")))
       .returning({ id: botTurn.id });
     if (rows.length === 0) return false;
+    // A Turn cut off mid-wait (its time limit) leaves no request open.
+    await closeWaitingReviews(deps, tx, { turnId: turn.id }, "expired");
     await queueAwaySummary(deps, tx, { botId: turn.botId, lastInput: played.lastInput, endedAt });
     await turnEnded(deps, tx, turn.id);
     return true;
@@ -844,7 +874,8 @@ async function newestInput(
       .where(
         and(
           eq(botTrigger.conversationId, turn.conversationId),
-          ne(botTrigger.source, "user"),
+          // A user Trigger without a Message is a saved Secret: its text wakes the Bot (spec #691).
+          or(ne(botTrigger.source, "user"), isNull(botTrigger.messageId)),
           isNotNull(botTrigger.text),
           lte(botTurn.startedAt, turn.startedAt),
           lte(botTrigger.receivedAt, turn.startedAt),
@@ -947,6 +978,8 @@ async function playTurn(
     timeLimitMs: turnTimeLimitMs,
     plainTextReminder: undeliveredTextReminder,
     attempt,
+    // Each shell call of the Turn gets Auto-review before it runs (spec #691).
+    review: { turnId: turn.id, conversationId: turn.conversationId },
     setup: (kit) => turnSetup(deps, turn, kit, db, renderNewest),
   });
 }
@@ -1043,24 +1076,26 @@ function turnTools(
   }: { withComputer: boolean; withMemorySearch: boolean; onLastMessage: () => void },
 ): AnyServerTool[] {
   const { liveActivity } = kit;
-  const sendToUser = sendToUserDefinition.server(async ({ text, endTurn: last }, context) => {
-    // The Message commits with its Checkpoint, so it is sent once across a crash.
-    const result = await liveActivity(sendToUserToolName, context?.toolCallId, async (tx) => {
-      if (!text.trim()) return { error: emptyTextError };
-      await appendMessage(tx, turn.conversationId, {
-        role: "assistant",
-        parts: textParts(text),
-        status: "complete",
-        createdAt: deps.clock(),
+  const sendToUser = sendToUserDefinition.server(
+    async ({ text, endTurn: last, secret }, context) => {
+      // The Message commits with its Checkpoint, so it is sent once across a crash.
+      const result = await liveActivity(sendToUserToolName, context?.toolCallId, async (tx) => {
+        if (!text.trim()) return { error: emptyTextError };
+        await appendMessage(tx, turn.conversationId, {
+          role: "assistant",
+          parts: secret ? secretRequestParts(text, { type: "secret", ...secret }) : textParts(text),
+          status: "complete",
+          createdAt: deps.clock(),
+        });
+        return { sent: true };
       });
-      return { sent: true };
-    });
-    if ("sent" in result) {
-      if (last) onLastMessage();
-      await hintChanged(deps, turn.conversationId);
-    }
-    return result;
-  });
+      if ("sent" in result) {
+        if (last) onLastMessage();
+        await hintChanged(deps, turn.conversationId);
+      }
+      return result;
+    },
+  );
 
   // The Turn carries on once the Routine is saved: the Approval is the Routine's, not the call's.
   const createRoutine = createRoutineDefinition.server(async (input, context) =>

@@ -7,7 +7,7 @@ import { chatSchema } from "../../../../core/server/db/chat-schema";
  * What a recorded call was for. Each kind is written by the call it names: a Run, a
  * title, a web search, a transcription of a voice recording, one generated image, the embedding
  * of Knowledge text (ADR 0007, ADR 0014), a call that makes Memories (ADR 0013), a Bot's Turn, one of
- * its Helpers, the writing of a Summary, or a call that warms a Bot's cache.
+ * its Helpers, the writing of a Summary, a call that warms a Bot's cache, or an Auto-review of a Bot's tool call.
  */
 export const usageKind = chatSchema.enum("usage_kind", [
   "run",
@@ -21,6 +21,7 @@ export const usageKind = chatSchema.enum("usage_kind", [
   "helper",
   "summary",
   "warm",
+  "review",
 ]);
 
 /**
