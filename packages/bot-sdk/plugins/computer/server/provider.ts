@@ -59,7 +59,8 @@ export type ComputerProvider = {
    * creating `cwd` first when it is missing, and waits for it to exit. A command still running
    * after `timeoutMs` is killed and returns what it printed so far. Once `signal` aborts, the
    * command is killed and `run` throws its reason. `envs` are environment variables for this one
-   * command only: nothing is set on the sandbox.
+   * command only: nothing is set on the sandbox. `redact` are strings replaced with `***` in the
+   * output as it arrives, before it is cut down to its ends.
    */
   run: (
     sandboxId: string,
@@ -69,6 +70,7 @@ export type ComputerProvider = {
       timeoutMs: number;
       signal?: AbortSignal;
       envs?: Record<string, string>;
+      redact?: string[];
     },
   ) => Promise<CommandResult | TimedOutCommand>;
   /** A file's bytes, or null when there is no such file. */

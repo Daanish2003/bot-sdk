@@ -47,10 +47,15 @@ export function unknownSecretError(unknown: string[], known: Iterable<string>): 
 }
 
 /** The forms of a Secret's value that are masked: itself, its base64 and its URL-encoded form. */
-function maskedForms(value: string): string[] {
+export function maskedForms(value: string): string[] {
   return [value, Buffer.from(value, "utf8").toString("base64"), encodeURIComponent(value)].filter(
     (form) => form.length > 0,
   );
+}
+
+/** Every form of `values` that is masked, the longest first. */
+export function maskedFormsOf(values: Iterable<string>): string[] {
+  return [...new Set([...values].flatMap(maskedForms))].sort((a, b) => b.length - a.length);
 }
 
 /**
@@ -60,7 +65,7 @@ function maskedForms(value: string): string[] {
  * another is replaced whole.
  */
 export function maskSecrets(text: string, values: Iterable<string>): string {
-  const forms = [...new Set([...values].flatMap(maskedForms))].sort((a, b) => b.length - a.length);
+  const forms = maskedFormsOf(values);
   let masked = text;
   for (const form of forms) masked = masked.split(form).join(maskedValue);
   return masked;

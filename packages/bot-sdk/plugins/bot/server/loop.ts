@@ -54,7 +54,14 @@ import {
 import { pruneScreenshots, resolveScreenshots } from "./desktop-tools";
 import { type LoopPromptStart, type PreviousCall, promptHashesOf } from "./prompt-start";
 import { type ReviewSource, reviewToolCall } from "./review";
-import { loadSecretValues, maskResult, maskSecrets, unknownSecretError } from "./secret-values";
+import {
+  loadSecretValues,
+  maskResult,
+  maskSecrets,
+  maskedFormsOf,
+  unknownSecretError,
+} from "./secret-values";
+import { isReservedSecretName, reservedSecretNameMessage } from "../shared/secret";
 import { computerRebuildSeenAt, markComputerRebuildSeen } from "./store";
 import { midTurnNote, summarizeInstruction } from "./summary";
 
@@ -722,6 +729,9 @@ export async function runLoop(
         const values = await loadSecretValues(deps, owner.userId);
         const unknown = (secrets ?? []).filter((name) => !values.has(name));
         if (unknown.length > 0) return { error: unknownSecretError(unknown, values.keys()) };
+        // Defence in depth: a reserved name can't be saved, but one that was would not be set.
+        const reserved = (secrets ?? []).filter(isReservedSecretName);
+        if (reserved.length > 0) return { error: reservedSecretNameMessage(reserved.join(", ")) };
         const secretValues = [...values.values()];
         const envs = Object.fromEntries((secrets ?? []).map((name) => [name, values.get(name)!]));
         return onLiveComputer(async (computer, live) => {
@@ -730,6 +740,7 @@ export async function runLoop(
             cwd: resolvePath(owner.botId, cwd),
             timeoutMs: (timeoutSeconds ?? defaultShellTimeoutSeconds) * 1000,
             ...(secrets?.length && { envs }),
+            ...(secretValues.length > 0 && { redact: maskedFormsOf(secretValues) }),
           });
           // Masked before the output is cut down to its ends, so a value is never half kept by the cut.
           const result = {
@@ -757,7 +768,11 @@ export async function runLoop(
       return recordTold(
         await ctx.activity(name, async () => {
           beforeLiveTool();
-          const result = await onLiveComputer(operate);
+          // A Computer tool's result may hold a Secret's value (a file, a page): masked, like `shell`.
+          const result = maskResult(
+            await onLiveComputer(operate),
+            (await loadSecretValues(deps, owner.userId)).values(),
+          );
           // Cut inside the activity, so the Checkpoint holds only the cut form. A rebuilt note
           // is the result's last field, so it stays in the cut text's end.
           return cap ? await capLong(result, toolCallId) : result;
@@ -783,15 +798,9 @@ export async function runLoop(
         (computer, live) => run(computer, owner.botId, input, live),
         cap,
       );
-  /** `read` with the user's Secrets masked: a file may hold a value the Model must not see. */
-  const maskedReadTool: typeof readTool = async (computer, botId, input, options) =>
-    maskResult(
-      await readTool(computer, botId, input, options),
-      (await loadSecretValues(deps, owner.userId)).values(),
-    );
   const computerToolsByName: Record<string, AnyServerTool> = {
     [shellDefinition.name]: shell,
-    [readDefinition.name]: readDefinition.server(fileTool("read", maskedReadTool, false)),
+    [readDefinition.name]: readDefinition.server(fileTool("read", readTool, false)),
     [writeDefinition.name]: writeDefinition.server(fileTool("write", writeTool)),
     [editDefinition.name]: editDefinition.server(fileTool("edit", editTool)),
     [listDefinition.name]: listDefinition.server(fileTool("list", listTool)),

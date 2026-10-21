@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { capOutput, spillThreshold } from "../../../../plugins/bot/server/computer-tools";
-import { boundedOutput, keptEndCharacters } from "../../../../plugins/computer/e2b/bounded-output";
+import {
+  boundedOutput,
+  keptEndCharacters,
+  redactedOutput,
+} from "../../../../plugins/computer/e2b/bounded-output";
 
 describe("boundedOutput", () => {
   it("keeps a short output whole, however it arrives", () => {
@@ -71,5 +75,36 @@ describe("boundedOutput", () => {
     expect(capped.outputPath).toBe("/home/user/bots/b1/.outputs/call.txt");
     expect(capped.stdout.startsWith("start x")).toBe(true);
     expect(capped.stdout.endsWith("x end")).toBe(true);
+  });
+});
+
+describe("redactedOutput", () => {
+  const value = "ghp_s3cr3t-Value";
+
+  it("masks a value split across chunks", () => {
+    const output = redactedOutput([value]);
+    output.add("token=ghp_s3c");
+    output.add("r3t-Value done");
+
+    expect(output.text()).toBe("token=*** done");
+  });
+
+  it("masks a value that straddles the cut of the kept head", () => {
+    const output = redactedOutput([value]);
+    output.add("x".repeat(keptEndCharacters - 5));
+    output.add(value);
+    output.add("y".repeat(10));
+
+    const text = output.text();
+    expect(text).toContain("***");
+    expect(text).not.toContain("ghp_");
+    expect(text).not.toContain("s3cr3t");
+  });
+
+  it("keeps a held partial match that never completes", () => {
+    const output = redactedOutput([value]);
+    output.add("ghp_s3");
+
+    expect(output.text()).toBe("ghp_s3");
   });
 });
