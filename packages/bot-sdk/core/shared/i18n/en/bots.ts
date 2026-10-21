@@ -140,6 +140,34 @@ export const botsMessages = {
     `Forgot: ${text} (${tier})`,
   "bots.skillSaved": ({ name }: { name: string }) => `📘 Skill saved: ${name}`,
   "bots.skillUpdated": ({ name }: { name: string }) => `📘 Skill updated: ${name}`,
+  "bots.skills": "Skills",
+  "bots.skillsCount": ({ count }: { count: number }) => `Skills ${count}`,
+  "bots.skillsNew": "New Skill",
+  "bots.skillsNone": "No Skills yet",
+  "bots.skillsHint": "A Skill is read only when a task needs it.",
+  "bots.skillNotUsable": "not usable",
+  "bots.skillNotUsableReason": ({ reason }: { reason: string }) => `Not usable: ${reason}`,
+  "bots.skillNoDescription": "(no description)",
+  "bots.skillName": "Skill name",
+  "bots.skillFile": "SKILL.md",
+  "bots.skillModified": ({ time }: { time: string }) => `Last modified ${time}`,
+  "bots.skillSave": "Save",
+  "bots.skillDelete": "Delete",
+  "bots.skillDeleted": "Skill deleted",
+  "bots.skillSavedToast": "Skill saved",
+  "bots.skillTemplate": ({ name }: { name: string }) =>
+    `---
+name: ${name}
+description: Use this when 
+---
+
+## Inputs
+
+## Steps
+1. 
+
+## How to check
+`,
   "bots.cacheChip": ({ percent, steps, cost }: { percent: number; steps: number; cost: string }) =>
     `Cache ${percent}% · ${steps} ${steps === 1 ? "Step" : "Steps"} · ${cost}`,
   "bots.cacheMiss": ({ section, steps, cost }: { section: string; steps: number; cost: string }) =>
