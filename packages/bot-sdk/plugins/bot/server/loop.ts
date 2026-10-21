@@ -55,10 +55,11 @@ import { pruneScreenshots, resolveScreenshots } from "./desktop-tools";
 import { type LoopPromptStart, type PreviousCall, promptHashesOf } from "./prompt-start";
 import { type ReviewSource, reviewToolCall } from "./review";
 import {
+  type DecryptedSecrets,
   loadSecretValues,
   maskResult,
-  maskSecrets,
   maskedFormsOf,
+  secretMasker,
   unknownSecretError,
 } from "./secret-values";
 import { isReservedSecretName, reservedSecretNameMessage } from "../shared/secret";
@@ -104,13 +105,21 @@ export type LoopKit = {
    * `toolCallId` (setup's reads, such as the memory snapshot) is never cut: the Model never sees
    * its result as is. `reviewed` is the tool's input, given only for a tool Auto-review checks
    * (spec #691): the reviewer reads it first, and a block is the call's result, with nothing run.
+   * `unless`, asked before the review in a recorded activity, is an error that stops the call
+   * with no review, or `null` to go on. `operate` gets `mask`, which masks the user's Secrets
+   * in a text: for one it cuts down itself, before the cut. Its result is masked all the same.
    */
   computerCall: <T extends object>(
     name: string,
     toolCallId: string | undefined,
-    operate: (computer: ComputerHandle, live: FileToolOptions) => Promise<T>,
+    operate: (
+      computer: ComputerHandle,
+      live: FileToolOptions,
+      mask: (text: string) => string,
+    ) => Promise<T>,
     capped?: boolean,
     reviewed?: Record<string, unknown>,
+    unless?: () => Promise<{ error: string } | null>,
   ) => Promise<T | { error: string }>;
 };
 
@@ -701,6 +710,8 @@ export async function runLoop(
       inLiveCall = false;
     });
   };
+  /** The Secrets this loop has decrypted: each call reads the rows, and decrypts only new ones. */
+  const decrypted: DecryptedSecrets = new Map();
   const shell = shellDefinition.server((input, context) =>
     toolCall(context?.toolCallId, async () => {
       const { command, cwd, timeoutSeconds, secrets } = input;
@@ -726,13 +737,14 @@ export async function runLoop(
         if (!startedHere) return { error: interruptedShellError };
         // The user's Secrets, read for this one command: it gets only the ones it names, and the
         // result is masked of all of them.
-        const values = await loadSecretValues(deps, owner.userId);
+        const values = await loadSecretValues(deps, owner.userId, decrypted);
         const unknown = (secrets ?? []).filter((name) => !values.has(name));
         if (unknown.length > 0) return { error: unknownSecretError(unknown, values.keys()) };
         // Defence in depth: a reserved name can't be saved, but one that was would not be set.
         const reserved = (secrets ?? []).filter(isReservedSecretName);
         if (reserved.length > 0) return { error: reservedSecretNameMessage(reserved.join(", ")) };
         const secretValues = [...values.values()];
+        const mask = secretMasker(secretValues);
         const envs = Object.fromEntries((secrets ?? []).map((name) => [name, values.get(name)!]));
         return onLiveComputer(async (computer, live) => {
           const output = await computer.run(command, {
@@ -745,8 +757,8 @@ export async function runLoop(
           // Masked before the output is cut down to its ends, so a value is never half kept by the cut.
           const result = {
             ...output,
-            stdout: maskSecrets(output.stdout, secretValues),
-            stderr: maskSecrets(output.stderr, secretValues),
+            stdout: mask(output.stdout),
+            stderr: mask(output.stderr),
           };
           // The cap is applied here, so the Checkpoint holds only the truncated form.
           const capped = await capOutput(
@@ -760,8 +772,23 @@ export async function runLoop(
       return recordTold(result);
     }),
   );
-  const computerCall: LoopKit["computerCall"] = (name, toolCallId, operate, cap = true, reviewed) =>
+  const computerCall: LoopKit["computerCall"] = (
+    name,
+    toolCallId,
+    operate,
+    cap = true,
+    reviewed,
+    unless,
+  ) =>
     toolCall(toolCallId, async () => {
+      // A call that can't run is told so before its review, so it never waits for an Approval.
+      if (unless) {
+        const refused = await ctx.activity(`${name}:unless`, async () => {
+          beforeLiveTool();
+          return unless();
+        });
+        if (refused) return refused;
+      }
       // Auto-review first: a blocked call never reaches the Computer.
       const blocked = reviewed && (await review(name, toolCallId, reviewed));
       if (blocked) return blocked;
@@ -769,9 +796,11 @@ export async function runLoop(
         await ctx.activity(name, async () => {
           beforeLiveTool();
           // A Computer tool's result may hold a Secret's value (a file, a page): masked, like `shell`.
+          const values = [...(await loadSecretValues(deps, owner.userId, decrypted)).values()];
+          const mask = secretMasker(values);
           const result = maskResult(
-            await onLiveComputer(operate),
-            (await loadSecretValues(deps, owner.userId)).values(),
+            await onLiveComputer((computer, live) => operate(computer, live, mask)),
+            values,
           );
           // Cut inside the activity, so the Checkpoint holds only the cut form. A rebuilt note
           // is the result's last field, so it stays in the cut text's end.

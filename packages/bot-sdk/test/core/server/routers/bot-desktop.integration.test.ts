@@ -20,6 +20,7 @@ import {
 } from "../../../../plugins/runner/server/jobs/in-process";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
+import { fakeReviewer } from "../../../support/fake-reviewer";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
@@ -60,6 +61,7 @@ async function userWith(model: string, turns: Round[], helpers: Round[], shot = 
       return { exitCode: 0, stdout: "", stderr: "" };
     },
   });
+  const reviewer = fakeReviewer();
   let deps: TestDeps | undefined;
   const jobs = inProcessRunner({
     db: getTestDb(),
@@ -71,6 +73,7 @@ async function userWith(model: string, turns: Round[], helpers: Round[], shot = 
     plugins: [bot(), computer({ provider: computerFake.provider })],
     jobs,
     adapterFor: () => adapter,
+    reviewAdapterFor: () => reviewer.adapter,
   });
   await jobs.start();
   started.push(jobs);
@@ -84,7 +87,7 @@ async function userWith(model: string, turns: Round[], helpers: Round[], shot = 
   });
   const client = chatRpc({ user, deps });
   const botId = (await client.bot.create({ name: "Ada", model })).id;
-  return { helperFake, computerFake, client, botId, deps, user };
+  return { helperFake, computerFake, reviewer, client, botId, deps, user };
 }
 
 const startComputerUse = toolCall({
@@ -273,8 +276,8 @@ describe("a Computer-use Helper's desktop", () => {
     expect(left).toEqual([]);
   }, 60_000);
 
-  it("is present on a model without image input and says it can't see", async () => {
-    const { client, botId, helperFake, computerFake } = await userWith(
+  it("is present on a model without image input and says it can't see, with no review", async () => {
+    const { client, botId, helperFake, computerFake, reviewer } = await userWith(
       "groq:llama-3.3-70b-versatile",
       [handsOff, round()],
       [round(desktop({ action: "screenshot" })), round(text("Blind."))],
@@ -287,5 +290,7 @@ describe("a Computer-use Helper's desktop", () => {
     const [result] = toolMessages(helperFake.calls.at(-1)!);
     expect(JSON.parse(String(result?.content))).toEqual({ error: noVisionError });
     expect(computerFake.callsOf("run").some((call) => call.command.includes("scrot"))).toBe(false);
+    // An action that never runs is never reviewed, so it never waits for an Approval.
+    expect(reviewer.calls).toEqual([]);
   }, 60_000);
 });
