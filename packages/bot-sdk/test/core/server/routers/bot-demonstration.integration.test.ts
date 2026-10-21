@@ -525,4 +525,18 @@ describe("the time cap", () => {
     expect(["saved", "failed"]).toContain((await cardOf(client, botId))?.state);
     expect(screenCommands(computerFake)).toContain(`${screenScript} stop 1`);
   });
+
+  it("ends one left paused as Done an hour after it started, which frees its Screen", async () => {
+    const { client, botId, computerFake, demonstrationId, pass } = await demonstrating();
+    await client.bot.demonstration.pause({ demonstrationId });
+
+    await pass(59 * minuteMs);
+    expect(await stateOf(botId)).toBe("paused");
+
+    await pass(2 * minuteMs);
+
+    const [row] = await demonstrationsOf(botId);
+    expect(["saved", "failed"]).toContain(row!.state);
+    expect(screenCommands(computerFake)).toContain(`${screenScript} stop 1`);
+  });
 });

@@ -37,7 +37,8 @@ import { hintChanged } from "./turn";
 /*
  * Demonstrations (spec #713): the user shows the Bot a task once on its Screen. `watch_user` starts
  * one in a Turn and returns at once; the user pauses, resumes, finishes or cancels it from its Show
- * me card, and a self-chaining check ends it as Done after 15 minutes of recording.
+ * me card, and a self-chaining check ends it as Done after 15 minutes of recording, or an hour after
+ * it started.
  */
 
 /** The Bot's deferred tool that starts a Demonstration. */
@@ -45,6 +46,12 @@ export const watchUserToolName = "watch_user";
 
 /** The most recording time a Demonstration may take; past it, it ends as Done. */
 export const demonstrationTimeLimitMs = 15 * 60_000;
+
+/**
+ * The longest a Demonstration may stay live, paused time included; past it, it ends as Done. A
+ * Demonstration left paused would otherwise hold its Screen, and keep the Computer awake, for good.
+ */
+export const demonstrationLiveLimitMs = 60 * 60_000;
 
 /** How often the time cap's check runs. */
 export const demonstrationCheckMs = 60_000;
@@ -461,7 +468,8 @@ const after = (time: Date) => new Date(time.getTime() + demonstrationCheckMs);
  * The time cap (spec #713), a self-chaining check every `demonstrationCheckMs` while the
  * Demonstration is live, as the Computer's sleep check chains. Each adds the time since the last
  * check to `recordedMs` when it finds the Demonstration recording, so paused time doesn't count;
- * at `demonstrationTimeLimitMs` it ends the Demonstration as Done. One that has ended stops the chain.
+ * at `demonstrationTimeLimitMs`, or `demonstrationLiveLimitMs` after it started, it ends the
+ * Demonstration as Done. One that has ended stops the chain.
  */
 export const demonstrationCheckJob = defineJob({
   name: demonstrationCheckJobName,
@@ -473,7 +481,7 @@ export const demonstrationCheckJob = defineJob({
   }),
   run: async ({ demonstrationId, step, recordedMs, checkedAt }, { deps }) => {
     const [row] = await deps.db
-      .select({ state: botDemonstration.state })
+      .select({ state: botDemonstration.state, startedAt: botDemonstration.startedAt })
       .from(botDemonstration)
       .where(eq(botDemonstration.id, demonstrationId));
     if (!row || !isLiveDemonstration(row.state)) return;
@@ -481,7 +489,8 @@ export const demonstrationCheckJob = defineJob({
     const recorded =
       recordedMs +
       (row.state === "recording" ? Math.max(0, now.getTime() - Date.parse(checkedAt)) : 0);
-    if (recorded >= demonstrationTimeLimitMs) {
+    const live = now.getTime() - row.startedAt.getTime();
+    if (recorded >= demonstrationTimeLimitMs || live >= demonstrationLiveLimitMs) {
       await move(deps, demonstrationId, "done");
       return;
     }
