@@ -19,6 +19,8 @@ CREATE TABLE "chat"."bot_review" (
 );
 --> statement-breakpoint
 CREATE INDEX "bot_review_bot_id_created_at_idx" ON "chat"."bot_review" ("bot_id","created_at");--> statement-breakpoint
+CREATE INDEX "bot_review_turn_id_idx" ON "chat"."bot_review" ("turn_id");--> statement-breakpoint
+CREATE INDEX "bot_review_helper_id_idx" ON "chat"."bot_review" ("helper_id");--> statement-breakpoint
 ALTER TABLE "chat"."bot_review" ADD CONSTRAINT "bot_review_bot_id_bot_id_fkey" FOREIGN KEY ("bot_id") REFERENCES "chat"."bot"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "chat"."bot_review" ADD CONSTRAINT "bot_review_turn_id_bot_turn_id_fkey" FOREIGN KEY ("turn_id") REFERENCES "chat"."bot_turn"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "chat"."bot_review" ADD CONSTRAINT "bot_review_helper_id_bot_helper_id_fkey" FOREIGN KEY ("helper_id") REFERENCES "chat"."bot_helper"("id") ON DELETE CASCADE;

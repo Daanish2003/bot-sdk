@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "122c5265-f433-445f-bee2-cef96f032a41",
+  "id": "8f3f3c1d-4ca0-4314-9ade-37ec2bc3a631",
   "prevIds": ["fed46c98-b5f8-4d5d-91d4-960cdeef4bb5"],
   "ddl": [
     {
@@ -4275,6 +4275,48 @@
       "method": "btree",
       "concurrently": false,
       "name": "bot_review_bot_id_created_at_idx",
+      "entityType": "indexes",
+      "schema": "chat",
+      "table": "bot_review"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "turn_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "bot_review_turn_id_idx",
+      "entityType": "indexes",
+      "schema": "chat",
+      "table": "bot_review"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "helper_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "bot_review_helper_id_idx",
       "entityType": "indexes",
       "schema": "chat",
       "table": "bot_review"

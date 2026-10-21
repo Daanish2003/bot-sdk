@@ -55,5 +55,10 @@ export const botReview = chatSchema.table(
     decidedAt: timestamp("decided_at"),
     createdAt: timestamp("created_at").notNull(),
   },
-  (table) => [index("bot_review_bot_id_created_at_idx").on(table.botId, table.createdAt)],
+  (table) => [
+    index("bot_review_bot_id_created_at_idx").on(table.botId, table.createdAt),
+    // For the cascades of a Turn's or a Helper's delete.
+    index("bot_review_turn_id_idx").on(table.turnId),
+    index("bot_review_helper_id_idx").on(table.helperId),
+  ],
 );

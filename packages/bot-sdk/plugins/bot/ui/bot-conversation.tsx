@@ -215,6 +215,11 @@ function BotConversationView({
   // in its span. A Turn that sent none (quiet, or failed) has them under the last Message saved
   // before its end ("" with none), so its Steps still show.
   const afterTurnOf = new Map<string, ReactNode[]>();
+  const passesOf = new Map<string, typeof reviews>();
+  for (const review of reviews) {
+    if (review.verdict !== "pass" || !review.turnId) continue;
+    passesOf.set(review.turnId, [...(passesOf.get(review.turnId) ?? []), review]);
+  }
   for (const [index, turn] of turns.entries()) {
     const from = turn.startedAt.getTime();
     // Up to its end, and never into the next Turn (a Turn that never ended has no end).
@@ -227,9 +232,7 @@ function BotConversationView({
       before
         .filter((message) => message.role === "assistant" && message.createdAt.getTime() >= from)
         .at(-1) ?? before.at(-1);
-    const passes = reviews.filter(
-      (review) => review.turnId === turn.id && review.verdict === "pass",
-    );
+    const passes = passesOf.get(turn.id) ?? [];
     const shown = afterTurn?.(turn);
     const key = anchor?.id ?? "";
     if (passes.length > 0 || shown)

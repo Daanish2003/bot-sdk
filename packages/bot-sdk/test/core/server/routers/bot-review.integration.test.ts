@@ -2,8 +2,9 @@ import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { botReview, botTurn, usage } from "../../../../core/server/db/schema";
+import { botReview, botTurn, job, usage } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
+import { deleteUserData } from "../../../../core/server/user-data";
 import { bot } from "../../../../plugins/bot/server/plugin";
 import {
   reviewFailedReason,
@@ -341,6 +342,43 @@ describe("Auto-review of the Bot's shell commands", () => {
     expect(computerFake.callsOf("run")).toEqual([]);
     expect(toolResultOf(fake.calls[1]).error).toMatch(/^Blocked: Auto-review couldn't check this/);
     expect((await reviewsOf(botId)).map((row) => row.reason)).toEqual([reviewFailedReason]);
+  });
+
+  it("blocks a shell call after its user's delete mid-Turn, and keeps no review row", async () => {
+    let deleteUser = async () => {};
+    const { client, botId, user, fake, reviewer, computerFake, deps } = await botWith(
+      [round(shell("first")), round(shell("second")), round()],
+      {
+        onCommand: async ({ command }) => {
+          if (command === "first") await deleteUser();
+          return { exitCode: 0, stdout: "", stderr: "" };
+        },
+      },
+    );
+    // The user's delete commits while the first command runs.
+    deleteUser = () => deleteUserData(deps, user.id);
+
+    const stream = await client.bot.send({ botId, id: uuidv7(), text: "go" });
+    await expect
+      .poll(
+        async () =>
+          (
+            await getTestDb()
+              .select({ status: job.status })
+              .from(job)
+              .where(eq(job.name, "bot.turn"))
+          )
+            .map((row) => row.status)
+            .join(),
+        { timeout: 10_000 },
+      )
+      .toMatch(/succeeded|failed/);
+    await stream.return?.(undefined);
+
+    expect(computerFake.callsOf("run").map((call) => call.command)).toEqual(["first"]);
+    expect(toolResultOf(fake.calls[2]).error).toMatch(/^Blocked: Auto-review couldn't check this/);
+    expect(reviewer.calls).toHaveLength(1);
+    expect(await reviewsOf(botId)).toEqual([]);
   });
 
   it("reviews on the Host's reviewModel when the user can use it", async () => {

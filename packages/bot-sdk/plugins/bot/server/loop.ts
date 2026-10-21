@@ -666,12 +666,16 @@ export async function runLoop(
       const { command, cwd, timeoutSeconds } = input;
       // Auto-review first: a blocked command never starts.
       if (options.review) {
+        // The live review is a model call: the loop's time limit cuts it off, as a Stop does.
         const blocked = await reviewToolCall(
           deps,
           {
             activity: ctx.activity,
             billing,
-            beforeLive: beforeLiveTool,
+            beforeLive: () => {
+              beforeLiveTool();
+              inLiveCall = true;
+            },
             signal: abortController.signal,
             usageOf: (reviewProvider, chunks, sent) =>
               callUsage(deps, reviewProvider, chunks, sent),
@@ -683,7 +687,9 @@ export async function runLoop(
             tool: shellToolName,
             input,
           },
-        );
+        ).finally(() => {
+          inLiveCall = false;
+        });
         if (blocked) return blocked;
       }
       // The start marker: a resumed loop that replays it with no result never runs the command

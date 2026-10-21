@@ -7,9 +7,11 @@ import type { Database } from "../../../core/server/db/index";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { searchTextOf } from "../../../core/shared/message-parts";
+import type { ModelMeter } from "../../models/server/meter";
 import type { MessageUsage } from "../../models/shared/usage";
 import { parseModelId } from "../../models/shared/models";
 import type { BotReview } from "../shared/review";
+import { parseReply } from "../../memory/server/ask";
 import { routineNameOf, routinePromptOf } from "./routine";
 
 /*
@@ -122,10 +124,15 @@ export async function reviewToolCall(
     input: Record<string, unknown>;
   },
 ): Promise<{ error: string } | null> {
+  // The meter of the call the live review made; a replay of a recorded one resolves it again.
+  let liveMeter: ModelMeter | undefined;
   const reviewed = await kit.activity("review", async () => {
     kit.beforeLive();
-    return judge(deps, kit, { owner, source, tool, input });
+    return judge(deps, kit, { owner, source, tool, input }, (meter) => (liveMeter = meter));
   });
+  const meter = reviewed.bill
+    ? (liveMeter ?? (await reviewMeter(deps, owner.userId, reviewed.model)))
+    : undefined;
   await kit.billing("review:write", async (tx, onCommit) => {
     // A Bot deleted meanwhile (its user's delete) keeps no row; its key share holds off a delete.
     const [kept] = await tx
@@ -147,13 +154,7 @@ export async function reviewToolCall(
       reason: reviewed.reason,
       createdAt: deps.clock(),
     });
-    if (reviewed.bill) {
-      const models = deps.plugin("models");
-      const call = await models.resolveModelCall(owner.userId, reviewed.model);
-      // On the user's own key or plan, a review is still recorded, at cost 0.
-      const meter = call?.meter.onHost
-        ? call.meter
-        : models.freeModelMeter(owner.userId, reviewed.model);
+    if (reviewed.bill && meter) {
       onCommit(
         await meter.recordIn(tx, {
           kind: "review",
@@ -166,6 +167,22 @@ export async function reviewToolCall(
     return null;
   });
   return reviewed.outcome === "pass" ? null : { error: blockedError(reviewed.reason) };
+}
+
+/** The meter a review on `model` bills, resolved outside the Checkpoint's transaction. */
+async function reviewMeter(deps: BotSdkContext, userId: string, model: string) {
+  const call = await deps.plugin("models").resolveModelCall(userId, model);
+  return meterOf(deps, userId, model, call?.meter);
+}
+
+/** On the user's own key or plan, a review is still recorded, at cost 0. */
+function meterOf(
+  deps: BotSdkContext,
+  userId: string,
+  model: string,
+  meter: ModelMeter | undefined,
+): ModelMeter {
+  return meter?.onHost ? meter : deps.plugin("models").freeModelMeter(userId, model);
 }
 
 /** What the Model gets for a blocked call: why, and what to do next. */
@@ -195,6 +212,7 @@ async function judge(
     tool: string;
     input: Record<string, unknown>;
   },
+  onMeter: (meter: ModelMeter) => void,
 ): Promise<RecordedReview> {
   const models = deps.plugin("models");
   const named = deps.plugin("bot").reviewModel;
@@ -209,6 +227,7 @@ async function judge(
   });
   const call = namedCall ?? (await models.resolveModelCall(owner.userId, owner.model));
   if (!call) return failed();
+  onMeter(meterOf(deps, owner.userId, model, call.meter));
 
   const messages: ModelMessage[] = [
     { role: "user", content: await reviewerInput(deps.db, source, { tool, input }) },
@@ -221,6 +240,8 @@ async function judge(
   }, reviewTimeoutMs);
   const onStop = () => abortController.abort(kit.signal.reason);
   kit.signal.addEventListener("abort", onStop, { once: true });
+  // A Stop while the review was getting ready has already fired.
+  if (kit.signal.aborted) onStop();
   const chunks: StreamChunk[] = [];
   let threw: unknown;
   try {
@@ -240,8 +261,9 @@ async function judge(
   }
   // Stopped: the call stays unanswered, as any cut-off activity.
   kit.signal.throwIfAborted();
-  if (timedOut) return failed();
   const bill = kit.usageOf(parseModelId(model)?.provider ?? "", chunks, messages);
+  // What a slow reviewer used before the cut-off is billed too.
+  if (timedOut) return failed(bill);
   const errored = chunks.find((chunk) => chunk.type === EventType.RUN_ERROR);
   if (threw !== undefined || errored) {
     deps.logger.error(
@@ -261,8 +283,7 @@ async function judge(
 /** The reviewer's reply as a verdict, after stripping code fences; `null` when it holds none. */
 function parseVerdict(reply: string): ReviewVerdict | null {
   try {
-    const json = reply.trim().replace(/^```(?:json)?\s*|\s*```$/g, "");
-    return verdictSchema.parse(JSON.parse(json));
+    return parseReply(verdictSchema, reply);
   } catch {
     return null;
   }
