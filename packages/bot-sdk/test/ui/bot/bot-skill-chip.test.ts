@@ -16,6 +16,7 @@ describe("BotSkillChip", () => {
     render(
       providerFor(
         createElement(BotSkillChip, {
+          botId: "ada",
           changes: [
             { kind: "saved", name: "weekly-report" },
             { kind: "updated", name: "expense-sheet" },
@@ -32,7 +33,10 @@ describe("BotSkillChip", () => {
   it("shows nothing when the Turn wrote no Skill", () => {
     for (const none of [null, []]) {
       const { container, unmount } = render(
-        providerFor(createElement(BotSkillChip, { changes: none }), { messages: {}, plugins }),
+        providerFor(createElement(BotSkillChip, { botId: "ada", changes: none }), {
+          messages: {},
+          plugins,
+        }),
       );
       expect(container.innerHTML).toBe("");
       unmount();

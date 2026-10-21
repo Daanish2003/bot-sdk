@@ -1,5 +1,6 @@
 import type { BotSdkPlugin } from "../../../core/server/plugin";
 import type { ComputerHandle } from "../../computer/server/plugin";
+import { skillsRouter } from "./routers/index";
 import { readBotSkills, type SkillLine, skillsPrompt } from "./skills";
 
 /** The `skills` plugin's API (`sdk.plugin("skills")`): a Bot's Skills and its Skills block. */
@@ -34,6 +35,7 @@ export function skills(): SkillsPlugin {
   return {
     id: "skills",
     uses: ["computer"],
+    router: { skills: skillsRouter },
     init: () => ({
       api: {
         botSkills: ({ botId, computer, signal }) => readBotSkills(computer, botId, { signal }),
