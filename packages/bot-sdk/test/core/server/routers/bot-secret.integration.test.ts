@@ -193,15 +193,15 @@ describe("Secrets", () => {
 
   it("lists names and dates, never values, and deletes", async () => {
     const { client, botId } = await botWith([]);
-    await client.bot.secret.save({ botId, name: "B_TOKEN", value: "two" });
-    await client.bot.secret.save({ botId, name: "A_TOKEN", value: "one" });
+    await client.bot.secret.save({ botId, name: "B_TOKEN", value: "twos" });
+    await client.bot.secret.save({ botId, name: "A_TOKEN", value: "ones" });
 
     const listed = await client.bot.secret.list();
     expect(listed).toEqual([
       { name: "A_TOKEN", createdAt: expect.any(Date) },
       { name: "B_TOKEN", createdAt: expect.any(Date) },
     ]);
-    expect(JSON.stringify(listed)).not.toMatch(/one|two/);
+    expect(JSON.stringify(listed)).not.toMatch(/ones|twos/);
 
     await client.bot.secret.delete({ name: "A_TOKEN" });
     expect((await client.bot.secret.list()).map((secret) => secret.name)).toEqual(["B_TOKEN"]);
@@ -322,6 +322,56 @@ describe("Secrets", () => {
     await send(client, botId, "show env");
 
     expect(toolResultOf(fake.calls.at(-1)).stdout).toBe("GITHUB_TOKEN=***\n");
+  });
+
+  it("stores a value trimmed, so the output that holds the trimmed value is masked", async () => {
+    const { client, botId, deps, user, fake } = await botWith(
+      [round(sends("Thanks.")), round(shell("env")), round(sends("Done."))],
+      {
+        onCommand: () => ({ exitCode: 0, stdout: `GITHUB_TOKEN=${token}\n`, stderr: "" }),
+      },
+    );
+    await client.bot.secret.save({ botId, name: "GITHUB_TOKEN", value: `  ${token}\n` });
+    expect(await loadSecretValues(deps, user.id)).toEqual(new Map([["GITHUB_TOKEN", token]]));
+    await turnsEnded(botId, 1);
+
+    await send(client, botId, "show env");
+
+    expect(toolResultOf(fake.calls.at(-1)).stdout).toBe("GITHUB_TOKEN=***\n");
+  });
+
+  it("refuses a value shorter than 4 characters once trimmed", async () => {
+    const { client, botId, deps, user } = await botWith([]);
+
+    for (const value of ["abc", "  abc \n", "   "]) {
+      await expect(
+        client.bot.secret.save({ botId, name: "GITHUB_TOKEN", value }),
+      ).rejects.toMatchObject({ data: { code: "error.secretTooShort" } });
+    }
+    expect(await loadSecretValues(deps, user.id)).toEqual(new Map());
+    await client.bot.secret.save({ botId, name: "GITHUB_TOKEN", value: "abcd" });
+    expect(await loadSecretValues(deps, user.id)).toEqual(new Map([["GITHUB_TOKEN", "abcd"]]));
+  });
+
+  it("masks the trimmed form of a stored value and skips one too short, so older rows are safe", async () => {
+    const { client, botId, deps, user, fake } = await botWith(
+      [round(shell("env")), round(sends("Done."))],
+      {
+        onCommand: () => ({
+          exitCode: 0,
+          stdout: `a=1 b=2 TOKEN=${token}\n`,
+          stderr: "",
+        }),
+      },
+    );
+    await storeSecret(deps, user.id, "SHORT", "a");
+    await storeSecret(deps, user.id, "PADDED_SHORT", " 2 \n");
+    await storeSecret(deps, user.id, "GITHUB_TOKEN", `${token}\n`);
+
+    expect(await loadSecretValues(deps, user.id)).toEqual(new Map([["GITHUB_TOKEN", token]]));
+    await send(client, botId, "show env");
+
+    expect(toolResultOf(fake.calls.at(-1)).stdout).toBe("a=1 b=2 TOKEN=***\n");
   });
 
   it("masks the value before a long output is cut, so none of it is kept", async () => {
