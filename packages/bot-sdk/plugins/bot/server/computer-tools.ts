@@ -104,6 +104,14 @@ export const shellDefinition = toolDefinition({
     cwd: z.string().optional().meta({
       description: "Where to run it: absolute, or relative to your own directory.",
     }),
+    secrets: z
+      .array(z.string())
+      .optional()
+      .meta({
+        description:
+          "Names of the user's Secrets this command needs. Each one is set as an environment " +
+          "variable of this command only, so refer to it as $NAME. Its value is never shown to you.",
+      }),
     timeoutSeconds: z
       .number()
       .positive()

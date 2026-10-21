@@ -25,6 +25,8 @@ import {
 import { cancelCheckIn, listCheckIns } from "../check-in";
 import { listHelpers } from "../helper-card";
 import { listReviews } from "../review";
+import { deleteSecret, listSecrets, saveSecret } from "../secret";
+import { secretNameSchema } from "../../shared/secret";
 import { helperDone } from "../hand-off";
 import { stopBotHelpers } from "../helper-tools";
 import { screenControl, screenView } from "../screen-view";
@@ -253,6 +255,35 @@ const botRouter = {
         if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
         return listReviews(context.sdk.db, input.botId);
       }),
+  },
+
+  /**
+   * The user's Secrets (spec #691), shared by all their Bots. A value goes in through `save` and
+   * never comes out: `list` returns names and dates only.
+   */
+  secret: {
+    /**
+     * Saves Secret `name`, encrypted, replacing an earlier one, and wakes the Bot `botId` with the
+     * Trigger "Saved secret NAME". The value never enters the Conversation. Another user's Bot is
+     * not found.
+     */
+    save: protectedProcedure
+      .input(
+        z.object({
+          botId: z.uuid(),
+          name: secretNameSchema,
+          value: z.string().min(1).max(10_000),
+        }),
+      )
+      .handler(({ context, input }) => saveSecret(context.sdk, context.user.id, input)),
+
+    /** The caller's Secrets, by name, each with when it was saved. Never a value. */
+    list: protectedProcedure.handler(({ context }) => listSecrets(context.sdk.db, context.user.id)),
+
+    /** Deletes the caller's Secret `name`. */
+    delete: protectedProcedure
+      .input(z.object({ name: secretNameSchema }))
+      .handler(({ context, input }) => deleteSecret(context.sdk.db, context.user.id, input.name)),
   },
 
   /** The live view of a Computer-use Helper's Screen (#597). Another user's Helper is not found. */

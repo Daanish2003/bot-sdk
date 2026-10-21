@@ -10,6 +10,7 @@ import { createBotSdk } from "../../../core/server/create-chat";
 import * as schema from "../../../core/server/db/schema";
 import {
   bot,
+  botSecret,
   job,
   knowledgeFile,
   mcpConnection,
@@ -26,6 +27,7 @@ import { knowledgeBlobKey } from "../../../plugins/assistant/server/blob-keys";
 import { knowledgeJobKey } from "../../../plugins/assistant/server/knowledge/process";
 import { readTokens, saveTokens } from "../../../plugins/assistant/server/mcp/connections";
 import { assistant } from "../../../plugins/assistant/server/plugin";
+import { bot as botPlugin } from "../../../plugins/bot/server/plugin";
 import { computer, computerBlobKey } from "../../../plugins/computer/server/plugin";
 import { profilePath } from "../../../plugins/memory/server/bot-memory";
 import { runner } from "../../../plugins/runner/server/plugin";
@@ -149,6 +151,13 @@ async function seedEverything(
     model: "anthropic:claude-sonnet-5-5",
   });
 
+  await getTestDb().insert(botSecret).values({
+    userId: user.id,
+    name: "GITHUB_TOKEN",
+    encrypted: "v2.x.x.x.x",
+    createdAt: new Date(),
+  });
+
   await deps.plugin("computer").forUser(user.id).run("true");
   // The Bot's memory files, on the disk of the sandbox the run above made, and the Computer's archive.
   fake.files.set(profilePath(botId), new TextEncoder().encode("- Lives in Berlin\n"));
@@ -201,7 +210,7 @@ describe("deleteUser across plugins", () => {
     const fake = fakeComputerProvider();
     const deps = createTestSdk({
       blobStore: store,
-      plugins: [computer({ provider: fake.provider })],
+      plugins: [botPlugin(), computer({ provider: fake.provider })],
     });
     const owner = await insertUser();
     const other = await insertUser();

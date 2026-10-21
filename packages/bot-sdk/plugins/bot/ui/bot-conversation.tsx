@@ -13,6 +13,7 @@ import { useBotCheckIns } from "../client/react/check-ins";
 import { allHelpers, useBotHelpers } from "../client/react/helpers";
 import { useBotReviews } from "../client/react/reviews";
 import { useBotRoutines } from "../client/react/routines";
+import { useBotSecrets } from "../client/react/secrets";
 import { useCacheWarming } from "../client/react/warm";
 import { BotAvatar } from "./bot-avatar";
 import { CheckInLine } from "./check-in-line";
@@ -22,6 +23,8 @@ import { isLiveHelper } from "../shared/helper";
 import { ReviewPassesLine } from "./review-passes-line";
 import { RoutineCard } from "./routine-card";
 import { RoutinesPopover } from "./routines-popover";
+import { SecretCard } from "./secret-card";
+import { SecretsPopover } from "./secrets-popover";
 import { RunDivider } from "./run-divider";
 import { SummaryCard } from "./summary-card";
 import { TodoPopover } from "./todo-popover";
@@ -106,6 +109,12 @@ function BotConversationView({
   const onHelperDone = (helperId: string) =>
     void helperDone(helperId).catch((refusal) => toast.error(serverErrorText(i18n, refusal)));
   const reviews = useBotReviews(botId, working);
+  const {
+    secrets,
+    acting: actingSecrets,
+    save: saveSecret,
+    remove: removeSecret,
+  } = useBotSecrets(botId);
   const todo = helpers.filter((helper) => isLiveHelper(helper.status));
   const actions = { onPause: pause, onResume: resume, onDelete: remove, actingRoutines: acting };
   const checkInActions = { onCancelCheckIn, actingCheckIns };
@@ -145,6 +154,9 @@ function BotConversationView({
   // Each Routine under the Message its card follows, and each Check-in under the one its line
   // follows; one whose Message isn't shown yet (its Turn still runs here) follows the rest.
   const shownIds = new Set(messages.map((message) => message.id));
+  // Only a Secret's newest request is a card: an older one is history, whatever happened since.
+  const newestRequest = new Map<string, string>();
+  for (const sent of messages) if (sent.secret) newestRequest.set(sent.secret.name, sent.id);
   const routinesAfter = groupAfter(routines, shownIds);
   const checkInsAfter = groupAfter(checkIns, shownIds);
   const helpersAfter = groupAfter(helpers, shownIds);
@@ -265,6 +277,9 @@ function BotConversationView({
               {...actions}
             />
           )}
+          {secrets.length > 0 && (
+            <SecretsPopover secrets={secrets} onDelete={removeSecret} acting={actingSecrets} />
+          )}
           {todo.length > 0 && (
             <TodoPopover helpers={todo} onStop={onStopHelper} acting={actingHelpers} />
           )}
@@ -301,6 +316,19 @@ function BotConversationView({
                 helper={helpers.find((helper) => helper.id === message.computer?.helperId)}
                 onDone={onHelperDone}
                 acting={actingHelpers.has(message.computer.helperId)}
+              />
+            )}
+            {message.secret && newestRequest.get(message.secret.name) === message.id && (
+              <SecretCard
+                request={message.secret}
+                botName={bot.name}
+                saved={secrets.some(
+                  (saved) =>
+                    saved.name === message.secret?.name &&
+                    saved.createdAt.getTime() >= message.createdAt.getTime(),
+                )}
+                onSave={saveSecret}
+                saving={actingSecrets.has(message.secret.name)}
               />
             )}
             {message.id === seenMessageId && (
