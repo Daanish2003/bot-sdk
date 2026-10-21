@@ -129,7 +129,7 @@ function Preview({ helperId }: { helperId: string }) {
 }
 
 /** A Screen's noVNC page, or a placeholder until its link comes (or says it couldn't). */
-function LiveView({
+export function LiveView({
   url,
   failed,
   interactive,

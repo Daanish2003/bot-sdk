@@ -6,6 +6,7 @@ import { computer } from "@ai-chat/bot-sdk/plugins/computer/server";
 import { memory } from "@ai-chat/bot-sdk/plugins/memory/server";
 import { models } from "@ai-chat/bot-sdk/plugins/models/server";
 import { runner } from "@ai-chat/bot-sdk/plugins/runner/server";
+import { skills } from "@ai-chat/bot-sdk/plugins/skills/server";
 import { toolDefinition } from "@tanstack/ai";
 import { z } from "zod";
 
@@ -54,6 +55,8 @@ export const chat = createBotSdk({
       ? [computer({ provider: e2bProvider({ ...e2b, template: "ai-chat-computer-v3" }) })]
       : []),
     memory(),
+    // Skills (spec #713): each Bot's SKILL.md files, listed in its prompt; on only with the Computer.
+    skills(),
     assistant({ tools: [serverTime] }),
     // `reviewModel` is optional: the Model that reviews each Bot's risky tool calls (Auto-review).
     // Without it, or when the user can't use it, the Bot's own Model reviews.
