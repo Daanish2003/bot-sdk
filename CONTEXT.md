@@ -89,7 +89,7 @@ A user's authorisation to use an outside service the Host offers, made by signin
 _Avoid_: Integration, connector, MCP credential, Tool credential (that is an API key)
 
 **Approval**:
-A user's yes or no to one tool call before it runs, or to a new Routine. While a call waits for it, the Run has ended; approving starts a new Run that carries on from the call. A Bot asks for one only when Auto-review blocks a call, and silence counts as no.
+A user's yes or no to one tool call before it runs, or to a new Routine. While a call waits for it, the Run has ended; approving starts a new Run that carries on from the call. A Bot asks for one only when Auto-review blocks a call: the call waits at most 15 seconds, and silence counts as no. A yes after that changes nothing.
 _Avoid_: Confirmation, consent, permission
 
 **Source**:
@@ -210,8 +210,12 @@ One display on the Computer, with its own Chrome and Chrome profile, for one act
 _Avoid_: Display, desktop, browser
 
 **Auto-review**:
-A separate model's check of a Bot's risky tool call before it runs. A call it passes runs without asking; one it blocks waits for an Approval.
+A separate model's check of a Bot's risky tool call before it runs. Every shell command is risky, and so is every browser or desktop action that does more than look. A call it passes runs without asking; one it blocks waits for an Approval. It takes only the user's own Messages, or a Routine the user approved, as permission, so text from a webhook or a web page can't talk it into anything.
 _Avoid_: Guardrail, moderation, safety check
+
+**Secret**:
+A value such as a password or token that the user typed into a secure entry field for their Bots. A command on the Computer can use it, but the model only ever sees its name. Each user's Secrets are shared by all their Bots.
+_Avoid_: Credential (that is for a Provider or Tool), password, env var
 
 **Channel**:
 Anything that sends to a Bot or shows what it sends: the user's apps (web, desktop, mobile), Slack, email, webhooks, schedules or phone calls. Every app the user opens shows the same Conversation.

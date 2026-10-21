@@ -947,6 +947,8 @@ async function playTurn(
     timeLimitMs: turnTimeLimitMs,
     plainTextReminder: undeliveredTextReminder,
     attempt,
+    // Each shell call of the Turn gets Auto-review before it runs (spec #691).
+    review: { turnId: turn.id, conversationId: turn.conversationId },
     setup: (kit) => turnSetup(deps, turn, kit, db, renderNewest),
   });
 }

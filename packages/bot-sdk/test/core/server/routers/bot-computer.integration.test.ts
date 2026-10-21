@@ -1146,7 +1146,9 @@ describe("a user delete during a Turn", () => {
   it("leaves no Computer behind: the Turn's next tool call creates no row, sandbox or blob", async () => {
     let deleteUser = async () => {};
     const { client, botId, fake, computerFake, deps, user } = await botWith(
-      [round(shell({ command: "first" })), round(shell({ command: "second" })), round()],
+      // The next call is a file tool, which Auto-review leaves alone: a shell call would be blocked
+      // first, as its reviewer can no longer be resolved for the deleted user.
+      [round(shell({ command: "first" })), round(file("read", { path: "notes.md" })), round()],
       {
         onCommand: async ({ command }) => {
           // The user's delete commits while their Turn is mid-step.
