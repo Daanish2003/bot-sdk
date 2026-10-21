@@ -69,5 +69,8 @@ packages/bot-sdk/eval/memory/results/
 # Turn eval (packages/bot-sdk/eval/turn): the results it writes
 packages/bot-sdk/eval/turn/results/
 
+# Safety evals (packages/bot-sdk/eval/safety): the results they write
+packages/bot-sdk/eval/safety/results/
+
 # Computer evals (packages/bot-sdk/eval/computer): the results they write
 packages/bot-sdk/eval/computer/results/

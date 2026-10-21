@@ -339,7 +339,7 @@ export function blockedError(reason: string, decided?: "denied" | "expired"): st
  * it, else the Bot's own) in a fresh context. An error, invalid output or no verdict within
  * `reviewTimeoutMs` is a block with `reviewFailedReason`; a Stop throws.
  */
-async function judge(
+export async function judge(
   deps: BotSdkContext,
   kit: ReviewKit,
   {
