@@ -151,6 +151,19 @@ describe("the Approval request card", () => {
     await waitFor(() => expect(card.textContent).toContain("Blocked in 4s unless you allow it"));
   });
 
+  it("shows a long command whole, wrapped and scrollable, so its end is read before Allow", async () => {
+    const command = `cd /home/user/project && make test && ${"echo ok && ".repeat(30)}git push origin main --force`;
+    const server = fakeBotServer(() => ({ ...blockOf("waiting", new Date()), input: { command } }));
+    mount(server.fetch);
+
+    const card = (await screen.findByText("Push to the main branch")).closest("[data-review]")!;
+    const shown = card.querySelector("pre")!;
+    expect(shown.textContent).toBe(command);
+    expect(shown.className).toContain("whitespace-pre-wrap");
+    expect(shown.className).toContain("overflow-y-auto");
+    expect(shown.className).not.toContain("truncate");
+  });
+
   it("sends Allow and Deny for the request", async () => {
     const server = fakeBotServer(() => blockOf("waiting", new Date()));
     mount(server.fetch);
