@@ -446,6 +446,29 @@ describe("the Bot's own Skill writes", () => {
     expect(fourth).toContain("Skill added: invoices: Use this when an invoice arrives.");
     expect(fourth).not.toContain("weekly-report");
   });
+
+  it("count however the path is written, as the write tool resolves it", async () => {
+    const { fake, client, botId } = await botWith([
+      round(
+        toolCall({
+          name: "write",
+          input: {
+            path: "./skills/weekly-report/SKILL.md",
+            content: skillFile(
+              "weekly-report",
+              "Use this when the user asks for the weekly report.",
+            ),
+          },
+        }),
+      ),
+      round(),
+      round(),
+    ]);
+    await send(client, botId, "turn one");
+    await send(client, botId, "turn two");
+
+    expect(newestWith(fake.calls, "turn two")).not.toContain("Skill");
+  });
 });
 
 describe("the Skills rules", () => {
