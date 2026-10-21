@@ -44,6 +44,7 @@ import {
   type PromptStartParts,
   promptStartFor,
 } from "./prompt-start";
+import { denyWaitingReviews } from "./review";
 import { historyFrom, historyTurns, queueAwaySummary, summaryOf, writeSummary } from "./summary";
 import { botMessages, findBot, textParts, toBotMessage, turnTimeLimitMs } from "./store";
 import {
@@ -433,6 +434,8 @@ export async function stopBot(deps: BotSdkContext, userId: string, botId: string
     const running = await runningTurnOf(tx, botId);
     if (!running) return false;
     await tx.update(botTrigger).set({ turnId: running }).where(waitingIn(found.conversationId));
+    // A Stop during an Approval wait counts as no (ADR 0024).
+    await denyWaitingReviews(deps, tx, running);
     return cancelTurn(deps, tx, running);
   });
   if (!ended) return;

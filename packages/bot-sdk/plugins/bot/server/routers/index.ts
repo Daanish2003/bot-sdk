@@ -24,7 +24,7 @@ import {
 } from "../routine";
 import { cancelCheckIn, listCheckIns } from "../check-in";
 import { listHelpers } from "../helper-card";
-import { listReviews } from "../review";
+import { decideReview, listReviews } from "../review";
 import { helperDone } from "../hand-off";
 import { stopBotHelpers } from "../helper-tools";
 import { screenControl, screenView } from "../screen-view";
@@ -253,6 +253,22 @@ const botRouter = {
         if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
         return listReviews(context.sdk.db, input.botId);
       }),
+    /**
+     * Allows a blocked call while its Approval waits (ADR 0024): the call runs. A late or second
+     * answer changes nothing and comes back `decided: false`, with how the request stands.
+     * Another user's is not found.
+     */
+    allow: protectedProcedure
+      .input(z.object({ reviewId: z.uuid() }))
+      .handler(({ context, input }) =>
+        decideReview(context.sdk, context.user.id, input.reviewId, "allowed"),
+      ),
+    /** Denies a blocked call while its Approval waits, as `allow` allows it: the call doesn't run. */
+    deny: protectedProcedure
+      .input(z.object({ reviewId: z.uuid() }))
+      .handler(({ context, input }) =>
+        decideReview(context.sdk, context.user.id, input.reviewId, "denied"),
+      ),
   },
 
   /** The live view of a Computer-use Helper's Screen (#597). Another user's Helper is not found. */

@@ -126,6 +126,14 @@ export const botsMessages = {
     `Summary · ${percent}% cached · ${cost}`,
   "bots.reviewPasses": ({ count }: { count: number }) =>
     `✓ ${count} ${count === 1 ? "call" : "calls"} auto-approved`,
+  "bots.reviewAllow": "Allow",
+  "bots.reviewDeny": "Deny",
+  "bots.reviewCountdown": ({ seconds }: { seconds: number }) =>
+    `Blocked in ${seconds}s unless you allow it`,
+  "bots.reviewAllowed": ({ summary }: { summary: string }) => `Allowed by you: ${summary}`,
+  "bots.reviewDenied": ({ summary }: { summary: string }) => `Denied by you: ${summary}`,
+  "bots.reviewExpired": ({ summary }: { summary: string }) =>
+    `Blocked, no answer in 15 s: ${summary}`,
   "bots.cacheWarmed": ({ cost }: { cost: string }) => `Cache warmed · ${cost}`,
   "bots.cacheRead": "Read from cache",
   "bots.cacheWritten": "Written to cache",
