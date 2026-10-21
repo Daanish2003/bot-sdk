@@ -41,6 +41,11 @@ export const errorMessages = {
   "error.memoryLogMonth": "A Log file needs a month, YYYY-MM",
   "error.memoryNeedsComputer": "Bot memory needs a Computer",
   "error.memoryComputerUnavailable": "Your Computer can't be reached right now",
+  "error.skillsNeedComputer": "Skills need a Computer",
+  "error.skillsComputerUnavailable": "Your Computer can't be reached right now",
+  "error.skillNotFound": "Skill not found",
+  "error.skillName":
+    "A Skill's name is lowercase letters, digits and hyphens, at most 64 characters",
   "error.attachmentTooLarge": ({ name }: { name: string }) => `"${name}" is larger than 5 MB`,
   "error.attachmentNotSupported": ({ name }: { name: string }) =>
     `"${name}" can't be attached: only images, PDFs and text files can`,

@@ -3,6 +3,7 @@ import { assistantClient } from "@ai-chat/bot-sdk/plugins/assistant/client";
 import { botClient } from "@ai-chat/bot-sdk/plugins/bot/client";
 import { memoryClient } from "@ai-chat/bot-sdk/plugins/memory/client";
 import { modelsClient } from "@ai-chat/bot-sdk/plugins/models/client";
+import { skillsClient } from "@ai-chat/bot-sdk/plugins/skills/client";
 import { QueryCache, QueryClient } from "@tanstack/react-query";
 import { createIsomorphicFn } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
@@ -33,7 +34,7 @@ const getChatClient = createIsomorphicFn()
   .server((): BotSdkClient =>
     createBotSdkClient({
       baseUrl: "http://localhost/api/chat",
-      plugins: [modelsClient(), assistantClient(), memoryClient(), botClient()],
+      plugins: [modelsClient(), assistantClient(), memoryClient(), skillsClient(), botClient()],
       fetch: (request) => {
         // A call made while rendering carries the page request's cookies, so `getUser` sees the session.
         const headers = new Headers(request.headers);
@@ -46,7 +47,7 @@ const getChatClient = createIsomorphicFn()
   .client((): BotSdkClient =>
     createBotSdkClient({
       baseUrl: `${window.location.origin}/api/chat`,
-      plugins: [modelsClient(), assistantClient(), memoryClient(), botClient()],
+      plugins: [modelsClient(), assistantClient(), memoryClient(), skillsClient(), botClient()],
     }),
   );
 

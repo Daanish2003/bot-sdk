@@ -22,10 +22,10 @@ export function skillsDirectory(botId: string): string {
 export const skillsBlockLimit = 8_000;
 
 /** The longest a Skill's `name` may be. */
-const nameLimit = 64;
+export const nameLimit = 64;
 /** The longest a Skill's `description` may be. */
 const descriptionLimit = 200;
-const namePattern = /^[a-z0-9-]+$/;
+export const namePattern = /^[a-z0-9-]+$/;
 const descriptionStart = "Use this when";
 
 /**
@@ -52,7 +52,7 @@ function frontmatterOf(content: string): Map<string, string> | null {
 }
 
 /** Why Skill folder `folder`'s `SKILL.md` (`content`, null when missing) is not usable, or null. */
-function problemOf(folder: string, content: string | null): string | null {
+export function problemOf(folder: string, content: string | null): string | null {
   if (content === null) return "no SKILL.md";
   const fields = frontmatterOf(content);
   if (!fields) return "no frontmatter";

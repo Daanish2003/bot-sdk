@@ -18,7 +18,11 @@ import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapte
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
-import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
+import type { CommandResult } from "../../../../plugins/computer/server/provider";
+import {
+  fakeComputerProvider,
+  type FakeCommandRun,
+} from "../../../plugins/computer/server/fake-provider";
 
 const model = "openai:gpt-5.6";
 const silent = { error: () => {} };
@@ -54,7 +58,17 @@ const isTurnCall = (options: TextOptions) =>
  */
 async function botWith(
   turnRounds: Round[],
-  { withComputer = true, withSkills = true, withMemory = true } = {},
+  {
+    withComputer = true,
+    withSkills = true,
+    withMemory = true,
+    onCommand,
+  }: {
+    withComputer?: boolean;
+    withSkills?: boolean;
+    withMemory?: boolean;
+    onCommand?: (command: FakeCommandRun) => CommandResult | Promise<CommandResult>;
+  } = {},
 ) {
   const queue = [...turnRounds];
   const fake = createFakeAdapter({
@@ -63,7 +77,7 @@ async function botWith(
       () => (options: TextOptions) => (isTurnCall(options) ? (queue.shift() ?? round()) : round()),
     ),
   });
-  const computerFake = fakeComputerProvider();
+  const computerFake = fakeComputerProvider({ onCommand });
   const offset = now.getTime() - Date.now();
   const clock = () => new Date(Date.now() + offset);
   let deps: TestDeps | undefined;
@@ -96,7 +110,7 @@ async function botWith(
   });
   const client = chatRpc({ user, deps });
   const { id: botId } = await client.bot.create({ name: "Ada", model });
-  return { fake, computerFake, client, botId };
+  return { fake, computerFake, client, botId, deps, user };
 }
 
 async function send(client: ReturnType<typeof chatRpc>, botId: string, text: string) {
@@ -532,5 +546,190 @@ describe("the Skill chip's record on the Turn", () => {
         { kind: "saved", name: "expense-sheet" },
       ],
     ]);
+  });
+});
+const modified = 1_890_000_000;
+
+/**
+ * The shell commands the Skills router sends, answered on `files`: `rm -rf` of a folder, and the
+ * loop that prints each SKILL.md's mtime.
+ */
+const diskCommands =
+  (files: () => Map<string, Uint8Array>) =>
+  ({ command }: FakeCommandRun): CommandResult => {
+    const remove = /^rm -rf -- '(.*)'$/.exec(command);
+    if (remove) {
+      for (const path of files().keys()) {
+        if (path.startsWith(`${remove[1]}/`)) files().delete(path);
+      }
+      return { exitCode: 0, stdout: "", stderr: "" };
+    }
+    const stdout = command.startsWith("for f in")
+      ? [...files().keys()]
+          .filter((path) => path.endsWith("/SKILL.md"))
+          .map((path) => `${modified}\t${path}`)
+          .join("\n")
+      : "";
+    return { exitCode: 0, stdout, stderr: "" };
+  };
+
+async function botWithRouter(options: { withComputer?: boolean } = {}) {
+  let files = new Map<string, Uint8Array>();
+  const made = await botWith([round(), round(), round()], {
+    ...options,
+    onCommand: diskCommands(() => files),
+  });
+  files = made.computerFake.files;
+  return made;
+}
+
+const textOf = (bytes: Uint8Array | undefined) => new TextDecoder().decode(bytes);
+const skillPaths = (files: Map<string, Uint8Array>) =>
+  [...files.keys()].filter((path) => path.includes("/skills/"));
+
+describe("the skills router", () => {
+  it("lists a Bot's Skills with the problem and when each was last modified", async () => {
+    const { computerFake, client, botId } = await botWithRouter();
+    computerFake.files.set(
+      skillPath(botId, "weekly-report"),
+      encode(skillFile("weekly-report", "Use this when the user asks for the weekly report.")),
+    );
+    computerFake.files.set(skillPath(botId, "bare"), encode("No frontmatter."));
+
+    expect(await client.skills.status()).toEqual({ available: true });
+    expect(await client.skills.list({ botId })).toEqual([
+      {
+        name: "bare",
+        description: null,
+        problem: "no frontmatter",
+        lastModified: new Date(modified * 1000),
+      },
+      {
+        name: "weekly-report",
+        description: "Use this when the user asks for the weekly report.",
+        problem: null,
+        lastModified: new Date(modified * 1000),
+      },
+    ]);
+  });
+
+  it("reads one SKILL.md, and refuses a Skill that isn't there", async () => {
+    const { computerFake, client, botId } = await botWithRouter();
+    const text = skillFile("weekly-report", "Use this when the user asks for the weekly report.");
+    computerFake.files.set(skillPath(botId, "weekly-report"), encode(text));
+
+    expect(await client.skills.read({ botId, name: "weekly-report" })).toEqual({
+      content: text,
+      path: skillPath(botId, "weekly-report"),
+      lastModified: new Date(modified * 1000),
+    });
+    await expect(client.skills.read({ botId, name: "missing" })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+    await expect(client.skills.read({ botId, name: ".." })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
+  });
+
+  it("saves a Skill, creating or replacing it, and checks it like any Skill", async () => {
+    const { computerFake, client, botId } = await botWithRouter();
+    const good = skillFile("invoices", "Use this when an invoice arrives.");
+
+    expect(await client.skills.save({ botId, name: "invoices", content: good })).toEqual({
+      problem: null,
+    });
+    expect(textOf(computerFake.files.get(skillPath(botId, "invoices")))).toBe(good);
+
+    // A broken Skill is still saved, and the reason comes back.
+    expect(
+      await client.skills.save({
+        botId,
+        name: "invoices",
+        content: skillFile("invoices", "Logs invoices."),
+      }),
+    ).toEqual({ problem: 'description must start with "Use this when"' });
+    expect(textOf(computerFake.files.get(skillPath(botId, "invoices")))).toContain(
+      "Logs invoices.",
+    );
+    expect(await client.skills.save({ botId, name: "invoices", content: "steps" })).toEqual({
+      problem: "no frontmatter",
+    });
+  });
+
+  it("refuses a folder name that is not lowercase letters, digits and hyphens", async () => {
+    const { computerFake, client, botId } = await botWithRouter();
+    for (const name of ["Bad_Name", "a/b", "..", "x'; rm -rf ~; '", ""]) {
+      await expect(
+        client.skills.save({ botId, name, content: skillFile(name, "Use this when x.") }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    }
+    expect(skillPaths(computerFake.files)).toEqual([]);
+  });
+
+  it("deletes a Skill's whole folder and no other", async () => {
+    const { computerFake, client, botId } = await botWithRouter();
+    for (const name of ["invoices", "reports"]) {
+      computerFake.files.set(
+        skillPath(botId, name),
+        encode(skillFile(name, "Use this when it is time.")),
+      );
+    }
+    computerFake.files.set(`/home/user/bots/${botId}/skills/invoices/scripts/fill.sh`, encode("x"));
+
+    await client.skills.remove({ botId, name: "invoices" });
+
+    expect(skillPaths(computerFake.files)).toEqual([skillPath(botId, "reports")]);
+  });
+
+  it("refuses another user's Bot on every procedure, touching nothing", async () => {
+    const { computerFake, botId, deps } = await botWithRouter();
+    const path = skillPath(botId, "invoices");
+    const content = skillFile("invoices", "Use this when an invoice arrives.");
+    computerFake.files.set(path, encode(content));
+    const other = chatRpc({ user: await insertUser(), deps });
+    const refused = { code: "NOT_FOUND" };
+
+    await expect(other.skills.list({ botId })).rejects.toMatchObject(refused);
+    await expect(other.skills.read({ botId, name: "invoices" })).rejects.toMatchObject(refused);
+    await expect(
+      other.skills.save({ botId, name: "invoices", content: "stolen" }),
+    ).rejects.toMatchObject(refused);
+    await expect(other.skills.remove({ botId, name: "invoices" })).rejects.toMatchObject(refused);
+    expect(textOf(computerFake.files.get(path))).toBe(content);
+  });
+
+  it("says no Computer, and refuses the rest, without the computer plugin", async () => {
+    const { client, botId } = await botWithRouter({ withComputer: false });
+
+    expect(await client.skills.status()).toEqual({ available: false });
+    await expect(client.skills.list({ botId })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("tells the Bot of a user's changes as Change notes in its next Turn", async () => {
+    const { fake, client, botId } = await botWithRouter();
+    await client.skills.save({
+      botId,
+      name: "invoices",
+      content: skillFile("invoices", "Use this when an invoice arrives."),
+    });
+    await send(client, botId, "turn one");
+    await client.skills.save({
+      botId,
+      name: "invoices",
+      content: skillFile("invoices", "Use this when an invoice is overdue."),
+    });
+    await client.skills.save({
+      botId,
+      name: "reports",
+      content: skillFile("reports", "Use this when it is Monday."),
+    });
+    await send(client, botId, "turn two");
+    await client.skills.remove({ botId, name: "reports" });
+    await send(client, botId, "turn three");
+
+    const second = newestWith(fake.calls, "turn two");
+    expect(second).toContain("Skill changed: invoices: Use this when an invoice is overdue.");
+    expect(second).toContain("Skill added: reports: Use this when it is Monday.");
+    expect(newestWith(fake.calls, "turn three")).toContain("Skill removed: reports");
   });
 });
