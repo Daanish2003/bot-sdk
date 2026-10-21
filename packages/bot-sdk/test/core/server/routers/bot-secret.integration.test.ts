@@ -15,6 +15,7 @@ import { encryptCredentials } from "../../../../core/server/credentials/encrypti
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { deleteUserData } from "../../../../core/server/user-data";
 import { bot } from "../../../../plugins/bot/server/plugin";
+import { secretNameSchema } from "../../../../plugins/bot/shared/secret";
 import { rotateSecretKeys } from "../../../../plugins/bot/server/secret";
 import { loadSecretValues, secretEncryption } from "../../../../plugins/bot/server/secret-values";
 import { computer } from "../../../../plugins/computer/server/plugin";
@@ -240,6 +241,46 @@ describe("Secrets", () => {
     await expect(
       client.bot.secret.save({ botId, name: "my token", value: "x" }),
     ).rejects.toBeDefined();
+  });
+
+  it("refuses a reserved name, which would change how every command runs", async () => {
+    const { client, botId, deps, user } = await botWith([]);
+
+    await expect(
+      client.bot.secret.save({ botId, name: "LD_PRELOAD", value: "/tmp/evil.so" }),
+    ).rejects.toBeDefined();
+    expect(secretNameSchema.safeParse("LD_PRELOAD").error?.message).toMatch(/reserved/);
+    for (const name of ["BASH_FUNC_ECHO", "PATH", "NODE_OPTIONS", "DYLD_INSERT_LIBRARIES"]) {
+      await expect(client.bot.secret.save({ botId, name, value: "x" })).rejects.toBeDefined();
+    }
+    expect(await loadSecretValues(deps, user.id)).toEqual(new Map());
+    await client.bot.secret.save({ botId, name: "GITHUB_TOKEN", value: token });
+    expect(await loadSecretValues(deps, user.id)).toEqual(new Map([["GITHUB_TOKEN", token]]));
+  });
+
+  it("refuses a Secret request for a reserved name", async () => {
+    const { client, botId, fake } = await botWith([
+      round(asks("LD_PRELOAD")),
+      round(sends("Sorry.")),
+    ]);
+
+    await send(client, botId, "log in");
+
+    expect(JSON.stringify(toolResultOf(fake.calls.at(-1)))).toMatch(/reserved/);
+    expect((await client.bot.get({ botId })).messages.some((entry) => entry.secret)).toBe(false);
+  });
+
+  it("does not set a reserved name for a command, even one that was stored", async () => {
+    const { client, botId, deps, user, fake, computerFake } = await botWith([
+      round(shell("env", ["LD_PRELOAD"])),
+      round(sends("Done.")),
+    ]);
+    await storeSecret(deps, user.id, "LD_PRELOAD", "/tmp/evil.so");
+
+    await send(client, botId, "env");
+
+    expect(JSON.stringify(toolResultOf(fake.calls.at(-1)))).toMatch(/reserved/);
+    expect(computerFake.callsOf("run").some((call) => call.command === "env")).toBe(false);
   });
 
   it("gives a command only the Secrets it names, as its environment, and masks them in the output", async () => {

@@ -149,7 +149,8 @@ export type ComputerHandle = {
    * running after `timeoutMs` (`defaultCommandTimeoutMs` when unset) or at `deadline`, whichever
    * comes first, is killed and returns what it printed so far; the wake's time counts toward
    * `deadline`. Once `signal` aborts, the command is killed and `run` throws its reason. `envs` are
-   * environment variables for this one command only.
+   * environment variables for this one command only. `redact` are strings replaced with `***` in
+   * the output before it is cut down to its ends, so none is half kept by the cut.
    */
   run: (
     command: string,
@@ -159,6 +160,7 @@ export type ComputerHandle = {
       deadline?: Date;
       signal?: AbortSignal;
       envs?: Record<string, string>;
+      redact?: string[];
     },
   ) => Promise<CommandResult | TimedOutCommand>;
   /** A file's bytes, or null when there is no such file. */
@@ -391,7 +393,7 @@ export function computer({ provider }: ComputerOptions): ComputerPlugin {
             heartbeat: () => recordActivity(sdk, userId),
             run: (
               command,
-              { cwd, timeoutMs = defaultCommandTimeoutMs, deadline, signal, envs } = {},
+              { cwd, timeoutMs = defaultCommandTimeoutMs, deadline, signal, envs, redact } = {},
             ) =>
               operate((id) => {
                 // A stop during the wake runs nothing.
@@ -403,6 +405,7 @@ export function computer({ provider }: ComputerOptions): ComputerPlugin {
                   timeoutMs: limitMs,
                   signal,
                   ...(envs && { envs }),
+                  ...(redact && { redact }),
                 });
               }, signal),
             // A stop during the wake reaches no provider call, as with `run`.

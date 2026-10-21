@@ -12,7 +12,7 @@ import {
 
 import type { CommandResult, ComputerProvider, FileEntry, TimedOutCommand } from "../server";
 import { SandboxGoneError } from "../server/provider";
-import { boundedOutput } from "./bounded-output";
+import { boundedOutput, redactedOutput } from "./bounded-output";
 
 /** The self-hosted E2B a Host points the adapter at, and the template it builds Computers from. */
 export type E2bProviderOptions = {
@@ -150,11 +150,11 @@ export function e2bProvider({
       await goneIfNotFound(sandboxId, () => Sandbox.setTimeout(sandboxId, timeoutMs, connection));
     },
 
-    async run(sandboxId, command, { cwd = homeDirectory, timeoutMs, signal, envs }) {
+    async run(sandboxId, command, { cwd = homeDirectory, timeoutMs, signal, envs, redact }) {
       signal?.throwIfAborted();
       // Each stream keeps only its ends, so a command that prints without end can't exhaust memory.
-      const out = boundedOutput();
-      const err = boundedOutput();
+      const out = redact ? redactedOutput(redact) : boundedOutput();
+      const err = redact ? redactedOutput(redact) : boundedOutput();
       // The command gets a process group of its own, and creates its directory in the same call,
       // so a kill can reach the children and background jobs the command started, which a kill
       // of the shell alone leaves running. `exec` makes the tracked pid the group's id, unless
