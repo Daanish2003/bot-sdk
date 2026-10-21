@@ -347,7 +347,7 @@ describe("Change notes", () => {
       if (tool.name !== "shell") return tool;
       const schema = tool.inputSchema as { properties: Record<string, unknown> };
       const { secrets: _secrets, ...properties } = schema.properties;
-      return { ...tool, inputSchema: { ...schema, properties } };
+      return { ...tool, inputSchema: { ...schema, properties } } as typeof tool;
     });
     expect(JSON.stringify(withoutSecrets)).not.toContain('"secrets"');
     await getTestDb()
