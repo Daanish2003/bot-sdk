@@ -456,12 +456,7 @@ export async function stopBot(deps: BotSdkContext, userId: string, botId: string
     const running = await runningTurnOf(tx, botId);
     if (!running) return false;
     await tx.update(botTrigger).set({ turnId: running }).where(waitingIn(found.conversationId));
-    // Cancelled first: under the job's row lock, a `waiting` row's Checkpoint either committed
-    // before the denial below reads it, or fails its fence and rolls back.
-    const ended = await cancelTurn(deps, tx, running);
-    // A Stop during an Approval wait counts as no (ADR 0024).
-    await closeWaitingReviews(deps, tx, { turnId: running }, "denied");
-    return ended;
+    return cancelTurn(deps, tx, running);
   });
   if (!ended) return;
   deps.plugin("runner").wake();
@@ -488,11 +483,16 @@ async function runningTurnOf(tx: Transaction, botId: string): Promise<string | u
  * Cancels Turn `turnId`'s job, unless it is already cancelled, under the Conversation's row lock
  * (#500). A queued job never runs again, so its Turn ends `stopped` here and the next Turn takes
  * what waits in the Conversation queue; a running one ends `stopped` as its attempt aborts
- * (`runTurnJob`), or in `onCancelled` when that attempt dies first. Returns whether the Turn ended
- * here.
+ * (`runTurnJob`), or in `onCancelled` when that attempt dies first. Either way, an Approval the
+ * Turn waits on is denied: a Stop, or the user's Message that interrupts it, counts as no
+ * (ADR 0024). Returns whether the Turn ended here.
  */
 async function cancelTurn(deps: BotSdkContext, tx: Transaction, turnId: string): Promise<boolean> {
-  if ((await deps.plugin("runner").cancelIn(tx, turnId)) !== "queued") return false;
+  const cancelled = await deps.plugin("runner").cancelIn(tx, turnId);
+  // Cancelled first: under the job's row lock, a `waiting` row's Checkpoint either committed
+  // before the denial reads it, or fails its fence and rolls back.
+  await closeWaitingReviews(deps, tx, { turnId }, "denied");
+  if (cancelled !== "queued") return false;
   // A queued job may have run already (handed back by a deploy, waiting out a retry, or re-queued
   // after a crash), so the Turn keeps what its Checkpoints hold. The job's row is locked, so its
   // history can't grow while it replays. It reads on `tx`, which holds those locks.
