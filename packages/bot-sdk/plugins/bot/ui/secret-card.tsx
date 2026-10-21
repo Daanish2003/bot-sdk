@@ -59,9 +59,8 @@ export function SecretCard({
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (!value) return;
-    const sent = value;
-    setValue("");
-    run(onSave(request.name, sent));
+    // The field keeps the value until the save is accepted, so a refusal costs no retyping.
+    run(onSave(request.name, value).then(() => setValue("")));
   };
   return (
     <Card

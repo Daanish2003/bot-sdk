@@ -154,6 +154,9 @@ function BotConversationView({
   // Each Routine under the Message its card follows, and each Check-in under the one its line
   // follows; one whose Message isn't shown yet (its Turn still runs here) follows the rest.
   const shownIds = new Set(messages.map((message) => message.id));
+  // Only a Secret's newest request is a card: an older one is history, whatever happened since.
+  const newestRequest = new Map<string, string>();
+  for (const sent of messages) if (sent.secret) newestRequest.set(sent.secret.name, sent.id);
   const routinesAfter = groupAfter(routines, shownIds);
   const checkInsAfter = groupAfter(checkIns, shownIds);
   const helpersAfter = groupAfter(helpers, shownIds);
@@ -315,7 +318,7 @@ function BotConversationView({
                 acting={actingHelpers.has(message.computer.helperId)}
               />
             )}
-            {message.secret && (
+            {message.secret && newestRequest.get(message.secret.name) === message.id && (
               <SecretCard
                 request={message.secret}
                 botName={bot.name}

@@ -15,7 +15,8 @@ import { encryptCredentials } from "../../../../core/server/credentials/encrypti
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { deleteUserData } from "../../../../core/server/user-data";
 import { bot } from "../../../../plugins/bot/server/plugin";
-import { secretEncryption } from "../../../../plugins/bot/server/secret-values";
+import { rotateSecretKeys } from "../../../../plugins/bot/server/secret";
+import { loadSecretValues, secretEncryption } from "../../../../plugins/bot/server/secret-values";
 import { computer } from "../../../../plugins/computer/server/plugin";
 import type { CommandResult } from "../../../../plugins/computer/server/provider";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
@@ -217,6 +218,20 @@ describe("Secrets", () => {
 
     await deleteUserData(deps, user.id);
     expect(await getTestDb().select().from(botSecret)).toEqual([]);
+  });
+
+  it("re-encrypts Secrets under the keyring's first key when keys are rotated", async () => {
+    const { deps, user } = await botWith([]);
+    await storeSecret(deps, user.id, "GITHUB_TOKEN", token);
+    const newKey = "key-b-of-at-least-32-characters-long!!";
+    const rotated = { ...deps, keyring: [newKey, ...deps.keyring] };
+
+    expect(await rotateSecretKeys(rotated)).toEqual({ reencrypted: 1, unreadable: 0 });
+    expect(await rotateSecretKeys(rotated)).toEqual({ reencrypted: 0, unreadable: 0 });
+
+    // The old key can be removed: the Secret reads under the new one alone.
+    const values = await loadSecretValues({ ...deps, keyring: [newKey] }, user.id);
+    expect(values.get("GITHUB_TOKEN")).toBe(token);
   });
 
   it("refuses a name that is not an environment variable name", async () => {

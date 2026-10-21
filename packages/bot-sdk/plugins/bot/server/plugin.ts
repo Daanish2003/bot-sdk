@@ -10,6 +10,7 @@ import "./check-in-fire";
 import "./summary-away";
 import { handleRoutineWebhook } from "./routine-webhook";
 import { botPluginRouter } from "./routers/index";
+import { rotateSecretKeys } from "./secret";
 import { handleScreenRequest, type ScreenSocketHooks, screenSocketHooks } from "./screen-view";
 import { botUserDelete, exportBots, hasTurnUsingComputer, userHasBot } from "./store";
 import { stopUserHelpers } from "./helper-tools";
@@ -117,6 +118,8 @@ export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
       after: botUserDelete.after,
     },
     exportUser: (_sdk, userId, tx) => exportBots(tx, userId),
+    // The user's Secrets are encrypted under the keyring too (ADR 0010).
+    rotateKeys: rotateSecretKeys,
     // A Bot's Helpers' screenshots go with its Conversation (#608).
     databaseHooks: { conversation: { delete: screenshotsConversationDelete } },
   };

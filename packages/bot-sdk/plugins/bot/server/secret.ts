@@ -1,6 +1,12 @@
-import { asc, eq, and } from "drizzle-orm";
+import { and, asc, eq, gt, or } from "drizzle-orm";
 
-import { encryptCredentials } from "../../../core/server/credentials/encryption";
+import {
+  decryptCredentials,
+  encryptCredentials,
+  encryptionKid,
+  kidOf,
+} from "../../../core/server/credentials/encryption";
+import { rotateInPasses } from "../../../core/server/credentials/rotation";
 import { botSecret } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
 import { rpcError } from "../../../core/server/rpc-error";
@@ -30,19 +36,10 @@ export async function saveSecret(
 ): Promise<void> {
   const found = await findBot(sdk.db, userId, botId);
   if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
-  // Like a Message, the save wakes the Bot, so it is refused while the Bot can't run on its Model.
+  // The save always stores the Secret. It wakes the Bot only while the Bot can run, as a Check-in
+  // fire does: no Turn starts on a Model the user can't use or once their Quota is spent.
   const call = await sdk.plugin("models").resolveModelCall(userId, found.model);
-  if (!call) {
-    throw rpcError(
-      "BAD_REQUEST",
-      "error.modelNotAvailable",
-      `"${found.model}" is not an available Model`,
-      { model: found.model },
-    );
-  }
-  if (!(await call.meter.mayRun()).ok) {
-    throw rpcError("PAYMENT_REQUIRED", "error.quotaSpent", "You've used this window's Quota");
-  }
+  const mayWake = call ? (await call.meter.mayRun()).ok : false;
   const encrypted = encryptCredentials({ value }, secretEncryption(sdk, userId, name));
   const now = sdk.clock();
   await sdk.db.transaction(async (tx) => {
@@ -53,6 +50,7 @@ export async function saveSecret(
         target: [botSecret.userId, botSecret.name],
         set: { encrypted, createdAt: now },
       });
+    if (!mayWake) return;
     await receive(sdk, tx, {
       id: savedTriggerId(userId, name, now),
       conversationId: found.conversationId,
@@ -62,6 +60,7 @@ export async function saveSecret(
       receivedAt: now,
     });
   });
+  if (!mayWake) return;
   sdk.plugin("runner").wake();
   await hintChanged(sdk, found.conversationId);
 }
@@ -78,4 +77,63 @@ export async function listSecrets(db: Database, userId: string): Promise<BotSecr
 /** Deletes the user's Secret `name`. Deleting one that isn't there does nothing. */
 export async function deleteSecret(db: Database, userId: string, name: string): Promise<void> {
   await db.delete(botSecret).where(and(eq(botSecret.userId, userId), eq(botSecret.name, name)));
+}
+
+/** One scan over every Secret; `raced` counts updates that found the row already changed. */
+async function rotateOnce(sdk: BotSdkContext, batchSize: number) {
+  const result = { reencrypted: 0, raced: 0, unreadable: 0 };
+  let after: { userId: string; name: string } | undefined;
+  for (;;) {
+    const rows = await sdk.db
+      .select()
+      .from(botSecret)
+      .where(
+        after &&
+          or(
+            gt(botSecret.userId, after.userId),
+            and(eq(botSecret.userId, after.userId), gt(botSecret.name, after.name)),
+          ),
+      )
+      .orderBy(asc(botSecret.userId), asc(botSecret.name))
+      .limit(batchSize);
+    for (const row of rows) {
+      const options = secretEncryption(sdk, row.userId, row.name);
+      const decrypted = decryptCredentials(row.encrypted, options);
+      if (!decrypted.ok) {
+        result.unreadable += 1;
+        continue;
+      }
+      if (kidOf(row.encrypted) === encryptionKid(options.secrets, options.kind)) continue;
+      const updated = await sdk.db
+        .update(botSecret)
+        .set({ encrypted: encryptCredentials(decrypted.credentials, options) })
+        .where(
+          and(
+            eq(botSecret.userId, row.userId),
+            eq(botSecret.name, row.name),
+            eq(botSecret.encrypted, row.encrypted),
+          ),
+        )
+        .returning({ name: botSecret.name });
+      if (updated.length === 0) result.raced += 1;
+      result.reencrypted += updated.length;
+    }
+    const last = rows.at(-1);
+    if (!last || rows.length < batchSize) return result;
+    after = { userId: last.userId, name: last.name };
+  }
+}
+
+/**
+ * Re-encrypts every Secret whose key isn't the keyring's first (ADR 0010), in batches, and counts
+ * the rows no key can read, which stay in place.
+ */
+export async function rotateSecretKeys(
+  sdk: BotSdkContext,
+  { batchSize = 100 }: { batchSize?: number } = {},
+) {
+  const { reencrypted, unreadable } = await rotateInPasses(() => rotateOnce(sdk, batchSize));
+  if (unreadable > 0)
+    sdk.logger.error("Stored Secrets can't be read; left in place", { unreadable });
+  return { reencrypted, unreadable };
 }

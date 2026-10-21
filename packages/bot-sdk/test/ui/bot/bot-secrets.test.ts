@@ -29,7 +29,8 @@ const messages: BotMessage[] = [
 ];
 
 /** A stand-in for the server's `bot` router that holds `secrets` and records every call. */
-function fakeBotServer(secrets: BotSecret[]) {
+function fakeBotServer(secrets: BotSecret[], { refuseSave = false } = {}) {
+  let saveAttempts = 0;
   const sent: unknown[] = [];
   const saved: unknown[] = [];
   const deleted: string[] = [];
@@ -60,6 +61,8 @@ function fakeBotServer(secrets: BotSecret[]) {
         save: os
           .input(z.object({ botId: z.string(), name: z.string(), value: z.string() }))
           .handler(({ input }) => {
+            saveAttempts += 1;
+            if (refuseSave) throw new Error("refused");
             saved.push(input);
             secrets.push({ name: input.name, createdAt: at(3) });
           }),
@@ -77,7 +80,15 @@ function fakeBotServer(secrets: BotSecret[]) {
   const fetch = async (request: Request) =>
     (await handler.handle(request, { prefix: "/api/chat/rpc" })).response ??
     new Response(null, { status: 404 });
-  return { fetch, sent, saved, deleted };
+  return {
+    fetch,
+    sent,
+    saved,
+    deleted,
+    get saveAttempts() {
+      return saveAttempts;
+    },
+  };
 }
 
 function mount(server: ReturnType<typeof fakeBotServer>) {
@@ -113,6 +124,20 @@ describe("the Secret card", () => {
     expect(divider).toBeTruthy();
     expect(screen.queryByLabelText("Secret value")).toBeNull();
     expect(document.body.textContent).not.toContain("ghp_secret");
+  });
+
+  it("keeps the typed value when the save is refused", async () => {
+    const server = fakeBotServer([], { refuseSave: true });
+    mount(server);
+    const card = await screen.findByRole("group", { name: "Ada asks for GITHUB_TOKEN" });
+    const field = within(card).getByLabelText("Secret value") as HTMLInputElement;
+
+    fireEvent.change(field, { target: { value: "ghp_secret" } });
+    fireEvent.click(within(card).getByRole("button", { name: "Save secret" }));
+
+    await waitFor(() => expect(server.saveAttempts).toBe(1));
+    await waitFor(() => expect(screen.getByLabelText("Secret value")).toBe(field));
+    expect(field.value).toBe("ghp_secret");
   });
 
   it("shows the divider at once for a Secret saved since the request", async () => {

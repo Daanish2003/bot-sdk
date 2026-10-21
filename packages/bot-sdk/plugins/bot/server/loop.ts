@@ -724,7 +724,7 @@ export async function runLoop(
             timeoutMs: (timeoutSeconds ?? defaultShellTimeoutSeconds) * 1000,
             ...(secrets?.length && { envs }),
           });
-          // Masked before the output is cut down to its ends, so a value is never half kept.
+          // Masked before the output is cut down to its ends, so a value is never half kept by the cut.
           const result = {
             ...output,
             stdout: maskSecrets(output.stdout, secretValues),
