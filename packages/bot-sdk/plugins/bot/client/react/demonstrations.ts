@@ -1,8 +1,8 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
 import { useChatAdapter } from "../../../../core/client/react/provider";
-import type { DemonstrationAction } from "../../shared/demonstration";
+import type { DemonstrationAction, DemonstrationStep } from "../../shared/demonstration";
 import { useItemActions } from "./turn-list";
 
 /**
@@ -44,4 +44,23 @@ export function useDemonstrationView(demonstrationId: string) {
     };
   }, [orpc, demonstrationId]);
   return { url, failed };
+}
+
+/**
+ * The steps Demonstration `demonstrationId` captured (#719), from `bot.demonstration.steps`, read
+ * again whenever its card counts a new one (`count`) or changes state.
+ */
+export function useDemonstrationSteps(
+  demonstrationId: string,
+  count: number,
+  state: string,
+): DemonstrationStep[] {
+  const { orpc } = useChatAdapter();
+  const options = orpc.bot.demonstration.steps.queryOptions({ input: { demonstrationId } });
+  const query = useQuery({
+    ...options,
+    queryKey: [...options.queryKey, count, state],
+    placeholderData: keepPreviousData,
+  });
+  return query.data?.steps ?? [];
 }

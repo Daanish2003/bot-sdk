@@ -38,3 +38,16 @@ export const demonstrationCardSchema = z.object({
 });
 
 export type DemonstrationCard = z.infer<typeof demonstrationCardSchema>;
+
+/**
+ * A step a Demonstration captured, as the user reads it back (#719): no selector and no
+ * screenshot. A `pause` is the mark where the user paused, which the list shows as the gap.
+ */
+export type DemonstrationStep = {
+  sequence: number;
+  offsetMs: number;
+  kind: "click" | "input" | "change" | "key" | "navigation" | "pause";
+  url: string | null;
+  label: string | null;
+  value: string | null;
+};

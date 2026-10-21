@@ -32,6 +32,7 @@ import { stopBotHelpers } from "../helper-tools";
 import { screenControl, screenView } from "../screen-view";
 import type { DemonstrationAction } from "../../shared/demonstration";
 import { actOnDemonstration } from "../demonstration";
+import { demonstrationSteps } from "../demonstration-capture";
 import { botSummaries } from "../summary";
 import { isTimeZone } from "../time-zone";
 import { sendToBot, stopBot } from "../turn";
@@ -334,6 +335,15 @@ const botRouter = {
       .input(z.object({ demonstrationId: z.uuid() }))
       .handler(({ context, input }) =>
         screenView(context.sdk, context.user.id, { demonstrationId: input.demonstrationId }),
+      ),
+    /**
+     * The steps a Demonstration captured, in order, with a mark where the user paused: what the
+     * Show me card and "What Planner sees" list. Password values come masked.
+     */
+    steps: protectedProcedure
+      .input(z.object({ demonstrationId: z.uuid() }))
+      .handler(({ context, input }) =>
+        demonstrationSteps(context.sdk, context.user.id, input.demonstrationId),
       ),
   },
 

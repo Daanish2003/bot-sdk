@@ -9,6 +9,7 @@ import { z } from "zod";
 import type {
   DemonstrationCard,
   DemonstrationState,
+  DemonstrationStep,
 } from "../../../plugins/bot/shared/demonstration";
 import type { BotMessage, BotSendEvent } from "../../../plugins/bot/shared/turn";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
@@ -47,7 +48,11 @@ const linkOf = (n: number) => `/api/screens/token-${n}/vnc.html?autoconnect=1`;
  * Demonstration routes, which record their calls and run `onAct`; `view` gives a fresh link on each
  * call.
  */
-function mount(messages: () => BotMessage[], onAct: (action: string) => void = () => {}) {
+function mount(
+  messages: () => BotMessage[],
+  onAct: (action: string) => void = () => {},
+  steps: () => DemonstrationStep[] = () => [],
+) {
   const actCalls: unknown[] = [];
   const viewCalls: unknown[] = [];
   const action = (name: string) =>
@@ -76,6 +81,9 @@ function mount(messages: () => BotMessage[], onAct: (action: string) => void = (
         resume: action("resume"),
         done: action("done"),
         cancel: action("cancel"),
+        steps: os
+          .input(z.object({ demonstrationId: z.string() }))
+          .handler(() => ({ steps: steps() })),
         view: os.input(z.object({ demonstrationId: z.string() })).handler(({ input }) => {
           viewCalls.push(input);
           return { url: linkOf(viewCalls.length) };
@@ -190,6 +198,82 @@ describe("the Show me card", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Shrink" }));
 
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+});
+
+const step = (
+  sequence: number,
+  kind: DemonstrationStep["kind"],
+  label: string | null,
+  value: string | null = null,
+): DemonstrationStep => ({
+  sequence,
+  offsetMs: sequence * 4_000,
+  kind,
+  url: kind === "pause" ? null : "https://dashboard.example.com/payouts",
+  label,
+  value,
+});
+
+const captured = [
+  step(1, "navigation", "Payouts"),
+  step(2, "click", "Date filter"),
+  step(3, "input", "Password", "••••••••"),
+  step(4, "pause", null),
+  step(5, "change", "Range", "Last week"),
+  step(6, "click", "Export"),
+];
+
+describe("the captured steps", () => {
+  it("shows the last few on the card", async () => {
+    const { container } = mount(
+      () => [...base, showMe("recording", 5)],
+      undefined,
+      () => captured,
+    );
+
+    await waitFor(() =>
+      expect(showMeCard(container)?.querySelectorAll("[data-step]")).toHaveLength(3),
+    );
+    const rows = [...showMeCard(container)!.querySelectorAll("[data-step]")];
+    expect(rows.map((row) => row.textContent)).toEqual([
+      "0:16Paused: nothing recorded",
+      "0:20choose“Range” = Last week",
+      "0:24click“Export”",
+    ]);
+  });
+
+  it("lists every step in full screen, the password masked and the gap while paused", async () => {
+    const { container } = mount(
+      () => [...base, showMe("recording", 5)],
+      undefined,
+      () => captured,
+    );
+    await waitFor(() => expect(showMeCard(container)).not.toBeNull());
+
+    fireEvent.click(screen.getByRole("button", { name: "Full screen" }));
+
+    const dialog = await screen.findByRole("dialog");
+    const list = within(dialog).getByRole("list", { name: "What Ada sees" });
+    await waitFor(() => expect(list.querySelectorAll("[data-step]")).toHaveLength(6));
+    expect([...list.querySelectorAll("[data-step]")].map((row) => row.textContent)).toEqual([
+      "0:04open“Payouts” dashboard.example.com/payouts",
+      "0:08click“Date filter”",
+      "0:12type“Password” = ••••••••",
+      "0:16Paused: nothing recorded",
+      "0:20choose“Range” = Last week",
+      "0:24click“Export”",
+    ]);
+    expect(list.querySelector("[data-step][data-gap]")?.textContent).toContain("Paused");
+  });
+
+  it("says nothing is captured yet", async () => {
+    const { container } = mount(() => [...base, showMe("recording")]);
+    fireEvent.click(await screen.findByRole("button", { name: "Full screen" }));
+
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(dialog.textContent).toContain("Nothing yet."));
+    expect(showMeCard(container)?.querySelectorAll("[data-step]")).toHaveLength(0);
   });
 });
 
