@@ -10,6 +10,7 @@ import { rpcError } from "../../../core/server/rpc-error";
 import { searchTextOf } from "../../../core/shared/message-parts";
 import { conversationChannel } from "../../../core/server/chat/conversation-events";
 import type { MessageUsage } from "../../models/shared/usage";
+import type { SkillLine } from "../../skills/server/skills";
 import { defineJob, PermanentJobError } from "../../runner/server/jobs/define";
 import { loadHistory } from "../../runner/server/jobs/history";
 import { createWorkflow, type WorkflowContext } from "../../runner/server/workflow/engine";
@@ -36,6 +37,7 @@ import {
 } from "./computer-tools";
 import { type TodoItem, todoList } from "./helper";
 import { helperTools } from "./helper-tools";
+import { watchUserTool } from "./demonstration";
 import { type LoopKit, type LoopResult, type LoopSetup, runLoop } from "./loop";
 import {
   definitionsOf,
@@ -54,6 +56,8 @@ import {
   toBotMessage,
   turnTimeLimitMs,
 } from "./store";
+import type { BotSkillChange } from "../../skills/shared/changes";
+import { skillChangesOf } from "../../skills/server/skills";
 import { secretNameSchema } from "../shared/secret";
 import {
   createRoutineToolName,
@@ -503,6 +507,7 @@ async function cancelTurn(deps: BotSdkContext, tx: Transaction, turnId: string):
     status: "stopped",
     error: null,
     transcript: played.transcript,
+    skillChanges: turn ? skillChangesOf(turn.botId, played.transcript) : null,
     usage: played.usage,
     endedAt,
   });
@@ -647,6 +652,7 @@ async function runTurnJob(
       await endTurn(tx, turnId, {
         ...endingOf(played),
         transcript: played.transcript,
+        skillChanges: skillChangesOf(turn.botId, played.transcript),
         usage: played.usage,
         endedAt,
       });
@@ -726,7 +732,13 @@ async function endRunningTurn(
     const endedAt = deps.clock();
     const rows = await tx
       .update(botTurn)
-      .set({ ...ending, transcript: played.transcript, usage: played.usage, endedAt })
+      .set({
+        ...ending,
+        transcript: played.transcript,
+        skillChanges: skillChangesOf(turn.botId, played.transcript),
+        usage: played.usage,
+        endedAt,
+      })
       .where(and(eq(botTurn.id, turn.id), eq(botTurn.status, "running")))
       .returning({ id: botTurn.id });
     if (rows.length === 0) return false;
@@ -782,6 +794,7 @@ async function endTurn(
     status: TurnStatus;
     error: string | null;
     transcript: ModelMessage[];
+    skillChanges: BotSkillChange[] | null;
     usage: MessageUsage | null;
     endedAt: Date;
   },
@@ -1011,6 +1024,10 @@ async function turnSetup(
   const withComputer = deps.hasPlugin("computer");
   const memory =
     withComputer && deps.hasPlugin("memory") ? await memorySnapshot(deps, turn, kit) : null;
+  // The Skills, read in the same wake as the memory snapshot; on whatever the Memory switch says.
+  const skills =
+    withComputer && deps.hasPlugin("skills") ? await skillsSnapshot(deps, turn, kit) : null;
+  const skillsBlock = skills && deps.plugin("skills").prompt(turn.botId, skills);
   const tools = turnTools(deps, turn, kit, {
     withComputer,
     // Present whenever the snapshot is: it reads through the Computer like the snapshot does.
@@ -1023,7 +1040,13 @@ async function turnSetup(
   const searchTools = toolSearchTools(tools);
   /** What a Prompt start is built from now: by the Bot's first Turn, or by a Summary. */
   const parts = (): PromptStartParts =>
-    startParts(turn, deps.clock(), { tools, withComputer, memory, routines });
+    startParts(turn, deps.clock(), {
+      tools,
+      withComputer,
+      memory,
+      skills: skillsBlock,
+      routines,
+    });
   // Recorded, so a replay sends the row its attempt chose.
   const { id } = await kit.liveActivity("prompt_start", undefined, async (tx) => ({
     id: await promptStartFor(tx, parts()),
@@ -1036,10 +1059,11 @@ async function turnSetup(
   const seenSince: EarlierTurn[] = earlier.map((row) =>
     summary?.kind === "mid_turn" && row.id === summary.turnId ? { ...row, promptStartId: id } : row,
   );
-  // What changed since the Prompt start, from what this Turn read: the memory block and Routines
-  // as recorded above, and the live tools.
+  // What changed since the Prompt start, from what this Turn read: the memory block, the Skills
+  // and Routines as recorded above, and the live tools.
   const changeNotes = await changeNotesFor(db, id, seenSince, {
     memory,
+    skills,
     routines: routines ?? null,
     tools: definitionsOf(tools),
   });
@@ -1062,7 +1086,7 @@ async function turnSetup(
 /**
  * The Bot's tools for a Turn, run through the loop's `kit`: SendToUser, the Routine and Check-in
  * tools, web search, `search_memory` with `withMemorySearch`, and with `withComputer` the
- * Computer's tools and the Helper tools. `onLastMessage` runs when SendToUser sends the Turn's last
+ * Computer's tools and the Helper tools, and `watch_user` too with the `skills` plugin. `onLastMessage` runs when SendToUser sends the Turn's last
  * Message.
  */
 function turnTools(
@@ -1180,6 +1204,8 @@ function turnTools(
     webSearchTool(deps, turn.userId, kit.liveRequest),
     ...(searchMemory ? [searchMemory] : []),
     ...(withComputer ? [...kit.computerTools, ...helperTools(deps, turn, liveActivity)] : []),
+    // A Demonstration teaches a Skill, so it comes with the `skills` plugin (spec #713).
+    ...(withComputer && deps.hasPlugin("skills") ? [watchUserTool(deps, turn, kit)] : []),
   ];
 }
 
@@ -1195,11 +1221,14 @@ function startParts(
     tools,
     withComputer,
     memory,
+    skills,
     routines,
   }: {
     tools: AnyServerTool[];
     withComputer: boolean;
     memory: string | null;
+    /** The Skills block, null without the `skills` plugin or when it couldn't be read. */
+    skills: string | null;
     routines: string | null;
   },
 ): PromptStartParts {
@@ -1211,6 +1240,7 @@ function startParts(
       { name: "rules", text: rules! },
       ...(computerBlock ? [{ name: "computer", text: computerBlock }] : []),
       ...(memory ? [{ name: "memory", text: memory }] : []),
+      ...(skills ? [{ name: "skills", text: skills }] : []),
       ...(routines ? [{ name: "routines", text: routines }] : []),
     ],
     tools: [...tools.filter(isDirectTool), ...toolSearchTools(tools)],
@@ -1227,8 +1257,9 @@ const definitionOnly = (): never => {
 
 /**
  * What a Summary written while the user is away builds its Prompt start from, at `now`: the Bot's
- * tools and system blocks as a Turn starting now reads them, the Routines read in `tx` and
- * `memory`, the memory block read just before (null with Memory off or unreadable). `turn` is the
+ * tools and system blocks as a Turn starting now reads them, the Routines read in `tx`,
+ * `memory`, the memory block read just before (null with Memory off or unreadable), and `skills`,
+ * the Skills block read with it (null without the `skills` plugin or unreadable). `turn` is the
  * Bot's newest Turn, which the Summary follows.
  */
 export async function awayStartParts(
@@ -1237,6 +1268,7 @@ export async function awayStartParts(
   turn: Omit<TurnFacts, "startedAt" | "jobId">,
   now: Date,
   memory: string | null,
+  skills: string | null,
 ): Promise<PromptStartParts> {
   const withComputer = deps.hasPlugin("computer");
   const kit: LoopKit = {
@@ -1252,7 +1284,7 @@ export async function awayStartParts(
     onLastMessage: definitionOnly,
   });
   const routines = (await routinesPrompt(tx, turn.botId)) ?? null;
-  return startParts(facts, now, { tools, withComputer, memory, routines });
+  return startParts(facts, now, { tools, withComputer, memory, skills, routines });
 }
 
 /** A tool the Prompt start sent that the code no longer has: it answers that it is gone. */
@@ -1289,6 +1321,26 @@ async function memorySnapshot(
     }),
   }));
   return "error" in read ? null : read.prompt;
+}
+
+/**
+ * The Bot's Skills as the Turn starts (spec #713), read once from the Computer like the memory
+ * snapshot, as a Computer call of the loop's: a replay reads the recorded list. Null when the
+ * Computer can't be woken or read, so the Turn goes on without them.
+ */
+async function skillsSnapshot(
+  deps: BotSdkContext,
+  turn: TurnFacts,
+  kit: LoopKit,
+): Promise<SkillLine[] | null> {
+  const read = await kit.computerCall("skills", undefined, async (_computer, live) => ({
+    skills: await deps.plugin("skills").botSkills({
+      botId: turn.botId,
+      computer: computerOf(deps, turn.userId),
+      signal: live.signal,
+    }),
+  }));
+  return "error" in read ? null : read.skills;
 }
 
 /** How a Turn ended, and why when it failed: a limit's code or the Provider's error. */

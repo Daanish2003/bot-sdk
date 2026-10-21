@@ -1,7 +1,8 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 
-import { botTrigger, botTurn, usage } from "../../../core/server/db/schema";
+import { botDemonstration, botTrigger, botTurn, usage } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
+import type { BotSkillChange } from "../../skills/shared/changes";
 import type {
   BotMessage,
   BotStepSection,
@@ -32,6 +33,7 @@ export async function turnProvenance(
         startedAt: botTurn.startedAt,
         endedAt: botTurn.endedAt,
         memoryChanges: botTurn.memoryChanges,
+        skillChanges: botTurn.skillChanges,
       })
       .from(botTurn)
       .where(eq(botTurn.botId, botId))
@@ -44,15 +46,30 @@ export async function turnProvenance(
         channel: botTrigger.channel,
         text: botTrigger.text,
         receivedAt: botTrigger.receivedAt,
+        draftedSkill: botDemonstration.skillName,
       })
       .from(botTrigger)
       .innerJoin(botTurn, eq(botTurn.id, botTrigger.turnId))
+      // A Demonstration's drafting pass wakes the Bot with `demonstration:<id>` (#720).
+      .leftJoin(
+        botDemonstration,
+        and(
+          eq(botDemonstration.botId, botId),
+          eq(botTrigger.id, sql`'demonstration:' || ${botDemonstration.id}::text`),
+        ),
+      )
       .where(eq(botTurn.botId, botId))
       .orderBy(asc(botTrigger.receivedAt), asc(botTrigger.id)),
   ]);
   const stepsOf = await turnSteps(db, userId, botId);
   const triggersOf = new Map<string, BotTurnTrigger[]>();
+  const draftedOf = new Map<string, BotSkillChange[]>();
   for (const trigger of triggers) {
+    if (trigger.draftedSkill !== null) {
+      const drafted = draftedOf.get(trigger.turnId!) ?? [];
+      drafted.push({ kind: "saved", name: trigger.draftedSkill });
+      draftedOf.set(trigger.turnId!, drafted);
+    }
     const taken = triggersOf.get(trigger.turnId!) ?? [];
     taken.push({
       source: trigger.source,
@@ -68,8 +85,16 @@ export async function turnProvenance(
     .sort((a, b) => a - b);
   return turns.map((turn) => {
     const next = sentAt[firstAtOrAfter(sentAt, turn.startedAt.getTime())];
+    // The Skill a drafting pass saved shows on the chip of the Turn it woke, before the Turn's own
+    // changes, which keep its edits of that Skill.
+    const drafted = draftedOf.get(turn.id) ?? [];
+    const own = (turn.skillChanges ?? []).filter(
+      (change) =>
+        !drafted.some((saved) => saved.name === change.name && saved.kind === change.kind),
+    );
     return {
       ...turn,
+      skillChanges: drafted.length + own.length > 0 ? [...drafted, ...own] : null,
       sent: next !== undefined && next <= (turn.endedAt?.getTime() ?? Infinity),
       triggers: triggersOf.get(turn.id) ?? [],
       steps: stepsOf.get(turn.id) ?? [],
