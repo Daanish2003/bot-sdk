@@ -9,6 +9,7 @@ import {
   defaultCommandTimeoutMs,
   type Rebuild,
 } from "../../computer/server/plugin";
+import { isSkillFile } from "../../skills/server/skills";
 import type { CommandResult, TimedOutCommand } from "../../computer/server/provider";
 
 /** The Computer tool that runs a shell command. */
@@ -510,8 +511,14 @@ export async function writeTool(
   options: FileToolOptions = {},
 ) {
   const path = resolvePath(botId, input.path);
+  // A new Skill is told apart from a changed one, for the Turn's Skill chip (spec #713).
+  const created = isSkillFile(botId, path) && !(await computer.readFile(path, options));
   await computer.writeFile(path, input.content, options);
-  return { path, bytes: new TextEncoder().encode(input.content).length };
+  return {
+    path,
+    bytes: new TextEncoder().encode(input.content).length,
+    ...(created && { created }),
+  };
 }
 
 /** The `edit` tool's result: a size look-up, a load, and a write. */

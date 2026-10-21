@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { botPromptStart } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
 import type { Transaction } from "../../../core/server/plugin";
-import type { SkillLine } from "../../skills/server/skills";
+import { type SkillLine, skillLineOf, skillsDirectory } from "../../skills/server/skills";
 import type { PromptStartTool } from "./db/bot-prompt-start";
 import { canonicalJson, firstMessageSection, listedToolNames, sha256 } from "./prompt-start";
 import { createRoutineToolName, deleteRoutineToolName, updateRoutineToolName } from "./routine";
@@ -148,6 +148,28 @@ function memoryTarget(botId: string, path: string): { tier: Tier; month?: string
   return match[1] ? { tier: match[1] as Tier } : { tier: "log", month: match[2] };
 }
 
+/** The folder of the Skill in the Bot's own folder that `path` is the SKILL.md of, if any. */
+function skillTarget(botId: string, path: string): string | undefined {
+  // An absolute path must be in the Bot's folder; a relative one is relative to it.
+  const own = `${skillsDirectory(botId)}/`;
+  const rest = path.startsWith("/")
+    ? path.startsWith(own)
+      ? path.slice(own.length)
+      : undefined
+    : path.startsWith("skills/")
+      ? path.slice("skills/".length)
+      : undefined;
+  return rest !== undefined && !rest.includes("..")
+    ? /^([^/]+)\/SKILL\.md$/.exec(rest)?.[1]
+    : undefined;
+}
+
+/** The description an `edit`'s new text sets, quotes removed. */
+function descriptionIn(text: string): string | undefined {
+  const value = /^description:[ \t]*(.+?)[ \t]*$/m.exec(text)?.[1];
+  return value === undefined ? undefined : (/^(["'])(.*)\1$/.exec(value)?.[2] ?? value);
+}
+
 /**
  * The lines of the Change notes in a Turn's stored input, none when it has no notes. Only its last
  * message is rendered with notices, and the notes follow the time line in its first block, which
@@ -253,7 +275,24 @@ function applyOwnCalls(botId: string, seen: Seen, transcript: ModelMessage[]) {
         seen.routines.delete(args.name);
       }
     }
-    if (!memory || (toolName !== "write" && toolName !== "edit")) continue;
+    if (toolName !== "write" && toolName !== "edit") continue;
+    const skill = typeof args.path === "string" ? skillTarget(botId, args.path) : undefined;
+    if (skill !== undefined) {
+      // The Bot knows its own Skill write. A body edit changes nothing the block lists.
+      if (!seen.skills) continue;
+      if (toolName === "write" && typeof args.content === "string") {
+        seen.skills.lines.set(skill, skillLineOf(skill, args.content).text);
+      } else if (typeof args.newText === "string") {
+        // Only an edit that replaces the description line itself changes it.
+        const description =
+          typeof args.oldText === "string" && /^description:/m.test(args.oldText)
+            ? descriptionIn(args.newText)
+            : undefined;
+        if (description !== undefined) seen.skills.lines.set(skill, description);
+      }
+      continue;
+    }
+    if (!memory) continue;
     const target = typeof args.path === "string" ? memoryTarget(botId, args.path) : undefined;
     if (!target) continue;
     const lines = memory[target.tier];
