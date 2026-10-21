@@ -1,0 +1,76 @@
+{
+  "goal": "Download the latest invoice from the vendor portal",
+  "inputs": ["the month"],
+  "events": [
+    {
+      "sequence": 1,
+      "offsetMs": 154,
+      "kind": "navigation",
+      "url": "https://billing.acme-vendor.example/login",
+      "label": "Vendor portal sign in",
+      "selector": null,
+      "value": null,
+      "screenshot": "01.png"
+    },
+    {
+      "sequence": 2,
+      "offsetMs": 372,
+      "kind": "input",
+      "url": "https://billing.acme-vendor.example/login",
+      "label": "Email",
+      "selector": "#email",
+      "value": "billing@example.com",
+      "screenshot": "02.png"
+    },
+    {
+      "sequence": 3,
+      "offsetMs": 389,
+      "kind": "input",
+      "url": "https://billing.acme-vendor.example/login",
+      "label": "Password",
+      "selector": "#password",
+      "value": "••••••••",
+      "screenshot": null
+    },
+    {
+      "sequence": 4,
+      "offsetMs": 455,
+      "kind": "click",
+      "url": "https://billing.acme-vendor.example/login",
+      "label": "Sign in",
+      "selector": "#signin",
+      "value": null,
+      "screenshot": "04.png"
+    },
+    {
+      "sequence": 5,
+      "offsetMs": 505,
+      "kind": "navigation",
+      "url": "https://billing.acme-vendor.example/invoices",
+      "label": "Invoices",
+      "selector": null,
+      "value": null,
+      "screenshot": "05.png"
+    },
+    {
+      "sequence": 6,
+      "offsetMs": 535,
+      "kind": "change",
+      "url": "https://billing.acme-vendor.example/invoices",
+      "label": "Month",
+      "selector": "select[aria-label=\"Month\"]",
+      "value": "October",
+      "screenshot": "06.png"
+    },
+    {
+      "sequence": 7,
+      "offsetMs": 569,
+      "kind": "click",
+      "url": "https://billing.acme-vendor.example/invoices",
+      "label": "Download invoice",
+      "selector": "#download",
+      "value": null,
+      "screenshot": "07.png"
+    }
+  ]
+}
