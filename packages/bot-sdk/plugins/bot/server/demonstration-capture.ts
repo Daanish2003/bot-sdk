@@ -5,6 +5,7 @@ import { type Browser, chromium, type Page } from "playwright-core";
 import { z } from "zod";
 
 import { botDemonstration, botDemonstrationEvent } from "../../../core/server/db/schema";
+import { deleteBlobsBestEffort } from "../../../core/server/blob/store";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
@@ -246,9 +247,10 @@ const tally = async (tx: Transaction, demonstrationId: string) => {
  * Stores one step of Demonstration `demonstration.id`, while it records: its row, with the
  * screenshot `screenshot` takes (none for a masked step), and its card's step count. A step that
  * comes while it is paused or has ended is dropped before any screenshot; one that a Pause
- * overtakes while its screenshot is taken is dropped with it, unstored. The screenshot is put in
- * the blob store after the row commits, outside the locks, and a put that fails clears its key.
- * The step that reaches `demonstrationEventLimit` ends it as Done.
+ * overtakes while its screenshot is taken is dropped, and its bytes deleted. The screenshot is put
+ * in the blob store before the row is written, outside the locks, so a row is never read before
+ * the bytes its key names; a put that fails stores the step without one. The step that reaches
+ * `demonstrationEventLimit` ends it as Done.
  */
 async function storeStep(
   deps: BotSdkContext,
@@ -264,7 +266,19 @@ async function storeStep(
     return row?.state === "recording";
   };
   if (!(await recording())) return;
+  const id = uuidv7();
   const png = step.masked ? null : await screenshot().catch(() => null);
+  const screenshotKey = png ? demonstrationEventBlobKey(demonstration.id, id) : null;
+  const put =
+    png && screenshotKey
+      ? await deps.blobStore.put(screenshotKey, png, { contentType: "image/png" }).then(
+          () => true,
+          (caught: unknown) => {
+            deps.logger.error("Storing a Demonstration step's screenshot failed", caught);
+            return false;
+          },
+        )
+      : false;
   const stored = await deps.db.transaction(async (tx) => {
     // In the order a Pause takes them, so a step never lands after the Pause that dropped it.
     await lockConversation(tx, demonstration.conversationId);
@@ -277,8 +291,6 @@ async function storeStep(
     const { steps: before, sequence } = await tally(tx, demonstration.id);
     const steps = before + 1;
     if (steps > demonstrationEventLimit) return undefined;
-    const id = uuidv7();
-    const screenshotKey = png ? demonstrationEventBlobKey(demonstration.id, id) : null;
     await tx.insert(botDemonstrationEvent).values({
       id,
       demonstrationId: demonstration.id,
@@ -289,28 +301,21 @@ async function storeStep(
       label: step.label,
       selector: step.selector,
       value: step.masked && step.value !== null ? maskedValue : step.value,
-      screenshotKey,
+      screenshotKey: put ? screenshotKey : null,
     });
     await rewriteCard(tx, demonstration.conversationId, demonstration.id, (card) => ({
       ...card,
       steps,
     }));
-    return { id, steps, screenshotKey };
+    return steps;
   });
-  if (stored === undefined) return;
-  if (png && stored.screenshotKey) {
-    await deps.blobStore
-      .put(stored.screenshotKey, png, { contentType: "image/png" })
-      .catch(async (caught: unknown) => {
-        deps.logger.error("Storing a Demonstration step's screenshot failed", caught);
-        await deps.db
-          .update(botDemonstrationEvent)
-          .set({ screenshotKey: null })
-          .where(eq(botDemonstrationEvent.id, stored.id));
-      });
+  if (stored === undefined) {
+    // Dropped: a Pause or the cap overtook it, so its bytes go too.
+    if (put && screenshotKey) await deleteBlobsBestEffort(deps, [screenshotKey]);
+    return;
   }
   await hintChanged(deps, demonstration.conversationId);
-  if (stored.steps >= demonstrationEventLimit) await move(deps, demonstration.id, "done");
+  if (stored >= demonstrationEventLimit) await move(deps, demonstration.id, "done");
 }
 
 /**

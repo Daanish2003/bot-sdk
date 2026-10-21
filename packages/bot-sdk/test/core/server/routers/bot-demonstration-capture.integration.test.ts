@@ -10,6 +10,8 @@ import { type Browser, chromium } from "playwright-core";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { botDemonstration, botDemonstrationEvent } from "../../../../core/server/db/schema";
+import { postgresBlobStore } from "../../../../core/server/blob/postgres";
+import type { BlobStore } from "../../../../core/server/blob/store";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { deleteUserData } from "../../../../core/server/user-data";
 import {
@@ -156,6 +158,7 @@ async function demonstrating(path = "/") {
     jobs,
     adapterFor: () => fake.adapter,
     memory: false,
+    blobStore: slowPuts(postgresBlobStore(getTestDb())),
   });
   await jobs.start();
   started.push(jobs);
@@ -185,6 +188,18 @@ async function demonstrating(path = "/") {
     .toEqual(["navigation"]);
   return { deps: deps!, client, user, botId, demonstrationId, page };
 }
+
+/**
+ * `store` with each put taking a while, as a remote blob store's does: a step's row must never be
+ * read before its screenshot's bytes are there.
+ */
+const slowPuts = (store: BlobStore): BlobStore => ({
+  ...store,
+  put: async (...args) => {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await store.put(...args);
+  },
+});
 
 const eventsOf = (demonstrationId: string) =>
   getTestDb()
