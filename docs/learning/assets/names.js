@@ -979,6 +979,54 @@ window.NAMES = [
       "Replaces each Secret's value, and its base64 and URL-encoded forms, with *** in a text before the model sees it.",
     example: "maskSecrets(output, ['hunter2']) → '***'",
   },
+  {
+    lesson: 19,
+    name: "skillsPrompt",
+    kind: "function",
+    meaning:
+      "Builds the Skills block of the Prompt start: where Skills live, the rules for writing and using them, then one `- name: description` line per Skill, up to 8,000 characters.",
+    example: "- weekly-metrics: Use this when the user asks for the weekly metrics email",
+  },
+  {
+    lesson: 19,
+    name: "problemOf",
+    kind: "function",
+    meaning:
+      'Checks one Skill\'s frontmatter and returns why it is not usable, or null. The name must equal the folder, and the description must start with "Use this when".',
+    example: "description is missing",
+  },
+  {
+    lesson: 19,
+    name: "skillChangesOf",
+    kind: "function",
+    meaning:
+      "Finds the Skills a Turn wrote, from its write and edit calls on the Bot's own SKILL.md files, for the Skill chip.",
+    example: "[{ kind: 'saved', name: 'payouts-to-sheet' }]",
+  },
+  {
+    lesson: 19,
+    name: "watch_user",
+    kind: "tool",
+    meaning:
+      "The deferred tool that starts a Demonstration: it holds the Screen, posts the Show me card and returns at once.",
+    example: "watch_user({ goal, inputs })",
+  },
+  {
+    lesson: 19,
+    name: "bot_demonstration",
+    kind: "table/column",
+    meaning:
+      "One Demonstration: its goal, inputs, state, and the name of the Skill it became. Its events and screenshots are deleted after 7 days; the row stays.",
+    example: "state: 'saved'",
+  },
+  {
+    lesson: 19,
+    name: "draftSkill",
+    kind: "function",
+    meaning:
+      "The drafting pass: one model call, with no tools, that turns a Demonstration's steps and screenshots into a complete SKILL.md. It is metered as skill_draft.",
+    example: "draftSkill(deps, demonstration)",
+  },
 ];
 
 (function () {
