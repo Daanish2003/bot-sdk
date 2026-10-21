@@ -11,7 +11,7 @@ import { searchTextOf } from "../../../core/shared/message-parts";
 import type { ModelMeter } from "../../models/server/meter";
 import type { MessageUsage } from "../../models/shared/usage";
 import { parseModelId } from "../../models/shared/models";
-import type { BotReview, ReviewApprovalState } from "../shared/review";
+import { approvalWaitMs, type BotReview, type ReviewApprovalState } from "../shared/review";
 import { parseReply } from "../../memory/server/ask";
 import { routineNameOf, routinePromptOf } from "./routine";
 
@@ -189,16 +189,13 @@ export async function reviewToolCall(
   return { error: blockedError(reviewed.reason, decided) };
 }
 
-/** How long a blocked call waits for the user's Approval (ADR 0024). */
-export const approvalWaitMs = 15_000;
-
 /** How often the wait reads its Approval's row. */
 const approvalPollMs = 500;
 
 /**
  * Waits for Approval `reviewId`: polls its row about every `approvalPollMs` until the user allows
  * or denies it, or marks it `expired` once `deadline` passes. A row gone with its Bot reads as
- * denied. A Stop throws, leaving the row to `denyWaitingReviews`.
+ * denied. A Stop throws, leaving the row to `closeWaitingReviews`.
  */
 async function waitForApproval(
   deps: BotSdkContext,
@@ -257,7 +254,7 @@ export async function decideReview(
 ): Promise<{ decided: boolean; state: ReviewApprovalState }> {
   const now = deps.clock();
   const [found] = await deps.db
-    .select({ state: botReview.state, deadline: botReview.deadline })
+    .select({ state: botReview.state })
     .from(botReview)
     .innerJoin(bot, eq(bot.id, botReview.botId))
     .where(and(eq(botReview.id, reviewId), eq(bot.userId, userId)));
@@ -279,15 +276,19 @@ export async function decideReview(
   return { decided: false, state: state === "waiting" ? "expired" : state };
 }
 
-/** The user's Stop of Turn `turnId` counts as no: its waiting Approvals are denied, in `tx`. */
-export async function denyWaitingReviews(
+/**
+ * Closes Turn `turnId`'s waiting Approvals, in `tx`: `denied` for the user's Stop, which counts as
+ * no, and `expired` for a Turn that ended while one waited (its time limit), so none stays open.
+ */
+export async function closeWaitingReviews(
   deps: BotSdkContext,
   tx: Transaction,
   turnId: string,
+  state: "denied" | "expired",
 ): Promise<void> {
   await tx
     .update(botReview)
-    .set({ state: "denied", decidedAt: deps.clock() })
+    .set({ state, decidedAt: deps.clock() })
     .where(and(eq(botReview.turnId, turnId), eq(botReview.state, "waiting")));
 }
 

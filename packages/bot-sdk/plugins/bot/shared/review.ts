@@ -1,6 +1,9 @@
 /** What Auto-review made of a call (spec #691). */
 export type ReviewVerdictOutcome = "pass" | "block";
 
+/** How long a blocked call waits for the user's Approval (ADR 0024). */
+export const approvalWaitMs = 15_000;
+
 /** Where a blocked call's Approval stands (ADR 0024). */
 export type ReviewApprovalState = "waiting" | "allowed" | "denied" | "expired";
 

@@ -3,11 +3,8 @@ import { ShieldAlertIcon, ShieldCheckIcon, ShieldXIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { useI18n } from "../../../core/client/react/provider";
-import type { BotReview } from "../shared/review";
+import { approvalWaitMs, type BotReview } from "../shared/review";
 import { useRefusalToast } from "./refusal-toast";
-
-/** How long an Approval waits, as the bar shows it (ADR 0024). */
-const approvalWaitMs = 15_000;
 
 /** The call as the card shows it raw: a shell call's command, else its arguments. */
 function rawCall(review: BotReview): string {
