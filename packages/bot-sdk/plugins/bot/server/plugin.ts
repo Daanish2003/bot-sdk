@@ -40,6 +40,18 @@ export type BotApi = {
    * at `screenViewPath/<view token>/websockify` (Nitro: `defineWebSocketHandler(screenSocket)`).
    */
   screenSocket: ScreenSocketHooks;
+  /** The Model that reviews the Bots' risky tool calls, as `bot({ reviewModel })` named it, if any. */
+  reviewModel: string | undefined;
+};
+
+/** How the Host sets up the `bot` plugin. */
+export type BotOptions = {
+  /**
+   * The Model that reviews each Bot's risky tool calls before they run (Auto-review), a
+   * `"provider:model"` id from the `models` plugin's list, resolved per user. With none, or one
+   * the user can't use, the Bot's own Model reviews, in a fresh context.
+   */
+  reviewModel?: string;
 };
 
 declare module "../../../core/server/plugin" {
@@ -52,7 +64,7 @@ declare module "../../../core/server/plugin" {
  * The `bot` plugin (ADR 0020): always-on Bots, each a name and a Model talking to its user in one
  * Conversation of kind `bot`.
  */
-export function bot(): BotPlugin {
+export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
   return {
     id: "bot",
     requires: ["models", "runner"],
@@ -87,6 +99,7 @@ export function bot(): BotPlugin {
         },
         screenHandler: (request) => handleScreenRequest(sdk, request),
         screenSocket: screenSocketHooks(sdk),
+        reviewModel,
       };
       return { api };
     },

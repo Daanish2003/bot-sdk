@@ -124,6 +124,8 @@ export const botsMessages = {
   }) => `Step ${number} · ${percent}% cached · ${cost}`,
   "bots.cacheSummaryStep": ({ percent, cost }: { percent: number; cost: string }) =>
     `Summary · ${percent}% cached · ${cost}`,
+  "bots.reviewPasses": ({ count }: { count: number }) =>
+    `✓ ${count} ${count === 1 ? "call" : "calls"} auto-approved`,
   "bots.cacheWarmed": ({ cost }: { cost: string }) => `Cache warmed · ${cost}`,
   "bots.cacheRead": "Read from cache",
   "bots.cacheWritten": "Written to cache",

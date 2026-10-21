@@ -53,6 +53,7 @@ import {
 } from "./computer-tools";
 import { pruneScreenshots, resolveScreenshots } from "./desktop-tools";
 import { type LoopPromptStart, type PreviousCall, promptHashesOf } from "./prompt-start";
+import { type ReviewSource, reviewToolCall } from "./review";
 import { computerRebuildSeenAt, markComputerRebuildSeen } from "./store";
 import { midTurnNote, summarizeInstruction } from "./summary";
 
@@ -179,6 +180,11 @@ export type LoopOptions = {
    * next one, in an `inbox` activity: a replay reads the recorded turns (a Helper's, #566).
    */
   inbox?: (tx: Transaction) => Promise<string[]>;
+  /**
+   * Where the loop's reviewed calls come from (a Turn's): each `shell` call gets Auto-review before
+   * it runs. With none, nothing is reviewed.
+   */
+  review?: ReviewSource;
 };
 
 /** What a played loop came to. `failure` is an activity that threw, which recorded nothing. */
@@ -655,8 +661,31 @@ export async function runLoop(
     }
     return result;
   };
-  const shell = shellDefinition.server(({ command, cwd, timeoutSeconds }, context) =>
+  const shell = shellDefinition.server((input, context) =>
     toolCall(context?.toolCallId, async () => {
+      const { command, cwd, timeoutSeconds } = input;
+      // Auto-review first: a blocked command never starts.
+      if (options.review) {
+        const blocked = await reviewToolCall(
+          deps,
+          {
+            activity: ctx.activity,
+            billing,
+            beforeLive: beforeLiveTool,
+            signal: abortController.signal,
+            usageOf: (reviewProvider, chunks, sent) =>
+              callUsage(deps, reviewProvider, chunks, sent),
+          },
+          {
+            owner,
+            source: options.review,
+            toolCallId: context?.toolCallId,
+            tool: shellToolName,
+            input,
+          },
+        );
+        if (blocked) return blocked;
+      }
       // The start marker: a resumed loop that replays it with no result never runs the command
       // again, since it may have partly run. A yield waits for the command's own Checkpoint, so
       // the marker never stands for a command that didn't start. No transaction: the command runs

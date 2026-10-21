@@ -24,6 +24,7 @@ import {
 } from "../routine";
 import { cancelCheckIn, listCheckIns } from "../check-in";
 import { listHelpers } from "../helper-card";
+import { listReviews } from "../review";
 import { helperDone } from "../hand-off";
 import { stopBotHelpers } from "../helper-tools";
 import { screenControl, screenView } from "../screen-view";
@@ -236,6 +237,21 @@ const botRouter = {
         const found = await findBot(context.sdk.db, context.user.id, input.botId);
         if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
         await stopBotHelpers(context.sdk, input.botId, input.helperId);
+      }),
+  },
+
+  /** The Auto-reviews of the caller's Bots' tool calls (spec #691). */
+  review: {
+    /**
+     * One of the caller's Bots' reviews, oldest first, each with its Turn or Helper: what the
+     * passes line under a Turn lists. Another user's Bot is not found.
+     */
+    list: protectedProcedure
+      .input(z.object({ botId: z.uuid() }))
+      .handler(async ({ context, input }) => {
+        const found = await findBot(context.sdk.db, context.user.id, input.botId);
+        if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
+        return listReviews(context.sdk.db, input.botId);
       }),
   },
 

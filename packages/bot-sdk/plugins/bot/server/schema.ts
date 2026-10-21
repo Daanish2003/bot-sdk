@@ -9,6 +9,7 @@ import {
   botHelperType,
 } from "./db/bot-helper";
 import { botPromptStart } from "./db/bot-prompt-start";
+import { botReview, botReviewState, botReviewVerdict } from "./db/bot-review";
 import { botSummary, botSummaryKind } from "./db/bot-summary";
 import { botRoutine, botRoutineState } from "./db/bot-routine";
 import { botTrigger, botTriggerChannel, botTriggerSource } from "./db/bot-trigger";
@@ -18,12 +19,13 @@ export * from "./db/bot";
 export * from "./db/bot-check-in";
 export * from "./db/bot-helper";
 export * from "./db/bot-prompt-start";
+export * from "./db/bot-review";
 export * from "./db/bot-routine";
 export * from "./db/bot-summary";
 export * from "./db/bot-trigger";
 export * from "./db/bot-turn";
 
-/** The `bot` plugin's schema module: its `bot`, `bot_turn`, `bot_prompt_start`, `bot_summary`, `bot_trigger`, `bot_routine`, `bot_check_in`, `bot_helper`, `bot_helper_message` and `bot_helper_screenshot` tables. It adds no fields to core tables. */
+/** The `bot` plugin's schema module: its `bot`, `bot_turn`, `bot_prompt_start`, `bot_summary`, `bot_trigger`, `bot_routine`, `bot_check_in`, `bot_helper`, `bot_helper_message`, `bot_helper_screenshot` and `bot_review` tables. It adds no fields to core tables. */
 export const botSchema = {
   tables: {
     bot,
@@ -36,6 +38,7 @@ export const botSchema = {
     botHelper,
     botHelperMessage,
     botHelperScreenshot,
+    botReview,
   },
   enums: {
     botTurnStatus,
@@ -46,6 +49,8 @@ export const botSchema = {
     botHelperType,
     botHelperStatus,
     botSummaryKind,
+    botReviewVerdict,
+    botReviewState,
   },
   // Kept empty by type: core/server/db/schema.ts spreads no bot columns, so adding some means adding the spread there.
   fields: {} satisfies Partial<Record<CoreTableName, never>>,
