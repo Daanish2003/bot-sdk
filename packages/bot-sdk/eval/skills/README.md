@@ -138,3 +138,8 @@ First real run: 2026-10-21, commit ecd95364, on the owner's ChatGPT plan (`EVAL_
   the stale command fails, and the Bot asks the user for the new path instead of looking for the
   renamed file (it is on the Computer) and editing the Skill. `follow-month-folder` failed because the
   Bot never read `weekly-metrics-email`.
+
+After #736 (the fix rule now says to look for a renamed file before asking), `--group=follow-fix` on
+`openai:gpt-6.1-sol`, 2026-10-22, 1 repeat: **4/6**. All three `fix-*` cases now find the renamed file
+and edit the Skill; `fix-script-path` still failed once on not telling the user, and
+`follow-month-folder` still never read its Skill.
