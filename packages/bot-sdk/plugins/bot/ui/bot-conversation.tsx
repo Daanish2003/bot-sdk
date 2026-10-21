@@ -10,6 +10,7 @@ import { serverErrorText } from "../../../core/client/rpc-error";
 import type { BotTurnProvenance } from "../shared/turn";
 import { useBackgroundRuns, useBotTurn } from "../client/react/bot-turn";
 import { useBotCheckIns } from "../client/react/check-ins";
+import { useDemonstrationActions } from "../client/react/demonstrations";
 import { allHelpers, useBotHelpers } from "../client/react/helpers";
 import { useBotReviews } from "../client/react/reviews";
 import { useBotRoutines } from "../client/react/routines";
@@ -19,6 +20,7 @@ import { BotAvatar } from "./bot-avatar";
 import { CheckInLine } from "./check-in-line";
 import { ComputerCard } from "./computer-card";
 import { HelperCard } from "./helper-card";
+import { isLiveDemonstration } from "../shared/demonstration";
 import { isLiveHelper } from "../shared/helper";
 import { ReviewPassesLine } from "./review-passes-line";
 import { ReviewRequest } from "./review-request";
@@ -26,6 +28,7 @@ import { RoutineCard } from "./routine-card";
 import { RoutinesPopover } from "./routines-popover";
 import { SecretCard } from "./secret-card";
 import { SecretsPopover } from "./secrets-popover";
+import { ShowMeCard } from "./show-me-card";
 import { RunDivider } from "./run-divider";
 import { SummaryCard } from "./summary-card";
 import { TodoPopover } from "./todo-popover";
@@ -35,7 +38,7 @@ import { WarmLine } from "./warm-line";
  * A Bot's Conversation: the Messages sent in it, the user's on the right and the Bot's on the left,
  * ••• while a Turn runs, and "Seen ✓" under the user's last Message when the Bot stayed quiet, or "Couldn't reply" when the
  * Turn failed. A Routine the Bot created shows after the Turn that created it, as does a Check-in
- * it set, and each Helper it started shows as a card after it (a hand-off Message is followed by its Computer card), and each run of a Routine or fired Check-in gets a divider above what it sent, or one of its own when it stayed quiet. Where a Summary replaced the Bot's context, a card that expands to it sits before the next Message. The Bot's Messages are
+ * it set, and each Helper it started shows as a card after it (a hand-off Message is followed by its Computer card), a Demonstration's Message is its Show me card, and each run of a Routine or fired Check-in gets a divider above what it sent, or one of its own when it stayed quiet. Where a Summary replaced the Bot's context, a card that expands to it sits before the next Message. The Bot's Messages are
  * never collapsed. The header lists the Routines, to pause, resume or delete them, and the To-do
  * list of live Helpers, to stop them.
  */
@@ -122,6 +125,11 @@ function BotConversationView({
     save: saveSecret,
     remove: removeSecret,
   } = useBotSecrets(botId);
+  const { acting: actingDemonstrations, act: actOnDemonstration } = useDemonstrationActions(botId);
+  const onDemonstration = (...args: Parameters<typeof actOnDemonstration>) =>
+    void actOnDemonstration(...args).catch((refusal) =>
+      toast.error(serverErrorText(i18n, refusal)),
+    );
   const todo = helpers.filter((helper) => isLiveHelper(helper.status));
   const actions = { onPause: pause, onResume: resume, onDelete: remove, actingRoutines: acting };
   const checkInActions = { onCancelCheckIn, actingCheckIns };
@@ -129,7 +137,11 @@ function BotConversationView({
     botId,
     !working &&
       (routines.some((routine) => routine.state === "active") ||
-        checkIns.some((checkIn) => checkIn.state === "pending")),
+        checkIns.some((checkIn) => checkIn.state === "pending") ||
+        // The time cap may end a Demonstration while no Turn runs.
+        messages.some(
+          (message) => message.demonstration && isLiveDemonstration(message.demonstration.state),
+        )),
   );
 
   if (error) {
@@ -326,20 +338,29 @@ function BotConversationView({
             {summariesBefore.get(message.id)}
             {warmingsBefore.get(message.id)}
             {runsBefore.get(message.id)}
-            <div
-              data-bot-message
-              data-id={message.id}
-              data-role={message.role}
-              className={cn(
-                "max-w-[70%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap",
-                message.role === "user"
-                  ? "self-end bg-primary text-primary-foreground"
-                  : "self-start bg-muted",
-                message.pending && "opacity-70",
-              )}
-            >
-              {message.text}
-            </div>
+            {message.demonstration ? (
+              <ShowMeCard
+                card={message.demonstration}
+                botName={bot.name}
+                onAct={onDemonstration}
+                acting={actingDemonstrations.has(message.demonstration.demonstrationId)}
+              />
+            ) : (
+              <div
+                data-bot-message
+                data-id={message.id}
+                data-role={message.role}
+                className={cn(
+                  "max-w-[70%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap",
+                  message.role === "user"
+                    ? "self-end bg-primary text-primary-foreground"
+                    : "self-start bg-muted",
+                  message.pending && "opacity-70",
+                )}
+              >
+                {message.text}
+              </div>
+            )}
             {requestsAfter.get(message.id)}
             {afterTurnOf.get(message.id)}
             {message.computer && (
