@@ -222,6 +222,14 @@ Summary evals (each is big) and 3 for the tool search cases. The cache eval fail
 per run. Results are saved as `eval/turn/results/context-<time>.json`, with each run's usage rows,
 Summary text, replies and tool calls.
 
+On a ChatGPT plan, the summary and tool search evals run with no key (see "On a ChatGPT plan" above
+for the variables). The cache eval stays on a direct Anthropic key, since the plan caches nothing
+(#664), so run it on its own:
+
+```sh
+EVAL_DATABASE_URL=postgresql://postgres:password@127.0.0.1:5435/ai-chat_eval_context EVAL_BOT_MODEL=openai:gpt-6.1-sol EVAL_JUDGE_MODEL=openai:gpt-6.1-sol EVAL_CHATGPT_USER_ID=<your user id> DATABASE_URL=... BETTER_AUTH_URL=... BETTER_AUTH_SECRET=... CHATGPT_CLIENT_ID=... CHATGPT_HOST_ID=... pnpm -F @ai-chat/bot-sdk eval:context --only=summary,tools
+```
+
 - **cache:** a scripted Conversation of four user Messages and a Routine's run, a memory line added
   twice between Turns, then a warm that is due (the Bot's usage rows are made two hours old and
   `warmBot` runs), then one more Turn. Structural, from the user's `turn` and `warm` usage rows: no call
@@ -250,6 +258,20 @@ cache numbers are the script's own), not the cache or the Model.
 
 ### Results
 
-Real results are pending: the three evals were built and checked offline (`--fake` and the scoring's
-unit tests) only. The summarize instruction (`summarizeInstruction` in `plugins/bot/server/summary.ts`)
-and the tool-name list in the Prompt start are to be tuned until these pass; record each run here.
+The summarize instruction (`summarizeInstruction` in `plugins/bot/server/summary.ts`) and the
+tool-name list in the Prompt start are tuned until these pass. Record each run here.
+
+**2026-10-21, ChatGPT plan, `openai:gpt-6.1-sol` (Bot and judge), `--only=summary,tools`:**
+
+- **First run:** summary 0/1, tool-reminder 0/3, tool-routine 3/3 and tool-helper 3/3.
+  - **Summary:** `seedHistory` stored the seeded Turns with no `input`. A Turn with no `input` reads
+    as one from before inputs were stored, so its user Messages were never rendered, and the Turn
+    sent about 5k tokens instead of 120k. It now stores the input a real Turn stores.
+  - **tool-reminder:** the Bot used `create_routine`, with a prompt that deletes itself after one
+    run. The one-line summaries now say a Routine repeats and is "never a one-time reminder", and
+    that a Check-in is "a one-time reminder or wake-up". The Routine rule in the system prompt points
+    one-time reminders at `set_check_in`.
+- **After those fixes:** summary 1/1 (judge 1/1), tool-reminder 3/3, tool-routine 3/3 and
+  tool-helper 3/3. Results: `context-2026-10-21T05-45-41-242Z.json`.
+
+**cache: not run yet.** It needs a direct Anthropic key, because the plan caches nothing (#664).

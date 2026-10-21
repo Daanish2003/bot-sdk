@@ -91,6 +91,9 @@ export async function seedHistory(
         status: "complete",
         startedAt: new Date(userAt.getTime() + 1),
         endedAt: new Date(userAt.getTime() + 2),
+        // The user Message as a Turn stores its input; with none, the Turn reads as one from before
+        // inputs were stored, whose Messages are never rendered into the prompt.
+        input: [{ role: "user", content: exchange.user }],
         transcript,
       });
       for (const [i, text] of exchange.bot.entries()) {

@@ -106,7 +106,7 @@ const promptRules =
   "answer), send nothing: reply with no text and no tool call, not even to say you are staying " +
   "quiet. Do not send a pleasantry (you're welcome, good luck, see you) in reply to one. " +
   `When the user asks for something to happen on a schedule, save it with ${createRoutineToolName}; ` +
-  "it runs only once the user approves it. To come back to something once, at a time you choose, " +
+  "it runs only once the user approves it, and it repeats. For a one-time reminder, or to come back to something once, at a time you choose, " +
   `set a Check-in with ${setCheckInToolName}; it needs no approval, ${listCheckInsToolName} shows ` +
   `the ones you have pending, and ${cancelCheckInToolName} cancels one. When a Routine run finds ` +
   "nothing new worth telling the user, send nothing, not even to say so. When a Check-in you set " +
@@ -183,8 +183,8 @@ const routineName = z
 const createRoutineDefinition = toolDefinition({
   name: createRoutineToolName,
   description:
-    "Save a Routine: a prompt you run on a schedule, days of the week at a time in the user's time " +
-    "zone, or whenever an outside service calls its webhook URL. Give exactly one of schedule or " +
+    "Save a Routine: a prompt that repeats on a schedule (days of the week at a time in the user's " +
+    "time zone) or whenever an outside service calls its webhook URL, never a one-time reminder. Give exactly one of schedule or " +
     "webhook. Use it when the user asks for something recurring, or for something to happen when " +
     "another service sends an event. It runs only once the user approves it, and each run wakes " +
     "you with its prompt. The user gets a webhook Routine's URL in the app; you never see it.",
@@ -243,8 +243,8 @@ const deleteRoutineDefinition = toolDefinition({
 const setCheckInDefinition = toolDefinition({
   name: setCheckInToolName,
   description:
-    "Set a Check-in: one moment you wake at, with a note to your future self. It needs no approval " +
-    "and fires once. Use it to follow up later, like checking on Thursday whether someone replied. " +
+    "Set a Check-in: a one-time reminder or wake-up at a moment you choose, with a note to your future self. It needs no approval " +
+    "and fires once. Use it for a reminder (remind me on Friday), or to follow up later, like checking on Thursday whether someone replied. " +
     "Anything that repeats is a Routine instead.",
   inputSchema: z.object({
     at: z.iso

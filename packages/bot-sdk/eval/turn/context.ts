@@ -14,6 +14,7 @@ import { bot } from "../../plugins/bot/server/plugin";
 import { memory } from "../../plugins/memory/server/plugin";
 import { runnerJobs } from "../../plugins/runner/server/plugin";
 import { fakeComputerProvider } from "../../test/plugins/computer/server/fake-provider";
+import { chatgptPlanFromEnv } from "../chatgpt-plan";
 import { createComputerSdk, databaseUrlFromEnv, prepareSchema } from "../computer/setup";
 import { toolSearchCases } from "./context-cases";
 import {
@@ -63,12 +64,14 @@ async function main() {
         "its warming call and cache reads are Anthropic's.",
     );
   }
-  const apiKey = fake ? "sk-fake" : keyFor(model, null);
+  // `null`: the Model runs on the owner's ChatGPT plan (eval/chatgpt-plan.ts), not on a key.
+  const plan = fake ? null : await chatgptPlanFromEnv();
+  const apiKey = fake ? "sk-fake" : keyFor(model, plan);
   const judgeModel = process.env.EVAL_JUDGE_MODEL ?? model;
-  const judgeKey = fake ? "sk-fake" : keyFor(judgeModel, null, " (the judge)");
+  const judgeKey = fake ? "sk-fake" : keyFor(judgeModel, plan, " (the judge)");
   const complete: Complete = fake
     ? async () => "Verdict: yes\nReason: fake judge"
-    : judgeCompletion(judgeModel, judgeKey, null);
+    : judgeCompletion(judgeModel, judgeKey, plan);
 
   const db = await prepareSchema(databaseUrlFromEnv());
   /** The fake Model, one adapter per run (found by its API key), playing its rounds across calls. */
@@ -87,7 +90,7 @@ async function main() {
               return adapter;
             },
           }
-        : real,
+        : { ...real, linkedCredentials: plan?.linkedCredentials },
   });
   const jobs = runnerJobs(sdk);
   await jobs.start();
