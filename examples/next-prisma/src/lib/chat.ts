@@ -57,6 +57,6 @@ export const chat = createBotSdk({
     assistant({ tools: [serverTime] }),
     // `reviewModel` is optional: the Model that reviews each Bot's risky tool calls (Auto-review).
     // Without it, or when the user can't use it, the Bot's own Model reviews.
-    bot({ reviewModel: "openai:gpt-5-mini" }),
+    bot({ reviewModel: "openai:gpt-6-luna" }),
   ],
 });
