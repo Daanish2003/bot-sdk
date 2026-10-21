@@ -54,6 +54,7 @@ import {
 import { pruneScreenshots, resolveScreenshots } from "./desktop-tools";
 import { type LoopPromptStart, type PreviousCall, promptHashesOf } from "./prompt-start";
 import { type ReviewSource, reviewToolCall } from "./review";
+import { loadSecretValues, maskResult, maskSecrets, unknownSecretError } from "./secret-values";
 import { computerRebuildSeenAt, markComputerRebuildSeen } from "./store";
 import { midTurnNote, summarizeInstruction } from "./summary";
 
@@ -663,7 +664,7 @@ export async function runLoop(
   };
   const shell = shellDefinition.server((input, context) =>
     toolCall(context?.toolCallId, async () => {
-      const { command, cwd, timeoutSeconds } = input;
+      const { command, cwd, timeoutSeconds, secrets } = input;
       // Auto-review first: a blocked command never starts.
       if (options.review) {
         // The live review is a model call: the loop's time limit cuts it off, as a Stop does.
@@ -709,12 +710,26 @@ export async function runLoop(
       const result = await ctx.activity(shellToolName, async () => {
         beforeLiveTool();
         if (!startedHere) return { error: interruptedShellError };
+        // The user's Secrets, read for this one command: it gets only the ones it names, and the
+        // result is masked of all of them.
+        const values = await loadSecretValues(deps, owner.userId);
+        const unknown = (secrets ?? []).filter((name) => !values.has(name));
+        if (unknown.length > 0) return { error: unknownSecretError(unknown, values.keys()) };
+        const secretValues = [...values.values()];
+        const envs = Object.fromEntries((secrets ?? []).map((name) => [name, values.get(name)!]));
         return onLiveComputer(async (computer, live) => {
-          const result = await computer.run(command, {
+          const output = await computer.run(command, {
             ...live,
             cwd: resolvePath(owner.botId, cwd),
             timeoutMs: (timeoutSeconds ?? defaultShellTimeoutSeconds) * 1000,
+            ...(secrets?.length && { envs }),
           });
+          // Masked before the output is cut down to its ends, so a value is never half kept.
+          const result = {
+            ...output,
+            stdout: maskSecrets(output.stdout, secretValues),
+            stderr: maskSecrets(output.stderr, secretValues),
+          };
           // The cap is applied here, so the Checkpoint holds only the truncated form.
           const capped = await capOutput(
             result,
@@ -758,9 +773,15 @@ export async function runLoop(
         (computer, live) => run(computer, owner.botId, input, live),
         cap,
       );
+  /** `read` with the user's Secrets masked: a file may hold a value the Model must not see. */
+  const maskedReadTool: typeof readTool = async (computer, botId, input, options) =>
+    maskResult(
+      await readTool(computer, botId, input, options),
+      (await loadSecretValues(deps, owner.userId)).values(),
+    );
   const computerToolsByName: Record<string, AnyServerTool> = {
     [shellDefinition.name]: shell,
-    [readDefinition.name]: readDefinition.server(fileTool("read", readTool, false)),
+    [readDefinition.name]: readDefinition.server(fileTool("read", maskedReadTool, false)),
     [writeDefinition.name]: writeDefinition.server(fileTool("write", writeTool)),
     [editDefinition.name]: editDefinition.server(fileTool("edit", editTool)),
     [listDefinition.name]: listDefinition.server(fileTool("list", listTool)),

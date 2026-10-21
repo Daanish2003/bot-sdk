@@ -148,11 +148,18 @@ export type ComputerHandle = {
    * Runs `command` with `bash -l -c` in `cwd` (the home directory by default). A command still
    * running after `timeoutMs` (`defaultCommandTimeoutMs` when unset) or at `deadline`, whichever
    * comes first, is killed and returns what it printed so far; the wake's time counts toward
-   * `deadline`. Once `signal` aborts, the command is killed and `run` throws its reason.
+   * `deadline`. Once `signal` aborts, the command is killed and `run` throws its reason. `envs` are
+   * environment variables for this one command only.
    */
   run: (
     command: string,
-    options?: { cwd?: string; timeoutMs?: number; deadline?: Date; signal?: AbortSignal },
+    options?: {
+      cwd?: string;
+      timeoutMs?: number;
+      deadline?: Date;
+      signal?: AbortSignal;
+      envs?: Record<string, string>;
+    },
   ) => Promise<CommandResult | TimedOutCommand>;
   /** A file's bytes, or null when there is no such file. */
   readFile: (path: string, options?: FileOperationOptions) => Promise<Uint8Array | null>;
@@ -382,13 +389,21 @@ export function computer({ provider }: ComputerOptions): ComputerPlugin {
               return operate((id) => screenCommand(id, `${mode} ${slot}`));
             },
             heartbeat: () => recordActivity(sdk, userId),
-            run: (command, { cwd, timeoutMs = defaultCommandTimeoutMs, deadline, signal } = {}) =>
+            run: (
+              command,
+              { cwd, timeoutMs = defaultCommandTimeoutMs, deadline, signal, envs } = {},
+            ) =>
               operate((id) => {
                 // A stop during the wake runs nothing.
                 signal?.throwIfAborted();
                 const left = deadline ? deadline.getTime() - sdk.clock().getTime() : timeoutMs;
                 const limitMs = Math.max(0, Math.min(timeoutMs, left));
-                return provider.run(id, command, { cwd, timeoutMs: limitMs, signal });
+                return provider.run(id, command, {
+                  cwd,
+                  timeoutMs: limitMs,
+                  signal,
+                  ...(envs && { envs }),
+                });
               }, signal),
             // A stop during the wake reaches no provider call, as with `run`.
             readFile: (path, { signal } = {}) =>

@@ -150,7 +150,7 @@ export function e2bProvider({
       await goneIfNotFound(sandboxId, () => Sandbox.setTimeout(sandboxId, timeoutMs, connection));
     },
 
-    async run(sandboxId, command, { cwd = homeDirectory, timeoutMs, signal }) {
+    async run(sandboxId, command, { cwd = homeDirectory, timeoutMs, signal, envs }) {
       signal?.throwIfAborted();
       // Each stream keeps only its ends, so a command that prints without end can't exhaust memory.
       const out = boundedOutput();
@@ -168,6 +168,7 @@ export function e2bProvider({
         handle: await sandbox.commands.run(script, {
           background: true,
           timeoutMs: 0,
+          ...(envs && { envs }),
           onStdout: (data) => out.add(data),
           onStderr: (data) => err.add(data),
         }),

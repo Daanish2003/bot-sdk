@@ -3,6 +3,7 @@ import { and, asc, desc, eq, gte, inArray, isNull, lt, or } from "drizzle-orm";
 import { deleteConversations } from "../../../core/server/chat/delete-conversations";
 import {
   bot,
+  botSecret,
   botTrigger,
   botTurn,
   conversation,
@@ -14,6 +15,7 @@ import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { Transaction, UserDeleteHooks } from "../../../core/server/plugin";
 import { searchTextOf } from "../../../core/shared/message-parts";
 import { type ComputerCard, computerCardSchema } from "../shared/helper";
+import { type SecretRequest, secretRequestSchema } from "../shared/secret";
 import type { BotMessage, BotTurnStatus } from "../shared/turn";
 
 /** The `kind` of every Bot's Conversation: the plugin's id. */
@@ -61,17 +63,39 @@ export function computerCardOf(parts: MessageRow["parts"]): ComputerCard | undef
   return undefined;
 }
 
+/**
+ * A Message that asks for a Secret (spec #691): the Bot's text as its `text` part, then the
+ * `secret` part with the name and why. The column is cast as in `handOffParts`.
+ */
+export function secretRequestParts(text: string, request: SecretRequest): MessageRow["parts"] {
+  return {
+    schemaVersion: 1,
+    parts: [{ type: "text", text }, request],
+  } as unknown as MessageRow["parts"];
+}
+
+/** The Secret request a Message's parts hold, if any. */
+export function secretRequestOf(parts: MessageRow["parts"]): SecretRequest | undefined {
+  for (const part of parts.parts as readonly unknown[]) {
+    const request = secretRequestSchema.safeParse(part);
+    if (request.success) return request.data;
+  }
+  return undefined;
+}
+
 /** A Message row as the client sees it, with its Computer card when it is a hand-off. */
 export function toBotMessage(
   row: Pick<MessageRow, "id" | "role" | "parts" | "createdAt">,
 ): BotMessage {
   const computer = computerCardOf(row.parts);
+  const secret = secretRequestOf(row.parts);
   return {
     id: row.id,
     role: row.role,
     text: searchTextOf(row.parts),
     createdAt: row.createdAt,
     ...(computer && { computer }),
+    ...(secret && { secret }),
   };
 }
 
@@ -313,6 +337,8 @@ export async function newestTimeZone(
  */
 export const botUserDelete: UserDeleteHooks<() => Promise<void>> = {
   before: async (sdk, { userId, tx }) => {
+    // The user's Secrets are theirs, not a Bot's, so no cascade reaches them.
+    await tx.delete(botSecret).where(eq(botSecret.userId, userId));
     const { afterCommit } = await deleteConversations(sdk, tx, {
       where: eq(conversation.kind, botKind),
       userId,

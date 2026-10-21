@@ -126,6 +126,17 @@ export const botsMessages = {
     `Summary · ${percent}% cached · ${cost}`,
   "bots.reviewPasses": ({ count }: { count: number }) =>
     `✓ ${count} ${count === 1 ? "call" : "calls"} auto-approved`,
+  "bots.secretAsks": ({ bot, name }: { bot: string; name: string }) => `${bot} asks for ${name}`,
+  "bots.secretValue": "Secret value",
+  "bots.secretSave": "Save secret",
+  "bots.secretNeverValue": ({ bot }: { bot: string }) =>
+    `${bot} gets only the name, never the value`,
+  "bots.secretSaved": ({ name }: { name: string }) => `Saved secret ${name}`,
+  "bots.secrets": "Secrets",
+  "bots.secretsCount": ({ count }: { count: number }) => `Secrets ${count}`,
+  "bots.secretsShared": "Shared by all your Bots. Values are never shown.",
+  "bots.secretSavedOn": ({ date }: { date: string }) => `saved ${date}`,
+  "bots.deleteSecret": ({ name }: { name: string }) => `Delete ${name}`,
   "bots.cacheWarmed": ({ cost }: { cost: string }) => `Cache warmed · ${cost}`,
   "bots.cacheRead": "Read from cache",
   "bots.cacheWritten": "Written to cache",

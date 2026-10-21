@@ -22,6 +22,8 @@ export type FakeCommand = {
   command: string;
   cwd: string | undefined;
   timeoutMs: number;
+  /** The environment variables the command was given, when it was given any. */
+  envs?: Record<string, string>;
 };
 
 /**
@@ -166,9 +168,9 @@ export function fakeComputerProvider({
       if (!disks.has(sandboxId)) throw new SandboxGoneError(sandboxId);
       calls.push({ type: "timeout", sandboxId, timeoutMs });
     },
-    run: async (sandboxId, command, { cwd, timeoutMs, signal }) => {
+    run: async (sandboxId, command, { cwd, timeoutMs, signal, envs }) => {
       const disk = runningDisk(sandboxId);
-      calls.push({ type: "run", sandboxId, command, cwd, timeoutMs });
+      calls.push({ type: "run", sandboxId, command, cwd, timeoutMs, ...(envs && { envs }) });
       const builtIn = runBuiltIn(disk, command, cwd ?? "/home/user", write);
       if (builtIn) return bounded(builtIn);
       const killed = new AbortController();
@@ -195,7 +197,15 @@ export function fakeComputerProvider({
         };
         Promise.resolve()
           .then(() =>
-            onCommand({ sandboxId, command, cwd, timeoutMs, signal: killed.signal, print }),
+            onCommand({
+              sandboxId,
+              command,
+              cwd,
+              timeoutMs,
+              ...(envs && { envs }),
+              signal: killed.signal,
+              print,
+            }),
           )
           .then(
             (result) => settle(false, () => resolve(result)),
