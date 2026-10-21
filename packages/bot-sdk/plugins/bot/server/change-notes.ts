@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { botPromptStart } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
 import type { Transaction } from "../../../core/server/plugin";
-import { type SkillLine, skillLineOf } from "../../skills/server/skills";
+import { type SkillLine, skillLineOf, skillsDirectory } from "../../skills/server/skills";
 import type { PromptStartTool } from "./db/bot-prompt-start";
 import { canonicalJson, firstMessageSection, listedToolNames, sha256 } from "./prompt-start";
 import { createRoutineToolName, deleteRoutineToolName, updateRoutineToolName } from "./routine";
@@ -148,12 +148,20 @@ function memoryTarget(botId: string, path: string): { tier: Tier; month?: string
   return match[1] ? { tier: match[1] as Tier } : { tier: "log", month: match[2] };
 }
 
-const skillFile = /(?:^|\/)skills\/([^/]+)\/SKILL\.md$/;
-
 /** The folder of the Skill in the Bot's own folder that `path` is the SKILL.md of, if any. */
 function skillTarget(botId: string, path: string): string | undefined {
-  if (path.includes("/bots/") && !path.includes(`/bots/${botId}/`)) return undefined;
-  return skillFile.exec(path)?.[1];
+  // An absolute path must be in the Bot's folder; a relative one is relative to it.
+  const own = `${skillsDirectory(botId)}/`;
+  const rest = path.startsWith("/")
+    ? path.startsWith(own)
+      ? path.slice(own.length)
+      : undefined
+    : path.startsWith("skills/")
+      ? path.slice("skills/".length)
+      : undefined;
+  return rest !== undefined && !rest.includes("..")
+    ? /^([^/]+)\/SKILL\.md$/.exec(rest)?.[1]
+    : undefined;
 }
 
 /** The description an `edit`'s new text sets, quotes removed. */
@@ -275,7 +283,11 @@ function applyOwnCalls(botId: string, seen: Seen, transcript: ModelMessage[]) {
       if (toolName === "write" && typeof args.content === "string") {
         seen.skills.lines.set(skill, skillLineOf(skill, args.content).text);
       } else if (typeof args.newText === "string") {
-        const description = descriptionIn(args.newText);
+        // Only an edit that replaces the description line itself changes it.
+        const description =
+          typeof args.oldText === "string" && /^description:/m.test(args.oldText)
+            ? descriptionIn(args.newText)
+            : undefined;
         if (description !== undefined) seen.skills.lines.set(skill, description);
       }
       continue;

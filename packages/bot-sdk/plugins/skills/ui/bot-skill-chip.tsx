@@ -2,7 +2,7 @@ import { useI18n } from "../../../core/client/react/provider";
 import type { BotSkillChange } from "../shared/changes";
 
 /**
- * The "📘 Skill saved: <name>" or "Skill updated: <name>" chips under a Bot Message whose Turn
+ * The "📘 Skill saved: <name>" or "📘 Skill updated: <name>" chips under a Bot Message whose Turn
  * wrote a Skill (spec #713), one per Skill. Read-only here. Shows nothing when it wrote none.
  */
 export function BotSkillChip({ changes }: { changes: BotSkillChange[] | null }) {
