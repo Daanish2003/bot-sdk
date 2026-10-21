@@ -332,6 +332,14 @@ describe("capturing a Demonstration", () => {
     const events = await eventsOf(demonstrationId);
     expect(JSON.stringify(events)).not.toContain("hunter2");
     expect(events[3]).toMatchObject({ value: maskedValue, screenshotKey: null });
+    // No screenshot while the page shows the password: the Show click's, and every step's after.
+    expect(events.map((event) => event.screenshotKey === null)).toEqual([
+      false,
+      true,
+      true,
+      true,
+      true,
+    ]);
   }, 60_000);
 
   it("records a click on a label as one click on its control", async () => {

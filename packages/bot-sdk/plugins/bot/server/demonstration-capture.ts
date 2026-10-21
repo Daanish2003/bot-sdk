@@ -21,7 +21,8 @@ import { hintChanged } from "./turn";
  * of its Screen's Chrome reports the user's steps over the Screen's CDP connection, as probe #717
  * settled (`exposeBinding` + `addInitScript` on the default context of `connectOverCDP`). The server
  * stores each with a screenshot of its page. A password field's value never leaves the page, and
- * no screenshot is taken for it. While paused, steps are dropped here, before any screenshot.
+ * no screenshot is taken for it, or while a password a toggle unmasked shows on its page. While
+ * paused, steps are dropped here, before any screenshot.
  */
 
 /** What stands for a password field's value. */
@@ -62,6 +63,8 @@ const listenerSource = (name: string) => String.raw`(() => {
   const mask = ${JSON.stringify(maskedValue)};
   const clip = (text, length) => (text || "").replace(/\s+/g, " ").trim().slice(0, length);
   const send = (step) => {
+    // Before the page's own handlers run, so a field a "show password" click unmasks is known.
+    trackPasswords();
     try {
       Promise.resolve(window[binding]({ url: location.href, ...step })).catch(() => {});
     } catch {}
@@ -71,11 +74,24 @@ const listenerSource = (name: string) => String.raw`(() => {
     return element instanceof Element ? element : null;
   };
   // A field that was a password once stays masked, so a "show password" toggle can't unmask it.
-  const passwords = new WeakSet();
+  const passwords = new Set();
   const isPassword = (element) => {
     if (element instanceof HTMLInputElement && element.type === "password") passwords.add(element);
     return passwords.has(element);
   };
+  const trackPasswords = () => {
+    for (const element of document.querySelectorAll("input[type=password]")) passwords.add(element);
+  };
+  // Whether the page shows a password a toggle unmasked; the server takes no screenshot then.
+  Object.defineProperty(window, flag + "_revealed", {
+    value: () => {
+      trackPasswords();
+      for (const element of passwords) {
+        if (element.isConnected && element.type !== "password" && element.value !== "") return true;
+      }
+      return false;
+    },
+  });
   addEventListener("focusin", (event) => {
     const element = target(event);
     if (element) isPassword(element);
@@ -245,8 +261,9 @@ const tally = async (tx: Transaction, demonstrationId: string) => {
 
 /**
  * Stores one step of Demonstration `demonstration.id`, while it records: its row, with the
- * screenshot `screenshot` takes (none for a masked step), and its card's step count. A step that
- * comes while it is paused or has ended is dropped before any screenshot; one that a Pause
+ * screenshot `screenshot` takes (none for a masked step, or while a password shows), and its
+ * card's step count. A step that comes while it is paused or has ended is dropped before any
+ * screenshot; one that a Pause
  * overtakes while its screenshot is taken is dropped, and its bytes deleted. The screenshot is put
  * in the blob store before the row is written, outside the locks, so a row is never read before
  * the bytes its key names; a put that fails stores the step without one. The step that reaches
@@ -256,7 +273,7 @@ async function storeStep(
   deps: BotSdkContext,
   demonstration: Captured,
   step: ReportedStep,
-  screenshot: () => Promise<Uint8Array>,
+  screenshot: () => Promise<Uint8Array | null>,
 ) {
   const recording = async () => {
     const [row] = await deps.db
@@ -319,6 +336,19 @@ async function storeStep(
 }
 
 /**
+ * Whether a frame of `page` shows a password that a "show password" toggle unmasked, as the
+ * listener of binding `name` there tells. A frame that can't be asked (it is navigating) counts as
+ * not showing one.
+ */
+async function passwordShown(page: Page, name: string): Promise<boolean> {
+  const check = `window[${JSON.stringify(`${name}_listening_revealed`)}]?.() === true`;
+  for (const frame of page.frames()) {
+    if (await frame.evaluate(check).catch(() => false)) return true;
+  }
+  return false;
+}
+
+/**
  * Connects to the Screen's Chrome and sets the listener up: on every document to come, and on the
  * ones already open (a page open before `addInitScript` isn't covered until its next document).
  * The binding's name is the Demonstration's, so a listener left from an earlier connection reports
@@ -340,8 +370,10 @@ async function connect(
       if (!step.success || pending.closing) return;
       pending.chain = pending.chain
         .then(() =>
-          storeStep(deps, demonstration, step.data, () =>
-            page.screenshot({ type: "png", timeout: screenshotTimeoutMs }),
+          storeStep(deps, demonstration, step.data, async () =>
+            (await passwordShown(page, name))
+              ? null
+              : page.screenshot({ type: "png", timeout: screenshotTimeoutMs }),
           ),
         )
         .catch((caught) => deps.logger.error("Storing a Demonstration step failed", caught));
