@@ -3,7 +3,7 @@ import { isInProcessRunner } from "../../runner/server/jobs/in-process";
 import { runnerJobs } from "../../runner/server/plugin";
 import { cancelUserCheckIns } from "./check-in";
 import { screenshotsConversationDelete } from "./screenshots";
-import { cancelUserHelpers, hasRunningHelper } from "./helper";
+import { cancelUserHelpers, hasLiveDemonstration, hasRunningHelper } from "./helper";
 import { cancelUserFires } from "./routine";
 import { startRoutineReconcile } from "./routine-fire";
 import "./check-in-fire";
@@ -88,6 +88,8 @@ export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
         );
         // A running Helper may use it at any moment; a waiting one doesn't hold it.
         computer.addBusyCheck((userId) => hasRunningHelper(sdk.db, userId));
+        // The user drives a Screen while a Demonstration records or is paused (spec #713).
+        computer.addBusyCheck((userId) => hasLiveDemonstration(sdk.db, { userId }));
         // Only a user with a Bot gets a Computer, so a Turn racing the user's delete creates none.
         computer.addOwnerCheck(userHasBot);
       }

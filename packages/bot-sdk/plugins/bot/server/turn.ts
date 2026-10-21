@@ -37,6 +37,7 @@ import {
 } from "./computer-tools";
 import { type TodoItem, todoList } from "./helper";
 import { helperTools } from "./helper-tools";
+import { watchUserTool } from "./demonstration";
 import { type LoopKit, type LoopResult, type LoopSetup, runLoop } from "./loop";
 import {
   definitionsOf,
@@ -1074,7 +1075,7 @@ async function turnSetup(
 /**
  * The Bot's tools for a Turn, run through the loop's `kit`: SendToUser, the Routine and Check-in
  * tools, web search, `search_memory` with `withMemorySearch`, and with `withComputer` the
- * Computer's tools and the Helper tools. `onLastMessage` runs when SendToUser sends the Turn's last
+ * Computer's tools and the Helper tools, and `watch_user` too with the `skills` plugin. `onLastMessage` runs when SendToUser sends the Turn's last
  * Message.
  */
 function turnTools(
@@ -1192,6 +1193,8 @@ function turnTools(
     webSearchTool(deps, turn.userId, kit.liveRequest),
     ...(searchMemory ? [searchMemory] : []),
     ...(withComputer ? [...kit.computerTools, ...helperTools(deps, turn, liveActivity)] : []),
+    // A Demonstration teaches a Skill, so it comes with the `skills` plugin (spec #713).
+    ...(withComputer && deps.hasPlugin("skills") ? [watchUserTool(deps, turn, kit)] : []),
   ];
 }
 

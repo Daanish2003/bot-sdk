@@ -2,7 +2,7 @@ import { type ModelMessage, toolDefinition } from "@tanstack/ai";
 import { and, asc, count, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { bot, botHelper, botHelperMessage } from "../../../core/server/db/schema";
+import { bot, botDemonstration, botHelper, botHelperMessage } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
@@ -58,6 +58,12 @@ export const computerUseHelperTakenError =
   "A Computer-use Helper is already running; check on or stop it first.";
 
 export const screensInUseError = "All 4 Screens are in use; try again later.";
+
+export const demonstrationHoldsScreenError =
+  "The user is showing you a task on your Screen; wait until they finish it from its card.";
+
+/** The Demonstration states that hold a Screen (spec #713). */
+export const screenHoldingDemonstrations = ["recording", "paused"] as const;
 
 export const helperQuotaSpentError = "Your spending limit is reached; tell the user.";
 
@@ -120,8 +126,9 @@ type HelperStarter = { id: string; botId: string; userId: string; model: string 
  * The `start_helper` tool of `turn`'s loop: in one Checkpoint, a `running` Helper row and its
  * `bot.helper` job, so the Helper starts once. The Turn carries on; the Helper reports back as a
  * `helper` Trigger. Refused, with a next step, once the Quota is spent, the Bot already has
- * `generalHelperLimit` General Helpers or a Computer-use Helper, or every Screen is held. A
- * Computer-use Helper holds the lowest Screen slot no running or waiting Helper of the user holds.
+ * `generalHelperLimit` General Helpers or a Computer-use Helper, a Demonstration holds the Bot's
+ * Screen (spec #713), or every Screen is held. A Computer-use Helper holds the lowest Screen slot
+ * that nothing of the user's holds (`freeScreen`).
  */
 export function startHelperTool(
   deps: BotSdkContext,
@@ -159,6 +166,9 @@ export function startHelperTool(
       }
       let screen: number | null = null;
       if (type === "computer_use") {
+        if (await hasLiveDemonstration(tx, { botId: turn.botId })) {
+          return { error: demonstrationHoldsScreenError };
+        }
         screen = await freeScreen(tx, turn.userId);
         if (screen === null) return { error: screensInUseError };
         // Waits out a close of the Helper that had it, so the close never lands on this one.
@@ -186,9 +196,12 @@ export function startHelperTool(
   });
 }
 
-/** The lowest Screen slot that no running or waiting Helper of the user holds, or null. */
-async function freeScreen(tx: Transaction, userId: string): Promise<number | null> {
-  const held = await tx
+/**
+ * The lowest Screen slot that no running or waiting Helper of the user holds, nor a live
+ * Demonstration of theirs (spec #713), or null.
+ */
+export async function freeScreen(tx: Transaction, userId: string): Promise<number | null> {
+  const helpers = await tx
     .select({ screen: botHelper.screen })
     .from(botHelper)
     .innerJoin(bot, eq(bot.id, botHelper.botId))
@@ -199,16 +212,25 @@ async function freeScreen(tx: Transaction, userId: string): Promise<number | nul
         isNotNull(botHelper.screen),
       ),
     );
-  const taken = new Set(held.map((row) => row.screen));
+  const demonstrations = await tx
+    .select({ screen: botDemonstration.screen })
+    .from(botDemonstration)
+    .where(
+      and(
+        eq(botDemonstration.userId, userId),
+        inArray(botDemonstration.state, [...screenHoldingDemonstrations]),
+      ),
+    );
+  const taken = new Set([...helpers, ...demonstrations].map((row) => row.screen));
   for (let slot = 1; slot <= maxScreens; slot += 1) if (!taken.has(slot)) return slot;
   return null;
 }
 
 /**
- * The user's Screen `slot`'s lock, until `tx` ends: `start_helper` takes it as it hands the slot
- * out, and `closeScreen` holds it while it closes the Screen.
+ * The user's Screen `slot`'s lock, until `tx` ends: `start_helper` and `watch_user` take it as they
+ * hand the slot out, and `closeScreen` holds it while it closes the Screen.
  */
-async function lockScreen(tx: Transaction, userId: string, slot: number) {
+export async function lockScreen(tx: Transaction, userId: string, slot: number) {
   await tx.execute(
     sql`select pg_advisory_xact_lock(hashtextextended(${`screen:${userId}:${slot}`}, 0))`,
   );
@@ -322,9 +344,10 @@ async function runHelperJob(
 }
 
 /**
- * Closes an ending or stopped Helper's Screen, best-effort: its Chrome profile stays. Under the
- * slot's lock, and only while no other running or waiting Helper of the user holds the slot, so it
- * never closes the Screen of the Helper that took the slot next.
+ * Closes the Screen of an ending or stopped Helper, or of an ended Demonstration (spec #713, whose
+ * id is `helper.id`), best-effort: its Chrome profile stays. Under the slot's lock, and only while
+ * nothing else of the user's holds the slot, so it never closes the Screen of whatever took the
+ * slot next.
  */
 export async function closeScreen(
   deps: BotSdkContext,
@@ -349,11 +372,22 @@ export async function closeScreen(
         )
         .limit(1);
       if (next) return;
+      const [demonstration] = await tx
+        .select({ id: botDemonstration.id })
+        .from(botDemonstration)
+        .where(
+          and(
+            eq(botDemonstration.userId, helper.userId),
+            eq(botDemonstration.screen, slot),
+            inArray(botDemonstration.state, [...screenHoldingDemonstrations]),
+            ne(botDemonstration.id, helper.id),
+          ),
+        )
+        .limit(1);
+      if (demonstration) return;
       await computerOf(deps, helper.userId).closeScreen(slot);
     })
-    .catch((caught) =>
-      deps.logger.error(`Closing the Screen of Helper ${helper.id} failed`, caught),
-    );
+    .catch((caught) => deps.logger.error(`Closing the Screen of ${helper.id} failed`, caught));
 }
 
 /** The Helper's model input: its task, as the only user turn. */
@@ -695,6 +729,29 @@ export const helperStoppedJob = defineJob({
     await closeScreen(ctx.deps, { id: helperId, userId, screen });
   },
 });
+
+/**
+ * Whether a live Demonstration holds a Screen (spec #713): Bot `botId`'s, or with `userId` any of
+ * the user's, which is a busy check, since the user drives the Computer meanwhile.
+ */
+export async function hasLiveDemonstration(
+  db: Database | Transaction,
+  owner: { botId: string } | { userId: string },
+): Promise<boolean> {
+  const [live] = await db
+    .select({ id: botDemonstration.id })
+    .from(botDemonstration)
+    .where(
+      and(
+        "botId" in owner
+          ? eq(botDemonstration.botId, owner.botId)
+          : eq(botDemonstration.userId, owner.userId),
+        inArray(botDemonstration.state, [...screenHoldingDemonstrations]),
+      ),
+    )
+    .limit(1);
+  return live !== undefined;
+}
 
 /** Whether one of the user's Helpers is running, so it may use the Computer: a busy check. */
 export async function hasRunningHelper(db: Database, userId: string): Promise<boolean> {
