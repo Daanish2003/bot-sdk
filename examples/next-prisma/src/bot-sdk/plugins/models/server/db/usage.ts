@@ -4,7 +4,7 @@ import type { PromptHash } from "../../../../core/server/chat/hooks";
 import { chatSchema } from "../../../../core/server/db/chat-schema";
 
 /**
- * What a call on Host credentials was for. Each kind is written by the call it names: a Run, a
+ * What a recorded call was for. Each kind is written by the call it names: a Run, a
  * title, a web search, a transcription of a voice recording, one generated image, the embedding
  * of Knowledge text (ADR 0007, ADR 0014), a call that makes Memories (ADR 0013), a Bot's Turn, one of
  * its Helpers, the writing of a Summary, or a call that warms a Bot's cache.

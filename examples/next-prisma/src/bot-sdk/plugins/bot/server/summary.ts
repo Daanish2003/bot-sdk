@@ -1,12 +1,12 @@
 import type { ModelMessage } from "@tanstack/ai";
-import { and, asc, desc, eq, gte, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lt, lte, or, sql } from "drizzle-orm";
 
 import { botPromptStart, botSummary, botTurn, message } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { searchTextOf } from "../../../core/shared/message-parts";
-import type { BotSummary } from "../shared/turn";
+import type { BotMessage, BotSummary } from "../shared/turn";
 import { buildPromptStart, type PromptStartParts, userZoneAt } from "./prompt-start";
 import { toBotMessage } from "./store";
 import { formatterIn } from "./time-zone";
@@ -193,20 +193,30 @@ export async function botSummaries(
   for (const row of rows) {
     let summary = summaries.get(row.id);
     if (!summary) {
-      summary = {
-        id: row.id,
-        kind: row.kind,
-        at: row.createdAt,
-        text: row.text.split(`
-
-${keptHeader}`)[0]!,
-        kept: [],
-      };
+      summary = { id: row.id, kind: row.kind, at: row.createdAt, text: row.text, kept: [] };
       summaries.set(row.id, summary);
     }
     if (row.kept) summary.kept.push(toBotMessage(row.kept));
   }
+  for (const summary of summaries.values()) summary.text = accountOf(summary.text, summary.kept);
   return [...summaries.values()];
+}
+
+/**
+ * A Summary's account: its `text` without the block of `kept` Messages it ends with. The prose or
+ * a kept Message may quote the block's header too, so the block is the last header that every kept
+ * Message follows.
+ */
+function accountOf(text: string, kept: BotMessage[]): string {
+  if (kept.length === 0) return text;
+  const marker = `\n\n${keptHeader}`;
+  const last = text.lastIndexOf(marker);
+  for (let at = last; at >= 0; at = at > 0 ? text.lastIndexOf(marker, at - 1) : -1) {
+    const block = text.slice(at);
+    if (kept.every((message) => block.includes(message.text))) return text.slice(0, at);
+  }
+  // The kept Messages no longer read as they were written: the block is the last header.
+  return last >= 0 ? text.slice(0, last) : text;
 }
 
 /** The Summary a Prompt start holds: what its history carries on from. */
@@ -261,27 +271,29 @@ export function historyFrom(
 }
 
 /**
- * The history the Bot's next Turn sends after Prompt start `promptStartId`, as `historyFrom` keeps
- * it: what a summary call or a warming call sends too, so each reads or writes the Turn's cache.
- * Only the Turns it keeps are read: those since the Summary, and the one a mid-Turn one was written in.
+ * The Bot's Turns that `historyFrom` keeps after `summary`, in Turn order: those since the
+ * Summary, and the one a mid-Turn one was written in, started before `before` when given. Only
+ * those are read, never the whole history.
  */
-export async function historyAfter(
+export function historyTurns(
   db: Database | Transaction,
   botId: string,
-  promptStartId: string,
-): Promise<ModelMessage[]> {
-  const summary = await summaryOf(db, promptStartId);
-  const turns = await db
+  summary: HistorySummary | undefined,
+  before?: Date,
+) {
+  return db
     .select({
       id: botTurn.id,
       startedAt: botTurn.startedAt,
       input: botTurn.input,
       transcript: botTurn.transcript,
+      promptStartId: botTurn.promptStartId,
     })
     .from(botTurn)
     .where(
       and(
         eq(botTurn.botId, botId),
+        before ? lt(botTurn.startedAt, before) : undefined,
         summary
           ? or(
               gte(botTurn.startedAt, summary.coversUntil),
@@ -291,7 +303,19 @@ export async function historyAfter(
       ),
     )
     .orderBy(asc(botTurn.startedAt), asc(botTurn.id));
-  return historyFrom(turns, summary);
+}
+
+/**
+ * The history the Bot's next Turn sends after Prompt start `promptStartId`, as `historyFrom` keeps
+ * it: what a summary call or a warming call sends too, so each reads or writes the Turn's cache.
+ */
+export async function historyAfter(
+  db: Database | Transaction,
+  botId: string,
+  promptStartId: string,
+): Promise<ModelMessage[]> {
+  const summary = await summaryOf(db, promptStartId);
+  return historyFrom(await historyTurns(db, botId, summary), summary);
 }
 
 /** `transcript` from its last mid-Turn note on, or nothing when it has none. */

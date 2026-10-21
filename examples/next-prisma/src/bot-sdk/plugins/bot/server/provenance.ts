@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 
 import { botTrigger, botTurn, usage } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
@@ -50,11 +50,7 @@ export async function turnProvenance(
       .where(eq(botTurn.botId, botId))
       .orderBy(asc(botTrigger.receivedAt), asc(botTrigger.id)),
   ]);
-  const stepsOf = await turnSteps(
-    db,
-    userId,
-    turns.map((turn) => turn.id),
-  );
+  const stepsOf = await turnSteps(db, userId, botId);
   const triggersOf = new Map<string, BotTurnTrigger[]>();
   for (const trigger of triggers) {
     const taken = triggersOf.get(trigger.turnId!) ?? [];
@@ -82,20 +78,20 @@ export async function turnProvenance(
 }
 
 /**
- * Each Turn's Steps: the user's `turn` usage rows read by `source_id`, narrowed by the user's
- * `(user_id, created_at)` index (`source_id` has no index of its own). A flagged
- * section carries the hash it had in the Step before, across Turns.
+ * Each of Bot `botId`'s Turns' Steps: the user's `turn` and mid-Turn `summary` usage rows joined to the Bot's Turns by
+ * `source_id`, narrowed by the user's `(user_id, created_at)` index (`source_id` has no index of
+ * its own). A flagged section carries the hash it had in the Step before, across Turns.
  */
 async function turnSteps(
   db: Database,
   userId: string,
-  turnIds: string[],
+  botId: string,
 ): Promise<Map<string, BotTurnStep[]>> {
   const stepsOf = new Map<string, BotTurnStep[]>();
-  if (turnIds.length === 0) return stepsOf;
   const rows = await db
     .select({
       id: usage.id,
+      kind: usage.kind,
       sourceId: usage.sourceId,
       inputTokens: usage.inputTokens,
       cacheReadTokens: usage.cacheReadTokens,
@@ -104,7 +100,14 @@ async function turnSteps(
       promptHashes: usage.promptHashes,
     })
     .from(usage)
-    .where(and(eq(usage.userId, userId), eq(usage.kind, "turn"), inArray(usage.sourceId, turnIds)))
+    .innerJoin(botTurn, eq(sql`${botTurn.id}::text`, usage.sourceId))
+    .where(
+      and(
+        eq(usage.userId, userId),
+        inArray(usage.kind, ["turn", "summary"]),
+        eq(botTurn.botId, botId),
+      ),
+    )
     .orderBy(asc(usage.createdAt), asc(usage.id));
   let before: BotStepSection[] = [];
   for (const row of rows) {
@@ -122,6 +125,7 @@ async function turnSteps(
     const steps = stepsOf.get(row.sourceId!) ?? [];
     steps.push({
       id: row.id,
+      kind: row.kind === "summary" ? "summary" : "turn",
       inputTokens: row.inputTokens,
       cacheReadTokens: row.cacheReadTokens,
       cacheWriteTokens: row.cacheWriteTokens,
@@ -130,7 +134,8 @@ async function turnSteps(
       changed: flagged ? { section: flagged.name, kind: flagged.changed! } : null,
     });
     stepsOf.set(row.sourceId!, steps);
-    before = sections;
+    // A summary call hashes nothing: the next Step compares with the Step before it.
+    if (row.kind === "turn") before = sections;
   }
   return stepsOf;
 }

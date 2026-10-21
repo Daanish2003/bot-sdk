@@ -9,14 +9,15 @@ import {
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 
 import { botTurn, usage } from "../../../core/server/db/schema";
-import type { BotSdkContext } from "../../../core/server/plugin";
+import type { Database } from "../../../core/server/db/index";
+import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
 import { withCacheControl } from "../../models/server/cache-control";
 import type { BotWarming } from "../shared/turn";
 import { promptCharactersOf, reportedUsageOf } from "../../models/server/run-usage";
 import { parseModelId } from "../../models/shared/models";
 import { pruneScreenshots, resolveScreenshots } from "./desktop-tools";
-import { latestPromptStartId, loopPromptStart } from "./prompt-start";
+import { latestPromptStart, loopPromptStart } from "./prompt-start";
 import { findBot, latestTurnStatus } from "./store";
 import { historyAfter } from "./summary";
 
@@ -58,16 +59,16 @@ function warmableProvider(model: string): "anthropic" | "openai" | undefined {
  * the Bot's Turns and `warm` rows of the Bot, each read newest first on the user's
  * `(user_id, created_at)` index.
  */
-async function lastCallAt(deps: BotSdkContext, userId: string, botId: string) {
+async function lastCallAt(db: Database | Transaction, userId: string, botId: string) {
   const [turn, warm] = await Promise.all([
-    deps.db
+    db
       .select({ at: usage.createdAt })
       .from(usage)
       .innerJoin(botTurn, eq(sql`${botTurn.id}::text`, usage.sourceId))
       .where(and(eq(usage.userId, userId), eq(usage.kind, "turn"), eq(botTurn.botId, botId)))
       .orderBy(desc(usage.createdAt), desc(usage.id))
       .limit(1),
-    deps.db
+    db
       .select({ at: usage.createdAt })
       .from(usage)
       .where(and(eq(usage.userId, userId), eq(usage.kind, "warm"), eq(usage.sourceId, botId)))
@@ -84,8 +85,10 @@ async function lastCallAt(deps: BotSdkContext, userId: string, botId: string) {
  * controls and nothing to generate. Anthropic gets `max_tokens: 0`, and OpenAI GPT-5.6+
  * `prompt_cache_options.prewarm`; the Provider bills the prompt as a cache write, recorded as a
  * `warm` call with the Bot as its source. It does nothing while a Turn runs, while the Bot's last
- * model call is within the cache lifetime minus 5 minutes, and for a Model with no warming call. A
- * failed call is logged and reported as `unavailable`. Another user's Bot is not found.
+ * model call is within the cache lifetime minus 5 minutes, unless the Prompt start was built after
+ * it (a Summary while away, which no call has cached yet), and for a Model with no warming call.
+ * One warm at a time per Bot: a warm asked for while another runs skips as `still_warm`. A failed
+ * call is logged and reported as `unavailable`. Another user's Bot is not found.
  */
 export async function warmBot(
   deps: BotSdkContext,
@@ -99,37 +102,78 @@ export async function warmBot(
   if ((await latestTurnStatus(deps.db, botId)) === "running") {
     return { warmed: false, skipped: "running" };
   }
-  const startId = await latestPromptStartId(deps.db, botId);
-  if (!startId) return { warmed: false, skipped: "nothing_cached" };
-  // Usage rows are stamped with the host's clock, so it is compared with that.
-  const last = await lastCallAt(deps, userId, botId);
-  if (last && Date.now() - last.getTime() < cacheLifetimeMs[provider] - warmMarginMs) {
-    return { warmed: false, skipped: "still_warm" };
-  }
+  // One warm at a time per Bot, from the check to the record: the lock is held until the warm's
+  // row commits, so a second tab that asks meanwhile skips, and one that asks after sees the row.
+  let fire: (() => void) | undefined;
+  const result = await deps.db.transaction(async (tx): Promise<WarmResult> => {
+    const locked = await tx.execute<{ locked: boolean }>(
+      sql`select pg_try_advisory_xact_lock(hashtextextended(${`warm:${botId}`}, 0)) as locked`,
+    );
+    if (!locked.rows[0]?.locked) return { warmed: false, skipped: "still_warm" };
+    const start = await latestPromptStart(tx, botId);
+    if (!start) return { warmed: false, skipped: "nothing_cached" };
+    // Usage rows are stamped with the host's clock, so it is compared with that. A Prompt start
+    // built after the last call (a Summary while away) has never been cached.
+    const last = await lastCallAt(tx, userId, botId);
+    if (
+      last &&
+      last >= start.builtAt &&
+      Date.now() - last.getTime() < cacheLifetimeMs[provider] - warmMarginMs
+    ) {
+      return { warmed: false, skipped: "still_warm" };
+    }
+    const warmed = await warmCall(
+      deps,
+      tx,
+      { userId, botId, model: found.model, provider },
+      start.id,
+    );
+    if (typeof warmed === "string") return { warmed: false, skipped: warmed };
+    fire = warmed;
+    return { warmed: true };
+  });
+  fire?.();
+  return result;
+}
 
+/**
+ * The warming call itself, of Prompt start `startId` and the history after it, recorded in `tx`.
+ * Returns the `onUsage` firing, for once `tx` has committed, or why it made no call.
+ */
+async function warmCall(
+  deps: BotSdkContext,
+  tx: Transaction,
+  {
+    userId,
+    botId,
+    model,
+    provider,
+  }: { userId: string; botId: string; model: string; provider: "anthropic" | "openai" },
+  startId: string,
+): Promise<(() => void) | "unsupported" | "unavailable"> {
   const models = deps.plugin("models");
-  const call = await models.resolveModelCall(userId, found.model);
+  const call = await models.resolveModelCall(userId, model);
   // The plan caches nothing (probe #664), and a broken link has nothing to warm with.
-  if (!call || call.linked) return { warmed: false, skipped: "unsupported" };
-  const meter = call.meter.onHost ? call.meter : models.freeModelMeter(userId, found.model);
-  if (!(await meter.mayRun()).ok) return { warmed: false, skipped: "unavailable" };
+  if (!call || call.linked) return "unsupported";
+  const meter = call.meter.onHost ? call.meter : models.freeModelMeter(userId, model);
+  if (!(await meter.mayRun()).ok) return "unavailable";
 
-  const start = await loopPromptStart(deps.db, startId, async () => undefined);
+  const start = await loopPromptStart(tx, startId, async () => undefined);
   // From the latest Summary on, as the next Turn sends it.
-  const history = await historyAfter(deps.db, botId, startId);
+  const history = await historyAfter(tx, botId, startId);
   const messages: ModelMessage[] = await resolveScreenshots(
     deps.blobStore,
     pruneScreenshots([{ role: "user", content: start.firstMessage }, ...history]),
   );
 
-  const base = models.adapterForCall(found.model, call);
+  const base = models.adapterForCall(model, call);
   const warming: Record<string, unknown> =
     provider === "anthropic" ? { max_tokens: 0 } : { prompt_cache_options: { prewarm: true } };
   // The Prompt start's own tool definitions go to the Model, as a Turn's calls send them.
   const adapter = {
     kind: "text",
     name: provider,
-    model: parseModelId(found.model)?.modelId ?? found.model,
+    model: parseModelId(model)?.modelId ?? model,
     chatStream: (options: TextOptions) => {
       const cached = withCacheControl(provider, `bot:${botId}`, {
         ...options,
@@ -142,6 +186,7 @@ export async function warmBot(
     },
   } as unknown as AnyTextAdapter;
 
+  let finished: StreamChunk[];
   try {
     const chunks: StreamChunk[] = [];
     for await (const chunk of chat({
@@ -152,27 +197,35 @@ export async function warmBot(
       chunks.push(chunk);
     }
     // A warm generates nothing, so Anthropic ends it `max_tokens`, with the usage it billed.
-    const finished = chunks.map((chunk) =>
+    finished = chunks.map((chunk) =>
       chunk.type === EventType.RUN_ERROR && chunk.code === "max_tokens" && chunk.usage
         ? ({ ...chunk, type: EventType.RUN_FINISHED } as unknown as StreamChunk)
         : chunk,
     );
     const failed = finished.find((chunk) => chunk.type === EventType.RUN_ERROR);
     if (failed) throw new Error(failed.message);
-    const reported = reportedUsageOf(provider, finished);
-    await meter.record({
-      kind: "warm",
-      sourceId: botId,
-      usage: models.messageUsage(reported.usage, {
-        promptCharacters: promptCharactersOf(messages),
-        parts: [],
-      }),
-      reportedCost: reported.cost,
-    });
-    return { warmed: true };
   } catch (caught) {
     deps.logger.error(`Warming the cache of Bot ${botId} failed`, caught);
-    return { warmed: false, skipped: "unavailable" };
+    return "unavailable";
+  }
+  const reported = reportedUsageOf(provider, finished);
+  // In a savepoint: the call is made, so a row that fails to save is logged, as `meter.record`
+  // does, and never fails the warm.
+  try {
+    return await tx.transaction((savepoint) =>
+      meter.recordIn(savepoint, {
+        kind: "warm",
+        sourceId: botId,
+        usage: models.messageUsage(reported.usage, {
+          promptCharacters: promptCharactersOf(messages),
+          parts: [],
+        }),
+        reportedCost: reported.cost,
+      }),
+    );
+  } catch (caught) {
+    deps.logger.error(`Recording the warm of Bot ${botId} failed`, caught);
+    return () => {};
   }
 }
 

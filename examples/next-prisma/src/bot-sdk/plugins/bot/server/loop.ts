@@ -27,6 +27,7 @@ import { type WorkflowContext, WorkflowYieldedError } from "../../runner/server/
 import {
   capOutput,
   capResult,
+  isLong,
   computerOf,
   computerOperationError,
   computerToolDefinitions,
@@ -60,7 +61,9 @@ export type LoopKit = {
   /**
    * A database write of the loop's, as tool call `toolCallId` when it is one: it commits with its
    * Checkpoint, so it happens once across a crash, and runs only live, like a tool's activity. A
-   * result over the long-output limit is recorded, and returned, as its cut text (`capResult`).
+   * tool call's result over the long-output limit is recorded, and returned, as its cut text
+   * (`capResult`), cut in a second activity once the write commits, so the save is outside its
+   * transaction; with no `toolCallId` (the loop's own reads, such as setup's), it is never cut.
    */
   liveActivity: <T>(
     name: string,
@@ -71,8 +74,9 @@ export type LoopKit = {
    * A live call outside the database, as tool call `toolCallId`, then a write with its result: `run`
    * is one activity with no transaction, re-run after a crash before its Checkpoint is saved, and
    * `write` is a second activity whose writes commit with its own Checkpoint, so they happen once.
-   * Both run only live; a replay returns `run`'s recorded result. A result over the long-output
-   * limit is recorded, and returned, as its cut text (`capResult`).
+   * Both run only live; a replay returns `run`'s recorded result. A tool call's result over the
+   * long-output limit is recorded, and returned, as its cut text (`capResult`), as for
+   * `liveActivity`.
    */
   liveRequest: <T>(
     name: string,
@@ -85,9 +89,11 @@ export type LoopKit = {
   /**
    * A Computer tool call of the loop's, as tool call `toolCallId`: one activity, re-run after a
    * crash, that `operate`s live on the Computer. A failed wake or operation is its result, and
-   * after a rebuild the Bot wasn't told of, the result carries the rebuilt note. A result over the
-   * long-output limit is recorded as its cut text (`capResult`), unless `capped` is false: for a
-   * tool that keeps its own result short, such as `read`'s pages.
+   * after a rebuild the Bot wasn't told of, the result carries the rebuilt note. A tool call's result
+   * over the long-output limit is recorded as its cut text (`capResult`), unless `capped` is false:
+   * for a tool that keeps its own result short, such as `read`'s pages. A call with no
+   * `toolCallId` (setup's reads, such as the memory snapshot) is never cut: the Model never sees
+   * its result as is.
    */
   computerCall: <T extends object>(
     name: string,
@@ -347,10 +353,13 @@ export async function runLoop(
       : messages;
   /**
    * A model call's options as sent: with a Prompt start, its stored tool definitions (never the
-   * live tools' own) and its system blocks, and the messages as `sendable` gives them.
+   * live tools' own) and its system blocks, and the messages as `sendable` gives them. Only the
+   * newest screenshots stay in the messages (`pruneScreenshots`), so the hashes cover what is
+   * sent. The window slides: each new screenshot replaces the oldest one kept, so the cache is
+   * written again from that message on. Between two screenshots, every call sends the same bytes.
    */
-  const sentOptions = (chatOptions: TextOptions): TextOptions =>
-    promptStart
+  const sentOptions = (chatOptions: TextOptions): TextOptions => {
+    const sent = promptStart
       ? {
           ...chatOptions,
           tools: promptStart.tools as TextOptions["tools"],
@@ -358,6 +367,8 @@ export async function runLoop(
           messages: sendable(chatOptions.messages as ModelMessage[]),
         }
       : chatOptions;
+    return { ...sent, messages: pruneScreenshots(sent.messages as ModelMessage[]) };
+  };
 
   /**
    * A live model call of `sent`, inside a model call's activity: its chunks, without the raw events.
@@ -367,15 +378,12 @@ export async function runLoop(
     // Read off the clock too: a timer that is due may not have fired yet.
     if (attempt && (expired || timeLeftMs() <= 0)) timeUp();
     abortController.signal.throwIfAborted();
-    // Only the newest screenshots go to the Model, read from the blob store now: the transcript
-    // and the Checkpoints hold their refs (#608). Outside the Model's own failure, so a failed read
-    // is retried like a Checkpoint that failed to save.
+    // The screenshots `sentOptions` kept go to the Model, read from the blob store now: the
+    // transcript and the Checkpoints hold their refs (#608). Outside the Model's own failure, so a
+    // failed read is retried like a Checkpoint that failed to save.
     const pruned = {
       ...sent,
-      messages: await resolveScreenshots(
-        deps.blobStore,
-        pruneScreenshots(sent.messages as ModelMessage[]),
-      ),
+      messages: await resolveScreenshots(deps.blobStore, sent.messages as ModelMessage[]),
     };
     const chunks: StreamChunk[] = [];
     inLiveCall = true;
@@ -506,6 +514,8 @@ export async function runLoop(
       // context: the Turn carries on as it was.
       return written.prose.trim() ? write(tx, written.prose) : null;
     });
+    // The summary call is part of what the Turn cost.
+    if (written.usage) billed.push(written.usage.usage);
     if (id === null) return false;
     promptStart = await load(id);
     summarizedAt = all.length;
@@ -536,26 +546,37 @@ export async function runLoop(
   };
   let userComputer: ComputerHandle | undefined;
   /**
-   * A tool result as the Model reads it: over the limit, it is its cut text (typed as the result,
-   * since only a long one changes shape), with the rest saved on the Computer when there is one.
+   * A tool call's result as the Model reads it: over the limit, it is its cut text (typed as the
+   * result, since only a long one changes shape), with the rest saved on the Computer when there is
+   * one. A result with no `toolCallId` is the loop's own (setup's reads), which callers read as
+   * the value it is: it is never cut. The save stops on a Stop or the time limit, and the cut text
+   * then says the rest was not saved. Never called in a transaction: a save may wake the Computer.
    */
   const capLong = async <T>(result: T, toolCallId: string | undefined): Promise<T> => {
+    if (toolCallId === undefined) return result;
     const computer = deps.hasPlugin("computer")
       ? (userComputer ??= computerOf(deps, owner.userId))
       : undefined;
     return (await capResult(
       result,
-      spillPath(owner.botId, toolCallId ?? uuidv7()),
-      computer && ((path, content) => computer.writeFile(path, content)),
+      spillPath(owner.botId, toolCallId),
+      computer &&
+        ((path, content) => computer.writeFile(path, content, { signal: abortController.signal })),
     )) as T;
   };
   const liveActivity: LoopKit["liveActivity"] = (name, toolCallId, write) =>
-    toolCall(toolCallId, () =>
-      ctx.activity(name, async (tx) => {
+    toolCall(toolCallId, async () => {
+      const result = await ctx.activity(name, async (tx) => {
         beforeLiveTool();
-        return await capLong(await write(tx), toolCallId);
-      }),
-    );
+        return await write(tx);
+      });
+      // A long result is cut in an activity of its own, after the write commits, as
+      // `computerCall` cuts outside any transaction: saving the rest may wake the Computer, which
+      // must not hold the write's row locks. Its Checkpoint holds the cut form, so a replay never
+      // saves again; a short result, or one recorded already cut, adds no activity.
+      if (toolCallId === undefined || !isLong(result)) return result;
+      return ctx.activity(`${name}:cut`, () => capLong(result, toolCallId));
+    });
   const liveRequest: LoopKit["liveRequest"] = (name, toolCallId, run, write) =>
     toolCall(toolCallId, async () => {
       const result = await ctx.activity(name, async () => {

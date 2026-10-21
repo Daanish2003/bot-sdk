@@ -163,18 +163,26 @@ export type PromptStartParts = {
   memory: boolean;
 };
 
+/** The Bot's latest Prompt start's id and build time, or `undefined` before its first Turn builds one. */
+export async function latestPromptStart(
+  db: Database | Transaction,
+  botId: string,
+): Promise<{ id: string; builtAt: Date } | undefined> {
+  const [latest] = await db
+    .select({ id: botPromptStart.id, builtAt: botPromptStart.builtAt })
+    .from(botPromptStart)
+    .where(eq(botPromptStart.botId, botId))
+    .orderBy(desc(botPromptStart.builtAt), desc(botPromptStart.id))
+    .limit(1);
+  return latest;
+}
+
 /** The id of the Bot's latest Prompt start, or `undefined` before its first Turn builds one. */
 export async function latestPromptStartId(
   db: Database | Transaction,
   botId: string,
 ): Promise<string | undefined> {
-  const [latest] = await db
-    .select({ id: botPromptStart.id })
-    .from(botPromptStart)
-    .where(eq(botPromptStart.botId, botId))
-    .orderBy(desc(botPromptStart.builtAt), desc(botPromptStart.id))
-    .limit(1);
-  return latest?.id;
+  return (await latestPromptStart(db, botId))?.id;
 }
 
 /**

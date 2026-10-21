@@ -1,5 +1,5 @@
 import { type AnyServerTool, type ModelMessage, toolDefinition } from "@tanstack/ai";
-import { and, asc, desc, eq, gt, gte, isNotNull, lt, lte, ne, or } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, isNotNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { appendMessage } from "../../../core/server/chat/message-tree";
@@ -44,7 +44,7 @@ import {
   type PromptStartParts,
   promptStartFor,
 } from "./prompt-start";
-import { historyFrom, queueAwaySummary, summaryOf, writeSummary } from "./summary";
+import { historyFrom, historyTurns, queueAwaySummary, summaryOf, writeSummary } from "./summary";
 import { botMessages, findBot, textParts, toBotMessage, turnTimeLimitMs } from "./store";
 import {
   createRoutineToolName,
@@ -783,19 +783,28 @@ function todoNotice(todo: TodoItem[], stored: string | undefined): string {
   );
 }
 
-/** The Bot's Turns before `turn`, in Turn order: what its history is made of. */
-function earlierTurns(db: Database | Transaction, turn: TurnFacts) {
-  return db
-    .select({
-      id: botTurn.id,
-      startedAt: botTurn.startedAt,
-      input: botTurn.input,
-      transcript: botTurn.transcript,
-      promptStartId: botTurn.promptStartId,
-    })
+/**
+ * When the Bot's last Turn before `turn` that took its input started: the last one that stored its
+ * input, or one from before Turns stored it (a transcript and no input), whose Messages are not
+ * rendered again. `undefined` for the Bot's first Turn.
+ */
+async function lastInputAt(db: Database | Transaction, turn: TurnFacts): Promise<Date | undefined> {
+  const [row] = await db
+    .select({ startedAt: botTurn.startedAt })
     .from(botTurn)
-    .where(and(eq(botTurn.botId, turn.botId), lt(botTurn.startedAt, turn.startedAt)))
-    .orderBy(asc(botTurn.startedAt), asc(botTurn.id));
+    .where(
+      and(
+        eq(botTurn.botId, turn.botId),
+        lt(botTurn.startedAt, turn.startedAt),
+        // A Turn stores its input before its first model call, so one with a transcript and no
+        // input is from before inputs were stored. One that never ran (stopped while queued, or
+        // failed before its first call) has neither, and what it took is still new.
+        or(isNotNull(botTurn.input), sql`jsonb_array_length(${botTurn.transcript}) > 0`),
+      ),
+    )
+    .orderBy(desc(botTurn.startedAt), desc(botTurn.id))
+    .limit(1);
+  return row?.startedAt;
 }
 
 /**
@@ -863,9 +872,11 @@ async function newestInput(
   const newest = inputs.at(-1);
   if (newest) {
     const zone = newestUser?.parts.timeZone;
+    // The Change notes share the time's block, which holds no user text: only there are they read
+    // back as told (`notesIn`).
+    const time = timeNotice(turn.startedAt, zone);
     const notices = [
-      timeNotice(turn.startedAt, zone),
-      ...(changeNotes ? [changeNotes] : []),
+      changeNotes ? `${time}\n${changeNotes}` : time,
       ...(todo?.length ? [todoNotice(todo, zone)] : []),
     ];
     newest.content = `${notices.join("\n\n")}\n\n${newest.content}`;
@@ -914,8 +925,7 @@ async function playTurn(
   // History is each earlier Turn's stored input, then its transcript, from the Prompt start's
   // Summary on (`turnSetup`): nothing is rendered again, so its bytes never change. What an earlier
   // Turn sent is in its input; only what came after the last such Turn started is new.
-  const earlier = await earlierTurns(db, turn);
-  const since = earlier.filter((row) => row.input !== null).at(-1)?.startedAt;
+  const since = await lastInputAt(db, turn);
   // The newest message holds the Change notes, which are read in the loop's setup: it is rendered
   // there, once the Turn's Prompt start is chosen. Stored before the first model call, so a
   // stopped or interrupted Turn keeps what it sent, and a replay reads the recorded input.
@@ -937,7 +947,7 @@ async function playTurn(
     timeLimitMs: turnTimeLimitMs,
     plainTextReminder: undeliveredTextReminder,
     attempt,
-    setup: (kit) => turnSetup(deps, turn, kit, db, earlier, renderNewest),
+    setup: (kit) => turnSetup(deps, turn, kit, db, renderNewest),
   });
 }
 
@@ -945,7 +955,7 @@ async function playTurn(
  * The Turn's tools and its Prompt start, given the loop's `kit`: the Bot's latest, or the one its
  * first Turn builds from the system blocks and tools as they are now. Memory and Routines are still
  * read every Turn (ADR 0022, amended), but the Prompt start keeps them as they were when it was
- * built. History is the `earlier` Turns from its Summary on. A Summary written mid-Turn builds the
+ * built. History is the earlier Turns from its Summary on, the only ones read. A Summary written mid-Turn builds the
  * next Prompt start from the tools and the system blocks as this Turn read them at its start.
  * `db` reads the stored Prompt start.
  */
@@ -954,7 +964,6 @@ async function turnSetup(
   turn: TurnFacts,
   kit: LoopKit,
   db: Database | Transaction,
-  earlier: Awaited<ReturnType<typeof earlierTurns>>,
   renderNewest: (changeNotes: string | undefined) => Promise<ModelMessage[]>,
 ): Promise<LoopSetup> {
   let endTurn = false;
@@ -988,6 +997,7 @@ async function turnSetup(
   }));
   const promptStart = await loopPromptStart(db, id, () => previousTurnCall(deps.db, turn));
   const summary = await summaryOf(db, id);
+  const earlier = await historyTurns(db, turn.botId, summary, turn.startedAt);
   // A mid-Turn Summary's Prompt start was built from what its Turn read at its start, so what the
   // Bot saw and did in that Turn counts as seen since it too.
   const seenSince: EarlierTurn[] = earlier.map((row) =>

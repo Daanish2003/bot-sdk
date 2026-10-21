@@ -106,11 +106,16 @@ function memoryTarget(botId: string, path: string): { tier: Tier; month?: string
   return match[1] ? { tier: match[1] as Tier } : { tier: "log", month: match[2] };
 }
 
-/** The lines of the Change notes in a stored message, none when it has no notes. */
-function notesIn(message: ModelMessage): string[] {
-  if (typeof message.content !== "string") return [];
-  const block = message.content.split("\n\n")[1];
-  return block?.startsWith(`${changeNotesHeader}\n`) ? block.split("\n").slice(1) : [];
+/**
+ * The lines of the Change notes in a Turn's stored input, none when it has no notes. Only its last
+ * message is rendered with notices, and the notes follow the time line in its first block, which
+ * holds no user text: a notes header a user wrote anywhere is never read as one.
+ */
+function notesIn(input: ModelMessage[]): string[] {
+  const content = input.at(-1)?.content;
+  if (typeof content !== "string") return [];
+  const [time, header, ...lines] = content.split("\n\n")[0]!.split("\n");
+  return time?.startsWith("[Current time: ") && header === changeNotesHeader ? lines : [];
 }
 
 const removeOne = (lines: string[], text: string) => {
@@ -252,7 +257,7 @@ export async function changeNotesFor(
     listed: listedToolNames(block(firstMessageSection) ?? ""),
   };
   for (const row of earlier.filter((row) => row.promptStartId === startId)) {
-    for (const message of row.input ?? []) applyNotes(seen, notesIn(message));
+    applyNotes(seen, notesIn(row.input ?? []));
     applyOwnCalls(start.botId, seen, row.transcript ?? []);
   }
 

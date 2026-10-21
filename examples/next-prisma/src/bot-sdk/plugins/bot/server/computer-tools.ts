@@ -167,6 +167,12 @@ export async function capText(
  * A tool's result as the Model reads it: JSON over `spillThreshold` characters becomes its cut
  * text (see `capText`), anything else stays as it is.
  */
+/** Whether `capResult` cuts `result`: its JSON is over `spillThreshold` characters. */
+export function isLong(result: unknown): boolean {
+  const text = JSON.stringify(result);
+  return text !== undefined && text.length > spillThreshold;
+}
+
 export async function capResult<T>(
   result: T,
   path: string,

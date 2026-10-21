@@ -149,7 +149,10 @@ export type ModelsApi = {
   readonly defaultImageModel: string | null;
   // `usageTotals`, `usage` and `quota` are server-only reads for the Host's Admin views (spec #277).
   // No HTTP route: the Host decides who may call them. They never return Conversation content.
-  /** Every user's calls on Host credentials created in `[since, until)`. */
+  /**
+   * Every user's recorded calls created in `[since, until)`: on Host credentials, and at cost 0 on
+   * their own key or linked plan (#667).
+   */
   usageTotals: (range: { since: Date; until: Date }) => Promise<UsageTotal[]>;
   /** One user's calls per UTC day and Model in `[since, until)` (spec #277). */
   usage: (args: { userId: string; since: Date; until: Date }) => Promise<UsageByDay[]>;
