@@ -451,7 +451,7 @@ describe("the drafting pass", () => {
     );
   });
 
-  it("keeps the woken Turn's own edit of the drafted Skill on its chip", async () => {
+  it("shows the drafted Skill once on its chip when the woken Turn edits it too", async () => {
     const { done, client, botId } = await demonstrating({
       drafts: [round(text(skillText("copy-payouts")))],
       turns: [
@@ -471,10 +471,7 @@ describe("the drafting pass", () => {
     await done();
 
     const { turns } = await client.bot.get({ botId });
-    expect(turns.at(-1)?.skillChanges).toEqual([
-      { kind: "saved", name: "copy-payouts" },
-      { kind: "updated", name: "copy-payouts" },
-    ]);
+    expect(turns.at(-1)?.skillChanges).toEqual([{ kind: "saved", name: "copy-payouts" }]);
   });
 });
 
