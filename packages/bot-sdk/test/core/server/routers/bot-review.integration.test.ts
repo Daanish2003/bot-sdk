@@ -789,6 +789,8 @@ describe("Auto-review of a Helper's calls", () => {
     expect(sent).toContain("buy me a mug");
     expect(sent).toContain("Order the blue mug from the shop.");
     expect(sent).toContain("the Bot's words, not the user's");
+    // What started the Turn that started the Helper.
+    expect(sent).toContain("A Message from the user.");
     expect(sent).toContain("Tool: browser_click");
     expect((await reviewUsage(user.id)).map((row) => row.sourceId)).toEqual(
       rows.map(() => helper.id),

@@ -236,6 +236,8 @@ type HelperFacts = {
   conversationId: string;
   type: "general" | "computer_use";
   task: string;
+  /** The Turn whose start_helper call started it. */
+  startedByTurnId: string;
   status: string;
   startedAt: Date;
   jobId: string | null;
@@ -257,6 +259,7 @@ async function helperFacts(
       botId: botHelper.botId,
       type: botHelper.type,
       task: botHelper.task,
+      startedByTurnId: botHelper.startedByTurnId,
       status: botHelper.status,
       startedAt: botHelper.startedAt,
       jobId: botHelper.jobId,
@@ -408,7 +411,12 @@ async function playHelper(
     tellsBot: false,
     inbox: (tx) => deliverMessages(deps, tx, helper.id),
     // Its risky calls get Auto-review, with its task as the Bot's words (spec #691).
-    review: { helperId: helper.id, conversationId: helper.conversationId, task: helper.task },
+    review: {
+      helperId: helper.id,
+      conversationId: helper.conversationId,
+      task: helper.task,
+      startedByTurnId: helper.startedByTurnId,
+    },
     setup: async (kit) => {
       if (!session) {
         return {

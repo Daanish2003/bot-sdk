@@ -95,8 +95,8 @@ export type LoopKit = {
    * over the long-output limit is recorded as its cut text (`capResult`), unless `capped` is false:
    * for a tool that keeps its own result short, such as `read`'s pages. A call with no
    * `toolCallId` (setup's reads, such as the memory snapshot) is never cut: the Model never sees
-   * its result as is. With `reviewed`, the call's input, the call gets Auto-review first (spec
-   * #691): a block is its result, and nothing runs.
+   * its result as is. `reviewed` is the tool's input, given only for a tool Auto-review checks
+   * (spec #691): the reviewer reads it first, and a block is the call's result, with nothing run.
    */
   computerCall: <T extends object>(
     name: string,
