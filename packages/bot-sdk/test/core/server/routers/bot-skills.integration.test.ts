@@ -666,6 +666,22 @@ describe("the skills router", () => {
     expect(skillPaths(computerFake.files)).toEqual([]);
   });
 
+  it("saves an existing folder whose name breaks the rule as it is, with its problem", async () => {
+    const { computerFake, client, botId } = await botWithRouter();
+    const path = skillPath(botId, "Weekly_Report");
+    computerFake.files.set(path, encode(skillFile("Weekly_Report", "Use this when it is Monday.")));
+    const content = skillFile("Weekly_Report", "Use this when it is Friday.");
+
+    expect(await client.skills.save({ botId, name: "Weekly_Report", content })).toEqual({
+      problem: expect.stringContaining("name must be lowercase"),
+    });
+    expect(textOf(computerFake.files.get(path))).toBe(content);
+    // Never as a new Skill.
+    await expect(
+      client.skills.save({ botId, name: "Other_Name", content, create: true }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
   it("refuses a new Skill whose name is taken, and leaves that Skill alone", async () => {
     const { computerFake, client, botId } = await botWithRouter();
     const content = skillFile("invoices", "Use this when an invoice arrives.");
@@ -707,6 +723,19 @@ describe("the skills router", () => {
     ).rejects.toMatchObject(refused);
     await expect(other.skills.remove({ botId, name: "invoices" })).rejects.toMatchObject(refused);
     expect(textOf(computerFake.files.get(path))).toBe(content);
+  });
+
+  it("refuses a Bot id that is not a uuid as a bad request on every procedure", async () => {
+    const { client } = await botWithRouter();
+    const botId = "not-a-bot";
+    const refused = { code: "BAD_REQUEST" };
+
+    await expect(client.skills.list({ botId })).rejects.toMatchObject(refused);
+    await expect(client.skills.read({ botId, name: "invoices" })).rejects.toMatchObject(refused);
+    await expect(
+      client.skills.save({ botId, name: "invoices", content: "x" }),
+    ).rejects.toMatchObject(refused);
+    await expect(client.skills.remove({ botId, name: "invoices" })).rejects.toMatchObject(refused);
   });
 
   it("says no Computer, and refuses the rest, without the computer plugin", async () => {

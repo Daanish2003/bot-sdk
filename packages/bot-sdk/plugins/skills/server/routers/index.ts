@@ -3,7 +3,7 @@ import { z } from "zod";
 import { protectedProcedure } from "../../../../core/server/procedures";
 import { deleteSkill, listSkills, readSkill, saveSkill, skillsAvailable } from "../manage";
 
-const skillInput = z.object({ botId: z.string(), name: z.string() });
+const skillInput = z.object({ botId: z.uuid(), name: z.string() });
 
 /** The Skills procedures: a user's view of their Bots' Skills (spec #713). Only a Bot's own user may call them. */
 export const skillsRouter = {
@@ -14,7 +14,7 @@ export const skillsRouter = {
 
   /** Bot `botId`'s Skills, waking the Computer. */
   list: protectedProcedure
-    .input(z.object({ botId: z.string() }))
+    .input(z.object({ botId: z.uuid() }))
     .handler(({ context, input }) =>
       listSkills(context.sdk, { userId: context.user.id, ...input }),
     ),
