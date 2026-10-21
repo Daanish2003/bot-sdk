@@ -34,7 +34,8 @@ export type UsageEvent = {
     | "turn"
     | "helper"
     | "summary"
-    | "warm";
+    | "warm"
+    | "review";
   /** The `"provider:model"` id, `"tavily"` for a web search, or the transcription or image model's id. */
   model: string;
   /** Every input token, cache reads and writes included. */

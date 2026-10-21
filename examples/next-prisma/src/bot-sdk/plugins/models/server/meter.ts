@@ -42,10 +42,10 @@ export type TxMeter<Usage> = Meter<Usage> & {
 
 /**
  * One call to a Model: a Run, a title, one of a Memory job's calls, a Bot's Turn, a Helper's, the
- * writing of a Summary, or a call that warms the cache.
+ * writing of a Summary, a call that warms the cache, or an Auto-review.
  */
 export type ModelUsage = {
-  kind: "run" | "title" | "memory" | "turn" | "helper" | "summary" | "warm";
+  kind: "run" | "title" | "memory" | "turn" | "helper" | "summary" | "warm" | "review";
   usage: MessageUsage;
   /** The Provider's reported cost in USD, when it reported one for the whole call. */
   reportedCost?: number;
