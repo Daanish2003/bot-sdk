@@ -74,3 +74,6 @@ packages/bot-sdk/eval/safety/results/
 
 # Computer evals (packages/bot-sdk/eval/computer): the results they write
 packages/bot-sdk/eval/computer/results/
+
+# Skills evals (packages/bot-sdk/eval/skills): the results they write
+packages/bot-sdk/eval/skills/results/

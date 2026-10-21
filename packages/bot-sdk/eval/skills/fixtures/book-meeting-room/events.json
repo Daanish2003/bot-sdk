@@ -1,0 +1,56 @@
+{
+  "goal": "Book a meeting room for my team",
+  "inputs": ["the room", "the date", "who is coming"],
+  "events": [
+    {
+      "sequence": 1,
+      "offsetMs": 143,
+      "kind": "navigation",
+      "url": "https://rooms.example.com/rooms",
+      "label": "Book a room",
+      "selector": null,
+      "value": null,
+      "screenshot": "01.png"
+    },
+    {
+      "sequence": 2,
+      "offsetMs": 391,
+      "kind": "change",
+      "url": "https://rooms.example.com/rooms",
+      "label": "Room",
+      "selector": "select[aria-label=\"Room\"]",
+      "value": "Borealis",
+      "screenshot": "02.png"
+    },
+    {
+      "sequence": 3,
+      "offsetMs": 424,
+      "kind": "input",
+      "url": "https://rooms.example.com/rooms",
+      "label": "Date",
+      "selector": "#date",
+      "value": "2026-11-03",
+      "screenshot": "03.png"
+    },
+    {
+      "sequence": 4,
+      "offsetMs": 458,
+      "kind": "input",
+      "url": "https://rooms.example.com/rooms",
+      "label": "Attendees",
+      "selector": "#people",
+      "value": "Sam, Priya, Lee",
+      "screenshot": "04.png"
+    },
+    {
+      "sequence": 5,
+      "offsetMs": 492,
+      "kind": "click",
+      "url": "https://rooms.example.com/rooms",
+      "label": "Book room",
+      "selector": "#book",
+      "value": null,
+      "screenshot": "05.png"
+    }
+  ]
+}

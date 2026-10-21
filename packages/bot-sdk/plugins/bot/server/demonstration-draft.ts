@@ -52,7 +52,7 @@ const draftPrompt = [
 ].join("\n\n");
 
 /** A Demonstration as the drafting pass reads it. */
-type Drafted = {
+export type Drafted = {
   id: string;
   botId: string;
   userId: string;
@@ -156,7 +156,7 @@ async function draftInput(
  * The drafting call, checked against the Quota first and recorded as `skill_draft`: the model's
  * reply, or why there is none.
  */
-async function draftSkill(
+export async function draftSkill(
   deps: BotSdkContext,
   demonstration: Drafted,
 ): Promise<{ reply: string } | { error: string }> {
@@ -201,7 +201,7 @@ const nameLine = /^name:.*$/m;
  * The reply's SKILL.md, code fences stripped and its `name` made a valid one, with that name; or
  * why it isn't a usable Skill, checked as the Skills block checks one.
  */
-function draftedSkill(
+export function draftedSkill(
   reply: string,
   goal: string,
 ): { skill: string; name: string } | { error: string } {
