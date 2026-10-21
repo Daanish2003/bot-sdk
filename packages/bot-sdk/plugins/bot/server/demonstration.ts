@@ -1,9 +1,15 @@
 import { toolDefinition } from "@tanstack/ai";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, max, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { appendMessage } from "../../../core/server/chat/message-tree";
-import { bot, botDemonstration, botHelper, message } from "../../../core/server/db/schema";
+import {
+  bot,
+  botDemonstration,
+  botDemonstrationEvent,
+  botHelper,
+  message,
+} from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
@@ -44,6 +50,22 @@ export const demonstrationCheckMs = 60_000;
 
 /** The runner job that checks a Demonstration's recording time. */
 export const demonstrationCheckJobName = "bot.demonstration_check";
+
+/** The runner job that captures what the user does on a Demonstration's Screen (#719). */
+export const demonstrationCaptureJobName = "bot.demonstration_capture";
+
+/**
+ * Queues the capture of Demonstration `demonstrationId`, unless it is queued or running already.
+ */
+export async function startCapture(deps: BotSdkContext, demonstrationId: string) {
+  await deps
+    .plugin("runner")
+    .enqueue(
+      demonstrationCaptureJobName,
+      { demonstrationId },
+      { idempotencyKey: `demonstration_capture:${demonstrationId}` },
+    );
+}
 
 export const computerUseHelperHoldsScreenError =
   "Your Computer-use Helper is using your Screen; wait until it finishes, or stop it first.";
@@ -122,6 +144,7 @@ export function watchUserTool(deps: BotSdkContext, turn: Watcher, kit: LoopKit) 
       await closeScreen(deps, { id: demonstrationId, userId: turn.userId, screen });
       return { error: demonstrationEndedWhileOpeningError };
     }
+    await startCapture(deps, demonstrationId);
     return { demonstrationId, state: "recording" as const };
   });
 }
@@ -252,6 +275,7 @@ async function moveIn(
       state: botDemonstration.state,
       userId: botDemonstration.userId,
       screen: botDemonstration.screen,
+      startedAt: botDemonstration.startedAt,
     })
     .from(botDemonstration)
     .where(eq(botDemonstration.id, demonstrationId))
@@ -266,6 +290,16 @@ async function moveIn(
     .update(botDemonstration)
     .set({ state: next, ...(ended && { endedAt: now }) })
     .where(eq(botDemonstration.id, demonstrationId));
+  // The mark the step list shows as the gap while paused (#719).
+  if (next === "paused") {
+    await tx.insert(botDemonstrationEvent).values({
+      id: uuidv7(),
+      demonstrationId,
+      sequence: await nextSequence(tx, demonstrationId),
+      offsetMs: now.getTime() - row.startedAt.getTime(),
+      kind: "pause",
+    });
+  }
   await rewriteCard(tx, owned.conversationId, demonstrationId, (card) => ({
     ...card,
     state: next,
@@ -274,8 +308,17 @@ async function moveIn(
   return { ...facts, state: next, ended };
 }
 
+/** The sequence of Demonstration `demonstrationId`'s next event, in `tx`. */
+export async function nextSequence(tx: Transaction, demonstrationId: string): Promise<number> {
+  const [last] = await tx
+    .select({ sequence: max(botDemonstrationEvent.sequence) })
+    .from(botDemonstrationEvent)
+    .where(eq(botDemonstrationEvent.demonstrationId, demonstrationId));
+  return (last?.sequence ?? 0) + 1;
+}
+
 /** Rewrites Demonstration `demonstrationId`'s Show me card in its Conversation, in `tx`. */
-async function rewriteCard(
+export async function rewriteCard(
   tx: Transaction,
   conversationId: string,
   demonstrationId: string,
@@ -307,7 +350,7 @@ async function rewriteCard(
  * ended and tells the Conversation's followers. Returns its state now, or undefined when there is
  * none (of `userId`, when given).
  */
-async function move(
+export async function move(
   deps: BotSdkContext,
   demonstrationId: string,
   action: DemonstrationAction,
@@ -390,6 +433,8 @@ export const demonstrationCheckJob = defineJob({
       await move(deps, demonstrationId, "done");
       return;
     }
+    // A capture whose Screen's Chrome couldn't be reached, or dropped, starts again (#719).
+    await startCapture(deps, demonstrationId);
     await deps
       .plugin("runner")
       .enqueue(

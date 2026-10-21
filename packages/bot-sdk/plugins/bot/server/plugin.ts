@@ -8,6 +8,7 @@ import { cancelUserFires } from "./routine";
 import { startRoutineReconcile } from "./routine-fire";
 import "./check-in-fire";
 import "./summary-away";
+import "./demonstration-capture";
 import { handleRoutineWebhook } from "./routine-webhook";
 import { botPluginRouter } from "./routers/index";
 import { rotateSecretKeys } from "./secret";

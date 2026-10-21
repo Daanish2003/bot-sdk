@@ -4,10 +4,11 @@ import { type ReactNode, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { useI18n } from "../../../core/client/react/provider";
-import { useDemonstrationView } from "../client/react/demonstrations";
+import { useDemonstrationSteps, useDemonstrationView } from "../client/react/demonstrations";
 import {
   type DemonstrationAction,
   type DemonstrationCard,
+  type DemonstrationStep,
   isLiveDemonstration,
 } from "../shared/demonstration";
 import { LiveView } from "./computer-card";
@@ -57,6 +58,7 @@ function LiveShowMeCard({ card, botName, onAct, acting }: Props) {
   const [full, setFull] = useState(false);
   const paused = card.state === "paused";
   const elapsed = useElapsed(card.startedAt);
+  const steps = useDemonstrationSteps(card.demonstrationId, card.steps, card.state);
   const controls = (
     <div className="flex flex-wrap gap-2">
       <Button
@@ -110,6 +112,7 @@ function LiveShowMeCard({ card, botName, onAct, acting }: Props) {
           onClick={() => setFull(true)}
         />
       </div>
+      {steps.length > 0 && <StepList steps={steps.slice(-3)} />}
       <p className="text-xs text-muted-foreground">
         {paused ? t("bots.showMePausedNote") : t("bots.showMeWatching", { name: botName })}
       </p>
@@ -124,6 +127,7 @@ function LiveShowMeCard({ card, botName, onAct, acting }: Props) {
           card={card}
           botName={botName}
           elapsed={elapsed}
+          steps={steps}
           controls={controls}
           onShrink={() => setFull(false)}
         />
@@ -173,12 +177,14 @@ function FullScreen({
   card,
   botName,
   elapsed,
+  steps,
   controls,
   onShrink,
 }: {
   card: DemonstrationCard;
   botName: string;
   elapsed: string;
+  steps: DemonstrationStep[];
   controls: ReactNode;
   onShrink: () => void;
 }) {
@@ -205,11 +211,86 @@ function FullScreen({
           {t("bots.showMeShrink")}
         </Button>
       </div>
-      <div className="mx-auto min-h-0 w-full max-w-6xl flex-1 overflow-hidden rounded-md bg-muted">
-        <LiveView url={live.url} failed={live.failed} interactive />
+      <div className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 gap-3">
+        <div className="min-h-0 min-w-0 flex-1 overflow-hidden rounded-md bg-muted">
+          <LiveView url={live.url} failed={live.failed} interactive />
+        </div>
+        <section className="flex w-72 shrink-0 flex-col gap-2 overflow-auto rounded-md bg-card p-3">
+          <h2 className="text-sm font-medium">{t("bots.showMeSteps", { name: botName })}</h2>
+          {steps.length === 0 ? (
+            <p className="text-xs text-muted-foreground">{t("bots.showMeNoSteps")}</p>
+          ) : (
+            <StepList steps={steps} label={t("bots.showMeSteps", { name: botName })} />
+          )}
+        </section>
       </div>
       <div className="flex justify-end">{controls}</div>
     </div>,
     document.body,
+  );
+}
+
+const kindText = {
+  click: "bots.showMeStepClick",
+  input: "bots.showMeStepInput",
+  change: "bots.showMeStepChange",
+  key: "bots.showMeStepKey",
+  navigation: "bots.showMeStepNavigation",
+} as const;
+
+/** `m:ss` from the start of the Demonstration. */
+const offsetText = (ms: number) => {
+  const seconds = Math.floor(ms / 1000);
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+};
+
+/** A page's host and path, which a navigation step names. */
+const pageText = (url: string | null) => {
+  if (!url) return "";
+  try {
+    const { host, pathname } = new URL(url);
+    return ` ${host}${pathname === "/" ? "" : pathname}`;
+  } catch {
+    return ` ${url}`;
+  }
+};
+
+/**
+ * Captured steps (#719): each one's time, what was done and to what, with the value typed, chosen
+ * or pressed (a password's masked, as it was captured), and a pause as the gap.
+ */
+function StepList({ steps, label }: { steps: DemonstrationStep[]; label?: string }) {
+  const { t } = useI18n();
+  return (
+    <ol aria-label={label} className="flex flex-col gap-0.5 text-xs">
+      {steps.map((step) =>
+        step.kind === "pause" ? (
+          <li
+            key={step.sequence}
+            data-step
+            data-gap
+            className="flex gap-2 border-y border-dashed py-0.5 text-muted-foreground"
+          >
+            <span className="w-9 shrink-0 font-mono">{offsetText(step.offsetMs)}</span>
+            <span className="italic">{t("bots.showMeGap")}</span>
+          </li>
+        ) : (
+          <li key={step.sequence} data-step className="flex gap-2">
+            <span className="w-9 shrink-0 font-mono text-muted-foreground">
+              {offsetText(step.offsetMs)}
+            </span>
+            <span className="w-12 shrink-0 text-muted-foreground">{t(kindText[step.kind])}</span>
+            <span className="min-w-0 break-words">
+              {step.label ? `“${step.label}”` : ""}
+              {step.kind === "navigation"
+                ? pageText(step.url)
+                : step.value !== null && step.kind !== "click"
+                  ? ` = ${step.value}`
+                  : ""}
+            </span>
+          </li>
+        ),
+      )}
+    </ol>
   );
 }
