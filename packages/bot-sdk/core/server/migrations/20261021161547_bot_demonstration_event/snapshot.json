@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "8dc0ae48-e407-4fcc-b9ae-02680a9158c2",
-  "prevIds": ["892f72fe-9752-4022-b42f-b3feb4593fc4"],
+  "id": "c7ba46ff-8516-4ebc-83fa-6c865464b034",
+  "prevIds": ["6e85ffa4-73c3-4ba8-91f4-06aa92e26c28"],
   "ddl": [
     {
       "values": ["off", "low", "medium", "high"],
@@ -3296,6 +3296,19 @@
       "generated": null,
       "identity": null,
       "name": "memory_changes",
+      "entityType": "columns",
+      "schema": "chat",
+      "table": "bot_turn"
+    },
+    {
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "skill_changes",
       "entityType": "columns",
       "schema": "chat",
       "table": "bot_turn"

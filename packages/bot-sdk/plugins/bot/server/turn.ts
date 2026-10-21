@@ -56,6 +56,8 @@ import {
   toBotMessage,
   turnTimeLimitMs,
 } from "./store";
+import type { BotSkillChange } from "../../skills/shared/changes";
+import { skillChangesOf } from "../../skills/server/skills";
 import { secretNameSchema } from "../shared/secret";
 import {
   createRoutineToolName,
@@ -505,6 +507,7 @@ async function cancelTurn(deps: BotSdkContext, tx: Transaction, turnId: string):
     status: "stopped",
     error: null,
     transcript: played.transcript,
+    skillChanges: turn ? skillChangesOf(turn.botId, played.transcript) : null,
     usage: played.usage,
     endedAt,
   });
@@ -649,6 +652,7 @@ async function runTurnJob(
       await endTurn(tx, turnId, {
         ...endingOf(played),
         transcript: played.transcript,
+        skillChanges: skillChangesOf(turn.botId, played.transcript),
         usage: played.usage,
         endedAt,
       });
@@ -728,7 +732,13 @@ async function endRunningTurn(
     const endedAt = deps.clock();
     const rows = await tx
       .update(botTurn)
-      .set({ ...ending, transcript: played.transcript, usage: played.usage, endedAt })
+      .set({
+        ...ending,
+        transcript: played.transcript,
+        skillChanges: skillChangesOf(turn.botId, played.transcript),
+        usage: played.usage,
+        endedAt,
+      })
       .where(and(eq(botTurn.id, turn.id), eq(botTurn.status, "running")))
       .returning({ id: botTurn.id });
     if (rows.length === 0) return false;
@@ -784,6 +794,7 @@ async function endTurn(
     status: TurnStatus;
     error: string | null;
     transcript: ModelMessage[];
+    skillChanges: BotSkillChange[] | null;
     usage: MessageUsage | null;
     endedAt: Date;
   },
