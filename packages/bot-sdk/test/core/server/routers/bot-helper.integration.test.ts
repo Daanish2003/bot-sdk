@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   botHelper,
   botHelperMessage,
+  botSecret,
   botTrigger,
   botTurn,
   computer as computerTable,
@@ -15,6 +16,7 @@ import {
 } from "../../../../core/server/db/schema";
 import type { Database } from "../../../../core/server/db/index";
 import { relations } from "../../../../core/server/db/relations";
+import { encryptCredentials } from "../../../../core/server/credentials/encryption";
 import { deleteUserData } from "../../../../core/server/user-data";
 import type { HostProvider } from "../../../../plugins/assistant/server/deps";
 import {
@@ -26,6 +28,7 @@ import {
   helperTimeLimitMs,
   tooManyGeneralHelpersError,
 } from "../../../../plugins/bot/server/helper";
+import { secretEncryption } from "../../../../plugins/bot/server/secret-values";
 import { listHelpers } from "../../../../plugins/bot/server/helper-card";
 import { bot } from "../../../../plugins/bot/server/plugin";
 import { computer } from "../../../../plugins/computer/server/plugin";
@@ -293,6 +296,39 @@ describe("a Helper's report", () => {
     expect(trigger?.turnId).toBe(turns[1]?.id);
     expect(JSON.stringify(inputOf(turnFake.calls[1]).at(-1))).toContain("There are 3 files.");
     expect((await client.bot.get({ botId })).messages.at(-1)?.text).toBe("3 files.");
+  });
+
+  it("gives a General Helper's command the Secrets it names, and masks them in its result", async () => {
+    const token = "ghp_s3cr3t-Value+/=42";
+    const { client, botId, helperFake, deps, user, computerFake } = await botWith(
+      [handsOff("Check my login."), round(sends({ text: "Checked.", endTurn: true }))],
+      [
+        round(
+          toolCall({ name: "shell", input: { command: "gh auth status", secrets: ["GH_TOKEN"] } }),
+        ),
+        round(text("Logged in.")),
+      ],
+      { onCommand: ({ envs }) => ({ exitCode: 0, stdout: `token ${envs?.GH_TOKEN}`, stderr: "" }) },
+    );
+    await getTestDb()
+      .insert(botSecret)
+      .values({
+        userId: user.id,
+        name: "GH_TOKEN",
+        encrypted: encryptCredentials(
+          { value: token },
+          secretEncryption(deps, user.id, "GH_TOKEN"),
+        ),
+        createdAt: new Date(),
+      });
+
+    await send(client, botId, "check my login");
+    await settled(botId);
+
+    const [run] = computerFake.callsOf("run").filter((call) => call.command === "gh auth status");
+    expect(run?.envs).toEqual({ GH_TOKEN: token });
+    const result = inputOf(helperFake.calls[1]).findLast((entry) => entry.role === "tool");
+    expect(JSON.parse(String(result?.content)).stdout).toBe("token ***");
   });
 
   it("caps the report at 2,000 characters", async () => {

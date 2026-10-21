@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ChevronDownIcon, Loader2Icon, MonitorIcon, TerminalIcon } from "lucide-react";
-import { useState } from "react";
+import { Children, type ReactNode, useState } from "react";
 
 import { useI18n } from "../../../core/client/react/provider";
 import { type BotHelper, type HelperStatus, isLiveHelper } from "../shared/helper";
@@ -46,17 +46,20 @@ export function StatusChip({ status }: { status: HelperStatus }) {
  * A Helper in its Bot's Conversation, after the Bot Message of the Turn that started it (#590):
  * its type icon, the task's gist, its type and a status chip. While live it shows "step N · <latest
  * tool call>"; opening it shows the task, the report once it ended, and Stop while it's live
- * (#591). It updates in place as the Helper works and ends.
+ * (#591). It updates in place as the Helper works and ends. `children`, its Approval requests
+ * (spec #691), nest under its line.
  */
 export function HelperCard({
   helper,
   onStop,
   stopping,
+  children,
 }: {
   helper: BotHelper;
   onStop: (helperId: string) => void;
   /** Whether a stop of this Helper is in flight. */
   stopping: boolean;
+  children?: ReactNode;
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
@@ -89,6 +92,9 @@ export function HelperCard({
             ? t("bots.helperStepLatest", { step: helper.steps, latest: helper.latest })
             : t("bots.helperStep", { step: helper.steps })}
         </p>
+      )}
+      {Children.count(children) > 0 && (
+        <div className="flex flex-col gap-2 border-t px-3 py-2">{children}</div>
       )}
       {open && (
         <div className="flex flex-col gap-2 border-t px-3 py-2 text-xs">

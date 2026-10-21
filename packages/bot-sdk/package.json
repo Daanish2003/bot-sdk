@@ -28,6 +28,7 @@
     "eval:turn": "node --import ./eval/memory/register-ts.mjs eval/turn/run.ts",
     "eval:context": "node --import ./eval/memory/register-ts.mjs eval/turn/context.ts",
     "eval:ladder": "node --import ./eval/memory/register-ts.mjs eval/turn/ladder.ts",
+    "eval:safety": "node --import ./eval/memory/register-ts.mjs eval/safety/run.ts",
     "eval:computer": "node --import ./eval/memory/register-ts.mjs eval/computer/run.ts",
     "eval:computer:helper": "node --import ./eval/memory/register-ts.mjs eval/computer/helper.ts",
     "eval:computer:lifecycle": "node --import ./eval/memory/register-ts.mjs eval/computer/lifecycle.ts",

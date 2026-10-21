@@ -1,5 +1,5 @@
 import { type AnyServerTool, type ModelMessage, toolDefinition } from "@tanstack/ai";
-import { and, asc, desc, eq, gt, gte, isNotNull, lt, lte, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, isNotNull, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { appendMessage } from "../../../core/server/chat/message-tree";
@@ -44,8 +44,17 @@ import {
   type PromptStartParts,
   promptStartFor,
 } from "./prompt-start";
+import { closeWaitingReviews } from "./review";
 import { historyFrom, historyTurns, queueAwaySummary, summaryOf, writeSummary } from "./summary";
-import { botMessages, findBot, textParts, toBotMessage, turnTimeLimitMs } from "./store";
+import {
+  botMessages,
+  findBot,
+  secretRequestParts,
+  textParts,
+  toBotMessage,
+  turnTimeLimitMs,
+} from "./store";
+import { secretNameSchema } from "../shared/secret";
 import {
   createRoutineToolName,
   deleteRoutine,
@@ -168,6 +177,20 @@ const sendToUserDefinition = toolDefinition({
     endTurn: z.boolean().meta({
       description: "true on your last message of this turn, false when you will send more.",
     }),
+    secret: z
+      .object({
+        name: secretNameSchema.meta({
+          description: "The Secret's name, an environment-variable name like GITHUB_TOKEN.",
+        }),
+        why: z.string().meta({ description: "Why you need it, in a sentence the user reads." }),
+      })
+      .optional()
+      .meta({
+        description:
+          "Ask the user for a password or token. The message shows a secure field; the value goes " +
+          "straight to the server and you never see it. You are woken with 'Saved secret NAME' " +
+          "once they save it. Use it by naming it in the secrets of a shell call.",
+      }),
   }),
 });
 
@@ -460,11 +483,16 @@ async function runningTurnOf(tx: Transaction, botId: string): Promise<string | u
  * Cancels Turn `turnId`'s job, unless it is already cancelled, under the Conversation's row lock
  * (#500). A queued job never runs again, so its Turn ends `stopped` here and the next Turn takes
  * what waits in the Conversation queue; a running one ends `stopped` as its attempt aborts
- * (`runTurnJob`), or in `onCancelled` when that attempt dies first. Returns whether the Turn ended
- * here.
+ * (`runTurnJob`), or in `onCancelled` when that attempt dies first. Either way, an Approval the
+ * Turn waits on is denied: a Stop, or the user's Message that interrupts it, counts as no
+ * (ADR 0024). Returns whether the Turn ended here.
  */
 async function cancelTurn(deps: BotSdkContext, tx: Transaction, turnId: string): Promise<boolean> {
-  if ((await deps.plugin("runner").cancelIn(tx, turnId)) !== "queued") return false;
+  const cancelled = await deps.plugin("runner").cancelIn(tx, turnId);
+  // Cancelled first: under the job's row lock, a `waiting` row's Checkpoint either committed
+  // before the denial reads it, or fails its fence and rolls back.
+  await closeWaitingReviews(deps, tx, { turnId }, "denied");
+  if (cancelled !== "queued") return false;
   // A queued job may have run already (handed back by a deploy, waiting out a retry, or re-queued
   // after a crash), so the Turn keeps what its Checkpoints hold. The job's row is locked, so its
   // history can't grow while it replays. It reads on `tx`, which holds those locks.
@@ -702,6 +730,8 @@ async function endRunningTurn(
       .where(and(eq(botTurn.id, turn.id), eq(botTurn.status, "running")))
       .returning({ id: botTurn.id });
     if (rows.length === 0) return false;
+    // A Turn cut off mid-wait (its time limit) leaves no request open.
+    await closeWaitingReviews(deps, tx, { turnId: turn.id }, "expired");
     await queueAwaySummary(deps, tx, { botId: turn.botId, lastInput: played.lastInput, endedAt });
     await turnEnded(deps, tx, turn.id);
     return true;
@@ -844,7 +874,8 @@ async function newestInput(
       .where(
         and(
           eq(botTrigger.conversationId, turn.conversationId),
-          ne(botTrigger.source, "user"),
+          // A user Trigger without a Message is a saved Secret: its text wakes the Bot (spec #691).
+          or(ne(botTrigger.source, "user"), isNull(botTrigger.messageId)),
           isNotNull(botTrigger.text),
           lte(botTurn.startedAt, turn.startedAt),
           lte(botTrigger.receivedAt, turn.startedAt),
@@ -947,6 +978,8 @@ async function playTurn(
     timeLimitMs: turnTimeLimitMs,
     plainTextReminder: undeliveredTextReminder,
     attempt,
+    // Each shell call of the Turn gets Auto-review before it runs (spec #691).
+    review: { turnId: turn.id, conversationId: turn.conversationId },
     setup: (kit) => turnSetup(deps, turn, kit, db, renderNewest),
   });
 }
@@ -1043,24 +1076,26 @@ function turnTools(
   }: { withComputer: boolean; withMemorySearch: boolean; onLastMessage: () => void },
 ): AnyServerTool[] {
   const { liveActivity } = kit;
-  const sendToUser = sendToUserDefinition.server(async ({ text, endTurn: last }, context) => {
-    // The Message commits with its Checkpoint, so it is sent once across a crash.
-    const result = await liveActivity(sendToUserToolName, context?.toolCallId, async (tx) => {
-      if (!text.trim()) return { error: emptyTextError };
-      await appendMessage(tx, turn.conversationId, {
-        role: "assistant",
-        parts: textParts(text),
-        status: "complete",
-        createdAt: deps.clock(),
+  const sendToUser = sendToUserDefinition.server(
+    async ({ text, endTurn: last, secret }, context) => {
+      // The Message commits with its Checkpoint, so it is sent once across a crash.
+      const result = await liveActivity(sendToUserToolName, context?.toolCallId, async (tx) => {
+        if (!text.trim()) return { error: emptyTextError };
+        await appendMessage(tx, turn.conversationId, {
+          role: "assistant",
+          parts: secret ? secretRequestParts(text, { type: "secret", ...secret }) : textParts(text),
+          status: "complete",
+          createdAt: deps.clock(),
+        });
+        return { sent: true };
       });
-      return { sent: true };
-    });
-    if ("sent" in result) {
-      if (last) onLastMessage();
-      await hintChanged(deps, turn.conversationId);
-    }
-    return result;
-  });
+      if ("sent" in result) {
+        if (last) onLastMessage();
+        await hintChanged(deps, turn.conversationId);
+      }
+      return result;
+    },
+  );
 
   // The Turn carries on once the Routine is saved: the Approval is the Routine's, not the call's.
   const createRoutine = createRoutineDefinition.server(async (input, context) =>

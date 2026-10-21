@@ -11,15 +11,21 @@ import type { BotTurnProvenance } from "../shared/turn";
 import { useBackgroundRuns, useBotTurn } from "../client/react/bot-turn";
 import { useBotCheckIns } from "../client/react/check-ins";
 import { allHelpers, useBotHelpers } from "../client/react/helpers";
+import { useBotReviews } from "../client/react/reviews";
 import { useBotRoutines } from "../client/react/routines";
+import { useBotSecrets } from "../client/react/secrets";
 import { useCacheWarming } from "../client/react/warm";
 import { BotAvatar } from "./bot-avatar";
 import { CheckInLine } from "./check-in-line";
 import { ComputerCard } from "./computer-card";
 import { HelperCard } from "./helper-card";
 import { isLiveHelper } from "../shared/helper";
+import { ReviewPassesLine } from "./review-passes-line";
+import { ReviewRequest } from "./review-request";
 import { RoutineCard } from "./routine-card";
 import { RoutinesPopover } from "./routines-popover";
+import { SecretCard } from "./secret-card";
+import { SecretsPopover } from "./secrets-popover";
 import { RunDivider } from "./run-divider";
 import { SummaryCard } from "./summary-card";
 import { TodoPopover } from "./todo-popover";
@@ -103,6 +109,19 @@ function BotConversationView({
     void stopHelpers(helperId).catch((refusal) => toast.error(serverErrorText(i18n, refusal)));
   const onHelperDone = (helperId: string) =>
     void helperDone(helperId).catch((refusal) => toast.error(serverErrorText(i18n, refusal)));
+  const {
+    reviews,
+    acting: actingReviews,
+    allow: allowReview,
+    deny: denyReview,
+    // A live Helper's calls are reviewed too, while no Turn runs.
+  } = useBotReviews(botId, working || helpers.some((helper) => isLiveHelper(helper.status)));
+  const {
+    secrets,
+    acting: actingSecrets,
+    save: saveSecret,
+    remove: removeSecret,
+  } = useBotSecrets(botId);
   const todo = helpers.filter((helper) => isLiveHelper(helper.status));
   const actions = { onPause: pause, onResume: resume, onDelete: remove, actingRoutines: acting };
   const checkInActions = { onCancelCheckIn, actingCheckIns };
@@ -142,19 +161,36 @@ function BotConversationView({
   // Each Routine under the Message its card follows, and each Check-in under the one its line
   // follows; one whose Message isn't shown yet (its Turn still runs here) follows the rest.
   const shownIds = new Set(messages.map((message) => message.id));
+  // Only a Secret's newest request is a card: an older one is history, whatever happened since.
+  const newestRequest = new Map<string, string>();
+  for (const sent of messages) if (sent.secret) newestRequest.set(sent.secret.name, sent.id);
   const routinesAfter = groupAfter(routines, shownIds);
   const checkInsAfter = groupAfter(checkIns, shownIds);
   const helpersAfter = groupAfter(helpers, shownIds);
   const checkInLine = (checkIn: (typeof checkIns)[number]) => (
     <CheckInLine key={checkIn.id} checkIn={checkIn} {...checkInActions} />
   );
+  const reviewRequest = (review: (typeof reviews)[number]) => (
+    <ReviewRequest
+      key={review.id}
+      review={review}
+      onAllow={allowReview}
+      onDeny={denyReview}
+      acting={actingReviews.has(review.id)}
+    />
+  );
+  // A Helper's Approval requests nest under its line.
   const helperCard = (helper: (typeof helpers)[number]) => (
     <HelperCard
       key={helper.id}
       helper={helper}
       onStop={onStopHelper}
       stopping={actingHelpers.has(helper.id) || actingHelpers.has(allHelpers)}
-    />
+    >
+      {reviews
+        .filter((review) => review.verdict === "block" && review.helperId === helper.id)
+        .map(reviewRequest)}
+    </HelperCard>
   );
   // Each run's divider, before the Message it goes above ("" after the last): a run that
   // sent something above its first Message, a quiet one where it ran. One still running and quiet
@@ -208,31 +244,48 @@ function BotConversationView({
     ]);
   }
 
-  // Each Turn's `afterTurn` under the last Bot Message it sent: the last one saved in its span. A
-  // Turn that sent none (quiet, or failed) has it under the last Message saved before its end
-  // ("" with none), so its Steps still show.
+  // Each Turn's passes line and `afterTurn` under the last Bot Message it sent: the last one saved
+  // in its span. A Turn that sent none (quiet, or failed) has them under the last Message saved
+  // before its end ("" with none), so its Steps still show.
   const afterTurnOf = new Map<string, ReactNode[]>();
-  if (afterTurn) {
-    for (const [index, turn] of turns.entries()) {
-      const from = turn.startedAt.getTime();
-      // Up to its end, and never into the next Turn (a Turn that never ended has no end).
-      const until = Math.min(
-        turn.endedAt?.getTime() ?? Infinity,
-        turns[index + 1]?.startedAt.getTime() ?? Infinity,
-      );
-      const before = messages.filter((message) => message.createdAt.getTime() <= until);
-      const anchor =
-        before
-          .filter((message) => message.role === "assistant" && message.createdAt.getTime() >= from)
-          .at(-1) ?? before.at(-1);
-      const shown = afterTurn(turn);
-      const key = anchor?.id ?? "";
-      if (shown)
-        afterTurnOf.set(key, [
-          ...(afterTurnOf.get(key) ?? []),
-          <Fragment key={turn.id}>{shown}</Fragment>,
-        ]);
-    }
+  const passesOf = new Map<string, typeof reviews>();
+  for (const review of reviews) {
+    if (review.verdict !== "pass" || !review.turnId) continue;
+    passesOf.set(review.turnId, [...(passesOf.get(review.turnId) ?? []), review]);
+  }
+  for (const [index, turn] of turns.entries()) {
+    const from = turn.startedAt.getTime();
+    // Up to its end, and never into the next Turn (a Turn that never ended has no end).
+    const until = Math.min(
+      turn.endedAt?.getTime() ?? Infinity,
+      turns[index + 1]?.startedAt.getTime() ?? Infinity,
+    );
+    const before = messages.filter((message) => message.createdAt.getTime() <= until);
+    const anchor =
+      before
+        .filter((message) => message.role === "assistant" && message.createdAt.getTime() >= from)
+        .at(-1) ?? before.at(-1);
+    const passes = passesOf.get(turn.id) ?? [];
+    const shown = afterTurn?.(turn);
+    const key = anchor?.id ?? "";
+    if (passes.length > 0 || shown)
+      afterTurnOf.set(key, [
+        ...(afterTurnOf.get(key) ?? []),
+        <Fragment key={turn.id}>
+          {passes.length > 0 && <ReviewPassesLine passes={passes} />}
+          {shown}
+        </Fragment>,
+      ]);
+  }
+
+  // Each Turn's Approval request at the call's place: after the last Message saved before it (""
+  // with none). A Helper's nests under its Helper instead.
+  const requestsAfter = new Map<string, ReactNode[]>();
+  for (const review of reviews) {
+    if (review.verdict !== "block" || !review.turnId || review.helperId) continue;
+    const key =
+      messages.filter((message) => message.createdAt <= review.createdAt).at(-1)?.id ?? "";
+    requestsAfter.set(key, [...(requestsAfter.get(key) ?? []), reviewRequest(review)]);
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -254,6 +307,9 @@ function BotConversationView({
               onRotate={rotate}
               {...actions}
             />
+          )}
+          {secrets.length > 0 && (
+            <SecretsPopover secrets={secrets} onDelete={removeSecret} acting={actingSecrets} />
           )}
           {todo.length > 0 && (
             <TodoPopover helpers={todo} onStop={onStopHelper} acting={actingHelpers} />
@@ -284,6 +340,7 @@ function BotConversationView({
             >
               {message.text}
             </div>
+            {requestsAfter.get(message.id)}
             {afterTurnOf.get(message.id)}
             {message.computer && (
               <ComputerCard
@@ -291,6 +348,19 @@ function BotConversationView({
                 helper={helpers.find((helper) => helper.id === message.computer?.helperId)}
                 onDone={onHelperDone}
                 acting={actingHelpers.has(message.computer.helperId)}
+              />
+            )}
+            {message.secret && newestRequest.get(message.secret.name) === message.id && (
+              <SecretCard
+                request={message.secret}
+                botName={bot.name}
+                saved={secrets.some(
+                  (saved) =>
+                    saved.name === message.secret?.name &&
+                    saved.createdAt.getTime() >= message.createdAt.getTime(),
+                )}
+                onSave={saveSecret}
+                saving={actingSecrets.has(message.secret.name)}
               />
             )}
             {message.id === seenMessageId && (
@@ -307,6 +377,7 @@ function BotConversationView({
         {summariesBefore.get("")}
         {warmingsBefore.get("")}
         {runsBefore.get("")}
+        {requestsAfter.get("")}
         {afterTurnOf.get("")}
         {routinesAfter.get("")?.map(routineCard)}
         {checkInsAfter.get("")?.map(checkInLine)}

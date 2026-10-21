@@ -9,10 +9,13 @@ export const errorMessages = {
   "error.messageNotFound": "Message not found",
   "error.projectNotFound": "Project not found",
   "error.botNotFound": "Bot not found",
+  "error.secretTooShort": ({ min }: { min: number }) =>
+    `That value is too short to keep out of output: use at least ${min} characters.`,
   "error.routineNotFound": "Routine not found",
   "error.routineNotWebhook": "Only an approved webhook Routine has a URL to rotate",
   "error.checkInNotFound": "Check-in not found",
   "error.helperNotFound": "Helper not found",
+  "error.reviewNotFound": "Request not found",
   "error.helperStopped": "This task was stopped.",
   "error.messageIdTaken": "That message id is already used",
   "error.sharedLinkNotFound": "Shared link not found",

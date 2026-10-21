@@ -10,6 +10,7 @@ import "./check-in-fire";
 import "./summary-away";
 import { handleRoutineWebhook } from "./routine-webhook";
 import { botPluginRouter } from "./routers/index";
+import { rotateSecretKeys } from "./secret";
 import { handleScreenRequest, type ScreenSocketHooks, screenSocketHooks } from "./screen-view";
 import { botUserDelete, exportBots, hasTurnUsingComputer, userHasBot } from "./store";
 import { stopUserHelpers } from "./helper-tools";
@@ -40,6 +41,18 @@ export type BotApi = {
    * at `screenViewPath/<view token>/websockify` (Nitro: `defineWebSocketHandler(screenSocket)`).
    */
   screenSocket: ScreenSocketHooks;
+  /** The Model that reviews the Bots' risky tool calls, as `bot({ reviewModel })` named it, if any. */
+  reviewModel: string | undefined;
+};
+
+/** How the Host sets up the `bot` plugin. */
+export type BotOptions = {
+  /**
+   * The Model that reviews each Bot's risky tool calls before they run (Auto-review), a
+   * `"provider:model"` id from the `models` plugin's list, resolved per user. With none, or one
+   * the user can't use, the Bot's own Model reviews, in a fresh context.
+   */
+  reviewModel?: string;
 };
 
 declare module "../../../core/server/plugin" {
@@ -52,7 +65,7 @@ declare module "../../../core/server/plugin" {
  * The `bot` plugin (ADR 0020): always-on Bots, each a name and a Model talking to its user in one
  * Conversation of kind `bot`.
  */
-export function bot(): BotPlugin {
+export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
   return {
     id: "bot",
     requires: ["models", "runner"],
@@ -87,6 +100,7 @@ export function bot(): BotPlugin {
         },
         screenHandler: (request) => handleScreenRequest(sdk, request),
         screenSocket: screenSocketHooks(sdk),
+        reviewModel,
       };
       return { api };
     },
@@ -104,6 +118,8 @@ export function bot(): BotPlugin {
       after: botUserDelete.after,
     },
     exportUser: (_sdk, userId, tx) => exportBots(tx, userId),
+    // The user's Secrets are encrypted under the keyring too (ADR 0010).
+    rotateKeys: rotateSecretKeys,
     // A Bot's Helpers' screenshots go with its Conversation (#608).
     databaseHooks: { conversation: { delete: screenshotsConversationDelete } },
   };

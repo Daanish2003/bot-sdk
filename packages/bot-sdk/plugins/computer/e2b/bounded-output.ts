@@ -41,6 +41,33 @@ export function boundedOutput() {
   };
 }
 
+/**
+ * `boundedOutput` that replaces every string of `redact` (longest first) with `***` as chunks
+ * arrive, before the ends are cut. It holds back the last few characters of each chunk, since a
+ * string may continue in the next one; `text()` releases them.
+ */
+export function redactedOutput(redact: string[]) {
+  const forms = redact.filter((form) => form.length > 0).sort((a, b) => b.length - a.length);
+  const hold = Math.max(0, ...forms.map((form) => form.length)) - 1;
+  const inner = boundedOutput();
+  let pending = "";
+  const replaced = (text: string) => forms.reduce((out, form) => out.split(form).join("***"), text);
+  return {
+    add(chunk: string) {
+      pending = replaced(pending + chunk);
+      const cut = pairSafeEnd(pending, Math.max(0, pending.length - hold));
+      inner.add(pending.slice(0, cut));
+      pending = pending.slice(cut);
+    },
+    held: () => inner.held() + pending.length,
+    text() {
+      inner.add(pending);
+      pending = "";
+      return inner.text();
+    },
+  };
+}
+
 /** `end`, or one less when it would split a surrogate pair (the halves of one character). */
 function pairSafeEnd(text: string, end: number): number {
   return end > 0 && end < text.length && isHighSurrogate(text.charCodeAt(end - 1)) ? end - 1 : end;

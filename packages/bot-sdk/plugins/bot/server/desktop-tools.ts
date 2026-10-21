@@ -197,11 +197,16 @@ export function desktopTools(
 ) {
   return [
     desktopDefinition.server(async (input, context) => {
-      // Asked only live, inside the call's Checkpoint, so a replay reads the answer it recorded.
-      const done = await computerCall("desktop", context?.toolCallId, async (computer, live) =>
-        (await canSee())
-          ? act(computer, slot, input as Input, live, keep)
-          : { error: noVisionError },
+      // Every action gets Auto-review first (spec #691), once the Model is known to see: an action
+      // that can't run is never reviewed. Asked only live, in its own Checkpoint, so a replay reads
+      // the answer it recorded.
+      const done = await computerCall(
+        "desktop",
+        context?.toolCallId,
+        (computer, live) => act(computer, slot, input as Input, live, keep),
+        true,
+        input,
+        async () => ((await canSee()) ? null : { error: noVisionError }),
       );
       // A result over the long-output limit comes back as its cut text, a string.
       if (typeof done === "string" || "error" in done) return done;

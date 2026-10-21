@@ -939,6 +939,46 @@ window.NAMES = [
       "The procedure the page calls when a Conversation opens or a draft starts, to refill the provider's cache. It skips while a Turn runs or the cache is still warm.",
     example: "at most once a minute per tab",
   },
+  {
+    lesson: 18,
+    name: "reviewToolCall",
+    kind: "function",
+    meaning:
+      "Auto-review of one risky call, before it runs: the review as a recorded activity, its row and usage, then the 15-second wait on a block. A pass returns null.",
+    example: "{ error: 'Blocked: …' } or null",
+  },
+  {
+    lesson: 18,
+    name: "approvalWaitMs",
+    kind: "option",
+    meaning:
+      "How long a blocked call waits for the user's Approval. Silence counts as no. The review itself has its own 30-second limit.",
+    example: "15_000",
+  },
+  {
+    lesson: 18,
+    name: "bot_review",
+    kind: "table/column",
+    meaning:
+      "One Auto-review of a call: its tool and input, the reviewer's summary, reason and verdict, and for a block its Approval state and deadline.",
+    example: "verdict: 'block', state: 'waiting'",
+  },
+  {
+    lesson: 18,
+    name: "chat.secret",
+    kind: "table/column",
+    meaning:
+      "A user's Secret, encrypted with the keyring and bound to its name. Every Bot of the user shares it. The model never reads the value.",
+    example: "name: 'GITHUB_TOKEN'",
+  },
+  {
+    lesson: 18,
+    name: "maskSecrets",
+    kind: "function",
+    meaning:
+      "Replaces each Secret's value, and its base64 and URL-encoded forms, with *** in a text before the model sees it.",
+    example: "maskSecrets(output, ['hunter2']) → '***'",
+  },
 ];
 
 (function () {
