@@ -509,25 +509,46 @@ async function reviewerInput(
   ].join("\n\n");
 }
 
-/** The Bot's reviews, oldest first, for its Turns' passes lines and its Approval cards. */
+/** How many of a Bot's newest reviews `listReviews` returns, besides the waiting ones. */
+export const listedReviews = 100;
+
+const reviewFields = {
+  id: botReview.id,
+  turnId: botReview.turnId,
+  helperId: botReview.helperId,
+  toolCallId: botReview.toolCallId,
+  tool: botReview.tool,
+  input: botReview.input,
+  summary: botReview.summary,
+  verdict: botReview.verdict,
+  reason: botReview.reason,
+  state: botReview.state,
+  deadline: botReview.deadline,
+  decidedAt: botReview.decidedAt,
+  createdAt: botReview.createdAt,
+};
+
+/**
+ * The Bot's reviews, oldest first, for its Turns' passes lines and its Approval cards: its newest
+ * `listedReviews`, and every one still waiting for the user however old, so the list a live Turn
+ * polls stays bounded. Older Turns show no passes line.
+ */
 export async function listReviews(db: Database, botId: string): Promise<BotReview[]> {
-  return db
-    .select({
-      id: botReview.id,
-      turnId: botReview.turnId,
-      helperId: botReview.helperId,
-      toolCallId: botReview.toolCallId,
-      tool: botReview.tool,
-      input: botReview.input,
-      summary: botReview.summary,
-      verdict: botReview.verdict,
-      reason: botReview.reason,
-      state: botReview.state,
-      deadline: botReview.deadline,
-      decidedAt: botReview.decidedAt,
-      createdAt: botReview.createdAt,
-    })
-    .from(botReview)
-    .where(eq(botReview.botId, botId))
-    .orderBy(asc(botReview.createdAt), asc(botReview.id));
+  const [newest, waiting] = await Promise.all([
+    db
+      .select(reviewFields)
+      .from(botReview)
+      .where(eq(botReview.botId, botId))
+      .orderBy(desc(botReview.createdAt), desc(botReview.id))
+      .limit(listedReviews),
+    db
+      .select(reviewFields)
+      .from(botReview)
+      .where(and(eq(botReview.botId, botId), eq(botReview.state, "waiting"))),
+  ]);
+  const byId = new Map([...newest, ...waiting].map((row) => [row.id, row]));
+  return [...byId.values()].sort(
+    (a, b) =>
+      a.createdAt.getTime() - b.createdAt.getTime() || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+  );
 }

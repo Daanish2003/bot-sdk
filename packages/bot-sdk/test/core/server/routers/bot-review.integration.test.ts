@@ -8,6 +8,7 @@ import { deleteUserData } from "../../../../core/server/user-data";
 import { interruptedShellError } from "../../../../plugins/bot/server/computer-tools";
 import { bot } from "../../../../plugins/bot/server/plugin";
 import {
+  listedReviews,
   reviewFailedReason,
   reviewTimeoutMs,
   type ReviewVerdict,
@@ -931,5 +932,34 @@ describe("bot.review.list", () => {
     ]);
     const stranger = chatRpc({ user: await insertUser(), deps });
     await expect(stranger.bot.review.list({ botId })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("lists only the newest reviews, and every waiting one however old", async () => {
+    const { client, botId } = await botWith([]);
+    const start = new Date("2030-01-01T00:00:00Z").getTime();
+    const row = (index: number, state: "waiting" | null = null) => ({
+      id: uuidv7(),
+      botId,
+      toolCallId: `call-${index}`,
+      tool: "shell",
+      input: { command: `echo ${index}` },
+      summary: `Echo ${index}`,
+      verdict: (state ? "block" : "pass") as "block" | "pass",
+      reason: "The user asked for it.",
+      state,
+      createdAt: new Date(start + index * 1000),
+    });
+    const waiting = row(0, "waiting");
+    const passes = Array.from({ length: listedReviews + 5 }, (_, index) => row(index + 1));
+    await getTestDb()
+      .insert(botReview)
+      .values([waiting, ...passes]);
+
+    const listed = await client.bot.review.list({ botId });
+
+    expect(listed.map((review) => review.id)).toEqual([
+      waiting.id,
+      ...passes.slice(-listedReviews).map((review) => review.id),
+    ]);
   });
 });
