@@ -76,16 +76,17 @@
         <code>/home/user/bots/&lt;botId&gt;/skills/&lt;name&gt;/SKILL.md</code>. It begins with two
         lines of frontmatter: a <code>name</code> that equals the folder name, and a
         <code>description</code> that starts "Use this when". The rest is plain text: the inputs,
-        the steps, and how to check the result. Nothing in the file is a special format that the SDK
-        parses, so the Bot edits it with its ordinary <code>write</code> and <code>edit</code>
+        the steps, and how to check the result. Beyond the frontmatter, the body has no format the
+        SDK parses, so the Bot edits it with its ordinary <code>write</code> and <code>edit</code>
         tools. This is the "Everything is computer" idea from
         <a href="../../../docs/adr/0022-a-bots-memory-is-plain-files-on-its-computer.md">ADR 0022</a
         >, the same as the Bot's memory.
       </p>
       <p>
-        The SDK checks only the frontmatter, and only when it builds the pointer list. A Skill that
-        fails the check is still listed, as "not usable" with the reason, so it gets fixed instead
-        of silently ignored.
+        The SDK checks only the frontmatter, and only when it builds the pointer list. The name is
+        lowercase letters, digits and dashes, at most 64 characters. The description starts "Use
+        this when" and is at most 200 characters. A Skill that fails the check is still listed, as
+        "not usable" with the reason, so it gets fixed instead of silently ignored.
       </p>
 
       <h2><span class="num">2</span>One line per Skill keeps the prompt small and steady</h2>
@@ -158,7 +159,8 @@
           choices, keys and page changes. Each becomes a row in
           <code>bot_demonstration_event</code> with a screenshot. A password field is stored as
           <code>••••••••</code> with no screenshot. While you press <strong>Pause</strong>, nothing
-          is recorded at all. It stops itself at 15 minutes or 200 events.
+          is recorded at all. It stops itself after 15 minutes of recording (paused time does not
+          count) or 200 events.
         </li>
         <li>
           <strong>Drafting.</strong> When you press <strong>Done</strong>, one model call with no
@@ -168,8 +170,9 @@
         </li>
         <li>
           <strong>Saved, and a Trigger.</strong> The Skill is saved at once, under a free name if
-          there is a clash. The Bot is woken by a Trigger that names it, then sums it up and asks
-          what to change.
+          there is a clash. The Bot is woken by a Trigger from the Demonstration that names the
+          Skill, then sums it up and asks what to change. If the draft fails or the Quota blocks it,
+          the Trigger says so instead.
         </li>
         <li>
           <strong>Reuse through a Helper.</strong> Next time you ask for the task, the Bot reads the
@@ -185,7 +188,10 @@
 
       <h2><span class="num">5</span>How well it works</h2>
       <figure id="rates">
-        <figcaption>First real run of the Skills evals, on one model and one repeat.</figcaption>
+        <figcaption>
+          First real run of the Skills evals (2026-10-21), on one model (gpt-6.1-sol) and one
+          repeat.
+        </figcaption>
       </figure>
       <p>
         The evals score the Bot's tool calls, its Messages and the files it leaves behind, with no
@@ -338,9 +344,9 @@
             review is a candidate only if the evals show the Bot rarely saves Skills on its own.
           </li>
           <li>
-            Skills do not switch off with your Memory setting. With no <code>computer</code> or
-            <code>skills</code> plugin there is no Skills block, no routes and no
-            <code>watch_user</code>.
+            Skills do not switch off with your Memory setting. Without both the
+            <code>computer</code> and <code>skills</code> plugins there is no Skills block, no
+            routes and no <code>watch_user</code>.
           </li>
           <li>
             Code names for this step, all in the Names list: <code>skillsPrompt</code>,
