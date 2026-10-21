@@ -124,10 +124,17 @@ to 7 screenshots each. They are billed on your key or plan. Run them deliberatel
 
 ## Results
 
-Not recorded yet: the real-Model run needs a key or the owner's ChatGPT plan. Record it here (Model,
-commit, date, group results and the three rates) after the first run.
+First real run: 2026-10-21, commit ecd95364, on the owner's ChatGPT plan (`EVAL_CHATGPT_USER_ID`),
+1 repeat.
 
-| Eval                | Model | Result |
-| ------------------- | ----- | ------ |
-| `eval:skills`       |       |        |
-| `eval:skills:draft` |       |        |
+| Eval                | Model                | Result                                       |
+| ------------------- | -------------------- | -------------------------------------------- |
+| `eval:skills`       | `openai:gpt-6.1-sol` | 37/41: use 20/20, save 15/15, follow-fix 2/6 |
+| `eval:skills:draft` | `openai:gpt-6.1-sol` | 3/3                                          |
+
+- **Use:** hit 100% of 12 Skill cases, wrong Skill 0%, needless read 0% of 8 no-Skill cases.
+- **Save:** saved unasked after a long repeatable task in 2 of 2 runs.
+- **Follow-fix:** `follow-cents` and `follow-cc-finance` pass. The three `fix-*` cases fail the same way:
+  the stale command fails, and the Bot asks the user for the new path instead of looking for the
+  renamed file (it is on the Computer) and editing the Skill. `follow-month-folder` failed because the
+  Bot never read `weekly-metrics-email`.
