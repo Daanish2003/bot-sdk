@@ -1,16 +1,17 @@
 import { chat, EventType, type ModelMessage, type StreamChunk } from "@tanstack/ai";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, gt } from "drizzle-orm";
 import { z } from "zod";
 
 import { bot, botReview, botTrigger, message } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
+import { rpcError } from "../../../core/server/rpc-error";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { searchTextOf } from "../../../core/shared/message-parts";
 import type { ModelMeter } from "../../models/server/meter";
 import type { MessageUsage } from "../../models/shared/usage";
 import { parseModelId } from "../../models/shared/models";
-import type { BotReview } from "../shared/review";
+import { approvalWaitMs, type BotReview, type ReviewApprovalState } from "../shared/review";
 import { parseReply } from "../../memory/server/ask";
 import { routineNameOf, routinePromptOf } from "./routine";
 
@@ -89,9 +90,11 @@ export type ReviewKit = {
     name: string,
     write: (tx: Transaction, onCommit: (fire: () => void) => void) => Promise<T>,
   ) => Promise<T>;
-  /** Called first in the live review: past a Stop or the time limit, it throws. */
+  /** The runner's recorded time (`ctx.now`): a replay returns the same. */
+  now: () => Promise<Date>;
+  /** Called first in the live review and the wait: past a Stop or the time limit, it throws. */
   beforeLive: () => void;
-  /** The loop's signal: a Stop aborts the reviewer's call. */
+  /** The loop's signal: a Stop aborts the reviewer's call and the wait. */
   signal: AbortSignal;
   /** Measures a model call's usage from its chunks (`callUsage`). */
   usageOf: (
@@ -133,7 +136,13 @@ export async function reviewToolCall(
   const meter = reviewed.bill
     ? (liveMeter ?? (await reviewMeter(deps, owner.userId, reviewed.model)))
     : undefined;
-  await kit.billing("review:write", async (tx, onCommit) => {
+  // A block asks the user at once: its Approval's deadline counts from the runner's recorded time,
+  // so a replay keeps it.
+  const deadline =
+    reviewed.outcome === "block"
+      ? new Date((await kit.now()).getTime() + approvalWaitMs)
+      : undefined;
+  const reviewId = await kit.billing("review:write", async (tx, onCommit) => {
     // A Bot deleted meanwhile (its user's delete) keeps no row; its key share holds off a delete.
     const [kept] = await tx
       .select({ id: bot.id })
@@ -141,8 +150,9 @@ export async function reviewToolCall(
       .where(eq(bot.id, owner.botId))
       .for("key share");
     if (!kept) return null;
+    const id = uuidv7();
     await tx.insert(botReview).values({
-      id: uuidv7(),
+      id,
       botId: owner.botId,
       turnId: source.turnId,
       // Always set by the chat engine; a call with none still gets its row.
@@ -152,6 +162,7 @@ export async function reviewToolCall(
       summary: reviewed.summary,
       verdict: reviewed.outcome,
       reason: reviewed.reason,
+      ...(deadline && { state: "waiting" as const, deadline }),
       createdAt: deps.clock(),
     });
     if (reviewed.bill && meter) {
@@ -164,9 +175,121 @@ export async function reviewToolCall(
         }),
       );
     }
-    return null;
+    return id;
   });
-  return reviewed.outcome === "pass" ? null : { error: blockedError(reviewed.reason) };
+  if (reviewed.outcome === "pass") return null;
+  if (!reviewId || !deadline) return { error: blockedError(reviewed.reason) };
+  // The wait (ADR 0024): no transaction, since it holds for up to 15 seconds. Re-run after a crash
+  // before its Checkpoint, it reads the row's decision, or the same deadline.
+  const decided = await kit.activity("review:wait", async () => {
+    kit.beforeLive();
+    return waitForApproval(deps, reviewId, deadline, kit.signal);
+  });
+  if (decided === "allowed") return null;
+  return { error: blockedError(reviewed.reason, decided) };
+}
+
+/** How often the wait reads its Approval's row. */
+const approvalPollMs = 500;
+
+/**
+ * Waits for Approval `reviewId`: polls its row about every `approvalPollMs` until the user allows
+ * or denies it, or marks it `expired` once `deadline` passes. A row gone with its Bot reads as
+ * denied. A Stop throws, leaving the row to `closeWaitingReviews`.
+ */
+async function waitForApproval(
+  deps: BotSdkContext,
+  reviewId: string,
+  deadline: Date,
+  signal: AbortSignal,
+): Promise<"allowed" | "denied" | "expired"> {
+  for (;;) {
+    signal.throwIfAborted();
+    const [row] = await deps.db
+      .select({ state: botReview.state })
+      .from(botReview)
+      .where(eq(botReview.id, reviewId));
+    if (!row) return "denied";
+    if (row.state === "allowed" || row.state === "denied" || row.state === "expired") {
+      return row.state;
+    }
+    const now = deps.clock();
+    if (now >= deadline) {
+      const [expired] = await deps.db
+        .update(botReview)
+        .set({ state: "expired", decidedAt: now })
+        .where(and(eq(botReview.id, reviewId), eq(botReview.state, "waiting")))
+        .returning({ id: botReview.id });
+      if (expired) return "expired";
+      // The user answered first: read their answer.
+      continue;
+    }
+    await sleep(Math.min(approvalPollMs, deadline.getTime() - now.getTime()), signal);
+  }
+}
+
+/** Waits `ms`, or until `signal` aborts. */
+function sleep(ms: number, signal: AbortSignal) {
+  return new Promise<void>((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal.addEventListener("abort", done, { once: true });
+  });
+}
+
+/**
+ * The user's answer to waiting Approval `reviewId` of one of their Bots: it changes the row only
+ * while it is `waiting` and before its deadline. A late or second answer changes nothing, and
+ * says the request is closed (`decided: false`) and how it stands. Another user's is not found.
+ */
+export async function decideReview(
+  deps: BotSdkContext,
+  userId: string,
+  reviewId: string,
+  answer: "allowed" | "denied",
+): Promise<{ decided: boolean; state: ReviewApprovalState }> {
+  const now = deps.clock();
+  const [found] = await deps.db
+    .select({ state: botReview.state })
+    .from(botReview)
+    .innerJoin(bot, eq(bot.id, botReview.botId))
+    .where(and(eq(botReview.id, reviewId), eq(bot.userId, userId)));
+  if (!found?.state) throw rpcError("NOT_FOUND", "error.reviewNotFound", "Request not found");
+  const [changed] = await deps.db
+    .update(botReview)
+    .set({ state: answer, decidedAt: now })
+    .where(
+      and(eq(botReview.id, reviewId), eq(botReview.state, "waiting"), gt(botReview.deadline, now)),
+    )
+    .returning({ id: botReview.id });
+  if (changed) return { decided: true, state: answer };
+  const [row] = await deps.db
+    .select({ state: botReview.state })
+    .from(botReview)
+    .where(eq(botReview.id, reviewId));
+  // Past its deadline, a request the wait hasn't marked yet is closed all the same.
+  const state = row?.state ?? found.state;
+  return { decided: false, state: state === "waiting" ? "expired" : state };
+}
+
+/**
+ * Closes Turn `turnId`'s waiting Approvals, in `tx`: `denied` for the user's Stop, which counts as
+ * no, and `expired` for a Turn that ended while one waited (its time limit), so none stays open.
+ */
+export async function closeWaitingReviews(
+  deps: BotSdkContext,
+  tx: Transaction,
+  turnId: string,
+  state: "denied" | "expired",
+): Promise<void> {
+  await tx
+    .update(botReview)
+    .set({ state, decidedAt: deps.clock() })
+    .where(and(eq(botReview.turnId, turnId), eq(botReview.state, "waiting")));
 }
 
 /** The meter a review on `model` bills, resolved outside the Checkpoint's transaction. */
@@ -185,10 +308,16 @@ function meterOf(
   return meter?.onHost ? meter : deps.plugin("models").freeModelMeter(userId, model);
 }
 
-/** What the Model gets for a blocked call: why, and what to do next. */
-export function blockedError(reason: string): string {
+/** What the Model gets for a blocked call: why, what came of its Approval, and what to do next. */
+export function blockedError(reason: string, decided?: "denied" | "expired"): string {
+  const outcome =
+    decided === "denied"
+      ? "The user denied it."
+      : decided === "expired"
+        ? "The user didn't approve it within 15 seconds."
+        : "The command didn't run.";
   return (
-    `Blocked: ${reason.trim().replace(/[.!\s]+$/, "")}. The command didn't run. Don't retry it; ` +
+    `Blocked: ${reason.trim().replace(/[.!\s]+$/, "")}. ${outcome} Don't retry it; ` +
     "ask the user in a message or find another way."
   );
 }

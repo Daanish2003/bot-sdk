@@ -137,6 +137,14 @@ export const botsMessages = {
   "bots.secretsShared": "Shared by all your Bots. Values are never shown.",
   "bots.secretSavedOn": ({ date }: { date: string }) => `saved ${date}`,
   "bots.deleteSecret": ({ name }: { name: string }) => `Delete ${name}`,
+  "bots.reviewAllow": "Allow",
+  "bots.reviewDeny": "Deny",
+  "bots.reviewCountdown": ({ seconds }: { seconds: number }) =>
+    `Blocked in ${seconds}s unless you allow it`,
+  "bots.reviewAllowed": ({ summary }: { summary: string }) => `Allowed by you: ${summary}`,
+  "bots.reviewDenied": ({ summary }: { summary: string }) => `Denied by you: ${summary}`,
+  "bots.reviewExpired": ({ summary }: { summary: string }) =>
+    `Blocked, no answer in 15 s: ${summary}`,
   "bots.cacheWarmed": ({ cost }: { cost: string }) => `Cache warmed · ${cost}`,
   "bots.cacheRead": "Read from cache",
   "bots.cacheWritten": "Written to cache",

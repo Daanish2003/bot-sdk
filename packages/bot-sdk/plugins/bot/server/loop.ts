@@ -673,6 +673,7 @@ export async function runLoop(
           {
             activity: ctx.activity,
             billing,
+            now: ctx.now,
             beforeLive: () => {
               beforeLiveTool();
               inLiveCall = true;

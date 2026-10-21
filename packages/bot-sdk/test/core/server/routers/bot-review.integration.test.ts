@@ -1,10 +1,11 @@
 import type { ModelMessage, TextOptions } from "@tanstack/ai";
-import { asc, eq } from "drizzle-orm";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { asc, eq, inArray } from "drizzle-orm";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { botReview, botTurn, job, usage } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { deleteUserData } from "../../../../core/server/user-data";
+import { interruptedShellError } from "../../../../plugins/bot/server/computer-tools";
 import { bot } from "../../../../plugins/bot/server/plugin";
 import {
   reviewFailedReason,
@@ -17,7 +18,9 @@ import { saveCredentials } from "../../../../plugins/models/server/credentials/s
 import {
   inProcessRunner,
   type InProcessRunner,
+  systemClock,
 } from "../../../../plugins/runner/server/jobs/in-process";
+import { claimJob, reapStaleJobs } from "../../../../plugins/runner/server/jobs/store";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, runError, text, toolCall } from "../../../support/fake-adapter";
 import {
@@ -26,6 +29,7 @@ import {
   passVerdict,
   verdictRound,
 } from "../../../support/fake-reviewer";
+import { fakeJobClock } from "../../../support/jobs";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
@@ -65,11 +69,21 @@ async function botWith(
   const fake = createFakeAdapter({ rounds });
   const computerFake = fakeComputerProvider({ onCommand });
   const reviewedOn: string[] = [];
+  // The real time plus `skewMs`, for the SDK and the runner alike: a test moves it past a deadline.
+  let skewMs = 0;
+  const clock = () => new Date(Date.now() + skewMs);
   let deps: TestDeps | undefined;
-  const jobs = inProcessRunner({ db: getTestDb(), logger: silent, drainMs: 50, deps: () => deps! });
+  const jobs = inProcessRunner({
+    db: getTestDb(),
+    logger: silent,
+    drainMs: 50,
+    clock: { ...systemClock, now: clock },
+    deps: () => deps!,
+  });
   deps = createTestSdk({
     plugins: [bot({ reviewModel }), computer({ provider: computerFake.provider })],
     jobs,
+    clock,
     adapterFor: () => fake.adapter,
     reviewAdapterFor: (reviewing) => {
       reviewedOn.push(reviewing);
@@ -88,8 +102,54 @@ async function botWith(
   });
   const client = chatRpc({ user, deps });
   const { id: botId } = await client.bot.create({ name: "Ada", model });
-  return { fake, reviewer, reviewedOn, computerFake, deps, client, user, botId };
+  return {
+    fake,
+    reviewer,
+    reviewedOn,
+    computerFake,
+    deps,
+    client,
+    user,
+    botId,
+    clock,
+    /** Moves the clock `ms` on. */
+    advance: (ms: number) => {
+      skewMs += ms;
+    },
+  };
 }
+
+/** The Bot's first review once its Approval is `waiting`. */
+async function waitingReview(botId: string) {
+  await expect
+    .poll(async () => (await reviewsOf(botId)).find((row) => row.state === "waiting"), {
+      timeout: 10_000,
+    })
+    .toBeTruthy();
+  return (await reviewsOf(botId)).find((row) => row.state === "waiting")!;
+}
+
+/** Denies each of the Bot's waiting Approvals as it opens, until the returned stop is called. */
+function denyingEach(client: ReturnType<typeof chatRpc>, botId: string) {
+  let stopped = false;
+  const loop = (async () => {
+    while (!stopped) {
+      for (const row of await reviewsOf(botId)) {
+        if (row.state === "waiting") await client.bot.review.deny({ reviewId: row.id });
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  })();
+  return async () => {
+    stopped = true;
+    await loop;
+  };
+}
+
+/** The error the Model gets for a call blocked for `reason` that the user didn't approve in time. */
+const expiredError = (reason: string) =>
+  `Blocked: ${reason}. The user didn't approve it within 15 seconds. Don't retry it; ask the ` +
+  "user in a message or find another way.";
 
 /** A reviewer that plays `replies` in order, one per review call. */
 function reviewerPlaying(
@@ -277,26 +337,137 @@ describe("Auto-review of the Bot's shell commands", () => {
         summary: "Push to the main branch",
       }),
     );
-    const { client, botId, fake, computerFake } = await botWith(
+    const { client, botId, fake, computerFake, clock, advance } = await botWith(
       [round(shell("git push origin main")), round()],
       { reviewer },
     );
 
-    await send(client, botId, "fix the failing tests");
+    const before = clock().getTime();
+    const stream = await client.bot.send({ botId, id: uuidv7(), text: "fix the failing tests" });
+    const waiting = await waitingReview(botId);
+
+    // Waiting for the user, 15 seconds from when it was asked; the command hasn't run.
+    expect(waiting).toMatchObject({
+      verdict: "block",
+      summary: "Push to the main branch",
+      reason: "You asked to fix the tests, not to push to main.",
+      decidedAt: null,
+    });
+    expect(waiting.deadline!.getTime()).toBeGreaterThanOrEqual(before + 15_000);
+    expect(waiting.deadline!.getTime()).toBeLessThanOrEqual(clock().getTime() + 15_000);
+    expect(computerFake.callsOf("run")).toEqual([]);
+
+    // No answer in 15 seconds: blocked.
+    advance(15_000);
+    for await (const _event of stream) {
+      // Read to the end of the Turn.
+    }
+
+    expect(computerFake.callsOf("run")).toEqual([]);
+    expect(toolResultOf(fake.calls[1])).toEqual({
+      error: expiredError("You asked to fix the tests, not to push to main"),
+    });
+    const [expired] = await reviewsOf(botId);
+    expect(expired).toMatchObject({ state: "expired", deadline: waiting.deadline });
+    expect(expired!.decidedAt).toEqual(expect.any(Date));
+
+    // A late yes changes nothing, and says the request is closed.
+    expect(await client.bot.review.allow({ reviewId: waiting.id })).toEqual({
+      decided: false,
+      state: "expired",
+    });
+    expect(await reviewsOf(botId)).toEqual([expired]);
+    expect(computerFake.callsOf("run")).toEqual([]);
+  });
+
+  it("runs a blocked call the user allows before its deadline", async () => {
+    const reviewer = reviewerPlaying(
+      verdict({ outcome: "block", reason: "You didn't ask to deploy.", summary: "Deploy" }),
+    );
+    const { client, botId, fake, computerFake } = await botWith(
+      [round(shell("make deploy")), round()],
+      { reviewer },
+    );
+
+    const stream = await client.bot.send({ botId, id: uuidv7(), text: "ship it" });
+    const waiting = await waitingReview(botId);
+    expect(await client.bot.review.allow({ reviewId: waiting.id })).toEqual({
+      decided: true,
+      state: "allowed",
+    });
+    for await (const _event of stream) {
+      // Read to the end of the Turn.
+    }
+
+    expect(computerFake.callsOf("run").map((call) => call.command)).toEqual(["make deploy"]);
+    expect(toolResultOf(fake.calls[1])).toMatchObject({ exitCode: 0 });
+    const [allowed] = await reviewsOf(botId);
+    expect(allowed).toMatchObject({ state: "allowed", decidedAt: expect.any(Date) });
+    // Decided once: a second answer is closed.
+    expect(await client.bot.review.deny({ reviewId: waiting.id })).toEqual({
+      decided: false,
+      state: "allowed",
+    });
+  });
+
+  it("returns the blocked error for a call the user denies", async () => {
+    const reviewer = reviewerPlaying(
+      verdict({ outcome: "block", reason: "You didn't ask to delete it.", summary: "Delete" }),
+    );
+    const { client, botId, fake, computerFake, deps } = await botWith(
+      [round(shell("rm -rf src")), round()],
+      { reviewer },
+    );
+
+    const stream = await client.bot.send({ botId, id: uuidv7(), text: "tidy up" });
+    const waiting = await waitingReview(botId);
+    // Another user's request is not found.
+    const stranger = chatRpc({ user: await insertUser(), deps });
+    await expect(stranger.bot.review.allow({ reviewId: waiting.id })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+    expect(await client.bot.review.deny({ reviewId: waiting.id })).toEqual({
+      decided: true,
+      state: "denied",
+    });
+    for await (const _event of stream) {
+      // Read to the end of the Turn.
+    }
 
     expect(computerFake.callsOf("run")).toEqual([]);
     expect(toolResultOf(fake.calls[1])).toEqual({
       error:
-        "Blocked: You asked to fix the tests, not to push to main. The command didn't run. " +
-        "Don't retry it; ask the user in a message or find another way.",
+        "Blocked: You didn't ask to delete it. The user denied it. Don't retry it; ask the user " +
+        "in a message or find another way.",
     });
     expect(await reviewsOf(botId)).toEqual([
-      expect.objectContaining({
-        verdict: "block",
-        summary: "Push to the main branch",
-        reason: "You asked to fix the tests, not to push to main.",
-      }),
+      expect.objectContaining({ state: "denied", decidedAt: expect.any(Date) }),
     ]);
+  });
+
+  it("denies a waiting call when the user stops the Turn", async () => {
+    const reviewer = reviewerPlaying(
+      verdict({ outcome: "block", reason: "You didn't ask to deploy.", summary: "Deploy" }),
+    );
+    const { client, botId, computerFake } = await botWith([round(shell("make deploy")), round()], {
+      reviewer,
+    });
+
+    const stream = await client.bot.send({ botId, id: uuidv7(), text: "ship it" });
+    const waiting = await waitingReview(botId);
+    await client.bot.stop({ botId });
+    const events = [];
+    for await (const event of stream) events.push(event);
+
+    expect(events.at(-1)).toEqual({ type: "turnEnded", status: "stopped" });
+    expect(computerFake.callsOf("run")).toEqual([]);
+    expect(await reviewsOf(botId)).toEqual([
+      expect.objectContaining({ id: waiting.id, state: "denied", decidedAt: expect.any(Date) }),
+    ]);
+    expect(await client.bot.review.allow({ reviewId: waiting.id })).toEqual({
+      decided: false,
+      state: "denied",
+    });
   });
 
   it('blocks with "Auto-review couldn\'t check this" when the reviewer fails or answers no verdict', async () => {
@@ -309,8 +480,11 @@ describe("Auto-review of the Bot's shell commands", () => {
       [round(shell("one")), round(shell("two")), round(shell("three")), round()],
       { reviewer },
     );
+    // A reviewer failure asks the user too: each request is denied as it opens.
+    const stopDenying = denyingEach(client, botId);
 
     await send(client, botId, "run the three steps");
+    await stopDenying();
 
     expect(computerFake.callsOf("run")).toEqual([]);
     for (const call of fake.calls.slice(1)) {
@@ -334,6 +508,10 @@ describe("Auto-review of the Bot's shell commands", () => {
     const stream = await client.bot.send({ botId, id: uuidv7(), text: "go" });
     await vi.waitFor(() => expect(reviewer.calls).toHaveLength(1), { timeout: 10_000 });
     await vi.advanceTimersByTimeAsync(reviewTimeoutMs);
+    // The block asks the user; a deny ends the wait at its next poll.
+    const waiting = await waitingReview(botId);
+    await client.bot.review.deny({ reviewId: waiting.id });
+    await vi.advanceTimersByTimeAsync(1_000);
     vi.useRealTimers();
     for await (const _event of stream) {
       // Read to the end of the Turn.
@@ -404,6 +582,137 @@ describe("Auto-review of the Bot's shell commands", () => {
     await send(unusable.client, unusable.botId, "list my files");
     expect(unusable.reviewedOn).toEqual([model]);
     expect((await reviewUsage(unusable.user.id)).map((row) => row.model)).toEqual([model]);
+  });
+});
+
+describe("an Approval wait cut off by a crash", () => {
+  // Each test claims its Turn's job by hand: no job another test left behind may be claimed first.
+  beforeEach(async () => {
+    await getTestDb()
+      .update(job)
+      .set({ status: "cancelled" })
+      .where(inArray(job.status, ["queued", "running"]));
+  });
+
+  /**
+   * A Bot whose Turn's job the test runs by hand, one attempt at a time, on the fake job clock,
+   * each attempt on its own SDK instance as on another process. The SDK's clock stands still, so
+   * only the job clock moves past a lease. Its reviewer blocks the first call and has no second
+   * reply.
+   */
+  async function botOnHandRunJobs(
+    rounds: Round[],
+    onCommand?: (command: FakeCommandRun) => CommandResult | Promise<CommandResult>,
+  ) {
+    const reviewer = reviewerPlaying(
+      verdict({ outcome: "block", reason: "You didn't ask to deploy.", summary: "Deploy" }),
+    );
+    const fake = createFakeAdapter({ rounds });
+    const computerFake = fakeComputerProvider({ onCommand });
+    const start = new Date();
+    const timer = fakeJobClock(start);
+    const runners = new Map<TestDeps, InProcessRunner>();
+    const instance = () => {
+      let deps: TestDeps | undefined;
+      const jobs = inProcessRunner({
+        db: getTestDb(),
+        logger: silent,
+        clock: timer.clock,
+        drainMs: 1_000,
+        deps: () => deps!,
+      });
+      started.push(jobs);
+      deps = createTestSdk({
+        plugins: [bot(), computer({ provider: computerFake.provider })],
+        jobs,
+        clock: () => start,
+        adapterFor: () => fake.adapter,
+        reviewAdapterFor: () => reviewer.adapter,
+        memory: false,
+      });
+      runners.set(deps, jobs);
+      return deps;
+    };
+    const deps = instance();
+    const user = await insertUser();
+    await saveCredentials(deps, user.id, {
+      service: "openai",
+      fields: { apiKey: "openai-test-key" },
+      hint: "…-key",
+      verified: true,
+    });
+    const client = chatRpc({ user, deps });
+    const { id: botId } = await client.bot.create({ name: "Ada", model });
+    return {
+      fake,
+      reviewer,
+      computerFake,
+      client,
+      botId,
+      start,
+      /** Claims the Turn's job and runs one attempt of it on `on`, without waiting for it to end. */
+      attempt: async (on: TestDeps = deps) => {
+        const claimed = await claimJob(getTestDb(), timer.clock.now(), { respectRunAfter: false });
+        if (!claimed) throw new Error("Nothing to claim");
+        return runners.get(on)!.runClaimed(claimed);
+      },
+      /** The process running `running` dies: its lease expires and the reaper re-queues the job. */
+      crash: async (running: Promise<void>) => {
+        timer.advance(61_000);
+        await reapStaleJobs(getTestDb(), timer.clock.now(), silent, deps);
+        timer.tick();
+        await running;
+      },
+      instance,
+    };
+  }
+
+  it("resumes the wait without a second review or a new deadline, and an allow runs the call", async () => {
+    const { client, botId, fake, reviewer, computerFake, start, attempt, crash, instance } =
+      await botOnHandRunJobs([round(shell("make deploy")), round()]);
+    await client.bot.send({ botId, id: uuidv7(), text: "ship it" });
+
+    const lost = attempt();
+    const waiting = await waitingReview(botId);
+    // 15 seconds from the runner's recorded time.
+    expect(waiting.deadline).toEqual(new Date(start.getTime() + 15_000));
+    await crash(lost);
+    const resumed = attempt(instance());
+    await client.bot.review.allow({ reviewId: waiting.id });
+    await resumed;
+
+    expect(reviewer.calls).toHaveLength(1);
+    expect(await reviewsOf(botId)).toEqual([
+      expect.objectContaining({ id: waiting.id, state: "allowed", deadline: waiting.deadline }),
+    ]);
+    expect(computerFake.callsOf("run").map((call) => call.command)).toEqual(["make deploy"]);
+    expect(toolResultOf(fake.calls[1])).toMatchObject({ exitCode: 0 });
+    expect((await turnsOf(botId))[0]).toMatchObject({ status: "complete" });
+  });
+
+  it("replays a decided wait after a crash, with no second review", async () => {
+    let commandStarted = () => {};
+    const commandRan = new Promise<void>((resolve) => (commandStarted = resolve));
+    const { client, botId, fake, reviewer, computerFake, attempt, crash, instance } =
+      await botOnHandRunJobs([round(shell("make deploy")), round()], ({ signal }) => {
+        commandStarted();
+        return new Promise<CommandResult>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(new Error("killed")));
+        });
+      });
+    await client.bot.send({ botId, id: uuidv7(), text: "ship it" });
+
+    const lost = attempt();
+    const waiting = await waitingReview(botId);
+    await client.bot.review.allow({ reviewId: waiting.id });
+    await commandRan;
+    await crash(lost);
+    await attempt(instance());
+
+    expect(reviewer.calls).toHaveLength(1);
+    expect(computerFake.callsOf("run").map((call) => call.command)).toEqual(["make deploy"]);
+    expect(toolResultOf(fake.calls[1])).toEqual({ error: interruptedShellError });
+    expect((await turnsOf(botId))[0]).toMatchObject({ status: "complete" });
   });
 });
 

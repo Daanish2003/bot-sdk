@@ -44,6 +44,7 @@ import {
   type PromptStartParts,
   promptStartFor,
 } from "./prompt-start";
+import { closeWaitingReviews } from "./review";
 import { historyFrom, historyTurns, queueAwaySummary, summaryOf, writeSummary } from "./summary";
 import {
   botMessages,
@@ -455,7 +456,12 @@ export async function stopBot(deps: BotSdkContext, userId: string, botId: string
     const running = await runningTurnOf(tx, botId);
     if (!running) return false;
     await tx.update(botTrigger).set({ turnId: running }).where(waitingIn(found.conversationId));
-    return cancelTurn(deps, tx, running);
+    // Cancelled first: under the job's row lock, a `waiting` row's Checkpoint either committed
+    // before the denial below reads it, or fails its fence and rolls back.
+    const ended = await cancelTurn(deps, tx, running);
+    // A Stop during an Approval wait counts as no (ADR 0024).
+    await closeWaitingReviews(deps, tx, running, "denied");
+    return ended;
   });
   if (!ended) return;
   deps.plugin("runner").wake();
@@ -724,6 +730,8 @@ async function endRunningTurn(
       .where(and(eq(botTurn.id, turn.id), eq(botTurn.status, "running")))
       .returning({ id: botTurn.id });
     if (rows.length === 0) return false;
+    // A Turn cut off mid-wait (its time limit) leaves no request open.
+    await closeWaitingReviews(deps, tx, turn.id, "expired");
     await queueAwaySummary(deps, tx, { botId: turn.botId, lastInput: played.lastInput, endedAt });
     await turnEnded(deps, tx, turn.id);
     return true;

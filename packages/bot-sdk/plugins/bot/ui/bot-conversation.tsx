@@ -21,6 +21,7 @@ import { ComputerCard } from "./computer-card";
 import { HelperCard } from "./helper-card";
 import { isLiveHelper } from "../shared/helper";
 import { ReviewPassesLine } from "./review-passes-line";
+import { ReviewRequest } from "./review-request";
 import { RoutineCard } from "./routine-card";
 import { RoutinesPopover } from "./routines-popover";
 import { SecretCard } from "./secret-card";
@@ -108,7 +109,12 @@ function BotConversationView({
     void stopHelpers(helperId).catch((refusal) => toast.error(serverErrorText(i18n, refusal)));
   const onHelperDone = (helperId: string) =>
     void helperDone(helperId).catch((refusal) => toast.error(serverErrorText(i18n, refusal)));
-  const reviews = useBotReviews(botId, working);
+  const {
+    reviews,
+    acting: actingReviews,
+    allow: allowReview,
+    deny: denyReview,
+  } = useBotReviews(botId, working);
   const {
     secrets,
     acting: actingSecrets,
@@ -257,6 +263,25 @@ function BotConversationView({
       ]);
   }
 
+  // Each Turn's Approval request at the call's place: after the last Message saved before it (""
+  // with none). A Helper's nests under its Helper instead.
+  const requestsAfter = new Map<string, ReactNode[]>();
+  for (const review of reviews) {
+    if (review.verdict !== "block" || !review.turnId || review.helperId) continue;
+    const key =
+      messages.filter((message) => message.createdAt <= review.createdAt).at(-1)?.id ?? "";
+    requestsAfter.set(key, [
+      ...(requestsAfter.get(key) ?? []),
+      <ReviewRequest
+        key={review.id}
+        review={review}
+        onAllow={allowReview}
+        onDeny={denyReview}
+        acting={actingReviews.has(review.id)}
+      />,
+    ]);
+  }
+
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) submit(event);
   };
@@ -309,6 +334,7 @@ function BotConversationView({
             >
               {message.text}
             </div>
+            {requestsAfter.get(message.id)}
             {afterTurnOf.get(message.id)}
             {message.computer && (
               <ComputerCard
@@ -345,6 +371,7 @@ function BotConversationView({
         {summariesBefore.get("")}
         {warmingsBefore.get("")}
         {runsBefore.get("")}
+        {requestsAfter.get("")}
         {afterTurnOf.get("")}
         {routinesAfter.get("")?.map(routineCard)}
         {checkInsAfter.get("")?.map(checkInLine)}
