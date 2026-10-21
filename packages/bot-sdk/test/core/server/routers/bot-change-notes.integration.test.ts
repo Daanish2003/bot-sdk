@@ -362,7 +362,7 @@ describe("Change notes", () => {
     );
     expect(JSON.stringify(turnTwo?.tools)).not.toContain('"secrets"');
     expect(newestWith(fake.calls, "turn two")).toMatch(
-      /\[Tool changed: shell\. .*call describe_tool for it before you call it again\./,
+      /\[Tool changed: shell\. .*call describe_tool for it, then call it with run_tool./,
     );
     const described = turnCalls(fake.calls)
       .flatMap((call) => messagesOf(call))

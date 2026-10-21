@@ -4,6 +4,7 @@ import {
   maskedFormsOf,
   maskResult,
   maskSecrets,
+  secretMasker,
 } from "../../../../plugins/bot/server/secret-values";
 
 const base64 = (text: string) => Buffer.from(text, "utf8").toString("base64");
@@ -27,13 +28,15 @@ describe("masking a Secret's value", () => {
 
     expect(maskSecrets(`${printed}\n`, [value])).toBe("***\n");
     expect(maskSecrets(wrapped(base64(value)), [value])).toBe("***");
+    // The Computer's streaming redaction takes plain strings: it gets the wrapped form too.
+    expect(maskedFormsOf([value])).toContain(printed);
   });
 
   it("masks every string of a result, and leaves one with no Secret as it is", () => {
     const value = "hunter2-long";
     const result = { lines: [`a ${value}`, encodeURIComponent(`${value}`)], n: 1 };
 
-    expect(maskResult(result, [value])).toEqual({ lines: ["a ***", "***"], n: 1 });
-    expect(maskResult(result, [])).toBe(result);
+    expect(maskResult(result, secretMasker([value]))).toEqual({ lines: ["a ***", "***"], n: 1 });
+    expect(maskResult(result, secretMasker([]))).toBe(result);
   });
 });

@@ -12,13 +12,17 @@ import type { Database } from "../../../core/server/db/index";
 import { rpcError } from "../../../core/server/rpc-error";
 import type { BotSdkContext } from "../../../core/server/plugin";
 import type { BotSecret } from "../shared/secret";
-import { minSecretLength, secretEncryption, usableSecretValue } from "./secret-values";
+import {
+  minSecretLength,
+  savedSecretText,
+  secretEncryption,
+  usableSecretValue,
+} from "./secret-values";
 import { hintChanged } from "./turn";
 import { receive } from "./router";
 import { findBot } from "./store";
 
-/** The Trigger text that wakes the Bot once the user saved Secret `name`: the name, never the value. */
-export const savedSecretText = (name: string) => `Saved secret ${name}`;
+export { savedSecretText } from "./secret-values";
 
 /** The Trigger id of a save of Secret `name` at `at`, unique per save. */
 const savedTriggerId = (userId: string, name: string, at: Date) =>

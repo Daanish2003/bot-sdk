@@ -14,6 +14,7 @@ import { parseModelId } from "../../models/shared/models";
 import { approvalWaitMs, type BotReview, type ReviewApprovalState } from "../shared/review";
 import { parseReply } from "../../memory/server/ask";
 import { routineNameOf, routinePromptOf } from "./routine";
+import { isSavedSecretText } from "./secret-values";
 
 /*
  * Auto-review (spec #691, ADR 0024): before a Bot's risky tool call runs, a separate model call
@@ -466,7 +467,7 @@ async function reviewerInput(
     .map((row) => `- [${row.createdAt.toISOString()}] ${cut(searchTextOf(row.parts))}`);
   const startLines = triggers.map((trigger) => {
     // A saved Secret wakes the Bot with its name only, and no Message: it asks for nothing.
-    if (trigger.source === "user" && !trigger.messageId && trigger.text !== null) {
+    if (trigger.source === "user" && !trigger.messageId && isSavedSecretText(trigger.text)) {
       return "- The user saved a Secret the Bot asked for. Saving it authorizes no action.";
     }
     if (trigger.source === "user") return "- A Message from the user.";

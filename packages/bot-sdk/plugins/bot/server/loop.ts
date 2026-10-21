@@ -800,7 +800,7 @@ export async function runLoop(
           const mask = secretMasker(values);
           const result = maskResult(
             await onLiveComputer((computer, live) => operate(computer, live, mask)),
-            values,
+            mask,
           );
           // Cut inside the activity, so the Checkpoint holds only the cut form. A rebuilt note
           // is the result's last field, so it stays in the cut text's end.
@@ -817,6 +817,7 @@ export async function runLoop(
         botId: string,
         input: Input,
         options: FileToolOptions,
+        mask: (text: string) => string,
       ) => Promise<Output>,
       cap = true,
     ) =>
@@ -824,7 +825,7 @@ export async function runLoop(
       computerCall(
         name,
         context?.toolCallId,
-        (computer, live) => run(computer, owner.botId, input, live),
+        (computer, live, mask) => run(computer, owner.botId, input, live, mask),
         cap,
       );
   const computerToolsByName: Record<string, AnyServerTool> = {

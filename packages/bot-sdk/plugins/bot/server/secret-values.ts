@@ -16,6 +16,13 @@ export function usableSecretValue(value: string): string | undefined {
   return trimmed.length >= minSecretLength ? trimmed : undefined;
 }
 
+/** The Trigger text that wakes the Bot once the user saved Secret `name`: the name, never the value. */
+export const savedSecretText = (name: string) => `Saved secret ${name}`;
+
+/** Whether a Trigger's text is a saved Secret's wake notice (`savedSecretText`). */
+export const isSavedSecretText = (text: string | null) =>
+  text !== null && /^Saved secret \S+$/.test(text);
+
 /** Binds a Secret's ciphertext to its row, so a row copied elsewhere won't decrypt. */
 export const secretEncryption = (
   sdk: Pick<BotSdkContext, "keyring">,
@@ -92,10 +99,24 @@ function allFormsOf(values: Iterable<string>): MaskedForm[] {
   return [...byText.values()].sort((a, b) => b.text.length - a.text.length);
 }
 
-/** Every form of `values` that is masked, the longest first, as the Computer's `redact` takes them. */
+/** How many columns GNU `base64` prints a line of. */
+const base64Columns = 76;
+
+/**
+ * Every form of `values` that is masked, the longest first, as the Computer's `redact` takes
+ * them: plain strings, so a base64 form long enough to wrap is also given wrapped at 76 columns.
+ */
 export function maskedFormsOf(values: Iterable<string>): string[] {
-  return allFormsOf(values).map((form) => form.text);
+  const texts = allFormsOf(values).flatMap((form) =>
+    form.wraps && form.text.length > base64Columns
+      ? [form.text, (form.text.match(/.{1,76}/g) ?? []).join("\n")]
+      : [form.text],
+  );
+  return [...new Set(texts)].sort((a, b) => b.length - a.length);
 }
+
+/** The masker of no Secrets: it changes nothing. */
+const unmasked = (text: string) => text;
 
 const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -107,7 +128,7 @@ const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
  */
 export function secretMasker(values: Iterable<string>): (text: string) => string {
   const forms = allFormsOf(values);
-  if (forms.length === 0) return (text) => text;
+  if (forms.length === 0) return unmasked;
   const pattern = new RegExp(
     forms
       .map((form) =>
@@ -128,11 +149,9 @@ export function maskSecrets(text: string, values: Iterable<string>): string {
   return secretMasker(values)(text);
 }
 
-/** `maskSecrets` over every string of a JSON-like result (a `read` result's lines, a hint). */
-export function maskResult<T>(result: T, values: Iterable<string>): T {
-  const list = [...values];
-  if (list.length === 0) return result;
-  const mask = secretMasker(list);
+/** `mask` (a `secretMasker`) over every string of a JSON-like result (a `read` result's lines, a hint). */
+export function maskResult<T>(result: T, mask: (text: string) => string): T {
+  if (mask === unmasked) return result;
   const walk = (node: unknown): unknown => {
     if (typeof node === "string") return mask(node);
     if (Array.isArray(node)) return node.map(walk);

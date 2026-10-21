@@ -471,6 +471,7 @@ export async function readTool(
   botId: string,
   input: { path: string; offset?: number; limit?: number },
   options: FileToolOptions = {},
+  mask: (text: string) => string = (text) => text,
 ) {
   const path = resolvePath(botId, input.path);
   const start = wholeAtLeast(input.offset ?? 1, 1);
@@ -489,7 +490,8 @@ export async function readTool(
   const bytes = dropSplitCharacters(Buffer.from(found.rest.trim(), "base64"));
   const decoded = decodeText(bytes, path);
   if ("error" in decoded) return decoded;
-  const page = numberLines(decoded.text, start, totalLines);
+  // Masked of the user's Secrets before a long line is cut, so a value is never half kept by it.
+  const page = numberLines(mask(decoded.text), start, totalLines);
   const nextOffset = "nextOffset" in page ? page.nextOffset : undefined;
   if (nextOffset === undefined || nextOffset > Math.min(start + count - 1, totalLines)) return page;
   return {
