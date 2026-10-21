@@ -330,6 +330,46 @@ describe("Change notes", () => {
     expect(JSON.stringify(results)).toMatch(/endTurn.*Call send_to_user again/);
   });
 
+  it("tell the Bot to load a changed tool's definition, which has its new arguments, such as shell's secrets", async () => {
+    const { fake, client, botId } = await botWith([
+      round(),
+      round(toolCall({ name: "describe_tool", input: { name: "shell" } })),
+      round(),
+    ]);
+
+    await send(client, botId, "turn one");
+    // The Prompt start was stored before shell took `secrets` (spec #691).
+    const [start] = await getTestDb()
+      .select()
+      .from(botPromptStart)
+      .where(eq(botPromptStart.botId, botId));
+    const withoutSecrets = start!.tools.map((tool) => {
+      if (tool.name !== "shell") return tool;
+      const schema = tool.inputSchema as { properties: Record<string, unknown> };
+      const { secrets: _secrets, ...properties } = schema.properties;
+      return { ...tool, inputSchema: { ...schema, properties } } as typeof tool;
+    });
+    expect(JSON.stringify(withoutSecrets)).not.toContain('"secrets"');
+    await getTestDb()
+      .update(botPromptStart)
+      .set({ tools: withoutSecrets })
+      .where(eq(botPromptStart.id, start!.id));
+    await send(client, botId, "turn two");
+
+    // The stored definitions are still the ones sent; the note says where the new one is.
+    const turnTwo = turnCalls(fake.calls).find((call) =>
+      String(messagesOf(call).at(-1)?.content).includes("turn two"),
+    );
+    expect(JSON.stringify(turnTwo?.tools)).not.toContain('"secrets"');
+    expect(newestWith(fake.calls, "turn two")).toMatch(
+      /\[Tool changed: shell\. .*call describe_tool for it, then call it with run_tool./,
+    );
+    const described = turnCalls(fake.calls)
+      .flatMap((call) => messagesOf(call))
+      .find((entry) => entry.role === "tool" && String(entry.content).includes('"name":"shell"'));
+    expect(String(described?.content)).toContain('"secrets"');
+  });
+
   it("keeps a tool removed by a deploy defined, and answers that it is no longer available", async () => {
     const { fake, client, botId } = await botWith([
       round(),

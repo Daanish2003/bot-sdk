@@ -14,6 +14,7 @@ import { parseModelId } from "../../models/shared/models";
 import { approvalWaitMs, type BotReview, type ReviewApprovalState } from "../shared/review";
 import { parseReply } from "../../memory/server/ask";
 import { routineNameOf, routinePromptOf } from "./routine";
+import { isSavedSecretText } from "./secret-values";
 
 /*
  * Auto-review (spec #691, ADR 0024): before a Bot's risky tool call runs, a separate model call
@@ -136,15 +137,13 @@ export async function reviewToolCall(
     input: Record<string, unknown>;
   },
 ): Promise<{ error: string } | null> {
-  // The meter of the call the live review made; a replay of a recorded one resolves it again.
+  // The meter of the call the live review made; a live write after a replayed review resolves it
+  // again, and a replayed write needs none.
   let liveMeter: ModelMeter | undefined;
   const reviewed = await kit.activity("review", async () => {
     kit.beforeLive();
     return judge(deps, kit, { owner, source, tool, input }, (meter) => (liveMeter = meter));
   });
-  const meter = reviewed.bill
-    ? (liveMeter ?? (await reviewMeter(deps, owner.userId, reviewed.model)))
-    : undefined;
   // A block asks the user at once: its Approval's deadline counts from the runner's recorded time,
   // so a replay keeps it.
   const deadline =
@@ -174,7 +173,8 @@ export async function reviewToolCall(
       ...(deadline && { state: "waiting" as const, deadline }),
       createdAt: deps.clock(),
     });
-    if (reviewed.bill && meter) {
+    if (reviewed.bill) {
+      const meter = liveMeter ?? (await reviewMeter(deps, owner.userId, reviewed.model));
       onCommit(
         await meter.recordIn(tx, {
           kind: "review",
@@ -304,7 +304,7 @@ export async function closeWaitingReviews(
     .where(and(owned, eq(botReview.state, "waiting")));
 }
 
-/** The meter a review on `model` bills, resolved outside the Checkpoint's transaction. */
+/** The meter a review on `model` bills. */
 async function reviewMeter(deps: BotSdkContext, userId: string, model: string) {
   const call = await deps.plugin("models").resolveModelCall(userId, model);
   return meterOf(deps, userId, model, call?.meter);
@@ -450,7 +450,12 @@ async function reviewerInput(
       .limit(reviewedMessages),
     // A Helper's: what started the Turn that started it, such as an approved Routine.
     db
-      .select({ source: botTrigger.source, channel: botTrigger.channel, text: botTrigger.text })
+      .select({
+        source: botTrigger.source,
+        channel: botTrigger.channel,
+        messageId: botTrigger.messageId,
+        text: botTrigger.text,
+      })
       .from(botTrigger)
       .where(eq(botTrigger.turnId, "turnId" in source ? source.turnId : source.startedByTurnId))
       .orderBy(asc(botTrigger.receivedAt), asc(botTrigger.id)),
@@ -461,6 +466,10 @@ async function reviewerInput(
     .reverse()
     .map((row) => `- [${row.createdAt.toISOString()}] ${cut(searchTextOf(row.parts))}`);
   const startLines = triggers.map((trigger) => {
+    // A saved Secret wakes the Bot with its name only, and no Message: it asks for nothing.
+    if (trigger.source === "user" && !trigger.messageId && isSavedSecretText(trigger.text)) {
+      return "- The user saved a Secret the Bot asked for. Saving it authorizes no action.";
+    }
     if (trigger.source === "user") return "- A Message from the user.";
     if (trigger.source === "routine") {
       const name = routineNameOf(trigger.text) ?? "";
@@ -501,25 +510,46 @@ async function reviewerInput(
   ].join("\n\n");
 }
 
-/** The Bot's reviews, oldest first, for its Turns' passes lines and its Approval cards. */
+/** How many of a Bot's newest reviews `listReviews` returns, besides the waiting ones. */
+export const listedReviews = 100;
+
+const reviewFields = {
+  id: botReview.id,
+  turnId: botReview.turnId,
+  helperId: botReview.helperId,
+  toolCallId: botReview.toolCallId,
+  tool: botReview.tool,
+  input: botReview.input,
+  summary: botReview.summary,
+  verdict: botReview.verdict,
+  reason: botReview.reason,
+  state: botReview.state,
+  deadline: botReview.deadline,
+  decidedAt: botReview.decidedAt,
+  createdAt: botReview.createdAt,
+};
+
+/**
+ * The Bot's reviews, oldest first, for its Turns' passes lines and its Approval cards: its newest
+ * `listedReviews`, and every one still waiting for the user however old, so the list a live Turn
+ * polls stays bounded. Older Turns show no passes line.
+ */
 export async function listReviews(db: Database, botId: string): Promise<BotReview[]> {
-  return db
-    .select({
-      id: botReview.id,
-      turnId: botReview.turnId,
-      helperId: botReview.helperId,
-      toolCallId: botReview.toolCallId,
-      tool: botReview.tool,
-      input: botReview.input,
-      summary: botReview.summary,
-      verdict: botReview.verdict,
-      reason: botReview.reason,
-      state: botReview.state,
-      deadline: botReview.deadline,
-      decidedAt: botReview.decidedAt,
-      createdAt: botReview.createdAt,
-    })
-    .from(botReview)
-    .where(eq(botReview.botId, botId))
-    .orderBy(asc(botReview.createdAt), asc(botReview.id));
+  const [newest, waiting] = await Promise.all([
+    db
+      .select(reviewFields)
+      .from(botReview)
+      .where(eq(botReview.botId, botId))
+      .orderBy(desc(botReview.createdAt), desc(botReview.id))
+      .limit(listedReviews),
+    db
+      .select(reviewFields)
+      .from(botReview)
+      .where(and(eq(botReview.botId, botId), eq(botReview.state, "waiting"))),
+  ]);
+  const byId = new Map([...newest, ...waiting].map((row) => [row.id, row]));
+  return [...byId.values()].sort(
+    (a, b) =>
+      a.createdAt.getTime() - b.createdAt.getTime() || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+  );
 }

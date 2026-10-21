@@ -245,8 +245,8 @@ const botRouter = {
   /** The Auto-reviews of the caller's Bots' tool calls (spec #691). */
   review: {
     /**
-     * One of the caller's Bots' reviews, oldest first, each with its Turn or Helper: what the
-     * passes line under a Turn lists. Another user's Bot is not found.
+     * One of the caller's Bots' newest reviews and its waiting ones, oldest first, each with its
+     * Turn or Helper: what the passes line under a Turn lists. Another user's Bot is not found.
      */
     list: protectedProcedure
       .input(z.object({ botId: z.uuid() }))

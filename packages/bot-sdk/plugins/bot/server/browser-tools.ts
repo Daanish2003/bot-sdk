@@ -265,11 +265,12 @@ export function browserTools(
       computerCall(
         name,
         context?.toolCallId,
-        async (computer) => {
+        async (computer, _live, mask) => {
           const read = await run(computer, input);
           if ("error" in read) return read;
+          // Masked before the cut, so a Secret's value is never half kept by it.
           const capped = await capSnapshot(
-            read.snapshot,
+            mask(read.snapshot),
             spillPath(botId, context?.toolCallId ?? uuidv7()),
             computer.writeFile,
           );

@@ -404,6 +404,23 @@ describe("Secrets", () => {
     expect(JSON.stringify(result)).not.toContain(token);
   });
 
+  it("masks a value in a long line the Bot reads before the line is cut", async () => {
+    // The value starts 5 characters before `read` cuts a line, at 2,000 characters.
+    const line = `${"x".repeat(1_995)}${token}${"y".repeat(100)}`;
+    const { client, botId, deps, user, fake } = await botWith([
+      round(toolCall({ name: "write", input: { path: "long.txt", content: `${line}\n` } })),
+      round(toolCall({ name: "read", input: { path: "long.txt" } })),
+      round(sends("Done.")),
+    ]);
+    await storeSecret(deps, user.id, "GITHUB_TOKEN", token);
+
+    await send(client, botId, "read it");
+
+    const result = toolResultOf(fake.calls.at(-1));
+    expect(JSON.stringify(result)).toContain("***");
+    expect(JSON.stringify(result)).not.toContain(token.slice(0, 5));
+  });
+
   it("answers a Secret the user does not have with an error that lists the names, and runs nothing", async () => {
     const { client, botId, deps, user, fake, computerFake } = await botWith([
       round(shell("deploy", ["NPM_TOKEN"])),

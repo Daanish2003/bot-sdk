@@ -85,7 +85,10 @@ export function ReviewRequest({
         {review.summary}
       </div>
       <div className="text-sm">{review.reason}</div>
-      <code className="truncate rounded bg-background/70 px-2 py-1 text-xs">{rawCall(review)}</code>
+      {/* The whole command, wrapped and scrollable, so the user reads its end before Allow. */}
+      <pre className="max-h-40 overflow-y-auto rounded bg-background/70 px-2 py-1 text-xs break-all whitespace-pre-wrap">
+        <code>{rawCall(review)}</code>
+      </pre>
       <div className="flex items-center gap-2">
         <Button size="sm" disabled={acting} onClick={() => run(onAllow(review.id))}>
           {t("bots.reviewAllow")}
