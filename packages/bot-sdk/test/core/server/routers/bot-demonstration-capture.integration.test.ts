@@ -97,7 +97,10 @@ beforeAll(async () => {
       <label>Name <input id="name"></label>
       <input id="pw" type="password" aria-label="Password">
       <select aria-label="Colour"><option>red</option><option>blue</option></select>
-      <a id="next" href="/next">Next</a>`,
+      <a id="next" href="/next">Next</a>
+      <input id="secret" type="password" aria-label="Secret">
+      <button id="show" onclick="document.getElementById('secret').type = 'text'">Show</button>
+      <label><input id="remember" type="checkbox"> <span id="remember-text">Remember me</span></label>`,
     ),
     "/next": html("Next", `<button>Second</button>`),
     "/frames": html(
@@ -298,6 +301,44 @@ describe("capturing a Demonstration", () => {
     });
     expect(JSON.stringify(events)).not.toContain("hunter2");
     expect(await deps.blobStore.get(events[2]!.screenshotKey!)).not.toBeNull();
+  }, 60_000);
+
+  it("keeps a password masked once its field is shown as text", async () => {
+    const { demonstrationId, page } = await demonstrating();
+
+    await page.locator("#secret").fill("hunter2");
+    await page.locator("#show").click();
+    await page.locator("#secret").fill("hunter2!");
+    await page.locator("#go").click();
+
+    await expect
+      .poll(async () => (await eventsOf(demonstrationId)).map((event) => event.kind), poll)
+      .toEqual(["navigation", "input", "click", "input", "click"]);
+    const events = await eventsOf(demonstrationId);
+    expect(JSON.stringify(events)).not.toContain("hunter2");
+    expect(events[3]).toMatchObject({ value: maskedValue, screenshotKey: null });
+  }, 60_000);
+
+  it("records a click on a label as one click on its control", async () => {
+    const { demonstrationId, page } = await demonstrating();
+
+    await page.locator("#remember-text").click();
+
+    await expect
+      .poll(
+        async () =>
+          (await eventsOf(demonstrationId)).map(({ kind, selector, value }) => [
+            kind,
+            selector,
+            value,
+          ]),
+        poll,
+      )
+      .toEqual([
+        ["navigation", null, null],
+        ["click", "#remember", null],
+        ["change", "#remember", "true"],
+      ]);
   }, 60_000);
 
   it("captures nothing while paused, and marks the gap", async () => {

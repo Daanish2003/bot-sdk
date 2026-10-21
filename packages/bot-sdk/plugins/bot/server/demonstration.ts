@@ -55,16 +55,23 @@ export const demonstrationCheckJobName = "bot.demonstration_check";
 export const demonstrationCaptureJobName = "bot.demonstration_capture";
 
 /**
- * Queues the capture of Demonstration `demonstrationId`, unless it is queued or running already.
+ * Queues round `round` of Demonstration `demonstrationId`'s capture, `delayMs` from now, unless it
+ * is queued or running already.
  */
-export async function startCapture(deps: BotSdkContext, demonstrationId: string) {
-  await deps
-    .plugin("runner")
-    .enqueue(
-      demonstrationCaptureJobName,
-      { demonstrationId },
-      { idempotencyKey: `demonstration_capture:${demonstrationId}` },
-    );
+export async function startCapture(
+  deps: BotSdkContext,
+  demonstrationId: string,
+  round = 1,
+  delayMs = 0,
+) {
+  await deps.plugin("runner").enqueue(
+    demonstrationCaptureJobName,
+    { demonstrationId, round },
+    {
+      idempotencyKey: `demonstration_capture:${demonstrationId}:${round}`,
+      runAfter: new Date(deps.clock().getTime() + delayMs),
+    },
+  );
 }
 
 export const computerUseHelperHoldsScreenError =
@@ -433,8 +440,6 @@ export const demonstrationCheckJob = defineJob({
       await move(deps, demonstrationId, "done");
       return;
     }
-    // A capture whose Screen's Chrome couldn't be reached, or dropped, starts again (#719).
-    await startCapture(deps, demonstrationId);
     await deps
       .plugin("runner")
       .enqueue(

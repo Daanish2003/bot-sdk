@@ -1,18 +1,17 @@
 import { setTimeout as sleep } from "node:timers/promises";
 
-import { and, asc, count, eq, ne } from "drizzle-orm";
+import { and, asc, eq, max, sql } from "drizzle-orm";
 import { type Browser, chromium, type Page } from "playwright-core";
 import { z } from "zod";
 
 import { botDemonstration, botDemonstrationEvent } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
-import type { Database } from "../../../core/server/db/index";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
 import { defineJob } from "../../runner/server/jobs/define";
 import { type DemonstrationStep, isLiveDemonstration } from "../shared/demonstration";
 import { computerOf } from "./computer-tools";
-import { demonstrationCaptureJobName, move, nextSequence, rewriteCard } from "./demonstration";
+import { demonstrationCaptureJobName, move, rewriteCard, startCapture } from "./demonstration";
 import { lockConversation } from "./router";
 import { hintChanged } from "./turn";
 
@@ -32,6 +31,12 @@ export const demonstrationEventLimit = 200;
 
 /** How often the capture checks that its Demonstration is still live. */
 const checkMs = 500;
+
+/** How long one round of the capture holds its connection before the next round takes over. */
+const captureRoundMs = 3 * 60_000;
+
+/** How long after a Chrome it couldn't reach, or a dropped connection, the next round starts. */
+const reconnectMs = 5_000;
 
 /** How long a step's screenshot may take before the step is stored without one. */
 const screenshotTimeoutMs = 5_000;
@@ -64,8 +69,16 @@ const listenerSource = (name: string) => String.raw`(() => {
     const element = event.composedPath ? event.composedPath()[0] : event.target;
     return element instanceof Element ? element : null;
   };
-  const isPassword = (element) =>
-    element instanceof HTMLInputElement && element.type === "password";
+  // A field that was a password once stays masked, so a "show password" toggle can't unmask it.
+  const passwords = new WeakSet();
+  const isPassword = (element) => {
+    if (element instanceof HTMLInputElement && element.type === "password") passwords.add(element);
+    return passwords.has(element);
+  };
+  addEventListener("focusin", (event) => {
+    const element = target(event);
+    if (element) isPassword(element);
+  }, true);
   const isTyped = (element) =>
     element instanceof HTMLTextAreaElement ||
     element.isContentEditable ||
@@ -133,8 +146,11 @@ const listenerSource = (name: string) => String.raw`(() => {
   addEventListener("click", (event) => {
     const element = target(event);
     if (!element) return;
+    const clicked = element.closest(clickable) || element;
+    // The browser clicks a label's control next, and that click is the step.
+    if (clicked instanceof HTMLLabelElement && clicked.control && clicked.control !== element) return;
     flush();
-    send(stepOf("click", element.closest(clickable) || element, null));
+    send(stepOf("click", clicked, null));
   }, true);
   addEventListener("input", (event) => {
     const element = target(event);
@@ -212,25 +228,27 @@ type Captured = {
   screen: number;
 };
 
-/** The steps a Demonstration has stored, its pause marks left out. */
-const capturedCount = async (db: Database | Transaction, demonstrationId: string) => {
-  const [row] = await db
-    .select({ steps: count() })
-    .from(botDemonstrationEvent)
-    .where(
-      and(
-        eq(botDemonstrationEvent.demonstrationId, demonstrationId),
-        ne(botDemonstrationEvent.kind, "pause"),
+/** The steps a Demonstration has stored, its pause marks left out, and its next sequence. */
+const tally = async (tx: Transaction, demonstrationId: string) => {
+  const [row] = await tx
+    .select({
+      steps: sql<number>`count(*) filter (where ${botDemonstrationEvent.kind} <> 'pause')`.mapWith(
+        Number,
       ),
-    );
-  return row?.steps ?? 0;
+      last: max(botDemonstrationEvent.sequence),
+    })
+    .from(botDemonstrationEvent)
+    .where(eq(botDemonstrationEvent.demonstrationId, demonstrationId));
+  return { steps: row?.steps ?? 0, sequence: (row?.last ?? 0) + 1 };
 };
 
 /**
  * Stores one step of Demonstration `demonstration.id`, while it records: its row, with the
  * screenshot `screenshot` takes (none for a masked step), and its card's step count. A step that
- * comes while it is paused or has ended is dropped before any screenshot. The step that reaches
- * `demonstrationEventLimit` ends it as Done.
+ * comes while it is paused or has ended is dropped before any screenshot; one that a Pause
+ * overtakes while its screenshot is taken is dropped with it, unstored. The screenshot is put in
+ * the blob store after the row commits, outside the locks, and a put that fails clears its key.
+ * The step that reaches `demonstrationEventLimit` ends it as Done.
  */
 async function storeStep(
   deps: BotSdkContext,
@@ -256,14 +274,15 @@ async function storeStep(
       .where(eq(botDemonstration.id, demonstration.id))
       .for("update");
     if (row?.state !== "recording") return undefined;
-    const steps = (await capturedCount(tx, demonstration.id)) + 1;
+    const { steps: before, sequence } = await tally(tx, demonstration.id);
+    const steps = before + 1;
     if (steps > demonstrationEventLimit) return undefined;
     const id = uuidv7();
     const screenshotKey = png ? demonstrationEventBlobKey(demonstration.id, id) : null;
     await tx.insert(botDemonstrationEvent).values({
       id,
       demonstrationId: demonstration.id,
-      sequence: await nextSequence(tx, demonstration.id),
+      sequence,
       offsetMs: Math.max(0, deps.clock().getTime() - row.startedAt.getTime()),
       kind: step.kind,
       url: step.url,
@@ -272,18 +291,26 @@ async function storeStep(
       value: step.masked && step.value !== null ? maskedValue : step.value,
       screenshotKey,
     });
-    if (png && screenshotKey) {
-      await deps.blobStore.put(screenshotKey, png, { contentType: "image/png" });
-    }
     await rewriteCard(tx, demonstration.conversationId, demonstration.id, (card) => ({
       ...card,
       steps,
     }));
-    return steps;
+    return { id, steps, screenshotKey };
   });
   if (stored === undefined) return;
+  if (png && stored.screenshotKey) {
+    await deps.blobStore
+      .put(stored.screenshotKey, png, { contentType: "image/png" })
+      .catch(async (caught: unknown) => {
+        deps.logger.error("Storing a Demonstration step's screenshot failed", caught);
+        await deps.db
+          .update(botDemonstrationEvent)
+          .set({ screenshotKey: null })
+          .where(eq(botDemonstrationEvent.id, stored.id));
+      });
+  }
   await hintChanged(deps, demonstration.conversationId);
-  if (stored >= demonstrationEventLimit) await move(deps, demonstration.id, "done");
+  if (stored.steps >= demonstrationEventLimit) await move(deps, demonstration.id, "done");
 }
 
 /**
@@ -295,7 +322,7 @@ async function storeStep(
 async function connect(
   deps: BotSdkContext,
   demonstration: Captured,
-  pending: { chain: Promise<void> },
+  pending: { chain: Promise<void>; closing: boolean },
 ): Promise<Browser> {
   const { cdp } = await computerOf(deps, demonstration.userId).screenUrls(demonstration.screen);
   const browser = await chromium.connectOverCDP(cdp.url, { headers: cdp.headers, timeout: 30_000 });
@@ -305,7 +332,7 @@ async function connect(
     const name = `__botDemonstration_${demonstration.id.replaceAll("-", "")}`;
     await context.exposeBinding(name, ({ page }: { page: Page }, reported: unknown) => {
       const step = reportedStepSchema.safeParse(reported);
-      if (!step.success) return;
+      if (!step.success || pending.closing) return;
       pending.chain = pending.chain
         .then(() =>
           storeStep(deps, demonstration, step.data, () =>
@@ -327,17 +354,18 @@ async function connect(
 }
 
 /**
- * The capture of one Demonstration (#719), queued once its Screen opened: it holds a CDP connection
- * to the Screen's Chrome while the Demonstration is live, in the `helper` lane, since it runs for as
- * long as the user shows. A Chrome it can't reach, or a connection that drops, ends the job; the
- * Demonstration's time-cap check queues it again within a minute. It ends once the Demonstration
- * has, after storing the steps already reported.
+ * The capture of one Demonstration (#719), queued once its Screen opened, in the `helper` lane since
+ * it runs for as long as the user shows: in rounds of up to `captureRoundMs`, each one job holding
+ * a CDP connection to the Screen's Chrome while the Demonstration is live, so no attempt nears the
+ * runner's attempt cap and a deploy's drain waits for one round at most. A round that ends with the
+ * Demonstration still live queues the next; one whose Chrome it can't reach, or whose connection
+ * dropped, queues it `reconnectMs` later. A round stores the steps already reported before it ends.
  */
 export const demonstrationCaptureJob = defineJob({
   name: demonstrationCaptureJobName,
   lane: "helper",
-  payload: z.object({ demonstrationId: z.uuid() }),
-  run: async ({ demonstrationId }, { deps, signal }) => {
+  payload: z.object({ demonstrationId: z.uuid(), round: z.number().int().min(1).default(1) }),
+  run: async ({ demonstrationId, round }, { deps, signal }) => {
     const live = async () => {
       const [row] = await deps.db
         .select({
@@ -353,19 +381,27 @@ export const demonstrationCaptureJob = defineJob({
     };
     const demonstration = await live();
     if (!demonstration) return;
-    const pending = { chain: Promise.resolve() };
+    const pending = { chain: Promise.resolve(), closing: false };
     let browser: Browser;
     try {
       browser = await connect(deps, demonstration, pending);
     } catch (caught) {
       deps.logger.error(`Capturing Demonstration ${demonstrationId} couldn't connect`, caught);
+      await startCapture(deps, demonstrationId, round + 1, reconnectMs);
       return;
     }
+    const ends = Date.now() + captureRoundMs;
     try {
-      while (browser.isConnected() && (await live())) await sleep(checkMs, undefined, { signal });
+      while (browser.isConnected() && Date.now() < ends && (await live())) {
+        await sleep(checkMs, undefined, { signal });
+      }
     } finally {
+      pending.closing = true;
       await pending.chain;
       await browser.close().catch(() => {});
+    }
+    if (await live()) {
+      await startCapture(deps, demonstrationId, round + 1, Date.now() < ends ? reconnectMs : 0);
     }
   },
 });
