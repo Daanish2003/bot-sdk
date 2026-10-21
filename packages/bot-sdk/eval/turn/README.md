@@ -222,6 +222,14 @@ Summary evals (each is big) and 3 for the tool search cases. The cache eval fail
 per run. Results are saved as `eval/turn/results/context-<time>.json`, with each run's usage rows,
 Summary text, replies and tool calls.
 
+On a ChatGPT plan, the summary and tool search evals run with no key (see "On a ChatGPT plan" above
+for the variables). The cache eval stays on a direct Anthropic key, since the plan caches nothing
+(#664), so run it on its own:
+
+```sh
+EVAL_DATABASE_URL=postgresql://postgres:password@127.0.0.1:5435/ai-chat_eval_context EVAL_BOT_MODEL=openai:gpt-6.1-sol EVAL_JUDGE_MODEL=openai:gpt-6.1-sol EVAL_CHATGPT_USER_ID=<your user id> DATABASE_URL=... BETTER_AUTH_URL=... BETTER_AUTH_SECRET=... CHATGPT_CLIENT_ID=... CHATGPT_HOST_ID=... pnpm -F @ai-chat/bot-sdk eval:context --only=summary,tools
+```
+
 - **cache:** a scripted Conversation of four user Messages and a Routine's run, a memory line added
   twice between Turns, then a warm that is due (the Bot's usage rows are made two hours old and
   `warmBot` runs), then one more Turn. Structural, from the user's `turn` and `warm` usage rows: no call
