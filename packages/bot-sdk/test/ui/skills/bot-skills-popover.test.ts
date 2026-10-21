@@ -181,6 +181,26 @@ describe("BotSkillsPopover", () => {
   });
 });
 
+describe("New Skill that is not usable", () => {
+  it("stays open and shows the reason", async () => {
+    const answer = vi.fn(async (input: RequestInfo | URL) =>
+      String(input instanceof Request ? input.url : input).includes("skills/save")
+        ? Response.json({ json: { problem: "no frontmatter" } })
+        : new Promise<Response>(() => {}),
+    );
+    renderPopover(answer);
+
+    fireEvent.click(screen.getByRole("button", { name: "New Skill" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Skill name" }), {
+      target: { value: "weekly-report" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("Not usable: no frontmatter");
+    expect(screen.getByRole("textbox", { name: "Skill name" })).toBeTruthy();
+  });
+});
+
 describe("BotSkillChip editor", () => {
   it("expands in place to the same editor", () => {
     render(

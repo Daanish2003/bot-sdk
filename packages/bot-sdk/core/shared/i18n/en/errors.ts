@@ -43,6 +43,7 @@ export const errorMessages = {
   "error.memoryComputerUnavailable": "Your Computer can't be reached right now",
   "error.skillsNeedComputer": "Skills need a Computer",
   "error.skillsComputerUnavailable": "Your Computer can't be reached right now",
+  "error.skillExists": "A Skill with that name already exists",
   "error.skillNotFound": "Skill not found",
   "error.skillName":
     "A Skill's name is lowercase letters, digits and hyphens, at most 64 characters",

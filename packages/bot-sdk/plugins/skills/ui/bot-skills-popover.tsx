@@ -80,7 +80,7 @@ export function BotSkillsPopover({ botId }: { botId: string }) {
                 <span className="flex items-center gap-2 text-sm font-medium">
                   {skill.name}
                   {skill.problem && (
-                    <span className="rounded bg-amber-100 px-1 text-[10px] text-amber-900">
+                    <span className="rounded bg-amber-100 px-1 text-[10px] text-amber-900 dark:bg-amber-900 dark:text-amber-100">
                       {t("bots.skillNotUsable")}
                     </span>
                   )}

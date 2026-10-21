@@ -38,7 +38,7 @@ export function BotSkillChip({
       </div>
       {open && (
         <div className="w-[32rem] max-w-full rounded-lg border p-2 text-foreground">
-          <SkillEditor botId={botId} name={open} onDeleted={() => setOpen(null)} />
+          <SkillEditor key={open} botId={botId} name={open} onDeleted={() => setOpen(null)} />
         </div>
       )}
     </div>

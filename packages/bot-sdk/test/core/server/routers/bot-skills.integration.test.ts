@@ -666,6 +666,17 @@ describe("the skills router", () => {
     expect(skillPaths(computerFake.files)).toEqual([]);
   });
 
+  it("refuses a new Skill whose name is taken, and leaves that Skill alone", async () => {
+    const { computerFake, client, botId } = await botWithRouter();
+    const content = skillFile("invoices", "Use this when an invoice arrives.");
+    computerFake.files.set(skillPath(botId, "invoices"), encode(content));
+
+    await expect(
+      client.skills.save({ botId, name: "invoices", content: "other", create: true }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(textOf(computerFake.files.get(skillPath(botId, "invoices")))).toBe(content);
+  });
+
   it("deletes a Skill's whole folder and no other", async () => {
     const { computerFake, client, botId } = await botWithRouter();
     for (const name of ["invoices", "reports"]) {

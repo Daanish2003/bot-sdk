@@ -26,7 +26,7 @@ export const skillsRouter = {
 
   /** Saves a SKILL.md, creating or replacing it; the reply says why it is not usable, if so. */
   save: protectedProcedure
-    .input(skillInput.extend({ content: z.string() }))
+    .input(skillInput.extend({ content: z.string(), create: z.boolean().optional() }))
     .handler(({ context, input }) => saveSkill(context.sdk, { userId: context.user.id, ...input })),
 
   /** Deletes a Skill's whole folder. */

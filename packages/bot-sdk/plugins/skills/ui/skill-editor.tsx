@@ -20,7 +20,7 @@ function useRefresh() {
 }
 
 /** Saves a Skill and shows why it is not usable, if so; `onSaved` runs once it is written. */
-function useSave(botId: string, onSaved?: () => void) {
+function useSave(botId: string, onSaved?: (problem: string | null) => void) {
   const i18n = useI18n();
   const orpc = useOrpc();
   const refresh = useRefresh();
@@ -31,14 +31,17 @@ function useSave(botId: string, onSaved?: () => void) {
         setProblem(result.problem);
         toast.success(i18n.t("bots.skillSavedToast"));
         await refresh();
-        onSaved?.();
+        onSaved?.(result.problem);
       },
+      onMutate: () => setProblem(null),
       onError: (error) => toast.error(serverErrorText(i18n, error)),
     }),
   );
   return {
+    clear: () => setProblem(null),
     problem,
-    save: (name: string, content: string) => save.mutate({ botId, name, content }),
+    save: (name: string, content: string, create?: boolean) =>
+      save.mutate({ botId, name, content, create }),
     saving: save.isPending,
   };
 }
@@ -74,7 +77,7 @@ export function SkillEditor({
   const refresh = useRefresh();
   const read = useQuery(orpc.skills.read.queryOptions({ input: { botId, name } }));
   const [edited, setEdited] = useState<string | null>(null);
-  const { problem, save, saving } = useSave(botId, () => setEdited(null));
+  const { problem, clear, save, saving } = useSave(botId, () => setEdited(null));
   const remove = useMutation(
     orpc.skills.remove.mutationOptions({
       onSuccess: async () => {
@@ -115,7 +118,10 @@ export function SkillEditor({
         className="min-h-40 rounded border bg-transparent p-2 font-mono text-xs"
         value={content}
         disabled={read.isPending || read.isError}
-        onChange={(event) => setEdited(event.target.value)}
+        onChange={(event) => {
+          clear();
+          setEdited(event.target.value);
+        }}
       />
       <Problem reason={problem} />
       <div className="flex gap-2">
@@ -125,7 +131,7 @@ export function SkillEditor({
         <Button
           variant="ghost"
           size="sm"
-          disabled={remove.isPending || read.isError}
+          disabled={remove.isPending || read.isPending || read.isError}
           onClick={() => remove.mutate({ botId, name })}
         >
           {t("bots.skillDelete")}
@@ -144,7 +150,10 @@ export function NewSkillEditor({ botId, onSaved }: { botId: string; onSaved: () 
   const { t } = useI18n();
   const [name, setName] = useState("");
   const [edited, setEdited] = useState<string | null>(null);
-  const { problem, save, saving } = useSave(botId, onSaved);
+  // An unusable Skill stays open, so the reason shows.
+  const { problem, clear, save, saving } = useSave(botId, (reason) => {
+    if (reason === null) onSaved();
+  });
   const content = edited ?? t("bots.skillTemplate", { name: name || "new-skill" });
 
   return (
@@ -159,11 +168,18 @@ export function NewSkillEditor({ botId, onSaved }: { botId: string; onSaved: () 
         aria-label={t("bots.skillFile")}
         className="min-h-40 rounded border bg-transparent p-2 font-mono text-xs"
         value={content}
-        onChange={(event) => setEdited(event.target.value)}
+        onChange={(event) => {
+          clear();
+          setEdited(event.target.value);
+        }}
       />
       <Problem reason={problem} />
       <div>
-        <Button size="sm" disabled={name === "" || saving} onClick={() => save(name, content)}>
+        <Button
+          size="sm"
+          disabled={name === "" || saving}
+          onClick={() => save(name, content, true)}
+        >
           {t("bots.skillSave")}
         </Button>
       </div>

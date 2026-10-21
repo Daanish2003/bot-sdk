@@ -76,10 +76,14 @@ const shellQuote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
  * When each Skill's SKILL.md last changed, by folder name. Best effort: a Computer that doesn't
  * answer gives none.
  */
-async function modifiedTimes(computer: ComputerHandle, botId: string): Promise<Map<string, Date>> {
+async function modifiedTimes(
+  computer: ComputerHandle,
+  botId: string,
+  only = "*",
+): Promise<Map<string, Date>> {
   const directory = skillsDirectory(botId);
   const result = await computer.run(
-    `for f in ${shellQuote(directory)}/*/SKILL.md; do [ -f "$f" ] && printf '%s\\t%s\\n' "$(date -r "$f" +%s)" "$f"; done; true`,
+    `for f in ${shellQuote(directory)}/${only === "*" ? "*" : shellQuote(only)}/SKILL.md; do [ -f "$f" ] && printf '%s\\t%s\\n' "$(date -r "$f" +%s)" "$f"; done; true`,
   );
   const times = new Map<string, Date>();
   if ("timedOut" in result || result.exitCode !== 0) return times;
@@ -127,7 +131,7 @@ export async function readSkill(
   return onComputer(async () => {
     const bytes = await computer.readFile(path);
     if (!bytes) throw rpcError("NOT_FOUND", "error.skillNotFound", "Skill not found");
-    const times = await modifiedTimes(computer, botId);
+    const times = await modifiedTimes(computer, botId, name);
     return {
       content: new TextDecoder().decode(bytes),
       path,
@@ -147,14 +151,22 @@ export async function saveSkill(
     botId,
     name,
     content,
-  }: { userId: string; botId: string; name: string; content: string },
+    create,
+  }: { userId: string; botId: string; name: string; content: string; create?: boolean },
 ): Promise<{ problem: string | null }> {
   await requireOwnBot(deps, userId, botId);
   if (!namePattern.test(name) || name.length > nameLimit) {
     throw rpcError("BAD_REQUEST", "error.skillName", "Not a valid Skill name");
   }
   const computer = computerOf(deps, userId);
-  await onComputer(() => computer.writeFile(`${skillsDirectory(botId)}/${name}/SKILL.md`, content));
+  const path = `${skillsDirectory(botId)}/${name}/SKILL.md`;
+  await onComputer(async () => {
+    // A new Skill never replaces one that exists.
+    if (create && (await computer.readFile(path))) {
+      throw rpcError("CONFLICT", "error.skillExists", "A Skill with that name already exists");
+    }
+    await computer.writeFile(path, content);
+  });
   return { problem: problemOf(name, content) };
 }
 
