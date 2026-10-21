@@ -9,6 +9,7 @@ import { startRoutineReconcile } from "./routine-fire";
 import "./check-in-fire";
 import "./summary-away";
 import "./demonstration-capture";
+import "./demonstration-draft";
 import { handleRoutineWebhook } from "./routine-webhook";
 import { botPluginRouter } from "./routers/index";
 import { rotateSecretKeys } from "./secret";

@@ -494,8 +494,11 @@ describe("the time cap", () => {
 
     await pass(2 * minuteMs);
 
-    expect(await stateOf(botId)).toBe("drafting");
-    expect((await cardOf(client, botId))?.state).toBe("drafting");
-    expect(screenCommands(computerFake).at(-1)).toBe(`${screenScript} stop 1`);
+    // Done, so its drafting pass ran on (bot-demonstration-draft covers how that ends).
+    const [row] = await demonstrationsOf(botId);
+    expect(["saved", "failed"]).toContain(row!.state);
+    expect(row!.endedAt).toEqual(expect.any(Date));
+    expect(["saved", "failed"]).toContain((await cardOf(client, botId))?.state);
+    expect(screenCommands(computerFake)).toContain(`${screenScript} stop 1`);
   });
 });
