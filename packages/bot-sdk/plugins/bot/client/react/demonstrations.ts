@@ -2,10 +2,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
 import { useChatAdapter } from "../../../../core/client/react/provider";
+import type { DemonstrationAction } from "../../shared/demonstration";
 import { useItemActions } from "./turn-list";
-
-/** What the user can do to a live Demonstration from its Show me card (spec #713). */
-export type DemonstrationAction = "pause" | "resume" | "done" | "cancel";
 
 /**
  * The user's Pause, Resume, Done and Cancel on a Bot's Demonstrations (spec #713): `act` calls

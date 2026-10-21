@@ -15,6 +15,7 @@ import {
   ComputerUnavailableError,
   maxScreens,
 } from "../../computer/server/plugin";
+import { liveDemonstrationStates } from "../shared/demonstration";
 import { BrowserSession, browserTools } from "./browser-tools";
 import { desktopTools } from "./desktop-tools";
 import { storeScreenshot } from "./screenshots";
@@ -61,9 +62,6 @@ export const screensInUseError = "All 4 Screens are in use; try again later.";
 
 export const demonstrationHoldsScreenError =
   "The user is showing you a task on your Screen; wait until they finish it from its card.";
-
-/** The Demonstration states that hold a Screen (spec #713). */
-export const screenHoldingDemonstrations = ["recording", "paused"] as const;
 
 export const helperQuotaSpentError = "Your spending limit is reached; tell the user.";
 
@@ -218,7 +216,7 @@ export async function freeScreen(tx: Transaction, userId: string): Promise<numbe
     .where(
       and(
         eq(botDemonstration.userId, userId),
-        inArray(botDemonstration.state, [...screenHoldingDemonstrations]),
+        inArray(botDemonstration.state, [...liveDemonstrationStates]),
       ),
     );
   const taken = new Set([...helpers, ...demonstrations].map((row) => row.screen));
@@ -379,7 +377,7 @@ export async function closeScreen(
           and(
             eq(botDemonstration.userId, helper.userId),
             eq(botDemonstration.screen, slot),
-            inArray(botDemonstration.state, [...screenHoldingDemonstrations]),
+            inArray(botDemonstration.state, [...liveDemonstrationStates]),
             ne(botDemonstration.id, helper.id),
           ),
         )
@@ -746,7 +744,7 @@ export async function hasLiveDemonstration(
         "botId" in owner
           ? eq(botDemonstration.botId, owner.botId)
           : eq(botDemonstration.userId, owner.userId),
-        inArray(botDemonstration.state, [...screenHoldingDemonstrations]),
+        inArray(botDemonstration.state, [...liveDemonstrationStates]),
       ),
     )
     .limit(1);

@@ -13,6 +13,7 @@ import { botPluginRouter } from "./routers/index";
 import { rotateSecretKeys } from "./secret";
 import { handleScreenRequest, type ScreenSocketHooks, screenSocketHooks } from "./screen-view";
 import { botUserDelete, exportBots, hasTurnUsingComputer, userHasBot } from "./store";
+import { stopUserDemonstrations } from "./demonstration";
 import { stopUserHelpers } from "./helper-tools";
 import { stopUserTurns } from "./turn";
 
@@ -99,6 +100,7 @@ export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
           // The Turns first, so none starts a Helper after its Helpers are stopped.
           await stopUserTurns(sdk, userId);
           await stopUserHelpers(sdk, userId);
+          await stopUserDemonstrations(sdk, userId);
         },
         screenHandler: (request) => handleScreenRequest(sdk, request),
         screenSocket: screenSocketHooks(sdk),

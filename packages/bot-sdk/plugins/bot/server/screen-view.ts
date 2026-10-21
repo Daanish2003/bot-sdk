@@ -14,8 +14,8 @@ import {
 } from "../../computer/server/plugin";
 import { screenViewPath } from "../shared/helper";
 import { computerOf } from "./computer-tools";
+import { isLiveDemonstration } from "../shared/demonstration";
 import { helperStoppedError } from "./hand-off";
-import { screenHoldingDemonstrations } from "./helper";
 
 /**
  * How long a live-view link opens the Screen (#597): a page and its socket must start within it,
@@ -109,7 +109,7 @@ async function heldScreen(
         and(eq(botDemonstration.id, holder.demonstrationId), eq(botDemonstration.userId, userId)),
       );
     if (!row) return "not-found";
-    if (!(screenHoldingDemonstrations as readonly string[]).includes(row.state)) return "stopped";
+    if (!isLiveDemonstration(row.state)) return "stopped";
     return { slot: row.screen, botId: row.botId };
   }
   const { helperId } = holder;

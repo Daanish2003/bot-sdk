@@ -12,9 +12,15 @@ export const demonstrationStateSchema = z.enum([
 
 export type DemonstrationState = z.infer<typeof demonstrationStateSchema>;
 
-/** Whether a Demonstration still holds its Screen: while it records or is paused. */
+/** The Demonstration states that hold a Screen: while it records or is paused. */
+export const liveDemonstrationStates = ["recording", "paused"] as const;
+
+/** Whether a Demonstration still holds its Screen. */
 export const isLiveDemonstration = (state: DemonstrationState) =>
-  state === "recording" || state === "paused";
+  (liveDemonstrationStates as readonly DemonstrationState[]).includes(state);
+
+/** What the user can do to a Demonstration from its Show me card. */
+export type DemonstrationAction = "pause" | "resume" | "done" | "cancel";
 
 /**
  * The Show me card part of the Message `watch_user` posts (spec #713): the Demonstration, its goal,

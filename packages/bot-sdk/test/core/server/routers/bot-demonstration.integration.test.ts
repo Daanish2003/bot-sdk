@@ -6,6 +6,7 @@ import { botDemonstration, botHelper, botTurn } from "../../../../core/server/db
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import {
   computerUseHelperHoldsScreenError,
+  demonstrationEndedWhileOpeningError,
   demonstrationRunningError,
 } from "../../../../plugins/bot/server/demonstration";
 import {
@@ -28,7 +29,10 @@ import { fakeJobClock } from "../../../support/jobs";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
-import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
+import {
+  type FakeCommandRun,
+  fakeComputerProvider,
+} from "../../../plugins/computer/server/fake-provider";
 
 const model = "openai:gpt-5.6";
 const silent = { error: () => {} };
@@ -57,10 +61,27 @@ const ends = () => toolCall({ name: "send_to_user", input: { text: "Go ahead.", 
  * `skills`, on a runner that runs only when the test says, with a clock the test moves. The Bot's
  * Turns play `rounds` in order.
  */
-async function botWith(rounds: Round[], { withSkills = true } = {}) {
+async function botWith(
+  rounds: Round[],
+  {
+    withSkills = true,
+    onCommand,
+  }: {
+    withSkills?: boolean;
+    /** Answers the Computer's commands, `exit 0` by default. */
+    onCommand?: (command: FakeCommandRun) => Promise<{ exitCode: number } | undefined>;
+  } = {},
+) {
   const timer = fakeJobClock(start);
   const fake = createFakeAdapter({ rounds });
-  const computerFake = fakeComputerProvider();
+  const computerFake = fakeComputerProvider({
+    onCommand: async (command) => ({
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+      ...(await onCommand?.(command)),
+    }),
+  });
   let deps: TestDeps | undefined;
   const jobs = inProcessRunner({
     db: getTestDb(),
@@ -311,6 +332,58 @@ describe("watch_user", () => {
   });
 });
 
+describe("watch_user's Screen", () => {
+  const opening = (botId: () => string) => (command: FakeCommandRun) =>
+    command.command === `${screenScript} control 1` && botId() !== "";
+
+  it("cancels the Demonstration and closes the Screen when it won't open", async () => {
+    let botId = "";
+    const { client, computerFake, send, ...setup } = await botWith(
+      [round(watchUser(), ends()), round()],
+      {
+        onCommand: async (command) => (opening(() => botId)(command) ? { exitCode: 1 } : undefined),
+      },
+    );
+    botId = setup.botId;
+
+    await send("let me show you");
+
+    expect(await resultOf(botId, "watch_user")).toEqual([
+      { error: expect.stringContaining("The Screen didn't open") },
+    ]);
+    expect(await stateOf(botId)).toBe("cancelled");
+    expect((await cardOf(client, botId))?.state).toBe("cancelled");
+    expect(screenCommands(computerFake).at(-1)).toBe(`${screenScript} stop 1`);
+  });
+
+  it("closes the Screen again when the user ended the Demonstration while it opened", async () => {
+    let botId = "";
+    let client: ReturnType<typeof chatRpc> | undefined;
+    const setup = await botWith([round(watchUser(), ends()), round()], {
+      onCommand: async (command) => {
+        if (!opening(() => botId)(command)) return undefined;
+        const [row] = await demonstrationsOf(botId);
+        await client!.bot.demonstration.cancel({ demonstrationId: row!.id });
+        return undefined;
+      },
+    });
+    ({ botId, client } = setup);
+
+    await setup.send("let me show you");
+
+    expect(await resultOf(botId, "watch_user")).toEqual([
+      { error: demonstrationEndedWhileOpeningError },
+    ]);
+    expect(await stateOf(botId)).toBe("cancelled");
+    // The cancel closed it during control mode; watch_user closes it once more after.
+    expect(screenCommands(setup.computerFake).slice(-3)).toEqual([
+      `${screenScript} control 1`,
+      `${screenScript} stop 1`,
+      `${screenScript} stop 1`,
+    ]);
+  });
+});
+
 /** A Bot whose first Turn started a Demonstration, which it returns. */
 async function demonstrating() {
   const setup = await botWith([round(watchUser(), ends()), round()]);
@@ -393,6 +466,18 @@ describe("the Demonstration's routes", () => {
     const { url } = await client.bot.demonstration.view({ demonstrationId });
 
     expect(url).toMatch(/^\/api\/screens\/[\w-]+\.[\w-]+\//);
+  });
+});
+
+describe("a Ban", () => {
+  it("cancels the user's live Demonstrations, which releases their Screens", async () => {
+    const { deps, user, client, botId, computerFake } = await demonstrating();
+
+    await deps.plugin("bot").stopTurns(user.id);
+
+    expect(await stateOf(botId)).toBe("cancelled");
+    expect((await cardOf(client, botId))?.state).toBe("cancelled");
+    expect(screenCommands(computerFake).at(-1)).toBe(`${screenScript} stop 1`);
   });
 });
 

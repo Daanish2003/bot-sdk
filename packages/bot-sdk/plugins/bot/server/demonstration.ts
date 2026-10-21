@@ -9,9 +9,11 @@ import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
 import { defineJob } from "../../runner/server/jobs/define";
 import {
+  type DemonstrationAction,
   type DemonstrationCard,
   type DemonstrationState,
   isLiveDemonstration,
+  liveDemonstrationStates,
 } from "../shared/demonstration";
 import {
   closeScreen,
@@ -37,9 +39,6 @@ export const watchUserToolName = "watch_user";
 /** The most recording time a Demonstration may take; past it, it ends as Done. */
 export const demonstrationTimeLimitMs = 15 * 60_000;
 
-/** The most events a Demonstration may capture; at it, it ends as Done (capture is #719's). */
-export const demonstrationEventLimit = 200;
-
 /** How often the time cap's check runs. */
 export const demonstrationCheckMs = 60_000;
 
@@ -48,6 +47,9 @@ export const demonstrationCheckJobName = "bot.demonstration_check";
 
 export const computerUseHelperHoldsScreenError =
   "Your Computer-use Helper is using your Screen; wait until it finishes, or stop it first.";
+
+export const demonstrationEndedWhileOpeningError =
+  "The user ended the demonstration before your Screen opened.";
 
 export const demonstrationRunningError =
   "The user is already showing you a task; they finish it from its card first.";
@@ -78,7 +80,8 @@ type Watcher = { id: string; botId: string; userId: string; conversationId: stri
  * lowest free Screen, its Show me card, and its time cap's first check; then the Screen opened
  * afresh on the Bot's profile, in control mode for the user. It returns at once, and the
  * Demonstration outlives the Turn. Refused while the Bot's Computer-use Helper or another
- * Demonstration holds its Screen, or every Screen is held; one whose Screen won't open is cancelled.
+ * Demonstration holds its Screen, or every Screen is held; one whose Screen won't open is cancelled,
+ * and one the user ended while it opened gets its Screen closed again.
  */
 export function watchUserTool(deps: BotSdkContext, turn: Watcher, kit: LoopKit) {
   return watchUserDefinition.server(async ({ goal, inputs }, context) => {
@@ -88,25 +91,38 @@ export function watchUserTool(deps: BotSdkContext, turn: Watcher, kit: LoopKit) 
     );
     if ("error" in started) return started;
     await hintChanged(deps, turn.conversationId);
-    const opened = await kit.computerCall(
-      `${watchUserToolName}:screen`,
-      toolCallId,
-      async (computer) => {
-        await computer.openScreen(started.screen, turn.botId);
-        await computer.setScreenControl(started.screen, "control");
-        return { opened: true };
-      },
-      false,
-    );
+    const { demonstrationId, screen } = started;
+    let opened;
+    try {
+      opened = await kit.computerCall(
+        `${watchUserToolName}:screen`,
+        toolCallId,
+        async (computer) => {
+          await computer.openScreen(screen, turn.botId);
+          await computer.setScreenControl(screen, "control");
+          return { opened: true };
+        },
+        false,
+      );
+    } catch (error) {
+      // A Stop or the loop's deadline: the Demonstration never started, so it lets go of the Screen.
+      await move(deps, demonstrationId, "cancel");
+      throw error;
+    }
     if ("error" in opened) {
-      await kit.liveActivity(`${watchUserToolName}:cancel`, toolCallId, async (tx) => {
-        await moveIn(deps, tx, started.demonstrationId, "cancel");
-        return {};
-      });
-      await hintChanged(deps, turn.conversationId);
+      await move(deps, demonstrationId, "cancel");
       return { error: `The Screen didn't open: ${String(opened.error)}` };
     }
-    return { demonstrationId: started.demonstrationId, state: "recording" as const };
+    // The user may have ended it from its card while the Screen opened, after its release ran.
+    const [row] = await deps.db
+      .select({ state: botDemonstration.state })
+      .from(botDemonstration)
+      .where(eq(botDemonstration.id, demonstrationId));
+    if (!row || !isLiveDemonstration(row.state)) {
+      await closeScreen(deps, { id: demonstrationId, userId: turn.userId, screen });
+      return { error: demonstrationEndedWhileOpeningError };
+    }
+    return { demonstrationId, state: "recording" as const };
   });
 }
 
@@ -183,7 +199,6 @@ async function startDemonstration(
 }
 
 /** What the user, or a cap, does to a Demonstration. */
-export type DemonstrationAction = "pause" | "resume" | "done" | "cancel";
 
 /**
  * The state each action moves a Demonstration to, from the states it acts in. Done goes to
@@ -307,6 +322,20 @@ async function move(
   }
   await hintChanged(deps, moved.conversationId);
   return moved.state;
+}
+
+/** On a Ban: cancels each of the user's live Demonstrations, which releases its Screen. */
+export async function stopUserDemonstrations(deps: BotSdkContext, userId: string) {
+  const live = await deps.db
+    .select({ id: botDemonstration.id })
+    .from(botDemonstration)
+    .where(
+      and(
+        eq(botDemonstration.userId, userId),
+        inArray(botDemonstration.state, [...liveDemonstrationStates]),
+      ),
+    );
+  for (const { id } of live) await move(deps, id, "cancel");
 }
 
 /**

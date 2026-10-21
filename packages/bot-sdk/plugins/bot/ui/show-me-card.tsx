@@ -4,8 +4,12 @@ import { type ReactNode, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { useI18n } from "../../../core/client/react/provider";
-import { type DemonstrationAction, useDemonstrationView } from "../client/react/demonstrations";
-import { type DemonstrationCard, isLiveDemonstration } from "../shared/demonstration";
+import { useDemonstrationView } from "../client/react/demonstrations";
+import {
+  type DemonstrationAction,
+  type DemonstrationCard,
+  isLiveDemonstration,
+} from "../shared/demonstration";
 import { LiveView } from "./computer-card";
 
 type Props = {
