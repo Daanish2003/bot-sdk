@@ -240,14 +240,18 @@ const tabsDefinition = toolDefinition({
 /**
  * The Browser tools of a Computer-use Helper (#569), on `session`'s Screen. Each is one Computer
  * call of the loop: a snapshot over `snapshotLimit` characters spills to a file in the Bot's
- * directory.
+ * directory. The acting ones (click, type, select and press) get Auto-review first (spec #691);
+ * the looking ones (navigate, snapshot and tabs) don't.
  */
 export function browserTools(
   session: BrowserSession,
   botId: string,
   computerCall: LoopKit["computerCall"],
 ) {
-  /** A tool whose call runs `run` on the Screen and caps the snapshot its result holds. */
+  /**
+   * A tool whose call runs `run` on the Screen and caps the snapshot its result holds, after
+   * Auto-review when it is `reviewed`.
+   */
   const tool =
     <Input>(
       name: string,
@@ -255,6 +259,7 @@ export function browserTools(
         computer: ComputerHandle,
         input: Input,
       ) => Promise<{ result?: string; snapshot: string } | { error: string }>,
+      reviewed = false,
     ) =>
     (input: Input, context?: { toolCallId?: string }) =>
       computerCall(
@@ -271,6 +276,7 @@ export function browserTools(
           return read.result === undefined ? capped : { result: read.result, ...capped };
         },
         false,
+        reviewed ? (input as Record<string, unknown>) : undefined,
       );
 
   return [
@@ -288,11 +294,14 @@ export function browserTools(
     ),
     snapshotDefinition.server(tool("browser_snapshot", (computer) => session.act(computer))),
     clickDefinition.server(
-      tool("browser_click", (computer, { ref }: { ref: string }) =>
-        session.act(computer, async (page) => {
-          await (await byRef(page, ref)).click();
-          return `Clicked ${ref}`;
-        }),
+      tool(
+        "browser_click",
+        (computer, { ref }: { ref: string }) =>
+          session.act(computer, async (page) => {
+            await (await byRef(page, ref)).click();
+            return `Clicked ${ref}`;
+          }),
+        true,
       ),
     ),
     typeDefinition.server(
@@ -306,22 +315,29 @@ export function browserTools(
             await field.press("Enter");
             return `Typed into ${ref} and pressed Enter`;
           }),
+        true,
       ),
     ),
     selectDefinition.server(
-      tool("browser_select", (computer, { ref, values }: { ref: string; values: string[] }) =>
-        session.act(computer, async (page) => {
-          const chosen = await (await byRef(page, ref)).selectOption(values);
-          return `Selected ${chosen.join(", ")} in ${ref}`;
-        }),
+      tool(
+        "browser_select",
+        (computer, { ref, values }: { ref: string; values: string[] }) =>
+          session.act(computer, async (page) => {
+            const chosen = await (await byRef(page, ref)).selectOption(values);
+            return `Selected ${chosen.join(", ")} in ${ref}`;
+          }),
+        true,
       ),
     ),
     pressDefinition.server(
-      tool("browser_press", (computer, { key }: { key: string }) =>
-        session.act(computer, async (page) => {
-          await page.keyboard.press(key);
-          return `Pressed ${key}`;
-        }),
+      tool(
+        "browser_press",
+        (computer, { key }: { key: string }) =>
+          session.act(computer, async (page) => {
+            await page.keyboard.press(key);
+            return `Pressed ${key}`;
+          }),
+        true,
       ),
     ),
     tabsDefinition.server(

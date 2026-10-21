@@ -10,6 +10,7 @@ import { helperJobKey, helperStoppedJobName, startHelperTool } from "./helper";
 import { closeComputerCard } from "./hand-off";
 import { listHelpers } from "./helper-card";
 import type { LoopKit } from "./loop";
+import { closeWaitingReviews } from "./review";
 
 /** The Bot's tool that reads how one of its Helpers stands (#566). */
 export const checkHelperToolName = "check_helper";
@@ -80,10 +81,10 @@ async function liveHelper(
 /**
  * Stops the Bot's Helper `helperId`, or every live one when it's absent (#566): each turns
  * `stopped` and its job is cancelled through the runner, and it sends no `helper` Trigger (its
- * job's finish only ends a `running` Helper). A waiting one's Computer card reads cancelled. Its
- * transcript, usage and Screen are left to a `bot.helper.stopped` job enqueued in `tx`, which
- * runs once the stop has committed; wake the runner then. Refuses an id that isn't the Bot's or
- * has ended.
+ * job's finish only ends a `running` Helper). A waiting one's Computer card reads cancelled, and
+ * an Approval it waits for reads denied. Its transcript, usage and Screen are left to a
+ * `bot.helper.stopped` job enqueued in `tx`, which runs once the stop has committed; wake the
+ * runner then. Refuses an id that isn't the Bot's or has ended.
  */
 export async function stopHelpers(
   deps: BotSdkContext,
@@ -112,6 +113,8 @@ export async function stopHelpers(
   const [owner] = await tx.select({ userId: bot.userId }).from(bot).where(eq(bot.id, botId));
   for (const { id, screen } of rows) {
     await runner.cancelIn(tx, helperJobKey(id));
+    // Cancelled first, as a Turn's Stop is: a Stop during an Approval wait counts as no (ADR 0024).
+    await closeWaitingReviews(deps, tx, { helperId: id }, "denied");
     // A waiting Helper's transcript was saved when it began to wait.
     const waited = await closeComputerCard(tx, id, "cancelled");
     if (owner) {
