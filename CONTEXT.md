@@ -17,7 +17,7 @@ One chat thread a single user owns, with either the assistant or one of their Bo
 _Avoid_: Chat, thread, session, hidden (for archived)
 
 **Project**:
-A named group of a user's Conversations that share context: instructions, a default Model, Knowledge and their own Memories. A Conversation is in at most one Project; deleting the Project deletes its Conversations.
+A named group of a user's Conversations that share context: instructions, a default Model and their own Memories. A Conversation is in at most one Project; deleting the Project deletes its Conversations.
 _Avoid_: Folder, workspace, collection
 
 **Instructions**:
@@ -85,7 +85,7 @@ A user's own API key for a non-LLM service a tool needs, such as web search. Wit
 _Avoid_: Search key, Provider credentials (those are for Providers only)
 
 **Connection**:
-A user's authorisation to use an outside service the Host offers, made by signing in to it: one of its MCP servers, or GitHub. In an assistant Conversation the user switches each MCP Connection on per Conversation. Signing in to a site in a Screen's Chrome is not a Connection. A GitHub Connection is always on and lets Synced sources read the private repositories the user chose.
+A user's authorisation to use an outside service the Host offers, made by signing in to it: one of its MCP servers. In an assistant Conversation the user switches each MCP Connection on per Conversation. Signing in to a site in a Screen's Chrome is not a Connection.
 _Avoid_: Integration, connector, MCP credential, Tool credential (that is an API key)
 
 **Approval**:
@@ -113,20 +113,12 @@ A standalone piece of content the assistant creates in a Conversation and then r
 _Avoid_: Canvas, code block, file, document, revision
 
 **Knowledge**:
-The material a Project gives the assistant to look things up in while replying in its Conversations: its Knowledge files and Synced sources. The files a Bot keeps on the Computer are not Knowledge.
+The documents a user keeps on their Computer for their Bots to look things up in, in folders of their own choosing. All of the user's Bots share it, and the user and the Bots can both add to it and edit it. It is not Memory: Memory is facts about the user a Bot picks up itself, while Knowledge is documents kept for reference.
 _Avoid_: Knowledge base, RAG, documents, library
 
 **Knowledge file**:
-A file a user adds to a Project's Knowledge, which the assistant searches by meaning. It is not an Attachment: it belongs to the Project, not to a Message.
+One file in Knowledge, which a Bot reads with its file tools and shell. It is not an Attachment: it belongs to the user's Knowledge, not to a Message.
 _Avoid_: Document, upload, attachment
-
-**Synced source**:
-An outside collection of text files, such as a GitHub repository, kept in step with a Project's Knowledge and read by the assistant file by file.
-_Avoid_: Connector, repo, integration, Source (that is a web page)
-
-**Excerpt**:
-A passage of Knowledge the assistant read during an assistant Message, shown as a chip wherever the reply cites it. Excerpts are numbered together with the Message's Sources. An Excerpt stays with the reply even after its Knowledge file is deleted, and a Shared link shows only its file name.
-_Avoid_: Source (that is a web page), chunk, snippet, Knowledge source
 
 **Memory**:
 What a Bot knows about the user and keeps between Turns: plain files in its own directory on the Computer, which it reads and edits itself, in three tiers (its Profile, its Log and its Notes), with everything older found by search. Every Bot reads all of the user's Profiles, but each Bot writes only its own files. A user can turn Memory off for all their Bots. The assistant has no Memory (#650).
