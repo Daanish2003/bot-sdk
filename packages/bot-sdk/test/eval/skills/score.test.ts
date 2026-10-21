@@ -202,3 +202,11 @@ describe("scoring follow and fix", () => {
     expect(none.reasons[0]).toBe("never edited a");
   });
 });
+
+describe("scoring reads with redirects", () => {
+  it("still sees a read whose stderr is redirected, but not a write to the file", () => {
+    expect(skillRead(shell("cat skills/a/SKILL.md 2>&1"))).toBe("a");
+    expect(skillRead(shell("cat skills/a/SKILL.md 2>/dev/null"))).toBe("a");
+    expect(skillRead(shell("cat skills/a/SKILL.md > copy.md"))).toBeUndefined();
+  });
+});

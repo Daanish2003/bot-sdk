@@ -49,7 +49,7 @@ export type Score = {
 
 const skillFile = /skills\/([a-z0-9-]+)\/SKILL\.md/;
 const readsText = /\b(cat|head|tail|less|more|nl|bat|sed\s+-n|grep)\b/;
-const writesText = /(>|\btee\b|\bsed\s+-i\b|\bmv\b|\bcp\b|\brm\b)/;
+const writesText = /((?<![0-9&-])>(?!&|\s*\/dev\/null)|\btee\b|\bsed\s+-i\b|\bmv\b|\bcp\b|\brm\b)/;
 /** Tools that look but do not act. */
 const lookingTools = new Set(["read", "list", "send_to_user", "describe_tool", "search_memory"]);
 
@@ -169,7 +169,10 @@ export function scoreSkills(expected: Expect, observed: Observed): Score {
     }
     case "follow": {
       const carried = observed.calls.some(
-        (call) => !lookingTools.has(call.name) && expected.rule.test(argText(call.args)),
+        (call) =>
+          !lookingTools.has(call.name) &&
+          !skillFile.test(argText(call.args)) &&
+          expected.rule.test(argText(call.args)),
       );
       if (!reads.some((read) => read.name === expected.skill)) {
         reasons.push(`never read ${expected.skill}`);

@@ -70,6 +70,11 @@ async function main() {
           }
         : { ...real, linkedCredentials: plan?.linkedCredentials },
   });
+  const ids = Object.keys(draftExpectations);
+  const fixtureById = new Map(
+    await Promise.all(ids.map(async (id) => [id, await loadFixture(id)] as const)),
+  );
+
   const env: TurnEnv = {
     db,
     sdk,
@@ -81,11 +86,6 @@ async function main() {
       return { apiKey: key };
     },
   };
-
-  const ids = Object.keys(draftExpectations);
-  const fixtureById = new Map(
-    await Promise.all(ids.map(async (id) => [id, await loadFixture(id)] as const)),
-  );
 
   async function run(id: string, repeat: number): Promise<RunResult> {
     const started = Date.now();

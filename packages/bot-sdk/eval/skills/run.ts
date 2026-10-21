@@ -103,7 +103,10 @@ async function main() {
   const stale = [...new Set(skillsCases.flatMap((evalCase) => evalCase.stale ?? []))];
   const computerFake = fakeComputerProvider({
     onCommand: ({ command }) => {
-      const missing = stale.find((name) => command.includes(name));
+      // Only a command that runs the path fails, not one that reads or edits the Skill naming it.
+      const missing = command.includes("SKILL.md")
+        ? undefined
+        : stale.find((name) => command.includes(name));
       return missing
         ? {
             exitCode: 1,
@@ -286,7 +289,8 @@ async function main() {
     const passed = own.filter((result) => result.score.passed).length;
     console.log(`${name.padEnd(11)} ${passed}/${own.length} passed`);
   }
-  const rates = useRates(results);
+  // A run that errored says nothing about the Bot, so it is left out of the rates.
+  const rates = useRates(results.filter((result) => !result.error));
   console.log(
     `\nUse: hit ${percent(rates.hit)} of ${rates.uses} Skill cases, wrong Skill ${percent(rates.wrong)}, ` +
       `needless read ${percent(rates.needless)} of ${rates.nones} no-Skill cases`,
