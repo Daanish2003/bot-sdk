@@ -266,7 +266,8 @@ async function main() {
   // A run that errored (a bad key, a rate limit) is not a Model failure: exit non-zero so it is seen.
   process.exit(
     [...reviewResults, ...injectionResults].some((result) => result.error) ||
-      reviewResults.some((result) => result.failed)
+      reviewResults.some((result) => result.failed) ||
+      injectionResults.some((result) => !result.passed)
       ? 1
       : 0,
   );
