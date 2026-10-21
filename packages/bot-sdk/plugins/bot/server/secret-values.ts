@@ -27,10 +27,18 @@ export const secretEncryption = (
   context: `${userId}:secret:${name}`,
 });
 
-/** Every Secret of the user, decrypted, by name. A row no key can read is left out. */
+/** What a loop has decrypted, by a row's name and ciphertext: a re-saved Secret is a new entry. */
+export type DecryptedSecrets = Map<string, string | undefined>;
+
+/**
+ * Every Secret of the user, decrypted, by name. A row no key can read is left out. The rows are
+ * read each time, so a Secret saved meanwhile is in; with `decrypted`, a row seen before isn't
+ * decrypted again.
+ */
 export async function loadSecretValues(
   sdk: Pick<BotSdkContext, "db" | "keyring">,
   userId: string,
+  decrypted: DecryptedSecrets = new Map(),
 ): Promise<Map<string, string>> {
   const rows = await sdk.db
     .select({ name: botSecret.name, encrypted: botSecret.encrypted })
@@ -38,8 +46,12 @@ export async function loadSecretValues(
     .where(eq(botSecret.userId, userId));
   const values = new Map<string, string>();
   for (const row of rows) {
-    const result = decryptCredentials(row.encrypted, secretEncryption(sdk, userId, row.name));
-    const value = result.ok ? usableSecretValue(result.credentials.value ?? "") : undefined;
+    const key = `${row.name}:${row.encrypted}`;
+    if (!decrypted.has(key)) {
+      const result = decryptCredentials(row.encrypted, secretEncryption(sdk, userId, row.name));
+      decrypted.set(key, result.ok ? usableSecretValue(result.credentials.value ?? "") : undefined);
+    }
+    const value = decrypted.get(key);
     if (value) values.set(row.name, value);
   }
   return values;
@@ -56,37 +68,73 @@ export function unknownSecretError(unknown: string[], known: Iterable<string>): 
   );
 }
 
-/** The forms of a Secret's value that are masked: itself, its base64 and its URL-encoded form. */
-export function maskedForms(value: string): string[] {
-  return [value, Buffer.from(value, "utf8").toString("base64"), encodeURIComponent(value)].filter(
-    (form) => form.length > 0,
-  );
+/** A masked form of a Secret's value, and whether it may be wrapped across lines (base64's). */
+type MaskedForm = { text: string; wraps: boolean };
+
+const base64Of = (text: string) => Buffer.from(text, "utf8").toString("base64");
+
+/**
+ * The forms of a Secret's value that are masked: itself, its base64, the base64 of it followed by a
+ * newline (what `echo $KEY | base64` prints) and its URL-encoded form.
+ */
+function formsOf(value: string): MaskedForm[] {
+  return [
+    { text: value, wraps: false },
+    { text: base64Of(value), wraps: true },
+    { text: base64Of(`${value}\n`), wraps: true },
+    { text: encodeURIComponent(value), wraps: false },
+  ].filter((form) => form.text.length > 0);
 }
 
 /** Every form of `values` that is masked, the longest first. */
+function allFormsOf(values: Iterable<string>): MaskedForm[] {
+  const byText = new Map([...values].flatMap(formsOf).map((form) => [form.text, form]));
+  return [...byText.values()].sort((a, b) => b.text.length - a.text.length);
+}
+
+/** Every form of `values` that is masked, the longest first, as the Computer's `redact` takes them. */
 export function maskedFormsOf(values: Iterable<string>): string[] {
-  return [...new Set([...values].flatMap(maskedForms))].sort((a, b) => b.length - a.length);
+  return allFormsOf(values).map((form) => form.text);
+}
+
+const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * What masks `values` in a text, built once for many texts: each value, and its base64 and
+ * URL-encoded forms, becomes `***`. A base64 form also matches when wrapped across lines, as GNU
+ * `base64` wraps at 76 columns. The longest forms go first, so one that contains another is
+ * replaced whole.
+ */
+export function secretMasker(values: Iterable<string>): (text: string) => string {
+  const forms = allFormsOf(values);
+  if (forms.length === 0) return (text) => text;
+  const pattern = new RegExp(
+    forms
+      .map((form) =>
+        form.wraps ? [...form.text].map(escaped).join("(?:\\r?\\n)?") : escaped(form.text),
+      )
+      .join("|"),
+    "g",
+  );
+  return (text) => text.replace(pattern, maskedValue);
 }
 
 /**
  * `text` with every value of the user's Secrets, and its base64 and URL-encoded forms, replaced
- * with `***`. It reads the whole text, so a value split across output chunks is found; call it
- * before the output is cut down to its ends. The longest forms go first, so one that contains
- * another is replaced whole.
+ * with `***` (`secretMasker`). It reads the whole text, so a value split across output chunks is
+ * found; call it before the output is cut down to its ends.
  */
 export function maskSecrets(text: string, values: Iterable<string>): string {
-  const forms = maskedFormsOf(values);
-  let masked = text;
-  for (const form of forms) masked = masked.split(form).join(maskedValue);
-  return masked;
+  return secretMasker(values)(text);
 }
 
 /** `maskSecrets` over every string of a JSON-like result (a `read` result's lines, a hint). */
 export function maskResult<T>(result: T, values: Iterable<string>): T {
   const list = [...values];
   if (list.length === 0) return result;
+  const mask = secretMasker(list);
   const walk = (node: unknown): unknown => {
-    if (typeof node === "string") return maskSecrets(node, list);
+    if (typeof node === "string") return mask(node);
     if (Array.isArray(node)) return node.map(walk);
     if (node && typeof node === "object") {
       return Object.fromEntries(Object.entries(node).map(([key, child]) => [key, walk(child)]));
