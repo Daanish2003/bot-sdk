@@ -303,8 +303,10 @@ export async function changeNotesFor(
       );
     } else if (before !== hash) {
       notes.push(
-        `[Tool changed: ${tool.name}. Its description or arguments changed in a deploy; call it ` +
-          `the way it is described now. (definition ${hash})]`,
+        // The definition the Prompt start sends is the old one until a Summary rebuilds it, so the
+        // Bot loads the new one, which may have arguments the old one lacks.
+        `[Tool changed: ${tool.name}. Its description or arguments changed in a deploy; call ` +
+          `${describeToolName} for it before you call it again. (definition ${hash})]`,
       );
     }
   }
