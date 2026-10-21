@@ -253,7 +253,7 @@ export async function checkScreens(options: {
 
   // The live view: 403 without its token, then noVNC in a real browser.
   const { helperId } = await waitingHelper(db, userId, slot);
-  const { url } = await screenView(sdk, userId, helperId);
+  const { url } = await screenView(sdk, userId, { helperId });
   const { origin, server } = await serveLiveView(sdk);
   const bare = await serveLiveView(sdk, { stripCsp: true });
   try {

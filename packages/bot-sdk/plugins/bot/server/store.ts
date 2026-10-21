@@ -14,6 +14,7 @@ import type { Database } from "../../../core/server/db/index";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { Transaction, UserDeleteHooks } from "../../../core/server/plugin";
 import { searchTextOf } from "../../../core/shared/message-parts";
+import { type DemonstrationCard, demonstrationCardSchema } from "../shared/demonstration";
 import { type ComputerCard, computerCardSchema } from "../shared/helper";
 import { type SecretRequest, secretRequestSchema } from "../shared/secret";
 import type { BotMessage, BotTurnStatus } from "../shared/turn";
@@ -83,12 +84,33 @@ export function secretRequestOf(parts: MessageRow["parts"]): SecretRequest | und
   return undefined;
 }
 
+/**
+ * The Message `watch_user` posts (spec #713): the goal as its `text` part, so the Conversation
+ * reads it, then the Show me card. The column is cast as in `handOffParts`.
+ */
+export function demonstrationParts(card: DemonstrationCard): MessageRow["parts"] {
+  return {
+    schemaVersion: 1,
+    parts: [{ type: "text", text: card.goal }, card],
+  } as unknown as MessageRow["parts"];
+}
+
+/** The Show me card a Message's parts hold, if any. */
+export function demonstrationCardOf(parts: MessageRow["parts"]): DemonstrationCard | undefined {
+  for (const part of parts.parts as readonly unknown[]) {
+    const card = demonstrationCardSchema.safeParse(part);
+    if (card.success) return card.data;
+  }
+  return undefined;
+}
+
 /** A Message row as the client sees it, with its Computer card when it is a hand-off. */
 export function toBotMessage(
   row: Pick<MessageRow, "id" | "role" | "parts" | "createdAt">,
 ): BotMessage {
   const computer = computerCardOf(row.parts);
   const secret = secretRequestOf(row.parts);
+  const demonstration = demonstrationCardOf(row.parts);
   return {
     id: row.id,
     role: row.role,
@@ -96,6 +118,7 @@ export function toBotMessage(
     createdAt: row.createdAt,
     ...(computer && { computer }),
     ...(secret && { secret }),
+    ...(demonstration && { demonstration }),
   };
 }
 

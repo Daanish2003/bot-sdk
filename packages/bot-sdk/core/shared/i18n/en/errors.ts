@@ -17,6 +17,8 @@ export const errorMessages = {
   "error.helperNotFound": "Helper not found",
   "error.reviewNotFound": "Request not found",
   "error.helperStopped": "This task was stopped.",
+  "error.demonstrationNotFound": "Demonstration not found",
+  "error.demonstrationEnded": "This Demonstration has ended.",
   "error.messageIdTaken": "That message id is already used",
   "error.sharedLinkNotFound": "Shared link not found",
   "error.invalidCursor": "Invalid cursor",
