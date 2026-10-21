@@ -51,6 +51,15 @@ export const demonstrationCheckMs = 60_000;
 /** The runner job that checks a Demonstration's recording time. */
 export const demonstrationCheckJobName = "bot.demonstration_check";
 
+/** The runner job that drafts a Skill from a Demonstration once it is Done (#720). */
+export const demonstrationDraftJobName = "bot.demonstration_draft";
+
+/** The runner job that deletes a Demonstration's events and screenshots once it is old enough. */
+export const demonstrationRetentionJobName = "bot.demonstration_retention";
+
+/** How long after it ends a Demonstration keeps its events and screenshots: 7 days. */
+export const demonstrationRetentionMs = 7 * 24 * 60 * 60_000;
+
 /** The runner job that captures what the user does on a Demonstration's Screen (#719). */
 export const demonstrationCaptureJobName = "bot.demonstration_capture";
 
@@ -232,7 +241,8 @@ async function startDemonstration(
 
 /**
  * The state each action moves a Demonstration to, from the states it acts in. Done goes to
- * `drafting`, which ends it; the drafting pass moves it on from there.
+ * `drafting`, which ends it and queues the drafting pass, which moves it on from there. Each move
+ * that ends one also queues the deletion of its events and screenshots 7 days on.
  */
 const moves: Record<
   DemonstrationAction,
@@ -312,6 +322,26 @@ async function moveIn(
     state: next,
     ...(ended && { endedAt: now.toISOString() }),
   }));
+  if (ended) {
+    const runner = deps.plugin("runner");
+    if (next === "drafting") {
+      await runner.enqueueIn(
+        tx,
+        demonstrationDraftJobName,
+        { demonstrationId },
+        { idempotencyKey: `demonstration_draft:${demonstrationId}` },
+      );
+    }
+    await runner.enqueueIn(
+      tx,
+      demonstrationRetentionJobName,
+      { demonstrationId },
+      {
+        idempotencyKey: `demonstration_retention:${demonstrationId}`,
+        runAfter: new Date(now.getTime() + demonstrationRetentionMs),
+      },
+    );
+  }
   return { ...facts, state: next, ended };
 }
 
@@ -369,6 +399,8 @@ export async function move(
   if (!moved) return undefined;
   if (moved.ended) {
     await closeScreen(deps, { id: demonstrationId, userId: moved.userId, screen: moved.screen });
+    // The drafting pass, queued with the move, runs now.
+    if (moved.state === "drafting") deps.plugin("runner").wake();
   }
   await hintChanged(deps, moved.conversationId);
   return moved.state;
