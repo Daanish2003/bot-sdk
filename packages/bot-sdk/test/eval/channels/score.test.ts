@@ -42,7 +42,7 @@ describe("the Channels eval's cases", () => {
   it("hands the Bot each injected instruction inside the untrusted forwarded block", () => {
     for (const evalCase of channelsCases.filter((c) => c.suite === "injection")) {
       const mail = evalCase.mail!;
-      const text = emailText({ ...mail, headers: {}, attachments: [] });
+      const text = emailText({ ...mail, headers: {}, attachments: [] }, "bots.example");
       const canary = (evalCase.expect as { canary: RegExp }).canary;
       expect(text, evalCase.id).toContain(forwardedEmailLabel);
       // The canary is below the label, in the fence, and not in the user's own line.

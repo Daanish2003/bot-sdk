@@ -113,7 +113,13 @@ async function main() {
     more: [
       bot(),
       channel({
-        adapters: [emailChannel({ provider: email.provider, domain: inboundDomain })],
+        adapters: [
+          emailChannel({
+            provider: email.provider,
+            domain: inboundDomain,
+            appUrl: "https://app.invalid",
+          }),
+        ],
         // freshBot gives each user this address, and the injection cases mail from it.
         verifiedEmail: async (userId) => `${userId}@eval.invalid`,
       }),
