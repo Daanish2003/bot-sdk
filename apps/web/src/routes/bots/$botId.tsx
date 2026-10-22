@@ -1,4 +1,5 @@
 import { BotCacheChip, BotConversation } from "@ai-chat/bot-sdk/plugins/bot/ui";
+import { KnowledgePopover } from "@ai-chat/bot-sdk/plugins/knowledge/ui";
 import { BotMemoryChip, BotMemoryLive, BotMemoryPopover } from "@ai-chat/bot-sdk/plugins/memory/ui";
 import { BotSkillChip, BotSkillsPopover } from "@ai-chat/bot-sdk/plugins/skills/ui";
 import { createFileRoute } from "@tanstack/react-router";
@@ -17,6 +18,7 @@ function BotPage() {
           <BotMemoryLive botId={botId} />
           <BotMemoryPopover botId={botId} />
           <BotSkillsPopover botId={botId} />
+          <KnowledgePopover />
         </>
       }
       afterTurn={(turn) => (

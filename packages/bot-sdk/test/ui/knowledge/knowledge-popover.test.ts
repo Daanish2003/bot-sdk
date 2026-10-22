@@ -1,0 +1,214 @@
+// @vitest-environment jsdom
+import type { QueryClient } from "@tanstack/react-query";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { createElement } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import type { BotSdkClient } from "../../../core/client/chat-client";
+import { assistantClient } from "../../../plugins/assistant/client/index";
+import { botClient } from "../../../plugins/bot/client/index";
+import { knowledgeClient } from "../../../plugins/knowledge/client/index";
+import type { KnowledgeListing } from "../../../plugins/knowledge/server/files";
+import { KnowledgePopover } from "../../../plugins/knowledge/ui/knowledge-popover";
+import { modelsClient } from "../../../plugins/models/client/index";
+import { providerFor } from "../fake-dictionary";
+
+afterEach(() => {
+  cleanup();
+});
+
+const plugins = [modelsClient(), assistantClient(), knowledgeClient(), botClient()];
+const mib = 1024 * 1024;
+
+const listing: KnowledgeListing = {
+  files: [
+    { path: "clients/acme.txt", size: 2048, savedBy: "user" },
+    { path: "clients/report.md", size: 5 * mib, savedBy: "bot" },
+    { path: "handbook.md", size: 26 * mib, savedBy: "user" },
+  ],
+  folders: ["clients"],
+  usage: 31 * mib + 2048,
+  limit: 50 * mib,
+};
+
+/** A fetch that records each request's path and body, and answers with `answer`. */
+function recordingFetch(
+  answer: (url: string) => Response | Promise<Response> = () => new Response(),
+) {
+  const calls: { url: string; body: string }[] = [];
+  const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = input instanceof Request ? input : new Request(input, init);
+    calls.push({ url: request.url, body: await request.clone().text() });
+    return answer(request.url);
+  });
+  return { fetch, calls };
+}
+
+const pending = () => new Promise<Response>(() => {});
+const calledWith = (calls: { url: string; body: string }[], procedure: string) =>
+  calls.find((call) => call.url.includes(`knowledgeFiles/${procedure}`));
+
+function seeded(available = true) {
+  return (queryClient: QueryClient, client: BotSdkClient) => {
+    queryClient.setQueryData(client.orpc.knowledgeFiles.status.queryKey(), { available });
+    queryClient.setQueryData(client.orpc.knowledgeFiles.list.queryKey(), listing);
+  };
+}
+
+function renderPopover(fetch = recordingFetch(pending).fetch, available = true) {
+  render(
+    providerFor(createElement(KnowledgePopover), {
+      seed: seeded(available),
+      fetch,
+      messages: {},
+      plugins,
+    }),
+  );
+  const button = screen.queryByRole("button", { name: /^Knowledge/ });
+  if (button) fireEvent.click(button);
+}
+
+const textFile = (name: string, content = "hello") => new File([content], name);
+
+const fileInput = () => document.querySelector<HTMLInputElement>('input[type="file"]')!;
+
+describe("KnowledgePopover", () => {
+  it("lists the tree: a count, 'Shared by all your Bots', folders, sizes and who saved each", () => {
+    renderPopover();
+
+    expect(screen.getByRole("button", { name: "Knowledge 3" })).toBeTruthy();
+    expect(screen.getByText("Shared by all your Bots")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /clients/ })).toBeTruthy();
+    const acme = screen.getByText("acme.txt").closest("li")!;
+    expect(within(acme).getByText("2 KB")).toBeTruthy();
+    expect(within(acme).getByText("you")).toBeTruthy();
+    const report = screen.getByText("report.md").closest("li")!;
+    expect(within(report).getByText("5 MB")).toBeTruthy();
+    expect(within(report).getByText("a Bot")).toBeTruthy();
+  });
+
+  it("shows the usage meter", () => {
+    renderPopover();
+
+    expect(screen.getByText("31 MB of 50 MB")).toBeTruthy();
+    const meter = screen.getByRole("meter");
+    expect(meter.getAttribute("aria-valuenow")).toBe(String(listing.usage));
+    expect(meter.getAttribute("aria-valuemax")).toBe(String(listing.limit));
+  });
+
+  it("has no Knowledge button without the computer plugin", () => {
+    renderPopover(recordingFetch(pending).fetch, false);
+
+    expect(screen.queryByRole("button", { name: /^Knowledge/ })).toBeNull();
+  });
+
+  it("shows Uploading… then Waking your Computer… while a file goes up", async () => {
+    const { fetch, calls } = recordingFetch(pending);
+    renderPopover(fetch);
+
+    fireEvent.change(fileInput(), { target: { files: [textFile("new.md")] } });
+
+    expect(await screen.findByText("Waking your Computer…")).toBeTruthy();
+    await waitFor(() => expect(calledWith(calls, "upload")).toBeTruthy());
+    expect(JSON.parse(calledWith(calls, "upload")!.body).json).toEqual({
+      name: "new.md",
+      content: "hello",
+      folder: "",
+    });
+  });
+
+  it("uploads into the selected folder", async () => {
+    const { fetch, calls } = recordingFetch(pending);
+    renderPopover(fetch);
+
+    fireEvent.click(screen.getByRole("button", { name: /clients/ }));
+    expect(screen.getByRole("button", { name: "Upload into clients" })).toBeTruthy();
+    fireEvent.change(fileInput(), { target: { files: [textFile("new.md")] } });
+
+    await waitFor(() => expect(calledWith(calls, "upload")).toBeTruthy());
+    expect(JSON.parse(calledWith(calls, "upload")!.body).json).toMatchObject({
+      folder: "clients",
+      name: "new.md",
+    });
+  });
+
+  it("shows a refusal's reason with 'Nothing was added', and dismisses it", async () => {
+    const refusal = () =>
+      Response.json(
+        {
+          json: {
+            defined: false,
+            code: "BAD_REQUEST",
+            status: 400,
+            message: "Knowledge is full",
+            data: { code: "error.knowledgeFull" },
+          },
+        },
+        { status: 400 },
+      );
+    renderPopover(recordingFetch(refusal).fetch);
+
+    fireEvent.change(fileInput(), { target: { files: [textFile("more.md")] } });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Knowledge is full: it holds at most 50 MB");
+    expect(alert.textContent).toContain("Nothing was added.");
+    fireEvent.click(within(alert).getByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("asks 'Replace?' for a name already in the folder, and replaces only when confirmed", async () => {
+    const { fetch, calls } = recordingFetch(pending);
+    renderPopover(fetch);
+
+    fireEvent.change(fileInput(), { target: { files: [textFile("handbook.md", "v2")] } });
+
+    expect(await screen.findByText("Replace “handbook.md”?")).toBeTruthy();
+    expect(calledWith(calls, "upload")).toBeUndefined();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByText("Replace “handbook.md”?")).toBeNull();
+    expect(calledWith(calls, "upload")).toBeUndefined();
+
+    fireEvent.change(fileInput(), { target: { files: [textFile("handbook.md", "v2")] } });
+    fireEvent.click(await screen.findByRole("button", { name: "Replace" }));
+
+    await waitFor(() => expect(calledWith(calls, "upload")).toBeTruthy());
+    expect(JSON.parse(calledWith(calls, "upload")!.body).json).toEqual({
+      folder: "",
+      name: "handbook.md",
+      content: "v2",
+      replace: true,
+    });
+  });
+
+  it("deletes a file", async () => {
+    const { fetch, calls } = recordingFetch(pending);
+    renderPopover(fetch);
+
+    const row = screen.getByText("acme.txt").closest("li")!;
+    fireEvent.click(within(row).getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => expect(calledWith(calls, "remove")).toBeTruthy());
+    expect(JSON.parse(calledWith(calls, "remove")!.body).json).toEqual({
+      path: "clients/acme.txt",
+    });
+  });
+
+  it("makes a new folder inside the selected folder", async () => {
+    const { fetch, calls } = recordingFetch(pending);
+    renderPopover(fetch);
+
+    fireEvent.click(screen.getByRole("button", { name: /clients/ }));
+    fireEvent.click(screen.getByRole("button", { name: "New folder" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Folder name" }), {
+      target: { value: "acme" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => expect(calledWith(calls, "createFolder")).toBeTruthy());
+    expect(JSON.parse(calledWith(calls, "createFolder")!.body).json).toEqual({
+      path: "clients/acme",
+    });
+  });
+});

@@ -152,7 +152,7 @@ export const sdk = (shared.botSdk ??= createBotSdk({
     memory(),
     // Skills (spec #713): each Bot's SKILL.md files, listed in its prompt; a Host turns it on or off.
     skills(),
-    // Knowledge (spec #737): text extraction for Knowledge files; a Host turns it on or off.
+    // Knowledge (spec #737): the user's shared Knowledge files on their Computer, and text extraction; a Host turns it on or off.
     knowledge(),
     assistant({
       mcpServers: mcpServersOf(ENV),

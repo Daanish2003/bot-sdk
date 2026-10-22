@@ -47,6 +47,14 @@ export const errorMessages = {
   "error.skillNotFound": "Skill not found",
   "error.skillName":
     "A Skill's name is lowercase letters, digits and hyphens, at most 64 characters",
+  "error.knowledgeNeedsComputer": "Knowledge needs a Computer",
+  "error.knowledgeComputerUnavailable": "Your Computer can't be reached right now",
+  "error.knowledgeFormat": ({ name, types }: { name: string; types: string }) =>
+    `"${name}" can't be added: Knowledge takes ${types} files`,
+  "error.knowledgePath": "That isn't a name or folder Knowledge can use",
+  "error.knowledgeFull": "Knowledge is full: it holds at most 50 MB",
+  "error.knowledgeExists": ({ path }: { path: string }) => `"${path}" is already in Knowledge`,
+  "error.knowledgeNoSuchFile": "That file isn't in Knowledge",
   "error.attachmentTooLarge": ({ name }: { name: string }) => `"${name}" is larger than 5 MB`,
   "error.attachmentNotSupported": ({ name }: { name: string }) =>
     `"${name}" can't be attached: only images, PDFs and text files can`,

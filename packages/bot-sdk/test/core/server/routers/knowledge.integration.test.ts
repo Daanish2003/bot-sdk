@@ -1,0 +1,245 @@
+import { describe, expect, it } from "vitest";
+
+import { computer } from "../../../../plugins/computer/server/plugin";
+import { knowledge } from "../../../../plugins/knowledge/server/plugin";
+import { createTestSdk } from "../../../support/deps";
+import { chatRpc } from "../../../support/sdk";
+import { insertUser } from "../../../support/users";
+import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
+
+const folder = "/home/user/shared/knowledge";
+const limit = 50 * 1024 * 1024;
+const encode = (text: string) => new TextEncoder().encode(text);
+const textOf = (bytes: Uint8Array | undefined) => new TextDecoder().decode(bytes);
+const knowledgePaths = (files: Map<string, Uint8Array>) =>
+  [...files.keys()].filter((path) => path.startsWith(`${folder}/`)).toSorted();
+
+async function setup({ withComputer = true }: { withComputer?: boolean } = {}) {
+  const computerFake = fakeComputerProvider();
+  const deps = createTestSdk({
+    plugins: [
+      ...(withComputer ? [computer({ provider: computerFake.provider })] : []),
+      knowledge(),
+    ],
+  });
+  const user = await insertUser();
+  const client = chatRpc({ user, deps });
+  return { computerFake, client, deps };
+}
+
+describe("the knowledge router", { timeout: 30_000 }, () => {
+  it.each([
+    ["handbook.md", "# Handbook\n"],
+    ["notes.txt", "Plain notes.\n"],
+    ["page.html", "<p>Hello</p>"],
+    ["prices.csv", "item,price\ntea,3\n"],
+  ])("uploads %s under shared/knowledge/", async (name, content) => {
+    const { computerFake, client } = await setup();
+
+    expect(await client.knowledgeFiles.upload({ name, content })).toEqual({
+      path: name,
+      size: encode(content).length,
+    });
+
+    expect(textOf(computerFake.files.get(`${folder}/${name}`))).toBe(content);
+  });
+
+  it("uploads into a chosen folder", async () => {
+    const { computerFake, client } = await setup();
+
+    await client.knowledgeFiles.upload({ folder: "clients/acme", name: "notes.md", content: "Hi" });
+
+    expect(textOf(computerFake.files.get(`${folder}/clients/acme/notes.md`))).toBe("Hi");
+  });
+
+  it("refuses an unsupported format and writes nothing", async () => {
+    const { computerFake, client } = await setup();
+
+    for (const name of ["photo.png", "archive.zip", "noextension", "handbook.md.exe"]) {
+      await expect(client.knowledgeFiles.upload({ name, content: "x" })).rejects.toMatchObject({
+        code: "BAD_REQUEST",
+        data: { code: "error.knowledgeFormat" },
+      });
+    }
+    expect(computerFake.files.size).toBe(0);
+  });
+
+  it("refuses a name or folder that leaves the Knowledge folder", async () => {
+    const { computerFake, client } = await setup();
+
+    for (const input of [
+      { name: "../escape.md" },
+      { name: "a/b.md" },
+      { folder: "../up", name: "x.md" },
+      { folder: "a//b", name: "x.md" },
+      { folder: "/etc", name: "x.md" },
+    ]) {
+      await expect(client.knowledgeFiles.upload({ content: "x", ...input })).rejects.toMatchObject({
+        code: "BAD_REQUEST",
+        data: { code: "error.knowledgePath" },
+      });
+    }
+    expect(computerFake.files.size).toBe(0);
+  });
+
+  it("refuses an upload that would take Knowledge past 50 MB, and writes nothing", async () => {
+    const { computerFake, client } = await setup();
+    computerFake.files.set(`${folder}/big.txt`, new Uint8Array(limit - 10));
+
+    await expect(
+      client.knowledgeFiles.upload({ name: "more.md", content: "x".repeat(11) }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST", data: { code: "error.knowledgeFull" } });
+    expect(knowledgePaths(computerFake.files)).toEqual([`${folder}/big.txt`]);
+
+    // Exactly 50 MB fits.
+    expect(
+      await client.knowledgeFiles.upload({ name: "fits.md", content: "x".repeat(10) }),
+    ).toEqual({
+      path: "fits.md",
+      size: 10,
+    });
+  });
+
+  it("refuses the same name in the same folder unless replace is set", async () => {
+    const { computerFake, client } = await setup();
+    await client.knowledgeFiles.upload({ folder: "a", name: "x.md", content: "old" });
+
+    await expect(
+      client.knowledgeFiles.upload({ folder: "a", name: "x.md", content: "new" }),
+    ).rejects.toMatchObject({ code: "CONFLICT", data: { code: "error.knowledgeExists" } });
+    expect(textOf(computerFake.files.get(`${folder}/a/x.md`))).toBe("old");
+
+    // Another folder is another file.
+    await client.knowledgeFiles.upload({ folder: "b", name: "x.md", content: "other" });
+
+    await client.knowledgeFiles.upload({
+      folder: "a",
+      name: "x.md",
+      content: "new",
+      replace: true,
+    });
+    expect(textOf(computerFake.files.get(`${folder}/a/x.md`))).toBe("new");
+  });
+
+  it("counts a replaced file's old size out of the cap", async () => {
+    const { computerFake, client } = await setup();
+    computerFake.files.set(`${folder}/big.txt`, new Uint8Array(limit));
+
+    await client.knowledgeFiles.upload({ name: "big.txt", content: "small", replace: true });
+
+    expect(textOf(computerFake.files.get(`${folder}/big.txt`))).toBe("small");
+  });
+
+  it("deletes a file, and refuses one that is not there", async () => {
+    const { computerFake, client } = await setup();
+    await client.knowledgeFiles.upload({ folder: "a", name: "x.md", content: "x" });
+    await client.knowledgeFiles.upload({ name: "keep.md", content: "keep" });
+
+    await client.knowledgeFiles.remove({ path: "a/x.md" });
+
+    expect(knowledgePaths(computerFake.files)).toEqual([`${folder}/keep.md`]);
+    await expect(client.knowledgeFiles.remove({ path: "a/x.md" })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+    await expect(client.knowledgeFiles.remove({ path: "../x.md" })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
+  });
+
+  it("creates a folder on the Computer", async () => {
+    const { computerFake, client } = await setup();
+
+    await client.knowledgeFiles.createFolder({ path: "clients/acme" });
+
+    expect(computerFake.callsOf("run").map((call) => call.command)).toContain(
+      `mkdir -p '${folder}/clients/acme'`,
+    );
+    await expect(client.knowledgeFiles.createFolder({ path: "../up" })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
+  });
+
+  it("lists the tree with sizes, usage, and who saved each file", async () => {
+    const { computerFake, client } = await setup();
+    await client.knowledgeFiles.upload({ name: "handbook.md", content: "# Handbook" });
+    await client.knowledgeFiles.upload({ folder: "clients", name: "acme.txt", content: "Acme" });
+    // Files a Bot wrote with its own tools.
+    computerFake.files.set(`${folder}/clients/report.md`, encode("Report text"));
+    computerFake.files.set(`${folder}/deep/er/note.md`, encode("n"));
+
+    const listed = await client.knowledgeFiles.list();
+
+    expect(listed.files).toEqual([
+      { path: "clients/acme.txt", size: 4, savedBy: "user" },
+      { path: "clients/report.md", size: 11, savedBy: "bot" },
+      { path: "deep/er/note.md", size: 1, savedBy: "bot" },
+      { path: "handbook.md", size: 10, savedBy: "user" },
+    ]);
+    expect(listed.folders).toEqual(["clients", "deep", "deep/er"]);
+    expect(listed.usage).toBe(26);
+    expect(listed.limit).toBe(limit);
+  });
+
+  it("lists nothing for a Computer with no Knowledge yet", async () => {
+    const { client } = await setup();
+
+    expect(await client.knowledgeFiles.list()).toEqual({
+      files: [],
+      folders: [],
+      usage: 0,
+      limit,
+    });
+  });
+
+  it("stops listing a deleted upload as the user's when a Bot writes the name again", async () => {
+    const { computerFake, client } = await setup();
+    await client.knowledgeFiles.upload({ name: "x.md", content: "x" });
+    await client.knowledgeFiles.remove({ path: "x.md" });
+    computerFake.files.set(`${folder}/x.md`, encode("by a Bot"));
+
+    expect((await client.knowledgeFiles.list()).files).toEqual([
+      { path: "x.md", size: 8, savedBy: "bot" },
+    ]);
+  });
+
+  it("reads a file's text", async () => {
+    const { client } = await setup();
+    await client.knowledgeFiles.upload({ folder: "a", name: "x.md", content: "# Hi\n" });
+
+    expect(await client.knowledgeFiles.read({ path: "a/x.md" })).toEqual({
+      path: "a/x.md",
+      content: "# Hi\n",
+      size: 5,
+    });
+    await expect(client.knowledgeFiles.read({ path: "a/none.md" })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+  });
+
+  it("refuses every route without the computer plugin", async () => {
+    const { client } = await setup({ withComputer: false });
+
+    expect(await client.knowledgeFiles.status()).toEqual({ available: false });
+    await expect(client.knowledgeFiles.list()).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(
+      client.knowledgeFiles.upload({ name: "x.md", content: "x" }),
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
+  });
+
+  it("is available with the computer plugin, whatever the Memory switch says", async () => {
+    const { client } = await setup();
+
+    expect(await client.knowledgeFiles.status()).toEqual({ available: true });
+  });
+
+  it("keeps one user's Knowledge from another", async () => {
+    const { deps } = await setup();
+    const alice = chatRpc({ user: await insertUser(), deps });
+    const bob = chatRpc({ user: await insertUser(), deps });
+    await alice.knowledgeFiles.upload({ name: "secret.md", content: "alice" });
+
+    expect((await bob.knowledgeFiles.list()).files).toEqual([]);
+  });
+});
