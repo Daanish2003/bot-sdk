@@ -8,7 +8,6 @@ import { z } from "zod";
 import { createBotSdk } from "../../../../core/server/create-chat";
 import { job, jobEvent } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { assistant } from "../../../../plugins/assistant/server/plugin";
 import { models } from "../../../../plugins/models/server/plugin";
 import { defineJob, type JobContext } from "../../../../plugins/runner/server/jobs/define";
 import {
@@ -679,7 +678,7 @@ describe("runJob (a Host's worker)", () => {
       keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
       basePath: "/api/chat",
       logger: silent,
-      plugins: [models(), runner(), assistant()],
+      plugins: [models(), runner()],
     });
 
     await chat.plugin("runner").runJob("workflow.write", {});

@@ -9,9 +9,13 @@ import type { HostToolContext } from "../../../../plugins/assistant/server/chat/
 import { stopRun } from "../../../../plugins/assistant/server/chat/run";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { insertConversation } from "../../../support/conversations";
-import { createTestSdk, type TestDepsOverrides, type TestDeps } from "../../../support/deps";
+import {
+  createTestSdk,
+  type TestDepsOverrides,
+  type TestDeps,
+  sendAs,
+} from "../../../support/assistant";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
-import { sendAs } from "../../../support/sdk";
 import { insertUser, type TestUser } from "../../../support/users";
 
 const anthropicModel = "anthropic:claude-sonnet-5-5";

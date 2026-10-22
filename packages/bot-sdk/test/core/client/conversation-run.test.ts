@@ -5,6 +5,7 @@ import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 
+import { assistantClient } from "../../../plugins/assistant/client/index";
 import { messageInfo } from "../../../plugins/assistant/client/chat";
 import {
   type ConversationData,
@@ -12,6 +13,7 @@ import {
   useConversationRun,
 } from "../../../plugins/assistant/client/react/conversation-run";
 import type { ActiveBranchMessage } from "../../../plugins/assistant/shared/chat/client-message";
+import { modelsClient } from "../../../plugins/models/client/index";
 import { providerFor } from "../../ui/fake-dictionary";
 
 /*
@@ -160,7 +162,11 @@ function renderRun(
     onRefusedSend: vi.fn<(text: string) => void>(),
   };
   const wrapper = ({ children }: { children: ReactNode }) =>
-    providerFor(children as never, { messages: {}, fetch: rpcFetch() });
+    providerFor(children as never, {
+      messages: {},
+      fetch: rpcFetch(),
+      plugins: [modelsClient(), assistantClient()],
+    });
   const hook = renderHook(
     () =>
       useConversationRun(conversation, {

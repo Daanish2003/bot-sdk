@@ -10,10 +10,15 @@ import { models } from "../../../../plugins/models/server/plugin";
 import { createGuardedFetch } from "../../../../core/server/lib/guarded-fetch";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestSdk, type TestDepsOverrides, type TestDeps } from "../../../support/deps";
+import {
+  createTestSdk,
+  type TestDepsOverrides,
+  type TestDeps,
+  chatRpc,
+  sendAs,
+} from "../../../support/assistant";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { insertUser } from "../../../support/users";
-import { chatRpc, sendAs } from "../../../support/sdk";
 import type { ChatCommand } from "../../../../plugins/assistant/shared/chat/command";
 import { fetchLimitError } from "../../../../plugins/assistant/shared/chat/fetch-url";
 import { citationPrompt } from "../../../../plugins/assistant/shared/chat/citations";

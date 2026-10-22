@@ -6,10 +6,9 @@ import { saveCredentials } from "../../../../plugins/models/server/credentials/s
 import { loadActiveBranch } from "../../../../plugins/assistant/server/chat/store";
 import { getTestDb } from "../../../support/test-database";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestSdk } from "../../../support/deps";
+import { createTestSdk, sendAs } from "../../../support/assistant";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { insertUser } from "../../../support/users";
-import { sendAs } from "../../../support/sdk";
 
 /**
  * Nova Pro: a 300,000-token window and a 10,000-token max output, so its budget is 288,000 tokens

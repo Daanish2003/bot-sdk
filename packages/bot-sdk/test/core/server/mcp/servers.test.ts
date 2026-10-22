@@ -5,7 +5,7 @@ import {
   checkMcpServers,
   type McpServerConfig,
 } from "../../../../plugins/assistant/server/mcp/servers";
-import type { TestDeps } from "../../../support/deps";
+import type { TestDeps } from "../../../support/assistant";
 
 const server = (url: string): McpServerConfig => ({
   key: "linear",

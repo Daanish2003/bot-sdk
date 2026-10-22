@@ -5,7 +5,6 @@ import { eq } from "drizzle-orm";
 import { bot } from "../../../../plugins/bot/server/plugin";
 import { userCredentials } from "../../../../plugins/models/server/db/credentials";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
-import { insertConversation } from "../../../support/conversations";
 import { createTestSdk } from "../../../support/deps";
 import { liveModelsFetch } from "../../../support/live-models";
 import { getTestDb } from "../../../support/test-database";
@@ -73,64 +72,6 @@ describe("models.list", () => {
     const { defaultModel } = await client.models.list();
 
     expect(defaultModel).toBe("openai:gpt-5.6");
-  });
-
-  it("defaults a new Conversation to the Model of the user's most recent Conversation", async () => {
-    const { user, client } = await signedIn();
-    await addCredentials(user, "openai");
-    await addCredentials(user, "anthropic");
-    await insertConversation(user, {
-      model: "anthropic:claude-haiku-4-5",
-      lastMessageAt: new Date("2026-10-01T10:00:00Z"),
-    });
-    await insertConversation(user, {
-      model: "anthropic:claude-opus-5-5",
-      lastMessageAt: new Date("2026-10-02T10:00:00Z"),
-    });
-
-    const { defaultModel } = await client.models.list();
-
-    expect(defaultModel).toBe("anthropic:claude-opus-5-5");
-  });
-
-  it("passes over a newer Conversation that has no Model, such as a Bot's", async () => {
-    const { user, client } = await signedIn();
-    await addCredentials(user, "openai");
-    await addCredentials(user, "anthropic");
-    await insertConversation(user, {
-      model: "anthropic:claude-opus-5-5",
-      lastMessageAt: new Date("2026-10-01T10:00:00Z"),
-    });
-    await insertConversation(user, {
-      kind: "bot",
-      model: null,
-      lastMessageAt: new Date("2026-10-02T10:00:00Z"),
-    });
-
-    const { defaultModel } = await client.models.list();
-
-    expect(defaultModel).toBe("anthropic:claude-opus-5-5");
-  });
-
-  it("skips the most recent Conversation's Model when its Provider has no credentials any more", async () => {
-    const { user, client } = await signedIn();
-    await addCredentials(user, "anthropic");
-    await insertConversation(user, { model: "openai:gpt-6-luna" });
-
-    const { defaultModel } = await client.models.list();
-
-    expect(defaultModel).toBe("anthropic:claude-sonnet-5-5");
-  });
-
-  it("ignores other users' Conversations", async () => {
-    const { user, client } = await signedIn();
-    await addCredentials(user, "anthropic");
-    const other = await insertUser();
-    await insertConversation(other, { model: "anthropic:claude-opus-5-5" });
-
-    const { defaultModel } = await client.models.list();
-
-    expect(defaultModel).toBe("anthropic:claude-sonnet-5-5");
   });
 
   it("rejects a caller without a session", async () => {

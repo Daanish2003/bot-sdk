@@ -3,7 +3,6 @@ import { createElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { createBotSdkClient, type BotSdkClient } from "../../core/client/chat-client";
-import { assistantClient } from "../../plugins/assistant/client/index";
 import { modelsClient } from "../../plugins/models/client/index";
 import {
   type ChatLinkProps,
@@ -82,7 +81,7 @@ type WrapOptions = {
   /** The Host's navigation, to see where the UI goes. Defaults to going nowhere. */
   navigate?: ChatRouter["navigate"];
   messages?: Partial<Messages>;
-  /** The client plugins the Host enables. Defaults to the models and assistant plugins. */
+  /** The client plugins the Host enables. Defaults to the models plugin alone. */
   plugins?: BotSdkClientPlugin[];
   /** The network. Defaults to failing, since a render test makes no requests. */
   fetch?: NonNullable<Parameters<typeof createBotSdkClient>[0]["fetch"]>;
@@ -99,7 +98,7 @@ export function providerFor(
     location = {},
     navigate = () => {},
     messages = wrappedDictionary(),
-    plugins = [modelsClient(), assistantClient()],
+    plugins = [modelsClient()],
     fetch = async () => {
       throw new Error("Unexpected request in a render test");
     },

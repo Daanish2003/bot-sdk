@@ -6,7 +6,7 @@ import { replySegments, sourcesOf } from "../../../../plugins/assistant/shared/c
 import { insertAttachment, linkTestAttachments } from "../../../support/attachments";
 import { insertConversation, insertMessage } from "../../../support/conversations";
 import { insertUser } from "../../../support/users";
-import { chatRpc } from "../../../support/sdk";
+import { chatRpc } from "../../../support/assistant";
 
 async function signedIn() {
   const user = await insertUser();

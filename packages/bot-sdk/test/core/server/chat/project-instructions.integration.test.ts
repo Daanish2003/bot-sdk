@@ -10,11 +10,10 @@ import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { citationPrompt } from "../../../../plugins/assistant/shared/chat/citations";
 import type { ChatCommand } from "../../../../plugins/assistant/shared/chat/command";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestSdk, type TestDeps } from "../../../support/deps";
+import { createTestSdk, type TestDeps, chatRpc, sendAs } from "../../../support/assistant";
 import { getTestDb } from "../../../support/test-database";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { createFakeSearchClient } from "../../../../plugins/bot/server/fake-search-client";
-import { chatRpc, sendAs } from "../../../support/sdk";
 import { insertUser } from "../../../support/users";
 
 const anthropicModel = "anthropic:claude-sonnet-5-5";

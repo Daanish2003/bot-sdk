@@ -8,10 +8,9 @@ import { saveCredentials } from "../../../plugins/models/server/credentials/stor
 import { message } from "../../../core/server/db/schema";
 import { eq } from "drizzle-orm";
 import { insertConversation, insertMessage } from "../../support/conversations";
-import { createTestSdk } from "../../support/deps";
+import { createTestSdk, createTestChat } from "../../support/assistant";
 import { createFakeAdapter, round, text } from "../../support/fake-adapter";
 import { insertUser } from "../../support/users";
-import { createTestChat } from "../../support/sdk";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 
 const basePath = "/api/chat";

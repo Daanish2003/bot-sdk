@@ -7,10 +7,9 @@ import { describe, expect, it, vi } from "vitest";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { saveBackgroundModel } from "../../../../plugins/assistant/server/settings/store";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestSdk, type TestDepsOverrides } from "../../../support/deps";
+import { createTestSdk, type TestDepsOverrides, chatRpc, sendAs } from "../../../support/assistant";
 import { createFakeAdapter, round, runError, text } from "../../../support/fake-adapter";
 import { insertUser } from "../../../support/users";
-import { chatRpc, sendAs } from "../../../support/sdk";
 import type { ChatCommand } from "../../../../plugins/assistant/shared/chat/command";
 import { titleConversation } from "../../../../plugins/assistant/server/chat/title";
 

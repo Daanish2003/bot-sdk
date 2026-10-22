@@ -9,7 +9,7 @@ import {
   usage,
 } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import type { HostProvider } from "../../../../plugins/assistant/server/deps";
+import type { HostProvider } from "../../../../plugins/models/server/types";
 import { demonstrationEventBlobKey } from "../../../../plugins/bot/server/demonstration-capture";
 import { demonstrationDraftMarker } from "../../../../plugins/bot/server/demonstration-draft";
 import { bot } from "../../../../plugins/bot/server/plugin";

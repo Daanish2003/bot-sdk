@@ -6,10 +6,15 @@ import { message, usage } from "../../../../core/server/db/schema";
 import type { HostProvider } from "../../../../plugins/assistant/server/deps";
 import type { LinkedCredentials } from "../../../../plugins/models/server/types";
 import { insertConversation } from "../../../support/conversations";
-import { createTestSdk, type TestDepsOverrides, type TestDeps } from "../../../support/deps";
+import {
+  createTestSdk,
+  type TestDepsOverrides,
+  type TestDeps,
+  chatRpc,
+  sendAs,
+} from "../../../support/assistant";
 import { createFakeAdapter, round, runError, text } from "../../../support/fake-adapter";
 import { insertUser, type TestUser } from "../../../support/users";
-import { chatRpc, sendAs } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 
 // A Model on the ChatGPT plan's list (ADR 0023), and an OpenAI Model that isn't.

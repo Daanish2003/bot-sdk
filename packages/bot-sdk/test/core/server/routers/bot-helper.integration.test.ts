@@ -18,7 +18,7 @@ import type { Database } from "../../../../core/server/db/index";
 import { relations } from "../../../../core/server/db/relations";
 import { encryptCredentials } from "../../../../core/server/credentials/encryption";
 import { deleteUserData } from "../../../../core/server/user-data";
-import type { HostProvider } from "../../../../plugins/assistant/server/deps";
+import type { HostProvider } from "../../../../plugins/models/server/types";
 import {
   botHelperJob,
   generalHelperPrompt,

@@ -12,7 +12,7 @@ import { deleteAllConversations } from "../../../plugins/assistant/server/delete
 import { deleteUserData } from "../../../core/server/user-data";
 import { deleteProject } from "../../../plugins/assistant/server/project/store";
 import { insertConversation, insertMessage } from "../../support/conversations";
-import { createTestSdk } from "../../support/deps";
+import { createTestSdk } from "../../support/assistant";
 import { getTestDb } from "../../support/test-database";
 import { insertUser } from "../../support/users";
 

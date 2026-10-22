@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestSdk } from "../../../support/deps";
+import { createTestSdk } from "../../../support/assistant";
 import { insertUser } from "../../../support/users";
 import { reapStaleRuns, startRun } from "../../../../plugins/assistant/server/chat/run";
 import { freeMeter } from "../../../../plugins/models/server/meter";

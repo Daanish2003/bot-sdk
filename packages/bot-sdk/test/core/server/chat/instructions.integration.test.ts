@@ -4,11 +4,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { insertConversation } from "../../../support/conversations";
-import { createTestSdk, type TestDeps } from "../../../support/deps";
+import { createTestSdk, type TestDeps, chatRpc, sendAs } from "../../../support/assistant";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { createFakeSearchClient } from "../../../../plugins/bot/server/fake-search-client";
 import { insertUser, type TestUser } from "../../../support/users";
-import { chatRpc, sendAs } from "../../../support/sdk";
 import { citationPrompt } from "../../../../plugins/assistant/shared/chat/citations";
 import type { ChatCommand } from "../../../../plugins/assistant/shared/chat/command";
 

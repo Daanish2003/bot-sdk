@@ -4,9 +4,8 @@ import { describe, expect, it } from "vitest";
 import { appRouter } from "../../../../plugins/assistant/server/routers/index";
 import { savedPrompt } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { createTestSdk } from "../../../support/deps";
+import { createTestSdk, chatRpc } from "../../../support/assistant";
 import { getTestDb } from "../../../support/test-database";
-import { chatRpc } from "../../../support/sdk";
 import { insertUser, type TestUser } from "../../../support/users";
 
 const deps = createTestSdk();

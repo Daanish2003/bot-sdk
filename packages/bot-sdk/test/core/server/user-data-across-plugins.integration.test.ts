@@ -8,24 +8,21 @@ import { attachmentBlobKey, type BlobStore } from "../../../core/server/blob/sto
 import { createHookEmitter } from "../../../core/server/chat/hooks";
 import { createBotSdk } from "../../../core/server/create-chat";
 import * as schema from "../../../core/server/db/schema";
+import { encryptCredentials } from "../../../core/server/credentials/encryption";
 import {
   bot,
   botDemonstration,
   botSecret,
   job,
-  mcpConnection,
-  project,
-  savedPrompt,
   usage,
-  userSettings,
   memorySettings,
 } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkPlugin } from "../../../core/server/plugin";
 import { deleteUserData, exportUserData } from "../../../core/server/user-data";
-import { readTokens, saveTokens } from "../../../plugins/assistant/server/mcp/connections";
-import { assistant } from "../../../plugins/assistant/server/plugin";
 import { bot as botPlugin } from "../../../plugins/bot/server/plugin";
+import { loadSecretValues, secretEncryption } from "../../../plugins/bot/server/secret-values";
+import type { BotExport } from "../../../plugins/bot/server/store";
 import { computer, computerBlobKey } from "../../../plugins/computer/server/plugin";
 import { profilePath } from "../../../plugins/memory/server/bot-memory";
 import { runner } from "../../../plugins/runner/server/plugin";
@@ -34,8 +31,6 @@ import { models } from "../../../plugins/models/server/plugin";
 import { insertAttachment, linkTestAttachments } from "../../support/attachments";
 import { insertConversation, insertMessage } from "../../support/conversations";
 import { createTestSdk, type TestDeps } from "../../support/deps";
-import { insertGeneratedImage } from "../../support/generated-images";
-import { chatRpc } from "../../support/sdk";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 import { fakeComputerProvider } from "../../plugins/computer/server/fake-provider";
 import { insertUser, type TestUser } from "../../support/users";
@@ -55,11 +50,24 @@ function fakeBlobStore() {
   return { store, held };
 }
 
-/** Every table of the composed schema with a `user_id` column, with that column. */
+/**
+ * The assistant's tables with a `user_id` column. The instances here don't install it;
+ * `assistant-user-data.integration.test.ts` seeds and checks them with the assistant installed.
+ */
+const assistantTables = [
+  "generated_image",
+  "mcp_connection",
+  "project",
+  "saved_prompt",
+  "user_settings",
+];
+
+/** Every other table of the composed schema with a `user_id` column, with that column. */
 const userTables = Object.values(schema).flatMap((value) => {
   if (!is(value, PgTable)) return [];
-  const column = getTableConfig(value).columns.find((candidate) => candidate.name === "user_id");
-  return column ? [{ name: getTableConfig(value).name, table: value, column }] : [];
+  const { name, columns } = getTableConfig(value);
+  const column = columns.find((candidate) => candidate.name === "user_id");
+  return column && !assistantTables.includes(name) ? [{ name, table: value, column }] : [];
 });
 
 /** The user's row count in every table with a `user_id` column, by table name. */
@@ -89,41 +97,15 @@ async function activeJobsNaming(ids: string[]) {
 }
 
 /**
- * A user with a row in every table that has a `user_id` column: a Conversation with an Attachment,
- * a Shared link and a Generated image; a Project with a Conversation and a Generated image; an
- * unused Attachment; settings, a Saved
- * prompt, an MCP connection, credentials and usage; the Memory switch; a Bot; a Computer. Returns the blob keys and ids it made.
+ * A user with a row in every table above: a Bot whose Conversation has an Attachment, an unused
+ * Attachment, an ended Demonstration, a Secret, a Computer, the Memory switch, credentials and
+ * usage. Returns the blob keys and ids it made.
  */
 async function seedEverything(
   user: TestUser,
   deps: TestDeps,
   fake: ReturnType<typeof fakeComputerProvider>,
 ) {
-  const conv = await insertConversation(user, { title: "Mine" });
-  const question = await insertMessage({ conversationId: conv.id, role: "user", text: "Hi" });
-  await insertMessage({
-    conversationId: conv.id,
-    parentId: question.id,
-    role: "assistant",
-    text: "Hello!",
-    active: true,
-  });
-  const used = await insertAttachment(user, { filename: "notes.txt" });
-  const unused = await insertAttachment(user, { filename: "draft.txt" });
-  await linkTestAttachments(question.id, [used.id]);
-  for (const file of [used, unused]) {
-    await deps.blobStore.put(attachmentBlobKey(file.id), new Uint8Array([1]), {
-      contentType: "text/plain",
-    });
-  }
-  await chatRpc({ user, deps }).share.upsert({ conversationId: conv.id });
-  const image = await insertGeneratedImage(deps, user, conv.id);
-
-  const projectId = uuidv7();
-  await getTestDb().insert(project).values({ id: projectId, userId: user.id, name: "Work" });
-  const inProject = await insertConversation(user, { title: "In a Project", projectId });
-  const projectImage = await insertGeneratedImage(deps, user, inProject.id);
-
   const botConversation = await insertConversation(user, { kind: "bot", model: null });
   const botId = uuidv7();
   await getTestDb().insert(bot).values({
@@ -133,6 +115,20 @@ async function seedEverything(
     name: "Ada",
     model: "anthropic:claude-sonnet-5-5",
   });
+  const said = await insertMessage({
+    conversationId: botConversation.id,
+    role: "user",
+    text: "Read this",
+    active: true,
+  });
+  const used = await insertAttachment(user, { filename: "notes.txt" });
+  const unused = await insertAttachment(user, { filename: "draft.txt" });
+  await linkTestAttachments(said.id, [used.id]);
+  for (const file of [used, unused]) {
+    await deps.blobStore.put(attachmentBlobKey(file.id), new Uint8Array([1]), {
+      contentType: "text/plain",
+    });
+  }
 
   // An ended Demonstration, so it holds no Screen.
   await getTestDb().insert(botDemonstration).values({
@@ -162,16 +158,7 @@ async function seedEverything(
     contentType: "application/gzip",
   });
 
-  await getTestDb().insert(userSettings).values({ userId: user.id, instructions: "Be terse." });
   await getTestDb().insert(memorySettings).values({ userId: user.id, enabled: false });
-  await getTestDb()
-    .insert(savedPrompt)
-    .values({ id: uuidv7(), userId: user.id, name: "review", text: "Review this." });
-  await saveTokens(deps, user.id, "docs", {
-    accessToken: "token",
-    tokenType: "Bearer",
-    scope: "read",
-  });
   await saveCredentials(deps, user.id, {
     service: "anthropic",
     fields: { apiKey: "sk-ant-test-key" },
@@ -189,13 +176,7 @@ async function seedEverything(
     estimated: false,
   });
   return {
-    blobKeys: [
-      attachmentBlobKey(used.id),
-      attachmentBlobKey(unused.id),
-      `generated-image/${image}`,
-      `generated-image/${projectImage}`,
-      computerBlobKey(user.id),
-    ],
+    blobKeys: [attachmentBlobKey(used.id), attachmentBlobKey(unused.id), computerBlobKey(user.id)],
     ids: [user.id],
   };
 }
@@ -217,7 +198,7 @@ describe("deleteUser across plugins", () => {
     const before = await rowsByTable(other.id);
     // Every table with a user_id column must be seeded here, so a new one can't pass unchecked.
     expect(Object.keys(await rowsByTable(owner.id))).toEqual(
-      expect.arrayContaining(["conversation", "attachment", "user_credentials", "project"]),
+      expect.arrayContaining(["conversation", "attachment", "user_credentials", "bot"]),
     );
     expect(tablesWhere(await rowsByTable(owner.id), (total) => total === 0)).toEqual([]);
 
@@ -235,7 +216,7 @@ describe("deleteUser across plugins", () => {
     expect(await activeJobsNaming(kept.ids)).toHaveLength(1);
   });
 
-  it("deletes the models plugin's rows on an instance without the assistant", async () => {
+  it("deletes the models plugin's rows on an instance of models alone", async () => {
     const owner = await insertUser();
     await saveCredentials(createTestSdk(), owner.id, {
       service: "anthropic",
@@ -268,7 +249,7 @@ describe("deleteUser across plugins", () => {
 
   it("runs each plugin's before in the transaction and its after once committed, with what before collected", async () => {
     const owner = await insertUser();
-    await getTestDb().insert(userSettings).values({ userId: owner.id, instructions: "Be terse." });
+    await getTestDb().insert(memorySettings).values({ userId: owner.id, enabled: false });
     const seen: string[] = [];
     const extra: BotSdkPlugin = {
       id: "extra",
@@ -276,17 +257,17 @@ describe("deleteUser across plugins", () => {
         before: async (_sdk, { userId, tx }) => {
           const [row] = await tx
             .select({ total: count() })
-            .from(userSettings)
-            .where(eq(userSettings.userId, userId));
-          // Reverse dependency order: this plugin comes after the assistant, so it runs first.
+            .from(memorySettings)
+            .where(eq(memorySettings.userId, userId));
+          // Reverse dependency order: this plugin comes after memory, so it runs first.
           seen.push(`before: settings ${row?.total}`);
           return "collected";
         },
         after: async (_sdk, { collected }) => {
           const [row] = await getTestDb()
             .select({ total: count() })
-            .from(userSettings)
-            .where(eq(userSettings.userId, owner.id));
+            .from(memorySettings)
+            .where(eq(memorySettings.userId, owner.id));
           seen.push(`after: ${String(collected)}, settings ${row?.total}`);
         },
       },
@@ -321,7 +302,7 @@ describe("deleteUser across plugins", () => {
 
   it("rolls everything back when a plugin's before throws, and logs an after that throws", async () => {
     const owner = await insertUser();
-    await getTestDb().insert(userSettings).values({ userId: owner.id, instructions: "Be terse." });
+    await getTestDb().insert(memorySettings).values({ userId: owner.id, enabled: false });
     const failing = (where: "before" | "after"): BotSdkPlugin => ({
       id: "failing",
       deleteUser: {
@@ -337,17 +318,17 @@ describe("deleteUser across plugins", () => {
     await expect(
       deleteUserData(createTestSdk({ plugins: [failing("before")] }), owner.id),
     ).rejects.toThrow("injected failure");
-    expect(await rowsByTable(owner.id)).toMatchObject({ user_settings: 1 });
+    expect(await rowsByTable(owner.id)).toMatchObject({ memory_settings: 1 });
 
     const logger = { error: vi.fn() };
     await deleteUserData(createTestSdk({ logger, plugins: [failing("after")] }), owner.id);
-    expect(await rowsByTable(owner.id)).toMatchObject({ user_settings: 0 });
+    expect(await rowsByTable(owner.id)).toMatchObject({ memory_settings: 0 });
     expect(logger.error).toHaveBeenCalledOnce();
   });
 });
 
 describe("exportUser across plugins", () => {
-  it("has the core's version and timestamp on an instance without the assistant", async () => {
+  it("has the core's version and timestamp on an instance of models alone", async () => {
     const sdk = createBotSdk({
       databaseUrl: testDatabaseUrl,
       getUser: () => null,
@@ -366,12 +347,12 @@ describe("exportUser across plugins", () => {
     const extra: BotSdkPlugin = { id: "extra", exportUser: async () => ({ savedPrompts: [] }) };
 
     const exported = await exportUserData(
-      createTestSdk({ memory: false, plugins: [extra] }),
+      createTestSdk({ memory: false, plugins: [botPlugin(), extra] }),
       randomUUID(),
     );
 
     expect(exported.extra).toEqual({ savedPrompts: [] });
-    expect(exported.assistant).toMatchObject({ savedPrompts: [], conversations: [] });
+    expect(exported.bot as BotExport).toEqual({ bots: [] });
     expect(exported).not.toHaveProperty("memory");
     expect(exported).not.toHaveProperty("savedPrompts");
   });
@@ -381,7 +362,7 @@ describe("rotateKeys across plugins", () => {
   const keyA = "key-a-of-at-least-32-characters-long!!";
   const keyB = "key-b-of-at-least-32-characters-long!!";
 
-  it("sums the models plugin's credentials and the assistant's MCP tokens", async () => {
+  it("sums the models plugin's credentials and the bot plugin's Secrets", async () => {
     const user = await insertUser();
     const old = createTestSdk({ keyEncryptionSecrets: [keyA] });
     await saveCredentials(old, user.id, {
@@ -390,11 +371,21 @@ describe("rotateKeys across plugins", () => {
       hint: "…abcd",
       verified: true,
     });
-    await saveTokens(old, user.id, "docs", { accessToken: "t", tokenType: "Bearer", scope: "" });
-    // A Connection whose tokens no key can read.
     await getTestDb()
-      .insert(mcpConnection)
-      .values({ userId: user.id, serverKey: "broken", encrypted: "v1:unknown:garbage" });
+      .insert(botSecret)
+      .values([
+        {
+          userId: user.id,
+          name: "GITHUB_TOKEN",
+          encrypted: encryptCredentials(
+            { value: "ghp-test-token" },
+            secretEncryption(old, user.id, "GITHUB_TOKEN"),
+          ),
+          createdAt: new Date(),
+        },
+        // A Secret no key can read.
+        { userId: user.id, name: "BROKEN", encrypted: "v1:unknown:garbage", createdAt: new Date() },
+      ]);
     const logger = { error: vi.fn() };
     const sdk = createBotSdk({
       databaseUrl: testDatabaseUrl,
@@ -402,7 +393,7 @@ describe("rotateKeys across plugins", () => {
       keyEncryptionSecrets: [keyB, keyA],
       basePath: "/api/chat",
       logger,
-      plugins: [models(), runner(), assistant()],
+      plugins: [models(), runner(), botPlugin()],
     });
 
     await expect(sdk.rotateKeys()).resolves.toEqual({ reencrypted: 2, unreadable: 1 });
@@ -410,9 +401,7 @@ describe("rotateKeys across plugins", () => {
 
     const onlyNew = createTestSdk({ keyEncryptionSecrets: [keyB] });
     await expect(listCredentials(onlyNew, user.id)).resolves.toHaveLength(1);
-    await expect(readTokens(onlyNew, user.id, "docs")).resolves.toMatchObject({
-      tokens: { accessToken: "t" },
-    });
+    expect((await loadSecretValues(onlyNew, user.id)).get("GITHUB_TOKEN")).toBe("ghp-test-token");
     expect(logger.error).toHaveBeenCalled();
   });
 });

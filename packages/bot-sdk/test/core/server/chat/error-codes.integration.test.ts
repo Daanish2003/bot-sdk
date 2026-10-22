@@ -7,9 +7,8 @@ import { saveCredentials } from "../../../../plugins/models/server/credentials/s
 import { resolveRateLimits } from "../../../../core/server/rate-limits";
 import type { ChatCommand } from "../../../../plugins/assistant/shared/chat/command";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestSdk, type TestDeps } from "../../../support/deps";
+import { createTestSdk, type TestDeps, sendAs } from "../../../support/assistant";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
-import { sendAs } from "../../../support/sdk";
 import { insertUser } from "../../../support/users";
 
 const anthropicModel = "anthropic:claude-sonnet-5-5";

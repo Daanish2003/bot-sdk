@@ -8,11 +8,10 @@ import { appRouter } from "../../../../plugins/assistant/server/routers/index";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { insertConversation, insertMessage, testModel } from "../../../support/conversations";
-import { createTestSdk } from "../../../support/deps";
+import { createTestSdk, chatRpc, createTestChat, sendAs } from "../../../support/assistant";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { liveModelsFetch } from "../../../support/live-models";
 import { insertUser } from "../../../support/users";
-import { chatRpc, createTestChat, sendAs } from "../../../support/sdk";
 
 async function signedIn() {
   const user = await insertUser();

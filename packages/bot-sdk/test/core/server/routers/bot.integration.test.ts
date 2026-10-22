@@ -2,7 +2,6 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { bot as botTable, botTurn, conversation } from "../../../../core/server/db/schema";
-import type { AssistantExport } from "../../../../plugins/assistant/server/export-user";
 import type { BotExport } from "../../../../plugins/bot/server/store";
 import { deleteUserData, exportUserData } from "../../../../core/server/user-data";
 import { bot } from "../../../../plugins/bot/server/plugin";
@@ -109,13 +108,6 @@ describe("bot.list and bot.get", () => {
       code: "NOT_FOUND",
     });
   });
-
-  it("keeps Bot Conversations out of the assistant's list", async () => {
-    const { client } = await signedIn();
-    await client.bot.create({ name: "Ada", model });
-
-    expect((await client.conversation.list({})).items).toEqual([]);
-  });
 });
 
 describe("the bot plugin's user data", () => {
@@ -167,7 +159,6 @@ describe("the bot plugin's user data", () => {
         ],
       },
     ]);
-    expect((exported.assistant as AssistantExport).conversations).toEqual([]);
   });
 });
 

@@ -6,9 +6,8 @@ import { saveCredentials } from "../../../../plugins/models/server/credentials/s
 import { conversation, message, project } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestSdk } from "../../../support/deps";
+import { createTestSdk, chatRpc, createTestChat } from "../../../support/assistant";
 import { createFakeAdapter, text } from "../../../support/fake-adapter";
-import { chatRpc, createTestChat } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
 import { EventType } from "@tanstack/ai";
