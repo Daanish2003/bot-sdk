@@ -1,3 +1,6 @@
+import { and, asc, eq, isNotNull } from "drizzle-orm";
+
+import { bot, botTurn } from "../../../core/server/db/schema";
 import type { BotSdkContext } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
 import {
@@ -19,8 +22,14 @@ const uploadsPath = "/home/user/shared/.knowledge-uploads.json";
 
 const shellQuote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
 
-/** A file in the Knowledge tree, by its path relative to the Knowledge folder. */
-export type KnowledgeFile = { path: string; size: number; savedBy: "user" | "bot" };
+/** A file in the Knowledge tree, by its path relative to the Knowledge folder;
+ * `botName` is the Bot a recorded Turn says saved it, when there is one. */
+export type KnowledgeFile = {
+  path: string;
+  size: number;
+  savedBy: "user" | "bot";
+  botName?: string;
+};
 
 export type KnowledgeListing = {
   files: KnowledgeFile[];
@@ -114,6 +123,19 @@ async function writeUploads(computer: ComputerHandle, uploads: Set<string>) {
 const byPath = (a: { path: string }, b: { path: string }) =>
   a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
 
+/** The name of the Bot that last saved each path, from the user's Bots' recorded Turns. */
+async function botSavers(deps: BotSdkContext, userId: string): Promise<Map<string, string>> {
+  const rows = await deps.db
+    .select({ name: bot.name, changes: botTurn.knowledgeChanges })
+    .from(botTurn)
+    .innerJoin(bot, eq(bot.id, botTurn.botId))
+    .where(and(eq(bot.userId, userId), isNotNull(botTurn.knowledgeChanges)))
+    .orderBy(asc(botTurn.startedAt), asc(botTurn.id));
+  const savers = new Map<string, string>();
+  for (const row of rows) for (const change of row.changes ?? []) savers.set(change.path, row.name);
+  return savers;
+}
+
 /** The tree with sizes, who saved each file, and the usage. */
 export async function listKnowledge(
   deps: BotSdkContext,
@@ -123,12 +145,13 @@ export async function listKnowledge(
   return onComputer(async () => {
     const tree = await walk(computer);
     const uploads = await readUploads(computer);
+    const savers = await botSavers(deps, userId);
     const files = tree.files
-      .map(({ path, size }): KnowledgeFile => ({
-        path,
-        size,
-        savedBy: uploads.has(path) ? "user" : "bot",
-      }))
+      .map(({ path, size }): KnowledgeFile => {
+        if (uploads.has(path)) return { path, size, savedBy: "user" };
+        const botName = savers.get(path);
+        return { path, size, savedBy: "bot", ...(botName !== undefined && { botName }) };
+      })
       .sort(byPath);
     return {
       files,

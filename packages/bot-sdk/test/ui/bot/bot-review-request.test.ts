@@ -39,6 +39,7 @@ const turn: BotTurnProvenance = {
   triggers: [{ source: "user", at: at(0) }] as BotTurnProvenance["triggers"],
   memoryChanges: null,
   skillChanges: null,
+  knowledgeChanges: null,
   steps: [],
 };
 

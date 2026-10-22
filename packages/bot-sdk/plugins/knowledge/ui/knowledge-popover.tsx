@@ -311,7 +311,7 @@ export function KnowledgePopover() {
                   <span className="rounded bg-muted px-1 text-[10px] text-muted-foreground">
                     {entry.savedBy === "user"
                       ? t("bots.knowledgeSavedByYou")
-                      : t("bots.knowledgeSavedByBot")}
+                      : (entry.botName ?? t("bots.knowledgeSavedByBot"))}
                   </span>
                   <span className="ml-auto whitespace-nowrap text-[11px] text-muted-foreground">
                     {sizeText(entry.size)}
