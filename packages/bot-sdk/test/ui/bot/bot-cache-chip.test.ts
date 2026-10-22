@@ -131,6 +131,7 @@ const turnAt = (id: string, minute: number, sent: boolean): BotTurnProvenance =>
   triggers: [{ source: "user", channel: "web", routineName: null, at: at(minute) }],
   memoryChanges: null,
   skillChanges: null,
+  knowledgeChanges: null,
   steps: [{ ...warm, id: `${id}-s1` }],
 });
 

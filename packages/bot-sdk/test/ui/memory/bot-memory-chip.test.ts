@@ -76,6 +76,7 @@ const turn = (
   triggers: [{ source: "user", channel: "web", routineName: null, at: at(minute) }],
   memoryChanges,
   skillChanges: null,
+  knowledgeChanges: null,
   steps: [],
 });
 

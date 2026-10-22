@@ -275,6 +275,7 @@ describe("a Routine's runs", () => {
     sent,
     memoryChanges: null,
     skillChanges: null,
+    knowledgeChanges: null,
     steps: [],
     triggers: [
       {
@@ -293,6 +294,7 @@ describe("a Routine's runs", () => {
     sent: true,
     memoryChanges: null,
     skillChanges: null,
+    knowledgeChanges: null,
     steps: [],
     triggers: [
       { source: "user", channel: "web", routineName: null, at: at("2026-10-19T06:00:00.000Z") },
@@ -619,6 +621,7 @@ describe("a webhook Routine", () => {
           sent: true,
           memoryChanges: null,
           skillChanges: null,
+          knowledgeChanges: null,
           steps: [],
           triggers: [{ source: "routine", channel: "webhook", routineName: "stripe-payouts", at }],
         },

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 
+import { bot, botTurn } from "../../../../core/server/db/schema";
+import { uuidv7 } from "../../../../core/server/lib/uuidv7";
+import { insertConversation } from "../../../support/conversations";
+import { getTestDb } from "../../../support/test-database";
+
 import { computer } from "../../../../plugins/computer/server/plugin";
 import { knowledge } from "../../../../plugins/knowledge/server/plugin";
 import { createTestSdk } from "../../../support/deps";
@@ -24,7 +29,7 @@ async function setup({ withComputer = true }: { withComputer?: boolean } = {}) {
   });
   const user = await insertUser();
   const client = chatRpc({ user, deps });
-  return { computerFake, client, deps };
+  return { computerFake, client, deps, user };
 }
 
 describe("the knowledge router", { timeout: 30_000 }, () => {
@@ -178,6 +183,37 @@ describe("the knowledge router", { timeout: 30_000 }, () => {
     expect(listed.folders).toEqual(["clients", "deep", "deep/er"]);
     expect(listed.usage).toBe(26);
     expect(listed.limit).toBe(limit);
+  });
+
+  it('names the Bot whose recorded Turn saved a file, and says "a Bot" otherwise', async () => {
+    const { computerFake, client, user } = await setup();
+    const conversation = await insertConversation(user, { kind: "bot" });
+    const botId = uuidv7();
+    await getTestDb().insert(bot).values({
+      id: botId,
+      userId: user.id,
+      conversationId: conversation.id,
+      name: "Ada",
+      model: "x:y",
+    });
+    await getTestDb()
+      .insert(botTurn)
+      .values({
+        id: uuidv7(),
+        botId,
+        status: "complete",
+        startedAt: new Date(),
+        knowledgeChanges: [{ botId, path: "clients/report.md" }],
+      });
+    computerFake.files.set(`${folder}/clients/report.md`, encode("Report text"));
+    computerFake.files.set(`${folder}/other.md`, encode("x"));
+    await client.knowledgeFiles.upload({ name: "mine.md", content: "m" });
+
+    expect((await client.knowledgeFiles.list()).files).toEqual([
+      { path: "clients/report.md", size: 11, savedBy: "bot", botName: "Ada" },
+      { path: "mine.md", size: 1, savedBy: "user" },
+      { path: "other.md", size: 1, savedBy: "bot" },
+    ]);
   });
 
   it("lists nothing for a Computer with no Knowledge yet", async () => {

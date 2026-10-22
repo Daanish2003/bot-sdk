@@ -175,6 +175,8 @@ export const botsMessages = {
   "bots.knowledgeDismiss": "Dismiss",
   "bots.knowledgeDelete": "Delete",
   "bots.knowledgeDeleted": "File deleted",
+  "bots.knowledgeSaved": ({ name, path }: { name: string; path: string }) =>
+    `📚 ${name} saved to Knowledge: ${path}`,
   "bots.knowledgeSavedByYou": "you",
   "bots.knowledgeSavedByBot": "a Bot",
   "bots.knowledgeReplaceQuestion": ({ path }: { path: string }) => `Replace “${path}”?`,

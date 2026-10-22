@@ -57,6 +57,8 @@ import {
   turnTimeLimitMs,
 } from "./store";
 import type { BotSkillChange } from "../../skills/shared/changes";
+import { knowledgeChangesOf } from "../../knowledge/server/changes";
+import type { BotKnowledgeChange } from "../../knowledge/shared/changes";
 import { skillChangesOf } from "../../skills/server/skills";
 import { secretNameSchema } from "../shared/secret";
 import {
@@ -508,6 +510,7 @@ async function cancelTurn(deps: BotSdkContext, tx: Transaction, turnId: string):
     error: null,
     transcript: played.transcript,
     skillChanges: turn ? skillChangesOf(turn.botId, played.transcript) : null,
+    knowledgeChanges: turn ? knowledgeChangesOf(turn.botId, played.transcript) : null,
     usage: played.usage,
     endedAt,
   });
@@ -653,6 +656,7 @@ async function runTurnJob(
         ...endingOf(played),
         transcript: played.transcript,
         skillChanges: skillChangesOf(turn.botId, played.transcript),
+        knowledgeChanges: knowledgeChangesOf(turn.botId, played.transcript),
         usage: played.usage,
         endedAt,
       });
@@ -736,6 +740,7 @@ async function endRunningTurn(
         ...ending,
         transcript: played.transcript,
         skillChanges: skillChangesOf(turn.botId, played.transcript),
+        knowledgeChanges: knowledgeChangesOf(turn.botId, played.transcript),
         usage: played.usage,
         endedAt,
       })
@@ -795,6 +800,7 @@ async function endTurn(
     error: string | null;
     transcript: ModelMessage[];
     skillChanges: BotSkillChange[] | null;
+    knowledgeChanges: BotKnowledgeChange[] | null;
     usage: MessageUsage | null;
     endedAt: Date;
   },
