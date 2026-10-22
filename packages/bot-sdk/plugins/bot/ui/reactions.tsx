@@ -16,6 +16,7 @@ export function ReactionChips({ reactions, own }: { reactions?: Reactions; own: 
   return (
     <div
       data-reactions
+      role="group"
       className={cn("flex gap-1", own === "user" ? "self-end" : "self-start")}
       aria-label={t("bots.reactions")}
     >
@@ -51,7 +52,7 @@ export function ReactionBar({
       data-reaction-bar
       role="toolbar"
       aria-label={t("bots.reactToMessage")}
-      className="absolute -bottom-3 left-2 hidden gap-0.5 rounded-full border bg-background px-1 shadow-sm group-focus-within:flex group-hover:flex"
+      className="absolute -top-3 left-2 flex gap-0.5 rounded-full border bg-background px-1 opacity-0 shadow-sm group-focus-within:opacity-100 group-hover:opacity-100"
     >
       {reactionEmojis.map((emoji) => (
         <button

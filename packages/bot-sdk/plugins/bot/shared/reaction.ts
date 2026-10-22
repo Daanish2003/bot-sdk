@@ -7,7 +7,10 @@ export const maxEmojiLength = 16;
 export const emojiSchema = z
   .string()
   .max(maxEmojiLength)
-  .regex(/\p{Extended_Pictographic}/u, { error: "Not an emoji" });
+  .regex(
+    /^(?:\p{Extended_Pictographic}|\p{Regional_Indicator}{2})(?:\p{Emoji_Modifier}|️|‍\p{Extended_Pictographic})*$/u,
+    { error: "Not a single emoji" },
+  );
 
 /** One reaction: the emoji and when it was put on. */
 export const reactionSchema = z.object({ emoji: z.string(), at: z.date() });

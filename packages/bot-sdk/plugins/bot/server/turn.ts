@@ -233,7 +233,7 @@ const sendToUserDefinition = toolDefinition({
       }),
     react: z
       .object({
-        messageId: z.string().meta({ description: "The id of the user's message to react to." }),
+        messageId: z.uuid().meta({ description: "The id of the user's message to react to." }),
         emoji: emojiSchema.meta({ description: "One emoji." }),
       })
       .optional()
@@ -977,8 +977,9 @@ async function newestInput(
         and(
           eq(message.conversationId, turn.conversationId),
           eq(message.role, "assistant"),
-          sql`${message.parts}->'reactions'->'user'->>'at' <= ${turn.startedAt.toISOString()}`,
-          since && sql`${message.parts}->'reactions'->'user'->>'at' > ${since.toISOString()}`,
+          sql`(${message.parts}->'reactions'->'user'->>'at')::timestamptz <= ${turn.startedAt.toISOString()}::timestamptz`,
+          since &&
+            sql`(${message.parts}->'reactions'->'user'->>'at')::timestamptz > ${since.toISOString()}::timestamptz`,
         ),
       )
       .orderBy(asc(message.createdAt), asc(message.id)),
