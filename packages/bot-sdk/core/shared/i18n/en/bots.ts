@@ -224,6 +224,8 @@ description: Use this when
   "bots.secretNeverValue": ({ bot }: { bot: string }) =>
     `${bot} gets only the name, never the value`,
   "bots.secretSaved": ({ name }: { name: string }) => `Saved secret ${name}`,
+  "bots.filesLabel": "Files from the Bot",
+  "bots.fileDownload": "Download",
   "bots.secrets": "Secrets",
   "bots.secretsCount": ({ count }: { count: number }) => `Secrets ${count}`,
   "bots.secretsShared": "Shared by all your Bots. Values are never shown.",

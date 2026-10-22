@@ -61,7 +61,10 @@ import type { BotSkillChange } from "../../skills/shared/changes";
 import { knowledgeChangesOf } from "../../knowledge/server/changes";
 import type { BotKnowledgeChange } from "../../knowledge/shared/changes";
 import { skillChangesOf } from "../../skills/server/skills";
+import { maxFilesPerMessage } from "../shared/files";
+import type { RichControl } from "../shared/rich-control";
 import { secretNameSchema } from "../shared/secret";
+import { copyFilesToStorage } from "./files";
 import {
   createRoutineToolName,
   deleteRoutine,
@@ -80,6 +83,9 @@ export const turnStepLimit = 10;
 
 /** The Bot's tool for reaching the user: the only way it does. */
 export const sendToUserToolName = "send_to_user";
+
+/** The activity that copies the files of a `send_to_user` call to storage. */
+const sendFilesActivity = "send_to_user:files";
 
 /** The Bot tool that sets a Check-in for itself, with no Approval (#540). */
 export const setCheckInToolName = "set_check_in";
@@ -197,6 +203,16 @@ const sendToUserDefinition = toolDefinition({
           "Ask the user for a password or token. The message shows a secure field; the value goes " +
           "straight to the server and you never see it. You are woken with 'Saved secret NAME' " +
           "once they save it. Use it by naming it in the secrets of a shell call.",
+      }),
+    files: z
+      .array(z.string())
+      .min(1)
+      .max(maxFilesPerMessage)
+      .optional()
+      .meta({
+        description:
+          "Paths of files on your computer to send with the message, as downloads under it. They " +
+          "are copied when you send, and nothing is sent if one is missing. Not with secret.",
       }),
   }),
 });
@@ -1124,13 +1140,29 @@ function turnTools(
 ): AnyServerTool[] {
   const { liveActivity } = kit;
   const sendToUser = sendToUserDefinition.server(
-    async ({ text, endTurn: last, secret }, context) => {
+    async ({ text, endTurn: last, secret, files }, context) => {
+      if (files && secret)
+        return { error: "A message carries one control: send files and the secret apart." };
+      // Copied to storage before the Message, so a missing path sends nothing. The copy is its own
+      // Checkpoint, so a crash after it doesn't copy again.
+      let control: RichControl | undefined = secret && { kind: "secret", ...secret };
+      if (files && text.trim()) {
+        if (!withComputer) return { error: "You have no computer, so you cannot send files." };
+        const copied = await kit.computerCall(
+          sendFilesActivity,
+          context?.toolCallId,
+          (computer, live) => copyFilesToStorage(deps, computer, turn.botId, files, live),
+          false,
+        );
+        if ("error" in copied) return copied;
+        control = { kind: "files", files: copied.files };
+      }
       // The Message commits with its Checkpoint, so it is sent once across a crash.
       const result = await liveActivity(sendToUserToolName, context?.toolCallId, async (tx) => {
         if (!text.trim()) return { error: emptyTextError };
         await appendMessage(tx, turn.conversationId, {
           role: "assistant",
-          parts: secret ? controlParts(text, { kind: "secret", ...secret }) : textParts(text),
+          parts: control ? controlParts(text, control) : textParts(text),
           status: "complete",
           createdAt: deps.clock(),
         });
