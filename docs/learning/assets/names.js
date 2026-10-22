@@ -1027,6 +1027,46 @@ window.NAMES = [
       "The drafting pass: one model call, with no tools, that turns a Demonstration's steps and screenshots into a complete SKILL.md. It is metered as skill_draft.",
     example: "draftSkill(deps, demonstration)",
   },
+  {
+    lesson: 20,
+    name: "knowledge",
+    kind: "function",
+    meaning:
+      "The knowledge plugin: a user's Knowledge as plain files in shared/knowledge/ on the Computer. It uses the computer plugin, and it owns the conversion, the cap and the Knowledge routes.",
+    example: "knowledge() in plugins/knowledge/server/plugin.ts",
+  },
+  {
+    lesson: 20,
+    name: "knowledgeDirectory",
+    kind: "file",
+    meaning:
+      "The folder every Bot reads Knowledge from, inside the shared tree the Computer syncs: /home/user/shared/knowledge.",
+    example: "/home/user/shared/knowledge/handbook.pdf.md",
+  },
+  {
+    lesson: 20,
+    name: "knowledgePrompt",
+    kind: "function",
+    meaning:
+      "Builds the Knowledge block of the Prompt start: where Knowledge is, how to use it, then one '- path' line per readable path, up to 4,000 characters.",
+    example: "- reports/annual-report.pdf.md",
+  },
+  {
+    lesson: 20,
+    name: "readablePaths",
+    kind: "function",
+    meaning:
+      "The paths a Bot reads, sorted. A file that has a readable copy is left out, so the Bot reads the .md copy instead of the original.",
+    example: "readablePaths(['handbook.pdf', 'handbook.pdf.md']) → ['handbook.pdf.md']",
+  },
+  {
+    lesson: 20,
+    name: "knowledgeChangesOf",
+    kind: "function",
+    meaning:
+      "The files a Turn saved under shared/knowledge/ with write, edit or run_tool, for the 'saved to Knowledge' chip. Writes elsewhere, such as memory, are ignored.",
+    example: "knowledgeChangesOf(botId, transcript) → [{ botId, path: 'report.md' }] or null",
+  },
 ];
 
 (function () {
