@@ -50,6 +50,8 @@ describe("the Keys page", () => {
     ]);
 
     expect(html).toContain("Keys &amp; settings");
+    expect(html).toContain("Host section A");
+    expect(html).toContain("Host section C");
     expect(html.indexOf("Host section A")).toBeLessThan(html.indexOf("Providers"));
     expect(html.indexOf("Providers")).toBeLessThan(html.indexOf("Host section C"));
   });
