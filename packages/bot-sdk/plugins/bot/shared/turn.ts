@@ -1,13 +1,15 @@
 import { z } from "zod";
 
 import type { BotMemoryChange } from "../../memory/shared/changes";
+import type { BotSkillChange } from "../../skills/shared/changes";
+import { demonstrationCardSchema } from "./demonstration";
 import { computerCardSchema } from "./helper";
 import { secretRequestSchema } from "./secret";
 
 /**
  * A Message of a Bot's Conversation: its text, never the Bot's private transcript. A Computer-use
- * Helper's hand-off Message also has its Computer card, and a Message that asks for a Secret has
- * its request.
+ * Helper's hand-off Message also has its Computer card, a Message that asks for a Secret has
+ * its request, and the Message `watch_user` posts has its Show me card.
  */
 export const botMessageSchema = z.object({
   id: z.string(),
@@ -17,6 +19,8 @@ export const botMessageSchema = z.object({
   computer: computerCardSchema.optional(),
   /** The Secret the Bot asks for with this Message, which renders as the Secret card. */
   secret: secretRequestSchema.optional(),
+  /** The Demonstration `watch_user` started, which renders as the Show me card. */
+  demonstration: demonstrationCardSchema.optional(),
 });
 
 export type BotMessage = z.infer<typeof botMessageSchema>;
@@ -86,6 +90,8 @@ export type BotTurnProvenance = {
   triggers: BotTurnTrigger[];
   /** What the Turn's post-turn memory pass changed (ADR 0022), or null when it changed nothing. */
   memoryChanges: BotMemoryChange[] | null;
+  /** The Skills the Turn saved or updated (spec #713), or null when it wrote none. */
+  skillChanges: BotSkillChange[] | null;
   /** Its Steps, oldest first, for the cache chip (#675). */
   steps: BotTurnStep[];
 };

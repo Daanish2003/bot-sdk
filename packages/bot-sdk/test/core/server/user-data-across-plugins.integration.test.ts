@@ -10,6 +10,7 @@ import { createBotSdk } from "../../../core/server/create-chat";
 import * as schema from "../../../core/server/db/schema";
 import {
   bot,
+  botDemonstration,
   botSecret,
   job,
   knowledgeFile,
@@ -149,6 +150,20 @@ async function seedEverything(
     conversationId: botConversation.id,
     name: "Ada",
     model: "anthropic:claude-sonnet-5-5",
+  });
+
+  // An ended Demonstration, so it holds no Screen.
+  await getTestDb().insert(botDemonstration).values({
+    id: uuidv7(),
+    botId,
+    userId: user.id,
+    conversationId: botConversation.id,
+    goal: "Copy the payouts",
+    inputs: [],
+    state: "cancelled",
+    screen: 1,
+    startedAt: new Date(),
+    endedAt: new Date(),
   });
 
   await getTestDb().insert(botSecret).values({

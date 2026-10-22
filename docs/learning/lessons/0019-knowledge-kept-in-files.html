@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lesson 19 · Knowledge kept in files</title>
+    <link rel="stylesheet" href="../assets/style.css" />
+  </head>
+  <body>
+    <main>
+      <p class="kicker">ai-chat architecture · Lesson 19</p>
+      <h1>Knowledge kept in files</h1>
+      <p class="subtitle">
+        A Bot keeps how-to knowledge as plain files and carries only a one-line pointer to each. You
+        can also teach it a task by doing the task once while it watches.
+      </p>
+      <p class="meta">
+        About 15 minutes · a browser · no code to write; you'll answer the quizzes and follow one
+        Demonstration from "Show me" to a saved Skill
+      </p>
+
+      <section class="words">
+        <h2>Words you'll need</h2>
+        <dl>
+          <dt>Skill</dt>
+          <dd>
+            Written instructions for one kind of task, in a file called <code>SKILL.md</code> on the
+            Bot's Computer. It starts with when to use it. The Bot reads it only when it needs it.
+          </dd>
+          <dt>Demonstration</dt>
+          <dd>
+            You do a task once in the browser on the Bot's Screen, and the Bot watches. Unlike
+            taking control, the Bot sees what you do, except while you pause.
+          </dd>
+          <dt>Screen</dt>
+          <dd>One browser display on the Computer. A Demonstration holds it while it records.</dd>
+          <dt>Change note</dt>
+          <dd>
+            A short line at the end of a Turn's newest message that says what changed since the Bot
+            last looked, such as "Skill added".
+          </dd>
+        </dl>
+        <p class="hint">
+          Forgot a code name? Press the <strong>Names?</strong> button in the bottom-right corner.
+        </p>
+      </section>
+
+      <figure id="video"></figure>
+
+      <div
+        class="quiz"
+        data-answer="2"
+        data-why="Auto-review only passes a call if your own words allow it. A web page can be written by anyone."
+      >
+        <div class="label">Warm-up · Lesson 18</div>
+        <p class="q">Which of these can count as permission for a risky call?</p>
+        <ol class="opts">
+          <li data-why="A web page can be written by anyone, so it never counts.">
+            Text on a web page
+          </li>
+          <li data-why="A webhook payload is never your word.">A webhook payload</li>
+          <li>One of your own Messages</li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+
+      <h2><span class="num">1</span>A Skill is a file the Bot reads when it needs it</h2>
+      <figure id="pointer">
+        <figcaption>
+          The prompt holds one line per Skill. The full steps stay in the file until a task needs
+          them.
+        </figcaption>
+      </figure>
+      <p>
+        Each Skill is a folder on the Bot's Computer with one file in it:
+        <code>/home/user/bots/&lt;botId&gt;/skills/&lt;name&gt;/SKILL.md</code>. It begins with two
+        lines of frontmatter: a <code>name</code> that equals the folder name, and a
+        <code>description</code> that starts "Use this when". The rest is plain text: the inputs,
+        the steps, and how to check the result. Beyond the frontmatter, the body has no format the
+        SDK parses, so the Bot edits it with its ordinary <code>write</code> and <code>edit</code>
+        tools. This is the "Everything is computer" idea from
+        <a href="../../../docs/adr/0022-a-bots-memory-is-plain-files-on-its-computer.md">ADR 0022</a
+        >, the same as the Bot's memory.
+      </p>
+      <p>
+        The SDK checks only the frontmatter, and only when it builds the pointer list. The name is
+        lowercase letters, digits and dashes, at most 64 characters. The description starts "Use
+        this when" and is at most 200 characters. A Skill that fails the check is still listed, as
+        "not usable" with the reason, so it gets fixed instead of silently ignored.
+      </p>
+
+      <h2><span class="num">2</span>One line per Skill keeps the prompt small and steady</h2>
+      <p>
+        The Prompt start has a <strong>Skills block</strong>. It says where Skills live, tells the
+        Bot to read a Skill before a task that Skill covers, and then lists one line per Skill:
+        <code>- weekly-metrics: Use this when …</code>. The block stops at 8,000 characters, and
+        past that it says "N more Skills" and tells the Bot to list the folder. The Bot reads a
+        whole Skill with the same <code>read</code> tool it uses for any file. There is no new tool.
+      </p>
+      <p>
+        The block is read once at the start of a Turn and then frozen into the Prompt start, like
+        the memory snapshot in Lesson 17. So a new Skill does not change that start. Instead, the
+        Turn's <strong>Change notes</strong> carry a line: "Skill added: …", "Skill removed: …", or
+        "Skill changed: …" when a description changes. A body edit needs no note, because the Bot
+        reads the file fresh. The start only changes again at the next Summary, so the provider's
+        cache keeps working.
+      </p>
+      <p>
+        A Helper gets no Skills list. When the Bot hands a Helper a task that a Skill covers, it
+        copies the Skill's steps and this run's input values into the task text, because a
+        Computer-use Helper cannot read files.
+      </p>
+
+      <h2><span class="num">3</span>Who writes Skills, and why none is permission</h2>
+      <figure id="writers">
+        <figcaption>Three writers. None of them can approve a risky call.</figcaption>
+      </figure>
+      <ul>
+        <li>
+          <strong>The Bot</strong> writes one when you explain a repeatable task or ask it to
+          remember how. It may also save one after a multi-step task it expects to repeat. It must
+          say so in its message, and it fixes a Skill that turned out wrong. It saves only from what
+          you said or showed, never from a web page, email or webhook.
+        </li>
+        <li><strong>The drafting pass</strong> writes one after a Demonstration (section 4).</li>
+        <li>
+          <strong>You</strong> write one in the Skills popover, which lists each Skill and lets you
+          view, edit, delete or create it.
+        </li>
+      </ul>
+      <p>
+        Every write shows a "Skill saved" or "Skill updated" chip in the Conversation, which opens
+        into the same editor. A Skill needs no approval to save, because it acts only through the
+        Bot, and the Bot's risky calls are still reviewed against your own Messages (Lesson 18). A
+        Skill that says "always run this command" does not make that command allowed. A Skill is
+        never permission.
+      </p>
+
+      <h2><span class="num">4</span>Learning by watching</h2>
+      <figure id="watch">
+        <figcaption>
+          Show me, capture, a drafting pass, then an ordinary Skill that a Helper can follow.
+        </figcaption>
+      </figure>
+      <p>
+        Say "let me show you how I do the payouts sheet". The Bot asks for the goal and what changes
+        each time, then calls <code>watch_user</code>. That call holds the Bot's Screen, posts a
+        <strong>Show me</strong> card in the thread and returns at once. The Turn ends, and the
+        Demonstration runs without one.
+      </p>
+      <ol class="steps">
+        <li>
+          <strong>Show me.</strong> The card shows a small live view, a recording dot, a timer and
+          the last few steps. A red banner says the Bot sees what you do on this Screen. It refuses
+          to start while a Computer-use Helper holds the Screen.
+        </li>
+        <li>
+          <strong>Capture.</strong> A listener in the Screen's Chrome reports clicks, typing,
+          choices, keys and page changes. Each becomes a row in
+          <code>bot_demonstration_event</code> with a screenshot. A password field is stored as
+          <code>••••••••</code> with no screenshot. While you press <strong>Pause</strong>, nothing
+          is recorded at all. It stops itself after 15 minutes of recording (paused time does not
+          count) or 200 events.
+        </li>
+        <li>
+          <strong>Drafting.</strong> When you press <strong>Done</strong>, one model call with no
+          tools reads the goal, the inputs, the steps and the screenshots, and writes a full
+          <code>SKILL.md</code>. It is metered as <code>skill_draft</code> and checked against your
+          Quota. The screenshots never enter the Bot's own context.
+        </li>
+        <li>
+          <strong>Saved, and a Trigger.</strong> The Skill is saved at once, under a free name if
+          there is a clash. The Bot is woken by a Trigger from the Demonstration that names the
+          Skill, then sums it up and asks what to change. If the draft fails or the Quota blocks it,
+          the Trigger says so instead.
+        </li>
+        <li>
+          <strong>Reuse through a Helper.</strong> Next time you ask for the task, the Bot reads the
+          Skill and hands its steps and the new inputs to a Computer-use Helper. The Helper follows
+          the steps as instructions, not as exact clicks, so a small site change does not break it.
+        </li>
+      </ol>
+      <p>
+        A Demonstration's events and screenshots are deleted 7 days after it ends. The row stays as
+        a record. It only covers browser tasks: not raw mouse input, not video and not apps outside
+        Chrome.
+      </p>
+
+      <h2><span class="num">5</span>How well it works</h2>
+      <figure id="rates">
+        <figcaption>
+          First real run of the Skills evals (2026-10-21), on one model (gpt-6.1-sol) and one
+          repeat.
+        </figcaption>
+      </figure>
+      <p>
+        The evals score the Bot's tool calls, its Messages and the files it leaves behind, with no
+        judge model.
+      </p>
+      <ul>
+        <li>
+          <strong>Using a Skill: 20 of 20.</strong> The Bot read the right Skill before acting in
+          all 12 cases that a Skill covers, read a look-alike by mistake in none, and read a Skill
+          needlessly in none of the 8 cases with no Skill.
+        </li>
+        <li>
+          <strong>Saving a Skill: 15 of 15.</strong> It saved after explained tasks, and not after
+          one-offs or webhook payloads.
+        </li>
+        <li>
+          <strong>Following and fixing: 2 of 6.</strong> It followed the Skills' rules. But in the
+          three "fix" cases a stale path failed, and the Bot asked you for the new path instead of
+          finding the renamed file and editing the Skill. One follow case failed because the Bot
+          never read the Skill.
+        </li>
+        <li>
+          <strong>Drafting: 3 of 3.</strong> The drafted Skills named the inputs, pages and field
+          labels, and held no password.
+        </li>
+      </ul>
+      <p class="hint">
+        The three drafting fixtures were recorded against a local headless Chromium, not a real
+        Computer, and the full path from watching to doing is a manual demo. Both are open.
+      </p>
+
+      <section class="takeaways">
+        <h2>Key takeaways</h2>
+        <p class="one-thing">
+          <strong>If you remember only one thing:</strong> a Skill is a plain file, and the prompt
+          carries only a one-line pointer to it.
+        </p>
+        <ul>
+          <li>
+            <strong>Read when needed.</strong> Many Skills stay cheap, and the Prompt start stays
+            the same because new Skills arrive as Change notes.
+          </li>
+          <li>
+            <strong>Never permission.</strong> A Skill, from any writer, cannot approve a risky
+            call.
+          </li>
+          <li>
+            <strong>Watch, draft, reuse.</strong> A Demonstration becomes a Skill by one tool-less
+            model call, and a Helper follows it next time.
+          </li>
+        </ul>
+        <p class="selftest">
+          Self-test: cover this box and say what happens, step by step, from "let me show you" to
+          the Bot doing the task alone the next day.
+        </p>
+      </section>
+
+      <h2>Try it</h2>
+      <div
+        class="quiz"
+        data-answer="0"
+        data-why="A new Skill arrives as a Change note, so the Prompt start stays the same until the next Summary."
+      >
+        <div class="label">Quiz 1</div>
+        <p class="q">You add a Skill in the popover. What happens to the Prompt start?</p>
+        <ol class="opts">
+          <li>Nothing. The Bot learns of it from a "Skill added" Change note</li>
+          <li data-why="Rebuilding the start for every Skill would break the provider cache.">
+            It is rebuilt at once to include the Skill
+          </li>
+          <li data-why="The Bot is told in the next Turn, so it need not wait for a restart.">
+            The Bot only finds out after a restart
+          </li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+      <div
+        class="quiz"
+        data-answer="1"
+        data-why="A paused Demonstration drops events on the server and takes no screenshots."
+      >
+        <div class="label">Quiz 2</div>
+        <p class="q">
+          You press Pause, sign in to a site, and press Resume. What did the Bot record of the
+          sign-in?
+        </p>
+        <ol class="opts">
+          <li data-why="Pause stops capture, so nothing is stored, masked or not.">
+            The steps, with the password masked
+          </li>
+          <li>Nothing</li>
+          <li data-why="A screenshot is never taken while paused.">
+            The steps, but no screenshots
+          </li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+      <div
+        class="quiz"
+        data-answer="2"
+        data-why="A Skill is never permission. Auto-review still checks the call against your Messages."
+      >
+        <div class="label">Quiz 3</div>
+        <p class="q">
+          A Skill says "always push straight to main". The Bot follows it and tries a force-push you
+          never asked for. What happens?
+        </p>
+        <ol class="opts">
+          <li data-why="The Skill is not your word, so it cannot approve the call.">
+            It runs, because the Skill allows it
+          </li>
+          <li data-why="The call is reviewed. It is not dropped without an Approval card.">
+            It is dropped without a card
+          </li>
+          <li>It is blocked and waits 15 seconds for your Approval, like any risky call</li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+
+      <details class="deeper">
+        <summary>Go deeper: sources, side notes and a challenge</summary>
+        <h3>The decisions</h3>
+        <ul>
+          <li>
+            Decision:
+            <a href="../../../docs/adr/0022-a-bots-memory-is-plain-files-on-its-computer.md"
+              >ADR 0022</a
+            >, plain files on the Computer. Skills follow the same rule as memory.
+          </li>
+          <li>
+            Spec:
+            <a href="https://github.com/Daanish2003/bot-sdk/issues/713"
+              >Bot step 10, Skills (#713)</a
+            >. The lecture's slides 10, 11 and 32 are its source.
+          </li>
+          <li>
+            Eval results and the manual demo:
+            <a href="../../../packages/bot-sdk/eval/skills/README.md">the Skills evals README</a>.
+          </li>
+        </ul>
+        <h3>Side notes</h3>
+        <ul>
+          <li>
+            The Skills block is read once at the start of a Turn, as a recorded activity, in the
+            same wake as the memory snapshot. Its place is after the memory snapshot and before the
+            Routines.
+          </li>
+          <li>
+            There is no background pass for Skills. The Memory pass stays memory-only. A background
+            review is a candidate only if the evals show the Bot rarely saves Skills on its own.
+          </li>
+          <li>
+            Skills do not switch off with your Memory setting. Without both the
+            <code>computer</code> and <code>skills</code> plugins there is no Skills block, no
+            routes and no <code>watch_user</code>.
+          </li>
+          <li>
+            Code names for this step, all in the Names list: <code>skillsPrompt</code>,
+            <code>problemOf</code>, <code>skillChangesOf</code>, <code>watch_user</code>,
+            <code>bot_demonstration</code> and <code>draftSkill</code>.
+          </li>
+        </ul>
+        <h3>Challenge</h3>
+        <p>
+          Read <code>problemOf</code> in
+          <a href="../../../packages/bot-sdk/plugins/skills/server/skills.ts"
+            ><code>skills.ts</code></a
+          >. Why must the name equal the folder name, and why is a broken Skill listed rather than
+          left out? Tell your teacher.
+        </p>
+      </details>
+
+      <div class="footer-box">
+        <p>
+          <strong>Primary source:</strong>
+          <a href="../../../packages/bot-sdk/plugins/skills/server/skills.ts"
+            ><code>skills.ts</code></a
+          >, then
+          <a href="../../../packages/bot-sdk/plugins/bot/server/change-notes.ts"
+            ><code>change-notes.ts</code></a
+          >, then
+          <a href="../../../packages/bot-sdk/plugins/bot/server/demonstration.ts"
+            ><code>demonstration.ts</code></a
+          >.
+        </p>
+        <p>
+          <strong>Also read:</strong>
+          <a href="../../../packages/bot-sdk/plugins/skills/server/routers/index.ts"
+            >the Skills routes</a
+          >,
+          <a href="../../../packages/bot-sdk/plugins/skills/ui/skill-editor.tsx"
+            ><code>skill-editor.tsx</code></a
+          >,
+          <a href="../../../packages/bot-sdk/plugins/bot/server/demonstration-capture.ts"
+            ><code>demonstration-capture.ts</code></a
+          >
+          and
+          <a href="../../../packages/bot-sdk/plugins/bot/server/demonstration-draft.ts"
+            ><code>demonstration-draft.ts</code></a
+          >.
+        </p>
+        <p>
+          <strong>Cheat sheets:</strong> <a href="../reference/package-map.html">Package map</a> ·
+          <a href="../reference/names.html">Names</a>
+        </p>
+        <p>
+          <strong>Stuck or curious?</strong> Ask your teacher (Claude) anything: "why is a Skill
+          never permission?", "what does Pause drop?", or "quiz me again".
+        </p>
+        <div class="nav">
+          <a href="0018-how-we-keep-it-safe.html">← Lesson 18: How we keep it safe</a
+          ><a href="../index.html">Course contents →</a>
+        </div>
+      </div>
+    </main>
+
+    <script src="../assets/diagrams.js"></script>
+    <script src="../assets/names.js" data-upto="19"></script>
+    <script src="../assets/explainer.js"></script>
+    <script src="../assets/quiz.js"></script>
+    <script>
+      const D = Diagrams;
+
+      // Section 1: the pointer and the file.
+      D.render(
+        "#pointer",
+        D.svg(
+          760,
+          190,
+          D.box(10, 60, 230, 70, "Prompt start", { tone: "blue", sub: "one line per Skill" }) +
+            D.arrow(240, 95, 300, 95, { label: "task fits" }) +
+            D.box(300, 60, 200, 70, "read SKILL.md", { tone: "ok", sub: "the normal file tool" }) +
+            D.arrow(500, 95, 540, 95) +
+            D.box(540, 60, 210, 70, "Follow the steps", {
+              tone: "faint",
+              sub: "then say what changed",
+            }),
+          { label: "The Bot reads a Skill's file only when a task fits its one-line pointer" },
+        ),
+      );
+
+      // Section 3: the writers.
+      D.render(
+        "#writers",
+        D.svg(
+          760,
+          230,
+          D.box(10, 20, 220, 50, "The Bot", { tone: "blue", sub: "write and edit" }) +
+            D.box(10, 84, 220, 50, "The drafting pass", {
+              tone: "blue",
+              sub: "after a Demonstration",
+            }) +
+            D.box(10, 148, 220, 50, "You", { tone: "blue", sub: "the Skills popover" }) +
+            D.arrow(230, 45, 300, 110) +
+            D.arrow(230, 109, 300, 110) +
+            D.arrow(230, 173, 300, 115) +
+            D.box(300, 80, 200, 70, "SKILL.md", { tone: "ok", sub: "a plain file" }) +
+            D.arrow(500, 115, 540, 115) +
+            D.box(540, 80, 210, 70, "Never permission", {
+              tone: "warn",
+              sub: "Auto-review still runs",
+            }),
+          { label: "Three writers save a plain file, and a Skill never counts as permission" },
+        ),
+      );
+
+      // Section 4: watching.
+      D.render(
+        "#watch",
+        D.svg(
+          760,
+          190,
+          D.box(10, 60, 130, 70, "Show me", { tone: "warn", sub: "you do it once" }) +
+            D.arrow(140, 95, 170, 95) +
+            D.box(170, 60, 130, 70, "Capture", { tone: "blue", sub: "steps, no passwords" }) +
+            D.arrow(300, 95, 330, 95) +
+            D.box(330, 60, 130, 70, "Draft", { tone: "blue", sub: "one model call" }) +
+            D.arrow(460, 95, 490, 95) +
+            D.box(490, 60, 120, 70, "Skill", { tone: "ok", sub: "saved" }) +
+            D.arrow(610, 95, 630, 95) +
+            D.box(630, 60, 120, 70, "Helper", { tone: "ok", sub: "follows it" }),
+          { label: "A Demonstration is captured, drafted into a Skill and reused by a Helper" },
+        ),
+      );
+
+      // Section 5: the eval results.
+      D.render(
+        "#rates",
+        D.svg(
+          760,
+          200,
+          D.box(10, 20, 360, 50, "Use: 20 of 20", {
+            tone: "ok",
+            sub: "right Skill, no needless reads",
+          }) +
+            D.box(390, 20, 360, 50, "Save: 15 of 15", { tone: "ok", sub: "none for one-offs" }) +
+            D.box(10, 100, 360, 50, "Follow and fix: 2 of 6", {
+              tone: "warn",
+              sub: "the Bot asks instead of fixing",
+            }) +
+            D.box(390, 100, 360, 50, "Drafting: 3 of 3", {
+              tone: "ok",
+              sub: "no password in a Skill",
+            }),
+          { label: "Eval scores for using, saving, following and drafting Skills" },
+        ),
+      );
+
+      // Video.
+      Explainer.mount("#video", {
+        title: "Lesson 19 in about 1 minute",
+        width: 760,
+        height: 300,
+        scenes: [
+          {
+            say: "A Skill is a plain file of instructions. The prompt keeps only a one-line pointer to it.",
+            draw: (t, A) =>
+              D.box(40, 110, 200, 50, "One-line pointer", { tone: "blue" }) +
+              D.box(300, 110, 200, 50, "SKILL.md", {
+                tone: "ok",
+                opacity: A.step(t, 0.4, 0.8),
+              }),
+          },
+          {
+            say: "The Bot reads the file only when a task needs it. New Skills reach it as Change notes.",
+            draw: (t, A) =>
+              D.box(40, 110, 200, 50, "Task fits", { tone: "ok" }) +
+              D.box(300, 110, 200, 50, "Change note", {
+                tone: "blue",
+                opacity: A.step(t, 0.4, 0.8),
+              }),
+          },
+          {
+            say: "Or show it once. The Bot watches, you can pause, and a model drafts the Skill.",
+            draw: (t, A) =>
+              D.box(40, 110, 200, 50, "Show me", { tone: "warn" }) +
+              D.box(300, 110, 200, 50, "Drafted Skill", {
+                tone: "ok",
+                opacity: A.step(t, 0.5, 0.9),
+              }),
+          },
+          {
+            say: "A Skill is never permission. Risky calls are still reviewed against your own words.",
+            draw: (t, A) =>
+              D.box(40, 110, 200, 50, "Skill", { tone: "faint" }) +
+              D.box(300, 110, 200, 50, "Auto-review", {
+                tone: "ok",
+                opacity: A.step(t, 0.4, 0.8),
+              }),
+          },
+        ],
+      });
+    </script>
+  </body>
+</html>

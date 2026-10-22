@@ -3,7 +3,7 @@ import { createHmac, hkdfSync, timingSafeEqual } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { WebSocket } from "undici";
 
-import { bot, botHelper } from "../../../core/server/db/schema";
+import { bot, botDemonstration, botHelper } from "../../../core/server/db/schema";
 import type { BotSdkContext } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
 import {
@@ -14,6 +14,7 @@ import {
 } from "../../computer/server/plugin";
 import { screenViewPath } from "../shared/helper";
 import { computerOf } from "./computer-tools";
+import { isLiveDemonstration } from "../shared/demonstration";
 import { helperStoppedError } from "./hand-off";
 
 /**
@@ -36,17 +37,21 @@ const viewKey = (secret: string) => {
 const signature = (secret: string, payload: string) =>
   createHmac("sha256", viewKey(secret)).update(payload).digest();
 
-type View = { helperId: string; userId: string; expires: number };
+/** What holds a Screen: a Computer-use Helper, or a Demonstration (spec #713). */
+export type ScreenHolder = { helperId: string } | { demonstrationId: string };
+
+type View = { holder: ScreenHolder; userId: string; expires: number };
 
 /**
- * A view token: the Helper, its user and the expiry, signed with the keyring's first secret. It
- * is the live view's only authentication, so it is never stored.
+ * A view token: the Helper or Demonstration, its user and the expiry, signed with the keyring's
+ * first secret. It is the live view's only authentication, so it is never stored.
  */
-function mintViewToken(sdk: BotSdkContext, { helperId, userId }: Omit<View, "expires">): string {
+function mintViewToken(sdk: BotSdkContext, { holder, userId }: Omit<View, "expires">): string {
   const [secret] = sdk.keyring;
   if (secret === undefined) throw new Error("The keyring holds no secret");
   const expires = sdk.clock().getTime() + viewTokenTtlMs;
-  const payload = Buffer.from(JSON.stringify({ h: helperId, u: userId, e: expires })).toString(
+  const held = "helperId" in holder ? { h: holder.helperId } : { d: holder.demonstrationId };
+  const payload = Buffer.from(JSON.stringify({ ...held, u: userId, e: expires })).toString(
     "base64url",
   );
   return `${payload}.${signature(secret, payload).toString("base64url")}`;
@@ -66,25 +71,48 @@ function verifyViewToken(sdk: BotSdkContext, token: string): View | null {
   if (
     typeof claims !== "object" ||
     claims === null ||
-    !("h" in claims && typeof claims.h === "string") ||
     !("u" in claims && typeof claims.u === "string") ||
     !("e" in claims && typeof claims.e === "number")
   ) {
     return null;
   }
   if (claims.e <= sdk.clock().getTime()) return null;
-  return { helperId: claims.h, userId: claims.u, expires: claims.e };
+  const holder =
+    "h" in claims && typeof claims.h === "string"
+      ? { helperId: claims.h }
+      : "d" in claims && typeof claims.d === "string"
+        ? { demonstrationId: claims.d }
+        : null;
+  if (!holder) return null;
+  return { holder, userId: claims.u, expires: claims.e };
 }
 
 /**
- * The Screen a live Helper of the user's holds, with its Bot (whose Chrome profile it runs), or
- * `"not-found"` for no Helper of theirs, or `"stopped"` for one that ended or holds no Screen.
+ * The Screen a live Helper or Demonstration of the user's holds, with its Bot (whose Chrome profile
+ * it runs), or `"not-found"` for none of theirs, or `"stopped"` for one that ended or holds no
+ * Screen.
  */
 async function heldScreen(
   sdk: BotSdkContext,
   userId: string,
-  helperId: string,
+  holder: ScreenHolder,
 ): Promise<{ slot: number; botId: string } | "not-found" | "stopped"> {
+  if ("demonstrationId" in holder) {
+    const [row] = await sdk.db
+      .select({
+        state: botDemonstration.state,
+        screen: botDemonstration.screen,
+        botId: botDemonstration.botId,
+      })
+      .from(botDemonstration)
+      .where(
+        and(eq(botDemonstration.id, holder.demonstrationId), eq(botDemonstration.userId, userId)),
+      );
+    if (!row) return "not-found";
+    if (!isLiveDemonstration(row.state)) return "stopped";
+    return { slot: row.screen, botId: row.botId };
+  }
+  const { helperId } = holder;
   const [row] = await sdk.db
     .select({ status: botHelper.status, screen: botHelper.screen, botId: botHelper.botId })
     .from(botHelper)
@@ -96,8 +124,17 @@ async function heldScreen(
 }
 
 /** `heldScreen`, with its refusals as the router's errors. */
-async function ownedScreen(sdk: BotSdkContext, userId: string, helperId: string) {
-  const screen = await heldScreen(sdk, userId, helperId);
+async function ownedScreen(sdk: BotSdkContext, userId: string, holder: ScreenHolder) {
+  const screen = await heldScreen(sdk, userId, holder);
+  if ("demonstrationId" in holder) {
+    if (screen === "not-found") {
+      throw rpcError("NOT_FOUND", "error.demonstrationNotFound", "Demonstration not found");
+    }
+    if (screen === "stopped") {
+      throw rpcError("CONFLICT", "error.demonstrationEnded", demonstrationEndedError);
+    }
+    return screen;
+  }
   if (screen === "not-found") {
     throw rpcError("NOT_FOUND", "error.helperNotFound", "Helper not found");
   }
@@ -105,18 +142,23 @@ async function ownedScreen(sdk: BotSdkContext, userId: string, helperId: string)
   return screen;
 }
 
+/** What a link to an ended Demonstration's Screen is refused with. */
+export const demonstrationEndedError = "This Demonstration has ended.";
+
 /**
  * `bot.screen.view` (#597): a fresh live-view link to the Screen of one of the user's live Helpers,
- * a path under `screenViewPath` that opens its noVNC page through the proxy. It wakes the Computer
- * and reopens the Screen when it isn't open (after a rebuild). It leaves the Screen's control as it
- * is: a Screen opens view-only, and only Take control changes that. Neither the traffic token nor the Screen's own token is in it.
+ * or live Demonstrations (`bot.demonstration.view`, spec #713), a path under `screenViewPath` that
+ * opens its noVNC page through the proxy. It wakes the Computer and reopens the Screen when it isn't
+ * open (after a rebuild). It leaves the Screen's control as it is: a Helper's Screen opens
+ * view-only, and only Take control changes that, while a Demonstration's is the user's to drive, so
+ * one it reopens gets control back. Neither the traffic token nor the Screen's own token is in it.
  */
 export async function screenView(
   sdk: BotSdkContext,
   userId: string,
-  helperId: string,
+  holder: ScreenHolder,
 ): Promise<{ url: string }> {
-  const { slot, botId } = await ownedScreen(sdk, userId, helperId);
+  const { slot, botId } = await ownedScreen(sdk, userId, holder);
   const computer = computerOf(sdk, userId);
   const urls = await computer.screenUrls(slot).catch(async (caught: unknown) => {
     // Not open: a rebuild lost it, so it opens afresh on the Bot's profile.
@@ -124,11 +166,12 @@ export async function screenView(
       throw caught;
     }
     await computer.openScreen(slot, botId);
+    if ("demonstrationId" in holder) await computer.setScreenControl(slot, "control");
     return computer.screenUrls(slot);
   });
   // The proxy goes on from these, not an address from before a reopen.
   rememberScreenUrls(sdk, userId, slot, urls);
-  const base = `${screenViewPath}/${mintViewToken(sdk, { helperId, userId })}`;
+  const base = `${screenViewPath}/${mintViewToken(sdk, { holder, userId })}`;
   const page = new URL(urls.novnc.url);
   const query = new URLSearchParams(page.search);
   // noVNC opens its socket at this path of the page's own host: the proxy's.
@@ -143,14 +186,14 @@ export async function screenControl(
   helperId: string,
   mode: ScreenControl,
 ): Promise<void> {
-  const { slot } = await ownedScreen(sdk, userId, helperId);
+  const { slot } = await ownedScreen(sdk, userId, { helperId });
   await computerOf(sdk, userId).setScreenControl(slot, mode);
 }
 
 /** Where a proxied request goes: the Screen's noVNC, and the headers that let it through. */
 type Upstream = {
   userId: string;
-  helperId: string;
+  holder: ScreenHolder;
   /** The proxy's path the request's path is under: `screenViewPath/<view token>/`. */
   base: string;
   /** The noVNC page's directory, which `base` stands for. */
@@ -240,7 +283,7 @@ async function upstreamOf(sdk: BotSdkContext, request: Request): Promise<Upstrea
   const view = verifyViewToken(sdk, token);
   if (!view || rest.length === 0) return new Response(null, { status: 403 });
   if (!isFilePath(rest)) return new Response(null, { status: 400 });
-  const screen = await heldScreen(sdk, view.userId, view.helperId);
+  const screen = await heldScreen(sdk, view.userId, view.holder);
   if (typeof screen === "string") return new Response(null, { status: 404 });
   const urls = await cachedScreenUrls(sdk, view.userId, screen.slot);
   const page = new URL(urls.novnc.url);
@@ -255,7 +298,7 @@ async function upstreamOf(sdk: BotSdkContext, request: Request): Promise<Upstrea
   socket.protocol = socket.protocol === "https:" ? "wss:" : "ws:";
   return {
     userId: view.userId,
-    helperId: view.helperId,
+    holder: view.holder,
     base: `${screenViewPath}/${token}/`,
     directory: directory.href,
     url: url.href,
@@ -369,7 +412,7 @@ export type ScreenSocketHooks = {
 /** One proxied socket, kept in its peer's context. */
 type ScreenLink = {
   userId: string;
-  helperId: string;
+  holder: ScreenHolder;
   url: string;
   protocols: string[];
   headers: Record<string, string>;
@@ -409,7 +452,7 @@ export function screenSocketHooks(sdk: BotSdkContext): ScreenSocketHooks {
       const protocols = offered.includes("binary") ? ["binary"] : [];
       const link: ScreenLink = {
         userId: upstream.userId,
-        helperId: upstream.helperId,
+        holder: upstream.holder,
         url: upstream.socketUrl,
         protocols,
         headers: upstream.headers,
@@ -436,9 +479,9 @@ export function screenSocketHooks(sdk: BotSdkContext): ScreenSocketHooks {
       link.upstream = upstream;
       const computer = computerOf(sdk, link.userId);
       void computer.heartbeat();
-      // Each beat checks the Helper first: its socket closes once it ended or gave up its Screen.
+      // Each beat checks the holder first: its socket closes once it ended or gave up its Screen.
       const beat = async () => {
-        const screen = await heldScreen(sdk, link.userId, link.helperId);
+        const screen = await heldScreen(sdk, link.userId, link.holder);
         if (typeof screen === "string") closeLink(link, peer);
         else await computer.heartbeat();
       };

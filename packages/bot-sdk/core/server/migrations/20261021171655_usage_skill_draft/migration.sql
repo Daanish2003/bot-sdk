@@ -1,0 +1,1 @@
+ALTER TYPE "chat"."usage_kind" ADD VALUE 'skill_draft';

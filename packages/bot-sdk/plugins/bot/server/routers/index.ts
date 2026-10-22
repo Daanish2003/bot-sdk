@@ -30,10 +30,21 @@ import { secretNameSchema } from "../../shared/secret";
 import { helperDone } from "../hand-off";
 import { stopBotHelpers } from "../helper-tools";
 import { screenControl, screenView } from "../screen-view";
+import type { DemonstrationAction } from "../../shared/demonstration";
+import { actOnDemonstration } from "../demonstration";
+import { demonstrationSteps } from "../demonstration-capture";
 import { botSummaries } from "../summary";
 import { isTimeZone } from "../time-zone";
 import { sendToBot, stopBot } from "../turn";
 import { botWarmings, warmBot } from "../warm";
+
+/** A route that applies `action` to one of the caller's Demonstrations. */
+const demonstrationAction = (action: DemonstrationAction) =>
+  protectedProcedure
+    .input(z.object({ demonstrationId: z.uuid() }))
+    .handler(({ context, input }) =>
+      actOnDemonstration(context.sdk, context.user.id, input.demonstrationId, action),
+    );
 
 const botRouter = {
   /**
@@ -302,6 +313,40 @@ const botRouter = {
       .handler(({ context, input }) => deleteSecret(context.sdk.db, context.user.id, input.name)),
   },
 
+  /**
+   * The user's side of a Demonstration (spec #713), from its Show me card. Each acts only on a state
+   * it applies to, and otherwise changes nothing; each returns the state the Demonstration is in now.
+   * Done and Cancel release its Screen. Another user's is not found.
+   */
+  demonstration: {
+    /** Pauses a recording Demonstration. */
+    pause: demonstrationAction("pause"),
+    /** Resumes a paused Demonstration. */
+    resume: demonstrationAction("resume"),
+    /** Ends a live Demonstration as Done: it goes `drafting`. */
+    done: demonstrationAction("done"),
+    /** Ends a live Demonstration `cancelled`. */
+    cancel: demonstrationAction("cancel"),
+    /**
+     * A fresh live-view link to a live Demonstration's Screen, which the user drives, never stored.
+     * Refused, "This Demonstration has ended.", once it ended.
+     */
+    view: protectedProcedure
+      .input(z.object({ demonstrationId: z.uuid() }))
+      .handler(({ context, input }) =>
+        screenView(context.sdk, context.user.id, { demonstrationId: input.demonstrationId }),
+      ),
+    /**
+     * The steps a Demonstration captured, in order, with a mark where the user paused: what the
+     * Show me card and "What Planner sees" list. Password values come masked.
+     */
+    steps: protectedProcedure
+      .input(z.object({ demonstrationId: z.uuid() }))
+      .handler(({ context, input }) =>
+        demonstrationSteps(context.sdk, context.user.id, input.demonstrationId),
+      ),
+  },
+
   /** The live view of a Computer-use Helper's Screen (#597). Another user's Helper is not found. */
   screen: {
     /**
@@ -311,7 +356,9 @@ const botRouter = {
      */
     view: protectedProcedure
       .input(z.object({ helperId: z.uuid() }))
-      .handler(({ context, input }) => screenView(context.sdk, context.user.id, input.helperId)),
+      .handler(({ context, input }) =>
+        screenView(context.sdk, context.user.id, { helperId: input.helperId }),
+      ),
 
     /** Take control (`control`) and give back (`view`): switches the Screen's x11vnc. */
     control: protectedProcedure

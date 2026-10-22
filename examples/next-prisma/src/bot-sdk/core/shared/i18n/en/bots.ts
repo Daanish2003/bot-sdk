@@ -76,6 +76,35 @@ export const botsMessages = {
   "bots.closeTakeover": "Close",
   "bots.computerCardDone": ({ gist }: { gist: string }) => `${gist}: done`,
   "bots.computerCardCancelled": ({ gist }: { gist: string }) => `${gist}: cancelled`,
+  "bots.showMeTitle": ({ goal }: { goal: string }) => `Show me: ${goal}`,
+  "bots.showMeRecording": "Recording",
+  "bots.showMePaused": "Paused",
+  "bots.showMeWatching": ({ name }: { name: string }) =>
+    `${name} sees what you do. Pause before typing a password.`,
+  "bots.showMePausedNote": "Paused: nothing is recorded. Resume when you're past the sign-in.",
+  "bots.showMeRecordingBar": ({ name }: { name: string }) =>
+    `Recording. ${name} sees what you do on this Screen.`,
+  "bots.showMePausedBar": "Paused. Sign in or type secrets now; the Bot sees nothing.",
+  "bots.showMePause": "Pause",
+  "bots.showMeResume": "Resume",
+  "bots.showMeCancel": "Cancel",
+  "bots.showMeDone": "Done",
+  "bots.showMeFullScreen": "Full screen",
+  "bots.showMeShrink": "Shrink",
+  "bots.showMeDivider": ({ steps, status }: { steps: number; status: string }) =>
+    `Show me · ${steps} ${steps === 1 ? "step" : "steps"} · ${status}`,
+  "bots.showMeDrafting": "Writing the Skill…",
+  "bots.showMeSaved": "Saved as a Skill",
+  "bots.showMeCancelled": "Cancelled",
+  "bots.showMeFailed": "Couldn't write the Skill",
+  "bots.showMeSteps": ({ name }: { name: string }) => `What ${name} sees`,
+  "bots.showMeNoSteps": "Nothing yet.",
+  "bots.showMeGap": "Paused: nothing recorded",
+  "bots.showMeStepClick": "click",
+  "bots.showMeStepInput": "type",
+  "bots.showMeStepChange": "choose",
+  "bots.showMeStepKey": "key",
+  "bots.showMeStepNavigation": "open",
   "bots.todo": "To-do",
   "bots.todoCount": ({ count }: { count: number }) => `To-do ${count}`,
   "bots.helperNeedsYouDot": "A Helper needs you",
@@ -109,6 +138,36 @@ export const botsMessages = {
   "bots.memoryChangedPrefix": "Changed:",
   "bots.memoryForgot": ({ text, tier }: { text: string; tier: string }) =>
     `Forgot: ${text} (${tier})`,
+  "bots.skillSaved": ({ name }: { name: string }) => `📘 Skill saved: ${name}`,
+  "bots.skillUpdated": ({ name }: { name: string }) => `📘 Skill updated: ${name}`,
+  "bots.skills": "Skills",
+  "bots.skillsCount": ({ count }: { count: number }) => `Skills ${count}`,
+  "bots.skillsNew": "New Skill",
+  "bots.skillsNone": "No Skills yet",
+  "bots.skillsHint": "A Skill is read only when a task needs it.",
+  "bots.skillNotUsable": "not usable",
+  "bots.skillNotUsableReason": ({ reason }: { reason: string }) => `Not usable: ${reason}`,
+  "bots.skillNoDescription": "(no description)",
+  "bots.skillName": "Skill name",
+  "bots.skillFile": "SKILL.md",
+  "bots.skillModified": ({ time }: { time: string }) => `Last modified ${time}`,
+  "bots.skillSave": "Save",
+  "bots.skillDelete": "Delete",
+  "bots.skillDeleted": "Skill deleted",
+  "bots.skillSavedToast": "Skill saved",
+  "bots.skillTemplate": ({ name }: { name: string }) =>
+    `---
+name: ${name}
+description: Use this when 
+---
+
+## Inputs
+
+## Steps
+1. 
+
+## How to check
+`,
   "bots.cacheChip": ({ percent, steps, cost }: { percent: number; steps: number; cost: string }) =>
     `Cache ${percent}% · ${steps} ${steps === 1 ? "Step" : "Steps"} · ${cost}`,
   "bots.cacheMiss": ({ section, steps, cost }: { section: string; steps: number; cost: string }) =>

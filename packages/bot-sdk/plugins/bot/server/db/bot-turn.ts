@@ -13,6 +13,7 @@ import {
 import { chatSchema } from "../../../../core/server/db/chat-schema";
 import { job } from "../../../runner/server/db/job";
 import type { BotMemoryChange } from "../../../memory/shared/changes";
+import type { BotSkillChange } from "../../../skills/shared/changes";
 import type { MessageUsage } from "../../../models/shared/usage";
 import { bot } from "./bot";
 import { botPromptStart } from "./bot-prompt-start";
@@ -71,6 +72,11 @@ export const botTurn = chatSchema.table(
      * Null until a pass changes something, and with no `memory` plugin.
      */
     memoryChanges: jsonb("memory_changes").$type<BotMemoryChange[]>(),
+    /**
+     * The Skills the Turn's `write` and `edit` calls saved or updated (spec #713), for its Skill
+     * chip. Null when it wrote none.
+     */
+    skillChanges: jsonb("skill_changes").$type<BotSkillChange[]>(),
   },
   (table) => [
     index("bot_turn_bot_id_started_at_idx").on(table.botId, table.startedAt.desc()),

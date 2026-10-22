@@ -3,16 +3,19 @@ import { isInProcessRunner } from "../../runner/server/jobs/in-process";
 import { runnerJobs } from "../../runner/server/plugin";
 import { cancelUserCheckIns } from "./check-in";
 import { screenshotsConversationDelete } from "./screenshots";
-import { cancelUserHelpers, hasRunningHelper } from "./helper";
+import { cancelUserHelpers, hasLiveDemonstration, hasRunningHelper } from "./helper";
 import { cancelUserFires } from "./routine";
 import { startRoutineReconcile } from "./routine-fire";
 import "./check-in-fire";
 import "./summary-away";
+import "./demonstration-capture";
+import "./demonstration-draft";
 import { handleRoutineWebhook } from "./routine-webhook";
 import { botPluginRouter } from "./routers/index";
 import { rotateSecretKeys } from "./secret";
 import { handleScreenRequest, type ScreenSocketHooks, screenSocketHooks } from "./screen-view";
 import { botUserDelete, exportBots, hasTurnUsingComputer, userHasBot } from "./store";
+import { stopUserDemonstrations } from "./demonstration";
 import { stopUserHelpers } from "./helper-tools";
 import { stopUserTurns } from "./turn";
 
@@ -70,8 +73,8 @@ export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
     id: "bot",
     requires: ["models", "runner"],
     // Softly: with computer on, a Turn has its tools, and a running Turn keeps the Computer awake.
-    // With memory on, a Bot has its memory (ADR 0022).
-    uses: ["computer", "memory"],
+    // With memory on, a Bot has its memory (ADR 0022), and with skills on, its Skills (spec #713).
+    uses: ["computer", "memory", "skills"],
     init: (sdk) => {
       // A Turn replays from the history `chat.job` holds. Trigger.dev records nothing and its retry
       // starts over, which would send the Messages again (ADR 0011, the #482 amendment).
@@ -88,6 +91,8 @@ export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
         );
         // A running Helper may use it at any moment; a waiting one doesn't hold it.
         computer.addBusyCheck((userId) => hasRunningHelper(sdk.db, userId));
+        // The user drives a Screen while a Demonstration records or is paused (spec #713).
+        computer.addBusyCheck((userId) => hasLiveDemonstration(sdk.db, { userId }));
         // Only a user with a Bot gets a Computer, so a Turn racing the user's delete creates none.
         computer.addOwnerCheck(userHasBot);
       }
@@ -97,6 +102,7 @@ export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
           // The Turns first, so none starts a Helper after its Helpers are stopped.
           await stopUserTurns(sdk, userId);
           await stopUserHelpers(sdk, userId);
+          await stopUserDemonstrations(sdk, userId);
         },
         screenHandler: (request) => handleScreenRequest(sdk, request),
         screenSocket: screenSocketHooks(sdk),

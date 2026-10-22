@@ -1,7 +1,13 @@
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNotNull } from "drizzle-orm";
 
 import { deleteBlobsBestEffort } from "../../../core/server/blob/store";
-import { bot, botHelper, botHelperScreenshot } from "../../../core/server/db/schema";
+import {
+  bot,
+  botDemonstration,
+  botDemonstrationEvent,
+  botHelper,
+  botHelperScreenshot,
+} from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkContext, ConversationDeleteHooks } from "../../../core/server/plugin";
 
@@ -25,7 +31,7 @@ export async function storeScreenshot(
 
 /**
  * The bot plugin's hooks on every Conversation delete: a Bot goes with its Conversation, and its
- * Helpers' screenshots with it. Their rows go by cascade, so `before` reads their keys inside the
+ * Helpers' screenshots and its Demonstrations' (#719) with it. Their rows go by cascade, so `before` reads their keys inside the
  * delete's transaction, and `after` deletes their bytes once it commits (ADR 0015).
  */
 export const screenshotsConversationDelete: ConversationDeleteHooks<string[]> = {
@@ -36,7 +42,20 @@ export const screenshotsConversationDelete: ConversationDeleteHooks<string[]> = 
       .innerJoin(botHelper, eq(botHelper.id, botHelperScreenshot.helperId))
       .innerJoin(bot, eq(bot.id, botHelper.botId))
       .where(inArray(bot.conversationId, conversationIds));
-    return rows.map((row) => screenshotBlobKey(row.id));
+    const steps = await tx
+      .select({ key: botDemonstrationEvent.screenshotKey })
+      .from(botDemonstrationEvent)
+      .innerJoin(botDemonstration, eq(botDemonstration.id, botDemonstrationEvent.demonstrationId))
+      .where(
+        and(
+          inArray(botDemonstration.conversationId, conversationIds),
+          isNotNull(botDemonstrationEvent.screenshotKey),
+        ),
+      );
+    return [
+      ...rows.map((row) => screenshotBlobKey(row.id)),
+      ...steps.flatMap((row) => row.key ?? []),
+    ];
   },
   after: (sdk, { collected }) => deleteBlobsBestEffort(sdk, collected),
 };
