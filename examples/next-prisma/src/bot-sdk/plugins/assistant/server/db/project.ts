@@ -15,8 +15,6 @@ export const project = chatSchema.table(
     instructions: text("instructions"),
     /** The default Model, `"provider:model"`; null when it has none. */
     defaultModel: text("default_model"),
-    /** The embedding Model its Knowledge files use, `"provider:model"`; null until the first upload (ADR 0014). */
-    embeddingModel: text("embedding_model"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at")
       .defaultNow()

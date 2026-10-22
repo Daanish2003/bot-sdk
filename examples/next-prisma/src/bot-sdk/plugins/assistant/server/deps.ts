@@ -5,7 +5,6 @@ export type { SearchErrorReason, SearchResult };
 // The `models` plugin's types, where the assistant's modules still read them from (spec #439).
 export type {
   Credentials,
-  HostEmbeddingModel,
   HostImageModel,
   HostModel,
   HostProvider,
