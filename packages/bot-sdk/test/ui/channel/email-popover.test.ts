@@ -108,7 +108,7 @@ describe("EmailPopover", () => {
   it("says which Channel the next Bot-initiated Message goes by", async () => {
     openPopover(fakeChannelServer("email"));
 
-    expect(await screen.findByText("Next Bot-initiated Message goes by Email")).toBeTruthy();
+    expect(await screen.findByText("Next Bot-initiated Message goes by email")).toBeTruthy();
   });
 });
 

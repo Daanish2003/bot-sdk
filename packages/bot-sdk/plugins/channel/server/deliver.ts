@@ -1,4 +1,4 @@
-import { and, desc, eq, ne, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { bot, botTrigger, message } from "../../../core/server/db/schema";
@@ -11,7 +11,8 @@ import type { EmailChannel } from "./email";
 import {
   emailBody,
   type FileBytes,
-  maxAttachedBytes,
+  fitsInOneEmail,
+  headerText,
   namedAddress,
   replySubject,
 } from "./email-out";
@@ -39,17 +40,24 @@ export type DeliveryPayload = z.infer<typeof deliveryPayload>;
 const messageIdOf = (id: string, domain: string) => `<${id}@${domain}>`;
 
 /**
- * The Channel the user last wrote from in the Conversation: the channel of its newest user Trigger,
- * or `web` when it has none or that Trigger came from web.
+ * The Channel the user last wrote from in Bot `owner`'s Conversation: the channel of its newest
+ * user Trigger, or `web` when it has none or that Trigger came from web.
  */
 export async function lastUsedChannel(
   db: BotSdkContext["db"] | Transaction,
-  conversationId: string,
+  owner: { conversationId: string } | { botId: string },
 ): Promise<"web" | DeliveryChannel> {
+  const conversationOf =
+    "conversationId" in owner
+      ? eq(botTrigger.conversationId, owner.conversationId)
+      : eq(
+          botTrigger.conversationId,
+          db.select({ id: bot.conversationId }).from(bot).where(eq(bot.id, owner.botId)),
+        );
   const [last] = await db
     .select({ channel: botTrigger.channel })
     .from(botTrigger)
-    .where(and(eq(botTrigger.conversationId, conversationId), eq(botTrigger.source, "user")))
+    .where(and(conversationOf, eq(botTrigger.source, "user")))
     .orderBy(desc(botTrigger.receivedAt), desc(botTrigger.id))
     .limit(1);
   return last?.channel === "email" ? "email" : "web";
@@ -75,7 +83,7 @@ async function routeOf(
     if (emailed) return { channel: "email", answers: emailed.messageId ?? undefined };
     if (taken.length > 0) return null;
   }
-  return (await lastUsedChannel(tx, conversationId)) === "email" ? { channel: "email" } : null;
+  return (await lastUsedChannel(tx, { conversationId })) === "email" ? { channel: "email" } : null;
 }
 
 /**
@@ -90,22 +98,27 @@ async function latestMailOf(
     domain,
   }: { conversationId: string; messageId: string; domain: string },
 ): Promise<string | undefined> {
-  const [mail] = await tx
-    .select({ id: message.id, role: message.role, triggerId: botTrigger.id })
-    .from(message)
-    .leftJoin(botTrigger, eq(botTrigger.messageId, message.id))
-    .where(
-      and(
-        eq(message.conversationId, conversationId),
-        ne(message.id, messageId),
-        sql`${message.parts}->>'channel' = 'email'`,
-      ),
+  // Walks up the Message tree from `messageId`'s parent: the thread order, not timestamps (which
+  // tie within a millisecond, as do uuidv7 ids' order).
+  const { rows } = await tx.execute<{ id: string; role: string }>(sql`
+    WITH RECURSIVE chain AS (
+      SELECT m.id, m.parent_id, m.role, m.parts, 0 AS depth FROM chat.message m
+        WHERE m.conversation_id = ${conversationId}
+          AND m.id = (SELECT parent_id FROM chat.message WHERE id = ${messageId})
+      UNION ALL
+      SELECT m.id, m.parent_id, m.role, m.parts, c.depth + 1 FROM chat.message m
+        JOIN chain c ON m.id = c.parent_id
     )
-    .orderBy(desc(message.createdAt), desc(message.id))
-    .limit(1);
+    SELECT id, role FROM chain WHERE parts->>'channel' = 'email' ORDER BY depth LIMIT 1`);
+  const mail = rows[0];
   if (!mail) return undefined;
   if (mail.role === "assistant") return messageIdOf(mail.id, domain);
-  return mail.triggerId?.startsWith("email:") ? `<${mail.triggerId.slice(6)}>` : undefined;
+  const [trigger] = await tx
+    .select({ id: botTrigger.id })
+    .from(botTrigger)
+    .where(and(eq(botTrigger.messageId, mail.id), sql`${botTrigger.id} like 'email:%'`))
+    .limit(1);
+  return trigger ? `<${trigger.id.slice(6)}>` : undefined;
 }
 
 /**
@@ -128,7 +141,7 @@ export async function deliverIn(
     .from(bot)
     .where(eq(bot.conversationId, args.conversationId));
   if (!owner) return;
-  let subject = owner.name;
+  let subject = headerText(owner.name);
   if (route.answers) {
     const [answered] = await tx
       .select({ parts: message.parts })
@@ -202,8 +215,7 @@ async function filesOf(
   parts: Parameters<typeof controlOf>[0],
 ): Promise<FileBytes[]> {
   const files = controlOf(parts, "files")?.files ?? [];
-  const total = files.reduce((sum, file) => sum + file.size, 0);
-  if (total > maxAttachedBytes) return files.map((file) => ({ file, bytes: null }));
+  if (!fitsInOneEmail(files)) return files.map((file) => ({ file, bytes: null }));
   return Promise.all(
     files.map(async (file) => ({
       file,

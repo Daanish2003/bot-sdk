@@ -1,7 +1,6 @@
 import { z } from "zod";
 
 import { protectedProcedure } from "../../../../core/server/procedures";
-import { findBot } from "../../../bot/server/store";
 import { emailAddressOf, rotateEmailAddress } from "../address";
 import { lastUsedChannel } from "../deliver";
 
@@ -20,11 +19,7 @@ export const channelRouter = {
         botId: input.botId,
         domain: context.sdk.plugin("channel").emailDomain(),
       });
-      const found = await findBot(context.sdk.db, context.user.id, input.botId);
-      return {
-        address,
-        nextChannel: found ? await lastUsedChannel(context.sdk.db, found.conversationId) : "web",
-      };
+      return { address, nextChannel: await lastUsedChannel(context.sdk.db, input) };
     }),
 
     /** Gives the Bot a new address; mail to the old one is dropped from now on. */

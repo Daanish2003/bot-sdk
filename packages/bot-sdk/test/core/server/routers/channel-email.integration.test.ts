@@ -219,6 +219,9 @@ describe("an email to a Bot's address", () => {
     ["a DMARC fail", { authentication: { spf: "pass", dkim: "fail", dmarc: "fail" } }],
     ["no DMARC verdict", { authentication: { spf: "pass", dkim: "pass", dmarc: "none" } }],
     ["an unknown address", { to: [`ada-lovelace.zzzzzzzz@${domain}`] }],
+    ["an auto-reply (Auto-Submitted)", { headers: { "Auto-Submitted": "auto-replied" } }],
+    ["an auto-reply (Precedence)", { headers: { precedence: "auto_reply" } }],
+    ["an auto-reply (X-Autoreply)", { headers: { "X-Autoreply": "yes" } }],
   ] as [string, Partial<InboundMail>][])(
     "drops %s silently, leaving no Message or Trigger",
     async (_name, mail) => {

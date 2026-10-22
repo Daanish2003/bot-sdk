@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { RichControl } from "../../../plugins/bot/shared/rich-control";
 import {
   emailBody,
+  headerText,
   maxAttachedBytes,
   namedAddress,
   replySubject,
@@ -119,6 +120,8 @@ describe("replySubject", () => {
     expect(replySubject("RE: re:Plans", "Ada")).toBe("Re: Plans");
     expect(replySubject("Two\r\nlines", "Ada")).toBe("Re: Two lines");
     expect(replySubject("  ", "Ada")).toBe("Re: Ada");
+    expect(replySubject("", "Ada\r\nBcc: x@example.com")).toBe("Re: Ada Bcc: x@example.com");
+    expect(headerText("Ada\r\nBcc: x@example.com")).toBe("Ada Bcc: x@example.com");
   });
 });
 

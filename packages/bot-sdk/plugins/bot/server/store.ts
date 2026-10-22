@@ -142,7 +142,7 @@ export async function appendBotMessage(
   tx: Transaction,
   conversationId: string,
   { parts, createdAt, turnId }: Pick<MessageRow, "parts" | "createdAt"> & { turnId: string | null },
-): Promise<MessageRow> {
+): Promise<void> {
   const row = await appendMessage(tx, conversationId, {
     role: "assistant",
     parts,
@@ -152,7 +152,6 @@ export async function appendBotMessage(
   if (deps.hasPlugin("channel")) {
     await deps.plugin("channel").deliverIn(tx, { conversationId, messageId: row.id, turnId });
   }
-  return row;
 }
 
 /** A Message row as the client sees it, with its Rich control when it has one. */

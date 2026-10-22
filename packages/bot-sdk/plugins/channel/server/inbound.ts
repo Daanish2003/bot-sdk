@@ -48,6 +48,8 @@ async function deliver(
   mail: InboundMail,
 ): Promise<string | null> {
   if (bareAddress(mail.from).endsWith(`@${channel.domain}`)) return ownMail;
+  // An out-of-office reply to the Bot's email would wake it, and its reply would be emailed again.
+  if (isAutomatic(mail.headers)) return "an automatic reply";
   const messageId = mail.messageId.trim().replace(/^<|>$/g, "");
   if (!messageId) return "no Message-ID";
   const text = emailText(mail, channel.domain);
@@ -110,6 +112,20 @@ async function deliver(
   sdk.plugin("runner").wake();
   await hintChanged(sdk, handed);
   return null;
+}
+
+/**
+ * Whether a mail says it was sent by a machine (RFC 3834's Auto-Submitted, and the older Precedence
+ * and X-Autoreply headers), such as an out-of-office reply.
+ */
+function isAutomatic(headers: Record<string, string>): boolean {
+  return Object.entries(headers).some(([name, value]) => {
+    const header = name.toLowerCase();
+    const said = value.trim().toLowerCase();
+    if (header === "auto-submitted") return said !== "" && said !== "no";
+    if (header === "precedence") return ["bulk", "junk", "list", "auto_reply"].includes(said);
+    return header === "x-autoreply" || header === "x-autorespond";
+  });
 }
 
 /** The Bot whose address is one of `recipients`, if any. */

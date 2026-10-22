@@ -169,12 +169,19 @@ describe("where a Bot's reply goes", () => {
     const [first, second] = await assistantMessages();
     expect(first).toMatchObject({ text: "On it.", channel: "email" });
     expect(second).toMatchObject({ text: "Booked for 7pm.", channel: "email" });
-    expect(await deliveryJobs()).toEqual([
-      expect.objectContaining({ key: `channel.deliver:${first!.id}:email`, status: "succeeded" }),
-      expect.objectContaining({ key: `channel.deliver:${second!.id}:email`, status: "succeeded" }),
-    ]);
+    // One clock tick saves both Messages and enqueues both jobs, so they may run in either order.
+    expect(await deliveryJobs()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: `channel.deliver:${first!.id}:email`, status: "succeeded" }),
+        expect.objectContaining({
+          key: `channel.deliver:${second!.id}:email`,
+          status: "succeeded",
+        }),
+      ]),
+    );
     expect(sent).toHaveLength(2);
-    expect(sent[0]).toMatchObject({
+    const mailOf = (id: string) => sent.find((one) => one.messageId === `<${id}@${domain}>`);
+    expect(mailOf(first!.id)).toMatchObject({
       from: `"Ada Lovelace" <${address}>`,
       to: ownerEmail,
       subject: "Re: Plans",
@@ -182,9 +189,9 @@ describe("where a Bot's reply goes", () => {
       inReplyTo: "<first@mail.example>",
       references: ["<first@mail.example>"],
     });
-    expect(sent[0]!.text).toContain("On it.");
+    expect(mailOf(first!.id)!.text).toContain("On it.");
     // The latest mail in the thread is now the Bot's first.
-    expect(sent[1]).toMatchObject({
+    expect(mailOf(second!.id)).toMatchObject({
       subject: "Re: Plans",
       messageId: `<${second!.id}@${domain}>`,
       inReplyTo: `<${first!.id}@${domain}>`,

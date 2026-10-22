@@ -250,6 +250,7 @@ description: Use this when
   "bots.emailNextChannel": ({ channel }: { channel: string }) =>
     `Next Bot-initiated Message goes by ${channel}`,
   "bots.web": "web",
+  "bots.emailChannel": "email",
   "bots.reviewAllow": "Allow",
   "bots.reviewDeny": "Deny",
   "bots.reviewCountdown": ({ seconds }: { seconds: number }) =>

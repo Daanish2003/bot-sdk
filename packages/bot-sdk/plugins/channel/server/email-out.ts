@@ -102,11 +102,18 @@ function escapeHtml(text: string): string {
 
 /** A subject that answers `subject`: one "Re: " however many it had, or "Re: <fallback>" when empty. */
 export function replySubject(subject: string, fallback: string): string {
-  const bare = subject
-    .replace(/\s+/g, " ")
-    .replace(/^(\s*re\s*:\s*)+/i, "")
+  const bare = headerText(subject)
+    .replace(/^(re\s*:\s*)+/i, "")
     .trim();
-  return `Re: ${bare || fallback}`;
+  return `Re: ${bare || headerText(fallback)}`;
+}
+
+/** `text` on one line, for a header: a line break can't start another header. */
+export const headerText = (text: string) => text.replace(/\s+/g, " ").trim();
+
+/** Whether `files` are attached to one email: they fit in `maxAttachedBytes` in total. */
+export function fitsInOneEmail(files: SentFile[]): boolean {
+  return files.reduce((sum, file) => sum + file.size, 0) <= maxAttachedBytes;
 }
 
 /** `"Name" <address>`, the name quoted and its quotes, backslashes and line breaks made safe. */
