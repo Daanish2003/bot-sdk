@@ -16,6 +16,8 @@ export const botMessageSchema = z.object({
   text: z.string(),
   createdAt: z.date(),
   control: richControlSchema.optional(),
+  /** The Channel a user's Message came in on, when not web: shown as "via email". */
+  channel: z.literal("email").optional(),
 });
 
 export type BotMessage = z.infer<typeof botMessageSchema>;
@@ -43,7 +45,7 @@ export type BotSendEvent = z.infer<typeof botSendEventSchema>;
  */
 export type BotTurnTrigger = {
   source: "user" | "routine" | "check_in" | "helper";
-  channel: "web" | "schedule" | "webhook" | "helper";
+  channel: "web" | "schedule" | "webhook" | "helper" | "email";
   routineName: string | null;
   at: Date;
 };

@@ -13,12 +13,16 @@ export const botTriggerSource = chatSchema.enum("bot_trigger_source", [
   "helper",
 ]);
 
-/** Where a Trigger came in: the web app, a schedule, an inbound webhook (#539), or a Helper's report (#565). */
+/**
+ * Where a Trigger came in: the web app, a schedule, an inbound webhook (#539), a Helper's report
+ * (#565), or an email to the Bot's address (spec #761).
+ */
 export const botTriggerChannel = chatSchema.enum("bot_trigger_channel", [
   "web",
   "schedule",
   "webhook",
   "helper",
+  "email",
 ]);
 
 /**

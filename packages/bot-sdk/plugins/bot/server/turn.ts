@@ -524,7 +524,11 @@ async function runningTurnOf(tx: Transaction, botId: string): Promise<string | u
  * Turn waits on is denied: a Stop, or the user's Message that interrupts it, counts as no
  * (ADR 0024). Returns whether the Turn ended here.
  */
-async function cancelTurn(deps: BotSdkContext, tx: Transaction, turnId: string): Promise<boolean> {
+export async function cancelTurn(
+  deps: BotSdkContext,
+  tx: Transaction,
+  turnId: string,
+): Promise<boolean> {
   const cancelled = await deps.plugin("runner").cancelIn(tx, turnId);
   // Cancelled first: under the job's row lock, a `waiting` row's Checkpoint either committed
   // before the denial reads it, or fails its fence and rolls back.
