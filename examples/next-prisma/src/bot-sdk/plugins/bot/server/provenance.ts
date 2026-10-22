@@ -86,11 +86,10 @@ export async function turnProvenance(
   return turns.map((turn) => {
     const next = sentAt[firstAtOrAfter(sentAt, turn.startedAt.getTime())];
     // The Skill a drafting pass saved shows on the chip of the Turn it woke, before the Turn's own
-    // changes, which keep its edits of that Skill.
+    // changes: one chip per Skill, so the Turn's edit of the drafted Skill shows as saved.
     const drafted = draftedOf.get(turn.id) ?? [];
     const own = (turn.skillChanges ?? []).filter(
-      (change) =>
-        !drafted.some((saved) => saved.name === change.name && saved.kind === change.kind),
+      (change) => !drafted.some((saved) => saved.name === change.name),
     );
     return {
       ...turn,
