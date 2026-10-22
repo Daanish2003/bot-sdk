@@ -138,3 +138,17 @@ describe("extracting the text of a PDF", () => {
     );
   });
 });
+
+describe("converting a document for Knowledge", () => {
+  it("marks each PDF page so a Bot can cite it", async () => {
+    expect(await extractKnowledgeText(pdfMediaType, samplePdf, { pageMarkers: true })).toBe(
+      "## Page 1\nHarbour study: tidal flow in the eastern basin.\nQuay 4 sits at 12 m depth.",
+    );
+  });
+
+  it("refuses a scanned PDF even with page markers", async () => {
+    expect(
+      await failureOf(extractKnowledgeText(pdfMediaType, scannedPdf, { pageMarkers: true })),
+    ).toBe("no_text");
+  });
+});

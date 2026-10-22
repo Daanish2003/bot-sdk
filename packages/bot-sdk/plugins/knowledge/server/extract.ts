@@ -30,11 +30,13 @@ export class ExtractionFailure extends Error {
  * The text a Knowledge file's passages are cut from, by its media type. Markdown and plain text
  * are read as they are; HTML and DOCX (through mammoth's HTML) are reduced to their text; CSV rows
  * are written with their header names, so every row describes itself. A PDF gives its text layer;
- * a scan with none fails as no_text. Throws ExtractionFailure.
+ * a scan with none fails as no_text; with `pageMarkers`, each page with text starts with a
+ * `## Page N` line. Throws ExtractionFailure.
  */
 export async function extractKnowledgeText(
   mediaType: KnowledgeMediaType,
   bytes: Uint8Array,
+  { pageMarkers = false }: { pageMarkers?: boolean } = {},
 ): Promise<string> {
   switch (mediaType) {
     case "text/markdown":
@@ -47,7 +49,7 @@ export async function extractKnowledgeText(
     case wordMediaType:
       return docxToText(Buffer.from(bytes));
     case pdfMediaType:
-      return pdfToText(bytes);
+      return pdfToText(bytes, pageMarkers);
   }
 }
 
@@ -74,7 +76,7 @@ function loadPdfJs(): Promise<PdfJs> {
  * runner is already off the request path, and the SDK ships TypeScript source, so there is no
  * built worker entry for a Host to bundle.
  */
-async function pdfToText(bytes: Uint8Array): Promise<string> {
+async function pdfToText(bytes: Uint8Array, pageMarkers: boolean): Promise<string> {
   const pdfjs = await loadPdfJs();
   let document: Awaited<ReturnType<typeof pdfjs.getDocument>["promise"]>;
   try {
@@ -92,26 +94,29 @@ async function pdfToText(bytes: Uint8Array): Promise<string> {
   }
 
   try {
-    const pages: string[] = [];
+    const lines: string[] = [];
     for (let number = 1; number <= document.numPages; number++) {
       const page = await document.getPage(number);
       const content = await page.getTextContent();
+      const pageLines: string[] = [];
       let line = "";
       for (const item of content.items) {
         if (!("str" in item)) continue;
         line += item.str;
         if (item.hasEOL) {
-          pages.push(line);
+          pageLines.push(line);
           line = "";
         }
       }
-      if (line) pages.push(line);
+      if (line) pageLines.push(line);
       page.cleanup();
+      const cleaned = pageLines
+        .map((text) => text.replace(/\s+/g, " ").trim())
+        .filter((text) => text.length > 0);
+      if (pageMarkers && cleaned.length > 0) lines.push(`## Page ${number}`);
+      lines.push(...cleaned);
     }
-    const text = pages
-      .map((line) => line.replace(/\s+/g, " ").trim())
-      .filter((line) => line.length > 0)
-      .join("\n");
+    const text = lines.join("\n");
     if (text.length === 0) throw new ExtractionFailure("no_text");
     return text;
   } catch (error) {

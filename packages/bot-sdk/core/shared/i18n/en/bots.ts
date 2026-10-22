@@ -161,7 +161,11 @@ export const botsMessages = {
   "bots.knowledgeUsage": ({ used, limit }: { used: string; limit: string }) =>
     `${used} of ${limit}`,
   "bots.knowledgeDrop": "Drop files here",
-  "bots.knowledgeFormats": "Markdown, text, HTML or CSV",
+  "bots.knowledgeFormats": "Markdown, text, HTML, CSV, DOCX or PDF",
+  "bots.knowledgeConverting": "Converting…",
+  "bots.knowledgeShowReadable": "Show readable text",
+  "bots.knowledgeHideReadable": "Hide readable text",
+  "bots.knowledgeReadableText": "Readable text (what your Bots read)",
   "bots.knowledgeUpload": "Upload",
   "bots.knowledgeUploadInto": ({ folder }: { folder: string }) => `Upload into ${folder}`,
   "bots.knowledgeAllFiles": "All files",
