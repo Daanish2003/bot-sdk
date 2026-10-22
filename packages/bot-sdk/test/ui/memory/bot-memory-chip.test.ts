@@ -135,7 +135,7 @@ describe("the Memory updated chip on a Bot's Turn", () => {
     const chips = screen.getAllByRole("button", { name: /Memory updated/ });
     expect(chips).toHaveLength(1);
     const reply = document.querySelector('[data-id="m2"]')!;
-    expect(reply.nextElementSibling?.contains(chips[0]!)).toBe(true);
+    expect(reply.parentElement!.nextElementSibling?.contains(chips[0]!)).toBe(true);
   });
 });
 

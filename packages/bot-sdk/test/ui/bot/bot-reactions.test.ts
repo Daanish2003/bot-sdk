@@ -39,7 +39,14 @@ function mount(messages: BotMessage[], reacted: unknown[] = []) {
     bot: {
       get: os.handler(() => ({ bot: { ...ada, turnStatus: null }, messages, turns: [] })),
       stop: os.handler(() => {}),
-      send: os.handler((): BotMessage => ({}) as BotMessage),
+      send: os
+        .input(z.object({ botId: z.string(), id: z.string(), text: z.string() }).loose())
+        .handler(({ input }) => ({
+          id: input.id,
+          role: "user" as const,
+          text: input.text,
+          createdAt: new Date(),
+        })),
       react: os.input(z.custom<unknown>()).handler(({ input }) => {
         reacted.push(input);
       }),

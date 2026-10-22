@@ -3,14 +3,15 @@ import { z } from "zod";
 /** The longest emoji in characters: room for a flag or a skin tone, not for a sentence. */
 export const maxEmojiLength = 16;
 
+/** One emoji. A refinement, not a `pattern`: OpenAI's schema validator refuses Unicode property escapes. */
+const singleEmoji =
+  /^(?:\p{Extended_Pictographic}|\p{Regional_Indicator}{2})(?:\p{Emoji_Modifier}|\uFE0F|\u200D\p{Extended_Pictographic})*$/u;
+
 /** One emoji, as the user or the Bot picked it. */
 export const emojiSchema = z
   .string()
   .max(maxEmojiLength)
-  .regex(
-    /^(?:\p{Extended_Pictographic}|\p{Regional_Indicator}{2})(?:\p{Emoji_Modifier}|️|‍\p{Extended_Pictographic})*$/u,
-    { error: "Not a single emoji" },
-  );
+  .refine((value) => singleEmoji.test(value), { error: "Not a single emoji" });
 
 /** One reaction: the emoji and when it was put on. */
 export const reactionSchema = z.object({ emoji: z.string(), at: z.date() });
