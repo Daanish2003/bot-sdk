@@ -51,8 +51,8 @@ import { closeWaitingReviews } from "./review";
 import { historyFrom, historyTurns, queueAwaySummary, summaryOf, writeSummary } from "./summary";
 import {
   botMessages,
+  controlParts,
   findBot,
-  secretRequestParts,
   textParts,
   toBotMessage,
   turnTimeLimitMs,
@@ -1127,7 +1127,7 @@ function turnTools(
         if (!text.trim()) return { error: emptyTextError };
         await appendMessage(tx, turn.conversationId, {
           role: "assistant",
-          parts: secret ? secretRequestParts(text, { type: "secret", ...secret }) : textParts(text),
+          parts: secret ? controlParts(text, { kind: "secret", ...secret }) : textParts(text),
           status: "complete",
           createdAt: deps.clock(),
         });

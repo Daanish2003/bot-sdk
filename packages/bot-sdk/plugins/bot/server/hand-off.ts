@@ -12,7 +12,7 @@ import type { ComputerCard } from "../shared/helper";
 import { computerOf } from "./computer-tools";
 import { botHelperJobName, helperJobKey } from "./helper";
 import { lockConversation } from "./router";
-import { computerCardOf, handOffParts } from "./store";
+import { controlOf, controlParts, holdingControl } from "./store";
 import { recordBotChange } from "./thread-change";
 import { hintChanged } from "./turn";
 
@@ -92,7 +92,7 @@ export async function handOff(
   await recordBotChange(tx, owner, "helper", helper.id, now);
   await appendMessage(tx, owner.conversationId, {
     role: "assistant",
-    parts: handOffParts({ type: "computer", helperId: helper.id, reason, state: "open" }),
+    parts: controlParts(reason, { kind: "computer", helperId: helper.id, reason, state: "open" }),
     status: "complete",
     createdAt: now,
   });
@@ -230,10 +230,10 @@ export async function closeComputerCard(
 ): Promise<boolean> {
   const rows = await openCards(tx, helperId);
   for (const row of rows) {
-    const card = computerCardOf(row.parts)!;
+    const card = controlOf(row.parts, "computer")!;
     await tx
       .update(message)
-      .set({ parts: handOffParts({ ...card, state }) })
+      .set({ parts: controlParts(card.reason, { ...card, state }) })
       .where(eq(message.id, row.id));
     await recordBotChange(tx, row, "message", row.id, at);
   }
@@ -242,7 +242,7 @@ export async function closeComputerCard(
 
 /** The Messages holding Helper `helperId`'s open Computer card, in its Bot's Conversation. */
 function openCards(db: Database | Transaction, helperId: string) {
-  const open = { parts: [{ type: "computer", helperId, state: "open" }] };
+  const open = holdingControl({ kind: "computer", helperId, state: "open" });
   return db
     .select({ id: message.id, parts: message.parts, conversationId: message.conversationId })
     .from(message)
@@ -264,5 +264,5 @@ export async function openCardReason(
   helperId: string,
 ): Promise<string | undefined> {
   const [row] = await openCards(db, helperId);
-  return row ? computerCardOf(row.parts)?.reason : undefined;
+  return row ? controlOf(row.parts, "computer")?.reason : undefined;
 }

@@ -14,9 +14,11 @@ import type { Database } from "../../../core/server/db/index";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { Transaction, UserDeleteHooks } from "../../../core/server/plugin";
 import { searchTextOf } from "../../../core/shared/message-parts";
-import { type DemonstrationCard, demonstrationCardSchema } from "../shared/demonstration";
-import { type ComputerCard, computerCardSchema } from "../shared/helper";
-import { type SecretRequest, secretRequestSchema } from "../shared/secret";
+import {
+  botMessagePartsSchema,
+  type RichControl,
+  type RichControlKind,
+} from "../shared/rich-control";
 import type { BotMessage, BotTurnStatus } from "../shared/turn";
 
 /** The `kind` of every Bot's Conversation: the plugin's id. */
@@ -44,81 +46,57 @@ export function textParts(text: string, timeZone?: string): MessageRow["parts"] 
 }
 
 /**
- * A hand-off Message's stored parts (#568): the reason as its `text` part, then the Computer card.
- * The column is typed as the assistant's parts union until the row types are composed from the
- * plugins, so the bot plugin's `computer` part is cast in here.
+ * A Bot Message's stored parts with its Rich control (spec #761): the text as its `text` part, so
+ * the Conversation reads it, then the control. The column is typed as the assistant's parts union
+ * until the row types are composed from the plugins, so the bot plugin's `control` part is cast in
+ * here.
  */
-export function handOffParts(card: ComputerCard): MessageRow["parts"] {
+export function controlParts(text: string, control: RichControl): MessageRow["parts"] {
   return {
     schemaVersion: 1,
-    parts: [{ type: "text", text: card.reason }, card],
+    parts: [
+      { type: "text", text },
+      { type: "control", control },
+    ],
   } as unknown as MessageRow["parts"];
-}
-
-/** The Computer card a Message's parts hold, if any. */
-export function computerCardOf(parts: MessageRow["parts"]): ComputerCard | undefined {
-  for (const part of parts.parts as readonly unknown[]) {
-    const card = computerCardSchema.safeParse(part);
-    if (card.success) return card.data;
-  }
-  return undefined;
 }
 
 /**
- * A Message that asks for a Secret (spec #691): the Bot's text as its `text` part, then the
- * `secret` part with the name and why. The column is cast as in `handOffParts`.
+ * What a Message's parts contain when they hold a control matching `control`: a jsonb `@>` value
+ * for finding the Messages that hold a given card.
  */
-export function secretRequestParts(text: string, request: SecretRequest): MessageRow["parts"] {
-  return {
-    schemaVersion: 1,
-    parts: [{ type: "text", text }, request],
-  } as unknown as MessageRow["parts"];
-}
-
-/** The Secret request a Message's parts hold, if any. */
-export function secretRequestOf(parts: MessageRow["parts"]): SecretRequest | undefined {
-  for (const part of parts.parts as readonly unknown[]) {
-    const request = secretRequestSchema.safeParse(part);
-    if (request.success) return request.data;
-  }
-  return undefined;
+export function holdingControl(control: { kind: RichControlKind } & Record<string, unknown>) {
+  return { parts: [{ type: "control", control }] };
 }
 
 /**
- * The Message `watch_user` posts (spec #713): the goal as its `text` part, so the Conversation
- * reads it, then the Show me card. The column is cast as in `handOffParts`.
+ * The Rich control a Message's parts hold, if any: of kind `kind` when given. Parts that aren't a
+ * Bot Message's (two controls, say) hold none.
  */
-export function demonstrationParts(card: DemonstrationCard): MessageRow["parts"] {
-  return {
-    schemaVersion: 1,
-    parts: [{ type: "text", text: card.goal }, card],
-  } as unknown as MessageRow["parts"];
-}
-
-/** The Show me card a Message's parts hold, if any. */
-export function demonstrationCardOf(parts: MessageRow["parts"]): DemonstrationCard | undefined {
-  for (const part of parts.parts as readonly unknown[]) {
-    const card = demonstrationCardSchema.safeParse(part);
-    if (card.success) return card.data;
-  }
+export function controlOf(parts: MessageRow["parts"]): RichControl | undefined;
+export function controlOf<Kind extends RichControlKind>(
+  parts: MessageRow["parts"],
+  kind: Kind,
+): Extract<RichControl, { kind: Kind }> | undefined;
+export function controlOf(parts: MessageRow["parts"], kind?: RichControlKind) {
+  const read = botMessagePartsSchema.safeParse(parts);
+  if (!read.success) return undefined;
+  for (const part of read.data.parts)
+    if (part.type === "control" && (!kind || part.control.kind === kind)) return part.control;
   return undefined;
 }
 
-/** A Message row as the client sees it, with its Computer card when it is a hand-off. */
+/** A Message row as the client sees it, with its Rich control when it has one. */
 export function toBotMessage(
   row: Pick<MessageRow, "id" | "role" | "parts" | "createdAt">,
 ): BotMessage {
-  const computer = computerCardOf(row.parts);
-  const secret = secretRequestOf(row.parts);
-  const demonstration = demonstrationCardOf(row.parts);
+  const control = controlOf(row.parts);
   return {
     id: row.id,
     role: row.role,
     text: searchTextOf(row.parts),
     createdAt: row.createdAt,
-    ...(computer && { computer }),
-    ...(secret && { secret }),
-    ...(demonstration && { demonstration }),
+    ...(control && { control }),
   };
 }
 

@@ -3,25 +3,19 @@ import { z } from "zod";
 import type { BotMemoryChange } from "../../memory/shared/changes";
 import type { BotKnowledgeChange } from "../../knowledge/shared/changes";
 import type { BotSkillChange } from "../../skills/shared/changes";
-import { demonstrationCardSchema } from "./demonstration";
-import { computerCardSchema } from "./helper";
-import { secretRequestSchema } from "./secret";
+import { richControlSchema } from "./rich-control";
 
 /**
- * A Message of a Bot's Conversation: its text, never the Bot's private transcript. A Computer-use
- * Helper's hand-off Message also has its Computer card, a Message that asks for a Secret has
- * its request, and the Message `watch_user` posts has its Show me card.
+ * A Message of a Bot's Conversation: its text, never the Bot's private transcript, and at most one
+ * Rich control: a Computer-use Helper's hand-off Message has its Computer card, a Message that
+ * asks for a Secret has its request, and the Message `watch_user` posts has its Show me card.
  */
 export const botMessageSchema = z.object({
   id: z.string(),
   role: z.enum(["user", "assistant"]),
   text: z.string(),
   createdAt: z.date(),
-  computer: computerCardSchema.optional(),
-  /** The Secret the Bot asks for with this Message, which renders as the Secret card. */
-  secret: secretRequestSchema.optional(),
-  /** The Demonstration `watch_user` started, which renders as the Show me card. */
-  demonstration: demonstrationCardSchema.optional(),
+  control: richControlSchema.optional(),
 });
 
 export type BotMessage = z.infer<typeof botMessageSchema>;
