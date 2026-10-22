@@ -20,7 +20,6 @@ import type { MessageUsage } from "../../models/shared/usage";
 import { artifact, artifactKind, artifactVersion } from "./db/artifact";
 import { mcpConnection } from "./db/connection";
 import { generatedImage } from "./db/generated-image";
-import { knowledgeChunk, knowledgeFile, knowledgeFileStatus } from "./db/knowledge";
 import { project } from "./db/project";
 import { savedPrompt } from "./db/saved-prompt";
 import { userSettings } from "./db/settings";
@@ -30,7 +29,6 @@ export type { MessageUsage };
 export * from "./db/artifact";
 export * from "./db/connection";
 export * from "./db/generated-image";
-export * from "./db/knowledge";
 export * from "./db/project";
 export * from "./db/saved-prompt";
 export * from "./db/settings";
@@ -105,13 +103,11 @@ export const assistantSchema = {
     artifactVersion,
     mcpConnection,
     generatedImage,
-    knowledgeFile,
-    knowledgeChunk,
     savedPrompt,
     userSettings,
     sharedLink,
   },
-  enums: { reasoningEffort, artifactKind, knowledgeFileStatus },
+  enums: { reasoningEffort, artifactKind },
   fields: {
     conversation: {
       columns: conversationColumns,

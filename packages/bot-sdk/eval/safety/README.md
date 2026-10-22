@@ -7,7 +7,7 @@ not in CI and are excluded from the SDK copy script.
 
 ## Run it
 
-It needs a scratch Postgres with pgvector, created before the first run (the script migrates it, but
+It needs a scratch Postgres, created before the first run (the script migrates it, but
 does not create the database), and the API key of each Model's Provider:
 
 ```sh

@@ -48,12 +48,12 @@ function recordingFetch(
 
 const pending = () => new Promise<Response>(() => {});
 const calledWith = (calls: { url: string; body: string }[], procedure: string) =>
-  calls.find((call) => new URL(call.url).pathname.endsWith(`knowledgeFiles/${procedure}`));
+  calls.find((call) => new URL(call.url).pathname.endsWith(`knowledge/${procedure}`));
 
 function seeded(available = true, shown = listing) {
   return (queryClient: QueryClient, client: BotSdkClient) => {
-    queryClient.setQueryData(client.orpc.knowledgeFiles.status.queryKey(), { available });
-    queryClient.setQueryData(client.orpc.knowledgeFiles.list.queryKey(), shown);
+    queryClient.setQueryData(client.orpc.knowledge.status.queryKey(), { available });
+    queryClient.setQueryData(client.orpc.knowledge.list.queryKey(), shown);
   };
 }
 
@@ -269,7 +269,7 @@ describe("KnowledgePopover", () => {
       limit: 50 * mib,
     };
     const { fetch, calls } = recordingFetch((url) =>
-      new URL(url).pathname.endsWith("knowledgeFiles/read")
+      new URL(url).pathname.endsWith("knowledge/read")
         ? Response.json({
             json: { path: "handbook.pdf.md", content: "## Page 1\nHello", size: 15 },
           })

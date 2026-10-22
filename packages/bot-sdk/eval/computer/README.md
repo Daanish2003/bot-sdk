@@ -12,7 +12,7 @@ excluded from the SDK copy script (it skips every `eval/` folder).
   Chrome hold up across a pause and resume?
 
 All run against the local E2B Embed (see the SDK README, "Local E2B Embed") with the Computer template
-built, and a scratch Postgres with pgvector, created before the first run (the scripts migrate it, but
+built, and a scratch Postgres, created before the first run (the scripts migrate it, but
 do not create the database).
 
 The template is `ai-chat-computer-v3` (the one `apps/web` builds Computers from): it adds the Screens

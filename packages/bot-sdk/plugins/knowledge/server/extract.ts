@@ -4,17 +4,28 @@ import { parse as parseCsv } from "csv-parse/sync";
 import mammoth from "mammoth";
 
 import {
-  pdfMediaType,
-  wordMediaType,
-  type KnowledgeFailureCode,
-  type KnowledgeMediaType,
-} from "../../assistant/shared/knowledge/kinds";
-import {
   ArchiveIntegrityError,
   assertOoxmlArchiveWithinLimits,
   isEncryptedOoxmlContainer,
   ZipBombError,
 } from "./ooxml";
+
+export const wordMediaType =
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+export const pdfMediaType = "application/pdf";
+
+/** The formats the text extraction reads. */
+export type KnowledgeMediaType =
+  | "text/markdown"
+  | "text/plain"
+  | "text/html"
+  | "text/csv"
+  | typeof wordMediaType
+  | typeof pdfMediaType;
+
+/** Why a file can't be read as text. */
+export type KnowledgeFailureCode = "no_text" | "unreadable" | "encrypted" | "too_large";
 
 /** A file that can't be read as text, with the reason the file shows as failed. */
 export class ExtractionFailure extends Error {
@@ -27,7 +38,7 @@ export class ExtractionFailure extends Error {
 }
 
 /**
- * The text a Knowledge file's passages are cut from, by its media type. Markdown and plain text
+ * The readable text of a Knowledge file, by its media type. Markdown and plain text
  * are read as they are; HTML and DOCX (through mammoth's HTML) are reduced to their text; CSV rows
  * are written with their header names, so every row describes itself. A PDF gives its text layer;
  * a scan with none fails as no_text; with `pageMarkers`, each page with text starts with a

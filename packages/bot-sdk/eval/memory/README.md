@@ -9,8 +9,8 @@ Model or key.
 
 ## Run it
 
-It needs a scratch Postgres with pgvector, created before the first run (the script migrates it, but
-does not create the database; the SDK's schema has vector columns, though this eval writes none), and
+It needs a scratch Postgres, created before the first run (the script migrates it, but
+does not create the database), and
 an OpenRouter key:
 
 ```sh

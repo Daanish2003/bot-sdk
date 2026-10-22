@@ -54,17 +54,17 @@ export function KnowledgePopover() {
   const [previewing, setPreviewing] = useState<string | null>(null);
   const nextId = useRef(0);
   const input = useRef<HTMLInputElement>(null);
-  const status = useQuery(orpc.knowledgeFiles.status.queryOptions());
-  const list = useQuery({ ...orpc.knowledgeFiles.list.queryOptions(), enabled: open });
-  const upload = useMutation(orpc.knowledgeFiles.upload.mutationOptions());
-  const uploadDocument = useMutation(orpc.knowledgeFiles.uploadDocument.mutationOptions());
-  const remove = useMutation(orpc.knowledgeFiles.remove.mutationOptions());
-  const createFolder = useMutation(orpc.knowledgeFiles.createFolder.mutationOptions());
+  const status = useQuery(orpc.knowledge.status.queryOptions());
+  const list = useQuery({ ...orpc.knowledge.list.queryOptions(), enabled: open });
+  const upload = useMutation(orpc.knowledge.upload.mutationOptions());
+  const uploadDocument = useMutation(orpc.knowledge.uploadDocument.mutationOptions());
+  const remove = useMutation(orpc.knowledge.remove.mutationOptions());
+  const createFolder = useMutation(orpc.knowledge.createFolder.mutationOptions());
 
   // Shown once the server says the user can have Knowledge, so it never flickers in and out.
   if (!status.data?.available) return null;
 
-  const refresh = () => queryClient.invalidateQueries({ queryKey: orpc.knowledgeFiles.key() });
+  const refresh = () => queryClient.invalidateQueries({ queryKey: orpc.knowledge.key() });
   const update = (id: number, next: InFlight | null) =>
     setInFlight((rows) =>
       next ? rows.map((row) => (row.id === id ? next : row)) : rows.filter((row) => row.id !== id),
@@ -377,7 +377,7 @@ export function KnowledgePopover() {
 function ReadableText({ path }: { path: string }) {
   const i18n = useI18n();
   const orpc = useOrpc();
-  const readable = useQuery(orpc.knowledgeFiles.read.queryOptions({ input: { path } }));
+  const readable = useQuery(orpc.knowledge.read.queryOptions({ input: { path } }));
   return (
     <div className="basis-full">
       <div className="text-[11px] font-medium text-muted-foreground">

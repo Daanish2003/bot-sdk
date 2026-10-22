@@ -30,7 +30,6 @@ const runningCalls: StoredPart[] = [
     aspectRatio: "square",
     state: "running",
   },
-  { type: "knowledge_search", toolCallId: "call-1", query: "q", state: "running", excerpts: [] },
   {
     type: "past_chats_search",
     toolCallId: "call-1",

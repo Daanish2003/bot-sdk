@@ -12,7 +12,6 @@ import { saveCredentials } from "../../../../plugins/models/server/credentials/s
 import type { HostProvider } from "../../../../plugins/assistant/server/deps";
 import { fakeImageAdapter } from "../../../../plugins/models/server/fake-image-adapter";
 import { citationPrompt } from "../../../../plugins/assistant/shared/chat/citations";
-import { knowledgePromptOf } from "../../../../plugins/assistant/shared/chat/knowledge-search";
 import { insertConversation, insertMessage } from "../../../support/conversations";
 import { createTestSdk, type TestDepsOverrides, type TestDeps } from "../../../support/deps";
 import {
@@ -23,7 +22,6 @@ import {
   toolCall,
 } from "../../../support/fake-adapter";
 import { createFakeSearchClient } from "../../../support/fake-search-client";
-import { drainJobs } from "../../../support/jobs";
 import { chatRpc, sendAs } from "../../../support/sdk";
 import { insertUser, type TestUser } from "../../../support/users";
 
@@ -518,12 +516,11 @@ describe("Allow for this Conversation", () => {
   });
 });
 
-/** The Host's OpenAI: an embedding Model for Knowledge and an Image Model, so no user key is needed. */
+/** The Host's OpenAI: an Image Model, so no user key is needed. */
 const hostOpenAI: HostProvider = {
   provider: "openai",
   credentials: { apiKey: "sk-host-openai" },
   models: [],
-  embeddingModels: [{ model: "text-embedding-3-small", pricePerMillionTokensUsd: 0.02 }],
   imageModels: [
     { modelId: "gpt-image-1-mini", size: "1024x1024", quality: "medium", pricePerImageUsd: 0.01 },
   ],
@@ -533,9 +530,8 @@ const toolNamesOf = (fake: FakeAdapter, call: number) =>
   (fake.calls[call]?.tools ?? []).map((tool) => tool.name);
 
 /**
- * A Run in a Project with a ready Knowledge file, web search on, an Image Model and Memory: it
- * searches the web, draws an image and searches Knowledge, then asks to send mail. The approved
- * call's Run makes the fifth model call.
+ * A Run in a Project with web search on, an Image Model and Memory: it searches the web and draws
+ * an image, then asks to send mail. The approved call's Run makes the fourth model call.
  */
 async function askAfterEveryFeature() {
   const runs: Runs = [];
@@ -544,7 +540,6 @@ async function askAfterEveryFeature() {
     rounds: [
       round(toolCall({ id: "search-1", name: "web_search", input: { query: "news" } })),
       round(toolCall({ id: "image-1", name: "generate_image", input: { prompt: "a bicycle" } })),
-      round(toolCall({ id: "knowledge-1", name: "search_knowledge", input: { query: "budget" } })),
       round(mailCall("call-1")),
       round(text("Sent.")),
     ],
@@ -569,11 +564,6 @@ async function askAfterEveryFeature() {
   }
   const rpc = chatRpc({ user, deps });
   const { id: projectId } = await rpc.project.create({ name: "Thesis" });
-  await rpc.knowledge.upload({
-    projectId,
-    file: new File(["The 2026 budget is set."], "notes.md", { type: "text/markdown" }),
-  });
-  await drainJobs({ deps });
   const conv = await insertConversation(user, { title: "Everything", projectId });
   const response = await sendAs(
     new Request(`${basePath}/run`, {
@@ -584,7 +574,7 @@ async function askAfterEveryFeature() {
         forwardedProps: {
           conversationId: conv.id,
           parentId: null,
-          text: "Search, draw, read, then email a@b.c",
+          text: "Search, draw, then email a@b.c",
           attachmentIds: [],
           model: anthropicModel,
           webSearch: true,
@@ -604,41 +594,37 @@ async function askAfterEveryFeature() {
 }
 
 describe("a Run resumed after an Approval is planned like the Run that asked (ADR 0008)", () => {
-  it("offers web search, fetch_url, image, Knowledge and past-chats tools", async () => {
+  it("offers web search, fetch_url, image and past-chats tools", async () => {
     const { fake } = await askAfterEveryFeature();
 
-    const resumed = toolNamesOf(fake, 4);
+    const resumed = toolNamesOf(fake, 3);
     expect(resumed).toEqual(
       expect.arrayContaining([
         "web_search",
         "fetch_url",
         "generate_image",
-        "search_knowledge",
         "search_past_chats",
         "send_mail",
       ]),
     );
-    expect(resumed.toSorted()).toEqual(toolNamesOf(fake, 3).toSorted());
+    expect(resumed.toSorted()).toEqual(toolNamesOf(fake, 2).toSorted());
   });
 
-  it("sends the citation and Knowledge-files prompts", async () => {
+  it("sends the citation prompt", async () => {
     const { fake } = await askAfterEveryFeature();
 
-    const prompts = fake.calls[4]!.systemPrompts ?? [];
+    const prompts = fake.calls[3]!.systemPrompts ?? [];
     expect(prompts).toContain(citationPrompt);
-    expect(prompts).toContain(knowledgePromptOf(["notes.md"]));
-    expect(prompts).toEqual(fake.calls[3]!.systemPrompts);
+    expect(prompts).toEqual(fake.calls[2]!.systemPrompts);
   });
 
-  it("replays the earlier web search, image and Knowledge calls as calls, not placeholders", async () => {
+  it("replays the earlier web search and image calls as calls, not placeholders", async () => {
     const { fake } = await askAfterEveryFeature();
 
-    const replayed = fake.calls[4]!.messages.flatMap((sent) =>
+    const replayed = fake.calls[3]!.messages.flatMap((sent) =>
       (sent.toolCalls ?? []).map((call) => call.function.name),
     );
-    expect(replayed).toEqual(
-      expect.arrayContaining(["web_search", "generate_image", "search_knowledge", "send_mail"]),
-    );
+    expect(replayed).toEqual(expect.arrayContaining(["web_search", "generate_image", "send_mail"]));
   });
 
   it("compacts a long history, and records the first Message the resumed Run sent", async () => {

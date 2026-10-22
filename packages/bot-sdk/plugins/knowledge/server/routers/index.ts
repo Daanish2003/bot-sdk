@@ -68,4 +68,4 @@ export const knowledgeRouter = {
 };
 
 /** The `knowledge` plugin's routers, by key. */
-export type KnowledgeRouter = { knowledgeFiles: typeof knowledgeRouter };
+export type KnowledgeRouter = { knowledge: typeof knowledgeRouter };

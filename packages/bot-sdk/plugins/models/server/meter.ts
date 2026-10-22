@@ -85,9 +85,6 @@ export type ImageMeter = Meter<ImageCall>;
 /** One transcription: the recording's own length, and the length the Provider reports, if any. */
 export type TranscriptionMeter = Meter<{ durationSeconds: number; reportedSeconds?: number }>;
 
-/** One embedding request: the characters it sent, and the tokens the Provider counted, if any. */
-export type EmbeddingMeter = Meter<{ characters: number; reportedTokens?: number }>;
-
 /** The meter of a call on the user's own key: never refused, never recorded. */
 export const freeMeter: TxMeter<unknown> = {
   onHost: false,
@@ -368,34 +365,6 @@ export function hostTranscriptionMeter(
         outputTokens: 0,
         costMicros: Math.round((seconds / 60) * pricePerMinuteUsd * 1_000_000),
         estimated: reportedSeconds === undefined,
-      };
-    },
-  );
-}
-
-/**
- * The meter of embedding requests on the Host's embedding Model `model` (ADR 0014). The tokens are
- * the Provider's count, or the characters ÷ 4 when the Provider reports none (Gemini), which marks
- * the row estimated.
- */
-export function hostEmbeddingMeter(
-  deps: MeterDeps,
-  userId: string,
-  { model, pricePerMillionTokensUsd }: { model: string; pricePerMillionTokensUsd: number },
-): EmbeddingMeter {
-  return meterOf(
-    deps,
-    userId,
-    true,
-    ({ characters, reportedTokens }: { characters: number; reportedTokens?: number }) => {
-      const tokens = reportedTokens ?? Math.ceil(characters / 4);
-      return {
-        kind: "embedding",
-        model,
-        inputTokens: tokens,
-        outputTokens: 0,
-        costMicros: Math.round(tokens * pricePerMillionTokensUsd),
-        estimated: reportedTokens === undefined,
       };
     },
   );

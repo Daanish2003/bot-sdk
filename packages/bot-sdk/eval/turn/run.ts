@@ -139,7 +139,7 @@ async function main() {
     if (!Number.isInteger(value) || value < 1) fail(`${name} must be a whole number, 1 or more`);
   }
   const databaseUrl = process.env.EVAL_DATABASE_URL;
-  if (!databaseUrl) fail("EVAL_DATABASE_URL is not set: a scratch Postgres with pgvector.");
+  if (!databaseUrl) fail("EVAL_DATABASE_URL is not set: a scratch Postgres.");
 
   // `null`: the Model runs on the owner's ChatGPT plan (eval/chatgpt-plan.ts), not on a key.
   const plan = fake ? null : await chatgptPlanFromEnv();

@@ -12,7 +12,7 @@ import { insertUser } from "../../../support/users";
 
 const folder = "/home/user/shared/knowledge";
 const fixture = (name: string) =>
-  readFileSync(new URL(`../knowledge/fixtures/${name}`, import.meta.url));
+  readFileSync(new URL(`../../../plugins/knowledge/fixtures/${name}`, import.meta.url));
 const textOf = (bytes: Uint8Array | undefined) => new TextDecoder().decode(bytes);
 const knowledgePaths = (files: Map<string, Uint8Array>) =>
   [...files.keys()].filter((path) => path.startsWith(`${folder}/`)).toSorted();
@@ -81,7 +81,7 @@ describe("uploading a PDF or DOCX to Knowledge", { timeout: 30_000 }, () => {
   it("writes a PDF and its readable copy with page markers", async () => {
     const { computerFake, client } = await setup();
 
-    const added = await client.knowledgeFiles.uploadDocument({ folder: "hr", file: pdf() });
+    const added = await client.knowledge.uploadDocument({ folder: "hr", file: pdf() });
 
     expect(added.path).toBe("hr/handbook.pdf");
     expect(knowledgePaths(computerFake.files)).toEqual([
@@ -99,7 +99,7 @@ describe("uploading a PDF or DOCX to Knowledge", { timeout: 30_000 }, () => {
   it("writes a DOCX and its readable copy", async () => {
     const { computerFake, client } = await setup();
 
-    await client.knowledgeFiles.uploadDocument({ file: docx() });
+    await client.knowledge.uploadDocument({ file: docx() });
 
     expect(knowledgePaths(computerFake.files)).toEqual([
       `${folder}/plan.docx`,
@@ -112,7 +112,7 @@ describe("uploading a PDF or DOCX to Knowledge", { timeout: 30_000 }, () => {
     const { computerFake, client } = await setup();
 
     await expect(
-      client.knowledgeFiles.uploadDocument({ file: pdf("scan.pdf", "sample-scanned.pdf") }),
+      client.knowledge.uploadDocument({ file: pdf("scan.pdf", "sample-scanned.pdf") }),
     ).rejects.toMatchObject({
       code: "BAD_REQUEST",
       data: { code: "error.knowledgeNoText" },
@@ -125,7 +125,7 @@ describe("uploading a PDF or DOCX to Knowledge", { timeout: 30_000 }, () => {
     const { computerFake, client } = await setup();
     const big = new File([new Uint8Array(20 * 1024 * 1024 + 1)], "big.pdf");
 
-    await expect(client.knowledgeFiles.uploadDocument({ file: big })).rejects.toMatchObject({
+    await expect(client.knowledge.uploadDocument({ file: big })).rejects.toMatchObject({
       code: "BAD_REQUEST",
       data: { code: "error.knowledgeDocumentTooLarge" },
     });
@@ -136,12 +136,12 @@ describe("uploading a PDF or DOCX to Knowledge", { timeout: 30_000 }, () => {
     const { computerFake, client } = await setup();
 
     await expect(
-      client.knowledgeFiles.uploadDocument({ file: docxWithText("word ".repeat(500_000)) }),
+      client.knowledge.uploadDocument({ file: docxWithText("word ".repeat(500_000)) }),
     ).rejects.toMatchObject({ code: "BAD_REQUEST", data: { code: "error.knowledgeTextTooLong" } });
     expect(computerFake.files.size).toBe(0);
 
     // Just under the cap converts.
-    await client.knowledgeFiles.uploadDocument({ file: docxWithText("word ".repeat(100_000)) });
+    await client.knowledge.uploadDocument({ file: docxWithText("word ".repeat(100_000)) });
     expect(knowledgePaths(computerFake.files)).toHaveLength(2);
   });
 
@@ -149,25 +149,25 @@ describe("uploading a PDF or DOCX to Knowledge", { timeout: 30_000 }, () => {
     const { computerFake, client } = await setup();
 
     await expect(
-      client.knowledgeFiles.uploadDocument({ file: new File(["x"], "notes.md") }),
+      client.knowledge.uploadDocument({ file: new File(["x"], "notes.md") }),
     ).rejects.toMatchObject({ data: { code: "error.knowledgeFormat" } });
     await expect(
-      client.knowledgeFiles.uploadDocument({ file: new File(["not a pdf"], "fake.pdf") }),
+      client.knowledge.uploadDocument({ file: new File(["not a pdf"], "fake.pdf") }),
     ).rejects.toMatchObject({ data: { code: "error.knowledgeUnreadable" } });
     expect(computerFake.files.size).toBe(0);
   });
 
   it("refuses the same name unless replace is set, and replace overwrites both files", async () => {
     const { computerFake, client } = await setup();
-    await client.knowledgeFiles.uploadDocument({ file: pdf() });
+    await client.knowledge.uploadDocument({ file: pdf() });
 
-    await expect(client.knowledgeFiles.uploadDocument({ file: pdf() })).rejects.toMatchObject({
+    await expect(client.knowledge.uploadDocument({ file: pdf() })).rejects.toMatchObject({
       code: "CONFLICT",
       data: { code: "error.knowledgeExists" },
     });
 
     computerFake.files.set(`${folder}/handbook.pdf.md`, new TextEncoder().encode("stale"));
-    await client.knowledgeFiles.uploadDocument({ file: pdf(), replace: true });
+    await client.knowledge.uploadDocument({ file: pdf(), replace: true });
 
     expect(textOf(computerFake.files.get(`${folder}/handbook.pdf.md`))).toContain("## Page 1");
     expect(knowledgePaths(computerFake.files)).toHaveLength(2);
@@ -175,20 +175,20 @@ describe("uploading a PDF or DOCX to Knowledge", { timeout: 30_000 }, () => {
 
   it("deletes the original and its copy together", async () => {
     const { computerFake, client } = await setup();
-    await client.knowledgeFiles.uploadDocument({ file: pdf() });
-    await client.knowledgeFiles.upload({ name: "keep.md", content: "keep" });
+    await client.knowledge.uploadDocument({ file: pdf() });
+    await client.knowledge.upload({ name: "keep.md", content: "keep" });
 
-    await client.knowledgeFiles.remove({ path: "handbook.pdf" });
+    await client.knowledge.remove({ path: "handbook.pdf" });
 
     expect(knowledgePaths(computerFake.files)).toEqual([`${folder}/keep.md`]);
   });
 
   it("lists the original once, with its readable copy for the read route", async () => {
     const { client } = await setup();
-    await client.knowledgeFiles.uploadDocument({ file: pdf() });
-    await client.knowledgeFiles.upload({ name: "notes.md", content: "n" });
+    await client.knowledge.uploadDocument({ file: pdf() });
+    await client.knowledge.upload({ name: "notes.md", content: "n" });
 
-    const listed = await client.knowledgeFiles.list();
+    const listed = await client.knowledge.list();
 
     expect(listed.files).toEqual([
       {
@@ -200,7 +200,7 @@ describe("uploading a PDF or DOCX to Knowledge", { timeout: 30_000 }, () => {
       { path: "notes.md", size: 1, savedBy: "user" },
     ]);
     // The copy still counts toward the 50 MB.
-    const copy = await client.knowledgeFiles.read({ path: "handbook.pdf.md" });
+    const copy = await client.knowledge.read({ path: "handbook.pdf.md" });
     expect(listed.usage).toBe(fixture("sample-text.pdf").length + copy.size + 1);
     expect(copy.content).toContain("## Page 1");
   });
@@ -209,7 +209,7 @@ describe("uploading a PDF or DOCX to Knowledge", { timeout: 30_000 }, () => {
     const { computerFake, client } = await setup();
     computerFake.files.set(`${folder}/big.txt`, new Uint8Array(50 * 1024 * 1024 - 10));
 
-    await expect(client.knowledgeFiles.uploadDocument({ file: pdf() })).rejects.toMatchObject({
+    await expect(client.knowledge.uploadDocument({ file: pdf() })).rejects.toMatchObject({
       data: { code: "error.knowledgeFull" },
     });
     expect(knowledgePaths(computerFake.files)).toEqual([`${folder}/big.txt`]);

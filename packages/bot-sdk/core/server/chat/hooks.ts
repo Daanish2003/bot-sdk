@@ -29,7 +29,6 @@ export type UsageEvent = {
     | "web_search"
     | "transcription"
     | "image"
-    | "embedding"
     | "memory"
     | "turn"
     | "helper"

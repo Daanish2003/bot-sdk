@@ -360,33 +360,3 @@ describe("attachments in provider history", () => {
     ]);
   });
 });
-
-describe("Excerpt labels within one Message", () => {
-  it("continue across a reply's knowledge searches, so each label is unique in the Message", () => {
-    const stored = storedParts([
-      {
-        type: "knowledge_search",
-        toolCallId: "call-1",
-        query: "budget",
-        state: "done",
-        excerpts: [
-          { fileId: "f1", fileName: "a.md", chunkIndex: 0, text: "one" },
-          { fileId: "f1", fileName: "a.md", chunkIndex: 1, text: "two" },
-        ],
-      },
-      {
-        type: "knowledge_search",
-        toolCallId: "call-2",
-        query: "deadline",
-        state: "done",
-        excerpts: [{ fileId: "f2", fileName: "b.pdf", chunkIndex: 0, text: "three" }],
-      },
-    ]);
-
-    const [, second] = toUIParts(stored);
-
-    expect(second).toMatchObject({
-      output: { excerpts: [{ id: "excerpt:3", fileName: "b.pdf", text: "three" }] },
-    });
-  });
-});

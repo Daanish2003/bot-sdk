@@ -130,7 +130,7 @@ describe("the Knowledge chip's record on the Turn", { timeout: 30_000 }, () => {
       null,
       [{ botId, path: "reports/q3.md" }],
     ]);
-    expect((await client.knowledgeFiles.list()).files).toEqual([
+    expect((await client.knowledge.list()).files).toEqual([
       { path: "reports/q3.md", size: 16, savedBy: "bot", botName: "Ada" },
     ]);
   });

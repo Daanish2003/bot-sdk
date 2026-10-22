@@ -138,7 +138,7 @@ describe("the pages with the dictionary", () => {
     expect(html).toContain("⟦Edit⟧");
   });
 
-  it("shows no untranslated text on the Project's tabs, with its Knowledge file count", () => {
+  it("shows no untranslated text on the Project page, which has no Knowledge tab (#743)", () => {
     const html = expectTranslated(
       createElement(ProjectPage, { projectId }),
       (queryClient, client) => {
@@ -152,17 +152,12 @@ describe("the pages with the dictionary", () => {
           pages: [{ items: [], nextCursor: null }],
           pageParams: [undefined],
         });
-        queryClient.setQueryData(client.orpc.knowledge.list.queryKey({ input: { projectId } }), {
-          embeddingModel: null,
-          currentModel: null,
-          models: [],
-          files: [],
-        });
       },
     );
 
-    expect(html).toContain("⟦Conversations⟧");
-    expect(html).toContain("⟦Knowledge⟧ 0");
+    expect(html).toContain("⟦No Conversations in this Project yet⟧");
+    expect(html).not.toContain("⟦Knowledge⟧");
+    expect(html).not.toContain('role="tab"');
   });
 
   it("shows no untranslated text on the keys page, with credentials on", () => {

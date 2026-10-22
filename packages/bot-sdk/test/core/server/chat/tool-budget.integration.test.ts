@@ -13,18 +13,16 @@ import { insertConversation } from "../../../support/conversations";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { createFakeSearchClient } from "../../../support/fake-search-client";
-import { drainJobs } from "../../../support/jobs";
 import { chatRpc, sendAs } from "../../../support/sdk";
 import { insertUser } from "../../../support/users";
 
 const basePath = "http://localhost/api/chat";
 
-/** The Host's OpenAI: an embedding Model for Knowledge and an Image Model. */
+/** The Host's OpenAI: an Image Model. */
 const hostOpenAI: HostProvider = {
   provider: "openai",
   credentials: { apiKey: "sk-host-openai" },
   models: [],
-  embeddingModels: [{ model: "text-embedding-3-small", pricePerMillionTokensUsd: 0.02 }],
   imageModels: [
     { modelId: "gpt-image-1-mini", size: "1024x1024", quality: "medium", pricePerImageUsd: 0.01 },
   ],
@@ -62,7 +60,7 @@ const times = <T>(count: number, make: (index: number) => T) =>
  */
 async function timeCallsLeft(
   first: ReturnType<typeof toolCall>[],
-  { approval, knowledge }: { approval: boolean; knowledge: boolean },
+  { approval }: { approval: boolean },
 ) {
   const user = await insertUser();
   const fake = createFakeAdapter({
@@ -96,16 +94,7 @@ async function timeCallsLeft(
     });
   }
   const rpc = chatRpc({ user, deps });
-  let projectId: string | null = null;
-  if (knowledge) {
-    ({ id: projectId } = await rpc.project.create({ name: "Thesis" }));
-    await rpc.knowledge.upload({
-      projectId,
-      file: new File(["The 2026 budget is set."], "notes.md", { type: "text/markdown" }),
-    });
-    await drainJobs({ deps });
-  }
-  const conv = await insertConversation(user, { title: "Budget", projectId });
+  const conv = await insertConversation(user, { title: "Budget" });
   const response = await sendAs(
     new Request(`${basePath}/run`, {
       method: "POST",
@@ -160,7 +149,6 @@ const cases: Array<{
   first: ReturnType<typeof toolCall>[];
   /** How many of `first` count against the reply's 10 calls. */
   counted: number;
-  knowledge?: boolean;
 }> = [
   {
     name: "Host tool calls",
@@ -193,14 +181,6 @@ const cases: Array<{
     counted: 4,
   },
   {
-    name: "Knowledge searches",
-    first: times(2, (index) =>
-      toolCall({ id: `first-${index}`, name: "search_knowledge", input: { query: "budget" } }),
-    ),
-    counted: 2,
-    knowledge: true,
-  },
-  {
     name: "fetch_url calls, which have their own cap",
     first: times(2, (index) =>
       toolCall({ id: `first-${index}`, name: "fetch_url", input: { url: page } }),
@@ -217,13 +197,13 @@ const cases: Array<{
 ];
 
 describe("the reply's tool budget is the same in one Run and across an Approval (ADR 0008)", () => {
-  for (const { name, first, counted, knowledge = false } of cases) {
+  for (const { name, first, counted } of cases) {
     it(`counts ${name} the same way`, async () => {
       // The 10 calls less those of `first` that count, less the `send_mail` call.
       const left = 10 - counted - 1;
 
-      expect(await timeCallsLeft(first, { approval: false, knowledge })).toBe(left);
-      expect(await timeCallsLeft(first, { approval: true, knowledge })).toBe(left);
+      expect(await timeCallsLeft(first, { approval: false })).toBe(left);
+      expect(await timeCallsLeft(first, { approval: true })).toBe(left);
     });
   }
 });

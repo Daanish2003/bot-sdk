@@ -13,7 +13,6 @@ import {
   artifactVersion,
   bot,
   project,
-  knowledgeFile,
   savedPrompt,
   sharedLink,
   userSettings,
@@ -446,28 +445,6 @@ describe("createBotSdk().exportUser, the Memory switch", () => {
     const exported = await chatFor().exportUser(owner.id);
 
     expect(exported.settings.memoryEnabled).toBe(false);
-  });
-});
-
-describe("createBotSdk().exportUser, Knowledge files", () => {
-  it("lists each Knowledge file by name, type and Project, with no bytes or passages", async () => {
-    const owner = await insertUser();
-    const projectId = uuidv7();
-    await getTestDb().insert(project).values({ id: projectId, userId: owner.id, name: "Thesis" });
-    await getTestDb().insert(knowledgeFile).values({
-      id: uuidv7(),
-      userId: owner.id,
-      projectId,
-      name: "draft.md",
-      mediaType: "text/markdown",
-      size: 12,
-    });
-
-    const exported = await chatFor().exportUser(owner.id);
-
-    expect(exported.knowledgeFiles).toEqual([
-      { name: "draft.md", mediaType: "text/markdown", projectId },
-    ]);
   });
 });
 

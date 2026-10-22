@@ -24,8 +24,8 @@ function KnowledgeFileDetails({ path, onDeleted }: { path: string; onDeleted: ()
   const { t } = i18n;
   const orpc = useOrpc();
   const queryClient = useQueryClient();
-  const file = useQuery(orpc.knowledgeFiles.read.queryOptions({ input: { path } }));
-  const remove = useMutation(orpc.knowledgeFiles.remove.mutationOptions());
+  const file = useQuery(orpc.knowledge.read.queryOptions({ input: { path } }));
+  const remove = useMutation(orpc.knowledge.remove.mutationOptions());
   return (
     <div className="w-[32rem] max-w-full rounded-lg border p-2 text-foreground">
       <div className="flex items-center gap-2 text-xs">
@@ -42,7 +42,7 @@ function KnowledgeFileDetails({ path, onDeleted }: { path: string; onDeleted: ()
               {
                 onSuccess: () => {
                   toast.success(t("bots.knowledgeDeleted"));
-                  void queryClient.invalidateQueries({ queryKey: orpc.knowledgeFiles.key() });
+                  void queryClient.invalidateQueries({ queryKey: orpc.knowledge.key() });
                   onDeleted();
                 },
                 onError: (error) => toast.error(serverErrorText(i18n, error)),

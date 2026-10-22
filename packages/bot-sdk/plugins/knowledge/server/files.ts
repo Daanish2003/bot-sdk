@@ -8,7 +8,6 @@ import {
   type ComputerHandle,
   type FileOperationOptions,
 } from "../../computer/server/plugin";
-import { pdfMediaType, wordMediaType } from "../../assistant/shared/knowledge/kinds";
 import {
   knowledgeDirectory,
   knowledgeDocumentExtensions,
@@ -18,7 +17,7 @@ import {
   knowledgeTextLimitBytes,
   readableCopyPath,
 } from "../shared/folder";
-import { ExtractionFailure, extractKnowledgeText } from "./extract";
+import { ExtractionFailure, extractKnowledgeText, pdfMediaType, wordMediaType } from "./extract";
 
 /*
  * The user's view of their Knowledge (spec #737): plain files in `shared/knowledge/` on their
