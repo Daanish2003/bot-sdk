@@ -28,8 +28,8 @@ import { createArtifactToolName, updateArtifactToolName } from "./artifact";
 import { fetchUrlToolName } from "./fetch-url";
 import { providerOf } from "../../../models/shared/models";
 import { searchPastChatsToolName } from "./past-chats";
+import type { AspectRatio } from "../../../models/shared/image-models";
 import {
-  type AspectRatio,
   type GenerateImageOutput,
   type GeneratedImageErrorReason,
   generateImageToolName,

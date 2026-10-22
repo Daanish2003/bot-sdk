@@ -9,8 +9,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-// Type only: the column's type is the assistant's parts union until the row types are composed from the plugins.
-import type { StoredParts } from "../../../plugins/assistant/shared/message-parts";
+import type { PartsEnvelope } from "../../shared/message-parts";
 import { attachment, messageAttachment } from "./attachment";
 import { blob } from "./blob";
 import { chatSchema } from "./chat-schema";
@@ -77,7 +76,7 @@ const messageColumns = {
     onDelete: "cascade",
   }),
   role: messageRole("role").notNull(),
-  parts: jsonb("parts").$type<StoredParts>().notNull(),
+  parts: jsonb("parts").$type<PartsEnvelope>().notNull(),
   status: messageStatus("status").notNull(),
   error: text("error"),
   errorReason: messageErrorReason("error_reason"),

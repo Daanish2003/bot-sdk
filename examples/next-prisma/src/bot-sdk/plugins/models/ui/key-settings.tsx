@@ -15,28 +15,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { toast } from "sonner";
 
 import type { MessageKey } from "../../../core/shared/i18n";
 import { useByok } from "../client/react/byok";
-import {
-  type BotSdkOrpc,
-  useChatAdapter,
-  useI18n,
-  useOrpc,
-} from "../../../core/client/react/provider";
+import { type BotSdkOrpc, useI18n, useOrpc } from "../../../core/client/react/provider";
 import { serverErrorText } from "../../../core/client/rpc-error";
-import { ArchivedConversationsSection } from "../../assistant/ui/settings/archived-conversations";
-import { ConnectionsSection } from "../../assistant/ui/settings/connections-section";
-import { DeleteAllConversationsSection } from "../../assistant/ui/settings/delete-all-conversations";
-import { ExportDataButton } from "../../../ui/settings/export-data-button";
-import { InstructionsField } from "../../assistant/ui/settings/instructions-field";
-import { MemorySection } from "../../memory/ui/memory-section";
-import { SavedPromptsSection } from "../../assistant/ui/settings/saved-prompts";
-import { SharedLinksSection } from "../../assistant/ui/settings/shared-links";
-import { BackgroundModelSelect } from "../../assistant/ui/settings/background-model-select";
-import { ImageModelSelect } from "../../assistant/ui/settings/image-model-select";
 
 /**
  * What the Host provides for linked credentials (ADR 0023): how a user links and unlinks their
@@ -49,21 +34,12 @@ export type LinkedCredentialsHost = {
 };
 
 /**
- * Keys & settings: the user's Provider and Tool credentials, the Background Model and the Instructions.
- * With `byok` off the credential sections are left out; the settings stay.
+ * Keys & settings: the heading and intro, then the sections the Host passes (this plugin's
+ * `CredentialsSections` and other plugins' settings). The page imports no other plugin's UI.
  */
-export function KeySettingsPage({
-  linkedCredentials,
-}: {
-  linkedCredentials?: LinkedCredentialsHost;
-}) {
-  const orpc = useOrpc();
-  const { plugins } = useChatAdapter();
+export function KeySettingsPage({ children }: { children?: ReactNode }) {
   const byok = useByok();
   const { t } = useI18n();
-  const credentials = useQuery(orpc.credentials.list.queryOptions());
-  const [editing, setEditing] = useState<CredentialService | null>(null);
-  const rows = providerRows(credentials.data ?? []);
 
   return (
     <main className="mx-auto w-full max-w-2xl space-y-6 p-6">
@@ -72,67 +48,61 @@ export function KeySettingsPage({
         {byok && <p className="text-sm text-muted-foreground">{t("pages.keysIntro")}</p>}
       </div>
 
-      {byok && (
-        <>
-          <section className="space-y-2">
-            <h2 className="text-sm font-medium">{t("pages.providers")}</h2>
-            <ul className="divide-y overflow-hidden rounded-xl border">
-              {rows.map((row) => (
-                <ProviderRowItem
-                  key={row.id}
-                  row={row}
-                  loading={credentials.isPending}
-                  linkedCredentials={row.id === "openai" ? linkedCredentials : undefined}
-                  editing={row.service !== null && editing === row.service}
-                  onEdit={setEditing}
-                  onDone={() => setEditing(null)}
-                />
-              ))}
-            </ul>
-          </section>
+      {children}
+    </main>
+  );
+}
 
-          <section className="space-y-2">
-            <h2 className="text-sm font-medium">{t("pages.tools")}</h2>
-            <p className="text-xs text-muted-foreground">{t("pages.toolsHelp")}</p>
-            <ul className="divide-y overflow-hidden rounded-xl border">
-              {toolRows(credentials.data ?? []).map((row) => (
-                <ProviderRowItem
-                  key={row.id}
-                  row={row}
-                  loading={credentials.isPending}
-                  editing={editing === row.service}
-                  onEdit={setEditing}
-                  onDone={() => setEditing(null)}
-                />
-              ))}
-            </ul>
-          </section>
-        </>
-      )}
+/** The Providers and Tools sections: the user's credentials. Left out with `byok` off. */
+export function CredentialsSections({
+  linkedCredentials,
+}: {
+  linkedCredentials?: LinkedCredentialsHost;
+}) {
+  const orpc = useOrpc();
+  const byok = useByok();
+  const { t } = useI18n();
+  const credentials = useQuery(orpc.credentials.list.queryOptions());
+  const [editing, setEditing] = useState<CredentialService | null>(null);
+  const rows = providerRows(credentials.data ?? []);
 
-      <ConnectionsSection />
-
-      <SharedLinksSection />
-
-      <ArchivedConversationsSection />
-
-      <InstructionsField />
-
-      {plugins.includes("memory") && <MemorySection />}
-
-      <SavedPromptsSection />
-
-      <BackgroundModelSelect />
-      <ImageModelSelect />
-
+  if (!byok) return null;
+  return (
+    <>
       <section className="space-y-2">
-        <h2 className="text-sm font-medium">{t("pages.yourData")}</h2>
-        <p className="text-xs text-muted-foreground">{t("pages.yourDataHelp")}</p>
-        <ExportDataButton />
+        <h2 className="text-sm font-medium">{t("pages.providers")}</h2>
+        <ul className="divide-y overflow-hidden rounded-xl border">
+          {rows.map((row) => (
+            <ProviderRowItem
+              key={row.id}
+              row={row}
+              loading={credentials.isPending}
+              linkedCredentials={row.id === "openai" ? linkedCredentials : undefined}
+              editing={row.service !== null && editing === row.service}
+              onEdit={setEditing}
+              onDone={() => setEditing(null)}
+            />
+          ))}
+        </ul>
       </section>
 
-      <DeleteAllConversationsSection />
-    </main>
+      <section className="space-y-2">
+        <h2 className="text-sm font-medium">{t("pages.tools")}</h2>
+        <p className="text-xs text-muted-foreground">{t("pages.toolsHelp")}</p>
+        <ul className="divide-y overflow-hidden rounded-xl border">
+          {toolRows(credentials.data ?? []).map((row) => (
+            <ProviderRowItem
+              key={row.id}
+              row={row}
+              loading={credentials.isPending}
+              editing={editing === row.service}
+              onEdit={setEditing}
+              onDone={() => setEditing(null)}
+            />
+          ))}
+        </ul>
+      </section>
+    </>
   );
 }
 

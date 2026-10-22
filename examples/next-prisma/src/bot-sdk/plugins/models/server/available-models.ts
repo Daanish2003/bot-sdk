@@ -1,6 +1,3 @@
-import { conversation } from "../../../core/server/db/schema";
-import { and, desc, eq, isNotNull } from "drizzle-orm";
-
 import { shownLinkedPlan, resolvedServices, hostModelList } from "./credentials/resolve";
 import { loadCredentials } from "./credentials/store";
 import { chatgptPlanModels, tavilyService } from "../shared/credentials/services";
@@ -31,14 +28,15 @@ type Deps = Pick<
   | "logger"
   | "defaultBackgroundModel"
   | "defaultImageModel"
+  | "recentModelSources"
 >;
 
 /**
  * The Models the user can chat with: those of Providers they have their own credentials for (with
  * the live OpenRouter and Ollama lists), then the Host's Models for the other Providers, marked as
  * running on Host credentials (ADR 0007). The user's own key for a Provider wins, so its Host
- * Models are not listed; so does a linked ChatGPT plan for the Models it offers (ADR 0023). The Model a new Conversation starts on: the Model of their most recent
- * Conversation while it is still available, else the code default of the first Provider they added
+ * Models are not listed; so does a linked ChatGPT plan for the Models it offers (ADR 0023). The Model a new Conversation starts on: the first recent-Model source's Model that is
+ * still available (`addRecentModelSource`), else the code default of the first Provider they added
  * or the Host offers (or that Provider's first Model, when the default isn't listed).
  */
 export async function listAvailableModels(
@@ -80,14 +78,12 @@ export async function listAvailableModels(
     ...hosted.map((model) => ({ ...model, onHostCredentials: true })),
   ];
 
-  // The newest Conversation that has a Model: a Bot's Conversation has none.
-  const [recent] = await deps.db
-    .select({ model: conversation.model })
-    .from(conversation)
-    .where(and(eq(conversation.userId, userId), isNotNull(conversation.model)))
-    .orderBy(desc(conversation.lastMessageAt), desc(conversation.id))
-    .limit(1);
-  const recentModel = models.find((model) => model.id === recent?.model)?.id;
+  let recentModel: string | undefined;
+  for (const source of deps.recentModelSources) {
+    const recent = await source(userId);
+    recentModel = models.find((model) => model.id === recent)?.id;
+    if (recentModel) break;
+  }
   const firstProvider = [
     ...services,
     ...(planModels.length > 0 ? ["openai"] : []),
