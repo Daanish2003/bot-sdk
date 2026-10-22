@@ -45,6 +45,7 @@
     "eval:computer:lifecycle": "node --import ./eval/memory/register-ts.mjs eval/computer/lifecycle.ts",
     "eval:skills": "node --import ./eval/memory/register-ts.mjs eval/skills/run.ts",
     "eval:knowledge": "node --import ./eval/memory/register-ts.mjs eval/knowledge/run.ts",
+    "eval:channels": "node --import ./eval/memory/register-ts.mjs eval/channels/run.ts",
     "eval:skills:draft": "node --import ./eval/memory/register-ts.mjs eval/skills/draft-run.ts",
     "eval:skills:record": "node --import ./eval/memory/register-ts.mjs eval/skills/record-fixtures.ts",
     "db:generate": "drizzle-kit generate",
