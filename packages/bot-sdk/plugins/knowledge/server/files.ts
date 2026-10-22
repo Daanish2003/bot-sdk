@@ -18,8 +18,8 @@ const uploadsPath = "/home/user/shared/.knowledge-uploads.json";
 
 const shellQuote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
 
-/** A file in the Knowledge tree, by its path relative to the Knowledge folder. */
-/** `botName` is the Bot a recorded Turn says saved it, when there is one. */
+/** A file in the Knowledge tree, by its path relative to the Knowledge folder;
+ * `botName` is the Bot a recorded Turn says saved it, when there is one. */
 export type KnowledgeFile = {
   path: string;
   size: number;

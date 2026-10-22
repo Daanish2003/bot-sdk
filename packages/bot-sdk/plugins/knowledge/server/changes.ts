@@ -5,7 +5,7 @@ import type { BotKnowledgeChange } from "../shared/changes";
 
 /**
  * The files a Turn's `transcript` saved to Knowledge, for its chip: the paths of its successful
- * `write` and `edit` calls under the Knowledge folder, relative to it, once each, in the order they
+ * `write`, `edit` and `run_tool` calls under the Knowledge folder, relative to it, once each, in the order they
  * were first written. Writes elsewhere (the Bot's own folder, memory, Skills) are ignored. Null for
  * none.
  */
@@ -22,7 +22,7 @@ export function knowledgeChangesOf(
   for (const entry of transcript) {
     if (entry.role !== "tool" || !entry.toolCallId || typeof entry.content !== "string") continue;
     const called = names.get(entry.toolCallId);
-    if (called !== "write" && called !== "edit") continue;
+    if (called !== "write" && called !== "edit" && called !== "run_tool") continue;
     let result: { path?: unknown; error?: unknown };
     try {
       result = JSON.parse(entry.content);

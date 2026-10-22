@@ -86,6 +86,7 @@ export function KnowledgeChip({
   const botName = useQuery({
     ...orpc.bot.get.queryOptions({ input: { botId } }),
     select: (conversation) => conversation.bot.name,
+    enabled: (changes?.length ?? 0) > 0,
   }).data;
   const [open, setOpen] = useState<string | null>(null);
   if (!changes || changes.length === 0) return null;
