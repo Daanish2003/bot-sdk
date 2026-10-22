@@ -151,7 +151,9 @@ async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext
   const knowledge = await ctx.activity("knowledge", () =>
     knowledgeNow(deps, seen.userId, ctx.signal),
   );
-  const summaryId = await ctx.activity("summary:write", async (tx) => {
+  // Set only by a live write: a replayed one changed nothing, so hints nothing.
+  let wrote = false;
+  await ctx.activity("summary:write", async (tx) => {
     await lockConversation(tx, seen.conversationId);
     if (await turnedSince(tx, botId, seen)) return null;
     const now = deps.clock();
@@ -170,9 +172,11 @@ async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext
       skills,
       knowledge,
     );
-    return writeSummary(tx, { parts, prose: written.prose, kind: "away" });
+    const id = await writeSummary(tx, { parts, prose: written.prose, kind: "away" });
+    wrote = true;
+    return id;
   });
-  if (summaryId) await hintChanged(deps, seen.conversationId);
+  if (wrote) await hintChanged(deps, seen.conversationId);
 }
 
 /**

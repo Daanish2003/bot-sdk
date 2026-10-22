@@ -635,13 +635,16 @@ async function runTurnJob(
   let todo: TodoItem[] | null;
   try {
     // The to-do list as the Turn starts, recorded: every attempt reads the same.
+    // Set only by a live start: a replayed one changed nothing, so hints nothing.
+    let started = false;
     todo = await ctx.activity(startTurnActivity, async (tx) => {
       await turnStarted(deps, tx, turnId);
+      started = true;
       return todoList(tx, turn.botId);
     });
     // Read after the start: a resumed attempt replays it, so the Turn keeps the start it had.
     turn = (await turnFacts(deps.db, turnId)) ?? created;
-    await hintChanged(deps, turn.conversationId);
+    if (started) await hintChanged(deps, turn.conversationId);
   } catch (caught) {
     if (ctx.signal.aborted) await stopIfCancelled(deps, turn, { transcript: [], usage: null });
     throw caught;

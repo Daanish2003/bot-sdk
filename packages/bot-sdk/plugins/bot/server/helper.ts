@@ -444,6 +444,8 @@ async function playHelper(
       )
     : helperInput(helper);
   let askedUser: string | undefined;
+  // Whether an `inbox` activity ran live since the last hint.
+  let delivered = false;
   const played = await runLoop(deps, ctx, {
     owner: helper,
     usageKind: "helper",
@@ -458,9 +460,15 @@ async function playHelper(
     // Before each Step, its progress so far is a change to the Bot thread, then its inbox is read.
     inbox: async (tx) => {
       await recordBotChange(tx, helper, "helper", helper.id, deps.clock());
+      delivered = true;
       return deliverMessages(deps, tx, helper.id);
     },
-    afterInbox: () => hintChanged(deps, helper.conversationId),
+    // Only after a live inbox: a replayed one changed nothing.
+    afterInbox: async () => {
+      if (!delivered) return;
+      delivered = false;
+      await hintChanged(deps, helper.conversationId);
+    },
     // Its risky calls get Auto-review, with its task as the Bot's words (spec #691).
     review: {
       helperId: helper.id,

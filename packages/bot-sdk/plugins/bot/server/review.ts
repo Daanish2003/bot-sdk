@@ -153,6 +153,8 @@ export async function reviewToolCall(
     reviewed.outcome === "block"
       ? new Date((await kit.now()).getTime() + approvalWaitMs)
       : undefined;
+  // Set only by a live write: a replay returns the recorded id and changed nothing, so hints nothing.
+  let wrote = false;
   const reviewId = await kit.billing("review:write", async (tx, onCommit) => {
     // The Conversation's row lock first, as in every write that changes the Bot thread.
     await lockConversation(tx, source.conversationId);
@@ -180,6 +182,7 @@ export async function reviewToolCall(
       createdAt,
     });
     await recordBotChange(tx, source, "review", id, createdAt);
+    wrote = true;
     if (reviewed.bill) {
       const meter = liveMeter ?? (await reviewMeter(deps, owner.userId, reviewed.model));
       onCommit(
@@ -193,7 +196,7 @@ export async function reviewToolCall(
     }
     return id;
   });
-  if (reviewId) await hintChanged(deps, source.conversationId);
+  if (wrote) await hintChanged(deps, source.conversationId);
   if (reviewed.outcome === "pass") return null;
   if (!reviewId || !deadline) return { error: blockedError(reviewed.reason) };
   // The wait (ADR 0024): no transaction, since it holds for up to 15 seconds. Re-run after a crash
