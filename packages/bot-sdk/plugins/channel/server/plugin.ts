@@ -1,4 +1,5 @@
-import type { BotSdkPlugin } from "../../../core/server/plugin";
+import type { BotSdkPlugin, Transaction } from "../../../core/server/plugin";
+import { type DeliveryPayload, deliverIn, sendDelivery } from "./deliver";
 import type { EmailChannel } from "./email";
 import { receiveEmail } from "./inbound";
 import { channelRouter } from "./routers/index";
@@ -16,6 +17,18 @@ export type ChannelApi = {
   inbound: (channel: ChannelAdapter["id"], request: Request) => Promise<Response>;
   /** The email Channel's inbound domain. Throws when the Host gave no email adapter. */
   emailDomain: () => string;
+  /**
+   * The `bot` plugin's hook after it saves a Bot Message, in the same transaction: when the reply
+   * goes by email too (the Turn took an email, or the Bot speaks first and the user last wrote by
+   * email), marks the Message emailed and enqueues its `channel.deliver` job. `turnId` is the Turn
+   * that sent it, or `null` for a Message no Turn sent (a Helper's).
+   */
+  deliverIn: (
+    tx: Transaction,
+    sent: { conversationId: string; messageId: string; turnId: string | null },
+  ) => Promise<void>;
+  /** Sends one `channel.deliver` job's email; the runner retries it when it throws. */
+  sendDelivery: (payload: DeliveryPayload) => Promise<void>;
 };
 
 /** How the Host sets up the `channel` plugin. */
@@ -55,6 +68,13 @@ export function channel({ adapters, verifiedEmail }: ChannelOptions): ChannelPlu
         emailDomain: () => {
           if (!email) throw new Error("The channel plugin has no email adapter");
           return email.domain;
+        },
+        deliverIn: async (tx, sent) => {
+          if (email) await deliverIn(sdk, tx, email, sent);
+        },
+        sendDelivery: async (payload) => {
+          if (!email) throw new Error("The channel plugin has no email adapter");
+          await sendDelivery(sdk, email, verifiedEmail, payload);
         },
       };
       return { api };

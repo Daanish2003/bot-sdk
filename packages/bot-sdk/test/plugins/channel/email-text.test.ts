@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import { forwardedEmailLabel as forwardedLabel } from "../../../plugins/bot/server/routine";
-import { emailText } from "../../../plugins/channel/server/email-text";
+import { emailText as textOn } from "../../../plugins/channel/server/email-text";
 
 const base = { subject: "Plans", headers: {}, attachments: [] };
+
+/** The Bot's text of `mail`, sent to a Bot on `bots.example`. */
+const emailText = (mail: Parameters<typeof textOn>[0]) => textOn(mail, "bots.example");
 
 describe("emailText", () => {
   it("keeps a Gmail reply's new text only, with the subject as a first line", () => {
@@ -52,6 +55,24 @@ describe("emailText", () => {
     ).toBe("Do it.");
     expect(
       emailText({ ...base, headers: { references: "<sent@bots.example>" }, text: "Do it." }),
+    ).toBe("Do it.");
+  });
+
+  it("keeps the subject of a reply to a mail that isn't a Bot's", () => {
+    expect(
+      emailText({
+        ...base,
+        subject: "Re: Plans",
+        headers: { "In-Reply-To": "<x@mail.example>", References: "<y@bots.example.org>" },
+        text: "Do it.",
+      }),
+    ).toBe("Re: Plans\nDo it.");
+    expect(
+      emailText({
+        ...base,
+        headers: { references: "<a@mail.example> <SENT@Bots.Example>" },
+        text: "Do it.",
+      }),
     ).toBe("Do it.");
   });
 

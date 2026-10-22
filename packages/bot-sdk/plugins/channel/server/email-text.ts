@@ -8,13 +8,15 @@ const forwardMarker = /^[ \t]*(?:-{2,}\s*Forwarded message\s*-{2,}|Begin forward
 
 /**
  * What the Bot reads from an email (spec #761): the new text only, the quoted history stripped; the
- * subject as a first line unless the mail replies to a thread; the attachments named in one line;
+ * subject as a first line unless the mail replies to the Bot's thread (one of its In-Reply-To or
+ * References ids is a Bot's, `<id@domain>`); the attachments named in one line;
  * and anything below a forward marker in an untrusted fenced block, as for a webhook's payload.
  * Empty when the mail has no subject line, no new text and no forward, so an attachment alone
  * wakes nothing.
  */
 export function emailText(
   mail: Pick<InboundMail, "subject" | "text" | "headers" | "attachments">,
+  domain: string,
 ): string {
   // The marker counts only where the parser shows text, not inside quoted history.
   const visible = new EmailReplyParser().read(mail.text).getVisibleText();
@@ -23,7 +25,7 @@ export function emailText(
   const typed = marker ? visible.slice(0, marker.index) : visible;
   const lines = [];
   const subject = oneLine(mail.subject);
-  if (subject && !repliesToThread(mail.headers)) lines.push(subject);
+  if (subject && !repliesToThread(mail.headers, domain)) lines.push(subject);
   const fresh = typed.trim();
   if (fresh) lines.push(fresh);
   if (lines.length === 0 && !forwarded) return "";
@@ -38,9 +40,15 @@ export function emailText(
 
 const oneLine = (text: string) => text.replace(/\s+/g, " ").trim();
 
-/** Whether the headers say the mail answers another (In-Reply-To or References, any case). */
-function repliesToThread(headers: Record<string, string>): boolean {
+/**
+ * Whether the mail answers one of the Bots' mails: its In-Reply-To or References (any case) holds a
+ * Message-ID on `domain`, which only the Bots' outbound mail has.
+ */
+function repliesToThread(headers: Record<string, string>, domain: string): boolean {
+  const suffix = `@${domain.toLowerCase()}>`;
   return Object.entries(headers).some(
-    ([name, value]) => /^(in-reply-to|references)$/i.test(name) && value.trim() !== "",
+    ([name, value]) =>
+      /^(in-reply-to|references)$/i.test(name) &&
+      (value.toLowerCase().match(/<[^<>]*>/g) ?? []).some((id) => id.endsWith(suffix)),
   );
 }

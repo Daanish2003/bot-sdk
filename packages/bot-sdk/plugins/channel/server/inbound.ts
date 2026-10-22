@@ -26,9 +26,10 @@ export async function receiveEmail(
 ): Promise<Response> {
   const mail = await channel.provider.parseInbound(request);
   if ("rejected" in mail) return new Response(mail.rejected, { status: 400 });
-  const dropped = await deliver(sdk, verifiedEmail, mail);
-  // A provider delivers at least once, so a redelivery is routine and goes unlogged.
-  if (dropped && dropped !== redelivery)
+  const dropped = await deliver(sdk, channel, verifiedEmail, mail);
+  // A provider delivers at least once, so a redelivery is routine and goes unlogged, as is the
+  // Bots' own outbound mail, which a local mail catcher posts back here.
+  if (dropped && dropped !== redelivery && dropped !== ownMail)
     sdk.logger.error(`Dropped an inbound email (${dropped})`, { to: mail.to });
   return new Response(null, { status: 202 });
 }
@@ -36,15 +37,20 @@ export async function receiveEmail(
 /** Why a mail already handed to the Router is dropped. */
 const redelivery = "a redelivery";
 
+/** Why a mail from a Bot's own address (the Channel's domain) is dropped. */
+const ownMail = "a Bot's own mail";
+
 /** Hands the Router the mail's Trigger; why it was dropped, or `null` once it was handed. */
 async function deliver(
   sdk: BotSdkContext,
+  channel: EmailChannel,
   verifiedEmail: (userId: string) => Promise<string | null>,
   mail: InboundMail,
 ): Promise<string | null> {
+  if (bareAddress(mail.from).endsWith(`@${channel.domain}`)) return ownMail;
   const messageId = mail.messageId.trim().replace(/^<|>$/g, "");
   if (!messageId) return "no Message-ID";
-  const text = emailText(mail);
+  const text = emailText(mail, channel.domain);
   if (!text) return "no text";
   const owner = await botAt(sdk, mail.to);
   if (!owner) return "no Bot has the address";
@@ -78,7 +84,7 @@ async function deliver(
       const now = sdk.clock();
       const row = await appendMessage(tx, owner.conversationId, {
         role: "user",
-        parts: { ...textParts(text), channel: "email" },
+        parts: { ...textParts(text), channel: "email", subject: mail.subject },
         status: "complete",
         createdAt: now,
       });

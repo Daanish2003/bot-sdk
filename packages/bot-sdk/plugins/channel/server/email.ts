@@ -53,20 +53,30 @@ export type EmailChannel = {
   provider: EmailProvider;
   /** The domain the Bots' addresses are on, which the provider receives mail for. */
   domain: string;
+  /** The Host app's URL, without a trailing slash: an email's links open `<appUrl>/bots/<botId>`. */
+  appUrl: string;
 };
 
 /**
- * The email Channel (spec #761) over `provider`: each Bot gets an address on `domain`, and the
- * owner's mail to it wakes the Bot.
+ * The email Channel (spec #761) over `provider`: each Bot gets an address on `domain`, the owner's
+ * mail to it wakes the Bot, and the Bot's replies are emailed back, linking to the Bot's page in
+ * the Host app at `appUrl`.
  */
 export function emailChannel({
   provider,
   domain,
+  appUrl,
 }: {
   provider: EmailProvider;
   domain: string;
+  appUrl: string;
 }): EmailChannel {
-  return { id: "email", provider, domain: domain.toLowerCase() };
+  return {
+    id: "email",
+    provider,
+    domain: domain.toLowerCase(),
+    appUrl: appUrl.replace(/\/+$/, ""),
+  };
 }
 
 /** The bare address of `Name <address>` or `address`, lowercase. */

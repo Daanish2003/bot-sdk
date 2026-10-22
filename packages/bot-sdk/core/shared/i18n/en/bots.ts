@@ -246,6 +246,10 @@ description: Use this when
   "bots.emailCopied": "Address copied",
   "bots.emailRotateConfirm": "Rotate? The old address stops working at once.",
   "bots.viaEmail": "via email",
+  "bots.emailed": "✉ emailed",
+  "bots.emailNextChannel": ({ channel }: { channel: string }) =>
+    `Next Bot-initiated Message goes by ${channel}`,
+  "bots.web": "web",
   "bots.reviewAllow": "Allow",
   "bots.reviewDeny": "Deny",
   "bots.reviewCountdown": ({ seconds }: { seconds: number }) =>

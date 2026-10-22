@@ -12,7 +12,8 @@ import {
 } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
-import type { Transaction, UserDeleteHooks } from "../../../core/server/plugin";
+import { appendMessage } from "../../../core/server/chat/message-tree";
+import type { BotSdkContext, Transaction, UserDeleteHooks } from "../../../core/server/plugin";
 import { searchTextOf } from "../../../core/shared/message-parts";
 import {
   botMessagePartsSchema,
@@ -128,6 +129,30 @@ export async function setReaction(
     .update(message)
     .set({ parts: sql`jsonb_set(${message.parts}, '{reactions}', ${reactions})` })
     .where(eq(message.id, messageId));
+}
+
+/**
+ * Saves a Message the Bot sends (a SendToUser Message, or a card it posts) in `tx`, which then
+ * holds the Conversation's row lock, and hands it to the `channel` plugin, when the Host has it, to
+ * deliver on the user's other Channels too (spec #761). `turnId` is the Turn that sent it, or
+ * `null` when no Turn did (a Helper).
+ */
+export async function appendBotMessage(
+  deps: BotSdkContext,
+  tx: Transaction,
+  conversationId: string,
+  { parts, createdAt, turnId }: Pick<MessageRow, "parts" | "createdAt"> & { turnId: string | null },
+): Promise<MessageRow> {
+  const row = await appendMessage(tx, conversationId, {
+    role: "assistant",
+    parts,
+    status: "complete",
+    createdAt,
+  });
+  if (deps.hasPlugin("channel")) {
+    await deps.plugin("channel").deliverIn(tx, { conversationId, messageId: row.id, turnId });
+  }
+  return row;
 }
 
 /** A Message row as the client sees it, with its Rich control when it has one. */

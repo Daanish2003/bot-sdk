@@ -364,8 +364,14 @@ function BotConversationView({
               </div>
             )}
             {message.channel === "email" && (
-              <span className="self-end rounded-full bg-sky-100 px-2 py-0.5 text-[10px] text-sky-900 dark:bg-sky-900 dark:text-sky-100">
-                {t("bots.viaEmail")}
+              <span
+                data-channel-pill
+                className={cn(
+                  "rounded-full bg-sky-100 px-2 py-0.5 text-[10px] text-sky-900 dark:bg-sky-900 dark:text-sky-100",
+                  message.role === "user" ? "self-end" : "self-start",
+                )}
+              >
+                {t(message.role === "user" ? "bots.viaEmail" : "bots.emailed")}
               </span>
             )}
             {afterTurnOf.get(message.id)}

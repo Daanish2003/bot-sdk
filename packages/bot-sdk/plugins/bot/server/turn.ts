@@ -50,6 +50,7 @@ import {
 import { closeWaitingReviews } from "./review";
 import { historyFrom, historyTurns, queueAwaySummary, summaryOf, writeSummary } from "./summary";
 import {
+  appendBotMessage,
   controlParts,
   findBot,
   reactionsOf,
@@ -1182,11 +1183,10 @@ function turnTools(
       // The Message commits with its Checkpoint, so it is sent once across a crash.
       const result = await liveActivity(sendToUserToolName, context?.toolCallId, async (tx) => {
         if (!text.trim()) return { error: emptyTextError };
-        await appendMessage(tx, turn.conversationId, {
-          role: "assistant",
+        await appendBotMessage(deps, tx, turn.conversationId, {
           parts: control ? controlParts(text, control) : textParts(text),
-          status: "complete",
           createdAt: deps.clock(),
+          turnId: turn.id,
         });
         return { sent: true };
       });
@@ -1201,7 +1201,7 @@ function turnTools(
   // The Turn carries on once the Routine is saved: the Approval is the Routine's, not the call's.
   const createRoutine = createRoutineDefinition.server(async (input, context) =>
     liveActivity(createRoutineToolName, context?.toolCallId, (tx) =>
-      saveRoutine(tx, {
+      saveRoutine(deps, tx, {
         ...input,
         botId: turn.botId,
         conversationId: turn.conversationId,
@@ -1217,6 +1217,7 @@ function turnTools(
         ...input,
         botId: turn.botId,
         conversationId: turn.conversationId,
+        turnId: turn.id,
         now: deps.clock(),
       }),
     ),

@@ -161,6 +161,8 @@ export const sdk = (shared.botSdk ??= createBotSdk({
             ? mailpitEmailProvider({ apiUrl: ENV.MAILPIT_API_URL })
             : fakeEmailProvider().provider,
           domain: ENV.EMAIL_CHANNEL_DOMAIN ?? "bots.localhost",
+          // A Bot's emails link to its page in this app.
+          appUrl: ENV.BETTER_AUTH_URL,
         }),
       ],
       // Only mail from the user's verified account email reaches their Bots.

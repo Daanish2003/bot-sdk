@@ -24,14 +24,19 @@ const plugins = [modelsClient(), assistantClient(), channelClient(), botClient()
 const first = "ada.k3x9q2mz@bots.example";
 const second = "ada.p7w4n1cv@bots.example";
 
-/** A stand-in for the server's `channel` router, holding one Bot's address and recording rotations. */
-function fakeChannelServer() {
+/**
+ * A stand-in for the server's `channel` router, holding one Bot's address and the Channel its next
+ * Bot-initiated Message goes by, and recording rotations.
+ */
+function fakeChannelServer(nextChannel: "web" | "email" = "web") {
   let address = first;
   const rotated: unknown[] = [];
   const router = {
     channel: {
       email: {
-        address: os.input(z.object({ botId: z.string() })).handler(() => ({ address })),
+        address: os
+          .input(z.object({ botId: z.string() }))
+          .handler(() => ({ address, nextChannel })),
         rotate: os.input(z.object({ botId: z.string() })).handler(({ input }) => {
           rotated.push(input);
           address = second;
@@ -97,15 +102,24 @@ describe("EmailPopover", () => {
     expect(await screen.findByText(second)).toBeTruthy();
     expect(server.rotated).toEqual([{ botId: "b1" }]);
     expect(screen.queryByText(first)).toBeNull();
+    expect(screen.getByText("Next Bot-initiated Message goes by web")).toBeTruthy();
+  });
+
+  it("says which Channel the next Bot-initiated Message goes by", async () => {
+    openPopover(fakeChannelServer("email"));
+
+    expect(await screen.findByText("Next Bot-initiated Message goes by Email")).toBeTruthy();
   });
 });
 
-describe("a user Message that came by email", () => {
-  it('shows "via email" under it, and a web Message shows none', async () => {
+describe("Messages that went by email", () => {
+  it("marks the user's Message via email and the Bot's emailed, and web ones with nothing", async () => {
     const at = (minute: number) => new Date(`2026-10-22T09:0${minute}:00.000Z`);
     const messages: BotMessage[] = [
       { id: "m1", role: "user", text: "from web", createdAt: at(1) },
       { id: "m2", role: "user", text: "from my inbox", createdAt: at(2), channel: "email" },
+      { id: "m3", role: "assistant", text: "emailed back", createdAt: at(3), channel: "email" },
+      { id: "m4", role: "assistant", text: "web only", createdAt: at(4) },
     ];
     const list = os.handler(() => []);
     const handler = new RPCHandler({
@@ -145,5 +159,10 @@ describe("a user Message that came by email", () => {
     expect(screen.getAllByText("via email")).toHaveLength(1);
     const pill = screen.getByText("via email");
     expect(pill.previousElementSibling?.textContent).toBe("from my inbox");
+    // The Bot's emailed Message gets "✉ emailed"; its web-only one gets no pill.
+    expect(screen.getAllByText("✉ emailed")).toHaveLength(1);
+    expect(screen.getByText("✉ emailed").previousElementSibling?.textContent).toContain(
+      "emailed back",
+    );
   });
 });

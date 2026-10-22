@@ -21,7 +21,10 @@ export const botMessageSchema = z.object({
   reactions: z
     .object({ user: reactionSchema.optional(), bot: reactionSchema.optional() })
     .optional(),
-  /** The Channel a user's Message came in on, when not web: shown as "via email". */
+  /**
+   * The Channel besides web a Message went through: a user's came in on it ("via email"), and a
+   * Bot's was also delivered on it ("✉ emailed").
+   */
   channel: z.literal("email").optional(),
 });
 

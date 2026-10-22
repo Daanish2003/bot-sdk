@@ -2,7 +2,6 @@ import { createHash, randomBytes } from "node:crypto";
 
 import { and, asc, desc, eq, inArray, isNull, like, lt, lte, min, or, sql } from "drizzle-orm";
 
-import { appendMessage } from "../../../core/server/chat/message-tree";
 import { bot, botRoutine, botTrigger, botTurn, job, message } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
@@ -12,7 +11,7 @@ import { type BotRoutine, type RoutineSchedule, scheduleText } from "../shared/r
 import { recordBotChange } from "./thread-change";
 import { lockConversation } from "./router";
 import { nextSlot } from "./schedule";
-import { controlParts, newestTimeZone } from "./store";
+import { appendBotMessage, controlParts, newestTimeZone } from "./store";
 import { defaultTimeZone, formatterIn, knownZone } from "./time-zone";
 
 /** The Bot's tool that saves a Routine for the user's Approval (#538). */
@@ -227,19 +226,19 @@ export const routineSavedResult = "Saved; it runs once the user approves it.";
  * In the caller's transaction, which holds the Conversation's row lock.
  */
 async function askApproval(
+  deps: BotSdkContext,
   tx: Transaction,
-  conversationId: string,
+  { conversationId, turnId }: { conversationId: string; turnId: string },
   routine: { id: string; name: string },
   now: Date,
 ): Promise<void> {
-  await appendMessage(tx, conversationId, {
-    role: "assistant",
+  await appendBotMessage(deps, tx, conversationId, {
     parts: controlParts(`Routine "${routine.name}" waits for your approval.`, {
       kind: "routine_approval",
       routineId: routine.id,
     }),
-    status: "complete",
     createdAt: now,
+    turnId,
   });
 }
 
@@ -250,6 +249,7 @@ async function askApproval(
  * issues one (ADR 0021). Returns the tool's result: saved, or an error the Model can act on.
  */
 export async function saveRoutine(
+  deps: BotSdkContext,
   tx: Transaction,
   {
     botId,
@@ -298,7 +298,7 @@ export async function saveRoutine(
     };
   }
   await recordBotChange(tx, { conversationId }, "routine", id, now);
-  await askApproval(tx, conversationId, { id, name }, now);
+  await askApproval(deps, tx, { conversationId, turnId }, { id, name }, now);
   return { saved: routineSavedResult };
 }
 
@@ -317,6 +317,7 @@ export async function updateRoutine(
   {
     botId,
     conversationId,
+    turnId,
     name,
     prompt,
     schedule,
@@ -324,6 +325,7 @@ export async function updateRoutine(
   }: {
     botId: string;
     conversationId: string;
+    turnId: string;
     name: string;
     prompt?: string;
     schedule?: RoutineSchedule;
@@ -363,7 +365,7 @@ export async function updateRoutine(
   await recordBotChange(tx, { conversationId }, "routine", routine.id, now);
   if (!approved) return { saved: routineSavedResult };
   await stopRoutine(deps, tx, routine.id);
-  await askApproval(tx, conversationId, routine, now);
+  await askApproval(deps, tx, { conversationId, turnId }, routine, now);
   return { saved: routineChangedResult };
 }
 

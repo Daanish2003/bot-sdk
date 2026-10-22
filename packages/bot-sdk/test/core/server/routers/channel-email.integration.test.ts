@@ -58,7 +58,9 @@ async function emailBot({
     plugins: [
       bot(),
       channel({
-        adapters: [emailChannel({ provider: email.provider, domain })],
+        adapters: [
+          emailChannel({ provider: email.provider, domain, appUrl: "https://app.example" }),
+        ],
         verifiedEmail: async (userId) => (verified && userId === user.id ? ownerEmail : null),
       }),
     ],
@@ -231,6 +233,16 @@ describe("an email to a Bot's address", () => {
     },
     30_000,
   );
+
+  it("drops a Bot's own mail posted back by the mail catcher quietly, with no log line", async () => {
+    const { conversationId, deliver, logged, address } = await emailBot();
+
+    const response = await deliver({ from: `"Ada Lovelace" <${address}>`, to: [ownerEmail] });
+
+    expect(response.status).toBe(202);
+    expect(await triggersOf(conversationId)).toEqual([]);
+    expect(logged).toEqual([]);
+  }, 30_000);
 
   it("drops mail when the owner has no verified email", async () => {
     const { conversationId, deliver } = await emailBot({ verified: false });

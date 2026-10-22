@@ -11,7 +11,8 @@ import { serverErrorText } from "../../../core/client/rpc-error";
 /**
  * The Bot header's **Email** button (spec #761, prototype variant A): a popover with the Bot's own
  * address, **Copy**, and **Rotate**, which asks to confirm first because the old address stops at
- * once. The address is read when the popover opens. Render it only when the Host installs the
+ * once, and the line "Next Bot-initiated Message goes by <Channel>" (variant C). The address is
+ * read when the popover opens. Render it only when the Host installs the
  * `channel` plugin with the email adapter.
  */
 export function EmailPopover({ botId }: { botId: string }) {
@@ -36,7 +37,10 @@ export function EmailPopover({ botId }: { botId: string }) {
       { botId },
       {
         onSuccess: (rotated) => {
-          queryClient.setQueryData(addressQuery.queryKey, rotated);
+          queryClient.setQueryData(
+            addressQuery.queryKey,
+            (shown) => shown && { ...shown, ...rotated },
+          );
           setConfirming(false);
         },
         onError: refused,
@@ -63,6 +67,13 @@ export function EmailPopover({ botId }: { botId: string }) {
         ) : (
           <p className="text-xs text-muted-foreground">
             {address.error ? serverErrorText(i18n, address.error) : t("bots.emailLoading")}
+          </p>
+        )}
+        {address.data && (
+          <p className="text-xs text-muted-foreground" data-next-channel>
+            {t("bots.emailNextChannel", {
+              channel: t(address.data.nextChannel === "email" ? "bots.email" : "bots.web"),
+            })}
           </p>
         )}
         {confirming ? (

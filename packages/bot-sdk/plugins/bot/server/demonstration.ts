@@ -3,7 +3,6 @@ import { and, asc, eq, inArray, max, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { deleteBlobsBestEffort } from "../../../core/server/blob/store";
-import { appendMessage } from "../../../core/server/chat/message-tree";
 import {
   bot,
   botDemonstration,
@@ -31,7 +30,7 @@ import {
 } from "./helper";
 import type { LoopKit } from "./loop";
 import { lockConversation } from "./router";
-import { controlOf, controlParts, holdingControl } from "./store";
+import { appendBotMessage, controlOf, controlParts, holdingControl } from "./store";
 import { recordBotChange } from "./thread-change";
 import { hintChanged } from "./turn";
 
@@ -221,8 +220,8 @@ async function startDemonstration(
     screen,
     startedAt: now,
   });
-  await appendMessage(tx, turn.conversationId, {
-    role: "assistant",
+  await appendBotMessage(deps, tx, turn.conversationId, {
+    turnId: turn.id,
     parts: controlParts(goal, {
       kind: "demonstration",
       demonstrationId,
@@ -232,7 +231,6 @@ async function startDemonstration(
       endedAt: null,
       steps: 0,
     }),
-    status: "complete",
     createdAt: now,
   });
   await deps

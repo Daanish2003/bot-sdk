@@ -2,7 +2,6 @@ import { type ModelMessage, toolDefinition } from "@tanstack/ai";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { appendMessage } from "../../../core/server/chat/message-tree";
 import { bot, botHelper, message } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
@@ -12,7 +11,7 @@ import type { ComputerCard } from "../shared/helper";
 import { computerOf } from "./computer-tools";
 import { botHelperJobName, helperJobKey } from "./helper";
 import { lockConversation } from "./router";
-import { controlOf, controlParts, holdingControl } from "./store";
+import { appendBotMessage, controlOf, controlParts, holdingControl } from "./store";
 import { recordBotChange } from "./thread-change";
 import { hintChanged } from "./turn";
 
@@ -90,11 +89,10 @@ export async function handOff(
     .returning({ id: botHelper.id });
   if (rows.length === 0) return null;
   await recordBotChange(tx, owner, "helper", helper.id, now);
-  await appendMessage(tx, owner.conversationId, {
-    role: "assistant",
+  await appendBotMessage(deps, tx, owner.conversationId, {
     parts: controlParts(reason, { kind: "computer", helperId: helper.id, reason, state: "open" }),
-    status: "complete",
     createdAt: now,
+    turnId: null,
   });
   return owner;
 }
