@@ -2,6 +2,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { posix } from "node:path";
 import { z } from "zod";
 
+import { deleteBlobsBestEffort } from "../../../core/server/blob/store";
 import { conversation, message } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
@@ -38,7 +39,7 @@ const mediaTypeOf = (name: string) =>
  * and stores nothing.
  */
 export async function copyFilesToStorage(
-  deps: Pick<BotSdkContext, "blobStore">,
+  deps: Pick<BotSdkContext, "blobStore" | "logger">,
   computer: ComputerHandle,
   botId: string,
   paths: string[],
@@ -53,6 +54,7 @@ export async function copyFilesToStorage(
     try {
       bytes = await computer.readFile(path, options);
     } catch {
+      options.signal?.throwIfAborted();
       return { error: `${path} is not a file on your computer, so the message was not sent.` };
     }
     if (!bytes) return { error: `${path} does not exist, so the message was not sent.` };
@@ -64,10 +66,19 @@ export async function copyFilesToStorage(
     read.push({ name: posix.basename(path), bytes });
   }
   const files: SentFile[] = [];
-  for (const { name, bytes } of read) {
-    const file = { id: uuidv7(), name, size: bytes.byteLength, mediaType: mediaTypeOf(name) };
-    await deps.blobStore.put(sentFileBlobKey(file.id), bytes, { contentType: file.mediaType });
-    files.push(file);
+  try {
+    for (const { name, bytes } of read) {
+      const file = { id: uuidv7(), name, size: bytes.byteLength, mediaType: mediaTypeOf(name) };
+      await deps.blobStore.put(sentFileBlobKey(file.id), bytes, { contentType: file.mediaType });
+      files.push(file);
+    }
+  } catch (caught) {
+    // A failed write leaves none of the files stored.
+    await deleteBlobsBestEffort(
+      deps,
+      files.map((file) => sentFileBlobKey(file.id)),
+    );
+    throw caught;
   }
   return { files };
 }
@@ -104,8 +115,8 @@ export async function sentFileResponse(
   return new Response(bytes as Uint8Array<ArrayBuffer>, {
     headers: {
       "Content-Type": file.mediaType,
-      "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`,
-      "Cache-Control": "private, max-age=31536000, immutable",
+      "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(file.name).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)}`,
+      "Cache-Control": "private, no-cache",
       "X-Content-Type-Options": "nosniff",
     },
   });
