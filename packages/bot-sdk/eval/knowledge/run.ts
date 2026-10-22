@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 import { eq } from "drizzle-orm";
 import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
 
-import { botTrigger } from "../../core/server/db/schema";
+import { botTrigger, computer as computerTable } from "../../core/server/db/schema";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
 import { bot } from "../../plugins/bot/server/plugin";
 import { computerOf } from "../../plugins/bot/server/computer-tools";
@@ -156,6 +156,13 @@ async function main() {
     },
   };
 
+  /** Kills the user's sandbox and removes the row, as the computer eval does, so the E2B pool frees up. */
+  async function dropComputer(userId: string) {
+    const [row] = await db.select().from(computerTable).where(eq(computerTable.userId, userId));
+    if (row?.sandboxId) await computerProvider.kill(row.sandboxId).catch(() => {});
+    await db.delete(computerTable).where(eq(computerTable.userId, userId));
+  }
+
   async function runCase(evalCase: KnowledgeCase, repeat: number): Promise<RunResult> {
     const started = Date.now();
     const base = {
@@ -167,8 +174,12 @@ async function main() {
     let sent: string[] = [];
     let toolCalls: RunResult["toolCalls"] = [];
     let added: string[] = [];
+    // The case's user owns its one Computer, shared by every Bot the case makes.
+    let userId: string | undefined;
     try {
-      const { userId, bot: made } = await freshBot(env, evalCase.id, repeat);
+      const fresh = await freshBot(env, evalCase.id, repeat);
+      userId = fresh.userId;
+      const made = fresh.bot;
       const computer = computerOf(sdk, userId);
       const seeded = filesOf(evalCase);
       // A few at a time: a case with filler writes about 150 files.
@@ -231,6 +242,8 @@ async function main() {
         ms: Date.now() - started,
         error,
       };
+    } finally {
+      if (userId) await dropComputer(userId);
     }
   }
 
