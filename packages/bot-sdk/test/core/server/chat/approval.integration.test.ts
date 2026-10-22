@@ -21,7 +21,7 @@ import {
   text,
   toolCall,
 } from "../../../support/fake-adapter";
-import { createFakeSearchClient } from "../../../support/fake-search-client";
+import { createFakeSearchClient } from "../../../../plugins/bot/server/fake-search-client";
 import { chatRpc, sendAs } from "../../../support/sdk";
 import { insertUser, type TestUser } from "../../../support/users";
 

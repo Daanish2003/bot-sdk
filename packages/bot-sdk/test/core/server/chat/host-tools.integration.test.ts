@@ -7,7 +7,10 @@ import type { HostProvider, HostTool } from "../../../../plugins/assistant/serve
 import { insertConversation } from "../../../support/conversations";
 import { createTestSdk, type TestDepsOverrides, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall, withUsage } from "../../../support/fake-adapter";
-import { createFakeSearchClient, type FakeSearchClient } from "../../../support/fake-search-client";
+import {
+  createFakeSearchClient,
+  type FakeSearchClient,
+} from "../../../../plugins/bot/server/fake-search-client";
 import { insertUser, type TestUser } from "../../../support/users";
 import { sendAs } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
