@@ -12,9 +12,8 @@ import { generatedImage } from "../../../../core/server/db/schema";
 import type { BotSdkContext } from "../../../../core/server/plugin";
 import { ImageRefusedError } from "../deps";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
+import { type AspectRatio, aspectRatios } from "../../../models/shared/image-models";
 import {
-  type AspectRatio,
-  aspectRatios,
   type GenerateImageOutput,
   type GeneratedImageErrorReason,
   generatedImageErrorLabels,

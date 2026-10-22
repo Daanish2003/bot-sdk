@@ -6,7 +6,7 @@ import { attachmentsForSend } from "../attachments/send";
 import { tavilyService } from "../../../models/shared/credentials/services";
 import type { ErrorCode } from "../../../../core/shared/i18n";
 import type { ConversationTools } from "../../shared/chat/conversation-tools";
-import type { AspectRatio } from "../../shared/chat/generated-image";
+import type { AspectRatio } from "../../../models/shared/image-models";
 import { parseStoredParts, type StoredAttachment, toModelMessages } from "../../shared/chat/parts";
 import { type CuratedModel, effortFor, type ReasoningChoice } from "../../../models/shared/models";
 import type { ToolCall } from "../../../models/server/credentials/resolve";

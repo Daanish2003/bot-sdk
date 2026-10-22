@@ -51,8 +51,8 @@ function fakeBlobStore() {
 }
 
 /**
- * The assistant's tables with a `user_id` column. The instances here don't install it, and its own
- * user delete test covers them.
+ * The assistant's tables with a `user_id` column. The instances here don't install it;
+ * `assistant-user-data.integration.test.ts` seeds and checks them with the assistant installed.
  */
 const assistantTables = [
   "generated_image",

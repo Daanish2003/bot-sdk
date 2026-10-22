@@ -3,8 +3,6 @@ import type { MessagePart } from "@tanstack/ai";
 import { type AspectRatio, aspectRatios } from "../../../models/shared/image-models";
 import { type GeneratedImagePart, generatedImageErrorReasons } from "../message-parts";
 
-export { type AspectRatio, aspectRatios };
-
 /**
  * The `generate_image` tool's contract (spec #278), shared by the server tool, the parts boundary
  * and the web app. No server code: safe to import into the browser.
