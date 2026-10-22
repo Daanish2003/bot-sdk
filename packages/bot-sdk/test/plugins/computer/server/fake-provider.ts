@@ -15,7 +15,7 @@ import {
   sizeScript,
 } from "../../../../plugins/bot/server/computer-tools";
 import { boundedOutput } from "../../../../plugins/computer/e2b/bounded-output";
-import { walkScript } from "../../../../plugins/knowledge/server/files";
+import { stampScript, walkScript } from "../../../../plugins/knowledge/server/files";
 import { readSkillsScript, skillHeadBytes } from "../../../../plugins/skills/server/skills";
 
 /** One command the fake ran: where, on which sandbox, and with what time limit. */
@@ -59,7 +59,20 @@ type Disk = {
   unreadable: Set<string>;
 };
 
-const newDisk = (): Disk => ({ files: new Map(), mtimes: new Map(), unreadable: new Set() });
+/** Every fake disk's write count, so no two writes of a file share an mtime. */
+let stamps = 0;
+
+/** A disk whose every file set, a test's own included, stamps the file's mtime as a write does. */
+function newDisk(): Disk {
+  const mtimes = new Map<string, number>();
+  class StampedFiles extends Map<string, Uint8Array> {
+    override set(path: string, bytes: Uint8Array) {
+      mtimes.set(path, ++stamps);
+      return super.set(path, bytes);
+    }
+  }
+  return { files: new StampedFiles(), mtimes, unreadable: new Set() };
+}
 
 /** A result with each stream kept as the E2B adapter keeps it: 1 MiB characters at each end. */
 function bounded<Result extends CommandResult | TimedOutCommand>(result: Result): Result {
@@ -120,10 +133,8 @@ export function fakeComputerProvider({
   // checks would pause this one's sandboxes.
   const instance = randomBytes(4).toString("hex");
   let created = 0;
-  let writes = 0;
   const write = (disk: Disk, path: string, bytes: Uint8Array) => {
     disk.files.set(path, bytes);
-    disk.mtimes.set(path, ++writes);
   };
   const provider: ComputerProvider = {
     template,
@@ -284,7 +295,7 @@ function runBuiltIn(
   if (fileTool) return fileTool;
   const skills = readSkillsCommand(disk, command);
   if (skills) return skills;
-  const knowledge = knowledgeWalkCommand(disk, command);
+  const knowledge = knowledgeWalkCommand(disk, command) ?? knowledgeStampCommand(disk, command);
   if (knowledge) return knowledge;
   // tar's `|| [ $? -eq 1 ]` (its exit 1 still wrote the archive) never fails here.
   const parts = command.replaceAll(" || [ $? -eq 1 ]", "").split(" && ").map(words);
@@ -468,13 +479,32 @@ function knowledgeWalkCommand(disk: Disk, command: string): CommandResult | unde
     for (let depth = 1; depth < segments.length; depth++) {
       folders.add(segments.slice(0, depth).join("/"));
     }
-    listing += `f ${bytes.length} ${relative}\0`;
+    listing += `f ${bytes.length} ${disk.mtimes.get(path) ?? 0} ${relative}\0`;
     total += bytes.length;
   }
   if (!listing) return { exitCode: 0, stdout: "", stderr: "" };
-  for (const folder of folders) listing += `d 0 ${folder}\0`;
-  const encoded = Buffer.from(listing).toString("base64");
-  return { exitCode: 0, stdout: `${encoded}\n${total}\n`, stderr: "" };
+  for (const folder of folders) listing += `d 0 0 ${folder}\0`;
+  const raw = Buffer.from(listing);
+  return {
+    exitCode: 0,
+    stdout: `${raw.toString("base64")}\n${total}\n${raw.length}\n`,
+    stderr: "",
+  };
+}
+
+/**
+ * Runs the Knowledge stamp's command on `disk`: `p=<path>` then `stampScript`, printing the file's
+ * mtime and size as the walk does. Returns undefined for any other command.
+ */
+function knowledgeStampCommand(disk: Disk, command: string): CommandResult | undefined {
+  const newline = command.indexOf("\n");
+  if (command.slice(newline + 1) !== stampScript) return undefined;
+  const match = /^p='((?:[^']|'\\'')*)'$/.exec(command.slice(0, newline));
+  if (!match) return undefined;
+  const path = (match[1] ?? "").replaceAll(String.raw`'\''`, "'");
+  const bytes = disk.files.get(path);
+  const stdout = bytes ? `${disk.mtimes.get(path) ?? 0} ${bytes.length}` : "";
+  return { exitCode: 0, stdout, stderr: "" };
 }
 
 /** Whether the fake runs this command itself: a test's own `rm -rf` goes to `onCommand`. */

@@ -28,8 +28,11 @@ type InFlight =
   | { id: number; name: string; state: "reading" | "sending" | "converting" }
   | { id: number; name: string; state: "refused"; reason: string };
 
+/** A file to send: a PDF or DOCX as it is, any other with its UTF-8 text. */
+type Outgoing = { file: File; content?: string };
+
 /** A file that is waiting for a "Replace?" answer. */
-type Replacing = { file: File; folder: string; path: string };
+type Replacing = { outgoing: Outgoing; folder: string; path: string };
 
 /**
  * The Bot header's **Knowledge N** button (spec #737, prototype variant A): a popover over the
@@ -53,6 +56,7 @@ export function KnowledgePopover() {
   const [naming, setNaming] = useState<string | null>(null);
   const [previewing, setPreviewing] = useState<string | null>(null);
   const nextId = useRef(0);
+  const queue = useRef<Promise<void>>(Promise.resolve());
   const input = useRef<HTMLInputElement>(null);
   const status = useQuery(orpc.knowledge.status.queryOptions());
   const list = useQuery({ ...orpc.knowledge.list.queryOptions(), enabled: open });
@@ -70,72 +74,80 @@ export function KnowledgePopover() {
       next ? rows.map((row) => (row.id === id ? next : row)) : rows.filter((row) => row.id !== id),
     );
 
-  async function send(file: File, folder: string, replace: boolean) {
+  /** Shows a new row for `name`, as Uploading…, and returns its id. */
+  const startRow = (name: string) => {
     const id = nextId.current++;
-    setInFlight((rows) => [...rows, { id, name: file.name, state: "reading" }]);
+    setInFlight((rows) => [...rows, { id, name, state: "reading" }]);
+    return id;
+  };
+  const refuse = (id: number, name: string, reason: string) =>
+    update(id, { id, name, state: "refused", reason });
+  /** Runs `work` after every batch queued before it, so uploads never race on the Computer. */
+  const enqueue = (work: () => Promise<void>) => {
+    // A batch that throws must not stop the batches after it.
+    queue.current = queue.current.then(work).catch(() => {});
+    return queue.current;
+  };
+
+  async function send(id: number, { file, content }: Outgoing, folder: string, replace: boolean) {
     try {
-      if (isDocument(file.name)) {
+      if (content === undefined) {
         update(id, { id, name: file.name, state: "converting" });
         await uploadDocument.mutateAsync({ folder, file, ...(replace && { replace }) });
       } else {
-        let content: string;
-        try {
-          // Invalid UTF-8 is refused, not turned into replacement characters.
-          content = new TextDecoder("utf-8", { fatal: true }).decode(await file.arrayBuffer());
-        } catch {
-          update(id, {
-            id,
-            name: file.name,
-            state: "refused",
-            reason: t("error.knowledgeNotUtf8", { name: file.name }),
-          });
-          return;
-        }
         update(id, { id, name: file.name, state: "sending" });
         await upload.mutateAsync({ folder, name: file.name, content, ...(replace && { replace }) });
       }
       update(id, null);
       await refresh();
     } catch (error) {
-      update(id, {
-        id,
-        name: file.name,
-        state: "refused",
-        reason: serverErrorText(i18n, error),
-      });
+      refuse(id, file.name, serverErrorText(i18n, error));
     }
   }
 
   /**
-   * Sends the files one after another, so they don't race on the Computer; a name already there
-   * waits for its Replace? answer. Files added while the list loads wait for it; when it can't
-   * load, each shows as refused.
+   * Shows each file at once, then sends them one after another, after any batch before; a name
+   * already there waits for its Replace? answer. A text file that isn't UTF-8 is refused first.
+   * Files added while the list loads wait for it; when it can't load, each shows as refused.
    */
-  async function add(files: FileList | File[]) {
-    const adding = [...files];
-    let known: Set<string>;
-    try {
-      const listing =
-        list.data ?? (await queryClient.fetchQuery(orpc.knowledge.list.queryOptions()));
-      known = new Set((listing?.files ?? []).map((file) => file.path));
-    } catch (error) {
-      const reason = serverErrorText(i18n, error);
-      const refused = adding.map((file): InFlight => ({
-        id: nextId.current++,
-        name: file.name,
-        state: "refused",
-        reason,
-      }));
-      setInFlight((rows) => [...rows, ...refused]);
-      return;
-    }
-    const asking: Replacing[] = [];
-    for (const file of adding) {
-      const path = selected === "" ? file.name : `${selected}/${file.name}`;
-      if (known.has(path)) asking.push({ file, folder: selected, path });
-      else await send(file, selected, false);
-    }
-    setReplaceQueue((queue) => [...queue, ...asking]);
+  function add(files: FileList | File[]) {
+    const folder = selected;
+    const rows = [...files].map((file) => ({ id: startRow(file.name), file }));
+    return enqueue(async () => {
+      let known: Set<string>;
+      try {
+        const listing = await queryClient.ensureQueryData(orpc.knowledge.list.queryOptions());
+        known = new Set((listing?.files ?? []).map((file) => file.path));
+      } catch (error) {
+        const reason = serverErrorText(i18n, error);
+        for (const { id, file } of rows) refuse(id, file.name, reason);
+        return;
+      }
+      const asking: Replacing[] = [];
+      for (const { id, file } of rows) {
+        let outgoing: Outgoing = { file };
+        if (!isDocument(file.name)) {
+          try {
+            // Invalid UTF-8 is refused, not turned into replacement characters.
+            const content = new TextDecoder("utf-8", { fatal: true }).decode(
+              await file.arrayBuffer(),
+            );
+            outgoing = { file, content };
+          } catch {
+            refuse(id, file.name, t("error.knowledgeNotUtf8", { name: file.name }));
+            continue;
+          }
+        }
+        const path = folder === "" ? file.name : `${folder}/${file.name}`;
+        if (known.has(path)) {
+          update(id, null);
+          asking.push({ outgoing, folder, path });
+        } else {
+          await send(id, outgoing, folder, false);
+        }
+      }
+      setReplaceQueue((waiting) => [...waiting, ...asking]);
+    });
   }
 
   function onDrop(event: DragEvent) {
@@ -276,7 +288,8 @@ export function KnowledgePopover() {
               <Button
                 size="sm"
                 onClick={() => {
-                  void send(replacing.file, replacing.folder, true);
+                  const { outgoing, folder } = replacing;
+                  void enqueue(() => send(startRow(outgoing.file.name), outgoing, folder, true));
                   setReplaceQueue((queue) => queue.slice(1));
                 }}
               >

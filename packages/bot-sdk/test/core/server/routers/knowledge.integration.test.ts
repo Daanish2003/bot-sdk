@@ -259,8 +259,8 @@ describe("the knowledge router", { timeout: 30_000 }, () => {
     expect(knowledgePaths(computerFake.files)).toHaveLength(2);
   });
 
-  it("lists a user's upload as a Bot's once a later recorded Turn saved it", async () => {
-    const { client, user } = await setup();
+  it("lists a user's upload as a Bot's once a Bot's recorded Turn rewrote it", async () => {
+    const { computerFake, client, user } = await setup();
     await client.knowledge.upload({ name: "report.md", content: "mine" });
     const conversation = await insertConversation(user, { kind: "bot" });
     const botId = uuidv7();
@@ -271,21 +271,53 @@ describe("the knowledge router", { timeout: 30_000 }, () => {
       name: "Ada",
       model: "x:y",
     });
-    const later = new Date(Date.now() + 60_000);
+    // A Turn that only read the file leaves it the user's.
+    expect((await client.knowledge.list()).files).toEqual([
+      { path: "report.md", size: 4, savedBy: "user" },
+    ]);
+    computerFake.files.set(`${folder}/report.md`, encode("Ada's"));
     await getTestDb()
       .insert(botTurn)
       .values({
         id: uuidv7(),
         botId,
         status: "complete",
-        startedAt: later,
-        endedAt: later,
+        startedAt: new Date(),
         knowledgeChanges: [{ botId, path: "report.md" }],
       });
 
     expect((await client.knowledge.list()).files).toEqual([
-      { path: "report.md", size: 4, savedBy: "bot", botName: "Ada" },
+      { path: "report.md", size: 5, savedBy: "bot", botName: "Ada" },
     ]);
+  });
+
+  it("lists an upload as a Bot's once its shell rewrote it, with no list in between", async () => {
+    const { computerFake, client } = await setup();
+    await client.knowledge.upload({ name: "x.md", content: "x" });
+    // `rm x.md && echo y > x.md` in one shell call: nothing is recorded.
+    computerFake.files.delete(`${folder}/x.md`);
+    computerFake.files.set(`${folder}/x.md`, encode("y"));
+
+    expect((await client.knowledge.list()).files).toEqual([
+      { path: "x.md", size: 1, savedBy: "bot" },
+    ]);
+  });
+
+  it("refuses an upload over a name that a long listing leaves out", async () => {
+    const { computerFake, client } = await setup();
+    // About 1.4 MB of listing, past the 1 MB a walk reads; the last file is past the cut.
+    for (let index = 0; index < 30_000; index++) {
+      computerFake.files.set(
+        `${folder}/many/${String(index).padStart(5, "0")}-${"x".repeat(30)}.md`,
+        encode("x"),
+      );
+    }
+    computerFake.files.set(`${folder}/many/last.md`, encode("old"));
+
+    await expect(
+      client.knowledge.upload({ folder: "many", name: "last.md", content: "new" }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(textOf(computerFake.files.get(`${folder}/many/last.md`))).toBe("old");
   });
 
   it("forgets an upload that a Bot removed, so a file a Bot writes there later is the Bot's", async () => {

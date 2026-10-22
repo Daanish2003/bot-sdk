@@ -256,6 +256,17 @@ describe("KnowledgePopover", () => {
     expect(calledWith(calls, "upload")).toBeUndefined();
   });
 
+  it("refuses a text file that isn't UTF-8 before asking Replace?", async () => {
+    renderPopover();
+
+    fireEvent.change(fileInput(), {
+      target: { files: [new File([new Uint8Array([0xff])], "handbook.md")] },
+    });
+
+    expect((await screen.findByRole("alert")).textContent).toContain("isn't a UTF-8 text file");
+    expect(screen.queryByText("Replace “handbook.md”?")).toBeNull();
+  });
+
   it("keeps files dropped while the list is still loading, and sends them once it loads", async () => {
     let answerList: (response: Response) => void = () => {};
     const { fetch, calls } = recordingFetch((url) =>
@@ -267,6 +278,9 @@ describe("KnowledgePopover", () => {
 
     const dropZone = screen.getByText("Markdown, text, HTML, CSV, DOCX or PDF").parentElement!;
     fireEvent.drop(dropZone, { dataTransfer: { files: [textFile("early.md")] } });
+    // Shown at once, while the list loads.
+    const row = (await screen.findByText("early.md")).closest("li")!;
+    expect(within(row).getByText("Uploading…")).toBeTruthy();
     await waitFor(() => expect(calledWith(calls, "list")).toBeTruthy());
     answerList(Response.json({ json: listing }));
 
