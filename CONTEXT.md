@@ -225,6 +225,14 @@ _Avoid_: Credential (that is for a Provider or Tool), password, env var
 Anything that sends to a Bot or shows what it sends: the user's apps (web, desktop, mobile), Slack, email, webhooks, schedules or phone calls. Every app the user opens shows the same Conversation.
 _Avoid_: App, surface, client, platform
 
+**SendToUser**:
+The one tool a Bot talks to the user with. A Message it sends is text plus at most one Rich control. The text is what every Channel can always show. A Bot that sends nothing stays quiet, and its own model text is never shown.
+_Avoid_: Reply, respond, notify
+
+**Rich control**:
+A purpose-built control in a Bot's Message, such as a choice, files, a password entry or an Approval, that the Host draws with its own components and that each Channel shows in the simplest form it can. The user's answer to a choice wakes the Bot like any Trigger.
+_Avoid_: Widget, card, generative UI, component
+
 **Summary**:
 A short account of a Conversation's older Messages that a Bot works from in their place. The Bot's last few Messages to the user stay word for word.
 _Avoid_: Compaction, recap, digest
