@@ -1,6 +1,9 @@
+import { convertSchemaToJsonSchema } from "@tanstack/ai";
 import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { emojiSchema } from "../../../../plugins/bot/shared/reaction";
+import { richControlJsonSchema } from "../../../../plugins/bot/shared/rich-control";
 import { botTrigger, botTurn } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { bot } from "../../../../plugins/bot/server/plugin";
@@ -208,6 +211,17 @@ describe("Reactions", () => {
     expect((await messageOf(client, botId, id)).reactions).toBeUndefined();
   });
 
+  it("refuses a word that is no emoji as a tool error the Bot reads", async () => {
+    const id = uuidv7();
+    const { client, botId, fake } = await botWith([round(reacts(id, "thanks"))]);
+
+    await send(client, botId, "thanks!", id);
+    await turnsEnded(botId, 1);
+
+    expect(inputOf(fake.calls[1])).toContain("Not a single emoji");
+    expect((await messageOf(client, botId, id)).reactions).toBeUndefined();
+  });
+
   it("keeps an emoji when a control on the Message changes state", async () => {
     const { client, botId } = await botWith([
       round(
@@ -231,5 +245,39 @@ describe("Reactions", () => {
       control: { answer: { text: "Red" } },
       reactions: { user: { emoji: "👍" } },
     });
+  });
+});
+
+/** Every `pattern` in a JSON Schema, with where it sits. */
+function patternsIn(schema: unknown, path = "$"): { path: string; pattern: string }[] {
+  if (typeof schema !== "object" || schema === null) return [];
+  return Object.entries(schema).flatMap(([key, value]) =>
+    key === "pattern" && typeof value === "string"
+      ? [{ path, pattern: value }]
+      : patternsIn(value, `${path}.${key}`),
+  );
+}
+
+/** Providers take plain ECMA patterns: no Unicode property escapes, lookbehind or named groups. */
+const beyondPlainEcma = /\\[pP]\{|\(\?<|\\k</;
+
+describe("the JSON Schemas the Bot's Turn publishes", () => {
+  it("hold no pattern a provider refuses, and a bad emoji is still a tool error", async () => {
+    const { fake, client, botId } = await botWith([round(says("Hi")), round(says("Hello"))]);
+    await send(client, botId, "Hello");
+    await turnsEnded(botId, 1);
+    const tools = fake.calls[0]!.tools ?? [];
+    expect(tools.map((tool) => tool.name)).toContain("send_to_user");
+    for (const tool of tools) {
+      const found = patternsIn(convertSchemaToJsonSchema(tool.inputSchema!)).filter(({ pattern }) =>
+        beyondPlainEcma.test(pattern),
+      );
+      expect(found, tool.name).toEqual([]);
+    }
+    expect(
+      patternsIn(richControlJsonSchema).filter(({ pattern }) => beyondPlainEcma.test(pattern)),
+    ).toEqual([]);
+    expect(emojiSchema.safeParse("yes").success).toBe(false);
+    expect(emojiSchema.safeParse("👍🏽").success).toBe(true);
   });
 });
