@@ -125,6 +125,8 @@ export const storedPartsSchema = z.object({
   parts: z.array(storedPartSchema),
   /** The IANA time zone a Bot user's Message was sent from, when the client sent one. */
   timeZone: z.string().optional(),
+  /** The Channel a Bot user's Message came in on, when not web (spec #761). */
+  channel: z.literal("email").optional(),
 });
 
 export type StoredPart = z.infer<typeof storedPartSchema>;
