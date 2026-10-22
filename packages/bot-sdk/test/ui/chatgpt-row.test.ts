@@ -4,7 +4,8 @@ import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { OpenaiCredentialsState } from "../../plugins/models/shared/credentials/services";
-import { KeySettingsPage, type LinkedCredentialsHost } from "../../plugins/models/ui/key-settings";
+import type { LinkedCredentialsHost } from "../../plugins/models/ui/key-settings";
+import { HostKeysPage } from "./host-keys-page";
 import { providerFor, renderEnglish, renderWrapped } from "./fake-dictionary";
 
 afterEach(() => {
@@ -29,7 +30,7 @@ const host = (): LinkedCredentialsHost => ({ connect: vi.fn(), disconnect: vi.fn
 
 function page(linked: LinkedCredentialsHost | undefined, state?: OpenaiCredentialsState) {
   return render(
-    providerFor(createElement(KeySettingsPage, { linkedCredentials: linked }), {
+    providerFor(createElement(HostKeysPage, { linkedCredentials: linked }), {
       messages: {},
       seed: seedKeys(state),
     }),
@@ -84,7 +85,7 @@ describe("the OpenAI row's ChatGPT link", () => {
   });
 
   it("shows no ChatGPT UI without the Host's prop", () => {
-    const html = renderEnglish(createElement(KeySettingsPage));
+    const html = renderEnglish(createElement(HostKeysPage));
     expect(html).not.toContain("ChatGPT");
 
     page(undefined, "linked");
