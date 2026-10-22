@@ -1,5 +1,5 @@
 ---
-Status: accepted
+Status: superseded by ADR 0027
 ---
 
 # Artifact versions follow the Message tree and live in their own table

@@ -1,5 +1,5 @@
 ---
-Status: proposed
+Status: accepted
 ---
 
 # The platform is Bot-only: the assistant chat product goes, and the capabilities Bots can use move to plugins
@@ -27,7 +27,7 @@ This decision was charted in Wayfinder #781.
 
 ## Consequences
 
-- Supersedes ADR 0002 (Runs outlive the client), 0004 (Shared link points at the tree), 0008 (Approval ends the Run) and 0016 (Artifact versions). When this ADR is accepted, each gets `Status: superseded by ADR 0027`.
+- Supersedes ADR 0002 (Runs outlive the client), 0004 (Shared link points at the tree), 0008 (Approval ends the Run) and 0016 (Artifact versions). Each now has `Status: superseded by ADR 0027`.
 - ADR 0001 still holds for Bot Conversations, which append to the same Message tree and never branch.
 - ADR 0006's `RunStreams` goes with the assistant. PubSub stays as amended by ADR 0026.
 - ADR 0020's plugin list loses `assistant` and gains `mcp`.

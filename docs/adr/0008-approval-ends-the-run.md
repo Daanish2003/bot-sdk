@@ -1,5 +1,5 @@
 ---
-Status: accepted
+Status: superseded by ADR 0027
 ---
 
 # A Run ends while a tool call waits for Approval
