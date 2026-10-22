@@ -708,6 +708,9 @@ importers:
       e2b:
         specifier: 2.55.0
         version: 2.55.0
+      email-reply-parser:
+        specifier: ^2.3.9
+        version: 2.3.9
       html-to-text:
         specifier: 10.0.1
         version: 10.0.1
@@ -4314,6 +4317,15 @@ packages:
 
   electron-to-chromium@1.5.444:
     resolution: {integrity: sha512-5ss/uJfoDYDHT0lfJzT6FbcskIzROIOPf0BbbFkGcvDzoJU7i//9GDrwwIHQVmIsrAGiF3ihpADBRIsrEFt1rQ==}
+
+  email-reply-parser@2.3.9:
+    resolution: {integrity: sha512-k5w4cjqLSZABTyxkFHQLnMKJgrK2l6mPptmOnQHlwIosw86S05Xnupy4PPdw8XdXv/kXzn2PAnLfFMNFVUH4YQ==}
+    engines: {node: '>= 22.0.0'}
+    peerDependencies:
+      re2: 1.x
+    peerDependenciesMeta:
+      re2:
+        optional: true
 
   emoji-regex@10.6.0:
     resolution: {integrity: sha512-toUI84YS5YmxW219erniWD0CIVOo46xGKColeNQRgOzDorgBi1v4D71/OFzgD9GO2UGKIv1C3Sp8DAn0+j5w7A==}
@@ -9982,6 +9994,8 @@ snapshots:
       fast-check: 3.23.2
 
   electron-to-chromium@1.5.444: {}
+
+  email-reply-parser@2.3.9: {}
 
   emoji-regex@10.6.0: {}
 

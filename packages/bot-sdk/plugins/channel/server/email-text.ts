@@ -1,0 +1,46 @@
+import EmailReplyParser from "email-reply-parser";
+
+import { forwardedEmailLabel, untrustedBlock } from "../../bot/server/routine";
+import type { InboundMail } from "./email";
+
+/** The lines that open a forwarded part: Gmail's, Apple Mail's and the older Gmail's. */
+const forwardMarker = /^[ \t]*(?:-{2,}\s*Forwarded message\s*-{2,}|Begin forwarded message:)/im;
+
+/**
+ * What the Bot reads from an email (spec #761): the new text only, the quoted history stripped; the
+ * subject as a first line unless the mail replies to a thread; the attachments named in one line;
+ * and anything below a forward marker in an untrusted fenced block, as for a webhook's payload.
+ * Empty when the mail has no subject line, no new text and no forward, so an attachment alone
+ * wakes nothing.
+ */
+export function emailText(
+  mail: Pick<InboundMail, "subject" | "text" | "headers" | "attachments">,
+): string {
+  // The marker counts only where the parser shows text, not inside quoted history.
+  const visible = new EmailReplyParser().read(mail.text).getVisibleText();
+  const marker = forwardMarker.exec(visible);
+  const forwarded = marker ? mail.text.slice(mail.text.indexOf(marker[0])).trim() : "";
+  const typed = marker ? visible.slice(0, marker.index) : visible;
+  const lines = [];
+  const subject = oneLine(mail.subject);
+  if (subject && !repliesToThread(mail.headers)) lines.push(subject);
+  const fresh = typed.trim();
+  if (fresh) lines.push(fresh);
+  if (lines.length === 0 && !forwarded) return "";
+  const parts = [lines.join("\n")].filter(Boolean);
+  // Names are a sender's text: on one line each, and before the forward, which the reviewer never sees.
+  if (mail.attachments.length > 0) {
+    parts.push(`Attachments (not kept): ${mail.attachments.map(oneLine).join(", ")}`);
+  }
+  if (forwarded) parts.push(untrustedBlock(forwardedEmailLabel, forwarded));
+  return parts.join("\n\n");
+}
+
+const oneLine = (text: string) => text.replace(/\s+/g, " ").trim();
+
+/** Whether the headers say the mail answers another (In-Reply-To or References, any case). */
+function repliesToThread(headers: Record<string, string>): boolean {
+  return Object.entries(headers).some(
+    ([name, value]) => /^(in-reply-to|references)$/i.test(name) && value.trim() !== "",
+  );
+}

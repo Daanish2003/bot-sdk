@@ -6,6 +6,7 @@ import type { BotSdkContext } from "../../../core/server/plugin";
 import { lockConversation, receive } from "../../bot/server/router";
 import { textParts } from "../../bot/server/store";
 import { cancelTurn, hintChanged } from "../../bot/server/turn";
+import { emailText } from "./email-text";
 import { bareAddress, type EmailChannel, type InboundMail } from "./email";
 
 /**
@@ -43,7 +44,7 @@ async function deliver(
 ): Promise<string | null> {
   const messageId = mail.messageId.trim().replace(/^<|>$/g, "");
   if (!messageId) return "no Message-ID";
-  const text = mail.text.trim();
+  const text = emailText(mail);
   if (!text) return "no text";
   const owner = await botAt(sdk, mail.to);
   if (!owner) return "no Bot has the address";
