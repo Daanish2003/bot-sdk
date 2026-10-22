@@ -62,6 +62,14 @@ export function controlParts(text: string, control: RichControl): MessageRow["pa
 }
 
 /**
+ * What a Message's parts contain when they hold a control matching `control`: a jsonb `@>` value
+ * for finding the Messages that hold a given card.
+ */
+export function holdingControl(control: { kind: RichControlKind } & Record<string, unknown>) {
+  return { parts: [{ type: "control", control }] };
+}
+
+/**
  * The Rich control a Message's parts hold, if any: of kind `kind` when given. Parts that aren't a
  * Bot Message's (two controls, say) hold none.
  */

@@ -28,7 +28,10 @@ export type RichControl = z.infer<typeof richControlSchema>;
 
 export type RichControlKind = RichControl["kind"];
 
-/** The catalog as JSON Schema, for a Host's own app to render it. */
+/**
+ * The catalog as JSON Schema, for a Host's own app to render it. It can't carry the Zod checks
+ * that aren't shapes, such as a Secret's reserved names: `richControlSchema` is the full check.
+ */
 export const richControlJsonSchema = z.toJSONSchema(richControlSchema);
 
 /** A Message's stored part that holds its Rich control. */

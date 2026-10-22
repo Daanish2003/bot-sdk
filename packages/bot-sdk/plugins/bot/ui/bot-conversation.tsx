@@ -81,14 +81,9 @@ function BotConversationView({
   afterTurn?: (turn: BotTurnProvenance) => ReactNode;
   controls?: RichControlRenderers;
 }) {
-  const {
-    secret: SecretCard,
-    computer: ComputerCard,
-    demonstration: ShowMeCard,
-  } = {
-    ...defaultRichControlRenderers,
-    ...controls,
-  };
+  const SecretCard = controls?.secret ?? defaultRichControlRenderers.secret;
+  const ComputerCard = controls?.computer ?? defaultRichControlRenderers.computer;
+  const ShowMeCard = controls?.demonstration ?? defaultRichControlRenderers.demonstration;
   const i18n = useI18n();
   const { t } = i18n;
   const [draft, setDraft] = useState("");

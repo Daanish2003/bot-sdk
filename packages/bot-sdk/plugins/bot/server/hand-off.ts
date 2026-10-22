@@ -12,7 +12,7 @@ import type { ComputerCard } from "../shared/helper";
 import { computerOf } from "./computer-tools";
 import { botHelperJobName, helperJobKey } from "./helper";
 import { lockConversation } from "./router";
-import { controlOf, controlParts } from "./store";
+import { controlOf, controlParts, holdingControl } from "./store";
 import { hintChanged } from "./turn";
 
 /** The Computer-use Helper's tool that hands its Screen to the user (#568). */
@@ -236,9 +236,7 @@ export async function closeComputerCard(
 
 /** The Messages holding Helper `helperId`'s open Computer card, in its Bot's Conversation. */
 function openCards(db: Database | Transaction, helperId: string) {
-  const open = {
-    parts: [{ type: "control", control: { kind: "computer", helperId, state: "open" } }],
-  };
+  const open = holdingControl({ kind: "computer", helperId, state: "open" });
   return db
     .select({ id: message.id, parts: message.parts })
     .from(message)

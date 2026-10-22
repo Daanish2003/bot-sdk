@@ -31,7 +31,7 @@ import {
 } from "./helper";
 import type { LoopKit } from "./loop";
 import { lockConversation } from "./router";
-import { controlOf, controlParts } from "./store";
+import { controlOf, controlParts, holdingControl } from "./store";
 import { hintChanged } from "./turn";
 
 /*
@@ -380,9 +380,7 @@ export async function rewriteCard(
   demonstrationId: string,
   change: (card: DemonstrationCard) => DemonstrationCard,
 ) {
-  const holding = {
-    parts: [{ type: "control", control: { kind: "demonstration", demonstrationId } }],
-  };
+  const holding = holdingControl({ kind: "demonstration", demonstrationId });
   const rows = await tx
     .select({ id: message.id, parts: message.parts })
     .from(message)
