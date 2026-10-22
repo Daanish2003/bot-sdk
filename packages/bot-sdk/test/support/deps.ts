@@ -123,6 +123,7 @@ export function createTestSdk({ limits, plugins, ...overrides }: TestDepsOverrid
     linkedCredentials: overrides.linkedCredentials,
     defaultBackgroundModel: overrides.defaultBackgroundModel ?? null,
     defaultImageModel: overrides.defaultImageModel ?? null,
+    recentModelSources: [],
     getQuota: overrides.getQuota ?? (async () => null),
   };
   const assistant: Partial<AssistantState> = {

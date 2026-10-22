@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
 
+import { eq } from "drizzle-orm";
+
+import { bot } from "../../../../plugins/bot/server/plugin";
+import { userCredentials } from "../../../../plugins/models/server/db/credentials";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { insertConversation } from "../../../support/conversations";
 import { createTestSdk } from "../../../support/deps";
 import { liveModelsFetch } from "../../../support/live-models";
+import { getTestDb } from "../../../support/test-database";
 import { insertUser, type TestUser } from "../../../support/users";
 import { chatRpc } from "../../../support/sdk";
 
@@ -297,5 +302,56 @@ describe("models.list with Host credentials", () => {
     await expect(chatRpc({ user, deps: hosted }).models.list()).resolves.toMatchObject({
       webSearchOnHost: true,
     });
+  });
+});
+
+describe("models.list default with the bot plugin", () => {
+  const botDeps = createTestSdk({ plugins: [bot()], memory: false });
+
+  async function botUser(services: Array<"anthropic" | "openai">) {
+    const user = await insertUser();
+    for (const service of services) {
+      await saveCredentials(botDeps, user.id, {
+        service,
+        fields: { apiKey: `${service}-test-key` },
+        hint: "…-key",
+        verified: true,
+      });
+    }
+    return { user, client: chatRpc({ user, deps: botDeps }) };
+  }
+
+  it("is the Host default without a Bot", async () => {
+    const { client } = await botUser(["openai", "anthropic"]);
+
+    const { defaultModel } = await client.models.list();
+
+    expect(defaultModel).toBe("openai:gpt-5.6");
+  });
+
+  it("is the Model of the user's newest Bot", async () => {
+    const { client } = await botUser(["openai", "anthropic"]);
+    await client.bot.create({ name: "Ada", model: "anthropic:claude-haiku-4-5" });
+    await client.bot.create({ name: "Bea", model: "anthropic:claude-opus-5-5" });
+
+    const { defaultModel } = await client.models.list();
+
+    expect(defaultModel).toBe("anthropic:claude-opus-5-5");
+  });
+
+  it("falls through when the newest Bot's Model is not one the user can use any more", async () => {
+    const { user, client } = await botUser(["openai", "anthropic"]);
+    await client.bot.create({ name: "Ada", model: "anthropic:claude-opus-5-5" });
+    await getTestDb().delete(userCredentials).where(eq(userCredentials.userId, user.id));
+    await saveCredentials(botDeps, user.id, {
+      service: "openai",
+      fields: { apiKey: "openai-test-key" },
+      hint: "…-key",
+      verified: true,
+    });
+
+    const { defaultModel } = await client.models.list();
+
+    expect(defaultModel).toBe("openai:gpt-5.6");
   });
 });
