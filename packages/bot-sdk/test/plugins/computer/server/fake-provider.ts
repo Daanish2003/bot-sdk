@@ -15,6 +15,7 @@ import {
   sizeScript,
 } from "../../../../plugins/bot/server/computer-tools";
 import { boundedOutput } from "../../../../plugins/computer/e2b/bounded-output";
+import { readSkillsScript, skillHeadBytes } from "../../../../plugins/skills/server/skills";
 
 /** One command the fake ran: where, on which sandbox, and with what time limit. */
 export type FakeCommand = {
@@ -280,6 +281,8 @@ function runBuiltIn(
 ): CommandResult | undefined {
   const fileTool = fileToolCommand(disk, command, cwd);
   if (fileTool) return fileTool;
+  const skills = readSkillsCommand(disk, command);
+  if (skills) return skills;
   // tar's `|| [ $? -eq 1 ]` (its exit 1 still wrote the archive) never fails here.
   const parts = command.replaceAll(" || [ $? -eq 1 ]", "").split(" && ").map(words);
   if (!parts.every(isBuiltIn)) return undefined;
@@ -397,6 +400,38 @@ function fileToolCommand(disk: Disk, command: string, cwd: string): CommandResul
     page += `${cut}\n`;
   }
   return report(header + Buffer.from(page, "latin1").toString("base64"));
+}
+
+/**
+ * Runs `readBotSkills`' command on `disk` as bash would: `d=<Skills folder>` then
+ * `readSkillsScript`. Returns undefined for any other command.
+ */
+function readSkillsCommand(disk: Disk, command: string): CommandResult | undefined {
+  const newline = command.indexOf("\n");
+  if (command.slice(newline + 1) !== readSkillsScript) return undefined;
+  const match = /^d='((?:[^']|'\\'')*)'$/.exec(command.slice(0, newline));
+  if (!match) return undefined;
+  const directory = (match[1] ?? "").replaceAll(String.raw`'\''`, "'");
+  const folders = new Set<string>();
+  for (const path of disk.files.keys()) {
+    const [folder, ...rest] = path.slice(directory.length + 1).split("/");
+    if (path.startsWith(`${directory}/`) && folder && rest.length > 0) folders.add(folder);
+  }
+  const base64 = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64");
+  let stdout = "";
+  for (const folder of folders) {
+    const path = `${directory}/${folder}/SKILL.md`;
+    const bytes = disk.files.get(path);
+    const state = bytes
+      ? disk.unreadable.has(path)
+        ? "unreadable"
+        : `file ${base64(bytes.subarray(0, skillHeadBytes))}`
+      : isDirectory(disk.files, path)
+        ? "unreadable"
+        : "none";
+    stdout += `${base64(new TextEncoder().encode(folder))} ${state}\n`;
+  }
+  return { exitCode: 0, stdout, stderr: "" };
 }
 
 /** Whether the fake runs this command itself: a test's own `rm -rf` goes to `onCommand`. */

@@ -215,6 +215,36 @@ describe("the Skills block", () => {
     ]);
   });
 
+  it("reads every SKILL.md in one Computer command", async () => {
+    const { fake, computerFake, client, botId } = await botWith([round()]);
+    for (const name of ["alpha", "beta", "gamma"]) {
+      computerFake.files.set(
+        skillPath(botId, name),
+        encode(skillFile(name, `Use this when ${name} comes up.`)),
+      );
+    }
+    // Every file operation under the Skills folder, by path.
+    const touched: string[] = [];
+    const directory = `/home/user/bots/${botId}/skills`;
+    const { readFile, list } = computerFake.provider;
+    computerFake.provider.readFile = async (sandboxId, path) => {
+      if (path.startsWith(directory)) touched.push(path);
+      return readFile(sandboxId, path);
+    };
+    computerFake.provider.list = async (sandboxId, path) => {
+      if (path.startsWith(directory)) touched.push(path);
+      return list(sandboxId, path);
+    };
+
+    await send(client, botId, "hi");
+
+    expect(systemOf(turnCalls(fake.calls)[0])[3]).toContain("- gamma: Use this when gamma");
+    expect(touched).toEqual([]);
+    expect(
+      computerFake.callsOf("run").filter(({ command }) => command.includes(directory)),
+    ).toHaveLength(1);
+  }, 30_000);
+
   it("sits after the memory snapshot and before the Routines", async () => {
     const { computerFake, client, botId } = await botWith([
       round(

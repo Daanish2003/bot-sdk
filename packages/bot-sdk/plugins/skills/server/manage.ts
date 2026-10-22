@@ -4,7 +4,14 @@ import { bot } from "../../../core/server/db/schema";
 import type { BotSdkContext } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
 import { ComputerUnavailableError, type ComputerHandle } from "../../computer/server/plugin";
-import { namePattern, nameLimit, problemOf, readBotSkills, skillsDirectory } from "./skills";
+import {
+  namePattern,
+  nameLimit,
+  problemOf,
+  readBotSkills,
+  shellQuote,
+  skillsDirectory,
+} from "./skills";
 
 /*
  * The user's view of a Bot's Skills (spec #713): list, read, save and delete the plain SKILL.md
@@ -69,8 +76,6 @@ function requireFolder(name: string) {
     throw rpcError("BAD_REQUEST", "error.skillName", "Not a Skill folder name");
   }
 }
-
-const shellQuote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
 
 /**
  * When each Skill's SKILL.md last changed, by folder name. Best effort: a Computer that doesn't

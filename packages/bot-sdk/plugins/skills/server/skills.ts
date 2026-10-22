@@ -85,10 +85,34 @@ export function skillLineOf(folder: string, content: string | null): SkillLine {
 /** A broken Skill's text in its line. */
 const notUsable = (problem: string) => `(not usable: ${problem})`;
 
+/** How much of each SKILL.md `readBotSkills` reads: its frontmatter is in its first bytes. */
+export const skillHeadBytes = 4_096;
+
 /**
- * Bot `botId`'s Skills, read from `computer`: one line per folder in its Skills folder, sorted by
- * name. Files beside the folders, and other files in a folder, are ignored. A SKILL.md the
- * Computer fails to read is listed as not usable; any other Computer failure throws, and so does
+ * `readBotSkills`' one command, after `d=<Skills folder>`: a line per folder in it, its name in
+ * base64, then `none` (no SKILL.md), `unreadable` (not a file, or denied), or `file` and the
+ * SKILL.md's first `skillHeadBytes` bytes in base64. Prints nothing when there is no Skills folder.
+ */
+export const readSkillsScript = [
+  "set -o pipefail",
+  "shopt -s nullglob dotglob",
+  `[ -d "$d" ] || exit 0`,
+  `for f in "$d"/*/; do`,
+  `  n=\${f%/}; n=\${n##*/}; s="\${f}SKILL.md"`,
+  `  if [ ! -e "$s" ]; then r=none`,
+  `  elif [ -f "$s" ] && c=$(head -c ${skillHeadBytes} -- "$s" | base64 -w0); then r="file $c"`,
+  `  else r=unreadable; fi`,
+  `  printf '%s %s\\n' "$(printf %s "$n" | base64 -w0)" "$r"`,
+  "done",
+].join("\n");
+
+/** `text` as one single-quoted bash word. */
+export const shellQuote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
+
+/**
+ * Bot `botId`'s Skills, read from `computer` in one command: one line per folder in its Skills
+ * folder, sorted by name. Files beside the folders, and other files in a folder, are ignored. A
+ * SKILL.md the Computer fails to read is listed as not usable; a failed command throws, and so does
  * the signal's abort.
  */
 export async function readBotSkills(
@@ -96,23 +120,26 @@ export async function readBotSkills(
   botId: string,
   options?: FileOperationOptions,
 ): Promise<SkillLine[]> {
-  const directory = skillsDirectory(botId);
-  const folders = ((await computer.list(directory, options)) ?? [])
-    .filter((entry) => entry.kind === "directory")
-    .map((entry) => entry.name)
-    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-  return Promise.all(
-    folders.map(async (folder) => {
-      try {
-        const bytes = await computer.readFile(`${directory}/${folder}/SKILL.md`, options);
-        return skillLineOf(folder, bytes ? new TextDecoder().decode(bytes) : null);
-      } catch (caught) {
-        // One SKILL.md the Computer can't read (a directory, a denied file) spoils only its line.
-        if (!(caught instanceof ComputerOperationError)) throw caught;
-        return { name: folder, text: notUsable("SKILL.md can't be read") };
-      }
-    }),
+  const result = await computer.run(
+    `d=${shellQuote(skillsDirectory(botId))}\n${readSkillsScript}`,
+    options,
   );
+  if ("timedOut" in result || result.exitCode !== 0) {
+    throw new ComputerOperationError(new Error(`Reading the Skills failed: ${result.stderr}`));
+  }
+  const fromBase64 = (text: string) => new TextDecoder().decode(Buffer.from(text, "base64"));
+  return result.stdout
+    .split("\n")
+    .filter((line) => line !== "")
+    .map((line) => {
+      const [name = "", state, content = ""] = line.split(" ");
+      const folder = fromBase64(name);
+      // One SKILL.md the Computer can't read (a directory, a denied file) spoils only its line.
+      if (state === "unreadable")
+        return { name: folder, text: notUsable("SKILL.md can't be read") };
+      return skillLineOf(folder, state === "file" ? fromBase64(content) : null);
+    })
+    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 }
 
 /**
