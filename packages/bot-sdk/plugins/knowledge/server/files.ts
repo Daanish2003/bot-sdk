@@ -384,8 +384,9 @@ export async function uploadKnowledgeDocument(
     if (used + original.length + copy.length > knowledgeLimitBytes) {
       throw rpcError("BAD_REQUEST", "error.knowledgeFull", "Knowledge is full");
     }
-    await computer.writeFile(absolute(path), original);
+    // The copy goes first, so a failure never leaves an original that Bots can't read.
     await computer.writeFile(absolute(copyPath), copy);
+    await computer.writeFile(absolute(path), original);
     const uploads = await readUploads(computer);
     if (!uploads.has(path)) await writeUploads(computer, uploads.add(path));
   });

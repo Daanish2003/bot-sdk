@@ -13,7 +13,7 @@ const kib = 1024;
 const mib = kib * kib;
 
 /** Whether the server converts this file (a PDF or DOCX) rather than storing its text as it is. */
-const isDocument = (name: string) => /.(pdf|docx)$/i.test(name);
+const isDocument = (name: string) => /\.(pdf|docx)$/i.test(name);
 
 /** A size as "512 B", "2 KB" or "31 MB": one decimal at most, none when it is whole. */
 function sizeText(bytes: number): string {

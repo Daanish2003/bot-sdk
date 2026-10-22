@@ -225,6 +225,16 @@ describe("KnowledgePopover", () => {
     expect(calledWith(calls, "upload")).toBeUndefined();
   });
 
+  it("sends a file whose name only ends in the letters pdf as text", async () => {
+    const { fetch, calls } = recordingFetch(pending);
+    renderPopover(fetch);
+
+    fireEvent.change(fileInput(), { target: { files: [textFile("mypdf")] } });
+
+    await waitFor(() => expect(calledWith(calls, "upload")).toBeTruthy());
+    expect(calledWith(calls, "uploadDocument")).toBeUndefined();
+  });
+
   it("shows a scanned PDF's refusal with 'Nothing was added'", async () => {
     const refusal = () =>
       Response.json(
