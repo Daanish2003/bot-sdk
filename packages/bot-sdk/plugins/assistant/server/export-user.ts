@@ -17,7 +17,8 @@ import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { assistantConversation, withModel } from "./chat/kind";
 import { liveConversation } from "./chat/temporary";
 import type { ArtifactKind } from "../shared/chat/artifact";
-import type { StoredParts } from "../shared/message-parts";
+import type { PartsEnvelope } from "../../../core/shared/message-parts";
+import { generatedImagePartSchema } from "../shared/message-parts";
 
 /**
  * The assistant's part of a user's export (`sdk.exportUser`, under the key `assistant`), JSON-ready.
@@ -59,7 +60,7 @@ export type AssistantExport = {
       id: string;
       parentId: string | null;
       role: "user" | "assistant";
-      parts: StoredParts;
+      parts: PartsEnvelope;
       model: string | null;
       status: string;
       /** The owner's Rating; always null on a user Message, which can't be rated. */
@@ -184,11 +185,10 @@ export async function exportAssistantData(
     : [];
   const promptsByImage = new Map(
     messages.flatMap((row) =>
-      row.parts.parts.flatMap((part) =>
-        part.type === "generated_image" && part.imageId
-          ? [[part.imageId, part.prompt] as const]
-          : [],
-      ),
+      row.parts.parts.flatMap((stored) => {
+        const part = generatedImagePartSchema.safeParse(stored).data;
+        return part?.imageId ? [[part.imageId, part.prompt] as const] : [];
+      }),
     ),
   );
   const memoryEnabled = sdk.hasPlugin("memory")
