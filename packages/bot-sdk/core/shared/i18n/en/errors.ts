@@ -65,6 +65,7 @@ export const errorMessages = {
     `"${name}" is larger than 20 MB`,
   "error.knowledgeTextTooLong": ({ name }: { name: string }) =>
     `"${name}" has more than 2 MB of text. Split it into smaller files`,
+  "error.knowledgeNotUtf8": ({ name }: { name: string }) => `"${name}" isn't a UTF-8 text file`,
   "error.attachmentTooLarge": ({ name }: { name: string }) => `"${name}" is larger than 5 MB`,
   "error.attachmentNotSupported": ({ name }: { name: string }) =>
     `"${name}" can't be attached: only images, PDFs and text files can`,

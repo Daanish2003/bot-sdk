@@ -50,14 +50,21 @@ const pending = () => new Promise<Response>(() => {});
 const calledWith = (calls: { url: string; body: string }[], procedure: string) =>
   calls.find((call) => new URL(call.url).pathname.endsWith(`knowledge/${procedure}`));
 
-function seeded(available = true, shown = listing) {
+/** Seeds the status, and the list unless `shown` is null (the list still loading). */
+function seeded(available = true, shown: KnowledgeListing | null = listing) {
   return (queryClient: QueryClient, client: BotSdkClient) => {
     queryClient.setQueryData(client.orpc.knowledge.status.queryKey(), { available });
-    queryClient.setQueryData(client.orpc.knowledge.list.queryKey(), shown);
+    if (shown) queryClient.setQueryData(client.orpc.knowledge.list.queryKey(), shown);
+    // A list still loading that fails shows its failure at once, without the default retries.
+    else queryClient.setDefaultOptions({ queries: { retry: false } });
   };
 }
 
-function renderPopover(fetch = recordingFetch(pending).fetch, available = true, shown = listing) {
+function renderPopover(
+  fetch = recordingFetch(pending).fetch,
+  available = true,
+  shown: KnowledgeListing | null = listing,
+) {
   render(
     providerFor(createElement(KnowledgePopover), {
       seed: seeded(available, shown),
@@ -233,6 +240,75 @@ describe("KnowledgePopover", () => {
 
     await waitFor(() => expect(calledWith(calls, "upload")).toBeTruthy());
     expect(calledWith(calls, "uploadDocument")).toBeUndefined();
+  });
+
+  it("refuses a text file that isn't UTF-8 with 'Nothing was added', and sends nothing", async () => {
+    const { fetch, calls } = recordingFetch(pending);
+    renderPopover(fetch);
+
+    fireEvent.change(fileInput(), {
+      target: { files: [new File([new Uint8Array([0x68, 0xff, 0xfe])], "latin.txt")] },
+    });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain('"latin.txt" isn\'t a UTF-8 text file');
+    expect(alert.textContent).toContain("Nothing was added.");
+    expect(calledWith(calls, "upload")).toBeUndefined();
+  });
+
+  it("refuses a text file that isn't UTF-8 before asking Replace?", async () => {
+    renderPopover();
+
+    fireEvent.change(fileInput(), {
+      target: { files: [new File([new Uint8Array([0xff])], "handbook.md")] },
+    });
+
+    expect((await screen.findByRole("alert")).textContent).toContain("isn't a UTF-8 text file");
+    expect(screen.queryByText("Replace “handbook.md”?")).toBeNull();
+  });
+
+  it("keeps files dropped while the list is still loading, and sends them once it loads", async () => {
+    let answerList: (response: Response) => void = () => {};
+    const { fetch, calls } = recordingFetch((url) =>
+      new URL(url).pathname.endsWith("knowledge/list")
+        ? new Promise<Response>((resolve) => (answerList = resolve))
+        : pending(),
+    );
+    renderPopover(fetch, true, null);
+
+    const dropZone = screen.getByText("Markdown, text, HTML, CSV, DOCX or PDF").parentElement!;
+    fireEvent.drop(dropZone, { dataTransfer: { files: [textFile("early.md")] } });
+    // Shown at once, while the list loads.
+    const row = (await screen.findByText("early.md")).closest("li")!;
+    expect(within(row).getByText("Uploading…")).toBeTruthy();
+    await waitFor(() => expect(calledWith(calls, "list")).toBeTruthy());
+    answerList(Response.json({ json: listing }));
+
+    await waitFor(() => expect(calledWith(calls, "upload")).toBeTruthy());
+    expect(JSON.parse(calledWith(calls, "upload")!.body).json).toMatchObject({ name: "early.md" });
+  });
+
+  it("shows a file dropped while the list can't load as refused", async () => {
+    const refusal = () =>
+      Response.json(
+        {
+          json: {
+            defined: false,
+            code: "BAD_REQUEST",
+            status: 400,
+            message: "x",
+            data: { code: "error.knowledgeComputerUnavailable" },
+          },
+        },
+        { status: 400 },
+      );
+    renderPopover(recordingFetch(refusal).fetch, true, null);
+
+    const dropZone = screen.getByText("Markdown, text, HTML, CSV, DOCX or PDF").parentElement!;
+    fireEvent.drop(dropZone, { dataTransfer: { files: [textFile("early.md")] } });
+
+    const row = (await screen.findByText("early.md")).closest("li")!;
+    expect(within(row).getByRole("alert").textContent).toContain("Nothing was added.");
   });
 
   it("shows a scanned PDF's refusal with 'Nothing was added'", async () => {

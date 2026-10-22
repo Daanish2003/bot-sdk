@@ -15,6 +15,7 @@ import {
   sizeScript,
 } from "../../../../plugins/bot/server/computer-tools";
 import { boundedOutput } from "../../../../plugins/computer/e2b/bounded-output";
+import { stampScript, walkScript } from "../../../../plugins/knowledge/server/files";
 import { readSkillsScript, skillHeadBytes } from "../../../../plugins/skills/server/skills";
 
 /** One command the fake ran: where, on which sandbox, and with what time limit. */
@@ -58,7 +59,20 @@ type Disk = {
   unreadable: Set<string>;
 };
 
-const newDisk = (): Disk => ({ files: new Map(), mtimes: new Map(), unreadable: new Set() });
+/** Every fake disk's write count, so no two writes of a file share an mtime. */
+let stamps = 0;
+
+/** A disk whose every file set, a test's own included, stamps the file's mtime as a write does. */
+function newDisk(): Disk {
+  const mtimes = new Map<string, number>();
+  class StampedFiles extends Map<string, Uint8Array> {
+    override set(path: string, bytes: Uint8Array) {
+      mtimes.set(path, ++stamps);
+      return super.set(path, bytes);
+    }
+  }
+  return { files: new StampedFiles(), mtimes, unreadable: new Set() };
+}
 
 /** A result with each stream kept as the E2B adapter keeps it: 1 MiB characters at each end. */
 function bounded<Result extends CommandResult | TimedOutCommand>(result: Result): Result {
@@ -73,8 +87,8 @@ function bounded<Result extends CommandResult | TimedOutCommand>(result: Result)
  * A Computer provider for tests: no sandbox, only a record of what it was asked to do, and a disk
  * per sandbox. Each command is answered by `onCommand`, which the test supplies (exit 0 with no
  * output by default), except the commands the sync and restore use (`mkdir -p`, `find … -prune`, `rm -f`,
- * `tar -czf`, `tar -xzf`, `stat -c %s`, joined by `&&`) and the file tools' commands, which the
- * fake runs on the disk. Its archives are uncompressed, so a file's size is its archive's. Each
+ * `tar -czf`, `tar -xzf`, `stat -c %s`, joined by `&&`), the file tools' commands, the Skills read
+ * and the Knowledge walk, which the fake runs on the disk. Its archives are uncompressed, so a file's size is its archive's. Each
  * command's output is kept as the E2B adapter keeps it, and a file in `unreadable` fails the file
  * tools' commands with permission denied.
  *
@@ -119,10 +133,8 @@ export function fakeComputerProvider({
   // checks would pause this one's sandboxes.
   const instance = randomBytes(4).toString("hex");
   let created = 0;
-  let writes = 0;
   const write = (disk: Disk, path: string, bytes: Uint8Array) => {
     disk.files.set(path, bytes);
-    disk.mtimes.set(path, ++writes);
   };
   const provider: ComputerProvider = {
     template,
@@ -283,6 +295,8 @@ function runBuiltIn(
   if (fileTool) return fileTool;
   const skills = readSkillsCommand(disk, command);
   if (skills) return skills;
+  const knowledge = knowledgeWalkCommand(disk, command) ?? knowledgeStampCommand(disk, command);
+  if (knowledge) return knowledge;
   // tar's `|| [ $? -eq 1 ]` (its exit 1 still wrote the archive) never fails here.
   const parts = command.replaceAll(" || [ $? -eq 1 ]", "").split(" && ").map(words);
   if (!parts.every(isBuiltIn)) return undefined;
@@ -441,6 +455,55 @@ function readSkillsCommand(disk: Disk, command: string): CommandResult | undefin
         : "none";
     stdout += `${base64(new TextEncoder().encode(folder))} ${state}\n`;
   }
+  return { exitCode: 0, stdout, stderr: "" };
+}
+
+/**
+ * Runs the Knowledge walk's command on `disk` as bash would: `d=<folder>` then `walkScript`. A
+ * folder is any directory a file is under (the fake keeps no empty ones). Returns undefined for any
+ * other command.
+ */
+function knowledgeWalkCommand(disk: Disk, command: string): CommandResult | undefined {
+  const newline = command.indexOf("\n");
+  if (command.slice(newline + 1) !== walkScript) return undefined;
+  const match = /^d='((?:[^']|'\\'')*)'$/.exec(command.slice(0, newline));
+  if (!match) return undefined;
+  const directory = (match[1] ?? "").replaceAll(String.raw`'\''`, "'");
+  const folders = new Set<string>();
+  let listing = "";
+  let total = 0;
+  for (const [path, bytes] of disk.files) {
+    if (!path.startsWith(`${directory}/`)) continue;
+    const relative = path.slice(directory.length + 1);
+    const segments = relative.split("/");
+    for (let depth = 1; depth < segments.length; depth++) {
+      folders.add(segments.slice(0, depth).join("/"));
+    }
+    listing += `f ${bytes.length} ${disk.mtimes.get(path) ?? 0} ${relative}\0`;
+    total += bytes.length;
+  }
+  if (!listing) return { exitCode: 0, stdout: "", stderr: "" };
+  for (const folder of folders) listing += `d 0 0 ${folder}\0`;
+  const raw = Buffer.from(listing);
+  return {
+    exitCode: 0,
+    stdout: `${raw.toString("base64")}\n${total}\n${raw.length}\n`,
+    stderr: "",
+  };
+}
+
+/**
+ * Runs the Knowledge stamp's command on `disk`: `p=<path>` then `stampScript`, printing the file's
+ * mtime and size as the walk does. Returns undefined for any other command.
+ */
+function knowledgeStampCommand(disk: Disk, command: string): CommandResult | undefined {
+  const newline = command.indexOf("\n");
+  if (command.slice(newline + 1) !== stampScript) return undefined;
+  const match = /^p='((?:[^']|'\\'')*)'$/.exec(command.slice(0, newline));
+  if (!match) return undefined;
+  const path = (match[1] ?? "").replaceAll(String.raw`'\''`, "'");
+  const bytes = disk.files.get(path);
+  const stdout = bytes ? `${disk.mtimes.get(path) ?? 0} ${bytes.length}` : "";
   return { exitCode: 0, stdout, stderr: "" };
 }
 

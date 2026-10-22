@@ -1,9 +1,10 @@
-import { and, asc, eq, isNotNull } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 
 import { bot, botTurn } from "../../../core/server/db/schema";
 import type { BotSdkContext } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
 import {
+  ComputerOperationError,
   ComputerUnavailableError,
   type ComputerHandle,
   type FileOperationOptions,
@@ -22,8 +23,8 @@ import { ExtractionFailure, extractKnowledgeText, pdfMediaType, wordMediaType } 
 /*
  * The user's view of their Knowledge (spec #737): plain files in `shared/knowledge/` on their
  * Computer, shared by all of their Bots. There are no rows; the files are the source of truth. The
- * only record kept is which files the user uploaded, so the list can tell them from files a Bot
- * wrote.
+ * only record kept is which files the user uploaded, and when, so the list can tell them from files
+ * a Bot wrote.
  */
 
 /** Which files the user uploaded, as paths relative to the Knowledge folder. Outside the folder, so Bots don't search it. */
@@ -80,6 +81,25 @@ async function onComputer<T>(operation: () => Promise<T>): Promise<T> {
   }
 }
 
+/** Each user's last queued Knowledge write, which the next one waits for. */
+const knowledgeWrites = new Map<string, Promise<unknown>>();
+
+/**
+ * Runs `operation` after the user's earlier Knowledge writes in this process: uploads and deletes,
+ * which check the cap and change the uploads registry, go one at a time. It holds no database
+ * connection while it waits or while the Computer wakes.
+ */
+async function withKnowledgeLock<T>(userId: string, operation: () => Promise<T>): Promise<T> {
+  const before = knowledgeWrites.get(userId) ?? Promise.resolve();
+  const run = before.then(operation);
+  const settled = run.catch(() => {});
+  knowledgeWrites.set(userId, settled);
+  void settled.then(() => {
+    if (knowledgeWrites.get(userId) === settled) knowledgeWrites.delete(userId);
+  });
+  return run;
+}
+
 const badPath = () =>
   rpcError("BAD_REQUEST", "error.knowledgePath", "Not a path inside the Knowledge folder");
 
@@ -97,66 +117,131 @@ function requirePath(path: string, { allowEmpty = false } = {}): string {
 const absolute = (relative: string) =>
   relative === "" ? knowledgeDirectory : `${knowledgeDirectory}/${relative}`;
 
-/** Every file and folder under the Knowledge folder, depth first. */
+/** The most listing bytes a walk reads; the entries past it are left out. */
+const walkListingBytes = 1024 * 1024;
+
+/**
+ * Lists the tree under `$d` in one pass of `find`, without following symlinks. It prints base64 of
+ * one NUL-ended entry per folder (`d 0 0 <relative path>`) and file (`f <size> <mtime> <relative
+ * path>`), cut at `walkListingBytes` (NUL-ended, so a name with a line break stays one entry),
+ * then a line with the bytes all files hold, then one with the whole listing's length. Prints
+ * nothing when there is no folder yet.
+ */
+export const walkScript = [
+  `[ -d "$d" ] || exit 0`,
+  `l=$(mktemp) && t=$(mktemp) || exit 1`,
+  String.raw`find "$d" -mindepth 1 \( -type d -printf 'd 0 0 %P\0' -o -type f -printf 'f %s %T@ %P\0' -fprintf "$t" '%s\n' \) > "$l" 2>/dev/null`,
+  `head -c ${walkListingBytes} "$l" | base64 -w0`,
+  String.raw`printf '\n'`,
+  `awk '{ s += $1 } END { print s + 0 }' "$t"`,
+  `wc -c < "$l"`,
+  `rm -f "$l" "$t"`,
+].join("\n");
+
+/** A Knowledge file as a walk finds it; `stamp` (its mtime and size) changes with every write. */
+type WalkedFile = { path: string; size: number; stamp: string };
+
+/**
+ * Every file and folder under the Knowledge folder, in no order, and the bytes all files hold, in
+ * one command. A tree whose listing is over 1 MB lists only its first entries, and is `partial`.
+ * A failed command throws ComputerOperationError.
+ */
 export async function walk(computer: ComputerHandle, options?: FileOperationOptions) {
-  const files: { path: string; size: number }[] = [];
+  const result = await computer.run(`d=${shellQuote(knowledgeDirectory)}\n${walkScript}`, options);
+  if ("timedOut" in result || result.exitCode !== 0) {
+    throw new ComputerOperationError(
+      new Error(`Listing the Knowledge folder failed: ${result.stderr}`),
+    );
+  }
+  const files: WalkedFile[] = [];
   const folders: string[] = [];
-  const visit = async (relative: string) => {
-    for (const entry of (await computer.list(absolute(relative), options)) ?? []) {
-      const path = relative === "" ? entry.name : `${relative}/${entry.name}`;
-      if (entry.kind === "directory") {
-        folders.push(path);
-        await visit(path);
-      } else {
-        files.push({ path, size: entry.size });
-      }
-    }
+  const [listing = "", total = "0", length = "0"] = result.stdout.split("\n");
+  const entries = Buffer.from(listing, "base64").toString("utf8").split("\0");
+  // The last piece follows the last NUL: empty, or an entry the cut left half written.
+  for (const entry of entries.slice(0, -1)) {
+    const [kind, size = "0", mtime = "0", ...name] = entry.split(" ");
+    const path = name.join(" ");
+    if (path === "") continue;
+    if (kind === "d") folders.push(path);
+    else files.push({ path, size: Number(size), stamp: `${mtime} ${size}` });
+  }
+  return {
+    files,
+    folders,
+    usage: Number(total) || 0,
+    partial: Number(length) > walkListingBytes,
   };
-  await visit("");
-  return { files, folders };
 }
 
-async function readUploads(computer: ComputerHandle): Promise<Set<string>> {
+/** Prints the mtime and size of the file `$p`, as a walk's stamp; nothing when there is none. */
+export const stampScript = String.raw`find "$p" -maxdepth 0 -type f -printf '%T@ %s' 2>/dev/null; true`;
+
+/** The stamp of the file at `relative`, as a walk would find it, or undefined when there is none. */
+async function stampOf(computer: ComputerHandle, relative: string): Promise<string | undefined> {
+  const result = await computer.run(`p=${shellQuote(absolute(relative))}\n${stampScript}`);
+  if ("timedOut" in result || result.exitCode !== 0) {
+    throw new ComputerOperationError(new Error(`Reading ${relative} failed: ${result.stderr}`));
+  }
+  return result.stdout.trim() || undefined;
+}
+
+/**
+ * The user's uploads: each path with its file's stamp right after the upload wrote it. The file
+ * is theirs while it still has that stamp; any later write (a Bot's `write`, `edit` or shell)
+ * changes it.
+ */
+async function readUploads(computer: ComputerHandle): Promise<Map<string, string>> {
+  const uploads = new Map<string, string>();
   const bytes = await computer.readFile(uploadsPath);
-  if (!bytes) return new Set();
+  if (!bytes) return uploads;
   try {
     const parsed: unknown = JSON.parse(new TextDecoder().decode(bytes));
-    return new Set(Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string") : []);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return uploads;
+    for (const [path, stamp] of Object.entries(parsed)) {
+      if (typeof stamp === "string") uploads.set(path, stamp);
+    }
   } catch {
-    return new Set();
+    // An unreadable registry lists every file as a Bot's.
   }
+  return uploads;
 }
 
-async function writeUploads(computer: ComputerHandle, uploads: Set<string>) {
-  await computer.writeFile(uploadsPath, JSON.stringify([...uploads].sort()));
+async function writeUploads(computer: ComputerHandle, uploads: Map<string, string>) {
+  const entries = [...uploads].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  await computer.writeFile(uploadsPath, JSON.stringify(Object.fromEntries(entries)));
 }
 
 const byPath = (a: { path: string }, b: { path: string }) =>
   a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
 
-/** The name of the Bot that last saved each path, from the user's Bots' recorded Turns. */
+/** For each path a recorded Turn of the user's Bots saved, the Bot of the latest such Turn. */
 async function botSavers(deps: BotSdkContext, userId: string): Promise<Map<string, string>> {
-  const rows = await deps.db
-    .select({ name: bot.name, changes: botTurn.knowledgeChanges })
-    .from(botTurn)
-    .innerJoin(bot, eq(bot.id, botTurn.botId))
-    .where(and(eq(bot.userId, userId), isNotNull(botTurn.knowledgeChanges)))
-    .orderBy(asc(botTurn.startedAt), asc(botTurn.id));
-  const savers = new Map<string, string>();
-  for (const row of rows) for (const change of row.changes ?? []) savers.set(change.path, row.name);
-  return savers;
+  const result = await deps.db.execute<{ path: string; name: string }>(sql`
+    select distinct on (change.path) change.path as path, ${bot.name} as name
+    from ${botTurn}
+    join ${bot} on ${bot.id} = ${botTurn.botId}
+    cross join lateral jsonb_to_recordset(${botTurn.knowledgeChanges}) as change(path text)
+    where ${bot.userId} = ${userId} and ${botTurn.knowledgeChanges} is not null
+    order by change.path, ${botTurn.startedAt} desc, ${botTurn.id} desc
+  `);
+  return new Map(result.rows.map((row) => [row.path, row.name]));
 }
 
-/** The tree with sizes, who saved each file, and the usage. */
+/**
+ * The tree with sizes, who saved each file, and the usage. A file is the user's while it is as
+ * their upload wrote it; once anything rewrites it, it is a Bot's.
+ */
 export async function listKnowledge(
   deps: BotSdkContext,
   { userId }: { userId: string },
 ): Promise<KnowledgeListing> {
   const computer = computerOf(deps, userId);
   return onComputer(async () => {
-    const tree = await walk(computer);
-    const uploads = await readUploads(computer);
-    const savers = await botSavers(deps, userId);
+    const [tree, uploads, savers] = await Promise.all([
+      walk(computer),
+      readUploads(computer),
+      botSavers(deps, userId),
+    ]);
     const paths = new Set(tree.files.map((file) => file.path));
     // A readable copy is listed through its original, not as a row of its own.
     const copies = new Set(
@@ -167,10 +252,10 @@ export async function listKnowledge(
     );
     const files = tree.files
       .filter(({ path }) => !copies.has(path))
-      .map(({ path, size }): KnowledgeFile => {
+      .map(({ path, size, stamp }): KnowledgeFile => {
         const copy = readableCopyPath(path);
         const readable = copy && paths.has(copy) ? { readable: copy } : {};
-        if (uploads.has(path)) return { path, size, savedBy: "user", ...readable };
+        if (uploads.get(path) === stamp) return { path, size, savedBy: "user", ...readable };
         const botName = savers.get(path);
         return {
           path,
@@ -184,7 +269,7 @@ export async function listKnowledge(
     return {
       files,
       folders: [...tree.folders].sort(),
-      usage: tree.files.reduce((total, file) => total + file.size, 0),
+      usage: tree.usage,
       limit: knowledgeLimitBytes,
     };
   });
@@ -204,6 +289,56 @@ export async function readKnowledge(
     }
     return { path, content: new TextDecoder().decode(bytes), size: bytes.length };
   });
+}
+
+/**
+ * Writes `writes` (paths in `path`'s folder, with their bytes, in order) as the user's upload of
+ * `path`, under their Knowledge lock. Refused, with nothing written, when one of the paths is
+ * already there (unless `replace`), or when the files would take Knowledge past its cap.
+ */
+async function writeUpload(
+  deps: BotSdkContext,
+  userId: string,
+  { path, writes, replace }: { path: string; writes: [string, Uint8Array][]; replace: boolean },
+) {
+  const computer = computerOf(deps, userId);
+  await withKnowledgeLock(userId, () =>
+    onComputer(async () => {
+      const slash = path.lastIndexOf("/");
+      const folder = slash < 0 ? "" : path.slice(0, slash);
+      // The folder's own entries, which a walk cut short could leave out.
+      const [tree, entries] = await Promise.all([walk(computer), computer.list(absolute(folder))]);
+      const targets = new Set(writes.map(([target]) => target.slice(slash + 1)));
+      const existing = (entries ?? []).filter(
+        (entry) => entry.kind === "file" && targets.has(entry.name),
+      );
+      if (existing.length > 0 && !replace) {
+        throw rpcError(
+          "CONFLICT",
+          "error.knowledgeExists",
+          "A file with that name is already there",
+          { path },
+        );
+      }
+      const used = tree.usage - existing.reduce((total, entry) => total + entry.size, 0);
+      const adding = writes.reduce((total, [, bytes]) => total + bytes.length, 0);
+      if (used + adding > knowledgeLimitBytes) {
+        throw rpcError("BAD_REQUEST", "error.knowledgeFull", "Knowledge is full");
+      }
+      for (const [target, bytes] of writes) await computer.writeFile(absolute(target), bytes);
+      const stamp = await stampOf(computer, path);
+      const uploads = await readUploads(computer);
+      // Uploads rewritten or removed since are no one's any more; a walk cut short can't tell.
+      if (!tree.partial) {
+        const stamps = new Map(tree.files.map((file) => [file.path, file.stamp]));
+        for (const [uploaded, at] of uploads) {
+          if (stamps.get(uploaded) !== at) uploads.delete(uploaded);
+        }
+      }
+      if (stamp !== undefined) uploads.set(path, stamp);
+      await writeUploads(computer, uploads);
+    }),
+  );
 }
 
 /**
@@ -234,28 +369,7 @@ export async function uploadKnowledge(
   }
   const path = folder === "" ? name : `${folder}/${name}`;
   const bytes = new TextEncoder().encode(content);
-  const computer = computerOf(deps, userId);
-  await onComputer(async () => {
-    const { files } = await walk(computer);
-    const existing = files.find((file) => file.path === path);
-    if (existing && !replace) {
-      throw rpcError(
-        "CONFLICT",
-        "error.knowledgeExists",
-        "A file with that name is already there",
-        {
-          path,
-        },
-      );
-    }
-    const used = files.reduce((total, file) => total + file.size, 0) - (existing?.size ?? 0);
-    if (used + bytes.length > knowledgeLimitBytes) {
-      throw rpcError("BAD_REQUEST", "error.knowledgeFull", "Knowledge is full");
-    }
-    await computer.writeFile(absolute(path), content);
-    const uploads = await readUploads(computer);
-    if (!uploads.has(path)) await writeUploads(computer, uploads.add(path));
-  });
+  await writeUpload(deps, userId, { path, writes: [[path, bytes]], replace });
   return { path, size: bytes.length };
 }
 
@@ -266,24 +380,26 @@ export async function deleteKnowledge(
 ) {
   requirePath(path);
   const computer = computerOf(deps, userId);
-  await onComputer(async () => {
-    const slash = path.lastIndexOf("/");
-    const entries = await computer.list(absolute(slash < 0 ? "" : path.slice(0, slash)));
-    const name = path.slice(slash + 1);
-    if (!entries?.some((entry) => entry.kind === "file" && entry.name === name)) {
-      throw rpcError("NOT_FOUND", "error.knowledgeNoSuchFile", "Knowledge file not found");
-    }
-    const copy = readableCopyPath(path);
-    // The readable copy goes first, so a failure never leaves a copy of a file that is gone.
-    for (const target of [...(copy ? [copy] : []), path]) {
-      const result = await computer.run(`rm -f ${shellQuote(absolute(target))}`);
-      if ("timedOut" in result || result.exitCode !== 0) {
-        throw new Error("Deleting the Knowledge file failed");
+  await withKnowledgeLock(userId, () =>
+    onComputer(async () => {
+      const slash = path.lastIndexOf("/");
+      const entries = await computer.list(absolute(slash < 0 ? "" : path.slice(0, slash)));
+      const name = path.slice(slash + 1);
+      if (!entries?.some((entry) => entry.kind === "file" && entry.name === name)) {
+        throw rpcError("NOT_FOUND", "error.knowledgeNoSuchFile", "Knowledge file not found");
       }
-    }
-    const uploads = await readUploads(computer);
-    if (uploads.delete(path)) await writeUploads(computer, uploads);
-  });
+      const copy = readableCopyPath(path);
+      // The readable copy goes first, so a failure never leaves a copy of a file that is gone.
+      for (const target of [...(copy ? [copy] : []), path]) {
+        const result = await computer.run(`rm -f ${shellQuote(absolute(target))}`);
+        if ("timedOut" in result || result.exitCode !== 0) {
+          throw new Error("Deleting the Knowledge file failed");
+        }
+      }
+      const uploads = await readUploads(computer);
+      if (uploads.delete(path)) await writeUploads(computer, uploads);
+    }),
+  );
 }
 
 /** Creates a folder (and its parents); one that exists is left as it is. */
@@ -327,6 +443,10 @@ const failureError = (name: string, code: ExtractionFailure["code"], pdf: boolea
         "That file is too complex to read",
         { name },
       );
+    case "too_long":
+      return rpcError("BAD_REQUEST", "error.knowledgeTextTooLong", "That file has too much text", {
+        name,
+      });
     default:
       return rpcError("BAD_REQUEST", "error.knowledgeUnreadable", "That file can't be read", {
         name,
@@ -337,8 +457,9 @@ const failureError = (name: string, code: ExtractionFailure["code"], pdf: boolea
 /**
  * Converts a PDF or DOCX on the server and writes the original with `<name>.md` beside it (PDFs
  * carry `## Page N` markers). Refused, with nothing written, for another format, a file over 20 MB,
- * a scan or unreadable file, text over 2 MB, a name already there (unless `replace`), or a file
- * that would take Knowledge past its cap. Replace overwrites both files.
+ * a scan or unreadable file, text over 2 MB (a PDF stops converting once it passes that), a name
+ * already there (unless `replace`), or a file that would take Knowledge past its cap. Replace
+ * overwrites both files.
  */
 export async function uploadKnowledgeDocument(
   deps: BotSdkContext,
@@ -375,46 +496,23 @@ export async function uploadKnowledgeDocument(
   try {
     text = await extractKnowledgeText(isPdf ? pdfMediaType : wordMediaType, original, {
       pageMarkers: isPdf,
+      maxBytes: knowledgeTextLimitBytes,
     });
   } catch (caught) {
     if (caught instanceof ExtractionFailure) throw failureError(name, caught.code, isPdf);
     throw caught;
   }
   if (text.trim() === "") throw failureError(name, "no_text", isPdf);
-  const copy = new TextEncoder().encode(text);
-  if (copy.length > knowledgeTextLimitBytes) {
-    throw rpcError("BAD_REQUEST", "error.knowledgeTextTooLong", "That file has too much text", {
-      name,
-    });
-  }
 
   const path = folder === "" ? name : `${folder}/${name}`;
-  const copyPath = `${path}.md`;
-  const computer = computerOf(deps, userId);
-  await onComputer(async () => {
-    const { files } = await walk(computer);
-    const existing = files.filter((entry) => entry.path === path || entry.path === copyPath);
-    if (existing.length > 0 && !replace) {
-      throw rpcError(
-        "CONFLICT",
-        "error.knowledgeExists",
-        "A file with that name is already there",
-        {
-          path,
-        },
-      );
-    }
-    const used =
-      files.reduce((total, entry) => total + entry.size, 0) -
-      existing.reduce((total, entry) => total + entry.size, 0);
-    if (used + original.length + copy.length > knowledgeLimitBytes) {
-      throw rpcError("BAD_REQUEST", "error.knowledgeFull", "Knowledge is full");
-    }
-    // The copy goes first, so a failure never leaves an original that Bots can't read.
-    await computer.writeFile(absolute(copyPath), copy);
-    await computer.writeFile(absolute(path), original);
-    const uploads = await readUploads(computer);
-    if (!uploads.has(path)) await writeUploads(computer, uploads.add(path));
+  // The copy goes first, so a failure never leaves an original that Bots can't read.
+  await writeUpload(deps, userId, {
+    path,
+    writes: [
+      [`${path}.md`, new TextEncoder().encode(text)],
+      [path, original],
+    ],
+    replace,
   });
   return { path, size: original.length };
 }
