@@ -18,17 +18,15 @@ import { useBotSecrets } from "../client/react/secrets";
 import { useCacheWarming } from "../client/react/warm";
 import { BotAvatar } from "./bot-avatar";
 import { CheckInLine } from "./check-in-line";
-import { ComputerCard } from "./computer-card";
 import { HelperCard } from "./helper-card";
 import { isLiveDemonstration } from "../shared/demonstration";
 import { isLiveHelper } from "../shared/helper";
 import { ReviewPassesLine } from "./review-passes-line";
+import { defaultRichControlRenderers, type RichControlRenderers } from "./rich-control";
 import { ReviewRequest } from "./review-request";
 import { RoutineCard } from "./routine-card";
 import { RoutinesPopover } from "./routines-popover";
-import { SecretCard } from "./secret-card";
 import { SecretsPopover } from "./secrets-popover";
-import { ShowMeCard } from "./show-me-card";
 import { RunDivider } from "./run-divider";
 import { SummaryCard } from "./summary-card";
 import { TodoPopover } from "./todo-popover";
@@ -40,12 +38,14 @@ import { WarmLine } from "./warm-line";
  * Turn failed. A Routine the Bot created shows after the Turn that created it, as does a Check-in
  * it set, and each Helper it started shows as a card after it (a hand-off Message is followed by its Computer card), a Demonstration's Message is its Show me card, and each run of a Routine or fired Check-in gets a divider above what it sent, or one of its own when it stayed quiet. Where a Summary replaced the Bot's context, a card that expands to it sits before the next Message. The Bot's Messages are
  * never collapsed. The header lists the Routines, to pause, resume or delete them, and the To-do
- * list of live Helpers, to stop them.
+ * list of live Helpers, to stop them. A Message's Rich control renders with the Host's renderer for
+ * its kind in `controls`, or the default one.
  */
 export function BotConversation({
   botId,
   headerEnd,
   afterTurn,
+  controls,
 }: {
   botId: string;
   /** Header buttons the Host adds after the Bot's own, such as the `memory` plugin's Memory popover. */
@@ -55,10 +55,18 @@ export function BotConversation({
    * "Memory updated" chip. It may return nothing.
    */
   afterTurn?: (turn: BotTurnProvenance) => ReactNode;
+  /** The Host's renderers for the Rich control kinds it draws itself. */
+  controls?: RichControlRenderers;
 }) {
   // One instance per Bot, so a Turn's state never shows on another Bot.
   return (
-    <BotConversationView key={botId} botId={botId} headerEnd={headerEnd} afterTurn={afterTurn} />
+    <BotConversationView
+      key={botId}
+      botId={botId}
+      headerEnd={headerEnd}
+      afterTurn={afterTurn}
+      controls={controls}
+    />
   );
 }
 
@@ -66,11 +74,21 @@ function BotConversationView({
   botId,
   headerEnd,
   afterTurn,
+  controls,
 }: {
   botId: string;
   headerEnd?: ReactNode;
   afterTurn?: (turn: BotTurnProvenance) => ReactNode;
+  controls?: RichControlRenderers;
 }) {
+  const {
+    secret: SecretCard,
+    computer: ComputerCard,
+    demonstration: ShowMeCard,
+  } = {
+    ...defaultRichControlRenderers,
+    ...controls,
+  };
   const i18n = useI18n();
   const { t } = i18n;
   const [draft, setDraft] = useState("");
@@ -140,7 +158,8 @@ function BotConversationView({
         checkIns.some((checkIn) => checkIn.state === "pending") ||
         // The time cap may end a Demonstration while no Turn runs.
         messages.some(
-          (message) => message.demonstration && isLiveDemonstration(message.demonstration.state),
+          (message) =>
+            message.control?.kind === "demonstration" && isLiveDemonstration(message.control.state),
         )),
   );
 
@@ -175,7 +194,8 @@ function BotConversationView({
   const shownIds = new Set(messages.map((message) => message.id));
   // Only a Secret's newest request is a card: an older one is history, whatever happened since.
   const newestRequest = new Map<string, string>();
-  for (const sent of messages) if (sent.secret) newestRequest.set(sent.secret.name, sent.id);
+  for (const sent of messages)
+    if (sent.control?.kind === "secret") newestRequest.set(sent.control.name, sent.id);
   const routinesAfter = groupAfter(routines, shownIds);
   const checkInsAfter = groupAfter(checkIns, shownIds);
   const helpersAfter = groupAfter(helpers, shownIds);
@@ -333,17 +353,17 @@ function BotConversationView({
         {messages.length === 0 && (
           <p className="m-auto text-sm text-muted-foreground">{t("bots.noMessages")}</p>
         )}
-        {messages.map((message) => (
+        {messages.map(({ control, ...message }) => (
           <Fragment key={message.id}>
             {summariesBefore.get(message.id)}
             {warmingsBefore.get(message.id)}
             {runsBefore.get(message.id)}
-            {message.demonstration ? (
+            {control?.kind === "demonstration" ? (
               <ShowMeCard
-                card={message.demonstration}
+                card={control}
                 botName={bot.name}
                 onAct={onDemonstration}
-                acting={actingDemonstrations.has(message.demonstration.demonstrationId)}
+                acting={actingDemonstrations.has(control.demonstrationId)}
               />
             ) : (
               <div
@@ -363,25 +383,25 @@ function BotConversationView({
             )}
             {requestsAfter.get(message.id)}
             {afterTurnOf.get(message.id)}
-            {message.computer && (
+            {control?.kind === "computer" && (
               <ComputerCard
-                card={message.computer}
-                helper={helpers.find((helper) => helper.id === message.computer?.helperId)}
+                card={control}
+                helper={helpers.find((helper) => helper.id === control.helperId)}
                 onDone={onHelperDone}
-                acting={actingHelpers.has(message.computer.helperId)}
+                acting={actingHelpers.has(control.helperId)}
               />
             )}
-            {message.secret && newestRequest.get(message.secret.name) === message.id && (
+            {control?.kind === "secret" && newestRequest.get(control.name) === message.id && (
               <SecretCard
-                request={message.secret}
+                request={control}
                 botName={bot.name}
                 saved={secrets.some(
                   (saved) =>
-                    saved.name === message.secret?.name &&
+                    saved.name === control.name &&
                     saved.createdAt.getTime() >= message.createdAt.getTime(),
                 )}
                 onSave={saveSecret}
-                saving={actingSecrets.has(message.secret.name)}
+                saving={actingSecrets.has(control.name)}
               />
             )}
             {message.id === seenMessageId && (

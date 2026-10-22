@@ -47,11 +47,11 @@ export const secretNameSchema = z
   });
 
 /**
- * A Message's request for a Secret (spec #691): the name it asks for and why the Bot needs it. The
- * stored part is `{ type: "secret", name, why }`; the value never appears in it.
+ * A Message's request for a Secret (spec #691), the Rich control of kind `secret`: the name it asks
+ * for and why the Bot needs it. The value never appears in it.
  */
 export const secretRequestSchema = z.object({
-  type: z.literal("secret"),
+  kind: z.literal("secret"),
   name: secretNameSchema,
   why: z.string(),
 });

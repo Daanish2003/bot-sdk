@@ -30,7 +30,7 @@ const said = (id: string, role: BotMessage["role"], text: string): BotMessage =>
 
 const showMe = (state: DemonstrationState, steps = 0): BotMessage => {
   const demonstration: DemonstrationCard = {
-    type: "demonstration",
+    kind: "demonstration",
     demonstrationId: "d1",
     goal,
     state,
@@ -38,7 +38,7 @@ const showMe = (state: DemonstrationState, steps = 0): BotMessage => {
     endedAt: state === "recording" || state === "paused" ? null : createdAt.toISOString(),
     steps,
   };
-  return { ...said("m3", "assistant", goal), demonstration };
+  return { ...said("m3", "assistant", goal), control: demonstration };
 };
 
 const linkOf = (n: number) => `/api/screens/token-${n}/vnc.html?autoconnect=1`;

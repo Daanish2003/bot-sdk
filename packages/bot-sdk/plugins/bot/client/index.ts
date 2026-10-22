@@ -13,3 +13,11 @@ export type BotClientPlugin = BotSdkClientPlugin<"bot", BotRouter>;
 export function botClient(): BotClientPlugin {
   return { id: "bot" };
 }
+
+export {
+  botMessagePartsSchema,
+  type RichControl,
+  type RichControlKind,
+  richControlJsonSchema,
+  richControlSchema,
+} from "../shared/rich-control";

@@ -31,7 +31,7 @@ import {
 } from "./helper";
 import type { LoopKit } from "./loop";
 import { lockConversation } from "./router";
-import { demonstrationCardOf, demonstrationParts } from "./store";
+import { controlOf, controlParts } from "./store";
 import { hintChanged } from "./turn";
 
 /*
@@ -222,8 +222,8 @@ async function startDemonstration(
   });
   await appendMessage(tx, turn.conversationId, {
     role: "assistant",
-    parts: demonstrationParts({
-      type: "demonstration",
+    parts: controlParts(goal, {
+      kind: "demonstration",
       demonstrationId,
       goal,
       state: "recording",
@@ -380,7 +380,9 @@ export async function rewriteCard(
   demonstrationId: string,
   change: (card: DemonstrationCard) => DemonstrationCard,
 ) {
-  const holding = { parts: [{ type: "demonstration", demonstrationId }] };
+  const holding = {
+    parts: [{ type: "control", control: { kind: "demonstration", demonstrationId } }],
+  };
   const rows = await tx
     .select({ id: message.id, parts: message.parts })
     .from(message)
@@ -392,11 +394,12 @@ export async function rewriteCard(
       ),
     );
   for (const row of rows) {
-    const card = demonstrationCardOf(row.parts);
+    const card = controlOf(row.parts, "demonstration");
     if (!card) continue;
+    const changed = change(card);
     await tx
       .update(message)
-      .set({ parts: demonstrationParts(change(card)) })
+      .set({ parts: controlParts(changed.goal, changed) })
       .where(eq(message.id, row.id));
   }
 }

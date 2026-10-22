@@ -121,7 +121,9 @@ const jobOf = async (jobId: string | null) =>
 
 /** The Conversation's Messages that carry a Computer card. */
 const cardsOf = async (client: ReturnType<typeof chatRpc>, botId: string) =>
-  (await client.bot.get({ botId })).messages.filter((message) => message.computer);
+  (await client.bot.get({ botId })).messages.filter(
+    (message) => message.control?.kind === "computer",
+  );
 
 /** The result the model input gives the `ask_user` call, as its tool message's content. */
 const askUserAnswer = (input: ModelMessage[]) => {
@@ -152,7 +154,7 @@ describe("handing the Screen to the user", () => {
       expect.objectContaining({
         role: "assistant",
         text: reason,
-        computer: { type: "computer", helperId: helper.id, reason, state: "open" },
+        control: { kind: "computer", helperId: helper.id, reason, state: "open" },
       }),
     ]);
     // Its transcript is saved, ending with the call it waits on.
@@ -208,9 +210,11 @@ describe("handing the Screen to the user", () => {
       role: "user",
       content: `${helperMessagePrefix}Only open deals.`,
     });
-    expect((await cardsOf(client, botId)).map((message) => message.computer?.state)).toEqual([
-      "done",
-    ]);
+    expect(
+      (await cardsOf(client, botId)).map(
+        (message) => message.control?.kind === "computer" && message.control.state,
+      ),
+    ).toEqual(["done"]);
     // The Steps carry over, and the full transcript is kept.
     expect(await client.bot.helper.list({ botId })).toEqual([
       expect.objectContaining({ status: "complete", steps: 2 }),
@@ -234,9 +238,11 @@ describe("handing the Screen to the user", () => {
       code: "CONFLICT",
       message: "This task was stopped.",
     });
-    expect((await cardsOf(client, botId)).map((message) => message.computer?.state)).toEqual([
-      "cancelled",
-    ]);
+    expect(
+      (await cardsOf(client, botId)).map(
+        (message) => message.control?.kind === "computer" && message.control.state,
+      ),
+    ).toEqual(["cancelled"]);
     // Its transcript is the one it saved when it began to wait.
     expect((await helpersOf(botId))[0]?.transcript).toEqual(waiting.transcript);
   });

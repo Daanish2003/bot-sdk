@@ -322,7 +322,9 @@ describe("capturing a Demonstration", () => {
 
     // The card counts the steps, and the user reads them back.
     const { messages } = await client.bot.get({ botId });
-    expect(messages.find((message) => message.demonstration)?.demonstration?.steps).toBe(5);
+    expect(
+      messages.find((message) => message.control?.kind === "demonstration")?.control,
+    ).toMatchObject({ steps: 5 });
     const { steps } = await client.bot.demonstration.steps({ demonstrationId });
     expect(steps.map((step) => [step.kind, step.label, step.value])).toEqual([
       ["navigation", "Payouts", null],
@@ -548,8 +550,10 @@ describe("capturing a Demonstration", () => {
     await page.waitForTimeout(500);
     expect(await eventsOf(demonstrationId)).toHaveLength(demonstrationEventLimit);
     const { messages } = await client.bot.get({ botId });
-    expect(messages.find((message) => message.demonstration)?.demonstration?.steps).toBe(
-      demonstrationEventLimit,
-    );
+    expect(
+      messages.find((message) => message.control?.kind === "demonstration")?.control,
+    ).toMatchObject({
+      steps: demonstrationEventLimit,
+    });
   }, 90_000);
 });

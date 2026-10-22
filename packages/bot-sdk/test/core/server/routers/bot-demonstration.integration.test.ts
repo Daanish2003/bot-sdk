@@ -244,9 +244,8 @@ describe("watch_user", { timeout: 30_000 }, () => {
     // The Turn ended as usual; the Demonstration outlives it.
     const { bot: shown, messages } = await client.bot.get({ botId });
     expect(shown.turnStatus).toBe("complete");
-    const card = messages.find((message) => message.demonstration);
-    expect(card?.demonstration).toEqual({
-      type: "demonstration",
+    expect(messages.find((message) => message.control)?.control).toEqual({
+      kind: "demonstration",
       demonstrationId: row!.id,
       goal,
       state: "recording",
@@ -399,9 +398,11 @@ async function demonstrating() {
 
 const stateOf = async (botId: string) => (await demonstrationsOf(botId))[0]?.state;
 
-const cardOf = async (client: ReturnType<typeof chatRpc>, botId: string) =>
-  (await client.bot.get({ botId })).messages.find((message) => message.demonstration)
-    ?.demonstration;
+const cardOf = async (client: ReturnType<typeof chatRpc>, botId: string) => {
+  for (const { control } of (await client.bot.get({ botId })).messages)
+    if (control?.kind === "demonstration") return control;
+  return undefined;
+};
 
 describe("the Demonstration's routes", { timeout: 30_000 }, () => {
   it("pause and resume move between recording and paused, and are no-ops from the other state", async () => {

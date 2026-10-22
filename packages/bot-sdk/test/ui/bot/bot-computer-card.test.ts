@@ -29,7 +29,7 @@ const said = (id: string, role: BotMessage["role"], text: string): BotMessage =>
 
 const handOff = (state: ComputerCard["state"]): BotMessage => ({
   ...said("m3", "assistant", reason),
-  computer: { type: "computer", helperId: "h1", reason, state },
+  control: { kind: "computer", helperId: "h1", reason, state },
 });
 
 const helper: BotHelper = {

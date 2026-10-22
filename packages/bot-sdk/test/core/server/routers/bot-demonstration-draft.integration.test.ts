@@ -247,9 +247,11 @@ const triggerOf = async (demonstrationId: string) =>
       .where(eq(botTrigger.id, `demonstration:${demonstrationId}`))
   )[0];
 
-const cardOf = async (client: ReturnType<typeof chatRpc>, botId: string) =>
-  (await client.bot.get({ botId })).messages.find((message) => message.demonstration)
-    ?.demonstration;
+const cardOf = async (client: ReturnType<typeof chatRpc>, botId: string) => {
+  for (const { control } of (await client.bot.get({ botId })).messages)
+    if (control?.kind === "demonstration") return control;
+  return undefined;
+};
 
 const textOf = (messages: readonly ModelMessage[]) =>
   messages
