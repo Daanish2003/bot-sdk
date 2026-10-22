@@ -14,7 +14,7 @@ import { parseModelId } from "../../models/shared/models";
 import { approvalWaitMs, type BotReview, type ReviewApprovalState } from "../shared/review";
 import { parseReply } from "../../memory/server/ask";
 import { lockConversation } from "./router";
-import { routineNameOf, routinePromptOf } from "./routine";
+import { forwardedEmailLabel, routineNameOf, routinePromptOf } from "./routine";
 import { recordBotChange } from "./thread-change";
 import { isSavedSecretText } from "./secret-values";
 import { hintChanged } from "./turn";
@@ -514,7 +514,10 @@ async function reviewerInput(
     text.length > reviewedChars ? `${text.slice(0, reviewedChars)}…` : text;
   const userLines = latest
     .reverse()
-    .map((row) => `- [${row.createdAt.toISOString()}] ${cut(searchTextOf(row.parts))}`);
+    .map(
+      (row) =>
+        `- [${row.createdAt.toISOString()}] ${cut(withoutForwarded(searchTextOf(row.parts)))}`,
+    );
   const startLines = triggers.map((trigger) => {
     // A saved Secret wakes the Bot with its name only, and no Message: it asks for nothing.
     if (trigger.source === "user" && !trigger.messageId && isSavedSecretText(trigger.text)) {
@@ -564,6 +567,21 @@ async function reviewerInput(
     `Tool: ${call.tool}`,
     `Arguments: ${JSON.stringify(call.input, null, 2)}`,
   ].join("\n\n");
+}
+
+/**
+ * A Message by email without its forwarded part: what a forward holds is not the user's word, so the
+ * reviewer never reads it as permission.
+ */
+function withoutForwarded(text: string): string {
+  const at = text.indexOf(`
+
+${forwardedEmailLabel}
+`);
+  if (at === -1) return text;
+  return `${text.slice(0, at)}
+
+(A forwarded email followed: not the user's word, not shown.)`;
 }
 
 /** How many of a Bot's newest reviews `listReviews` returns, besides the waiting ones. */
