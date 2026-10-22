@@ -12,7 +12,7 @@ Shared by the orchestrator and every implementer. Each bullet cost a past run a 
 - **Creation order:** create worktrees one at a time. Parallel `git worktree add` races on the `.git/config` lock.
 - **Pre-made worktrees:** never give `isolation: "worktree"` to an agent that has one; it gets a second worktree under `.claude/worktrees` and its git commands on yours are refused.
 - **What hooks block:** `git branch -D`, `git checkout -- .`, `reset --hard`, force-push and pushing to `main`. Use `git branch -d`, and to clear CRLF-only noise, use `git add -A`. Give the user `-D` commands to run. The hooks match the text anywhere in a command, even inside a sed or echo string, so write "force-delete" instead.
-- **`-d` and ticket branches:** `git branch -d` checks against the current branch's upstream or HEAD, so it refuses a ticket branch that is merged only into the integration branch. Put those branches on the user's list at the end.
+- **`-d` and ticket branches:** `git branch -d` checks against the current branch's upstream or HEAD, so it refuses a ticket branch that is merged only into the integration branch. Retry them after the integration PR merges (see below).
 - **Formatting:** `pnpm check` runs `oxfmt --write` and rewrites line endings in every file. Use `pnpm exec oxlint` and `pnpm exec oxfmt --check` instead.
 - **Scripted edits:** this machine has no `python`; use `node -e`.
 - **Fresh worktrees:** the first `pnpm exec` in a worktree with no `node_modules` runs a `pnpm install`. Two at once can fail with `ERR_PNPM_LOCKFILE_RENAME_FILE`; retry once the install has finished.
@@ -20,6 +20,8 @@ Shared by the orchestrator and every implementer. Each bullet cost a past run a 
 - **Repo name:** the GitHub repo is `Daanish2003/bot-sdk` (renamed from `Daanish2003/ai-chat`; old URLs redirect). `origin` points at it since 2026-10-20.
 - **Main moves during the run (#624):** another session merged a PR touching the same eval files while #648 was open, so the PR showed `CONFLICTING` and CI never started (`gh pr checks` said "no checks reported"). After opening the PR, check `gh pr view <n> --json mergeable`; merge `origin/main` in (with `-c core.autocrlf=false`; the #624 run forgot it once and had to repair 61 CRLF files).
 - **A fast-forward that skips verify can carry a stale test (#624):** #631 changed `bot.get`, its agent ran only the affected tests, and the next full verify failed on an untouched test in `bot.integration`. Skip the verify only when the agent ran the whole suite.
+- **`-d` after the PR merges (#761):** once the integration PR is merged and `main` is pulled, `git branch -d` deletes every ticket branch, including ones `-d` refused mid-run. Delete them then, and hand the user only what still refuses.
+- **A busy worktree folder (#761):** `rm -rf` of a worktree folder worked for most, but one failed with "Device or resource busy" because a process an agent started (the example's smoke server) still held it. Give that folder to the user to remove after a restart.
 
 ## Databases and services
 
@@ -38,6 +40,9 @@ Shared by the orchestrator and every implementer. Each bullet cost a past run a 
 - **Local E2B Embed** (WSL `Ubuntu-24.04`, `~/e2b`): a template build uploads to `[::1]:5008`, which Node can't reach from Windows. Run a small TCP relay from `127.0.0.1:5008` to `[::1]:5008` during the build. When a build fails with "envd syncing" or an mmap memfd error, drop the page cache as root (`wsl -d Ubuntu-24.04 -u root -- bash -c 'sync; echo 3 > /proc/sys/vm/drop_caches'`) and rebuild.
 - **Embed and memory:** the Embed distro holds several GB. Stop it (`wsl --terminate Ubuntu-24.04`) before a verify or an e2e run. In the #587 run, both were reaped for low memory until the distro and tsserver were stopped. Restart it with `wsl -d Ubuntu-24.04 -- bash -c 'cd ~/e2b && docker compose up -d --wait'`.
 - **Concurrent evals:** give each eval run its own `EVAL_DATABASE_URL` database (for example `ai-chat_eval_ladder`). Two evals on one database truncate each other's rows.
+- **A shared test database name (#761):** an implementer ran its suite against the plain `ai-chat_test` database. Brief every agent with its own exact database and Redis db.
+- **Mailpit (#761):** its webhook is rate-limited to 1 per second and posts a summary without a signature. A probe that sets `MP_WEBHOOK_URL` leaves the container pointing at the probe's port. Recreate it (`docker compose up -d --force-recreate mailpit`) before using the web app.
+- **Memory, again (#761):** a background verify was reaped while the session was idle, with tsserver at 2.4 GB. The full verify takes about 12 minutes, longer than the 10-minute foreground limit, so it has to run in the background. Free memory first: ask the user to let you kill tsserver before the verify that gates the PR.
 
 ## Checks
 
@@ -80,6 +85,10 @@ Shared by the orchestrator and every implementer. Each bullet cost a past run a 
 - **Heredocs in Bash:** backslashes inside a heredoc sent through the Bash tool were dropped (regexes and `
 ` in scripts). Write the script with the Write tool into the scratchpad and run it.
 - **CI-only criteria:** a criterion like "green on PR" or "seen to fail in CI" needs a real PR. Use a draft PR into the integration branch.
+- **Providers reject some regexes in tool JSON Schema (#761):** OpenAI refused every call (`Invalid schema for function 'send_to_user' … is not a 'regex'`) because a Zod `.regex` with `p{…}` reached the tool schema. Fake-Model tests never send the schema, so the full suite was green while the real eval was 0/45. Use `.refine` for such checks; a test in `bot-reaction.integration` now fails on `p{`, lookbehind or named groups in any Model-facing tool schema. Run one real eval case early when a ticket changes a tool's input schema.
+- **Missing change hints (#761):** a review found user RPCs that recorded a Bot-thread change but never called `hintChanged`, so other tabs waited for focus: Check-in cancel, the Routine approve, decline, pause, resume and delete, and Helper stop. Brief any ticket that adds a thread-changing path to hint after the commit and test it.
+- **bot-memory-search, again (#761):** "is absent with Memory off…" failed in two more full verifies and passed 2/2 alone each time.
+- **Repeated hand-backs (#761):** an agent whose forked code-review returned late sent the same final report four times. Tell it the ticket is merged and to stop.
 
 ## Slots
 
@@ -105,6 +114,7 @@ Shared by the orchestrator and every implementer. Each bullet cost a past run a 
 - **An eval that never kills its sandboxes exhausts hugepages (#737):** `eval:knowledge` passed its first case, then every other case failed with "Failed to place sandbox" (Embed: `mmap memfd: cannot allocate memory`). Each case's sandbox kept its 2 MB hugepages. Fixed in c60706a8 (`dropComputer` in `finally`). After such a run, kill the leftover eval node process and run `docker compose restart orchestrator` in `~/e2b` to free the pages; dropping caches didn't help. Check any new Computer eval for that cleanup before its first real run.
 - **Scorers and curly quotes (#737):** a real Model writes ’, so a scorer regex with a straight `'` (like "don't") missed the reply and failed a correct case. Normalise ’ and ‘ to `'` before matching.
 - **Read a wrong verdict before tuning (#697):** all three wrong blocks in the first safety run came from one case whose call force-pushed when the Routine never said so. The reviewer was right and the case was wrong. Fix the case, re-run, and record both runs.
+- **Run the real eval before the PR (#761):** the Channels eval on the ChatGPT plan found the tool-schema rejection that every fake-Model test missed. A real run went 44/45; the one miss was an OpenAI `server_is_overloaded`, so re-run a case that fails on a provider error before treating it as a miss.
 
 ## Permissions
 
