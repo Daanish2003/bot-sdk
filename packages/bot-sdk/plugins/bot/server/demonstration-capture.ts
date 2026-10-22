@@ -303,10 +303,10 @@ const recordingNow = async (deps: BotSdkContext, demonstrationId: string) => {
  * screenshot `screenshot` takes (none for a masked step, or while a password shows), and its
  * card's step count. A step that came while it was paused or had ended (`received`, read when it
  * came) is dropped before any screenshot; one that a Pause overtakes while its screenshot is taken
- * is dropped, and its bytes deleted. One already stored, sent again, is
- * skipped. The screenshot is put in the blob store before the row is written, outside the locks, so a row is never read before
- * the bytes its key names; a put that fails stores the step without one. The step that reaches
- * `demonstrationEventLimit` ends it as Done.
+ * is dropped, and its bytes deleted. One already stored, sent again, is skipped. The screenshot is
+ * put in the blob store before the row is written, outside the locks, so a row is never read
+ * before the bytes its key names; a put that fails stores the step without one. The step that
+ * reaches `demonstrationEventLimit` ends it as Done.
  */
 async function storeStep(
   deps: BotSdkContext,
