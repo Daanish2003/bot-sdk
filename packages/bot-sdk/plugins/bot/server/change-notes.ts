@@ -4,8 +4,13 @@ import { eq } from "drizzle-orm";
 import { botPromptStart } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
 import type { Transaction } from "../../../core/server/plugin";
-import { byCodeUnit, isMoreKnowledge, knowledgeBlockLimit } from "../../knowledge/server/prompt";
-import { knowledgeDirectory } from "../../knowledge/shared/folder";
+import {
+  byCodeUnit,
+  isMoreKnowledge,
+  knowledgeBlockLimit,
+  promptSafePath,
+} from "../../knowledge/server/prompt";
+import { knowledgeDirectory, readableCopyPath } from "../../knowledge/shared/folder";
 import {
   isSkillFile,
   type SkillLine,
@@ -318,7 +323,8 @@ function applyOwnCalls(botId: string, seen: Seen, transcript: ModelMessage[]) {
     // The Bot knows the Knowledge files it saved.
     const saved = typeof args.path === "string" ? knowledgeTarget(botId, args.path) : undefined;
     if (saved !== undefined) {
-      seen.knowledge?.paths.add(saved);
+      // A path the Knowledge block never lists is never noted either.
+      if (promptSafePath(saved)) seen.knowledge?.paths.add(saved);
       continue;
     }
     const skill = typeof args.path === "string" ? skillTarget(botId, args.path) : undefined;
@@ -451,7 +457,10 @@ export async function changeNotesFor(
         .map((path) => `Knowledge added: ${path}`),
       // A file converted since is still there: its readable copy, noted as added, stands for it.
       ...[...paths]
-        .filter((path) => !now.has(path) && !now.has(`${path}.md`))
+        .filter((path) => {
+          const copy = readableCopyPath(path);
+          return !now.has(path) && (copy === undefined || !now.has(copy));
+        })
         .map((path) => `Knowledge removed: ${path}`),
     ];
     // Capped like the block: the notes left out are told again next Turn, until a Summary.

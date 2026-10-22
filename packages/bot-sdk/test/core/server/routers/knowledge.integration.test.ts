@@ -236,6 +236,111 @@ describe("the knowledge router", { timeout: 30_000 }, () => {
     ]);
   });
 
+  it("keeps every upload of a concurrent batch as the user's", async () => {
+    const { client } = await setup();
+    const names = ["a.md", "b.md", "c.md", "d.md", "e.md"];
+
+    await Promise.all(names.map((name) => client.knowledge.upload({ name, content: name })));
+
+    expect((await client.knowledge.list()).files).toEqual(
+      names.map((name) => ({ path: name, size: 4, savedBy: "user" })),
+    );
+  });
+
+  it("never takes Knowledge past 50 MB with concurrent uploads", async () => {
+    const { computerFake, client } = await setup();
+    computerFake.files.set(`${folder}/big.txt`, new Uint8Array(limit - 10));
+
+    const results = await Promise.allSettled(
+      ["one.md", "two.md"].map((name) => client.knowledge.upload({ name, content: "x".repeat(6) })),
+    );
+
+    expect(results.map((result) => result.status).toSorted()).toEqual(["fulfilled", "rejected"]);
+    expect(knowledgePaths(computerFake.files)).toHaveLength(2);
+  });
+
+  it("lists a user's upload as a Bot's once a Bot's recorded Turn rewrote it", async () => {
+    const { computerFake, client, user } = await setup();
+    await client.knowledge.upload({ name: "report.md", content: "mine" });
+    const conversation = await insertConversation(user, { kind: "bot" });
+    const botId = uuidv7();
+    await getTestDb().insert(bot).values({
+      id: botId,
+      userId: user.id,
+      conversationId: conversation.id,
+      name: "Ada",
+      model: "x:y",
+    });
+    // A Turn that only read the file leaves it the user's.
+    expect((await client.knowledge.list()).files).toEqual([
+      { path: "report.md", size: 4, savedBy: "user" },
+    ]);
+    computerFake.files.set(`${folder}/report.md`, encode("Ada's"));
+    await getTestDb()
+      .insert(botTurn)
+      .values({
+        id: uuidv7(),
+        botId,
+        status: "complete",
+        startedAt: new Date(),
+        knowledgeChanges: [{ botId, path: "report.md" }],
+      });
+
+    expect((await client.knowledge.list()).files).toEqual([
+      { path: "report.md", size: 5, savedBy: "bot", botName: "Ada" },
+    ]);
+  });
+
+  it("lists an upload as a Bot's once its shell rewrote it, with no list in between", async () => {
+    const { computerFake, client } = await setup();
+    await client.knowledge.upload({ name: "x.md", content: "x" });
+    // `rm x.md && echo y > x.md` in one shell call: nothing is recorded.
+    computerFake.files.delete(`${folder}/x.md`);
+    computerFake.files.set(`${folder}/x.md`, encode("y"));
+
+    expect((await client.knowledge.list()).files).toEqual([
+      { path: "x.md", size: 1, savedBy: "bot" },
+    ]);
+  });
+
+  it("refuses an upload over a name that a long listing leaves out", async () => {
+    const { computerFake, client } = await setup();
+    // About 1.4 MB of listing, past the 1 MB a walk reads; the last file is past the cut.
+    for (let index = 0; index < 30_000; index++) {
+      computerFake.files.set(
+        `${folder}/many/${String(index).padStart(5, "0")}-${"x".repeat(30)}.md`,
+        encode("x"),
+      );
+    }
+    computerFake.files.set(`${folder}/many/last.md`, encode("old"));
+
+    await expect(
+      client.knowledge.upload({ folder: "many", name: "last.md", content: "new" }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(textOf(computerFake.files.get(`${folder}/many/last.md`))).toBe("old");
+  });
+
+  it("forgets an upload that a Bot removed, so a file a Bot writes there later is the Bot's", async () => {
+    const { computerFake, client } = await setup();
+    await client.knowledge.upload({ name: "x.md", content: "x" });
+    // A Bot's `rm`, seen by a list, then a Bot's shell write of the same name.
+    computerFake.files.delete(`${folder}/x.md`);
+    expect((await client.knowledge.list()).files).toEqual([]);
+    computerFake.files.set(`${folder}/x.md`, encode("by a Bot"));
+
+    expect((await client.knowledge.list()).files).toEqual([
+      { path: "x.md", size: 8, savedBy: "bot" },
+    ]);
+  });
+
+  it("walks the tree in one command, not one list per folder", async () => {
+    const { computerFake, client } = await setup();
+    computerFake.files.set(`${folder}/a/b/c/note.md`, encode("n"));
+
+    expect((await client.knowledge.list()).folders).toEqual(["a", "a/b", "a/b/c"]);
+    expect(computerFake.callsOf("run")).toHaveLength(1);
+  });
+
   it("reads a file's text", async () => {
     const { client } = await setup();
     await client.knowledge.upload({ folder: "a", name: "x.md", content: "# Hi\n" });
