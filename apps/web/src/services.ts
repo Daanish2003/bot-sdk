@@ -11,6 +11,7 @@ import { assistant } from "@ai-chat/bot-sdk/plugins/assistant/server";
 import { bot } from "@ai-chat/bot-sdk/plugins/bot/server";
 import { channel, emailChannel } from "@ai-chat/bot-sdk/plugins/channel/server";
 import { fakeEmailProvider } from "@ai-chat/bot-sdk/plugins/channel/fake";
+import { mailpitEmailProvider } from "@ai-chat/bot-sdk/plugins/channel/mailpit";
 import { memory } from "@ai-chat/bot-sdk/plugins/memory/server";
 import { knowledge } from "@ai-chat/bot-sdk/plugins/knowledge/server";
 import { skills } from "@ai-chat/bot-sdk/plugins/skills/server";
@@ -149,12 +150,18 @@ export const sdk = (shared.botSdk ??= createBotSdk({
     // Bots (spec #463): the full-screen Bots app at /bots.
     bot(),
     // Channels (spec #761): each Bot's own email address. The fake provider takes a JSON mail at
-    // POST /api/channels/email and sends nothing out; a real provider replaces it (#773). It vouches
-    // for any DMARC verdict it is sent, so, like the Mailpit provider (#762), it is for a Host that
-    // only listens on localhost: never put this route where others can reach it.
+    // POST /api/channels/email and sends nothing out. With MAILPIT_API_URL set, Mailpit is the
+    // provider instead (#773). Both vouch for DMARC (the fake for whatever it is sent, Mailpit for
+    // every mail it holds), so they are for a Host that only listens on localhost: never put this
+    // route where others can reach it.
     channel({
       adapters: [
-        emailChannel({ provider: fakeEmailProvider().provider, domain: "bots.localhost" }),
+        emailChannel({
+          provider: ENV.MAILPIT_API_URL
+            ? mailpitEmailProvider({ apiUrl: ENV.MAILPIT_API_URL })
+            : fakeEmailProvider().provider,
+          domain: ENV.EMAIL_CHANNEL_DOMAIN ?? "bots.localhost",
+        }),
       ],
       // Only mail from the user's verified account email reaches their Bots.
       verifiedEmail: async (userId) => {
