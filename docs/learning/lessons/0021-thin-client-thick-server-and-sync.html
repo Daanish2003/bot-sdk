@@ -71,10 +71,11 @@
       </figure>
       <p>
         Every change to the thread takes the next number of its Conversation. The changes are a new
-        Message, a Turn's status and a Rich control's state. The number is <code>last_seq</code> on
-        the Conversation row. The change goes into <code>conversation_change</code> in the same
-        transaction, under the row lock. The changes commit in number order, with no gaps. The log
-        keeps the newest 500 changes of each Conversation.
+        Message, a Turn's status, and a change to a Routine, review, Helper, Check-in, Secret or
+        Summary. The number is <code>last_seq</code> on the Conversation row. The change goes into
+        <code>conversation_change</code> in the same transaction, under the row lock. The changes
+        commit in number order, with no gaps. The log keeps the newest 500 changes of each
+        Conversation.
       </p>
       <ol class="steps">
         <li><code>last_seq</code> is 41. A Turn starts.</li>
@@ -108,7 +109,7 @@
             <td>Applies both, in order. The cursor becomes 43.</td>
           </tr>
           <tr>
-            <td>Cursor 41, then 44 (42 and 43 missing)</td>
+            <td>Cursor 41, and the first change is 44 (42 and 43 missing)</td>
             <td>Reloads the thread with <code>bot.get</code>.</td>
           </tr>
           <tr>
@@ -127,9 +128,9 @@
       <p>
         PubSub delivers a hint at most once. If the last hint of a Turn is lost, the tab would show
         "Working…" for ever. So a tab with a running Turn also fetches every 30 seconds. The lecture
-        does not cover this fallback, so it is a recorded deviation (ADR 0026). The old design
-        polled
-        <code>bot.get</code> every 2 seconds, and refreshed every 15 seconds.
+        does not cover this fallback, so it is a recorded deviation (ADR 0026). ADR 0026 also
+        records the design it replaced: a tab polled <code>bot.get</code> every 2 seconds, and a
+        15-second refresh caught background work.
       </p>
 
       <section class="takeaways">
@@ -165,8 +166,8 @@
       >
         <div class="label">Quiz 1</div>
         <p class="q">
-          A tab's cursor is 41. The hint comes, and the log returns only change 44. What does the
-          tab do?
+          A tab's cursor is 41. The hint comes, and the first change the log holds after 41 is 44.
+          What does the tab do?
         </p>
         <ol class="opts">
           <li>It reloads the thread with <code>bot.get</code></li>
@@ -205,8 +206,8 @@
         <summary>Go deeper: sources, Channels and a challenge</summary>
         <h3>The lecture</h3>
         <p>
-          The lecture is not in this repo. ADR 0026 cites its slide 19, the four stages of sync, as
-          the design this lesson follows.
+          The lecture is not in this repo. ADR 0026 cites its slide 19 as the design this lesson
+          follows.
         </p>
         <h3>The decisions</h3>
         <ul>
@@ -218,7 +219,8 @@
           </li>
           <li>
             Channels: the ADR says email and later Channels need no change log. They get deliveries,
-            not a view. The Channels eval is hand-run and its results are not kept in the repo.
+            not a view. The Channels eval (<code>packages/bot-sdk/eval/channels</code>) is hand-run,
+            and its README says its results go to a gitignored folder.
           </li>
           <li>
             Rich controls: the catalog in
@@ -234,8 +236,8 @@
           Read <code>changeData</code> in
           <a href="../../../packages/bot-sdk/plugins/bot/server/changes.ts"
             ><code>changes.ts</code></a
-          >. The log keeps only a kind and an id, so why does <code>bot.changes</code> read each row
-          again? Tell your teacher.
+          >. The log keeps only the kind, the id, the seq and the time, so why does
+          <code>bot.changes</code> read each row again? Tell your teacher.
         </p>
       </details>
 

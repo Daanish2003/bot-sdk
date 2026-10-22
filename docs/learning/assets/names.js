@@ -1088,7 +1088,7 @@ window.NAMES = [
     name: "recordChange",
     kind: "function",
     meaning:
-      "Bumps last_seq and writes one change, inside the caller's transaction. A change that rolls back gives its number back.",
+      "Bumps last_seq and writes one change, inside the caller's transaction. It also deletes the changes older than the newest 500. A change that rolls back gives its number back.",
     example: "recordChange(tx, conversationId, { kind: 'message', refId, at })",
   },
   {
