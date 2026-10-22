@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
@@ -467,6 +468,36 @@ describe("capturing a Demonstration", () => {
       .toEqual([
         ["navigation", null],
         ["click", "#go"],
+      ]);
+  }, 60_000);
+
+  it("stores a step its page sends twice once", async () => {
+    const { demonstrationId, page } = await demonstrating();
+    const binding = `__botDemonstration_${demonstrationId.replaceAll("-", "")}`;
+
+    // As when a round took a step but its answer never reached the page, which sent it again.
+    await page.evaluate(
+      async ({ name, id }) => {
+        const step = { id, kind: "click", url: location.href, label: "Go", selector: "#go" };
+        const report = (window as unknown as Record<string, (step: object) => Promise<void>>)[
+          name
+        ]!;
+        await report({ ...step, value: null, masked: false });
+        await report({ ...step, value: null, masked: false });
+      },
+      { name: binding, id: randomUUID() },
+    );
+    await page.locator("#name").click();
+
+    await expect
+      .poll(
+        async () => (await eventsOf(demonstrationId)).map(({ kind, selector }) => [kind, selector]),
+        poll,
+      )
+      .toEqual([
+        ["navigation", null],
+        ["click", "#go"],
+        ["click", "#name"],
       ]);
   }, 60_000);
 

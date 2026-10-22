@@ -6,7 +6,6 @@ import { z } from "zod";
 
 import { botDemonstration, botDemonstrationEvent } from "../../../core/server/db/schema";
 import { deleteBlobsBestEffort } from "../../../core/server/blob/store";
-import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
 import { defineJob } from "../../runner/server/jobs/define";
@@ -58,7 +57,8 @@ export const demonstrationEventBlobKey = (demonstrationId: string, eventId: stri
  * A step stays queued in its page until the server has taken it, so one taken between two rounds'
  * connections, or while a round closes, isn't lost: the next round runs this again in every open
  * document, which sends the queue again. A document opened between rounds has no listener until
- * then; its page load is still reported, as the next round finds it loaded.
+ * then; its page load is still reported, as the next round finds it loaded. Each step carries a
+ * random id, so one sent again after the server took it (its answer lost) is stored once.
  */
 const listenerSource = (name: string) => String.raw`(() => {
   const binding = ${JSON.stringify(name)};
@@ -79,10 +79,18 @@ const listenerSource = (name: string) => String.raw`(() => {
     } catch {}
   };
   Object.defineProperty(window, flag + "_resend", { value: () => queue.slice().forEach(deliver) });
+  // A version 4 uuid; crypto.randomUUID needs a secure context, and a page may be plain http.
+  const newId = () => {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 15) | 64;
+    bytes[8] = (bytes[8] & 63) | 128;
+    const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join("-");
+  };
   const send = (step) => {
     // Before the page's own handlers run, so a field a "show password" click unmasks is known.
     trackPasswords();
-    const item = { step: { url: location.href, ...step } };
+    const item = { step: { id: newId(), url: location.href, ...step } };
     queue.push(item);
     if (queue.length > ${demonstrationEventLimit}) queue.shift();
     deliver(item);
@@ -236,6 +244,7 @@ const listenerSource = (name: string) => String.raw`(() => {
 
 /** A step as the listener reports it. It comes from a page, so each field is checked and cut. */
 const reportedStepSchema = z.object({
+  id: z.uuid(),
   kind: z.enum(["click", "input", "change", "key", "navigation"]),
   url: z.string().transform((url) => url.slice(0, 2_000)),
   label: z
@@ -294,8 +303,8 @@ const recordingNow = async (deps: BotSdkContext, demonstrationId: string) => {
  * screenshot `screenshot` takes (none for a masked step, or while a password shows), and its
  * card's step count. A step that came while it was paused or had ended (`received`, read when it
  * came) is dropped before any screenshot; one that a Pause overtakes while its screenshot is taken
- * is dropped, and its bytes deleted. The screenshot is put
- * in the blob store before the row is written, outside the locks, so a row is never read before
+ * is dropped, and its bytes deleted. One already stored, sent again, is
+ * skipped. The screenshot is put in the blob store before the row is written, outside the locks, so a row is never read before
  * the bytes its key names; a put that fails stores the step without one. The step that reaches
  * `demonstrationEventLimit` ends it as Done.
  */
@@ -307,7 +316,13 @@ async function storeStep(
   screenshot: () => Promise<Uint8Array | null>,
 ) {
   if (!(await received)) return;
-  const id = uuidv7();
+  // A step its page sent again, after this or an earlier round took it.
+  const id = step.id;
+  const [taken] = await deps.db
+    .select({ id: botDemonstrationEvent.id })
+    .from(botDemonstrationEvent)
+    .where(eq(botDemonstrationEvent.id, id));
+  if (taken) return;
   const png = step.masked ? null : await screenshot().catch(() => null);
   const screenshotKey = png ? demonstrationEventBlobKey(demonstration.id, id) : null;
   const put =
@@ -366,10 +381,10 @@ async function storeStep(
  */
 async function passwordShown(page: Page, name: string): Promise<boolean> {
   const check = `window[${JSON.stringify(`${name}_listening_revealed`)}]?.() === true`;
-  for (const frame of page.frames()) {
-    if (await frame.evaluate(check).catch(() => false)) return true;
-  }
-  return false;
+  const shown = await Promise.all(
+    page.frames().map((frame) => frame.evaluate(check).catch(() => false)),
+  );
+  return shown.includes(true);
 }
 
 /**
@@ -464,8 +479,13 @@ export const demonstrationCaptureJob = defineJob({
         await sleep(checkMs, undefined, { signal });
       }
     } finally {
+      // Steps that come while the round stores the last ones are stored too; only once the chain
+      // is done are new ones refused, for the page to send to the next round.
+      for (let chain: Promise<void> | undefined; chain !== pending.chain;) {
+        chain = pending.chain;
+        await chain;
+      }
       pending.closing = true;
-      await pending.chain;
       await browser.close().catch(() => {});
     }
     if (await live()) {
