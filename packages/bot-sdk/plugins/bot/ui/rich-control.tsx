@@ -1,7 +1,10 @@
 import type { ComponentProps, ReactNode } from "react";
 
+import { ChoiceCard } from "./choice-card";
 import { ComputerCard } from "./computer-card";
 import { FilesCard } from "./files-card";
+import { ReviewRequest } from "./review-request";
+import { RoutineCard } from "./routine-card";
 import { SecretCard } from "./secret-card";
 import { ShowMeCard } from "./show-me-card";
 
@@ -14,6 +17,9 @@ export const defaultRichControlRenderers = {
   computer: ComputerCard,
   demonstration: ShowMeCard,
   files: FilesCard,
+  choice: ChoiceCard,
+  routine_approval: RoutineCard,
+  review_approval: ReviewRequest,
 };
 
 type Rendered = typeof defaultRichControlRenderers;

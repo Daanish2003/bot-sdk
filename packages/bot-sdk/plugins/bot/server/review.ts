@@ -2,6 +2,7 @@ import { chat, EventType, type ModelMessage, type StreamChunk } from "@tanstack/
 import { and, asc, desc, eq, gt } from "drizzle-orm";
 import { z } from "zod";
 
+import { appendMessage } from "../../../core/server/chat/message-tree";
 import { bot, botReview, botTrigger, message } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
@@ -15,6 +16,7 @@ import { approvalWaitMs, type BotReview, type ReviewApprovalState } from "../sha
 import { parseReply } from "../../memory/server/ask";
 import { lockConversation } from "./router";
 import { forwardedEmailLabel, routineNameOf, routinePromptOf } from "./routine";
+import { controlParts } from "./store";
 import { recordBotChange } from "./thread-change";
 import { isSavedSecretText } from "./secret-values";
 import { hintChanged } from "./turn";
@@ -182,6 +184,15 @@ export async function reviewToolCall(
       createdAt,
     });
     await recordBotChange(tx, source, "review", id, createdAt);
+    // A block is asked in the thread: a Message holding the review's id, its state read from the row.
+    if (deadline) {
+      await appendMessage(tx, source.conversationId, {
+        role: "assistant",
+        parts: controlParts(reviewed.summary, { kind: "review_approval", reviewId: id }),
+        status: "complete",
+        createdAt,
+      });
+    }
     wrote = true;
     if (reviewed.bill) {
       const meter = liveMeter ?? (await reviewMeter(deps, owner.userId, reviewed.model));

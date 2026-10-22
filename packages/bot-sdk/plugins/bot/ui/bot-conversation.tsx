@@ -14,6 +14,7 @@ import { useDemonstrationActions } from "../client/react/demonstrations";
 import { allHelpers, useBotHelpers } from "../client/react/helpers";
 import { useBotReviews } from "../client/react/reviews";
 import { useBotRoutines } from "../client/react/routines";
+import { useBotChoices } from "../client/react/choices";
 import { useBotSecrets } from "../client/react/secrets";
 import { useCacheWarming } from "../client/react/warm";
 import { BotAvatar } from "./bot-avatar";
@@ -23,8 +24,6 @@ import { isLiveDemonstration } from "../shared/demonstration";
 import { isLiveHelper } from "../shared/helper";
 import { ReviewPassesLine } from "./review-passes-line";
 import { defaultRichControlRenderers, type RichControlRenderers } from "./rich-control";
-import { ReviewRequest } from "./review-request";
-import { RoutineCard } from "./routine-card";
 import { RoutinesPopover } from "./routines-popover";
 import { SecretsPopover } from "./secrets-popover";
 import { RunDivider } from "./run-divider";
@@ -85,6 +84,10 @@ function BotConversationView({
   const ComputerCard = controls?.computer ?? defaultRichControlRenderers.computer;
   const ShowMeCard = controls?.demonstration ?? defaultRichControlRenderers.demonstration;
   const FilesCard = controls?.files ?? defaultRichControlRenderers.files;
+  const ChoiceCard = controls?.choice ?? defaultRichControlRenderers.choice;
+  const RoutineApproval =
+    controls?.routine_approval ?? defaultRichControlRenderers.routine_approval;
+  const ReviewApproval = controls?.review_approval ?? defaultRichControlRenderers.review_approval;
   const i18n = useI18n();
   const { t } = i18n;
   const [draft, setDraft] = useState("");
@@ -139,6 +142,7 @@ function BotConversationView({
     save: saveSecret,
     remove: removeSecret,
   } = useBotSecrets(botId);
+  const { acting: actingChoices, answer: answerChoice } = useBotChoices(botId);
   const { acting: actingDemonstrations, act: actOnDemonstration } = useDemonstrationActions(botId);
   const onDemonstration = (...args: Parameters<typeof actOnDemonstration>) =>
     void actOnDemonstration(...args).catch((refusal) =>
@@ -175,50 +179,30 @@ function BotConversationView({
     setDraft("");
     void send(text);
   };
-  const routineCard = (routine: (typeof routines)[number]) => (
-    <RoutineCard
-      key={routine.id}
-      routine={routine}
-      webhookToken={webhookTokens[routine.id]}
-      onApprove={approve}
-      onDecline={decline}
-      {...actions}
-    />
-  );
-  // Each Routine under the Message its card follows, and each Check-in under the one its line
-  // follows; one whose Message isn't shown yet (its Turn still runs here) follows the rest.
+  // Each Check-in under the Message its line follows; one whose Message isn't shown yet (its Turn
+  // still runs here) follows the rest.
   const shownIds = new Set(messages.map((message) => message.id));
   // Only a Secret's newest request is a card: an older one is history, whatever happened since.
   const newestRequest = new Map<string, string>();
   for (const sent of messages)
     if (sent.control?.kind === "secret") newestRequest.set(sent.control.name, sent.id);
-  const routinesAfter = groupAfter(routines, shownIds);
+  // The same for a Routine's Approval: an edit sent it back to the user in a newer Message.
+  const newestApproval = new Map<string, string>();
+  for (const sent of messages)
+    if (sent.control?.kind === "routine_approval")
+      newestApproval.set(sent.control.routineId, sent.id);
   const checkInsAfter = groupAfter(checkIns, shownIds);
   const helpersAfter = groupAfter(helpers, shownIds);
   const checkInLine = (checkIn: (typeof checkIns)[number]) => (
     <CheckInLine key={checkIn.id} checkIn={checkIn} {...checkInActions} />
   );
-  const reviewRequest = (review: (typeof reviews)[number]) => (
-    <ReviewRequest
-      key={review.id}
-      review={review}
-      onAllow={allowReview}
-      onDeny={denyReview}
-      acting={actingReviews.has(review.id)}
-    />
-  );
-  // A Helper's Approval requests nest under its line.
   const helperCard = (helper: (typeof helpers)[number]) => (
     <HelperCard
       key={helper.id}
       helper={helper}
       onStop={onStopHelper}
       stopping={actingHelpers.has(helper.id) || actingHelpers.has(allHelpers)}
-    >
-      {reviews
-        .filter((review) => review.verdict === "block" && review.helperId === helper.id)
-        .map(reviewRequest)}
-    </HelperCard>
+    />
   );
   // Each run's divider, before the Message it goes above ("" after the last): a run that
   // sent something above its first Message, a quiet one where it ran. One still running and quiet
@@ -306,16 +290,6 @@ function BotConversationView({
       ]);
   }
 
-  // Each Turn's Approval request at the call's place: after the last Message saved before it (""
-  // with none). A Helper's nests under its Helper instead.
-  const requestsAfter = new Map<string, ReactNode[]>();
-  for (const review of reviews) {
-    if (review.verdict !== "block" || !review.turnId || review.helperId) continue;
-    const key =
-      messages.filter((message) => message.createdAt <= review.createdAt).at(-1)?.id ?? "";
-    requestsAfter.set(key, [...(requestsAfter.get(key) ?? []), reviewRequest(review)]);
-  }
-
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) submit(event);
   };
@@ -361,7 +335,8 @@ function BotConversationView({
                 onAct={onDemonstration}
                 acting={actingDemonstrations.has(control.demonstrationId)}
               />
-            ) : (
+            ) : control?.kind === "routine_approval" ||
+              control?.kind === "review_approval" ? null : (
               <div
                 data-bot-message
                 data-id={message.id}
@@ -382,9 +357,45 @@ function BotConversationView({
                 {t("bots.viaEmail")}
               </span>
             )}
-            {requestsAfter.get(message.id)}
             {afterTurnOf.get(message.id)}
             {control?.kind === "files" && <FilesCard card={control} />}
+            {control?.kind === "choice" && (
+              <ChoiceCard
+                card={control}
+                onAnswer={(answer) => answerChoice(message.id, answer)}
+                acting={actingChoices.has(message.id)}
+              />
+            )}
+            {control?.kind === "routine_approval" &&
+              newestApproval.get(control.routineId) === message.id &&
+              (() => {
+                const routine = routines.find((found) => found.id === control.routineId);
+                return (
+                  routine && (
+                    <RoutineApproval
+                      routine={routine}
+                      webhookToken={webhookTokens[routine.id]}
+                      onApprove={approve}
+                      onDecline={decline}
+                      {...actions}
+                    />
+                  )
+                );
+              })()}
+            {control?.kind === "review_approval" &&
+              (() => {
+                const review = reviews.find((found) => found.id === control.reviewId);
+                return (
+                  review && (
+                    <ReviewApproval
+                      review={review}
+                      onAllow={allowReview}
+                      onDeny={denyReview}
+                      acting={actingReviews.has(review.id)}
+                    />
+                  )
+                );
+              })()}
             {control?.kind === "computer" && (
               <ComputerCard
                 card={control}
@@ -412,7 +423,6 @@ function BotConversationView({
             {message.id === failedMessageId && (
               <p className="self-end text-xs text-muted-foreground">{t("bots.couldntReply")}</p>
             )}
-            {routinesAfter.get(message.id)?.map(routineCard)}
             {checkInsAfter.get(message.id)?.map(checkInLine)}
             {helpersAfter.get(message.id)?.map(helperCard)}
           </Fragment>
@@ -420,9 +430,7 @@ function BotConversationView({
         {summariesBefore.get("")}
         {warmingsBefore.get("")}
         {runsBefore.get("")}
-        {requestsAfter.get("")}
         {afterTurnOf.get("")}
-        {routinesAfter.get("")?.map(routineCard)}
         {checkInsAfter.get("")?.map(checkInLine)}
         {helpersAfter.get("")?.map(helperCard)}
         {working && (
