@@ -19,6 +19,17 @@ describe("the Rich control catalog", () => {
     expect(botMessagePartsSchema.safeParse(two).success).toBe(false);
   });
 
+  it("takes the Routine approval and the review approval, holding only the row id", () => {
+    const published = z.fromJSONSchema(richControlJsonSchema);
+    const routine = { kind: "routine_approval", routineId: "r1" };
+    const review = { kind: "review_approval", reviewId: "v1" };
+
+    expect(published.safeParse(routine).success).toBe(true);
+    expect(published.safeParse(review).success).toBe(true);
+    expect(published.safeParse({ kind: "routine_approval" }).success).toBe(false);
+    expect(published.safeParse({ kind: "review_approval" }).success).toBe(false);
+  });
+
   it("reserves draft and payment_approval, and refuses a kind it doesn't know", () => {
     const published = z.fromJSONSchema(richControlJsonSchema);
 
