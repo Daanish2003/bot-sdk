@@ -97,6 +97,7 @@ export function toBotMessage(
     text: searchTextOf(row.parts),
     createdAt: row.createdAt,
     ...(control && { control }),
+    ...(row.parts.channel && { channel: row.parts.channel }),
   };
 }
 

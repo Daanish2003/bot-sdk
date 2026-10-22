@@ -2,6 +2,7 @@ import { type BotSdkClient, createBotSdkClient } from "@ai-chat/bot-sdk/core/cli
 import { assistantClient } from "@ai-chat/bot-sdk/plugins/assistant/client";
 import { botClient } from "@ai-chat/bot-sdk/plugins/bot/client";
 import { knowledgeClient } from "@ai-chat/bot-sdk/plugins/knowledge/client";
+import { channelClient } from "@ai-chat/bot-sdk/plugins/channel/client";
 import { memoryClient } from "@ai-chat/bot-sdk/plugins/memory/client";
 import { modelsClient } from "@ai-chat/bot-sdk/plugins/models/client";
 import { skillsClient } from "@ai-chat/bot-sdk/plugins/skills/client";
@@ -41,6 +42,7 @@ const getChatClient = createIsomorphicFn()
         memoryClient(),
         skillsClient(),
         knowledgeClient(),
+        channelClient(),
         botClient(),
       ],
       fetch: (request) => {
@@ -61,6 +63,7 @@ const getChatClient = createIsomorphicFn()
         memoryClient(),
         skillsClient(),
         knowledgeClient(),
+        channelClient(),
         botClient(),
       ],
     }),

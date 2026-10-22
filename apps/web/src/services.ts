@@ -9,6 +9,8 @@ import {
 } from "@ai-chat/bot-sdk/core/server";
 import { assistant } from "@ai-chat/bot-sdk/plugins/assistant/server";
 import { bot } from "@ai-chat/bot-sdk/plugins/bot/server";
+import { channel, emailChannel } from "@ai-chat/bot-sdk/plugins/channel/server";
+import { fakeEmailProvider } from "@ai-chat/bot-sdk/plugins/channel/fake";
 import { memory } from "@ai-chat/bot-sdk/plugins/memory/server";
 import { knowledge } from "@ai-chat/bot-sdk/plugins/knowledge/server";
 import { skills } from "@ai-chat/bot-sdk/plugins/skills/server";
@@ -146,5 +148,20 @@ export const sdk = (shared.botSdk ??= createBotSdk({
     }),
     // Bots (spec #463): the full-screen Bots app at /bots.
     bot(),
+    // Channels (spec #761): each Bot's own email address. The fake provider takes a JSON mail at
+    // POST /api/channels/email and sends nothing out; a real provider replaces it (#773).
+    channel({
+      adapters: [
+        emailChannel({ provider: fakeEmailProvider().provider, domain: "bots.localhost" }),
+      ],
+      // Only mail from the user's verified account email reaches their Bots.
+      verifiedEmail: async (userId) => {
+        const row = await db.query.user.findFirst({
+          where: { id: userId },
+          columns: { email: true, emailVerified: true },
+        });
+        return row?.emailVerified ? row.email : null;
+      },
+    }),
   ],
 }));
