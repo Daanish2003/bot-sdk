@@ -1,5 +1,5 @@
 import type { ComputerHandle, FileOperationOptions } from "../../computer/server/plugin";
-import { knowledgeDirectory } from "../shared/folder";
+import { knowledgeDirectory, readableCopyPath } from "../shared/folder";
 import { walk } from "./files";
 
 /*
@@ -26,20 +26,27 @@ export const isMoreKnowledge = (line: string) => /^…and \d+ more, use `list`$/
 export const byCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 /**
+ * Whether a Knowledge path may go on a prompt line: one with a control character (a line break)
+ * could add lines of its own, so it is left out, and the Bot still finds it with `list`.
+ */
+export const promptSafePath = (path: string) =>
+  // oxlint-disable-next-line no-control-regex -- control characters are what it looks for
+  !/[\u0000-\u001f\u007f]/.test(path);
+
+/**
  * The paths a Bot reads, from every file's path relative to the Knowledge folder, sorted: a
- * converted file's readable `.md` copy stands for it, so the original is left out. A path with a
- * control character (a line break) is left out too, so it can't add lines to the prompt; the Bot
- * still finds it with `list`.
+ * converted file's (a PDF or DOCX) readable `.md` copy stands for it, so the original is left
+ * out. A path that isn't `promptSafePath` is left out too.
  */
 export function readablePaths(files: string[]): string[] {
   const all = new Set(files);
-  return (
-    files
-      .filter((path) => !all.has(`${path}.md`))
-      // oxlint-disable-next-line no-control-regex -- control characters are what it looks for
-      .filter((path) => !/[\u0000-\u001f\u007f]/.test(path))
-      .sort(byCodeUnit)
-  );
+  return files
+    .filter((path) => {
+      const copy = readableCopyPath(path);
+      return copy === undefined || !all.has(copy);
+    })
+    .filter(promptSafePath)
+    .sort(byCodeUnit);
 }
 
 /**

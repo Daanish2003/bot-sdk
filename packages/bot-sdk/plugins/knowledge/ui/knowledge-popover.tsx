@@ -78,7 +78,19 @@ export function KnowledgePopover() {
         update(id, { id, name: file.name, state: "converting" });
         await uploadDocument.mutateAsync({ folder, file, ...(replace && { replace }) });
       } else {
-        const content = await file.text();
+        let content: string;
+        try {
+          // Invalid UTF-8 is refused, not turned into replacement characters.
+          content = new TextDecoder("utf-8", { fatal: true }).decode(await file.arrayBuffer());
+        } catch {
+          update(id, {
+            id,
+            name: file.name,
+            state: "refused",
+            reason: t("error.knowledgeNotUtf8", { name: file.name }),
+          });
+          return;
+        }
         update(id, { id, name: file.name, state: "sending" });
         await upload.mutateAsync({ folder, name: file.name, content, ...(replace && { replace }) });
       }
@@ -94,12 +106,31 @@ export function KnowledgePopover() {
     }
   }
 
-  /** Sends the files one after another, so they don't race on the Computer; a name already there waits for its Replace? answer. */
+  /**
+   * Sends the files one after another, so they don't race on the Computer; a name already there
+   * waits for its Replace? answer. Files added while the list loads wait for it; when it can't
+   * load, each shows as refused.
+   */
   async function add(files: FileList | File[]) {
-    if (!list.data) return;
-    const known = new Set(list.data.files.map((file) => file.path));
+    const adding = [...files];
+    let known: Set<string>;
+    try {
+      const listing =
+        list.data ?? (await queryClient.fetchQuery(orpc.knowledge.list.queryOptions()));
+      known = new Set((listing?.files ?? []).map((file) => file.path));
+    } catch (error) {
+      const reason = serverErrorText(i18n, error);
+      const refused = adding.map((file): InFlight => ({
+        id: nextId.current++,
+        name: file.name,
+        state: "refused",
+        reason,
+      }));
+      setInFlight((rows) => [...rows, ...refused]);
+      return;
+    }
     const asking: Replacing[] = [];
-    for (const file of files) {
+    for (const file of adding) {
       const path = selected === "" ? file.name : `${selected}/${file.name}`;
       if (known.has(path)) asking.push({ file, folder: selected, path });
       else await send(file, selected, false);

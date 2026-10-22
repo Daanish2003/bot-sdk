@@ -40,6 +40,42 @@ function zipDeclaring(uncompressedBytes: number) {
   return Buffer.concat([directory, name, end]);
 }
 
+/**
+ * A PDF with one page per text, in Helvetica. With `brokenSecondPage`, the page tree also lists a
+ * second page whose object isn't a page, so reading it fails.
+ */
+function pdfWithPages(texts: string[], { brokenSecondPage = false } = {}) {
+  const objects: string[] = [];
+  const pageIds = texts.map((_, index) => 4 + index * 2);
+  const brokenId = 4 + texts.length * 2;
+  const kids = [...pageIds, ...(brokenSecondPage ? [brokenId] : [])];
+  objects[1] = "<< /Type /Catalog /Pages 2 0 R >>";
+  objects[2] = `<< /Type /Pages /Kids [${kids.map((id) => `${id} 0 R`).join(" ")}] /Count ${kids.length} >>`;
+  objects[3] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>";
+  for (const [index, text] of texts.entries()) {
+    const id = pageIds[index]!;
+    const stream = `BT /F1 12 Tf 72 720 Td (${text}) Tj ET`;
+    objects[id] =
+      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> " +
+      `/Contents ${id + 1} 0 R >>`;
+    objects[id + 1] = `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`;
+  }
+  if (brokenSecondPage) objects[brokenId] = "42";
+  let body = "%PDF-1.4\n";
+  const offsets: number[] = [];
+  for (let id = 1; id < objects.length; id++) {
+    offsets[id] = body.length;
+    body += `${id} 0 obj\n${objects[id]}\nendobj\n`;
+  }
+  const xref = body.length;
+  body += `xref\n0 ${objects.length}\n0000000000 65535 f \n`;
+  for (let id = 1; id < objects.length; id++) {
+    body += `${String(offsets[id]).padStart(10, "0")} 00000 n \n`;
+  }
+  body += `trailer\n<< /Size ${objects.length} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return encode(body);
+}
+
 describe("extracting the text of a DOCX", () => {
   it("reads its paragraphs and table rows in order", async () => {
     const text = await extractKnowledgeText(wordMediaType, sampleDocx);
@@ -138,6 +174,36 @@ describe("converting a document for Knowledge", () => {
   it("marks each PDF page so a Bot can cite it", async () => {
     expect(await extractKnowledgeText(pdfMediaType, samplePdf, { pageMarkers: true })).toBe(
       "## Page 1\nHarbour study: tidal flow in the eastern basin.\nQuay 4 sits at 12 m depth.",
+    );
+  });
+
+  it("fails as too long once the text passes maxBytes, without reading the pages after", async () => {
+    // The second page can't be read, so reading it fails as unreadable.
+    const pdf = pdfWithPages(["First page text that is long enough"], { brokenSecondPage: true });
+    expect(await failureOf(extractKnowledgeText(pdfMediaType, pdf))).toBe("unreadable");
+
+    expect(await failureOf(extractKnowledgeText(pdfMediaType, pdf, { maxBytes: 20 }))).toBe(
+      "too_long",
+    );
+  });
+
+  it("counts the page markers and line breaks toward maxBytes", async () => {
+    const text =
+      "## Page 1\nHarbour study: tidal flow in the eastern basin.\nQuay 4 sits at 12 m depth.";
+    const size = Buffer.byteLength(text);
+    expect(
+      await extractKnowledgeText(pdfMediaType, samplePdf, { pageMarkers: true, maxBytes: size }),
+    ).toBe(text);
+    expect(
+      await failureOf(
+        extractKnowledgeText(pdfMediaType, samplePdf, { pageMarkers: true, maxBytes: size - 1 }),
+      ),
+    ).toBe("too_long");
+  });
+
+  it("fails a DOCX as too long over maxBytes", async () => {
+    expect(await failureOf(extractKnowledgeText(wordMediaType, sampleDocx, { maxBytes: 10 }))).toBe(
+      "too_long",
     );
   });
 
