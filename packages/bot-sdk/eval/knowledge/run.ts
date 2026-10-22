@@ -159,7 +159,10 @@ async function main() {
   /** Kills the user's sandbox and removes the row, as the computer eval does, so the E2B pool frees up. */
   async function dropComputer(userId: string) {
     const [row] = await db.select().from(computerTable).where(eq(computerTable.userId, userId));
-    if (row?.sandboxId) await computerProvider.kill(row.sandboxId).catch(() => {});
+    if (row?.sandboxId)
+      await computerProvider.kill(row.sandboxId).catch((caught) => {
+        console.log(`      could not kill sandbox ${row.sandboxId}: ${caught}`);
+      });
     await db.delete(computerTable).where(eq(computerTable.userId, userId));
   }
 
@@ -243,7 +246,11 @@ async function main() {
         error,
       };
     } finally {
-      if (userId) await dropComputer(userId);
+      // A cleanup failure is logged, not thrown: it must not lose the results of the other cases.
+      if (userId)
+        await dropComputer(userId).catch((caught) =>
+          console.log(`      cleanup failed: ${caught}`),
+        );
     }
   }
 
