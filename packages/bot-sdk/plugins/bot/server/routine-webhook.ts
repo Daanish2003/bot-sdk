@@ -3,7 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { bot, botRoutine, botTrigger } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkContext } from "../../../core/server/plugin";
-import { routineSnapshot, webhookPayloadLabel, webhookTokenHash } from "./routine";
+import { routineSnapshot, untrustedBlock, webhookPayloadLabel, webhookTokenHash } from "./routine";
 import { lockConversation, receive } from "./router";
 import { hintChanged } from "./turn";
 
@@ -117,12 +117,7 @@ async function receiveWebhook(
   });
 }
 
-/**
- * A webhook's payload as the Turn reads it (slide 29): in a fenced block labelled as untrusted data,
- * its fence longer than any run of backticks in it, so the payload can't close the block.
- */
+/** A webhook's payload as the Turn reads it (slide 29): a fenced block labelled as untrusted data. */
 function untrusted(payload: string): string {
-  const longest = Math.max(0, ...(payload.match(/`+/g) ?? []).map((run) => run.length));
-  const fence = "`".repeat(Math.max(3, longest + 1));
-  return `${webhookPayloadLabel}\n${fence}\n${payload}\n${fence}`;
+  return untrustedBlock(webhookPayloadLabel, payload);
 }

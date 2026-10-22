@@ -1,16 +1,18 @@
 // @vitest-environment jsdom
-import { eventIterator, os } from "@orpc/server";
+import { os } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createElement } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { backgroundPollMs } from "../../../plugins/bot/client/react/bot-turn";
 import type { BotRoutine } from "../../../plugins/bot/shared/routine";
-import type { BotMessage, BotSendEvent, BotTurnProvenance } from "../../../plugins/bot/shared/turn";
+import type { BotMessage, BotTurnProvenance } from "../../../plugins/bot/shared/turn";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
 import { providerFor } from "../fake-dictionary";
+import { changeLog, hint, settle, stubEventSource } from "./fake-change-log";
+
+beforeEach(stubEventSource);
 
 afterEach(() => {
   cleanup();
@@ -48,16 +50,15 @@ const morningBrief = (): BotRoutine => ({
 
 /**
  * A stand-in for the server's `bot` router: `bot.get` answers with `messages` and `turns`, `bot.routine.list`
- * with `routines`, approve and decline change them as the server does, and each `bot.send` streams
- * the events the test pushes.
+ * with `routines`, approve and decline change them as the server does, `bot.send` saves the user's
+ * Message and starts a Turn, and `bot.changes` answers from the change log the test writes.
  */
 function fakeBotServer(
   messages: BotMessage[],
   routines: BotRoutine[] = [],
   turns: BotTurnProvenance[] = [],
 ) {
-  const queue: (BotSendEvent | "end")[] = [];
-  let wake = () => {};
+  const log = changeLog();
   const approved: string[] = [];
   const declined: string[] = [];
   const paused: string[] = [];
@@ -76,21 +77,23 @@ function fakeBotServer(
     bot: {
       get: os.handler(() => ({
         bot: { ...ada, turnStatus },
+        conversationId: "c1",
         messages: [...messages],
         turns: [...turns],
+        lastSeq: log.last,
       })),
+      changes: os
+        .input(z.object({ botId: z.string(), since: z.number() }))
+        .handler(({ input }) => log.since(input.since)),
       stop: os.handler(() => {}),
       send: os
         .input(z.object({ botId: z.string(), id: z.string(), text: z.string() }).loose())
-        .output(eventIterator(z.custom<BotSendEvent>()))
-        .handler(async function* () {
-          while (true) {
-            if (queue.length === 0) await new Promise<void>((resolve) => (wake = resolve));
-            const next = queue.shift()!;
-            if (next === "end") return;
-            if (next.type === "message") messages.push(next.message);
-            yield next;
-          }
+        .handler(({ input }) => {
+          const saved = { ...said(input.id, "user", input.text), createdAt: new Date() };
+          messages.push(saved);
+          log.record("message", saved.id, saved);
+          turnStatus = "running";
+          return saved;
         }),
       routine: {
         list: os.input(z.object({ botId: z.string() })).handler(() => [...routines]),
@@ -164,14 +167,9 @@ function fakeBotServer(
         release();
       };
     },
-    /** Streams `events` to the open send, then lets the client read them. */
-    stream: async (...events: (BotSendEvent | "end")[]) => {
-      await act(async () => {
-        queue.push(...events);
-        wake();
-        await new Promise((resolve) => setTimeout(resolve, 20));
-      });
-    },
+    log,
+    /** Tells the page the Conversation changed, as the `/events` route does, and lets it read. */
+    hint,
   };
 }
 
@@ -263,11 +261,20 @@ describe("a Routine waiting for the user's OK", () => {
     const composer = await screen.findByRole("textbox", { name: "Message" });
     fireEvent.change(composer, { target: { value: "Brief me" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
-    await server.stream({ type: "message", message: said("m1", "user", "Brief me") });
+    await settle();
 
     server.routines.push(morningBrief());
     server.messages.push(approvalOf());
-    await server.stream({ type: "turnEnded", status: "complete" }, "end");
+    server.log.record("message", "approval", approvalOf());
+    server.setTurnStatus("complete");
+    server.log.record("routine", "r1", morningBrief());
+    server.log.record("turn", "t1", {
+      id: "t1",
+      status: "complete",
+      startedAt: createdAt,
+      endedAt: createdAt,
+    });
+    await server.hint();
 
     await screen.findByRole("group", { name: "Created morning-brief routine" });
   });
@@ -280,9 +287,18 @@ describe("a Routine waiting for the user's OK", () => {
 
     server.routines.push(morningBrief());
     server.messages.push(approvalOf());
+    server.log.record("message", "approval", approvalOf());
     server.setTurnStatus("complete");
+    server.log.record("routine", "r1", morningBrief());
+    server.log.record("turn", "t1", {
+      id: "t1",
+      status: "complete",
+      startedAt: createdAt,
+      endedAt: createdAt,
+    });
+    await server.hint();
 
-    await screen.findByRole("group", { name: "Created morning-brief routine" }, { timeout: 5_000 });
+    await screen.findByRole("group", { name: "Created morning-brief routine" });
   });
 });
 
@@ -357,35 +373,39 @@ describe("a Routine's runs", () => {
   });
 
   it("shows a run that happened while the page was open and idle, with no reload", async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    try {
-      const messages = [
-        ...before,
-        { ...approvalOf(), createdAt: new Date("2026-10-19T06:00:03.000Z") },
-      ];
-      const turns = [userTurn];
-      const server = fakeBotServer(
-        messages,
-        [{ ...morningBrief(), state: "active", approvedAt: createdAt }],
-        turns,
-      );
-      const { container } = mount(server);
-      await screen.findByText("Morning to you.");
-      expect(screen.queryByText(/next run/)).toBeNull();
+    const messages = [
+      ...before,
+      { ...approvalOf(), createdAt: new Date("2026-10-19T06:00:03.000Z") },
+    ];
+    const turns = [userTurn];
+    const server = fakeBotServer(
+      messages,
+      [{ ...morningBrief(), state: "active", approvedAt: createdAt }],
+      turns,
+    );
+    const { container } = mount(server);
+    await screen.findByText("Morning to you.");
+    expect(screen.queryByText(/next run/)).toBeNull();
 
-      // The Routine runs on the server; this page sends nothing.
-      messages.push(sentAt("m3", "assistant", "Three meetings today.", "2026-10-19T07:00:02.000Z"));
-      turns.push(run(true));
-      // A run too quick to be seen running still moves the Routine on to its next slot.
-      server.routines[0]!.nextRunAt = new Date("2026-10-20T07:00:00.000Z");
-      await act(() => vi.advanceTimersByTimeAsync(backgroundPollMs));
+    // The Routine runs on the server; this page sends nothing.
+    messages.push(sentAt("m3", "assistant", "Three meetings today.", "2026-10-19T07:00:02.000Z"));
+    turns.push(run(true));
+    // A run too quick to be seen running still moves the Routine on to its next slot.
+    server.routines[0]!.nextRunAt = new Date("2026-10-20T07:00:00.000Z");
+    server.log.record("message", "m3", messages.at(-1)!);
+    server.log.record("routine", "r1", server.routines[0]!);
+    // The run's Turn changes the Message dividers, which the thread is read again for.
+    server.log.record("turn", "t2", {
+      id: "t2",
+      status: "complete",
+      startedAt: at("2026-10-19T07:00:01.000Z"),
+      endedAt: at("2026-10-19T07:00:05.000Z"),
+    });
+    await server.hint();
 
-      await screen.findByText("Three meetings today.");
-      expect(timeline(container)[2]).toMatch(/^run:morning-brief · /);
-      await screen.findByText(/morning-brief approved · next run/);
-    } finally {
-      vi.useRealTimers();
-    }
+    await screen.findByText("Three meetings today.");
+    expect(timeline(container)[2]).toMatch(/^run:morning-brief · /);
+    await screen.findByText(/morning-brief approved · next run/);
   });
 
   it("gives a quiet run a divider of its own", async () => {

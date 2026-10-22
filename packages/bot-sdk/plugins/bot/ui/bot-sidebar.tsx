@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import { dateFormat } from "../../../core/client/intl";
 import { useChatAdapter, useI18n } from "../../../core/client/react/provider";
+import { safetyFetchMs } from "../client/react/bot-sync";
 import { useSendingBotIds } from "../client/react/bot-turn";
 import { BotAvatar } from "./bot-avatar";
 import { NewBotDialog } from "./new-bot-dialog";
@@ -17,10 +18,11 @@ export function BotSidebar() {
   const [creating, setCreating] = useState(false);
   const bots = useQuery({
     ...orpc.bot.list.queryOptions(),
-    // A Turn running in another tab shows its end only by asking again.
+    // A Turn running elsewhere is shown by the open Bot's change log and on focus; the Bots not open
+    // are asked for every `safetyFetchMs` while one runs (ADR 0026).
     refetchInterval: (state) =>
       state.state.data?.some((bot) => bot.turnStatus === "running" && !sending.has(bot.id))
-        ? 2000
+        ? safetyFetchMs
         : false,
   });
 

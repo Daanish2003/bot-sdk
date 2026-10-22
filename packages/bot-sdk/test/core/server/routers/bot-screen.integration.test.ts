@@ -30,6 +30,7 @@ import {
   type FakeCommandRun,
 } from "../../../plugins/computer/server/fake-provider";
 import type { CommandResult } from "../../../../plugins/computer/server/provider";
+import { followSend } from "../../../support/follow-send";
 
 const model = "openai:gpt-5.6";
 const silent = { error: () => {} };
@@ -114,7 +115,7 @@ async function waitingHelper(
   });
   const client = chatRpc({ user, deps });
   const { id: botId } = await client.bot.create({ name: "Ada", model });
-  for await (const _event of await client.bot.send({ botId, id: uuidv7(), text: "deals?" }));
+  for await (const _event of await followSend(client, { botId, id: uuidv7(), text: "deals?" }));
   await expect
     .poll(async () => (await helpersOf(botId))[0]?.status, { timeout: 10_000 })
     .toBe("waiting");

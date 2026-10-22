@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { eventIterator, os } from "@orpc/server";
+import { os } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createElement } from "react";
@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import type { BotSecret } from "../../../plugins/bot/shared/secret";
-import type { BotMessage, BotSendEvent } from "../../../plugins/bot/shared/turn";
+import type { BotMessage } from "../../../plugins/bot/shared/turn";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
 import type { RichControlRenderers } from "../../../plugins/bot/ui/rich-control";
 import { providerFor } from "../fake-dictionary";
@@ -45,13 +45,10 @@ function fakeBotServer(secrets: BotSecret[], { refuseSave = false } = {}) {
         warmings: [],
       })),
       stop: os.handler(() => {}),
-      send: os
-        .input(z.object({ botId: z.string() }).loose())
-        .output(eventIterator(z.custom<BotSendEvent>()))
-        .handler(({ input }) => {
-          sent.push(input);
-          return (async function* (): AsyncGenerator<BotSendEvent> {})();
-        }),
+      send: os.input(z.object({ botId: z.string() }).loose()).handler(({ input }) => {
+        sent.push(input);
+        return { id: "m-sent", role: "user" as const, text: "", createdAt: new Date() };
+      }),
       warm: os.handler(() => ({ warmed: false as const, skipped: "still_warm" as const })),
       routine: { list: os.handler(() => []) },
       checkIn: { list: os.handler(() => []) },

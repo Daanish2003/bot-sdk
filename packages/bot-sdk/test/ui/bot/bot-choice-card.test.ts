@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { eventIterator, ORPCError, os } from "@orpc/server";
+import { ORPCError, os } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { createElement } from "react";
@@ -8,7 +8,7 @@ import { z } from "zod";
 
 import { assistantClient } from "../../../plugins/assistant/client/index";
 import { botClient } from "../../../plugins/bot/client/index";
-import type { BotMessage, BotSendEvent } from "../../../plugins/bot/shared/turn";
+import type { BotMessage } from "../../../plugins/bot/shared/turn";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
 import { providerFor } from "../fake-dictionary";
 
@@ -43,8 +43,12 @@ function mount(
       stop: os.handler(() => {}),
       send: os
         .input(z.object({ botId: z.string(), id: z.string(), text: z.string() }).loose())
-        .output(eventIterator(z.custom<BotSendEvent>()))
-        .handler(async function* () {}),
+        .handler(({ input }) => ({
+          id: input.id,
+          role: "user" as const,
+          text: input.text,
+          createdAt: new Date(),
+        })),
       choose: os.input(z.custom<unknown>()).handler(({ input }) => {
         chosen.push(input);
         if (refuse) {

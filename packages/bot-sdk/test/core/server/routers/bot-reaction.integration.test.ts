@@ -13,6 +13,7 @@ import {
 import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
+import { followSend } from "../../../support/follow-send";
 import { fakeReviewer } from "../../../support/fake-reviewer";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
@@ -60,7 +61,7 @@ async function botWith(rounds: Round[]) {
 }
 
 async function send(client: Client, botId: string, words: string, id = uuidv7()) {
-  for await (const _ of await client.bot.send({ botId, id, text: words }));
+  for await (const _ of await followSend(client, { botId, id, text: words }));
 }
 
 const says = (text: string) => toolCall({ name: "send_to_user", input: { text, endTurn: true } });

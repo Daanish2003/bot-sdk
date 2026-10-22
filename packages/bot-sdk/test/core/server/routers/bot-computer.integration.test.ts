@@ -37,6 +37,7 @@ import {
   fakeComputerProvider,
   type FakeCommandRun,
 } from "../../../plugins/computer/server/fake-provider";
+import { followSend } from "../../../support/follow-send";
 
 const model = "openai:gpt-5.6";
 const silent = { error: () => {} };
@@ -97,7 +98,7 @@ async function botWith(
 /** Sends `text` to the Bot and reads the whole stream. */
 async function send(client: ReturnType<typeof chatRpc>, botId: string, text: string) {
   const events = [];
-  for await (const event of await client.bot.send({ botId, id: uuidv7(), text })) {
+  for await (const event of await followSend(client, { botId, id: uuidv7(), text })) {
     events.push(event);
   }
   return events;
@@ -516,7 +517,7 @@ describe("a shell call whose attempt is cut off", () => {
     const { client, botId, computerFake, attempt, timer, commandStarted } = await botOnHandRunJobs([
       round(shell({ command: "sleep 600", timeoutSeconds: 120 })),
     ]);
-    const stream = await client.bot.send({ botId, id: uuidv7(), text: "wait" });
+    const stream = await followSend(client, { botId, id: uuidv7(), text: "wait" });
     const running = attempt();
     await commandStarted;
 
@@ -544,7 +545,7 @@ describe("a shell call whose attempt is cut off", () => {
   it("never runs again after a crash, and the resumed Turn returns the interrupted note", async () => {
     const { fake, computerFake, deps, botId, attempt, timer, instance, client, commandStarted } =
       await botOnHandRunJobs([round(shell({ command: "rm -rf build" })), round()]);
-    await client.bot.send({ botId, id: uuidv7(), text: "clean up" });
+    await followSend(client, { botId, id: uuidv7(), text: "clean up" });
 
     const lost = attempt();
     await commandStarted;
@@ -576,7 +577,7 @@ describe("a shell call whose attempt is cut off", () => {
       .set({ state: "asleep" })
       .where(eq(computerTable.userId, user.id));
     computerFake.lose(computerFake.callsOf("create")[0]!.sandboxId);
-    await client.bot.send({ botId, id: uuidv7(), text: "build it" });
+    await followSend(client, { botId, id: uuidv7(), text: "build it" });
 
     const lost = attempt();
     await setup.commandStarted;
@@ -1159,7 +1160,7 @@ describe("a user delete during a Turn", () => {
     );
     deleteUser = () => deleteUserData(deps, user.id);
 
-    const stream = await client.bot.send({ botId, id: uuidv7(), text: "go" });
+    const stream = await followSend(client, { botId, id: uuidv7(), text: "go" });
     await expect
       .poll(async () => {
         const [turnJob] = await getTestDb()

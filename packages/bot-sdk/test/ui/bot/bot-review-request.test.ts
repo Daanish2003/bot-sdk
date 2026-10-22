@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { eventIterator, os } from "@orpc/server";
+import { os } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createElement } from "react";
@@ -8,7 +8,7 @@ import { z } from "zod";
 
 import type { BotHelper } from "../../../plugins/bot/shared/helper";
 import type { BotReview } from "../../../plugins/bot/shared/review";
-import type { BotMessage, BotSendEvent, BotTurnProvenance } from "../../../plugins/bot/shared/turn";
+import type { BotMessage, BotTurnProvenance } from "../../../plugins/bot/shared/turn";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
 import { providerFor } from "../fake-dictionary";
 
@@ -110,8 +110,12 @@ function fakeBotServer(review: () => BotReview, helpers: BotHelper[] = []) {
       stop: os.handler(() => {}),
       send: os
         .input(z.object({ botId: z.string(), id: z.string(), text: z.string() }).loose())
-        .output(eventIterator(z.custom<BotSendEvent>()))
-        .handler(async function* () {}),
+        .handler(({ input }) => ({
+          id: input.id,
+          role: "user" as const,
+          text: input.text,
+          createdAt: new Date(),
+        })),
       warm: os.handler(() => ({ warmed: false as const, skipped: "still_warm" as const })),
       routine: { list: os.handler(() => []) },
       checkIn: { list: os.handler(() => []) },

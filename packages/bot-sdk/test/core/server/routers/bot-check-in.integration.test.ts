@@ -20,6 +20,7 @@ import { fakeJobClock } from "../../../support/jobs";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
+import { followSend } from "../../../support/follow-send";
 
 const model = "openai:gpt-5.6";
 const silent = { error: () => {} };
@@ -125,7 +126,7 @@ async function botTurn({
   const advanceTo = (when: string | Date) => {
     timer.advance(new Date(when).getTime() - timer.clock.now().getTime());
   };
-  const stream = await client.bot.send({
+  const stream = await followSend(client, {
     botId,
     id: uuidv7(),
     text: "Remind me about Acme",

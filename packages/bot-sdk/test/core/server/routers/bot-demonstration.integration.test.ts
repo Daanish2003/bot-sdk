@@ -38,6 +38,7 @@ import {
   type FakeCommandRun,
   fakeComputerProvider,
 } from "../../../plugins/computer/server/fake-provider";
+import { followSend } from "../../../support/follow-send";
 
 const model = "openai:gpt-5.6";
 const silent = { error: () => {} };
@@ -127,7 +128,7 @@ async function botWith(
   };
   /** Sends `text` to Bot `to` and runs its Turn. */
   const send = async (text: string, to = botId) => {
-    const stream = await client.bot.send({ botId: to, id: uuidv7(), text });
+    const stream = await followSend(client, { botId: to, id: uuidv7(), text });
     await stream.next();
     await stream.return(undefined);
     timer.advance(500);

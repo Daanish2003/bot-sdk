@@ -37,6 +37,7 @@ import {
   fakeComputerProvider,
   type FakeCommandRun,
 } from "../../../plugins/computer/server/fake-provider";
+import { followSend } from "../../../support/follow-send";
 
 const model = "openai:gpt-5.6";
 const silent = { error: () => {} };
@@ -86,7 +87,7 @@ async function botWith(
 
 async function send(client: ReturnType<typeof chatRpc>, botId: string, words: string) {
   const events = [];
-  for await (const event of await client.bot.send({ botId, id: uuidv7(), text: words })) {
+  for await (const event of await followSend(client, { botId, id: uuidv7(), text: words })) {
     events.push(event);
   }
   return events;

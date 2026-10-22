@@ -35,6 +35,7 @@ import { fakeJobClock } from "../../../support/jobs";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
+import { followSend } from "../../../support/follow-send";
 
 const model = "openai:gpt-5.6";
 const planModel = "openai:gpt-6.1-sol";
@@ -134,7 +135,7 @@ async function botWith({
   };
   /** Saves the user's Message, without running its Turn. */
   const post = async (words: string) => {
-    const stream = await client.bot.send({
+    const stream = await followSend(client, {
       botId,
       id: uuidv7(),
       text: words,
