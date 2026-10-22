@@ -2,6 +2,7 @@ import type { BotSdkPlugin } from "../../../core/server/plugin";
 import { isInProcessRunner } from "../../runner/server/jobs/in-process";
 import { runnerJobs } from "../../runner/server/plugin";
 import { cancelUserCheckIns } from "./check-in";
+import { sentFileResponse } from "./files";
 import { screenshotsConversationDelete } from "./screenshots";
 import { cancelUserHelpers, hasLiveDemonstration, hasRunningHelper } from "./helper";
 import { cancelUserFires } from "./routine";
@@ -114,6 +115,14 @@ export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
     // Repairs a Routine whose chain of fires broke, now and then hourly (#578).
     start: startRoutineReconcile,
     router: botPluginRouter,
+    routes: [
+      {
+        // A file the Bot sent, as a download.
+        method: "GET",
+        path: "/bot-files/:id",
+        handle: (_request, { user, sdk, params }) => sentFileResponse(sdk, user.id, params.id!),
+      },
+    ],
     deleteUser: {
       // No Routine, Check-in or Helper runs for a deleted user: its jobs are cancelled.
       before: async (sdk, args) => {

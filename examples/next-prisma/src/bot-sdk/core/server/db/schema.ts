@@ -2,6 +2,7 @@ import { getTableConfig } from "drizzle-orm/pg-core";
 
 import { assistantSchema } from "../../../plugins/assistant/server/schema";
 import { botSchema } from "../../../plugins/bot/server/schema";
+import { channelSchema } from "../../../plugins/channel/server/schema";
 import { computerSchema } from "../../../plugins/computer/server/schema";
 import { memorySchema } from "../../../plugins/memory/server/schema";
 import { modelsSchema } from "../../../plugins/models/server/schema";
@@ -21,6 +22,7 @@ export * from "../../../plugins/assistant/server/schema";
 export * from "../../../plugins/bot/server/schema";
 export * from "../../../plugins/computer/server/schema";
 export * from "../../../plugins/memory/server/schema";
+export * from "../../../plugins/channel/server/schema";
 
 const schemas: NamedPluginSchema[] = [
   { id: "core", schema: coreSchema },
@@ -30,10 +32,11 @@ const schemas: NamedPluginSchema[] = [
   { id: "bot", schema: botSchema },
   { id: "computer", schema: computerSchema },
   { id: "memory", schema: memorySchema },
+  { id: "channel", schema: channelSchema },
 ];
 assertNoClashes(schemas);
 
-// `models`, `runner`, `bot`, `computer` and `memory` add no fields to the core tables, so only the core's and the assistant's are spread.
+// `models`, `runner`, `bot`, `computer`, `memory` and `channel` add no fields to the core tables, so only the core's and the assistant's are spread.
 
 /** A Conversation, owned by one user. Its Messages form a tree (ADR 0001). */
 export const conversation = chatSchema.table(

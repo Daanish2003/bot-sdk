@@ -1,16 +1,26 @@
 import { sql } from "drizzle-orm";
-import { type AnyPgColumn, index, jsonb, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import {
+  type AnyPgColumn,
+  index,
+  integer,
+  jsonb,
+  text,
+  timestamp,
+  uuid,
+} from "drizzle-orm/pg-core";
 
 // Type only: the column's type is the assistant's parts union until the row types are composed from the plugins.
 import type { StoredParts } from "../../../plugins/assistant/shared/message-parts";
 import { attachment, messageAttachment } from "./attachment";
 import { blob } from "./blob";
 import { chatSchema } from "./chat-schema";
+import { conversationChange } from "./conversation-change";
 import type { IndexColumns, PluginSchema } from "./plugin-schema";
 import { conversation, message } from "./schema";
 
 export * from "./attachment";
 export * from "./blob";
+export * from "./conversation-change";
 
 export const messageRole = chatSchema.enum("message_role", ["user", "assistant"]);
 export const messageStatus = chatSchema.enum("message_status", [
@@ -47,6 +57,8 @@ const conversationColumns = {
   archivedAt: timestamp("archived_at"),
   /** Bumped only by new Messages, never by renames or Branch switches. */
   lastMessageAt: timestamp("last_message_at").defaultNow().notNull(),
+  /** The seq of the newest change in its change log (ADR 0026); 0 before the first. */
+  lastSeq: integer("last_seq").default(0).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()
@@ -78,9 +90,9 @@ const messageColumns = {
   ratedAt: timestamp("rated_at", { withTimezone: true }),
 };
 
-/** The core's schema module: the core's half of Conversation and Message, attachments and blobs. */
+/** The core's schema module: the core's half of Conversation and Message, attachments, blobs and the change log. */
 export const coreSchema = {
-  tables: { attachment, messageAttachment, blob },
+  tables: { attachment, messageAttachment, blob, conversationChange },
   enums: { messageRole, messageStatus, messageRating, messageErrorReason },
   fields: {
     conversation: {

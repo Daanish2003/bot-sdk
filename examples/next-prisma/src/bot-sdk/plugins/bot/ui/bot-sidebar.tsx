@@ -15,14 +15,9 @@ export function BotSidebar() {
   const { t, locale } = useI18n();
   const sending = useSendingBotIds();
   const [creating, setCreating] = useState(false);
-  const bots = useQuery({
-    ...orpc.bot.list.queryOptions(),
-    // A Turn running in another tab shows its end only by asking again.
-    refetchInterval: (state) =>
-      state.state.data?.some((bot) => bot.turnStatus === "running" && !sending.has(bot.id))
-        ? 2000
-        : false,
-  });
+  // Kept fresh by the open Bot's change log (`useBotSync` invalidates it) and on window focus; it
+  // isn't polled (ADR 0026).
+  const bots = useQuery(orpc.bot.list.queryOptions());
 
   const working = (bot: { id: string; turnStatus: string | null }) =>
     sending.has(bot.id) || bot.turnStatus === "running";

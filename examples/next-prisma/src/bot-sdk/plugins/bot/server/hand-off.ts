@@ -2,7 +2,6 @@ import { type ModelMessage, toolDefinition } from "@tanstack/ai";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { appendMessage } from "../../../core/server/chat/message-tree";
 import { bot, botHelper, message } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
@@ -12,7 +11,8 @@ import type { ComputerCard } from "../shared/helper";
 import { computerOf } from "./computer-tools";
 import { botHelperJobName, helperJobKey } from "./helper";
 import { lockConversation } from "./router";
-import { computerCardOf, handOffParts } from "./store";
+import { appendBotMessage, controlOf, controlParts, holdingControl } from "./store";
+import { recordBotChange } from "./thread-change";
 import { hintChanged } from "./turn";
 
 /** The Computer-use Helper's tool that hands its Screen to the user (#568). */
@@ -88,11 +88,11 @@ export async function handOff(
     .where(and(eq(botHelper.id, helper.id), eq(botHelper.status, "running")))
     .returning({ id: botHelper.id });
   if (rows.length === 0) return null;
-  await appendMessage(tx, owner.conversationId, {
-    role: "assistant",
-    parts: handOffParts({ type: "computer", helperId: helper.id, reason, state: "open" }),
-    status: "complete",
+  await recordBotChange(tx, owner, "helper", helper.id, now);
+  await appendBotMessage(deps, tx, owner.conversationId, {
+    parts: controlParts(reason, { kind: "computer", helperId: helper.id, reason, state: "open" }),
     createdAt: now,
+    turnId: null,
   });
   return owner;
 }
@@ -196,7 +196,8 @@ export async function helperDone(
         endedAt: null,
       })
       .where(eq(botHelper.id, helperId));
-    await closeComputerCard(tx, helperId, "done");
+    await recordBotChange(tx, owned, "helper", helperId, now);
+    await closeComputerCard(tx, helperId, "done", now);
     return { conversationId: owned.conversationId, screen: helper.screen };
   });
   if (resumed === null) return { status: "running" };
@@ -214,7 +215,8 @@ export async function helperDone(
 }
 
 /**
- * Flips the open Computer card of Helper `helperId` to `state`, in the caller's transaction: `done`
+ * Flips the open Computer card of Helper `helperId` to `state` at `at`, with a `message` change, in
+ * the caller's transaction, which holds the Conversation's row lock: `done`
  * on the user's Done, `cancelled` when a waiting Helper is stopped. A card already answered stays.
  * Returns whether it had an open card, which only a waiting Helper has.
  */
@@ -222,23 +224,25 @@ export async function closeComputerCard(
   tx: Transaction,
   helperId: string,
   state: Exclude<ComputerCard["state"], "open">,
+  at: Date,
 ): Promise<boolean> {
   const rows = await openCards(tx, helperId);
   for (const row of rows) {
-    const card = computerCardOf(row.parts)!;
+    const card = controlOf(row.parts, "computer")!;
     await tx
       .update(message)
-      .set({ parts: handOffParts({ ...card, state }) })
+      .set({ parts: controlParts(card.reason, { ...card, state }, row.parts) })
       .where(eq(message.id, row.id));
+    await recordBotChange(tx, row, "message", row.id, at);
   }
   return rows.length > 0;
 }
 
 /** The Messages holding Helper `helperId`'s open Computer card, in its Bot's Conversation. */
 function openCards(db: Database | Transaction, helperId: string) {
-  const open = { parts: [{ type: "computer", helperId, state: "open" }] };
+  const open = holdingControl({ kind: "computer", helperId, state: "open" });
   return db
-    .select({ id: message.id, parts: message.parts })
+    .select({ id: message.id, parts: message.parts, conversationId: message.conversationId })
     .from(message)
     .where(
       and(
@@ -258,5 +262,5 @@ export async function openCardReason(
   helperId: string,
 ): Promise<string | undefined> {
   const [row] = await openCards(db, helperId);
-  return row ? computerCardOf(row.parts)?.reason : undefined;
+  return row ? controlOf(row.parts, "computer")?.reason : undefined;
 }

@@ -41,12 +41,12 @@ function latestToolCall(chunks: readonly StreamChunk[]): string | null {
  * that started it (see `lastMessageOfTurn`). `steps` are the Helper's model calls so far, from its
  * job's recorded history; once the job is pruned, from its transcript. After a hand-off they are
  * the saved transcript's, plus the resumed job's while it runs. A live Helper also has its `latest`
- * tool call. With `helperId`, only that one of the Bot's Helpers.
+ * tool call. With `helperIds`, only those of the Bot's Helpers.
  */
 export async function listHelpers(
   db: Database,
   botId: string,
-  helperId?: string,
+  helperIds?: string[],
 ): Promise<BotHelper[]> {
   const rows = await db
     .select({
@@ -68,7 +68,7 @@ export async function listHelpers(
     .where(
       and(
         eq(botHelper.botId, botId),
-        helperId === undefined ? undefined : eq(botHelper.id, helperId),
+        helperIds === undefined ? undefined : inArray(botHelper.id, helperIds),
       ),
     )
     .orderBy(asc(botHelper.startedAt), asc(botHelper.id));

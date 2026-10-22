@@ -4,6 +4,7 @@ import { pathTo } from "../../shared/chat/branches";
 import { searchTextOf } from "../../shared/message-parts";
 import { conversation, message, type MessageRow } from "../db/schema";
 import { uuidv7 } from "../lib/uuidv7";
+import { recordChange } from "./change-log";
 import type { BotSdkContext, Transaction } from "../plugin";
 
 type MessageInsert = typeof message.$inferInsert;
@@ -27,7 +28,8 @@ export async function loadPath(
 
 /**
  * Appends one Message at the Conversation's `activeLeafId`, under the Conversation's row lock, and
- * makes it the new leaf. Call it inside a transaction, so the lock holds until the commit.
+ * makes it the new leaf, with a `message` change in its change log (ADR 0026). Call it inside a
+ * transaction, so the lock holds until the commit.
  */
 export async function appendMessage(
   tx: Transaction,
@@ -55,5 +57,6 @@ export async function appendMessage(
     .update(conversation)
     .set({ activeLeafId: row.id, lastMessageAt: row.createdAt })
     .where(eq(conversation.id, conversationId));
+  await recordChange(tx, conversationId, { kind: "message", refId: row.id, at: row.createdAt });
   return row;
 }

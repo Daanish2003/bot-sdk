@@ -3,7 +3,6 @@ import { and, asc, eq, inArray, max, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { deleteBlobsBestEffort } from "../../../core/server/blob/store";
-import { appendMessage } from "../../../core/server/chat/message-tree";
 import {
   bot,
   botDemonstration,
@@ -31,7 +30,8 @@ import {
 } from "./helper";
 import type { LoopKit } from "./loop";
 import { lockConversation } from "./router";
-import { demonstrationCardOf, demonstrationParts } from "./store";
+import { appendBotMessage, controlOf, controlParts, holdingControl } from "./store";
+import { recordBotChange } from "./thread-change";
 import { hintChanged } from "./turn";
 
 /*
@@ -220,10 +220,10 @@ async function startDemonstration(
     screen,
     startedAt: now,
   });
-  await appendMessage(tx, turn.conversationId, {
-    role: "assistant",
-    parts: demonstrationParts({
-      type: "demonstration",
+  await appendBotMessage(deps, tx, turn.conversationId, {
+    turnId: turn.id,
+    parts: controlParts(goal, {
+      kind: "demonstration",
       demonstrationId,
       goal,
       state: "recording",
@@ -231,7 +231,6 @@ async function startDemonstration(
       endedAt: null,
       steps: 0,
     }),
-    status: "complete",
     createdAt: now,
   });
   await deps
@@ -336,7 +335,7 @@ async function moveIn(
       kind: "pause",
     });
   }
-  await rewriteCard(tx, owned.conversationId, demonstrationId, (card) => ({
+  await rewriteCard(tx, owned.conversationId, demonstrationId, now, (card) => ({
     ...card,
     state: next,
     ...(ended && { endedAt: now.toISOString() }),
@@ -373,14 +372,18 @@ export async function nextSequence(tx: Transaction, demonstrationId: string): Pr
   return (last?.sequence ?? 0) + 1;
 }
 
-/** Rewrites Demonstration `demonstrationId`'s Show me card in its Conversation, in `tx`. */
+/**
+ * Rewrites Demonstration `demonstrationId`'s Show me card in its Conversation at `at`, with a
+ * `message` change, in `tx`, which holds the Conversation's row lock.
+ */
 export async function rewriteCard(
   tx: Transaction,
   conversationId: string,
   demonstrationId: string,
+  at: Date,
   change: (card: DemonstrationCard) => DemonstrationCard,
 ) {
-  const holding = { parts: [{ type: "demonstration", demonstrationId }] };
+  const holding = holdingControl({ kind: "demonstration", demonstrationId });
   const rows = await tx
     .select({ id: message.id, parts: message.parts })
     .from(message)
@@ -392,12 +395,14 @@ export async function rewriteCard(
       ),
     );
   for (const row of rows) {
-    const card = demonstrationCardOf(row.parts);
+    const card = controlOf(row.parts, "demonstration");
     if (!card) continue;
+    const changed = change(card);
     await tx
       .update(message)
-      .set({ parts: demonstrationParts(change(card)) })
+      .set({ parts: controlParts(changed.goal, changed, row.parts) })
       .where(eq(message.id, row.id));
+    await recordBotChange(tx, { conversationId }, "message", row.id, at);
   }
 }
 

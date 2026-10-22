@@ -8,27 +8,26 @@ import { toast } from "sonner";
 import { useI18n } from "../../../core/client/react/provider";
 import { serverErrorText } from "../../../core/client/rpc-error";
 import type { BotTurnProvenance } from "../shared/turn";
-import { useBackgroundRuns, useBotTurn } from "../client/react/bot-turn";
+import { useBotTurn } from "../client/react/bot-turn";
 import { useBotCheckIns } from "../client/react/check-ins";
 import { useDemonstrationActions } from "../client/react/demonstrations";
 import { allHelpers, useBotHelpers } from "../client/react/helpers";
 import { useBotReviews } from "../client/react/reviews";
 import { useBotRoutines } from "../client/react/routines";
+import { useBotChoices } from "../client/react/choices";
+import { useBotReactions } from "../client/react/reactions";
 import { useBotSecrets } from "../client/react/secrets";
 import { useCacheWarming } from "../client/react/warm";
 import { BotAvatar } from "./bot-avatar";
+import { ReactionBar, ReactionChips } from "./reactions";
 import { CheckInLine } from "./check-in-line";
-import { ComputerCard } from "./computer-card";
 import { HelperCard } from "./helper-card";
-import { isLiveDemonstration } from "../shared/demonstration";
 import { isLiveHelper } from "../shared/helper";
+import { isApproval } from "../shared/rich-control";
 import { ReviewPassesLine } from "./review-passes-line";
-import { ReviewRequest } from "./review-request";
-import { RoutineCard } from "./routine-card";
+import { defaultRichControlRenderers, type RichControlRenderers } from "./rich-control";
 import { RoutinesPopover } from "./routines-popover";
-import { SecretCard } from "./secret-card";
 import { SecretsPopover } from "./secrets-popover";
-import { ShowMeCard } from "./show-me-card";
 import { RunDivider } from "./run-divider";
 import { SummaryCard } from "./summary-card";
 import { TodoPopover } from "./todo-popover";
@@ -40,12 +39,14 @@ import { WarmLine } from "./warm-line";
  * Turn failed. A Routine the Bot created shows after the Turn that created it, as does a Check-in
  * it set, and each Helper it started shows as a card after it (a hand-off Message is followed by its Computer card), a Demonstration's Message is its Show me card, and each run of a Routine or fired Check-in gets a divider above what it sent, or one of its own when it stayed quiet. Where a Summary replaced the Bot's context, a card that expands to it sits before the next Message. The Bot's Messages are
  * never collapsed. The header lists the Routines, to pause, resume or delete them, and the To-do
- * list of live Helpers, to stop them.
+ * list of live Helpers, to stop them. A Message's Rich control renders with the Host's renderer for
+ * its kind in `controls`, or the default one.
  */
 export function BotConversation({
   botId,
   headerEnd,
   afterTurn,
+  controls,
 }: {
   botId: string;
   /** Header buttons the Host adds after the Bot's own, such as the `memory` plugin's Memory popover. */
@@ -55,10 +56,18 @@ export function BotConversation({
    * "Memory updated" chip. It may return nothing.
    */
   afterTurn?: (turn: BotTurnProvenance) => ReactNode;
+  /** The Host's renderers for the Rich control kinds it draws itself. */
+  controls?: RichControlRenderers;
 }) {
   // One instance per Bot, so a Turn's state never shows on another Bot.
   return (
-    <BotConversationView key={botId} botId={botId} headerEnd={headerEnd} afterTurn={afterTurn} />
+    <BotConversationView
+      key={botId}
+      botId={botId}
+      headerEnd={headerEnd}
+      afterTurn={afterTurn}
+      controls={controls}
+    />
   );
 }
 
@@ -66,11 +75,21 @@ function BotConversationView({
   botId,
   headerEnd,
   afterTurn,
+  controls,
 }: {
   botId: string;
   headerEnd?: ReactNode;
   afterTurn?: (turn: BotTurnProvenance) => ReactNode;
+  controls?: RichControlRenderers;
 }) {
+  const SecretCard = controls?.secret ?? defaultRichControlRenderers.secret;
+  const ComputerCard = controls?.computer ?? defaultRichControlRenderers.computer;
+  const ShowMeCard = controls?.demonstration ?? defaultRichControlRenderers.demonstration;
+  const FilesCard = controls?.files ?? defaultRichControlRenderers.files;
+  const ChoiceCard = controls?.choice ?? defaultRichControlRenderers.choice;
+  const RoutineApproval =
+    controls?.routine_approval ?? defaultRichControlRenderers.routine_approval;
+  const ReviewApproval = controls?.review_approval ?? defaultRichControlRenderers.review_approval;
   const i18n = useI18n();
   const { t } = i18n;
   const [draft, setDraft] = useState("");
@@ -125,6 +144,8 @@ function BotConversationView({
     save: saveSecret,
     remove: removeSecret,
   } = useBotSecrets(botId);
+  const { acting: actingChoices, answer: answerChoice } = useBotChoices(botId);
+  const { acting: actingReactions, react } = useBotReactions(botId);
   const { acting: actingDemonstrations, act: actOnDemonstration } = useDemonstrationActions(botId);
   const onDemonstration = (...args: Parameters<typeof actOnDemonstration>) =>
     void actOnDemonstration(...args).catch((refusal) =>
@@ -133,16 +154,6 @@ function BotConversationView({
   const todo = helpers.filter((helper) => isLiveHelper(helper.status));
   const actions = { onPause: pause, onResume: resume, onDelete: remove, actingRoutines: acting };
   const checkInActions = { onCancelCheckIn, actingCheckIns };
-  useBackgroundRuns(
-    botId,
-    !working &&
-      (routines.some((routine) => routine.state === "active") ||
-        checkIns.some((checkIn) => checkIn.state === "pending") ||
-        // The time cap may end a Demonstration while no Turn runs.
-        messages.some(
-          (message) => message.demonstration && isLiveDemonstration(message.demonstration.state),
-        )),
-  );
 
   if (error) {
     return (
@@ -160,49 +171,30 @@ function BotConversationView({
     setDraft("");
     void send(text);
   };
-  const routineCard = (routine: (typeof routines)[number]) => (
-    <RoutineCard
-      key={routine.id}
-      routine={routine}
-      webhookToken={webhookTokens[routine.id]}
-      onApprove={approve}
-      onDecline={decline}
-      {...actions}
-    />
-  );
-  // Each Routine under the Message its card follows, and each Check-in under the one its line
-  // follows; one whose Message isn't shown yet (its Turn still runs here) follows the rest.
+  // Each Check-in under the Message its line follows; one whose Message isn't shown yet (its Turn
+  // still runs here) follows the rest.
   const shownIds = new Set(messages.map((message) => message.id));
   // Only a Secret's newest request is a card: an older one is history, whatever happened since.
   const newestRequest = new Map<string, string>();
-  for (const sent of messages) if (sent.secret) newestRequest.set(sent.secret.name, sent.id);
-  const routinesAfter = groupAfter(routines, shownIds);
+  for (const sent of messages)
+    if (sent.control?.kind === "secret") newestRequest.set(sent.control.name, sent.id);
+  // The same for a Routine's Approval: an edit sent it back to the user in a newer Message.
+  const newestApproval = new Map<string, string>();
+  for (const sent of messages)
+    if (sent.control?.kind === "routine_approval")
+      newestApproval.set(sent.control.routineId, sent.id);
   const checkInsAfter = groupAfter(checkIns, shownIds);
   const helpersAfter = groupAfter(helpers, shownIds);
   const checkInLine = (checkIn: (typeof checkIns)[number]) => (
     <CheckInLine key={checkIn.id} checkIn={checkIn} {...checkInActions} />
   );
-  const reviewRequest = (review: (typeof reviews)[number]) => (
-    <ReviewRequest
-      key={review.id}
-      review={review}
-      onAllow={allowReview}
-      onDeny={denyReview}
-      acting={actingReviews.has(review.id)}
-    />
-  );
-  // A Helper's Approval requests nest under its line.
   const helperCard = (helper: (typeof helpers)[number]) => (
     <HelperCard
       key={helper.id}
       helper={helper}
       onStop={onStopHelper}
       stopping={actingHelpers.has(helper.id) || actingHelpers.has(allHelpers)}
-    >
-      {reviews
-        .filter((review) => review.verdict === "block" && review.helperId === helper.id)
-        .map(reviewRequest)}
-    </HelperCard>
+    />
   );
   // Each run's divider, before the Message it goes above ("" after the last): a run that
   // sent something above its first Message, a quiet one where it ran. One still running and quiet
@@ -290,16 +282,6 @@ function BotConversationView({
       ]);
   }
 
-  // Each Turn's Approval request at the call's place: after the last Message saved before it (""
-  // with none). A Helper's nests under its Helper instead.
-  const requestsAfter = new Map<string, ReactNode[]>();
-  for (const review of reviews) {
-    if (review.verdict !== "block" || !review.turnId || review.helperId) continue;
-    const key =
-      messages.filter((message) => message.createdAt <= review.createdAt).at(-1)?.id ?? "";
-    requestsAfter.set(key, [...(requestsAfter.get(key) ?? []), reviewRequest(review)]);
-  }
-
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) submit(event);
   };
@@ -333,55 +315,123 @@ function BotConversationView({
         {messages.length === 0 && (
           <p className="m-auto text-sm text-muted-foreground">{t("bots.noMessages")}</p>
         )}
-        {messages.map((message) => (
+        {messages.map(({ control, ...message }) => (
           <Fragment key={message.id}>
             {summariesBefore.get(message.id)}
             {warmingsBefore.get(message.id)}
             {runsBefore.get(message.id)}
-            {message.demonstration ? (
+            {control?.kind === "demonstration" ? (
               <ShowMeCard
-                card={message.demonstration}
+                card={control}
                 botName={bot.name}
                 onAct={onDemonstration}
-                acting={actingDemonstrations.has(message.demonstration.demonstrationId)}
+                acting={actingDemonstrations.has(control.demonstrationId)}
               />
-            ) : (
+            ) : isApproval(control?.kind) ? null : (
               <div
-                data-bot-message
-                data-id={message.id}
-                data-role={message.role}
                 className={cn(
-                  "max-w-[70%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap",
-                  message.role === "user"
-                    ? "self-end bg-primary text-primary-foreground"
-                    : "self-start bg-muted",
-                  message.pending && "opacity-70",
+                  "group relative flex max-w-[70%] flex-col gap-1",
+                  message.role === "user" ? "self-end" : "self-start",
                 )}
               >
-                {message.text}
+                <div
+                  data-bot-message
+                  data-id={message.id}
+                  data-role={message.role}
+                  className={cn(
+                    "rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap",
+                    message.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted",
+                    message.pending && "opacity-70",
+                  )}
+                >
+                  {message.text}
+                </div>
+                <ReactionChips
+                  reactions={message.reactions}
+                  own={message.role === "user" ? "user" : "bot"}
+                />
+                {message.role === "assistant" && !message.pending && (
+                  <ReactionBar
+                    current={message.reactions?.user?.emoji}
+                    acting={actingReactions.has(message.id)}
+                    onReact={(emoji) =>
+                      void react(message.id, emoji).catch((refusal) =>
+                        toast.error(serverErrorText(i18n, refusal)),
+                      )
+                    }
+                  />
+                )}
               </div>
             )}
-            {requestsAfter.get(message.id)}
+            {message.channel === "email" && (
+              <span
+                data-channel-pill
+                className={cn(
+                  "rounded-full bg-sky-100 px-2 py-0.5 text-[10px] text-sky-900 dark:bg-sky-900 dark:text-sky-100",
+                  message.role === "user" ? "self-end" : "self-start",
+                )}
+              >
+                {t(message.role === "user" ? "bots.viaEmail" : "bots.emailed")}
+              </span>
+            )}
             {afterTurnOf.get(message.id)}
-            {message.computer && (
-              <ComputerCard
-                card={message.computer}
-                helper={helpers.find((helper) => helper.id === message.computer?.helperId)}
-                onDone={onHelperDone}
-                acting={actingHelpers.has(message.computer.helperId)}
+            {control?.kind === "files" && <FilesCard card={control} />}
+            {control?.kind === "choice" && (
+              <ChoiceCard
+                card={control}
+                onAnswer={(answer) => answerChoice(message.id, answer)}
+                acting={actingChoices.has(message.id)}
               />
             )}
-            {message.secret && newestRequest.get(message.secret.name) === message.id && (
+            {control?.kind === "routine_approval" &&
+              newestApproval.get(control.routineId) === message.id &&
+              (() => {
+                const routine = routines.find((found) => found.id === control.routineId);
+                return (
+                  routine && (
+                    <RoutineApproval
+                      routine={routine}
+                      webhookToken={webhookTokens[routine.id]}
+                      onApprove={approve}
+                      onDecline={decline}
+                      {...actions}
+                    />
+                  )
+                );
+              })()}
+            {control?.kind === "review_approval" &&
+              (() => {
+                const review = reviews.find((found) => found.id === control.reviewId);
+                return (
+                  review && (
+                    <ReviewApproval
+                      review={review}
+                      onAllow={allowReview}
+                      onDeny={denyReview}
+                      acting={actingReviews.has(review.id)}
+                    />
+                  )
+                );
+              })()}
+            {control?.kind === "computer" && (
+              <ComputerCard
+                card={control}
+                helper={helpers.find((helper) => helper.id === control.helperId)}
+                onDone={onHelperDone}
+                acting={actingHelpers.has(control.helperId)}
+              />
+            )}
+            {control?.kind === "secret" && newestRequest.get(control.name) === message.id && (
               <SecretCard
-                request={message.secret}
+                request={control}
                 botName={bot.name}
                 saved={secrets.some(
                   (saved) =>
-                    saved.name === message.secret?.name &&
+                    saved.name === control.name &&
                     saved.createdAt.getTime() >= message.createdAt.getTime(),
                 )}
                 onSave={saveSecret}
-                saving={actingSecrets.has(message.secret.name)}
+                saving={actingSecrets.has(control.name)}
               />
             )}
             {message.id === seenMessageId && (
@@ -390,7 +440,6 @@ function BotConversationView({
             {message.id === failedMessageId && (
               <p className="self-end text-xs text-muted-foreground">{t("bots.couldntReply")}</p>
             )}
-            {routinesAfter.get(message.id)?.map(routineCard)}
             {checkInsAfter.get(message.id)?.map(checkInLine)}
             {helpersAfter.get(message.id)?.map(helperCard)}
           </Fragment>
@@ -398,9 +447,7 @@ function BotConversationView({
         {summariesBefore.get("")}
         {warmingsBefore.get("")}
         {runsBefore.get("")}
-        {requestsAfter.get("")}
         {afterTurnOf.get("")}
-        {routinesAfter.get("")?.map(routineCard)}
         {checkInsAfter.get("")?.map(checkInLine)}
         {helpersAfter.get("")?.map(helperCard)}
         {working && (

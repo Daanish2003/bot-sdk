@@ -9,6 +9,7 @@ import { searchTextOf } from "../../../core/shared/message-parts";
 import type { BotMessage, BotSummary } from "../shared/turn";
 import { buildPromptStart, type PromptStartParts, userZoneAt } from "./prompt-start";
 import { toBotMessage } from "./store";
+import { recordBotChange } from "./thread-change";
 import { formatterIn } from "./time-zone";
 
 /**
@@ -115,8 +116,8 @@ async function lastMessagesToUser(
 
 /**
  * Writes a Summary in `tx`: the model's `prose`, then the Bot's last 3 Messages to the user word for
- * word with their times. It builds a new Prompt start from `parts` whose first message holds it, and
- * returns its id. A `mid_turn` Summary's Turn keeps the Prompt start it started with: the next
+ * word with their times, a `summary` change in the thread. It builds a new Prompt start from `parts`
+ * whose first message holds it, and returns its id. A `mid_turn` Summary's Turn keeps the Prompt start it started with: the next
  * Turn's first call compares with that, so a Turn stopped right after its Summary reads as an
  * expected change, never a bug.
  */
@@ -141,6 +142,7 @@ export async function writeSummary(
     turnId: kind === "mid_turn" ? turn.id : null,
     createdAt: now,
   });
+  await recordBotChange(tx, turn, "summary", id, now);
   return buildPromptStart(tx, parts, { id, text });
 }
 

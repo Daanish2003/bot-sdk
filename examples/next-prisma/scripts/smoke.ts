@@ -142,18 +142,19 @@ async function main() {
     // A Bot Turn: bot.send takes the client's uuidv7 id for the Message. The fake Provider never calls
     // the send_to_user tool, so the Bot's reply is not checked here: the Turn only has to end complete.
     const created = await client.rpc.bot.create({ name: "Smoke Bot", model });
-    const botEvents = await client.rpc.bot.send(
+    const sent = await client.rpc.bot.send(
       { botId: created.id, id: uuidv7(), text: "Hello Bot from the smoke test" },
       { signal: AbortSignal.timeout(60_000) },
     );
-    let botStatus: string | undefined;
-    let botSaid: string | undefined;
-    for await (const event of botEvents) {
-      if (event.type === "message" && event.message.role === "user") botSaid = event.message.text;
-      if (event.type === "turnEnded") botStatus = event.status;
-    }
-    if (botSaid !== "Hello Bot from the smoke test")
+    if (sent.text !== "Hello Bot from the smoke test")
       throw new Error("The Bot did not save the user Message");
+    // The Turn runs as a runner job: read the Bot until the Turn that took the Message ends.
+    let botStatus: string | null = null;
+    for (let attempt = 0; attempt < 120; attempt++) {
+      botStatus = (await client.rpc.bot.get({ botId: created.id })).bot.userTurnStatus;
+      if (botStatus !== null && botStatus !== "running") break;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
     if (botStatus !== "complete")
       throw new Error(`The Bot Turn ended ${botStatus ?? "without an end"}`);
 

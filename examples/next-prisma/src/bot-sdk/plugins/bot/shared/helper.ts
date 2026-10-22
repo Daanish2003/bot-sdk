@@ -28,12 +28,12 @@ export type BotHelper = {
 };
 
 /**
- * The Computer card part of a hand-off Message (#568): the Helper that handed its Screen to the
- * user, why, and whether the user tapped Done or the task was stopped first. The live link is never
- * stored.
+ * The Computer card of a hand-off Message (#568), the Rich control of kind `computer`: the Helper
+ * that handed its Screen to the user, why, and whether the user tapped Done or the task was stopped
+ * first. The live link is never stored.
  */
 export const computerCardSchema = z.object({
-  type: z.literal("computer"),
+  kind: z.literal("computer"),
   helperId: z.string(),
   reason: z.string(),
   state: z.enum(["open", "done", "cancelled"]),
