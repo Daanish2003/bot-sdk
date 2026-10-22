@@ -260,11 +260,23 @@ const tally = async (tx: Transaction, demonstrationId: string) => {
 };
 
 /**
+ * Whether Demonstration `demonstrationId` records, read when a step comes in: a step waits behind
+ * the ones before it, so by the time it is stored a Resume may have followed the Pause it came in.
+ */
+const recordingNow = async (deps: BotSdkContext, demonstrationId: string) => {
+  const [row] = await deps.db
+    .select({ state: botDemonstration.state })
+    .from(botDemonstration)
+    .where(eq(botDemonstration.id, demonstrationId));
+  return row?.state === "recording";
+};
+
+/**
  * Stores one step of Demonstration `demonstration.id`, while it records: its row, with the
  * screenshot `screenshot` takes (none for a masked step, or while a password shows), and its
- * card's step count. A step that comes while it is paused or has ended is dropped before any
- * screenshot; one that a Pause
- * overtakes while its screenshot is taken is dropped, and its bytes deleted. The screenshot is put
+ * card's step count. A step that came while it was paused or had ended (`received`, read when it
+ * came) is dropped before any screenshot; one that a Pause overtakes while its screenshot is taken
+ * is dropped, and its bytes deleted. The screenshot is put
  * in the blob store before the row is written, outside the locks, so a row is never read before
  * the bytes its key names; a put that fails stores the step without one. The step that reaches
  * `demonstrationEventLimit` ends it as Done.
@@ -273,16 +285,10 @@ async function storeStep(
   deps: BotSdkContext,
   demonstration: Captured,
   step: ReportedStep,
+  received: Promise<boolean>,
   screenshot: () => Promise<Uint8Array | null>,
 ) {
-  const recording = async () => {
-    const [row] = await deps.db
-      .select({ state: botDemonstration.state })
-      .from(botDemonstration)
-      .where(eq(botDemonstration.id, demonstration.id));
-    return row?.state === "recording";
-  };
-  if (!(await recording())) return;
+  if (!(await received)) return;
   const id = uuidv7();
   const png = step.masked ? null : await screenshot().catch(() => null);
   const screenshotKey = png ? demonstrationEventBlobKey(demonstration.id, id) : null;
@@ -368,9 +374,13 @@ async function connect(
     await context.exposeBinding(name, ({ page }: { page: Page }, reported: unknown) => {
       const step = reportedStepSchema.safeParse(reported);
       if (!step.success || pending.closing) return;
+      const received = recordingNow(deps, demonstration.id).catch((caught: unknown) => {
+        deps.logger.error("Reading a Demonstration's state failed", caught);
+        return false;
+      });
       pending.chain = pending.chain
         .then(() =>
-          storeStep(deps, demonstration, step.data, async () =>
+          storeStep(deps, demonstration, step.data, received, async () =>
             (await passwordShown(page, name))
               ? null
               : page.screenshot({ type: "png", timeout: screenshotTimeoutMs }),

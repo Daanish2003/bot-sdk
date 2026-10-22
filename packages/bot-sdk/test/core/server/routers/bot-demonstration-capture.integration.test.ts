@@ -128,6 +128,8 @@ beforeEach(async () => {
 }, 60_000);
 
 afterEach(async () => {
+  puts.held = undefined;
+  puts.started = 0;
   await hands?.close().catch(() => {});
   hands = undefined;
   for (const jobs of started.splice(0)) await jobs.stop();
@@ -190,16 +192,33 @@ async function demonstrating(path = "/") {
 }
 
 /**
+ * A gate a test closes to hold every screenshot's put until it opens it, and how many puts have
+ * reached it.
+ */
+const puts = { held: undefined as Promise<void> | undefined, started: 0 };
+
+/**
  * `store` with each put taking a while, as a remote blob store's does: a step's row must never be
- * read before its screenshot's bytes are there.
+ * read before its screenshot's bytes are there. A put waits at `puts.held` too.
  */
 const slowPuts = (store: BlobStore): BlobStore => ({
   ...store,
   put: async (...args) => {
+    puts.started += 1;
     await new Promise((resolve) => setTimeout(resolve, 300));
+    await puts.held;
     await store.put(...args);
   },
 });
+
+/** Holds every put until the returned function is called. */
+function holdPuts(): () => void {
+  let open!: () => void;
+  puts.held = new Promise((resolve) => {
+    open = resolve;
+  });
+  return open;
+}
 
 const eventsOf = (demonstrationId: string) =>
   getTestDb()
@@ -384,6 +403,33 @@ describe("capturing a Demonstration", () => {
     const keys = events.flatMap((event) => event.screenshotKey ?? []);
     expect(keys).toHaveLength(2);
     for (const key of keys) expect(await deps.blobStore.get(key)).not.toBeNull();
+  }, 60_000);
+
+  it("drops a step taken while paused, even one stored after Resume", async () => {
+    const { client, demonstrationId, page } = await demonstrating();
+    const open = holdPuts();
+    await page.locator("#go").click();
+    await expect.poll(() => puts.started, poll).toBe(2);
+
+    // Taken while paused, and queued behind the held step until after the Resume.
+    await client.bot.demonstration.pause({ demonstrationId });
+    await page.locator("#name").click();
+    await page.waitForTimeout(500);
+    await client.bot.demonstration.resume({ demonstrationId });
+    open();
+    await page.locator("#go").click();
+
+    await expect
+      .poll(
+        async () => (await eventsOf(demonstrationId)).map(({ kind, selector }) => [kind, selector]),
+        poll,
+      )
+      .toEqual([
+        ["navigation", null],
+        ["pause", null],
+        ["click", "#go"],
+        ["click", "#go"],
+      ]);
   }, 60_000);
 
   it("keeps listening after a navigation, in a new tab and in frames", async () => {
