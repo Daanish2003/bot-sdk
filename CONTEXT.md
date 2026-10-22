@@ -85,8 +85,12 @@ A user's own API key for a non-LLM service a tool needs, such as web search. Wit
 _Avoid_: Search key, Provider credentials (those are for Providers only)
 
 **Connection**:
-A user's authorisation to use an outside service the Host offers, made by signing in to it: one of its MCP servers. In an assistant Conversation the user switches each MCP Connection on per Conversation. Signing in to a site in a Screen's Chrome is not a Connection.
+A user's sign-in to one of the MCP servers the Host offers. All of the user's Bots can use its tools. Signing in to a site in a Screen's Chrome is not a Connection.
 _Avoid_: Integration, connector, MCP credential, Tool credential (that is an API key)
+
+**Connector tool**:
+A tool a Bot gets from one of its user's Connections. It is a Deferred tool, and a call to it is checked by Auto-review. When its Connection is gone or broken, the tool stays listed and the call returns an error telling the Bot to ask the user to reconnect.
+_Avoid_: MCP tool, integration tool
 
 **Approval**:
 A user's yes or no to one tool call before it runs, or to a new Routine. While a call waits for it, the Run has ended; approving starts a new Run that carries on from the call. A Bot asks for one only when Auto-review blocks a call: the call waits at most 15 seconds, and silence counts as no. A yes after that changes nothing.
@@ -101,11 +105,11 @@ A public, read-only snapshot of a Conversation's Active Branch (a Bot's whole Co
 _Avoid_: Share, public chat, permalink
 
 **Attachment**:
-A file (image, PDF or text file) a user uploads and attaches to their Message. It is never copied: editing a Message carries its Attachments over to the new Branch, where the user can remove some or add more; regenerating a reply leaves them as they were. A Shared link shows only each Attachment's file name and type.
+A file a user sends their Bot with a Message, from the web or by email. It shows in the thread and is copied into the Bot's folder on its Computer. Its content is untrusted.
 _Avoid_: Upload, file part, document
 
 **Generated image**:
-An image the assistant made with the user's Image Model during an assistant Message, shown in the reply. It belongs to that Message: regenerating the reply makes new ones and leaves the old reply's as they were. It can be made from earlier Generated images or image Attachments on the same Branch (an edit), never by changing them. Unlike an Attachment, the user didn't upload it, and a Shared link shows it in full.
+An image a Bot made with `generate_image` and the user's Image Model, saved as a file on its Computer. The user sees it only when the Bot sends it, like any other file. An edit makes a new image from earlier image files; it never changes them.
 _Avoid_: Image attachment, picture, output image
 
 **Artifact**:
@@ -145,7 +149,7 @@ The cheap Model a user picks for work done around their Messages rather than in 
 _Avoid_: Title Model, Memory Model, utility model
 
 **Image Model**:
-The Model a user picks for Generated images, independent of the Model they chat with. When they pick none, the Host's default is used; with no default, the assistant can't make images.
+The Model a user picks for Generated images, independent of their Bots' Models. When they pick none, the Host's default is used; with no default, a Bot's `generate_image` call returns an error asking the user to pick one.
 _Avoid_: Image generator, image Provider
 
 **Bot**:
