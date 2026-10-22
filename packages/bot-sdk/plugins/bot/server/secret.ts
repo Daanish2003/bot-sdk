@@ -7,7 +7,7 @@ import {
   kidOf,
 } from "../../../core/server/credentials/encryption";
 import { rotateInPasses } from "../../../core/server/credentials/rotation";
-import { botSecret } from "../../../core/server/db/schema";
+import { bot, botSecret } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
 import { rpcError } from "../../../core/server/rpc-error";
 import type { BotSdkContext } from "../../../core/server/plugin";
@@ -87,9 +87,33 @@ export async function listSecrets(db: Database, userId: string): Promise<BotSecr
     .orderBy(asc(botSecret.name));
 }
 
-/** Deletes the user's Secret `name`. Deleting one that isn't there does nothing. */
-export async function deleteSecret(db: Database, userId: string, name: string): Promise<void> {
-  await db.delete(botSecret).where(and(eq(botSecret.userId, userId), eq(botSecret.name, name)));
+/**
+ * Deletes the user's Secret `name`, a `secret` change in each of their Bots' threads, since a Secret
+ * is the user's, not one Bot's. Deleting one that isn't there does nothing.
+ */
+export async function deleteSecret(
+  sdk: BotSdkContext,
+  userId: string,
+  name: string,
+): Promise<void> {
+  const now = sdk.clock();
+  const changed = await sdk.db.transaction(async (tx) => {
+    const owned = await tx
+      .select({ conversationId: bot.conversationId })
+      .from(bot)
+      .where(eq(bot.userId, userId))
+      .orderBy(asc(bot.conversationId));
+    // The Conversations' row locks first, in one order, as in every write that changes a thread.
+    for (const { conversationId } of owned) await lockConversation(tx, conversationId);
+    const deleted = await tx
+      .delete(botSecret)
+      .where(and(eq(botSecret.userId, userId), eq(botSecret.name, name)))
+      .returning({ name: botSecret.name });
+    if (deleted.length === 0) return [];
+    for (const owner of owned) await recordBotChange(tx, owner, "secret", name, now);
+    return owned;
+  });
+  for (const { conversationId } of changed) await hintChanged(sdk, conversationId);
 }
 
 /** One scan over every Secret; `raced` counts updates that found the row already changed. */

@@ -72,3 +72,16 @@ export async function changesSince(
     .where(eq(conversation.id, conversationId));
   return since > (row?.lastSeq ?? 0) ? { reload: true } : { reload: false, changes: [] };
 }
+
+/**
+ * The Conversation's newest seq, the cursor for a client that reads its thread afresh. Read it
+ * before the thread: a change committed in between is then replayed onto a thread that may already
+ * show it, never missed.
+ */
+export async function lastSeqOf(db: Database, conversationId: string): Promise<number> {
+  const [row] = await db
+    .select({ lastSeq: conversation.lastSeq })
+    .from(conversation)
+    .where(eq(conversation.id, conversationId));
+  return row?.lastSeq ?? 0;
+}

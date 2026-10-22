@@ -641,6 +641,7 @@ async function runTurnJob(
     });
     // Read after the start: a resumed attempt replays it, so the Turn keeps the start it had.
     turn = (await turnFacts(deps.db, turnId)) ?? created;
+    await hintChanged(deps, turn.conversationId);
   } catch (caught) {
     if (ctx.signal.aborted) await stopIfCancelled(deps, turn, { transcript: [], usage: null });
     throw caught;

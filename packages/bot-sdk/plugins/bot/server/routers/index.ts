@@ -1,6 +1,7 @@
 import { eventIterator } from "@orpc/server";
 import { z } from "zod";
 
+import { lastSeqOf } from "../../../../core/server/chat/change-log";
 import { protectedProcedure } from "../../../../core/server/procedures";
 import { rpcError } from "../../../../core/server/rpc-error";
 import {
@@ -72,8 +73,8 @@ const botRouter = {
 
   /**
    * One of the caller's Bots with its latest Turn's status and the status of the Turn that took the
-   * user's last Message, its Conversation's id and Messages, its Turns' provenance, its Summaries and its cache warmings;
-   * another user's is not found.
+   * user's last Message, its Conversation's id and Messages, its Turns' provenance, its Summaries and its cache warmings,
+   * and `lastSeq`, the cursor to follow its thread with `changes` from; another user's is not found.
    */
   get: protectedProcedure
     .input(z.object({ botId: z.uuid() }))
@@ -81,6 +82,8 @@ const botRouter = {
       const found = await findBot(context.sdk.db, context.user.id, input.botId);
       if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
       const { conversationId, ...bot } = found;
+      // Read before the thread, so no change committed meanwhile falls behind the cursor.
+      const lastSeq = await lastSeqOf(context.sdk.db, conversationId);
       const [messages, turnStatus] = await Promise.all([
         botMessages(context.sdk.db, conversationId),
         latestTurnStatus(context.sdk.db, bot.id),
@@ -99,6 +102,7 @@ const botRouter = {
         turns,
         summaries,
         warmings,
+        lastSeq,
       };
     }),
 
@@ -324,7 +328,7 @@ const botRouter = {
     /** Deletes the caller's Secret `name`. */
     delete: protectedProcedure
       .input(z.object({ name: secretNameSchema }))
-      .handler(({ context, input }) => deleteSecret(context.sdk.db, context.user.id, input.name)),
+      .handler(({ context, input }) => deleteSecret(context.sdk, context.user.id, input.name)),
   },
 
   /**

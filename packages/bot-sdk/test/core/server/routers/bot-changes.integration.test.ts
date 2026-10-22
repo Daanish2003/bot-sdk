@@ -130,7 +130,7 @@ async function settled(botId: string) {
 
 describe("bot.changes", () => {
   it(
-    "returns a sent Message, its Turn's status, the Bot's Message and the Turn's end in seq order",
+    "returns a sent Message, its Turn's status and start, the Bot's Message and the Turn's end in seq order",
     async () => {
       const { client, botId } = await botWith([round(sends("Hello!"))]);
 
@@ -138,16 +138,19 @@ describe("bot.changes", () => {
       await send(client, botId, "Hi", id);
 
       const changes = await changesAfter(client, botId, 0);
-      expect(changes.map((change) => change.seq)).toEqual([1, 2, 3, 4]);
-      expect(kindsOf(changes)).toEqual(["message", "turn", "message", "turn"]);
-      const [user, running, reply, ended] = changes;
+      expect(changes.map((change) => change.seq)).toEqual([1, 2, 3, 4, 5]);
+      expect(kindsOf(changes)).toEqual(["message", "turn", "turn", "message", "turn"]);
+      const [user, running, started, reply, ended] = changes;
       expect(user).toMatchObject({ refId: id, data: { id, role: "user", text: "Hi" } });
-      // A Turn's changes both point at the same Turn, as it is now.
+      // A Turn's changes all point at the same Turn, as it is now.
       expect(running!.refId).toBe(ended!.refId);
+      expect(started!.refId).toBe(ended!.refId);
       expect(ended!.data).toMatchObject({ status: "complete" });
       expect(reply!.data).toMatchObject({ role: "assistant", text: "Hello!" });
       expect(await changesAfter(client, botId, 2)).toEqual(changes.slice(2));
-      expect(await changesAfter(client, botId, 4)).toEqual([]);
+      expect(await changesAfter(client, botId, 5)).toEqual([]);
+      // `get` gives the cursor to follow the thread from.
+      expect((await client.bot.get({ botId })).lastSeq).toBe(5);
     },
     timeout,
   );
@@ -179,7 +182,7 @@ describe("bot.changes", () => {
   );
 
   it(
-    "writes one secret change when a Secret is saved, never its value",
+    "writes one secret change when a Secret is saved, never its value, and one when it is deleted",
     async () => {
       const { client, botId } = await botWith([round(sends("Thanks, got it."))]);
       await client.bot.secret.save({ botId, name: "GITHUB_TOKEN", value: "ghp_secret-value-123" });
@@ -194,6 +197,19 @@ describe("bot.changes", () => {
         }),
       ]);
       expect(JSON.stringify(changes)).not.toContain("ghp_secret-value-123");
+
+      const cursor = await cursorOf(client, botId);
+      await client.bot.secret.delete({ name: "GITHUB_TOKEN" });
+      // Deleting it again changes nothing, so it writes no change.
+      await client.bot.secret.delete({ name: "GITHUB_TOKEN" });
+      expect(await changesAfter(client, botId, cursor)).toEqual([
+        expect.objectContaining({
+          seq: cursor + 1,
+          kind: "secret",
+          refId: "GITHUB_TOKEN",
+          data: null,
+        }),
+      ]);
     },
     timeout,
   );

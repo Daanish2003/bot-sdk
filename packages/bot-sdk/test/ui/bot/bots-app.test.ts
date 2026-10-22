@@ -52,6 +52,7 @@ function seed(queryClient: QueryClient, client: BotSdkClient) {
     turns: [],
     summaries: [],
     warmings: [],
+    lastSeq: 0,
   });
 }
 
@@ -171,6 +172,7 @@ describe("a Bot's Conversation", () => {
               },
             ],
             warmings: [],
+            lastSeq: 0,
           });
         },
       }),

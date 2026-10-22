@@ -713,13 +713,19 @@ async function recordStoppedHelper(deps: BotSdkContext, helperId: string): Promi
     const helper = await helperFacts(deps.db, helperId);
     if (helper?.status !== "stopped") return;
     const played = await replayedHelper(deps, helper);
-    await deps.db
-      .update(botHelper)
-      .set({
-        transcript: [...played.input, ...played.transcript],
-        usage: usageSoFar(helper, played),
-      })
-      .where(eq(botHelper.id, helperId));
+    await deps.db.transaction(async (tx) => {
+      await lockConversation(tx, helper.conversationId);
+      await tx
+        .update(botHelper)
+        .set({
+          transcript: [...played.input, ...played.transcript],
+          usage: usageSoFar(helper, played),
+        })
+        .where(eq(botHelper.id, helperId));
+      // Its card's Steps come from the transcript.
+      await recordBotChange(tx, helper, "helper", helperId, deps.clock());
+    });
+    await hintChanged(deps, helper.conversationId);
   } catch (caught) {
     deps.logger.error(`Replaying the Checkpoints of Helper ${helperId} failed`, caught);
   }

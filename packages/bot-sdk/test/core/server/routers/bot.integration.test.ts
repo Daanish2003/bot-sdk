@@ -60,6 +60,7 @@ describe("bot.create", () => {
       turns: [],
       summaries: [],
       warmings: [],
+      lastSeq: 0,
     });
   });
 

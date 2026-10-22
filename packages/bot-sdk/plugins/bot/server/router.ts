@@ -228,4 +228,5 @@ export async function turnStarted(deps: BotSdkContext, tx: Transaction, turnId: 
     .update(botTurn)
     .set({ startedAt: new Date(startedAt) })
     .where(eq(botTurn.id, turnId));
+  await recordBotChange(tx, turn, "turn", turnId, new Date(now));
 }

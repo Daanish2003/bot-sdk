@@ -10,6 +10,7 @@ import { listCheckIns } from "./check-in";
 import { listHelpers } from "./helper-card";
 import { reviewFields } from "./review";
 import { listRoutines } from "./routine";
+import { botSummaries } from "./summary";
 import { findBot, toBotMessage } from "./store";
 
 /** The ids of `changes` of `kind`, once each. */
@@ -57,6 +58,7 @@ async function changeData(
   const turnIds = idsOf(changes, "turn");
   const secretNames = idsOf(changes, "secret");
   const reviewIds = idsOf(changes, "review");
+  const helperIds = idsOf(changes, "helper");
   await Promise.all([
     messageIds.length > 0 &&
       db
@@ -98,10 +100,12 @@ async function changeData(
         .from(botReview)
         .where(and(eq(botReview.botId, owner.botId), inArray(botReview.id, reviewIds)))
         .then((rows) => put("review", rows)),
-    idsOf(changes, "helper").length > 0 &&
-      listHelpers(db, owner.botId).then((rows) => put("helper", rows)),
+    helperIds.length > 0 &&
+      listHelpers(db, owner.botId, helperIds).then((rows) => put("helper", rows)),
     idsOf(changes, "check_in").length > 0 &&
       listCheckIns(db, owner.botId).then((rows) => put("check_in", rows)),
+    idsOf(changes, "summary").length > 0 &&
+      botSummaries(db, owner.botId, owner.conversationId).then((rows) => put("summary", rows)),
   ]);
   return data;
 }

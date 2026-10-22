@@ -3,7 +3,7 @@ import type { BotHelper } from "./helper";
 import type { BotReview } from "./review";
 import type { BotRoutine } from "./routine";
 import type { BotSecret } from "./secret";
-import type { BotMessage, BotTurnStatus } from "./turn";
+import type { BotMessage, BotSummary, BotTurnStatus } from "./turn";
 
 /** A Turn as a `turn` change carries it. */
 export type BotTurnChange = {
@@ -22,6 +22,7 @@ type BotChangeData = {
   review: BotReview;
   helper: BotHelper;
   check_in: BotCheckIn;
+  summary: BotSummary;
 };
 
 /** The kinds of change to a Bot's thread. */

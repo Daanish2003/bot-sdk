@@ -169,6 +169,7 @@ describe("the cache chip in a Bot's thread", () => {
               turns: [turnAt("t1", 0, true), turnAt("t2", 5, false)],
               summaries: [],
               warmings: [],
+              lastSeq: 0,
             }),
         },
       ),

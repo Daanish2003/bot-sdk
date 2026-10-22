@@ -83,7 +83,7 @@ export async function pendingCheckIns(db: Database | Transaction, botId: string)
 async function cancelPending(
   deps: BotSdkContext,
   tx: Transaction,
-  botId: string,
+  { botId, conversationId }: { botId: string; conversationId: string },
   checkInId: string,
 ): Promise<boolean> {
   const [row] = await tx
@@ -98,7 +98,7 @@ async function cancelPending(
     )
     .returning({ id: botCheckIn.id });
   if (!row) return false;
-  await recordBotChange(tx, { botId }, "check_in", checkInId, deps.clock());
+  await recordBotChange(tx, { conversationId }, "check_in", checkInId, deps.clock());
   await deps.plugin("runner").cancelIn(tx, checkInKey(checkInId));
   return true;
 }
@@ -110,7 +110,7 @@ export async function cancelCheckInTool(
   { botId, conversationId, id }: { botId: string; conversationId: string; id: string },
 ): Promise<{ cancelled: true } | { error: string }> {
   await lockConversation(tx, conversationId);
-  if (await cancelPending(deps, tx, botId, id)) return { cancelled: true };
+  if (await cancelPending(deps, tx, { botId, conversationId }, id)) return { cancelled: true };
   return { error: `No pending Check-in with id "${id}". list_check_ins shows yours.` };
 }
 
@@ -129,7 +129,7 @@ export async function cancelCheckIn(
     if (!owner) throw rpcError("NOT_FOUND", "error.checkInNotFound", "Check-in not found");
     // The Conversation's row lock first, as in a fire.
     await lockConversation(tx, owner.conversationId);
-    await cancelPending(deps, tx, owner.botId, checkInId);
+    await cancelPending(deps, tx, owner, checkInId);
   });
 }
 

@@ -34,7 +34,7 @@ import {
   summaryOf,
   writeSummary,
 } from "./summary";
-import { awayStartParts } from "./turn";
+import { awayStartParts, hintChanged } from "./turn";
 
 /**
  * Background work due this soon wakes the Bot anyway, with its context still cached, so a Summary
@@ -151,7 +151,7 @@ async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext
   const knowledge = await ctx.activity("knowledge", () =>
     knowledgeNow(deps, seen.userId, ctx.signal),
   );
-  await ctx.activity("summary:write", async (tx) => {
+  const summaryId = await ctx.activity("summary:write", async (tx) => {
     await lockConversation(tx, seen.conversationId);
     if (await turnedSince(tx, botId, seen)) return null;
     const now = deps.clock();
@@ -172,6 +172,7 @@ async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext
     );
     return writeSummary(tx, { parts, prose: written.prose, kind: "away" });
   });
+  if (summaryId) await hintChanged(deps, seen.conversationId);
 }
 
 /**

@@ -339,7 +339,15 @@ export async function closeWaitingReviews(
     .set({ state, decidedAt: now })
     .where(and(owned, eq(botReview.state, "waiting")))
     .returning({ id: botReview.id, botId: botReview.botId });
-  for (const row of closed) await recordBotChange(tx, row, "review", row.id, now);
+  // One Turn's or Helper's, so one Bot's: its Conversation is looked up once.
+  const [first] = closed;
+  if (!first) return;
+  const [owner] = await tx
+    .select({ conversationId: bot.conversationId })
+    .from(bot)
+    .where(eq(bot.id, first.botId));
+  if (!owner) return;
+  for (const row of closed) await recordBotChange(tx, owner, "review", row.id, now);
 }
 
 /** The meter a review on `model` bills. */

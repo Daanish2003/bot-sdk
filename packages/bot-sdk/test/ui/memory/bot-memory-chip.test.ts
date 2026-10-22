@@ -110,6 +110,7 @@ const seedGet = (queryClient: QueryClient, client: BotSdkClient, turns: BotTurnP
     turns,
     summaries: [],
     warmings: [],
+    lastSeq: 0,
   });
 
 describe("the Memory updated chip on a Bot's Turn", () => {
