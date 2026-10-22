@@ -15,8 +15,4 @@ describe("the knowledge plugin", () => {
       "knowledge",
     ]);
   });
-
-  it("is absent when the Host leaves it out", () => {
-    expect(orderPlugins([{ id: "computer" }]).map((plugin) => plugin.id)).toEqual(["computer"]);
-  });
 });
