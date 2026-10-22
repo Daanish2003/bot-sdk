@@ -155,8 +155,9 @@ async function main() {
       if (botStatus !== null && botStatus !== "running") break;
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
-    if (botStatus !== "complete")
-      throw new Error(`The Bot Turn ended ${botStatus ?? "without an end"}`);
+    if (botStatus === "running" || botStatus === null)
+      throw new Error("The Bot Turn did not finish within 60 seconds");
+    if (botStatus !== "complete") throw new Error(`The Bot Turn ended ${botStatus}`);
 
     console.log(`Smoke test passed: streamed ${streamed.length} characters and saved the reply.`);
   } finally {

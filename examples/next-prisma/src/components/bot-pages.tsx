@@ -20,7 +20,7 @@ export function BotsHome() {
   return <BotsHomePage />;
 }
 
-/** One Bot's Conversation, with the Memory live indicator, Memory, Skills and Knowledge popovers and per-Turn chips (as in apps/web). */
+/** One Bot's Conversation, with the Memory, Skills and Knowledge popovers and per-Turn chips (as in apps/web). */
 export function BotRoute({ botId }: { botId: string }) {
   return (
     <BotConversation
