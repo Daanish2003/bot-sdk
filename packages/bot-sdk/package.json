@@ -20,6 +20,7 @@
     "./plugins/memory/server": "./plugins/memory/server/index.ts",
     "./plugins/memory/client": "./plugins/memory/client/index.ts",
     "./plugins/memory/ui": "./plugins/memory/ui/index.ts",
+    "./plugins/knowledge/server": "./plugins/knowledge/server/index.ts",
     "./plugins/skills/client": "./plugins/skills/client/index.ts",
     "./plugins/skills/ui": "./plugins/skills/ui/index.ts",
     "./plugins/skills/server": "./plugins/skills/server/index.ts"

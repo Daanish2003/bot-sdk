@@ -8,7 +8,7 @@ import {
   wordMediaType,
   type KnowledgeFailureCode,
   type KnowledgeMediaType,
-} from "../../shared/knowledge/kinds";
+} from "../../assistant/shared/knowledge/kinds";
 import {
   ArchiveIntegrityError,
   assertOoxmlArchiveWithinLimits,

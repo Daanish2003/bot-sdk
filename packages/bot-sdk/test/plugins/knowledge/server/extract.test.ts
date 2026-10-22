@@ -5,12 +5,18 @@ import { describe, expect, it } from "vitest";
 import {
   ExtractionFailure,
   extractKnowledgeText,
-} from "../../../../plugins/assistant/server/knowledge/extract";
+} from "../../../../plugins/knowledge/server/extract";
 import { pdfMediaType, wordMediaType } from "../../../../plugins/assistant/shared/knowledge/kinds";
 
-const sampleDocx = readFileSync(new URL("./fixtures/sample.docx", import.meta.url));
-const samplePdf = readFileSync(new URL("./fixtures/sample-text.pdf", import.meta.url));
-const scannedPdf = readFileSync(new URL("./fixtures/sample-scanned.pdf", import.meta.url));
+const sampleDocx = readFileSync(
+  new URL("../../../core/server/knowledge/fixtures/sample.docx", import.meta.url),
+);
+const samplePdf = readFileSync(
+  new URL("../../../core/server/knowledge/fixtures/sample-text.pdf", import.meta.url),
+);
+const scannedPdf = readFileSync(
+  new URL("../../../core/server/knowledge/fixtures/sample-scanned.pdf", import.meta.url),
+);
 const encode = (text: string) => new TextEncoder().encode(text);
 
 /** The reason a Knowledge file fails to extract, or undefined when it extracts. */

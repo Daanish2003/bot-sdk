@@ -7,3 +7,4 @@ The Bot SDK includes code ported from Sim Studio (https://github.com/simstudioai
 at commit 22c3de1f7d02fdb6fc925ad858abb555c20f5493, licensed under the Apache License, Version 2.0:
 
 - plugins/assistant/server/knowledge/chunker.ts, from apps/sim/lib/chunkers/text-chunker.ts, chunk-budget.ts and utils.ts
+- plugins/knowledge/server/extract.ts and plugins/knowledge/server/ooxml.ts, from Sim's file parsers, zip-guard.ts and ooxml-encryption.ts

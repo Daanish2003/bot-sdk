@@ -10,6 +10,7 @@ import {
 import { assistant } from "@ai-chat/bot-sdk/plugins/assistant/server";
 import { bot } from "@ai-chat/bot-sdk/plugins/bot/server";
 import { memory } from "@ai-chat/bot-sdk/plugins/memory/server";
+import { knowledge } from "@ai-chat/bot-sdk/plugins/knowledge/server";
 import { skills } from "@ai-chat/bot-sdk/plugins/skills/server";
 import {
   fakeEmbeddingAdapter,
@@ -149,8 +150,10 @@ export const sdk = (shared.botSdk ??= createBotSdk({
     ...(await computerPluginsOf(e2b, computerTemplate)),
     // Memory (ADR 0013): the assistant's Memories and the user's Memory switch.
     memory(),
-    // Skills (spec #713): each Bot's SKILL.md files, listed in its prompt; on only with the Computer.
+    // Skills (spec #713): each Bot's SKILL.md files, listed in its prompt; a Host turns it on or off.
     skills(),
+    // Knowledge (spec #737): text extraction for Knowledge files; a Host turns it on or off.
+    knowledge(),
     assistant({
       mcpServers: mcpServersOf(ENV),
       // Artifacts (spec #304): the assistant's create_artifact tool, the side panel and its version route.

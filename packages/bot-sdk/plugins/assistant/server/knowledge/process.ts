@@ -7,7 +7,7 @@ import { project, knowledgeChunk, knowledgeFile } from "../../../../core/server/
 import { defineJob, PermanentJobError } from "../../../runner/server/jobs/define";
 import type { KnowledgeFailureCode } from "../../shared/knowledge/kinds";
 import { ChunkLimitExceededError, chunkText } from "./chunker";
-import { ExtractionFailure, extractKnowledgeText } from "./extract";
+import { ExtractionFailure, extractKnowledgeText } from "../../../knowledge/server/extract";
 
 /** Passages per embedding call and per insert: the most texts one step holds in memory. */
 const passageBatch = 100;
