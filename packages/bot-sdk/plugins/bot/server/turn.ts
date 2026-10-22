@@ -61,6 +61,7 @@ import type { BotSkillChange } from "../../skills/shared/changes";
 import { knowledgeChangesOf } from "../../knowledge/server/changes";
 import type { BotKnowledgeChange } from "../../knowledge/shared/changes";
 import { skillChangesOf } from "../../skills/server/skills";
+import { maxChoiceOptionLength, maxChoiceOptions } from "../shared/choice";
 import { maxFilesPerMessage } from "../shared/files";
 import type { RichControl } from "../shared/rich-control";
 import { secretNameSchema } from "../shared/secret";
@@ -213,6 +214,23 @@ const sendToUserDefinition = toolDefinition({
         description:
           "Paths of files on your computer to send with the message, as downloads under it. They " +
           "are copied when you send, and nothing is sent if one is missing. Not with secret.",
+      }),
+    choice: z
+      .object({
+        options: z
+          .array(z.string().min(1).max(maxChoiceOptionLength))
+          .min(2)
+          .max(maxChoiceOptions)
+          .meta({ description: "The options the user picks one from." }),
+        other: z.boolean().optional().meta({
+          description: "true to add an Other option where the user types their own answer.",
+        }),
+      })
+      .optional()
+      .meta({
+        description:
+          "Ask the user to pick one option; the text is the question. You are woken with " +
+          'Answered "<question>": <option> once they answer. Not with secret or files.',
       }),
   }),
 });
@@ -1140,12 +1158,14 @@ function turnTools(
 ): AnyServerTool[] {
   const { liveActivity } = kit;
   const sendToUser = sendToUserDefinition.server(
-    async ({ text, endTurn: last, secret, files }, context) => {
-      if (files && secret)
-        return { error: "A message carries one control: send files and the secret apart." };
+    async ({ text, endTurn: last, secret, files, choice }, context) => {
+      if ([secret, files, choice].filter(Boolean).length > 1)
+        return { error: "A message carries one control: send the secret, files and choice apart." };
       // Copied to storage before the Message, so a missing path sends nothing. The copy is its own
       // Checkpoint, so a crash after it doesn't copy again.
-      let control: RichControl | undefined = secret && { kind: "secret", ...secret };
+      let control: RichControl | undefined =
+        (secret && { kind: "secret", ...secret }) ||
+        (choice && { kind: "choice", options: choice.options, other: choice.other ?? false });
       if (files && text.trim()) {
         if (!withComputer) return { error: "You have no computer, so you cannot send files." };
         const copied = await kit.computerCall(

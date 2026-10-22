@@ -14,6 +14,7 @@ import { useDemonstrationActions } from "../client/react/demonstrations";
 import { allHelpers, useBotHelpers } from "../client/react/helpers";
 import { useBotReviews } from "../client/react/reviews";
 import { useBotRoutines } from "../client/react/routines";
+import { useBotChoices } from "../client/react/choices";
 import { useBotSecrets } from "../client/react/secrets";
 import { useCacheWarming } from "../client/react/warm";
 import { BotAvatar } from "./bot-avatar";
@@ -85,6 +86,7 @@ function BotConversationView({
   const ComputerCard = controls?.computer ?? defaultRichControlRenderers.computer;
   const ShowMeCard = controls?.demonstration ?? defaultRichControlRenderers.demonstration;
   const FilesCard = controls?.files ?? defaultRichControlRenderers.files;
+  const ChoiceCard = controls?.choice ?? defaultRichControlRenderers.choice;
   const i18n = useI18n();
   const { t } = i18n;
   const [draft, setDraft] = useState("");
@@ -139,6 +141,7 @@ function BotConversationView({
     save: saveSecret,
     remove: removeSecret,
   } = useBotSecrets(botId);
+  const { acting: actingChoices, answer: answerChoice } = useBotChoices(botId);
   const { acting: actingDemonstrations, act: actOnDemonstration } = useDemonstrationActions(botId);
   const onDemonstration = (...args: Parameters<typeof actOnDemonstration>) =>
     void actOnDemonstration(...args).catch((refusal) =>
@@ -380,6 +383,13 @@ function BotConversationView({
             {requestsAfter.get(message.id)}
             {afterTurnOf.get(message.id)}
             {control?.kind === "files" && <FilesCard card={control} />}
+            {control?.kind === "choice" && (
+              <ChoiceCard
+                card={control}
+                onAnswer={(answer) => answerChoice(message.id, answer)}
+                acting={actingChoices.has(message.id)}
+              />
+            )}
             {control?.kind === "computer" && (
               <ComputerCard
                 card={control}
