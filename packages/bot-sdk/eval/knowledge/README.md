@@ -9,7 +9,7 @@ spec allows: Knowledge doesn't follow the Memory switch.
 
 ## Run it
 
-It needs a scratch Postgres with pgvector, created before the first run (the script migrates it but does
+It needs a scratch Postgres, created before the first run (the script migrates it but does
 not create the database), the local E2B (see `eval/computer/README.md`), and a Model key:
 
 ```sh
