@@ -19,6 +19,9 @@ const headersSchema = z.record(z.string(), z.array(z.string()));
 const formatAddress = ({ Name, Address }: z.infer<typeof addressSchema>) =>
   Name ? `${Name} <${Address}>` : Address;
 
+/** How long a call to Mailpit may take before it is given up on. */
+const timeoutMs = 10_000;
+
 /** `Name <address>` or a bare address as Mailpit's `{Email, Name}`. */
 function mailpitAddress(header: string): { Email: string; Name?: string } {
   const bracketed = /^(.*?)\s*<([^<>]*)>\s*$/.exec(header);
@@ -47,7 +50,9 @@ export function mailpitEmailProvider({
 }): EmailProvider {
   const base = apiUrl.replace(/\/+$/, "");
   const get = async <T>(path: string, schema: z.ZodType<T>): Promise<T | undefined> => {
-    const response = await fetcher(`${base}${path}`).catch(() => undefined);
+    const response = await fetcher(`${base}${path}`, {
+      signal: AbortSignal.timeout(timeoutMs),
+    }).catch(() => undefined);
     if (!response?.ok) return undefined;
     const parsed = schema.safeParse(await response.json().catch(() => undefined));
     return parsed.success ? parsed.data : undefined;
@@ -83,6 +88,7 @@ export function mailpitEmailProvider({
       const response = await fetcher(`${base}/api/v1/send`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(timeoutMs),
         body: JSON.stringify({
           From: mailpitAddress(mail.from),
           To: [mailpitAddress(mail.to)],
