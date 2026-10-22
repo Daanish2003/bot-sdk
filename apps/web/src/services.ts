@@ -10,8 +10,6 @@ import {
 import { assistant } from "@ai-chat/bot-sdk/plugins/assistant/server";
 import { bot } from "@ai-chat/bot-sdk/plugins/bot/server";
 import { channel, emailChannel } from "@ai-chat/bot-sdk/plugins/channel/server";
-import { fakeEmailProvider } from "@ai-chat/bot-sdk/plugins/channel/fake";
-import { mailpitEmailProvider } from "@ai-chat/bot-sdk/plugins/channel/mailpit";
 import { memory } from "@ai-chat/bot-sdk/plugins/memory/server";
 import { knowledge } from "@ai-chat/bot-sdk/plugins/knowledge/server";
 import { skills } from "@ai-chat/bot-sdk/plugins/skills/server";
@@ -21,6 +19,7 @@ import { log } from "evlog";
 
 import { isBanActive } from "./admin/ban";
 import { appName, sender } from "./email";
+import { emailProviderOf } from "./email-provider";
 import { ENV, ssrfAllowHosts } from "./env.server";
 import { blobStoreOf } from "./blob-store";
 import { getQuota } from "./admin/quota";
@@ -149,17 +148,14 @@ export const sdk = (shared.botSdk ??= createBotSdk({
     }),
     // Bots (spec #463): the full-screen Bots app at /bots.
     bot(),
-    // Channels (spec #761): each Bot's own email address. The fake provider takes a JSON mail at
-    // POST /api/channels/email and sends nothing out. With MAILPIT_API_URL set, Mailpit is the
-    // provider instead (#773). Both vouch for DMARC (the fake for whatever it is sent, Mailpit for
-    // every mail it holds), so they are for a Host that only listens on localhost: never put this
-    // route where others can reach it.
+    // Channels (spec #761): each Bot's own email address. Mail comes in through Mailpit
+    // (MAILPIT_API_URL, #773), which vouches for DMARC for every mail it holds, so it is for a Host
+    // that only listens on localhost. With no Mailpit, the inbound route refuses every mail: the
+    // fake provider takes its DMARC verdict from the request, so it is for tests and evals only.
     channel({
       adapters: [
         emailChannel({
-          provider: ENV.MAILPIT_API_URL
-            ? mailpitEmailProvider({ apiUrl: ENV.MAILPIT_API_URL })
-            : fakeEmailProvider().provider,
+          provider: emailProviderOf(ENV),
           domain: ENV.EMAIL_CHANNEL_DOMAIN ?? "bots.localhost",
           // A Bot's emails link to its page in this app.
           appUrl: ENV.BETTER_AUTH_URL,
