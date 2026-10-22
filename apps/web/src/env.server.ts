@@ -13,4 +13,12 @@ if (
   throw new Error("EMAIL_TRANSPORT=capture needs a localhost BETTER_AUTH_URL");
 }
 
+// Mailpit vouches for every mail it holds (spec #761, #773), so it is for a Host on this machine only.
+if (
+  ENV.MAILPIT_API_URL &&
+  !/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/.test(ENV.BETTER_AUTH_URL)
+) {
+  throw new Error("MAILPIT_API_URL needs a localhost BETTER_AUTH_URL");
+}
+
 export { ENV };

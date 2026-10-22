@@ -3,25 +3,29 @@ import { z } from "zod";
 import type { BotMemoryChange } from "../../memory/shared/changes";
 import type { BotKnowledgeChange } from "../../knowledge/shared/changes";
 import type { BotSkillChange } from "../../skills/shared/changes";
-import { demonstrationCardSchema } from "./demonstration";
-import { computerCardSchema } from "./helper";
-import { secretRequestSchema } from "./secret";
+import { reactionSchema } from "./reaction";
+import { richControlSchema } from "./rich-control";
 
 /**
- * A Message of a Bot's Conversation: its text, never the Bot's private transcript. A Computer-use
- * Helper's hand-off Message also has its Computer card, a Message that asks for a Secret has
- * its request, and the Message `watch_user` posts has its Show me card.
+ * A Message of a Bot's Conversation: its text, never the Bot's private transcript, and at most one
+ * Rich control: a Computer-use Helper's hand-off Message has its Computer card, a Message that
+ * asks for a Secret has its request, and the Message `watch_user` posts has its Show me card.
  */
 export const botMessageSchema = z.object({
   id: z.string(),
   role: z.enum(["user", "assistant"]),
   text: z.string(),
   createdAt: z.date(),
-  computer: computerCardSchema.optional(),
-  /** The Secret the Bot asks for with this Message, which renders as the Secret card. */
-  secret: secretRequestSchema.optional(),
-  /** The Demonstration `watch_user` started, which renders as the Show me card. */
-  demonstration: demonstrationCardSchema.optional(),
+  control: richControlSchema.optional(),
+  /** The emoji on it, at most one from each side (spec #761). */
+  reactions: z
+    .object({ user: reactionSchema.optional(), bot: reactionSchema.optional() })
+    .optional(),
+  /**
+   * The Channel besides web a Message went through: a user's came in on it ("via email"), and a
+   * Bot's was also delivered on it ("✉ emailed").
+   */
+  channel: z.literal("email").optional(),
 });
 
 export type BotMessage = z.infer<typeof botMessageSchema>;
@@ -34,14 +38,6 @@ export type TurnStatus = z.infer<typeof turnStatusSchema>;
 /** A Turn's status as the server holds it: `running` until it ends. */
 export type BotTurnStatus = TurnStatus | "running";
 
-/** What `bot.send` streams: each Message as it's saved, then how the Turn ended. */
-export const botSendEventSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("message"), message: botMessageSchema }),
-  z.object({ type: z.literal("turnEnded"), status: turnStatusSchema }),
-]);
-
-export type BotSendEvent = z.infer<typeof botSendEventSchema>;
-
 /**
  * One Trigger a Turn took, as the Conversation read shows it: where it came from, the Routine's
  * name when a Routine fired (otherwise `null`), and its time: a scheduled fire's slot, otherwise
@@ -49,7 +45,7 @@ export type BotSendEvent = z.infer<typeof botSendEventSchema>;
  */
 export type BotTurnTrigger = {
   source: "user" | "routine" | "check_in" | "helper";
-  channel: "web" | "schedule" | "webhook" | "helper";
+  channel: "web" | "schedule" | "webhook" | "helper" | "email";
   routineName: string | null;
   at: Date;
 };

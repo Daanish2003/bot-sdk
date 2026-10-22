@@ -22,6 +22,7 @@ import { fakeJobClock } from "../../../support/jobs";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
+import { followSend } from "../../../support/follow-send";
 
 const model = "openai:gpt-5.6";
 const silent = { error: () => {} };
@@ -151,7 +152,7 @@ async function approvedRoutine({
     timer.advance(new Date(when).getTime() - timer.clock.now().getTime());
   };
   const sendSaved = async (text: string) => {
-    const stream = await client.bot.send({ botId, id: uuidv7(), text, timeZone });
+    const stream = await followSend(client, { botId, id: uuidv7(), text, timeZone });
     await stream.next();
     await stream.return(undefined);
   };
@@ -316,11 +317,9 @@ describe("a scheduled Routine", () => {
         `${wakeNotice}\n\n${morningBrief.prompt}`,
     });
     // The answered Message stays as its own Turn sent it, with that Turn's time.
-    expect(input[0]).toEqual({
-      role: "user",
-      content:
-        "[Current time: Sunday, 18 October 2026 at 11:00 (Europe/London)]\n\nSet it up, please",
-    });
+    expect(input[0]?.content).toMatch(
+      /^\[Current time: Sunday, 18 October 2026 at 11:00 \(Europe\/London\)\]\n\n\[The user's message id, to react to it: [^\]]+\]\n\nSet it up, please$/,
+    );
     const { messages } = await client.bot.get({ botId });
     expect(messages.filter((sent) => sent.role === "user").map((sent) => sent.text)).toEqual([
       "Set it up, please",

@@ -1,6 +1,7 @@
 import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import {
   botReview,
@@ -15,6 +16,7 @@ import { encryptCredentials } from "../../../../core/server/credentials/encrypti
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { deleteUserData } from "../../../../core/server/user-data";
 import { bot } from "../../../../plugins/bot/server/plugin";
+import { richControlJsonSchema } from "../../../../plugins/bot/client/index";
 import { secretNameSchema } from "../../../../plugins/bot/shared/secret";
 import { rotateSecretKeys } from "../../../../plugins/bot/server/secret";
 import { loadSecretValues, secretEncryption } from "../../../../plugins/bot/server/secret-values";
@@ -35,6 +37,7 @@ import {
   fakeComputerProvider,
   type FakeCommandRun,
 } from "../../../plugins/computer/server/fake-provider";
+import { followSend } from "../../../support/follow-send";
 
 const model = "openai:gpt-5.6";
 const silent = { error: () => {} };
@@ -84,7 +87,7 @@ async function botWith(
 
 async function send(client: ReturnType<typeof chatRpc>, botId: string, words: string) {
   const events = [];
-  for await (const event of await client.bot.send({ botId, id: uuidv7(), text: words })) {
+  for await (const event of await followSend(client, { botId, id: uuidv7(), text: words })) {
     events.push(event);
   }
   return events;
@@ -162,11 +165,11 @@ describe("Secrets", () => {
 
     await send(client, botId, "push my changes");
     const { messages } = await client.bot.get({ botId });
-    const request = messages.find((sent) => sent.secret);
+    const request = messages.find((sent) => sent.control?.kind === "secret");
     expect(request).toMatchObject({
       role: "assistant",
       text: "I need GITHUB_TOKEN to push.",
-      secret: { type: "secret", name: "GITHUB_TOKEN", why: "To push to your repository." },
+      control: { kind: "secret", name: "GITHUB_TOKEN", why: "To push to your repository." },
     });
 
     await client.bot.secret.save({ botId, name: "GITHUB_TOKEN", value: token });
@@ -189,6 +192,28 @@ describe("Secrets", () => {
     // The value is nowhere: not the Conversation, a Trigger, a transcript, a model call or a job.
     expect(await everythingStored()).not.toContain(token);
     expect(JSON.stringify(fake.calls.map((call) => call.messages))).not.toContain(token);
+  });
+
+  it("stores the request as a Rich control that the published JSON Schema accepts", async () => {
+    const { client, botId } = await botWith([round(asks("GITHUB_TOKEN"))]);
+
+    await send(client, botId, "push my changes");
+
+    const rows = await getTestDb()
+      .select({ parts: message.parts })
+      .from(message)
+      .where(eq(message.role, "assistant"));
+    const stored = rows.flatMap((row) => row.parts.parts as unknown[]);
+    const controls = stored.filter((part) => (part as { type: string }).type === "control");
+    expect(controls).toEqual([
+      {
+        type: "control",
+        control: { kind: "secret", name: "GITHUB_TOKEN", why: "To push to your repository." },
+      },
+    ]);
+    const published = z.fromJSONSchema(richControlJsonSchema);
+    expect(published.safeParse((controls[0] as { control: unknown }).control).success).toBe(true);
+    expect(published.safeParse({ kind: "secret", name: "GITHUB_TOKEN" }).success).toBe(false);
   });
 
   it("lists names and dates, never values, and deletes", async () => {
@@ -267,7 +292,7 @@ describe("Secrets", () => {
     await send(client, botId, "log in");
 
     expect(JSON.stringify(toolResultOf(fake.calls.at(-1)))).toMatch(/reserved/);
-    expect((await client.bot.get({ botId })).messages.some((entry) => entry.secret)).toBe(false);
+    expect((await client.bot.get({ botId })).messages.some((entry) => entry.control)).toBe(false);
   });
 
   it("does not set a reserved name for a command, even one that was stored", async () => {

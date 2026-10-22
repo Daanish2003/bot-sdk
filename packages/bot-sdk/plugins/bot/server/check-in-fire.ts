@@ -5,6 +5,7 @@ import { bot, botCheckIn, botTrigger } from "../../../core/server/db/schema";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { defineJob } from "../../runner/server/jobs/define";
 import { checkInFireJobName, checkInKey, checkInNotice } from "./check-in";
+import { recordBotChange } from "./thread-change";
 import { lockConversation, receive } from "./router";
 import { hintChanged } from "./turn";
 
@@ -19,16 +20,31 @@ export const checkInFireJob = defineJob({
     const deps = ctx.deps;
     const fired = await ctx.activity("fire", (tx) => fireCheckIn(deps, tx, checkInId));
     if (!fired) return;
-    deps.plugin("runner").wake();
+    if (fired.woke) deps.plugin("runner").wake();
     await hintChanged(deps, fired.conversationId);
   },
   // A fire that failed for good marked nothing (its Checkpoint rolled back): mark it `failed` here,
   // with no Trigger, so it never stays pending.
   onFailed: async ({ checkInId }, _error, deps) => {
-    await deps.db
-      .update(botCheckIn)
-      .set({ state: "failed", updatedAt: deps.clock() })
-      .where(and(eq(botCheckIn.id, checkInId), eq(botCheckIn.state, "pending")));
+    const failed = await deps.db.transaction(async (tx) => {
+      const [owner] = await tx
+        .select({ conversationId: bot.conversationId })
+        .from(botCheckIn)
+        .innerJoin(bot, eq(bot.id, botCheckIn.botId))
+        .where(eq(botCheckIn.id, checkInId));
+      if (!owner) return null;
+      await lockConversation(tx, owner.conversationId);
+      const now = deps.clock();
+      const rows = await tx
+        .update(botCheckIn)
+        .set({ state: "failed", updatedAt: now })
+        .where(and(eq(botCheckIn.id, checkInId), eq(botCheckIn.state, "pending")))
+        .returning({ id: botCheckIn.id });
+      if (rows.length === 0) return null;
+      await recordBotChange(tx, owner, "check_in", checkInId, now);
+      return owner;
+    });
+    if (failed) await hintChanged(deps, failed.conversationId);
   },
 });
 
@@ -36,14 +52,14 @@ export const checkInFireJob = defineJob({
  * Fires the Check-in while it is `pending`: hands the Router a `check_in` / `schedule` Trigger with
  * the Check-in's notice and marks it `fired`. While the user's Quota is spent no Trigger is handed
  * (there is no caller to show a 402 to), nor while the user is Banned (#585), and the Check-in is
- * `fired` all the same, so it never lingers as pending. Returns the Conversation that got a
- * Trigger, or `null`.
+ * `fired` all the same, so it never lingers as pending. Returns its Conversation, with whether a
+ * Trigger woke it, or `null` when it was no longer pending.
  */
 async function fireCheckIn(
   deps: BotSdkContext,
   tx: Transaction,
   checkInId: string,
-): Promise<{ conversationId: string } | null> {
+): Promise<{ conversationId: string; woke: boolean } | null> {
   const [owner] = await tx
     .select({ conversationId: bot.conversationId, userId: bot.userId, model: bot.model })
     .from(botCheckIn)
@@ -61,13 +77,16 @@ async function fireCheckIn(
     .set({ state: "fired", updatedAt: deps.clock() })
     .where(and(eq(botCheckIn.id, checkInId), eq(botCheckIn.state, "pending")))
     .returning();
-  if (!row || quotaSpent || banned) return null;
+  if (!row) return null;
+  await recordBotChange(tx, owner, "check_in", checkInId, row.updatedAt);
+  const unwoken = { conversationId: owner.conversationId, woke: false };
+  if (quotaSpent || banned) return unwoken;
   const id = checkInKey(checkInId);
   const [seen] = await tx
     .select({ id: botTrigger.id })
     .from(botTrigger)
     .where(eq(botTrigger.id, id));
-  if (seen) return null;
+  if (seen) return unwoken;
   await receive(deps, tx, {
     id,
     conversationId: owner.conversationId,
@@ -76,5 +95,5 @@ async function fireCheckIn(
     text: await checkInNotice(tx, owner.conversationId, row),
     receivedAt: deps.clock(),
   });
-  return { conversationId: owner.conversationId };
+  return { conversationId: owner.conversationId, woke: true };
 }

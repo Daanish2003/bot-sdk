@@ -1,3 +1,4 @@
+import { sendAndFollow } from "../../test/support/follow-send";
 // Records the drafting-pass eval's fixture Demonstrations (spec #713, ticket #721), once, by hand:
 // `pnpm -F @ai-chat/bot-sdk eval:skills:record`. Each fixture is scripted browser steps on a small
 // local site, captured by the real capture code (#719) against a real local Chromium, as
@@ -20,7 +21,7 @@ import { type Page, chromium } from "playwright-core";
 import { botDemonstration, botDemonstrationEvent } from "../../core/server/db/schema";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
 import { bot } from "../../plugins/bot/server/plugin";
-import { sendToBot, sendToUserToolName } from "../../plugins/bot/server/turn";
+import { sendToUserToolName } from "../../plugins/bot/server/turn";
 import { skills } from "../../plugins/skills/server/plugin";
 import { runnerJobs } from "../../plugins/runner/server/plugin";
 import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adapter";
@@ -214,7 +215,7 @@ async function record(script: Script, databaseUrl: string) {
     await page.setViewportSize({ width: 640, height: 360 });
     await page.goto(`${origin}${script.start}`);
 
-    for await (const _ of await sendToBot(sdk, {
+    for await (const _ of await sendAndFollow(sdk, {
       userId,
       botId: made.id,
       id: uuidv7(),

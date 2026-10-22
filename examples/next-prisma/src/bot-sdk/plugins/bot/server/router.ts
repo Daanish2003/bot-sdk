@@ -11,6 +11,7 @@ import {
 } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
+import { recordBotChange } from "./thread-change";
 import { cancelAwaySummary } from "./summary";
 
 /** The runner job that runs one Turn (`botTurnJob` in `turn.ts`). */
@@ -190,6 +191,7 @@ async function startTurn(
     jobId,
   });
   await tx.update(botTrigger).set({ turnId }).where(waiting);
+  await recordBotChange(tx, { conversationId }, "turn", turnId, deps.clock());
   return turnId;
 }
 
@@ -226,4 +228,5 @@ export async function turnStarted(deps: BotSdkContext, tx: Transaction, turnId: 
     .update(botTurn)
     .set({ startedAt: new Date(startedAt) })
     .where(eq(botTurn.id, turnId));
+  await recordBotChange(tx, turn, "turn", turnId, new Date(now));
 }

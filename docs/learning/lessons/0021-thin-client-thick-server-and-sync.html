@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lesson 21 · Thin client, thick server, and sync</title>
+    <link rel="stylesheet" href="../assets/style.css" />
+  </head>
+  <body>
+    <main>
+      <p class="kicker">ai-chat architecture · Lesson 21</p>
+      <h1>Thin client, thick server, and sync</h1>
+      <p class="subtitle">
+        The server keeps the Bot's thread and numbers each change. A tab sends no data back, and it
+        asks for what came after its number.
+      </p>
+      <p class="meta">
+        About 10 minutes · a browser · no code to write; you'll answer the quizzes and run one
+        manual demo
+      </p>
+
+      <section class="words">
+        <h2>Words you'll need</h2>
+        <dl>
+          <dt>Change log</dt>
+          <dd>The newest changes to one Conversation's thread, each with a number.</dd>
+          <dt>Cursor</dt>
+          <dd>The number of the last change that a tab has applied.</dd>
+          <dt>Hint</dt>
+          <dd>A signal that says "something changed". It carries no data.</dd>
+          <dt>Reload</dt>
+          <dd>Read the whole thread again with <code>bot.get</code>.</dd>
+        </dl>
+        <p class="hint">
+          Forgot a code name? Press the <strong>Names?</strong> button in the bottom-right corner.
+        </p>
+      </section>
+
+      <figure id="video"></figure>
+
+      <div
+        class="quiz"
+        data-answer="0"
+        data-why="The model reads the file as information. A file cannot give the Bot permission."
+      >
+        <div class="label">Warm-up · Lesson 20</div>
+        <p class="q">A Knowledge file tells the Bot to do something. What does the Bot do?</p>
+        <ol class="opts">
+          <li>It treats the text as information and does not follow it</li>
+          <li data-why="Knowledge is information, never permission.">It follows the instruction</li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+
+      <h2><span class="num">1</span>The apps are thin, the server is thick</h2>
+      <figure id="server">
+        <figcaption>
+          Each tab shows a copy. The server and Postgres hold the real thread.
+        </figcaption>
+      </figure>
+      <p>
+        A user can open the same Bot in several tabs. Each one must show the same Conversation. The
+        Bot runs on the server, and the database holds the real thread. A tab keeps only a copy, and
+        the copy can fall behind. So the server tells the tabs what changed, and each tab catches
+        up.
+      </p>
+
+      <h2><span class="num">2</span>Each change gets a number</h2>
+      <figure id="counter">
+        <figcaption>The number and the change are written in one transaction.</figcaption>
+      </figure>
+      <p>
+        Every change to the thread takes the next number of its Conversation. The changes are a new
+        Message, a Turn's status, and a change to a Routine, review, Helper, Check-in, Secret or
+        Summary. The number is <code>last_seq</code> on the Conversation row. The change goes into
+        <code>conversation_change</code> in the same transaction, under the row lock. The changes
+        commit in number order, with no gaps. The log keeps the newest 500 changes of each
+        Conversation.
+      </p>
+      <ol class="steps">
+        <li><code>last_seq</code> is 41. A Turn starts.</li>
+        <li>
+          The transaction sets <code>last_seq</code> to 42 and writes change 42, a
+          <code>turn</code>.
+        </li>
+        <li>It commits. A Message is saved next, and it takes number 43.</li>
+      </ol>
+
+      <h2><span class="num">3</span>A hint carries no data</h2>
+      <figure id="hint">
+        <figcaption>The hint says "changed". The tab asks for 42 and 43 itself.</figcaption>
+      </figure>
+      <p>
+        The server publishes a hint, <code>{"type":"changed"}</code>, on the Conversation's channel.
+        It holds no data. A tab fetches the changes after its cursor with <code>bot.changes</code>,
+        and it applies them in number order. The tab also fetches when its stream reconnects and
+        when the window gets focus. The table shows what the tab does with the numbers it gets.
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>Cursor and what came back</th>
+            <th>What the tab does</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Cursor 41, then 42 and 43</td>
+            <td>Applies both, in order. The cursor becomes 43.</td>
+          </tr>
+          <tr>
+            <td>Cursor 41, and the first change is 44 (42 and 43 missing)</td>
+            <td>Reloads the thread with <code>bot.get</code>.</td>
+          </tr>
+          <tr>
+            <td>Cursor older than the log's oldest change</td>
+            <td>Reloads the thread with <code>bot.get</code>.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2><span class="num">4</span>A fallback for lost hints</h2>
+      <figure id="safety">
+        <figcaption>
+          A lost hint would leave "Working…" up, so a running Turn is checked again.
+        </figcaption>
+      </figure>
+      <p>
+        PubSub delivers a hint at most once. If the last hint of a Turn is lost, the tab would show
+        "Working…" for ever. So a tab with a running Turn also fetches every 30 seconds. The lecture
+        does not cover this fallback, so it is a recorded deviation (ADR 0026). ADR 0026 also
+        records the design it replaced: a tab polled <code>bot.get</code> every 2 seconds, and a
+        15-second refresh caught background work.
+      </p>
+
+      <section class="takeaways">
+        <h2>Key takeaways</h2>
+        <p class="one-thing">
+          <strong>If you remember only one thing:</strong> the server numbers each change, and a tab
+          asks for the changes after its cursor.
+        </p>
+        <ul>
+          <li>
+            <strong>Numbers, not timestamps.</strong> One counter per Conversation, bumped under its
+            row lock, so no change can be skipped.
+          </li>
+          <li>
+            <strong>Hints carry no data.</strong> A lost hint is covered by a fetch on focus, on
+            reconnect and every 30 seconds while a Turn runs.
+          </li>
+          <li>
+            <strong>A gap means reload.</strong> A missing number, or an old cursor, makes the tab
+            read the thread again.
+          </li>
+        </ul>
+        <p class="selftest">
+          Self-test: cover this box and say how a tab learns of a Message that another tab sent.
+        </p>
+      </section>
+
+      <h2>Try it</h2>
+      <div
+        class="quiz"
+        data-answer="0"
+        data-why="A gap means a change was missed. The tab cannot apply 44 before 42 and 43, so it reloads."
+      >
+        <div class="label">Quiz 1</div>
+        <p class="q">
+          A tab's cursor is 41. The hint comes, and the first change the log holds after 41 is 44.
+          What does the tab do?
+        </p>
+        <ol class="opts">
+          <li>It reloads the thread with <code>bot.get</code></li>
+          <li data-why="Change 44 cannot be applied before 42 and 43.">
+            It shows 44 and waits for 42 and 43
+          </li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+      <div
+        class="quiz"
+        data-answer="0"
+        data-why="The number and the change commit together, so the changes arrive in number order, with no gaps."
+      >
+        <div class="label">Quiz 2</div>
+        <p class="q">Why does the server bump <code>last_seq</code> under the row lock?</p>
+        <ol class="opts">
+          <li>So the changes commit in number order, with no gaps</li>
+          <li data-why="The hint carries no data. The tab reads the data with bot.changes.">
+            So the hint can carry the Message text
+          </li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+
+      <h3>Your manual demo (owner)</h3>
+      <ol class="steps">
+        <li>Open the same Bot in two browser tabs of <code>apps/web</code>.</li>
+        <li>Send a Message in one tab.</li>
+        <li>
+          Check that the other tab shows the Message and the Bot's reply, without a page reload.
+        </li>
+      </ol>
+
+      <details class="deeper">
+        <summary>Go deeper: sources, Channels and a challenge</summary>
+        <h3>The lecture</h3>
+        <p>
+          The lecture is not in this repo. ADR 0026 cites its slide 19 as the design this lesson
+          follows.
+        </p>
+        <h3>The decisions</h3>
+        <ul>
+          <li>
+            Decision:
+            <a href="../../../docs/adr/0026-the-bot-thread-syncs-by-a-change-log.md">ADR 0026</a>.
+            It rejects a Postgres sequence, because values can commit out of order, and it rejects
+            LISTEN/NOTIFY, as ADR 0006 does.
+          </li>
+          <li>
+            Channels: the ADR says email and later Channels need no change log. They get deliveries,
+            not a view. The Channels eval (<code>packages/bot-sdk/eval/channels</code>) is hand-run,
+            and its README says its results go to a gitignored folder.
+          </li>
+          <li>
+            Rich controls: the catalog in
+            <a href="../../../packages/bot-sdk/plugins/bot/shared/rich-control.ts"
+              ><code>rich-control.ts</code></a
+            >
+            reserves two kinds that are not built yet, so their fields can come later without
+            breaking the format.
+          </li>
+        </ul>
+        <h3>Challenge</h3>
+        <p>
+          Read <code>changeData</code> in
+          <a href="../../../packages/bot-sdk/plugins/bot/server/changes.ts"
+            ><code>changes.ts</code></a
+          >. The log keeps only the kind, the id, the seq and the time, so why does
+          <code>bot.changes</code> read each row again? Tell your teacher.
+        </p>
+      </details>
+
+      <div class="footer-box">
+        <p>
+          <strong>Primary source:</strong>
+          <a href="../../../packages/bot-sdk/plugins/bot/client/react/bot-sync.ts"
+            ><code>bot-sync.ts</code></a
+          >, with
+          <a href="../../../packages/bot-sdk/core/server/chat/change-log.ts"
+            ><code>change-log.ts</code></a
+          >.
+        </p>
+        <p>
+          <strong>Cheat sheets:</strong> <a href="../reference/package-map.html">Package map</a> ·
+          <a href="../reference/names.html">Names</a>
+        </p>
+        <p>
+          <strong>Stuck or curious?</strong> Ask your teacher (Claude) anything: "why no
+          timestamps?" or "quiz me again".
+        </p>
+        <div class="nav">
+          <a href="0020-knowledge-written-down.html">← Lesson 20: Knowledge written down</a
+          ><a href="../index.html">Course contents →</a>
+        </div>
+      </div>
+    </main>
+
+    <script src="../assets/diagrams.js"></script>
+    <script src="../assets/names.js" data-upto="21"></script>
+    <script src="../assets/explainer.js"></script>
+    <script src="../assets/quiz.js"></script>
+    <script>
+      const D = Diagrams;
+
+      D.render(
+        "#server",
+        D.svg(
+          760,
+          190,
+          D.box(10, 60, 170, 70, "Tab A", { tone: "blue", sub: "a copy of the thread" }) +
+            D.arrow(180, 95, 300, 95, { label: "reads" }) +
+            D.box(300, 60, 200, 70, "Server + Postgres", { tone: "ok", sub: "the real thread" }) +
+            D.arrow(500, 95, 580, 95, { label: "tells" }) +
+            D.box(580, 60, 170, 70, "Tab B", { tone: "blue", sub: "a copy of the thread" }),
+          { label: "Each tab shows a copy, and the server holds the real thread" },
+        ),
+      );
+
+      D.render(
+        "#counter",
+        D.svg(
+          760,
+          190,
+          D.box(10, 60, 190, 70, "Conversation row", { tone: "faint", sub: "last_seq 41" }) +
+            D.arrow(200, 95, 250, 95, { label: "+1" }) +
+            D.box(250, 60, 230, 70, "Change row", { tone: "blue", sub: "seq 42, kind turn" }) +
+            D.arrow(480, 95, 530, 95) +
+            D.box(530, 60, 220, 70, "One commit", { tone: "ok", sub: "numbers in order" }),
+          { label: "The number and the change are written together, under the row lock" },
+        ),
+      );
+
+      D.render(
+        "#hint",
+        D.svg(
+          760,
+          190,
+          D.box(10, 60, 200, 70, "Hint", { tone: "blue", sub: "changed, no data" }) +
+            D.arrow(210, 95, 260, 95) +
+            D.box(260, 60, 220, 70, "Fetch", { tone: "faint", sub: "bot.changes, since 41" }) +
+            D.arrow(480, 95, 530, 95) +
+            D.box(530, 60, 220, 70, "Apply 42, 43", { tone: "ok", sub: "in number order" }),
+          { label: "The hint says only that something changed; the tab fetches the rest" },
+        ),
+      );
+
+      D.render(
+        "#safety",
+        D.svg(
+          760,
+          190,
+          D.box(10, 60, 200, 70, "Turn running", { tone: "blue", sub: "Working…" }) +
+            D.arrow(210, 95, 260, 95) +
+            D.box(260, 60, 220, 70, "Hint lost", { tone: "warn", sub: "PubSub is at-most-once" }) +
+            D.arrow(480, 95, 530, 95) +
+            D.box(530, 60, 220, 70, "Fetch every 30 s", { tone: "ok", sub: "the log catches up" }),
+          { label: "A running Turn is checked every 30 seconds, in case a hint was lost" },
+        ),
+      );
+
+      Explainer.mount("#video", {
+        title: "Lesson 21 in about 1 minute",
+        width: 760,
+        height: 300,
+        scenes: [
+          {
+            say: "Each Bot's thread lives on the server. Each tab shows only a copy.",
+            draw: (t, A) =>
+              D.box(40, 110, 200, 50, "Tab", { tone: "blue" }) +
+              D.box(300, 110, 200, 50, "Server", {
+                tone: "ok",
+                opacity: A.step(t, 0.4, 0.8),
+              }),
+          },
+          {
+            say: "Every change gets the next number of its Conversation, in the same save.",
+            draw: (t, A) =>
+              D.box(40, 110, 200, 50, "last_seq 41", { tone: "faint" }) +
+              D.box(300, 110, 200, 50, "change 42", {
+                tone: "ok",
+                opacity: A.step(t, 0.4, 0.8),
+              }),
+          },
+          {
+            say: "The server sends a hint with no data. The tab asks for the changes after its number.",
+            draw: (t, A) =>
+              D.box(40, 110, 200, 50, "changed", { tone: "blue" }) +
+              D.box(300, 110, 200, 50, "since 41", {
+                tone: "ok",
+                opacity: A.step(t, 0.4, 0.8),
+              }),
+          },
+          {
+            say: "If a number is missing, the tab reloads the whole thread. Then it is in step again.",
+            draw: (t, A) =>
+              D.box(40, 110, 200, 50, "44 after 41", { tone: "warn" }) +
+              D.box(300, 110, 200, 50, "Reload", {
+                tone: "ok",
+                opacity: A.step(t, 0.4, 0.8),
+              }),
+          },
+        ],
+      });
+    </script>
+  </body>
+</html>

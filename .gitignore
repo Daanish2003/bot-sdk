@@ -80,3 +80,6 @@ packages/bot-sdk/eval/skills/results/
 
 # Knowledge eval (packages/bot-sdk/eval/knowledge): the results it writes
 packages/bot-sdk/eval/knowledge/results/
+
+# Channels eval (packages/bot-sdk/eval/channels): the results it writes
+packages/bot-sdk/eval/channels/results/

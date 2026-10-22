@@ -11,6 +11,8 @@ import { closeComputerCard } from "./hand-off";
 import { listHelpers } from "./helper-card";
 import type { LoopKit } from "./loop";
 import { closeWaitingReviews } from "./review";
+import { lockConversation } from "./router";
+import { hintChanged, recordBotChange } from "./thread-change";
 
 /** The Bot's tool that reads how one of its Helpers stands (#566). */
 export const checkHelperToolName = "check_helper";
@@ -92,15 +94,22 @@ export async function stopHelpers(
   botId: string,
   helperId?: string,
 ): Promise<{ stopped: string[] } | { error: string }> {
+  // The Conversation's row lock first, as in every write that changes the Bot thread.
+  const [owner] = await tx
+    .select({ userId: bot.userId, conversationId: bot.conversationId })
+    .from(bot)
+    .where(eq(bot.id, botId));
+  if (owner) await lockConversation(tx, owner.conversationId);
   if (helperId !== undefined) {
     const refused = await liveHelper(tx, botId, helperId);
     if (refused) return refused;
   }
+  const now = deps.clock();
   // The Helper's row before its job's, as its job's last Checkpoint takes them, so the two can't
   // deadlock.
   const rows = await tx
     .update(botHelper)
-    .set({ status: "stopped", endedAt: deps.clock() })
+    .set({ status: "stopped", endedAt: now })
     .where(
       and(
         eq(botHelper.botId, botId),
@@ -110,13 +119,13 @@ export async function stopHelpers(
     )
     .returning({ id: botHelper.id, screen: botHelper.screen });
   const runner = deps.plugin("runner");
-  const [owner] = await tx.select({ userId: bot.userId }).from(bot).where(eq(bot.id, botId));
   for (const { id, screen } of rows) {
+    if (owner) await recordBotChange(tx, owner, "helper", id, now);
     await runner.cancelIn(tx, helperJobKey(id));
     // Cancelled first, as a Turn's Stop is: a Stop during an Approval wait counts as no (ADR 0024).
     await closeWaitingReviews(deps, tx, { helperId: id }, "denied");
     // A waiting Helper's transcript was saved when it began to wait.
-    const waited = await closeComputerCard(tx, id, "cancelled");
+    const waited = await closeComputerCard(tx, id, "cancelled", now);
     if (owner) {
       await runner.enqueueIn(
         tx,
@@ -137,6 +146,13 @@ export async function stopBotHelpers(
 ): Promise<{ stopped: string[] } | { error: string }> {
   const result = await deps.db.transaction((tx) => stopHelpers(deps, tx, botId, helperId));
   deps.plugin("runner").wake();
+  if ("stopped" in result && result.stopped.length > 0) {
+    const [owner] = await deps.db
+      .select({ conversationId: bot.conversationId })
+      .from(bot)
+      .where(eq(bot.id, botId));
+    if (owner) await hintChanged(deps, owner.conversationId);
+  }
   return result;
 }
 
@@ -158,7 +174,7 @@ export function helperTools(
   const check = checkHelperDefinition.server(async ({ helperId }, context) =>
     liveActivity(checkHelperToolName, context?.toolCallId, async () => {
       if (!z.uuid().safeParse(helperId).success) return { error: noHelperError };
-      const [helper] = await listHelpers(deps.db, turn.botId, helperId);
+      const [helper] = await listHelpers(deps.db, turn.botId, [helperId]);
       if (!helper) return { error: noHelperError };
       const { status, task, steps, latest, report } = helper;
       return { status, task, steps, latest, report };

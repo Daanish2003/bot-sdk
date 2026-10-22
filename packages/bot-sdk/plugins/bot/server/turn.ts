@@ -3,19 +3,18 @@ import { and, asc, desc, eq, gt, gte, isNotNull, isNull, lt, lte, ne, or, sql } 
 import { z } from "zod";
 
 import { appendMessage } from "../../../core/server/chat/message-tree";
-import { bot, botTrigger, botTurn, message } from "../../../core/server/db/schema";
+import { bot, botTrigger, botTurn, message, type MessageRow } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
 import { searchTextOf } from "../../../core/shared/message-parts";
-import { conversationChannel } from "../../../core/server/chat/conversation-events";
 import type { MessageUsage } from "../../models/shared/usage";
 import type { SkillLine } from "../../skills/server/skills";
 import { defineJob, PermanentJobError } from "../../runner/server/jobs/define";
 import { loadHistory } from "../../runner/server/jobs/history";
 import { createWorkflow, type WorkflowContext } from "../../runner/server/workflow/engine";
 import { routineScheduleSchema } from "../shared/routine";
-import type { BotMessage, BotSendEvent, TurnStatus } from "../shared/turn";
+import type { BotMessage, TurnStatus } from "../shared/turn";
 import {
   botTurnJobName,
   lockConversation,
@@ -25,6 +24,7 @@ import {
   waitingIn,
 } from "./router";
 import { type EarlierTurn, changeNotesFor } from "./change-notes";
+import { hintChanged, recordBotChange } from "./thread-change";
 import type { PromptStartTool } from "./db/bot-prompt-start";
 import { cancelCheckInTool, pendingCheckIns, saveCheckIn } from "./check-in";
 import {
@@ -49,9 +49,11 @@ import {
 import { closeWaitingReviews } from "./review";
 import { historyFrom, historyTurns, queueAwaySummary, summaryOf, writeSummary } from "./summary";
 import {
-  botMessages,
+  appendBotMessage,
+  controlParts,
   findBot,
-  secretRequestParts,
+  reactionsOf,
+  setReaction,
   textParts,
   toBotMessage,
   turnTimeLimitMs,
@@ -60,7 +62,12 @@ import type { BotSkillChange } from "../../skills/shared/changes";
 import { knowledgeChangesOf } from "../../knowledge/server/changes";
 import type { BotKnowledgeChange } from "../../knowledge/shared/changes";
 import { skillChangesOf } from "../../skills/server/skills";
+import { choiceOptionsSchema } from "../shared/choice";
+import { maxFilesPerMessage } from "../shared/files";
+import { emojiSchema } from "../shared/reaction";
+import type { RichControl } from "../shared/rich-control";
 import { secretNameSchema } from "../shared/secret";
+import { copyFilesToStorage } from "./files";
 import {
   createRoutineToolName,
   deleteRoutine,
@@ -74,11 +81,17 @@ import { formatterIn, knownZone, timeNotice } from "./time-zone";
 import { checkedTool, isDirectTool, toolSearchTools } from "./tool-search";
 import { webSearchTool } from "./web-search";
 
+// Re-exported: it moved to `thread-change` so `routine` and `check-in` can use it without a cycle.
+export { hintChanged };
+
 /** The most Steps a Turn may take; one more ends it `error` with `step_limit`. */
 export const turnStepLimit = 10;
 
 /** The Bot's tool for reaching the user: the only way it does. */
 export const sendToUserToolName = "send_to_user";
+
+/** The activity that copies the files of a `send_to_user` call to storage. */
+const sendFilesActivity = "send_to_user:files";
 
 /** The Bot tool that sets a Check-in for itself, with no Approval (#540). */
 export const setCheckInToolName = "set_check_in";
@@ -168,9 +181,6 @@ const startTurnActivity = "start_turn";
 /** The Checkpoint that stores the Turn's newest message, before its first model call. */
 const turnInputActivity = "turn_input";
 
-/** How often `bot.send` re-reads its Turn when no hint has come (#483). */
-export const followPollMs = 2_000;
-
 const sendToUserDefinition = toolDefinition({
   name: sendToUserToolName,
   description:
@@ -196,6 +206,41 @@ const sendToUserDefinition = toolDefinition({
           "Ask the user for a password or token. The message shows a secure field; the value goes " +
           "straight to the server and you never see it. You are woken with 'Saved secret NAME' " +
           "once they save it. Use it by naming it in the secrets of a shell call.",
+      }),
+    files: z
+      .array(z.string())
+      .min(1)
+      .max(maxFilesPerMessage)
+      .optional()
+      .meta({
+        description:
+          "Paths of files on your computer to send with the message, as downloads under it. They " +
+          "are copied when you send, and nothing is sent if one is missing. Not with secret.",
+      }),
+    choice: z
+      .object({
+        options: choiceOptionsSchema.meta({ description: "The options the user picks one from." }),
+        other: z.boolean().optional().meta({
+          description: "true to add an Other option where the user types their own answer.",
+        }),
+      })
+      .optional()
+      .meta({
+        description:
+          "Ask the user to pick one option; the text is the question. You are woken with " +
+          'Answered "<question>": <option> once they answer. Not with secret or files.',
+      }),
+    react: z
+      .object({
+        messageId: z.uuid().meta({ description: "The id of the user's message to react to." }),
+        emoji: emojiSchema.meta({ description: "One emoji." }),
+      })
+      .optional()
+      .meta({
+        description:
+          "Put an emoji on one of the user's messages instead of replying, such as for a thanks. " +
+          "Send no text with it: it makes no message. A second reaction to the same message " +
+          "replaces the first. Use endTurn as usual. Not with secret, files or choice.",
       }),
   }),
 });
@@ -312,21 +357,6 @@ const listCheckInsDefinition = toolDefinition({
   inputSchema: z.object({}),
 });
 
-/**
- * Tells whoever follows the Conversation that it changed, so they re-read it from Postgres. Never
- * throws: a lost hint is covered by the follower's re-read every `followPollMs`.
- */
-export async function hintChanged(deps: BotSdkContext, conversationId: string) {
-  try {
-    await deps.pubsub.publish(
-      conversationChannel(conversationId),
-      JSON.stringify({ type: "changed" }),
-    );
-  } catch (caught) {
-    deps.logger.error(`Publishing a change of Conversation ${conversationId} failed`, caught);
-  }
-}
-
 /** The runner job of one Turn, keyed by the Turn's id (ADR 0011, the #482 amendment). */
 export const botTurnJob = defineJob({
   name: botTurnJobName,
@@ -339,9 +369,9 @@ export const botTurnJob = defineJob({
 /**
  * Saves the user's Message and hands its Trigger to the Router, in one transaction: a Turn takes it
  * now or, while a Turn's job runs, that Turn is interrupted and the next one does. Checks run
- * before anything is written, and a refusal throws an RPC error before the stream starts. The
- * returned stream follows the Turn that takes the Message from Postgres: the saved user Message,
- * each Message sent after it, then `turnEnded`. Leaving it ends only the follow, never the Turn.
+ * before anything is written, and a refusal throws an RPC error. Returns the saved user Message
+ * (the earlier one for a repeat of an earlier send); the Turn that takes it runs as a job, and the
+ * Bot thread shows it through the change log (ADR 0026).
  * `timeZone` is the user's IANA zone, kept on the Message.
  */
 export async function sendToBot(
@@ -352,16 +382,14 @@ export async function sendToBot(
     id,
     text,
     timeZone,
-    signal,
   }: {
     userId: string;
     botId: string;
     id: string;
     text: string;
     timeZone?: string;
-    signal?: AbortSignal;
   },
-): Promise<AsyncGenerator<BotSendEvent>> {
+): Promise<BotMessage> {
   const found = await findBot(deps.db, userId, botId);
   if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
   const call = await deps.plugin("models").resolveModelCall(userId, found.model);
@@ -409,14 +437,9 @@ export async function sendToBot(
     return { userMessage: toBotMessage(row), started: true, ended };
   });
   if (sent.started) deps.plugin("runner").wake();
-  if (sent.ended) await hintChanged(deps, found.conversationId);
-
-  return followTurn(deps, {
-    conversationId: found.conversationId,
-    triggerId: sent.userMessage.id,
-    userMessage: sent.userMessage,
-    signal,
-  });
+  // Other tabs fetch the new Message (and the Turn this send interrupted, if any).
+  if (sent.started) await hintChanged(deps, found.conversationId);
+  return sent.userMessage;
 }
 
 /**
@@ -493,7 +516,11 @@ async function runningTurnOf(tx: Transaction, botId: string): Promise<string | u
  * Turn waits on is denied: a Stop, or the user's Message that interrupts it, counts as no
  * (ADR 0024). Returns whether the Turn ended here.
  */
-async function cancelTurn(deps: BotSdkContext, tx: Transaction, turnId: string): Promise<boolean> {
+export async function cancelTurn(
+  deps: BotSdkContext,
+  tx: Transaction,
+  turnId: string,
+): Promise<boolean> {
   const cancelled = await deps.plugin("runner").cancelIn(tx, turnId);
   // Cancelled first: under the job's row lock, a `waiting` row's Checkpoint either committed
   // before the denial reads it, or fails its fence and rolls back.
@@ -518,69 +545,6 @@ async function cancelTurn(deps: BotSdkContext, tx: Transaction, turnId: string):
     await queueAwaySummary(deps, tx, { botId: turn.botId, lastInput: played.lastInput, endedAt });
   await turnEnded(deps, tx, turnId);
   return true;
-}
-
-/**
- * Follows the Turn that takes a Trigger, from Postgres (#483, slide 19's "signal, then fetch"):
- * yields the user Message, then re-reads on each "changed" hint on the Conversation's channel, and
- * every `followPollMs` in case a hint is lost, yielding each new Message, until a Turn has taken
- * the Trigger and ended.
- */
-async function* followTurn(
-  deps: BotSdkContext,
-  {
-    conversationId,
-    triggerId,
-    userMessage,
-    signal,
-  }: { conversationId: string; triggerId: string; userMessage: BotMessage; signal?: AbortSignal },
-): AsyncGenerator<BotSendEvent> {
-  yield { type: "message", message: userMessage };
-  let hinted = false;
-  let wake = () => {};
-  const unsubscribe = await deps.pubsub.subscribe(conversationChannel(conversationId), () => {
-    hinted = true;
-    wake();
-  });
-  const onAbort = () => wake();
-  signal?.addEventListener("abort", onAbort, { once: true });
-  const shown = new Set([userMessage.id]);
-  try {
-    while (!signal?.aborted) {
-      hinted = false;
-      // The status first: the Messages read after it hold every one sent before the Turn ended.
-      // A Trigger no Turn has taken yet has no status: it waits in the Conversation queue.
-      const [taken] = await deps.db
-        .select({ status: botTurn.status })
-        .from(botTrigger)
-        .leftJoin(botTurn, eq(botTurn.id, botTrigger.turnId))
-        .where(eq(botTrigger.id, triggerId));
-      for (const sent of await botMessages(deps.db, conversationId, userMessage.createdAt)) {
-        if (shown.has(sent.id)) continue;
-        shown.add(sent.id);
-        yield { type: "message", message: sent };
-      }
-      if (!taken) {
-        yield { type: "turnEnded", status: "error" };
-        return;
-      }
-      if (taken.status !== null && taken.status !== "running") {
-        yield { type: "turnEnded", status: taken.status };
-        return;
-      }
-      await new Promise<void>((resolve) => {
-        if (hinted || signal?.aborted) return resolve();
-        const timer = setTimeout(resolve, followPollMs);
-        wake = () => {
-          clearTimeout(timer);
-          resolve();
-        };
-      });
-    }
-  } finally {
-    signal?.removeEventListener("abort", onAbort);
-    await unsubscribe();
-  }
 }
 
 /** What a Turn played: its transcript and usage, and its last Step's input when known. */
@@ -634,12 +598,16 @@ async function runTurnJob(
   let todo: TodoItem[] | null;
   try {
     // The to-do list as the Turn starts, recorded: every attempt reads the same.
+    // Set only by a live start: a replayed one changed nothing, so hints nothing.
+    let started = false;
     todo = await ctx.activity(startTurnActivity, async (tx) => {
       await turnStarted(deps, tx, turnId);
+      started = true;
       return todoList(tx, turn.botId);
     });
     // Read after the start: a resumed attempt replays it, so the Turn keeps the start it had.
     turn = (await turnFacts(deps.db, turnId)) ?? created;
+    if (started) await hintChanged(deps, turn.conversationId);
   } catch (caught) {
     if (ctx.signal.aborted) await stopIfCancelled(deps, turn, { transcript: [], usage: null });
     throw caught;
@@ -747,6 +715,7 @@ async function endRunningTurn(
       .where(and(eq(botTurn.id, turn.id), eq(botTurn.status, "running")))
       .returning({ id: botTurn.id });
     if (rows.length === 0) return false;
+    await recordBotChange(tx, turn, "turn", turn.id, endedAt);
     // A Turn cut off mid-wait (its time limit) leaves no request open.
     await closeWaitingReviews(deps, tx, { turnId: turn.id }, "expired");
     await queueAwaySummary(deps, tx, { botId: turn.botId, lastInput: played.lastInput, endedAt });
@@ -791,7 +760,7 @@ async function replayedTurn(
   }
 }
 
-/** Ends the Turn's row, in its last Checkpoint's transaction. */
+/** Ends the Turn's row, with its `turn` change, in its last Checkpoint's transaction. */
 async function endTurn(
   tx: Transaction,
   turnId: string,
@@ -805,7 +774,12 @@ async function endTurn(
     endedAt: Date;
   },
 ) {
-  await tx.update(botTurn).set(ending).where(eq(botTurn.id, turnId));
+  const [ended] = await tx
+    .update(botTurn)
+    .set(ending)
+    .where(eq(botTurn.id, turnId))
+    .returning({ botId: botTurn.botId });
+  if (ended) await recordBotChange(tx, ended, "turn", turnId, ending.endedAt);
 }
 
 const sinceTime: Intl.DateTimeFormatOptions = {
@@ -877,9 +851,9 @@ async function newestInput(
     eq(message.role, "user"),
     lt(message.createdAt, turn.startedAt),
   );
-  const [users, woken, [newestUser]] = await Promise.all([
+  const [users, woken, [newestUser], reacted] = await Promise.all([
     db
-      .select({ parts: message.parts, createdAt: message.createdAt })
+      .select({ id: message.id, parts: message.parts, createdAt: message.createdAt })
       .from(message)
       .where(and(beforeTurn, since && gte(message.createdAt, since)))
       .orderBy(asc(message.createdAt), asc(message.id)),
@@ -908,10 +882,26 @@ async function newestInput(
       .where(beforeTurn)
       .orderBy(desc(message.createdAt), desc(message.id))
       .limit(1),
+    // The user's emojis on the Bot's Messages since the last Turn began (spec #761). They wake
+    // nothing, so this is the only way the Bot hears of them.
+    db
+      .select({ parts: message.parts })
+      .from(message)
+      .where(
+        and(
+          eq(message.conversationId, turn.conversationId),
+          eq(message.role, "assistant"),
+          sql`(${message.parts}->'reactions'->'user'->>'at')::timestamptz <= ${turn.startedAt.toISOString()}::timestamptz`,
+          since &&
+            sql`(${message.parts}->'reactions'->'user'->>'at')::timestamptz > ${since.toISOString()}::timestamptz`,
+        ),
+      )
+      .orderBy(asc(message.createdAt), asc(message.id)),
   ]);
-  const inputs = users.map((row) => ({
+  const inputs: { at: number; content: string; messageId?: string }[] = users.map((row) => ({
     at: row.createdAt.getTime(),
     content: searchTextOf(row.parts),
+    messageId: row.id,
   }));
   // One at a time: each long one is an activity, in a stable order.
   for (const row of woken) {
@@ -927,12 +917,24 @@ async function newestInput(
     const time = timeNotice(turn.startedAt, zone);
     const notices = [
       changeNotes ? `${time}\n${changeNotes}` : time,
+      ...(newest.messageId ? [`[The user's message id, to react to it: ${newest.messageId}]`] : []),
+      ...(reacted.length ? [reactionNotice(reacted)] : []),
       ...(todo?.length ? [todoNotice(todo, zone)] : []),
     ];
     newest.content = `${notices.join("\n\n")}\n\n${newest.content}`;
   }
   // One input turn each, never a user Message: a Trigger's text opens with what woke the Bot.
   return inputs.map((input) => ({ role: "user", content: input.content }));
+}
+
+/** The user's new emojis on the Bot's Messages, one line each, the Message quoted. */
+function reactionNotice(rows: { parts: MessageRow["parts"] }[]): string {
+  const lines = rows.map((row) => {
+    const quote = searchTextOf(row.parts).replace(/\s+/g, " ").trim();
+    const cut = quote.length > 80 ? `${quote.slice(0, 80)}...` : quote;
+    return `${reactionsOf(row.parts)?.user?.emoji} on your message "${cut}"`;
+  });
+  return ["[The user reacted since your last turn]", ...lines].join("\n");
 }
 
 /**
@@ -1113,15 +1115,65 @@ function turnTools(
 ): AnyServerTool[] {
   const { liveActivity } = kit;
   const sendToUser = sendToUserDefinition.server(
-    async ({ text, endTurn: last, secret }, context) => {
+    async ({ text, endTurn: last, secret, files, choice, react }, context) => {
+      if (react) {
+        if (secret || files || choice || text.trim())
+          return { error: "A reaction is sent alone, with no text, secret, files or choice." };
+        const reacted = await liveActivity(sendToUserToolName, context?.toolCallId, async (tx) => {
+          await lockConversation(tx, turn.conversationId);
+          const [target] = await tx
+            .select({ id: message.id })
+            .from(message)
+            .where(
+              and(
+                eq(message.id, react.messageId),
+                eq(message.conversationId, turn.conversationId),
+                eq(message.role, "user"),
+              ),
+            );
+          if (!target) return { error: "No message of the user has that id." };
+          const now = deps.clock();
+          await setReaction(tx, target.id, "bot", react.emoji, now);
+          await recordBotChange(
+            tx,
+            { conversationId: turn.conversationId },
+            "message",
+            target.id,
+            now,
+          );
+          return { reacted: true };
+        });
+        if ("reacted" in reacted) {
+          if (last) onLastMessage();
+          await hintChanged(deps, turn.conversationId);
+        }
+        return reacted;
+      }
+      if ([secret, files, choice].filter(Boolean).length > 1)
+        return { error: "A message carries one control: send the secret, files and choice apart." };
+      // Copied to storage before the Message, so a missing path sends nothing. The copy is its own
+      // Checkpoint, so a crash after it doesn't copy again.
+      let control: RichControl | undefined =
+        (secret && { kind: "secret", ...secret }) ||
+        (choice && { kind: "choice", options: choice.options, other: choice.other ?? false });
+      if (files && text.trim()) {
+        if (!withComputer) return { error: "You have no computer, so you cannot send files." };
+        const copied = await kit.computerCall(
+          sendFilesActivity,
+          context?.toolCallId,
+          (computer, live) => copyFilesToStorage(deps, computer, turn.botId, files, live),
+          false,
+        );
+        if ("error" in copied) return copied;
+        control = { kind: "files", files: copied.files };
+      }
       // The Message commits with its Checkpoint, so it is sent once across a crash.
       const result = await liveActivity(sendToUserToolName, context?.toolCallId, async (tx) => {
         if (!text.trim()) return { error: emptyTextError };
-        await appendMessage(tx, turn.conversationId, {
-          role: "assistant",
-          parts: secret ? secretRequestParts(text, { type: "secret", ...secret }) : textParts(text),
-          status: "complete",
+        await appendBotMessage(deps, tx, turn.conversationId, {
+          parts: control ? controlParts(text, control) : textParts(text),
           createdAt: deps.clock(),
+          turnId: turn.id,
         });
         return { sent: true };
       });
@@ -1136,7 +1188,7 @@ function turnTools(
   // The Turn carries on once the Routine is saved: the Approval is the Routine's, not the call's.
   const createRoutine = createRoutineDefinition.server(async (input, context) =>
     liveActivity(createRoutineToolName, context?.toolCallId, (tx) =>
-      saveRoutine(tx, {
+      saveRoutine(deps, tx, {
         ...input,
         botId: turn.botId,
         conversationId: turn.conversationId,
@@ -1152,6 +1204,7 @@ function turnTools(
         ...input,
         botId: turn.botId,
         conversationId: turn.conversationId,
+        turnId: turn.id,
         now: deps.clock(),
       }),
     ),
@@ -1171,6 +1224,7 @@ function turnTools(
     liveActivity(setCheckInToolName, context?.toolCallId, (tx) =>
       saveCheckIn(deps, tx, {
         botId: turn.botId,
+        conversationId: turn.conversationId,
         turnId: turn.id,
         at: new Date(at),
         note,

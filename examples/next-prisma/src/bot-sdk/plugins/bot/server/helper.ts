@@ -23,6 +23,7 @@ import { computerOf } from "./computer-tools";
 import { type LoopKit, type LoopResult, runLoop, totalUsage } from "./loop";
 import { closeWaitingReviews } from "./review";
 import { lockConversation, receive } from "./router";
+import { recordBotChange } from "./thread-change";
 import { hintChanged } from "./turn";
 import { webSearchTool } from "./web-search";
 import {
@@ -118,7 +119,13 @@ const startHelperDefinition = toolDefinition({
 export const helperJobKey = (helperId: string) => `helper:${helperId}`;
 
 /** What `start_helper` needs of the Turn that calls it. */
-type HelperStarter = { id: string; botId: string; userId: string; model: string };
+type HelperStarter = {
+  id: string;
+  botId: string;
+  conversationId: string;
+  userId: string;
+  model: string;
+};
 
 /**
  * The `start_helper` tool of `turn`'s loop: in one Checkpoint, a `running` Helper row and its
@@ -138,6 +145,8 @@ export function startHelperTool(
       // Checked here only, so a resumed Helper is never refused.
       const call = await deps.plugin("models").resolveModelCall(turn.userId, turn.model);
       if (call && !(await call.meter.mayRun()).ok) return { error: helperQuotaSpentError };
+      // The Conversation's row lock first, as in every write that changes the Bot thread.
+      await lockConversation(tx, turn.conversationId);
       // The Bot's row lock, so two calls can't both take the last place; a Screen is the user's,
       // so a Computer-use Helper locks all their Bots, in id order.
       await tx
@@ -173,6 +182,7 @@ export function startHelperTool(
         await lockScreen(tx, turn.userId, screen);
       }
       const helperId = uuidv7();
+      const startedAt = deps.clock();
       const jobId = await deps
         .plugin("runner")
         .enqueueIn(tx, botHelperJobName, { helperId }, { idempotencyKey: helperJobKey(helperId) });
@@ -185,11 +195,15 @@ export function startHelperTool(
         startedByTurnId: turn.id,
         jobId,
         screen,
-        startedAt: deps.clock(),
+        startedAt,
       });
+      await recordBotChange(tx, turn, "helper", helperId, startedAt);
       return { helperId, status: "running" as const };
     });
-    if ("helperId" in result) deps.plugin("runner").wake();
+    if ("helperId" in result) {
+      deps.plugin("runner").wake();
+      await hintChanged(deps, turn.conversationId);
+    }
     return result;
   });
 }
@@ -430,6 +444,8 @@ async function playHelper(
       )
     : helperInput(helper);
   let askedUser: string | undefined;
+  // Whether an `inbox` activity ran live since the last hint.
+  let delivered = false;
   const played = await runLoop(deps, ctx, {
     owner: helper,
     usageKind: "helper",
@@ -441,7 +457,18 @@ async function playHelper(
     attempt,
     // The Bot isn't told by its Helper's results: its own next Computer call tells it.
     tellsBot: false,
-    inbox: (tx) => deliverMessages(deps, tx, helper.id),
+    // Before each Step, its progress so far is a change to the Bot thread, then its inbox is read.
+    inbox: async (tx) => {
+      await recordBotChange(tx, helper, "helper", helper.id, deps.clock());
+      delivered = true;
+      return deliverMessages(deps, tx, helper.id);
+    },
+    // Only after a live inbox: a replayed one changed nothing.
+    afterInbox: async () => {
+      if (!delivered) return;
+      delivered = false;
+      await hintChanged(deps, helper.conversationId);
+    },
     // Its risky calls get Auto-review, with its task as the Bot's words (spec #691).
     review: {
       helperId: helper.id,
@@ -624,6 +651,7 @@ async function endHelper(
     .where(and(eq(botHelper.id, helper.id), eq(botHelper.status, "running")))
     .returning({ id: botHelper.id });
   if (rows.length === 0) return null;
+  await recordBotChange(tx, owner, "helper", helper.id, now);
   // A Helper cut off mid-wait (its time limit, or a lost job) leaves no request open.
   await closeWaitingReviews(deps, tx, { helperId: helper.id }, "expired");
   const kind = helper.type === "general" ? "General Helper" : "Computer-use Helper";
@@ -693,13 +721,19 @@ async function recordStoppedHelper(deps: BotSdkContext, helperId: string): Promi
     const helper = await helperFacts(deps.db, helperId);
     if (helper?.status !== "stopped") return;
     const played = await replayedHelper(deps, helper);
-    await deps.db
-      .update(botHelper)
-      .set({
-        transcript: [...played.input, ...played.transcript],
-        usage: usageSoFar(helper, played),
-      })
-      .where(eq(botHelper.id, helperId));
+    await deps.db.transaction(async (tx) => {
+      await lockConversation(tx, helper.conversationId);
+      await tx
+        .update(botHelper)
+        .set({
+          transcript: [...played.input, ...played.transcript],
+          usage: usageSoFar(helper, played),
+        })
+        .where(eq(botHelper.id, helperId));
+      // Its card's Steps come from the transcript.
+      await recordBotChange(tx, helper, "helper", helperId, deps.clock());
+    });
+    await hintChanged(deps, helper.conversationId);
   } catch (caught) {
     deps.logger.error(`Replaying the Checkpoints of Helper ${helperId} failed`, caught);
   }

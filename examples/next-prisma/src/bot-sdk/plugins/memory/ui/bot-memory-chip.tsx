@@ -1,9 +1,8 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { BrainIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
-import { useChatAdapter, useI18n } from "../../../core/client/react/provider";
-import type { BotMemoryChange, BotMemoryUpdatedEvent, MemoryTier } from "../shared/changes";
+import { useI18n } from "../../../core/client/react/provider";
+import type { BotMemoryChange, MemoryTier } from "../shared/changes";
 
 const tierKeys = {
   profile: "bots.memoryProfile",
@@ -52,34 +51,4 @@ export function BotMemoryChip({ changes }: { changes: BotMemoryChange[] | null }
       )}
     </div>
   );
-}
-
-/**
- * Keeps a Bot's Conversation fresh when its post-turn memory pass announces changes, so the chip
- * shows without a reload. Renders nothing; place it in the Bot header beside the Memory popover.
- * Without EventSource, the chip shows on reload.
- */
-export function BotMemoryLive({ botId }: { botId: string }) {
-  const { orpc, eventsUrl } = useChatAdapter();
-  const queryClient = useQueryClient();
-  const conversationId = useQuery(orpc.bot.get.queryOptions({ input: { botId } })).data
-    ?.conversationId;
-  useEffect(() => {
-    if (!conversationId || typeof EventSource === "undefined") return;
-    const source = new EventSource(`${eventsUrl}?conversationId=${conversationId}`);
-    source.onmessage = (event: MessageEvent<string>) => {
-      let update: Partial<BotMemoryUpdatedEvent>;
-      try {
-        update = JSON.parse(event.data);
-      } catch {
-        return;
-      }
-      if (update.type === "bot_memory_updated") {
-        const { queryKey } = orpc.bot.get.queryOptions({ input: { botId } });
-        void queryClient.invalidateQueries({ queryKey });
-      }
-    };
-    return () => source.close();
-  }, [botId, conversationId, eventsUrl, orpc, queryClient]);
-  return null;
 }

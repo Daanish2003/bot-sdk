@@ -1,3 +1,4 @@
+import { sendAndFollow } from "../../test/support/follow-send";
 // The Bot memory eval (spec #624, #633): scores a Bot's file memory (ADR 0022) with real Models. Each
 // case is a fresh user with Bots on the fake Computer disk; Turns go through the real `bot` plugin,
 // each Turn's post-turn pass runs on the Bot's own Model, and the memory files are then scored.
@@ -21,7 +22,7 @@ import { uuidv7 } from "../../core/server/lib/uuidv7";
 import { bot } from "../../plugins/bot/server/plugin";
 import { computerOf } from "../../plugins/bot/server/computer-tools";
 import { createBot } from "../../plugins/bot/server/store";
-import { sendToBot, sendToUserToolName } from "../../plugins/bot/server/turn";
+import { sendToUserToolName } from "../../plugins/bot/server/turn";
 import type { ComputerHandle } from "../../plugins/computer/server/plugin";
 import { dayOf, memoryDirectory } from "../../plugins/memory/server/bot-memory";
 import { memory } from "../../plugins/memory/server/plugin";
@@ -213,7 +214,7 @@ async function main() {
       for (const turn of evalCase.turns) {
         const botId = botIds[turn.bot]!;
         const messages: string[] = [];
-        for await (const event of await sendToBot(sdk, {
+        for await (const event of await sendAndFollow(sdk, {
           userId,
           botId,
           id: uuidv7(),

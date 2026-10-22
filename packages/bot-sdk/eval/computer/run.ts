@@ -1,3 +1,4 @@
+import { sendAndFollow } from "../../test/support/follow-send";
 // The Computer tool-use eval (spec #519, "Evals"): scores whether a real Model uses `shell` and the
 // file tools when a task needs them, and leaves the Computer alone in plain chat. Every run is a real
 // Turn through the `bot` plugin on a real Computer (local E2B). Run it with
@@ -15,7 +16,6 @@ import { botTurn, computer as computerTable } from "../../core/server/db/schema"
 import { uuidv7 } from "../../core/server/lib/uuidv7";
 import { bot } from "../../plugins/bot/server/plugin";
 import { botDirectory, computerOf } from "../../plugins/bot/server/computer-tools";
-import { sendToBot } from "../../plugins/bot/server/turn";
 import { runnerJobs } from "../../plugins/runner/server/plugin";
 import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adapter";
 import { desc, eq } from "drizzle-orm";
@@ -140,7 +140,7 @@ async function main() {
         }
 
         let status: Observed["status"] = "stopped";
-        for await (const event of await sendToBot(sdk, {
+        for await (const event of await sendAndFollow(sdk, {
           userId,
           botId,
           id: uuidv7(),

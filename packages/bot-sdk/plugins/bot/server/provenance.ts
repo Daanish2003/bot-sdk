@@ -2,6 +2,7 @@ import { and, asc, eq, inArray, sql } from "drizzle-orm";
 
 import { botDemonstration, botTrigger, botTurn, usage } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
+import { isApproval } from "../shared/rich-control";
 import type { BotSkillChange } from "../../skills/shared/changes";
 import type {
   BotMessage,
@@ -81,7 +82,8 @@ export async function turnProvenance(
     triggersOf.set(trigger.turnId!, taken);
   }
   const sentAt = messages
-    .filter((sent) => sent.role === "assistant")
+    // An Approval request is the system asking, not the Bot sending (spec #761).
+    .filter((sent) => sent.role === "assistant" && !isApproval(sent.control?.kind))
     .map((sent) => sent.createdAt.getTime())
     .sort((a, b) => a - b);
   return turns.map((turn) => {

@@ -15,7 +15,7 @@ import { useItemActions, useRefreshAfterTurns } from "./turn-list";
 export function useBotRoutines(botId: string, working: boolean) {
   const { orpc } = useChatAdapter();
   const options = orpc.bot.routine.list.queryOptions({ input: { botId } });
-  const query = useQuery({ ...options, refetchInterval: working ? 2000 : false });
+  const query = useQuery(options);
   const [webhookTokens, setWebhookTokens] = useState<Record<string, string>>({});
   const { acting, act } = useItemActions(useRefreshAfterTurns(options.queryKey, working));
   const action =

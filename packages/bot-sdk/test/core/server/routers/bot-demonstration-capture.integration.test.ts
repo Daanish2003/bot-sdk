@@ -33,6 +33,7 @@ import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
 import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
+import { followSend } from "../../../support/follow-send";
 
 // Capture (spec #713, ticket #719): while a Demonstration records, the user's steps in the Screen's
 // Chrome reach the server over its CDP connection, each with a screenshot. Run against a real
@@ -200,7 +201,7 @@ async function demonstrating(path = "/") {
   const page = context.pages()[0] ?? (await context.newPage());
   await page.goto(`${origin}${path}`);
 
-  for await (const _event of await client.bot.send({ botId, id: uuidv7(), text: "watch me" }));
+  for await (const _event of await followSend(client, { botId, id: uuidv7(), text: "watch me" }));
   const [row] = await getTestDb()
     .select({ id: botDemonstration.id })
     .from(botDemonstration)
@@ -322,7 +323,9 @@ describe("capturing a Demonstration", () => {
 
     // The card counts the steps, and the user reads them back.
     const { messages } = await client.bot.get({ botId });
-    expect(messages.find((message) => message.demonstration)?.demonstration?.steps).toBe(5);
+    expect(
+      messages.find((message) => message.control?.kind === "demonstration")?.control,
+    ).toMatchObject({ steps: 5 });
     const { steps } = await client.bot.demonstration.steps({ demonstrationId });
     expect(steps.map((step) => [step.kind, step.label, step.value])).toEqual([
       ["navigation", "Payouts", null],
@@ -548,8 +551,10 @@ describe("capturing a Demonstration", () => {
     await page.waitForTimeout(500);
     expect(await eventsOf(demonstrationId)).toHaveLength(demonstrationEventLimit);
     const { messages } = await client.bot.get({ botId });
-    expect(messages.find((message) => message.demonstration)?.demonstration?.steps).toBe(
-      demonstrationEventLimit,
-    );
+    expect(
+      messages.find((message) => message.control?.kind === "demonstration")?.control,
+    ).toMatchObject({
+      steps: demonstrationEventLimit,
+    });
   }, 90_000);
 });

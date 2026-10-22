@@ -1,16 +1,18 @@
 // @vitest-environment jsdom
-import { eventIterator, os } from "@orpc/server";
+import { os } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createElement } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { backgroundPollMs } from "../../../plugins/bot/client/react/bot-turn";
 import type { BotRoutine } from "../../../plugins/bot/shared/routine";
-import type { BotMessage, BotSendEvent, BotTurnProvenance } from "../../../plugins/bot/shared/turn";
+import type { BotMessage, BotTurnProvenance } from "../../../plugins/bot/shared/turn";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
 import { providerFor } from "../fake-dictionary";
+import { changeLog, hint, settle, stubEventSource } from "./fake-change-log";
+
+beforeEach(stubEventSource);
 
 afterEach(() => {
   cleanup();
@@ -27,7 +29,13 @@ const said = (id: string, role: BotMessage["role"], text: string): BotMessage =>
   createdAt,
 });
 
-const morningBrief = (afterMessageId: string): BotRoutine => ({
+/** The Message that asks the user to approve Routine `routineId`. */
+const approvalOf = (routineId = "r1"): BotMessage => ({
+  ...said(`approve-${routineId}`, "assistant", "waits for your approval"),
+  control: { kind: "routine_approval", routineId },
+});
+
+const morningBrief = (): BotRoutine => ({
   id: "r1",
   name: "morning-brief",
   prompt: "Summarize today's calendar.",
@@ -37,22 +45,20 @@ const morningBrief = (afterMessageId: string): BotRoutine => ({
   state: "pending",
   approvedAt: null,
   createdAt,
-  afterMessageId,
   nextRunAt: null,
 });
 
 /**
  * A stand-in for the server's `bot` router: `bot.get` answers with `messages` and `turns`, `bot.routine.list`
- * with `routines`, approve and decline change them as the server does, and each `bot.send` streams
- * the events the test pushes.
+ * with `routines`, approve and decline change them as the server does, `bot.send` saves the user's
+ * Message and starts a Turn, and `bot.changes` answers from the change log the test writes.
  */
 function fakeBotServer(
   messages: BotMessage[],
   routines: BotRoutine[] = [],
   turns: BotTurnProvenance[] = [],
 ) {
-  const queue: (BotSendEvent | "end")[] = [];
-  let wake = () => {};
+  const log = changeLog();
   const approved: string[] = [];
   const declined: string[] = [];
   const paused: string[] = [];
@@ -71,21 +77,23 @@ function fakeBotServer(
     bot: {
       get: os.handler(() => ({
         bot: { ...ada, turnStatus },
+        conversationId: "c1",
         messages: [...messages],
         turns: [...turns],
+        lastSeq: log.last,
       })),
+      changes: os
+        .input(z.object({ botId: z.string(), since: z.number() }))
+        .handler(({ input }) => log.since(input.since)),
       stop: os.handler(() => {}),
       send: os
         .input(z.object({ botId: z.string(), id: z.string(), text: z.string() }).loose())
-        .output(eventIterator(z.custom<BotSendEvent>()))
-        .handler(async function* () {
-          while (true) {
-            if (queue.length === 0) await new Promise<void>((resolve) => (wake = resolve));
-            const next = queue.shift()!;
-            if (next === "end") return;
-            if (next.type === "message") messages.push(next.message);
-            yield next;
-          }
+        .handler(({ input }) => {
+          const saved = { ...said(input.id, "user", input.text), createdAt: new Date() };
+          messages.push(saved);
+          log.record("message", saved.id, saved);
+          turnStatus = "running";
+          return saved;
         }),
       routine: {
         list: os.input(z.object({ botId: z.string() })).handler(() => [...routines]),
@@ -145,6 +153,7 @@ function fakeBotServer(
     deleted,
     rotated,
     routines,
+    messages,
     /** What `bot.get` says of the latest Turn from now on, as a Turn run elsewhere moves on. */
     setTurnStatus: (status: "running" | "complete" | null) => {
       turnStatus = status;
@@ -158,14 +167,9 @@ function fakeBotServer(
         release();
       };
     },
-    /** Streams `events` to the open send, then lets the client read them. */
-    stream: async (...events: (BotSendEvent | "end")[]) => {
-      await act(async () => {
-        queue.push(...events);
-        wake();
-        await new Promise((resolve) => setTimeout(resolve, 20));
-      });
-    },
+    log,
+    /** Tells the page the Conversation changed, as the `/events` route does, and lets it read. */
+    hint,
   };
 }
 
@@ -190,9 +194,10 @@ describe("a Routine waiting for the user's OK", () => {
       [
         said("m1", "user", "Brief me every weekday at 8"),
         said("m2", "assistant", "Set up morning-brief. Approve it below."),
+        approvalOf(),
         said("m3", "user", "Thanks"),
       ],
-      [morningBrief("m2")],
+      [morningBrief()],
     );
     const { container } = mount(server);
 
@@ -208,8 +213,24 @@ describe("a Routine waiting for the user's OK", () => {
     expect(card.textContent).toContain("Summarize today's calendar.");
   });
 
+  it("shows one card when an edit sent the Routine back for a second Approval", async () => {
+    const server = fakeBotServer(
+      [
+        said("m1", "user", "Brief me"),
+        approvalOf(),
+        said("m2", "user", "Make it 9"),
+        { ...approvalOf(), id: "approve-again" },
+      ],
+      [morningBrief()],
+    );
+    const { container } = mount(server);
+
+    await screen.findByRole("group", { name: "Created morning-brief routine" });
+    expect(rows(container)).toEqual(["Brief me", "Make it 9", "morning-brief:pending"]);
+  });
+
   it("approves through the router, then collapses to the approved divider", async () => {
-    const server = fakeBotServer([said("m1", "user", "Brief me")], [morningBrief("m1")]);
+    const server = fakeBotServer([said("m1", "user", "Brief me"), approvalOf()], [morningBrief()]);
     mount(server);
     const card = await screen.findByRole("group", { name: "Created morning-brief routine" });
 
@@ -222,7 +243,7 @@ describe("a Routine waiting for the user's OK", () => {
   });
 
   it("declines through the router, and the card goes", async () => {
-    const server = fakeBotServer([said("m1", "user", "Brief me")], [morningBrief("m1")]);
+    const server = fakeBotServer([said("m1", "user", "Brief me"), approvalOf()], [morningBrief()]);
     mount(server);
     const card = await screen.findByRole("group", { name: "Created morning-brief routine" });
 
@@ -240,10 +261,20 @@ describe("a Routine waiting for the user's OK", () => {
     const composer = await screen.findByRole("textbox", { name: "Message" });
     fireEvent.change(composer, { target: { value: "Brief me" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
-    await server.stream({ type: "message", message: said("m1", "user", "Brief me") });
+    await settle();
 
-    server.routines.push(morningBrief("m1"));
-    await server.stream({ type: "turnEnded", status: "complete" }, "end");
+    server.routines.push(morningBrief());
+    server.messages.push(approvalOf());
+    server.log.record("message", "approval", approvalOf());
+    server.setTurnStatus("complete");
+    server.log.record("routine", "r1", morningBrief());
+    server.log.record("turn", "t1", {
+      id: "t1",
+      status: "complete",
+      startedAt: createdAt,
+      endedAt: createdAt,
+    });
+    await server.hint();
 
     await screen.findByRole("group", { name: "Created morning-brief routine" });
   });
@@ -254,10 +285,20 @@ describe("a Routine waiting for the user's OK", () => {
     mount(server);
     await screen.findByRole("status", { name: "Typing" });
 
-    server.routines.push(morningBrief("m1"));
+    server.routines.push(morningBrief());
+    server.messages.push(approvalOf());
+    server.log.record("message", "approval", approvalOf());
     server.setTurnStatus("complete");
+    server.log.record("routine", "r1", morningBrief());
+    server.log.record("turn", "t1", {
+      id: "t1",
+      status: "complete",
+      startedAt: createdAt,
+      endedAt: createdAt,
+    });
+    await server.hint();
 
-    await screen.findByRole("group", { name: "Created morning-brief routine" }, { timeout: 5_000 });
+    await screen.findByRole("group", { name: "Created morning-brief routine" });
   });
 });
 
@@ -332,32 +373,39 @@ describe("a Routine's runs", () => {
   });
 
   it("shows a run that happened while the page was open and idle, with no reload", async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    try {
-      const messages = [...before];
-      const turns = [userTurn];
-      const server = fakeBotServer(
-        messages,
-        [{ ...morningBrief("m1"), state: "active", approvedAt: createdAt }],
-        turns,
-      );
-      const { container } = mount(server);
-      await screen.findByText("Morning to you.");
-      expect(screen.queryByText(/next run/)).toBeNull();
+    const messages = [
+      ...before,
+      { ...approvalOf(), createdAt: new Date("2026-10-19T06:00:03.000Z") },
+    ];
+    const turns = [userTurn];
+    const server = fakeBotServer(
+      messages,
+      [{ ...morningBrief(), state: "active", approvedAt: createdAt }],
+      turns,
+    );
+    const { container } = mount(server);
+    await screen.findByText("Morning to you.");
+    expect(screen.queryByText(/next run/)).toBeNull();
 
-      // The Routine runs on the server; this page sends nothing.
-      messages.push(sentAt("m3", "assistant", "Three meetings today.", "2026-10-19T07:00:02.000Z"));
-      turns.push(run(true));
-      // A run too quick to be seen running still moves the Routine on to its next slot.
-      server.routines[0]!.nextRunAt = new Date("2026-10-20T07:00:00.000Z");
-      await act(() => vi.advanceTimersByTimeAsync(backgroundPollMs));
+    // The Routine runs on the server; this page sends nothing.
+    messages.push(sentAt("m3", "assistant", "Three meetings today.", "2026-10-19T07:00:02.000Z"));
+    turns.push(run(true));
+    // A run too quick to be seen running still moves the Routine on to its next slot.
+    server.routines[0]!.nextRunAt = new Date("2026-10-20T07:00:00.000Z");
+    server.log.record("message", "m3", messages.at(-1)!);
+    server.log.record("routine", "r1", server.routines[0]!);
+    // The run's Turn changes the Message dividers, which the thread is read again for.
+    server.log.record("turn", "t2", {
+      id: "t2",
+      status: "complete",
+      startedAt: at("2026-10-19T07:00:01.000Z"),
+      endedAt: at("2026-10-19T07:00:05.000Z"),
+    });
+    await server.hint();
 
-      await screen.findByText("Three meetings today.");
-      expect(timeline(container)[2]).toMatch(/^run:morning-brief · /);
-      await screen.findByText(/morning-brief approved · next run/);
-    } finally {
-      vi.useRealTimers();
-    }
+    await screen.findByText("Three meetings today.");
+    expect(timeline(container)[2]).toMatch(/^run:morning-brief · /);
+    await screen.findByText(/morning-brief approved · next run/);
   });
 
   it("gives a quiet run a divider of its own", async () => {
@@ -379,10 +427,10 @@ describe("a Routine's runs", () => {
 describe("an approved Routine", () => {
   it("shows its next run on its divider", async () => {
     const server = fakeBotServer(
-      [said("m1", "user", "Brief me")],
+      [said("m1", "user", "Brief me"), approvalOf()],
       [
         {
-          ...morningBrief("m1"),
+          ...morningBrief(),
           state: "active",
           approvedAt: createdAt,
           nextRunAt: new Date("2026-10-20T07:00:00.000Z"),
@@ -399,16 +447,16 @@ describe("an approved Routine", () => {
 
 describe("the Routines popover in the header", () => {
   const routines = (): BotRoutine[] => [
-    { ...morningBrief("m1"), state: "active", approvedAt: createdAt },
+    { ...morningBrief(), state: "active", approvedAt: createdAt },
     {
-      ...morningBrief("m1"),
+      ...morningBrief(),
       id: "r2",
       name: "weekly-review",
       schedule: { days: ["fri"], at: "16:00" },
       state: "paused",
       approvedAt: createdAt,
     },
-    { ...morningBrief("m1"), id: "r3", name: "inbox-sweep" },
+    { ...morningBrief(), id: "r3", name: "inbox-sweep" },
   ];
 
   /** Opens the popover and returns its list of Routines. */
@@ -472,8 +520,8 @@ describe("the Routines popover in the header", () => {
 
   it("keeps a Routine's actions busy in the popover while its divider's action runs, so only one is sent", async () => {
     const server = fakeBotServer(
-      [said("m1", "user", "Brief me")],
-      [{ ...morningBrief("m1"), state: "active", approvedAt: createdAt }],
+      [said("m1", "user", "Brief me"), approvalOf()],
+      [{ ...morningBrief(), state: "active", approvedAt: createdAt }],
     );
     const { container } = mount(server);
     await screen.findByText(/morning-brief approved/);
@@ -498,8 +546,8 @@ describe("the Routines popover in the header", () => {
 describe("the approved divider", () => {
   it("pauses, resumes and deletes its Routine through the router", async () => {
     const server = fakeBotServer(
-      [said("m1", "user", "Brief me")],
-      [{ ...morningBrief("m1"), state: "active", approvedAt: createdAt }],
+      [said("m1", "user", "Brief me"), approvalOf()],
+      [{ ...morningBrief(), state: "active", approvedAt: createdAt }],
     );
     const { container } = mount(server);
     await screen.findByText(/morning-brief approved/);
@@ -520,7 +568,7 @@ describe("the approved divider", () => {
 
 describe("a webhook Routine", () => {
   const payouts = (state: BotRoutine["state"], id = "r4", name = "stripe-payouts"): BotRoutine => ({
-    ...morningBrief("m1"),
+    ...morningBrief(),
     id,
     name,
     prompt: "Check the payout.",
@@ -541,7 +589,12 @@ describe("a webhook Routine", () => {
       .find((item) => item.textContent?.includes(name))!;
 
   it("shows 'on webhook' on its approval card", async () => {
-    mount(fakeBotServer([said("m1", "user", "Watch my payouts")], [payouts("pending")]));
+    mount(
+      fakeBotServer(
+        [said("m1", "user", "Watch my payouts"), approvalOf("r4")],
+        [payouts("pending")],
+      ),
+    );
 
     const card = await screen.findByRole("group", { name: "Created stripe-payouts routine" });
     expect(card.textContent).toContain("on webhook");
@@ -552,7 +605,7 @@ describe("a webhook Routine", () => {
     const server = fakeBotServer(
       [said("m1", "user", "Watch my payouts")],
       [
-        { ...morningBrief("m1"), state: "active", approvedAt: createdAt },
+        { ...morningBrief(), state: "active", approvedAt: createdAt },
         payouts("pending", "r5", "github-issues"),
         payouts("active"),
       ],
@@ -590,7 +643,10 @@ describe("a webhook Routine", () => {
   });
 
   it("shows the URL approving it gave, under its approved divider and in the popover", async () => {
-    const server = fakeBotServer([said("m1", "user", "Watch my payouts")], [payouts("pending")]);
+    const server = fakeBotServer(
+      [said("m1", "user", "Watch my payouts"), approvalOf("r4")],
+      [payouts("pending")],
+    );
     mount(server);
 
     fireEvent.click(await screen.findByRole("button", { name: "Approve" }));

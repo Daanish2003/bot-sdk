@@ -1,20 +1,23 @@
 // @vitest-environment jsdom
-import { eventIterator, os } from "@orpc/server";
+import { os } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
-import { act, cleanup, render, screen, waitFor, fireEvent, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, fireEvent, within } from "@testing-library/react";
 import { createElement } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { backgroundPollMs } from "../../../plugins/bot/client/react/bot-turn";
 import type { BotHelper, HelperStatus } from "../../../plugins/bot/shared/helper";
 import type { BotRoutine } from "../../../plugins/bot/shared/routine";
-import type { BotMessage, BotSendEvent } from "../../../plugins/bot/shared/turn";
+import type { BotMessage } from "../../../plugins/bot/shared/turn";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
 import { providerFor } from "../fake-dictionary";
+import { changeLog, hint, stubEventSource } from "./fake-change-log";
+
+beforeEach(stubEventSource);
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
 });
 
 const createdAt = new Date("2026-10-19T09:00:00.000Z");
@@ -48,16 +51,33 @@ const helper = (afterMessageId: string, extra: Partial<BotHelper> = {}): BotHelp
 function mount(
   messages: BotMessage[],
   helpers: BotHelper[],
-  { routines = [], stops = [] }: { routines?: BotRoutine[]; stops?: unknown[] } = {},
+  {
+    routines = [],
+    stops = [],
+    log = changeLog(),
+  }: { routines?: BotRoutine[]; stops?: unknown[]; log?: ReturnType<typeof changeLog> } = {},
 ) {
   const router = {
     bot: {
-      get: os.handler(() => ({ bot: { ...ada, turnStatus: null }, messages, turns: [] })),
+      get: os.handler(() => ({
+        bot: { ...ada, turnStatus: null },
+        conversationId: "c1",
+        messages,
+        turns: [],
+        lastSeq: log.last,
+      })),
+      changes: os
+        .input(z.object({ botId: z.string(), since: z.number() }))
+        .handler(({ input }) => log.since(input.since)),
       stop: os.handler(() => {}),
       send: os
         .input(z.object({ botId: z.string(), id: z.string(), text: z.string() }).loose())
-        .output(eventIterator(z.custom<BotSendEvent>()))
-        .handler(async function* () {}),
+        .handler(({ input }) => ({
+          id: input.id,
+          role: "user" as const,
+          text: input.text,
+          createdAt: new Date(),
+        })),
       routine: { list: os.input(z.object({ botId: z.string() })).handler(() => routines) },
       checkIn: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
       helper: {
@@ -152,13 +172,16 @@ describe("a Helper in the Conversation", () => {
 
   it("updates the same card in place when the Helper ends, with no finished line", async () => {
     const helpers = [helper("m1")];
-    const { container } = mount([said("m1", "assistant", "On it.")], helpers);
+    const log = changeLog();
+    const { container } = mount([said("m1", "assistant", "On it.")], helpers, { log });
     await screen.findByText("Working");
     const before = card(container);
 
     helpers[0] = { ...helpers[0]!, status: "complete", latest: null, report: "There are 3 files." };
+    log.record("helper", "h1", helpers[0]);
+    await hint();
 
-    await waitFor(() => expect(card(container).dataset.status).toBe("complete"), { timeout: 5000 });
+    await waitFor(() => expect(card(container).dataset.status).toBe("complete"));
     expect(card(container)).toBe(before);
     expect(container.querySelectorAll("[data-helper]")).toHaveLength(1);
     expect(container.textContent).not.toMatch(/finished/i);
@@ -259,32 +282,28 @@ describe("the To-do list (#591)", () => {
 
 describe("a Helper a background run started (#591)", () => {
   it("shows while the page is open and idle, with no reload", async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    try {
-      const routine: BotRoutine = {
-        id: "r1",
-        name: "morning-brief",
-        prompt: "Summarize today's calendar.",
-        schedule: { days: ["mon"], at: "08:00" },
-        webhook: false,
-        timeZone: "Europe/London",
-        state: "active",
-        approvedAt: createdAt,
-        createdAt,
-        afterMessageId: "m1",
-        nextRunAt: null,
-      };
-      const helpers: BotHelper[] = [];
-      mount([said("m1", "assistant", "On it.")], helpers, { routines: [routine] });
-      await screen.findByText("On it.");
+    const routine: BotRoutine = {
+      id: "r1",
+      name: "morning-brief",
+      prompt: "Summarize today's calendar.",
+      schedule: { days: ["mon"], at: "08:00" },
+      webhook: false,
+      timeZone: "Europe/London",
+      state: "active",
+      approvedAt: createdAt,
+      createdAt,
+      nextRunAt: null,
+    };
+    const helpers: BotHelper[] = [];
+    const log = changeLog();
+    mount([said("m1", "assistant", "On it.")], helpers, { routines: [routine], log });
+    await screen.findByText("On it.");
 
-      // A Routine's Turn starts a Helper on the server; this page sends nothing.
-      helpers.push(helper("m1"));
-      await act(() => vi.advanceTimersByTimeAsync(backgroundPollMs));
+    // A Routine's Turn starts a Helper on the server; this page sends nothing.
+    helpers.push(helper("m1"));
+    log.record("helper", "h1", helpers[0]!);
+    await hint();
 
-      await screen.findByText("Count the files in /home/user/shared.");
-    } finally {
-      vi.useRealTimers();
-    }
+    await screen.findByText("Count the files in /home/user/shared.");
   });
 });

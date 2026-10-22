@@ -6,7 +6,9 @@ import { type ReviewKit, reviewToolCall } from "../../../../plugins/bot/server/r
 describe("a review's replay", () => {
   it("reads its recorded verdict and write without resolving the review Model's meter", async () => {
     const resolveModelCall = vi.fn(async () => null);
+    const publish = vi.fn(async () => {});
     const deps = {
+      pubsub: { publish },
       plugin: (name: string) =>
         name === "models"
           ? { resolveModelCall, freeModelMeter: vi.fn() }
@@ -43,5 +45,7 @@ describe("a review's replay", () => {
 
     expect(blocked).toBeNull();
     expect(resolveModelCall).not.toHaveBeenCalled();
+    // A replay writes nothing new, so it hints no change.
+    expect(publish).not.toHaveBeenCalled();
   });
 });

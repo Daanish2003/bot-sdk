@@ -359,7 +359,7 @@ async function storeStep(
       value: step.masked && step.value !== null ? maskedValue : step.value,
       screenshotKey: put ? screenshotKey : null,
     });
-    await rewriteCard(tx, demonstration.conversationId, demonstration.id, (card) => ({
+    await rewriteCard(tx, demonstration.conversationId, demonstration.id, deps.clock(), (card) => ({
       ...card,
       steps,
     }));

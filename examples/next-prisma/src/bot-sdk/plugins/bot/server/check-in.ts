@@ -6,6 +6,7 @@ import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
 import type { BotCheckIn } from "../shared/check-in";
+import { recordBotChange } from "./thread-change";
 import { lockConversation } from "./router";
 import { lastMessageOfTurn, zonedTime } from "./routine";
 import { newestTimeZone } from "./store";
@@ -33,13 +34,15 @@ export async function saveCheckIn(
   tx: Transaction,
   {
     botId,
+    conversationId,
     turnId,
     at,
     note,
     now,
-  }: { botId: string; turnId: string; at: Date; note: string; now: Date },
+  }: { botId: string; conversationId: string; turnId: string; at: Date; note: string; now: Date },
 ): Promise<{ saved: { id: string; at: string } } | { error: string }> {
   if (at.getTime() - now.getTime() < minLeadMs) return { error: checkInTooSoonError };
+  await lockConversation(tx, conversationId);
   const id = uuidv7();
   await tx.insert(botCheckIn).values({
     id,
@@ -59,6 +62,7 @@ export async function saveCheckIn(
       { checkInId: id },
       { idempotencyKey: checkInKey(id), runAfter: at },
     );
+  await recordBotChange(tx, { conversationId }, "check_in", id, now);
   return { saved: { id, at: at.toISOString() } };
 }
 
@@ -79,7 +83,7 @@ export async function pendingCheckIns(db: Database | Transaction, botId: string)
 async function cancelPending(
   deps: BotSdkContext,
   tx: Transaction,
-  botId: string,
+  { botId, conversationId }: { botId: string; conversationId: string },
   checkInId: string,
 ): Promise<boolean> {
   const [row] = await tx
@@ -94,6 +98,7 @@ async function cancelPending(
     )
     .returning({ id: botCheckIn.id });
   if (!row) return false;
+  await recordBotChange(tx, { conversationId }, "check_in", checkInId, deps.clock());
   await deps.plugin("runner").cancelIn(tx, checkInKey(checkInId));
   return true;
 }
@@ -105,7 +110,7 @@ export async function cancelCheckInTool(
   { botId, conversationId, id }: { botId: string; conversationId: string; id: string },
 ): Promise<{ cancelled: true } | { error: string }> {
   await lockConversation(tx, conversationId);
-  if (await cancelPending(deps, tx, botId, id)) return { cancelled: true };
+  if (await cancelPending(deps, tx, { botId, conversationId }, id)) return { cancelled: true };
   return { error: `No pending Check-in with id "${id}". list_check_ins shows yours.` };
 }
 
@@ -124,13 +129,13 @@ export async function cancelCheckIn(
     if (!owner) throw rpcError("NOT_FOUND", "error.checkInNotFound", "Check-in not found");
     // The Conversation's row lock first, as in a fire.
     await lockConversation(tx, owner.conversationId);
-    await cancelPending(deps, tx, owner.botId, checkInId);
+    await cancelPending(deps, tx, owner, checkInId);
   });
 }
 
 /**
  * The Bot's Check-ins, soonest first, each with `afterMessageId`, the Message its inline line
- * follows (as a Routine's card does, `lastMessageOfTurn`).
+ * follows (`lastMessageOfTurn`).
  */
 export async function listCheckIns(db: Database, botId: string): Promise<BotCheckIn[]> {
   return db

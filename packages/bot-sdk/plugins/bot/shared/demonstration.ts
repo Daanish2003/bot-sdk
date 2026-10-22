@@ -23,12 +23,13 @@ export const isLiveDemonstration = (state: DemonstrationState) =>
 export type DemonstrationAction = "pause" | "resume" | "done" | "cancel";
 
 /**
- * The Show me card part of the Message `watch_user` posts (spec #713): the Demonstration, its goal,
- * how it stands, when it started and ended (ISO), and how many steps it captured, which the closed
- * divider shows. Each change of state rewrites it. The live link is never stored.
+ * The Show me card of the Message `watch_user` posts (spec #713), the Rich control of kind
+ * `demonstration`: the Demonstration, its goal, how it stands, when it started and ended (ISO), and
+ * how many steps it captured, which the closed divider shows. Each change of state rewrites it. The
+ * live link is never stored.
  */
 export const demonstrationCardSchema = z.object({
-  type: z.literal("demonstration"),
+  kind: z.literal("demonstration"),
   demonstrationId: z.string(),
   goal: z.string(),
   state: demonstrationStateSchema,

@@ -34,7 +34,7 @@ import {
   summaryOf,
   writeSummary,
 } from "./summary";
-import { awayStartParts } from "./turn";
+import { awayStartParts, hintChanged } from "./turn";
 
 /**
  * Background work due this soon wakes the Bot anyway, with its context still cached, so a Summary
@@ -151,6 +151,8 @@ async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext
   const knowledge = await ctx.activity("knowledge", () =>
     knowledgeNow(deps, seen.userId, ctx.signal),
   );
+  // Set only by a live write: a replayed one changed nothing, so hints nothing.
+  let wrote = false;
   await ctx.activity("summary:write", async (tx) => {
     await lockConversation(tx, seen.conversationId);
     if (await turnedSince(tx, botId, seen)) return null;
@@ -170,8 +172,11 @@ async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext
       skills,
       knowledge,
     );
-    return writeSummary(tx, { parts, prose: written.prose, kind: "away" });
+    const id = await writeSummary(tx, { parts, prose: written.prose, kind: "away" });
+    wrote = true;
+    return id;
   });
+  if (wrote) await hintChanged(deps, seen.conversationId);
 }
 
 /**

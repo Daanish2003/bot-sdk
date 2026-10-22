@@ -7,6 +7,7 @@ import { defineJob } from "../../runner/server/jobs/define";
 import { fireKey, queueFire, routineFireJobName, routineSnapshot } from "./routine";
 import { lockConversation, receive } from "./router";
 import { nextSlot } from "./schedule";
+import { recordBotChange } from "./thread-change";
 import { hintChanged } from "./turn";
 
 /**
@@ -22,13 +23,21 @@ export const routineFireJob = defineJob({
       fireRoutine(deps, tx, routineId, new Date(slot)),
     );
     if (!fired) return;
-    deps.plugin("runner").wake();
+    if (fired.woke) deps.plugin("runner").wake();
     await hintChanged(deps, fired.conversationId);
   },
   // A fire that failed for good queued no next fire (its Checkpoint rolled back): queue it here, so
   // one bad fire never stops the Routine.
   onFailed: async ({ routineId, slot }, _error, deps) => {
-    await deps.db.transaction(async (tx) => {
+    const changed = await deps.db.transaction(async (tx) => {
+      const [owner] = await tx
+        .select({ conversationId: bot.conversationId })
+        .from(botRoutine)
+        .innerJoin(bot, eq(bot.id, botRoutine.botId))
+        .where(eq(botRoutine.id, routineId));
+      if (!owner) return null;
+      // The Conversation's row lock first, as in every write that changes the Bot thread.
+      await lockConversation(tx, owner.conversationId);
       const [routine] = await tx
         .select({
           state: botRoutine.state,
@@ -38,10 +47,15 @@ export const routineFireJob = defineJob({
         .from(botRoutine)
         .where(eq(botRoutine.id, routineId))
         .for("update");
-      if (routine?.state !== "active" || !routine.schedule) return;
-      const after = new Date(Math.max(deps.clock().getTime(), new Date(slot).getTime()));
+      if (routine?.state !== "active" || !routine.schedule) return null;
+      const now = deps.clock();
+      const after = new Date(Math.max(now.getTime(), new Date(slot).getTime()));
       await queueFire(deps, tx, routineId, nextSlot(routine.schedule, routine.timeZone, after));
+      // Its next run moved.
+      await recordBotChange(tx, owner, "routine", routineId, now);
+      return owner;
     });
+    if (changed) await hintChanged(deps, changed.conversationId);
   },
 });
 
@@ -50,15 +64,16 @@ export const routineFireJob = defineJob({
  * late fire runs once, and hands the Router a `routine` / `schedule` Trigger carrying its snapshot.
  * The Trigger's ID is the slot's, so a slot never makes a second one. While the user's Quota is
  * spent, no Trigger is handed: there is no caller to show a 402 to. Nor while the user is Banned
- * (#585); the next fire is still queued, so the Routine fires again once the Ban ends. Returns the
- * Conversation that got a Trigger, or `null`.
+ * (#585); the next fire is still queued, so the Routine fires again once the Ban ends. Its next run
+ * is a `routine` change. Returns the Conversation and whether it got a Trigger (`woke`), or `null`
+ * when the Routine no longer fires.
  */
 async function fireRoutine(
   deps: BotSdkContext,
   tx: Transaction,
   routineId: string,
   slot: Date,
-): Promise<{ conversationId: string } | null> {
+): Promise<{ conversationId: string; woke: boolean } | null> {
   const [owner] = await tx
     .select({ conversationId: bot.conversationId, userId: bot.userId, model: bot.model })
     .from(botRoutine)
@@ -84,14 +99,16 @@ async function fireRoutine(
   // slot again, whose key this running fire still holds, and end the chain.
   const after = new Date(Math.max(now.getTime(), slot.getTime()));
   await queueFire(deps, tx, routineId, nextSlot(routine.schedule, routine.timeZone, after));
+  await recordBotChange(tx, owner, "routine", routineId, now);
+  const fired = { conversationId: owner.conversationId, woke: false };
 
-  if (quotaSpent || banned) return null;
+  if (quotaSpent || banned) return fired;
   const id = fireKey(routineId, slot);
   const [seen] = await tx
     .select({ id: botTrigger.id })
     .from(botTrigger)
     .where(eq(botTrigger.id, id));
-  if (seen) return null;
+  if (seen) return fired;
   await receive(deps, tx, {
     id,
     conversationId: owner.conversationId,
@@ -100,7 +117,7 @@ async function fireRoutine(
     text: routineSnapshot({ ...routine, slot }),
     receivedAt: now,
   });
-  return { conversationId: owner.conversationId };
+  return { ...fired, woke: true };
 }
 
 /** The runner job that repairs broken chains of Routine fires (#578). */

@@ -1,5 +1,5 @@
 ---
-Status: accepted
+Status: accepted, amended by ADR 0026 for Bot Conversations (the Bot thread syncs by a change log, and PubSub carries only data-less hints there)
 ---
 
 # Runs are shared across processes through a run log and pub/sub

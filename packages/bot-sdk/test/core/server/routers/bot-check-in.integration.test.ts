@@ -2,6 +2,7 @@ import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { and, asc, eq, like } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { conversationChannel } from "../../../../core/server/chat/conversation-events";
 import { botCheckIn, botTrigger, job, usage } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { deleteUserData } from "../../../../core/server/user-data";
@@ -20,6 +21,7 @@ import { fakeJobClock } from "../../../support/jobs";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
+import { followSend } from "../../../support/follow-send";
 
 const model = "openai:gpt-5.6";
 const silent = { error: () => {} };
@@ -125,7 +127,7 @@ async function botTurn({
   const advanceTo = (when: string | Date) => {
     timer.advance(new Date(when).getTime() - timer.clock.now().getTime());
   };
-  const stream = await client.bot.send({
+  const stream = await followSend(client, {
     botId,
     id: uuidv7(),
     text: "Remind me about Acme",
@@ -158,9 +160,11 @@ const queuedJobs = async () =>
 
 const inputOf = (call: TextOptions | undefined) => (call?.messages ?? []) as ModelMessage[];
 
-/** The id a set_check_in call returned, read from the Model input. */
+/** The id a set_check_in call returned, read from the Model input: the last one, after the user's message id. */
 const savedId = (options: TextOptions) =>
-  /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f-]{22}/.exec(JSON.stringify(options.messages))![0];
+  JSON.stringify(options.messages)
+    .match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f-]{22}/g)!
+    .at(-1)!;
 
 const setThursday = { at: thursday, note };
 
@@ -261,6 +265,23 @@ describe("a Check-in", () => {
     await runDue();
     expect(await checkInTriggers(conversationId)).toEqual([]);
   });
+
+  it("the router cancel hints the Conversation so other tabs fetch the change (#761)", async () => {
+    const { deps, client, botId, conversationId } = await botTurn({
+      rounds: [round(setCheckIn(setThursday)), round()],
+    });
+    const [listed] = await client.bot.checkIn.list({ botId });
+    const events: string[] = [];
+    await deps.pubsub.subscribe(conversationChannel(conversationId), (message) => {
+      events.push(message);
+    });
+
+    await client.bot.checkIn.cancel({ checkInId: listed!.id });
+
+    await expect
+      .poll(() => events, { timeout: 10_000 })
+      .toEqual([JSON.stringify({ type: "changed" })]);
+  }, 30_000);
 
   it("makes no Trigger while the user Quota is spent", async () => {
     let quota: Awaited<ReturnType<NonNullable<TestDepsOverrides["getQuota"]>>> = null;

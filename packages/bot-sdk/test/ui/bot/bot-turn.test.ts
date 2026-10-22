@@ -1,22 +1,26 @@
 // @vitest-environment jsdom
-import { eventIterator, os } from "@orpc/server";
+import { os } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 import type { QueryClient } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createElement, Fragment } from "react";
 import { Toaster } from "sonner";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { rpcError } from "../../../core/server/rpc-error";
 import { en } from "../../../core/shared/i18n";
-import type { BotMessage, BotSendEvent, TurnStatus } from "../../../plugins/bot/shared/turn";
+import type { BotMessage, TurnStatus } from "../../../plugins/bot/shared/turn";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
 import { providerFor } from "../fake-dictionary";
+import { changeLog, hint, settle, stubEventSource } from "./fake-change-log";
+
+beforeEach(stubEventSource);
 
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 const createdAt = new Date("2026-10-17T09:00:00.000Z");
@@ -30,35 +34,46 @@ const said = (id: string, role: BotMessage["role"], text: string): BotMessage =>
 });
 
 /**
- * A stand-in for the server's `bot` router: `bot.get` answers with `messages` and the latest Turn's
- * status, and each `bot.send` streams the events the test pushes, until it ends or drops the stream.
+ * A stand-in for the server's `bot` router: `bot.get` answers with `messages`, the Turn statuses and
+ * the change log's cursor, `bot.changes` with the log, and `bot.send` saves the user's Message and
+ * starts a Turn, as the server does. The test moves the Turn on with `emit` and `endTurn`, and the
+ * `changed` hint says so, as the `/events` route does.
  */
 function fakeBotServer(messages: BotMessage[] = []) {
-  // Events pushed before the send's request arrives wait here for it.
-  const queue: (BotSendEvent | "end" | "drop")[] = [];
-  let wake = () => {};
+  const log = changeLog();
   let turnStatus: TurnStatus | "running" | null = null;
   // The status of the Turn that took the user's last Message.
   let userTurnStatus: TurnStatus | "running" | null = null;
   // Whether a Routine's Turn runs after the user's, so the user's ending leaves the latest running.
   let otherTurn = false;
-  const push = (event: BotSendEvent | "end" | "drop") => {
-    queue.push(event);
-    wake();
-  };
+  let tick = 0;
   const sends: unknown[] = [];
   const stops: unknown[] = [];
-  // The error the next send is refused with, before its stream starts.
+  // The error the next send is refused with, before the Message is saved.
   let refusal: Error | undefined;
   // While set, each `bot.get` reads the Messages at once but answers only once it resolves.
   let held: Promise<void> | undefined;
+  const turnChange = (id: string, status: TurnStatus | "running") =>
+    log.record("turn", id, { id, status, startedAt: createdAt, endedAt: null });
+  const save = (message: BotMessage) => {
+    messages.push(message);
+    log.record("message", message.id, message);
+  };
   const router = {
     bot: {
       get: os.handler(async () => {
-        const read = { bot: { ...ada, turnStatus, userTurnStatus }, messages: [...messages] };
+        const read = {
+          bot: { ...ada, turnStatus, userTurnStatus },
+          conversationId: "c1",
+          messages: [...messages],
+          lastSeq: log.last,
+        };
         await held;
         return read;
       }),
+      changes: os
+        .input(z.object({ botId: z.string(), since: z.number() }))
+        .handler(({ input }) => log.since(input.since)),
       stop: os.input(z.object({ botId: z.string() })).handler(({ input }) => {
         stops.push(input);
       }),
@@ -71,28 +86,23 @@ function fakeBotServer(messages: BotMessage[] = []) {
             timeZone: z.string().optional(),
           }),
         )
-        .output(eventIterator(z.custom<BotSendEvent>()))
-        .handler(async function* ({ input }) {
+        .handler(({ input }) => {
           sends.push(input);
           if (refusal) {
             const refused = refusal;
             refusal = undefined;
             throw refused;
           }
-          while (true) {
-            if (queue.length === 0) await new Promise<void>((resolve) => (wake = resolve));
-            const next = queue.shift()!;
-            if (next === "end") return;
-            if (next === "drop") throw new Error("The connection dropped");
-            // The server saves what the Turn streams, so a later bot.get reads it too.
-            if (next.type === "message" && !messages.some((saved) => saved.id === next.message.id))
-              messages.push(next.message);
-            if (next.type === "turnEnded") {
-              userTurnStatus = next.status;
-              if (!otherTurn) turnStatus = next.status;
-            }
-            yield next;
-          }
+          const saved = {
+            id: input.id,
+            role: "user" as const,
+            text: input.text,
+            createdAt: new Date(createdAt.getTime() + ++tick * 1000),
+          };
+          save(saved);
+          turnStatus = userTurnStatus = "running";
+          turnChange(`t${tick}`, "running");
+          return saved;
         }),
     },
   };
@@ -115,23 +125,25 @@ function fakeBotServer(messages: BotMessage[] = []) {
   };
   return {
     fetch,
+    log,
     sends,
     /** The bodies of the requests `dropNext` failed. */
     dropped,
     /** When each of those requests was made, in ms. */
     droppedAt,
     stops,
-    /** What `bot.get` says of the latest Turn from now on, as the server's Turn moves on. */
+    /** What `bot.get` says of the latest Turn from now on, as a Turn run elsewhere moves on. */
     setTurnStatus: (status: TurnStatus | "running" | null) => {
       turnStatus = status;
       userTurnStatus = status;
     },
-    /** What `bot.get` says of the Turn that took the user's last Message, when another Turn ran since. */
     /** Starts a Routine's Turn on the server, after the user's: the latest Turn now runs. */
     startOtherTurn: () => {
       otherTurn = true;
       turnStatus = "running";
+      turnChange("t-other", "running");
     },
+    /** What `bot.get` says of the Turn that took the user's last Message, when another Turn ran since. */
     setUserTurnStatus: (status: TurnStatus | "running" | null) => {
       userTurnStatus = status;
     },
@@ -152,12 +164,26 @@ function fakeBotServer(messages: BotMessage[] = []) {
         release();
       };
     },
-    /** Streams `events` to the open send, then lets the client read them. */
-    stream: async (...events: (BotSendEvent | "end" | "drop")[]) => {
-      await act(async () => {
-        for (const event of events) push(event);
-        await new Promise((resolve) => setTimeout(resolve, 20));
-      });
+    /** The Bot sends Messages; the hint reaches the page, which reads them. */
+    emit: async (...sent: [id: string, role: BotMessage["role"], text: string][]) => {
+      for (const [id, role, text] of sent) {
+        save({ ...said(id, role, text), createdAt: new Date(createdAt.getTime() + ++tick * 1000) });
+      }
+      await hint();
+    },
+    /** The Turn ends; the hint reaches the page. */
+    endTurn: async (status: TurnStatus) => {
+      userTurnStatus = status;
+      if (!otherTurn) turnStatus = status;
+      turnChange("t-end", status);
+      await hint();
+    },
+    /** Another tab sends a Message and its Turn starts; the hint reaches this page. */
+    sendElsewhere: async (id: string, text: string) => {
+      save({ ...said(id, "user", text), createdAt: new Date(createdAt.getTime() + ++tick * 1000) });
+      turnStatus = userTurnStatus = "running";
+      turnChange("t-elsewhere", "running");
+      await hint();
     },
   };
 }
@@ -213,9 +239,10 @@ describe("talking to a Bot", () => {
         },
       ]),
     );
-    await server.stream({ type: "message", message: said("m1", "user", "hello") });
+    await settle();
     expect(bubbles(container)).toEqual([["user", "hello"]]);
-    expect(container.querySelector("[data-bot-message][data-id=m1]")).toBeTruthy();
+    const { id } = server.sends[0] as { id: string };
+    expect(container.querySelector(`[data-bot-message][data-id="${id}"]`)).toBeTruthy();
   });
 
   it("sends the browser's IANA time zone with each Message", async () => {
@@ -241,13 +268,9 @@ describe("talking to a Bot", () => {
     await screen.findByText("earlier");
 
     await type("hi");
-    await server.stream(
-      { type: "message", message: said("m1", "user", "hi") },
-      { type: "message", message: said("m2", "assistant", "On it…") },
-      { type: "message", message: said("m3", "assistant", "Done.") },
-      { type: "turnEnded", status: "complete" },
-      "end",
-    );
+    await waitFor(() => expect(server.sends).toHaveLength(1));
+    await server.emit(["m2", "assistant", "On it…"], ["m3", "assistant", "Done."]);
+    await server.endTurn("complete");
 
     expect(bubbles(container)).toEqual([
       ["user", "earlier"],
@@ -256,7 +279,7 @@ describe("talking to a Bot", () => {
       ["assistant", "Done."],
     ]);
     const sides = [...container.querySelectorAll<HTMLElement>("[data-bot-message]")].map(
-      (bubble) => (bubble.className.includes("self-end") ? "right" : "left"),
+      (bubble) => (bubble.parentElement!.className.includes("self-end") ? "right" : "left"),
     );
     expect(sides).toEqual(["right", "right", "left", "left"]);
   });
@@ -270,11 +293,8 @@ describe("talking to a Bot", () => {
     await type("hi");
     expect(screen.getByRole("status", { name: "Typing" }).textContent).toContain("•••");
 
-    await server.stream(
-      { type: "message", message: said("m1", "user", "hi") },
-      { type: "turnEnded", status: "complete" },
-      "end",
-    );
+    await settle();
+    await server.endTurn("complete");
     expect(screen.queryByRole("status", { name: "Typing" })).toBeNull();
   });
 
@@ -283,22 +303,20 @@ describe("talking to a Bot", () => {
     const { container } = mount(server);
 
     await type("ok");
-    await server.stream({ type: "message", message: said("m1", "user", "ok") });
+    await settle();
     expect(screen.queryByText("Seen ✓")).toBeNull();
-    await server.stream({ type: "turnEnded", status: "complete" }, "end");
+    await server.endTurn("complete");
     expect(screen.getAllByText("Seen ✓")).toHaveLength(1);
 
     await type("brb");
-    await server.stream(
-      { type: "message", message: said("m2", "user", "brb") },
-      { type: "turnEnded", status: "complete" },
-      "end",
-    );
+    await settle();
+    await server.endTurn("complete");
 
     const seen = screen.getAllByText("Seen ✓");
     expect(seen).toHaveLength(1);
     // It sits right after the last user Message.
-    const last = container.querySelector("[data-bot-message][data-id=m2]")!;
+    const { id } = server.sends[1] as { id: string };
+    const last = container.querySelector(`[data-bot-message][data-id="${id}"]`)!;
     expect(last.compareDocumentPosition(seen[0]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
@@ -307,12 +325,9 @@ describe("talking to a Bot", () => {
     mount(server);
 
     await type("hi");
-    await server.stream(
-      { type: "message", message: said("m1", "user", "hi") },
-      { type: "message", message: said("m2", "assistant", "Hello!") },
-      { type: "turnEnded", status: "complete" },
-      "end",
-    );
+    await waitFor(() => expect(server.sends).toHaveLength(1));
+    await server.emit(["m2", "assistant", "Hello!"]);
+    await server.endTurn("complete");
 
     expect(screen.getByText("Hello!")).toBeTruthy();
     expect(screen.queryByText("Seen ✓")).toBeNull();
@@ -320,7 +335,7 @@ describe("talking to a Bot", () => {
 });
 
 describe("a refetch during a send", () => {
-  it("doesn't drop the streamed Messages when a bot.get that started before the send answers after them", async () => {
+  it("doesn't drop the synced Messages when a bot.get that started before the send answers after them", async () => {
     const server = fakeBotServer([said("m0", "user", "earlier")]);
     let queryClient: QueryClient | undefined;
     const { container } = mount(server, (client) => (queryClient = client));
@@ -332,10 +347,8 @@ describe("a refetch during a send", () => {
       void queryClient!.refetchQueries();
     });
     await type("hi");
-    await server.stream(
-      { type: "message", message: said("m1", "user", "hi") },
-      { type: "message", message: said("m2", "assistant", "Hello!") },
-    );
+    await waitFor(() => expect(server.sends).toHaveLength(1));
+    await server.emit(["m2", "assistant", "Hello!"]);
     await act(async () => {
       release();
       await new Promise((resolve) => setTimeout(resolve, 20));
@@ -354,7 +367,7 @@ describe("sending while the Bot works", () => {
     const server = fakeBotServer();
     const { container } = mount(server);
     await type("hi");
-    await server.stream({ type: "message", message: said("m1", "user", "hi") });
+    await settle();
     expect(screen.getByRole("status", { name: "Typing" })).toBeTruthy();
 
     await type("and one more thing");
@@ -396,11 +409,7 @@ describe("a send that fails on the network", () => {
 
     await type("first");
     await waitFor(() => expect(server.sends).toHaveLength(1));
-    await server.stream(
-      { type: "message", message: said("m1", "user", "first") },
-      { type: "turnEnded", status: "complete" },
-      "end",
-    );
+    await server.endTurn("complete");
     await type("second");
     await waitFor(() => expect(server.sends).toHaveLength(2));
 
@@ -444,11 +453,8 @@ describe("a send that fails on the network", () => {
     for (const body of server.dropped) expect(body).toContain(id);
 
     // Once it is saved, the same text again is a new Message.
-    await server.stream(
-      { type: "message", message: said("m1", "user", "hello?") },
-      { type: "turnEnded", status: "complete" },
-      "end",
-    );
+    await settle();
+    await server.endTurn("complete");
     await type("hello?");
     await waitFor(() => expect(server.sends).toHaveLength(2));
     expect((server.sends as { id: string }[])[1]!.id).not.toBe(id);
@@ -480,15 +486,13 @@ describe("a Turn that didn't reply", () => {
     const { container } = mount(server);
 
     await type("hi");
-    await server.stream(
-      { type: "message", message: said("m1", "user", "hi") },
-      { type: "turnEnded", status: "error" },
-      "end",
-    );
+    await settle();
+    await server.endTurn("error");
 
     const failed = screen.getByText("Couldn't reply");
     expect(failed.className).toContain("text-muted-foreground");
-    const sent = container.querySelector("[data-bot-message][data-id=m1]")!;
+    const { id } = server.sends[0] as { id: string };
+    const sent = container.querySelector(`[data-bot-message][data-id="${id}"]`)!;
     expect(sent.compareDocumentPosition(failed) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.queryByText("Seen ✓")).toBeNull();
     expect(screen.queryByRole("button", { name: /retry|try again/i })).toBeNull();
@@ -499,11 +503,8 @@ describe("a Turn that didn't reply", () => {
     mount(server);
 
     await type("hi");
-    await server.stream(
-      { type: "message", message: said("m1", "user", "hi") },
-      { type: "turnEnded", status: "stopped" },
-      "end",
-    );
+    await settle();
+    await server.endTurn("stopped");
 
     expect(screen.queryByText("Couldn't reply")).toBeNull();
     expect(screen.queryByText("Seen ✓")).toBeNull();
@@ -540,10 +541,10 @@ describe("a Turn that starts as the user's ends", () => {
     mount(server);
 
     await type("hi");
-    await server.stream({ type: "message", message: said("m1", "user", "hi") });
+    await settle();
     // A Routine's fire started the next Turn while the user's was ending.
     server.startOtherTurn();
-    await server.stream({ type: "turnEnded", status: "complete" }, "end");
+    await server.endTurn("complete");
 
     expect(await screen.findByRole("status", { name: "Typing" })).toBeTruthy();
   });
@@ -569,40 +570,38 @@ describe("stopping a Turn", () => {
     await type("hi");
     expect(screen.getByRole("button", { name: "■ Stop" })).toBeTruthy();
 
-    await server.stream(
-      { type: "message", message: said("m1", "user", "hi") },
-      { type: "turnEnded", status: "stopped" },
-      "end",
-    );
+    await settle();
+    await server.endTurn("stopped");
     expect(screen.queryByRole("button", { name: "■ Stop" })).toBeNull();
   });
 });
 
-describe("a send whose stream drops", () => {
-  it("follows the Turn by polling bot.get every 2 s while it runs, until it ends", async () => {
-    const messages: BotMessage[] = [];
-    const server = fakeBotServer(messages);
+describe("a Turn another tab started", () => {
+  it("shows its Messages and its end from the change log, with no send and no polling", async () => {
+    const server = fakeBotServer([said("m0", "user", "earlier")]);
     const { container } = mount(server);
-    await screen.findByRole("textbox", { name: "Message" });
+    await screen.findByText("earlier");
+    const before = server.log.calls.length;
 
-    await type("hi");
-    // The server saved the Message and runs the Turn off the request, so it goes on without the tab.
-    messages.push(said("m1", "user", "hi"));
-    server.setTurnStatus("running");
-    await server.stream({ type: "message", message: said("m1", "user", "hi") }, "drop");
+    await server.sendElsewhere("m1", "from the other tab");
+    expect(bubbles(container)).toEqual([
+      ["user", "earlier"],
+      ["user", "from the other tab"],
+    ]);
     expect(screen.getByRole("status", { name: "Typing" })).toBeTruthy();
 
-    // The Turn sends a Message and ends while the tab isn't streaming.
-    messages.push(said("m2", "assistant", "Hello!"));
-    server.setTurnStatus("complete");
-    await waitFor(() => expect(screen.getByText("Hello!")).toBeTruthy(), { timeout: 4_000 });
+    await server.emit(["m2", "assistant", "Hello!"]);
+    await server.endTurn("complete");
 
     expect(bubbles(container)).toEqual([
-      ["user", "hi"],
+      ["user", "earlier"],
+      ["user", "from the other tab"],
       ["assistant", "Hello!"],
     ]);
     expect(screen.queryByRole("status", { name: "Typing" })).toBeNull();
-    // A dropped stream isn't a refusal: the composer stays empty.
-    expect(screen.getByRole<HTMLTextAreaElement>("textbox", { name: "Message" }).value).toBe("");
+    // One fetch per hint, and nothing else.
+    expect(server.log.calls.length - before).toBeLessThanOrEqual(3);
+    // The cursor moved on with each change.
+    expect(server.log.calls.at(-1)).toBeGreaterThan(server.log.calls[0]!);
   });
 });

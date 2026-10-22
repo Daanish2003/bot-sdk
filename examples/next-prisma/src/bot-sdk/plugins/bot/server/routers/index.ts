@@ -1,6 +1,6 @@
-import { eventIterator } from "@orpc/server";
 import { z } from "zod";
 
+import { lastSeqOf } from "../../../../core/server/chat/change-log";
 import { protectedProcedure } from "../../../../core/server/procedures";
 import { rpcError } from "../../../../core/server/rpc-error";
 import {
@@ -11,7 +11,7 @@ import {
   listBots,
   userTurnStatus,
 } from "../store";
-import { botSendEventSchema } from "../../shared/turn";
+import { botMessageSchema } from "../../shared/turn";
 import { turnProvenance } from "../provenance";
 import {
   approveRoutine,
@@ -22,6 +22,11 @@ import {
   resumeRoutine,
   rotateWebhook,
 } from "../routine";
+import { botChanges } from "../changes";
+import { answerChoice } from "../choice";
+import { reactToMessage } from "../reaction";
+import { emojiSchema } from "../../shared/reaction";
+import { maxChoiceOptionLength, maxChoiceOtherLength } from "../../shared/choice";
 import { cancelCheckIn, listCheckIns } from "../check-in";
 import { listHelpers } from "../helper-card";
 import { decideReview, listReviews } from "../review";
@@ -71,8 +76,8 @@ const botRouter = {
 
   /**
    * One of the caller's Bots with its latest Turn's status and the status of the Turn that took the
-   * user's last Message, its Conversation's id and Messages, its Turns' provenance, its Summaries and its cache warmings;
-   * another user's is not found.
+   * user's last Message, its Conversation's id and Messages, its Turns' provenance, its Summaries and its cache warmings,
+   * and `lastSeq`, the cursor to follow its thread with `changes` from; another user's is not found.
    */
   get: protectedProcedure
     .input(z.object({ botId: z.uuid() }))
@@ -80,6 +85,8 @@ const botRouter = {
       const found = await findBot(context.sdk.db, context.user.id, input.botId);
       if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
       const { conversationId, ...bot } = found;
+      // Read before the thread, so no change committed meanwhile falls behind the cursor.
+      const lastSeq = await lastSeqOf(context.sdk.db, conversationId);
       const [messages, turnStatus] = await Promise.all([
         botMessages(context.sdk.db, conversationId),
         latestTurnStatus(context.sdk.db, bot.id),
@@ -98,15 +105,29 @@ const botRouter = {
         turns,
         summaries,
         warmings,
+        lastSeq,
       };
     }),
 
   /**
-   * Sends the caller's Message to their Bot and follows the Turn that takes it, which runs as a
-   * runner job: the saved user Message, each Message sent after it, then `turnEnded`. A send while
-   * a Turn runs waits in the Conversation queue for the next Turn. `id` is the client's uuidv7 for
-   * the Message: a resend with the same `id` saves nothing new and re-joins the same Turn's stream. A disconnect ends only the
-   * follow, never the Turn.
+   * The changes to the caller's Bot's thread after seq `since` (ADR 0026), oldest first, each
+   * with what it points at as it is now (`data`, null once that is gone): a Message appended or
+   * changed, a Turn's status, a Secret saved, a Routine, review, Helper or Check-in changed. A
+   * cursor the change log no longer holds, or one past its newest change, gets `reload`: read the
+   * thread afresh with `get`. Another user's Bot is not found.
+   */
+  changes: protectedProcedure
+    .input(z.object({ botId: z.uuid(), since: z.number().int().min(0) }))
+    .handler(({ context, input }) =>
+      botChanges(context.sdk, context.user.id, input.botId, input.since),
+    ),
+
+  /**
+   * Sends the caller's Message to their Bot and returns the saved user Message. The Turn that takes
+   * it runs as a runner job; every tab, this one too, follows it through `changes` (ADR 0026). A
+   * send while a Turn runs waits in the Conversation queue for the next Turn. `id` is the client's
+   * uuidv7 for the Message: a resend with the same `id` saves nothing new and returns the Message
+   * saved first.
    */
   send: protectedProcedure
     .input(
@@ -119,10 +140,8 @@ const botRouter = {
         timeZone: z.string().refine(isTimeZone, "Not an IANA time zone").optional(),
       }),
     )
-    .output(eventIterator(botSendEventSchema))
-    .handler(({ context, input, signal }) =>
-      sendToBot(context.sdk, { userId: context.user.id, ...input, signal }),
-    ),
+    .output(botMessageSchema)
+    .handler(({ context, input }) => sendToBot(context.sdk, { userId: context.user.id, ...input })),
 
   /**
    * Stops the caller's Bot's running Turn: a queued one ends `stopped` at once, a running one as
@@ -141,6 +160,38 @@ const botRouter = {
   warm: protectedProcedure
     .input(z.object({ botId: z.uuid() }))
     .handler(({ context, input }) => warmBot(context.sdk, context.user.id, input.botId)),
+
+  /**
+   * Answers the choice a Bot asked in Message `messageId` (spec #761): an `option` or the free text
+   * of `other`. It wakes the Bot with one Trigger, even if the Bot has moved on. The first answer
+   * wins; a later one is refused as answered. Another user's Bot is not found.
+   */
+  choose: protectedProcedure
+    .input(
+      z.object({
+        botId: z.uuid(),
+        messageId: z.uuid(),
+        answer: z.union([
+          z.object({ option: z.string().max(maxChoiceOptionLength) }),
+          z.object({ other: z.string().max(maxChoiceOtherLength) }),
+        ]),
+      }),
+    )
+    .handler(({ context, input }) =>
+      answerChoice(context.sdk, context.user.id, {
+        botId: input.botId,
+        messageId: input.messageId,
+        answer: input.answer,
+      }),
+    ),
+
+  /**
+   * Puts the user's emoji on a Bot reply, replacing their earlier one, or takes it off with a null
+   * `emoji` (spec #761). A state change only: it wakes no Turn. Another user's Bot is not found.
+   */
+  react: protectedProcedure
+    .input(z.object({ botId: z.uuid(), messageId: z.uuid(), emoji: emojiSchema.nullable() }))
+    .handler(({ context, input }) => reactToMessage(context.sdk, context.user.id, input)),
 
   /** The Routines of the caller's Bots (#538). Approving or declining one never wakes the Bot. */
   routine: {
@@ -164,7 +215,7 @@ const botRouter = {
     decline: protectedProcedure
       .input(z.object({ routineId: z.uuid() }))
       .handler(({ context, input }) =>
-        declineRoutine(context.sdk.db, context.user.id, input.routineId),
+        declineRoutine(context.sdk, context.user.id, input.routineId),
       ),
 
     /**
@@ -310,7 +361,7 @@ const botRouter = {
     /** Deletes the caller's Secret `name`. */
     delete: protectedProcedure
       .input(z.object({ name: secretNameSchema }))
-      .handler(({ context, input }) => deleteSecret(context.sdk.db, context.user.id, input.name)),
+      .handler(({ context, input }) => deleteSecret(context.sdk, context.user.id, input.name)),
   },
 
   /**

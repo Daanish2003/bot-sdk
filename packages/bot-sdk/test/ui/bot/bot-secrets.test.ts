@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { eventIterator, os } from "@orpc/server";
+import { os } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createElement } from "react";
@@ -7,8 +7,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import type { BotSecret } from "../../../plugins/bot/shared/secret";
-import type { BotMessage, BotSendEvent } from "../../../plugins/bot/shared/turn";
+import type { BotMessage } from "../../../plugins/bot/shared/turn";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
+import type { RichControlRenderers } from "../../../plugins/bot/ui/rich-control";
 import { providerFor } from "../fake-dictionary";
 
 afterEach(cleanup);
@@ -21,7 +22,7 @@ const asking: BotMessage = {
   role: "assistant",
   text: "I need a token to push.",
   createdAt: at(2),
-  secret: { type: "secret", name: "GITHUB_TOKEN", why: "To push to your repository." },
+  control: { kind: "secret", name: "GITHUB_TOKEN", why: "To push to your repository." },
 };
 const messages: BotMessage[] = [
   { id: "m1", role: "user", text: "push my changes", createdAt: at(1) },
@@ -44,13 +45,10 @@ function fakeBotServer(secrets: BotSecret[], { refuseSave = false } = {}) {
         warmings: [],
       })),
       stop: os.handler(() => {}),
-      send: os
-        .input(z.object({ botId: z.string() }).loose())
-        .output(eventIterator(z.custom<BotSendEvent>()))
-        .handler(({ input }) => {
-          sent.push(input);
-          return (async function* (): AsyncGenerator<BotSendEvent> {})();
-        }),
+      send: os.input(z.object({ botId: z.string() }).loose()).handler(({ input }) => {
+        sent.push(input);
+        return { id: "m-sent", role: "user" as const, text: "", createdAt: new Date() };
+      }),
       warm: os.handler(() => ({ warmed: false as const, skipped: "still_warm" as const })),
       routine: { list: os.handler(() => []) },
       checkIn: { list: os.handler(() => []) },
@@ -91,9 +89,9 @@ function fakeBotServer(secrets: BotSecret[], { refuseSave = false } = {}) {
   };
 }
 
-function mount(server: ReturnType<typeof fakeBotServer>) {
+function mount(server: ReturnType<typeof fakeBotServer>, controls?: RichControlRenderers) {
   return render(
-    providerFor(createElement(BotConversation, { botId: "b1" }), {
+    providerFor(createElement(BotConversation, { botId: "b1", controls }), {
       fetch: server.fetch,
       messages: {},
     }),
@@ -145,6 +143,18 @@ describe("the Secret card", () => {
 
     expect(await screen.findByText("Saved secret GITHUB_TOKEN")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Save secret" })).toBeNull();
+  });
+});
+
+describe("a Host renderer for the secret kind", () => {
+  it("replaces the default Secret card", async () => {
+    mount(fakeBotServer([]), {
+      secret: ({ request }) => createElement("p", null, `Host asks for ${request.name}`),
+    });
+
+    expect(await screen.findByText("Host asks for GITHUB_TOKEN")).toBeTruthy();
+    expect(screen.queryByRole("group", { name: "Ada asks for GITHUB_TOKEN" })).toBeNull();
+    expect(screen.queryByLabelText("Secret value")).toBeNull();
   });
 });
 

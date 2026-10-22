@@ -82,6 +82,22 @@ services:
       retries: 5
     restart: unless-stopped
 
+  # Local mail for the email Channel (spec #761): SMTP on 1025, the UI and REST API on 8025. Mailpit
+  # gives no SPF/DKIM/DMARC verdict, so only run it where nothing else can reach it.
+  mailpit:
+    image: axllent/mailpit:v1.31
+    container_name: ai-chat-mailpit
+    # Lets the container reach the Host on Linux too (Docker Desktop has the name already).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      # Each received mail is POSTed to the Host, which fetches it from the REST API.
+      MP_WEBHOOK_URL: ${MAILPIT_WEBHOOK_URL:-http://host.docker.internal:3001/api/channels/email}
+    ports:
+      - "${MAILPIT_SMTP_PORT:-1025}:1025"
+      - "${MAILPIT_PORT:-8025}:8025"
+    restart: unless-stopped
+
   # S3-compatible file storage (ADR 0015), for apps/web's S3_* variables and the S3 store's tests.
   rustfs:
     image: rustfs/rustfs:1.0.1

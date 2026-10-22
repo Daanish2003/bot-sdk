@@ -199,6 +199,8 @@ export type LoopOptions = {
    * next one, in an `inbox` activity: a replay reads the recorded turns (a Helper's, #566).
    */
   inbox?: (tx: Transaction) => Promise<string[]>;
+  /** Runs after each `inbox` activity, once its Checkpoint has committed (and on its replay). */
+  afterInbox?: () => Promise<void>;
   /**
    * Where the loop's reviewed calls come from (a Turn's or a Helper's): each `shell` call, and each
    * `computerCall` given its input to review, gets Auto-review before it runs. With none, nothing
@@ -888,6 +890,7 @@ export async function runLoop(
               try {
                 if (inbox) {
                   const arrived = await ctx.activity("inbox", inbox);
+                  await options.afterInbox?.();
                   added.push(...arrived.map((content) => ({ role: "user" as const, content })));
                 }
                 const all = [...(config.providerMessages ?? config.messages), ...added];

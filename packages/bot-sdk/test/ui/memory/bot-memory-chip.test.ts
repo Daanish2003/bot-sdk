@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import type { QueryClient } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -11,7 +11,7 @@ import type { BotMessage, BotTurnProvenance } from "../../../plugins/bot/shared/
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
 import { memoryClient } from "../../../plugins/memory/client/index";
 import type { BotMemoryChange } from "../../../plugins/memory/shared/changes";
-import { BotMemoryChip, BotMemoryLive } from "../../../plugins/memory/ui/bot-memory-chip";
+import { BotMemoryChip } from "../../../plugins/memory/ui/bot-memory-chip";
 import { modelsClient } from "../../../plugins/models/client/index";
 import { providerFor } from "../fake-dictionary";
 
@@ -110,6 +110,7 @@ const seedGet = (queryClient: QueryClient, client: BotSdkClient, turns: BotTurnP
     turns,
     summaries: [],
     warmings: [],
+    lastSeq: 0,
   });
 
 describe("the Memory updated chip on a Bot's Turn", () => {
@@ -134,64 +135,6 @@ describe("the Memory updated chip on a Bot's Turn", () => {
     const chips = screen.getAllByRole("button", { name: /Memory updated/ });
     expect(chips).toHaveLength(1);
     const reply = document.querySelector('[data-id="m2"]')!;
-    expect(reply.nextElementSibling?.contains(chips[0]!)).toBe(true);
-  });
-});
-
-class FakeEventSource {
-  static all: FakeEventSource[] = [];
-  onmessage: ((event: MessageEvent<string>) => void) | null = null;
-  closed = false;
-  constructor(readonly url: string) {
-    FakeEventSource.all.push(this);
-  }
-  close() {
-    this.closed = true;
-  }
-}
-
-describe("BotMemoryLive", () => {
-  it("refetches the Conversation when the pass announces its changes, and stops with the view", async () => {
-    FakeEventSource.all = [];
-    vi.stubGlobal("EventSource", FakeEventSource);
-    const { fetch, urls } = recordingFetch();
-    const { unmount } = render(
-      providerFor(createElement(BotMemoryLive, { botId: "b2" }), {
-        messages: {},
-        plugins,
-        fetch,
-        seed: (queryClient, client) => seedGet(queryClient, client, [turn("t1", 0, null)]),
-      }),
-    );
-
-    await waitFor(() => expect(FakeEventSource.all).toHaveLength(1));
-    expect(FakeEventSource.all[0]!.url).toBe("http://localhost/api/chat/events?conversationId=c1");
-    const getCalls = () => urls.filter((url) => url.includes("bot/get")).length;
-    const before = getCalls();
-    FakeEventSource.all[0]!.onmessage?.(
-      new MessageEvent("message", {
-        data: JSON.stringify({ type: "bot_memory_updated", turnId: "t1", changes }),
-      }),
-    );
-    await waitFor(() => expect(getCalls()).toBe(before + 1));
-
-    unmount();
-    expect(FakeEventSource.all[0]!.closed).toBe(true);
-  });
-
-  it("listens on the core's events URL in a Host without the assistant", async () => {
-    FakeEventSource.all = [];
-    vi.stubGlobal("EventSource", FakeEventSource);
-    render(
-      providerFor(createElement(BotMemoryLive, { botId: "b2" }), {
-        messages: {},
-        plugins: [modelsClient(), memoryClient(), botClient()],
-        fetch: recordingFetch().fetch,
-        seed: (queryClient, client) => seedGet(queryClient, client, [turn("t1", 0, null)]),
-      }),
-    );
-
-    await waitFor(() => expect(FakeEventSource.all).toHaveLength(1));
-    expect(FakeEventSource.all[0]!.url).toBe("http://localhost/api/chat/events?conversationId=c1");
+    expect(reply.parentElement!.nextElementSibling?.contains(chips[0]!)).toBe(true);
   });
 });

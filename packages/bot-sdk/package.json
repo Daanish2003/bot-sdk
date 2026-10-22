@@ -25,7 +25,12 @@
     "./plugins/knowledge/ui": "./plugins/knowledge/ui/index.ts",
     "./plugins/skills/client": "./plugins/skills/client/index.ts",
     "./plugins/skills/ui": "./plugins/skills/ui/index.ts",
-    "./plugins/skills/server": "./plugins/skills/server/index.ts"
+    "./plugins/skills/server": "./plugins/skills/server/index.ts",
+    "./plugins/channel/server": "./plugins/channel/server/index.ts",
+    "./plugins/channel/client": "./plugins/channel/client/index.ts",
+    "./plugins/channel/ui": "./plugins/channel/ui/index.ts",
+    "./plugins/channel/fake": "./plugins/channel/fake/index.ts",
+    "./plugins/channel/mailpit": "./plugins/channel/mailpit/index.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",
@@ -40,6 +45,7 @@
     "eval:computer:lifecycle": "node --import ./eval/memory/register-ts.mjs eval/computer/lifecycle.ts",
     "eval:skills": "node --import ./eval/memory/register-ts.mjs eval/skills/run.ts",
     "eval:knowledge": "node --import ./eval/memory/register-ts.mjs eval/knowledge/run.ts",
+    "eval:channels": "node --import ./eval/memory/register-ts.mjs eval/channels/run.ts",
     "eval:skills:draft": "node --import ./eval/memory/register-ts.mjs eval/skills/draft-run.ts",
     "eval:skills:record": "node --import ./eval/memory/register-ts.mjs eval/skills/record-fixtures.ts",
     "db:generate": "drizzle-kit generate",
@@ -77,6 +83,7 @@
     "csv-parse": "7.0.2",
     "drizzle-orm": "catalog:",
     "e2b": "2.55.0",
+    "email-reply-parser": "2.3.9",
     "html-to-text": "10.0.1",
     "htmlparser2": "10.1.0",
     "ipaddr.js": "2.5.0",

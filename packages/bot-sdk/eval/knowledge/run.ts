@@ -1,3 +1,4 @@
+import { sendAndFollow } from "../../test/support/follow-send";
 // The Knowledge eval (spec #737, ticket #744): real Turns on a real Model, through the real `bot` and
 // `knowledge` plugins, on the local E2B Computer seeded with a fixture Knowledge. It scores whether a
 // Bot finds and reads what the user kept, cites it, says when it isn't there, saves what it is asked
@@ -20,7 +21,7 @@ import { botTrigger, computer as computerTable } from "../../core/server/db/sche
 import { uuidv7 } from "../../core/server/lib/uuidv7";
 import { bot } from "../../plugins/bot/server/plugin";
 import { computerOf } from "../../plugins/bot/server/computer-tools";
-import { sendToBot, sendToUserToolName } from "../../plugins/bot/server/turn";
+import { sendToUserToolName } from "../../plugins/bot/server/turn";
 import { walk } from "../../plugins/knowledge/server/files";
 import { knowledge } from "../../plugins/knowledge/server/plugin";
 import { knowledgeDirectory } from "../../plugins/knowledge/shared/folder";
@@ -196,7 +197,7 @@ async function main() {
       }
 
       const id = uuidv7();
-      for await (const _ of await sendToBot(sdk, {
+      for await (const _ of await sendAndFollow(sdk, {
         userId,
         botId: made.id,
         id,

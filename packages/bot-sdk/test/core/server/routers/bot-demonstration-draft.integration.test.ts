@@ -29,6 +29,7 @@ import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
 import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
+import { followSend } from "../../../support/follow-send";
 
 const model = "openai:gpt-5.6";
 const hostModel = "anthropic:claude-sonnet-5-5";
@@ -150,7 +151,7 @@ async function demonstrating({
       await jobs.runClaimed(claimed);
     }
   };
-  const stream = await client.bot.send({ botId, id: uuidv7(), text: "let me show you" });
+  const stream = await followSend(client, { botId, id: uuidv7(), text: "let me show you" });
   await stream.next();
   await stream.return(undefined);
   timer.advance(500);
@@ -247,9 +248,11 @@ const triggerOf = async (demonstrationId: string) =>
       .where(eq(botTrigger.id, `demonstration:${demonstrationId}`))
   )[0];
 
-const cardOf = async (client: ReturnType<typeof chatRpc>, botId: string) =>
-  (await client.bot.get({ botId })).messages.find((message) => message.demonstration)
-    ?.demonstration;
+const cardOf = async (client: ReturnType<typeof chatRpc>, botId: string) => {
+  for (const { control } of (await client.bot.get({ botId })).messages)
+    if (control?.kind === "demonstration") return control;
+  return undefined;
+};
 
 const textOf = (messages: readonly ModelMessage[]) =>
   messages

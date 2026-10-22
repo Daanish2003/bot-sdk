@@ -104,6 +104,10 @@ The root `ui/` needs nothing beyond `core/`'s packages.
 
 - `e2b` (pinned at 2.55.0), the E2B JS SDK. Only `plugins/computer/e2b` imports it, so a Host that does not use that subpath can leave it out.
 
+**What the `channel` plugin needs (on top of `core/`):**
+
+- `email-reply-parser` (pinned at 2.3.9), which strips the quoted history from an inbound email so the Bot reads only the new text.
+
 `core/` imports only npm packages and its own files, so a Host outside this repo can copy and compile it. `examples/next-prisma` is a Host outside this repo that runs it.
 
 ## shadcn components
@@ -325,6 +329,42 @@ With the three variables set and the template built, two test files run the adap
 ```sh
 pnpm exec vitest run --maxWorkers=1 --no-file-parallelism packages/bot-sdk/test/plugins/computer/e2b
 ```
+
+## Email for Bots: `channel`
+
+The `channel` plugin gives each Bot its own email address (spec #761, ADR 0026): the owner's mail to it wakes the Bot like a web Message, and the Bot's replies are emailed back. It requires `models`, `bot` and `runner`, and it is imported from `@ai-chat/bot-sdk/plugins/channel/server` (and `/client`, `/ui` for the Bot header's Email popover). Leave it out and Bots have no address.
+
+```ts
+import { channel, emailChannel } from "@ai-chat/bot-sdk/plugins/channel/server";
+import { mailpitEmailProvider } from "@ai-chat/bot-sdk/plugins/channel/mailpit";
+
+channel({
+  adapters: [
+    emailChannel({
+      provider: mailpitEmailProvider({ apiUrl: "http://localhost:8025" }),
+      domain: "bots.localhost", // the Bots' addresses are name@<domain>
+      appUrl: "http://localhost:3001", // an email's links open <appUrl>/bots/<botId>
+    }),
+  ],
+  // Only mail from the user's verified account email reaches their Bots.
+  verifiedEmail: async (userId) => (await readVerifiedEmail(userId)) ?? null,
+});
+```
+
+The Host mounts `sdk.plugin("channel").inbound("email", request)` at `POST /api/channels/email`, with no sign-in. It answers 202 to any mail the provider can read, whether it woke the Bot or was dropped, and 400 to one it can't, so a sender learns nothing.
+
+A mail is a Trigger only when it is from the user's verified email, is addressed to a Bot's address, carries a DMARC pass, and is not a Bot's own or an automatic reply; the Quota and the Ban apply as for a webhook. The Bot reads the new text only (quoted history is stripped), the subject as a first line unless the mail replies to the Bot's thread, one line naming the attachments (they aren't kept), and anything forwarded in an untrusted fenced block that Auto-review never takes as permission.
+
+A provider is the seam to a mail service (`EmailProvider`: `parseInbound` and `send`). Two ship:
+
+- `plugins/channel/mailpit`: a local Mailpit. Its received-message webhook POSTs to the inbound route, and the provider fetches that mail from Mailpit's REST API, so it refuses a webhook for a message Mailpit doesn't hold. Mailpit gives no SPF, DKIM or DMARC verdict, so the provider vouches for every mail it holds: use it only on a Host that listens on localhost.
+- `plugins/channel/fake`: for tests and evals. An inbound request's body is the mail as JSON, with its own `authentication`, and each sent mail is kept in `sent`. It vouches for whatever it is sent, so never mount it on a route others can reach.
+
+## Keeping a Bot's thread in sync: `bot.changes`
+
+Every change to a Bot's thread (a Message, a Turn starting or ending, a Secret, Routine, review, Helper, Check-in or Summary) is written to the Conversation's change log in the same transaction, with a sequence number (ADR 0026). `bot.get` returns the thread with its newest number as `lastSeq`, the cursor. `bot.changes({ botId, since })` returns the changes after the cursor, oldest first, each with what it points at as it is now, or `{ reload: true }` when the log (the newest 500 per Conversation) no longer holds them all, so the thread must be read afresh with `bot.get`.
+
+The server's only live signal is the data-less `{ "type": "changed" }` hint on the SSE `/events` route; a Bot app never takes data from it. A tab fetches the changes on a hint, when the stream (re)connects, when the window gets focus back and, while a Turn runs, every 30 seconds. `useBotSync` does this for the Bot components; a Host with its own UI calls `bot.changes` the same way and applies the changes in order.
 
 ## Host hooks
 

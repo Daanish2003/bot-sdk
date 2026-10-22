@@ -1,3 +1,4 @@
+import { sendAndFollow } from "../../test/support/follow-send";
 // One run of a step-6 ladder case (spec #587), through the real `bot` plugin with the `computer`
 // plugin on, so the Turn has the Computer system prompt and the Helper tools: a fresh user and Bot,
 // the case's history, then a user Message or a Helper's report as the Trigger.
@@ -8,7 +9,6 @@ import { botTrigger } from "../../core/server/db/schema";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
 import { gistOf } from "../../plugins/bot/server/helper";
 import { lockConversation, receive } from "../../plugins/bot/server/router";
-import { sendToBot } from "../../plugins/bot/server/turn";
 import { saveCredentials } from "../../plugins/models/server/credentials/store";
 import { tavilyService } from "../../plugins/models/shared/credentials/services";
 import { freshBot, seedHistory, type TurnEnv } from "./case";
@@ -72,7 +72,7 @@ export async function runLadderCase(
     let turnId: string;
     if (start.kind === "user") {
       const id = uuidv7();
-      for await (const _ of await sendToBot(env.sdk, {
+      for await (const _ of await sendAndFollow(env.sdk, {
         userId,
         botId: bot.id,
         id,

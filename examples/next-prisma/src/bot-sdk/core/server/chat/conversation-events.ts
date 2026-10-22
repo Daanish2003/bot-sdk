@@ -13,7 +13,7 @@ const heartbeatMs = 25_000;
 
 /**
  * `GET ${basePath}/events?conversationId=…`: the owner's live stream of a Conversation's events
- * (a Bot's Turn hints and its `bot_memory_updated`), as server-sent events, until the page
+ * (a Bot's data-less `changed` hints), as server-sent events, until the page
  * closes it. Never answers a Shared link.
  */
 export async function handleConversationEvents(

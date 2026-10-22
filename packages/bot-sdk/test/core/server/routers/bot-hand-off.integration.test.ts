@@ -2,6 +2,7 @@ import type { AnyTextAdapter, ModelMessage, TextOptions } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { conversationChannel } from "../../../../core/server/chat/conversation-events";
 import { botHelper, botHelperMessage, botTrigger, job } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { askUserToolName, handOffAnswers } from "../../../../plugins/bot/server/hand-off";
@@ -11,6 +12,7 @@ import {
   helperMessagePrefix,
 } from "../../../../plugins/bot/server/helper";
 import { bot } from "../../../../plugins/bot/server/plugin";
+import { findBot } from "../../../../plugins/bot/server/store";
 import { computer } from "../../../../plugins/computer/server/plugin";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
@@ -24,6 +26,7 @@ import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
 import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
+import { followSend } from "../../../support/follow-send";
 
 const model = "openai:gpt-5.6";
 const silent = { error: () => {} };
@@ -88,7 +91,7 @@ async function botWith(turns: Round[], helpers: Round[], { clock }: { clock?: ()
 }
 
 async function send(client: ReturnType<typeof chatRpc>, botId: string, message: string) {
-  for await (const _event of await client.bot.send({ botId, id: uuidv7(), text: message }));
+  for await (const _event of await followSend(client, { botId, id: uuidv7(), text: message }));
 }
 
 const task = "Read the deals on the Salesforce dashboard.";
@@ -121,7 +124,9 @@ const jobOf = async (jobId: string | null) =>
 
 /** The Conversation's Messages that carry a Computer card. */
 const cardsOf = async (client: ReturnType<typeof chatRpc>, botId: string) =>
-  (await client.bot.get({ botId })).messages.filter((message) => message.computer);
+  (await client.bot.get({ botId })).messages.filter(
+    (message) => message.control?.kind === "computer",
+  );
 
 /** The result the model input gives the `ask_user` call, as its tool message's content. */
 const askUserAnswer = (input: ModelMessage[]) => {
@@ -152,7 +157,7 @@ describe("handing the Screen to the user", () => {
       expect.objectContaining({
         role: "assistant",
         text: reason,
-        computer: { type: "computer", helperId: helper.id, reason, state: "open" },
+        control: { kind: "computer", helperId: helper.id, reason, state: "open" },
       }),
     ]);
     // Its transcript is saved, ending with the call it waits on.
@@ -208,9 +213,11 @@ describe("handing the Screen to the user", () => {
       role: "user",
       content: `${helperMessagePrefix}Only open deals.`,
     });
-    expect((await cardsOf(client, botId)).map((message) => message.computer?.state)).toEqual([
-      "done",
-    ]);
+    expect(
+      (await cardsOf(client, botId)).map(
+        (message) => message.control?.kind === "computer" && message.control.state,
+      ),
+    ).toEqual(["done"]);
     // The Steps carry over, and the full transcript is kept.
     expect(await client.bot.helper.list({ botId })).toEqual([
       expect.objectContaining({ status: "complete", steps: 2 }),
@@ -223,6 +230,23 @@ describe("handing the Screen to the user", () => {
     });
   });
 
+  it("hints the Conversation when the user stops a waiting Helper, so other tabs see its card close (#761)", async () => {
+    const { deps, user, client, botId } = await botWith([handsOff, round()], [asksUser]);
+    await send(client, botId, "what deals are on my dashboard?");
+    const waiting = await statusIs(botId, "waiting");
+    const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
+    const events: string[] = [];
+    await deps.pubsub.subscribe(conversationChannel(conversationId), (message) => {
+      events.push(message);
+    });
+
+    await client.bot.helper.stop({ botId, helperId: waiting.id });
+
+    await expect
+      .poll(() => events, { timeout: 10_000 })
+      .toEqual([JSON.stringify({ type: "changed" })]);
+  }, 30_000);
+
   it("refuses Done on a stopped Helper, whose card reads cancelled", async () => {
     const { client, botId } = await botWith([handsOff, round()], [asksUser]);
     await send(client, botId, "what deals are on my dashboard?");
@@ -234,9 +258,11 @@ describe("handing the Screen to the user", () => {
       code: "CONFLICT",
       message: "This task was stopped.",
     });
-    expect((await cardsOf(client, botId)).map((message) => message.computer?.state)).toEqual([
-      "cancelled",
-    ]);
+    expect(
+      (await cardsOf(client, botId)).map(
+        (message) => message.control?.kind === "computer" && message.control.state,
+      ),
+    ).toEqual(["cancelled"]);
     // Its transcript is the one it saved when it began to wait.
     expect((await helpersOf(botId))[0]?.transcript).toEqual(waiting.transcript);
   });
