@@ -45,7 +45,7 @@ export function KnowledgePopover() {
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState("");
   const [inFlight, setInFlight] = useState<InFlight[]>([]);
-  const [replacing, setReplacing] = useState<Replacing | null>(null);
+  const [replaceQueue, setReplaceQueue] = useState<Replacing[]>([]);
   const [naming, setNaming] = useState<string | null>(null);
   const nextId = useRef(0);
   const input = useRef<HTMLInputElement>(null);
@@ -83,21 +83,26 @@ export function KnowledgePopover() {
     }
   }
 
-  function add(files: FileList | File[]) {
-    const known = new Set(list.data?.files.map((file) => file.path));
+  /** Sends the files one after another, so they don't race on the Computer; a name already there waits for its Replace? answer. */
+  async function add(files: FileList | File[]) {
+    if (!list.data) return;
+    const known = new Set(list.data.files.map((file) => file.path));
+    const asking: Replacing[] = [];
     for (const file of files) {
       const path = selected === "" ? file.name : `${selected}/${file.name}`;
-      if (known.has(path)) setReplacing({ file, folder: selected, path });
-      else void send(file, selected, false);
+      if (known.has(path)) asking.push({ file, folder: selected, path });
+      else await send(file, selected, false);
     }
+    setReplaceQueue((queue) => [...queue, ...asking]);
   }
 
   function onDrop(event: DragEvent) {
     event.preventDefault();
-    add(event.dataTransfer.files);
+    void add(event.dataTransfer.files);
   }
 
   const data = list.data;
+  const replacing = replaceQueue[0];
   const folderLabel = selected === "" ? t("bots.knowledgeAllFiles") : selected;
   const entries = [
     ...(data?.folders.map((path) => ({ kind: "folder" as const, path })) ?? []),
@@ -158,12 +163,17 @@ export function KnowledgePopover() {
           hidden
           accept=".md,.txt,.html,.csv"
           onChange={(event) => {
-            add([...(event.target.files ?? [])]);
+            void add([...(event.target.files ?? [])]);
             event.target.value = "";
           }}
         />
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => input.current?.click()}>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!data}
+            onClick={() => input.current?.click()}
+          >
             {t("bots.knowledgeUploadInto", { folder: folderLabel })}
           </Button>
           <Button
@@ -179,7 +189,7 @@ export function KnowledgePopover() {
             className="flex gap-2"
             onSubmit={(event) => {
               event.preventDefault();
-              const path = selected === "" ? naming : `${selected}/${naming}`;
+              const path = selected === "" ? naming.trim() : `${selected}/${naming.trim()}`;
               createFolder.mutate(
                 { path },
                 {
@@ -198,7 +208,11 @@ export function KnowledgePopover() {
               value={naming}
               onChange={(event) => setNaming(event.target.value)}
             />
-            <Button type="submit" size="sm" disabled={naming === "" || createFolder.isPending}>
+            <Button
+              type="submit"
+              size="sm"
+              disabled={naming.trim() === "" || createFolder.isPending}
+            >
               {t("bots.knowledgeCreate")}
             </Button>
           </form>
@@ -210,14 +224,18 @@ export function KnowledgePopover() {
             </div>
             <p className="mb-2 text-xs text-muted-foreground">{t("bots.knowledgeReplaceText")}</p>
             <div className="flex justify-end gap-2">
-              <Button variant="outline" size="sm" onClick={() => setReplacing(null)}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setReplaceQueue((queue) => queue.slice(1))}
+              >
                 {t("bots.knowledgeCancel")}
               </Button>
               <Button
                 size="sm"
                 onClick={() => {
                   void send(replacing.file, replacing.folder, true);
-                  setReplacing(null);
+                  setReplaceQueue((queue) => queue.slice(1));
                 }}
               >
                 {t("bots.knowledgeReplace")}

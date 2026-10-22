@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { knowledgeLimitBytes } from "../../shared/folder";
 import { protectedProcedure } from "../../../../core/server/procedures";
 import {
   createKnowledgeFolder,
@@ -37,7 +38,7 @@ export const knowledgeRouter = {
       z.object({
         folder: z.string().optional(),
         name: z.string(),
-        content: z.string(),
+        content: z.string().max(knowledgeLimitBytes),
         replace: z.boolean().optional(),
       }),
     )
