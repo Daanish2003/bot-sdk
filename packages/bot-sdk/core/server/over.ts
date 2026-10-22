@@ -54,7 +54,13 @@ export function createBotSdkOver(
  */
 export function createChatHandler(sdk: SdkOver, options: OverOptions): ChatHandler {
   const { plugin: _plugin, hasPlugin: _hasPlugin, rateLimit: _rateLimit, ...context } = sdk;
-  const models = { ...sdk, hooks: sdk.events, keyEncryptionSecrets: sdk.keyring };
+  // Its own sources: the plugins register theirs again when the new instance runs their inits.
+  const models = {
+    ...sdk,
+    hooks: sdk.events,
+    keyEncryptionSecrets: sdk.keyring,
+    recentModelSources: [],
+  };
   const plugins = enabledPlugins(sdk).filter(({ id }) => !["models", "runner"].includes(id));
   return createBotSdkOver({ context, models, jobs: runnerJobs(sdk), plugins }, options).instance
     .handler;
