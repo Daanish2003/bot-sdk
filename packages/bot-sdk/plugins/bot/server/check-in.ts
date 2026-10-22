@@ -120,7 +120,7 @@ export async function cancelCheckIn(
   userId: string,
   checkInId: string,
 ): Promise<void> {
-  const cancelled = await deps.db.transaction(async (tx) => {
+  const cancelledIn = await deps.db.transaction(async (tx) => {
     const [owner] = await tx
       .select({ botId: bot.id, conversationId: bot.conversationId })
       .from(botCheckIn)
@@ -131,7 +131,7 @@ export async function cancelCheckIn(
     await lockConversation(tx, owner.conversationId);
     return (await cancelPending(deps, tx, owner, checkInId)) ? owner.conversationId : null;
   });
-  if (cancelled) await hintChanged(deps, cancelled);
+  if (cancelledIn) await hintChanged(deps, cancelledIn);
 }
 
 /**
