@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 /** What Auto-review made of a call (spec #691). */
 export type ReviewVerdictOutcome = "pass" | "block";
 
@@ -27,3 +29,14 @@ export type BotReview = {
   decidedAt: Date | null;
   createdAt: Date;
 };
+
+/**
+ * A blocked call's Approval in the thread (spec #761), the Rich control of kind `review_approval`:
+ * it holds only the review's id, and its state is read from the review's row.
+ */
+export const reviewApprovalSchema = z.object({
+  kind: z.literal("review_approval"),
+  reviewId: z.string(),
+});
+
+export type ReviewApproval = z.infer<typeof reviewApprovalSchema>;

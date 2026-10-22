@@ -24,6 +24,8 @@ import {
   rotateWebhook,
 } from "../routine";
 import { botChanges } from "../changes";
+import { answerChoice } from "../choice";
+import { maxChoiceOptionLength, maxChoiceOtherLength } from "../../shared/choice";
 import { cancelCheckIn, listCheckIns } from "../check-in";
 import { listHelpers } from "../helper-card";
 import { decideReview, listReviews } from "../review";
@@ -159,6 +161,30 @@ const botRouter = {
   warm: protectedProcedure
     .input(z.object({ botId: z.uuid() }))
     .handler(({ context, input }) => warmBot(context.sdk, context.user.id, input.botId)),
+
+  /**
+   * Answers the choice a Bot asked in Message `messageId` (spec #761): an `option` or the free text
+   * of `other`. It wakes the Bot with one Trigger, even if the Bot has moved on. The first answer
+   * wins; a later one is refused as answered. Another user's Bot is not found.
+   */
+  choose: protectedProcedure
+    .input(
+      z.object({
+        botId: z.uuid(),
+        messageId: z.uuid(),
+        answer: z.union([
+          z.object({ option: z.string().max(maxChoiceOptionLength) }),
+          z.object({ other: z.string().max(maxChoiceOtherLength) }),
+        ]),
+      }),
+    )
+    .handler(({ context, input }) =>
+      answerChoice(context.sdk, context.user.id, {
+        botId: input.botId,
+        messageId: input.messageId,
+        answer: input.answer,
+      }),
+    ),
 
   /** The Routines of the caller's Bots (#538). Approving or declining one never wakes the Bot. */
   routine: {
