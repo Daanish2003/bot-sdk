@@ -148,7 +148,7 @@ export type BotSdkPlugin<
    * The core stores it under this plugin's id and holds it as unknown, so the plugin types its own
    * part.
    */
-  exportUser?: (sdk: BotSdkContext, userId: string, tx: Transaction) => Promise<unknown>;
+  exportUser?: (sdk: BotSdkContext, userId: string, tx: Transaction) => Promise<object>;
   /** Type only: the event hooks this plugin fires. */
   readonly "~events"?: Event;
 };
