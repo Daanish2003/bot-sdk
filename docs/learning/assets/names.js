@@ -108,7 +108,7 @@ window.NAMES = [
     meaning:
       "Makes the one handler over a test SDK context (SdkOver); it picks who answers a request from its path, top rung first.",
     example:
-      "createChatHandler(deps, { basePath, getUser }) in test/support/sdk.ts (defined in plugins/assistant/server/over.ts)",
+      "createChatHandler(deps, { basePath, getUser }) in test/support/sdk.ts (defined in core/server/over.ts)",
   },
   {
     lesson: 2,

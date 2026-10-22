@@ -13,7 +13,7 @@ import { migrate as migrateChatSchema } from "../../core/server/migrate";
 import type { BotSdkContext, BotSdkPlugin } from "../../core/server/plugin";
 import { resolveRateLimits } from "../../core/server/rate-limits";
 import { memoryRuntime } from "../../core/server/runtime";
-import { createBotSdkOver } from "../../plugins/assistant/server/over";
+import { createBotSdkOver } from "../../core/server/over";
 import { e2bProvider } from "../../plugins/computer/e2b";
 import { computer, type ComputerProvider } from "../../plugins/computer/server";
 import { productionDeps } from "../../plugins/models/server/plugin";
@@ -88,7 +88,6 @@ export function createComputerSdk(options: {
         rateLimits: resolveRateLimits(),
       },
       models: models ? models(real) : real,
-      assistant: {},
       plugins: [computer({ provider }), ...more],
     },
     { basePath: "/api/chat", getUser: () => null, logger: { error: () => {} } },
