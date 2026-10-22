@@ -1,7 +1,8 @@
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
+import { type AddressInfo, connect, createServer as createTcpServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -41,8 +42,11 @@ const model = "openai:gpt-5.6";
 const silent = { error: () => {} };
 const poll = { timeout: 10_000 };
 
-/** A headless Chromium with its DevTools port open, as a Screen's Chrome is. */
-type Chrome = { url: string; close: () => Promise<void> };
+/**
+ * A headless Chromium with its DevTools port open, as a Screen's Chrome is. The capture reaches it
+ * at `proxied`, a relay whose connections `cut` drops, as a network blip or a round's end does.
+ */
+type Chrome = { url: string; proxied: string; cut: () => void; close: () => Promise<void> };
 
 async function launchChrome(): Promise<Chrome> {
   const dir = await mkdtemp(join(tmpdir(), "screen-"));
@@ -60,9 +64,26 @@ async function launchChrome(): Promise<Chrome> {
     if (!port && tries > 100) throw new Error("Chromium's DevTools port did not open");
     if (!port) await new Promise((resolve) => setTimeout(resolve, 50));
   }
+  const sockets = new Set<Socket>();
+  const relay = createTcpServer((socket) => {
+    const upstream = connect(Number(port), "127.0.0.1");
+    for (const end of [socket, upstream]) {
+      sockets.add(end);
+      end.on("close", () => sockets.delete(end));
+      end.on("error", () => {});
+    }
+    socket.pipe(upstream).pipe(socket);
+  });
+  await new Promise<void>((resolve) => relay.listen(0, "127.0.0.1", resolve));
   return {
     url: `http://127.0.0.1:${port}`,
+    proxied: `http://127.0.0.1:${(relay.address() as AddressInfo).port}`,
+    cut: () => {
+      for (const socket of sockets) socket.destroy();
+    },
     close: async () => {
+      relay.close();
+      for (const socket of sockets) socket.destroy();
       await context.close();
       await rm(dir, { recursive: true, force: true }).catch(() => {});
     },
@@ -128,6 +149,8 @@ beforeEach(async () => {
 }, 60_000);
 
 afterEach(async () => {
+  puts.held = undefined;
+  puts.started = 0;
   await hands?.close().catch(() => {});
   hands = undefined;
   for (const jobs of started.splice(0)) await jobs.stop();
@@ -149,7 +172,7 @@ async function demonstrating(path = "/") {
   const fake = createFakeAdapter({ rounds: [round(watchUser, ends)] });
   const computerFake = fakeComputerProvider({
     hostUrl: (sandboxId, port) =>
-      port > 9222 ? chrome.url : `https://${port}-${sandboxId}.fake.test`,
+      port > 9222 ? chrome.proxied : `https://${port}-${sandboxId}.fake.test`,
   });
   let deps: TestDeps | undefined;
   const jobs = inProcessRunner({ db: getTestDb(), logger: silent, drainMs: 50, deps: () => deps! });
@@ -190,16 +213,33 @@ async function demonstrating(path = "/") {
 }
 
 /**
+ * A gate a test closes to hold every screenshot's put until it opens it, and how many puts have
+ * reached it.
+ */
+const puts = { held: undefined as Promise<void> | undefined, started: 0 };
+
+/**
  * `store` with each put taking a while, as a remote blob store's does: a step's row must never be
- * read before its screenshot's bytes are there.
+ * read before its screenshot's bytes are there. A put waits at `puts.held` too.
  */
 const slowPuts = (store: BlobStore): BlobStore => ({
   ...store,
   put: async (...args) => {
+    puts.started += 1;
     await new Promise((resolve) => setTimeout(resolve, 300));
+    await puts.held;
     await store.put(...args);
   },
 });
+
+/** Holds every put until the returned function is called. */
+function holdPuts(): () => void {
+  let open!: () => void;
+  puts.held = new Promise((resolve) => {
+    open = resolve;
+  });
+  return open;
+}
 
 const eventsOf = (demonstrationId: string) =>
   getTestDb()
@@ -332,6 +372,14 @@ describe("capturing a Demonstration", () => {
     const events = await eventsOf(demonstrationId);
     expect(JSON.stringify(events)).not.toContain("hunter2");
     expect(events[3]).toMatchObject({ value: maskedValue, screenshotKey: null });
+    // No screenshot while the page shows the password: the Show click's, and every step's after.
+    expect(events.map((event) => event.screenshotKey === null)).toEqual([
+      false,
+      true,
+      true,
+      true,
+      true,
+    ]);
   }, 60_000);
 
   it("records a click on a label as one click on its control", async () => {
@@ -376,6 +424,81 @@ describe("capturing a Demonstration", () => {
     const keys = events.flatMap((event) => event.screenshotKey ?? []);
     expect(keys).toHaveLength(2);
     for (const key of keys) expect(await deps.blobStore.get(key)).not.toBeNull();
+  }, 60_000);
+
+  it("drops a step taken while paused, even one stored after Resume", async () => {
+    const { client, demonstrationId, page } = await demonstrating();
+    const open = holdPuts();
+    await page.locator("#go").click();
+    await expect.poll(() => puts.started, poll).toBe(2);
+
+    // Taken while paused, and queued behind the held step until after the Resume.
+    await client.bot.demonstration.pause({ demonstrationId });
+    await page.locator("#name").click();
+    await page.waitForTimeout(500);
+    await client.bot.demonstration.resume({ demonstrationId });
+    open();
+    await page.locator("#go").click();
+
+    await expect
+      .poll(
+        async () => (await eventsOf(demonstrationId)).map(({ kind, selector }) => [kind, selector]),
+        poll,
+      )
+      .toEqual([
+        ["navigation", null],
+        ["pause", null],
+        ["click", "#go"],
+        ["click", "#go"],
+      ]);
+  }, 60_000);
+
+  it("keeps a step taken while the capture reconnects", async () => {
+    const { demonstrationId, page } = await demonstrating();
+
+    chrome.cut();
+    await page.waitForTimeout(500);
+    await page.locator("#go").click();
+
+    await expect
+      .poll(
+        async () => (await eventsOf(demonstrationId)).map(({ kind, selector }) => [kind, selector]),
+        { timeout: 30_000 },
+      )
+      .toEqual([
+        ["navigation", null],
+        ["click", "#go"],
+      ]);
+  }, 60_000);
+
+  it("stores a step its page sends twice once", async () => {
+    const { demonstrationId, page } = await demonstrating();
+    const binding = `__botDemonstration_${demonstrationId.replaceAll("-", "")}`;
+
+    // As when a round took a step but its answer never reached the page, which sent it again.
+    await page.evaluate(
+      async ({ name, id }) => {
+        const step = { id, kind: "click", url: location.href, label: "Go", selector: "#go" };
+        const report = (window as unknown as Record<string, (step: object) => Promise<void>>)[
+          name
+        ]!;
+        await report({ ...step, value: null, masked: false });
+        await report({ ...step, value: null, masked: false });
+      },
+      { name: binding, id: randomUUID() },
+    );
+    await page.locator("#name").click();
+
+    await expect
+      .poll(
+        async () => (await eventsOf(demonstrationId)).map(({ kind, selector }) => [kind, selector]),
+        poll,
+      )
+      .toEqual([
+        ["navigation", null],
+        ["click", "#go"],
+        ["click", "#name"],
+      ]);
   }, 60_000);
 
   it("keeps listening after a navigation, in a new tab and in frames", async () => {

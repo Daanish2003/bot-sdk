@@ -2,6 +2,7 @@ import { toolDefinition } from "@tanstack/ai";
 import { and, asc, eq, inArray, max, sql } from "drizzle-orm";
 import { z } from "zod";
 
+import { deleteBlobsBestEffort } from "../../../core/server/blob/store";
 import { appendMessage } from "../../../core/server/chat/message-tree";
 import {
   bot,
@@ -36,7 +37,8 @@ import { hintChanged } from "./turn";
 /*
  * Demonstrations (spec #713): the user shows the Bot a task once on its Screen. `watch_user` starts
  * one in a Turn and returns at once; the user pauses, resumes, finishes or cancels it from its Show
- * me card, and a self-chaining check ends it as Done after 15 minutes of recording.
+ * me card, and a self-chaining check ends it as Done after 15 minutes of recording, or an hour after
+ * it started.
  */
 
 /** The Bot's deferred tool that starts a Demonstration. */
@@ -44,6 +46,12 @@ export const watchUserToolName = "watch_user";
 
 /** The most recording time a Demonstration may take; past it, it ends as Done. */
 export const demonstrationTimeLimitMs = 15 * 60_000;
+
+/**
+ * The longest a Demonstration may stay live, paused time included; past it, it ends as Done. A
+ * Demonstration left paused would otherwise hold its Screen, and keep the Computer awake, for good.
+ */
+export const demonstrationLiveLimitMs = 60 * 60_000;
 
 /** How often the time cap's check runs. */
 export const demonstrationCheckMs = 60_000;
@@ -242,7 +250,8 @@ async function startDemonstration(
 /**
  * The state each action moves a Demonstration to, from the states it acts in. Done goes to
  * `drafting`, which ends it and queues the drafting pass, which moves it on from there. Each move
- * that ends one also queues the deletion of its events and screenshots 7 days on.
+ * that ends one also queues the deletion of its events and screenshots 7 days on; Cancel deletes
+ * them at once.
  */
 const moves: Record<
   DemonstrationAction,
@@ -259,6 +268,8 @@ type Moved = {
   state: DemonstrationState;
   /** Whether this move ended it, so its Screen is to be released. */
   ended: boolean;
+  /** The screenshots of the steps a Cancel threw away, whose bytes go once it has committed. */
+  discarded: string[];
   userId: string;
   screen: number;
   conversationId: string;
@@ -300,13 +311,21 @@ async function moveIn(
   if (!row) return undefined;
   const facts = { userId: row.userId, screen: row.screen, conversationId: owned.conversationId };
   const next = moves[action][row.state];
-  if (!next) return { ...facts, state: row.state, ended: false };
+  if (!next) return { ...facts, state: row.state, ended: false, discarded: [] };
   const ended = !isLiveDemonstration(next);
   const now = deps.clock();
   await tx
     .update(botDemonstration)
     .set({ state: next, ...(ended && { endedAt: now }) })
     .where(eq(botDemonstration.id, demonstrationId));
+  // Cancel throws away everything captured (spec #713); the row stays as a record.
+  const discarded =
+    next === "cancelled"
+      ? await tx
+          .delete(botDemonstrationEvent)
+          .where(eq(botDemonstrationEvent.demonstrationId, demonstrationId))
+          .returning({ key: botDemonstrationEvent.screenshotKey })
+      : [];
   // The mark the step list shows as the gap while paused (#719).
   if (next === "paused") {
     await tx.insert(botDemonstrationEvent).values({
@@ -342,7 +361,7 @@ async function moveIn(
       },
     );
   }
-  return { ...facts, state: next, ended };
+  return { ...facts, state: next, ended, discarded: discarded.flatMap((row) => row.key ?? []) };
 }
 
 /** The sequence of Demonstration `demonstrationId`'s next event, in `tx`. */
@@ -383,8 +402,8 @@ export async function rewriteCard(
 }
 
 /**
- * Applies `action` to a Demonstration, then, once that has committed, releases the Screen of one it
- * ended and tells the Conversation's followers. Returns its state now, or undefined when there is
+ * Applies `action` to a Demonstration, then, once that has committed, deletes the screenshots a
+ * Cancel threw away, releases the Screen of one it ended and tells the Conversation's followers. Returns its state now, or undefined when there is
  * none (of `userId`, when given).
  */
 export async function move(
@@ -397,6 +416,7 @@ export async function move(
     moveIn(deps, tx, demonstrationId, action, userId),
   );
   if (!moved) return undefined;
+  await deleteBlobsBestEffort(deps, moved.discarded);
   if (moved.ended) {
     await closeScreen(deps, { id: demonstrationId, userId: moved.userId, screen: moved.screen });
     // The drafting pass, queued with the move, runs now.
@@ -448,7 +468,8 @@ const after = (time: Date) => new Date(time.getTime() + demonstrationCheckMs);
  * The time cap (spec #713), a self-chaining check every `demonstrationCheckMs` while the
  * Demonstration is live, as the Computer's sleep check chains. Each adds the time since the last
  * check to `recordedMs` when it finds the Demonstration recording, so paused time doesn't count;
- * at `demonstrationTimeLimitMs` it ends the Demonstration as Done. One that has ended stops the chain.
+ * at `demonstrationTimeLimitMs`, or `demonstrationLiveLimitMs` after it started, it ends the
+ * Demonstration as Done. One that has ended stops the chain.
  */
 export const demonstrationCheckJob = defineJob({
   name: demonstrationCheckJobName,
@@ -460,7 +481,7 @@ export const demonstrationCheckJob = defineJob({
   }),
   run: async ({ demonstrationId, step, recordedMs, checkedAt }, { deps }) => {
     const [row] = await deps.db
-      .select({ state: botDemonstration.state })
+      .select({ state: botDemonstration.state, startedAt: botDemonstration.startedAt })
       .from(botDemonstration)
       .where(eq(botDemonstration.id, demonstrationId));
     if (!row || !isLiveDemonstration(row.state)) return;
@@ -468,7 +489,8 @@ export const demonstrationCheckJob = defineJob({
     const recorded =
       recordedMs +
       (row.state === "recording" ? Math.max(0, now.getTime() - Date.parse(checkedAt)) : 0);
-    if (recorded >= demonstrationTimeLimitMs) {
+    const live = now.getTime() - row.startedAt.getTime();
+    if (recorded >= demonstrationTimeLimitMs || live >= demonstrationLiveLimitMs) {
       await move(deps, demonstrationId, "done");
       return;
     }

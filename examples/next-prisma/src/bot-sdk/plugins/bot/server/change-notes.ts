@@ -4,7 +4,13 @@ import { eq } from "drizzle-orm";
 import { botPromptStart } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
 import type { Transaction } from "../../../core/server/plugin";
-import { type SkillLine, skillLineOf, skillsDirectory } from "../../skills/server/skills";
+import {
+  isSkillFile,
+  type SkillLine,
+  skillLineOf,
+  skillsDirectory,
+} from "../../skills/server/skills";
+import { resolvePath } from "./computer-tools";
 import type { PromptStartTool } from "./db/bot-prompt-start";
 import { canonicalJson, firstMessageSection, listedToolNames, sha256 } from "./prompt-start";
 import { createRoutineToolName, deleteRoutineToolName, updateRoutineToolName } from "./routine";
@@ -148,19 +154,14 @@ function memoryTarget(botId: string, path: string): { tier: Tier; month?: string
   return match[1] ? { tier: match[1] as Tier } : { tier: "log", month: match[2] };
 }
 
-/** The folder of the Skill in the Bot's own folder that `path` is the SKILL.md of, if any. */
+/**
+ * The folder of the Skill in the Bot's own folder that `path` is the SKILL.md of, if any, with
+ * `path` resolved as the write and edit tools resolve it.
+ */
 function skillTarget(botId: string, path: string): string | undefined {
-  // An absolute path must be in the Bot's folder; a relative one is relative to it.
-  const own = `${skillsDirectory(botId)}/`;
-  const rest = path.startsWith("/")
-    ? path.startsWith(own)
-      ? path.slice(own.length)
-      : undefined
-    : path.startsWith("skills/")
-      ? path.slice("skills/".length)
-      : undefined;
-  return rest !== undefined && !rest.includes("..")
-    ? /^([^/]+)\/SKILL\.md$/.exec(rest)?.[1]
+  const resolved = resolvePath(botId, path);
+  return isSkillFile(botId, resolved)
+    ? resolved.slice(skillsDirectory(botId).length + 1).split("/")[0]
     : undefined;
 }
 

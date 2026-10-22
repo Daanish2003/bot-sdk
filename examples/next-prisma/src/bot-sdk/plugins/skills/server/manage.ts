@@ -4,7 +4,14 @@ import { bot } from "../../../core/server/db/schema";
 import type { BotSdkContext } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
 import { ComputerUnavailableError, type ComputerHandle } from "../../computer/server/plugin";
-import { namePattern, nameLimit, problemOf, readBotSkills, skillsDirectory } from "./skills";
+import {
+  namePattern,
+  nameLimit,
+  problemOf,
+  readBotSkills,
+  shellQuote,
+  skillsDirectory,
+} from "./skills";
 
 /*
  * The user's view of a Bot's Skills (spec #713): list, read, save and delete the plain SKILL.md
@@ -69,8 +76,6 @@ function requireFolder(name: string) {
     throw rpcError("BAD_REQUEST", "error.skillName", "Not a Skill folder name");
   }
 }
-
-const shellQuote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
 
 /**
  * When each Skill's SKILL.md last changed, by folder name. Best effort: a Computer that doesn't
@@ -142,7 +147,8 @@ export async function readSkill(
 
 /**
  * Saves a Skill's SKILL.md whole, creating or replacing it, and checks it like any Skill: a broken
- * one is still saved, and the reason comes back for the editor to show.
+ * one is still saved, and the reason comes back for the editor to show. A folder whose name breaks
+ * the rule is saved only when it exists already, as the popover lists it, never as a new Skill.
  */
 export async function saveSkill(
   deps: BotSdkContext,
@@ -155,12 +161,19 @@ export async function saveSkill(
   }: { userId: string; botId: string; name: string; content: string; create?: boolean },
 ): Promise<{ problem: string | null }> {
   await requireOwnBot(deps, userId, botId);
-  if (!namePattern.test(name) || name.length > nameLimit) {
-    throw rpcError("BAD_REQUEST", "error.skillName", "Not a valid Skill name");
-  }
+  const validName = namePattern.test(name) && name.length <= nameLimit;
+  const invalidName = () => rpcError("BAD_REQUEST", "error.skillName", "Not a valid Skill name");
+  if (!validName && create) throw invalidName();
+  requireFolder(name);
   const computer = computerOf(deps, userId);
   const path = `${skillsDirectory(botId)}/${name}/SKILL.md`;
   await onComputer(async () => {
+    if (!validName) {
+      const folders = (await computer.list(skillsDirectory(botId))) ?? [];
+      if (!folders.some((entry) => entry.kind === "directory" && entry.name === name)) {
+        throw invalidName();
+      }
+    }
     // A new Skill never replaces one that exists.
     if (create && (await computer.readFile(path))) {
       throw rpcError("CONFLICT", "error.skillExists", "A Skill with that name already exists");

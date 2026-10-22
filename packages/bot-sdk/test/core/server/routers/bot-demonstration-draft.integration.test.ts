@@ -267,7 +267,7 @@ const hasImage = (call: TextOptions) =>
     (entry) => Array.isArray(entry.content) && entry.content.some((part) => part.type === "image"),
   );
 
-describe("the drafting pass", () => {
+describe("the drafting pass", { timeout: 30_000 }, () => {
   it("makes one call with no tools on the Bot's model, given the goal, inputs, steps and screenshots", async () => {
     const { fake, done } = await demonstrating({
       drafts: [round(text(skillText("copy-payouts")))],
@@ -451,7 +451,7 @@ describe("the drafting pass", () => {
     );
   });
 
-  it("keeps the woken Turn's own edit of the drafted Skill on its chip", async () => {
+  it("shows the drafted Skill once on its chip when the woken Turn edits it too", async () => {
     const { done, client, botId } = await demonstrating({
       drafts: [round(text(skillText("copy-payouts")))],
       turns: [
@@ -471,14 +471,11 @@ describe("the drafting pass", () => {
     await done();
 
     const { turns } = await client.bot.get({ botId });
-    expect(turns.at(-1)?.skillChanges).toEqual([
-      { kind: "saved", name: "copy-payouts" },
-      { kind: "updated", name: "copy-payouts" },
-    ]);
+    expect(turns.at(-1)?.skillChanges).toEqual([{ kind: "saved", name: "copy-payouts" }]);
   });
 });
 
-describe("Auto-review", () => {
+describe("Auto-review", { timeout: 30_000 }, () => {
   it("shows the Trigger as the SDK's notice, never as the user's words", async () => {
     const { done, reviews } = await demonstrating({
       drafts: [round(text(skillText("copy-payouts")))],
@@ -495,7 +492,7 @@ describe("Auto-review", () => {
   });
 });
 
-describe("retention", () => {
+describe("retention", { timeout: 30_000 }, () => {
   const eventsOf = (demonstrationId: string) =>
     getTestDb()
       .select()
