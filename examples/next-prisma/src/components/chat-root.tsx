@@ -9,6 +9,7 @@ import {
   createBotSdkClient,
 } from "@ai-chat/bot-sdk/core/client";
 import { assistantClient } from "@ai-chat/bot-sdk/plugins/assistant/client";
+import { channelClient } from "@ai-chat/bot-sdk/plugins/channel/client";
 import { knowledgeClient } from "@ai-chat/bot-sdk/plugins/knowledge/client";
 import { memoryClient } from "@ai-chat/bot-sdk/plugins/memory/client";
 import { modelsClient } from "@ai-chat/bot-sdk/plugins/models/client";
@@ -21,7 +22,14 @@ import { Toaster } from "sonner";
 
 // The browser calls the handler on its own origin. Server rendering makes no chat calls.
 const chatClient = createBotSdkClient({
-  plugins: [modelsClient(), assistantClient(), memoryClient(), skillsClient(), knowledgeClient()],
+  plugins: [
+    modelsClient(),
+    assistantClient(),
+    memoryClient(),
+    skillsClient(),
+    knowledgeClient(),
+    channelClient(),
+  ],
   baseUrl:
     typeof window === "undefined"
       ? "http://localhost/api/chat"

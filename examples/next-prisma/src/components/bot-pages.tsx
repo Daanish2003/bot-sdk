@@ -6,6 +6,7 @@ import {
   BotsApp,
   BotsHomePage,
 } from "@ai-chat/bot-sdk/plugins/bot/ui";
+import { EmailPopover } from "@ai-chat/bot-sdk/plugins/channel/ui";
 import { KnowledgeChip, KnowledgePopover } from "@ai-chat/bot-sdk/plugins/knowledge/ui";
 import { BotMemoryChip, BotMemoryPopover } from "@ai-chat/bot-sdk/plugins/memory/ui";
 import { BotSkillChip, BotSkillsPopover } from "@ai-chat/bot-sdk/plugins/skills/ui";
@@ -30,6 +31,7 @@ export function BotRoute({ botId }: { botId: string }) {
           <BotMemoryPopover botId={botId} />
           <BotSkillsPopover botId={botId} />
           <KnowledgePopover />
+          <EmailPopover botId={botId} />
         </>
       }
       afterTurn={(turn) => (

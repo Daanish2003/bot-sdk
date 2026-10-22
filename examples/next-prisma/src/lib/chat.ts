@@ -1,6 +1,8 @@
 import { createBotSdk } from "@ai-chat/bot-sdk/core/server";
 import { assistant, type HostToolContext } from "@ai-chat/bot-sdk/plugins/assistant/server";
 import { bot } from "@ai-chat/bot-sdk/plugins/bot/server";
+import { fakeEmailProvider } from "@ai-chat/bot-sdk/plugins/channel/fake";
+import { channel, emailChannel } from "@ai-chat/bot-sdk/plugins/channel/server";
 import { e2bProvider } from "@ai-chat/bot-sdk/plugins/computer/e2b";
 import { computer } from "@ai-chat/bot-sdk/plugins/computer/server";
 import { knowledge } from "@ai-chat/bot-sdk/plugins/knowledge/server";
@@ -12,6 +14,7 @@ import { toolDefinition } from "@tanstack/ai";
 import { z } from "zod";
 
 import { auth } from "@/auth";
+import { prisma } from "@/lib/db";
 
 /**
  * A Host tool: the Model can ask for the server's time. `fn` runs on this server; the context
@@ -64,5 +67,24 @@ export const chat = createBotSdk({
     // `reviewModel` is optional: the Model that reviews each Bot's risky tool calls (Auto-review).
     // Without it, or when the user can't use it, the Bot's own Model reviews.
     bot({ reviewModel: "openai:gpt-6-luna" }),
+    // Channels (spec #761): each Bot's email address, on the fake provider (its DMARC verdict comes
+    // from the request). The example has no inbound route, so nothing reaches a Bot from outside.
+    channel({
+      adapters: [
+        emailChannel({
+          provider: fakeEmailProvider().provider,
+          domain: "bots.localhost",
+          appUrl: "http://localhost:3000",
+        }),
+      ],
+      // Only the user's own stored email reaches their Bots (the example has no email verification).
+      verifiedEmail: async (userId) => {
+        const row = await prisma.user.findUnique({
+          where: { id: userId },
+          select: { email: true },
+        });
+        return row?.email ?? null;
+      },
+    }),
   ],
 });
