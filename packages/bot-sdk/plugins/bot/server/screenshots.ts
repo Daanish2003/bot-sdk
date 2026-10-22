@@ -10,6 +10,7 @@ import {
 } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkContext, ConversationDeleteHooks } from "../../../core/server/plugin";
+import { sentFileKeys } from "./files";
 
 /** The blob key of a Helper's screenshot (#608). */
 export const screenshotBlobKey = (screenshotId: string) => `screenshot/${screenshotId}`;
@@ -31,7 +32,7 @@ export async function storeScreenshot(
 
 /**
  * The bot plugin's hooks on every Conversation delete: a Bot goes with its Conversation, and its
- * Helpers' screenshots and its Demonstrations' (#719) with it. Their rows go by cascade, so `before` reads their keys inside the
+ * Helpers' screenshots, its Demonstrations' (#719) and the files it sent with it. Their rows go by cascade, so `before` reads their keys inside the
  * delete's transaction, and `after` deletes their bytes once it commits (ADR 0015).
  */
 export const screenshotsConversationDelete: ConversationDeleteHooks<string[]> = {
@@ -55,6 +56,7 @@ export const screenshotsConversationDelete: ConversationDeleteHooks<string[]> = 
     return [
       ...rows.map((row) => screenshotBlobKey(row.id)),
       ...steps.flatMap((row) => row.key ?? []),
+      ...(await sentFileKeys(tx, conversationIds)),
     ];
   },
   after: (sdk, { collected }) => deleteBlobsBestEffort(sdk, collected),

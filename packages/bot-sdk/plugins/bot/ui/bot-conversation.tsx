@@ -84,6 +84,7 @@ function BotConversationView({
   const SecretCard = controls?.secret ?? defaultRichControlRenderers.secret;
   const ComputerCard = controls?.computer ?? defaultRichControlRenderers.computer;
   const ShowMeCard = controls?.demonstration ?? defaultRichControlRenderers.demonstration;
+  const FilesCard = controls?.files ?? defaultRichControlRenderers.files;
   const i18n = useI18n();
   const { t } = i18n;
   const [draft, setDraft] = useState("");
@@ -378,6 +379,7 @@ function BotConversationView({
             )}
             {requestsAfter.get(message.id)}
             {afterTurnOf.get(message.id)}
+            {control?.kind === "files" && <FilesCard card={control} />}
             {control?.kind === "computer" && (
               <ComputerCard
                 card={control}

@@ -1,6 +1,7 @@
 import type { ComponentProps, ReactNode } from "react";
 
 import { ComputerCard } from "./computer-card";
+import { FilesCard } from "./files-card";
 import { SecretCard } from "./secret-card";
 import { ShowMeCard } from "./show-me-card";
 
@@ -12,6 +13,7 @@ export const defaultRichControlRenderers = {
   secret: SecretCard,
   computer: ComputerCard,
   demonstration: ShowMeCard,
+  files: FilesCard,
 };
 
 type Rendered = typeof defaultRichControlRenderers;
