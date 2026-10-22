@@ -34,6 +34,7 @@ export type OutboundMail = {
   messageId: string;
   inReplyTo?: string;
   references?: string[];
+  attachments?: { name: string; contentType: string; content: Uint8Array }[];
 };
 
 /**

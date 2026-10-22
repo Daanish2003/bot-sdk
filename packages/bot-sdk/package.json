@@ -29,7 +29,8 @@
     "./plugins/channel/server": "./plugins/channel/server/index.ts",
     "./plugins/channel/client": "./plugins/channel/client/index.ts",
     "./plugins/channel/ui": "./plugins/channel/ui/index.ts",
-    "./plugins/channel/fake": "./plugins/channel/fake/index.ts"
+    "./plugins/channel/fake": "./plugins/channel/fake/index.ts",
+    "./plugins/channel/mailpit": "./plugins/channel/mailpit/index.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",
