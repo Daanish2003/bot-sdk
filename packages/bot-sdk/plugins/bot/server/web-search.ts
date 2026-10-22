@@ -2,17 +2,13 @@ import { toolDefinition } from "@tanstack/ai";
 import { z } from "zod";
 
 import type { BotSdkContext } from "../../../core/server/plugin";
-import { SearchError } from "../../assistant/server/deps";
-import { createTavilyClient } from "../../assistant/server/chat/tavily";
-import {
-  searchErrorMessages,
-  type WebSearchOutput,
-  webSearchToolName,
-} from "../../assistant/shared/chat/web-search";
 import type { ToolCall } from "../../models/server/credentials/resolve";
 import { tavilyService } from "../../models/shared/credentials/services";
 import { WorkflowYieldedError } from "../../runner/server/workflow/engine";
+import { searchErrorMessages, type WebSearchOutput, webSearchToolName } from "../shared/web-search";
 import type { LoopKit } from "./loop";
+import { SearchError } from "./search-client";
+import { createTavilyClient } from "./tavily";
 
 /** What `web_search` returns with neither a Tool credential nor a Host key (#592). */
 export const webSearchUnavailableError =

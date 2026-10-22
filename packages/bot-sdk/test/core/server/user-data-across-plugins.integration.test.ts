@@ -357,17 +357,23 @@ describe("exportUser across plugins", () => {
     });
 
     expect(await sdk.exportUser(randomUUID())).toEqual({
-      version: 1,
+      version: 2,
       exportedAt: expect.any(Date),
     });
   });
 
-  it("throws when two plugins give the same part of the document", async () => {
+  it("keeps each plugin's part under its plugin id, and no key for a plugin that is not installed", async () => {
     const extra: BotSdkPlugin = { id: "extra", exportUser: async () => ({ savedPrompts: [] }) };
 
-    await expect(exportUserData(createTestSdk({ plugins: [extra] }), randomUUID())).rejects.toThrow(
-      `"savedPrompts" is exported by both "assistant" and "extra"`,
+    const exported = await exportUserData(
+      createTestSdk({ memory: false, plugins: [extra] }),
+      randomUUID(),
     );
+
+    expect(exported.extra).toEqual({ savedPrompts: [] });
+    expect(exported.assistant).toMatchObject({ savedPrompts: [], conversations: [] });
+    expect(exported).not.toHaveProperty("memory");
+    expect(exported).not.toHaveProperty("savedPrompts");
   });
 });
 

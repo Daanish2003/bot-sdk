@@ -1,10 +1,6 @@
-import {
-  type Credentials,
-  type SearchClient,
-  SearchError,
-  type SearchErrorReason,
-  type SearchResult,
-} from "../../plugins/assistant/server/deps";
+import type { Credentials } from "../../models/server/types";
+import type { SearchErrorReason, SearchResult } from "../shared/web-search";
+import { type SearchClient, SearchError } from "./search-client";
 
 export type FakeSearchClient = SearchClient & {
   /** Every search made, in order. */

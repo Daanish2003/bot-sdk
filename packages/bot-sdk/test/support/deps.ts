@@ -17,7 +17,7 @@ import { memory } from "../../plugins/memory/server/plugin";
 import type { ModelsDeps } from "../../plugins/models/server/types";
 import type { JobRunner } from "../../plugins/runner/server/jobs/runner";
 import { resolveRateLimits } from "../../core/server/rate-limits";
-import { createFakeSearchClient } from "./fake-search-client";
+import { createFakeSearchClient } from "../../plugins/bot/server/fake-search-client";
 import { fakeReviewer, withReviewer } from "./fake-reviewer";
 
 /** The `test` value of `KEY_ENCRYPTION_SECRET` in `apps/web/.env.schema`. */
