@@ -1,17 +1,23 @@
 // @vitest-environment jsdom
 import type { QueryClient } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createElement, type ReactElement } from "react";
+import { os } from "@orpc/server";
+import { RPCHandler } from "@orpc/server/fetch";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { BotSdkClient } from "../../../core/client/chat-client";
 import type { ChatRouter } from "../../../core/client/react/provider";
+import { safetyFetchMs } from "../../../plugins/bot/client/react/bot-sync";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
 import { BotSidebar } from "../../../plugins/bot/ui/bot-sidebar";
 import type { ListedModel } from "../../../plugins/models/shared/models";
 import { providerFor, renderWrapped, untranslated } from "../fake-dictionary";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 const createdAt = new Date("2026-10-17T09:00:00.000Z");
 const inbox = { id: "b1", name: "Inbox Manager", model: "openai:gpt-5.6", createdAt };
@@ -87,6 +93,38 @@ describe("the Bots sidebar", () => {
     mount(createElement(BotSidebar));
 
     expect(screen.getByText("Assistant")).toBeTruthy();
+  });
+
+  it("doesn't poll the Bots while one runs: the change log and focus refresh it (ADR 0026)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const running = [{ ...ada, turnStatus: "running", lastMessage: null }];
+    let asked = 0;
+    const handler = new RPCHandler({
+      bot: {
+        list: os.handler(() => {
+          asked++;
+          return running;
+        }),
+      },
+    });
+    const fetch = async (request: Request) =>
+      (await handler.handle(request, { prefix: "/api/chat/rpc" })).response ??
+      new Response(null, { status: 404 });
+    render(
+      providerFor(createElement(BotSidebar), {
+        fetch,
+        messages: {},
+        seed: (queryClient, client) =>
+          queryClient.setQueryData(client.orpc.bot.list.queryKey(), running),
+      }),
+    );
+    expect(screen.getByText("Working…")).toBeTruthy();
+    await act(() => vi.advanceTimersByTimeAsync(10));
+    const before = asked;
+
+    await act(() => vi.advanceTimersByTimeAsync(5 * safetyFetchMs));
+
+    expect(asked).toBe(before);
   });
 
   it("translates every label", () => {

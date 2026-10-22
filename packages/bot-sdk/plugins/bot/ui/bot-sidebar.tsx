@@ -5,7 +5,6 @@ import { useState } from "react";
 
 import { dateFormat } from "../../../core/client/intl";
 import { useChatAdapter, useI18n } from "../../../core/client/react/provider";
-import { safetyFetchMs } from "../client/react/bot-sync";
 import { useSendingBotIds } from "../client/react/bot-turn";
 import { BotAvatar } from "./bot-avatar";
 import { NewBotDialog } from "./new-bot-dialog";
@@ -16,15 +15,9 @@ export function BotSidebar() {
   const { t, locale } = useI18n();
   const sending = useSendingBotIds();
   const [creating, setCreating] = useState(false);
-  const bots = useQuery({
-    ...orpc.bot.list.queryOptions(),
-    // A Turn running elsewhere is shown by the open Bot's change log and on focus; the Bots not open
-    // are asked for every `safetyFetchMs` while one runs (ADR 0026).
-    refetchInterval: (state) =>
-      state.state.data?.some((bot) => bot.turnStatus === "running" && !sending.has(bot.id))
-        ? safetyFetchMs
-        : false,
-  });
+  // Kept fresh by the open Bot's change log (`useBotSync` invalidates it) and on window focus; it
+  // isn't polled (ADR 0026).
+  const bots = useQuery(orpc.bot.list.queryOptions());
 
   const working = (bot: { id: string; turnStatus: string | null }) =>
     sending.has(bot.id) || bot.turnStatus === "running";
