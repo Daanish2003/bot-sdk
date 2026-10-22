@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { postgresBlobStore } from "../../../core/server/blob/postgres";
 import { attachmentBlobKey } from "../../../core/server/blob/store";
+import type { AssistantExport } from "../../../plugins/assistant/server/export-user";
 import { createBotSdk } from "../../../core/server/create-chat";
 import { assistant } from "../../../plugins/assistant/server/plugin";
 import { runner } from "../../../plugins/runner/server/plugin";
@@ -287,7 +288,9 @@ describe("an expired Temporary Conversation's other reads", () => {
       keyEncryptionSecrets: [testKey],
       basePath: "/api/chat",
       plugins: [models(), runner(), assistant()],
-    }).exportUser(user.id);
+    })
+      .exportUser(user.id)
+      .then((document) => document.assistant as AssistantExport);
 
     expect(exported.conversations.map((row) => row.id)).toEqual([ordinary.id]);
     expect(exported.conversations[0]!.messages).toEqual([]);

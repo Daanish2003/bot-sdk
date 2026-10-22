@@ -6,7 +6,6 @@ import type { EventHooks, HookEmitter } from "./chat/hooks";
 import type { PubSub } from "./chat/pubsub";
 import type { ChatUser } from "./context";
 import type { Database } from "./db/index";
-import type { UserExport } from "../../plugins/assistant/server/export-user";
 import type { RateLimit } from "./rate-limits";
 import type { BotSdkRuntime } from "./runtime";
 
@@ -146,13 +145,10 @@ export type BotSdkPlugin<
   deleteUser?: UserDeleteHooks;
   /**
    * This plugin's part of a user's export (`sdk.exportUser`), read in the export's snapshot `tx`.
-   * The core gives `version` and `exportedAt`; two plugins giving one key throws.
+   * The core stores it under this plugin's id and holds it as unknown, so the plugin types its own
+   * part.
    */
-  exportUser?: (
-    sdk: BotSdkContext,
-    userId: string,
-    tx: Transaction,
-  ) => Promise<Partial<Omit<UserExport, "version" | "exportedAt">>>;
+  exportUser?: (sdk: BotSdkContext, userId: string, tx: Transaction) => Promise<unknown>;
   /** Type only: the event hooks this plugin fires. */
   readonly "~events"?: Event;
 };
