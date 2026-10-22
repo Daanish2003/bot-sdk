@@ -4,7 +4,6 @@ import { z } from "zod";
 import { bindAssistantState, type AssistantState } from "./state";
 import { createArtifactToolName, updateArtifactToolName } from "../shared/chat/artifact";
 import { fetchUrlToolName } from "../shared/chat/fetch-url";
-import { searchKnowledgeToolName } from "../shared/chat/knowledge-search";
 import { webSearchToolName } from "../shared/chat/web-search";
 import type { SharedConversation } from "../shared/share/conversation";
 import { ratingTotals, type RatingTotal } from "./admin/ratings";
@@ -32,7 +31,7 @@ export type AssistantOptions = {
   /**
    * The Host's own tools, written with TanStack AI's `toolDefinition(...).server(fn)`. The Model
    * can call them in any reply whose Model has tools; each call runs on this server. Their names
-   * must not be `web_search`, `fetch_url` or `search_knowledge`, the SDK's own tools.
+   * must not be `web_search` or `fetch_url`, the SDK's own tools.
    */
   tools?: HostServerTool[];
   /**
@@ -85,15 +84,14 @@ const assistantRateLimits: Record<AssistantRule, RateLimit> = {
 };
 
 /**
- * The `assistant` plugin (ADR 0020): Runs and their streams, tools, MCP servers, Artifacts,
- * Knowledge and the reaper. It reaches `models`, `runner` for its background jobs, and `memory`
+ * The `assistant` plugin (ADR 0020): Runs and their streams, tools, MCP servers, Artifacts and
+ * the reaper. It reaches `models`, `runner` for its background jobs, and `memory`
  * when the Host installs it, only through `plugin(id)`.
  */
 export function assistant(options: AssistantOptions = {}): AssistantPlugin {
   const builtIns = [
     webSearchToolName,
     fetchUrlToolName,
-    searchKnowledgeToolName,
     ...(options.artifacts ? [createArtifactToolName, updateArtifactToolName] : []),
   ];
   for (const builtIn of builtIns) {

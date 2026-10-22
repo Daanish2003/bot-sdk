@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type { BotMemoryChange } from "../../memory/shared/changes";
+import type { BotKnowledgeChange } from "../../knowledge/shared/changes";
 import type { BotSkillChange } from "../../skills/shared/changes";
 import { demonstrationCardSchema } from "./demonstration";
 import { computerCardSchema } from "./helper";
@@ -92,6 +93,8 @@ export type BotTurnProvenance = {
   memoryChanges: BotMemoryChange[] | null;
   /** The Skills the Turn saved or updated (spec #713), or null when it wrote none. */
   skillChanges: BotSkillChange[] | null;
+  /** The files the Turn saved to Knowledge (spec #737), or null when it saved none. */
+  knowledgeChanges: BotKnowledgeChange[] | null;
   /** Its Steps, oldest first, for the cache chip (#675). */
   steps: BotTurnStep[];
 };

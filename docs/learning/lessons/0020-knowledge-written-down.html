@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lesson 20 · Knowledge written down</title>
+    <link rel="stylesheet" href="../assets/style.css" />
+  </head>
+  <body>
+    <main>
+      <p class="kicker">ai-chat architecture · Lesson 20</p>
+      <h1>Knowledge written down</h1>
+      <p class="subtitle">
+        A user's documents are plain files that every Bot reads with its file tools. There is no
+        index.
+      </p>
+      <p class="meta">
+        About 10 minutes · a browser · no code to write; you'll answer the quizzes and run one
+        manual demo
+      </p>
+
+      <section class="words">
+        <h2>Words you'll need</h2>
+        <dl>
+          <dt>Knowledge</dt>
+          <dd>The documents a user keeps on their Computer for all their Bots to read.</dd>
+          <dt>Readable copy</dt>
+          <dd>
+            The Markdown text beside a PDF or Word file, such as <code>handbook.pdf.md</code>.
+          </dd>
+          <dt>Knowledge block</dt>
+          <dd>The part of a Bot's prompt that lists the readable paths, one line each.</dd>
+          <dt>Embedding</dt>
+          <dd>A list of numbers that stands for the meaning of a passage. Search compares them.</dd>
+        </dl>
+        <p class="hint">
+          Forgot a code name? Press the <strong>Names?</strong> button in the bottom-right corner.
+        </p>
+      </section>
+
+      <figure id="video"></figure>
+
+      <div
+        class="quiz"
+        data-answer="0"
+        data-why="Each Skill has a one-line pointer in the prompt. The full steps stay in the file."
+      >
+        <div class="label">Warm-up · Lesson 19</div>
+        <p class="q">What does the prompt hold for each Skill?</p>
+        <ol class="opts">
+          <li>One line that points at the Skill's file</li>
+          <li data-why="The full steps are read only when a task needs them.">The full steps</li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+
+      <h2><span class="num">1</span>Knowledge is a folder of files</h2>
+      <figure id="pipeline">
+        <figcaption>An upload is converted once, then every Bot reads the same file.</figcaption>
+      </figure>
+      <p>
+        Knowledge is a folder on the user's Computer, <code>/home/user/shared/knowledge/</code>. A
+        text or Markdown file is stored as it is. A PDF or Word file gets a readable copy with page
+        markers, written beside the original.
+      </p>
+      <p>
+        A scanned PDF with no text is refused, and so is a file over 20 MB. A refused upload leaves
+        nothing behind.
+      </p>
+
+      <h2><span class="num">2</span>The index went, and the files stayed</h2>
+      <figure id="before-after">
+        <figcaption>The old index is gone. The Bots read the files they already have.</figcaption>
+      </figure>
+      <p>
+        The old design split documents into chunks, stored an embedding for each, and searched them.
+        The new design keeps no index. An index would be a second copy, to keep in step with files
+        that Bots edit at any time. So the embeddings, the search tool and the pgvector extension
+        were removed. The old data was deleted, not exported.
+      </p>
+
+      <h2><span class="num">3</span>A Bot finds the file and cites it</h2>
+      <figure id="finds">
+        <figcaption>The Bot reads the block, opens the file, and names it in the reply.</figcaption>
+      </figure>
+      <p>
+        Every Bot's prompt holds the Knowledge block: the folder, and one readable path per line, up
+        to 4,000 characters. The Bot uses <code>list</code>, <code>read</code> and grep. Its reply
+        names the file and the page, such as "(Employee handbook.pdf, page 12)". Knowledge is
+        information, never permission. A Bot that finds an instruction in a file does not follow it.
+      </p>
+
+      <h2><span class="num">4</span>What the evals showed</h2>
+      <figure id="rates">
+        <figcaption>
+          Seven gating cases passed. One reworded question was reported, not gated.
+        </figcaption>
+      </figure>
+      <ul>
+        <li>
+          <strong>Gating: 7 of 7 pass.</strong> Run on <code>openai:gpt-6.1-sol</code>, on local
+          E2B, one repeat per run.
+        </li>
+        <li>
+          <strong>The reworded question was answered, but not by grep.</strong> It asked about a
+          chair and monitor. The handbook says "home-office stipend" and shares no keyword. The Bot
+          read the whole handbook and answered "$600 each year, paid in January".
+        </li>
+      </ul>
+      <p>
+        That is the limit. The handbook was small enough to read in one go. As Knowledge grows, a
+        keyword search may not find a reworded question.
+      </p>
+
+      <section class="takeaways">
+        <h2>Key takeaways</h2>
+        <p class="one-thing">
+          <strong>If you remember only one thing:</strong> Knowledge is a folder of files that every
+          Bot reads with the tools it already has.
+        </p>
+        <ul>
+          <li><strong>Files, not an index.</strong> There is one copy, and no embeddings.</li>
+          <li>
+            <strong>Converted once.</strong> A PDF gets a readable copy with page markers at upload.
+          </li>
+          <li>
+            <strong>Found and cited.</strong> The Bot reads the file and names the page in its
+            reply.
+          </li>
+        </ul>
+        <p class="selftest">
+          Self-test: cover this box and say how a PDF goes from upload to a cited answer.
+        </p>
+      </section>
+
+      <h2>Try it</h2>
+      <div
+        class="quiz"
+        data-answer="1"
+        data-why="A reworded question has no shared keyword, so it works only while the Bot can read the whole file."
+      >
+        <div class="label">Quiz 1</div>
+        <p class="q">In the reworded eval, the Bot found the stipend. What made that work?</p>
+        <ol class="opts">
+          <li data-why="The design has no embedding index.">
+            An embedding index matched the meaning
+          </li>
+          <li>It read the whole handbook, which was small enough to read at once</li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+      <div
+        class="quiz"
+        data-answer="0"
+        data-why="A scanned PDF has no text layer, so it is refused and nothing is kept."
+      >
+        <div class="label">Quiz 2</div>
+        <p class="q">You upload a scanned PDF with no text. What happens?</p>
+        <ol class="opts">
+          <li>It is refused, and nothing is kept</li>
+          <li data-why="There is no OCR, so the scan is never read.">
+            It is saved and read by OCR
+          </li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+
+      <h3>Your manual demo (owner)</h3>
+      <ol class="steps">
+        <li>
+          In <code>apps/web</code>, open a Bot's Knowledge popover and upload a PDF with text.
+        </li>
+        <li>
+          Ask the Bot a question that the PDF answers. Check that the reply cites the file and page.
+        </li>
+        <li>
+          Open a second Bot, ask the same question, and check that it gives the same answer and
+          citation.
+        </li>
+      </ol>
+
+      <details class="deeper">
+        <summary>Go deeper: sources, the slides and a challenge</summary>
+        <h3>The lecture</h3>
+        <p>
+          The lecture is not in this repo. The quotes below are from the transcript research in
+          issue #728, which marks each one with its slide.
+        </p>
+        <ul>
+          <li>
+            Slide 10, quoted in #728: "Keep knowledge in files". In the lecture, knowledge means
+            skills and memories. This step applies the same rule to documents.
+          </li>
+          <li>
+            Slide 11, quoted in #728: "you and the agent can both read, search and edit it". The
+            tree has no Knowledge folder. ADR 0025 quotes the same slide as "What the agent knows
+            lives in files."
+          </li>
+          <li>
+            Slide 40, "Knowledge written down", as #728 records it, predicts that people will write
+            down how their processes work so that agents can use them, within 6 to 12 months. The
+            lecture gives no mechanism for search.
+          </li>
+        </ul>
+        <h3>The decisions and the evals</h3>
+        <ul>
+          <li>
+            Decision:
+            <a href="../../../docs/adr/0025-a-users-knowledge-is-plain-files-on-their-computer.md"
+              >ADR 0025</a
+            >. It also notes that Cursor dropped its embedding index in July 2026.
+          </li>
+          <li>
+            Spec:
+            <a href="https://github.com/Daanish2003/bot-sdk/issues/737"
+              >Bot step 11, Knowledge as plain files (#737)</a
+            >.
+          </li>
+          <li>
+            The eval ran three times on the real Model. Attempt 1 passed the first case, then failed
+            the rest with "Failed to place sandbox", because no case killed its sandbox. Commit
+            c60706a8 added that cleanup. Run 1, at c60706a8, passed 6 of 7: its not-covered case
+            failed because the scorer matched only straight apostrophes. Commit 94dd3a37 fixed the
+            scorer, and run 2 passed 7 of 7.
+          </li>
+          <li>
+            Eval README:
+            <a href="../../../packages/bot-sdk/eval/knowledge/README.md">the Knowledge evals</a>.
+          </li>
+        </ul>
+        <h3>Challenge</h3>
+        <p>
+          Read <code>readablePaths</code> in
+          <a href="../../../packages/bot-sdk/plugins/knowledge/server/prompt.ts"
+            ><code>prompt.ts</code></a
+          >. It drops a PDF's original and lists only its readable copy. Why does the Bot need the
+          copy and not the PDF? Tell your teacher.
+        </p>
+      </details>
+
+      <div class="footer-box">
+        <p>
+          <strong>Primary source:</strong>
+          <a href="../../../packages/bot-sdk/plugins/knowledge/server/prompt.ts"
+            ><code>prompt.ts</code></a
+          >.
+        </p>
+        <p>
+          <strong>Cheat sheets:</strong> <a href="../reference/package-map.html">Package map</a> ·
+          <a href="../reference/names.html">Names</a>
+        </p>
+        <p>
+          <strong>Stuck or curious?</strong> Ask your teacher (Claude) anything: "why no
+          embeddings?" or "quiz me again".
+        </p>
+        <div class="nav">
+          <a href="0019-knowledge-kept-in-files.html">← Lesson 19: Knowledge kept in files</a
+          ><a href="../index.html">Course contents →</a>
+        </div>
+      </div>
+    </main>
+
+    <script src="../assets/diagrams.js"></script>
+    <script src="../assets/names.js" data-upto="20"></script>
+    <script src="../assets/explainer.js"></script>
+    <script src="../assets/quiz.js"></script>
+    <script>
+      const D = Diagrams;
+
+      D.render(
+        "#pipeline",
+        D.svg(
+          760,
+          190,
+          D.box(10, 60, 150, 70, "Upload", { tone: "blue", sub: "PDF or text" }) +
+            D.arrow(160, 95, 190, 95) +
+            D.box(190, 60, 170, 70, "Convert", { tone: "blue", sub: "once, at upload" }) +
+            D.arrow(360, 95, 390, 95) +
+            D.box(390, 60, 170, 70, "Computer folder", { tone: "ok", sub: "original + .md copy" }) +
+            D.arrow(560, 95, 590, 95) +
+            D.box(590, 60, 160, 70, "Bot reads", { tone: "faint", sub: "list, read, grep" }),
+          { label: "An upload is converted once, then every Bot reads the same file" },
+        ),
+      );
+
+      D.render(
+        "#before-after",
+        D.svg(
+          760,
+          190,
+          D.box(10, 60, 330, 70, "Before: chunks + embeddings", {
+            tone: "warn",
+            sub: "a second index to keep in step",
+          }) +
+            D.arrow(350, 95, 410, 95, { label: "removed" }) +
+            D.box(410, 60, 340, 70, "Now: files only", {
+              tone: "ok",
+              sub: "one copy, read with file tools",
+            }),
+          { label: "The index is replaced by files the Bots already read" },
+        ),
+      );
+
+      D.render(
+        "#finds",
+        D.svg(
+          760,
+          190,
+          D.box(10, 60, 170, 70, "Knowledge block", { tone: "blue", sub: "paths in the prompt" }) +
+            D.arrow(180, 95, 210, 95) +
+            D.box(210, 60, 170, 70, "Bot reads", { tone: "ok", sub: "the file itself" }) +
+            D.arrow(380, 95, 410, 95) +
+            D.box(410, 60, 170, 70, "Cites", { tone: "ok", sub: "file and page" }) +
+            D.arrow(580, 95, 610, 95) +
+            D.box(610, 60, 140, 70, "Not permission", { tone: "warn", sub: "information only" }),
+          { label: "The Bot finds a file from the block, reads it, and cites it" },
+        ),
+      );
+
+      D.render(
+        "#rates",
+        D.svg(
+          760,
+          190,
+          D.box(10, 60, 230, 70, "Gating: 7 of 7", { tone: "ok", sub: "all gating cases pass" }) +
+            D.box(265, 60, 230, 70, "Reworded: answered", {
+              tone: "warn",
+              sub: "by reading the file",
+            }) +
+            D.box(520, 60, 230, 70, "No keyword match", { tone: "faint", sub: "not gated" }),
+          { label: "The gating cases pass; the reworded question passed only by reading the file" },
+        ),
+      );
+
+      Explainer.mount("#video", {
+        title: "Lesson 20 in about 1 minute",
+        width: 760,
+        height: 300,
+        scenes: [
+          {
+            say: "Knowledge is a folder of plain files on the user's Computer, shared by all their Bots.",
+            draw: (t, A) =>
+              D.box(40, 110, 200, 50, "Upload", { tone: "blue" }) +
+              D.box(300, 110, 200, 50, "shared folder", {
+                tone: "ok",
+                opacity: A.step(t, 0.4, 0.8),
+              }),
+          },
+          {
+            say: "A PDF is converted once, into a readable copy with page markers.",
+            draw: (t, A) =>
+              D.box(40, 110, 200, 50, "PDF", { tone: "blue" }) +
+              D.box(300, 110, 200, 50, ".md copy", {
+                tone: "ok",
+                opacity: A.step(t, 0.4, 0.8),
+              }),
+          },
+          {
+            say: "There is no index. The Bot reads the file and cites the page.",
+            draw: (t, A) =>
+              D.box(40, 110, 200, 50, "Bot reads", { tone: "ok" }) +
+              D.box(300, 110, 200, 50, "Cites the page", {
+                tone: "blue",
+                opacity: A.step(t, 0.4, 0.8),
+              }),
+          },
+          {
+            say: "Ask a second Bot the same question. It reads the same file and gives the same answer.",
+            draw: (t, A) =>
+              D.box(40, 110, 200, 50, "Second Bot", { tone: "blue" }) +
+              D.box(300, 110, 200, 50, "Same answer", {
+                tone: "ok",
+                opacity: A.step(t, 0.4, 0.8),
+              }),
+          },
+        ],
+      });
+    </script>
+  </body>
+</html>

@@ -1,5 +1,5 @@
 ---
-Status: accepted
+Status: superseded by ADR 0025
 ---
 
 # Synced sources are cached locally at the synced commit and read with allowlisted shell commands

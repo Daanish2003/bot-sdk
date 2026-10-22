@@ -60,8 +60,9 @@ export function resolveRateLimits(overrides: RateLimits = {}): ResolvedRateLimit
 /** The RPC routes (under the handler's `/rpc`) that have a limit, and the limit each one uses. */
 export const rpcRateLimits: Record<string, keyof ResolvedRateLimits | undefined> = {
   "/attachment/upload": "attachmentUpload",
-  // Knowledge uploads share the attachment bucket (spec #357).
+  // Knowledge uploads share the attachment bucket (spec #737).
   "/knowledge/upload": "attachmentUpload",
+  "/knowledge/uploadDocument": "attachmentUpload",
   "/voice/transcribe": "transcription",
   "/credentials/save": "credentialSave",
   "/search/query": "conversationSearch",

@@ -4,6 +4,7 @@ import { assistantClient } from "../../plugins/assistant/client/index";
 import { botClient } from "../../plugins/bot/client/index";
 import { memoryClient } from "../../plugins/memory/client/index";
 import { skillsClient } from "../../plugins/skills/client/index";
+import { knowledgeClient } from "../../plugins/knowledge/client/index";
 import { modelsClient } from "../../plugins/models/client/index";
 import { createChatHandler } from "../../plugins/assistant/server/over";
 import { createTestSdk } from "./deps";
@@ -26,7 +27,14 @@ export function createTestChat({
     logger: { error: () => {} },
   });
   return createBotSdkClient({
-    plugins: [modelsClient(), assistantClient(), memoryClient(), skillsClient(), botClient()],
+    plugins: [
+      modelsClient(),
+      assistantClient(),
+      memoryClient(),
+      skillsClient(),
+      knowledgeClient(),
+      botClient(),
+    ],
     baseUrl: `http://localhost${basePath}`,
     fetch: handler,
   });

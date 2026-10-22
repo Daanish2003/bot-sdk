@@ -158,6 +158,7 @@ describe("a Check-in the Bot set", () => {
       sent: true,
       memoryChanges: null,
       skillChanges: null,
+      knowledgeChanges: null,
       steps: [],
       triggers: [
         {

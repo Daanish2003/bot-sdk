@@ -10,12 +10,9 @@ import {
 import { assistant } from "@ai-chat/bot-sdk/plugins/assistant/server";
 import { bot } from "@ai-chat/bot-sdk/plugins/bot/server";
 import { memory } from "@ai-chat/bot-sdk/plugins/memory/server";
+import { knowledge } from "@ai-chat/bot-sdk/plugins/knowledge/server";
 import { skills } from "@ai-chat/bot-sdk/plugins/skills/server";
-import {
-  fakeEmbeddingAdapter,
-  fakeImageAdapter,
-  models,
-} from "@ai-chat/bot-sdk/plugins/models/server";
+import { fakeImageAdapter, models } from "@ai-chat/bot-sdk/plugins/models/server";
 import { runner } from "@ai-chat/bot-sdk/plugins/runner/server";
 import { log } from "evlog";
 
@@ -27,7 +24,6 @@ import { getQuota } from "./admin/quota";
 import {
   hostBackgroundModelOf,
   hostDefaultImageModelOf,
-  hostEmbeddingProvidersOf,
   hostImageProvidersOf,
   hostProvidersOf,
   quotaOf,
@@ -117,12 +113,7 @@ export const sdk = (shared.botSdk ??= createBotSdk({
     models({
       // The Host's Models and their Quota (ADR 0007); unset, users chat only on their own keys.
       // The Host's Image Models (`HOST_IMAGE_*`) come as one more Provider entry beside its chat Models.
-      // The embedding Models (`HOST_EMBEDDING_PROVIDER`) come beside them, offered for Knowledge (ADR 0014).
-      hostProviders: [
-        ...hostProvidersOf(ENV),
-        ...hostImageProvidersOf(ENV),
-        ...hostEmbeddingProvidersOf(ENV),
-      ],
+      hostProviders: [...hostProvidersOf(ENV), ...hostImageProvidersOf(ENV)],
       // The Host's default Background Model for titles (`HOST_BACKGROUND_MODEL`), one of its Models.
       defaultBackgroundModel: hostBackgroundModelOf(ENV),
       // The Host's default Image Model (`HOST_DEFAULT_IMAGE_MODEL`), one of its Image Models.
@@ -130,11 +121,6 @@ export const sdk = (shared.botSdk ??= createBotSdk({
       // CI only (spec #278): HOST_IMAGE_PROVIDER=fake answers every image with the fake adapter, so no
       // paid call is made.
       ...(ENV.HOST_IMAGE_PROVIDER === "fake" && { imageAdapterFor: () => fakeImageAdapter() }),
-      // CI only (spec #357, ticket #370): HOST_EMBEDDING_PROVIDER=fake answers every embedding with the
-      // fake adapter, so Knowledge makes no paid call.
-      ...(ENV.HOST_EMBEDDING_PROVIDER === "fake" && {
-        embeddingAdapterFor: () => fakeEmbeddingAdapter(),
-      }),
       // A user's Quota: an Admin's override, else the Host's default (spec #277).
       getQuota: (userId) => getQuota(db, ENV, userId),
       // A linked ChatGPT plan is the user's OpenAI credentials when they saved no key (ADR 0023).
@@ -143,14 +129,16 @@ export const sdk = (shared.botSdk ??= createBotSdk({
         linkedCredentialsOf(cachedTokenFor((userId) => chatgptAccessToken(auth, db, userId))),
       ),
     }),
-    // Background jobs (ADR 0011): the in-process runner, which Knowledge and Memory share.
+    // Background jobs (ADR 0011): the in-process runner, which Memory and the Bots share.
     runner(),
     // The Bots' Computer (spec #519): on only when self-hosted E2B is configured.
     ...(await computerPluginsOf(e2b, computerTemplate)),
     // Memory (ADR 0013): the assistant's Memories and the user's Memory switch.
     memory(),
-    // Skills (spec #713): each Bot's SKILL.md files, listed in its prompt; on only with the Computer.
+    // Skills (spec #713): each Bot's SKILL.md files, listed in its prompt; a Host turns it on or off.
     skills(),
+    // Knowledge (spec #737): the user's shared Knowledge files on their Computer, and text extraction; a Host turns it on or off.
+    knowledge(),
     assistant({
       mcpServers: mcpServersOf(ENV),
       // Artifacts (spec #304): the assistant's create_artifact tool, the side panel and its version route.

@@ -17,7 +17,6 @@ export type HostEnv = {
   HOST_IMAGE_CREDENTIALS?: string | undefined;
   HOST_IMAGE_MODELS?: string | undefined;
   HOST_DEFAULT_IMAGE_MODEL?: string | undefined;
-  HOST_EMBEDDING_PROVIDER?: string | undefined;
 };
 
 type HostProviders = NonNullable<ModelsOptions["hostProviders"]>;
@@ -58,41 +57,7 @@ export function hostProvidersOf(env: HostEnv): HostProviders {
     .parse(parseJson(env.HOST_MODELS, "HOST_MODELS"));
   // The SDK checks the Provider id against its own list when it lists or runs a Model.
   const provider = env.HOST_PROVIDER!.trim() as ProviderId;
-  // An OpenAI key the Host gives also pays for Knowledge's embedding Model (ADR 0014).
-  return [
-    {
-      provider,
-      credentials,
-      models,
-      ...(provider === "openai" && { embeddingModels: openaiEmbeddingModels }),
-    },
-  ];
-}
-
-/**
- * The OpenAI embedding Model a Host offers on its own OpenAI key, with that Provider's list price per
- * million tokens, which the Host is charged (ADR 0014, spec #357).
- */
-const openaiEmbeddingModels = [{ model: "text-embedding-3-small", pricePerMillionTokensUsd: 0.02 }];
-
-/**
- * The Host's embedding Models when `HOST_EMBEDDING_PROVIDER=fake` (CI only, spec #357): an OpenAI
- * entry whose embedding calls the fake adapter answers, so Knowledge runs with no paid call. Unset,
- * the Host offers none beyond its OpenAI key (`hostProvidersOf`).
- */
-export function hostEmbeddingProvidersOf(env: HostEnv): HostProvider[] {
-  if (!isSet(env.HOST_EMBEDDING_PROVIDER)) return [];
-  if (env.HOST_EMBEDDING_PROVIDER.trim() !== "fake") {
-    throw new Error('HOST_EMBEDDING_PROVIDER must be "fake", the only value this app takes');
-  }
-  return [
-    {
-      provider: "openai",
-      credentials: { apiKey: "e2e-not-sent" },
-      models: [],
-      embeddingModels: openaiEmbeddingModels,
-    },
-  ];
+  return [{ provider, credentials, models }];
 }
 
 /**

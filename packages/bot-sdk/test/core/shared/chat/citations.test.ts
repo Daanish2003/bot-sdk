@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { citationFor, excerptFor } from "../../../../plugins/assistant/shared/chat/citations";
+import { citationFor } from "../../../../plugins/assistant/shared/chat/citations";
 import type { Source } from "../../../../plugins/assistant/shared/chat/sources";
 
 const sources: Source[] = [
@@ -23,22 +23,5 @@ describe("citationFor", () => {
     expect(citationFor("https://other.dev/", sources)).toBeNull();
     expect(citationFor(undefined, sources)).toBeNull();
     expect(citationFor("https://tanstack.com/ai/latest", [])).toBeNull();
-  });
-});
-
-describe("excerptFor", () => {
-  const excerpts = [
-    { number: 2, label: "excerpt:1", fileName: "brief.md", text: "The budget." },
-    { number: 3, label: "excerpt:2", fileName: "spec.pdf" },
-  ];
-
-  it("turns a link to an Excerpt's label into that Excerpt", () => {
-    expect(excerptFor("excerpt:2", excerpts)?.number).toBe(3);
-  });
-
-  it("leaves a link to a label this Message doesn't have, or a web link, plain", () => {
-    expect(excerptFor("excerpt:9", excerpts)).toBeNull();
-    expect(excerptFor("https://tanstack.com/ai", excerpts)).toBeNull();
-    expect(excerptFor(undefined, excerpts)).toBeNull();
   });
 });

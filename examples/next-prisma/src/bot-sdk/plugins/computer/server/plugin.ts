@@ -166,7 +166,11 @@ export type ComputerHandle = {
   /** A file's bytes, or null when there is no such file. */
   readFile: (path: string, options?: FileOperationOptions) => Promise<Uint8Array | null>;
   /** Writes a file, creating any missing parent directories, and overwrites it. */
-  writeFile: (path: string, content: string, options?: FileOperationOptions) => Promise<void>;
+  writeFile: (
+    path: string,
+    content: string | Uint8Array,
+    options?: FileOperationOptions,
+  ) => Promise<void>;
   /** A directory's entries, one level deep, or null when there is no such directory. */
   list: (path: string, options?: FileOperationOptions) => Promise<FileEntry[] | null>;
   /**

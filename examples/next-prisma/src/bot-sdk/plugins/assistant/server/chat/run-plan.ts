@@ -18,11 +18,9 @@ import { pastChatsOffered } from "../search/past-chats";
 import { mcpToolsFor, type McpTools } from "../mcp/tools";
 import { projectInstructionsOf } from "../project/store";
 import { loadSettings } from "../settings/store";
-import { knowledgeSearchFor } from "../knowledge/search";
 import type { ResolvedImageModel } from "../../../models/server/image-models";
 import type { ModelsApi } from "../../../models/server/plugin";
 import { editSourcesOf } from "./edit-sources";
-import type { ResolvedEmbeddingModel } from "../../../models/server/embedding-models";
 import { allowTools, trackTools, type HostToolContext } from "./host-tools";
 import type { RunToolState } from "./tracked-tool";
 import { systemPromptsFor } from "./system-prompts";
@@ -34,7 +32,6 @@ import { createArtifactTool, updateArtifactTool } from "./artifact-tool";
 import { createWebSearchTool } from "./web-search-tool";
 import { createSearchPastChatsTool } from "./past-chats-tool";
 import { createFetchUrlTool } from "./fetch-url-tool";
-import { createKnowledgeSearchTool } from "./knowledge-search-tool";
 import { createGenerateImageTool } from "./generate-image-tool";
 import { loadPath } from "../../../../core/server/chat/message-tree";
 import { type RunOf, startRun } from "./run";
@@ -74,8 +71,6 @@ export type Offered = {
   fetchUrl: boolean;
   /** Set when the Run offers `search_past_chats`: the Project that sets its scope (spec #263). */
   pastChats: { projectId: string | null } | null;
-  /** Set when the Run offers `search_knowledge`: the Project, its embedding Model and ready files (spec #357). */
-  knowledge: { projectId: string; model: ResolvedEmbeddingModel; fileNames: string[] } | null;
   /** Set when the Run offers `generate_image` (spec #278). */
   image: ImageTool | null;
   /** Whether the Run offers `create_artifact` and `update_artifact` (ADR 0016). */
@@ -278,7 +273,6 @@ async function buildPlan(
         instructions,
         // The Project's Instructions are read from the Conversation's Project at the same moment (spec 5).
         projectInstructions: await projectInstructionsOf(deps, owned.projectId),
-        knowledgeFiles: offered.knowledge?.fileNames ?? null,
       }),
       // The latest version of each Artifact on the path comes after the system prompts (ADR 0016).
       ...(offered.artifacts ? await artifactContextPrompts(deps, owned.id, input.leafId) : []),
@@ -311,7 +305,6 @@ async function offeredFor(
       webSearch: null,
       fetchUrl: false,
       pastChats: null,
-      knowledge: null,
       image: null,
       artifacts: false,
       hostTools: [],
@@ -328,14 +321,6 @@ async function offeredFor(
   const pastChats = (await pastChatsOffered(deps, userId, owned.temporary))
     ? { projectId: owned.projectId }
     : null;
-  // The Knowledge search is offered in a Project with ready Knowledge files and a working credential
-  // for its embedding Model (spec #357). A Temporary Conversation has no Project.
-  const knowledgeFound =
-    owned.projectId && !owned.temporary
-      ? await knowledgeSearchFor(deps, userId, owned.projectId)
-      : null;
-  const knowledge =
-    knowledgeFound && owned.projectId ? { projectId: owned.projectId, ...knowledgeFound } : null;
   // The MCP tools are opened before the history is built: a finished call of a tool not offered is
   // sent as text (spec #91). The plan closes them unless the Run takes them.
   opened.mcp = await mcpToolsFor(deps, userId, toolSettings);
@@ -343,7 +328,6 @@ async function offeredFor(
     webSearch,
     fetchUrl: webAsked,
     pastChats,
-    knowledge,
     image: await imageToolFor(deps, userId, path),
     // The Artifact tools are offered only when the Host turned them on (ADR 0016).
     artifacts: assistantState(deps).artifacts,
@@ -414,7 +398,6 @@ function replayFlagsOf(offered: Offered) {
     webSearch: offered.webSearch !== null,
     fetchUrl: offered.fetchUrl,
     generateImage: offered.image !== null,
-    knowledgeSearch: offered.knowledge !== null,
     hostTools: offered.hostTools.length > 0,
     mcpTools: (offered.mcp?.tools.length ?? 0) > 0,
     artifacts: offered.artifacts,
@@ -454,16 +437,6 @@ function toolsOf(deps: BotSdkContext, plan: RunPlan, run: RunToolState): AnyServ
           createFetchUrlTool({
             fetch: deps.fetch,
             timeoutMs: assistantState(deps).limits.fetchTimeoutMs,
-            ...run,
-          }),
-        ]
-      : []),
-    ...(offered.knowledge
-      ? [
-          createKnowledgeSearchTool({
-            deps,
-            projectId: offered.knowledge.projectId,
-            model: offered.knowledge.model,
             ...run,
           }),
         ]

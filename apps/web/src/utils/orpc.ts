@@ -1,6 +1,7 @@
 import { type BotSdkClient, createBotSdkClient } from "@ai-chat/bot-sdk/core/client";
 import { assistantClient } from "@ai-chat/bot-sdk/plugins/assistant/client";
 import { botClient } from "@ai-chat/bot-sdk/plugins/bot/client";
+import { knowledgeClient } from "@ai-chat/bot-sdk/plugins/knowledge/client";
 import { memoryClient } from "@ai-chat/bot-sdk/plugins/memory/client";
 import { modelsClient } from "@ai-chat/bot-sdk/plugins/models/client";
 import { skillsClient } from "@ai-chat/bot-sdk/plugins/skills/client";
@@ -34,7 +35,14 @@ const getChatClient = createIsomorphicFn()
   .server((): BotSdkClient =>
     createBotSdkClient({
       baseUrl: "http://localhost/api/chat",
-      plugins: [modelsClient(), assistantClient(), memoryClient(), skillsClient(), botClient()],
+      plugins: [
+        modelsClient(),
+        assistantClient(),
+        memoryClient(),
+        skillsClient(),
+        knowledgeClient(),
+        botClient(),
+      ],
       fetch: (request) => {
         // A call made while rendering carries the page request's cookies, so `getUser` sees the session.
         const headers = new Headers(request.headers);
@@ -47,7 +55,14 @@ const getChatClient = createIsomorphicFn()
   .client((): BotSdkClient =>
     createBotSdkClient({
       baseUrl: `${window.location.origin}/api/chat`,
-      plugins: [modelsClient(), assistantClient(), memoryClient(), skillsClient(), botClient()],
+      plugins: [
+        modelsClient(),
+        assistantClient(),
+        memoryClient(),
+        skillsClient(),
+        knowledgeClient(),
+        botClient(),
+      ],
     }),
   );
 

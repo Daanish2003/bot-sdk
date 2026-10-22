@@ -32,10 +32,7 @@ export function fail(message: string): never {
 
 /** The scratch database's URL, from `EVAL_DATABASE_URL`. */
 export function databaseUrlFromEnv(): string {
-  return (
-    process.env.EVAL_DATABASE_URL ??
-    fail("EVAL_DATABASE_URL is not set: a scratch Postgres with pgvector.")
-  );
+  return process.env.EVAL_DATABASE_URL ?? fail("EVAL_DATABASE_URL is not set: a scratch Postgres.");
 }
 
 /** The local E2B's connection, from the three variables the Host uses. */

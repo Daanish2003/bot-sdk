@@ -57,6 +57,8 @@ import {
   turnTimeLimitMs,
 } from "./store";
 import type { BotSkillChange } from "../../skills/shared/changes";
+import { knowledgeChangesOf } from "../../knowledge/server/changes";
+import type { BotKnowledgeChange } from "../../knowledge/shared/changes";
 import { skillChangesOf } from "../../skills/server/skills";
 import { secretNameSchema } from "../shared/secret";
 import {
@@ -508,6 +510,7 @@ async function cancelTurn(deps: BotSdkContext, tx: Transaction, turnId: string):
     error: null,
     transcript: played.transcript,
     skillChanges: turn ? skillChangesOf(turn.botId, played.transcript) : null,
+    knowledgeChanges: turn ? knowledgeChangesOf(turn.botId, played.transcript) : null,
     usage: played.usage,
     endedAt,
   });
@@ -653,6 +656,7 @@ async function runTurnJob(
         ...endingOf(played),
         transcript: played.transcript,
         skillChanges: skillChangesOf(turn.botId, played.transcript),
+        knowledgeChanges: knowledgeChangesOf(turn.botId, played.transcript),
         usage: played.usage,
         endedAt,
       });
@@ -736,6 +740,7 @@ async function endRunningTurn(
         ...ending,
         transcript: played.transcript,
         skillChanges: skillChangesOf(turn.botId, played.transcript),
+        knowledgeChanges: knowledgeChangesOf(turn.botId, played.transcript),
         usage: played.usage,
         endedAt,
       })
@@ -795,6 +800,7 @@ async function endTurn(
     error: string | null;
     transcript: ModelMessage[];
     skillChanges: BotSkillChange[] | null;
+    knowledgeChanges: BotKnowledgeChange[] | null;
     usage: MessageUsage | null;
     endedAt: Date;
   },
@@ -1028,6 +1034,10 @@ async function turnSetup(
   const skills =
     withComputer && deps.hasPlugin("skills") ? await skillsSnapshot(deps, turn, kit) : null;
   const skillsBlock = skills && deps.plugin("skills").prompt(turn.botId, skills);
+  // The user's Knowledge, read in the same wake too; on whatever the Memory switch says.
+  const knowledge =
+    withComputer && deps.hasPlugin("knowledge") ? await knowledgeSnapshot(deps, turn, kit) : null;
+  const knowledgeBlock = knowledge && deps.plugin("knowledge").prompt(knowledge);
   const tools = turnTools(deps, turn, kit, {
     withComputer,
     // Present whenever the snapshot is: it reads through the Computer like the snapshot does.
@@ -1045,6 +1055,7 @@ async function turnSetup(
       withComputer,
       memory,
       skills: skillsBlock,
+      knowledge: knowledgeBlock,
       routines,
     });
   // Recorded, so a replay sends the row its attempt chose.
@@ -1059,11 +1070,12 @@ async function turnSetup(
   const seenSince: EarlierTurn[] = earlier.map((row) =>
     summary?.kind === "mid_turn" && row.id === summary.turnId ? { ...row, promptStartId: id } : row,
   );
-  // What changed since the Prompt start, from what this Turn read: the memory block, the Skills
-  // and Routines as recorded above, and the live tools.
+  // What changed since the Prompt start, from what this Turn read: the memory block, the Skills,
+  // the Knowledge and the Routines as recorded above, and the live tools.
   const changeNotes = await changeNotesFor(db, id, seenSince, {
     memory,
     skills,
+    knowledge,
     routines: routines ?? null,
     tools: definitionsOf(tools),
   });
@@ -1222,6 +1234,7 @@ function startParts(
     withComputer,
     memory,
     skills,
+    knowledge,
     routines,
   }: {
     tools: AnyServerTool[];
@@ -1229,6 +1242,8 @@ function startParts(
     memory: string | null;
     /** The Skills block, null without the `skills` plugin or when it couldn't be read. */
     skills: string | null;
+    /** The Knowledge block, null without the `knowledge` plugin or when it couldn't be read. */
+    knowledge: string | null;
     routines: string | null;
   },
 ): PromptStartParts {
@@ -1241,6 +1256,7 @@ function startParts(
       ...(computerBlock ? [{ name: "computer", text: computerBlock }] : []),
       ...(memory ? [{ name: "memory", text: memory }] : []),
       ...(skills ? [{ name: "skills", text: skills }] : []),
+      ...(knowledge ? [{ name: "knowledge", text: knowledge }] : []),
       ...(routines ? [{ name: "routines", text: routines }] : []),
     ],
     tools: [...tools.filter(isDirectTool), ...toolSearchTools(tools)],
@@ -1259,8 +1275,9 @@ const definitionOnly = (): never => {
  * What a Summary written while the user is away builds its Prompt start from, at `now`: the Bot's
  * tools and system blocks as a Turn starting now reads them, the Routines read in `tx`,
  * `memory`, the memory block read just before (null with Memory off or unreadable), and `skills`,
- * the Skills block read with it (null without the `skills` plugin or unreadable). `turn` is the
- * Bot's newest Turn, which the Summary follows.
+ * the Skills block read with it (null without the `skills` plugin or unreadable), and `knowledge`,
+ * the Knowledge block read with them (null without the `knowledge` plugin or unreadable). `turn`
+ * is the Bot's newest Turn, which the Summary follows.
  */
 export async function awayStartParts(
   deps: BotSdkContext,
@@ -1269,6 +1286,7 @@ export async function awayStartParts(
   now: Date,
   memory: string | null,
   skills: string | null,
+  knowledge: string | null,
 ): Promise<PromptStartParts> {
   const withComputer = deps.hasPlugin("computer");
   const kit: LoopKit = {
@@ -1284,7 +1302,7 @@ export async function awayStartParts(
     onLastMessage: definitionOnly,
   });
   const routines = (await routinesPrompt(tx, turn.botId)) ?? null;
-  return startParts(facts, now, { tools, withComputer, memory, skills, routines });
+  return startParts(facts, now, { tools, withComputer, memory, skills, knowledge, routines });
 }
 
 /** A tool the Prompt start sent that the code no longer has: it answers that it is gone. */
@@ -1341,6 +1359,25 @@ async function skillsSnapshot(
     }),
   }));
   return "error" in read ? null : read.skills;
+}
+
+/**
+ * The readable paths of the user's Knowledge as the Turn starts (spec #737), read once from the
+ * Computer like the memory snapshot, as a Computer call of the loop's: a replay reads the recorded
+ * list. Null when the Computer can't be woken or read, so the Turn goes on without them.
+ */
+async function knowledgeSnapshot(
+  deps: BotSdkContext,
+  turn: TurnFacts,
+  kit: LoopKit,
+): Promise<string[] | null> {
+  const read = await kit.computerCall("knowledge", undefined, async (_computer, live) => ({
+    paths: await deps.plugin("knowledge").readablePaths({
+      computer: computerOf(deps, turn.userId),
+      signal: live.signal,
+    }),
+  }));
+  return "error" in read ? null : read.paths;
 }
 
 /** How a Turn ended, and why when it failed: a limit's code or the Provider's error. */

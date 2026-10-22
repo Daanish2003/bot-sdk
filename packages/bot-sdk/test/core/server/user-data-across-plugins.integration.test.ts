@@ -13,7 +13,6 @@ import {
   botDemonstration,
   botSecret,
   job,
-  knowledgeFile,
   mcpConnection,
   project,
   savedPrompt,
@@ -24,8 +23,6 @@ import {
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkPlugin } from "../../../core/server/plugin";
 import { deleteUserData, exportUserData } from "../../../core/server/user-data";
-import { knowledgeBlobKey } from "../../../plugins/assistant/server/blob-keys";
-import { knowledgeJobKey } from "../../../plugins/assistant/server/knowledge/process";
 import { readTokens, saveTokens } from "../../../plugins/assistant/server/mcp/connections";
 import { assistant } from "../../../plugins/assistant/server/plugin";
 import { bot as botPlugin } from "../../../plugins/bot/server/plugin";
@@ -93,8 +90,8 @@ async function activeJobsNaming(ids: string[]) {
 
 /**
  * A user with a row in every table that has a `user_id` column: a Conversation with an Attachment,
- * a Shared link and a Generated image; a Project with a Conversation, a Generated image
- * and a Knowledge file whose processing job is queued; an unused Attachment; settings, a Saved
+ * a Shared link and a Generated image; a Project with a Conversation and a Generated image; an
+ * unused Attachment; settings, a Saved
  * prompt, an MCP connection, credentials and usage; the Memory switch; a Bot; a Computer. Returns the blob keys and ids it made.
  */
 async function seedEverything(
@@ -126,21 +123,6 @@ async function seedEverything(
   await getTestDb().insert(project).values({ id: projectId, userId: user.id, name: "Work" });
   const inProject = await insertConversation(user, { title: "In a Project", projectId });
   const projectImage = await insertGeneratedImage(deps, user, inProject.id);
-  const fileId = uuidv7();
-  await getTestDb().insert(knowledgeFile).values({
-    id: fileId,
-    userId: user.id,
-    projectId,
-    name: "a.md",
-    mediaType: "text/markdown",
-    size: 1,
-  });
-  await deps.blobStore.put(knowledgeBlobKey(fileId), new Uint8Array([1]), {
-    contentType: "text/markdown",
-  });
-  await deps
-    .plugin("runner")
-    .enqueue("knowledge.process", { fileId }, { idempotencyKey: knowledgeJobKey(fileId) });
 
   const botConversation = await insertConversation(user, { kind: "bot", model: null });
   const botId = uuidv7();
@@ -212,10 +194,9 @@ async function seedEverything(
       attachmentBlobKey(unused.id),
       `generated-image/${image}`,
       `generated-image/${projectImage}`,
-      knowledgeBlobKey(fileId),
       computerBlobKey(user.id),
     ],
-    ids: [user.id, fileId],
+    ids: [user.id],
   };
 }
 
@@ -250,8 +231,8 @@ describe("deleteUser across plugins", () => {
     // Their Computer's sandbox, with the Bot's memory files on its disk, is killed.
     expect(ownSandbox).toEqual(expect.any(String));
     expect(fake.callsOf("kill-sandbox").map((call) => call.sandboxId)).toEqual([ownSandbox]);
-    // Their Knowledge file's processing and their Computer's sleep check.
-    expect(await activeJobsNaming(kept.ids)).toHaveLength(2);
+    // Their Computer's sleep check.
+    expect(await activeJobsNaming(kept.ids)).toHaveLength(1);
   });
 
   it("deletes the models plugin's rows on an instance without the assistant", async () => {

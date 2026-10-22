@@ -3,7 +3,6 @@ import type { ToolExecutionContext } from "@tanstack/ai";
 import type { createPartsBuilder } from "../../shared/chat/parts";
 import { fetchUrlToolName } from "../../shared/chat/fetch-url";
 import { generateImageToolName } from "../../shared/chat/generated-image";
-import { searchKnowledgeToolName } from "../../shared/chat/knowledge-search";
 import { searchPastChatsToolName } from "../../shared/chat/past-chats";
 import { webSearchToolName } from "../../shared/chat/web-search";
 import type { StoredPart, ToolError } from "../../shared/message-parts";
@@ -64,8 +63,6 @@ function callOf(part: StoredPart) {
       return builtin(webSearchToolName);
     case "past_chats_search":
       return builtin(searchPastChatsToolName);
-    case "knowledge_search":
-      return builtin(searchKnowledgeToolName);
     case "generated_image":
       // A call the budget refused is `limit_reached` too. Leaving it out changes nothing: the
       // budget refuses only once it is spent.

@@ -32,6 +32,7 @@ const turnOf = (id: string, from: number, until: number): BotTurnProvenance => (
   triggers: [{ source: "user", at: at(from) }] as BotTurnProvenance["triggers"],
   memoryChanges: null,
   skillChanges: null,
+  knowledgeChanges: null,
   steps: [],
 });
 

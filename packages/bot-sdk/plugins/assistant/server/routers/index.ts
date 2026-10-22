@@ -5,7 +5,6 @@ import { artifactRouter } from "./artifact";
 import { chatRouter } from "./chat";
 import { connectionsRouter } from "./connections";
 import { conversationRouter } from "./conversation";
-import { knowledgeRouter } from "./knowledge";
 import { projectRouter } from "./project";
 import { savedPromptRouter } from "./saved-prompt";
 import { settingsRouter } from "./settings";
@@ -17,7 +16,6 @@ export const appRouter = {
   chat: chatRouter,
   connections: connectionsRouter,
   conversation: conversationRouter,
-  knowledge: knowledgeRouter,
   project: projectRouter,
   savedPrompt: savedPromptRouter,
   settings: settingsRouter,

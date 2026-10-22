@@ -5,7 +5,6 @@ import { createHookEmitter, type UsageEvent } from "../../../../core/server/chat
 import {
   freeMeter,
   freeModelMeter,
-  hostEmbeddingMeter,
   hostModelMeter,
   hostSearchMeter,
   hostTranscriptionMeter,
@@ -191,30 +190,6 @@ describe("a Host meter", () => {
       expect.any(Error),
     );
     expect(events).toEqual([]);
-  });
-
-  it("estimates an embedding's tokens from its characters when the Provider counts none", async () => {
-    const user = await insertUser();
-    const meter = hostEmbeddingMeter(createTestSdk(), user.id, {
-      model: "gemini:gemini-embedding-001",
-      pricePerMillionTokensUsd: 2,
-    });
-
-    await meter.record({ characters: 10 });
-    await meter.record({ characters: 10, reportedTokens: 7 });
-
-    expect(
-      (await rowsOf(user.id)).map(({ inputTokens, costMicros, estimated }) => ({
-        inputTokens,
-        costMicros,
-        estimated,
-      })),
-    ).toEqual(
-      expect.arrayContaining([
-        { inputTokens: 3, costMicros: 6, estimated: true },
-        { inputTokens: 7, costMicros: 14, estimated: false },
-      ]),
-    );
   });
 
   it("bills a Groq transcription for at least its minimum seconds", async () => {

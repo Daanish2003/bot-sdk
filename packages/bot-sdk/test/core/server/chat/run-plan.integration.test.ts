@@ -14,7 +14,6 @@ import { storedParts, type StoredPart } from "../../../../plugins/assistant/shar
 import { insertConversation, insertMessage } from "../../../support/conversations";
 import { createTestSdk } from "../../../support/deps";
 import { createFakeAdapter } from "../../../support/fake-adapter";
-import { drainJobs } from "../../../support/jobs";
 import { chatRpc } from "../../../support/sdk";
 import { insertUser } from "../../../support/users";
 
@@ -24,7 +23,6 @@ const hostOpenAI: HostProvider = {
   provider: "openai",
   credentials: { apiKey: "sk-host-openai" },
   models: [],
-  embeddingModels: [{ model: "text-embedding-3-small", pricePerMillionTokensUsd: 0.02 }],
   imageModels: [
     { modelId: "gpt-image-1-mini", size: "1024x1024", quality: "medium", pricePerImageUsd: 0.01 },
   ],
@@ -56,7 +54,7 @@ function summaryOf(plan: RunPlan) {
 }
 
 /**
- * A Conversation in a Project with a ready Knowledge file, on a user with Anthropic and Tavily keys
+ * A Conversation in a Project, on a user with Anthropic and Tavily keys
  * and a Host Image Model: a user Message, and a reply that searched the web and waits on a call.
  */
 async function waitingConversation() {
@@ -78,11 +76,6 @@ async function waitingConversation() {
   }
   const rpc = chatRpc({ user, deps });
   const { id: projectId } = await rpc.project.create({ name: "Thesis" });
-  await rpc.knowledge.upload({
-    projectId,
-    file: new File(["The 2026 budget is set."], "notes.md", { type: "text/markdown" }),
-  });
-  await drainJobs({ deps });
   const conv = await insertConversation(user, { title: "Waiting", projectId });
   const asked = await insertMessage({
     conversationId: conv.id,
@@ -152,7 +145,6 @@ describe("planRun", () => {
     expect(send.done.summary.tools).toEqual([
       "fetch_url",
       "generate_image",
-      "search_knowledge",
       "search_past_chats",
       "send_mail",
       "web_search",

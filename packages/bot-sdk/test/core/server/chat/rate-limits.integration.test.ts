@@ -117,6 +117,11 @@ const rpcCases = [
     rateLimits: { attachmentUpload: { limit: 1, windowSeconds: 60 } },
   },
   {
+    name: "Knowledge document upload (shares the attachment bucket)",
+    route: "knowledge/uploadDocument",
+    rateLimits: { attachmentUpload: { limit: 1, windowSeconds: 60 } },
+  },
+  {
     name: "Rating",
     route: "chat/rate",
     rateLimits: { rating: { limit: 1, windowSeconds: 60 } },

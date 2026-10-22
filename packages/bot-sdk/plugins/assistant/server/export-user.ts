@@ -9,7 +9,6 @@ import {
   message,
   project,
   generatedImage,
-  knowledgeFile,
   savedPrompt,
   sharedLink,
   userSettings,
@@ -87,8 +86,6 @@ export type UserExport = BotExport & {
   sharedLinks: { token: string; conversationId: string; createdAt: Date }[];
   /** The user's Saved prompts, by name. */
   savedPrompts: { name: string; text: string; createdAt: Date }[];
-  /** The user's Knowledge files, by name, type and Project; their bytes and passages are never in it. */
-  knowledgeFiles: { name: string; mediaType: string; projectId: string }[];
   /** The user's Artifacts, each with every version it has on any Branch (ADR 0016). */
   artifacts: {
     id: string;
@@ -237,16 +234,6 @@ export async function exportAssistantData(
     )
     .orderBy(asc(artifact.createdAt), asc(artifact.id));
 
-  const knowledgeFiles = await tx
-    .select({
-      name: knowledgeFile.name,
-      mediaType: knowledgeFile.mediaType,
-      projectId: knowledgeFile.projectId,
-    })
-    .from(knowledgeFile)
-    .where(eq(knowledgeFile.userId, userId))
-    .orderBy(asc(knowledgeFile.createdAt), asc(knowledgeFile.id));
-
   const versions = await tx
     .select({
       artifactId: artifactVersion.artifactId,
@@ -318,7 +305,6 @@ export async function exportAssistantData(
     })),
     sharedLinks: links,
     savedPrompts,
-    knowledgeFiles,
     artifacts: artifacts.map((row) => ({
       id: row.id,
       conversationId: row.conversationId,

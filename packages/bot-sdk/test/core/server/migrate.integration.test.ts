@@ -108,8 +108,6 @@ const sdkTables = [
   "generated_image",
   "job",
   "job_event",
-  "knowledge_chunk",
-  "knowledge_file",
   "mcp_connection",
   "memory_settings",
   "message",
@@ -156,7 +154,6 @@ describe("chat.migrate()", () => {
       "bot_turn_status",
       "computer_state",
       "job_status",
-      "knowledge_file_status",
       "message_error_reason",
       "message_rating",
       "message_role",
@@ -446,16 +443,123 @@ describe("chat.migrate()", () => {
     ]);
   });
 
-  it("creates the vector extension, so Knowledge can store embeddings", async () => {
-    const url = await scratchDatabase("k358_vector");
+  it("leaves a new database without the vector extension", async () => {
+    const url = await scratchDatabase("k743_no_vector");
 
     await chatFor(url).migrate();
 
-    const extensions = await rows<{ extname: string }>(
+    expect(await rows(url, "select 1 from pg_extension where extname = 'vector'")).toEqual([]);
+  });
+
+  it("drops the old Knowledge: its tables, enum, bytes, jobs, search parts and the vector extension (#743)", async () => {
+    const url = await scratchDatabase("k743_drop");
+    // A database at the migration before the drop, its passages in a pgvector column as they were
+    // written, with one Project's Knowledge file, its bytes, its job and a reply that searched it.
+    await migrateUpTo(url, "20261022061821_bot_turn_knowledge_changes");
+    await rows(
       url,
-      "select extname from pg_extension where extname = 'vector'",
+      `alter table chat.knowledge_chunk alter column embedding type vector(1536) using embedding::vector(1536)`,
     );
-    expect(extensions).toEqual([{ extname: "vector" }]);
+    const fileId = "0196a000-0000-7000-8000-0000000000f1";
+    await rows(
+      url,
+      `insert into chat.project (id, user_id, name, embedding_model)
+         values ('0196a000-0000-7000-8000-0000000000a1', 'user-1', 'Launch', 'openai:text-embedding-3-small')`,
+    );
+    await rows(
+      url,
+      `insert into chat.knowledge_file (id, user_id, project_id, name, media_type, size, status)
+         values ('${fileId}', 'user-1', '0196a000-0000-7000-8000-0000000000a1', 'brief.md', 'text/markdown', 3, 'ready')`,
+    );
+    await rows(
+      url,
+      `insert into chat.blob (key, bytes) values
+         ('knowledge/${fileId}', '\\x616263'), ('attachment/kept', '\\x00')`,
+    );
+    await rows(
+      url,
+      `insert into chat.job (id, name, payload) values
+         (gen_random_uuid(), 'knowledge.process', '{}'),
+         (gen_random_uuid(), 'memory.bot-pass', '{}')`,
+    );
+    const conversationId = "0196a000-0000-7000-8000-0000000000c1";
+    await rows(
+      url,
+      `insert into chat.conversation (id, user_id, kind, model) values ('${conversationId}', 'user-1', 'assistant', 'openai:gpt-5')`,
+    );
+    const searched = {
+      schemaVersion: 5,
+      parts: [
+        { type: "text", text: "Looking." },
+        {
+          type: "knowledge_search",
+          toolCallId: "call-1",
+          query: "launch",
+          state: "done",
+          excerpts: [{ fileId, fileName: "brief.md", chunkIndex: 0, text: "abc" }],
+        },
+        { type: "text", text: "It launches in May." },
+      ],
+    };
+    await rows(
+      url,
+      `insert into chat.message (id, conversation_id, role, parts, status)
+         values ('0196a000-0000-7000-8000-0000000000d1', '${conversationId}', 'assistant', '${JSON.stringify(searched)}', 'complete')`,
+    );
+
+    await chatFor(url).migrate();
+
+    const tables = await rows<{ table_name: string }>(
+      url,
+      `select table_name from information_schema.tables
+       where table_schema = 'chat' and table_name like 'knowledge%'`,
+    );
+    expect(tables).toEqual([]);
+    const status = await rows(
+      url,
+      `select 1 from pg_type t join pg_namespace n on n.oid = t.typnamespace
+       where n.nspname = 'chat' and t.typname = 'knowledge_file_status'`,
+    );
+    expect(status).toEqual([]);
+    const embeddingModel = await rows(
+      url,
+      `select 1 from information_schema.columns
+       where table_schema = 'chat' and table_name = 'project' and column_name = 'embedding_model'`,
+    );
+    expect(embeddingModel).toEqual([]);
+    expect(await rows(url, "select 1 from pg_extension where extname = 'vector'")).toEqual([]);
+    expect(await rows(url, "select key from chat.blob")).toEqual([{ key: "attachment/kept" }]);
+    expect(await rows(url, "select name from chat.job")).toEqual([{ name: "memory.bot-pass" }]);
+    expect(await rows(url, "select parts from chat.message")).toEqual([
+      {
+        parts: {
+          schemaVersion: 5,
+          parts: [
+            { type: "text", text: "Looking." },
+            { type: "text", text: "It launches in May." },
+          ],
+        },
+      },
+    ]);
+    expect(await rows(url, "select name from chat.project")).toEqual([{ name: "Launch" }]);
+  });
+
+  it("keeps the vector extension while a table outside the SDK uses it", async () => {
+    const url = await scratchDatabase("k743_host_vector");
+    await migrateUpTo(url, "20261022061821_bot_turn_knowledge_changes");
+    await rows(url, "create table public.host_embedding (embedding vector(3))");
+
+    await chatFor(url).migrate();
+
+    expect(await rows(url, "select extname from pg_extension where extname = 'vector'")).toEqual([
+      { extname: "vector" },
+    ]);
+    const tables = await rows(
+      url,
+      `select 1 from information_schema.tables
+       where table_schema = 'chat' and table_name like 'knowledge%'`,
+    );
+    expect(tables).toEqual([]);
   });
 
   it("creates reasoning_effort as the enum off, low, medium, high", async () => {
@@ -551,7 +655,7 @@ describe("chat.migrate()", () => {
     await expect(Promise.all([chat.migrate(), chat.migrate()])).resolves.toBeDefined();
 
     const applied = await rows<{ count: string }>(url, "select count(*) from chat.__migrations");
-    expect(applied).toEqual([{ count: "57" }]);
+    expect(applied).toEqual([{ count: "59" }]);
   });
 
   it("gives a Conversation's tool settings empty lists by default, so existing rows read as empty", async () => {

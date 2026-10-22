@@ -11,7 +11,7 @@ calls, the Messages the Bot sent, and the `SKILL.md` files left on its Computer.
 
 ## Run them
 
-Both need a scratch Postgres with pgvector, created before the first run (the scripts migrate it, but
+Both need a scratch Postgres, created before the first run (the scripts migrate it, but
 do not create the database), and a Model key:
 
 ```sh

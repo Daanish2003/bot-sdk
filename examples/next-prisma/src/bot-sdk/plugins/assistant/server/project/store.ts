@@ -1,9 +1,8 @@
-import { conversation, project, knowledgeFile } from "../../../../core/server/db/schema";
+import { conversation, project } from "../../../../core/server/db/schema";
 import { and, count, desc, eq, sql } from "drizzle-orm";
 
 import { deleteConversations } from "../../../../core/server/chat/delete-conversations";
 import type { BotSdkContext } from "../../../../core/server/plugin";
-import { discardKnowledgeFiles, knowledgeFileIdsWhere } from "../knowledge/cascade";
 
 type Deps = Pick<BotSdkContext, "db">;
 
@@ -85,14 +84,11 @@ export async function deleteProject(deps: BotSdkContext, userId: string, id: str
       userId,
       announce: { projectId: conversation.projectId },
     });
-    // The Knowledge files: their rows and passages go by cascade, their bytes and jobs after the commit.
-    const knowledgeIds = await knowledgeFileIdsWhere(tx, eq(knowledgeFile.projectId, id));
     await tx.delete(project).where(eq(project.id, id));
-    return { deleted, afterCommit, knowledgeIds };
+    return { deleted, afterCommit };
   });
   if (!result) return undefined;
   // After the commit: a rolled-back delete fires nothing (#265, #266).
   await result.afterCommit();
-  await discardKnowledgeFiles(deps, result.knowledgeIds);
   return result.deleted.length;
 }

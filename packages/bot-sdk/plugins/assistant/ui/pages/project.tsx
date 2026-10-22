@@ -17,20 +17,17 @@ import { useChatAdapter, useI18n, useOrpc } from "../../../../core/client/react/
 import { serverErrorText } from "../../../../core/client/rpc-error";
 import { ConversationRow } from "../shell/conversation-panel";
 import { EditProjectForm } from "./edit-project-form";
-import { KnowledgeTab, useProjectKnowledge } from "./project-knowledge";
 
 /**
- * A Project: its name, "New chat in this Project", and an edit form for its name and default Model.
- * Its body is two tabs: Conversations (newest Message first) and Knowledge (spec #357).
+ * A Project: its name, "New chat in this Project", an edit form for its name and default Model, and
+ * its Conversations, newest Message first.
  */
 export function ProjectPage({ projectId }: { projectId: string }) {
   const orpc = useOrpc();
   const { Link } = useChatAdapter();
   const { t } = useI18n();
   const project = useQuery(orpc.project.get.queryOptions({ input: { id: projectId } }));
-  const knowledge = useProjectKnowledge(projectId);
   const [editing, setEditing] = useState(false);
-  const [tab, setTab] = useState<"conversations" | "knowledge">("conversations");
   const conversations = useInfiniteQuery(
     orpc.conversation.list.infiniteOptions({
       input: (cursor: string | undefined) => ({ cursor, projectId }),
@@ -76,46 +73,25 @@ export function ProjectPage({ projectId }: { projectId: string }) {
           onDone={() => setEditing(false)}
         />
       )}
-      <div role="tablist" className="flex gap-1 border-b">
-        <ProjectTab
-          selected={tab === "conversations"}
-          onSelect={() => setTab("conversations")}
-          label={t("knowledge.tabConversations")}
-        />
-        <ProjectTab
-          selected={tab === "knowledge"}
-          onSelect={() => setTab("knowledge")}
-          label={
-            knowledge.data
-              ? `${t("knowledge.tabKnowledge")} ${knowledge.data.files.length}`
-              : t("knowledge.tabKnowledge")
-          }
-        />
-      </div>
-      {tab === "conversations" && (
-        <>
-          {conversations.isSuccess && rows.length === 0 && (
-            <p className="text-sm text-muted-foreground">{t("pages.noProjectConversations")}</p>
-          )}
-          {rows.length > 0 && (
-            <ul className="overflow-hidden rounded-md border">
-              {rows.map((row) => (
-                <ConversationRow key={row.id} conversation={row} />
-              ))}
-            </ul>
-          )}
-          {conversations.hasNextPage && (
-            <Button
-              variant="outline"
-              disabled={conversations.isFetchingNextPage}
-              onClick={() => void conversations.fetchNextPage()}
-            >
-              {conversations.isFetchingNextPage ? t("shell.loading") : t("pages.loadMore")}
-            </Button>
-          )}
-        </>
+      {conversations.isSuccess && rows.length === 0 && (
+        <p className="text-sm text-muted-foreground">{t("pages.noProjectConversations")}</p>
       )}
-      {tab === "knowledge" && <KnowledgeTab projectId={projectId} />}
+      {rows.length > 0 && (
+        <ul className="overflow-hidden rounded-md border">
+          {rows.map((row) => (
+            <ConversationRow key={row.id} conversation={row} />
+          ))}
+        </ul>
+      )}
+      {conversations.hasNextPage && (
+        <Button
+          variant="outline"
+          disabled={conversations.isFetchingNextPage}
+          onClick={() => void conversations.fetchNextPage()}
+        >
+          {conversations.isFetchingNextPage ? t("shell.loading") : t("pages.loadMore")}
+        </Button>
+      )}
     </div>
   );
 }
@@ -186,32 +162,5 @@ function DeleteProjectButton({ projectId }: { projectId: string }) {
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
-  );
-}
-
-/** One of the Project page's two tabs: a button with the tab role, selected or not. */
-function ProjectTab({
-  selected,
-  onSelect,
-  label,
-}: {
-  selected: boolean;
-  onSelect: () => void;
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={selected}
-      onClick={onSelect}
-      className={`-mb-px border-b-2 px-3 py-2 text-sm ${
-        selected
-          ? "border-foreground font-medium text-foreground"
-          : "border-transparent text-muted-foreground hover:text-foreground"
-      }`}
-    >
-      {label}
-    </button>
   );
 }

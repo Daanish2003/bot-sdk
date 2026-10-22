@@ -22,16 +22,12 @@ import {
   conversation,
   message,
   project,
-  job,
-  knowledgeFile,
   userCredentials,
   savedPrompt,
   sharedLink,
   userSettings,
   usage,
 } from "../../../core/server/db/schema";
-import { knowledgeBlobKey } from "../../../plugins/assistant/server/blob-keys";
-import { knowledgeJobKey } from "../../../plugins/assistant/server/knowledge/process";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { insertAttachment, linkTestAttachments } from "../../support/attachments";
 import { insertConversation, insertMessage } from "../../support/conversations";
@@ -410,70 +406,5 @@ describe("deleteUserData, Temporary Conversations", () => {
     expect(
       await getTestDb().select().from(message).where(eq(message.conversationId, temporary.id)),
     ).toEqual([]);
-  });
-});
-
-describe("deleteUserData, Knowledge files", () => {
-  it("deletes the user's Knowledge files, their bytes, and cancels their queued jobs", async () => {
-    const user = await insertUser();
-    const other = await insertUser();
-    const deps = createTestSdk();
-    const ownProject = uuidv7();
-    const otherProject = uuidv7();
-    await getTestDb()
-      .insert(project)
-      .values([
-        { id: ownProject, userId: user.id, name: "Mine" },
-        { id: otherProject, userId: other.id, name: "Theirs" },
-      ]);
-    const ownFile = uuidv7();
-    const otherFile = uuidv7();
-    await getTestDb()
-      .insert(knowledgeFile)
-      .values([
-        {
-          id: ownFile,
-          userId: user.id,
-          projectId: ownProject,
-          name: "a.md",
-          mediaType: "text/markdown",
-          size: 1,
-        },
-        {
-          id: otherFile,
-          userId: other.id,
-          projectId: otherProject,
-          name: "b.md",
-          mediaType: "text/markdown",
-          size: 1,
-        },
-      ]);
-    const bytes = new Uint8Array([1]);
-    await deps.blobStore.put(knowledgeBlobKey(ownFile), bytes, { contentType: "text/markdown" });
-    await deps.blobStore.put(knowledgeBlobKey(otherFile), bytes, { contentType: "text/markdown" });
-    await deps
-      .plugin("runner")
-      .enqueue(
-        "knowledge.process",
-        { fileId: ownFile },
-        { idempotencyKey: knowledgeJobKey(ownFile) },
-      );
-
-    await deleteUserData(deps, user.id);
-
-    expect(
-      await getTestDb().select().from(knowledgeFile).where(eq(knowledgeFile.id, ownFile)),
-    ).toEqual([]);
-    expect(await deps.blobStore.get(knowledgeBlobKey(ownFile))).toBeNull();
-    expect(
-      await getTestDb()
-        .select({ status: job.status })
-        .from(job)
-        .where(eq(job.idempotencyKey, knowledgeJobKey(ownFile))),
-    ).toEqual([{ status: "cancelled" }]);
-    expect(
-      await getTestDb().select().from(knowledgeFile).where(eq(knowledgeFile.id, otherFile)),
-    ).toHaveLength(1);
-    expect(await deps.blobStore.get(knowledgeBlobKey(otherFile))).not.toBeNull();
   });
 });

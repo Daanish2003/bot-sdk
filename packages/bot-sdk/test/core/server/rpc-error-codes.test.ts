@@ -42,10 +42,10 @@ describe("oRPC errors carry a dictionary code", () => {
         [...source.matchAll(/"(error\.\w+)"/g)].map((match) => match[1] ?? ""),
       ),
     );
-    // error.unexpected is the client's own fallback, so the server never sends it.
-    const keys = Object.keys(en).filter(
-      (key) => key.startsWith("error.") && key !== "error.unexpected",
-    );
+    // The client's own codes, which the server never sends: error.unexpected is its fallback,
+    // and the Knowledge popover refuses a file that isn't UTF-8 before uploading it.
+    const clientOnly = new Set(["error.unexpected", "error.knowledgeNotUtf8"]);
+    const keys = Object.keys(en).filter((key) => key.startsWith("error.") && !clientOnly.has(key));
 
     for (const code of used) expect(en).toHaveProperty([code]);
     expect([...used].sort()).toEqual(keys.sort());

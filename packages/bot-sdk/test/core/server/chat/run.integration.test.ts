@@ -112,26 +112,11 @@ describe("reapStaleRuns", () => {
     expect(chunks.at(-1)).toMatchObject({ type: EventType.RUN_ERROR, message: "interrupted" });
   });
 
-  it("closes a Knowledge search or a past-chats search still running in a reaped reply as cancelled", async () => {
+  it("closes a past-chats search still running in a reaped reply as cancelled", async () => {
     const deps = createTestSdk();
     const conv = await insertConversation(await insertUser());
     const now = new Date("2026-10-09T12:00:00Z");
     const stale = { status: "streaming" as const, heartbeatAt: new Date(now.getTime() - 60_000) };
-    const knowledge = await insertMessage({
-      conversationId: conv.id,
-      role: "assistant",
-      text: "",
-      ...stale,
-      parts: storedParts([
-        {
-          type: "knowledge_search",
-          toolCallId: "call-1",
-          query: "q",
-          state: "running",
-          excerpts: [],
-        },
-      ]),
-    });
     const pastChats = await insertMessage({
       conversationId: conv.id,
       role: "assistant",
@@ -150,10 +135,6 @@ describe("reapStaleRuns", () => {
 
     await reapStaleRuns(deps, now);
 
-    expect(await rowOf(deps, knowledge.id)).toMatchObject({
-      status: "error",
-      parts: { parts: [{ type: "knowledge_search", state: "cancelled" }] },
-    });
     expect(await rowOf(deps, pastChats.id)).toMatchObject({
       status: "error",
       parts: { parts: [{ type: "past_chats_search", state: "cancelled" }] },
@@ -204,7 +185,6 @@ describe("startRun", () => {
         webSearch: null,
         fetchUrl: false,
         pastChats: null,
-        knowledge: null,
         image: null,
         artifacts: false,
         hostTools: [],

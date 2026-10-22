@@ -5,7 +5,6 @@ import { getTestDb } from "./test-database";
 import type { AssistantState } from "../../plugins/assistant/server/state";
 import { postgresBlobStore } from "../../core/server/blob/postgres";
 import { createMemoryCounters } from "../../core/server/chat/counters";
-import { fakeEmbeddingAdapter } from "../../plugins/models/server/fake-embedding-adapter";
 import { createHookEmitter, type HookEmitter } from "../../core/server/chat/hooks";
 import { createMemoryPubSub } from "../../core/server/chat/pubsub";
 import { createMemoryRunStreams } from "../../core/server/chat/run-streams";
@@ -113,7 +112,6 @@ export function createTestSdk({ limits, plugins, ...overrides }: TestDepsOverrid
           `No fake image adapter for model "${model}"; pass imageAdapterFor to createTestSdk`,
         );
       }),
-    embeddingAdapterFor: overrides.embeddingAdapterFor ?? (() => fakeEmbeddingAdapter()),
     transcriptionAdapterFor:
       overrides.transcriptionAdapterFor ??
       ((model) => {

@@ -7,7 +7,7 @@ SDK copy script.
 
 ## Run it
 
-It needs a scratch Postgres with pgvector, created before the first run (the script migrates it, but
+It needs a scratch Postgres, created before the first run (the script migrates it, but
 does not create the database), and the API key of the Model's Provider:
 
 ```sh
@@ -218,7 +218,7 @@ EVAL_DATABASE_URL=postgresql://postgres:password@127.0.0.1:5435/ai-chat_eval_con
 `EVAL_BOT_MODEL`, `EVAL_JUDGE_MODEL`, `EVAL_REPEATS`, `EVAL_CONCURRENCY` and `--fake` work as above.
 `--only=cache,summary,tools` runs some of the three. `EVAL_REPEATS` defaults to 1 for the cache and
 Summary evals (each is big) and 3 for the tool search cases. The cache eval fails at start unless
-`EVAL_BOT_MODEL` is an `anthropic:` Model. Use a fresh `EVAL_DATABASE_URL` database (with pgvector)
+`EVAL_BOT_MODEL` is an `anthropic:` Model. Use a fresh `EVAL_DATABASE_URL` database
 per run. Results are saved as `eval/turn/results/context-<time>.json`, with each run's usage rows,
 Summary text, replies and tool calls.
 
