@@ -129,6 +129,23 @@ describe("mailpitEmailProvider.send", () => {
     });
   });
 
+  it("sends attachments as base64", async () => {
+    const { provider, calls } = mailpit();
+    await provider.send({
+      from: "a@b.c",
+      to: "d@e.f",
+      subject: "",
+      text: "",
+      messageId: "<x>",
+      attachments: [
+        { name: "h.txt", contentType: "text/plain", content: new TextEncoder().encode("hello") },
+      ],
+    });
+    expect(JSON.parse(calls[0]!.init!.body as string).Attachments).toEqual([
+      { Filename: "h.txt", ContentType: "text/plain", Content: "aGVsbG8=" },
+    ]);
+  });
+
   it("leaves out the threading headers a first mail doesn't have, and throws on a refusal", async () => {
     const { provider, calls } = mailpit();
     await provider.send({

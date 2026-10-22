@@ -96,6 +96,15 @@ export function mailpitEmailProvider({
           Text: mail.text,
           ...(mail.html ? { HTML: mail.html } : {}),
           Headers: headers,
+          ...(mail.attachments?.length
+            ? {
+                Attachments: mail.attachments.map((file) => ({
+                  Filename: file.name,
+                  ContentType: file.contentType,
+                  Content: Buffer.from(file.content).toString("base64"),
+                })),
+              }
+            : {}),
         }),
       });
       if (!response.ok) {
