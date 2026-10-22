@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 
 import { and, asc, desc, eq, inArray, isNull, like, lt, lte, min, or, sql } from "drizzle-orm";
 
+import { appendMessage } from "../../../core/server/chat/message-tree";
 import { bot, botRoutine, botTrigger, botTurn, job, message } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
@@ -11,7 +12,7 @@ import { type BotRoutine, type RoutineSchedule, scheduleText } from "../shared/r
 import { recordBotChange } from "./thread-change";
 import { lockConversation } from "./router";
 import { nextSlot } from "./schedule";
-import { newestTimeZone } from "./store";
+import { controlParts, newestTimeZone } from "./store";
 import { defaultTimeZone, formatterIn, knownZone } from "./time-zone";
 
 /** The Bot's tool that saves a Routine for the user's Approval (#538). */
@@ -205,6 +206,28 @@ export const scheduleOrWebhookError =
 export const routineSavedResult = "Saved; it runs once the user approves it.";
 
 /**
+ * Writes the Message that asks the user to approve Routine `routine` (spec #761): its text, and a
+ * `routine_approval` control holding the Routine's id, whose state the client reads from the row.
+ * In the caller's transaction, which holds the Conversation's row lock.
+ */
+async function askApproval(
+  tx: Transaction,
+  conversationId: string,
+  routine: { id: string; name: string },
+  now: Date,
+): Promise<void> {
+  await appendMessage(tx, conversationId, {
+    role: "assistant",
+    parts: controlParts(`Routine "${routine.name}" waits for your approval.`, {
+      kind: "routine_approval",
+      routineId: routine.id,
+    }),
+    status: "complete",
+    createdAt: now,
+  });
+}
+
+/**
  * Saves the Routine a Turn's `create_routine` call asked for (#538), `pending` until the user's
  * Approval, in the zone of the Conversation's newest user Message (UTC when it carried none). It has
  * exactly one of a schedule and a webhook; a webhook Routine has no token until its first Approval
@@ -259,6 +282,7 @@ export async function saveRoutine(
     };
   }
   await recordBotChange(tx, { conversationId }, "routine", id, now);
+  await askApproval(tx, conversationId, { id, name }, now);
   return { saved: routineSavedResult };
 }
 
@@ -323,6 +347,7 @@ export async function updateRoutine(
   await recordBotChange(tx, { conversationId }, "routine", routine.id, now);
   if (!approved) return { saved: routineSavedResult };
   await stopRoutine(deps, tx, routine.id);
+  await askApproval(tx, conversationId, routine, now);
   return { saved: routineChangedResult };
 }
 
@@ -381,7 +406,7 @@ export async function routinesPrompt(
 }
 
 /**
- * The last Message of the Turn a row's `createdByTurnId` names, which its card or line follows: the
+ * The last Message of the Turn a row's `createdByTurnId` names, which its line or card follows: the
  * Bot's last Message sent by the time the Turn ended, or the user's last one from before it started;
  * a user Message sent while it ran is not. Use it in a query that joins `bot` and `bot_turn`.
  */
@@ -401,13 +426,10 @@ export function lastMessageOfTurn(db: Database) {
 }
 
 /**
- * The Bot's Routines, sorted by name. Each has `afterMessageId`, the last Message of the Turn that
- * created it: its approval card follows it. That is the Bot's last Message sent by the time the Turn
- * ended, or the user's last one from before it started; a user Message sent while it ran is not.
- * `nextRunAt` is when its queued fire is due, `null` when none is queued.
+ * The Bot's Routines, sorted by name. `nextRunAt` is when its queued fire is due, `null` when none
+ * is queued.
  */
 export async function listRoutines(db: Database, botId: string): Promise<BotRoutine[]> {
-  const after = lastMessageOfTurn(db);
   // When the Routine's queued fire is due: its next run.
   const nextRun = db
     .select({ at: min(job.runAfter) })
@@ -430,12 +452,9 @@ export async function listRoutines(db: Database, botId: string): Promise<BotRout
       state: botRoutine.state,
       approvedAt: botRoutine.approvedAt,
       createdAt: botRoutine.createdAt,
-      afterMessageId: sql<string | null>`(${after})`,
       nextRunAt: sql<Date | null>`(${nextRun})`.mapWith(job.runAfter),
     })
     .from(botRoutine)
-    .innerJoin(bot, eq(bot.id, botRoutine.botId))
-    .innerJoin(botTurn, eq(botTurn.id, botRoutine.createdByTurnId))
     .where(eq(botRoutine.botId, botId))
     .orderBy(asc(botRoutine.name));
 }

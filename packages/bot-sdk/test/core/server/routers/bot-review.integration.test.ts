@@ -418,6 +418,41 @@ describe("Auto-review of the Bot's shell commands", () => {
     expect(computerFake.callsOf("run")).toEqual([]);
   });
 
+  it("puts a block's Approval in the thread as a control Message holding the review id", async () => {
+    const reviewer = reviewerPlaying(
+      verdict({ outcome: "block", reason: "You didn't ask to deploy.", summary: "Deploy" }),
+    );
+    const { client, botId } = await botWith([round(shell("make deploy")), round()], { reviewer });
+
+    const stream = await client.bot.send({ botId, id: uuidv7(), text: "ship it" });
+    const waiting = await waitingReview(botId);
+    const { messages } = await client.bot.get({ botId });
+    await client.bot.review.deny({ reviewId: waiting.id });
+    for await (const _event of stream) {
+      // Read to the end of the Turn.
+    }
+
+    expect(messages.filter((sent) => sent.control?.kind === "review_approval")).toEqual([
+      expect.objectContaining({
+        role: "assistant",
+        text: "Deploy",
+        control: { kind: "review_approval", reviewId: waiting.id },
+      }),
+    ]);
+    const changed = await client.bot.changes({ botId, since: 0 });
+    if (changed.reload) throw new Error("expected changes");
+    const decided = changed.changes.filter(
+      (change) => change.kind === "review" && change.refId === waiting.id,
+    );
+    expect(decided).toHaveLength(2);
+    // A pass puts nothing in the thread.
+    expect(
+      (await client.bot.get({ botId })).messages.filter(
+        (sent) => sent.control?.kind === "review_approval",
+      ),
+    ).toHaveLength(1);
+  });
+
   it("runs a blocked call the user allows before its deadline", async () => {
     const reviewer = reviewerPlaying(
       verdict({ outcome: "block", reason: "You didn't ask to deploy.", summary: "Deploy" }),
