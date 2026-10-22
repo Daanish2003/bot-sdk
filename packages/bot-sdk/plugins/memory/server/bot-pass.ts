@@ -2,15 +2,16 @@ import type { ModelMessage } from "@tanstack/ai";
 import { asc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { conversationChannel } from "../../../core/server/chat/conversation-events";
 import { bot, botTrigger, botTurn, message } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { searchTextOf } from "../../../core/shared/message-parts";
-import { sendToUserToolName } from "../../bot/server/turn";
+import { lockConversation } from "../../bot/server/router";
+import { recordBotChange } from "../../bot/server/thread-change";
+import { hintChanged, sendToUserToolName } from "../../bot/server/turn";
 import type { ComputerHandle } from "../../computer/server/plugin";
 import { defineJob, type JobContext } from "../../runner/server/jobs/define";
-import type { BotMemoryChange, BotMemoryUpdatedEvent, MemoryTier } from "../shared/changes";
+import type { BotMemoryChange, MemoryTier } from "../shared/changes";
 import {
   dayOf,
   defaultImportance,
@@ -32,8 +33,8 @@ import { memoryEnabledFor } from "./manage";
  * A Bot's post-turn memory pass (ADR 0022): after a Turn that ended `complete` or `stopped`, the
  * Bot's own Model reads the Turn and the Bot's numbered memory lines, and returns operations. The
  * code applies them to the Bot's own files: a `replace` or `remove` must cite a shown line whose
- * text hasn't changed since. What it changed is saved as the Turn's change list and announced on
- * the Conversation's channel.
+ * text hasn't changed since. What it changed is saved as the Turn's change list and recorded in the
+ * Bot thread's change log (ADR 0026).
  */
 
 const passPayload = z.object({ turnId: z.string() });
@@ -180,19 +181,16 @@ async function runBotMemoryPass(
         signal,
       });
       if (applied.length > 0) {
+        // The change is the Turn's, so a tab that syncs re-reads the thread and shows the chip.
+        await lockConversation(tx, turn.conversationId);
         await tx.update(botTurn).set({ memoryChanges: applied }).where(eq(botTurn.id, turnId));
+        await recordBotChange(tx, turn, "turn", turnId, deps.clock());
       }
       return applied;
     });
   });
   if (changes.length === 0) return;
-  const event: BotMemoryUpdatedEvent = { type: "bot_memory_updated", turnId, changes };
-  try {
-    await deps.pubsub.publish(conversationChannel(turn.conversationId), JSON.stringify(event));
-  } catch (error) {
-    // The changes are saved: a missed notice only means the chip shows on reload.
-    deps.logger.error(`Publishing the memory changes of Turn ${turnId} failed`, error);
-  }
+  await hintChanged(deps, turn.conversationId);
 }
 
 /**

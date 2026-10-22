@@ -431,7 +431,7 @@ describe("the post-turn memory pass", () => {
     expect(read(ada, "profile.md")).toBe("- Lives in Berlin\n");
   });
 
-  it("saves the Turn's change list and announces it on the Conversation event stream", async () => {
+  it("saves the Turn's change list and records a turn change, hinting without data", async () => {
     const { client, botIds, seed, pubsub, user } = await botsWith([
       round(),
       ops(
@@ -443,11 +443,11 @@ describe("the post-turn memory pass", () => {
     const [ada] = botIds as [string];
     seed(ada, "profile.md", ["- Is vegetarian", "- Likes jazz"]);
     const { conversationId } = (await findBot(getTestDb(), user.id, ada))!;
-    const events: unknown[] = [];
+    const events: { type?: string }[] = [];
     await pubsub.subscribe(conversationChannel(conversationId), (message) => {
-      const event = JSON.parse(message) as { type?: string };
-      if (event.type === "bot_memory_updated") events.push(event);
+      events.push(JSON.parse(message) as { type?: string });
     });
+    const before = (await client.bot.get({ botId: ada })).lastSeq;
 
     await send(client, ada, "I moved to Berlin and I'm vegan now");
     await passesEnded(1);
@@ -459,15 +459,25 @@ describe("the post-turn memory pass", () => {
       { kind: "forgot", tier: "profile", text: "Likes jazz" },
     ];
     expect(turn?.memoryChanges).toEqual(changes);
-    await expect
-      .poll(() => events)
-      .toEqual([{ type: "bot_memory_updated", turnId: turn!.id, changes }]);
+    // The pass records a `turn` change after the Turn's own, so a synced tab re-reads the chip.
+    const logged = await client.bot.changes({ botId: ada, since: before });
+    expect(logged.reload).toBe(false);
+    const turnChanges = logged.reload
+      ? []
+      : logged.changes.filter((change) => change.kind === "turn" && change.refId === turn!.id);
+    expect(turnChanges.map((change) => change.seq)).toHaveLength(4); // the Turn's start and end, then the memory pass
+    const lastTurnChange = turnChanges.at(-1)!;
+    const lastSeq = (await client.bot.get({ botId: ada })).lastSeq;
+    expect(lastTurnChange.seq).toBe(lastSeq);
+    // No event carries data (ADR 0026), and the last one is a bare hint.
+    await expect.poll(() => events.at(-1), { timeout: 10_000 }).toEqual({ type: "changed" });
+    expect(events.every((event) => event.type === "changed")).toBe(true);
 
     // A reload reads the list from the Conversation read, with the Conversation's id for the stream.
     const read = await client.bot.get({ botId: ada });
     expect(read.conversationId).toBe(conversationId);
     expect(read.turns.map((t) => t.memoryChanges)).toEqual([changes]);
-  });
+  }, 30_000);
 
   it("saves no change list when nothing changed", async () => {
     const { client, botIds } = await botsWith([round(), ops()]);
