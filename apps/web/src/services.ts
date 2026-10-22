@@ -149,7 +149,9 @@ export const sdk = (shared.botSdk ??= createBotSdk({
     // Bots (spec #463): the full-screen Bots app at /bots.
     bot(),
     // Channels (spec #761): each Bot's own email address. The fake provider takes a JSON mail at
-    // POST /api/channels/email and sends nothing out; a real provider replaces it (#773).
+    // POST /api/channels/email and sends nothing out; a real provider replaces it (#773). It vouches
+    // for any DMARC verdict it is sent, so, like the Mailpit provider (#762), it is for a Host that
+    // only listens on localhost: never put this route where others can reach it.
     channel({
       adapters: [
         emailChannel({ provider: fakeEmailProvider().provider, domain: "bots.localhost" }),

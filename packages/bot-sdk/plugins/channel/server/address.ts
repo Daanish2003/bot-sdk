@@ -13,6 +13,7 @@ const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
 function localName(name: string): string {
   const slug = name
     .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")

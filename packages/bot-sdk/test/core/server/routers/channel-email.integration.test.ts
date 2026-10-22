@@ -37,7 +37,10 @@ const at = new Date("2026-10-22T09:00:00.000Z");
  * an idle runner and a fixed clock. The owner's verified email is `ownerEmail`, or none when
  * `verified` is false. `runDue()` runs every job due until none is left.
  */
-async function emailBot({ verified = true }: { verified?: boolean } = {}) {
+async function emailBot({
+  verified = true,
+  name = "Ada Lovelace",
+}: { verified?: boolean; name?: string } = {}) {
   const timer = fakeJobClock(at);
   const fake = createFakeAdapter({ rounds: [round(), round(), round()] });
   const email = fakeEmailProvider();
@@ -72,7 +75,7 @@ async function emailBot({ verified = true }: { verified?: boolean } = {}) {
     verified: true,
   });
   const client = chatRpc({ user, deps });
-  const { id: botId } = await client.bot.create({ name: "Ada Lovelace", model });
+  const { id: botId } = await client.bot.create({ name, model });
   const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
   const { address } = await client.channel.email.address({ botId });
 
@@ -159,7 +162,7 @@ describe("an email to a Bot's address", () => {
   }, 30_000);
 
   it("drops a redelivery of the same Message-ID", async () => {
-    const { conversationId, deliver } = await emailBot();
+    const { conversationId, deliver, logged } = await emailBot();
 
     await deliver();
     const again = await deliver({ text: "Book me a table for Friday (again)" });
@@ -167,6 +170,17 @@ describe("an email to a Bot's address", () => {
     expect(again.status).toBe(202);
     expect(await triggersOf(conversationId)).toHaveLength(1);
     expect(await userMessagesOf(conversationId)).toHaveLength(1);
+    // A provider delivers at least once: a redelivery is routine, not worth a log line.
+    expect(logged).toEqual([]);
+  }, 30_000);
+
+  it("drops a mail with no text, leaving no Message or Trigger", async () => {
+    const { conversationId, deliver } = await emailBot();
+
+    await deliver({ text: "  \n " });
+
+    expect(await triggersOf(conversationId)).toEqual([]);
+    expect(await userMessagesOf(conversationId)).toEqual([]);
   }, 30_000);
 
   it("matches the owner's address case-insensitively", async () => {
@@ -233,6 +247,30 @@ describe("an email to a Bot's address", () => {
     expect(response.status).toBe(400);
     expect(await triggersOf(conversationId)).toEqual([]);
   }, 30_000);
+
+  it.each([
+    ["a recipient that isn't text", { to: [1] }],
+    ["a text that isn't text", { text: 5 }],
+    ["no authentication", { authentication: null }],
+    ["a null Message-ID", { messageId: null }],
+  ])(
+    "answers 400 to a mail with %s",
+    async (_name, fields) => {
+      const { deps, conversationId } = await emailBot();
+
+      const response = await deps.plugin("channel").inbound(
+        "email",
+        new Request("https://host.example/api/channels/email", {
+          method: "POST",
+          body: JSON.stringify({ from: ownerEmail, to: ["x@bots.example"], ...fields }),
+        }),
+      );
+
+      expect(response.status).toBe(400);
+      expect(await triggersOf(conversationId)).toEqual([]);
+    },
+    30_000,
+  );
 });
 
 describe("channel.email", () => {
@@ -241,6 +279,12 @@ describe("channel.email", () => {
 
     expect(address).toMatch(/^ada-lovelace\.[a-z0-9]{8}@bots\.example$/);
     expect((await client.channel.email.address({ botId })).address).toBe(address);
+  }, 30_000);
+
+  it("spells an accented name without its marks", async () => {
+    const { address } = await emailBot({ name: "Renée Zoë" });
+
+    expect(address).toMatch(/^renee-zoe\.[a-z0-9]{8}@bots\.example$/);
   }, 30_000);
 
   it("rotates to a new address", async () => {
