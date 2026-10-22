@@ -49,7 +49,7 @@ Repeat until no ticket is open:
 
 1. **Fill free slots** (≤4) from the frontier, critical path first. For each ticket:
    - assign it to `@me`;
-   - create its worktree (`../ai-chat-wt/<N>`, branch `<type>/<N>-<slug>` from the integration tip). Create worktrees one at a time; they race on `.git/config`;
+   - create its worktree (`.claude/worktrees/<N>`, branch `<type>/<N>-<slug>` from the integration tip). Create worktrees one at a time; they race on `.git/config`;
    - launch an implementer: Agent tool with the ticket's `model`, `run_in_background: true`, and **no** `isolation` (the worktree is pre-made). The prompt is three pointers: the ticket URL, the worktree path, and the run brief path.
 2. **When an implementer reports**, check its report against the brief's report shape:
    - **Done:** the base is the current integration tip or an ancestor of it, the commit SHAs are listed, the affected tests are green, and `checks` lists the `code-review` run. If the review is missing, resume the agent with SendMessage to run it before you merge. Go to step 4.
