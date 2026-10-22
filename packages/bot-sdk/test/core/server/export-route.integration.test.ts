@@ -30,7 +30,7 @@ describe("GET /api/chat/export", () => {
     );
     const body = await response.json();
     expect(withoutTimestamp(body)).toEqual(withoutTimestamp(await exportUserData(deps, owner.id)));
-    expect(body.conversations).toEqual([expect.objectContaining({ title: "Exported" })]);
+    expect(body.assistant.conversations).toEqual([expect.objectContaining({ title: "Exported" })]);
   });
 
   it("refuses a signed-out caller with 401 and no document", async () => {

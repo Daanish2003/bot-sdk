@@ -193,7 +193,7 @@ process.on("SIGTERM", () => void chat.stop().finally(() => process.exit(0)));
 // when your app deletes a user
 await chat.deleteUser(String(user.id));
 
-// when your app exports a user's data: one JSON-ready document (version 1), never credentials
+// when your app exports a user's data: one JSON-ready document (version 2), never credentials; each plugin's part sits under its plugin id (`copy.assistant`, `copy.bot`, `copy.memory`)
 const copy = await chat.exportUser(String(user.id));
 
 // your own route for a Shared link page

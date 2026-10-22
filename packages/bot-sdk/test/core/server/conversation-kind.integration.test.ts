@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
+import type { AssistantExport } from "../../../plugins/assistant/server/export-user";
 import { createBotSdk } from "../../../core/server/create-chat";
 import { conversation } from "../../../core/server/db/schema";
 import { assistant } from "../../../plugins/assistant/server/plugin";
@@ -109,7 +110,7 @@ describe("the assistant's own Conversations", () => {
       plugins: [models(), runner(), assistant()],
     });
 
-    const exported = await sdk.exportUser(user.id);
+    const exported = (await sdk.exportUser(user.id)).assistant as AssistantExport;
 
     expect(exported.conversations.map((row) => row.id)).toEqual([own.id]);
   });
