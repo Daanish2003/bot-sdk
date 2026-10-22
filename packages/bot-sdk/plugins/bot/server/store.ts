@@ -16,11 +16,12 @@ import { appendMessage } from "../../../core/server/chat/message-tree";
 import type { BotSdkContext, Transaction, UserDeleteHooks } from "../../../core/server/plugin";
 import { searchTextOf } from "../../../core/shared/message-parts";
 import {
+  type BotMessageParts,
   botMessagePartsSchema,
   type RichControl,
   type RichControlKind,
 } from "../shared/rich-control";
-import { type Reactions, storedReactionsSchema } from "../shared/reaction";
+import type { Reactions } from "../shared/reaction";
 import type { BotMessage, BotTurnStatus } from "../shared/turn";
 
 /** The `kind` of every Bot's Conversation: the plugin's id. */
@@ -43,32 +44,48 @@ export type { BotMessage };
  * A Bot Conversation Message's stored parts: one base `text` part, and the IANA `timeZone` the
  * user sent it from, when they sent one.
  */
-export function textParts(text: string, timeZone?: string): MessageRow["parts"] {
+export function textParts(text: string, timeZone?: string): BotMessageParts {
   return { schemaVersion: 1, parts: [{ type: "text", text }], ...(timeZone && { timeZone }) };
 }
 
 /**
  * A Bot Message's stored parts with its Rich control (spec #761): the text as its `text` part, so
- * the Conversation reads it, then the control. The column is typed as the assistant's parts union
- * until the row types are composed from the plugins, so the bot plugin's `control` part is cast in
- * here.
+ * the Conversation reads it, then the control.
  */
 export function controlParts(
   text: string,
   control: RichControl,
   previous?: MessageRow["parts"],
-): MessageRow["parts"] {
+): BotMessageParts {
   // A Message's emojis live beside its parts, so a control changing its state keeps them.
-  const reactions = previous && (previous as { reactions?: unknown }).reactions;
+  const reactions = previous && storedReactionsOf(previous);
   return {
-    ...(reactions ? { reactions } : {}),
+    ...(reactions && { reactions }),
     schemaVersion: 1,
     parts: [
       { type: "text", text },
       { type: "control", control },
     ],
-  } as unknown as MessageRow["parts"];
+  };
 }
+
+/**
+ * A Bot Message's stored parts are read by the Bot's schema one field at a time, so a field that
+ * doesn't read (two controls, say) costs only that field: the parts here, the rest below.
+ */
+const botPartsOnly = botMessagePartsSchema.pick({ schemaVersion: true, parts: true });
+const botFields = botMessagePartsSchema.shape;
+
+const storedReactionsOf = (parts: MessageRow["parts"]) =>
+  botFields.reactions.safeParse(parts.reactions).data;
+
+/** The Channel besides web a Bot Message came in or also went out on, if any (spec #761). */
+export const channelOf = (parts: MessageRow["parts"]) =>
+  botFields.channel.safeParse(parts.channel).data;
+
+/** The subject of an emailed user's Message, which the Bot's emailed reply answers (spec #761). */
+export const subjectOf = (parts: MessageRow["parts"]) =>
+  botFields.subject.safeParse(parts.subject).data;
 
 /**
  * What a Message's parts contain when they hold a control matching `control`: a jsonb `@>` value
@@ -88,7 +105,7 @@ export function controlOf<Kind extends RichControlKind>(
   kind: Kind,
 ): Extract<RichControl, { kind: Kind }> | undefined;
 export function controlOf(parts: MessageRow["parts"], kind?: RichControlKind) {
-  const read = botMessagePartsSchema.safeParse(parts);
+  const read = botPartsOnly.safeParse(parts);
   if (!read.success) return undefined;
   for (const part of read.data.parts)
     if (part.type === "control" && (!kind || part.control.kind === kind)) return part.control;
@@ -97,9 +114,9 @@ export function controlOf(parts: MessageRow["parts"], kind?: RichControlKind) {
 
 /** The emojis on a Message's parts (spec #761): at most one from the user and one from the Bot. */
 export function reactionsOf(parts: MessageRow["parts"]): Reactions | undefined {
-  const read = storedReactionsSchema.safeParse((parts as { reactions?: unknown }).reactions);
-  if (!read.success) return undefined;
-  const { user, bot } = read.data;
+  const stored = storedReactionsOf(parts);
+  if (!stored) return undefined;
+  const { user, bot } = stored;
   const reactions: Reactions = {
     ...(user && { user: { emoji: user.emoji, at: new Date(user.at) } }),
     ...(bot && { bot: { emoji: bot.emoji, at: new Date(bot.at) } }),
@@ -160,6 +177,7 @@ export function toBotMessage(
 ): BotMessage {
   const control = controlOf(row.parts);
   const reactions = reactionsOf(row.parts);
+  const channel = channelOf(row.parts);
   return {
     id: row.id,
     role: row.role,
@@ -167,7 +185,7 @@ export function toBotMessage(
     createdAt: row.createdAt,
     ...(control && { control }),
     ...(reactions && { reactions }),
-    ...(row.parts.channel && { channel: row.parts.channel }),
+    ...(channel && { channel }),
   };
 }
 

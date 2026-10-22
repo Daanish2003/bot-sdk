@@ -57,6 +57,22 @@ export type ToolCallPart = z.infer<typeof toolCallPartSchema>;
 /** The parts every plugin's union has. */
 export type BasePart = TextPart | ThinkingPart | ToolCallPart;
 
+/** A plugin's own part: the core knows only its `type`. */
+export type OpenPart = { type: string; [key: string]: unknown };
+
+/**
+ * The stored envelope of a Message's `parts`, the type of the `message.parts` column: the plugin's
+ * `schemaVersion`, its parts (the base parts or its own), and the IANA `timeZone` a user's Message
+ * was sent from, when the client sent one. A plugin parses it with its own schema, which may add
+ * fields beside these.
+ */
+export type PartsEnvelope = {
+  schemaVersion: number;
+  parts: (BasePart | OpenPart)[];
+  timeZone?: string;
+  [key: string]: unknown;
+};
+
 /** The plain text `message.searchText` holds: the text parts only. */
 export function searchTextOf(envelope: {
   parts: readonly { type: string; text?: string }[];

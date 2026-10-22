@@ -4,7 +4,7 @@ import { z } from "zod";
 import { bot, botTrigger, message } from "../../../core/server/db/schema";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { sentFileBlobKey } from "../../bot/server/files";
-import { controlOf, toBotMessage } from "../../bot/server/store";
+import { controlOf, subjectOf, toBotMessage } from "../../bot/server/store";
 import { defineJob, PermanentJobError } from "../../runner/server/jobs/define";
 import { emailAddressOf } from "./address";
 import type { EmailChannel } from "./email";
@@ -147,7 +147,7 @@ export async function deliverIn(
       .select({ parts: message.parts })
       .from(message)
       .where(eq(message.id, route.answers));
-    subject = replySubject(answered?.parts.subject ?? "", owner.name);
+    subject = replySubject((answered && subjectOf(answered.parts)) ?? "", owner.name);
   }
   const inReplyTo = await latestMailOf(tx, { ...args, domain: email.domain });
   await tx
