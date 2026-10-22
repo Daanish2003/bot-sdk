@@ -270,9 +270,11 @@ async function triggersOf(conversationId: string) {
     .orderBy(asc(botTrigger.receivedAt), asc(botTrigger.id));
 }
 
-/** A user Message's content without the time note that opens the newest one. */
+/** A user Message's content without the time and message-id notes that open the newest one. */
 const withoutNotice = (content: unknown) =>
-  String(content).replace(/^\[Current time: [^\]]*\]\n\n/, "");
+  String(content)
+    .replace(/^\[Current time: [^\]]*\]\n\n/, "")
+    .replace(/^\[The user's message id, to react to it: [^\]]*\]\n\n/, "");
 
 /** The model input of one call: its messages after the Prompt start's first message, as the adapter got them. */
 const inputOf = (call: TextOptions | undefined) =>
@@ -1081,8 +1083,8 @@ describe("batching quick Messages", () => {
     await runDue();
 
     const [message] = inputOf(fake.calls[0]).filter((entry) => entry.role === "user");
-    expect(message?.content).toBe(
-      "[Current time: Monday, 19 October 2026 at 14:05 (Europe/London)]\n\nWhat is on today?",
+    expect(message?.content).toMatch(
+      /^\[Current time: Monday, 19 October 2026 at 14:05 \(Europe\/London\)\]\n\n\[The user's message id, to react to it: [^\]]+\]\n\nWhat is on today\?$/,
     );
   });
 
@@ -1094,8 +1096,8 @@ describe("batching quick Messages", () => {
     await runDue();
 
     const [message] = inputOf(fake.calls[0]).filter((entry) => entry.role === "user");
-    expect(message?.content).toBe(
-      "[Current time: Monday, 19 October 2026 at 13:05 (UTC)]\n\nWhat is on today?",
+    expect(message?.content).toMatch(
+      /^\[Current time: Monday, 19 October 2026 at 13:05 \(UTC\)\]\n\n\[The user's message id, to react to it: [^\]]+\]\n\nWhat is on today\?$/,
     );
   });
 
@@ -1109,7 +1111,9 @@ describe("batching quick Messages", () => {
 
     const users = inputOf(fake.calls[0]).filter((entry) => entry.role === "user");
     expect(users[0]?.content).toBe("one");
-    expect(users[1]?.content).toMatch(/^\[Current time: .* 22:05 \(Asia\/Tokyo\)\]\n\ntwo$/);
+    expect(users[1]?.content).toMatch(
+      /^\[Current time: .* 22:05 \(Asia\/Tokyo\)\]\n\n\[The user's message id[^\]]*\]\n\ntwo$/,
+    );
   });
 
   it("refuses a time zone that is not an IANA zone with BAD_REQUEST", async () => {

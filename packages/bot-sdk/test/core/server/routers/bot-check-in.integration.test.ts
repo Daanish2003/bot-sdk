@@ -158,9 +158,11 @@ const queuedJobs = async () =>
 
 const inputOf = (call: TextOptions | undefined) => (call?.messages ?? []) as ModelMessage[];
 
-/** The id a set_check_in call returned, read from the Model input. */
+/** The id a set_check_in call returned, read from the Model input: the last one, after the user's message id. */
 const savedId = (options: TextOptions) =>
-  /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f-]{22}/.exec(JSON.stringify(options.messages))![0];
+  JSON.stringify(options.messages)
+    .match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f-]{22}/g)!
+    .at(-1)!;
 
 const setThursday = { at: thursday, note };
 

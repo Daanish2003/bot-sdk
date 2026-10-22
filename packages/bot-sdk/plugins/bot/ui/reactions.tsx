@@ -1,0 +1,72 @@
+import { cn } from "@/lib/utils";
+
+import { useI18n } from "../../../core/client/react/provider";
+import { type Reactions, reactionEmojis } from "../shared/reaction";
+
+/**
+ * The emojis on a Message (spec #761), as small chips under its bubble: the user's and the Bot's,
+ * at most one each. Nothing renders when it has none.
+ */
+export function ReactionChips({ reactions, own }: { reactions?: Reactions; own: "user" | "bot" }) {
+  const { t } = useI18n();
+  const chips = (["user", "bot"] as const).flatMap((side) =>
+    reactions?.[side] ? [{ side, emoji: reactions[side].emoji }] : [],
+  );
+  if (chips.length === 0) return null;
+  return (
+    <div
+      data-reactions
+      className={cn("flex gap-1", own === "user" ? "self-end" : "self-start")}
+      aria-label={t("bots.reactions")}
+    >
+      {chips.map(({ side, emoji }) => (
+        <span
+          key={side}
+          data-reaction={side}
+          className="rounded-full border bg-background px-1.5 text-xs"
+        >
+          {emoji}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * The hover bar on a Bot's Message (spec #761): one button per emoji, shown on hover or focus.
+ * Tapping the one already on the Message takes it off.
+ */
+export function ReactionBar({
+  current,
+  onReact,
+  acting,
+}: {
+  current?: string;
+  onReact: (emoji: string | null) => void;
+  acting: boolean;
+}) {
+  const { t } = useI18n();
+  return (
+    <div
+      data-reaction-bar
+      role="toolbar"
+      aria-label={t("bots.reactToMessage")}
+      className="absolute -bottom-3 left-2 hidden gap-0.5 rounded-full border bg-background px-1 shadow-sm group-focus-within:flex group-hover:flex"
+    >
+      {reactionEmojis.map((emoji) => (
+        <button
+          key={emoji}
+          type="button"
+          data-emoji={emoji}
+          aria-pressed={current === emoji}
+          aria-label={t("bots.reactWith", { emoji })}
+          disabled={acting}
+          className={cn("rounded px-0.5 text-sm", current === emoji && "bg-muted")}
+          onClick={() => onReact(current === emoji ? null : emoji)}
+        >
+          {emoji}
+        </button>
+      ))}
+    </div>
+  );
+}

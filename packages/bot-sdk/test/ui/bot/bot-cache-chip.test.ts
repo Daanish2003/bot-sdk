@@ -177,11 +177,15 @@ describe("the cache chip in a Bot's thread", () => {
 
     const chips = screen.getAllByRole("button", { name: /Cache 80%/ });
     expect(chips).toHaveLength(2);
-    expect(document.querySelector('[data-id="m2"]')!.nextElementSibling?.contains(chips[0]!)).toBe(
-      true,
-    );
-    expect(document.querySelector('[data-id="m3"]')!.nextElementSibling?.contains(chips[1]!)).toBe(
-      true,
-    );
+    expect(
+      document
+        .querySelector('[data-id="m2"]')!
+        .parentElement!.nextElementSibling?.contains(chips[0]!),
+    ).toBe(true);
+    expect(
+      document
+        .querySelector('[data-id="m3"]')!
+        .parentElement!.nextElementSibling?.contains(chips[1]!),
+    ).toBe(true);
   });
 });

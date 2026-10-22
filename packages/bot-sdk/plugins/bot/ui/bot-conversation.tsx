@@ -15,9 +15,11 @@ import { allHelpers, useBotHelpers } from "../client/react/helpers";
 import { useBotReviews } from "../client/react/reviews";
 import { useBotRoutines } from "../client/react/routines";
 import { useBotChoices } from "../client/react/choices";
+import { useBotReactions } from "../client/react/reactions";
 import { useBotSecrets } from "../client/react/secrets";
 import { useCacheWarming } from "../client/react/warm";
 import { BotAvatar } from "./bot-avatar";
+import { ReactionBar, ReactionChips } from "./reactions";
 import { CheckInLine } from "./check-in-line";
 import { HelperCard } from "./helper-card";
 import { isLiveDemonstration } from "../shared/demonstration";
@@ -142,6 +144,7 @@ function BotConversationView({
     remove: removeSecret,
   } = useBotSecrets(botId);
   const { acting: actingChoices, answer: answerChoice } = useBotChoices(botId);
+  const { acting: actingReactions, react } = useBotReactions(botId);
   const { acting: actingDemonstrations, act: actOnDemonstration } = useDemonstrationActions(botId);
   const onDemonstration = (...args: Parameters<typeof actOnDemonstration>) =>
     void actOnDemonstration(...args).catch((refusal) =>
@@ -366,18 +369,38 @@ function BotConversationView({
               />
             ) : (
               <div
-                data-bot-message
-                data-id={message.id}
-                data-role={message.role}
                 className={cn(
-                  "max-w-[70%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap",
-                  message.role === "user"
-                    ? "self-end bg-primary text-primary-foreground"
-                    : "self-start bg-muted",
-                  message.pending && "opacity-70",
+                  "group relative flex max-w-[70%] flex-col gap-1",
+                  message.role === "user" ? "self-end" : "self-start",
                 )}
               >
-                {message.text}
+                <div
+                  data-bot-message
+                  data-id={message.id}
+                  data-role={message.role}
+                  className={cn(
+                    "rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap",
+                    message.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted",
+                    message.pending && "opacity-70",
+                  )}
+                >
+                  {message.text}
+                </div>
+                <ReactionChips
+                  reactions={message.reactions}
+                  own={message.role === "user" ? "user" : "bot"}
+                />
+                {message.role === "assistant" && !message.pending && (
+                  <ReactionBar
+                    current={message.reactions?.user?.emoji}
+                    acting={actingReactions.has(message.id)}
+                    onReact={(emoji) =>
+                      void react(message.id, emoji).catch((refusal) =>
+                        toast.error(serverErrorText(i18n, refusal)),
+                      )
+                    }
+                  />
+                )}
               </div>
             )}
             {requestsAfter.get(message.id)}

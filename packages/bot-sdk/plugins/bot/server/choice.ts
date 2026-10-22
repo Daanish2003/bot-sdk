@@ -63,7 +63,11 @@ export async function answerChoice(
     await tx
       .update(message)
       .set({
-        parts: controlParts(question, { ...choice, answer: { text, other: free !== undefined } }),
+        parts: controlParts(
+          question,
+          { ...choice, answer: { text, other: free !== undefined } },
+          row.parts,
+        ),
       })
       .where(eq(message.id, messageId));
     await recordBotChange(tx, found, "message", messageId, now);

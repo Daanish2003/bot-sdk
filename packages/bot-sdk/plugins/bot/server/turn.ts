@@ -3,7 +3,7 @@ import { and, asc, desc, eq, gt, gte, isNotNull, isNull, lt, lte, ne, or, sql } 
 import { z } from "zod";
 
 import { appendMessage } from "../../../core/server/chat/message-tree";
-import { bot, botTrigger, botTurn, message } from "../../../core/server/db/schema";
+import { bot, botTrigger, botTurn, message, type MessageRow } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
@@ -53,6 +53,8 @@ import {
   botMessages,
   controlParts,
   findBot,
+  reactionsOf,
+  setReaction,
   textParts,
   toBotMessage,
   turnTimeLimitMs,
@@ -63,6 +65,7 @@ import type { BotKnowledgeChange } from "../../knowledge/shared/changes";
 import { skillChangesOf } from "../../skills/server/skills";
 import { choiceOptionsSchema } from "../shared/choice";
 import { maxFilesPerMessage } from "../shared/files";
+import { emojiSchema } from "../shared/reaction";
 import type { RichControl } from "../shared/rich-control";
 import { secretNameSchema } from "../shared/secret";
 import { copyFilesToStorage } from "./files";
@@ -227,6 +230,18 @@ const sendToUserDefinition = toolDefinition({
         description:
           "Ask the user to pick one option; the text is the question. You are woken with " +
           'Answered "<question>": <option> once they answer. Not with secret or files.',
+      }),
+    react: z
+      .object({
+        messageId: z.string().meta({ description: "The id of the user's message to react to." }),
+        emoji: emojiSchema.meta({ description: "One emoji." }),
+      })
+      .optional()
+      .meta({
+        description:
+          "Put an emoji on one of the user's messages instead of replying, such as for a thanks. " +
+          "Send no text with it: it makes no message. A second reaction to the same message " +
+          "replaces the first. Use endTurn as usual. Not with secret, files or choice.",
       }),
   }),
 });
@@ -918,9 +933,9 @@ async function newestInput(
     eq(message.role, "user"),
     lt(message.createdAt, turn.startedAt),
   );
-  const [users, woken, [newestUser]] = await Promise.all([
+  const [users, woken, [newestUser], reacted] = await Promise.all([
     db
-      .select({ parts: message.parts, createdAt: message.createdAt })
+      .select({ id: message.id, parts: message.parts, createdAt: message.createdAt })
       .from(message)
       .where(and(beforeTurn, since && gte(message.createdAt, since)))
       .orderBy(asc(message.createdAt), asc(message.id)),
@@ -949,10 +964,25 @@ async function newestInput(
       .where(beforeTurn)
       .orderBy(desc(message.createdAt), desc(message.id))
       .limit(1),
+    // The user's emojis on the Bot's Messages since the last Turn began (spec #761). They wake
+    // nothing, so this is the only way the Bot hears of them.
+    db
+      .select({ parts: message.parts })
+      .from(message)
+      .where(
+        and(
+          eq(message.conversationId, turn.conversationId),
+          eq(message.role, "assistant"),
+          sql`${message.parts}->'reactions'->'user'->>'at' <= ${turn.startedAt.toISOString()}`,
+          since && sql`${message.parts}->'reactions'->'user'->>'at' > ${since.toISOString()}`,
+        ),
+      )
+      .orderBy(asc(message.createdAt), asc(message.id)),
   ]);
-  const inputs = users.map((row) => ({
+  const inputs: { at: number; content: string; messageId?: string }[] = users.map((row) => ({
     at: row.createdAt.getTime(),
     content: searchTextOf(row.parts),
+    messageId: row.id,
   }));
   // One at a time: each long one is an activity, in a stable order.
   for (const row of woken) {
@@ -968,12 +998,24 @@ async function newestInput(
     const time = timeNotice(turn.startedAt, zone);
     const notices = [
       changeNotes ? `${time}\n${changeNotes}` : time,
+      ...(newest.messageId ? [`[The user's message id, to react to it: ${newest.messageId}]`] : []),
+      ...(reacted.length ? [reactionNotice(reacted)] : []),
       ...(todo?.length ? [todoNotice(todo, zone)] : []),
     ];
     newest.content = `${notices.join("\n\n")}\n\n${newest.content}`;
   }
   // One input turn each, never a user Message: a Trigger's text opens with what woke the Bot.
   return inputs.map((input) => ({ role: "user", content: input.content }));
+}
+
+/** The user's new emojis on the Bot's Messages, one line each, the Message quoted. */
+function reactionNotice(rows: { parts: MessageRow["parts"] }[]): string {
+  const lines = rows.map((row) => {
+    const quote = searchTextOf(row.parts).replace(/\s+/g, " ").trim();
+    const cut = quote.length > 80 ? `${quote.slice(0, 80)}...` : quote;
+    return `${reactionsOf(row.parts)?.user?.emoji} on your message "${cut}"`;
+  });
+  return ["[The user reacted since your last turn]", ...lines].join("\n");
 }
 
 /**
@@ -1154,7 +1196,40 @@ function turnTools(
 ): AnyServerTool[] {
   const { liveActivity } = kit;
   const sendToUser = sendToUserDefinition.server(
-    async ({ text, endTurn: last, secret, files, choice }, context) => {
+    async ({ text, endTurn: last, secret, files, choice, react }, context) => {
+      if (react) {
+        if (secret || files || choice || text.trim())
+          return { error: "A reaction is sent alone, with no text, secret, files or choice." };
+        const reacted = await liveActivity(sendToUserToolName, context?.toolCallId, async (tx) => {
+          await lockConversation(tx, turn.conversationId);
+          const [target] = await tx
+            .select({ id: message.id })
+            .from(message)
+            .where(
+              and(
+                eq(message.id, react.messageId),
+                eq(message.conversationId, turn.conversationId),
+                eq(message.role, "user"),
+              ),
+            );
+          if (!target) return { error: "No message of the user has that id." };
+          const now = deps.clock();
+          await setReaction(tx, target.id, "bot", react.emoji, now);
+          await recordBotChange(
+            tx,
+            { conversationId: turn.conversationId },
+            "message",
+            target.id,
+            now,
+          );
+          return { reacted: true };
+        });
+        if ("reacted" in reacted) {
+          if (last) onLastMessage();
+          await hintChanged(deps, turn.conversationId);
+        }
+        return reacted;
+      }
       if ([secret, files, choice].filter(Boolean).length > 1)
         return { error: "A message carries one control: send the secret, files and choice apart." };
       // Copied to storage before the Message, so a missing path sends nothing. The copy is its own
