@@ -271,7 +271,6 @@ describe("a Helper a background run started (#591)", () => {
         state: "active",
         approvedAt: createdAt,
         createdAt,
-        afterMessageId: "m1",
         nextRunAt: null,
       };
       const helpers: BotHelper[] = [];

@@ -238,6 +238,14 @@ description: Use this when
   "bots.secretsShared": "Shared by all your Bots. Values are never shown.",
   "bots.secretSavedOn": ({ date }: { date: string }) => `saved ${date}`,
   "bots.deleteSecret": ({ name }: { name: string }) => `Delete ${name}`,
+  "bots.email": "Email",
+  "bots.emailHint":
+    "Email this Bot at its private address. Only mail from your own verified address reaches it.",
+  "bots.emailLoading": "Loading the address…",
+  "bots.emailCopy": "Copy address",
+  "bots.emailCopied": "Address copied",
+  "bots.emailRotateConfirm": "Rotate? The old address stops working at once.",
+  "bots.viaEmail": "via email",
   "bots.reviewAllow": "Allow",
   "bots.reviewDeny": "Deny",
   "bots.reviewCountdown": ({ seconds }: { seconds: number }) =>

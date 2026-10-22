@@ -60,9 +60,16 @@ const blockOf = (state: BotReview["state"], askedAt = at(2)): BotReview => ({
   createdAt: askedAt,
 });
 
+/** The Message that asks the user about review `r1`, written when the call was blocked. */
+const asked: BotMessage = {
+  ...said("a1", "assistant", "Push to the main branch", 2),
+  control: { kind: "review_approval", reviewId: "r1" },
+};
+
 const messages = [
   said("m1", "user", "fix the tests", 0),
   said("m2", "assistant", "On it.", 1),
+  asked,
   said("m3", "assistant", "Done.", 3),
 ];
 
@@ -142,7 +149,9 @@ describe("the Approval request card", () => {
     expect(card.querySelector("code")?.textContent).toBe("git push origin main");
     expect(card.textContent).toContain("Blocked in 10s unless you allow it");
     expect(card.querySelector("[role=progressbar]")?.getAttribute("aria-valuenow")).toBe("10");
-    // After the Message before the call, and before the one after it.
+    // In the thread: after the Message before the call, and before the one after it. The Message
+    // itself draws only the card, not a bubble of its own.
+    expect(document.querySelector('[data-id="a1"]')).toBeNull();
     const before = document.querySelector('[data-id="m2"]')!;
     const after = document.querySelector('[data-id="m3"]')!;
     expect(before.compareDocumentPosition(card)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
@@ -195,7 +204,7 @@ describe("the Approval request card", () => {
     expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
   });
 
-  it("nests a Helper's request, and its divider, under that Helper's line", async () => {
+  it("shows a Helper's request in the thread like a Turn's, not under the Helper's line", async () => {
     const helperBlock = (state: BotReview["state"]): BotReview => ({
       ...blockOf(state, new Date()),
       turnId: null,
@@ -207,7 +216,7 @@ describe("the Approval request card", () => {
     const { unmount } = mount(waiting.fetch);
 
     const card = (await screen.findByText("Deploy")).closest("[data-review]")!;
-    expect(card.closest('[data-helper="h1"]')).toBeTruthy();
+    expect(card.closest('[data-helper="h1"]')).toBeNull();
     expect(card.querySelector("code")?.textContent).toBe("make deploy");
     fireEvent.click(await screen.findByRole("button", { name: "Allow" }));
     await waitFor(() => expect(waiting.answers).toEqual([{ answer: "allowed", reviewId: "r1" }]));
@@ -215,7 +224,7 @@ describe("the Approval request card", () => {
 
     mount(fakeBotServer(() => helperBlock("allowed"), [helper]).fetch);
     const divider = (await screen.findByText("Allowed by you: Deploy")).closest("[data-review]")!;
-    expect(divider.closest('[data-helper="h1"]')).toBeTruthy();
+    expect(divider.closest('[data-helper="h1"]')).toBeNull();
   });
 
   it.each([

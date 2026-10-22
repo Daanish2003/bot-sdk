@@ -143,6 +143,7 @@ export function toBotMessage(
     createdAt: row.createdAt,
     ...(control && { control }),
     ...(reactions && { reactions }),
+    ...(row.parts.channel && { channel: row.parts.channel }),
   };
 }
 

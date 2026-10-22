@@ -135,7 +135,7 @@ export async function cancelCheckIn(
 
 /**
  * The Bot's Check-ins, soonest first, each with `afterMessageId`, the Message its inline line
- * follows (as a Routine's card does, `lastMessageOfTurn`).
+ * follows (`lastMessageOfTurn`).
  */
 export async function listCheckIns(db: Database, botId: string): Promise<BotCheckIn[]> {
   return db

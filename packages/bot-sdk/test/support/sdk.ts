@@ -5,6 +5,7 @@ import { botClient } from "../../plugins/bot/client/index";
 import { memoryClient } from "../../plugins/memory/client/index";
 import { skillsClient } from "../../plugins/skills/client/index";
 import { knowledgeClient } from "../../plugins/knowledge/client/index";
+import { channelClient } from "../../plugins/channel/client/index";
 import { modelsClient } from "../../plugins/models/client/index";
 import { createChatHandler } from "../../plugins/assistant/server/over";
 import { createTestSdk } from "./deps";
@@ -33,6 +34,7 @@ export function createTestChat({
       memoryClient(),
       skillsClient(),
       knowledgeClient(),
+      channelClient(),
       botClient(),
     ],
     baseUrl: `http://localhost${basePath}`,
