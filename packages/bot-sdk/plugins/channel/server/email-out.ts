@@ -58,7 +58,7 @@ export function emailBody(
       break;
     default:
       paragraphs.push(
-        link(isApproval(control.kind) ? "Approve or decline in the app" : "Open it in the app"),
+        link(isApproval(control?.kind) ? "Approve or decline in the app" : "Open it in the app"),
       );
   }
   return {

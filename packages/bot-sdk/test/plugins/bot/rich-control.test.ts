@@ -11,7 +11,14 @@ describe("isApproval", () => {
   it("is true for the two Approvals only, which are not Bot bubbles", () => {
     expect(isApproval("routine_approval")).toBe(true);
     expect(isApproval("review_approval")).toBe(true);
-    for (const kind of ["secret", "computer", "choice", "files", "demonstration", undefined]) {
+    for (const kind of [
+      "secret",
+      "computer",
+      "choice",
+      "files",
+      "demonstration",
+      undefined,
+    ] as const) {
       expect(isApproval(kind)).toBe(false);
     }
   });
