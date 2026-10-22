@@ -1,5 +1,5 @@
 ---
-Status: proposed
+Status: accepted
 ---
 
 # The Bot thread syncs by a per-Conversation change log; pub/sub carries only data-less hints
