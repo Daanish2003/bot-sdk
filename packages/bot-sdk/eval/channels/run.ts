@@ -280,7 +280,13 @@ async function main() {
   }
   console.log(`\nGating: ${tally.gating.passed}/${tally.gating.total} passed.`);
   // The broken scripts must all fail. A run that errored is not a failed score, so it doesn't count.
-  const caught = results.filter((result) => !result.score.passed && !result.error).length;
+  // Caught by the scorer, not by a Turn that broke: its reasons must not be only "the Turn ended ...".
+  const caught = results.filter(
+    (result) =>
+      !result.score.passed &&
+      !result.error &&
+      result.score.reasons.some((reason) => !reason.startsWith("the Turn ended")),
+  ).length;
   if (broken)
     console.log(`Broken scripts caught: ${caught}/${results.length} (all must be caught).`);
 
