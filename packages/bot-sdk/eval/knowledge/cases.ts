@@ -231,7 +231,7 @@ export const knowledgeCases: KnowledgeCase[] = [
     gating: false,
     summary: "A paraphrase with no keyword in common with the answer: scored, not gating.",
     message: "Will the company chip in for a better chair and monitor for my spare room?",
-    expect: { kind: "reworded", file: "handbook.md", answer: /\$?600/ },
+    expect: { kind: "reworded", file: "handbook.md", answer: /(?<![0-9,.])600(?![0-9,])/ },
     fake: [{ name: "read", input: { path: `${dir}/handbook.md` } }],
     reply: "Yes: remote workers get a $600 home-office stipend each year (handbook.md).",
   },

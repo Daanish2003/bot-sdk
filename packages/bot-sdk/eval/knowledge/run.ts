@@ -202,10 +202,13 @@ async function main() {
       const after: Record<string, string> = {};
       const { files } = await walk(computer);
       for (const file of files) {
-        // The Bots' new files are small text; the seeded ones are not read back.
-        if (file.path in seeded) continue;
+        // New and changed files only: a Bot may append to a seeded file instead of adding one.
+        if (file.size > 100_000) continue;
         const bytes = await computer.readFile(`${knowledgeDirectory}/${file.path}`);
-        if (bytes) after[file.path] = new TextDecoder().decode(bytes);
+        if (!bytes) continue;
+        const text = new TextDecoder().decode(bytes);
+        if (!Object.hasOwn(seeded, file.path) || seeded[file.path] !== text)
+          after[file.path] = text;
       }
       added = Object.keys(after);
       const score = scoreKnowledge(evalCase.expect, {
@@ -214,7 +217,7 @@ async function main() {
         sent,
         botId: made.id,
         knowledge: after,
-        seeded: Object.keys(seeded),
+        seeded: [],
       });
       return { ...base, score, sent, toolCalls, added, ms: Date.now() - started };
     } catch (caught) {
@@ -273,7 +276,11 @@ async function main() {
   const file = join(resultsDir, `knowledge-${startedAt.replace(/[:.]/g, "-")}.json`);
   await writeFile(
     file,
-    JSON.stringify({ startedAt, fake, model, repeats, tally, runs: results }, null, 2),
+    JSON.stringify(
+      { startedAt, fake, model, repeats, tally, runs: results },
+      (_key, value) => (value instanceof RegExp ? String(value) : value),
+      2,
+    ),
   );
   console.log(`\nEvery run (tool calls, replies, new files) is in ${file}`);
   await jobs.stop();
