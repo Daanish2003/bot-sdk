@@ -40,6 +40,7 @@ import type {
   LinkedCredentialsHook,
   ModelsDeps,
   QuotaSetting,
+  RecentModelSource,
 } from "./types";
 import { messageUsage, usageByDay, usageTotals, type UsageByDay, type UsageTotal } from "./usage";
 
@@ -116,6 +117,12 @@ export type ModelsApi = {
    * cost 0: a Bot's calls, so its cache use shows whoever pays (#667).
    */
   freeModelMeter: (userId: string, model: string) => ModelMeter;
+  /**
+   * Registers a source of the user's recent Model (a function from a user to a Model id or nothing).
+   * `listAvailableModels`'s default is the first registered source's Model the user can use, else
+   * the Host's default.
+   */
+  addRecentModelSource: (source: RecentModelSource) => void;
   /** The image adapter for an Image Model, or `undefined` (`ModelsDeps.imageAdapterFor`). */
   imageAdapterFor: ModelsDeps["imageAdapterFor"];
   /** The size and provider options one image call sends (spec #278). */
@@ -238,6 +245,7 @@ export function productionDeps(sdk: BotSdkContext, options: ModelsOptions): Mode
     linkedCredentials: options.linkedCredentials,
     defaultBackgroundModel: options.defaultBackgroundModel ?? null,
     defaultImageModel: options.defaultImageModel ?? null,
+    recentModelSources: [],
     getQuota: quotaLookup(options.getQuota),
   };
 }
@@ -265,6 +273,9 @@ function modelsApi(deps: ModelsDeps): ModelsApi {
             ...(call.linked === "plan" && { linked: true }),
           }),
     freeModelMeter: (userId, model) => freeModelMeter(deps, userId, model),
+    addRecentModelSource: (source) => {
+      deps.recentModelSources.push(source);
+    },
     imageAdapterFor: (model, credentials) => deps.imageAdapterFor(model, credentials),
     imageRequestFor,
     get byok() {

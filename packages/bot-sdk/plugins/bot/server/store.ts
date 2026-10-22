@@ -238,6 +238,17 @@ export async function userHasBot(tx: Transaction, userId: string): Promise<boole
   return found !== undefined;
 }
 
+/** The Model of the user's newest Bot, for the `models` plugin's default (`addRecentModelSource`). */
+export async function newestBotModel(db: Database, userId: string): Promise<string | undefined> {
+  const [newest] = await db
+    .select({ model: bot.model })
+    .from(bot)
+    .where(eq(bot.userId, userId))
+    .orderBy(desc(bot.createdAt), desc(bot.id))
+    .limit(1);
+  return newest?.model;
+}
+
 /**
  * The latest rebuild of the user's Computer the Bot was told of, or its creation (null for a Bot
  * from before the column, or one deleted meanwhile).

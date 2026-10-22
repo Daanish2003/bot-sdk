@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { bindAssistantState, type AssistantState } from "./state";
@@ -13,7 +13,7 @@ import { handleChat } from "./chat/handle-chat";
 import type { HostServerTool } from "./chat/host-tools";
 import { handleJoin } from "./chat/join-run";
 import { stopUserRuns } from "./chat/run";
-import { generatedImage } from "../../../core/server/db/schema";
+import { conversation, generatedImage } from "../../../core/server/db/schema";
 import { createTavilyClient } from "../../bot/server/tavily";
 import { defaultLimits } from "./deps";
 import { assistantUserDelete } from "./delete-user";
@@ -131,6 +131,16 @@ function assistantPlugin(buildState: (sdk: BotSdkContext) => AssistantState): As
     routes: assistantRoutes,
     rateLimits: assistantRateLimits,
     init: (sdk) => {
+      // Assistant pickers keep defaulting to the Model of the newest Conversation that has one.
+      sdk.plugin("models").addRecentModelSource(async (userId) => {
+        const [recent] = await sdk.db
+          .select({ model: conversation.model })
+          .from(conversation)
+          .where(and(eq(conversation.userId, userId), isNotNull(conversation.model)))
+          .orderBy(desc(conversation.lastMessageAt), desc(conversation.id))
+          .limit(1);
+        return recent?.model;
+      });
       const api = assistantApi(sdk);
       bindAssistantState(api, buildState(sdk));
       lifecycles.set(sdk, createLifecycle(sdk, sdk.logger));
