@@ -418,6 +418,16 @@ function readSkillsCommand(disk: Disk, command: string): CommandResult | undefin
     if (path.startsWith(`${directory}/`) && folder && rest.length > 0) folders.add(folder);
   }
   const base64 = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64");
+  /** The lines up to the second `---` line, of the first `skillHeadBytes` bytes, as awk prints them. */
+  const frontmatter = (bytes: Uint8Array) => {
+    let printed = "";
+    let marks = 0;
+    for (const line of lineParts(bytes.subarray(0, skillHeadBytes)).lines) {
+      printed += `${line}\n`;
+      if (/^\s*---\s*$/.test(line) && ++marks === 2) break;
+    }
+    return Buffer.from(printed, "latin1");
+  };
   let stdout = "";
   for (const folder of folders) {
     const path = `${directory}/${folder}/SKILL.md`;
@@ -425,7 +435,7 @@ function readSkillsCommand(disk: Disk, command: string): CommandResult | undefin
     const state = bytes
       ? disk.unreadable.has(path)
         ? "unreadable"
-        : `file ${base64(bytes.subarray(0, skillHeadBytes))}`
+        : `file ${base64(frontmatter(bytes))}`
       : isDirectory(disk.files, path)
         ? "unreadable"
         : "none";

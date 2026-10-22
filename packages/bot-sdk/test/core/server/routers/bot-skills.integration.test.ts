@@ -245,6 +245,21 @@ describe("the Skills block", { timeout: 30_000 }, () => {
     ).toHaveLength(1);
   });
 
+  it("reads a long frontmatter whole, past a long body", async () => {
+    const { fake, computerFake, client, botId } = await botWith([round()]);
+    computerFake.files.set(
+      skillPath(botId, "long"),
+      encode(
+        `---\nname: long\nnotes: ${"n".repeat(10_000)}\ndescription: Use this when it is long.\n---\n` +
+          "x".repeat(2_000_000),
+      ),
+    );
+
+    await send(client, botId, "hi");
+
+    expect(systemOf(turnCalls(fake.calls)[0])[3]).toContain("- long: Use this when it is long.");
+  });
+
   it("sits after the memory snapshot and before the Routines", async () => {
     const { computerFake, client, botId } = await botWith([
       round(
