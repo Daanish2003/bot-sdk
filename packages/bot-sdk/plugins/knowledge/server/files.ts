@@ -8,7 +8,17 @@ import {
   type ComputerHandle,
   type FileOperationOptions,
 } from "../../computer/server/plugin";
-import { knowledgeDirectory, knowledgeExtensions, knowledgeLimitBytes } from "../shared/folder";
+import { pdfMediaType, wordMediaType } from "../../assistant/shared/knowledge/kinds";
+import {
+  knowledgeDirectory,
+  knowledgeDocumentExtensions,
+  knowledgeDocumentLimitBytes,
+  knowledgeExtensions,
+  knowledgeLimitBytes,
+  knowledgeTextLimitBytes,
+  readableCopyPath,
+} from "../shared/folder";
+import { ExtractionFailure, extractKnowledgeText } from "./extract";
 
 /*
  * The user's view of their Knowledge (spec #737): plain files in `shared/knowledge/` on their
@@ -29,6 +39,8 @@ export type KnowledgeFile = {
   size: number;
   savedBy: "user" | "bot";
   botName?: string;
+  /** For a PDF or DOCX, the path of its readable copy, which the read route returns. */
+  readable?: string;
 };
 
 export type KnowledgeListing = {
@@ -146,17 +158,34 @@ export async function listKnowledge(
     const tree = await walk(computer);
     const uploads = await readUploads(computer);
     const savers = await botSavers(deps, userId);
+    const paths = new Set(tree.files.map((file) => file.path));
+    // A readable copy is listed through its original, not as a row of its own.
+    const copies = new Set(
+      tree.files.flatMap(({ path }) => {
+        const copy = readableCopyPath(path);
+        return copy && paths.has(copy) ? [copy] : [];
+      }),
+    );
     const files = tree.files
+      .filter(({ path }) => !copies.has(path))
       .map(({ path, size }): KnowledgeFile => {
-        if (uploads.has(path)) return { path, size, savedBy: "user" };
+        const copy = readableCopyPath(path);
+        const readable = copy && paths.has(copy) ? { readable: copy } : {};
+        if (uploads.has(path)) return { path, size, savedBy: "user", ...readable };
         const botName = savers.get(path);
-        return { path, size, savedBy: "bot", ...(botName !== undefined && { botName }) };
+        return {
+          path,
+          size,
+          savedBy: "bot",
+          ...(botName !== undefined && { botName }),
+          ...readable,
+        };
       })
       .sort(byPath);
     return {
       files,
       folders: [...tree.folders].sort(),
-      usage: files.reduce((total, file) => total + file.size, 0),
+      usage: tree.files.reduce((total, file) => total + file.size, 0),
       limit: knowledgeLimitBytes,
     };
   });
@@ -245,9 +274,13 @@ export async function deleteKnowledge(
     if (!entries?.some((entry) => entry.kind === "file" && entry.name === name)) {
       throw rpcError("NOT_FOUND", "error.knowledgeNoSuchFile", "Knowledge file not found");
     }
-    const result = await computer.run(`rm -f ${shellQuote(absolute(path))}`);
-    if ("timedOut" in result || result.exitCode !== 0) {
-      throw new Error("Deleting the Knowledge file failed");
+    const copy = readableCopyPath(path);
+    // The readable copy goes first, so a failure never leaves a copy of a file that is gone.
+    for (const target of [...(copy ? [copy] : []), path]) {
+      const result = await computer.run(`rm -f ${shellQuote(absolute(target))}`);
+      if ("timedOut" in result || result.exitCode !== 0) {
+        throw new Error("Deleting the Knowledge file failed");
+      }
     }
     const uploads = await readUploads(computer);
     if (uploads.delete(path)) await writeUploads(computer, uploads);
@@ -267,4 +300,122 @@ export async function createKnowledgeFolder(
       throw new Error("Creating the Knowledge folder failed");
     }
   });
+}
+
+const failureError = (name: string, code: ExtractionFailure["code"], pdf: boolean) => {
+  switch (code) {
+    case "no_text":
+      return pdf
+        ? rpcError(
+            "BAD_REQUEST",
+            "error.knowledgeNoText",
+            "This PDF has no text to read (it may be a scan)",
+          )
+        : rpcError("BAD_REQUEST", "error.knowledgeNoDocText", "This document has no text to read");
+    case "encrypted":
+      return rpcError(
+        "BAD_REQUEST",
+        "error.knowledgeEncrypted",
+        "That file is password-protected",
+        {
+          name,
+        },
+      );
+    case "too_large":
+      return rpcError(
+        "BAD_REQUEST",
+        "error.knowledgeTooComplex",
+        "That file is too complex to read",
+        { name },
+      );
+    default:
+      return rpcError("BAD_REQUEST", "error.knowledgeUnreadable", "That file can't be read", {
+        name,
+      });
+  }
+};
+
+/**
+ * Converts a PDF or DOCX on the server and writes the original with `<name>.md` beside it (PDFs
+ * carry `## Page N` markers). Refused, with nothing written, for another format, a file over 20 MB,
+ * a scan or unreadable file, text over 2 MB, a name already there (unless `replace`), or a file
+ * that would take Knowledge past its cap. Replace overwrites both files.
+ */
+export async function uploadKnowledgeDocument(
+  deps: BotSdkContext,
+  {
+    userId,
+    folder = "",
+    file,
+    replace = false,
+  }: { userId: string; folder?: string; file: File; replace?: boolean },
+) {
+  requirePath(folder, { allowEmpty: true });
+  const name = file.name;
+  if (!validSegment(name)) throw badPath();
+  const lower = name.toLowerCase();
+  if (!knowledgeDocumentExtensions.some((extension) => lower.endsWith(extension))) {
+    throw rpcError(
+      "BAD_REQUEST",
+      "error.knowledgeFormat",
+      "Knowledge converts PDF and DOCX files",
+      {
+        name,
+        types: knowledgeDocumentExtensions.join(", "),
+      },
+    );
+  }
+  if (file.size > knowledgeDocumentLimitBytes) {
+    throw rpcError("BAD_REQUEST", "error.knowledgeDocumentTooLarge", "That file is over 20 MB", {
+      name,
+    });
+  }
+  const original = new Uint8Array(await file.arrayBuffer());
+  const isPdf = lower.endsWith(".pdf");
+  let text: string;
+  try {
+    text = await extractKnowledgeText(isPdf ? pdfMediaType : wordMediaType, original, {
+      pageMarkers: isPdf,
+    });
+  } catch (caught) {
+    if (caught instanceof ExtractionFailure) throw failureError(name, caught.code, isPdf);
+    throw caught;
+  }
+  if (text.trim() === "") throw failureError(name, "no_text", isPdf);
+  const copy = new TextEncoder().encode(text);
+  if (copy.length > knowledgeTextLimitBytes) {
+    throw rpcError("BAD_REQUEST", "error.knowledgeTextTooLong", "That file has too much text", {
+      name,
+    });
+  }
+
+  const path = folder === "" ? name : `${folder}/${name}`;
+  const copyPath = `${path}.md`;
+  const computer = computerOf(deps, userId);
+  await onComputer(async () => {
+    const { files } = await walk(computer);
+    const existing = files.filter((entry) => entry.path === path || entry.path === copyPath);
+    if (existing.length > 0 && !replace) {
+      throw rpcError(
+        "CONFLICT",
+        "error.knowledgeExists",
+        "A file with that name is already there",
+        {
+          path,
+        },
+      );
+    }
+    const used =
+      files.reduce((total, entry) => total + entry.size, 0) -
+      existing.reduce((total, entry) => total + entry.size, 0);
+    if (used + original.length + copy.length > knowledgeLimitBytes) {
+      throw rpcError("BAD_REQUEST", "error.knowledgeFull", "Knowledge is full");
+    }
+    // The copy goes first, so a failure never leaves an original that Bots can't read.
+    await computer.writeFile(absolute(copyPath), copy);
+    await computer.writeFile(absolute(path), original);
+    const uploads = await readUploads(computer);
+    if (!uploads.has(path)) await writeUploads(computer, uploads.add(path));
+  });
+  return { path, size: original.length };
 }

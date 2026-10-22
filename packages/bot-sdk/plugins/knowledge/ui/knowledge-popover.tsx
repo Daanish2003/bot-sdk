@@ -12,6 +12,9 @@ import { serverErrorText } from "../../../core/client/rpc-error";
 const kib = 1024;
 const mib = kib * kib;
 
+/** Whether the server converts this file (a PDF or DOCX) rather than storing its text as it is. */
+const isDocument = (name: string) => /\.(pdf|docx)$/i.test(name);
+
 /** A size as "512 B", "2 KB" or "31 MB": one decimal at most, none when it is whole. */
 function sizeText(bytes: number): string {
   const whole = (value: number) => String(Math.round(value * 10) / 10);
@@ -20,9 +23,9 @@ function sizeText(bytes: number): string {
   return `${bytes} B`;
 }
 
-/** A file on its way up: read, then sent (which wakes the Computer), or refused with its reason. */
+/** A file on its way up: read, then sent (a PDF or DOCX is converted first; either wakes the Computer), or refused with its reason. */
 type InFlight =
-  | { id: number; name: string; state: "reading" | "sending" }
+  | { id: number; name: string; state: "reading" | "sending" | "converting" }
   | { id: number; name: string; state: "refused"; reason: string };
 
 /** A file that is waiting for a "Replace?" answer. */
@@ -33,7 +36,8 @@ type Replacing = { file: File; folder: string; path: string };
  * user's Knowledge, shared by all of their Bots, with a usage meter, a drop zone, **Upload** into
  * the selected folder, **New folder**, and the folder tree. Each file shows its size and who saved
  * it, and **Delete**. An upload shows *Uploading…* and *Waking your Computer…*; a refusal shows its
- * reason and "Nothing was added". A name already in the folder asks "Replace?". The list is read
+ * reason and "Nothing was added"; a PDF or DOCX shows *Converting…* instead, and its row expands to the
+ * readable text the Bots read. A name already in the folder asks "Replace?". The list is read
  * when the popover opens, which wakes the Computer. Render it only when the Host installs the
  * `knowledge` plugin; without the `computer` plugin it renders nothing.
  */
@@ -47,11 +51,13 @@ export function KnowledgePopover() {
   const [inFlight, setInFlight] = useState<InFlight[]>([]);
   const [replaceQueue, setReplaceQueue] = useState<Replacing[]>([]);
   const [naming, setNaming] = useState<string | null>(null);
+  const [previewing, setPreviewing] = useState<string | null>(null);
   const nextId = useRef(0);
   const input = useRef<HTMLInputElement>(null);
   const status = useQuery(orpc.knowledgeFiles.status.queryOptions());
   const list = useQuery({ ...orpc.knowledgeFiles.list.queryOptions(), enabled: open });
   const upload = useMutation(orpc.knowledgeFiles.upload.mutationOptions());
+  const uploadDocument = useMutation(orpc.knowledgeFiles.uploadDocument.mutationOptions());
   const remove = useMutation(orpc.knowledgeFiles.remove.mutationOptions());
   const createFolder = useMutation(orpc.knowledgeFiles.createFolder.mutationOptions());
 
@@ -68,9 +74,14 @@ export function KnowledgePopover() {
     const id = nextId.current++;
     setInFlight((rows) => [...rows, { id, name: file.name, state: "reading" }]);
     try {
-      const content = await file.text();
-      update(id, { id, name: file.name, state: "sending" });
-      await upload.mutateAsync({ folder, name: file.name, content, ...(replace && { replace }) });
+      if (isDocument(file.name)) {
+        update(id, { id, name: file.name, state: "converting" });
+        await uploadDocument.mutateAsync({ folder, file, ...(replace && { replace }) });
+      } else {
+        const content = await file.text();
+        update(id, { id, name: file.name, state: "sending" });
+        await upload.mutateAsync({ folder, name: file.name, content, ...(replace && { replace }) });
+      }
       update(id, null);
       await refresh();
     } catch (error) {
@@ -161,7 +172,7 @@ export function KnowledgePopover() {
           type="file"
           multiple
           hidden
-          accept=".md,.txt,.html,.csv"
+          accept=".md,.txt,.html,.csv,.docx,.pdf"
           onChange={(event) => {
             void add([...(event.target.files ?? [])]);
             event.target.value = "";
@@ -263,7 +274,9 @@ export function KnowledgePopover() {
                   <div role="status" className="text-xs text-muted-foreground">
                     {row.state === "reading"
                       ? t("bots.knowledgeUploading")
-                      : t("bots.knowledgeWaking")}
+                      : row.state === "converting"
+                        ? t("bots.knowledgeConverting")
+                        : t("bots.knowledgeWaking")}
                   </div>
                 )}
               </li>
@@ -304,7 +317,7 @@ export function KnowledgePopover() {
               ) : (
                 <li
                   key={`f:${entry.path}`}
-                  className="flex items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-muted"
+                  className="flex flex-wrap items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-muted"
                   style={{ paddingLeft: `${depth + 0.5}rem` }}
                 >
                   <span className="truncate">{name}</span>
@@ -316,6 +329,18 @@ export function KnowledgePopover() {
                   <span className="ml-auto whitespace-nowrap text-[11px] text-muted-foreground">
                     {sizeText(entry.size)}
                   </span>
+                  {entry.readable && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      aria-expanded={previewing === entry.path}
+                      onClick={() => setPreviewing(previewing === entry.path ? null : entry.path)}
+                    >
+                      {previewing === entry.path
+                        ? t("bots.knowledgeHideReadable")
+                        : t("bots.knowledgeShowReadable")}
+                    </Button>
+                  )}
                   <Button
                     variant="ghost"
                     size="sm"
@@ -335,6 +360,9 @@ export function KnowledgePopover() {
                   >
                     {t("bots.knowledgeDelete")}
                   </Button>
+                  {entry.readable && previewing === entry.path && (
+                    <ReadableText path={entry.readable} />
+                  )}
                 </li>
               );
             })}
@@ -342,5 +370,28 @@ export function KnowledgePopover() {
         )}
       </PopoverContent>
     </Popover>
+  );
+}
+
+/** A converted file's readable copy: what the Bots read, with its page markers. */
+function ReadableText({ path }: { path: string }) {
+  const i18n = useI18n();
+  const orpc = useOrpc();
+  const readable = useQuery(orpc.knowledgeFiles.read.queryOptions({ input: { path } }));
+  return (
+    <div className="basis-full">
+      <div className="text-[11px] font-medium text-muted-foreground">
+        {i18n.t("bots.knowledgeReadableText")}
+      </div>
+      {readable.isError ? (
+        <p role="alert" className="text-xs text-destructive">
+          {serverErrorText(i18n, readable.error)}
+        </p>
+      ) : (
+        <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded bg-muted p-2 text-xs">
+          {readable.data?.content}
+        </pre>
+      )}
+    </div>
   );
 }

@@ -9,6 +9,7 @@ import {
   listKnowledge,
   readKnowledge,
   uploadKnowledge,
+  uploadKnowledgeDocument,
 } from "../files";
 
 const pathInput = z.object({ path: z.string() });
@@ -46,7 +47,16 @@ export const knowledgeRouter = {
       uploadKnowledge(context.sdk, { userId: context.user.id, ...input }),
     ),
 
-  /** Deletes a file. */
+  /** Converts a PDF or DOCX and adds it with its readable copy; the same name is refused unless `replace` is set. */
+  uploadDocument: protectedProcedure
+    .input(
+      z.object({ folder: z.string().optional(), file: z.file(), replace: z.boolean().optional() }),
+    )
+    .handler(({ context, input }) =>
+      uploadKnowledgeDocument(context.sdk, { userId: context.user.id, ...input }),
+    ),
+
+  /** Deletes a file (a PDF or DOCX goes with its readable copy). */
   remove: protectedProcedure.input(pathInput).handler(async ({ context, input }) => {
     await deleteKnowledge(context.sdk, { userId: context.user.id, ...input });
   }),

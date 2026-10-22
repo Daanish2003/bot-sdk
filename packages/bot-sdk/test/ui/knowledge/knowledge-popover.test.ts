@@ -38,7 +38,9 @@ function recordingFetch(
   const calls: { url: string; body: string }[] = [];
   const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : new Request(input, init);
-    calls.push({ url: request.url, body: await request.clone().text() });
+    // A file goes up as multipart, whose body the jsdom Request can't re-read; the call is recorded by its URL.
+    const multipart = request.headers.get("content-type")?.startsWith("multipart/") ?? false;
+    calls.push({ url: request.url, body: multipart ? "" : await request.clone().text() });
     return answer(request.url);
   });
   return { fetch, calls };
@@ -46,19 +48,19 @@ function recordingFetch(
 
 const pending = () => new Promise<Response>(() => {});
 const calledWith = (calls: { url: string; body: string }[], procedure: string) =>
-  calls.find((call) => call.url.includes(`knowledgeFiles/${procedure}`));
+  calls.find((call) => new URL(call.url).pathname.endsWith(`knowledgeFiles/${procedure}`));
 
-function seeded(available = true) {
+function seeded(available = true, shown = listing) {
   return (queryClient: QueryClient, client: BotSdkClient) => {
     queryClient.setQueryData(client.orpc.knowledgeFiles.status.queryKey(), { available });
-    queryClient.setQueryData(client.orpc.knowledgeFiles.list.queryKey(), listing);
+    queryClient.setQueryData(client.orpc.knowledgeFiles.list.queryKey(), shown);
   };
 }
 
-function renderPopover(fetch = recordingFetch(pending).fetch, available = true) {
+function renderPopover(fetch = recordingFetch(pending).fetch, available = true, shown = listing) {
   render(
     providerFor(createElement(KnowledgePopover), {
-      seed: seeded(available),
+      seed: seeded(available, shown),
       fetch,
       messages: {},
       plugins,
@@ -210,5 +212,83 @@ describe("KnowledgePopover", () => {
     expect(JSON.parse(calledWith(calls, "createFolder")!.body).json).toEqual({
       path: "clients/acme",
     });
+  });
+
+  it("shows Converting… while a PDF is converted, and sends it as a file", async () => {
+    const { fetch, calls } = recordingFetch(pending);
+    renderPopover(fetch);
+
+    fireEvent.change(fileInput(), { target: { files: [new File(["%PDF"], "plan.pdf")] } });
+
+    expect(await screen.findByText("Converting…")).toBeTruthy();
+    await waitFor(() => expect(calledWith(calls, "uploadDocument")).toBeTruthy());
+    expect(calledWith(calls, "upload")).toBeUndefined();
+  });
+
+  it("sends a file whose name only ends in the letters pdf as text", async () => {
+    const { fetch, calls } = recordingFetch(pending);
+    renderPopover(fetch);
+
+    fireEvent.change(fileInput(), { target: { files: [textFile("mypdf")] } });
+
+    await waitFor(() => expect(calledWith(calls, "upload")).toBeTruthy());
+    expect(calledWith(calls, "uploadDocument")).toBeUndefined();
+  });
+
+  it("shows a scanned PDF's refusal with 'Nothing was added'", async () => {
+    const refusal = () =>
+      Response.json(
+        {
+          json: {
+            defined: false,
+            code: "BAD_REQUEST",
+            status: 400,
+            message: "x",
+            data: { code: "error.knowledgeNoText" },
+          },
+        },
+        { status: 400 },
+      );
+    renderPopover(recordingFetch(refusal).fetch);
+
+    fireEvent.change(fileInput(), { target: { files: [new File(["%PDF"], "scan.pdf")] } });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("This PDF has no text to read (it may be a scan)");
+    expect(alert.textContent).toContain("Nothing was added.");
+  });
+
+  it("lists a PDF once and expands to its readable text, which isn't a row of its own", async () => {
+    const withPdf: KnowledgeListing = {
+      files: [
+        { path: "handbook.pdf", size: 2048, savedBy: "user", readable: "handbook.pdf.md" },
+        { path: "notes.md", size: 5, savedBy: "user" },
+      ],
+      folders: [],
+      usage: 4096,
+      limit: 50 * mib,
+    };
+    const { fetch, calls } = recordingFetch((url) =>
+      new URL(url).pathname.endsWith("knowledgeFiles/read")
+        ? Response.json({
+            json: { path: "handbook.pdf.md", content: "## Page 1\nHello", size: 15 },
+          })
+        : pending(),
+    );
+    renderPopover(fetch, true, withPdf);
+
+    expect(screen.queryByText("handbook.pdf.md")).toBeNull();
+    expect(screen.queryByText("Readable text (what your Bots read)")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show readable text" }));
+
+    expect(await screen.findByText("Readable text (what your Bots read)")).toBeTruthy();
+    expect(await screen.findByText(/## Page 1/)).toBeTruthy();
+    expect(JSON.parse(calledWith(calls, "read")!.body).json).toEqual({ path: "handbook.pdf.md" });
+    expect(screen.queryByRole("button", { name: "Show readable text" })).toBeNull();
+    expect(
+      within(screen.getByText("notes.md").closest("li")!).queryByRole("button", {
+        name: /readable/,
+      }),
+    ).toBeNull();
   });
 });
