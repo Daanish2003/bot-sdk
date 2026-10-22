@@ -138,6 +138,7 @@ const notCovered = [
   /\b(doesn't|does not|don't|do not|didn't|did not|isn't|is not|aren't|are not|not)\s+(\w+\s+){0,2}(cover|contain|mention|include|address|specify|say|have (any|that|an?)\b)/i,
   /\bno\s+(\w+\s+){0,2}(mention|information|record|details|reference|policy)\b/i,
   /\b(couldn't|could not|can't|cannot|unable to)\s+find\b/i,
+  /\bno\b[^.\n]{0,80}\bfound\b/i,
   /\b(nothing|neither|none)\b[^.\n]{0,60}\b(cover|about|mention)/i,
   /\bnot\s+(covered|mentioned)\b/i,
 ];
@@ -146,7 +147,8 @@ export function scoreKnowledge(expected: Expect, observed: Observed): Score {
   const reasons: string[] = [];
   if (observed.status !== "complete")
     reasons.push(`the Turn ended ${observed.status}, not complete`);
-  const said = observed.sent.join("\n");
+  // Curly apostrophes (’ ‘) count as straight ones, so "couldn’t" matches "couldn't".
+  const said = observed.sent.join("\n").replace(/[‘’]/g, "'");
   const finish = (): Score => ({ passed: reasons.length === 0, reasons });
   const { calls } = observed;
 

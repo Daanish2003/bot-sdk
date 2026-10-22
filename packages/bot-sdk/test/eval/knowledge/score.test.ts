@@ -166,9 +166,14 @@ describe("scoring a Turn", () => {
       "I couldn't find anything about parental leave.",
       "Knowledge has no mention of parental leave.",
       "The handbook does not contain that.",
+      "I couldn’t find a parental-leave entitlement in the available company documents. The handbook lists sick leave and vacation, but doesn’t say how many weeks of parental leave you get (handbook.md, “Leave”). HR would need to confirm the policy.",
     ]) {
       expect(run("not-covered", { sent: [saying] }).passed, saying).toBe(true);
     }
+    const inventedAfterNotFound = run("not-covered", {
+      sent: ["I couldn’t find the policy, but you get 12 weeks of parental leave."],
+    });
+    expect(inventedAfterNotFound.reasons.some((r) => r.startsWith("invents"))).toBe(true);
   });
 
   it("fails a save into Memory, or one outside Knowledge", () => {
