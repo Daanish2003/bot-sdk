@@ -19,16 +19,27 @@ export const knowledgeBlockHeader =
 /** The block's last line when it lists only some of the paths. */
 export const moreKnowledge = (count: number) => `…and ${count} more, use \`list\``;
 
+/** Whether `line` is the last line of a capped Knowledge block. */
+export const isMoreKnowledge = (line: string) => /^…and \d+ more, use `list`$/.test(line);
+
 /** Code-unit order, the same everywhere a path list is compared. */
 export const byCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 /**
  * The paths a Bot reads, from every file's path relative to the Knowledge folder, sorted: a
- * converted file's readable `.md` copy stands for it, so the original is left out.
+ * converted file's readable `.md` copy stands for it, so the original is left out. A path with a
+ * control character (a line break) is left out too, so it can't add lines to the prompt; the Bot
+ * still finds it with `list`.
  */
 export function readablePaths(files: string[]): string[] {
   const all = new Set(files);
-  return files.filter((path) => !all.has(`${path}.md`)).sort(byCodeUnit);
+  return (
+    files
+      .filter((path) => !all.has(`${path}.md`))
+      // oxlint-disable-next-line no-control-regex -- control characters are what it looks for
+      .filter((path) => !/[\u0000-\u001f\u007f]/.test(path))
+      .sort(byCodeUnit)
+  );
 }
 
 /**
