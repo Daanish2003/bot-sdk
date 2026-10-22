@@ -13,6 +13,7 @@ import {
 import { chatSchema } from "../../../../core/server/db/chat-schema";
 import { job } from "../../../runner/server/db/job";
 import type { BotMemoryChange } from "../../../memory/shared/changes";
+import type { BotKnowledgeChange } from "../../../knowledge/shared/changes";
 import type { BotSkillChange } from "../../../skills/shared/changes";
 import type { MessageUsage } from "../../../models/shared/usage";
 import { bot } from "./bot";
@@ -77,6 +78,11 @@ export const botTurn = chatSchema.table(
      * chip. Null when it wrote none.
      */
     skillChanges: jsonb("skill_changes").$type<BotSkillChange[]>(),
+    /**
+     * The files the Turn's `write` and `edit` calls saved under `shared/knowledge/` (spec #737),
+     * for its "saved to Knowledge" chip. Null when it saved none.
+     */
+    knowledgeChanges: jsonb("knowledge_changes").$type<BotKnowledgeChange[]>(),
   },
   (table) => [
     index("bot_turn_bot_id_started_at_idx").on(table.botId, table.startedAt.desc()),

@@ -3,6 +3,7 @@ import { assistant, type HostToolContext } from "@ai-chat/bot-sdk/plugins/assist
 import { bot } from "@ai-chat/bot-sdk/plugins/bot/server";
 import { e2bProvider } from "@ai-chat/bot-sdk/plugins/computer/e2b";
 import { computer } from "@ai-chat/bot-sdk/plugins/computer/server";
+import { knowledge } from "@ai-chat/bot-sdk/plugins/knowledge/server";
 import { memory } from "@ai-chat/bot-sdk/plugins/memory/server";
 import { models } from "@ai-chat/bot-sdk/plugins/models/server";
 import { runner } from "@ai-chat/bot-sdk/plugins/runner/server";
@@ -57,6 +58,8 @@ export const chat = createBotSdk({
     memory(),
     // Skills (spec #713): each Bot's SKILL.md files, listed in its prompt; on only with the Computer.
     skills(),
+    // Knowledge (spec #737): the user's shared Knowledge files on their Computer, and text extraction.
+    knowledge(),
     assistant({ tools: [serverTime] }),
     // `reviewModel` is optional: the Model that reviews each Bot's risky tool calls (Auto-review).
     // Without it, or when the user can't use it, the Bot's own Model reviews.

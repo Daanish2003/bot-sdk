@@ -4,7 +4,6 @@ import type { BotSdkContext, BotSdkPlugin } from "../../../core/server/plugin";
 import { defaultRateLimits } from "../../../core/server/rate-limits";
 import {
   adapterFor,
-  embeddingAdapterFor as productionEmbeddingAdapterFor,
   imageAdapterFor as productionImageAdapterFor,
   imageRequestFor,
 } from "./adapters";
@@ -23,14 +22,6 @@ import {
   rotateCredentialKeys,
 } from "./credentials/store";
 import { modelsUserDelete } from "./delete-user";
-import {
-  defaultEmbeddingModel,
-  embeddingModelIds,
-  embeddingModelsProblem,
-  embedTexts,
-  resolveEmbeddingModel,
-  type ResolvedEmbeddingModel,
-} from "./embedding-models";
 import { resolveImageModel, type ResolvedImageModel } from "./image-models";
 import { quotaLookup, quotaState, readQuota, type QuotaState } from "./quota";
 import { modelsPluginRouter } from "./routers/index";
@@ -83,12 +74,6 @@ export type ModelsOptions = {
    */
   imageAdapterFor?: ModelsDeps["imageAdapterFor"];
   /**
-   * The embedding adapter for an embedding Model's `(model, credentials)`. Defaults to the
-   * production adapters (OpenAI and Gemini). A Host passes a fake here to run Knowledge without a
-   * paid call (spec #357, ticket #370).
-   */
-  embeddingAdapterFor?: ModelsDeps["embeddingAdapterFor"];
-  /**
    * The Host's linked Provider credentials (ADR 0023): for a user and a service, the credentials
    * the Host holds for them (a ChatGPT plan's access token as OpenAI's `apiKey`), nothing, or
    * `"needs-reconnect"`. Asked only for OpenAI, for the plan's Models, when the user has no key.
@@ -112,12 +97,6 @@ export type ModelsApi = {
   resolveModel: (userId: string, id: string) => ReturnType<typeof resolveModel>;
   listAvailableModels: (userId: string) => ReturnType<typeof listAvailableModels>;
   resolveImageModel: (userId: string, id: string) => Promise<ResolvedImageModel | undefined>;
-  resolveEmbeddingModel: (userId: string, id: string) => Promise<ResolvedEmbeddingModel | null>;
-  /** The embedding Model a user's Knowledge and Memory use by default (ADR 0014). */
-  defaultEmbeddingModel: (userId: string) => Promise<ResolvedEmbeddingModel | null>;
-  /** Every embedding Model the SDK knows, as `"provider:model"`. */
-  embeddingModelIds: () => string[];
-  embedTexts: (args: Parameters<typeof embedTexts>[1]) => Promise<number[][]>;
   transcribeRecording: (
     userId: string,
     recording: Parameters<typeof transcribeRecording>[2],
@@ -253,7 +232,6 @@ export function productionDeps(sdk: BotSdkContext, options: ModelsOptions): Mode
     adapterFor,
     imageAdapterFor: options.imageAdapterFor ?? productionImageAdapterFor,
     transcriptionAdapterFor,
-    embeddingAdapterFor: options.embeddingAdapterFor ?? productionEmbeddingAdapterFor,
     hostProviders: (options.hostProviders ?? []).filter(isHostProvider),
     hostTools: (options.hostProviders ?? []).filter(isHostTool),
     byok: options.byok ?? true,
@@ -273,10 +251,6 @@ function modelsApi(deps: ModelsDeps): ModelsApi {
     resolveModel: (userId, id) => resolveModel(deps, userId, id),
     listAvailableModels: (userId) => listAvailableModels(deps, userId),
     resolveImageModel: (userId, id) => resolveImageModel(deps, userId, id),
-    resolveEmbeddingModel: (userId, id) => resolveEmbeddingModel(deps, userId, id),
-    defaultEmbeddingModel: (userId) => defaultEmbeddingModel(deps, userId),
-    embeddingModelIds,
-    embedTexts: (args) => embedTexts(deps, args),
     transcribeRecording: (userId, recording) => transcribeRecording(deps, userId, recording),
     readQuota: (userId) => readQuota(deps, userId),
     messageUsage,
@@ -323,10 +297,6 @@ function checkStart(options: ModelsOptions) {
     }
   }
   const hostProviders = (options.hostProviders ?? []).filter(isHostProvider);
-  for (const entry of hostProviders) {
-    const problem = embeddingModelsProblem(entry);
-    if (problem) throw new Error(problem);
-  }
   const defaultBackground = options.defaultBackgroundModel;
   if (
     defaultBackground !== undefined &&

@@ -4,17 +4,33 @@ import { parse as parseCsv } from "csv-parse/sync";
 import mammoth from "mammoth";
 
 import {
-  pdfMediaType,
-  wordMediaType,
-  type KnowledgeFailureCode,
-  type KnowledgeMediaType,
-} from "../../shared/knowledge/kinds";
-import {
   ArchiveIntegrityError,
   assertOoxmlArchiveWithinLimits,
   isEncryptedOoxmlContainer,
   ZipBombError,
 } from "./ooxml";
+
+export const wordMediaType =
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+export const pdfMediaType = "application/pdf";
+
+/** The formats the text extraction reads. */
+export type KnowledgeMediaType =
+  | "text/markdown"
+  | "text/plain"
+  | "text/html"
+  | "text/csv"
+  | typeof wordMediaType
+  | typeof pdfMediaType;
+
+/** Why a file can't be read as text. */
+export type KnowledgeFailureCode =
+  | "no_text"
+  | "unreadable"
+  | "encrypted"
+  | "too_large"
+  | "too_long";
 
 /** A file that can't be read as text, with the reason the file shows as failed. */
 export class ExtractionFailure extends Error {
@@ -27,28 +43,38 @@ export class ExtractionFailure extends Error {
 }
 
 /**
- * The text a Knowledge file's passages are cut from, by its media type. Markdown and plain text
+ * The readable text of a Knowledge file, by its media type. Markdown and plain text
  * are read as they are; HTML and DOCX (through mammoth's HTML) are reduced to their text; CSV rows
  * are written with their header names, so every row describes itself. A PDF gives its text layer;
- * a scan with none fails as no_text. Throws ExtractionFailure.
+ * a scan with none fails as no_text; with `pageMarkers`, each page with text starts with a
+ * `## Page N` line. Text over `maxBytes` (UTF-8) fails as too_long; a PDF stops at the page
+ * that passes it. Throws ExtractionFailure.
  */
 export async function extractKnowledgeText(
   mediaType: KnowledgeMediaType,
   bytes: Uint8Array,
+  {
+    pageMarkers = false,
+    maxBytes = Number.POSITIVE_INFINITY,
+  }: { pageMarkers?: boolean; maxBytes?: number } = {},
 ): Promise<string> {
-  switch (mediaType) {
-    case "text/markdown":
-    case "text/plain":
-      return decodeUtf8(bytes);
-    case "text/html":
-      return htmlToText(decodeUtf8(bytes));
-    case "text/csv":
-      return csvToText(decodeUtf8(bytes));
-    case wordMediaType:
-      return docxToText(Buffer.from(bytes));
-    case pdfMediaType:
-      return pdfToText(bytes);
-  }
+  const text = await (async () => {
+    switch (mediaType) {
+      case "text/markdown":
+      case "text/plain":
+        return decodeUtf8(bytes);
+      case "text/html":
+        return htmlToText(decodeUtf8(bytes));
+      case "text/csv":
+        return csvToText(decodeUtf8(bytes));
+      case wordMediaType:
+        return docxToText(Buffer.from(bytes));
+      case pdfMediaType:
+        return pdfToText(bytes, pageMarkers, maxBytes);
+    }
+  })();
+  if (Buffer.byteLength(text) > maxBytes) throw new ExtractionFailure("too_long");
+  return text;
 }
 
 type PdfJs = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
@@ -70,11 +96,18 @@ function loadPdfJs(): Promise<PdfJs> {
  * The text layer of a PDF, one line per text line, pages in order. A PDF with no text layer (a
  * scan) fails as no_text: there is nothing to search without OCR, which is left out.
  *
- * This runs in-process, not in a worker_threads worker, by the owner's decision on #368: the job
- * runner is already off the request path, and the SDK ships TypeScript source, so there is no
- * built worker entry for a Host to bundle.
+ * It fails as too_long at the first page that takes the text past `maxBytes`, without reading
+ * the pages after it.
+ *
+ * This runs in-process, on the upload request (spec #737 converts at upload), not in a
+ * worker_threads worker: the SDK ships TypeScript source, so there is no built worker entry for a
+ * Host to bundle. The 20 MB file cap and the stop at `maxBytes` bound the work.
  */
-async function pdfToText(bytes: Uint8Array): Promise<string> {
+async function pdfToText(
+  bytes: Uint8Array,
+  pageMarkers: boolean,
+  maxBytes: number,
+): Promise<string> {
   const pdfjs = await loadPdfJs();
   let document: Awaited<ReturnType<typeof pdfjs.getDocument>["promise"]>;
   try {
@@ -92,26 +125,33 @@ async function pdfToText(bytes: Uint8Array): Promise<string> {
   }
 
   try {
-    const pages: string[] = [];
+    const lines: string[] = [];
+    // The joined text's UTF-8 bytes so far: each line and the newline before it.
+    let size = -1;
     for (let number = 1; number <= document.numPages; number++) {
       const page = await document.getPage(number);
       const content = await page.getTextContent();
+      const pageLines: string[] = [];
       let line = "";
       for (const item of content.items) {
         if (!("str" in item)) continue;
         line += item.str;
         if (item.hasEOL) {
-          pages.push(line);
+          pageLines.push(line);
           line = "";
         }
       }
-      if (line) pages.push(line);
+      if (line) pageLines.push(line);
       page.cleanup();
+      const cleaned = pageLines
+        .map((text) => text.replace(/\s+/g, " ").trim())
+        .filter((text) => text.length > 0);
+      if (pageMarkers && cleaned.length > 0) cleaned.unshift(`## Page ${number}`);
+      lines.push(...cleaned);
+      for (const text of cleaned) size += Buffer.byteLength(text) + 1;
+      if (size > maxBytes) throw new ExtractionFailure("too_long");
     }
-    const text = pages
-      .map((line) => line.replace(/\s+/g, " ").trim())
-      .filter((line) => line.length > 0)
-      .join("\n");
+    const text = lines.join("\n");
     if (text.length === 0) throw new ExtractionFailure("no_text");
     return text;
   } catch (error) {
