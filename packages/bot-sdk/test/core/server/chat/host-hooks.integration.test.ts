@@ -19,7 +19,7 @@ import {
 } from "../../../../core/server/chat/hooks";
 import { reapStaleRuns } from "../../../../plugins/assistant/server/chat/run";
 import { createBotSdk, type BotSdkOptions } from "../../../../core/server/create-chat";
-import { createChatHandler } from "../../../../plugins/assistant/server/over";
+import { createChatHandler } from "../../../../core/server/over";
 import { assistant } from "../../../../plugins/assistant/server/plugin";
 import { runner } from "../../../../plugins/runner/server/plugin";
 import { models, type ModelsOptions } from "../../../../plugins/models/server/plugin";

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { describe, expect, it } from "vitest";
 
-import { createChatHandler } from "../../../../plugins/assistant/server/over";
+import { createChatHandler } from "../../../../core/server/over";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { resolveRateLimits } from "../../../../core/server/rate-limits";
 import type { ChatCommand } from "../../../../plugins/assistant/shared/chat/command";

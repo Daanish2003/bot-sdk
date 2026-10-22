@@ -11,7 +11,7 @@ import {
   createHookEmitter,
   type RunEndEvent,
 } from "../../../../core/server/chat/hooks";
-import { createChatHandler } from "../../../../plugins/assistant/server/over";
+import { createChatHandler } from "../../../../core/server/over";
 import type { HostToolContext } from "../../../../plugins/assistant/server/chat/host-tools";
 import type { HostProvider } from "../../../../plugins/assistant/server/deps";
 import { message, usage } from "../../../../core/server/db/schema";

@@ -2,6 +2,7 @@ import type { AnyTextAdapter } from "@tanstack/ai";
 
 import { getTestDb } from "./test-database";
 
+import { assistantOver } from "../../plugins/assistant/server/plugin";
 import type { AssistantState } from "../../plugins/assistant/server/state";
 import { postgresBlobStore } from "../../core/server/blob/postgres";
 import { createMemoryCounters } from "../../core/server/chat/counters";
@@ -10,7 +11,7 @@ import { createMemoryPubSub } from "../../core/server/chat/pubsub";
 import { createMemoryRunStreams } from "../../core/server/chat/run-streams";
 import type { GivenContext } from "../../core/server/create-chat";
 import type { BotSdkPlugin } from "../../core/server/plugin";
-import { createBotSdkOver, type SdkOver } from "../../plugins/assistant/server/over";
+import { createBotSdkOver, type SdkOver } from "../../core/server/over";
 import type { Limits } from "../../plugins/assistant/server/deps";
 import { memory } from "../../plugins/memory/server/plugin";
 import type { ModelsDeps } from "../../plugins/models/server/types";
@@ -144,9 +145,13 @@ export function createTestSdk({ limits, plugins, ...overrides }: TestDepsOverrid
       ...limits,
     },
   };
-  const installed = [...(overrides.memory === false ? [] : [memory()]), ...(plugins ?? [])];
+  const installed = [
+    assistantOver(assistant),
+    ...(overrides.memory === false ? [] : [memory()]),
+    ...(plugins ?? []),
+  ];
   return createBotSdkOver(
-    { context, models, assistant, jobs: overrides.jobs, plugins: installed },
+    { context, models, jobs: overrides.jobs, plugins: installed },
     { basePath: "/api/chat", getUser: () => null, logger: { error: () => {} } },
   ).sdk;
 }

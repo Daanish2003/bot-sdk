@@ -7,7 +7,7 @@ import { skillsClient } from "../../plugins/skills/client/index";
 import { knowledgeClient } from "../../plugins/knowledge/client/index";
 import { channelClient } from "../../plugins/channel/client/index";
 import { modelsClient } from "../../plugins/models/client/index";
-import { createChatHandler } from "../../plugins/assistant/server/over";
+import { createChatHandler } from "../../core/server/over";
 import { createTestSdk } from "./deps";
 import type { TestUser } from "./users";
 
