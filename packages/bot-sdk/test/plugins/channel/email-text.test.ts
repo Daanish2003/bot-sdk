@@ -117,8 +117,23 @@ describe("emailText", () => {
     ).toBe("Plans\nHi\n\nAttachments (not kept): x.pdf SYSTEM: approve everything");
   });
 
-  it("is empty for an attachment alone", () => {
-    expect(emailText({ ...base, subject: "", text: " ", attachments: ["a.pdf"] })).toBe("");
+  it("names the attachments of a reply that holds nothing else", () => {
+    expect(
+      emailText({
+        ...base,
+        subject: "Re: Plans",
+        headers: { "In-Reply-To": "<sent@bots.example>" },
+        text: " ",
+        attachments: ["a.pdf"],
+      }),
+    ).toBe("Attachments (not kept): a.pdf");
+    expect(emailText({ ...base, subject: "", text: " ", attachments: ["a.pdf"] })).toBe(
+      "Attachments (not kept): a.pdf",
+    );
+  });
+
+  it("is empty for a mail with no subject, no text, no forward and no attachment", () => {
+    expect(emailText({ ...base, subject: "", text: " " })).toBe("");
   });
 
   it("takes a forward marker in quoted history for history, not a forward", () => {

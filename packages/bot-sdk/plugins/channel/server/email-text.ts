@@ -11,8 +11,7 @@ const forwardMarker = /^[ \t]*(?:-{2,}\s*Forwarded message\s*-{2,}|Begin forward
  * subject as a first line unless the mail replies to the Bot's thread (one of its In-Reply-To or
  * References ids is a Bot's, `<id@domain>`); the attachments named in one line;
  * and anything below a forward marker in an untrusted fenced block, as for a webhook's payload.
- * Empty when the mail has no subject line, no new text and no forward, so an attachment alone
- * wakes nothing.
+ * Empty when the mail has no subject line, no new text, no forward and no attachment.
  */
 export function emailText(
   mail: Pick<InboundMail, "subject" | "text" | "headers" | "attachments">,
@@ -28,7 +27,6 @@ export function emailText(
   if (subject && !repliesToThread(mail.headers, domain)) lines.push(subject);
   const fresh = typed.trim();
   if (fresh) lines.push(fresh);
-  if (lines.length === 0 && !forwarded) return "";
   const parts = [lines.join("\n")].filter(Boolean);
   // Names are a sender's text: on one line each, and before the forward, which the reviewer never sees.
   if (mail.attachments.length > 0) {

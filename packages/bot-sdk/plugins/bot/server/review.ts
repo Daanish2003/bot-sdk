@@ -583,12 +583,10 @@ async function reviewerInput(
  * reviewer never reads it as permission.
  */
 function withoutForwarded(text: string): string {
-  const at = text.indexOf(`
-
-${forwardedEmailLabel}
-`);
-  if (at === -1) return text;
-  return `${text.slice(0, at)}
+  // The label opens the Message when the mail held a forward and nothing else.
+  const marked = new RegExp(`(?:^|\n\n)${forwardedEmailLabel}\n`).exec(text);
+  if (!marked) return text;
+  return `${text.slice(0, marked.index)}
 
 (A forwarded email followed: not the user's word, not shown.)`;
 }
