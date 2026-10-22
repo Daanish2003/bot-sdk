@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
+import { type AddressInfo, connect, createServer as createTcpServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -41,8 +41,11 @@ const model = "openai:gpt-5.6";
 const silent = { error: () => {} };
 const poll = { timeout: 10_000 };
 
-/** A headless Chromium with its DevTools port open, as a Screen's Chrome is. */
-type Chrome = { url: string; close: () => Promise<void> };
+/**
+ * A headless Chromium with its DevTools port open, as a Screen's Chrome is. The capture reaches it
+ * at `proxied`, a relay whose connections `cut` drops, as a network blip or a round's end does.
+ */
+type Chrome = { url: string; proxied: string; cut: () => void; close: () => Promise<void> };
 
 async function launchChrome(): Promise<Chrome> {
   const dir = await mkdtemp(join(tmpdir(), "screen-"));
@@ -60,9 +63,26 @@ async function launchChrome(): Promise<Chrome> {
     if (!port && tries > 100) throw new Error("Chromium's DevTools port did not open");
     if (!port) await new Promise((resolve) => setTimeout(resolve, 50));
   }
+  const sockets = new Set<Socket>();
+  const relay = createTcpServer((socket) => {
+    const upstream = connect(Number(port), "127.0.0.1");
+    for (const end of [socket, upstream]) {
+      sockets.add(end);
+      end.on("close", () => sockets.delete(end));
+      end.on("error", () => {});
+    }
+    socket.pipe(upstream).pipe(socket);
+  });
+  await new Promise<void>((resolve) => relay.listen(0, "127.0.0.1", resolve));
   return {
     url: `http://127.0.0.1:${port}`,
+    proxied: `http://127.0.0.1:${(relay.address() as AddressInfo).port}`,
+    cut: () => {
+      for (const socket of sockets) socket.destroy();
+    },
     close: async () => {
+      relay.close();
+      for (const socket of sockets) socket.destroy();
       await context.close();
       await rm(dir, { recursive: true, force: true }).catch(() => {});
     },
@@ -151,7 +171,7 @@ async function demonstrating(path = "/") {
   const fake = createFakeAdapter({ rounds: [round(watchUser, ends)] });
   const computerFake = fakeComputerProvider({
     hostUrl: (sandboxId, port) =>
-      port > 9222 ? chrome.url : `https://${port}-${sandboxId}.fake.test`,
+      port > 9222 ? chrome.proxied : `https://${port}-${sandboxId}.fake.test`,
   });
   let deps: TestDeps | undefined;
   const jobs = inProcessRunner({ db: getTestDb(), logger: silent, drainMs: 50, deps: () => deps! });
@@ -428,6 +448,24 @@ describe("capturing a Demonstration", () => {
         ["navigation", null],
         ["pause", null],
         ["click", "#go"],
+        ["click", "#go"],
+      ]);
+  }, 60_000);
+
+  it("keeps a step taken while the capture reconnects", async () => {
+    const { demonstrationId, page } = await demonstrating();
+
+    chrome.cut();
+    await page.waitForTimeout(500);
+    await page.locator("#go").click();
+
+    await expect
+      .poll(
+        async () => (await eventsOf(demonstrationId)).map(({ kind, selector }) => [kind, selector]),
+        { timeout: 30_000 },
+      )
+      .toEqual([
+        ["navigation", null],
         ["click", "#go"],
       ]);
   }, 60_000);

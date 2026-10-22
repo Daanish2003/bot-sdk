@@ -54,20 +54,38 @@ export const demonstrationEventBlobKey = (demonstrationId: string, eventId: stri
  * Escape and shortcuts (`key`), and the top frame's page loads (`navigation`). Each carries the
  * frame's URL, the element's label and a CSS selector. In capture phase, so a page's own handlers
  * can't hide a step. A string, not a function, so no bundler's helpers end up in the page.
+ *
+ * A step stays queued in its page until the server has taken it, so one taken between two rounds'
+ * connections, or while a round closes, isn't lost: the next round runs this again in every open
+ * document, which sends the queue again. A document opened between rounds has no listener until
+ * then; its page load is still reported, as the next round finds it loaded.
  */
 const listenerSource = (name: string) => String.raw`(() => {
   const binding = ${JSON.stringify(name)};
   const flag = binding + "_listening";
-  if (window[flag] || !/^https?:$/.test(location.protocol)) return;
+  if (window[flag]) return window[flag + "_resend"]();
+  if (!/^https?:$/.test(location.protocol)) return;
   Object.defineProperty(window, flag, { value: true });
   const mask = ${JSON.stringify(maskedValue)};
   const clip = (text, length) => (text || "").replace(/\s+/g, " ").trim().slice(0, length);
+  // The steps the server hasn't taken yet, oldest first; past the step cap, the oldest goes.
+  const queue = [];
+  const deliver = (item) => {
+    try {
+      Promise.resolve(window[binding](item.step)).then(() => {
+        const at = queue.indexOf(item);
+        if (at >= 0) queue.splice(at, 1);
+      }, () => {});
+    } catch {}
+  };
+  Object.defineProperty(window, flag + "_resend", { value: () => queue.slice().forEach(deliver) });
   const send = (step) => {
     // Before the page's own handlers run, so a field a "show password" click unmasks is known.
     trackPasswords();
-    try {
-      Promise.resolve(window[binding]({ url: location.href, ...step })).catch(() => {});
-    } catch {}
+    const item = { step: { url: location.href, ...step } };
+    queue.push(item);
+    if (queue.length > ${demonstrationEventLimit}) queue.shift();
+    deliver(item);
   };
   const target = (event) => {
     const element = event.composedPath ? event.composedPath()[0] : event.target;
@@ -373,7 +391,9 @@ async function connect(
     const name = `__botDemonstration_${demonstration.id.replaceAll("-", "")}`;
     await context.exposeBinding(name, ({ page }: { page: Page }, reported: unknown) => {
       const step = reportedStepSchema.safeParse(reported);
-      if (!step.success || pending.closing) return;
+      if (!step.success) return;
+      // Refused, so the page keeps it for the next round.
+      if (pending.closing) throw new Error("The capture's round is closing");
       const received = recordingNow(deps, demonstration.id).catch((caught: unknown) => {
         deps.logger.error("Reading a Demonstration's state failed", caught);
         return false;
@@ -406,7 +426,8 @@ async function connect(
  * a CDP connection to the Screen's Chrome while the Demonstration is live, so no attempt nears the
  * runner's attempt cap and a deploy's drain waits for one round at most. A round that ends with the
  * Demonstration still live queues the next; one whose Chrome it can't reach, or whose connection
- * dropped, queues it `reconnectMs` later. A round stores the steps already reported before it ends.
+ * dropped, queues it `reconnectMs` later. A round stores the steps already reported before it ends;
+ * the pages keep the ones it refuses while it closes, and send them to the next.
  */
 export const demonstrationCaptureJob = defineJob({
   name: demonstrationCaptureJobName,
