@@ -1,3 +1,4 @@
+import { sendAndFollow } from "../../test/support/follow-send";
 // One run of each step-8 eval (spec #665, #678), through the real `bot` and `memory` plugins: a
 // fresh user and Bot, then the scenario. The cache eval plays a scripted Conversation and a warm
 // and reads the usage rows; the Summary eval pushes a Conversation past the away Summary's input
@@ -30,7 +31,7 @@ import {
   summarizeAwayJobName,
 } from "../../plugins/bot/server/summary";
 import { defaultTimeZone } from "../../plugins/bot/server/time-zone";
-import { sendToBot, sendToUserToolName } from "../../plugins/bot/server/turn";
+import { sendToUserToolName } from "../../plugins/bot/server/turn";
 import { type WarmResult, warmBot } from "../../plugins/bot/server/warm";
 import { profilePath } from "../../plugins/memory/server/bot-memory";
 import { job } from "../../plugins/runner/server/db/job";
@@ -153,7 +154,7 @@ async function newestTurn(db: Database, botId: string) {
 async function userTurn(env: ContextEnv, ids: { userId: string; botId: string }, text: string) {
   const sent: string[] = [];
   let status: string = "stopped";
-  for await (const event of await sendToBot(env.sdk, { ...ids, id: uuidv7(), text })) {
+  for await (const event of await sendAndFollow(env.sdk, { ...ids, id: uuidv7(), text })) {
     if (event.type === "message" && event.message.role === "assistant")
       sent.push(event.message.text);
     if (event.type === "turnEnded") status = event.status;

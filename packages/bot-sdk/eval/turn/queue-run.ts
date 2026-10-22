@@ -1,3 +1,4 @@
+import { sendAndFollow } from "../../test/support/follow-send";
 // One run of a step-3 eval case (spec #510), through the real `bot` plugin: a fresh user and Bot,
 // then each of the case's Messages sent with `sendToBot` and a client id, as the web client does.
 
@@ -7,7 +8,6 @@ import { botTurn } from "../../core/server/db/schema";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
 import { job } from "../../plugins/runner/server/db/job";
 import { botTrigger } from "../../plugins/bot/server/db/bot-trigger";
-import { sendToBot } from "../../plugins/bot/server/turn";
 import { freshBot, type TurnEnv } from "./case";
 import type { QueueCase } from "./queue-cases";
 import { judge, scoreQueue } from "./queue-score";
@@ -77,7 +77,12 @@ export async function runQueueCase(
       }
       const id = uuidv7();
       ids.push(id);
-      const stream = await sendToBot(env.sdk, { userId, botId: bot.id, id, text: message.text });
+      const stream = await sendAndFollow(env.sdk, {
+        userId,
+        botId: bot.id,
+        id,
+        text: message.text,
+      });
       streams.push(
         (async () => {
           for await (const _ of stream);

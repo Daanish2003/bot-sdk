@@ -1,3 +1,4 @@
+import { sendAndFollow } from "../../test/support/follow-send";
 // The Computer-use Helper eval (spec #587, #599): a real Model, as the Bot, hands a task to a
 // Computer-use Helper, which drives a real Screen on a fixture site served inside the Computer
 // (local E2B). It scores whether the Helper finds a fact through the Browser tools, and whether it
@@ -14,7 +15,6 @@ import { botHelper, botTurn, computer as computerTable } from "../../core/server
 import { uuidv7 } from "../../core/server/lib/uuidv7";
 import { computerOf } from "../../plugins/bot/server/computer-tools";
 import { bot } from "../../plugins/bot/server/plugin";
-import { sendToBot } from "../../plugins/bot/server/turn";
 import { job as jobTable } from "../../plugins/runner/server/db/job";
 import { runnerJobs } from "../../plugins/runner/server/plugin";
 import { freshBot } from "../turn/case";
@@ -99,7 +99,7 @@ async function main() {
         await startFixture(computer);
 
         const turnId = uuidv7();
-        for await (const _ of await sendToBot(sdk, {
+        for await (const _ of await sendAndFollow(sdk, {
           userId,
           botId,
           id: turnId,
