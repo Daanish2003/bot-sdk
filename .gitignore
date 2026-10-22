@@ -77,3 +77,6 @@ packages/bot-sdk/eval/computer/results/
 
 # Skills evals (packages/bot-sdk/eval/skills): the results they write
 packages/bot-sdk/eval/skills/results/
+
+# Knowledge eval (packages/bot-sdk/eval/knowledge): the results it writes
+packages/bot-sdk/eval/knowledge/results/
