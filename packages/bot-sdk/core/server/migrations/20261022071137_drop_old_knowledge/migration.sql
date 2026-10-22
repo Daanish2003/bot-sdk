@@ -9,9 +9,13 @@ DROP TABLE "chat"."knowledge_chunk";--> statement-breakpoint
 DROP TABLE "chat"."knowledge_file";--> statement-breakpoint
 ALTER TABLE "chat"."project" DROP COLUMN "embedding_model";--> statement-breakpoint
 DROP TYPE "chat"."knowledge_file_status";--> statement-breakpoint
--- Nothing of the SDK's uses pgvector any more. A Host whose own tables still use it keeps it.
+-- Nothing of the SDK's uses pgvector any more. A Host whose own tables still use it keeps it, and so
+-- does a database whose migrating role doesn't own it (a superuser created it once).
 DO $$ BEGIN
 	DROP EXTENSION IF EXISTS "vector";
-EXCEPTION WHEN dependent_objects_still_exist THEN
-	RAISE NOTICE 'The vector extension is still used outside the SDK, so it stays';
+EXCEPTION
+	WHEN dependent_objects_still_exist THEN
+		RAISE NOTICE 'The vector extension is still used outside the SDK, so it stays';
+	WHEN insufficient_privilege THEN
+		RAISE NOTICE 'The migrating role does not own the vector extension, so it stays';
 END $$;

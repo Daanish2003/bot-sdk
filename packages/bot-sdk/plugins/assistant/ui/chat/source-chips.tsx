@@ -36,8 +36,10 @@ export const ReplySources = createContext<NumberedSource[]>([]);
 
 /**
  * A link in a reply: a link to one of this Message's Sources (`ReplySources`) is that Source's
- * numbered chip; any other link stays a plain link. Web links open in a new tab. One component
- * type for every render, so chips survive streamed updates (an open hover card stays open).
+ * numbered chip; any other link stays a plain link. Web links open in a new tab. A link whose URL
+ * the Markdown dropped, such as an old reply's `excerpt:` citation (spec #737), is its text alone.
+ * One component type for every render, so chips survive streamed updates (an open hover card
+ * stays open).
  */
 function ReplyLink({
   href,
@@ -53,6 +55,7 @@ function ReplyLink({
       </span>
     );
   }
+  if (!href) return <span>{children}</span>;
   return (
     <a {...props} href={href} target="_blank" rel="noopener noreferrer nofollow">
       {children}

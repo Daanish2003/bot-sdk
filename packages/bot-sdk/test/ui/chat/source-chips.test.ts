@@ -51,6 +51,13 @@ describe("a reply's links", () => {
       'target="_blank" rel="noopener noreferrer nofollow"',
     );
   });
+
+  it("leave an old reply's Excerpt citation as its text, with no empty link (#743)", () => {
+    const html = render("The launch is in May, according to [brief.md](excerpt:1).");
+
+    expect(html).toContain("according to <span>brief.md</span>.");
+    expect(html).not.toContain('href=""');
+  });
 });
 
 describe("a fetched page", () => {
