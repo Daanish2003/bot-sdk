@@ -406,7 +406,7 @@ export async function routinesPrompt(
 }
 
 /**
- * The last Message of the Turn a row's `createdByTurnId` names, which its card or line follows: the
+ * The last Message of the Turn a row's `createdByTurnId` names, which its line or card follows: the
  * Bot's last Message sent by the time the Turn ended, or the user's last one from before it started;
  * a user Message sent while it ran is not. Use it in a query that joins `bot` and `bot_turn`.
  */
