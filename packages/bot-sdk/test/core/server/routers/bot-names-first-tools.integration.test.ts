@@ -18,6 +18,7 @@ import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
 import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
+import { followSend } from "../../../support/follow-send";
 
 const model = "openai:gpt-5.6";
 const silent = { error: () => {} };
@@ -82,7 +83,7 @@ async function botWith(turnRounds: Round[]) {
 }
 
 async function send(client: ReturnType<typeof chatRpc>, botId: string, text: string) {
-  for await (const _event of await client.bot.send({
+  for await (const _event of await followSend(client, {
     botId,
     id: uuidv7(),
     text,

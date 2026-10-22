@@ -20,6 +20,7 @@ import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
 import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
+import { followSend } from "../../../support/follow-send";
 
 const model = "openai:gpt-5.6";
 const silent = { error: () => {} };
@@ -82,7 +83,7 @@ async function send(
   text: string,
   timeZone?: string,
 ) {
-  for await (const _event of await client.bot.send({ botId, id: uuidv7(), text, timeZone })) {
+  for await (const _event of await followSend(client, { botId, id: uuidv7(), text, timeZone })) {
     // Read to the end of the Turn.
   }
 }
@@ -383,7 +384,7 @@ describe("a Turn that resumes after a crash", () => {
     });
     const client = chatRpc({ user, deps });
     const { id: botId } = await client.bot.create({ name: "Ada", model });
-    await client.bot.send({ botId, id: uuidv7(), text: "hi" });
+    await followSend(client, { botId, id: uuidv7(), text: "hi" });
 
     const lost = attempt(deps);
     // The attempt has chosen its Prompt start and waits in its model call.

@@ -25,6 +25,7 @@ import { fakeJobClock } from "../../../support/jobs";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
+import { followSend } from "../../../support/follow-send";
 
 /** Its context window is 1,050,000 tokens in the models snapshot, so 75% is 787,500. */
 const model = "openai:gpt-5.6";
@@ -84,7 +85,7 @@ async function botWith(rounds: Round[]) {
 }
 
 async function send(client: ReturnType<typeof chatRpc>, botId: string, words: string) {
-  for await (const _event of await client.bot.send({ botId, id: uuidv7(), text: words })) {
+  for await (const _event of await followSend(client, { botId, id: uuidv7(), text: words })) {
     // Read to the end of the Turn.
   }
 }
@@ -357,7 +358,7 @@ describe("a Turn that crashes after its Summary", () => {
     });
     const client = chatRpc({ user, deps });
     const { id: botId } = await client.bot.create({ name: "Ada", model });
-    await client.bot.send({ botId, id: uuidv7(), text: "find me flights" });
+    await followSend(client, { botId, id: uuidv7(), text: "find me flights" });
 
     const lost = attempt(deps);
     // The first Step and the Summary are saved, and the attempt waits in its third model call.

@@ -26,6 +26,7 @@ import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
 import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
+import { followSend } from "../../../support/follow-send";
 
 const model = "openai:gpt-5.6";
 const silent = { error: () => {} };
@@ -124,7 +125,7 @@ async function botsWith(
 }
 
 async function send(client: ReturnType<typeof chatRpc>, botId: string, text: string) {
-  for await (const _event of await client.bot.send({ botId, id: uuidv7(), text })) {
+  for await (const _event of await followSend(client, { botId, id: uuidv7(), text })) {
     // Read to the end of the Turn.
   }
 }
@@ -174,7 +175,7 @@ describe("the post-turn memory pass", () => {
     const [ada] = botIds as [string];
 
     // The Turn's job waits out its batch, so the stop finds it queued.
-    await client.bot.send({ botId: ada, id: uuidv7(), text: "hi" });
+    await followSend(client, { botId: ada, id: uuidv7(), text: "hi" });
     await client.bot.stop({ botId: ada });
 
     expect(await passesEnded(1)).toHaveLength(1);

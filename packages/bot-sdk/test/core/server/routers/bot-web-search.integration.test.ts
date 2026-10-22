@@ -21,6 +21,7 @@ import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
 import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
+import { followSend } from "../../../support/follow-send";
 
 const model = "openai:gpt-5.6";
 const hostModel = "anthropic:claude-sonnet-5-5";
@@ -153,7 +154,7 @@ async function botWith(
 }
 
 async function send(client: ReturnType<typeof chatRpc>, botId: string, message: string) {
-  for await (const _ of await client.bot.send({ botId, id: uuidv7(), text: message }));
+  for await (const _ of await followSend(client, { botId, id: uuidv7(), text: message }));
 }
 
 const inputOf = (call: TextOptions | undefined) => (call?.messages ?? []) as ModelMessage[];
@@ -287,7 +288,7 @@ describe("the Bot's web search", () => {
       return rows[0]?.n;
     };
 
-    await client.bot.send({ botId, id: uuidv7(), text: "news?" });
+    await followSend(client, { botId, id: uuidv7(), text: "news?" });
     await expect.poll(waitingOnLocks, { timeout: 10_000 }).toBe(1);
     // The deploy starts while the search is being recorded: it commits, then the attempt yields.
     await jobs.stop();

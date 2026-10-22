@@ -18,6 +18,7 @@ import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapte
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
+import { followSend } from "../../../support/follow-send";
 
 const model = "openai:gpt-5.6";
 
@@ -62,7 +63,7 @@ async function send(
   timeZone?: string,
 ) {
   const events = [];
-  for await (const event of await client.bot.send({ botId, id: uuidv7(), text, timeZone })) {
+  for await (const event of await followSend(client, { botId, id: uuidv7(), text, timeZone })) {
     events.push(event);
   }
   return events;
