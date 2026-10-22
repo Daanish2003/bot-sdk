@@ -1067,6 +1067,70 @@ window.NAMES = [
       "The files a Turn saved under shared/knowledge/ with write, edit or run_tool, for the 'saved to Knowledge' chip. Writes elsewhere, such as memory, are ignored.",
     example: "knowledgeChangesOf(botId, transcript) → [{ botId, path: 'report.md' }] or null",
   },
+  {
+    lesson: 21,
+    name: "last_seq",
+    kind: "table/column",
+    meaning:
+      "The Conversation's newest change number. recordChange bumps it under the row lock, in the same transaction as the change.",
+    example: "last_seq 41 → 42 when a Turn starts",
+  },
+  {
+    lesson: 21,
+    name: "conversation_change",
+    kind: "table/column",
+    meaning:
+      "The change log: one row per change to a Conversation's thread, with its seq, kind and ref_id. Only the newest 500 are kept.",
+    example: "(conversation_id, seq 42, kind 'turn', ref_id <turn id>)",
+  },
+  {
+    lesson: 21,
+    name: "recordChange",
+    kind: "function",
+    meaning:
+      "Bumps last_seq and writes one change, inside the caller's transaction. A change that rolls back gives its number back.",
+    example: "recordChange(tx, conversationId, { kind: 'message', refId, at })",
+  },
+  {
+    lesson: 21,
+    name: "changesSince",
+    kind: "function",
+    meaning:
+      "The changes after a cursor, oldest first, or reload when the log no longer holds them all or the cursor is past the newest.",
+    example: "changesSince(db, conversationId, 41) → changes 42, 43 or { reload: true }",
+  },
+  {
+    lesson: 21,
+    name: "bot.changes",
+    kind: "route",
+    meaning:
+      "The oRPC route a tab calls on a hint. It returns the changes after `since`, each with what it points at now.",
+    example: "bot.changes({ botId, since: 41 })",
+  },
+  {
+    lesson: 21,
+    name: "hintChanged",
+    kind: "function",
+    meaning:
+      "Publishes the data-less { type: 'changed' } hint on the Conversation's channel. It never throws.",
+    example: 'hintChanged(deps, conversationId) → {"type":"changed"}',
+  },
+  {
+    lesson: 21,
+    name: "syncBot",
+    kind: "function",
+    meaning:
+      "The tab's fetch: reads the changes after its cursor and applies them in order, or reloads on a gap. Only one runs per Bot at a time.",
+    example: "syncBot(queryClient, orpc, botId)",
+  },
+  {
+    lesson: 21,
+    name: "safetyFetchMs",
+    kind: "constant",
+    meaning:
+      "How often a tab with a running Turn fetches the changes when no hint has come: 30 seconds.",
+    example: "safetyFetchMs = 30_000",
+  },
 ];
 
 (function () {
