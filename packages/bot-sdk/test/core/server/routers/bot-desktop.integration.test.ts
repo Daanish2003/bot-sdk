@@ -25,6 +25,7 @@ import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
 import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
+import { followSend } from "../../../support/follow-send";
 
 const silent = { error: () => {} };
 const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
@@ -103,7 +104,7 @@ const handsOff = round(
 const desktop = (input: object) => toolCall({ name: "desktop", input });
 
 async function ran(client: ReturnType<typeof chatRpc>, botId: string) {
-  for await (const _event of await client.bot.send({ botId, id: uuidv7(), text: "go" }));
+  for await (const _event of await followSend(client, { botId, id: uuidv7(), text: "go" }));
   await expect
     .poll(
       async () => {
