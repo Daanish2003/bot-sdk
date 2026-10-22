@@ -2,6 +2,8 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { bot as botTable, botTurn, conversation } from "../../../../core/server/db/schema";
+import type { AssistantExport } from "../../../../plugins/assistant/server/export-user";
+import type { BotExport } from "../../../../plugins/bot/server/store";
 import { deleteUserData, exportUserData } from "../../../../core/server/user-data";
 import { bot } from "../../../../plugins/bot/server/plugin";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
@@ -147,8 +149,9 @@ describe("the bot plugin's user data", () => {
     });
 
     const exported = await exportUserData(deps, user.id);
+    const { bots } = exported.bot as BotExport;
 
-    expect(exported.bots).toEqual([
+    expect(bots).toEqual([
       {
         id: created.id,
         name: "Ada",
@@ -164,7 +167,7 @@ describe("the bot plugin's user data", () => {
         ],
       },
     ]);
-    expect(exported.conversations).toEqual([]);
+    expect((exported.assistant as AssistantExport).conversations).toEqual([]);
   });
 });
 

@@ -14,7 +14,7 @@ import type { HostServerTool } from "./chat/host-tools";
 import { handleJoin } from "./chat/join-run";
 import { stopUserRuns } from "./chat/run";
 import { generatedImage } from "../../../core/server/db/schema";
-import { createTavilyClient } from "./chat/tavily";
+import { createTavilyClient } from "../../bot/server/tavily";
 import { defaultLimits } from "./deps";
 import { assistantUserDelete } from "./delete-user";
 import { exportAssistantData } from "./export-user";

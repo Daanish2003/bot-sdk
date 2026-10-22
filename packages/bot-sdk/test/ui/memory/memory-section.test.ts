@@ -10,7 +10,7 @@ import { assistantClient } from "../../../plugins/assistant/client/index";
 import { memoryClient } from "../../../plugins/memory/client/index";
 import { MemorySection } from "../../../plugins/memory/ui/memory-section";
 import { modelsClient } from "../../../plugins/models/client/index";
-import { KeySettingsPage } from "../../../plugins/models/ui/key-settings";
+import { HostKeysPage } from "../host-keys-page";
 import { providerFor } from "../fake-dictionary";
 
 afterEach(() => {
@@ -52,7 +52,7 @@ describe("MemorySection", () => {
   it("is on the keys page only when the Host installs the memory plugin", () => {
     const page = (plugins: BotSdkClientPlugin[]) =>
       render(
-        providerFor(createElement(KeySettingsPage), {
+        providerFor(createElement(HostKeysPage), {
           seed: seed(),
           fetch: recordingFetch().fetch,
           messages: {},

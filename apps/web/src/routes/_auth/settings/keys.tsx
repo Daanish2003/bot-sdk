@@ -1,4 +1,21 @@
-import { KeySettingsPage, type LinkedCredentialsHost } from "@ai-chat/bot-sdk/plugins/models/ui";
+import { useChatAdapter } from "@ai-chat/bot-sdk/core/client";
+import {
+  ArchivedConversationsSection,
+  BackgroundModelSelect,
+  ConnectionsSection,
+  DeleteAllConversationsSection,
+  ImageModelSelect,
+  InstructionsField,
+  SavedPromptsSection,
+  SharedLinksSection,
+  YourDataSection,
+} from "@ai-chat/bot-sdk/plugins/assistant/ui";
+import { MemorySection } from "@ai-chat/bot-sdk/plugins/memory/ui";
+import {
+  CredentialsSections,
+  KeySettingsPage,
+  type LinkedCredentialsHost,
+} from "@ai-chat/bot-sdk/plugins/models/ui";
 import { createFileRoute } from "@tanstack/react-router";
 
 import { getChatgptLinkEnabled } from "@/functions/chatgpt-link-enabled";
@@ -32,5 +49,20 @@ export const Route = createFileRoute("/_auth/settings/keys")({
 
 function KeysRoute() {
   const linkEnabled = Route.useLoaderData();
-  return <KeySettingsPage linkedCredentials={linkEnabled ? chatgpt : undefined} />;
+  const { plugins } = useChatAdapter();
+  return (
+    <KeySettingsPage>
+      <CredentialsSections linkedCredentials={linkEnabled ? chatgpt : undefined} />
+      <ConnectionsSection />
+      <SharedLinksSection />
+      <ArchivedConversationsSection />
+      <InstructionsField />
+      {plugins.includes("memory") && <MemorySection />}
+      <SavedPromptsSection />
+      <BackgroundModelSelect />
+      <ImageModelSelect />
+      <YourDataSection />
+      <DeleteAllConversationsSection />
+    </KeySettingsPage>
+  );
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { SearchError } from "../../plugins/assistant/server/deps";
-import { createFakeSearchClient } from "./fake-search-client";
+import { SearchError } from "../../../../plugins/bot/server/search-client";
+import { createFakeSearchClient } from "../../../../plugins/bot/server/fake-search-client";
 
 const result = {
   title: "TanStack AI",

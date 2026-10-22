@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import type { BotSdkClient } from "../../../core/client/chat-client";
 import type { ListedModel } from "../../../plugins/models/shared/models";
-import { KeySettingsPage } from "../../../plugins/models/ui/key-settings";
+import { HostKeysPage } from "../host-keys-page";
 import { ProjectPage } from "../../../plugins/assistant/ui/pages/project";
 import {
   SharedConversationPage,
@@ -161,7 +161,7 @@ describe("the pages with the dictionary", () => {
   });
 
   it("shows no untranslated text on the keys page, with credentials on", () => {
-    expectTranslated(createElement(KeySettingsPage), (queryClient, client) => {
+    expectTranslated(createElement(HostKeysPage), (queryClient, client) => {
       queryClient.setQueryData(client.orpc.credentials.mode.queryKey(), { byok: true });
       queryClient.setQueryData(client.orpc.credentials.list.queryKey(), []);
       queryClient.setQueryData(client.orpc.settings.get.queryKey(), {
@@ -179,7 +179,7 @@ describe("the pages with the dictionary", () => {
     const linkedCredentials = { connect: () => {}, disconnect: () => {} };
     for (const state of ["none", "linked", "needs-reconnect", "key"] as const) {
       const html = expectTranslated(
-        createElement(KeySettingsPage, { linkedCredentials }),
+        createElement(HostKeysPage, { linkedCredentials }),
         (queryClient, client) => {
           queryClient.setQueryData(client.orpc.credentials.mode.queryKey(), { byok: true });
           queryClient.setQueryData(

@@ -4,7 +4,7 @@ import { freeMeter, type SearchMeter } from "../../../../plugins/models/server/m
 import { createToolBudget } from "../../../../plugins/assistant/server/chat/tracked-tool";
 import { createWebSearchTool } from "../../../../plugins/assistant/server/chat/web-search-tool";
 import { createPartsBuilder } from "../../../../plugins/assistant/shared/chat/parts";
-import { createFakeSearchClient } from "../../../support/fake-search-client";
+import { createFakeSearchClient } from "../../../../plugins/bot/server/fake-search-client";
 
 const results = [{ title: "Result", url: "https://example.test/", snippet: "A snippet" }];
 

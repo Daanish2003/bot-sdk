@@ -13,7 +13,7 @@ import { insertConversation, insertMessage } from "../../../support/conversation
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { getTestDb } from "../../../support/test-database";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
-import { createFakeSearchClient } from "../../../support/fake-search-client";
+import { createFakeSearchClient } from "../../../../plugins/bot/server/fake-search-client";
 import { chatRpc, sendAs } from "../../../support/sdk";
 import { insertUser } from "../../../support/users";
 

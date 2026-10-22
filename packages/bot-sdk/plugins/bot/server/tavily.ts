@@ -1,6 +1,7 @@
 import { z } from "zod";
 
-import { type SearchClient, SearchError, type SearchErrorReason } from "../deps";
+import type { SearchErrorReason } from "../shared/web-search";
+import { type SearchClient, SearchError } from "./search-client";
 
 /** How many results one search keeps. */
 export const maxSearchResults = 5;

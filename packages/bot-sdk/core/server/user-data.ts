@@ -1,4 +1,3 @@
-import type { UserExport } from "../../plugins/assistant/server/export-user";
 import { eq } from "drizzle-orm";
 
 import { deleteUnusedAttachments } from "./attachments/store";
@@ -50,32 +49,24 @@ export async function deleteUserData(given: BotSdkContext, userId: string): Prom
 }
 
 /**
+ * A user's export: the core's envelope, and one key per exporting plugin, its plugin id, holding
+ * that plugin's part. The core holds the parts as unknown; each plugin types its own.
+ */
+export type UserExport = { version: 2; exportedAt: Date; [pluginId: string]: unknown };
+
+/**
  * Everything the SDK keeps for a user, as one document, read in one repeatable-read snapshot: the
- * core's `version` and `exportedAt`, and each plugin's part. A key two plugins give throws. An
- * unknown user id gives an empty document, not an error.
- *
- * `UserExport` is the document with every plugin of the package enabled; an instance without a
- * plugin leaves that plugin's keys out.
+ * core's `version` and `exportedAt`, and each exporting plugin's part under its plugin id. A plugin
+ * that is not installed has no key. An unknown user id gives an empty document, not an error.
  */
 export async function exportUserData(sdk: BotSdkContext, userId: string): Promise<UserExport> {
   return sdk.db.transaction(
     async (tx) => {
-      const document: Partial<UserExport> = { version: 1, exportedAt: new Date() };
-      const owners = new Map<string, string>([
-        ["version", "core"],
-        ["exportedAt", "core"],
-      ]);
+      const document: UserExport = { version: 2, exportedAt: new Date() };
       for (const plugin of enabledPlugins(sdk)) {
-        const part = await plugin.exportUser?.(sdk, userId, tx);
-        for (const key of Object.keys(part ?? {})) {
-          const owner = owners.get(key);
-          if (owner) throw new Error(`"${key}" is exported by both "${owner}" and "${plugin.id}"`);
-          owners.set(key, plugin.id);
-        }
-        Object.assign(document, part);
+        if (plugin.exportUser) document[plugin.id] = await plugin.exportUser(sdk, userId, tx);
       }
-      // The merge can't be typed: which keys are present depends on the enabled plugins (see above).
-      return document as UserExport;
+      return document;
     },
     { isolationLevel: "repeatable read" },
   );
