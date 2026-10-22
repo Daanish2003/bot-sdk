@@ -81,7 +81,13 @@ export async function turnProvenance(
     triggersOf.set(trigger.turnId!, taken);
   }
   const sentAt = messages
-    .filter((sent) => sent.role === "assistant")
+    // An Approval request is the system asking, not the Bot sending (spec #761).
+    .filter(
+      (sent) =>
+        sent.role === "assistant" &&
+        sent.control?.kind !== "routine_approval" &&
+        sent.control?.kind !== "review_approval",
+    )
     .map((sent) => sent.createdAt.getTime())
     .sort((a, b) => a - b);
   return turns.map((turn) => {
