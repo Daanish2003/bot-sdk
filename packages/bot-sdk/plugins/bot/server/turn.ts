@@ -15,7 +15,7 @@ import { defineJob, PermanentJobError } from "../../runner/server/jobs/define";
 import { loadHistory } from "../../runner/server/jobs/history";
 import { createWorkflow, type WorkflowContext } from "../../runner/server/workflow/engine";
 import { routineScheduleSchema } from "../shared/routine";
-import type { BotMessage, BotSendEvent, TurnStatus } from "../shared/turn";
+import type { BotMessage, TurnStatus } from "../shared/turn";
 import {
   botTurnJobName,
   lockConversation,
@@ -49,14 +49,7 @@ import {
 } from "./prompt-start";
 import { closeWaitingReviews } from "./review";
 import { historyFrom, historyTurns, queueAwaySummary, summaryOf, writeSummary } from "./summary";
-import {
-  botMessages,
-  controlParts,
-  findBot,
-  textParts,
-  toBotMessage,
-  turnTimeLimitMs,
-} from "./store";
+import { controlParts, findBot, textParts, toBotMessage, turnTimeLimitMs } from "./store";
 import type { BotSkillChange } from "../../skills/shared/changes";
 import { knowledgeChangesOf } from "../../knowledge/server/changes";
 import type { BotKnowledgeChange } from "../../knowledge/shared/changes";
@@ -174,9 +167,6 @@ const startTurnActivity = "start_turn";
 
 /** The Checkpoint that stores the Turn's newest message, before its first model call. */
 const turnInputActivity = "turn_input";
-
-/** How often `bot.send` re-reads its Turn when no hint has come (#483). */
-export const followPollMs = 2_000;
 
 const sendToUserDefinition = toolDefinition({
   name: sendToUserToolName,
@@ -331,7 +321,7 @@ const listCheckInsDefinition = toolDefinition({
 
 /**
  * Tells whoever follows the Conversation that it changed, so they re-read it from Postgres. Never
- * throws: a lost hint is covered by the follower's re-read every `followPollMs`.
+ * throws: a lost hint is covered by a tab's fetch on focus, on reconnect and, while a Turn runs, every 30 s (ADR 0026).
  */
 export async function hintChanged(deps: BotSdkContext, conversationId: string) {
   try {
@@ -356,9 +346,9 @@ export const botTurnJob = defineJob({
 /**
  * Saves the user's Message and hands its Trigger to the Router, in one transaction: a Turn takes it
  * now or, while a Turn's job runs, that Turn is interrupted and the next one does. Checks run
- * before anything is written, and a refusal throws an RPC error before the stream starts. The
- * returned stream follows the Turn that takes the Message from Postgres: the saved user Message,
- * each Message sent after it, then `turnEnded`. Leaving it ends only the follow, never the Turn.
+ * before anything is written, and a refusal throws an RPC error. Returns the saved user Message
+ * (the earlier one for a repeat of an earlier send); the Turn that takes it runs as a job, and the
+ * Bot thread shows it through the change log (ADR 0026).
  * `timeZone` is the user's IANA zone, kept on the Message.
  */
 export async function sendToBot(
@@ -369,16 +359,14 @@ export async function sendToBot(
     id,
     text,
     timeZone,
-    signal,
   }: {
     userId: string;
     botId: string;
     id: string;
     text: string;
     timeZone?: string;
-    signal?: AbortSignal;
   },
-): Promise<AsyncGenerator<BotSendEvent>> {
+): Promise<BotMessage> {
   const found = await findBot(deps.db, userId, botId);
   if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
   const call = await deps.plugin("models").resolveModelCall(userId, found.model);
@@ -426,14 +414,9 @@ export async function sendToBot(
     return { userMessage: toBotMessage(row), started: true, ended };
   });
   if (sent.started) deps.plugin("runner").wake();
-  if (sent.ended) await hintChanged(deps, found.conversationId);
-
-  return followTurn(deps, {
-    conversationId: found.conversationId,
-    triggerId: sent.userMessage.id,
-    userMessage: sent.userMessage,
-    signal,
-  });
+  // Other tabs fetch the new Message (and the Turn this send interrupted, if any).
+  if (sent.started) await hintChanged(deps, found.conversationId);
+  return sent.userMessage;
 }
 
 /**
@@ -535,69 +518,6 @@ async function cancelTurn(deps: BotSdkContext, tx: Transaction, turnId: string):
     await queueAwaySummary(deps, tx, { botId: turn.botId, lastInput: played.lastInput, endedAt });
   await turnEnded(deps, tx, turnId);
   return true;
-}
-
-/**
- * Follows the Turn that takes a Trigger, from Postgres (#483, slide 19's "signal, then fetch"):
- * yields the user Message, then re-reads on each "changed" hint on the Conversation's channel, and
- * every `followPollMs` in case a hint is lost, yielding each new Message, until a Turn has taken
- * the Trigger and ended.
- */
-async function* followTurn(
-  deps: BotSdkContext,
-  {
-    conversationId,
-    triggerId,
-    userMessage,
-    signal,
-  }: { conversationId: string; triggerId: string; userMessage: BotMessage; signal?: AbortSignal },
-): AsyncGenerator<BotSendEvent> {
-  yield { type: "message", message: userMessage };
-  let hinted = false;
-  let wake = () => {};
-  const unsubscribe = await deps.pubsub.subscribe(conversationChannel(conversationId), () => {
-    hinted = true;
-    wake();
-  });
-  const onAbort = () => wake();
-  signal?.addEventListener("abort", onAbort, { once: true });
-  const shown = new Set([userMessage.id]);
-  try {
-    while (!signal?.aborted) {
-      hinted = false;
-      // The status first: the Messages read after it hold every one sent before the Turn ended.
-      // A Trigger no Turn has taken yet has no status: it waits in the Conversation queue.
-      const [taken] = await deps.db
-        .select({ status: botTurn.status })
-        .from(botTrigger)
-        .leftJoin(botTurn, eq(botTurn.id, botTrigger.turnId))
-        .where(eq(botTrigger.id, triggerId));
-      for (const sent of await botMessages(deps.db, conversationId, userMessage.createdAt)) {
-        if (shown.has(sent.id)) continue;
-        shown.add(sent.id);
-        yield { type: "message", message: sent };
-      }
-      if (!taken) {
-        yield { type: "turnEnded", status: "error" };
-        return;
-      }
-      if (taken.status !== null && taken.status !== "running") {
-        yield { type: "turnEnded", status: taken.status };
-        return;
-      }
-      await new Promise<void>((resolve) => {
-        if (hinted || signal?.aborted) return resolve();
-        const timer = setTimeout(resolve, followPollMs);
-        wake = () => {
-          clearTimeout(timer);
-          resolve();
-        };
-      });
-    }
-  } finally {
-    signal?.removeEventListener("abort", onAbort);
-    await unsubscribe();
-  }
 }
 
 /** What a Turn played: its transcript and usage, and its last Step's input when known. */

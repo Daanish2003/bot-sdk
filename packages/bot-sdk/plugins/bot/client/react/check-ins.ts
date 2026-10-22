@@ -11,7 +11,7 @@ import { useItemActions, useRefreshAfterTurns } from "./turn-list";
 export function useBotCheckIns(botId: string, working: boolean) {
   const { orpc } = useChatAdapter();
   const options = orpc.bot.checkIn.list.queryOptions({ input: { botId } });
-  const query = useQuery({ ...options, refetchInterval: working ? 2000 : false });
+  const query = useQuery(options);
   const { acting, act } = useItemActions(useRefreshAfterTurns(options.queryKey, working));
   return {
     checkIns: query.data ?? [],

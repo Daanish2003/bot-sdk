@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
-import { eventIterator, os } from "@orpc/server";
+import { os } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import type { BotMessage, BotSendEvent, BotWarming } from "../../../plugins/bot/shared/turn";
+import type { BotMessage, BotWarming } from "../../../plugins/bot/shared/turn";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
 import { providerFor } from "../fake-dictionary";
 
@@ -34,8 +34,12 @@ function fakeBotServer(messages: BotMessage[], warmings: BotWarming[] = []) {
       stop: os.handler(() => {}),
       send: os
         .input(z.object({ botId: z.string(), id: z.string(), text: z.string() }).loose())
-        .output(eventIterator(z.custom<BotSendEvent>()))
-        .handler(async function* () {}),
+        .handler(({ input }) => ({
+          id: input.id,
+          role: "user" as const,
+          text: input.text,
+          createdAt: new Date(),
+        })),
       warm: os.input(z.object({ botId: z.string() })).handler(({ input }) => {
         warms.push(input);
         return { warmed: false as const, skipped: "still_warm" as const };

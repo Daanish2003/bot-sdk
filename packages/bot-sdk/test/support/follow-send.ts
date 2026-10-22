@@ -1,0 +1,90 @@
+import { setTimeout as sleep } from "node:timers/promises";
+
+import { eq } from "drizzle-orm";
+
+import type { Database } from "../../core/server/db/index";
+import { botTrigger, botTurn, message } from "../../core/server/db/schema";
+import type { BotSdkContext } from "../../core/server/plugin";
+import { botMessages } from "../../plugins/bot/server/store";
+import { sendToBot } from "../../plugins/bot/server/turn";
+import type { BotMessage, TurnStatus } from "../../plugins/bot/shared/turn";
+import { getTestDb } from "./test-database";
+
+/** What a followed send yields: each Message as it is saved, then how the Turn ended. */
+export type BotSendEvent =
+  | { type: "message"; message: BotMessage }
+  | { type: "turnEnded"; status: TurnStatus };
+
+/** How often a followed send re-reads its Turn. */
+const pollMs = 20;
+
+/**
+ * Follows the Turn that takes the saved user Message `saved`, from Postgres: yields the Message,
+ * then each Message sent after it, then `turnEnded` once a Turn has taken it and ended. `bot.send`
+ * returns only the saved Message (ADR 0026), so tests and evals that wait for a Turn use this.
+ */
+export async function* followSaved(
+  db: Database,
+  saved: BotMessage,
+  signal?: AbortSignal,
+): AsyncGenerator<BotSendEvent> {
+  yield { type: "message", message: saved };
+  const [row] = await db
+    .select({ conversationId: message.conversationId })
+    .from(message)
+    .where(eq(message.id, saved.id));
+  if (!row) return;
+  const shown = new Set([saved.id]);
+  while (!signal?.aborted) {
+    // The status first: the Messages read after it hold every one sent before the Turn ended.
+    // A Trigger no Turn has taken yet has no status: it waits in the Conversation queue.
+    const [taken] = await db
+      .select({ status: botTurn.status })
+      .from(botTrigger)
+      .leftJoin(botTurn, eq(botTurn.id, botTrigger.turnId))
+      .where(eq(botTrigger.id, saved.id));
+    for (const sent of await botMessages(db, row.conversationId, saved.createdAt)) {
+      if (shown.has(sent.id)) continue;
+      shown.add(sent.id);
+      yield { type: "message", message: sent };
+    }
+    if (!taken) {
+      yield { type: "turnEnded", status: "error" };
+      return;
+    }
+    if (taken.status !== null && taken.status !== "running") {
+      yield { type: "turnEnded", status: taken.status };
+      return;
+    }
+    // Not the global timer: a test may fake it.
+    await sleep(pollMs);
+  }
+}
+
+/**
+ * Calls `bot.send` on `client` and follows its Turn. `options.signal` goes to the call and ends the
+ * follow.
+ */
+export async function followSend(
+  client: {
+    bot: {
+      send: (
+        input: { botId: string; id: string; text: string; timeZone?: string },
+        options?: { signal?: AbortSignal },
+      ) => Promise<BotMessage>;
+    };
+  },
+  input: { botId: string; id: string; text: string; timeZone?: string },
+  options?: { signal?: AbortSignal },
+): Promise<AsyncGenerator<BotSendEvent>> {
+  return followSaved(getTestDb(), await client.bot.send(input, options), options?.signal);
+}
+
+/** `sendToBot`, then follows its Turn. */
+export async function sendAndFollow(
+  deps: BotSdkContext,
+  input: Parameters<typeof sendToBot>[1] & { signal?: AbortSignal },
+): Promise<AsyncGenerator<BotSendEvent>> {
+  const { signal, ...send } = input;
+  return followSaved(deps.db, await sendToBot(deps, send), signal);
+}

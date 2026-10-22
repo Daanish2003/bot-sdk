@@ -1,4 +1,3 @@
-import { eventIterator } from "@orpc/server";
 import { z } from "zod";
 
 import { lastSeqOf } from "../../../../core/server/chat/change-log";
@@ -12,7 +11,7 @@ import {
   listBots,
   userTurnStatus,
 } from "../store";
-import { botSendEventSchema } from "../../shared/turn";
+import { botMessageSchema } from "../../shared/turn";
 import { turnProvenance } from "../provenance";
 import {
   approveRoutine,
@@ -120,11 +119,11 @@ const botRouter = {
     ),
 
   /**
-   * Sends the caller's Message to their Bot and follows the Turn that takes it, which runs as a
-   * runner job: the saved user Message, each Message sent after it, then `turnEnded`. A send while
-   * a Turn runs waits in the Conversation queue for the next Turn. `id` is the client's uuidv7 for
-   * the Message: a resend with the same `id` saves nothing new and re-joins the same Turn's stream. A disconnect ends only the
-   * follow, never the Turn.
+   * Sends the caller's Message to their Bot and returns the saved user Message. The Turn that takes
+   * it runs as a runner job; every tab, this one too, follows it through `changes` (ADR 0026). A
+   * send while a Turn runs waits in the Conversation queue for the next Turn. `id` is the client's
+   * uuidv7 for the Message: a resend with the same `id` saves nothing new and returns the Message
+   * saved first.
    */
   send: protectedProcedure
     .input(
@@ -137,10 +136,8 @@ const botRouter = {
         timeZone: z.string().refine(isTimeZone, "Not an IANA time zone").optional(),
       }),
     )
-    .output(eventIterator(botSendEventSchema))
-    .handler(({ context, input, signal }) =>
-      sendToBot(context.sdk, { userId: context.user.id, ...input, signal }),
-    ),
+    .output(botMessageSchema)
+    .handler(({ context, input }) => sendToBot(context.sdk, { userId: context.user.id, ...input })),
 
   /**
    * Stops the caller's Bot's running Turn: a queued one ends `stopped` at once, a running one as
