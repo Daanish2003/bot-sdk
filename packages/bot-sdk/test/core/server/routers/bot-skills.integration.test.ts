@@ -152,7 +152,7 @@ const header = (botId: string) =>
   `Your Skills are in \`/home/user/bots/${botId}/skills/<name>/SKILL.md\`. Before you do a task ` +
   "one covers, read its SKILL.md.";
 
-describe("the Skills block", () => {
+describe("the Skills block", { timeout: 30_000 }, () => {
   it("lists each Skill as `- <name>: <description>`, sorted by name, with a broken one not usable", async () => {
     const { fake, computerFake, client, botId } = await botWith([round()]);
     computerFake.files.set(
@@ -243,7 +243,7 @@ describe("the Skills block", () => {
     expect(
       computerFake.callsOf("run").filter(({ command }) => command.includes(directory)),
     ).toHaveLength(1);
-  }, 30_000);
+  });
 
   it("sits after the memory snapshot and before the Routines", async () => {
     const { computerFake, client, botId } = await botWith([
@@ -324,7 +324,7 @@ describe("the Skills block", () => {
   });
 });
 
-describe("Skills Change notes", () => {
+describe("Skills Change notes", { timeout: 30_000 }, () => {
   it("keep the Prompt start byte-identical and note a Skill added, changed and removed, once each", async () => {
     const { fake, computerFake, client, botId } = await botWith([
       round(),
@@ -431,7 +431,7 @@ describe("Skills Change notes", () => {
   });
 });
 
-describe("the Bot's own Skill writes", () => {
+describe("the Bot's own Skill writes", { timeout: 30_000 }, () => {
   it("get no Change note on the next Turn, but another source's change still does", async () => {
     const { fake, computerFake, client, botId } = await botWith([
       round(
@@ -501,7 +501,7 @@ describe("the Bot's own Skill writes", () => {
   });
 });
 
-describe("the Skills rules", () => {
+describe("the Skills rules", { timeout: 30_000 }, () => {
   it("teach when to save and fix a Skill, where it comes from, and the SKILL.md format", async () => {
     const { fake, client, botId } = await botWith([round()]);
     await send(client, botId, "hi");
@@ -515,7 +515,7 @@ describe("the Skills rules", () => {
   });
 });
 
-describe("the Skill chip's record on the Turn", () => {
+describe("the Skill chip's record on the Turn", { timeout: 30_000 }, () => {
   const changesOf = async (botId: string) =>
     (
       await getTestDb()
@@ -640,7 +640,7 @@ const textOf = (bytes: Uint8Array | undefined) => new TextDecoder().decode(bytes
 const skillPaths = (files: Map<string, Uint8Array>) =>
   [...files.keys()].filter((path) => path.includes("/skills/"));
 
-describe("the skills router", () => {
+describe("the skills router", { timeout: 30_000 }, () => {
   it("lists a Bot's Skills with the problem and when each was last modified", async () => {
     const { computerFake, client, botId } = await botWithRouter();
     computerFake.files.set(

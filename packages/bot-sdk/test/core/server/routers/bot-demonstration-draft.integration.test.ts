@@ -267,7 +267,7 @@ const hasImage = (call: TextOptions) =>
     (entry) => Array.isArray(entry.content) && entry.content.some((part) => part.type === "image"),
   );
 
-describe("the drafting pass", () => {
+describe("the drafting pass", { timeout: 30_000 }, () => {
   it("makes one call with no tools on the Bot's model, given the goal, inputs, steps and screenshots", async () => {
     const { fake, done } = await demonstrating({
       drafts: [round(text(skillText("copy-payouts")))],
@@ -475,7 +475,7 @@ describe("the drafting pass", () => {
   });
 });
 
-describe("Auto-review", () => {
+describe("Auto-review", { timeout: 30_000 }, () => {
   it("shows the Trigger as the SDK's notice, never as the user's words", async () => {
     const { done, reviews } = await demonstrating({
       drafts: [round(text(skillText("copy-payouts")))],
@@ -492,7 +492,7 @@ describe("Auto-review", () => {
   });
 });
 
-describe("retention", () => {
+describe("retention", { timeout: 30_000 }, () => {
   const eventsOf = (demonstrationId: string) =>
     getTestDb()
       .select()

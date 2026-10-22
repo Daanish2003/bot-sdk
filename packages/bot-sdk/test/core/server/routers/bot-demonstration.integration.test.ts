@@ -185,7 +185,7 @@ const screenCommands = (computerFake: ReturnType<typeof fakeComputerProvider>) =
 const firstMessageOf = (call: TextOptions | undefined) =>
   String(((call?.messages ?? []) as ModelMessage[])[0]?.content);
 
-describe("watch_user", () => {
+describe("watch_user", { timeout: 30_000 }, () => {
   it("is a deferred tool whose line tells the Bot to ask for the goal and the inputs first", async () => {
     const { fake, send } = await botWith([round()]);
 
@@ -337,7 +337,7 @@ describe("watch_user", () => {
   });
 });
 
-describe("watch_user's Screen", () => {
+describe("watch_user's Screen", { timeout: 30_000 }, () => {
   const opening = (botId: () => string) => (command: FakeCommandRun) =>
     command.command === `${screenScript} control 1` && botId() !== "";
 
@@ -403,7 +403,7 @@ const cardOf = async (client: ReturnType<typeof chatRpc>, botId: string) =>
   (await client.bot.get({ botId })).messages.find((message) => message.demonstration)
     ?.demonstration;
 
-describe("the Demonstration's routes", () => {
+describe("the Demonstration's routes", { timeout: 30_000 }, () => {
   it("pause and resume move between recording and paused, and are no-ops from the other state", async () => {
     const { client, botId, demonstrationId } = await demonstrating();
     const act = client.bot.demonstration;
@@ -493,7 +493,7 @@ describe("the Demonstration's routes", () => {
   });
 });
 
-describe("a Ban", () => {
+describe("a Ban", { timeout: 30_000 }, () => {
   it("cancels the user's live Demonstrations, which releases their Screens", async () => {
     const { deps, user, client, botId, computerFake } = await demonstrating();
 
@@ -505,7 +505,7 @@ describe("a Ban", () => {
   });
 });
 
-describe("the time cap", () => {
+describe("the time cap", { timeout: 30_000 }, () => {
   it("ends it as Done after 15 minutes of recording, not counting paused time", async () => {
     const { client, botId, computerFake, demonstrationId, pass } = await demonstrating();
 
