@@ -34,7 +34,7 @@ import { insertAttachment, linkTestAttachments } from "../../support/attachments
 import { fakePngBase64 } from "../../../plugins/models/server/fake-image-adapter";
 import { insertConversation, insertMessage } from "../../support/conversations";
 import { insertGeneratedImage } from "../../support/generated-images";
-import { createTestSdk } from "../../support/deps";
+import { createTestSdk } from "../../support/assistant";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 import { insertUser } from "../../support/users";
 

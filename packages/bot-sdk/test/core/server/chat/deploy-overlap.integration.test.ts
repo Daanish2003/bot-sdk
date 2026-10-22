@@ -7,9 +7,14 @@ import { saveCredentials } from "../../../../plugins/models/server/credentials/s
 import { createLifecycle } from "../../../../plugins/assistant/server/lifecycle";
 import { redisRuntime, type BotSdkRuntime } from "../../../../core/server/runtime";
 import { insertConversation } from "../../../support/conversations";
-import { createTestSdk, type TestDeps, type TestDepsOverrides } from "../../../support/deps";
+import {
+  createTestSdk,
+  type TestDeps,
+  type TestDepsOverrides,
+  chatRpc,
+  sendAs,
+} from "../../../support/assistant";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
-import { chatRpc, sendAs } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser, type TestUser } from "../../../support/users";
 

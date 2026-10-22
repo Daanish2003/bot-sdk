@@ -25,10 +25,15 @@ import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { insertConversation, insertMessage } from "../../../support/conversations";
 import { insertGeneratedImage } from "../../../support/generated-images";
 import { insertAttachment, linkTestAttachments } from "../../../support/attachments";
-import { createTestSdk, type TestDepsOverrides, type TestDeps } from "../../../support/deps";
+import {
+  createTestSdk,
+  type TestDepsOverrides,
+  type TestDeps,
+  chatRpc,
+  sendAs,
+} from "../../../support/assistant";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { insertUser } from "../../../support/users";
-import { chatRpc, sendAs } from "../../../support/sdk";
 import type { ChatCommand } from "../../../../plugins/assistant/shared/chat/command";
 import { getTestDb } from "../../../support/test-database";
 

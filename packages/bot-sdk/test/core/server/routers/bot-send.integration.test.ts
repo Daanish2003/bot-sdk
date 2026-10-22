@@ -14,7 +14,7 @@ import {
 } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import type { Transaction } from "../../../../core/server/plugin";
-import type { HostProvider } from "../../../../plugins/assistant/server/deps";
+import type { HostProvider } from "../../../../plugins/models/server/types";
 import { appendMessage } from "../../../../core/server/chat/message-tree";
 import { bot } from "../../../../plugins/bot/server/plugin";
 import { receive } from "../../../../plugins/bot/server/router";

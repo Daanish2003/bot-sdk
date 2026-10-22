@@ -5,10 +5,14 @@ import { saveCredentials } from "../../../../plugins/models/server/credentials/s
 import { message } from "../../../../core/server/db/schema";
 import type { HostProvider } from "../../../../plugins/assistant/server/deps";
 import { insertConversation } from "../../../support/conversations";
-import { createTestSdk, type TestDepsOverrides, type TestDeps } from "../../../support/deps";
+import {
+  createTestSdk,
+  type TestDepsOverrides,
+  type TestDeps,
+  sendAs,
+} from "../../../support/assistant";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { insertUser, type TestUser } from "../../../support/users";
-import { sendAs } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 
 const anthropicModel = "anthropic:claude-sonnet-5-5";

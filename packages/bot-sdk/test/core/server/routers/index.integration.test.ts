@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { insertUser } from "../../../support/users";
-import { chatRpc } from "../../../support/sdk";
+import { chatRpc } from "../../../support/assistant";
 
 describe("healthCheck", () => {
   it("answers OK to a signed-in caller", async () => {

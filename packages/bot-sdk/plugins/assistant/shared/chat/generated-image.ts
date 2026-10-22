@@ -1,6 +1,9 @@
 import type { MessagePart } from "@tanstack/ai";
 
+import { type AspectRatio, aspectRatios } from "../../../models/shared/image-models";
 import { type GeneratedImagePart, generatedImageErrorReasons } from "../message-parts";
+
+export { type AspectRatio, aspectRatios };
 
 /**
  * The `generate_image` tool's contract (spec #278), shared by the server tool, the parts boundary
@@ -8,9 +11,6 @@ import { type GeneratedImagePart, generatedImageErrorReasons } from "../message-
  */
 
 export const generateImageToolName = "generate_image";
-
-export const aspectRatios = ["square", "landscape", "portrait"] as const;
-export type AspectRatio = (typeof aspectRatios)[number];
 
 /** Images one Run may generate; a call past it fails with `limit_reached`. */
 export const maxImagesPerRun = 4;

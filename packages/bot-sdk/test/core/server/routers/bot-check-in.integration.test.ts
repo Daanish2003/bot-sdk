@@ -6,7 +6,7 @@ import { conversationChannel } from "../../../../core/server/chat/conversation-e
 import { botCheckIn, botTrigger, job, usage } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { deleteUserData } from "../../../../core/server/user-data";
-import type { HostProvider } from "../../../../plugins/assistant/server/deps";
+import type { HostProvider } from "../../../../plugins/models/server/types";
 import { bot } from "../../../../plugins/bot/server/plugin";
 import { findBot } from "../../../../plugins/bot/server/store";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";

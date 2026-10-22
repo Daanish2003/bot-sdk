@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { insertConversation } from "../../../support/conversations";
-import { createTestSdk, type TestDeps } from "../../../support/deps";
+import { createTestSdk, type TestDeps, chatRpc, sendAs } from "../../../support/assistant";
 import {
   createFakeAdapter,
   round,
@@ -16,7 +16,6 @@ import {
 } from "../../../support/fake-adapter";
 import { createFakeSearchClient } from "../../../../plugins/bot/server/fake-search-client";
 import { insertUser } from "../../../support/users";
-import { chatRpc, sendAs } from "../../../support/sdk";
 
 const anthropicModel = "anthropic:claude-sonnet-5-5";
 const openaiModel = "openai:gpt-5.6";

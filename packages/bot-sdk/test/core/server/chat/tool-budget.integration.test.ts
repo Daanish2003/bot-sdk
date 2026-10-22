@@ -10,10 +10,9 @@ import { fakeImageAdapter } from "../../../../plugins/models/server/fake-image-a
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import type { HostProvider } from "../../../../plugins/assistant/server/deps";
 import { insertConversation } from "../../../support/conversations";
-import { createTestSdk, type TestDeps } from "../../../support/deps";
+import { createTestSdk, type TestDeps, chatRpc, sendAs } from "../../../support/assistant";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { createFakeSearchClient } from "../../../../plugins/bot/server/fake-search-client";
-import { chatRpc, sendAs } from "../../../support/sdk";
 import { insertUser } from "../../../support/users";
 
 const basePath = "http://localhost/api/chat";

@@ -2,9 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { artifact, artifactVersion } from "../../../../core/server/db/schema";
 import { storedParts } from "../../../../plugins/assistant/shared/message-parts";
-import { chatRpc } from "../../../support/sdk";
+import { chatRpc, createTestSdk } from "../../../support/assistant";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestSdk } from "../../../support/deps";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser, type TestUser } from "../../../support/users";
 

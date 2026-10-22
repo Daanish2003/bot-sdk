@@ -21,9 +21,8 @@ import {
 import { createLifecycle } from "../../../plugins/assistant/server/lifecycle";
 import { insertAttachment, linkTestAttachments } from "../../support/attachments";
 import { insertConversation, insertMessage, testModel } from "../../support/conversations";
-import { createTestSdk } from "../../support/deps";
+import { createTestSdk, chatRpc, sendAs } from "../../support/assistant";
 import { createFakeAdapter, round, text } from "../../support/fake-adapter";
-import { chatRpc, sendAs } from "../../support/sdk";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 import { insertUser, type TestUser } from "../../support/users";
 import type { ChatCommand } from "../../../plugins/assistant/shared/chat/command";

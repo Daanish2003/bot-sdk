@@ -4,7 +4,7 @@ import { resolveImageModelFor } from "../../../../plugins/assistant/server/chat/
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { userSettings } from "../../../../core/server/db/schema";
 import type { HostProvider } from "../../../../plugins/assistant/server/deps";
-import { createTestSdk } from "../../../support/deps";
+import { createTestSdk } from "../../../support/assistant";
 import { insertUser, type TestUser } from "../../../support/users";
 import { getTestDb } from "../../../support/test-database";
 

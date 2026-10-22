@@ -19,7 +19,7 @@ import type { AssistantExport } from "../../../../plugins/assistant/server/expor
 import { exportUserData } from "../../../../core/server/user-data";
 import { START } from "../../../../core/server/chat/run-streams";
 import { insertConversation } from "../../../support/conversations";
-import { createTestSdk } from "../../../support/deps";
+import { createTestSdk, chatRpc, sendAs } from "../../../support/assistant";
 import {
   createFakeAdapter,
   round,
@@ -28,7 +28,6 @@ import {
   thinking,
   toolCall,
 } from "../../../support/fake-adapter";
-import { chatRpc, sendAs } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
 import { assistantState } from "../../../../plugins/assistant/server/state";

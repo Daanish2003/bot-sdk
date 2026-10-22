@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { en } from "../../../../core/shared/i18n";
-import { createTestSdk } from "../../../support/deps";
-import { chatRpc } from "../../../support/sdk";
+import { createTestSdk, chatRpc } from "../../../support/assistant";
 import { insertUser } from "../../../support/users";
 
 /** The `data` an oRPC error carries, through `chat.handler`, with its code checked against the dictionary. */

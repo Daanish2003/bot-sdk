@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestSdk } from "../../../support/deps";
+import { createTestSdk } from "../../../support/assistant";
 import { insertUser } from "../../../support/users";
 import { type Ending, endRun } from "../../../../plugins/assistant/server/chat/end-run";
 import { createHookEmitter, type RunEndEvent } from "../../../../core/server/chat/hooks";

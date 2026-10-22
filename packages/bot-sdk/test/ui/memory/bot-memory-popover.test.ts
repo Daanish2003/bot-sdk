@@ -5,7 +5,6 @@ import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { BotSdkClient } from "../../../core/client/chat-client";
-import { assistantClient } from "../../../plugins/assistant/client/index";
 import { botClient } from "../../../plugins/bot/client/index";
 import { memoryClient } from "../../../plugins/memory/client/index";
 import { BotMemoryPopover } from "../../../plugins/memory/ui/bot-memory-popover";
@@ -88,7 +87,7 @@ function renderPopover(
       },
       fetch,
       messages: {},
-      plugins: [modelsClient(), assistantClient(), memoryClient(), botClient()],
+      plugins: [modelsClient(), memoryClient(), botClient()],
     }),
   );
   const button = screen.queryByRole("button", { name: "Memory" });

@@ -8,9 +8,8 @@ import { models } from "../../../plugins/models/server/plugin";
 import { deleteUserData } from "../../../core/server/user-data";
 import { mcpConnection } from "../../../core/server/db/schema";
 import type { McpServerConfig } from "../../../plugins/assistant/server/mcp/servers";
-import { createTestSdk, testKeyEncryptionSecret } from "../../support/deps";
+import { createTestSdk, testKeyEncryptionSecret, createTestChat } from "../../support/assistant";
 import { createFakeMcpAuth, fakeMcpResource } from "../../support/fake-mcp-auth";
-import { createTestChat } from "../../support/sdk";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 import { insertUser, type TestUser } from "../../support/users";
 

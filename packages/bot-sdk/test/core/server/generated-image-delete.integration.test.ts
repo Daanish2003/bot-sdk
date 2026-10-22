@@ -6,9 +6,8 @@ import { sweepExpiredTemporaryConversations } from "../../../plugins/assistant/s
 import { blob, generatedImage, project } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { insertConversation } from "../../support/conversations";
-import { createTestSdk } from "../../support/deps";
+import { createTestSdk, chatRpc } from "../../support/assistant";
 import { insertGeneratedImage } from "../../support/generated-images";
-import { chatRpc } from "../../support/sdk";
 import { getTestDb } from "../../support/test-database";
 import { insertUser, type TestUser } from "../../support/users";
 

@@ -1,6 +1,6 @@
 import type { TestDeps } from "./deps";
 import { createBotSdkClient, type BotSdkClient } from "../../core/client/chat-client";
-import { assistantClient } from "../../plugins/assistant/client/index";
+import type { BotSdkClientPlugin } from "../../core/client/plugin";
 import { botClient } from "../../plugins/bot/client/index";
 import { memoryClient } from "../../plugins/memory/client/index";
 import { skillsClient } from "../../plugins/skills/client/index";
@@ -16,12 +16,18 @@ const basePath = "/api/chat";
 /**
  * The SDK as a test drives it: the headless client whose fetch is the handler, built over the
  * test dependencies. `user` is who `getUser` returns; leave it out for a signed-out caller.
+ * `clientPlugins` are added after the Bot-only ones (the assistant's, for its own tests).
  * Errors are not logged, since the tests assert on the responses.
  */
 export function createTestChat({
   user,
   deps = createTestSdk(),
-}: { user?: TestUser | null; deps?: TestDeps } = {}): BotSdkClient {
+  clientPlugins = [],
+}: {
+  user?: TestUser | null;
+  deps?: TestDeps;
+  clientPlugins?: BotSdkClientPlugin[];
+} = {}): BotSdkClient {
   const handler = createChatHandler(deps, {
     basePath,
     getUser: () => (user ? { id: user.id } : null),
@@ -30,12 +36,12 @@ export function createTestChat({
   return createBotSdkClient({
     plugins: [
       modelsClient(),
-      assistantClient(),
       memoryClient(),
       skillsClient(),
       knowledgeClient(),
       channelClient(),
       botClient(),
+      ...clientPlugins,
     ],
     baseUrl: `http://localhost${basePath}`,
     fetch: handler,

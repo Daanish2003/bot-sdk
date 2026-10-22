@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHookEmitter } from "../../../../core/server/chat/hooks";
 import { botHelper, usage } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import type { HostProvider } from "../../../../plugins/assistant/server/deps";
+import type { HostProvider } from "../../../../plugins/models/server/types";
 import { webSearchUnavailableError } from "../../../../plugins/bot/server/web-search";
 import { bot } from "../../../../plugins/bot/server/plugin";
 import { computer } from "../../../../plugins/computer/server/plugin";

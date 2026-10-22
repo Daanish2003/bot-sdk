@@ -12,7 +12,7 @@ import { runner } from "../../../../plugins/runner/server/plugin";
 import { models } from "../../../../plugins/models/server/plugin";
 import type { HostProvider } from "../../../../plugins/assistant/server/deps";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
-import { testKeyEncryptionSecret } from "../../../support/deps";
+import { testKeyEncryptionSecret } from "../../../support/assistant";
 import { insertConversation } from "../../../support/conversations";
 import { testDatabaseUrl } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";

@@ -2,8 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import type { HostProvider } from "../../../../plugins/assistant/server/deps";
-import { createTestSdk } from "../../../support/deps";
-import { chatRpc } from "../../../support/sdk";
+import { createTestSdk, chatRpc } from "../../../support/assistant";
 import { insertUser, type TestUser } from "../../../support/users";
 
 // The Host's Image Model is Gemini's, so the tests can tell it from the user's own OpenAI key.

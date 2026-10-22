@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { createBotSdk } from "../../../../core/server/create-chat";
-import { assistant } from "../../../../plugins/assistant/server/plugin";
 import { runner } from "../../../../plugins/runner/server/plugin";
 import { models } from "../../../../plugins/models/server/plugin";
 import { job } from "../../../../core/server/db/schema";
@@ -991,7 +990,7 @@ describe("runner({ jobs })", () => {
       keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
       basePath: "/api/chat",
       logger: silent,
-      plugins: [models(), runner({ jobs }), assistant()],
+      plugins: [models(), runner({ jobs })],
     });
 
     await chat.start();

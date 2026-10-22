@@ -31,9 +31,8 @@ import {
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { insertAttachment, linkTestAttachments } from "../../support/attachments";
 import { insertConversation, insertMessage } from "../../support/conversations";
-import { createTestSdk } from "../../support/deps";
+import { createTestSdk, createTestChat } from "../../support/assistant";
 import { createFakeAdapter, text } from "../../support/fake-adapter";
-import { createTestChat } from "../../support/sdk";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 import { insertUser, type TestUser } from "../../support/users";
 import { assistantState } from "../../../plugins/assistant/server/state";

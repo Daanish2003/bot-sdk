@@ -6,10 +6,9 @@ import { maxAttachmentBytes } from "../../../../core/shared/attachments/kinds";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { insertAttachment, linkTestAttachments } from "../../../support/attachments";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestSdk, type TestDeps } from "../../../support/deps";
+import { createTestSdk, type TestDeps, chatRpc, sendAs } from "../../../support/assistant";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { insertUser, type TestUser } from "../../../support/users";
-import { chatRpc, sendAs } from "../../../support/sdk";
 import type { ChatCommand } from "../../../../plugins/assistant/shared/chat/command";
 
 const anthropicModel = "anthropic:claude-sonnet-5-5";

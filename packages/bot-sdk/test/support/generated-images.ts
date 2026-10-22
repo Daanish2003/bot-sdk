@@ -1,5 +1,4 @@
 import { generatedImage } from "../../core/server/db/schema";
-import { storedParts } from "../../plugins/assistant/shared/message-parts";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
 import { insertMessage } from "./conversations";
 import { getTestDb } from "./test-database";
@@ -27,16 +26,19 @@ export async function insertGeneratedImage(
     active,
     role: "assistant",
     text: "",
-    parts: storedParts([
-      {
-        type: "generated_image",
-        toolCallId: `call-${id}`,
-        prompt,
-        aspectRatio: "square",
-        state: "done",
-        imageId: id,
-      },
-    ]),
+    parts: {
+      schemaVersion: 5,
+      parts: [
+        {
+          type: "generated_image",
+          toolCallId: `call-${id}`,
+          prompt,
+          aspectRatio: "square",
+          state: "done",
+          imageId: id,
+        },
+      ],
+    },
   });
   const bytes = new Uint8Array(Buffer.from(fakePngBase64, "base64"));
   await getTestDb().insert(generatedImage).values({
