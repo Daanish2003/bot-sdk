@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { eventIterator, os } from "@orpc/server";
+import { os } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { createElement } from "react";
@@ -8,7 +8,7 @@ import { z } from "zod";
 
 import { assistantClient } from "../../../plugins/assistant/client/index";
 import { botClient } from "../../../plugins/bot/client/index";
-import type { BotMessage, BotSendEvent } from "../../../plugins/bot/shared/turn";
+import type { BotMessage } from "../../../plugins/bot/shared/turn";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
 import { providerFor } from "../fake-dictionary";
 
@@ -39,10 +39,7 @@ function mount(messages: BotMessage[], reacted: unknown[] = []) {
     bot: {
       get: os.handler(() => ({ bot: { ...ada, turnStatus: null }, messages, turns: [] })),
       stop: os.handler(() => {}),
-      send: os
-        .input(z.object({ botId: z.string(), id: z.string(), text: z.string() }).loose())
-        .output(eventIterator(z.custom<BotSendEvent>()))
-        .handler(async function* () {}),
+      send: os.handler((): BotMessage => ({}) as BotMessage),
       react: os.input(z.custom<unknown>()).handler(({ input }) => {
         reacted.push(input);
       }),

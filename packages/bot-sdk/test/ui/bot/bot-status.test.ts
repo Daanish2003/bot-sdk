@@ -1,17 +1,23 @@
 // @vitest-environment jsdom
-import { eventIterator, os } from "@orpc/server";
+import { os } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createElement, Fragment, useState } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import type { BotMessage, BotSendEvent, BotTurnStatus } from "../../../plugins/bot/shared/turn";
+import type { BotMessage, BotTurnStatus } from "../../../plugins/bot/shared/turn";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
 import { BotSidebar } from "../../../plugins/bot/ui/bot-sidebar";
 import { providerFor } from "../fake-dictionary";
+import { changeLog, hint, settle, stubEventSource } from "./fake-change-log";
 
-afterEach(cleanup);
+beforeEach(stubEventSource);
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 const createdAt = new Date("2026-10-17T09:00:00.000Z");
 const bots = [
@@ -33,16 +39,15 @@ type ServerBot = {
 };
 
 /**
- * A stand-in for the server's `bot` router. `bot.list` and `bot.get` answer from `state`, and each
- * `bot.send` streams the events the test pushes until it ends the stream.
+ * A stand-in for the server's `bot` router. `bot.list` and `bot.get` answer from `state`, `bot.send`
+ * saves the user's Message to Ada and starts her Turn, and `bot.changes` answers from her change log.
  */
 function fakeBotServer(state: Record<string, ServerBot> = {}) {
-  const queue: (BotSendEvent | "end")[] = [];
-  let wake = () => {};
-  const push = (event: BotSendEvent | "end") => {
-    queue.push(event);
-    wake();
-  };
+  const log = changeLog();
+  let tick = 0;
+  const at = () => new Date(createdAt.getTime() + ++tick * 1000);
+  const turnChange = (status: BotTurnStatus) =>
+    log.record("turn", "t1", { id: "t1", status, startedAt: createdAt, endedAt: null });
   const router = {
     bot: {
       list: os.handler(() =>
@@ -59,18 +64,23 @@ function fakeBotServer(state: Record<string, ServerBot> = {}) {
           // Only the user's Turns run here, so the latest Turn is the one that took their last Message.
           userTurnStatus: state[input.botId]?.turnStatus ?? null,
         },
+        conversationId: `c-${input.botId}`,
         messages: state[input.botId]?.messages ?? [],
+        lastSeq: input.botId === "b2" ? log.last : 0,
       })),
+      changes: os
+        .input(z.object({ botId: z.string(), since: z.number() }))
+        .handler(({ input }) => log.since(input.since)),
       send: os
-        .input(z.object({ botId: z.string(), text: z.string() }))
-        .output(eventIterator(z.custom<BotSendEvent>()))
-        .handler(async function* () {
-          while (true) {
-            if (queue.length === 0) await new Promise<void>((resolve) => (wake = resolve));
-            const next = queue.shift()!;
-            if (next === "end") return;
-            yield next;
-          }
+        .input(z.object({ botId: z.string(), id: z.string(), text: z.string() }).loose())
+        .handler(({ input }) => {
+          const saved = { id: input.id, role: "user" as const, text: input.text, createdAt: at() };
+          const ada = (state.b2 ??= {});
+          ada.messages = [...(ada.messages ?? []), saved];
+          ada.turnStatus = "running";
+          log.record("message", saved.id, saved);
+          turnChange("running");
+          return saved;
         }),
     },
   };
@@ -80,20 +90,19 @@ function fakeBotServer(state: Record<string, ServerBot> = {}) {
     new Response(null, { status: 404 });
   return {
     fetch,
-    /** Streams `events` of a send to Ada, which the server saves as they go. */
-    stream: async (...events: (BotSendEvent | "end")[]) => {
-      for (const event of events) {
-        if (event === "end") continue;
-        const ada = (state.b2 ??= {});
-        if (event.type === "message") {
-          ada.messages = [...(ada.messages ?? []), event.message];
-          ada.turnStatus = "running";
-        } else ada.turnStatus = event.status;
-      }
-      await act(async () => {
-        for (const event of events) push(event);
-        await new Promise((resolve) => setTimeout(resolve, 20));
-      });
+    /** Ada sends a Message; the hint reaches an open page. */
+    say: async (id: string, text: string) => {
+      const ada = (state.b2 ??= {});
+      const saved = { ...said(id, "assistant", text), createdAt: at() };
+      ada.messages = [...(ada.messages ?? []), saved];
+      log.record("message", id, saved);
+      await hint();
+    },
+    /** Ada's Turn ends; the hint reaches an open page. */
+    end: async (status: BotTurnStatus) => {
+      (state.b2 ??= {}).turnStatus = status;
+      turnChange(status);
+      await hint();
     },
   };
 }
@@ -113,9 +122,7 @@ function Harness() {
 
 async function mount(server: ReturnType<typeof fakeBotServer>) {
   const view = render(providerFor(createElement(Harness), { fetch: server.fetch, messages: {} }));
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  });
+  await settle();
   return view;
 }
 
@@ -136,16 +143,19 @@ describe("a Turn that outlives the Conversation view", () => {
     const server = fakeBotServer();
     const { container } = await mount(server);
     await type("hi");
-    await server.stream({ type: "message", message: said("m1", "user", "hi") });
+    await settle();
     expect(screen.getAllByText("Working…")).toHaveLength(1);
 
     fireEvent.click(screen.getByRole("button", { name: "open Inbox" }));
-    await server.stream({ type: "message", message: said("m2", "assistant", "On it…") });
+    await settle();
     expect(screen.getAllByText("Working…")).toHaveLength(1);
     expect(bubbles(container)).toEqual([]);
 
+    // What Ada sent meanwhile is read when the user comes back.
+    await server.say("m2", "On it…");
     fireEvent.click(screen.getByRole("button", { name: "open Ada" }));
-    await server.stream({ type: "message", message: said("m3", "assistant", "Done.") });
+    await settle();
+    await server.say("m3", "Done.");
 
     expect(bubbles(container)).toEqual([
       ["user", "hi"],
@@ -154,7 +164,7 @@ describe("a Turn that outlives the Conversation view", () => {
     ]);
     expect(screen.getByRole("status", { name: "Typing" })).toBeTruthy();
 
-    await server.stream({ type: "turnEnded", status: "complete" }, "end");
+    await server.end("complete");
     // The sidebar row clears once its refetch of `bot.list` answers.
     await waitFor(() => expect(screen.queryByText("Working…")).toBeNull());
     expect(screen.queryByRole("status", { name: "Typing" })).toBeNull();

@@ -22,6 +22,7 @@ import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
 import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
+import { followSend } from "../../../support/follow-send";
 
 vi.setConfig({ testTimeout: 30_000 });
 
@@ -65,7 +66,7 @@ async function botWith(rounds: Round[]) {
 }
 
 async function send(client: ReturnType<typeof chatRpc>, botId: string, words: string) {
-  for await (const _ of await client.bot.send({ botId, id: uuidv7(), text: words }));
+  for await (const _ of await followSend(client, { botId, id: uuidv7(), text: words }));
 }
 
 const sendsFiles = (words: string, files: string[]) =>

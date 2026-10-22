@@ -1,3 +1,4 @@
+import { sendAndFollow } from "../../test/support/follow-send";
 // The Skills eval (spec #713, ticket #721): real Turns on a real Model, through the real `bot` and
 // `skills` plugins, on the SDK's fake Computer seeded with Skills. It scores when the Bot reads a Skill
 // (Use), when it saves one (Save), and whether it follows and fixes the ones it has (Follow and fix).
@@ -21,7 +22,7 @@ import { computerOf } from "../../plugins/bot/server/computer-tools";
 import { lockConversation, receive } from "../../plugins/bot/server/router";
 import { routineSnapshot, webhookPayloadLabel } from "../../plugins/bot/server/routine";
 import { defaultTimeZone } from "../../plugins/bot/server/time-zone";
-import { sendToBot, sendToUserToolName } from "../../plugins/bot/server/turn";
+import { sendToUserToolName } from "../../plugins/bot/server/turn";
 import { skills } from "../../plugins/skills/server/plugin";
 import { skillsDirectory } from "../../plugins/skills/server/skills";
 import { runnerJobs } from "../../plugins/runner/server/plugin";
@@ -189,7 +190,7 @@ async function main() {
       if (start.kind === "user") {
         // The Message's id is its Trigger's id; the Trigger names the Turn that took it.
         const id = uuidv7();
-        for await (const _ of await sendToBot(sdk, {
+        for await (const _ of await sendAndFollow(sdk, {
           userId,
           botId: made.id,
           id,

@@ -22,6 +22,7 @@ import { fakeJobClock } from "../../../support/jobs";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
+import { followSend } from "../../../support/follow-send";
 
 const model = "openai:gpt-5.6";
 const silent = { error: () => {} };
@@ -151,7 +152,7 @@ async function approvedRoutine({
     timer.advance(new Date(when).getTime() - timer.clock.now().getTime());
   };
   const sendSaved = async (text: string) => {
-    const stream = await client.bot.send({ botId, id: uuidv7(), text, timeZone });
+    const stream = await followSend(client, { botId, id: uuidv7(), text, timeZone });
     await stream.next();
     await stream.return(undefined);
   };

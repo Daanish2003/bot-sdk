@@ -30,6 +30,7 @@ import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
 import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
+import { followSend } from "../../../support/follow-send";
 
 const model = "openai:gpt-5.6";
 const silent = { error: () => {} };
@@ -90,7 +91,7 @@ type Client = ReturnType<typeof chatRpc>;
 
 /** Sends `message` and follows its Turn to its end. */
 async function send(client: Client, botId: string, message: string, id = uuidv7()) {
-  for await (const event of await client.bot.send({ botId, id, text: message })) void event;
+  for await (const event of await followSend(client, { botId, id, text: message })) void event;
 }
 
 /** The changes after `since`, which must not need a reload. */
@@ -168,12 +169,12 @@ describe("bot.changes", () => {
 
       // Another user's send, and one on a Model no longer available, are refused.
       const other = chatRpc({ user: await insertUser(), deps });
-      await expect(other.bot.send({ botId, id: uuidv7(), text: "Hi" })).rejects.toThrow(
+      await expect(followSend(other, { botId, id: uuidv7(), text: "Hi" })).rejects.toThrow(
         "Bot not found",
       );
       await expect(other.bot.changes({ botId, since: 0 })).rejects.toThrow("Bot not found");
       await deleteCredentials(deps, user.id, "openai");
-      await expect(client.bot.send({ botId, id: uuidv7(), text: "Hi" })).rejects.toThrow(
+      await expect(followSend(client, { botId, id: uuidv7(), text: "Hi" })).rejects.toThrow(
         "is not an available Model",
       );
       expect(await changesAfter(client, botId, cursor)).toEqual([]);

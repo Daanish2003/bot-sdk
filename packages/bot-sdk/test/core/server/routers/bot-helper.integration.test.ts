@@ -51,6 +51,7 @@ import {
   fakeComputerProvider,
   type FakeCommandRun,
 } from "../../../plugins/computer/server/fake-provider";
+import { followSend } from "../../../support/follow-send";
 
 const model = "openai:gpt-5.6";
 const silent = { error: () => {} };
@@ -156,7 +157,7 @@ const planCredentials = { apiKey: "chatgpt-access-token" };
 /** Sends `text` to the Bot and reads the whole stream. */
 async function send(client: ReturnType<typeof chatRpc>, botId: string, text: string) {
   const events = [];
-  for await (const event of await client.bot.send({ botId, id: uuidv7(), text })) {
+  for await (const event of await followSend(client, { botId, id: uuidv7(), text })) {
     events.push(event);
   }
   return events;
@@ -442,7 +443,7 @@ describe("a Helper's limits", () => {
       if (!claimed) throw new Error("Nothing to claim");
       return jobs.runClaimed(claimed);
     };
-    await client.bot.send({ botId, id: uuidv7(), text: "go" });
+    await followSend(client, { botId, id: uuidv7(), text: "go" });
     // The Turn's job: it starts the Helper and ends.
     await attempt();
 
@@ -655,7 +656,7 @@ describe("Stop and deletion", () => {
       },
     );
 
-    const stream = await client.bot.send({ botId, id: uuidv7(), text: "go" });
+    const stream = await followSend(client, { botId, id: uuidv7(), text: "go" });
     await running;
     await client.bot.stop({ botId });
     // The command's Checkpoint is the Turn's next write, which sees the cancel.

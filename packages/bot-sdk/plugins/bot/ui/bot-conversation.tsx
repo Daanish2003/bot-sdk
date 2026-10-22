@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { useI18n } from "../../../core/client/react/provider";
 import { serverErrorText } from "../../../core/client/rpc-error";
 import type { BotTurnProvenance } from "../shared/turn";
-import { useBackgroundRuns, useBotTurn } from "../client/react/bot-turn";
+import { useBotTurn } from "../client/react/bot-turn";
 import { useBotCheckIns } from "../client/react/check-ins";
 import { useDemonstrationActions } from "../client/react/demonstrations";
 import { allHelpers, useBotHelpers } from "../client/react/helpers";
@@ -22,7 +22,6 @@ import { BotAvatar } from "./bot-avatar";
 import { ReactionBar, ReactionChips } from "./reactions";
 import { CheckInLine } from "./check-in-line";
 import { HelperCard } from "./helper-card";
-import { isLiveDemonstration } from "../shared/demonstration";
 import { isLiveHelper } from "../shared/helper";
 import { ReviewPassesLine } from "./review-passes-line";
 import { defaultRichControlRenderers, type RichControlRenderers } from "./rich-control";
@@ -154,17 +153,6 @@ function BotConversationView({
   const todo = helpers.filter((helper) => isLiveHelper(helper.status));
   const actions = { onPause: pause, onResume: resume, onDelete: remove, actingRoutines: acting };
   const checkInActions = { onCancelCheckIn, actingCheckIns };
-  useBackgroundRuns(
-    botId,
-    !working &&
-      (routines.some((routine) => routine.state === "active") ||
-        checkIns.some((checkIn) => checkIn.state === "pending") ||
-        // The time cap may end a Demonstration while no Turn runs.
-        messages.some(
-          (message) =>
-            message.control?.kind === "demonstration" && isLiveDemonstration(message.control.state),
-        )),
-  );
 
   if (error) {
     return (

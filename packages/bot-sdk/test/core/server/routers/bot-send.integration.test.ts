@@ -20,7 +20,6 @@ import { bot } from "../../../../plugins/bot/server/plugin";
 import { receive } from "../../../../plugins/bot/server/router";
 import { turnTimeLimitMs } from "../../../../plugins/bot/server/store";
 import { findBot, newestTimeZone, textParts } from "../../../../plugins/bot/server/store";
-import { sendToBot } from "../../../../plugins/bot/server/turn";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { quotaLookup } from "../../../../plugins/models/server/quota";
 import {
@@ -43,6 +42,7 @@ import { fakeJobClock } from "../../../support/jobs";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
+import { followSend, sendAndFollow } from "../../../support/follow-send";
 
 const model = "openai:gpt-5.6";
 const sendToUser = "send_to_user";
@@ -217,7 +217,7 @@ async function send(
   id = uuidv7(),
 ) {
   const events = [];
-  for await (const event of await client.bot.send({ botId, id, text })) events.push(event);
+  for await (const event of await followSend(client, { botId, id, text })) events.push(event);
   return events;
 }
 
@@ -235,7 +235,11 @@ async function sendSaved(
 ) {
   const leave = new AbortController();
   try {
-    const stream = await client.bot.send({ botId, id, text, timeZone }, { signal: leave.signal });
+    const stream = await followSend(
+      client,
+      { botId, id, text, timeZone },
+      { signal: leave.signal },
+    );
     const saved = await stream.next();
     return saved.done ? undefined : saved.value;
   } finally {
@@ -501,7 +505,7 @@ describe("bot.send", () => {
     const { botId, deps } = await botWith([]);
     const other = chatRpc({ user: await insertUser(), deps });
 
-    await expect(other.bot.send({ botId, id: uuidv7(), text: "hi" })).rejects.toMatchObject({
+    await expect(followSend(other, { botId, id: uuidv7(), text: "hi" })).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
   });
@@ -649,7 +653,7 @@ describe("a Turn's limits", () => {
     });
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 
-    const stream = await client.bot.send({ botId, id: uuidv7(), text: "take your time" });
+    const stream = await followSend(client, { botId, id: uuidv7(), text: "take your time" });
     await fake.release(first.length);
     const before = await readUntil(
       stream,
@@ -679,7 +683,8 @@ describe("a Turn off the request", () => {
     );
     const abort = new AbortController();
 
-    const stream = await client.bot.send(
+    const stream = await followSend(
+      client,
       { botId, id: uuidv7(), text: "hi" },
       { signal: abort.signal },
     );
@@ -706,7 +711,7 @@ describe("a Turn off the request", () => {
     ]);
 
     // The transport may drop a stream it never pulled from: `return()` before any `next()`.
-    const stream = await sendToBot(deps, { userId: user.id, botId, id: uuidv7(), text: "hi" });
+    const stream = await sendAndFollow(deps, { userId: user.id, botId, id: uuidv7(), text: "hi" });
     await stream.return(undefined);
 
     expect(await endedTurn(botId)).toMatchObject({ status: "complete", error: null });
@@ -768,7 +773,7 @@ describe("bot.stop", () => {
       [first, round(sends({ text: "Never sent.", endTurn: true }))],
       { manual: true },
     );
-    const stream = await client.bot.send({ botId, id: uuidv7(), text: "hi" });
+    const stream = await followSend(client, { botId, id: uuidv7(), text: "hi" });
     await fake.release(first.length);
     await readUntil(
       stream,
@@ -820,7 +825,7 @@ describe("one Turn at a time", () => {
   it("has the next Turn take every Trigger that waited while a Turn ran, in the order they were received", async () => {
     const { client, deps, user, botId, fake } = await botWith([round(), round()], { manual: true });
     const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
-    const firstStream = await client.bot.send({ botId, id: uuidv7(), text: "one" });
+    const firstStream = await followSend(client, { botId, id: uuidv7(), text: "one" });
     await firstStream.next();
     await expect.poll(() => fake.calls.length).toBe(1);
     const two = await queueTrigger(deps, conversationId, "two");
@@ -902,7 +907,7 @@ describe("skipping the line", () => {
       { manual: true },
     );
     const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
-    const firstStream = await client.bot.send({
+    const firstStream = await followSend(client, {
       botId,
       id: uuidv7(),
       text: "Book the meeting for Wednesday",
@@ -915,7 +920,7 @@ describe("skipping the line", () => {
     // Step 1 is saved, and the Turn waits in Step 2's model call.
     await expect.poll(() => fake.calls.length).toBe(2);
 
-    const correction = await client.bot.send({
+    const correction = await followSend(client, {
       botId,
       id: uuidv7(),
       text: "Actually, make it Thursday",
@@ -968,7 +973,7 @@ describe("skipping the line", () => {
     await sendSaved(client, botId, "one");
     await expect.poll(() => fake.calls.length).toBe(1);
     await sendSaved(client, botId, "two");
-    const third = await client.bot.send({ botId, id: uuidv7(), text: "three" });
+    const third = await followSend(client, { botId, id: uuidv7(), text: "three" });
     await third.next();
 
     await fake.releaseAll();
@@ -999,7 +1004,7 @@ describe("skipping the line", () => {
     await sendSaved(client, botId, "one");
     await expect.poll(() => fake.calls.length).toBe(1);
     const twoId = uuidv7();
-    const two = await client.bot.send({ botId, id: twoId, text: "two" });
+    const two = await followSend(client, { botId, id: twoId, text: "two" });
     await two.next();
 
     await client.bot.stop({ botId });
@@ -1120,7 +1125,7 @@ describe("batching quick Messages", () => {
     const { client, botId, conversationId } = await batchingBot([round()]);
 
     await expect(
-      client.bot.send({ botId, id: uuidv7(), text: "hi", timeZone: "Mars/Olympus" }),
+      followSend(client, { botId, id: uuidv7(), text: "hi", timeZone: "Mars/Olympus" }),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect(await triggersOf(conversationId)).toEqual([]);
   });
@@ -1291,7 +1296,7 @@ describe("a resent Message", () => {
     expect(await sendSaved(client, botId, "hi", { id })).toMatchObject({ message: { id } });
     await expect.poll(() => fake.calls.length).toBe(1);
 
-    const resent = await client.bot.send({ botId, id, text: "hi" });
+    const resent = await followSend(client, { botId, id, text: "hi" });
     expect(await resent.next()).toMatchObject({ value: { message: { id, text: "hi" } } });
     await fake.releaseAll();
 
@@ -1313,7 +1318,8 @@ describe("a resent Message", () => {
 
     const events = await (async () => {
       const out = [];
-      for await (const event of await client.bot.send({ botId, id, text: "hi" })) out.push(event);
+      for await (const event of await followSend(client, { botId, id, text: "hi" }))
+        out.push(event);
       return out;
     })();
 
@@ -1364,7 +1370,7 @@ describe("a resent Message", () => {
       createdAt: new Date(),
     });
     // A new Message is refused, but the resend is not.
-    await expect(client.bot.send({ botId, id: uuidv7(), text: "more" })).rejects.toMatchObject({
+    await expect(followSend(client, { botId, id: uuidv7(), text: "more" })).rejects.toMatchObject({
       status: 402,
     });
 
@@ -1380,7 +1386,7 @@ describe("a resent Message", () => {
     await sendSaved(client, botId, "mine", { id });
 
     await expect(
-      other.client.bot.send({ botId: other.botId, id, text: "x" }),
+      followSend(other.client, { botId: other.botId, id, text: "x" }),
     ).rejects.toMatchObject({ status: 400 });
     const { conversationId } = (await findBot(getTestDb(), other.user.id, other.botId))!;
     expect(await messagesOf(conversationId)).toEqual([]);
@@ -1390,12 +1396,12 @@ describe("a resent Message", () => {
     const { client, botId } = await botWith([]);
 
     // @ts-expect-error the id is required
-    await expect(client.bot.send({ botId, text: "hi" })).rejects.toMatchObject({ status: 400 });
-    await expect(client.bot.send({ botId, id: "nope", text: "hi" })).rejects.toMatchObject({
+    await expect(followSend(client, { botId, text: "hi" })).rejects.toMatchObject({ status: 400 });
+    await expect(followSend(client, { botId, id: "nope", text: "hi" })).rejects.toMatchObject({
       status: 400,
     });
     await expect(
-      client.bot.send({ botId, id: crypto.randomUUID(), text: "hi" }),
+      followSend(client, { botId, id: crypto.randomUUID(), text: "hi" }),
     ).rejects.toMatchObject({ status: 400 });
   });
 });
@@ -1424,7 +1430,7 @@ describe("a Turn's Quota and usage", () => {
       createdAt: new Date(),
     });
 
-    await expect(client.bot.send({ botId, id: uuidv7(), text: "hi" })).rejects.toMatchObject({
+    await expect(followSend(client, { botId, id: uuidv7(), text: "hi" })).rejects.toMatchObject({
       status: 402,
       data: { code: "error.quotaSpent" },
     });
@@ -1653,7 +1659,7 @@ describe("a Turn that resumes after a crash", () => {
       third,
       third,
     ]);
-    const stream = await client.bot.send({ botId, id: uuidv7(), text: "count to three" });
+    const stream = await followSend(client, { botId, id: uuidv7(), text: "count to three" });
 
     const lost = attempt();
     await fake.release(steps[0]!.length + steps[1]!.length);
@@ -1810,7 +1816,7 @@ describe("a Turn that resumes after a crash", () => {
       second,
       second,
     ]);
-    const stream = await client.bot.send({ botId, id: uuidv7(), text: "hi" });
+    const stream = await followSend(client, { botId, id: uuidv7(), text: "hi" });
 
     const lost = attempt();
     await fake.release(first.length);
@@ -1839,7 +1845,7 @@ describe("a Turn that resumes after a crash", () => {
     const { fake, client, botId, attempt, instance, stopRunner } = await crashableBot([
       round(text("Nothing to add.")),
     ]);
-    const stream = await client.bot.send({ botId, id: uuidv7(), text: "ok" });
+    const stream = await followSend(client, { botId, id: uuidv7(), text: "ok" });
     const running = attempt();
     // The Turn has started, and waits in its model call.
     await expect.poll(() => fake.calls.length).toBe(1);

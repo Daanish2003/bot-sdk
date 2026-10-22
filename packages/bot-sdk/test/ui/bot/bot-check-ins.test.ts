@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { eventIterator, os } from "@orpc/server";
+import { os } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createElement } from "react";
@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import type { BotCheckIn } from "../../../plugins/bot/shared/check-in";
-import type { BotMessage, BotSendEvent, BotTurnProvenance } from "../../../plugins/bot/shared/turn";
+import type { BotMessage, BotTurnProvenance } from "../../../plugins/bot/shared/turn";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
 import { providerFor } from "../fake-dictionary";
 
@@ -47,8 +47,12 @@ function fakeBotServer(
       stop: os.handler(() => {}),
       send: os
         .input(z.object({ botId: z.string(), id: z.string(), text: z.string() }).loose())
-        .output(eventIterator(z.custom<BotSendEvent>()))
-        .handler(async function* () {}),
+        .handler(({ input }) => ({
+          id: input.id,
+          role: "user" as const,
+          text: input.text,
+          createdAt: new Date(),
+        })),
       routine: { list: os.input(z.object({ botId: z.string() })).handler(() => []) },
       checkIn: {
         list: os.input(z.object({ botId: z.string() })).handler(() => [...checkIns]),

@@ -1,3 +1,4 @@
+import { sendAndFollow } from "../../test/support/follow-send";
 // One eval run of one case, through the real `bot` plugin: a fresh user and Bot, the case's history
 // written as earlier Turns, then `sendToBot` with the new user Message.
 
@@ -13,7 +14,7 @@ import type { Database } from "../../core/server/db/index";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
 import type { SdkOver } from "../../plugins/assistant/server/over";
 import { createBot, findBot, textParts } from "../../plugins/bot/server/store";
-import { sendToBot, sendToUserToolName } from "../../plugins/bot/server/turn";
+import { sendToUserToolName } from "../../plugins/bot/server/turn";
 import { saveCredentials } from "../../plugins/models/server/credentials/store";
 import type { Credentials } from "../../plugins/assistant/server/deps";
 import type { TurnCase } from "./cases";
@@ -147,7 +148,7 @@ export async function runCase(
     );
 
     let status: Observed["status"] = "stopped";
-    for await (const event of await sendToBot(env.sdk, {
+    for await (const event of await sendAndFollow(env.sdk, {
       userId,
       botId: bot.id,
       id: uuidv7(),

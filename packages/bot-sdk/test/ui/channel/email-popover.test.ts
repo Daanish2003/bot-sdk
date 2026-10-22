@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { eventIterator, os } from "@orpc/server";
+import { os } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createElement } from "react";
@@ -8,7 +8,7 @@ import { z } from "zod";
 
 import { assistantClient } from "../../../plugins/assistant/client/index";
 import { botClient } from "../../../plugins/bot/client/index";
-import type { BotMessage, BotSendEvent } from "../../../plugins/bot/shared/turn";
+import type { BotMessage } from "../../../plugins/bot/shared/turn";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
 import { channelClient } from "../../../plugins/channel/client/index";
 import { EmailPopover } from "../../../plugins/channel/ui/email-popover";
@@ -123,9 +123,7 @@ describe("a user Message that came by email", () => {
           summaries: [],
           warmings: [],
         })),
-        send: os
-          .output(eventIterator(z.custom<BotSendEvent>()))
-          .handler(async function* (): AsyncGenerator<BotSendEvent> {}),
+        send: os.handler((): BotMessage => ({}) as BotMessage),
         warm: os.handler(() => ({ warmed: false as const, skipped: "still_warm" as const })),
         routine: { list },
         checkIn: { list },
