@@ -1,6 +1,10 @@
 import type { BotSdkContext } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
-import { ComputerUnavailableError, type ComputerHandle } from "../../computer/server/plugin";
+import {
+  ComputerUnavailableError,
+  type ComputerHandle,
+  type FileOperationOptions,
+} from "../../computer/server/plugin";
 import { knowledgeDirectory, knowledgeExtensions, knowledgeLimitBytes } from "../shared/folder";
 
 /*
@@ -74,11 +78,11 @@ const absolute = (relative: string) =>
   relative === "" ? knowledgeDirectory : `${knowledgeDirectory}/${relative}`;
 
 /** Every file and folder under the Knowledge folder, depth first. */
-async function walk(computer: ComputerHandle) {
+export async function walk(computer: ComputerHandle, options?: FileOperationOptions) {
   const files: { path: string; size: number }[] = [];
   const folders: string[] = [];
   const visit = async (relative: string) => {
-    for (const entry of (await computer.list(absolute(relative))) ?? []) {
+    for (const entry of (await computer.list(absolute(relative), options)) ?? []) {
       const path = relative === "" ? entry.name : `${relative}/${entry.name}`;
       if (entry.kind === "directory") {
         folders.push(path);
