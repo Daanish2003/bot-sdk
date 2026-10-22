@@ -20,6 +20,9 @@
     "./plugins/memory/server": "./plugins/memory/server/index.ts",
     "./plugins/memory/client": "./plugins/memory/client/index.ts",
     "./plugins/memory/ui": "./plugins/memory/ui/index.ts",
+    "./plugins/knowledge/server": "./plugins/knowledge/server/index.ts",
+    "./plugins/knowledge/client": "./plugins/knowledge/client/index.ts",
+    "./plugins/knowledge/ui": "./plugins/knowledge/ui/index.ts",
     "./plugins/skills/client": "./plugins/skills/client/index.ts",
     "./plugins/skills/ui": "./plugins/skills/ui/index.ts",
     "./plugins/skills/server": "./plugins/skills/server/index.ts"
@@ -36,6 +39,7 @@
     "eval:computer:helper": "node --import ./eval/memory/register-ts.mjs eval/computer/helper.ts",
     "eval:computer:lifecycle": "node --import ./eval/memory/register-ts.mjs eval/computer/lifecycle.ts",
     "eval:skills": "node --import ./eval/memory/register-ts.mjs eval/skills/run.ts",
+    "eval:knowledge": "node --import ./eval/memory/register-ts.mjs eval/knowledge/run.ts",
     "eval:skills:draft": "node --import ./eval/memory/register-ts.mjs eval/skills/draft-run.ts",
     "eval:skills:record": "node --import ./eval/memory/register-ts.mjs eval/skills/record-fixtures.ts",
     "db:generate": "drizzle-kit generate",
