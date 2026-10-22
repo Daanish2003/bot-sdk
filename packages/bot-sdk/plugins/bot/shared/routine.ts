@@ -24,8 +24,7 @@ export type RoutineSchedule = z.infer<typeof routineScheduleSchema>;
 export type RoutineState = "pending" | "active" | "paused";
 
 /**
- * A Routine as the client sees it. `afterMessageId` is the Message its approval card follows;
- * `nextRunAt` is when its queued fire is due, `null` when none is queued.
+ * A Routine as the client sees it. `nextRunAt` is when its queued fire is due, `null` when none is queued.
  */
 export type BotRoutine = {
   id: string;
@@ -39,9 +38,19 @@ export type BotRoutine = {
   state: RoutineState;
   approvedAt: Date | null;
   createdAt: Date;
-  afterMessageId: string | null;
   nextRunAt: Date | null;
 };
+
+/**
+ * A Routine's Approval in the thread (spec #761), the Rich control of kind `routine_approval`: it
+ * holds only the Routine's id, and its state is read from the Routine's row.
+ */
+export const routineApprovalSchema = z.object({
+  kind: z.literal("routine_approval"),
+  routineId: z.string(),
+});
+
+export type RoutineApproval = z.infer<typeof routineApprovalSchema>;
 
 /**
  * Where a Host mounts the Bot SDK's webhook handler (ADR 0021): a webhook Routine's URL is this

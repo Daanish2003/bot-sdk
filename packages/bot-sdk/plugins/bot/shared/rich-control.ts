@@ -2,8 +2,11 @@ import { z } from "zod";
 
 import { textPartSchema } from "../../../core/shared/message-parts";
 import { demonstrationCardSchema } from "./demonstration";
+import { choiceControlSchema } from "./choice";
 import { filesControlSchema } from "./files";
 import { computerCardSchema } from "./helper";
+import { reviewApprovalSchema } from "./review";
+import { routineApprovalSchema } from "./routine";
 import { secretRequestSchema } from "./secret";
 
 /**
@@ -22,6 +25,9 @@ export const richControlSchema = z.discriminatedUnion("kind", [
   computerCardSchema,
   demonstrationCardSchema,
   filesControlSchema,
+  choiceControlSchema,
+  routineApprovalSchema,
+  reviewApprovalSchema,
   reservedControlSchema("draft"),
   reservedControlSchema("payment_approval"),
 ]);

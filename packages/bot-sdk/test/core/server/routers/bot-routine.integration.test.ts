@@ -2,12 +2,10 @@ import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { appendMessage } from "../../../../core/server/chat/message-tree";
 import { botPromptStart, botRoutine, botTurn } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { deleteUserData } from "../../../../core/server/user-data";
 import { bot } from "../../../../plugins/bot/server/plugin";
-import { findBot, textParts } from "../../../../plugins/bot/server/store";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
   inProcessRunner,
@@ -227,7 +225,7 @@ describe("bot.routine", () => {
     return { ...made, routine: routine! };
   }
 
-  it("lists the Bot's Routines with the Message their approval card follows", async () => {
+  it("lists the Bot's Routines, and puts each one's approval in the thread as a control Message", async () => {
     const { client, botId, routine } = await withPendingRoutine();
     const { messages } = await client.bot.get({ botId });
 
@@ -238,26 +236,32 @@ describe("bot.routine", () => {
       timeZone: "Europe/London",
       state: "pending",
       approvedAt: null,
-      afterMessageId: messages.at(-1)?.id,
     });
+    expect(routine).not.toHaveProperty("afterMessageId");
+    const approvals = messages.filter((sent) => sent.control?.kind === "routine_approval");
+    expect(approvals).toEqual([
+      expect.objectContaining({
+        role: "assistant",
+        control: { kind: "routine_approval", routineId: routine.id },
+      }),
+    ]);
   });
 
-  it("keeps the card after its Turn when the user sent a Message while that Turn ran", async () => {
-    const { client, user, botId, routine } = await withPendingRoutine();
-    const [turn] = await turnsOf(botId);
-    const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
-    await getTestDb().transaction((tx) =>
-      appendMessage(tx, conversationId, {
-        role: "user",
-        parts: textParts("And one more thing"),
-        status: "complete",
-        createdAt: new Date(turn!.endedAt!.getTime() - 1),
-      }),
-    );
+  it("bumps the change log when the Message is written, and again when the Routine is approved", async () => {
+    const { client, botId, routine } = await withPendingRoutine();
+    const { messages } = await client.bot.get({ botId });
+    const approval = messages.find((sent) => sent.control?.kind === "routine_approval")!;
 
-    const [listed] = await client.bot.routine.list({ botId });
+    await client.bot.routine.approve({ routineId: routine.id });
 
-    expect(listed?.afterMessageId).toBe(routine.afterMessageId);
+    const changed = await client.bot.changes({ botId, since: 0 });
+    if (changed.reload) throw new Error("expected changes");
+    const kinds = changed.changes.map((change) => `${change.kind}:${change.refId}`);
+    expect(kinds).toContain(`message:${approval.id}`);
+    expect(kinds.filter((kind) => kind === `routine:${routine.id}`)).toHaveLength(2);
+    // Approving never wakes the Bot, and adds no Message.
+    expect(await turnsOf(botId)).toHaveLength(1);
+    expect((await client.bot.get({ botId })).messages).toHaveLength(messages.length);
   });
 
   it("approve sets the Routine active with approvedAt, and starts no Turn", async () => {

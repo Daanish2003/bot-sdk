@@ -17,6 +17,8 @@ export const errorMessages = {
   "error.helperNotFound": "Helper not found",
   "error.reviewNotFound": "Request not found",
   "error.helperStopped": "This task was stopped.",
+  "error.choiceAnswered": "This question was already answered.",
+  "error.choiceInvalid": "That is not one of the options.",
   "error.demonstrationNotFound": "Demonstration not found",
   "error.demonstrationEnded": "This Demonstration has ended.",
   "error.messageIdTaken": "That message id is already used",
