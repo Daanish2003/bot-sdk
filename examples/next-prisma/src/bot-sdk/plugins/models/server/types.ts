@@ -1,9 +1,4 @@
-import type {
-  AnyEmbeddingAdapter,
-  AnyImageAdapter,
-  AnyTextAdapter,
-  AnyTranscriptionAdapter,
-} from "@tanstack/ai";
+import type { AnyImageAdapter, AnyTextAdapter, AnyTranscriptionAdapter } from "@tanstack/ai";
 
 import type { HookEmitter } from "../../../core/server/chat/hooks";
 import type { Database } from "../../../core/server/db/index";
@@ -60,12 +55,6 @@ export type QuotaSetting =
  */
 export type HostTranscriptionModel = { model: string; pricePerMinuteUsd: number };
 
-/**
- * An embedding Model the Host pays for (ADR 0014): its price per 1M tokens. Its id is one of the
- * OpenAI or Gemini embedding Models the SDK serves.
- */
-export type HostEmbeddingModel = { model: string; pricePerMillionTokensUsd: number };
-
 /** The Host's own credentials for a Provider, and the Models they pay for. */
 export type HostProvider = {
   provider: ProviderId;
@@ -75,8 +64,6 @@ export type HostProvider = {
   imageModels?: HostImageModel[];
   /** Transcription Models for dictation, on OpenAI, Groq or Grok only (spec #249). */
   transcriptionModels?: HostTranscriptionModel[];
-  /** Embedding Models for Knowledge, on OpenAI or Gemini only (ADR 0014). */
-  embeddingModels?: HostEmbeddingModel[];
 };
 
 /**
@@ -144,11 +131,6 @@ export type ModelsDeps = {
    * user's own key for that Provider.
    */
   transcriptionAdapterFor: (model: string, credentials: Credentials) => AnyTranscriptionAdapter;
-  /**
-   * Builds the TanStack AI embedding adapter for an embedding Model's `(model, credentials)` (ADR
-   * 0014). Injected so tests and CI can pass a fake.
-   */
-  embeddingAdapterFor: (model: string, credentials: Credentials) => AnyEmbeddingAdapter;
   /** The Host credentials (`hostProviders`, ADR 0007). Never stored. */
   hostProviders: HostProvider[];
   /** The Host's Tools, such as a Tavily key for web search (`hostProviders`, ADR 0007). Never stored. */
