@@ -24,6 +24,8 @@ import {
 } from "../routine";
 import { botChanges } from "../changes";
 import { answerChoice } from "../choice";
+import { reactToMessage } from "../reaction";
+import { emojiSchema } from "../../shared/reaction";
 import { maxChoiceOptionLength, maxChoiceOtherLength } from "../../shared/choice";
 import { cancelCheckIn, listCheckIns } from "../check-in";
 import { listHelpers } from "../helper-card";
@@ -182,6 +184,14 @@ const botRouter = {
         answer: input.answer,
       }),
     ),
+
+  /**
+   * Puts the user's emoji on a Bot reply, replacing their earlier one, or takes it off with a null
+   * `emoji` (spec #761). A state change only: it wakes no Turn. Another user's Bot is not found.
+   */
+  react: protectedProcedure
+    .input(z.object({ botId: z.uuid(), messageId: z.uuid(), emoji: emojiSchema.nullable() }))
+    .handler(({ context, input }) => reactToMessage(context.sdk, context.user.id, input)),
 
   /** The Routines of the caller's Bots (#538). Approving or declining one never wakes the Bot. */
   routine: {

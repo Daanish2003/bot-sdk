@@ -279,7 +279,7 @@ describe("talking to a Bot", () => {
       ["assistant", "Done."],
     ]);
     const sides = [...container.querySelectorAll<HTMLElement>("[data-bot-message]")].map(
-      (bubble) => (bubble.className.includes("self-end") ? "right" : "left"),
+      (bubble) => (bubble.parentElement!.className.includes("self-end") ? "right" : "left"),
     );
     expect(sides).toEqual(["right", "right", "left", "left"]);
   });

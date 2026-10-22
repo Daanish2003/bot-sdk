@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, isNull, lt, or } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
 
 import { deleteConversations } from "../../../core/server/chat/delete-conversations";
 import {
@@ -19,6 +19,7 @@ import {
   type RichControl,
   type RichControlKind,
 } from "../shared/rich-control";
+import { type Reactions, storedReactionsSchema } from "../shared/reaction";
 import type { BotMessage, BotTurnStatus } from "../shared/turn";
 
 /** The `kind` of every Bot's Conversation: the plugin's id. */
@@ -51,8 +52,15 @@ export function textParts(text: string, timeZone?: string): MessageRow["parts"] 
  * until the row types are composed from the plugins, so the bot plugin's `control` part is cast in
  * here.
  */
-export function controlParts(text: string, control: RichControl): MessageRow["parts"] {
+export function controlParts(
+  text: string,
+  control: RichControl,
+  previous?: MessageRow["parts"],
+): MessageRow["parts"] {
+  // A Message's emojis live beside its parts, so a control changing its state keeps them.
+  const reactions = previous && (previous as { reactions?: unknown }).reactions;
   return {
+    ...(reactions ? { reactions } : {}),
     schemaVersion: 1,
     parts: [
       { type: "text", text },
@@ -86,17 +94,55 @@ export function controlOf(parts: MessageRow["parts"], kind?: RichControlKind) {
   return undefined;
 }
 
+/** The emojis on a Message's parts (spec #761): at most one from the user and one from the Bot. */
+export function reactionsOf(parts: MessageRow["parts"]): Reactions | undefined {
+  const read = storedReactionsSchema.safeParse((parts as { reactions?: unknown }).reactions);
+  if (!read.success) return undefined;
+  const { user, bot } = read.data;
+  const reactions: Reactions = {
+    ...(user && { user: { emoji: user.emoji, at: new Date(user.at) } }),
+    ...(bot && { bot: { emoji: bot.emoji, at: new Date(bot.at) } }),
+  };
+  return user || bot ? reactions : undefined;
+}
+
+/**
+ * Puts `emoji` on Message `messageId` as `side`'s one reaction, replacing that side's earlier one,
+ * or takes it off when `emoji` is null. It is state on the Message, with no schema of its own, and
+ * is written in place so a concurrent change to the Message's other parts is not lost. The caller
+ * records the change.
+ */
+export async function setReaction(
+  tx: Transaction,
+  messageId: string,
+  side: "user" | "bot",
+  emoji: string | null,
+  at: Date,
+): Promise<void> {
+  const without = sql`coalesce(${message.parts}->'reactions', '{}'::jsonb) - ${side}::text`;
+  const reactions =
+    emoji === null
+      ? without
+      : sql`(${without}) || ${JSON.stringify({ [side]: { emoji, at } })}::jsonb`;
+  await tx
+    .update(message)
+    .set({ parts: sql`jsonb_set(${message.parts}, '{reactions}', ${reactions})` })
+    .where(eq(message.id, messageId));
+}
+
 /** A Message row as the client sees it, with its Rich control when it has one. */
 export function toBotMessage(
   row: Pick<MessageRow, "id" | "role" | "parts" | "createdAt">,
 ): BotMessage {
   const control = controlOf(row.parts);
+  const reactions = reactionsOf(row.parts);
   return {
     id: row.id,
     role: row.role,
     text: searchTextOf(row.parts),
     createdAt: row.createdAt,
     ...(control && { control }),
+    ...(reactions && { reactions }),
     ...(row.parts.channel && { channel: row.parts.channel }),
   };
 }

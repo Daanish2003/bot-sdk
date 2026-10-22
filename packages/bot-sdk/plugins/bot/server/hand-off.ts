@@ -233,7 +233,7 @@ export async function closeComputerCard(
     const card = controlOf(row.parts, "computer")!;
     await tx
       .update(message)
-      .set({ parts: controlParts(card.reason, { ...card, state }) })
+      .set({ parts: controlParts(card.reason, { ...card, state }, row.parts) })
       .where(eq(message.id, row.id));
     await recordBotChange(tx, row, "message", row.id, at);
   }

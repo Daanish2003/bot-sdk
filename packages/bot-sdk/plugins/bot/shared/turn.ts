@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { BotMemoryChange } from "../../memory/shared/changes";
 import type { BotKnowledgeChange } from "../../knowledge/shared/changes";
 import type { BotSkillChange } from "../../skills/shared/changes";
+import { reactionSchema } from "./reaction";
 import { richControlSchema } from "./rich-control";
 
 /**
@@ -16,6 +17,10 @@ export const botMessageSchema = z.object({
   text: z.string(),
   createdAt: z.date(),
   control: richControlSchema.optional(),
+  /** The emoji on it, at most one from each side (spec #761). */
+  reactions: z
+    .object({ user: reactionSchema.optional(), bot: reactionSchema.optional() })
+    .optional(),
   /** The Channel a user's Message came in on, when not web: shown as "via email". */
   channel: z.literal("email").optional(),
 });

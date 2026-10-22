@@ -402,7 +402,7 @@ export async function rewriteCard(
     const changed = change(card);
     await tx
       .update(message)
-      .set({ parts: controlParts(changed.goal, changed) })
+      .set({ parts: controlParts(changed.goal, changed, row.parts) })
       .where(eq(message.id, row.id));
     await recordBotChange(tx, { conversationId }, "message", row.id, at);
   }
