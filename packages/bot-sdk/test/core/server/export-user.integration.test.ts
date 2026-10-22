@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
@@ -12,6 +13,7 @@ import {
   artifact,
   artifactVersion,
   bot,
+  message,
   project,
   savedPrompt,
   sharedLink,
@@ -427,6 +429,30 @@ describe("createBotSdk().exportUser, Generated images", () => {
       { id: imageId, model: "openai:gpt-image-1-mini", prompt: "a red bicycle" },
     ]);
     expect(JSON.stringify(document)).not.toContain(fakePngBase64);
+  });
+
+  it("still exports the prompt of an older image part without a toolCallId", async () => {
+    const owner = await insertUser();
+    const deps = createTestSdk();
+    const conv = await insertConversation(owner, { title: "Old pictures" });
+    const imageId = await insertGeneratedImage(deps, owner, conv.id, { prompt: "a blue kite" });
+    await getTestDb()
+      .update(message)
+      .set({
+        parts: {
+          schemaVersion: 3,
+          parts: [{ type: "generated_image", prompt: "a blue kite", state: "done", imageId }],
+        },
+      })
+      .where(eq(message.conversationId, conv.id));
+
+    const document = await chatFor().exportUser(owner.id);
+    const exported = document.assistant as AssistantExport;
+
+    const reply = exported.conversations[0]!.messages.find((row) => row.role === "assistant");
+    expect(reply?.generatedImages).toEqual([
+      { id: imageId, model: "openai:gpt-image-1-mini", prompt: "a blue kite" },
+    ]);
   });
 });
 

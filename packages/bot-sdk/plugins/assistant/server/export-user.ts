@@ -1,4 +1,5 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
+import { z } from "zod";
 
 import {
   artifact,
@@ -18,7 +19,13 @@ import { assistantConversation, withModel } from "./chat/kind";
 import { liveConversation } from "./chat/temporary";
 import type { ArtifactKind } from "../shared/chat/artifact";
 import type { PartsEnvelope } from "../../../core/shared/message-parts";
-import { generatedImagePartSchema } from "../shared/message-parts";
+
+/** What the export reads of a stored Generated image part: any older part with an image id and a prompt. */
+const imagePromptSchema = z.object({
+  type: z.literal("generated_image"),
+  imageId: z.string().optional(),
+  prompt: z.string(),
+});
 
 /**
  * The assistant's part of a user's export (`sdk.exportUser`, under the key `assistant`), JSON-ready.
@@ -186,7 +193,7 @@ export async function exportAssistantData(
   const promptsByImage = new Map(
     messages.flatMap((row) =>
       row.parts.parts.flatMap((stored) => {
-        const part = generatedImagePartSchema.safeParse(stored).data;
+        const part = imagePromptSchema.safeParse(stored).data;
         return part?.imageId ? [[part.imageId, part.prompt] as const] : [];
       }),
     ),
