@@ -2,6 +2,7 @@ import type { AnyTextAdapter, ModelMessage, TextOptions } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { conversationChannel } from "../../../../core/server/chat/conversation-events";
 import { botHelper, botHelperMessage, botTrigger, job } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { askUserToolName, handOffAnswers } from "../../../../plugins/bot/server/hand-off";
@@ -11,6 +12,7 @@ import {
   helperMessagePrefix,
 } from "../../../../plugins/bot/server/helper";
 import { bot } from "../../../../plugins/bot/server/plugin";
+import { findBot } from "../../../../plugins/bot/server/store";
 import { computer } from "../../../../plugins/computer/server/plugin";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
@@ -227,6 +229,23 @@ describe("handing the Screen to the user", () => {
       message: "This task was stopped.",
     });
   });
+
+  it("hints the Conversation when the user stops a waiting Helper, so other tabs see its card close (#761)", async () => {
+    const { deps, user, client, botId } = await botWith([handsOff, round()], [asksUser]);
+    await send(client, botId, "what deals are on my dashboard?");
+    const waiting = await statusIs(botId, "waiting");
+    const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
+    const events: string[] = [];
+    await deps.pubsub.subscribe(conversationChannel(conversationId), (message) => {
+      events.push(message);
+    });
+
+    await client.bot.helper.stop({ botId, helperId: waiting.id });
+
+    await expect
+      .poll(() => events, { timeout: 10_000 })
+      .toEqual([JSON.stringify({ type: "changed" })]);
+  }, 30_000);
 
   it("refuses Done on a stopped Helper, whose card reads cancelled", async () => {
     const { client, botId } = await botWith([handsOff, round()], [asksUser]);

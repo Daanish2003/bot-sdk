@@ -2,10 +2,12 @@ import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { conversationChannel } from "../../../../core/server/chat/conversation-events";
 import { botPromptStart, botRoutine, botTurn } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { deleteUserData } from "../../../../core/server/user-data";
 import { bot } from "../../../../plugins/bot/server/plugin";
+import { findBot } from "../../../../plugins/bot/server/store";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
   inProcessRunner,
@@ -224,6 +226,46 @@ describe("bot.routine", () => {
     const [routine] = await made.client.bot.routine.list({ botId: made.botId });
     return { ...made, routine: routine! };
   }
+
+  it("hints the Conversation once the user approves, pauses, resumes or deletes a Routine (#761)", async () => {
+    const { deps, user, client, botId, routine } = await withPendingRoutine();
+    const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
+    const events: string[] = [];
+    await deps.pubsub.subscribe(conversationChannel(conversationId), (message) => {
+      events.push(message);
+    });
+    const hint = JSON.stringify({ type: "changed" });
+    const hinted = async (act: () => Promise<unknown>, count: number) => {
+      await act();
+      await expect.poll(() => events.length, { timeout: 10_000 }).toBe(count);
+      expect(events.every((event) => event === hint)).toBe(true);
+    };
+
+    await hinted(() => client.bot.routine.approve({ routineId: routine.id }), 1);
+    await hinted(() => client.bot.routine.pause({ routineId: routine.id }), 2);
+    await hinted(() => client.bot.routine.resume({ routineId: routine.id }), 3);
+    await hinted(() => client.bot.routine.delete({ routineId: routine.id }), 4);
+    // A change that changes nothing hints nothing: the Routine is gone, so this is NOT_FOUND.
+    await expect(client.bot.routine.pause({ routineId: routine.id })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+    expect(events).toHaveLength(4);
+  }, 30_000);
+
+  it("hints the Conversation once the user declines a pending Routine (#761)", async () => {
+    const { deps, user, client, botId, routine } = await withPendingRoutine();
+    const { conversationId } = (await findBot(getTestDb(), user.id, botId))!;
+    const events: string[] = [];
+    await deps.pubsub.subscribe(conversationChannel(conversationId), (message) => {
+      events.push(message);
+    });
+
+    await client.bot.routine.decline({ routineId: routine.id });
+
+    await expect
+      .poll(() => events, { timeout: 10_000 })
+      .toEqual([JSON.stringify({ type: "changed" })]);
+  }, 30_000);
 
   it("lists the Bot's Routines, and puts each one's approval in the thread as a control Message", async () => {
     const { client, botId, routine } = await withPendingRoutine();

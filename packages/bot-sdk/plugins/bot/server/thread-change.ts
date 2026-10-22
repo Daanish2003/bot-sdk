@@ -1,8 +1,9 @@
 import { eq } from "drizzle-orm";
 
 import { recordChange } from "../../../core/server/chat/change-log";
+import { conversationChannel } from "../../../core/server/chat/conversation-events";
 import { bot } from "../../../core/server/db/schema";
-import type { Transaction } from "../../../core/server/plugin";
+import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import type { BotChangeKind } from "../shared/changes";
 
 /**
@@ -28,4 +29,19 @@ export async function recordBotChange(
   }
   // A Bot deleted meanwhile has no thread to change.
   if (conversationId) await recordChange(tx, conversationId, { kind, refId, at });
+}
+
+/**
+ * Tells whoever follows the Conversation that it changed, so they re-read it from Postgres. Never
+ * throws: a lost hint is covered by a tab's fetch on focus, on reconnect and, while a Turn runs, every 30 s (ADR 0026).
+ */
+export async function hintChanged(deps: BotSdkContext, conversationId: string) {
+  try {
+    await deps.pubsub.publish(
+      conversationChannel(conversationId),
+      JSON.stringify({ type: "changed" }),
+    );
+  } catch (caught) {
+    deps.logger.error(`Publishing a change of Conversation ${conversationId} failed`, caught);
+  }
 }
