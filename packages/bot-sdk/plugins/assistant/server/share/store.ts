@@ -17,6 +17,7 @@ import { liveConversation } from "../chat/temporary";
 import { attachmentsOfMessages } from "../../../../core/server/attachments/store";
 import type { BotSdkContext } from "../../../../core/server/plugin";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
+import { storedPartsVersion } from "../../shared/message-parts";
 import { toSharedConversation } from "../../shared/share/conversation";
 
 type Deps = Pick<BotSdkContext, "db" | "isUserBlocked">;
@@ -323,7 +324,7 @@ export async function continueSharedConversation(
         parentId: row.parentId ? newIds.get(row.parentId) : null,
         role: row.role,
         parts: {
-          schemaVersion: 5,
+          schemaVersion: storedPartsVersion,
           parts: row.parts.parts.filter((part) => part.type !== "thinking"),
         },
         model: row.model,
