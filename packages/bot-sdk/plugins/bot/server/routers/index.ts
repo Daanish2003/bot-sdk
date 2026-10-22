@@ -22,6 +22,7 @@ import {
   resumeRoutine,
   rotateWebhook,
 } from "../routine";
+import { botChanges } from "../changes";
 import { cancelCheckIn, listCheckIns } from "../check-in";
 import { listHelpers } from "../helper-card";
 import { decideReview, listReviews } from "../review";
@@ -102,6 +103,19 @@ const botRouter = {
     }),
 
   /**
+   * The changes to the caller's Bot's thread after seq `since` (ADR 0026), oldest first, each
+   * with what it points at as it is now (`data`, null once that is gone): a Message appended or
+   * changed, a Turn's status, a Secret saved, a Routine, review, Helper or Check-in changed. A
+   * cursor the change log no longer holds, or one past its newest change, gets `reload`: read the
+   * thread afresh with `get`. Another user's Bot is not found.
+   */
+  changes: protectedProcedure
+    .input(z.object({ botId: z.uuid(), since: z.number().int().min(0) }))
+    .handler(({ context, input }) =>
+      botChanges(context.sdk, context.user.id, input.botId, input.since),
+    ),
+
+  /**
    * Sends the caller's Message to their Bot and follows the Turn that takes it, which runs as a
    * runner job: the saved user Message, each Message sent after it, then `turnEnded`. A send while
    * a Turn runs waits in the Conversation queue for the next Turn. `id` is the client's uuidv7 for
@@ -164,7 +178,7 @@ const botRouter = {
     decline: protectedProcedure
       .input(z.object({ routineId: z.uuid() }))
       .handler(({ context, input }) =>
-        declineRoutine(context.sdk.db, context.user.id, input.routineId),
+        declineRoutine(context.sdk, context.user.id, input.routineId),
       ),
 
     /**

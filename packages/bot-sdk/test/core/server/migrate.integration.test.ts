@@ -105,6 +105,7 @@ const sdkTables = [
   "bot_turn",
   "computer",
   "conversation",
+  "conversation_change",
   "generated_image",
   "job",
   "job_event",
@@ -655,7 +656,7 @@ describe("chat.migrate()", () => {
     await expect(Promise.all([chat.migrate(), chat.migrate()])).resolves.toBeDefined();
 
     const applied = await rows<{ count: string }>(url, "select count(*) from chat.__migrations");
-    expect(applied).toEqual([{ count: "59" }]);
+    expect(applied).toEqual([{ count: "60" }]);
   });
 
   it("gives a Conversation's tool settings empty lists by default, so existing rows read as empty", async () => {

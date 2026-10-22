@@ -281,7 +281,7 @@ async function finish(
       .where(and(eq(botDemonstration.id, demonstration.id), eq(botDemonstration.state, "drafting")))
       .returning({ id: botDemonstration.id });
     if (rows.length === 0) return false;
-    await rewriteCard(tx, demonstration.conversationId, demonstration.id, (card) => ({
+    await rewriteCard(tx, demonstration.conversationId, demonstration.id, deps.clock(), (card) => ({
       ...card,
       state: saved ? "saved" : "failed",
     }));

@@ -13,8 +13,11 @@ import type { MessageUsage } from "../../models/shared/usage";
 import { parseModelId } from "../../models/shared/models";
 import { approvalWaitMs, type BotReview, type ReviewApprovalState } from "../shared/review";
 import { parseReply } from "../../memory/server/ask";
+import { lockConversation } from "./router";
 import { routineNameOf, routinePromptOf } from "./routine";
+import { recordBotChange } from "./thread-change";
 import { isSavedSecretText } from "./secret-values";
+import { hintChanged } from "./turn";
 
 /*
  * Auto-review (spec #691, ADR 0024): before a Bot's risky tool call runs, a separate model call
@@ -151,6 +154,8 @@ export async function reviewToolCall(
       ? new Date((await kit.now()).getTime() + approvalWaitMs)
       : undefined;
   const reviewId = await kit.billing("review:write", async (tx, onCommit) => {
+    // The Conversation's row lock first, as in every write that changes the Bot thread.
+    await lockConversation(tx, source.conversationId);
     // A Bot deleted meanwhile (its user's delete) keeps no row; its key share holds off a delete.
     const [kept] = await tx
       .select({ id: bot.id })
@@ -159,6 +164,7 @@ export async function reviewToolCall(
       .for("key share");
     if (!kept) return null;
     const id = uuidv7();
+    const createdAt = deps.clock();
     await tx.insert(botReview).values({
       id,
       botId: owner.botId,
@@ -171,8 +177,9 @@ export async function reviewToolCall(
       verdict: reviewed.outcome,
       reason: reviewed.reason,
       ...(deadline && { state: "waiting" as const, deadline }),
-      createdAt: deps.clock(),
+      createdAt,
     });
+    await recordBotChange(tx, source, "review", id, createdAt);
     if (reviewed.bill) {
       const meter = liveMeter ?? (await reviewMeter(deps, owner.userId, reviewed.model));
       onCommit(
@@ -186,6 +193,7 @@ export async function reviewToolCall(
     }
     return id;
   });
+  if (reviewId) await hintChanged(deps, source.conversationId);
   if (reviewed.outcome === "pass") return null;
   if (!reviewId || !deadline) return { error: blockedError(reviewed.reason) };
   // The wait (ADR 0024): no transaction, since it holds for up to 15 seconds. Re-run after a crash
@@ -224,12 +232,7 @@ async function waitForApproval(
     }
     const now = deps.clock();
     if (now >= deadline) {
-      const [expired] = await deps.db
-        .update(botReview)
-        .set({ state: "expired", decidedAt: now })
-        .where(and(eq(botReview.id, reviewId), eq(botReview.state, "waiting")))
-        .returning({ id: botReview.id });
-      if (expired) return "expired";
+      if (await decide(deps, reviewId, "expired", now)) return "expired";
       // The user answered first: read their answer.
       continue;
     }
@@ -268,14 +271,7 @@ export async function decideReview(
     .innerJoin(bot, eq(bot.id, botReview.botId))
     .where(and(eq(botReview.id, reviewId), eq(bot.userId, userId)));
   if (!found?.state) throw rpcError("NOT_FOUND", "error.reviewNotFound", "Request not found");
-  const [changed] = await deps.db
-    .update(botReview)
-    .set({ state: answer, decidedAt: now })
-    .where(
-      and(eq(botReview.id, reviewId), eq(botReview.state, "waiting"), gt(botReview.deadline, now)),
-    )
-    .returning({ id: botReview.id });
-  if (changed) return { decided: true, state: answer };
+  if (await decide(deps, reviewId, answer, now)) return { decided: true, state: answer };
   const [row] = await deps.db
     .select({ state: botReview.state })
     .from(botReview)
@@ -286,7 +282,46 @@ export async function decideReview(
 }
 
 /**
- * Closes the waiting Approvals of a Turn or a Helper (`of`), in `tx`: `denied` for the user's Stop,
+ * Sets waiting Approval `reviewId` to `state` at `now`, with its `review` change, under its
+ * Conversation's row lock: an answer only before its deadline, an expiry at any time. Returns whether
+ * it was still waiting, so changed.
+ */
+async function decide(
+  deps: BotSdkContext,
+  reviewId: string,
+  state: "allowed" | "denied" | "expired",
+  now: Date,
+): Promise<boolean> {
+  const decided = await deps.db.transaction(async (tx) => {
+    const [owner] = await tx
+      .select({ conversationId: bot.conversationId })
+      .from(botReview)
+      .innerJoin(bot, eq(bot.id, botReview.botId))
+      .where(eq(botReview.id, reviewId));
+    if (!owner) return null;
+    await lockConversation(tx, owner.conversationId);
+    const [changed] = await tx
+      .update(botReview)
+      .set({ state, decidedAt: now })
+      .where(
+        and(
+          eq(botReview.id, reviewId),
+          eq(botReview.state, "waiting"),
+          state === "expired" ? undefined : gt(botReview.deadline, now),
+        ),
+      )
+      .returning({ id: botReview.id });
+    if (!changed) return null;
+    await recordBotChange(tx, owner, "review", reviewId, now);
+    return owner;
+  });
+  if (decided) await hintChanged(deps, decided.conversationId);
+  return decided !== null;
+}
+
+/**
+ * Closes the waiting Approvals of a Turn or a Helper (`of`), with their `review` changes, in `tx`,
+ * which holds the Conversation's row lock: `denied` for the user's Stop,
  * which counts as no, and `expired` for one that ended while one waited (its time limit), so none
  * stays open.
  */
@@ -298,10 +333,13 @@ export async function closeWaitingReviews(
 ): Promise<void> {
   const owned =
     "turnId" in of ? eq(botReview.turnId, of.turnId) : eq(botReview.helperId, of.helperId);
-  await tx
+  const now = deps.clock();
+  const closed = await tx
     .update(botReview)
-    .set({ state, decidedAt: deps.clock() })
-    .where(and(owned, eq(botReview.state, "waiting")));
+    .set({ state, decidedAt: now })
+    .where(and(owned, eq(botReview.state, "waiting")))
+    .returning({ id: botReview.id, botId: botReview.botId });
+  for (const row of closed) await recordBotChange(tx, row, "review", row.id, now);
 }
 
 /** The meter a review on `model` bills. */
@@ -520,7 +558,7 @@ async function reviewerInput(
 /** How many of a Bot's newest reviews `listReviews` returns, besides the waiting ones. */
 export const listedReviews = 100;
 
-const reviewFields = {
+export const reviewFields = {
   id: botReview.id,
   turnId: botReview.turnId,
   helperId: botReview.helperId,

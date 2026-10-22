@@ -8,6 +8,7 @@ import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
 import { type BotRoutine, type RoutineSchedule, scheduleText } from "../shared/routine";
+import { recordBotChange } from "./thread-change";
 import { lockConversation } from "./router";
 import { nextSlot } from "./schedule";
 import { newestTimeZone } from "./store";
@@ -232,6 +233,7 @@ export async function saveRoutine(
   },
 ): Promise<{ saved: string } | { error: string }> {
   if (Boolean(schedule) === Boolean(webhook)) return { error: scheduleOrWebhookError };
+  await lockConversation(tx, conversationId);
   const timeZone = (await newestTimeZone(tx, conversationId)) ?? defaultTimeZone;
   const id = uuidv7();
   const saved = await tx
@@ -256,6 +258,7 @@ export async function saveRoutine(
       error: `Not saved: a Routine named "${name}" already exists. Choose another name.`,
     };
   }
+  await recordBotChange(tx, { conversationId }, "routine", id, now);
   return { saved: routineSavedResult };
 }
 
@@ -317,6 +320,7 @@ export async function updateRoutine(
       updatedAt: now,
     })
     .where(eq(botRoutine.id, routine.id));
+  await recordBotChange(tx, { conversationId }, "routine", routine.id, now);
   if (!approved) return { saved: routineSavedResult };
   await stopRoutine(deps, tx, routine.id);
   return { saved: routineChangedResult };
@@ -337,6 +341,7 @@ export async function deleteRoutine(
     .where(and(eq(botRoutine.botId, botId), eq(botRoutine.name, name)))
     .returning({ id: botRoutine.id });
   if (!deleted) return { error: noRoutineNamed(name) };
+  await recordBotChange(tx, { conversationId }, "routine", deleted.id, deps.clock());
   await stopRoutine(deps, tx, deleted.id);
   return { deleted: true };
 }
@@ -373,19 +378,6 @@ export async function routinesPrompt(
     return `${row.name}  ${when} ${row.timeZone}  ${JSON.stringify(firstLine)}${waiting}`;
   });
   return `Your Routines:\n${lines.join("\n")}`;
-}
-
-/** Locks the Routine `routineId` of one of the user's Bots, or throws `NOT_FOUND`. */
-async function ownedRoutine(db: Database | Transaction, userId: string, routineId: string) {
-  const [row] = await db
-    .select({ id: botRoutine.id })
-    .from(botRoutine)
-    .innerJoin(bot, eq(bot.id, botRoutine.botId))
-    .where(and(eq(botRoutine.id, routineId), eq(bot.userId, userId)))
-    // A concurrent approve and decline take turns: the second sees what the first left.
-    .for("update", { of: botRoutine });
-  if (!row) throw rpcError("NOT_FOUND", "error.routineNotFound", "Routine not found");
-  return row;
 }
 
 /**
@@ -465,7 +457,8 @@ export async function approveRoutine(
 }> {
   const now = deps.clock();
   return deps.db.transaction(async (tx) => {
-    await ownedRoutine(tx, userId, routineId);
+    // A concurrent approve and decline take turns: the second sees what the first left.
+    const routine = await lockedRoutine(tx, userId, routineId);
     const [approved] = await tx
       .update(botRoutine)
       .set({ state: "active", approvedAt: now, updatedAt: now })
@@ -475,6 +468,9 @@ export async function approveRoutine(
         timeZone: botRoutine.timeZone,
         webhookTokenHash: botRoutine.webhookTokenHash,
       });
+    if (approved) {
+      await recordBotChange(tx, { botId: routine.botId }, "routine", routineId, now);
+    }
     // Approving starts the chain of fires (ADR 0011, the #537 amendment): the first is queued.
     if (approved?.schedule) {
       await queueFire(deps, tx, routineId, nextSlot(approved.schedule, approved.timeZone, now));
@@ -531,15 +527,19 @@ export async function rotateWebhook(
  * it is. Nothing wakes the Bot.
  */
 export async function declineRoutine(
-  db: Database,
+  deps: BotSdkContext,
   userId: string,
   routineId: string,
 ): Promise<void> {
-  await db.transaction(async (tx) => {
-    await ownedRoutine(tx, userId, routineId);
-    await tx
+  await deps.db.transaction(async (tx) => {
+    const routine = await lockedRoutine(tx, userId, routineId);
+    const deleted = await tx
       .delete(botRoutine)
-      .where(and(eq(botRoutine.id, routineId), eq(botRoutine.state, "pending")));
+      .where(and(eq(botRoutine.id, routineId), eq(botRoutine.state, "pending")))
+      .returning({ id: botRoutine.id });
+    if (deleted.length > 0) {
+      await recordBotChange(tx, { botId: routine.botId }, "routine", routineId, deps.clock());
+    }
   });
 }
 
@@ -577,6 +577,7 @@ export async function pauseRoutine(
       .update(botRoutine)
       .set({ state: "paused", updatedAt: deps.clock() })
       .where(eq(botRoutine.id, routineId));
+    await recordBotChange(tx, { botId: routine.botId }, "routine", routineId, deps.clock());
     await stopRoutine(deps, tx, routineId);
     return { id: routine.id, state: "paused" };
   });
@@ -599,6 +600,7 @@ export async function resumeRoutine(
       .update(botRoutine)
       .set({ state: "active", updatedAt: now })
       .where(eq(botRoutine.id, routineId));
+    await recordBotChange(tx, { botId: routine.botId }, "routine", routineId, now);
     if (routine.schedule) {
       await queueFire(deps, tx, routineId, nextSlot(routine.schedule, routine.timeZone, now));
     }
@@ -613,8 +615,9 @@ export async function removeRoutine(
   routineId: string,
 ): Promise<void> {
   await deps.db.transaction(async (tx) => {
-    await lockedRoutine(tx, userId, routineId);
+    const routine = await lockedRoutine(tx, userId, routineId);
     await tx.delete(botRoutine).where(eq(botRoutine.id, routineId));
+    await recordBotChange(tx, { botId: routine.botId }, "routine", routineId, deps.clock());
     await stopRoutine(deps, tx, routineId);
   });
 }

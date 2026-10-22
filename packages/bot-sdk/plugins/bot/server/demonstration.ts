@@ -32,6 +32,7 @@ import {
 import type { LoopKit } from "./loop";
 import { lockConversation } from "./router";
 import { demonstrationCardOf, demonstrationParts } from "./store";
+import { recordBotChange } from "./thread-change";
 import { hintChanged } from "./turn";
 
 /*
@@ -336,7 +337,7 @@ async function moveIn(
       kind: "pause",
     });
   }
-  await rewriteCard(tx, owned.conversationId, demonstrationId, (card) => ({
+  await rewriteCard(tx, owned.conversationId, demonstrationId, now, (card) => ({
     ...card,
     state: next,
     ...(ended && { endedAt: now.toISOString() }),
@@ -373,11 +374,15 @@ export async function nextSequence(tx: Transaction, demonstrationId: string): Pr
   return (last?.sequence ?? 0) + 1;
 }
 
-/** Rewrites Demonstration `demonstrationId`'s Show me card in its Conversation, in `tx`. */
+/**
+ * Rewrites Demonstration `demonstrationId`'s Show me card in its Conversation at `at`, with a
+ * `message` change, in `tx`, which holds the Conversation's row lock.
+ */
 export async function rewriteCard(
   tx: Transaction,
   conversationId: string,
   demonstrationId: string,
+  at: Date,
   change: (card: DemonstrationCard) => DemonstrationCard,
 ) {
   const holding = { parts: [{ type: "demonstration", demonstrationId }] };
@@ -398,6 +403,7 @@ export async function rewriteCard(
       .update(message)
       .set({ parts: demonstrationParts(change(card)) })
       .where(eq(message.id, row.id));
+    await recordBotChange(tx, { conversationId }, "message", row.id, at);
   }
 }
 

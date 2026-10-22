@@ -6,6 +6,7 @@ import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
 import type { BotCheckIn } from "../shared/check-in";
+import { recordBotChange } from "./thread-change";
 import { lockConversation } from "./router";
 import { lastMessageOfTurn, zonedTime } from "./routine";
 import { newestTimeZone } from "./store";
@@ -33,13 +34,15 @@ export async function saveCheckIn(
   tx: Transaction,
   {
     botId,
+    conversationId,
     turnId,
     at,
     note,
     now,
-  }: { botId: string; turnId: string; at: Date; note: string; now: Date },
+  }: { botId: string; conversationId: string; turnId: string; at: Date; note: string; now: Date },
 ): Promise<{ saved: { id: string; at: string } } | { error: string }> {
   if (at.getTime() - now.getTime() < minLeadMs) return { error: checkInTooSoonError };
+  await lockConversation(tx, conversationId);
   const id = uuidv7();
   await tx.insert(botCheckIn).values({
     id,
@@ -59,6 +62,7 @@ export async function saveCheckIn(
       { checkInId: id },
       { idempotencyKey: checkInKey(id), runAfter: at },
     );
+  await recordBotChange(tx, { conversationId }, "check_in", id, now);
   return { saved: { id, at: at.toISOString() } };
 }
 
@@ -94,6 +98,7 @@ async function cancelPending(
     )
     .returning({ id: botCheckIn.id });
   if (!row) return false;
+  await recordBotChange(tx, { botId }, "check_in", checkInId, deps.clock());
   await deps.plugin("runner").cancelIn(tx, checkInKey(checkInId));
   return true;
 }

@@ -13,6 +13,7 @@ import { computerOf } from "./computer-tools";
 import { botHelperJobName, helperJobKey } from "./helper";
 import { lockConversation } from "./router";
 import { computerCardOf, handOffParts } from "./store";
+import { recordBotChange } from "./thread-change";
 import { hintChanged } from "./turn";
 
 /** The Computer-use Helper's tool that hands its Screen to the user (#568). */
@@ -88,6 +89,7 @@ export async function handOff(
     .where(and(eq(botHelper.id, helper.id), eq(botHelper.status, "running")))
     .returning({ id: botHelper.id });
   if (rows.length === 0) return null;
+  await recordBotChange(tx, owner, "helper", helper.id, now);
   await appendMessage(tx, owner.conversationId, {
     role: "assistant",
     parts: handOffParts({ type: "computer", helperId: helper.id, reason, state: "open" }),
@@ -196,7 +198,8 @@ export async function helperDone(
         endedAt: null,
       })
       .where(eq(botHelper.id, helperId));
-    await closeComputerCard(tx, helperId, "done");
+    await recordBotChange(tx, owned, "helper", helperId, now);
+    await closeComputerCard(tx, helperId, "done", now);
     return { conversationId: owned.conversationId, screen: helper.screen };
   });
   if (resumed === null) return { status: "running" };
@@ -214,7 +217,8 @@ export async function helperDone(
 }
 
 /**
- * Flips the open Computer card of Helper `helperId` to `state`, in the caller's transaction: `done`
+ * Flips the open Computer card of Helper `helperId` to `state` at `at`, with a `message` change, in
+ * the caller's transaction, which holds the Conversation's row lock: `done`
  * on the user's Done, `cancelled` when a waiting Helper is stopped. A card already answered stays.
  * Returns whether it had an open card, which only a waiting Helper has.
  */
@@ -222,6 +226,7 @@ export async function closeComputerCard(
   tx: Transaction,
   helperId: string,
   state: Exclude<ComputerCard["state"], "open">,
+  at: Date,
 ): Promise<boolean> {
   const rows = await openCards(tx, helperId);
   for (const row of rows) {
@@ -230,6 +235,7 @@ export async function closeComputerCard(
       .update(message)
       .set({ parts: handOffParts({ ...card, state }) })
       .where(eq(message.id, row.id));
+    await recordBotChange(tx, row, "message", row.id, at);
   }
   return rows.length > 0;
 }
@@ -238,7 +244,7 @@ export async function closeComputerCard(
 function openCards(db: Database | Transaction, helperId: string) {
   const open = { parts: [{ type: "computer", helperId, state: "open" }] };
   return db
-    .select({ id: message.id, parts: message.parts })
+    .select({ id: message.id, parts: message.parts, conversationId: message.conversationId })
     .from(message)
     .where(
       and(

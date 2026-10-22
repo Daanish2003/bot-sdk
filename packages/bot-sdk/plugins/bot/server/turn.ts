@@ -25,6 +25,7 @@ import {
   waitingIn,
 } from "./router";
 import { type EarlierTurn, changeNotesFor } from "./change-notes";
+import { recordBotChange } from "./thread-change";
 import type { PromptStartTool } from "./db/bot-prompt-start";
 import { cancelCheckInTool, pendingCheckIns, saveCheckIn } from "./check-in";
 import {
@@ -747,6 +748,7 @@ async function endRunningTurn(
       .where(and(eq(botTurn.id, turn.id), eq(botTurn.status, "running")))
       .returning({ id: botTurn.id });
     if (rows.length === 0) return false;
+    await recordBotChange(tx, turn, "turn", turn.id, endedAt);
     // A Turn cut off mid-wait (its time limit) leaves no request open.
     await closeWaitingReviews(deps, tx, { turnId: turn.id }, "expired");
     await queueAwaySummary(deps, tx, { botId: turn.botId, lastInput: played.lastInput, endedAt });
@@ -791,7 +793,7 @@ async function replayedTurn(
   }
 }
 
-/** Ends the Turn's row, in its last Checkpoint's transaction. */
+/** Ends the Turn's row, with its `turn` change, in its last Checkpoint's transaction. */
 async function endTurn(
   tx: Transaction,
   turnId: string,
@@ -805,7 +807,12 @@ async function endTurn(
     endedAt: Date;
   },
 ) {
-  await tx.update(botTurn).set(ending).where(eq(botTurn.id, turnId));
+  const [ended] = await tx
+    .update(botTurn)
+    .set(ending)
+    .where(eq(botTurn.id, turnId))
+    .returning({ botId: botTurn.botId });
+  if (ended) await recordBotChange(tx, ended, "turn", turnId, ending.endedAt);
 }
 
 const sinceTime: Intl.DateTimeFormatOptions = {
@@ -1171,6 +1178,7 @@ function turnTools(
     liveActivity(setCheckInToolName, context?.toolCallId, (tx) =>
       saveCheckIn(deps, tx, {
         botId: turn.botId,
+        conversationId: turn.conversationId,
         turnId: turn.id,
         at: new Date(at),
         note,

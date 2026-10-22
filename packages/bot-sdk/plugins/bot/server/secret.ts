@@ -19,7 +19,8 @@ import {
   usableSecretValue,
 } from "./secret-values";
 import { hintChanged } from "./turn";
-import { receive } from "./router";
+import { recordBotChange } from "./thread-change";
+import { lockConversation, receive } from "./router";
 import { findBot } from "./store";
 
 export { savedSecretText } from "./secret-values";
@@ -53,6 +54,8 @@ export async function saveSecret(
   const encrypted = encryptCredentials({ value }, secretEncryption(sdk, userId, name));
   const now = sdk.clock();
   await sdk.db.transaction(async (tx) => {
+    // The Conversation's row lock first, as in every write that changes the Bot thread.
+    await lockConversation(tx, found.conversationId);
     await tx
       .insert(botSecret)
       .values({ userId, name, encrypted, createdAt: now })
@@ -60,6 +63,7 @@ export async function saveSecret(
         target: [botSecret.userId, botSecret.name],
         set: { encrypted, createdAt: now },
       });
+    await recordBotChange(tx, found, "secret", name, now);
     if (!mayWake) return;
     await receive(sdk, tx, {
       id: savedTriggerId(userId, name, now),
@@ -70,8 +74,7 @@ export async function saveSecret(
       receivedAt: now,
     });
   });
-  if (!mayWake) return;
-  sdk.plugin("runner").wake();
+  if (mayWake) sdk.plugin("runner").wake();
   await hintChanged(sdk, found.conversationId);
 }
 
