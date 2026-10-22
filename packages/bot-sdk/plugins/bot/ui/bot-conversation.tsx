@@ -23,6 +23,7 @@ import { ReactionBar, ReactionChips } from "./reactions";
 import { CheckInLine } from "./check-in-line";
 import { HelperCard } from "./helper-card";
 import { isLiveHelper } from "../shared/helper";
+import { isApproval } from "../shared/rich-control";
 import { ReviewPassesLine } from "./review-passes-line";
 import { defaultRichControlRenderers, type RichControlRenderers } from "./rich-control";
 import { RoutinesPopover } from "./routines-popover";
@@ -326,8 +327,7 @@ function BotConversationView({
                 onAct={onDemonstration}
                 acting={actingDemonstrations.has(control.demonstrationId)}
               />
-            ) : control?.kind === "routine_approval" ||
-              control?.kind === "review_approval" ? null : (
+            ) : isApproval(control?.kind) ? null : (
               <div
                 className={cn(
                   "group relative flex max-w-[70%] flex-col gap-1",

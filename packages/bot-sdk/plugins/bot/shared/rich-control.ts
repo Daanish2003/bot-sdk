@@ -37,6 +37,13 @@ export type RichControl = z.infer<typeof richControlSchema>;
 export type RichControlKind = RichControl["kind"];
 
 /**
+ * Whether a control of `kind` is an Approval: the system asking the user, not a bubble the
+ * Bot sent (spec #761): none shows it, and it doesn't count as the Bot sending.
+ */
+export const isApproval = (kind: RichControlKind | undefined) =>
+  kind === "routine_approval" || kind === "review_approval";
+
+/**
  * The catalog as JSON Schema, for a Host's own app to render it. It can't carry the Zod checks
  * that aren't shapes, such as a Secret's reserved names: `richControlSchema` is the full check.
  */

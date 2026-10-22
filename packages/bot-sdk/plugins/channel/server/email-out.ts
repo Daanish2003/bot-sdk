@@ -1,5 +1,6 @@
 import type { BotMessage } from "../../bot/shared/turn";
 import type { SentFile } from "../../bot/shared/files";
+import { isApproval } from "../../bot/shared/rich-control";
 import type { OutboundMail } from "./email";
 
 /** The most bytes of files one email attaches; over it, the files are a link instead. */
@@ -53,14 +54,12 @@ export function emailBody(
     case "demonstration":
       paragraphs.push(link("Show me in the app"));
       break;
-    case "routine_approval":
-    case "review_approval":
-      paragraphs.push(link("Approve or decline in the app"));
-      break;
     case undefined:
       break;
     default:
-      paragraphs.push(link("Open it in the app"));
+      paragraphs.push(
+        link(isApproval(control.kind) ? "Approve or decline in the app" : "Open it in the app"),
+      );
   }
   return {
     text: paragraphs.map(plainText).join("\n\n"),

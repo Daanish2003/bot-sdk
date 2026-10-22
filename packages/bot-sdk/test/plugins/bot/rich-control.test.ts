@@ -2,9 +2,20 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { botMessagePartsSchema, richControlJsonSchema } from "../../../plugins/bot/client/index";
+import { isApproval } from "../../../plugins/bot/shared/rich-control";
 
 const secret = { kind: "secret", name: "GITHUB_TOKEN", why: "To push to your repository." };
 const computer = { kind: "computer", helperId: "h1", reason: "Log in for me.", state: "open" };
+
+describe("isApproval", () => {
+  it("is true for the two Approvals only, which are not Bot bubbles", () => {
+    expect(isApproval("routine_approval")).toBe(true);
+    expect(isApproval("review_approval")).toBe(true);
+    for (const kind of ["secret", "computer", "choice", "files", "demonstration", undefined]) {
+      expect(isApproval(kind)).toBe(false);
+    }
+  });
+});
 
 describe("the Rich control catalog", () => {
   it("takes a Message of text plus one control, and rejects one with two", () => {
