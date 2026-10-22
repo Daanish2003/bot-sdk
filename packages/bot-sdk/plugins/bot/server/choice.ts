@@ -39,9 +39,6 @@ export async function answerChoice(
   if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
   const free = "other" in answer ? answer.other.trim().slice(0, maxChoiceOtherLength) : undefined;
   const now = sdk.clock();
-  // As a saved Secret does, the answer wakes the Bot only while the Bot can run.
-  const call = await sdk.plugin("models").resolveModelCall(userId, found.model);
-  const mayWake = call ? (await call.meter.mayRun()).ok : false;
   await sdk.db.transaction(async (tx) => {
     await lockConversation(tx, found.conversationId);
     const [row] = await tx
@@ -70,7 +67,6 @@ export async function answerChoice(
       })
       .where(eq(message.id, messageId));
     await recordBotChange(tx, found, "message", messageId, now);
-    if (!mayWake) return;
     await receive(sdk, tx, {
       id: choiceTriggerId(messageId),
       conversationId: found.conversationId,
@@ -80,6 +76,6 @@ export async function answerChoice(
       receivedAt: now,
     });
   });
-  if (mayWake) sdk.plugin("runner").wake();
+  sdk.plugin("runner").wake();
   await hintChanged(sdk, found.conversationId);
 }

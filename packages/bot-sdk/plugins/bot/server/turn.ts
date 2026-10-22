@@ -61,7 +61,7 @@ import type { BotSkillChange } from "../../skills/shared/changes";
 import { knowledgeChangesOf } from "../../knowledge/server/changes";
 import type { BotKnowledgeChange } from "../../knowledge/shared/changes";
 import { skillChangesOf } from "../../skills/server/skills";
-import { maxChoiceOptionLength, maxChoiceOptions } from "../shared/choice";
+import { choiceOptionsSchema } from "../shared/choice";
 import { maxFilesPerMessage } from "../shared/files";
 import type { RichControl } from "../shared/rich-control";
 import { secretNameSchema } from "../shared/secret";
@@ -217,11 +217,7 @@ const sendToUserDefinition = toolDefinition({
       }),
     choice: z
       .object({
-        options: z
-          .array(z.string().min(1).max(maxChoiceOptionLength))
-          .min(2)
-          .max(maxChoiceOptions)
-          .meta({ description: "The options the user picks one from." }),
+        options: choiceOptionsSchema.meta({ description: "The options the user picks one from." }),
         other: z.boolean().optional().meta({
           description: "true to add an Other option where the user types their own answer.",
         }),

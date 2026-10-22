@@ -20,9 +20,22 @@ export type ChoiceAnswer = z.infer<typeof choiceAnswerSchema>;
  * Message's text is the question. `other` adds a free-text answer. `answer` is the answered state;
  * the first answer fills it, and later ones are refused.
  */
+/** The options of a choice: 2 to 8, each filled in and none repeated. */
+export const choiceOptionsSchema = z
+  .array(z.string().min(1).max(maxChoiceOptionLength))
+  .min(2)
+  .max(maxChoiceOptions)
+  .refine(
+    (options) =>
+      options.every((option) => option.trim() !== "") && new Set(options).size === options.length,
+    {
+      error: "Options must be filled in and different from each other",
+    },
+  );
+
 export const choiceControlSchema = z.object({
   kind: z.literal("choice"),
-  options: z.array(z.string().min(1).max(maxChoiceOptionLength)).min(2).max(maxChoiceOptions),
+  options: choiceOptionsSchema,
   other: z.boolean(),
   answer: choiceAnswerSchema.optional(),
 });

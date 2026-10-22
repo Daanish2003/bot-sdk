@@ -25,7 +25,7 @@ import {
 } from "../routine";
 import { botChanges } from "../changes";
 import { answerChoice } from "../choice";
-import { maxChoiceOtherLength } from "../../shared/choice";
+import { maxChoiceOptionLength, maxChoiceOtherLength } from "../../shared/choice";
 import { cancelCheckIn, listCheckIns } from "../check-in";
 import { listHelpers } from "../helper-card";
 import { decideReview, listReviews } from "../review";
@@ -173,7 +173,7 @@ const botRouter = {
         botId: z.uuid(),
         messageId: z.uuid(),
         answer: z.union([
-          z.object({ option: z.string() }),
+          z.object({ option: z.string().max(maxChoiceOptionLength) }),
           z.object({ other: z.string().max(maxChoiceOtherLength) }),
         ]),
       }),

@@ -3,8 +3,7 @@ import { Input } from "@/components/ui/input";
 import { type FormEvent, useState } from "react";
 
 import { useI18n } from "../../../core/client/react/provider";
-import type { ChoiceInput } from "../shared/choice";
-import type { ChoiceControl } from "../shared/choice";
+import type { ChoiceControl, ChoiceInput } from "../shared/choice";
 import { useRefusalToast } from "./refusal-toast";
 
 /**
@@ -38,7 +37,7 @@ export function ChoiceCard({
   const submitOther = (event: FormEvent) => {
     event.preventDefault();
     const text = other.trim();
-    if (text) run(onAnswer({ other: text }));
+    if (text && !acting) run(onAnswer({ other: text }));
   };
   return (
     <div
