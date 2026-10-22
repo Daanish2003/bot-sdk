@@ -290,8 +290,9 @@
           </li>
           <li>
             <code>deleteUser</code> runs each plugin's <code>before</code> in reverse dependency
-            order, then the core's own delete step. The export merge throws when two plugins give
-            one key.
+            order, then the core's own delete step. The export is a version 2 document: the core's
+            <code>version</code> and <code>exportedAt</code>, and each exporting plugin's part under
+            its plugin id.
           </li>
           <li>
             The models schema has <code>fields: {}</code> by type. Giving models a column means
@@ -380,7 +381,8 @@
         stop: "Runs in reverse order, after stopping is set, when the Host calls stop().",
         databaseHooks: "Hooks on every Conversation delete. See section 4.",
         deleteUser: "Its part of a user's delete, in the same transaction as the core's.",
-        exportUser: "Its part of a user's export. It is merged into one document.",
+        exportUser:
+          "Its part of a user's export. It goes into the version 2 export under its plugin id.",
         rotateKeys: "Re-encrypts its own stored secrets, and returns the counts.",
       };
       const fieldOut = document.getElementById("field-out");

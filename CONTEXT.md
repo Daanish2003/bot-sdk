@@ -89,7 +89,7 @@ A user's sign-in to one of the MCP servers the Host offers. All of the user's Bo
 _Avoid_: Integration, connector, MCP credential, Tool credential (that is an API key)
 
 **Connector tool**:
-A tool a Bot gets from one of its user's Connections. It is a Deferred tool, and a call to it is checked by Auto-review. When its Connection is gone or broken, the tool stays listed and the call returns an error telling the Bot to ask the user to reconnect.
+A tool a Bot gets from one of its user's Connections. It is a Deferred tool, and a call to it is checked by Auto-review, except for tools the server marks approval-free. When its Connection is gone or broken, the tool stays listed and the call returns an error telling the Bot to ask the user to reconnect.
 _Avoid_: MCP tool, integration tool
 
 **Approval**:

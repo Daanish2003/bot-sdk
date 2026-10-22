@@ -31,6 +31,6 @@ This decision was charted in Wayfinder #781.
 - ADR 0001 still holds for Bot Conversations, which append to the same Message tree and never branch.
 - ADR 0006's `RunStreams` goes with the assistant. PubSub stays as amended by ADR 0026.
 - ADR 0020's plugin list loses `assistant` and gains `mcp`.
-- ADR 0026's step-12 rule "email attachments are named, not kept" changes: the owner's email attachments are kept as Attachments.
+- The channel email code (`plugins/channel/server/email-text.ts`) names attachments ("Attachments (not kept)") instead of keeping them. That changes: the owner's email attachments are kept as Attachments. ADR 0026 is marked amended.
 - `message_status` keeps an unused `awaiting_approval` value, because Postgres can't drop an enum value without rebuilding the type.
 - The Turns, Routines and Skills that `UserExport` leaves out today stay out of the export. Adding them is a later effort.
