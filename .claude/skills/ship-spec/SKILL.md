@@ -51,8 +51,11 @@ Repeat until no ticket is open:
    - assign it to `@me`;
    - create its worktree (`.claude/worktrees/<N>`, branch `<type>/<N>-<slug>` from the integration tip). Create worktrees one at a time; they race on `.git/config`;
    - launch an implementer: Agent tool with the ticket's `model`, `run_in_background: true`, and **no** `isolation` (the worktree is pre-made). The prompt is three pointers: the ticket URL, the worktree path, and the run brief path.
+
+   A ticket whose only open blockers have reported done, but aren't merged yet, is on the frontier too. Branch its worktree from the blocker's tip instead of the integration tip (from a merge of the tips when there are several), and add a fourth pointer to the prompt: the unpushed base SHA, so the agent reviews `<SHA>..HEAD`. Merge the blocker first.
+
 2. **When an implementer reports**, check its report against the brief's report shape:
-   - **Done:** the base is the current integration tip or an ancestor of it, the commit SHAs are listed, the affected tests are green, and `checks` lists the `code-review` run. If the review is missing, resume the agent with SendMessage to run it before you merge. Go to step 4.
+   - **Done:** the base is the current integration tip or an ancestor of it, the commit SHAs are listed, the affected tests are green, and `checks` lists the `code-review` run. If the review is missing, resume the agent with SendMessage to run it before you merge. If the agent says its review came back empty twice, review the diff yourself when it is small (a few files), and send it back with your findings; for a larger diff, relaunch the review in a fresh agent. Go to step 4.
    - **Owner decision:** post the question on the ticket, ask the user (batch any open questions into one AskUserQuestion), and keep the other slots busy. Resume the same agent with SendMessage once answered.
    - **Blocked or denied** (a permission denial, a broken base): do the step yourself if it is yours, or ask the user. Never retry a denied command verbatim.
 3. Keep going between tickets. Report to the user only at the end or when blocked.
@@ -62,7 +65,8 @@ Repeat until no ticket is open:
 For each finished ticket, in the integration worktree:
 
 1. Merge the ticket branch (`--no-ff`, unless it fast-forwards onto the exact commit its agent tested). Resolve conflicts on **substance**: when two tickets changed the same seam, keep both behaviours and read both tickets' acceptance criteria; never pick a side blindly. Call the Skill tool with `codebase-design` when a conflict is about where a seam goes.
-2. **Verify** with [verify.sh](verify.sh) on the integration worktree. It must end with `VERIFY OK`. You may batch 3–4 merges into one verify, and bisect only on failure. A fast-forward onto the commit the agent tested skips the verify.
+2. **Verify** with [verify.sh](verify.sh) on the integration worktree. It must end with `VERIFY OK`. You may batch 3–4 merges into one verify, and bisect only on failure. A fast-forward onto the commit the agent tested skips the verify. Start the verify only after the merge has finished cleanly, never alongside it.
+   - When the ticket changes layout, routes or the app shell, also run the **full** e2e suite (environment.md) on the integration tip before you push, not only the ticket's own specs. A shell change breaks specs far from the ticket, and they are cheaper to fix now than at step 5.
 3. When it's red: send the failure back to the agent that wrote the ticket (SendMessage, same worktree), or fix it in a fresh implementer if that agent is gone. Never push red.
 4. Push the integration branch. Close the ticket with a comment giving the merge SHA. Remove its worktree and delete its branch with `git branch -d`; if `-d` refuses, add the branch to the user's cleanup list.
 5. Update the memory file, then recompute the frontier and go back to step 3.
