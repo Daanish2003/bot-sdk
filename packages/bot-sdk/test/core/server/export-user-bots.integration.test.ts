@@ -63,6 +63,7 @@ describe("createBotSdk().exportUser, with Bots", () => {
       expect.objectContaining({ name: "Ada", model: "anthropic:claude-sonnet-5-5", messages: [] }),
     ]);
     expect(document.memory).toEqual({ botMemory: [] });
+    expect(document.models).toEqual({ imageModel: null });
     expect(document).not.toHaveProperty("assistant");
   });
 
