@@ -12,6 +12,7 @@ import { bot } from "@ai-chat/bot-sdk/plugins/bot/server";
 import { channel, emailChannel } from "@ai-chat/bot-sdk/plugins/channel/server";
 import { memory } from "@ai-chat/bot-sdk/plugins/memory/server";
 import { knowledge } from "@ai-chat/bot-sdk/plugins/knowledge/server";
+import { mcp } from "@ai-chat/bot-sdk/plugins/mcp/server";
 import { skills } from "@ai-chat/bot-sdk/plugins/skills/server";
 import { fakeImageAdapter, models } from "@ai-chat/bot-sdk/plugins/models/server";
 import { runner } from "@ai-chat/bot-sdk/plugins/runner/server";
@@ -141,8 +142,9 @@ export const sdk = (shared.botSdk ??= createBotSdk({
     skills(),
     // Knowledge (spec #737): the user's shared Knowledge files on their Computer, and text extraction; a Host turns it on or off.
     knowledge(),
+    // MCP (ADR 0027): the users' Connections to the Host's MCP servers (`MCP_SERVER_*`).
+    mcp({ servers: mcpServersOf(ENV) }),
     assistant({
-      mcpServers: mcpServersOf(ENV),
       // Artifacts (spec #304): the assistant's create_artifact tool, the side panel and its version route.
       artifacts: true,
     }),

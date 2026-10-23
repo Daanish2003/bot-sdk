@@ -1,5 +1,5 @@
 import { storedParts, type StoredPart } from "../../../../plugins/assistant/shared/message-parts";
-import { conversation, message } from "../../../../core/server/db/schema";
+import { message } from "../../../../core/server/db/schema";
 import { toolDefinition } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
@@ -7,7 +7,6 @@ import { z } from "zod";
 
 import type { HostToolContext } from "../../../../plugins/assistant/server/chat/host-tools";
 import { reapStaleRuns, stopRun } from "../../../../plugins/assistant/server/chat/run";
-import { deleteUserData } from "../../../../core/server/user-data";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import type { HostProvider } from "../../../../plugins/assistant/server/deps";
 import { fakeImageAdapter } from "../../../../plugins/models/server/fake-image-adapter";
@@ -370,154 +369,6 @@ describe("a Host tool that needs Approval", () => {
     await resumed;
 
     expect(await replyOf(deps, conv.id)).toMatchObject({ status: "stopped" });
-  });
-});
-
-/** A second Host tool that needs Approval, to show that an allowance covers one tool only. */
-const postNote = toolDefinition({
-  name: "post_note",
-  description: "Posts a note.",
-  inputSchema: z.object({ note: z.string() }),
-  needsApproval: true,
-}).server<HostToolContext>(async (args) => ({ posted: args.note }));
-
-/** Answers a waiting call with "allow this tool for this Conversation" and joins the new Run. */
-async function decideAllowing(user: TestUser, deps: TestDeps, messageId: string) {
-  await chatRpc({ user, deps }).chat.decide({
-    messageId,
-    approved: true,
-    allowForConversation: true,
-  });
-  return join(messageId, user, deps);
-}
-
-/** Sends a Message to another Conversation of the same user. */
-const sendIn = (user: TestUser, deps: TestDeps, conversationId: string) =>
-  sendAs(
-    new Request(`${basePath}/run`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        messages: [],
-        forwardedProps: {
-          conversationId,
-          parentId: null,
-          text: "Email again",
-          attachmentIds: [],
-          model: anthropicModel,
-          webSearch: false,
-        },
-      }),
-    }),
-    user,
-    deps,
-  );
-
-describe("Allow for this Conversation", () => {
-  it("runs the waiting call, and a later call to the same tool in that Conversation runs without waiting", async () => {
-    const runs: Runs = [];
-    const { user, deps, conv, send } = await setup({
-      rounds: [
-        round(mailCall("call-1")),
-        round(text("Sent.")),
-        round(mailCall("call-2", { to: "x@y.z", body: "Again" })),
-        round(text("Done.")),
-      ],
-      runs,
-    });
-    await (await send()).text();
-    const reply = await replyOf(deps, conv.id);
-
-    await decideAllowing(user, deps, reply.id);
-
-    expect(runs).toEqual([{ to: "a@b.c", body: "Hi" }]);
-    expect(await replyOf(deps, conv.id)).toMatchObject({ id: reply.id, status: "complete" });
-
-    await (await send({ text: "Again" })).text();
-
-    expect(runs).toHaveLength(2);
-    expect(await replyOf(deps, conv.id)).toMatchObject({
-      status: "complete",
-      parts: storedParts([
-        expect.objectContaining({ toolCallId: "call-2", state: "done" }),
-        { type: "text", text: "Done." },
-      ]),
-    });
-  });
-
-  it("a call to the same tool in another Conversation of the same user still waits", async () => {
-    const runs: Runs = [];
-    const { user, deps, conv, send } = await setup({
-      rounds: [round(mailCall("call-1")), round(text("Sent.")), round(mailCall("call-2"))],
-      runs,
-    });
-    await (await send()).text();
-    await decideAllowing(user, deps, (await replyOf(deps, conv.id)).id);
-
-    const other = await insertConversation(user, { title: "Other" });
-    await (await sendIn(user, deps, other.id)).text();
-
-    expect(await replyOf(deps, other.id)).toMatchObject({ status: "awaiting_approval" });
-    expect(runs).toHaveLength(1);
-  });
-
-  it("a different tool in the same Conversation still waits", async () => {
-    const runs: Runs = [];
-    const { user, deps, conv, send } = await setup({
-      rounds: [
-        round(mailCall("call-1")),
-        round(text("Sent.")),
-        round(toolCall({ id: "note-1", name: "post_note", input: { note: "Hi" } })),
-      ],
-      runs,
-      deps: { tools: [sendMail(runs), postNote] },
-    });
-    await (await send()).text();
-    await decideAllowing(user, deps, (await replyOf(deps, conv.id)).id);
-
-    await (await send({ text: "Note it" })).text();
-
-    expect(await replyOf(deps, conv.id)).toMatchObject({
-      status: "awaiting_approval",
-      parts: storedParts([
-        {
-          type: "tool_call",
-          toolCallId: "note-1",
-          name: "post_note",
-          source: "host",
-          args: { note: "Hi" },
-          state: "awaiting_approval",
-        },
-      ]),
-    });
-  });
-
-  it("deleting the Conversation removes its allowance with it", async () => {
-    const { user, deps, conv, send } = await setup({
-      rounds: [round(mailCall("call-1")), round(text("Sent."))],
-    });
-    await (await send()).text();
-    await decideAllowing(user, deps, (await replyOf(deps, conv.id)).id);
-
-    await chatRpc({ user, deps }).conversation.delete({ id: conv.id });
-
-    expect(await deps.db.select().from(conversation).where(eq(conversation.id, conv.id))).toEqual(
-      [],
-    );
-  });
-
-  it("deleting the user removes the allowances of their Conversations", async () => {
-    const { user, deps, conv, send } = await setup({
-      rounds: [round(mailCall("call-1")), round(text("Sent."))],
-    });
-    await (await send()).text();
-    await decideAllowing(user, deps, (await replyOf(deps, conv.id)).id);
-
-    await deleteUserData(deps, user.id);
-
-    expect(
-      await deps.db.select().from(conversation).where(eq(conversation.userId, user.id)),
-    ).toEqual([]);
   });
 });
 

@@ -53,7 +53,6 @@ const conversation = {
   model: model.id,
   reasoningEffort: null,
   temporary: false,
-  tools: { connections: [], allowedTools: [] },
   archivedAt: null,
   shared: false,
   messages: [],

@@ -4,7 +4,6 @@ import { useChatAdapter } from "../../core/client/react/provider";
 import {
   ArchivedConversationsSection,
   BackgroundModelSelect,
-  ConnectionsSection,
   DeleteAllConversationsSection,
   ImageModelSelect,
   InstructionsField,
@@ -12,6 +11,7 @@ import {
   SharedLinksSection,
   YourDataSection,
 } from "../../plugins/assistant/ui/index";
+import { ConnectionsSection } from "../../plugins/mcp/ui/index";
 import { MemorySection } from "../../plugins/memory/ui/memory-section";
 import {
   CredentialsSections,

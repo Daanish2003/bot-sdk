@@ -2,8 +2,8 @@ import { Button } from "@/components/ui/button";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
-import { useChatAdapter, useI18n, useOrpc } from "../../../../core/client/react/provider";
-import { serverErrorText } from "../../../../core/client/rpc-error";
+import { useChatAdapter, useI18n, useOrpc } from "../../../core/client/react/provider";
+import { serverErrorText } from "../../../core/client/rpc-error";
 
 const stateKeys = {
   connected: "settings.connected",

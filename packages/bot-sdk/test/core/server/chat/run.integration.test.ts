@@ -188,7 +188,6 @@ describe("startRun", () => {
         image: null,
         artifacts: false,
         hostTools: [],
-        mcp: undefined,
       },
       adapter: held.adapter,
       messages: [],

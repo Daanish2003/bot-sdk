@@ -12,7 +12,6 @@ import { fetchUrlToolName } from "../../shared/chat/fetch-url";
 import { approvalPrefix } from "./run";
 import { planRun, quotaExceededCode } from "./run-plan";
 import { findConversation, findMessage } from "./store";
-import type { ConversationTools } from "../../shared/chat/conversation-tools";
 
 /** Why a decision didn't start a Run. `started` is the only success. */
 export type DecideResult =
@@ -22,11 +21,6 @@ export type DecideResult =
   | "streaming"
   | "unavailable"
   | "quota";
-
-/** The Conversation's settings with `toolName` allowed for the rest of it (#159). */
-function allowing(settings: ConversationTools, toolName: string): ConversationTools {
-  return { ...settings, allowedTools: [...new Set([...settings.allowedTools, toolName])] };
-}
 
 /** What a refused call's result says to the Model and the stored part (`denied`). */
 export const declinedResult = { error: "User declined tool execution" };
@@ -49,9 +43,7 @@ function webAsked(parts: StoredPart[]) {
  * history is rebuilt from the Message tree, with the call stored without a result, so the resumed
  * Run supplies the result: the tool runs when approved, and the Model gets `declinedResult` when not.
  * The Run is the Message's next Run (`runNumber`), planned by `planRun` like a send, so it gets the
- * same Run rules as any other. With `allowForConversation` (an approval only), the call's tool is
- * also allowed for the rest of the Conversation, so its later calls run without Approval (#159).
- * `webSearch` is the user's web search choice as they decide, like a send's; without it the
+ * same Run rules as any other. `webSearch` is the user's web search choice as they decide, like a send's; without it the
  * resumed Run offers the Web tools when the reply already used them.
  */
 export async function decideApproval(
@@ -59,7 +51,6 @@ export async function decideApproval(
   userId: string,
   messageId: string,
   approved: boolean,
-  allowForConversation = false,
   webSearch?: boolean,
 ): Promise<DecideResult> {
   const owned = await findMessage(deps, userId, messageId);
@@ -88,8 +79,7 @@ export async function decideApproval(
   );
   // The resumed Run is planned like the Run that asked, from the Conversation's stored settings, so
   // the approved call can run. Its Approval still applies to this call: the resume answers that
-  // interrupt, and a call that no longer asks has none to answer. An allowance (#159) is stored
-  // with the claim, for later Runs.
+  // interrupt, and a call that no longer asks has none to answer.
   const planned = await planRun(
     deps,
     {
@@ -98,7 +88,6 @@ export async function decideApproval(
       model: owned.model,
       // The effort the reply recorded when its first Run started.
       reasoningEffort: owned.reasoningEffort,
-      toolSettings: asked.toolSettings,
       web: webSearch ?? webAsked(stored.data.parts),
       replyId: owned.id,
       leafId: owned.id,
@@ -106,8 +95,8 @@ export async function decideApproval(
     async (_plan, start): Promise<DecideResult> => {
       const claimed = await deps.db.transaction(async (tx) => {
         // The same lock a send takes: one Run per Conversation (ADR 0002).
-        const [locked] = await tx
-          .select({ toolSettings: conversation.toolSettings })
+        await tx
+          .select({ id: conversation.id })
           .from(conversation)
           .where(eq(conversation.id, owned.conversationId))
           .for("update");
@@ -131,14 +120,6 @@ export async function decideApproval(
           .where(and(eq(message.id, owned.id), eq(message.status, "awaiting_approval")))
           .returning({ id: message.id });
         if (!row) return "not_waiting";
-        // The allowance is stored with the claim, on the settings read under the lock, so a refused
-        // decision stores nothing and a concurrent change to the Connections is kept.
-        if (allowForConversation && approved && locked) {
-          await tx
-            .update(conversation)
-            .set({ toolSettings: allowing(locked.toolSettings, waiting.name) })
-            .where(eq(conversation.id, owned.conversationId));
-        }
         return "claimed";
       });
       if (claimed !== "claimed") return claimed;

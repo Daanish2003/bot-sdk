@@ -22,10 +22,11 @@ import {
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkPlugin } from "../../../core/server/plugin";
 import { deleteUserData, exportUserData } from "../../../core/server/user-data";
-import { readTokens, saveTokens } from "../../../plugins/assistant/server/mcp/connections";
+import { readTokens, saveTokens } from "../../../plugins/mcp/server/connections";
 import { assistant } from "../../../plugins/assistant/server/plugin";
 import { bot as botPlugin } from "../../../plugins/bot/server/plugin";
 import { computer, computerBlobKey } from "../../../plugins/computer/server/plugin";
+import { mcp } from "../../../plugins/mcp/server/plugin";
 import { profilePath } from "../../../plugins/memory/server/bot-memory";
 import { runner } from "../../../plugins/runner/server/plugin";
 import { listCredentials, saveCredentials } from "../../../plugins/models/server/credentials/store";
@@ -202,7 +203,7 @@ describe("deleteUser across plugins, the assistant among them", () => {
     const fake = fakeComputerProvider();
     const deps = createTestSdk({
       blobStore: store,
-      plugins: [botPlugin(), computer({ provider: fake.provider })],
+      plugins: [botPlugin(), computer({ provider: fake.provider }), mcp()],
     });
     const owner = await insertUser();
     const other = await insertUser();
@@ -248,11 +249,11 @@ describe("exportUser across plugins, the assistant among them", () => {
   });
 });
 
-describe("rotateKeys across plugins, the assistant among them", () => {
+describe("rotateKeys across plugins", () => {
   const keyA = "key-a-of-at-least-32-characters-long!!";
   const keyB = "key-b-of-at-least-32-characters-long!!";
 
-  it("sums the models plugin's credentials and the assistant's MCP tokens", async () => {
+  it("sums the models plugin's credentials and the mcp plugin's Connection tokens", async () => {
     const user = await insertUser();
     const old = createTestSdk({ keyEncryptionSecrets: [keyA] });
     await saveCredentials(old, user.id, {
@@ -273,7 +274,7 @@ describe("rotateKeys across plugins, the assistant among them", () => {
       keyEncryptionSecrets: [keyB, keyA],
       basePath: "/api/chat",
       logger,
-      plugins: [models(), runner(), assistant()],
+      plugins: [models(), runner(), assistant(), mcp()],
     });
 
     await expect(sdk.rotateKeys()).resolves.toEqual({ reencrypted: 2, unreadable: 1 });

@@ -4,7 +4,6 @@ export { AppShell } from "./shell/app-shell";
 export { DeleteAllConversationsSection } from "./settings/delete-all-conversations";
 export { ArchivedConversationsSection } from "./settings/archived-conversations";
 export { BackgroundModelSelect } from "./settings/background-model-select";
-export { ConnectionsSection } from "./settings/connections-section";
 export { ImageModelSelect } from "./settings/image-model-select";
 export { InstructionsField } from "./settings/instructions-field";
 export { SavedPromptsSection } from "./settings/saved-prompts";

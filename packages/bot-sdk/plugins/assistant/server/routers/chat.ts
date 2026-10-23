@@ -74,9 +74,8 @@ export const chatRouter = {
       }
     }),
   /**
-   * Answers the call a reply is waiting on (ADR 0008): approve runs it, deny refuses it. With
-   * `allowForConversation` (approve only) the call's tool also runs without Approval for the rest
-   * of the Conversation (#159). `webSearch` is the user's web search choice, as on a send. The
+   * Answers the call a reply is waiting on (ADR 0008): approve runs it, deny refuses it.
+   * `webSearch` is the user's web search choice, as on a send. The
    * reply continues in a new Run on the same Message; join it from its log to follow it.
    */
   decide: protectedProcedure
@@ -84,7 +83,6 @@ export const chatRouter = {
       z.object({
         messageId: z.uuid(),
         approved: z.boolean(),
-        allowForConversation: z.boolean().optional(),
         webSearch: z.boolean().optional(),
       }),
     )
@@ -95,7 +93,6 @@ export const chatRouter = {
           context.user.id,
           input.messageId,
           input.approved,
-          input.allowForConversation,
           input.webSearch,
         ),
       );

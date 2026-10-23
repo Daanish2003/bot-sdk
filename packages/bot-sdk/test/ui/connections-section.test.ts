@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { createBotSdkClient } from "../../core/client/chat-client";
 import { assistantClient } from "../../plugins/assistant/client/index";
+import { mcpClient } from "../../plugins/mcp/client/index";
 import { modelsClient } from "../../plugins/models/client/index";
 import {
   ChatProvider,
@@ -14,7 +15,7 @@ import {
 import { HostKeysPage } from "./host-keys-page";
 
 const client = createBotSdkClient({
-  plugins: [modelsClient(), assistantClient()],
+  plugins: [modelsClient(), assistantClient(), mcpClient()],
   baseUrl: "http://localhost/api/chat",
   fetch: async () => {
     throw new Error("Unexpected request in a render test");

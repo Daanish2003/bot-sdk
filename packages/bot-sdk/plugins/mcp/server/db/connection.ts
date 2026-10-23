@@ -4,7 +4,7 @@ import { chatSchema } from "../../../../core/server/db/chat-schema";
 
 /**
  * A user's OAuth sign-in to one Host MCP server (a Connection, spec #91). One row per user and
- * server key. A row holds a pending sign-in while the redirect is out, tokens once it finishes,
+ * server key; the `mcp` plugin owns it. A row holds a pending sign-in while the redirect is out, tokens once it finishes,
  * or both while a sign-in is pending again.
  */
 export const mcpConnection = chatSchema.table(
@@ -12,7 +12,7 @@ export const mcpConnection = chatSchema.table(
   {
     /** The Host's user id, with no foreign key, as everywhere in the `chat` schema. */
     userId: text("user_id").notNull(),
-    /** The `key` of the Host's `mcpServers` entry. */
+    /** The `key` of the Host's server (`mcp({ servers })`). */
     serverKey: text("server_key").notNull(),
     /** The token set, AES-256-GCM encrypted under the Connection key (ADR 0010). `null` until connected. */
     encrypted: text("encrypted"),

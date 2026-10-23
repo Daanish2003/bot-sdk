@@ -47,7 +47,7 @@ export type RunOf = {
  * `chat()` to the end on its own, whether or not anyone reads the returned chunks: it snapshots the
  * streaming Message's parts every `limits.snapshotIntervalMs`, and finishes the row in
  * `finally`. A Stop aborts it, from the pub/sub signal or from `cancel_requested_at` read back on a
- * snapshot tick (ADR 0006). The Run closes the plan's MCP clients when it ends, Stop included.
+ * snapshot tick (ADR 0006).
  *
  * Every chunk goes to the Run's log before anyone reads it (ADR 0006). The POST response and any
  * joiner read that log, so a reader that goes away only stops reading.
@@ -59,22 +59,14 @@ export async function startRun(
 ): Promise<void> {
   const { replyId: messageId, context, messages, compaction, meter } = plan;
   const { id: model, provider } = plan.model;
-  const { mcp } = plan.offered;
   const abortController = new AbortController();
   const logId = runLogId(messageId, runNumber);
-  let unsubscribeStop: Awaited<ReturnType<typeof listenForStop>>;
-  try {
-    await assistantState(deps).runStreams.open(logId);
-    unsubscribeStop = await listenForStop(deps, messageId, () => abortController.abort());
-  } catch (caught) {
-    // The Run never started, so nothing else will close the clients it was given.
-    await mcp?.close();
-    throw caught;
-  }
+  await assistantState(deps).runStreams.open(logId);
+  const unsubscribeStop = await listenForStop(deps, messageId, () => abortController.abort());
   // Registered once nothing before the Run's own `finally` can throw, so it always leaves again.
   assistantState(deps).runs.set(messageId, abortController);
   const parts = createPartsBuilder(initialParts);
-  // One budget for the reply's Host and MCP calls, across its Runs (spec #91).
+  // One budget for the reply's Host calls, across its Runs (spec #91).
   const budget = createToolBudget(spentCalls(initialParts));
   /** The call a reply stops on, waiting for Approval, and the Run that stopped (ADR 0008). */
   let awaiting: { toolCallId: string; threadId: string; runId: string } | undefined;
@@ -129,7 +121,6 @@ export async function startRun(
   void (async () => {
     let error: ProviderError | undefined;
     try {
-      const mcpNames = new Set((mcp?.tools ?? []).map((tool) => tool.name));
       const tools = plan.tools({ parts, onChange: () => (changed = true), budget });
       const middleware: ChatMiddleware[] = [
         ...(plan.offered.artifacts ? [artifactCutOff] : []),
@@ -167,7 +158,7 @@ export async function startRun(
         if (approval && chunkIds) {
           // The Run ends here, with the call stored as waiting (ADR 0008): nothing waits in a process.
           awaiting = { toolCallId: approval, ...chunkIds };
-          parts.awaitApproval(approval, mcpNames);
+          parts.awaitApproval(approval);
         }
         if (chunk.type === EventType.RUN_FINISHED && chunk.usage) {
           // The AG-UI array form is converted back to TanStack's shape first.
@@ -198,8 +189,6 @@ export async function startRun(
       clearTimeout(capTimer);
       // The parts as the stream ended: a call that finishes after this stays cancelled.
       const ended = parts.parts();
-      // The MCP clients close with the Run, Stop included (spec #91).
-      await mcp?.close();
       void unsubscribeStop().catch((error: unknown) =>
         deps.logger.error(`Unsubscribing Stop of ${messageId} failed`, error),
       );

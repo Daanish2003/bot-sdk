@@ -28,7 +28,6 @@ export const errorMessages = {
     `"${model}" is not an available Model`,
   "error.imageModelNotAvailable": ({ model }: { model: string }) =>
     `"${model}" is not an available Image Model`,
-  "error.unknownMcpServer": "Unknown MCP server",
   "error.pickAnotherModel": "Pick another Model",
   "error.addKey": ({ label }: { label: string }) =>
     `Add ${/^[aeiou]/i.test(label) ? "an" : "a"} ${label} key or pick another Model`,

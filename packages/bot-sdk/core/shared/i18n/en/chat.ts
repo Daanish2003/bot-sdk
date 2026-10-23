@@ -2,8 +2,6 @@
 export const chatMessages = {
   "chat.decideFailed": ({ message }: { message: string }) => `Deciding failed: ${message}`,
   "chat.stopFailed": ({ message }: { message: string }) => `Stopping failed: ${message}`,
-  "chat.toolSwitchFailed": ({ message }: { message: string }) =>
-    `Switching a tool failed: ${message}`,
   "chat.branchSwitchFailed": ({ message }: { message: string }) =>
     `Switching Branch failed: ${message}`,
   "chat.tooManyMessages": "Too many messages. Try again in a moment.",
@@ -71,11 +69,6 @@ export const chatMessages = {
     `You've used your Quota. Host Models are off until ${resetsAt}.`,
   "chat.addYourOwnKey": "Add your own key",
 
-  "chat.tools": "Tools",
-  "chat.toolsWithCount": ({ count }: { count: number }) => `Tools (${count})`,
-  "chat.mcpServers": "MCP servers",
-  "chat.on": "On",
-  "chat.off": "Off",
   "chat.web": "Web",
   "chat.webOff": "Web off",
   "chat.webNoTools": "This Model can't use tools, so it can't use the web",
@@ -118,7 +111,6 @@ export const chatMessages = {
   "chat.toolWaitingFor": ({ name }: { name: string }) => `Waiting for approval to use ${name}`,
   "chat.toolUsed": ({ name }: { name: string }) => `Used ${name}`,
   "chat.approve": "Approve",
-  "chat.allowForConversation": "Allow for this Conversation",
   "chat.deny": "Deny",
   "chat.arguments": "Arguments",
   "chat.result": "Result",
