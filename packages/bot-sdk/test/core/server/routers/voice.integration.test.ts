@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { RateLimitedError } from "../../../../core/client/rate-limit";
-import { attachment, usage } from "../../../../core/server/db/schema";
+import { blob, usage } from "../../../../core/server/db/schema";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import type { Credentials, HostProvider } from "../../../../plugins/models/server/types";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
@@ -283,7 +283,7 @@ describe("voice.transcribe limits", () => {
 
     await chatRpc({ user, deps }).voice.transcribe(recording);
 
-    expect(await getTestDb().select().from(attachment)).toEqual([]);
+    expect(await getTestDb().select().from(blob)).toEqual([]);
   });
 });
 

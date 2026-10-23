@@ -1,6 +1,5 @@
 /* Tailwind v4 Hosts: import this after `@import "tailwindcss";` so Tailwind compiles the screens' classes. */
 @source ".";
-@source "../plugins/assistant/ui";
 @source "../plugins/models/ui";
 @source "../plugins/bot/ui";
 @source "../plugins/memory/ui";

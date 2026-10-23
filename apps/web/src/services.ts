@@ -7,7 +7,6 @@ import {
   redisRuntime,
   redisStore,
 } from "@ai-chat/bot-sdk/core/server";
-import { assistant } from "@ai-chat/bot-sdk/plugins/assistant/server";
 import { bot } from "@ai-chat/bot-sdk/plugins/bot/server";
 import { channel, emailChannel } from "@ai-chat/bot-sdk/plugins/channel/server";
 import { memory } from "@ai-chat/bot-sdk/plugins/memory/server";
@@ -136,7 +135,7 @@ export const sdk = (shared.botSdk ??= createBotSdk({
     runner(),
     // The Bots' Computer (spec #519): on only when self-hosted E2B is configured.
     ...(await computerPluginsOf(e2b, computerTemplate)),
-    // Memory (ADR 0013): the assistant's Memories and the user's Memory switch.
+    // Memory (ADR 0022): the Bots' file memory and the user's Memory switch.
     memory(),
     // Skills (spec #713): each Bot's SKILL.md files, listed in its prompt; a Host turns it on or off.
     skills(),
@@ -144,10 +143,6 @@ export const sdk = (shared.botSdk ??= createBotSdk({
     knowledge(),
     // MCP (ADR 0027): the users' Connections to the Host's MCP servers (`MCP_SERVER_*`).
     mcp({ servers: mcpServersOf(ENV) }),
-    assistant({
-      // Artifacts (spec #304): the assistant's create_artifact tool, the side panel and its version route.
-      artifacts: true,
-    }),
     // Bots (spec #463): the full-screen Bots app at /bots.
     bot(),
     // Channels (spec #761): each Bot's own email address. Mail comes in through Mailpit

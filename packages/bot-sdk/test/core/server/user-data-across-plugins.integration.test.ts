@@ -4,7 +4,7 @@ import { count, eq, inArray, is } from "drizzle-orm";
 import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
 import { describe, expect, it, vi } from "vitest";
 
-import { attachmentBlobKey, type BlobStore } from "../../../core/server/blob/store";
+import type { BlobStore } from "../../../core/server/blob/store";
 import { createHookEmitter } from "../../../core/server/chat/hooks";
 import { createBotSdk } from "../../../core/server/create-chat";
 import * as schema from "../../../core/server/db/schema";
@@ -33,7 +33,6 @@ import { profilePath } from "../../../plugins/memory/server/bot-memory";
 import { runner } from "../../../plugins/runner/server/plugin";
 import { listCredentials, saveCredentials } from "../../../plugins/models/server/credentials/store";
 import { models } from "../../../plugins/models/server/plugin";
-import { insertAttachment, linkTestAttachments } from "../../support/attachments";
 import { insertConversation, insertMessage } from "../../support/conversations";
 import { createTestSdk, type TestDeps } from "../../support/deps";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
@@ -55,18 +54,12 @@ function fakeBlobStore() {
   return { store, held };
 }
 
-/**
- * The assistant's tables with a `user_id` column. The instances here don't install it;
- * `assistant-user-data.integration.test.ts` seeds and checks them with the assistant installed.
- */
-const assistantTables = ["generated_image", "project", "saved_prompt", "user_settings"];
-
-/** Every other table of the composed schema with a `user_id` column, with that column. */
+/** Every table of the composed schema with a `user_id` column, with that column. */
 const userTables = Object.values(schema).flatMap((value) => {
   if (!is(value, PgTable)) return [];
   const { name, columns } = getTableConfig(value);
   const column = columns.find((candidate) => candidate.name === "user_id");
-  return column && !assistantTables.includes(name) ? [{ name, table: value, column }] : [];
+  return column ? [{ name, table: value, column }] : [];
 });
 
 /** The user's row count in every table with a `user_id` column, by table name. */
@@ -96,8 +89,7 @@ async function activeJobsNaming(ids: string[]) {
 }
 
 /**
- * A user with a row in every table above: a Bot whose Conversation has an Attachment, an unused
- * Attachment, an ended Demonstration, a Secret, a file uploaded and not yet sent to the Bot, a
+ * A user with a row in every table above: a Bot with a Message, an ended Demonstration, a Secret, a file uploaded and not yet sent to the Bot, a
  * Computer, the Memory switch, a Connection, credentials and usage. Returns the blob keys and ids
  * it made.
  */
@@ -106,7 +98,7 @@ async function seedEverything(
   deps: TestDeps,
   fake: ReturnType<typeof fakeComputerProvider>,
 ) {
-  const botConversation = await insertConversation(user, { kind: "bot", model: null });
+  const botConversation = await insertConversation(user, { kind: "bot" });
   const botId = uuidv7();
   await getTestDb().insert(bot).values({
     id: botId,
@@ -115,20 +107,12 @@ async function seedEverything(
     name: "Ada",
     model: "anthropic:claude-sonnet-5-5",
   });
-  const said = await insertMessage({
+  await insertMessage({
     conversationId: botConversation.id,
     role: "user",
     text: "Read this",
     active: true,
   });
-  const used = await insertAttachment(user, { filename: "notes.txt" });
-  const unused = await insertAttachment(user, { filename: "draft.txt" });
-  await linkTestAttachments(said.id, [used.id]);
-  for (const file of [used, unused]) {
-    await deps.blobStore.put(attachmentBlobKey(file.id), new Uint8Array([1]), {
-      contentType: "text/plain",
-    });
-  }
 
   // An ended Demonstration, so it holds no Screen.
   await getTestDb().insert(botDemonstration).values({
@@ -186,12 +170,7 @@ async function seedEverything(
     estimated: false,
   });
   return {
-    blobKeys: [
-      attachmentBlobKey(used.id),
-      attachmentBlobKey(unused.id),
-      sentFileBlobKey(upload.id),
-      computerBlobKey(user.id),
-    ],
+    blobKeys: [sentFileBlobKey(upload.id), computerBlobKey(user.id)],
     ids: [user.id],
   };
 }
@@ -213,7 +192,7 @@ describe("deleteUser across plugins", () => {
     const before = await rowsByTable(other.id);
     // Every table with a user_id column must be seeded here, so a new one can't pass unchecked.
     expect(Object.keys(await rowsByTable(owner.id))).toEqual(
-      expect.arrayContaining(["conversation", "attachment", "user_credentials", "bot"]),
+      expect.arrayContaining(["conversation", "user_credentials", "bot"]),
     );
     expect(tablesWhere(await rowsByTable(owner.id), (total) => total === 0)).toEqual([]);
 

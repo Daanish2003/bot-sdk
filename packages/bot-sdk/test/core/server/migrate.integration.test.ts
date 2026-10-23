@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { cpSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,8 +8,8 @@ import { migrate as applyMigrations } from "drizzle-orm/node-postgres/migrator";
 import { Client } from "pg";
 import { afterEach, describe, expect, it } from "vitest";
 
+import type { BlobStore } from "../../../core/server/blob/store";
 import { createBotSdk } from "../../../core/server/create-chat";
-import { assistant } from "../../../plugins/assistant/server/plugin";
 import { runner } from "../../../plugins/runner/server/plugin";
 import { models } from "../../../plugins/models/server/plugin";
 import { LATEST_MIGRATION } from "../../../core/server/migrate";
@@ -28,7 +27,7 @@ function chatFor(databaseUrl: string) {
     getUser: () => null,
     keyEncryptionSecrets,
     basePath: "/api/chat",
-    plugins: [models(), runner(), assistant()],
+    plugins: [models(), runner()],
   });
 }
 
@@ -86,9 +85,6 @@ afterEach(async () => {
 
 const sdkTables = [
   "__migrations",
-  "artifact",
-  "artifact_version",
-  "attachment",
   "blob",
   "bot",
   "bot_check_in",
@@ -108,21 +104,15 @@ const sdkTables = [
   "computer",
   "conversation",
   "conversation_change",
-  "generated_image",
   "job",
   "job_event",
   "mcp_connection",
   "memory_settings",
   "message",
-  "message_attachment",
   "model_settings",
-  "project",
-  "saved_prompt",
   "secret",
-  "shared_link",
   "usage",
   "user_credentials",
-  "user_settings",
 ];
 
 describe("chat.migrate()", () => {
@@ -143,7 +133,6 @@ describe("chat.migrate()", () => {
        where n.nspname = 'chat' and t.typtype = 'e'`,
     );
     expect(enums.map((row) => row.typname).sort()).toEqual([
-      "artifact_kind",
       "bot_check_in_state",
       "bot_demonstration_event_kind",
       "bot_demonstration_state",
@@ -159,221 +148,10 @@ describe("chat.migrate()", () => {
       "computer_state",
       "job_status",
       "message_error_reason",
-      "message_rating",
       "message_role",
       "message_status",
-      "reasoning_effort",
       "usage_kind",
     ]);
-  });
-
-  it("adds the Run columns to chat.message as nullable timestamps", async () => {
-    const url = await scratchDatabase("columns");
-
-    await chatFor(url).migrate();
-
-    const columns = await rows<{ column_name: string; data_type: string; is_nullable: string }>(
-      url,
-      `select column_name, data_type, is_nullable from information_schema.columns
-       where table_schema = 'chat' and table_name = 'message'
-         and column_name in ('cancel_requested_at', 'heartbeat_at')`,
-    );
-    expect(columns.sort((a, b) => a.column_name.localeCompare(b.column_name))).toEqual([
-      {
-        column_name: "cancel_requested_at",
-        data_type: "timestamp with time zone",
-        is_nullable: "YES",
-      },
-      { column_name: "heartbeat_at", data_type: "timestamp with time zone", is_nullable: "YES" },
-    ]);
-  });
-
-  it("adds the generation-control columns as nullable, additive columns", async () => {
-    const url = await scratchDatabase("generation_columns");
-
-    await chatFor(url).migrate();
-
-    const columns = await rows<{
-      table_name: string;
-      column_name: string;
-      data_type: string;
-      udt_name: string;
-      is_nullable: string;
-    }>(
-      url,
-      `select table_name, column_name, data_type, udt_name, is_nullable
-         from information_schema.columns
-        where table_schema = 'chat'
-          and (table_name, column_name) in (
-            ('user_settings', 'instructions'),
-            ('conversation', 'reasoning_effort'),
-            ('message', 'reasoning_effort'),
-            ('message', 'usage'),
-            ('message', 'context_start_id')
-          )`,
-    );
-    expect(
-      columns.sort((a, b) =>
-        `${a.table_name}.${a.column_name}`.localeCompare(`${b.table_name}.${b.column_name}`),
-      ),
-    ).toEqual([
-      {
-        table_name: "conversation",
-        column_name: "reasoning_effort",
-        data_type: "USER-DEFINED",
-        udt_name: "reasoning_effort",
-        is_nullable: "YES",
-      },
-      {
-        table_name: "message",
-        column_name: "context_start_id",
-        data_type: "uuid",
-        udt_name: "uuid",
-        is_nullable: "YES",
-      },
-      {
-        table_name: "message",
-        column_name: "reasoning_effort",
-        data_type: "USER-DEFINED",
-        udt_name: "reasoning_effort",
-        is_nullable: "YES",
-      },
-      {
-        table_name: "message",
-        column_name: "usage",
-        data_type: "jsonb",
-        udt_name: "jsonb",
-        is_nullable: "YES",
-      },
-      {
-        table_name: "user_settings",
-        column_name: "instructions",
-        data_type: "text",
-        udt_name: "text",
-        is_nullable: "YES",
-      },
-    ]);
-  });
-
-  it("leaves rows written before the generation columns untouched, with nulls in them", async () => {
-    const url = await scratchDatabase("existing_rows");
-    const migrationsFolder = fileURLToPath(
-      new URL("../../../core/server/migrations", import.meta.url),
-    );
-    const baselineName = "20261009085944_chat_baseline";
-    const baseline = readFileSync(join(migrationsFolder, baselineName, "migration.sql"), "utf8");
-
-    // Stand in for a database at the baseline: its SQL, and the journal row drizzle would write.
-    const client = new Client({ connectionString: url });
-    await client.connect();
-    try {
-      await client.query("create schema chat");
-      await client.query("create extension if not exists pg_trgm");
-      await client.query(baseline);
-      await client.query(`create table if not exists chat.__migrations (
-        id serial primary key, hash text not null, created_at bigint)`);
-      const baselineMillis = Date.UTC(2026, 9, 9, 8, 59, 44);
-      await client.query("insert into chat.__migrations (hash, created_at) values ($1, $2)", [
-        createHash("sha256").update(baseline).digest("hex"),
-        baselineMillis,
-      ]);
-      await client.query(
-        `insert into chat.conversation (id, user_id, title, model)
-         values ('0196a000-0000-7000-8000-000000000001', 'user-1', 'Before', 'openai:gpt')`,
-      );
-      await client.query(
-        `insert into chat.message (id, conversation_id, role, parts, status)
-         values ('0196a000-0000-7000-8000-000000000002', '0196a000-0000-7000-8000-000000000001',
-                 'user', '[]'::jsonb, 'complete')`,
-      );
-      await client.query(
-        `insert into chat.user_settings (user_id, title_model) values ('user-1', 'openai:gpt')`,
-      );
-    } finally {
-      await client.end();
-    }
-
-    await chatFor(url).migrate();
-
-    expect(
-      await rows(
-        url,
-        `select c.kind, c.title, c.model, c.reasoning_effort, c.project_id, c.pinned_at, m.role, m.parts, m.reasoning_effort as m_effort,
-                m.usage, m.context_start_id, s.background_model, s.instructions
-           from chat.conversation c
-           join chat.message m on m.conversation_id = c.id
-           join chat.user_settings s on s.user_id = c.user_id`,
-      ),
-    ).toEqual([
-      {
-        kind: "assistant",
-        title: "Before",
-        model: "openai:gpt",
-        reasoning_effort: null,
-        project_id: null,
-        pinned_at: null,
-        role: "user",
-        parts: [],
-        m_effort: null,
-        usage: null,
-        context_start_id: null,
-        background_model: "openai:gpt",
-        instructions: null,
-      },
-    ]);
-  });
-
-  it("copies existing attachment bytes into chat.blob under attachment/<id>, then drops the old table", async () => {
-    const url = await scratchDatabase("blob_copy");
-    const migrationsFolder = fileURLToPath(
-      new URL("../../../core/server/migrations", import.meta.url),
-    );
-    const baseline = readFileSync(
-      join(migrationsFolder, "20261009085944_chat_baseline", "migration.sql"),
-      "utf8",
-    );
-    const attachmentId = "0196a000-0000-7000-8000-0000000000aa";
-    const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff]);
-
-    // A database at the baseline with one Attachment whose bytes sit in attachment_blob.
-    const client = new Client({ connectionString: url });
-    await client.connect();
-    try {
-      await client.query("create schema chat");
-      await client.query("create extension if not exists pg_trgm");
-      await client.query(baseline);
-      await client.query(`create table if not exists chat.__migrations (
-        id serial primary key, hash text not null, created_at bigint)`);
-      await client.query("insert into chat.__migrations (hash, created_at) values ($1, $2)", [
-        createHash("sha256").update(baseline).digest("hex"),
-        Date.UTC(2026, 9, 9, 8, 59, 44),
-      ]);
-      await client.query(
-        `insert into chat.attachment (id, user_id, filename, media_type, size)
-         values ($1, 'user-1', 'a.png', 'image/png', $2)`,
-        [attachmentId, bytes.byteLength],
-      );
-      await client.query(
-        "insert into chat.attachment_blob (attachment_id, bytes) values ($1, $2)",
-        [attachmentId, bytes],
-      );
-    } finally {
-      await client.end();
-    }
-
-    await chatFor(url).migrate();
-
-    const stored = await rows<{ key: string; bytes: Buffer }>(
-      url,
-      "select key, bytes from chat.blob",
-    );
-    expect(stored.map((row) => row.key)).toEqual([`attachment/${attachmentId}`]);
-    expect(Buffer.from(stored[0]?.bytes ?? []).equals(bytes)).toBe(true);
-    const oldTable = await rows(
-      url,
-      "select 1 from information_schema.tables where table_schema = 'chat' and table_name = 'attachment_blob'",
-    );
-    expect(oldTable).toEqual([]);
   });
 
   it("copies each memory_enabled that is off into chat.memory_settings, then drops the old column", async () => {
@@ -401,13 +179,6 @@ describe("chat.migrate()", () => {
        where table_schema = 'chat' and table_name = 'user_settings' and column_name = 'memory_enabled'`,
     );
     expect(oldColumn).toEqual([]);
-    // The rest of the user's settings stay.
-    expect(
-      await rows(url, "select user_id, instructions from chat.user_settings order by user_id"),
-    ).toEqual([
-      { user_id: "user-off", instructions: "Be brief" },
-      { user_id: "user-on", instructions: null },
-    ]);
   });
 
   it("copies each chosen Image Model into chat.model_settings (#803)", async () => {
@@ -426,16 +197,6 @@ describe("chat.migrate()", () => {
     expect(
       await rows(url, "select user_id, image_model from chat.model_settings order by user_id"),
     ).toEqual([{ user_id: "user-picked", image_model: "openai:gpt-image-2" }]);
-    // user_settings is left as it was until the assistant goes (spec #801).
-    expect(
-      await rows(
-        url,
-        "select user_id, image_model, instructions from chat.user_settings order by user_id",
-      ),
-    ).toEqual([
-      { user_id: "user-default", image_model: null, instructions: null },
-      { user_id: "user-picked", image_model: "openai:gpt-image-2", instructions: "Be brief" },
-    ]);
   });
 
   it("drops the assistant's Memories and their queued jobs, and keeps the Memory switch (#650)", async () => {
@@ -506,7 +267,7 @@ describe("chat.migrate()", () => {
     await rows(
       url,
       `insert into chat.blob (key, bytes) values
-         ('knowledge/${fileId}', '\\x616263'), ('attachment/kept', '\\x00')`,
+         ('knowledge/${fileId}', '\\x616263'), ('bot-file/kept', '\\x00')`,
     );
     await rows(
       url,
@@ -517,7 +278,7 @@ describe("chat.migrate()", () => {
     const conversationId = "0196a000-0000-7000-8000-0000000000c1";
     await rows(
       url,
-      `insert into chat.conversation (id, user_id, kind, model) values ('${conversationId}', 'user-1', 'assistant', 'openai:gpt-5')`,
+      `insert into chat.conversation (id, user_id, kind) values ('${conversationId}', 'user-1', 'bot')`,
     );
     const searched = {
       schemaVersion: 5,
@@ -560,7 +321,7 @@ describe("chat.migrate()", () => {
     );
     expect(embeddingModel).toEqual([]);
     expect(await rows(url, "select 1 from pg_extension where extname = 'vector'")).toEqual([]);
-    expect(await rows(url, "select key from chat.blob")).toEqual([{ key: "attachment/kept" }]);
+    expect(await rows(url, "select key from chat.blob")).toEqual([{ key: "bot-file/kept" }]);
     expect(await rows(url, "select name from chat.job")).toEqual([{ name: "memory.bot-pass" }]);
     expect(await rows(url, "select parts from chat.message")).toEqual([
       {
@@ -573,7 +334,6 @@ describe("chat.migrate()", () => {
         },
       },
     ]);
-    expect(await rows(url, "select name from chat.project")).toEqual([{ name: "Launch" }]);
   });
 
   it("keeps the vector extension while a table outside the SDK uses it", async () => {
@@ -592,53 +352,6 @@ describe("chat.migrate()", () => {
        where table_schema = 'chat' and table_name like 'knowledge%'`,
     );
     expect(tables).toEqual([]);
-  });
-
-  it("creates reasoning_effort as the enum off, low, medium, high", async () => {
-    const url = await scratchDatabase("reasoning_enum");
-
-    await chatFor(url).migrate();
-
-    const values = await rows<{ enumlabel: string }>(
-      url,
-      `select e.enumlabel from pg_enum e join pg_type t on t.oid = e.enumtypid
-         join pg_namespace n on n.oid = t.typnamespace
-        where n.nspname = 'chat' and t.typname = 'reasoning_effort'
-        order by e.enumsortorder`,
-    );
-    expect(values.map((row) => row.enumlabel)).toEqual(["off", "low", "medium", "high"]);
-  });
-
-  it("clears context_start_id, not the Message, when the Message it points to is deleted", async () => {
-    const url = await scratchDatabase("context_start_fk");
-
-    await chatFor(url).migrate();
-
-    const constraints = await rows<{ confdeltype: string }>(
-      url,
-      `select c.confdeltype from pg_constraint c
-         join pg_attribute a on a.attrelid = c.conrelid and a.attnum = any(c.conkey)
-        where c.contype = 'f' and c.conrelid = 'chat.message'::regclass
-          and a.attname = 'context_start_id'`,
-    );
-    // 'n' is ON DELETE SET NULL.
-    expect(constraints).toEqual([{ confdeltype: "n" }]);
-  });
-
-  it("cascades a Project's delete to its Conversations through the foreign key", async () => {
-    const url = await scratchDatabase("project_fk");
-
-    await chatFor(url).migrate();
-
-    const constraints = await rows<{ confdeltype: string }>(
-      url,
-      `select c.confdeltype from pg_constraint c
-         join pg_attribute a on a.attrelid = c.conrelid and a.attnum = any(c.conkey)
-        where c.contype = 'f' and c.conrelid = 'chat.conversation'::regclass
-          and a.attname = 'project_id'`,
-    );
-    // 'c' is ON DELETE CASCADE.
-    expect(constraints).toEqual([{ confdeltype: "c" }]);
   });
 
   it("names the trigram operator class with its schema, and no foreign key leaves chat", async () => {
@@ -687,45 +400,7 @@ describe("chat.migrate()", () => {
     await expect(Promise.all([chat.migrate(), chat.migrate()])).resolves.toBeDefined();
 
     const applied = await rows<{ count: string }>(url, "select count(*) from chat.__migrations");
-    expect(applied).toEqual([{ count: "63" }]);
-  });
-
-  it("gives a Conversation's tool settings empty lists by default, so existing rows read as empty", async () => {
-    const url = await scratchDatabase("tool_settings");
-    await chatFor(url).migrate();
-
-    await rows(
-      url,
-      `insert into chat.conversation (id, user_id, kind, model)
-       values ('0196a000-0000-7000-8000-000000000001', 'user-1', 'assistant', 'anthropic:claude-sonnet-5-5')`,
-    );
-    const stored = await rows<{ tool_settings: unknown }>(
-      url,
-      `select tool_settings from chat.conversation where id = '0196a000-0000-7000-8000-000000000001'`,
-    );
-
-    expect(stored).toEqual([{ tool_settings: { connections: [], allowedTools: [] } }]);
-  });
-
-  it("rejects an assistant Conversation with no Model, and lets another plugin's have none", async () => {
-    const url = await scratchDatabase("kind_model");
-    await chatFor(url).migrate();
-
-    await expect(
-      rows(
-        url,
-        `insert into chat.conversation (id, user_id, kind)
-         values ('0196a000-0000-7000-8000-000000000001', 'user-1', 'assistant')`,
-      ),
-    ).rejects.toThrow(/conversation_assistant_model_check/);
-    await rows(
-      url,
-      `insert into chat.conversation (id, user_id, kind)
-       values ('0196a000-0000-7000-8000-000000000002', 'user-1', 'bot')`,
-    );
-    expect(await rows(url, "select kind, model from chat.conversation")).toEqual([
-      { kind: "bot", model: null },
-    ]);
+    expect(applied).toEqual([{ count: "64" }]);
   });
 
   it("throws an error naming pg_trgm when the role may not create it", async () => {
@@ -746,6 +421,200 @@ describe("chat.migrate()", () => {
   });
 });
 
+describe("the contract migration (#819)", () => {
+  const ids = {
+    assistantConversation: "0196a000-0000-7000-8000-00000000c001",
+    userMessage: "0196a000-0000-7000-8000-00000000c002",
+    reply: "0196a000-0000-7000-8000-00000000c003",
+    project: "0196a000-0000-7000-8000-00000000c004",
+    image: "0196a000-0000-7000-8000-00000000c005",
+    savedPrompt: "0196a000-0000-7000-8000-00000000c006",
+    attachment: "0196a000-0000-7000-8000-00000000c007",
+    botConversation: "0196a000-0000-7000-8000-00000000b001",
+    botMessage: "0196a000-0000-7000-8000-00000000b002",
+    bot: "0196a000-0000-7000-8000-00000000b003",
+    upload: "0196a000-0000-7000-8000-00000000b004",
+  };
+  const assistantKeys = [`attachment/${ids.attachment}`, `generated-image/${ids.image}`];
+  const botKey = `bot-file/${ids.upload}`;
+
+  /** A database at the migration before the contract, with one user's assistant and Bot data. */
+  async function seeded(suffix: string) {
+    const url = await scratchDatabase(suffix);
+    await migrateUpTo(url, "20261023072045_bot_upload");
+    await rows(
+      url,
+      `insert into chat.project (id, user_id, name) values ('${ids.project}', 'user-1', 'Launch');
+       insert into chat.conversation (id, user_id, kind, model, project_id, pinned_at)
+         values ('${ids.assistantConversation}', 'user-1', 'assistant', 'openai:gpt-5', '${ids.project}', now());
+       insert into chat.message (id, conversation_id, role, parts, status)
+         values ('${ids.userMessage}', '${ids.assistantConversation}', 'user', '[]', 'complete');
+       insert into chat.message (id, conversation_id, parent_id, role, parts, status, rating)
+         values ('${ids.reply}', '${ids.assistantConversation}', '${ids.userMessage}', 'assistant', '[]', 'complete', 'up');
+       insert into chat.artifact (id, conversation_id, kind) values ('art-1', '${ids.assistantConversation}', 'html');
+       insert into chat.artifact_version (artifact_id, message_id, number, title, content)
+         values ('art-1', '${ids.reply}', 1, 'Page', '<p>Hi</p>');
+       insert into chat.generated_image (id, user_id, message_id, media_type, width, height, size, model)
+         values ('${ids.image}', 'user-1', '${ids.reply}', 'image/png', 1, 1, 1, 'openai:gpt-image-2');
+       insert into chat.saved_prompt (id, user_id, name, text) values ('${ids.savedPrompt}', 'user-1', 'Brief', 'Be brief');
+       insert into chat.user_settings (user_id, instructions) values ('user-1', 'Be brief');
+       insert into chat.shared_link (token, conversation_id, leaf_message_id, title)
+         values ('token-1', '${ids.assistantConversation}', '${ids.reply}', 'Shared');
+       insert into chat.attachment (id, user_id, filename, media_type, size)
+         values ('${ids.attachment}', 'user-1', 'a.txt', 'text/plain', 2);
+       insert into chat.message_attachment (message_id, attachment_id, position)
+         values ('${ids.userMessage}', '${ids.attachment}', 0);
+       insert into chat.conversation (id, user_id, kind) values ('${ids.botConversation}', 'user-1', 'bot');
+       insert into chat.message (id, conversation_id, role, parts, status)
+         values ('${ids.botMessage}', '${ids.botConversation}', 'user', '[]', 'complete');
+       insert into chat.bot (id, user_id, conversation_id, name, model)
+         values ('${ids.bot}', 'user-1', '${ids.botConversation}', 'Ada', 'openai:gpt-5');
+       insert into chat.bot_upload (id, user_id, name, media_type, size, created_at)
+         values ('${ids.upload}', 'user-1', 'notes.txt', 'text/plain', 2, now());
+       insert into chat.mcp_connection (user_id, server_key, encrypted) values ('user-1', 'linear', 'sealed');
+       insert into chat.model_settings (user_id, image_model) values ('user-1', 'openai:gpt-image-2');
+       insert into chat.blob (key, bytes) values
+         ('${assistantKeys[0]}', '\\x6869'), ('${assistantKeys[1]}', '\\x00'), ('${botKey}', '\\x6869');`,
+    );
+    return url;
+  }
+
+  it("deletes the assistant's data and schema, and keeps every Bot row, the Connection and the Image Model", async () => {
+    const url = await seeded("contract");
+
+    await chatFor(url).migrate();
+
+    const tables = await rows<{ table_name: string }>(
+      url,
+      "select table_name from information_schema.tables where table_schema = 'chat'",
+    );
+    const dropped = [
+      "project",
+      "artifact",
+      "artifact_version",
+      "generated_image",
+      "saved_prompt",
+      "user_settings",
+      "shared_link",
+      "attachment",
+      "message_attachment",
+    ];
+    expect(tables.map((row) => row.table_name).filter((name) => dropped.includes(name))).toEqual(
+      [],
+    );
+    const enums = await rows<{ typname: string }>(
+      url,
+      `select t.typname from pg_type t join pg_namespace n on n.oid = t.typnamespace
+       where n.nspname = 'chat' and t.typname in ('reasoning_effort', 'artifact_kind', 'message_rating')`,
+    );
+    expect(enums).toEqual([]);
+    const columns = await rows<{ table_name: string; column_name: string }>(
+      url,
+      `select table_name, column_name from information_schema.columns
+       where table_schema = 'chat' and table_name in ('conversation', 'message')
+       order by table_name, column_name`,
+    );
+    expect(columns).toEqual([
+      ...[
+        "active_leaf_id",
+        "created_at",
+        "id",
+        "kind",
+        "last_message_at",
+        "last_seq",
+        "title",
+        "updated_at",
+        "user_id",
+      ].map((column_name) => ({ table_name: "conversation", column_name })),
+      ...[
+        "conversation_id",
+        "created_at",
+        "error",
+        "error_reason",
+        "id",
+        "parent_id",
+        "parts",
+        "role",
+        "status",
+      ].map((column_name) => ({ table_name: "message", column_name })),
+    ]);
+    expect(
+      await rows(
+        url,
+        `select conname from pg_constraint where conname = 'conversation_assistant_model_check'`,
+      ),
+    ).toEqual([]);
+    const indexes = await rows<{ indexname: string }>(
+      url,
+      `select indexname from pg_indexes
+       where schemaname = 'chat' and tablename in ('conversation', 'message') order by indexname`,
+    );
+    expect(indexes.map((row) => row.indexname)).toEqual([
+      "conversation_pkey",
+      "conversation_user_id_last_message_at_idx",
+      "message_conversation_id_parent_id_idx",
+      "message_pkey",
+    ]);
+    const statuses = await rows<{ enumlabel: string }>(
+      url,
+      `select e.enumlabel from pg_enum e join pg_type t on t.oid = e.enumtypid
+       join pg_namespace n on n.oid = t.typnamespace
+       where n.nspname = 'chat' and t.typname = 'message_status' order by e.enumsortorder`,
+    );
+    expect(statuses.map((row) => row.enumlabel)).toContain("awaiting_approval");
+
+    expect(await rows(url, "select id, kind from chat.conversation")).toEqual([
+      { id: ids.botConversation, kind: "bot" },
+    ]);
+    expect(await rows(url, "select id from chat.message")).toEqual([{ id: ids.botMessage }]);
+    expect(await rows(url, "select id, name from chat.bot")).toEqual([
+      { id: ids.bot, name: "Ada" },
+    ]);
+    expect(await rows(url, "select id from chat.bot_upload")).toEqual([{ id: ids.upload }]);
+    expect(await rows(url, "select server_key, encrypted from chat.mcp_connection")).toEqual([
+      { server_key: "linear", encrypted: "sealed" },
+    ]);
+    expect(await rows(url, "select user_id, image_model from chat.model_settings")).toEqual([
+      { user_id: "user-1", image_model: "openai:gpt-image-2" },
+    ]);
+  });
+
+  it("deletes the attachment/ and generated-image/ bytes once it commits, and keeps the Bot's", async () => {
+    const url = await seeded("contract_blobs");
+
+    await chatFor(url).migrate();
+
+    expect(await rows(url, "select key from chat.blob")).toEqual([{ key: botKey }]);
+  });
+
+  it("deletes the assistant's bytes from the Host's own blob store", async () => {
+    const url = await seeded("contract_store");
+    const deleted: string[] = [];
+    const store: BlobStore = {
+      put: async () => {},
+      get: async () => null,
+      delete: async (keys) => {
+        deleted.push(...keys);
+      },
+    };
+
+    const chat = createBotSdk({
+      databaseUrl: url,
+      getUser: () => null,
+      keyEncryptionSecrets,
+      basePath: "/api/chat",
+      blobStore: store,
+      plugins: [models(), runner()],
+    });
+
+    await chat.migrate();
+
+    expect(deleted.sort()).toEqual(assistantKeys);
+    // Only once: a later run finds the tables gone and deletes nothing.
+    await chat.migrate();
+    expect(deleted).toHaveLength(2);
+  });
+});
 describe("chat.start()", () => {
   it("checks against the newest migration folder, which the bundle can't read", () => {
     const migrationsFolder = fileURLToPath(

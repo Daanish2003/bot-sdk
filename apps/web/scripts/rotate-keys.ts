@@ -33,7 +33,8 @@ registerHooks({
 const { createBotSdk } = await import("@ai-chat/bot-sdk/core/server");
 const { models } = await import("@ai-chat/bot-sdk/plugins/models/server");
 const { runner } = await import("@ai-chat/bot-sdk/plugins/runner/server");
-const { assistant } = await import("@ai-chat/bot-sdk/plugins/assistant/server");
+const { bot } = await import("@ai-chat/bot-sdk/plugins/bot/server");
+const { mcp } = await import("@ai-chat/bot-sdk/plugins/mcp/server");
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("Set DATABASE_URL");
@@ -49,7 +50,8 @@ const sdk = createBotSdk({
   basePath: "/api/chat",
   getUser: () => null,
   logger: log,
-  plugins: [models(), runner(), assistant()],
+  // The plugins that hold encrypted data: Provider and Tool keys, Bot Secrets and Connection tokens.
+  plugins: [models(), runner(), bot(), mcp()],
 });
 
 const result = await sdk.rotateKeys();

@@ -211,7 +211,7 @@ export function buildBotSdk(
   const instance: BotSdk = {
     handler: createHandler(options, router, routes, sdk),
     plugin: sdk.plugin,
-    migrate: () => migrateSchema(options.databaseUrl),
+    migrate: () => migrateSchema(options.databaseUrl, { blobStore: options.blobStore }),
     start: async () => {
       await assertMigrated(options.databaseUrl);
       for (const plugin of plugins) await plugin.start?.(sdk);

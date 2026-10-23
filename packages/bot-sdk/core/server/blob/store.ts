@@ -12,9 +12,6 @@ export type BlobStore = {
   delete: (keys: string[]) => Promise<void>;
 };
 
-/** The key of an Attachment's bytes. */
-export const attachmentBlobKey = (attachmentId: string) => `attachment/${attachmentId}`;
-
 /**
  * Deletes `keys` from `blobStore` after their rows are gone. A failure is logged and never thrown:
  * a stray object costs storage but no data, and nothing sweeps it (ADR 0015).

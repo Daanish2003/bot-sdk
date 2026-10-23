@@ -40,8 +40,6 @@ export type MemoryApi = {
     computer: ComputerHandle;
     signal?: AbortSignal;
   }) => Promise<MemoryHit[]>;
-  /** The user's switch, read in the export's snapshot `tx`. */
-  exportEnabled: (tx: Transaction, userId: string) => Promise<boolean>;
 };
 
 declare module "../../../core/server/plugin" {
@@ -83,6 +81,5 @@ function memoryApi(sdk: BotSdkContext): MemoryApi {
     afterTurn: (tx, turnId) => enqueueBotMemoryPass(sdk, tx, turnId),
     searchBotMemory: async ({ userId, botId, query, now, computer, signal }) =>
       searchBotMemory(computer, { botId, bots: await botsOf(sdk, userId), query, now, signal }),
-    exportEnabled: (tx, userId) => memoryEnabledFor({ db: tx }, userId),
   };
 }

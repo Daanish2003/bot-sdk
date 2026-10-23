@@ -50,9 +50,8 @@ const passingReviewer = fakeReviewer().adapter;
 /**
  * A real `createBotSdk` instance for tests, over the test database and fakes, with nothing that
  * reaches the network; it returns the instance's core context with its `models` bundle. It is
- * Bot-only: `models`, `runner`, `memory` and the given `plugins`; the assistant's own tests
- * add the assistant through `support/assistant`. Pass overrides for the parts a test scripts (for
- * example `adapterFor` returning a fake adapter).
+ * Bot-only: `models`, `runner`, `memory` and the given `plugins`. Pass overrides for the parts a
+ * test scripts (for example `adapterFor` returning a fake adapter).
  */
 export function createTestSdk({ plugins, ...overrides }: TestDepsOverrides = {}): TestDeps {
   const db = overrides.db ?? getTestDb();

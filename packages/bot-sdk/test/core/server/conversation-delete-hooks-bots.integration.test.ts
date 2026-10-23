@@ -63,7 +63,7 @@ async function conversationExists(id: string) {
 
 /** A Bot of `owner`, with its own Conversation as the `bot` plugin makes it. Returns that Conversation's id. */
 async function insertBotConversation(owner: TestUser): Promise<string> {
-  const botConversation = await insertConversation(owner, { kind: "bot", model: null });
+  const botConversation = await insertConversation(owner, { kind: "bot" });
   await getTestDb().insert(bot).values({
     id: uuidv7(),
     userId: owner.id,

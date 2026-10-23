@@ -119,7 +119,7 @@ describe("createBotSdk().exportUser, with Bots", () => {
 
 /** A Bot of `owner`, made at `createdAt`, with its own Conversation as the `bot` plugin makes it. */
 async function insertBot(owner: TestUser, name: string, createdAt: Date): Promise<string> {
-  const conversation = await insertConversation(owner, { kind: "bot", model: null });
+  const conversation = await insertConversation(owner, { kind: "bot" });
   const id = uuidv7();
   await getTestDb().insert(bot).values({
     id,

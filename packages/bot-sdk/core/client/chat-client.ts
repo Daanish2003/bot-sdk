@@ -46,7 +46,7 @@ export interface BotSdkClient {
 
 /**
  * `baseUrl` is where the Host mounted the handler, for example `https://app.example/api/chat`.
- * `plugins` pairs with the server's plugins: `[modelsClient(), assistantClient()]`.
+ * `plugins` pairs with the server's plugins: `[modelsClient(), botClient()]`.
  */
 export function createBotSdkClient({
   baseUrl,

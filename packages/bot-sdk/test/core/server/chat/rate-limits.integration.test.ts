@@ -18,11 +18,6 @@ import { insertUser } from "../../../support/users";
 /** The RPC routes of a Bot-only SDK that spec 87's per-user limits cover, with the override that turns each on. */
 const rpcCases = [
   {
-    name: "attachment upload",
-    route: "attachment/upload",
-    rateLimits: { attachmentUpload: { limit: 1, windowSeconds: 60 } },
-  },
-  {
     name: "credential save and check",
     route: "credentials/save",
     rateLimits: { credentialSave: { limit: 1, windowSeconds: 60 } },

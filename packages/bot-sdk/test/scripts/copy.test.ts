@@ -209,10 +209,10 @@ describe("copySdk", () => {
     expect(existsSync(join(dest, "plugins", "bot", "eval"))).toBe(false);
   });
 
-  it("gives a Host core and ui only, so the shared e2e scenarios never reach it", () => {
+  it("gives a Host core and ui only, so the shared e2e helpers never reach it", () => {
     const sdkRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-    // The check is only meaningful while the scenarios exist in the canonical repo.
-    expect(existsSync(join(sdkRoot, "test", "e2e", "scenarios.ts"))).toBe(true);
+    // The check is only meaningful while the helpers exist in the canonical repo.
+    expect(existsSync(join(sdkRoot, "test", "e2e", "chat-page.ts"))).toBe(true);
 
     copySdk(dest, { version });
 

@@ -16,7 +16,7 @@ const basePath = "/api/chat";
 /**
  * The SDK as a test drives it: the headless client whose fetch is the handler, built over the
  * test dependencies. `user` is who `getUser` returns; leave it out for a signed-out caller.
- * `clientPlugins` are added after the Bot-only ones (the assistant's, for its own tests).
+ * `clientPlugins` are added after the Bot-only ones (for example `mcpClient()`).
  * Errors are not logged, since the tests assert on the responses.
  */
 export function createTestChat({

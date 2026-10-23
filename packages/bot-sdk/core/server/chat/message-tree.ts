@@ -1,7 +1,6 @@
 import { eq } from "drizzle-orm";
 
 import { pathTo } from "../../shared/chat/branches";
-import { searchTextOf } from "../../shared/message-parts";
 import { conversation, message, type MessageRow } from "../db/schema";
 import { uuidv7 } from "../lib/uuidv7";
 import { recordChange } from "./change-log";
@@ -47,7 +46,6 @@ export async function appendMessage(
     .values({
       conversationId,
       parentId: owner.activeLeafId,
-      searchText: searchTextOf(fields.parts),
       ...fields,
       id: fields.id ?? uuidv7(),
     })

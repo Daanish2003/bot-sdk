@@ -1,16 +1,10 @@
-import { eq } from "drizzle-orm";
-
-import { deleteUnusedAttachments } from "./attachments/store";
-import { attachment } from "./db/schema";
-import { deleteBlobsBestEffort } from "./blob/store";
 import { deleteConversations, muted } from "./chat/delete-conversations";
 import { enabledPlugins, type BotSdkContext } from "./plugin";
 
 /**
  * Deletes everything the SDK holds for a user, in one transaction (spec #439): each plugin's
  * `deleteUser.before` in reverse dependency order, then the user's Conversations through the core's
- * delete, then their attachments and Postgres bytes. After the commit: the Conversation delete's
- * hooks, the attachments' bytes in the store, then each plugin's `after`. Calling it again, or for
+ * delete. After the commit: the Conversation delete's hooks, then each plugin's `after`. Calling it again, or for
  * an unknown id, does nothing.
  *
  * Muted: a Host's user delete emits nothing, not even `onRunEnd` (#265). The plugins' hooks get an
@@ -21,24 +15,13 @@ export async function deleteUserData(given: BotSdkContext, userId: string): Prom
   const plugins = [...enabledPlugins(sdk)]
     .reverse()
     .flatMap((plugin) => (plugin.deleteUser ? [plugin.deleteUser] : []));
-  const { collected, afterCommit, blobKeys } = await sdk.db.transaction(async (tx) => {
+  const { collected, afterCommit } = await sdk.db.transaction(async (tx) => {
     const collected: unknown[] = [];
     for (const hooks of plugins) collected.push(await hooks.before(sdk, { userId, tx }));
-    // Before the attachments: a Message's link to an attachment does not cascade.
     const { afterCommit } = await deleteConversations(sdk, tx, { userId, mute: true });
-    // With their Messages gone, none of the user's attachments is used any more.
-    const own = await tx
-      .select({ id: attachment.id })
-      .from(attachment)
-      .where(eq(attachment.userId, userId));
-    const blobKeys = await deleteUnusedAttachments(
-      tx,
-      own.map((row) => row.id),
-    );
-    return { collected, afterCommit, blobKeys };
+    return { collected, afterCommit };
   });
   await afterCommit();
-  await deleteBlobsBestEffort(sdk, blobKeys);
   for (const [index, hooks] of plugins.entries()) {
     try {
       await hooks.after(sdk, { userId, collected: collected[index] });
