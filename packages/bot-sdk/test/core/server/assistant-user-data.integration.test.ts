@@ -25,6 +25,7 @@ import type { BotSdkPlugin } from "../../../core/server/plugin";
 import { deleteUserData, exportUserData } from "../../../core/server/user-data";
 import { readTokens, saveTokens } from "../../../plugins/assistant/server/mcp/connections";
 import { assistant } from "../../../plugins/assistant/server/plugin";
+import { sentFileBlobKey, uploadBotFile } from "../../../plugins/bot/server/files";
 import { bot as botPlugin } from "../../../plugins/bot/server/plugin";
 import { computer, computerBlobKey } from "../../../plugins/computer/server/plugin";
 import { profilePath } from "../../../plugins/memory/server/bot-memory";
@@ -89,7 +90,8 @@ async function activeJobsNaming(ids: string[]) {
  * A user with a row in every table that has a `user_id` column: a Conversation with an Attachment,
  * a Shared link and a Generated image; a Project with a Conversation and a Generated image; an
  * unused Attachment; settings, a Saved
- * prompt, an MCP connection, credentials and usage; the Memory switch; a Bot; a Computer. Returns the blob keys and ids it made.
+ * prompt, an MCP connection, credentials and usage; the Memory switch; a Bot; a file uploaded and
+ * not yet sent to the Bot; a Computer. Returns the blob keys and ids it made.
  */
 async function seedEverything(
   user: TestUser,
@@ -152,6 +154,12 @@ async function seedEverything(
     createdAt: new Date(),
   });
 
+  const upload = await uploadBotFile(
+    deps,
+    user.id,
+    new File(["milk, eggs"], "list.txt", { type: "text/plain" }),
+  );
+
   await deps.plugin("computer").forUser(user.id).run("true");
   // The Bot's memory files, on the disk of the sandbox the run above made, and the Computer's archive.
   fake.files.set(profilePath(botId), new TextEncoder().encode("- Lives in Berlin\n"));
@@ -194,6 +202,7 @@ async function seedEverything(
       attachmentBlobKey(unused.id),
       `generated-image/${image}`,
       `generated-image/${projectImage}`,
+      sentFileBlobKey(upload.id),
       computerBlobKey(user.id),
     ],
     ids: [user.id],
