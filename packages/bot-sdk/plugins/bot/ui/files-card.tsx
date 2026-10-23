@@ -1,4 +1,7 @@
 import { DownloadIcon, FileIcon } from "lucide-react";
+import { useState } from "react";
+
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 
 import { useChatAdapter, useI18n } from "../../../core/client/react/provider";
 import type { FilesControl } from "../shared/files";
@@ -10,13 +13,18 @@ function sizeText(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+/** The image types the inline route serves, as the server lists them. */
+const thumbnailTypes = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+
 /**
  * The files a Bot sent (spec #761), a download card under its Message: one row per file with its
- * name and size, each a link that downloads it.
+ * name and size, each a link that downloads it. An image also shows as a thumbnail that zooms on
+ * click (spec #801).
  */
 export function FilesCard({ card }: { card: FilesControl }) {
   const { t } = useI18n();
   const { botFilesUrl } = useChatAdapter();
+  const [zoomed, setZoomed] = useState<FilesControl["files"][number] | null>(null);
   return (
     <ul
       data-files-card
@@ -25,6 +33,21 @@ export function FilesCard({ card }: { card: FilesControl }) {
     >
       {card.files.map((file) => (
         <li key={file.id}>
+          {thumbnailTypes.has(file.mediaType) && (
+            <button
+              type="button"
+              data-thumbnail={file.id}
+              onClick={() => setZoomed(file)}
+              className="block rounded-md hover:opacity-90"
+            >
+              <img
+                src={`${botFilesUrl}/${file.id}/inline`}
+                alt={file.name}
+                loading="lazy"
+                className="max-h-40 rounded-md object-contain"
+              />
+            </button>
+          )}
           <a
             data-file={file.id}
             href={`${botFilesUrl}/${file.id}`}
@@ -38,6 +61,19 @@ export function FilesCard({ card }: { card: FilesControl }) {
           </a>
         </li>
       ))}
+      <Dialog open={zoomed !== null} onOpenChange={(open) => !open && setZoomed(null)}>
+        <DialogContent className="max-w-[90vw] sm:max-w-3xl">
+          <DialogTitle className="truncate">{zoomed?.name}</DialogTitle>
+          {zoomed && (
+            <img
+              data-zoomed
+              src={`${botFilesUrl}/${zoomed.id}/inline`}
+              alt={zoomed.name}
+              className="max-h-[75vh] w-full object-contain"
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </ul>
   );
 }

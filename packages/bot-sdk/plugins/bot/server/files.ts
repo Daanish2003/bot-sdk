@@ -83,14 +83,19 @@ export async function copyFilesToStorage(
   return { files };
 }
 
+/** The image types the inline route serves. SVG is left out: it can carry script. */
+const inlineImageTypes = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+
 /**
- * One file the Bot sent the user, its bytes from the blob store, always as a download. Another
- * user's file, an unknown id or an id that isn't one is 404.
+ * One file the Bot sent the user, its bytes from the blob store, as a download, or with
+ * `inline` as an image for display. Another user's file, an unknown id, an id that isn't one, or
+ * with `inline` a file that isn't a raster image is 404.
  */
 export async function sentFileResponse(
   deps: BotSdkContext,
   userId: string,
   id: string,
+  options: { inline?: boolean } = {},
 ): Promise<Response> {
   const notFound = () => new Response("Not found", { status: 404 });
   if (!z.uuid().safeParse(id).success) return notFound();
@@ -112,10 +117,13 @@ export async function sentFileResponse(
   const file = row && controlOf(row.parts, "files")?.files.find((sent) => sent.id === id);
   const bytes = file ? await deps.blobStore.get(sentFileBlobKey(id)) : null;
   if (!file || !bytes) return notFound();
+  if (options.inline && !inlineImageTypes.has(file.mediaType)) return notFound();
   return new Response(bytes as Uint8Array<ArrayBuffer>, {
     headers: {
       "Content-Type": file.mediaType,
-      "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(file.name).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)}`,
+      "Content-Disposition": options.inline
+        ? "inline"
+        : `attachment; filename*=UTF-8''${encodeURIComponent(file.name).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)}`,
       "Cache-Control": "private, no-cache",
       "X-Content-Type-Options": "nosniff",
     },

@@ -135,6 +135,39 @@ describe("Files from the Bot", () => {
     expect(await deps.blobStore.get(sentFileBlobKey(control.files[0]!.id))).toBeNull();
   });
 
+  it("serves an image inline to its owner only, and refuses other types inline", async () => {
+    const { client, botId, deps, user } = await botWith([
+      round(sendsFiles("Here are all three.", ["chart.png", "report.csv", "logo.svg"])),
+    ]);
+    const handle = deps.plugin("computer").forUser(user.id);
+    await handle.writeFile(`/home/user/bots/${botId}/chart.png`, "png-bytes");
+    await handle.writeFile(`/home/user/bots/${botId}/report.csv`, "a,b\n");
+    await handle.writeFile(`/home/user/bots/${botId}/logo.svg`, "<svg/>");
+
+    await send(client, botId, "send all three");
+    await turnsEnded(botId);
+
+    const { messages } = await client.bot.get({ botId });
+    const control = messages.find((entry) => entry.control?.kind === "files")!.control as Extract<
+      NonNullable<(typeof messages)[number]["control"]>,
+      { kind: "files" }
+    >;
+    const [png, csv, svg] = control.files;
+    const inline = await sentFileResponse(deps, user.id, png!.id, { inline: true });
+    expect(inline.status).toBe(200);
+    expect(inline.headers.get("Content-Type")).toBe("image/png");
+    expect(inline.headers.get("Content-Disposition")).toBe("inline");
+    expect(await inline.text()).toBe("png-bytes");
+    // The plain route is still a download.
+    const download = await sentFileResponse(deps, user.id, png!.id);
+    expect(download.headers.get("Content-Disposition")).toContain("attachment");
+    // Not images (SVG can carry script), not the owner's, not a file: refused.
+    for (const id of [csv!.id, svg!.id, uuidv7(), "not-an-id"])
+      expect((await sentFileResponse(deps, user.id, id, { inline: true })).status).toBe(404);
+    const other = await insertUser();
+    expect((await sentFileResponse(deps, other.id, png!.id, { inline: true })).status).toBe(404);
+  });
+
   it("fails the tool call on a missing path, saving no Message and storing nothing", async () => {
     const { client, botId, deps, user, fake } = await botWith([
       round(sendsFiles("Here you go.", ["report.csv", "missing.csv"])),
