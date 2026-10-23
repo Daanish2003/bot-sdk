@@ -1,16 +1,5 @@
-import { useChatAdapter } from "@ai-chat/bot-sdk/core/client";
-import {
-  ArchivedConversationsSection,
-  BackgroundModelSelect,
-  DeleteAllConversationsSection,
-  ImageModelSelect,
-  InstructionsField,
-  SavedPromptsSection,
-  SharedLinksSection,
-  YourDataSection,
-} from "@ai-chat/bot-sdk/plugins/assistant/ui";
+import { ImageModelSelect } from "@ai-chat/bot-sdk/plugins/assistant/ui";
 import { ConnectionsSection } from "@ai-chat/bot-sdk/plugins/mcp/ui";
-import { MemorySection } from "@ai-chat/bot-sdk/plugins/memory/ui";
 import {
   CredentialsSections,
   KeySettingsPage,
@@ -49,20 +38,11 @@ export const Route = createFileRoute("/_auth/settings/keys")({
 
 function KeysRoute() {
   const linkEnabled = Route.useLoaderData();
-  const { plugins } = useChatAdapter();
   return (
     <KeySettingsPage>
       <CredentialsSections linkedCredentials={linkEnabled ? chatgpt : undefined} />
       <ConnectionsSection />
-      <SharedLinksSection />
-      <ArchivedConversationsSection />
-      <InstructionsField />
-      {plugins.includes("memory") && <MemorySection />}
-      <SavedPromptsSection />
-      <BackgroundModelSelect />
       <ImageModelSelect />
-      <YourDataSection />
-      <DeleteAllConversationsSection />
     </KeySettingsPage>
   );
 }

@@ -5,11 +5,7 @@ import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { BotSdkClient } from "../../../core/client/chat-client";
-import type { BotSdkClientPlugin } from "../../../core/client/plugin";
-import { memoryClient } from "../../../plugins/memory/client/index";
 import { MemorySection } from "../../../plugins/memory/ui/memory-section";
-import { modelsClient } from "../../../plugins/models/client/index";
-import { HostKeysPage } from "../host-keys-page";
 import { providerFor } from "../fake-dictionary";
 
 afterEach(() => {
@@ -48,25 +44,6 @@ function renderSection(enabled = true, fetch = recordingFetch().fetch) {
 }
 
 describe("MemorySection", () => {
-  it("is on the keys page only when the Host installs the memory plugin", () => {
-    const page = (plugins: BotSdkClientPlugin[]) =>
-      render(
-        providerFor(createElement(HostKeysPage), {
-          seed: seed(),
-          fetch: recordingFetch().fetch,
-          messages: {},
-          plugins,
-        }),
-      );
-
-    page([modelsClient()]);
-    expect(screen.queryByRole("switch", { name: "Use and make Memories" })).toBeNull();
-    cleanup();
-
-    page([modelsClient(), memoryClient()]);
-    expect(screen.getByRole("switch", { name: "Use and make Memories" })).toBeTruthy();
-  });
-
   it("shows the switch with its state, and no list of Memories", () => {
     renderSection(false);
 

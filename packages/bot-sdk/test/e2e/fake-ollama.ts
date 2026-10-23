@@ -14,8 +14,9 @@ export const fetchedPageTitle = "Launch notes";
 export const fetchedPageText = "The launch date is 14 March.";
 
 /**
- * A prompt with this marker makes the fake Model call `mcpToolName` (the e2e MCP server's
- * `create_issue`, under its Host key), when the request offers it.
+ * A Bot prompt with this marker makes the fake Model call `mcpToolName` (the e2e MCP server's
+ * `create_issue`, under its Host key) through `run_tool`, as a Connector tool is called, then
+ * send what the tool returned with `send_to_user`.
  */
 export const mcpMarker = "[mcp]";
 export const mcpToolName = "tracker_create_issue";
@@ -53,6 +54,9 @@ export const revisedHeading = "Revised page";
  */
 export const sendMarker = "[send]";
 const sendToUserToolName = "send_to_user";
+const runToolName = "run_tool";
+/** The Auto-review system prompt's first words (`reviewerSystemPrompt`); a call with it gets a verdict. */
+const reviewerPromptStart = "You review one tool call";
 export const botReply = "Hello from your Bot.";
 /**
  * The reply of a Bot sent a file (spec #801): a send-marked prompt that carries the user's files
@@ -117,7 +121,6 @@ export function fetchedReply(toolResult: string): string {
 
 /** The reply to the result of the tool the reply asked for last. */
 function replyToTool(asked: string | undefined, content: string): string {
-  if (asked === mcpToolName) return mcpReply(content);
   if (asked === imageToolName) return imageReply;
   if (asked === createArtifactToolName || asked === updateArtifactToolName) {
     return artifactReply(content);
@@ -251,8 +254,12 @@ export function startFakeOllama(port: number): Promise<Server> {
         calls(sendToUserToolName, { text: file ? fileReply(file) : botReply, endTurn: true });
         return;
       }
-      if (stream && !answering && offers(mcpToolName) && prompt.includes(mcpMarker)) {
-        calls(mcpToolName, mcpToolArguments);
+      if (stream && !answering && offers(runToolName) && prompt.includes(mcpMarker)) {
+        calls(runToolName, { name: mcpToolName, args: mcpToolArguments });
+        return;
+      }
+      if (answering && asked === runToolName && offers(sendToUserToolName)) {
+        calls(sendToUserToolName, { text: mcpReply(last?.content ?? ""), endTurn: true });
         return;
       }
       if (stream && !answering && offers(imageToolName) && prompt.includes(imageMarker)) {
@@ -291,11 +298,13 @@ export function startFakeOllama(port: number): Promise<Server> {
         return;
       }
       const text =
-        last?.role === "tool" && stream
-          ? replyToTool(asked, last.content)
-          : prompt.includes(wideMarker)
-            ? wideReply()
-            : fakeReply(prompt.slice(0, 80));
+        messages[0]?.role === "system" && messages[0].content.startsWith(reviewerPromptStart)
+          ? JSON.stringify({ outcome: "pass", reason: "You asked for it.", summary: "Call a tool" })
+          : last?.role === "tool" && stream
+            ? replyToTool(asked, last.content)
+            : prompt.includes(wideMarker)
+              ? wideReply()
+              : fakeReply(prompt.slice(0, 80));
       const line = (content: string, done: boolean) =>
         JSON.stringify({
           model: fakeModel,
