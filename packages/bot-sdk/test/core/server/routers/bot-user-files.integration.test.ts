@@ -1,5 +1,5 @@
 import type { ContentPart, ModelMessage, TextOptions } from "@tanstack/ai";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { bot as botTable, botTurn, botUpload, message } from "../../../../core/server/db/schema";
@@ -193,6 +193,14 @@ describe("Files from the user", () => {
     );
     const history = (fake.calls[1]!.messages as ModelMessage[]).map(textOf).join("\n");
     expect(history).toContain("[Files from the user: uploads/receipt.jpg");
+    // A files-only Message stores no empty text part.
+    const [stored] = await getTestDb()
+      .select({ parts: message.parts })
+      .from(message)
+      .innerJoin(botTable, eq(botTable.conversationId, message.conversationId))
+      .where(and(eq(botTable.id, botId), eq(message.role, "user")))
+      .orderBy(asc(message.createdAt));
+    expect(stored!.parts.parts.map((part) => part.type)).toEqual(["control"]);
   });
 
   it("names a file of the same name twice apart, and names files without a path when there is no Computer", async () => {

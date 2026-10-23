@@ -448,10 +448,14 @@ export async function sendToBot(
     const row = await appendMessage(tx, found.conversationId, {
       id,
       role: "user",
+      // A files-only Message stores no empty text part, as the email path doesn't.
       parts: files.length
         ? {
             ...parts,
-            parts: [...parts.parts, { type: "control", control: { kind: "files", files } }],
+            parts: [
+              ...(text ? parts.parts : []),
+              { type: "control", control: { kind: "files", files } },
+            ],
           }
         : parts,
       status: "complete",
