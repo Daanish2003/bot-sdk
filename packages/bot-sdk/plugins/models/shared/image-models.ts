@@ -8,7 +8,7 @@ import type { ProviderId } from "./credentials/services";
  * images the Model edits from; 0 means it only generates, so an edit becomes a fuller prompt.
  */
 export type ImageModel = {
-  /** `"provider:model"`, as stored in `user_settings.image_model`. */
+  /** `"provider:model"`, as stored in `model_settings.image_model`. */
   id: string;
   provider: ProviderId;
   modelId: string;

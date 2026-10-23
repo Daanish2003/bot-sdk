@@ -22,6 +22,11 @@ import {
   rotateCredentialKeys,
 } from "./credentials/store";
 import { modelsUserDelete } from "./delete-user";
+import {
+  loadImageModelSetting,
+  resolveUserImageModel,
+  saveImageModelSetting,
+} from "./image-model-setting";
 import { resolveImageModel, type ResolvedImageModel } from "./image-models";
 import { quotaLookup, quotaState, readQuota, type QuotaState } from "./quota";
 import { modelsPluginRouter } from "./routers/index";
@@ -98,6 +103,15 @@ export type ModelsApi = {
   resolveModel: (userId: string, id: string) => ReturnType<typeof resolveModel>;
   listAvailableModels: (userId: string) => ReturnType<typeof listAvailableModels>;
   resolveImageModel: (userId: string, id: string) => Promise<ResolvedImageModel | undefined>;
+  /** The user's Image Model pick, or `null` for the Host's default (`model_settings`). */
+  imageModelSetting: (userId: string) => Promise<string | null>;
+  /** Saves the user's Image Model pick; `null` is the Host's default. The caller checks the id. */
+  saveImageModelSetting: (userId: string, imageModel: string | null) => Promise<void>;
+  /**
+   * The Image Model image generation uses for the user: their pick, else the Host's default, else
+   * none (`null`). A pick they can no longer use gives none.
+   */
+  resolveUserImageModel: (userId: string) => Promise<ResolvedImageModel | null>;
   transcribeRecording: (
     userId: string,
     recording: Parameters<typeof transcribeRecording>[2],
@@ -259,6 +273,9 @@ function modelsApi(deps: ModelsDeps): ModelsApi {
     resolveModel: (userId, id) => resolveModel(deps, userId, id),
     listAvailableModels: (userId) => listAvailableModels(deps, userId),
     resolveImageModel: (userId, id) => resolveImageModel(deps, userId, id),
+    imageModelSetting: (userId) => loadImageModelSetting(deps, userId),
+    saveImageModelSetting: (userId, imageModel) => saveImageModelSetting(deps, userId, imageModel),
+    resolveUserImageModel: (userId) => resolveUserImageModel(deps, userId),
     transcribeRecording: (userId, recording) => transcribeRecording(deps, userId, recording),
     readQuota: (userId) => readQuota(deps, userId),
     messageUsage,
