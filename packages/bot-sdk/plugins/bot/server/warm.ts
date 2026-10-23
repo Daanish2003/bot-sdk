@@ -164,6 +164,7 @@ async function warmCall(
   const messages: ModelMessage[] = await resolveImageRefs(
     deps.blobStore,
     pruneScreenshots([{ role: "user", content: start.firstMessage }, ...history]),
+    { seesImages: (await models.resolveModel(userId, model))?.images ?? false },
   );
 
   const base = models.adapterForCall(model, call);

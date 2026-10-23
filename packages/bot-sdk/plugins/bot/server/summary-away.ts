@@ -86,6 +86,7 @@ async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext
         ...history,
         { role: "user", content: summarizeInstruction },
       ]),
+      { seesImages: (await models.resolveModel(seen.userId, seen.model))?.images ?? false },
     );
     const base = models.adapterForCall(seen.model, call);
     // The Prompt start's own tool definitions and the Bot's cache key, as a Turn's calls send them.

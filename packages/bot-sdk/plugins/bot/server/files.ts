@@ -3,6 +3,7 @@ import { posix } from "node:path";
 import { z } from "zod";
 
 import { deleteBlobsBestEffort } from "../../../core/server/blob/store";
+import { imageTypes } from "../../../core/shared/attachments/kinds";
 import { botUpload, conversation, message } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
@@ -142,19 +143,54 @@ export async function sentFileKeys(tx: Transaction, conversationIds: string[]): 
 /** How long a file the user uploaded and never sent is kept before an upload deletes it. */
 const orphanUploadAgeMs = 24 * 60 * 60 * 1000;
 
+/** The most UTF-8 bytes of an uploaded file's name, under the 255 a Linux file name may have. */
+const maxNameBytes = 200;
+
 /**
  * A file's name as the user's Bot sees it: one path segment, without separators or control
- * characters, so its copy lands inside `uploads/`.
+ * characters, so its copy lands inside `uploads/`, and at most `maxNameBytes` bytes, cut between
+ * characters.
  */
 function safeFileName(name: string): string {
-  const cleaned = [...name]
-    .map((char) =>
-      char === "/" || char === "\\" || char.charCodeAt(0) < 32 || char === "\u007f" ? "_" : char,
-    )
-    .join("")
-    .trim()
-    .slice(0, 200);
+  let cleaned = "";
+  let bytes = 0;
+  for (const char of name.trim()) {
+    const safe =
+      char === "/" || char === "\\" || char.charCodeAt(0) < 32 || char === "\u007f" ? "_" : char;
+    bytes += Buffer.byteLength(safe);
+    if (bytes > maxNameBytes) break;
+    cleaned += safe;
+  }
+  cleaned = cleaned.trim();
   return cleaned === "" || cleaned === "." || cleaned === ".." ? "file" : cleaned;
+}
+
+/** The image types a Model is sent inline, by the bytes each starts with. */
+const imageSignatures: [string, (bytes: Uint8Array) => boolean][] = [
+  [
+    "image/png",
+    (b) => [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a].every((x, i) => b[i] === x),
+  ],
+  ["image/jpeg", (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff],
+  ["image/gif", (b) => new TextDecoder().decode(b.subarray(0, 4)) === "GIF8"],
+  [
+    "image/webp",
+    (b) =>
+      new TextDecoder().decode(b.subarray(0, 4)) === "RIFF" &&
+      new TextDecoder().decode(b.subarray(8, 12)) === "WEBP",
+  ],
+];
+
+/**
+ * An upload's media type: the browser's, else the name's. A file whose bytes are one of the inline
+ * image types gets that type, and one that claims an inline image type but isn't one becomes
+ * `application/octet-stream`, since a Model that can see is sent it as that image.
+ */
+function uploadMediaType(declared: string, name: string, bytes: Uint8Array): string {
+  const sniffed = imageSignatures.find(([, matches]) => matches(bytes))?.[0];
+  if (sniffed) return sniffed;
+  const type = declared || mediaTypeOf(name);
+  return imageTypes.includes(type) ? "application/octet-stream" : type;
 }
 
 /**
@@ -172,22 +208,27 @@ export async function uploadBotFile(
       "BAD_REQUEST",
       "error.botFileTooLarge",
       `"${file.name}" is larger than ${maxFileBytes / 1024 / 1024} MB`,
-      { name: file.name },
+      { name: file.name, max: maxFileBytes / 1024 / 1024 },
     );
   }
   const now = deps.clock();
   await deleteOrphanUploads(deps, new Date(now.getTime() - orphanUploadAgeMs));
   const name = safeFileName(file.name);
-  const upload = { id: uuidv7(), name, size: file.size, mediaType: file.type || mediaTypeOf(name) };
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const upload = {
+    id: uuidv7(),
+    name,
+    size: file.size,
+    mediaType: uploadMediaType(file.type, name, bytes),
+  };
   const key = sentFileBlobKey(upload.id);
-  // The bytes go first, so a row never points at nothing; a failed insert takes them back.
-  await deps.blobStore.put(key, new Uint8Array(await file.arrayBuffer()), {
-    contentType: upload.mediaType,
-  });
+  // The row goes first, so bytes never outlive it: a crash before the put leaves a row the orphan
+  // sweep deletes, and a failed put takes the row back.
+  await deps.db.insert(botUpload).values({ ...upload, userId, createdAt: now });
   try {
-    await deps.db.insert(botUpload).values({ ...upload, userId, createdAt: now });
+    await deps.blobStore.put(key, bytes, { contentType: upload.mediaType });
   } catch (caught) {
-    await deleteBlobsBestEffort(deps, [key]);
+    await deps.db.delete(botUpload).where(eq(botUpload.id, upload.id));
     throw caught;
   }
   return upload;
@@ -259,8 +300,9 @@ export const uploadsFolder = "uploads";
 
 /**
  * Copies the user's files onto the Bot's Computer, into its `uploads/` folder, and returns each
- * one's path relative to the Bot's directory, in order: `null` for one whose bytes are gone. Two
- * files of one name get " (2)" and on. A Computer that fails leaves every path `null`.
+ * one's path relative to the Bot's directory, in order: `null` for one whose bytes are gone. A file
+ * whose name is taken, in `uploads/` already or by another of `files`, gets " (2)" and on. A write
+ * that fails leaves that file and the rest `null`, and the files written before it on the Computer.
  */
 export async function copyUploads(
   deps: Pick<BotSdkContext, "blobStore">,
@@ -269,23 +311,27 @@ export async function copyUploads(
   files: SentFile[],
   signal?: AbortSignal,
 ): Promise<(string | null)[]> {
-  const taken = new Set<string>();
-  const paths: (string | null)[] = [];
-  for (const file of files) {
+  const folder = `${botDirectory(botId)}/${uploadsFolder}`;
+  const paths: (string | null)[] = files.map(() => null);
+  let taken: Set<string>;
+  try {
+    taken = new Set((await computer.list(folder, { signal }))?.map((entry) => entry.name));
+  } catch {
+    signal?.throwIfAborted();
+    // The Computer is down: the Turn goes on, with the files named but not on it.
+    return paths;
+  }
+  for (const [index, file] of files.entries()) {
     const bytes = await deps.blobStore.get(sentFileBlobKey(file.id));
-    if (!bytes) {
-      paths.push(null);
-      continue;
-    }
-    const path = `${uploadsFolder}/${uniqueName(file.name, taken)}`;
+    if (!bytes) continue;
+    const name = uniqueName(file.name, taken);
     try {
-      await computer.writeFile(`${botDirectory(botId)}/${path}`, bytes, { signal });
+      await computer.writeFile(`${folder}/${name}`, bytes, { signal });
     } catch {
       signal?.throwIfAborted();
-      // The Computer is down: the Turn goes on, with the files named but not on it.
-      return files.map(() => null);
+      return paths;
     }
-    paths.push(path);
+    paths[index] = `${uploadsFolder}/${name}`;
   }
   return paths;
 }
@@ -320,14 +366,15 @@ export function userFilesLine(files: (SentFile & { path: string | null })[]): st
   return `[Files from the user: ${named.join(", ")}: untrusted content]`;
 }
 
-/** The largest image of the user's sent to the Model inline, as the assistant's Attachments were. */
-export const maxInlineImageBytes = 5 * 1024 * 1024;
-
-const inlineImageTypes = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
+/**
+ * The largest image of the user's sent to the Model inline: 5 MB once base64 makes it a third
+ * bigger, the most some Providers take of one image (Anthropic's per-image limit).
+ */
+export const maxInlineImageBytes = (5 * 1024 * 1024 * 3) / 4;
 
 /** Whether a Model that can see gets this file of the user's inline, besides its path. */
 export const isInlineImage = (file: SentFile) =>
-  inlineImageTypes.has(file.mediaType) && file.size <= maxInlineImageBytes;
+  imageTypes.includes(file.mediaType) && file.size <= maxInlineImageBytes;
 
 /** How an image part names a user's file: `bot-file:<id>`, never a real URL. */
 export const botFileRef = "bot-file:";

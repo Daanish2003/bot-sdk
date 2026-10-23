@@ -257,16 +257,45 @@ const screenshotRef = "screenshot:";
 /** What a user's image whose bytes are gone from the blob store becomes in the model's input. */
 export const missingUserImage = "[the user's image is no longer stored]";
 
+/** What a user's image the model call leaves out becomes: the line beside it names the file. */
+export const userImageLeftOut = "[the user's image, left out: open the file named above]";
+
+/** The most bytes of the user's images one model call sends; history is resent on every call. */
+export const maxHistoryImageBytes = 20 * 1024 * 1024;
+
 /**
  * A model call's input with each image ref resolved to its bytes from the blob store: a Helper's
  * screenshot (run after `pruneScreenshots`, so only the kept ones are read), and an image the user
- * sent with a Message (spec #801). One whose bytes are gone becomes `missingScreenshot` or
- * `missingUserImage`. The messages themselves are not changed.
+ * sent with a Message (spec #801). The user's images go only to a Model that `seesImages`, newest
+ * first up to `maxHistoryImageBytes`; the rest become `userImageLeftOut`, unread. One whose bytes
+ * are gone becomes `missingScreenshot` or `missingUserImage`. The messages themselves are not
+ * changed.
  */
 export async function resolveImageRefs(
   blobStore: Pick<BlobStore, "get">,
   messages: readonly ModelMessage[],
+  { seesImages }: { seesImages: boolean },
 ): Promise<ModelMessage[]> {
+  // The user's images, newest first, each read while the budget lasts.
+  const userImages = new Map<string, Uint8Array | null | "left out">();
+  let budget = seesImages ? maxHistoryImageBytes : 0;
+  for (const entry of [...messages].reverse()) {
+    if (!Array.isArray(entry.content)) continue;
+    for (const part of [...(entry.content as ContentPart[])].reverse()) {
+      if (!isRef(part) || !part.source.value.startsWith(botFileRef)) continue;
+      const ref = part.source.value;
+      if (userImages.has(ref)) continue;
+      const bytes =
+        budget > 0 ? await blobStore.get(sentFileBlobKey(ref.slice(botFileRef.length))) : null;
+      if (budget <= 0 || (bytes && bytes.length > budget)) {
+        userImages.set(ref, "left out");
+        budget = 0;
+        continue;
+      }
+      userImages.set(ref, bytes);
+      if (bytes) budget -= bytes.length;
+    }
+  }
   return Promise.all(
     messages.map(async (entry) => {
       if (!Array.isArray(entry.content)) return entry;
@@ -279,11 +308,10 @@ export async function resolveImageRefs(
             if (!isRef(part)) return part;
             const ref = part.source.value;
             const screenshot = ref.startsWith(screenshotRef);
-            const bytes = await blobStore.get(
-              screenshot
-                ? screenshotBlobKey(ref.slice(screenshotRef.length))
-                : sentFileBlobKey(ref.slice(botFileRef.length)),
-            );
+            const bytes = screenshot
+              ? await blobStore.get(screenshotBlobKey(ref.slice(screenshotRef.length)))
+              : userImages.get(ref);
+            if (bytes === "left out") return { type: "text", content: userImageLeftOut };
             if (!bytes) {
               return { type: "text", content: screenshot ? missingScreenshot : missingUserImage };
             }

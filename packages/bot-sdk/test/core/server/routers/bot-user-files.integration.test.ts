@@ -2,7 +2,7 @@ import type { ContentPart, ModelMessage, TextOptions } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { botTurn, botUpload, message } from "../../../../core/server/db/schema";
+import { bot as botTable, botTurn, botUpload, message } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { deleteUserData } from "../../../../core/server/user-data";
 import { sentFileBlobKey, sentFileResponse } from "../../../../plugins/bot/server/files";
@@ -216,13 +216,72 @@ describe("Files from the user", () => {
     );
   });
 
+  it("leaves the history's images out for a Model that can't see them", async () => {
+    const { client, botId, fake } = await botWith();
+    const receipt = await client.bot.upload({ file: fileOf("receipt.jpg", jpeg, "image/jpeg") });
+    await sendAndWait(client, { botId, text: "look", files: [receipt.id] });
+    await turnsEnded(botId);
+    // The Bot's Model is now one that can't see; the first Turn's stored input holds the image's ref.
+    await getTestDb().update(botTable).set({ model: blind }).where(eq(botTable.id, botId));
+    await sendAndWait(client, { botId, text: "and now?" });
+    await turnsEnded(botId);
+
+    const messages = fake.calls[1]!.messages as ModelMessage[];
+    expect(messages.flatMap(imagesOf)).toEqual([]);
+    expect(messages.map(textOf).join("\n")).toContain("[Files from the user: uploads/receipt.jpg");
+  });
+
+  it("names a file apart from one of the same name an earlier Message put in uploads/", async () => {
+    const { client, botId, deps, user } = await botWith();
+    const one = await client.bot.upload({ file: fileOf("a.txt", "one", "text/plain") });
+    await sendAndWait(client, { botId, text: "first", files: [one.id] });
+    await turnsEnded(botId);
+    const two = await client.bot.upload({ file: fileOf("a.txt", "two", "text/plain") });
+    await sendAndWait(client, { botId, text: "second", files: [two.id] });
+    await turnsEnded(botId);
+
+    const handle = deps.plugin("computer").forUser(user.id);
+    const read = async (name: string) =>
+      new TextDecoder().decode(
+        (await handle.readFile(`/home/user/bots/${botId}/uploads/${name}`))!,
+      );
+    expect(await read("a.txt")).toBe("one");
+    expect(await read("a (2).txt")).toBe("two");
+  });
+
+  it("stores a file typed as an image whose bytes aren't one as application/octet-stream", async () => {
+    const { client } = await botWith();
+    const fake = await client.bot.upload({ file: fileOf("x.png", "not a png", "image/png") });
+    const real = await client.bot.upload({ file: fileOf("y.png", jpeg, "image/png") });
+    expect(fake.mediaType).toBe("application/octet-stream");
+    // A real image keeps an image type, its own: these bytes are a JPEG.
+    expect(real.mediaType).toBe("image/jpeg");
+  });
+
+  it("cuts a long name to 200 UTF-8 bytes without splitting a character", async () => {
+    const { client } = await botWith();
+    const cjk = await client.bot.upload({
+      file: fileOf(`${"日".repeat(300)}.txt`, "x", "text/plain"),
+    });
+    const emoji = await client.bot.upload({ file: fileOf("😀".repeat(150), "x", "text/plain") });
+    for (const { name } of [cjk, emoji]) {
+      const bytes = new TextEncoder().encode(name);
+      expect(bytes.length).toBeLessThanOrEqual(200);
+      expect(bytes.length).toBeGreaterThan(190);
+      expect(new TextDecoder("utf-8", { fatal: true }).decode(bytes)).toBe(name);
+    }
+  });
+
   it("refuses a file over 25 MB, more than 10 files, and ids that aren't the user's uploads", async () => {
     const { client, botId } = await botWith();
     await expect(
       client.bot.upload({
         file: fileOf("big.bin", new Uint8Array(25 * 1024 * 1024 + 1), "application/octet-stream"),
       }),
-    ).rejects.toMatchObject({ code: "BAD_REQUEST", data: { code: "error.botFileTooLarge" } });
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      data: { code: "error.botFileTooLarge", params: { name: "big.bin", max: 25 } },
+    });
 
     const ids = Array.from({ length: 11 }, () => uuidv7());
     await expect(

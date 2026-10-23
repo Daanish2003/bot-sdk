@@ -14,7 +14,8 @@ export const maxAttachmentBytes = 5 * 1024 * 1024;
 /** The most attachment bytes one Active Branch may carry; history is resent on every turn. */
 export const maxBranchAttachmentBytes = 20 * 1024 * 1024;
 
-const imageTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+/** The image types a Provider is sent inline. */
+export const imageTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 const pdfType = "application/pdf";
 const textTypes = [
   "application/json",
