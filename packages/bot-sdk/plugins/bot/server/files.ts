@@ -247,7 +247,11 @@ export type MailFile = {
   name: string;
   contentType: string;
   size: number;
-  read: () => Promise<Uint8Array>;
+  /**
+   * The file's bytes. A provider whose `size` may be missing or wrong stops reading, and throws,
+   * past `maxBytes`, so a huge attachment is never held in memory.
+   */
+  read: (maxBytes: number) => Promise<Uint8Array>;
 };
 
 /**
@@ -268,7 +272,7 @@ export async function storeMailFiles(
       continue;
     }
     try {
-      const bytes = await file.read();
+      const bytes = await file.read(maxFileBytes);
       if (bytes.byteLength > maxFileBytes) {
         unkept.push(file.name);
         continue;

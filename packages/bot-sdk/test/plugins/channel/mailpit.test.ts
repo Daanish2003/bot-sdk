@@ -84,8 +84,10 @@ describe("mailpitEmailProvider.parseInbound", () => {
     if ("rejected" in mail) throw new Error(mail.rejected);
     expect(calls.some((call) => call.url.includes("/part/"))).toBe(false);
 
-    expect([...(await mail.files![0]!.read())]).toEqual([1, 2, 3]);
+    expect([...(await mail.files![0]!.read(3))]).toEqual([1, 2, 3]);
     expect(calls.at(-1)!.url).toBe(`${api}/api/v1/message/${webhook.ID}/part/2`);
+    // Mailpit's Size can be missing, so the read itself stops past the limit.
+    await expect(mail.files![0]!.read(2)).rejects.toThrow("larger than 2 bytes");
   });
 
   it("refuses a webhook that doesn't name a message Mailpit holds", async () => {

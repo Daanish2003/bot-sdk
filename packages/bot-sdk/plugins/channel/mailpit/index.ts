@@ -31,6 +31,23 @@ const formatAddress = ({ Name, Address }: z.infer<typeof addressSchema>) =>
 /** How long a call to Mailpit may take before it is given up on. */
 const timeoutMs = 10_000;
 
+/** A response's body, read only up to `max` bytes: past it, the read stops and throws. */
+async function readCapped(response: Response, max: number): Promise<Uint8Array> {
+  const tooLarge = () => new Error(`The attachment is larger than ${max} bytes`);
+  if (Number(response.headers.get("content-length")) > max) {
+    await response.body?.cancel();
+    throw tooLarge();
+  }
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for await (const chunk of response.body ?? []) {
+    total += chunk.byteLength;
+    if (total > max) throw tooLarge();
+    chunks.push(chunk);
+  }
+  return new Uint8Array(Buffer.concat(chunks));
+}
+
 /** `Name <address>` or a bare address as Mailpit's `{Email, Name}`. */
 function mailpitAddress(header: string): { Email: string; Name?: string } {
   const bracketed = /^(.*?)\s*<([^<>]*)>\s*$/.exec(header);
@@ -90,13 +107,13 @@ export function mailpitEmailProvider({
           name: attachment.FileName,
           contentType: attachment.ContentType,
           size: attachment.Size,
-          read: async () => {
+          read: async (maxBytes) => {
             const part = await fetcher(
               `${base}/api/v1/message/${ID}/part/${encodeURIComponent(attachment.PartID)}`,
               { signal: AbortSignal.timeout(timeoutMs) },
             );
             if (!part.ok) throw new Error(`Mailpit refused the attachment (${part.status})`);
-            return new Uint8Array(await part.arrayBuffer());
+            return readCapped(part, maxBytes);
           },
         })),
         authentication: { spf: "none", dkim: "none", dmarc: "pass" },
