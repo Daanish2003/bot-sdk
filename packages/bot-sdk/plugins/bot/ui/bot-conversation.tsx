@@ -16,9 +16,11 @@ import { useBotReviews } from "../client/react/reviews";
 import { useBotRoutines } from "../client/react/routines";
 import { useBotChoices } from "../client/react/choices";
 import { useBotReactions } from "../client/react/reactions";
+import { useBotUploads } from "../client/react/uploads";
 import { useBotSecrets } from "../client/react/secrets";
 import { useCacheWarming } from "../client/react/warm";
 import { BotAvatar } from "./bot-avatar";
+import { AttachButton, DraftFileChips } from "./draft-files";
 import { ReactionBar, ReactionChips } from "./reactions";
 import { CheckInLine } from "./check-in-line";
 import { HelperCard } from "./helper-card";
@@ -93,6 +95,8 @@ function BotConversationView({
   const i18n = useI18n();
   const { t } = i18n;
   const [draft, setDraft] = useState("");
+  const uploads = useBotUploads();
+  const [dragging, setDragging] = useState(false);
   const {
     bot,
     error,
@@ -107,8 +111,9 @@ function BotConversationView({
     stop,
   } = useBotTurn(botId, {
     // A refused send puts its text back in the composer and says why.
-    onRefusedSend: (text, refusal) => {
+    onRefusedSend: (text, refusal, files) => {
       setDraft(text);
+      uploads.restore(files);
       toast.error(serverErrorText(i18n, refusal));
     },
   });
@@ -167,9 +172,12 @@ function BotConversationView({
   const submit = (event?: FormEvent) => {
     event?.preventDefault();
     const text = draft.trim();
-    if (!text) return;
+    // Send waits for the uploads; with files the text may be empty.
+    if ((!text && uploads.uploaded.length === 0) || uploads.pending) return;
+    const files = uploads.uploaded;
     setDraft("");
-    void send(text);
+    uploads.clear();
+    void send(text, files);
   };
   // Each Check-in under the Message its line follows; one whose Message isn't shown yet (its Turn
   // still runs here) follows the rest.
@@ -287,7 +295,24 @@ function BotConversationView({
   };
 
   return (
-    <section className="flex min-h-0 min-w-0 flex-1 flex-col">
+    <section
+      data-dragging={dragging || undefined}
+      className="flex min-h-0 min-w-0 flex-1 flex-col data-[dragging]:ring-2 data-[dragging]:ring-ring data-[dragging]:ring-inset"
+      onDragOver={(event) => {
+        if (!event.dataTransfer.types.includes("Files")) return;
+        event.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false);
+      }}
+      onDrop={(event) => {
+        if (!event.dataTransfer.types.includes("Files")) return;
+        event.preventDefault();
+        setDragging(false);
+        uploads.add(event.dataTransfer.files);
+      }}
+    >
       <header className="flex items-center gap-3 border-b px-4 py-3">
         <BotAvatar name={bot.name} size={28} />
         <h1 className="font-semibold">{bot.name}</h1>
@@ -334,18 +359,20 @@ function BotConversationView({
                   message.role === "user" ? "self-end" : "self-start",
                 )}
               >
-                <div
-                  data-bot-message
-                  data-id={message.id}
-                  data-role={message.role}
-                  className={cn(
-                    "rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap",
-                    message.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted",
-                    message.pending && "opacity-70",
-                  )}
-                >
-                  {message.text}
-                </div>
+                {(message.text || control?.kind !== "files") && (
+                  <div
+                    data-bot-message
+                    data-id={message.id}
+                    data-role={message.role}
+                    className={cn(
+                      "rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap",
+                      message.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted",
+                      message.pending && "opacity-70",
+                    )}
+                  >
+                    {message.text}
+                  </div>
+                )}
                 <ReactionChips
                   reactions={message.reactions}
                   own={message.role === "user" ? "user" : "bot"}
@@ -375,7 +402,12 @@ function BotConversationView({
               </span>
             )}
             {afterTurnOf.get(message.id)}
-            {control?.kind === "files" && <FilesCard card={control} />}
+            {control?.kind === "files" && (
+              <FilesCard
+                card={control}
+                className={message.role === "user" ? "self-end" : undefined}
+              />
+            )}
             {control?.kind === "choice" && (
               <ChoiceCard
                 card={control}
@@ -460,7 +492,9 @@ function BotConversationView({
           </div>
         )}
       </div>
+      <DraftFileChips uploads={uploads} />
       <form onSubmit={submit} className="flex items-end gap-2 border-t p-3">
+        <AttachButton uploads={uploads} />
         <Textarea
           aria-label={t("bots.message")}
           placeholder={t("bots.message")}
@@ -485,7 +519,12 @@ function BotConversationView({
             ■ {t("bots.stop")}
           </Button>
         )}
-        <Button type="submit" size="icon" aria-label={t("bots.send")} disabled={!draft.trim()}>
+        <Button
+          type="submit"
+          size="icon"
+          aria-label={t("bots.send")}
+          disabled={(!draft.trim() && uploads.uploaded.length === 0) || uploads.pending}
+        >
           <SendIcon />
         </Button>
       </form>
