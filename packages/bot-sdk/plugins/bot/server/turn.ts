@@ -80,6 +80,7 @@ import {
 import { formatterIn, knownZone, timeNotice } from "./time-zone";
 import { checkedTool, isDirectTool, toolSearchTools } from "./tool-search";
 import { type ConnectorListing, connectorTools } from "./connector-tools";
+import { generateImageTool } from "./generate-image";
 import { webSearchTool } from "./web-search";
 
 // Re-exported: it moved to `thread-change` so `routine` and `check-in` can use it without a cycle.
@@ -1302,6 +1303,10 @@ function turnTools(
     webSearchTool(deps, turn.userId, kit.liveRequest),
     ...(searchMemory ? [searchMemory] : []),
     ...(withComputer ? [...kit.computerTools, ...helperTools(deps, turn, liveActivity)] : []),
+    // Deferred, and listed on two Host settings, so the tool list never changes (spec #801).
+    ...(withComputer && deps.plugin("models").hasHostImageModels
+      ? [generateImageTool(deps, turn, kit.liveRequest)]
+      : []),
     // A Demonstration teaches a Skill, so it comes with the `skills` plugin (spec #713).
     ...(withComputer && deps.hasPlugin("skills") ? [watchUserTool(deps, turn, kit)] : []),
   ];
