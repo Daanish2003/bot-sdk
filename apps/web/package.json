@@ -40,6 +40,7 @@
     "react-dom": "catalog:",
     "sonner": "catalog:",
     "tailwindcss": "catalog:",
+    "use-sync-external-store": "1.7.0",
     "varlock": "catalog:",
     "zod": "catalog:"
   },
