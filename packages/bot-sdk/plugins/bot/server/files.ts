@@ -185,13 +185,17 @@ const imageSignatures: [string, (bytes: Uint8Array) => boolean][] = [
   ],
 ];
 
+/** The inline image type of `bytes` by the bytes they start with (PNG, JPEG, GIF, WebP), if any. */
+export const sniffImageType = (bytes: Uint8Array): string | undefined =>
+  imageSignatures.find(([, matches]) => matches(bytes))?.[0];
+
 /**
  * An upload's media type: the browser's, else the name's. A file whose bytes are one of the inline
  * image types gets that type, and one that claims an inline image type but isn't one becomes
  * `application/octet-stream`, since a Model that can see is sent it as that image.
  */
 function uploadMediaType(declared: string, name: string, bytes: Uint8Array): string {
-  const sniffed = imageSignatures.find(([, matches]) => matches(bytes))?.[0];
+  const sniffed = sniffImageType(bytes);
   if (sniffed) return sniffed;
   const type = declared || mediaTypeOf(name);
   return inlineImageTypes.has(type) ? "application/octet-stream" : type;

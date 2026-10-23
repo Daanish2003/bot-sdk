@@ -254,6 +254,28 @@ describe("generate_image", () => {
   );
 
   it(
+    "refuses an edit of a GIF the user sent as one it can't edit, not as a file that isn't an image",
+    async () => {
+      const { client, botId, turnFake, computerFake, imageAdapter } = await botWith([
+        round(draw({ prompt: "x", editPaths: ["uploads/cat.gif"] })),
+        round(done),
+      ]);
+      computerFake.files.set(
+        `/home/user/bots/${botId}/uploads/cat.gif`,
+        new Uint8Array([...Buffer.from("GIF89a"), 1, 0, 1, 0]),
+      );
+
+      await send(client, botId, "edit");
+
+      const { error } = lastToolResult(turnFake.calls[1]);
+      expect(error).toContain("uploads/cat.gif is a GIF, which can't be edited");
+      expect(error).not.toContain("not an image");
+      expect(imageAdapter.calls).toHaveLength(0);
+    },
+    testTimeout,
+  );
+
+  it(
     "makes at most 4 images in a Turn",
     async () => {
       const { client, botId, turnFake, imageAdapter } = await botWith([

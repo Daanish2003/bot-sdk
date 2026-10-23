@@ -14,6 +14,7 @@ import {
   computerUnavailableError,
   resolvePath,
 } from "./computer-tools";
+import { sniffImageType } from "./files";
 import type { LoopKit } from "./loop";
 
 export const generateImageToolName = "generate_image";
@@ -58,21 +59,14 @@ const definition = toolDefinition({
   }),
 });
 
-/** The media type of an image's bytes by their header, or `undefined` when it is none of PNG, JPEG, WebP. */
-function mediaTypeOf(bytes: Uint8Array): string | undefined {
-  const at = (offset: number, text: string) =>
-    [...text].every((char, index) => bytes[offset + index] === char.charCodeAt(0));
-  if (bytes[0] === 0x89 && at(1, "PNG")) return "image/png";
-  if (bytes[0] === 0xff && bytes[1] === 0xd8) return "image/jpeg";
-  if (at(0, "RIFF") && at(8, "WEBP")) return "image/webp";
-  return undefined;
-}
-
 const extensions: Record<string, string> = {
   "image/png": "png",
   "image/jpeg": "jpg",
   "image/webp": "webp",
 };
+
+/** The image types an Image Model edits; a GIF is an image it can't. */
+const editableTypes = new Set(Object.keys(extensions));
 
 /** The bytes of an image a Provider made: decoded, or downloaded at once since Providers' URLs expire. */
 async function bytesOf(
@@ -145,8 +139,13 @@ export function generateImageTool(
           }[] = [];
           for (const path of paths) {
             const bytes = await computer.readFile(resolvePath(turn.botId, path), { signal });
-            const mimeType = bytes && mediaTypeOf(bytes);
+            const mimeType = bytes && sniffImageType(bytes);
             if (!bytes || !mimeType) return { error: `${path} is not an image on your computer.` };
+            if (!editableTypes.has(mimeType)) {
+              return {
+                error: `${path} is a GIF, which can't be edited; use a PNG, JPEG or WebP image.`,
+              };
+            }
             sources.push({
               type: "image",
               source: { type: "data", value: Buffer.from(bytes).toString("base64"), mimeType },
@@ -165,8 +164,9 @@ export function generateImageTool(
           const bytes = await bytesOf(first, deps.fetch, signal);
           // A Turn stopped while the Provider answered leaves the call unanswered.
           signal?.throwIfAborted();
-          const type = mediaTypeOf(bytes);
-          if (!type) return { error: "The Provider returned an image in an unknown format" };
+          const type = sniffImageType(bytes);
+          if (!type || !editableTypes.has(type))
+            return { error: "The Provider returned an image in an unknown format" };
           const path = `images/${uuidv7()}.${extensions[type]}`;
           await computer.writeFile(resolvePath(turn.botId, path), bytes, { signal });
           return { path, aspectRatio };
