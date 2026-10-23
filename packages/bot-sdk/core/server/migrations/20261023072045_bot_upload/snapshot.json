@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "ebbe5b7a-a17a-4063-9d11-7800435bd4ec",
-  "prevIds": ["eacb9e0e-b4e0-418e-a081-7a052bbe361a"],
+  "id": "a0cfeca1-45a5-496a-b2a1-f91557a61285",
+  "prevIds": ["8a1ae07a-8bc4-4315-a2b3-1d4cd3fda2c3"],
   "ddl": [
     {
       "values": ["off", "low", "medium", "high"],
@@ -315,6 +315,12 @@
     {
       "isRlsEnabled": false,
       "name": "user_credentials",
+      "entityType": "tables",
+      "schema": "chat"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "model_settings",
       "entityType": "tables",
       "schema": "chat"
     },
@@ -3481,6 +3487,45 @@
       "table": "user_credentials"
     },
     {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "user_id",
+      "entityType": "columns",
+      "schema": "chat",
+      "table": "model_settings"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "image_model",
+      "entityType": "columns",
+      "schema": "chat",
+      "table": "model_settings"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "chat",
+      "table": "model_settings"
+    },
+    {
       "type": "uuid",
       "typeSchema": null,
       "notNull": true,
@@ -4843,6 +4888,48 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "created_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "bot_upload_created_at_idx",
+      "entityType": "indexes",
+      "schema": "chat",
+      "table": "bot_upload"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "user_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "bot_upload_user_id_idx",
+      "entityType": "indexes",
+      "schema": "chat",
+      "table": "bot_upload"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "user_id",
           "isExpression": false,
           "asc": true,
@@ -5789,6 +5876,14 @@
       "name": "memory_settings_pkey",
       "schema": "chat",
       "table": "memory_settings",
+      "entityType": "pks"
+    },
+    {
+      "columns": ["user_id"],
+      "nameExplicit": false,
+      "name": "model_settings_pkey",
+      "schema": "chat",
+      "table": "model_settings",
       "entityType": "pks"
     },
     {
