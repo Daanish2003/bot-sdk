@@ -88,7 +88,6 @@ const conversationDetail = {
   model: model.id,
   reasoningEffort: null,
   temporary: false,
-  tools: { connections: [], allowedTools: [] },
   archivedAt: null,
   shared: false,
   messages: [],
@@ -284,7 +283,6 @@ const chatConversation = {
   title: "Trip planning",
   model: model.id,
   reasoningEffort: null,
-  tools: { connections: [] },
   messages: [
     {
       id: "user-1",

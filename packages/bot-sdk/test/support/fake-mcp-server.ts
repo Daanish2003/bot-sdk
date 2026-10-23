@@ -21,6 +21,8 @@ export type FakeMcpServer = {
   closed: number;
   /** When set, the server is down: every request gets a 503. */
   down: boolean;
+  /** When set, `tools/list` fails with a server error. */
+  failList: boolean;
   /** When set, `tools/call` fails with a server error. */
   failCalls: boolean;
 };
@@ -97,6 +99,13 @@ export function createFakeMcpServer({
             serverInfo: { name: "fake-linear", version: "1.0.0" },
           });
         case "tools/list":
+          if (server.failList) {
+            return Response.json({
+              jsonrpc: "2.0",
+              id: message.id,
+              error: { code: -32000, message: "upstream failure" },
+            });
+          }
           return reply({
             tools: tools.map(({ name, annotations }) => ({
               name,
@@ -132,6 +141,7 @@ export function createFakeMcpServer({
     calls: [],
     closed: 0,
     down: false,
+    failList: false,
     failCalls: false,
   };
   return server;

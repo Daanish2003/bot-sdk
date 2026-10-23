@@ -25,6 +25,8 @@ import { bot as botPlugin } from "../../../plugins/bot/server/plugin";
 import { loadSecretValues, secretEncryption } from "../../../plugins/bot/server/secret-values";
 import type { BotExport } from "../../../plugins/bot/server/store";
 import { computer, computerBlobKey } from "../../../plugins/computer/server/plugin";
+import { saveTokens } from "../../../plugins/mcp/server/connections";
+import { mcp } from "../../../plugins/mcp/server/plugin";
 import { profilePath } from "../../../plugins/memory/server/bot-memory";
 import { runner } from "../../../plugins/runner/server/plugin";
 import { listCredentials, saveCredentials } from "../../../plugins/models/server/credentials/store";
@@ -55,13 +57,7 @@ function fakeBlobStore() {
  * The assistant's tables with a `user_id` column. The instances here don't install it;
  * `assistant-user-data.integration.test.ts` seeds and checks them with the assistant installed.
  */
-const assistantTables = [
-  "generated_image",
-  "mcp_connection",
-  "project",
-  "saved_prompt",
-  "user_settings",
-];
+const assistantTables = ["generated_image", "project", "saved_prompt", "user_settings"];
 
 /** Every other table of the composed schema with a `user_id` column, with that column. */
 const userTables = Object.values(schema).flatMap((value) => {
@@ -99,8 +95,8 @@ async function activeJobsNaming(ids: string[]) {
 
 /**
  * A user with a row in every table above: a Bot whose Conversation has an Attachment, an unused
- * Attachment, an ended Demonstration, a Secret, a Computer, the Memory switch, credentials and
- * usage. Returns the blob keys and ids it made.
+ * Attachment, an ended Demonstration, a Secret, a Computer, the Memory switch, a Connection,
+ * credentials and usage. Returns the blob keys and ids it made.
  */
 async function seedEverything(
   user: TestUser,
@@ -160,6 +156,7 @@ async function seedEverything(
   });
 
   await getTestDb().insert(memorySettings).values({ userId: user.id, enabled: false });
+  await saveTokens(deps, user.id, "linear", { accessToken: "t", tokenType: "Bearer", scope: "" });
   await getTestDb()
     .insert(modelSettings)
     .values({ userId: user.id, imageModel: "openai:gpt-image-2" });
@@ -191,7 +188,7 @@ describe("deleteUser across plugins", () => {
     const fake = fakeComputerProvider();
     const deps = createTestSdk({
       blobStore: store,
-      plugins: [botPlugin(), computer({ provider: fake.provider })],
+      plugins: [botPlugin(), computer({ provider: fake.provider }), mcp()],
     });
     const owner = await insertUser();
     const other = await insertUser();

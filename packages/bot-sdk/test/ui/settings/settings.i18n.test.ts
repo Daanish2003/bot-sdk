@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import type { BotSdkClient } from "../../../core/client/chat-client";
 import type { ListedModel } from "../../../plugins/models/shared/models";
-import { ConnectionsSection } from "../../../plugins/assistant/ui/settings/connections-section";
+import { ConnectionsSection } from "../../../plugins/mcp/ui/connections-section";
 import { DeleteAllConversationsSection } from "../../../plugins/assistant/ui/settings/delete-all-conversations";
 import { ExportDataButton } from "../../../ui/settings/export-data-button";
 import { InstructionsField } from "../../../plugins/assistant/ui/settings/instructions-field";

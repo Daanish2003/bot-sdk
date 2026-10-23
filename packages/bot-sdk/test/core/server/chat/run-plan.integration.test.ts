@@ -113,7 +113,6 @@ async function waitingConversation() {
     conversation: owned,
     model: anthropicModel,
     reasoningEffort: null,
-    toolSettings: owned.toolSettings,
     web: true,
   };
   return { deps, asked, waiting, base };

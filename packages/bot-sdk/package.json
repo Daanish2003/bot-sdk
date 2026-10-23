@@ -30,7 +30,10 @@
     "./plugins/channel/client": "./plugins/channel/client/index.ts",
     "./plugins/channel/ui": "./plugins/channel/ui/index.ts",
     "./plugins/channel/fake": "./plugins/channel/fake/index.ts",
-    "./plugins/channel/mailpit": "./plugins/channel/mailpit/index.ts"
+    "./plugins/channel/mailpit": "./plugins/channel/mailpit/index.ts",
+    "./plugins/mcp/server": "./plugins/mcp/server/index.ts",
+    "./plugins/mcp/client": "./plugins/mcp/client/index.ts",
+    "./plugins/mcp/ui": "./plugins/mcp/ui/index.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit",

@@ -2,7 +2,6 @@ import { useChatAdapter } from "@ai-chat/bot-sdk/core/client";
 import {
   ArchivedConversationsSection,
   BackgroundModelSelect,
-  ConnectionsSection,
   DeleteAllConversationsSection,
   ImageModelSelect,
   InstructionsField,
@@ -10,6 +9,7 @@ import {
   SharedLinksSection,
   YourDataSection,
 } from "@ai-chat/bot-sdk/plugins/assistant/ui";
+import { ConnectionsSection } from "@ai-chat/bot-sdk/plugins/mcp/ui";
 import { MemorySection } from "@ai-chat/bot-sdk/plugins/memory/ui";
 import {
   CredentialsSections,

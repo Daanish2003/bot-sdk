@@ -4,7 +4,6 @@ import { storedParts, type StoredParts } from "../../shared/message-parts";
 import { attachmentsForSend } from "../attachments/send";
 import { tavilyService } from "../../../models/shared/credentials/services";
 import type { ErrorCode } from "../../../../core/shared/i18n";
-import type { ConversationTools } from "../../shared/chat/conversation-tools";
 import type { AspectRatio } from "../../../models/shared/image-models";
 import { parseStoredParts, type StoredAttachment, toModelMessages } from "../../shared/chat/parts";
 import { type CuratedModel, effortFor, type ReasoningChoice } from "../../../models/shared/models";
@@ -14,13 +13,12 @@ import { unusableModelCode } from "../../../models/server/unusable-model";
 import type { BotSdkContext } from "../../../../core/server/plugin";
 import type { conversation } from "../../../../core/server/db/schema";
 import { pastChatsOffered } from "../search/past-chats";
-import { mcpToolsFor, type McpTools } from "../mcp/tools";
 import { projectInstructionsOf } from "../project/store";
 import { loadSettings } from "../settings/store";
 import type { ResolvedImageModel } from "../../../models/server/image-models";
 import type { ModelsApi } from "../../../models/server/plugin";
 import { editSourcesOf } from "./edit-sources";
-import { allowTools, trackTools, type HostToolContext } from "./host-tools";
+import { trackTools, type HostToolContext } from "./host-tools";
 import type { RunToolState } from "./tracked-tool";
 import { systemPromptsFor } from "./system-prompts";
 import { artifactContextPrompts } from "./artifact-context";
@@ -44,8 +42,6 @@ export type RunPlanInput = {
   model: string;
   /** The reasoning effort asked for; the plan keeps it only when the Model offers it. */
   reasoningEffort: ReasoningChoice | null;
-  /** The Conversation's MCP Connections and allowances the Run offers (spec #91, #159). */
-  toolSettings: ConversationTools;
   /** Whether the Web tools were asked for. */
   web: boolean;
   /** The reply the Run writes. */
@@ -74,10 +70,8 @@ export type Offered = {
   image: ImageTool | null;
   /** Whether the Run offers `create_artifact` and `update_artifact` (ADR 0016). */
   artifacts: boolean;
-  /** The Host tools the Run offers, with the Conversation's allowances lifted (#159). */
+  /** The Host tools the Run offers. */
   hostTools: AnyServerTool[];
-  /** The MCP tools the Run offers, opened by the plan (spec #91). */
-  mcp: McpTools | undefined;
 };
 
 type ImageTool = {
@@ -123,7 +117,7 @@ export type PlanRefusal = {
   params: ErrorParams;
 };
 
-/** Starts the planned Run (`startRun`), which owns the plan's MCP clients from then on. */
+/** Starts the planned Run (`startRun`). */
 export type StartPlanned = (run?: RunOf) => Promise<void>;
 
 /**
@@ -131,28 +125,18 @@ export type StartPlanned = (run?: RunOf) => Promise<void>;
  * decides once which tools it offers, and builds its messages, system prompts and compaction. A
  * send and a resume get the same plan for the same Conversation and Model.
  *
- * `use` gets the plan and `start`, which hands it to the Run. The MCP clients the plan opened are
- * closed here whenever `use` doesn't start the Run: a refusal while planning, one `use` returns, or
- * a throw. Answers the refusal, or what `use` returned.
+ * `use` gets the plan and `start`, which hands it to the Run. Answers the refusal, or what `use`
+ * returned.
  */
 export async function planRun<T>(
   deps: BotSdkContext,
   input: RunPlanInput,
   use: (plan: RunPlan, start: StartPlanned) => Promise<T>,
 ): Promise<{ refused: PlanRefusal } | { done: T }> {
-  const opened: { mcp?: McpTools } = {};
-  let started = false;
-  try {
-    const planned = await buildPlan(deps, input, opened);
-    if ("refused" in planned) return planned;
-    const start: StartPlanned = async (run = {}) => {
-      started = true;
-      await startRun(deps, planned.plan, run);
-    };
-    return { done: await use(planned.plan, start) };
-  } finally {
-    if (!started) await opened.mcp?.close();
-  }
+  const planned = await buildPlan(deps, input);
+  if ("refused" in planned) return planned;
+  const start: StartPlanned = (run = {}) => startRun(deps, planned.plan, run);
+  return { done: await use(planned.plan, start) };
 }
 
 const refusal = (status: number, code: PlanRefusal["code"], params: ErrorParams = {}) => ({
@@ -162,7 +146,6 @@ const refusal = (status: number, code: PlanRefusal["code"], params: ErrorParams 
 async function buildPlan(
   deps: BotSdkContext,
   input: RunPlanInput,
-  opened: { mcp?: McpTools },
 ): Promise<{ refused: PlanRefusal } | { plan: RunPlan }> {
   const { userId, conversation: owned, send } = input;
   const model = await deps.plugin("models").resolveModel(userId, input.model);
@@ -203,7 +186,7 @@ async function buildPlan(
     return refusal(attachments.error.status, attachments.error.code, attachments.error.params);
   }
 
-  const offered = await offeredFor(deps, input, model, opened, {
+  const offered = await offeredFor(deps, input, model, {
     pathMessageIds: history.map((row) => row.id),
     pathAttachments: [
       ...history.flatMap((row) => attachments.ofHistory(row)),
@@ -294,9 +277,8 @@ async function buildPlan(
 /** Decides which tools the Run offers. Every tool needs a Model with tools. */
 async function offeredFor(
   deps: BotSdkContext,
-  { userId, conversation: owned, web: webAsked, toolSettings }: RunPlanInput,
+  { userId, conversation: owned, web: webAsked }: RunPlanInput,
   model: CuratedModel,
-  opened: { mcp?: McpTools },
   path: { pathMessageIds: string[]; pathAttachments: StoredAttachment[] },
 ): Promise<Offered> {
   if (!model.tools) {
@@ -307,7 +289,6 @@ async function offeredFor(
       image: null,
       artifacts: false,
       hostTools: [],
-      mcp: undefined,
     };
   }
   // The Web tools are offered only when asked for. `web_search` also needs a usable Tavily key: the
@@ -320,9 +301,6 @@ async function offeredFor(
   const pastChats = (await pastChatsOffered(deps, userId, owned.temporary))
     ? { projectId: owned.projectId }
     : null;
-  // The MCP tools are opened before the history is built: a finished call of a tool not offered is
-  // sent as text (spec #91). The plan closes them unless the Run takes them.
-  opened.mcp = await mcpToolsFor(deps, userId, toolSettings);
   return {
     webSearch,
     fetchUrl: webAsked,
@@ -330,9 +308,8 @@ async function offeredFor(
     image: await imageToolFor(deps, userId, path),
     // The Artifact tools are offered only when the Host turned them on (ADR 0016).
     artifacts: assistantState(deps).artifacts,
-    // The Host's tools (`createBotSdk({ tools })`). A tool the Conversation allows runs without Approval (#159).
-    hostTools: allowTools(assistantState(deps).tools, toolSettings.allowedTools),
-    mcp: opened.mcp,
+    // The Host's tools (`createBotSdk({ tools })`).
+    hostTools: assistantState(deps).tools,
   };
 }
 
@@ -379,7 +356,6 @@ function replayFlagsOf(offered: Offered) {
     fetchUrl: offered.fetchUrl,
     generateImage: offered.image !== null,
     hostTools: offered.hostTools.length > 0,
-    mcpTools: (offered.mcp?.tools.length ?? 0) > 0,
     artifacts: offered.artifacts,
   };
 }
@@ -454,7 +430,6 @@ function toolsOf(deps: BotSdkContext, plan: RunPlan, run: RunToolState): AnyServ
           }),
         ]
       : []),
-    ...trackTools(offered.hostTools, { source: "host", ...run }),
-    ...trackTools(offered.mcp?.tools ?? [], { source: "mcp", ...run }),
+    ...trackTools(offered.hostTools, run),
   ];
 }

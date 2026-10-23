@@ -1,7 +1,7 @@
-import { isAllowListed } from "../../../../core/server/lib/guarded-fetch";
+import { isAllowListed } from "../../../core/server/lib/guarded-fetch";
 
 /**
- * One remote MCP server a Host offers (`createBotSdk({ mcpServers })`, spec #91). The Host is the
+ * One remote MCP server a Host offers (`mcp({ servers })`, spec #91). The Host is the
  * operator: a user can only sign in to the servers listed here.
  */
 export type McpServerConfig = {
@@ -12,9 +12,9 @@ export type McpServerConfig = {
   url: string;
   /** The OAuth client the Host registered with the server ahead of time (no Dynamic Client Registration). */
   oauth: { clientId: string; clientSecret: string };
-  /** Tool names to offer from this server. Accepted now; nothing reads it until MCP tools in a Run land. */
+  /** Tool names to offer from this server; unset, all of them. */
   tools?: string[];
-  /** Tool names that run without Approval. Accepted now; nothing reads it until MCP tools in a Run land. */
+  /** Tool names that need no approval: `needsApproval` is false on them. */
   approvalFree?: string[];
 };
 

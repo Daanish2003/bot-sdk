@@ -1,4 +1,4 @@
-import type { BotSdkContext } from "../../../../core/server/plugin";
+import type { BotSdkContext } from "../../../core/server/plugin";
 import { beginSignIn, claimSignIn, saveTokens } from "./connections";
 import {
   authorizeUrl,
@@ -8,9 +8,9 @@ import {
   newState,
   SignInError,
 } from "./oauth";
-import { assistantState } from "../state";
+import type { McpServerConfig } from "./servers";
 
-type Deps = Pick<BotSdkContext, "db" | "keyring" | "plugin" | "fetch" | "fetchAllowHosts">;
+type Deps = Pick<BotSdkContext, "db" | "keyring" | "fetch" | "fetchAllowHosts">;
 
 const text = (message: string, status: number) =>
   new Response(message, { status, headers: { "content-type": "text/plain; charset=utf-8" } });
@@ -30,12 +30,11 @@ export async function connectRoute(
   request: Request,
   userId: string,
   deps: Deps,
+  servers: readonly McpServerConfig[],
   redirectUri: string,
 ) {
   const url = new URL(request.url);
-  const server = assistantState(deps).mcpServers.find(
-    (candidate) => candidate.key === url.searchParams.get("server"),
-  );
+  const server = servers.find((candidate) => candidate.key === url.searchParams.get("server"));
   if (!server) return text("Unknown MCP server", 404);
   let endpoints;
   try {
@@ -64,6 +63,7 @@ export async function callbackRoute(
   request: Request,
   userId: string,
   deps: Deps,
+  servers: readonly McpServerConfig[],
   redirectUri: string,
 ) {
   const url = new URL(request.url);
@@ -77,9 +77,7 @@ export async function callbackRoute(
       400,
     );
   }
-  const server = assistantState(deps).mcpServers.find(
-    (candidate) => candidate.key === pending.serverKey,
-  );
+  const server = servers.find((candidate) => candidate.key === pending.serverKey);
   if (!server) return text("Unknown MCP server", 404);
   if (url.searchParams.has("error") || !code) {
     return text("The server didn't complete the sign-in", 400);
