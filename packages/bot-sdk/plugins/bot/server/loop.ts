@@ -190,6 +190,8 @@ export type LoopOptions = {
    * its activities replay in order, and a throw that recorded nothing is a failure to retry.
    */
   setup: (kit: LoopKit) => Promise<LoopSetup>;
+  /** Whether the Model sees images, when the caller already asked; else the loop asks, once. */
+  seesImages?: () => Promise<boolean>;
   /** The attempt's signal: the live call stops when it aborts. With none, there is no time limit. */
   attempt?: AbortSignal;
   /**
@@ -309,11 +311,28 @@ export async function runLoop(
 
   /** Whether the Model can see the user's images, asked once. */
   let sees: Promise<boolean> | undefined;
-  const seesImages = () =>
-    (sees ??= deps
-      .plugin("models")
-      .resolveModel(owner.userId, owner.model)
-      .then((model) => model?.images ?? false));
+  const seesImages =
+    options.seesImages ??
+    (() =>
+      (sees ??= deps
+        .plugin("models")
+        .resolveModel(owner.userId, owner.model)
+        .then((model) => model?.images ?? false)));
+
+  /** The images this loop read from the blob store, by key: each is read once, not every call. */
+  const imageReads = new Map<string, Promise<Uint8Array | null>>();
+  const imageStore = {
+    get: (key: string) => {
+      let read = imageReads.get(key);
+      if (!read) {
+        read = deps.blobStore.get(key);
+        imageReads.set(key, read);
+        // A failed read is retried on the next call, like the Checkpoint it fails.
+        read.catch(() => imageReads.delete(key));
+      }
+      return read;
+    },
+  };
 
   /** The Model's call, made once: the credentials and the adapter are only needed for a live call. */
   let live: Promise<{ adapter: AnyTextAdapter; record: ModelCallRecorder }> | undefined;
@@ -422,7 +441,7 @@ export async function runLoop(
     // failed read is retried like a Checkpoint that failed to save.
     const pruned = {
       ...sent,
-      messages: await resolveImageRefs(deps.blobStore, sent.messages as ModelMessage[], {
+      messages: await resolveImageRefs(imageStore, sent.messages as ModelMessage[], {
         seesImages: await seesImages(),
       }),
     };

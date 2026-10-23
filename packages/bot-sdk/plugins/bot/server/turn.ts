@@ -1057,6 +1057,8 @@ async function playTurn(
   // The newest message holds the Change notes, which are read in the loop's setup: it is rendered
   // there, once the Turn's Prompt start is chosen. Stored before the first model call, so a
   // stopped or interrupted Turn keeps what it sent, and a replay reads the recorded input.
+  // Whether the Model sees images, asked once for the newest message and the loop's calls.
+  let sees: Promise<boolean> | undefined;
   // The user's files are copied onto the Computer in their own Checkpoint, so a replay doesn't copy
   // them again and reads the recorded paths.
   const userFiles = {
@@ -1069,8 +1071,11 @@ async function playTurn(
             : files.map(() => null),
         { yields: false },
       ),
-    canSee: async () =>
-      (await deps.plugin("models").resolveModel(turn.userId, turn.model))?.images ?? false,
+    canSee: () =>
+      (sees ??= deps
+        .plugin("models")
+        .resolveModel(turn.userId, turn.model)
+        .then((model) => model?.images ?? false)),
   };
   const renderNewest = async (changeNotes: string | undefined) => {
     const rendered = await newestInput(db, turn, since, todo, changeNotes, cutTrigger, userFiles);
@@ -1093,6 +1098,7 @@ async function playTurn(
       timeLimitMs: turnTimeLimitMs,
       plainTextReminder: undeliveredTextReminder,
       attempt,
+      seesImages: userFiles.canSee,
       // Each shell call of the Turn gets Auto-review before it runs (spec #691).
       review: { turnId: turn.id, conversationId: turn.conversationId },
       setup: (kit) =>
