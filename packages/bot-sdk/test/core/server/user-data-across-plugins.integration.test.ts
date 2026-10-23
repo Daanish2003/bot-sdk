@@ -14,6 +14,7 @@ import {
   botDemonstration,
   botSecret,
   job,
+  mcpConnection,
   usage,
   memorySettings,
   modelSettings,
@@ -26,7 +27,7 @@ import { bot as botPlugin } from "../../../plugins/bot/server/plugin";
 import { loadSecretValues, secretEncryption } from "../../../plugins/bot/server/secret-values";
 import type { BotExport } from "../../../plugins/bot/server/store";
 import { computer, computerBlobKey } from "../../../plugins/computer/server/plugin";
-import { saveTokens } from "../../../plugins/mcp/server/connections";
+import { readTokens, saveTokens } from "../../../plugins/mcp/server/connections";
 import { mcp } from "../../../plugins/mcp/server/plugin";
 import { profilePath } from "../../../plugins/memory/server/bot-memory";
 import { runner } from "../../../plugins/runner/server/plugin";
@@ -383,7 +384,7 @@ describe("rotateKeys across plugins", () => {
   const keyA = "key-a-of-at-least-32-characters-long!!";
   const keyB = "key-b-of-at-least-32-characters-long!!";
 
-  it("sums the models plugin's credentials and the bot plugin's Secrets", async () => {
+  it("sums the models plugin's credentials, the bot plugin's Secrets and the mcp plugin's Connection tokens", async () => {
     const user = await insertUser();
     const old = createTestSdk({ keyEncryptionSecrets: [keyA] });
     await saveCredentials(old, user.id, {
@@ -407,6 +408,11 @@ describe("rotateKeys across plugins", () => {
         // A Secret no key can read.
         { userId: user.id, name: "BROKEN", encrypted: "v1:unknown:garbage", createdAt: new Date() },
       ]);
+    await saveTokens(old, user.id, "docs", { accessToken: "t", tokenType: "Bearer", scope: "" });
+    // A Connection whose tokens no key can read.
+    await getTestDb()
+      .insert(mcpConnection)
+      .values({ userId: user.id, serverKey: "broken", encrypted: "v1:unknown:garbage" });
     const logger = { error: vi.fn() };
     const sdk = createBotSdk({
       databaseUrl: testDatabaseUrl,
@@ -414,15 +420,18 @@ describe("rotateKeys across plugins", () => {
       keyEncryptionSecrets: [keyB, keyA],
       basePath: "/api/chat",
       logger,
-      plugins: [models(), runner(), botPlugin()],
+      plugins: [models(), runner(), botPlugin(), mcp()],
     });
 
-    await expect(sdk.rotateKeys()).resolves.toEqual({ reencrypted: 2, unreadable: 1 });
-    await expect(sdk.rotateKeys()).resolves.toEqual({ reencrypted: 0, unreadable: 1 });
+    await expect(sdk.rotateKeys()).resolves.toEqual({ reencrypted: 3, unreadable: 2 });
+    await expect(sdk.rotateKeys()).resolves.toEqual({ reencrypted: 0, unreadable: 2 });
 
     const onlyNew = createTestSdk({ keyEncryptionSecrets: [keyB] });
     await expect(listCredentials(onlyNew, user.id)).resolves.toHaveLength(1);
     expect((await loadSecretValues(onlyNew, user.id)).get("GITHUB_TOKEN")).toBe("ghp-test-token");
+    await expect(readTokens(onlyNew, user.id, "docs")).resolves.toMatchObject({
+      tokens: { accessToken: "t" },
+    });
     expect(logger.error).toHaveBeenCalled();
   });
 });

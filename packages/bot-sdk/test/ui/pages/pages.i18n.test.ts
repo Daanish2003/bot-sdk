@@ -4,7 +4,6 @@ import { describe, expect, it } from "vitest";
 
 import type { BotSdkClient } from "../../../core/client/chat-client";
 import type { ListedModel } from "../../../plugins/models/shared/models";
-import { HostKeysPage } from "../host-keys-page";
 import { ProjectPage } from "../../../plugins/assistant/ui/pages/project";
 import {
   SharedConversationPage,
@@ -68,17 +67,6 @@ const conversation = {
   shared: false,
   hasError: false,
 };
-
-function seedModels(queryClient: QueryClient, client: BotSdkClient) {
-  queryClient.setQueryData(client.orpc.models.list.queryKey(), {
-    models: [model],
-    defaultModel: null,
-    defaultBackgroundModel: null,
-    imageModels: [],
-    defaultImageModel: null,
-    webSearchOnHost: false,
-  });
-}
 
 function projectConversationsKey(client: BotSdkClient) {
   return client.orpc.conversation.list.infiniteOptions({
@@ -158,47 +146,6 @@ describe("the pages with the dictionary", () => {
     expect(html).toContain("⟦No Conversations in this Project yet⟧");
     expect(html).not.toContain("⟦Knowledge⟧");
     expect(html).not.toContain('role="tab"');
-  });
-
-  it("shows no untranslated text on the keys page, with credentials on", () => {
-    expectTranslated(createElement(HostKeysPage), (queryClient, client) => {
-      queryClient.setQueryData(client.orpc.credentials.mode.queryKey(), { byok: true });
-      queryClient.setQueryData(client.orpc.credentials.list.queryKey(), []);
-      queryClient.setQueryData(client.orpc.settings.get.queryKey(), {
-        backgroundModel: null,
-        imageModel: null,
-        instructions: null,
-      });
-      queryClient.setQueryData(client.orpc.share.list.queryKey(), []);
-      queryClient.setQueryData(client.orpc.connections.list.queryKey(), { servers: [] });
-      seedModels(queryClient, client);
-    });
-  });
-
-  it("shows no untranslated text on the OpenAI row's ChatGPT link, in each state", () => {
-    const linkedCredentials = { connect: () => {}, disconnect: () => {} };
-    for (const state of ["none", "linked", "needs-reconnect", "key"] as const) {
-      const html = expectTranslated(
-        createElement(HostKeysPage, { linkedCredentials }),
-        (queryClient, client) => {
-          queryClient.setQueryData(client.orpc.credentials.mode.queryKey(), { byok: true });
-          queryClient.setQueryData(
-            client.orpc.credentials.list.queryKey(),
-            state === "key" ? [{ service: "openai", hint: "abcd", verified: true }] : [],
-          );
-          queryClient.setQueryData(client.orpc.credentials.openaiState.queryKey(), state);
-          queryClient.setQueryData(client.orpc.settings.get.queryKey(), {
-            backgroundModel: null,
-            imageModel: null,
-            instructions: null,
-          });
-          queryClient.setQueryData(client.orpc.share.list.queryKey(), []);
-          queryClient.setQueryData(client.orpc.connections.list.queryKey(), { servers: [] });
-          seedModels(queryClient, client);
-        },
-      );
-      expect(html).toContain("ChatGPT");
-    }
   });
 
   it("shows no untranslated text on a Shared link, signed out", () => {

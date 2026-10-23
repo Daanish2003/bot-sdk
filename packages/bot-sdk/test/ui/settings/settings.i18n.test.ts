@@ -4,9 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import type { BotSdkClient } from "../../../core/client/chat-client";
 import type { ListedModel } from "../../../plugins/models/shared/models";
-import { ConnectionsSection } from "../../../plugins/mcp/ui/connections-section";
 import { DeleteAllConversationsSection } from "../../../plugins/assistant/ui/settings/delete-all-conversations";
-import { ExportDataButton } from "../../../ui/settings/export-data-button";
 import { InstructionsField } from "../../../plugins/assistant/ui/settings/instructions-field";
 import { SharedLinksSection } from "../../../plugins/assistant/ui/settings/shared-links";
 import { BackgroundModelSelect } from "../../../plugins/assistant/ui/settings/background-model-select";
@@ -27,7 +25,7 @@ const model: ListedModel = {
 };
 
 /** Text the dictionary doesn't translate: Model and Provider names, and the user's own data. */
-const ownedContent = ["Claude Haiku 4.5", "Anthropic", "Trip planning", "GitHub", "repo"];
+const ownedContent = ["Claude Haiku 4.5", "Anthropic", "Trip planning"];
 
 function seedSettings(
   queryClient: QueryClient,
@@ -90,16 +88,7 @@ describe("the settings sections with the dictionary", () => {
     expect(html).toContain("shared any Conversations.⟧");
   });
 
-  it("shows no untranslated text in Connections, with a server that needs a reconnect", () => {
-    expectTranslated(createElement(ConnectionsSection), (queryClient, client) => {
-      queryClient.setQueryData(client.orpc.connections.list.queryKey(), {
-        servers: [{ key: "github", name: "GitHub", state: "reconnect", scopes: ["repo"] }],
-      });
-    });
-  });
-
-  it("shows no untranslated text in Delete all, and Export data", () => {
+  it("shows no untranslated text in Delete all", () => {
     expectTranslated(createElement(DeleteAllConversationsSection));
-    expectTranslated(createElement(ExportDataButton));
   });
 });

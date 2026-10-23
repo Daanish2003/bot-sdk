@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { discoverEndpoints, SignInError } from "../../../../plugins/mcp/server/oauth";
 import { checkMcpServers, type McpServerConfig } from "../../../../plugins/mcp/server/servers";
-import type { TestDeps } from "../../../support/assistant";
+import type { TestDeps } from "../../../support/deps";
 
 const server = (url: string): McpServerConfig => ({
   key: "linear",

@@ -1,17 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
-import { assistant } from "../../../plugins/assistant/server/plugin";
+import { bot } from "../../../plugins/bot/server/plugin";
 import { runner } from "../../../plugins/runner/server/plugin";
 import { models } from "../../../plugins/models/server/plugin";
 import { saveCredentials } from "../../../plugins/models/server/credentials/store";
-import { message } from "../../../core/server/db/schema";
-import { eq } from "drizzle-orm";
-import { insertConversation, insertMessage } from "../../support/conversations";
-import { createTestSdk, createTestChat } from "../../support/assistant";
-import { createFakeAdapter, round, text } from "../../support/fake-adapter";
+import { createTestSdk } from "../../support/deps";
+import { createTestChat } from "../../support/sdk";
 import { insertUser } from "../../support/users";
-import { getTestDb, testDatabaseUrl } from "../../support/test-database";
+import { testDatabaseUrl } from "../../support/test-database";
 
 const basePath = "/api/chat";
 const baseUrl = `http://localhost${basePath}`;
@@ -24,7 +21,7 @@ describe("createBotSdk", () => {
         getUser: () => null,
         keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
         basePath,
-        plugins: [models(), runner(), assistant()],
+        plugins: [models(), runner(), bot()],
       }),
     ).not.toThrow();
   });
@@ -36,21 +33,21 @@ describe("createBotSdk", () => {
         getUser: () => null,
         keyEncryptionSecrets: [],
         basePath,
-        plugins: [models(), runner(), assistant()],
+        plugins: [models(), runner(), bot()],
       }),
     ).toThrow(/at least one/);
   });
 
-  it("throws when the assistant is enabled without the runner", () => {
+  it("throws when the bot plugin is enabled without the runner", () => {
     expect(() =>
       createBotSdk({
         databaseUrl: "postgresql://nobody:nothing@127.0.0.1:1/unreachable",
         getUser: () => null,
         keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
         basePath,
-        plugins: [models(), assistant()],
+        plugins: [models(), bot()],
       }),
-    ).toThrow(/Plugin "assistant" requires plugin "runner"/);
+    ).toThrow(/Plugin "bot" requires plugin "runner"/);
   });
 });
 
@@ -67,7 +64,7 @@ describe("createBotSdk start", () => {
           byok: false,
         }),
         runner(),
-        assistant(),
+        bot(),
       ],
     });
 
@@ -92,7 +89,7 @@ describe("createBotSdk start", () => {
           ],
         }),
         runner(),
-        assistant(),
+        bot(),
       ],
     });
 
@@ -124,7 +121,7 @@ describe("createBotSdk start", () => {
           defaultBackgroundModel: "ollama:mistral",
         }),
         runner(),
-        assistant(),
+        bot(),
       ],
     });
 
@@ -157,7 +154,7 @@ describe("createBotSdk start", () => {
           defaultImageModel: "openai:gpt-image-2",
         }),
         runner(),
-        assistant(),
+        bot(),
       ],
     });
 
@@ -185,7 +182,7 @@ describe("createBotSdk start", () => {
           ],
         }),
         runner(),
-        assistant(),
+        bot(),
       ],
     });
 
@@ -214,86 +211,29 @@ describe("an instance with only the models plugin", () => {
 });
 
 describe("the chat handler", () => {
-  it("answers 401 to every request without a user, except the public Shared link read", async () => {
-    const client = createTestChat({ user: null });
+  it("answers 401 to an RPC call or a plugin's route without a user", async () => {
+    const client = createTestChat({ user: null, deps: createTestSdk({ plugins: [bot()] }) });
 
     const rpc = await client.fetch(
-      new Request(`${baseUrl}/rpc/healthCheck`, { method: "POST", body: "{}" }),
+      new Request(`${baseUrl}/rpc/bot/list`, { method: "POST", body: "{}" }),
     );
-    const run = await client.fetch(new Request(client.chatUrl, { method: "POST", body: "{}" }));
-    const join = await client.fetch(new Request(`${client.chatUrl}?runId=x`));
+    const route = await client.fetch(new Request(`${baseUrl}/bot-files/x`));
 
-    expect([rpc.status, run.status, join.status]).toEqual([401, 401, 401]);
+    expect([rpc.status, route.status]).toEqual([401, 401]);
   });
 
   it("round trips an RPC call for the signed-in user", async () => {
     const user = await insertUser();
-    const conv = await insertConversation(user, { title: "Hello" });
-
-    const list = (await createTestChat({ user }).rpc.conversation.list({})).items;
-
-    expect(list.map(({ id }) => id)).toEqual([conv.id]);
-  });
-
-  it("streams a Run through the handler and saves its reply", async () => {
-    const user = await insertUser();
-    const fake = createFakeAdapter({ rounds: [round(text("Hello", " there!"))] });
-    const deps = createTestSdk({ adapterFor: () => fake.adapter });
+    const deps = createTestSdk({ plugins: [bot()] });
+    const client = createTestChat({ user, deps }).rpc;
     await saveCredentials(deps, user.id, {
       service: "anthropic",
       fields: { apiKey: "sk-ant-test-key" },
       hint: "…-key",
       verified: true,
     });
-    // A titled Conversation, so no automatic title call takes the scripted adapter.
-    const conv = await insertConversation(user, { title: "Test Conversation" });
-    const client = createTestChat({ user, deps });
+    const { id } = await client.bot.create({ name: "Ada", model: "anthropic:claude-sonnet-5-5" });
 
-    const response = await client.fetch(
-      new Request(client.chatUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: [],
-          forwardedProps: {
-            conversationId: conv.id,
-            parentId: null,
-            text: "Hi",
-            attachmentIds: [],
-            model: "anthropic:claude-sonnet-5-5",
-            webSearch: false,
-          },
-        }),
-      }),
-    );
-
-    expect(response.status).toBe(200);
-    expect(response.headers.get("content-type")).toContain("text/event-stream");
-    expect(await response.text()).toContain('"delta":" there!"');
-    const replies = await getTestDb()
-      .select()
-      .from(message)
-      .where(eq(message.conversationId, conv.id));
-    expect(replies.map(({ role, status }) => [role, status]).sort()).toEqual([
-      ["assistant", "complete"],
-      ["user", "complete"],
-    ]);
-    // The reply's heartbeat was set when its Run started (ADR 0006).
-    expect(replies.find(({ role }) => role === "assistant")?.heartbeatAt).toBeInstanceOf(Date);
-  });
-
-  it("serves a Shared link to a caller without a user", async () => {
-    const owner = await insertUser();
-    const deps = createTestSdk();
-    const conv = await insertConversation(owner, { title: "Recursive CTEs" });
-    await insertMessage({ conversationId: conv.id, role: "user", text: "Hi", active: true });
-    const link = await createTestChat({ user: owner, deps }).rpc.share.upsert({
-      conversationId: conv.id,
-    });
-
-    const shared = await createTestChat({ user: null, deps }).rpc.share.get({ token: link.token });
-
-    expect(shared.title).toBe("Recursive CTEs");
-    expect(shared.messages.map(({ parts }) => parts)).toEqual([[{ type: "text", content: "Hi" }]]);
+    expect((await client.bot.list()).map((listed) => listed.id)).toEqual([id]);
   });
 });

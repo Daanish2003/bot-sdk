@@ -54,9 +54,9 @@ describe("copySdk", () => {
     write(join(source, "ui", "chat", "composer.tsx"), "export const Composer = 1;");
     write(join(source, "ui", "theme.css"), '@source ".";');
     write(join(source, "ui", "chat", "composer.test.tsx"), "test");
-    write(join(source, "plugins", "assistant", "server", "index.ts"), "export const a = 1;");
-    write(join(source, "plugins", "assistant", "server", "index.test.ts"), "test");
-    write(join(source, "plugins", "assistant", "ui", "panel.tsx"), "export const Panel = 1;");
+    write(join(source, "plugins", "bot", "server", "index.ts"), "export const a = 1;");
+    write(join(source, "plugins", "bot", "server", "index.test.ts"), "test");
+    write(join(source, "plugins", "bot", "ui", "panel.tsx"), "export const Panel = 1;");
     write(join(source, "plugins", "models", "client", "index.ts"), "export const m = 1;");
     write(join(source, "plugins", "models", "ui", "keys.tsx"), "export const Keys = 1;");
     write(join(source, "extras", "trigger", "runner.ts"), "export const runner = 1;");
@@ -86,8 +86,8 @@ describe("copySdk", () => {
       "core/server/index.ts",
       "extras/trigger/runner.ts",
       "package.json",
-      "plugins/assistant/server/index.ts",
-      "plugins/assistant/ui/panel.tsx",
+      "plugins/bot/server/index.ts",
+      "plugins/bot/ui/panel.tsx",
       "plugins/models/client/index.ts",
       "plugins/models/ui/keys.tsx",
       "ui/chat/composer.tsx",
@@ -129,18 +129,16 @@ describe("copySdk", () => {
   it("replaces plugins server code on a second run but leaves an edited plugin ui untouched", () => {
     copySdk(dest, { source, version });
 
-    write(join(dest, "plugins", "assistant", "ui", "panel.tsx"), "host edit");
-    write(join(dest, "plugins", "assistant", "server", "removed.ts"), "stale");
-    write(join(source, "plugins", "assistant", "server", "index.ts"), "export const a = 2;");
+    write(join(dest, "plugins", "bot", "ui", "panel.tsx"), "host edit");
+    write(join(dest, "plugins", "bot", "server", "removed.ts"), "stale");
+    write(join(source, "plugins", "bot", "server", "index.ts"), "export const a = 2;");
     copySdk(dest, { source, version });
 
-    expect(readFileSync(join(dest, "plugins", "assistant", "server", "index.ts"), "utf8")).toBe(
+    expect(readFileSync(join(dest, "plugins", "bot", "server", "index.ts"), "utf8")).toBe(
       "export const a = 2;",
     );
-    expect(readFileSync(join(dest, "plugins", "assistant", "ui", "panel.tsx"), "utf8")).toBe(
-      "host edit",
-    );
-    expect(existsSync(join(dest, "plugins", "assistant", "server", "removed.ts"))).toBe(false);
+    expect(readFileSync(join(dest, "plugins", "bot", "ui", "panel.tsx"), "utf8")).toBe("host edit");
+    expect(existsSync(join(dest, "plugins", "bot", "server", "removed.ts"))).toBe(false);
   });
 
   it("leaves a Host's own plugin folder alone, touching only the plugins the SDK ships", () => {
@@ -158,14 +156,12 @@ describe("copySdk", () => {
     copySdk(dest, { source, version });
 
     write(join(dest, "ui", "chat", "composer.tsx"), "host edit");
-    write(join(dest, "plugins", "assistant", "ui", "panel.tsx"), "host edit");
+    write(join(dest, "plugins", "bot", "ui", "panel.tsx"), "host edit");
     rmSync(join(dest, "plugins", "models", "ui"), { recursive: true });
     copySdk(dest, { source, version });
 
     expect(readFileSync(join(dest, "ui", "chat", "composer.tsx"), "utf8")).toBe("host edit");
-    expect(readFileSync(join(dest, "plugins", "assistant", "ui", "panel.tsx"), "utf8")).toBe(
-      "host edit",
-    );
+    expect(readFileSync(join(dest, "plugins", "bot", "ui", "panel.tsx"), "utf8")).toBe("host edit");
     expect(readFileSync(join(dest, "plugins", "models", "ui", "keys.tsx"), "utf8")).toBe(
       "export const Keys = 1;",
     );
@@ -176,9 +172,7 @@ describe("copySdk", () => {
     expect(readFileSync(join(dest, "ui", "chat", "composer.tsx"), "utf8")).toBe(
       "export const Composer = 1;",
     );
-    expect(readFileSync(join(dest, "plugins", "assistant", "ui", "panel.tsx"), "utf8")).toBe(
-      "host edit",
-    );
+    expect(readFileSync(join(dest, "plugins", "bot", "ui", "panel.tsx"), "utf8")).toBe("host edit");
   });
 
   it("copies package.json, README and NOTICE on every run", () => {
@@ -195,7 +189,7 @@ describe("copySdk", () => {
   });
 
   it("keeps each theme.css @source line resolving to a copied plugin ui folder", () => {
-    write(join(source, "ui", "theme.css"), '@source ".";\n@source "../plugins/assistant/ui";');
+    write(join(source, "ui", "theme.css"), '@source ".";\n@source "../plugins/bot/ui";');
 
     copySdk(dest, { source, version });
 
@@ -207,12 +201,12 @@ describe("copySdk", () => {
 
   it("never copies an eval folder, so the Memory eval stays in the canonical repo", () => {
     write(join(source, "core", "eval", "memory", "run.ts"), "eval");
-    write(join(source, "plugins", "assistant", "eval", "run.ts"), "eval");
+    write(join(source, "plugins", "bot", "eval", "run.ts"), "eval");
 
     copySdk(dest, { source, version });
 
     expect(existsSync(join(dest, "core", "eval"))).toBe(false);
-    expect(existsSync(join(dest, "plugins", "assistant", "eval"))).toBe(false);
+    expect(existsSync(join(dest, "plugins", "bot", "eval"))).toBe(false);
   });
 
   it("gives a Host core and ui only, so the shared e2e scenarios never reach it", () => {
