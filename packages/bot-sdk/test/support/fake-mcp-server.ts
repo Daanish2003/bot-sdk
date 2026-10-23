@@ -13,6 +13,10 @@ export type FakeMcpTool = {
   description?: string;
   /** The text a call returns; the call's name and arguments as JSON unless given. */
   result?: string;
+  /** When set, a call fails in the tool: an `isError` result with this text. */
+  error?: string;
+  /** When set, a call is refused with this JSON-RPC error, as for bad arguments. */
+  rpcError?: { code: number; message: string };
 };
 
 export type FakeMcpServer = {
@@ -27,7 +31,7 @@ export type FakeMcpServer = {
   down: boolean;
   /** When set, `tools/list` fails with a server error. */
   failList: boolean;
-  /** When set, `tools/call` fails with a server error. */
+  /** When set, `tools/call` gets a 503, as from a server that went down after listing. */
   failCalls: boolean;
 };
 
@@ -119,23 +123,21 @@ export function createFakeMcpServer({
             })),
           });
         case "tools/call": {
-          if (server.failCalls) {
-            return Response.json({
-              jsonrpc: "2.0",
-              id: message.id,
-              error: { code: -32000, message: "upstream failure" },
-            });
-          }
+          if (server.failCalls) return new Response("Service unavailable", { status: 503 });
           const name = message.params?.name ?? "";
           const args = message.params?.arguments ?? {};
+          const tool = tools.find((each) => each.name === name);
+          if (tool?.rpcError) {
+            return Response.json({ jsonrpc: "2.0", id: message.id, error: tool.rpcError });
+          }
           server.calls.push({ name, arguments: args });
+          if (tool?.error)
+            return reply({ isError: true, content: [{ type: "text", text: tool.error }] });
           return reply({
             content: [
               {
                 type: "text",
-                text:
-                  tools.find((tool) => tool.name === name)?.result ??
-                  JSON.stringify({ ran: name, arguments: args }),
+                text: tool?.result ?? JSON.stringify({ ran: name, arguments: args }),
               },
             ],
           });

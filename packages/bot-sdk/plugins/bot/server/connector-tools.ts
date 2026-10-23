@@ -37,8 +37,32 @@ function serverOf(servers: readonly Server[], toolName: string): Server | undefi
 /** The text of a tool's result, as the Bot reads it. */
 const textOf = (result: unknown) => (typeof result === "string" ? result : JSON.stringify(result));
 
-/** The error `@tanstack/ai-mcp` throws when the server answers a call with `isError`. */
-const toolErrorPrefix = 'MCP tool "';
+/** The MCP client's codes for a connection that is gone, as opposed to a call that failed. */
+const connectionCodes = new Set([
+  "CONNECTION_CLOSED",
+  "NOT_CONNECTED",
+  "NOT_INITIALIZED",
+  "SEND_FAILED",
+]);
+
+/**
+ * Whether a call failed because its Connection can't be reached or isn't authorised: the client is
+ * closed or never connected, the transport closed, the endpoint answered with an HTTP error (401,
+ * 503...), the sign-in failed, or the network failed. A tool's own error, a JSON-RPC error (such as
+ * bad arguments) and a timeout are the call's answer instead.
+ */
+function isConnectionFailure(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const { code, status } = error as { code?: unknown; status?: unknown };
+  return (
+    error.name === "MCPConnectionError" ||
+    error.name === "UnauthorizedError" ||
+    // `fetch` itself failed: the network, not the server.
+    error instanceof TypeError ||
+    typeof status === "number" ||
+    (typeof code === "string" && connectionCodes.has(code))
+  );
+}
 
 export type Connectors = {
   /** The listed tools, each call a `liveRequest` of the loop's. */
@@ -104,11 +128,11 @@ export async function connectorTools(
           } catch (caught) {
             if (context?.abortSignal?.aborted || signal.aborted) throw caught;
             const message = caught instanceof Error ? caught.message : String(caught);
-            // The server's own error is its answer, fenced like one; anything else is a Connection
-            // that is down.
-            return message.startsWith(toolErrorPrefix)
-              ? { error: fenced(message) }
-              : { error: reconnectError(connection) };
+            // A Connection that is down or unauthorised needs reconnecting; any other failure is the
+            // call's answer, fenced like a result.
+            return isConnectionFailure(caught)
+              ? { error: reconnectError(connection) }
+              : { error: fenced(message) };
           }
         },
         // Unmetered: nothing to record.
