@@ -5,7 +5,7 @@ import {
   imagePrompt,
   imageReply,
 } from "../../../packages/bot-sdk/test/e2e/fake-ollama";
-import { messageRows, signInAsSeededUserWithModel } from "./helpers";
+import { messageRows, signInAsSeededUserWithModel } from "./assistant-helpers";
 import { appWebHost } from "./host";
 
 test("a Shared link shows its Generated image to a signed-out viewer, who can download it", async ({

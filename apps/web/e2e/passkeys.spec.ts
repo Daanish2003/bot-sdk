@@ -148,7 +148,7 @@ test("a banned user with a passkey can't sign in with it", async ({ page, browse
   await targetContext.clearCookies();
   await signInWithPasskey(target);
   await expect(target.getByText("This account is suspended.")).toBeVisible();
-  await target.goto("/c");
+  await target.goto("/bots");
   await expect(target).toHaveURL(/\/login/);
 });
 

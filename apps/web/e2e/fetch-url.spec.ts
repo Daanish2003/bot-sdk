@@ -6,7 +6,7 @@ import {
   fetchedPageText,
   fetchMarker,
 } from "../../../packages/bot-sdk/test/e2e/fake-ollama";
-import { messageRows, signInAsSeededUserWithModel } from "./helpers";
+import { messageRows, signInAsSeededUserWithModel } from "./assistant-helpers";
 
 test("a linked page is read with the Web toggle on, and the reply cites it", async ({ page }) => {
   await signInAsSeededUserWithModel(page);

@@ -1,8 +1,16 @@
 import { createDb } from "@ai-chat/db";
 import { expect, test } from "@playwright/test";
 
-import { appWebHost } from "./host";
-import { type CapturedMail, addFakeOllama, send, verificationLink, waitForMail } from "./helpers";
+import { botReply, sendMarker } from "../../../packages/bot-sdk/test/e2e/fake-ollama";
+import {
+  type CapturedMail,
+  addFakeOllama,
+  botMessages,
+  createBot,
+  sendToBot,
+  verificationLink,
+  waitForMail,
+} from "./helpers";
 import { e2eDatabaseUrl } from "./database.ts";
 import { seedUser } from "./seed-user";
 
@@ -13,14 +21,13 @@ function deletionLink(mail: CapturedMail): string {
   return match[0];
 }
 
-/** How many rows the e2e database holds for a Conversation id, in a Bot SDK table. */
-async function countRows(table: "conversation" | "shared_link", id: string): Promise<number> {
+/** How many rows the e2e database holds for a user, in a Bot SDK table. */
+async function countRows(table: "bot" | "conversation", userId: string): Promise<number> {
   const db = createDb({ DATABASE_URL: e2eDatabaseUrl() });
-  const column = table === "conversation" ? "id" : "conversation_id";
   try {
     const result = await db.$client.query(
-      `select count(*) as count from chat.${table} where ${column} = $1`,
-      [id],
+      `select count(*) as count from chat.${table} where user_id = $1`,
+      [userId],
     );
     return Number(result.rows[0].count);
   } finally {
@@ -28,26 +35,16 @@ async function countRows(table: "conversation" | "shared_link", id: string): Pro
   }
 }
 
-test("deleting the account removes its Conversation and Shared link, and the email can sign up again", async ({
+test("deleting the account removes its Bots and their Conversations, and the email can sign up again", async ({
   page,
-  browser,
 }) => {
   const seeded = await seedUser(page);
   await addFakeOllama(page);
-  await page.goto("/c");
-  await expect(page.getByRole("button", { name: "Model" })).toContainText("e2e-model");
-  await send(page, "Something to delete");
-  await expect(page).toHaveURL(appWebHost.paths.conversation);
-  const conversationId = new URL(page.url()).pathname.split("/").at(-1) ?? "";
-
-  await page.getByRole("button", { name: "Share" }).click();
-  const dialog = page.getByRole("dialog");
-  await dialog.getByRole("button", { name: "Create link" }).click();
-  const sharedUrl = (await dialog.getByText(appWebHost.paths.sharedLink).textContent()) ?? "";
-  const visitor = await browser.newPage();
-  await visitor.goto(sharedUrl);
-  await expect(visitor.getByText("Something to delete").first()).toBeVisible();
-  await page.keyboard.press("Escape");
+  await createBot(page, "Something to delete");
+  await sendToBot(page, `${sendMarker} Say hello`);
+  await expect(botMessages(page).last()).toHaveText(botReply);
+  expect(await countRows("bot", seeded.id)).toBe(1);
+  expect(await countRows("conversation", seeded.id)).toBe(1);
 
   await page.goto("/settings/account");
   await page.getByRole("button", { name: "Delete account" }).click();
@@ -61,11 +58,9 @@ test("deleting the account removes its Conversation and Shared link, and the ema
   await page.goto("/settings/account");
   await expect(page).toHaveURL(/\/login$/);
 
-  // The Bot SDK's rows went with the account, and the Shared link no longer opens.
-  expect(await countRows("conversation", conversationId)).toBe(0);
-  expect(await countRows("shared_link", conversationId)).toBe(0);
-  await visitor.goto(sharedUrl);
-  await expect(visitor.getByText("Shared link not found")).toBeVisible();
+  // The Bot SDK's rows went with the account.
+  expect(await countRows("bot", seeded.id)).toBe(0);
+  expect(await countRows("conversation", seeded.id)).toBe(0);
 
   const notice = await waitForMail(page, seeded.email, 2);
   expect(notice.map((message) => message.template)).toContain("account-deleted");

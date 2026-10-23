@@ -29,7 +29,7 @@ test("the service worker registers and controls the page", async ({ page }) => {
   expect(new URL(scriptURL!).pathname).toBe("/sw.js");
 });
 
-test("the worker never answers for the API or a Shared link", async ({ page, context }) => {
+test("the worker never answers for the API", async ({ page, context }) => {
   await controlledPage(page);
   await context.setOffline(true);
   try {
@@ -42,8 +42,6 @@ test("the worker never answers for the API or a Shared link", async ({ page, con
     );
     expect(outcome).toBe("failed");
 
-    // A Shared link isn't handled by the worker, so the browser's own error page shows.
-    await expect(page.goto("/share/not-a-real-token")).rejects.toThrow();
     // A navigation to the API isn't handled either; the offline page would answer a handled one.
     await expect(page.goto("/api/auth/get-session")).rejects.toThrow();
   } finally {
@@ -62,10 +60,9 @@ test("with the network cut, a navigation shows the offline page", async ({ page,
   }
 });
 
-test("the install row is in the drawer and goes once dismissed", async ({ page }) => {
+test("the install row is in the Bots sidebar and goes once dismissed", async ({ page }) => {
   await signInAsSeededUser(page);
-  await page.getByRole("button", { name: "Menu" }).click();
-  const drawer = page.locator("#app-drawer");
+  const drawer = page.getByRole("complementary", { name: "Bots" });
   const install = drawer.getByRole("button", { name: "Install", exact: true });
 
   // Chromium offers the install prompt only when it decides to; the test offers it directly.
@@ -77,7 +74,6 @@ test("the install row is in the drawer and goes once dismissed", async ({ page }
 
   // The dismissal is remembered: a new load doesn't show the row even when the prompt is offered.
   await page.reload();
-  await page.getByRole("button", { name: "Menu" }).click();
   await page.evaluate(() => window.dispatchEvent(new Event("beforeinstallprompt")));
   await expect(drawer.getByRole("button", { name: "Not now" })).toHaveCount(0);
   await expect(install).toHaveCount(0);

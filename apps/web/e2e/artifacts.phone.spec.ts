@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 import { artifactMarker, dataPath } from "../../../packages/bot-sdk/test/e2e/fake-ollama";
 
 import { fakeOllamaHost } from "./env";
-import { messageRows, signInAsSeededUserWithModel } from "./helpers";
+import { messageRows, signInAsSeededUserWithModel } from "./assistant-helpers";
 
 test("at phone width the Artifact panel fills the screen, and close returns to the chat", async ({
   page,

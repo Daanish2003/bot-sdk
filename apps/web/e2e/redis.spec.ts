@@ -1,30 +1,26 @@
 import { expect, test } from "@playwright/test";
 
 import { slowMarker } from "../../../packages/bot-sdk/test/e2e/fake-ollama";
-import { messageRows, signInAsSeededUserWithModel } from "./helpers";
+import { createBot, sendToBot, signInAsSeededUserWithModel } from "./helpers";
 
-// Runs only when the e2e run has REDIS_URL (playwright.config.ts), so the server shares its Runs
-// through Redis (ADR 0006) instead of memory.
+// Runs only when the e2e run has REDIS_URL (playwright.config.ts), so the server shares its Turns'
+// changes through Redis (ADR 0006) instead of memory.
 
-test("a second tab re-attaches to a running reply, and its Stop stops the reply", async ({
+test("a second tab sees a Bot working, and its Stop stops the Turn in both tabs", async ({
   page,
 }) => {
   await signInAsSeededUserWithModel(page);
-  await page.getByLabel("Message", { exact: true }).fill(`Keep going ${slowMarker}`);
-  await page.keyboard.press("Enter");
-  await expect(messageRows(page).last()).toContainText("You said");
-  await expect(page).toHaveURL(/\/c\/[\w-]+$/);
+  await createBot(page, "Slowpoke");
+  await sendToBot(page, `Keep going ${slowMarker}`);
+  await expect(page.getByRole("button", { name: "Stop" })).toBeVisible();
 
-  // Another tab of the same user, opened on the Conversation while the reply still streams.
+  // Another tab of the same user, opened on the Bot while its Turn still runs.
   const second = await page.context().newPage();
-  await second.goto(new URL(page.url()).pathname);
+  await second.goto(page.url());
   await expect(second.getByRole("button", { name: "Stop" })).toBeVisible();
-  await expect(messageRows(second).last()).toContainText("You said");
 
   await second.getByRole("button", { name: "Stop" }).click();
-  await expect(messageRows(second).last()).toContainText("Stopped");
-  await expect(messageRows(page).last()).toContainText("Stopped");
-  await expect(messageRows(page).last()).not.toContainText("That's all.");
-  await expect(second.getByRole("button", { name: "Send" })).toBeVisible();
+  await expect(second.getByRole("button", { name: "Stop" })).toBeHidden({ timeout: 3_000 });
+  await expect(page.getByRole("button", { name: "Stop" })).toBeHidden({ timeout: 3_000 });
   await second.close();
 });

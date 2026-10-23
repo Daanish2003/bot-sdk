@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { messageRows, send, signInAsSeededUserWithModel } from "./helpers";
+import { messageRows, send, signInAsSeededUserWithModel } from "./assistant-helpers";
 
 // Instructions left the Keys page with #812; the assistant routes keep the token popover until spec 3.
 test("a reply's tokens show in its info popover", async ({ page }) => {
