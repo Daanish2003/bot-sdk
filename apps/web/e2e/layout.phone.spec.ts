@@ -21,6 +21,7 @@ test("the login, Bots, Keys and Account pages fit the screen", async ({ page }) 
   await page.goto("/login");
   await expectNoSidewaysScroll(page);
   await signInAsSeededUser(page);
+  await expect(page.getByRole("button", { name: "New Bot" })).toBeVisible();
   await expectNoSidewaysScroll(page);
   await page.goto("/settings/keys");
   await expect(page.getByRole("heading", { name: "Keys & settings" })).toBeVisible();

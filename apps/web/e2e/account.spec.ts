@@ -82,6 +82,8 @@ test("a seeded user is signed in, and its password signs in on the form", async 
   await expect(page.getByRole("heading", { name: "Keys & settings" })).toBeVisible();
 
   await page.context().clearCookies();
+  await page.goto("/settings/keys");
+  await expect(page).toHaveURL(/\/login$/);
   await signInOnForm(page, user.email, user.password);
   await expect(page).toHaveURL(/\/bots$/);
 });

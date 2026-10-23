@@ -66,9 +66,9 @@ export async function createBot(page: Page, name: string) {
   await page.goto("/bots");
   await page.getByRole("button", { name: "New Bot" }).click();
   await page.getByRole("textbox", { name: "Name" }).fill(name);
-  await page.getByRole("button", { name: "Create" }).click();
+  await page.getByRole("button", { name: "Create", exact: true }).click();
   await expect(page).toHaveURL(/\/bots\/[\w-]+$/);
-  await expect(page.getByRole("heading", { name })).toBeVisible();
+  await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
 }
 
 /** A Bot's Messages on the page. */
