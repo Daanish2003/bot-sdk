@@ -55,6 +55,7 @@ function refusedTool(sources: (ids: string[]) => Promise<EditSource[] | undefine
     onHost: true,
     mayRun: async () => ({ ok: false, resetsAt: new Date("2026-01-02T00:00:00Z") }),
     record: async () => {},
+    recordIn: async () => () => {},
   };
   const tool = createGenerateImageTool({
     adapter: fakeImageAdapter(),

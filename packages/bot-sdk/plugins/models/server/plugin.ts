@@ -27,7 +27,7 @@ import {
   resolveUserImageModel,
   saveImageModelSetting,
 } from "./image-model-setting";
-import { resolveImageModel, type ResolvedImageModel } from "./image-models";
+import { hostImageModelList, resolveImageModel, type ResolvedImageModel } from "./image-models";
 import { quotaLookup, quotaState, readQuota, type QuotaState } from "./quota";
 import { modelsPluginRouter } from "./routers/index";
 import { bindModelsDeps } from "./state";
@@ -147,6 +147,8 @@ export type ModelsApi = {
   readonly defaultBackgroundModel: string | null;
   /** The Host's default Image Model, or `null`. */
   readonly defaultImageModel: string | null;
+  /** Whether the Host offers any Image Model (`hostProviders`'s `imageModels`). */
+  readonly hasHostImageModels: boolean;
   // `usageTotals`, `usage` and `quota` are server-only reads for the Host's Admin views (spec #277).
   // No HTTP route: the Host decides who may call them. They never return Conversation content.
   /**
@@ -303,6 +305,9 @@ function modelsApi(deps: ModelsDeps): ModelsApi {
     },
     get defaultImageModel() {
       return deps.defaultImageModel;
+    },
+    get hasHostImageModels() {
+      return hostImageModelList(deps).length > 0;
     },
     usageTotals: (range) => usageTotals(deps, range),
     usage: ({ userId, since, until }) => usageByDay(deps, userId, { since, until }),
