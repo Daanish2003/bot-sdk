@@ -15,10 +15,8 @@ import { chatSchema } from "../../../core/server/db/chat-schema";
 import type { coreSchema } from "../../../core/server/db/core-schema";
 import type { IndexColumns, PluginSchema } from "../../../core/server/db/plugin-schema";
 import { message } from "../../../core/server/db/schema";
-import type { ConversationTools } from "../shared/chat/conversation-tools";
 import type { MessageUsage } from "../../models/shared/usage";
 import { artifact, artifactKind, artifactVersion } from "./db/artifact";
-import { mcpConnection } from "./db/connection";
 import { generatedImage } from "./db/generated-image";
 import { project } from "./db/project";
 import { savedPrompt } from "./db/saved-prompt";
@@ -27,7 +25,6 @@ import { sharedLink } from "./db/share";
 
 export type { MessageUsage };
 export * from "./db/artifact";
-export * from "./db/connection";
 export * from "./db/generated-image";
 export * from "./db/project";
 export * from "./db/saved-prompt";
@@ -53,9 +50,12 @@ const conversationColumns = {
   reasoningEffort: reasoningEffort("reasoning_effort"),
   /** The Project this Conversation is in; null when it is in none. Deleting it deletes this. */
   projectId: uuid("project_id").references(() => project.id, { onDelete: "cascade" }),
-  /** The MCP tools switched on here: its Connections and allowed tools (spec #91). */
+  /**
+   * The MCP tools once switched on here (spec #91). Unused since the `mcp` plugin took MCP over
+   * (ADR 0027); spec 3 drops it.
+   */
   toolSettings: jsonb("tool_settings")
-    .$type<ConversationTools>()
+    .$type<{ connections: string[]; allowedTools: string[] }>()
     .default(sql`'{"connections": [], "allowedTools": []}'::jsonb`)
     .notNull(),
   /** A Temporary Conversation: kept out of the lists, search and titles. Set at creation only. */
@@ -101,7 +101,6 @@ export const assistantSchema = {
     project,
     artifact,
     artifactVersion,
-    mcpConnection,
     generatedImage,
     savedPrompt,
     userSettings,

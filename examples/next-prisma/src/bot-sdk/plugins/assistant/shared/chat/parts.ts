@@ -244,10 +244,9 @@ export function createPartsBuilder(initial: StoredPart[] = []) {
     },
     /**
      * Stores a call the model asked for that waits for Approval: its name and full arguments, as
-     * the model streamed them, with no result. `mcpNames` are the names of the MCP tools offered,
-     * which makes the call an `mcp` one; any other is a Host tool.
+     * the model streamed them, with no result. Only a Host tool asks for Approval.
      */
-    awaitApproval(toolCallId: string, mcpNames: ReadonlySet<string> = new Set()) {
+    awaitApproval(toolCallId: string) {
       const streamed = streamedCalls.get(toolCallId);
       const args = parseArgs(streamed?.json ?? "");
       const name = streamed?.name ?? "";
@@ -255,7 +254,7 @@ export function createPartsBuilder(initial: StoredPart[] = []) {
         type: "tool_call",
         toolCallId,
         name,
-        source: mcpNames.has(name) ? "mcp" : "host",
+        source: "host",
         args,
         state: "awaiting_approval",
       });
@@ -409,19 +408,21 @@ type OfferedTools = {
   webSearch: boolean;
   fetchUrl: boolean;
   hostTools: boolean;
-  mcpTools: boolean;
   generateImage: boolean;
   /** Whether the request offers the Artifact tools (ADR 0016). */
   artifacts: boolean;
 };
 
-/** A call a request offers its tool for, as the Model replays it: a Host or an MCP tool, by its source. */
+/**
+ * A call a request offers its tool for, as the Model replays it. An MCP call, stored before the
+ * assistant stopped offering MCP tools, never is.
+ */
 const offeredCall = (part: CallPart, offered: OfferedTools) => {
   if (part.type === "web_search") return offered.webSearch;
   if (part.type === "generated_image") return offered.generateImage;
   if (isArtifactCall(part)) return offered.artifacts;
   if (part.name === fetchUrlToolName) return offered.fetchUrl;
-  return part.source === "mcp" ? offered.mcpTools : offered.hostTools;
+  return part.source !== "mcp" && offered.hostTools;
 };
 
 /**
@@ -536,7 +537,6 @@ export function toModelMessages(
     webSearch = false,
     fetchUrl = false,
     hostTools = false,
-    mcpTools = false,
     generateImage = false,
     artifacts = false,
     reads = { images: false, pdfs: false },
@@ -547,8 +547,6 @@ export function toModelMessages(
     fetchUrl?: boolean;
     /** Whether this request offers the Host's tools. */
     hostTools?: boolean;
-    /** Whether this request offers any MCP tools (spec #91). */
-    mcpTools?: boolean;
     /** Whether this request offers the `generate_image` tool (spec #278). */
     generateImage?: boolean;
     /** Whether this request offers the Artifact tools; their calls then replay as stubs (ADR 0016). */
@@ -559,12 +557,11 @@ export function toModelMessages(
 ): ModelMessage[] {
   return history.flatMap((stored) => {
     const messages =
-      webSearch || fetchUrl || hostTools || mcpTools || generateImage || artifacts
+      webSearch || fetchUrl || hostTools || generateImage || artifacts
         ? withToolCalls(stored, {
             webSearch,
             fetchUrl,
             hostTools,
-            mcpTools,
             generateImage,
             artifacts,
           })

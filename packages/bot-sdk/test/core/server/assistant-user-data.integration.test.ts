@@ -18,14 +18,17 @@ import {
   usage,
   userSettings,
   memorySettings,
+  modelSettings,
 } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkPlugin } from "../../../core/server/plugin";
 import { deleteUserData, exportUserData } from "../../../core/server/user-data";
-import { readTokens, saveTokens } from "../../../plugins/assistant/server/mcp/connections";
+import { readTokens, saveTokens } from "../../../plugins/mcp/server/connections";
 import { assistant } from "../../../plugins/assistant/server/plugin";
+import { sentFileBlobKey, uploadBotFile } from "../../../plugins/bot/server/files";
 import { bot as botPlugin } from "../../../plugins/bot/server/plugin";
 import { computer, computerBlobKey } from "../../../plugins/computer/server/plugin";
+import { mcp } from "../../../plugins/mcp/server/plugin";
 import { profilePath } from "../../../plugins/memory/server/bot-memory";
 import { runner } from "../../../plugins/runner/server/plugin";
 import { listCredentials, saveCredentials } from "../../../plugins/models/server/credentials/store";
@@ -88,7 +91,8 @@ async function activeJobsNaming(ids: string[]) {
  * A user with a row in every table that has a `user_id` column: a Conversation with an Attachment,
  * a Shared link and a Generated image; a Project with a Conversation and a Generated image; an
  * unused Attachment; settings, a Saved
- * prompt, an MCP connection, credentials and usage; the Memory switch; a Bot; a Computer. Returns the blob keys and ids it made.
+ * prompt, an MCP connection, credentials and usage; the Memory switch; a Bot; a file uploaded and
+ * not yet sent to the Bot; a Computer. Returns the blob keys and ids it made.
  */
 async function seedEverything(
   user: TestUser,
@@ -151,6 +155,12 @@ async function seedEverything(
     createdAt: new Date(),
   });
 
+  const upload = await uploadBotFile(
+    deps,
+    user.id,
+    new File(["milk, eggs"], "list.txt", { type: "text/plain" }),
+  );
+
   await deps.plugin("computer").forUser(user.id).run("true");
   // The Bot's memory files, on the disk of the sandbox the run above made, and the Computer's archive.
   fake.files.set(profilePath(botId), new TextEncoder().encode("- Lives in Berlin\n"));
@@ -160,6 +170,9 @@ async function seedEverything(
 
   await getTestDb().insert(userSettings).values({ userId: user.id, instructions: "Be terse." });
   await getTestDb().insert(memorySettings).values({ userId: user.id, enabled: false });
+  await getTestDb()
+    .insert(modelSettings)
+    .values({ userId: user.id, imageModel: "openai:gpt-image-2" });
   await getTestDb()
     .insert(savedPrompt)
     .values({ id: uuidv7(), userId: user.id, name: "review", text: "Review this." });
@@ -190,6 +203,7 @@ async function seedEverything(
       attachmentBlobKey(unused.id),
       `generated-image/${image}`,
       `generated-image/${projectImage}`,
+      sentFileBlobKey(upload.id),
       computerBlobKey(user.id),
     ],
     ids: [user.id],
@@ -202,7 +216,7 @@ describe("deleteUser across plugins, the assistant among them", () => {
     const fake = fakeComputerProvider();
     const deps = createTestSdk({
       blobStore: store,
-      plugins: [botPlugin(), computer({ provider: fake.provider })],
+      plugins: [botPlugin(), computer({ provider: fake.provider }), mcp()],
     });
     const owner = await insertUser();
     const other = await insertUser();
@@ -248,11 +262,11 @@ describe("exportUser across plugins, the assistant among them", () => {
   });
 });
 
-describe("rotateKeys across plugins, the assistant among them", () => {
+describe("rotateKeys across plugins", () => {
   const keyA = "key-a-of-at-least-32-characters-long!!";
   const keyB = "key-b-of-at-least-32-characters-long!!";
 
-  it("sums the models plugin's credentials and the assistant's MCP tokens", async () => {
+  it("sums the models plugin's credentials and the mcp plugin's Connection tokens", async () => {
     const user = await insertUser();
     const old = createTestSdk({ keyEncryptionSecrets: [keyA] });
     await saveCredentials(old, user.id, {
@@ -273,7 +287,7 @@ describe("rotateKeys across plugins, the assistant among them", () => {
       keyEncryptionSecrets: [keyB, keyA],
       basePath: "/api/chat",
       logger,
-      plugins: [models(), runner(), assistant()],
+      plugins: [models(), runner(), assistant(), mcp()],
     });
 
     await expect(sdk.rotateKeys()).resolves.toEqual({ reencrypted: 2, unreadable: 1 });

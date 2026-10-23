@@ -69,12 +69,12 @@ export async function followSend(
   client: {
     bot: {
       send: (
-        input: { botId: string; id: string; text: string; timeZone?: string },
+        input: { botId: string; id: string; text: string; files?: string[]; timeZone?: string },
         options?: { signal?: AbortSignal },
       ) => Promise<BotMessage>;
     };
   },
-  input: { botId: string; id: string; text: string; timeZone?: string },
+  input: { botId: string; id: string; text: string; files?: string[]; timeZone?: string },
   options?: { signal?: AbortSignal },
 ): Promise<AsyncGenerator<BotSendEvent>> {
   return followSaved(getTestDb(), await client.bot.send(input, options), options?.signal);

@@ -3,7 +3,6 @@ import type { RouterClient } from "@orpc/server";
 import { protectedProcedure, publicProcedure } from "../../../../core/server/procedures";
 import { artifactRouter } from "./artifact";
 import { chatRouter } from "./chat";
-import { connectionsRouter } from "./connections";
 import { conversationRouter } from "./conversation";
 import { projectRouter } from "./project";
 import { savedPromptRouter } from "./saved-prompt";
@@ -14,7 +13,6 @@ import { shareRouter } from "./share";
 export const appRouter = {
   artifact: artifactRouter,
   chat: chatRouter,
-  connections: connectionsRouter,
   conversation: conversationRouter,
   project: projectRouter,
   savedPrompt: savedPromptRouter,

@@ -18,7 +18,6 @@ import {
   moveConversation,
   pinConversation,
   renameConversation,
-  setConversationConnections,
   setConversationModel,
   setConversationReasoningEffort,
   switchBranch,
@@ -31,7 +30,6 @@ import { protectedProcedure } from "../../../../core/server/procedures";
 import { rpcError } from "../../../../core/server/rpc-error";
 import { unusableModelError } from "../../../models/server/unusable-model";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { assistantState } from "../state";
 
 export const conversationRouter = {
   /** Starts an empty Conversation, with its reasoning effort if one is chosen; the first Message is sent through `/api/chat`. */
@@ -116,7 +114,6 @@ export const conversationRouter = {
       model: row.model,
       reasoningEffort: row.reasoningEffort,
       temporary: row.temporary,
-      tools: row.toolSettings,
       archivedAt: row.archivedAt,
       messages,
     };
@@ -191,24 +188,6 @@ export const conversationRouter = {
     }),
 
   /** Selects the reasoning effort the next Message and regenerate use; `null` is the Model's default. */
-  /**
-   * Switches the MCP Connections on for the Conversation's next Message and regenerate (spec #91).
-   * Each key must be an MCP server the Host lists. Doesn't bump `lastMessageAt`.
-   */
-  setConnections: protectedProcedure
-    .input(z.object({ id: z.uuid(), connections: z.array(z.string()) }))
-    .handler(async ({ context, input }) => {
-      const known = new Set(assistantState(context.sdk).mcpServers.map((server) => server.key));
-      if (input.connections.some((key) => !known.has(key))) {
-        throw rpcError("BAD_REQUEST", "error.unknownMcpServer", "Unknown MCP server");
-      }
-      const updated = await setConversationConnections(context.sdk, context.user.id, input.id, [
-        ...new Set(input.connections),
-      ]);
-      if (!updated)
-        throw rpcError("NOT_FOUND", "error.conversationNotFound", "Conversation not found");
-    }),
-
   setReasoningEffort: protectedProcedure
     .input(
       z.object({

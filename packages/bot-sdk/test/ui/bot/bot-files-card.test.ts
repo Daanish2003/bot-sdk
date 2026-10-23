@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { os } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -63,7 +63,38 @@ function mount(
   );
 }
 
+const imageId = "0199c8a0-0000-7000-8000-000000000002";
+const withImage: BotMessage = {
+  ...sent,
+  control: {
+    kind: "files",
+    files: [
+      { id: fileId, name: "report.csv", size: 2048, mediaType: "text/csv" },
+      { id: imageId, name: "chart.png", size: 4096, mediaType: "image/png" },
+    ],
+  },
+};
+
 describe("the files card", () => {
+  it("shows an image as a thumbnail that zooms on click, and other files stay links only", async () => {
+    const { container } = mount([withImage]);
+
+    await waitFor(() => expect(container.querySelector("[data-files-card]")).not.toBeNull());
+    const inline = `http://localhost/api/chat/bot-files/${imageId}/inline`;
+    const thumb = container.querySelector<HTMLImageElement>(`[data-thumbnail="${imageId}"] img`)!;
+    expect(thumb.getAttribute("src")).toBe(inline);
+    expect(container.querySelector(`[data-thumbnail="${fileId}"]`)).toBeNull();
+    // Its download link stays.
+    expect(container.querySelector(`a[data-file="${imageId}"]`)!.getAttribute("href")).toBe(
+      `http://localhost/api/chat/bot-files/${imageId}`,
+    );
+
+    expect(document.querySelector("[data-zoomed]")).toBeNull();
+    fireEvent.click(container.querySelector(`[data-thumbnail="${imageId}"]`)!);
+    await waitFor(() => expect(document.querySelector("[data-zoomed]")).not.toBeNull());
+    expect(document.querySelector("[data-zoomed]")!.getAttribute("src")).toBe(inline);
+  });
+
   it("shows a download link with the name and size of each file under its Message", async () => {
     const { container } = mount([sent]);
 

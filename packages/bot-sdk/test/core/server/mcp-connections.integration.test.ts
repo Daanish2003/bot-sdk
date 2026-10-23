@@ -2,13 +2,15 @@ import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { createBotSdk, type BotSdkOptions } from "../../../core/server/create-chat";
-import { assistant } from "../../../plugins/assistant/server/plugin";
+import { mcpClient } from "../../../plugins/mcp/client/index";
+import { mcp } from "../../../plugins/mcp/server/plugin";
 import { runner } from "../../../plugins/runner/server/plugin";
 import { models } from "../../../plugins/models/server/plugin";
 import { deleteUserData } from "../../../core/server/user-data";
 import { mcpConnection } from "../../../core/server/db/schema";
-import type { McpServerConfig } from "../../../plugins/assistant/server/mcp/servers";
-import { createTestSdk, testKeyEncryptionSecret, createTestChat } from "../../support/assistant";
+import type { McpServerConfig } from "../../../plugins/mcp/server/servers";
+import { createTestSdk, testKeyEncryptionSecret, type TestDeps } from "../../support/deps";
+import { createTestChat as createBotOnlyChat } from "../../support/sdk";
 import { createFakeMcpAuth, fakeMcpResource } from "../../support/fake-mcp-auth";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 import { insertUser, type TestUser } from "../../support/users";
@@ -23,17 +25,21 @@ const linear: McpServerConfig = {
 };
 const origin = "http://localhost/api/chat";
 
-/** Deps with the fake authorization server behind the injected `fetch`. */
+/** Deps with the `mcp` plugin, and the fake authorization server behind the injected `fetch`. */
 function depsWith(
   auth: ReturnType<typeof createFakeMcpAuth>,
-  options: { mcpServers?: McpServerConfig[]; keyEncryptionSecrets?: string[] } = {},
+  options: { servers?: McpServerConfig[]; keyEncryptionSecrets?: string[] } = {},
 ) {
   return createTestSdk({
     fetch: auth.fetch,
-    mcpServers: options.mcpServers ?? [linear],
+    plugins: [mcp({ servers: options.servers ?? [linear] })],
     ...(options.keyEncryptionSecrets ? { keyEncryptionSecrets: options.keyEncryptionSecrets } : {}),
   });
 }
+
+/** The test client with the `mcp` plugin's client. */
+const createTestChat = (options: { user: TestUser; deps: TestDeps }) =>
+  createBotOnlyChat({ ...options, clientPlugins: [mcpClient()] });
 
 const freshAuth = () => createFakeMcpAuth({ clientId, clientSecret });
 
@@ -47,18 +53,14 @@ async function startConnect(user: TestUser, deps: ReturnType<typeof depsWith>) {
   return response;
 }
 
-describe("createBotSdk's mcpServers", () => {
+describe("mcp({ servers })", () => {
   it("refuses a server URL that isn't HTTPS", () => {
     const options: BotSdkOptions = {
       databaseUrl: testDatabaseUrl,
       getUser: () => null,
       keyEncryptionSecrets: [testKeyEncryptionSecret],
       basePath: "/api/chat",
-      plugins: [
-        models(),
-        runner(),
-        assistant({ mcpServers: [{ ...linear, url: "http://mcp.test/mcp" }] }),
-      ],
+      plugins: [models(), runner(), mcp({ servers: [{ ...linear, url: "http://mcp.test/mcp" }] })],
     };
 
     expect(() => createBotSdk(options)).toThrow(/HTTPS/);
@@ -164,10 +166,10 @@ describe("connecting an MCP server", () => {
     expect(auth.tokenRequests).toHaveLength(1);
   });
 
-  it("refuses connect for a server the Host doesn't list, and with no mcpServers at all", async () => {
+  it("refuses connect for a server the Host doesn't list, and with no servers at all", async () => {
     const auth = freshAuth();
     const user = await insertUser();
-    const none = depsWith(auth, { mcpServers: [] });
+    const none = depsWith(auth, { servers: [] });
 
     const response = await createTestChat({ user, deps: none }).fetch(
       new Request(`${origin}/mcp/connect?server=linear`, { redirect: "manual" }),
@@ -181,7 +183,7 @@ describe("connecting an MCP server", () => {
 
     const { servers } = await createTestChat({
       user,
-      deps: depsWith(freshAuth(), { mcpServers: [] }),
+      deps: depsWith(freshAuth(), { servers: [] }),
     }).rpc.connections.list();
 
     expect(servers).toEqual([]);

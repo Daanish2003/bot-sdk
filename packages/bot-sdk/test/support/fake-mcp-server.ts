@@ -9,6 +9,14 @@ import { fakeMcpResource } from "./fake-mcp-auth";
 export type FakeMcpTool = {
   name: string;
   annotations?: Record<string, unknown>;
+  /** The tool's description; "The fake <name> tool." unless given. */
+  description?: string;
+  /** The text a call returns; the call's name and arguments as JSON unless given. */
+  result?: string;
+  /** When set, a call fails in the tool: an `isError` result with this text. */
+  error?: string;
+  /** When set, a call is refused with this JSON-RPC error, as for bad arguments. */
+  rpcError?: { code: number; message: string };
 };
 
 export type FakeMcpServer = {
@@ -21,7 +29,9 @@ export type FakeMcpServer = {
   closed: number;
   /** When set, the server is down: every request gets a 503. */
   down: boolean;
-  /** When set, `tools/call` fails with a server error. */
+  /** When set, `tools/list` fails with a server error. */
+  failList: boolean;
+  /** When set, `tools/call` gets a 503, as from a server that went down after listing. */
   failCalls: boolean;
 };
 
@@ -97,27 +107,39 @@ export function createFakeMcpServer({
             serverInfo: { name: "fake-linear", version: "1.0.0" },
           });
         case "tools/list":
-          return reply({
-            tools: tools.map(({ name, annotations }) => ({
-              name,
-              description: `The fake ${name} tool.`,
-              inputSchema: { type: "object", properties: {} },
-              ...(annotations ? { annotations } : {}),
-            })),
-          });
-        case "tools/call": {
-          if (server.failCalls) {
+          if (server.failList) {
             return Response.json({
               jsonrpc: "2.0",
               id: message.id,
               error: { code: -32000, message: "upstream failure" },
             });
           }
+          return reply({
+            tools: tools.map(({ name, annotations, description }) => ({
+              name,
+              description: description ?? `The fake ${name} tool.`,
+              inputSchema: { type: "object", properties: {} },
+              ...(annotations ? { annotations } : {}),
+            })),
+          });
+        case "tools/call": {
+          if (server.failCalls) return new Response("Service unavailable", { status: 503 });
           const name = message.params?.name ?? "";
           const args = message.params?.arguments ?? {};
+          const tool = tools.find((each) => each.name === name);
+          if (tool?.rpcError) {
+            return Response.json({ jsonrpc: "2.0", id: message.id, error: tool.rpcError });
+          }
           server.calls.push({ name, arguments: args });
+          if (tool?.error)
+            return reply({ isError: true, content: [{ type: "text", text: tool.error }] });
           return reply({
-            content: [{ type: "text", text: JSON.stringify({ ran: name, arguments: args }) }],
+            content: [
+              {
+                type: "text",
+                text: tool?.result ?? JSON.stringify({ ran: name, arguments: args }),
+              },
+            ],
           });
         }
         default:
@@ -132,6 +154,7 @@ export function createFakeMcpServer({
     calls: [],
     closed: 0,
     down: false,
+    failList: false,
     failCalls: false,
   };
   return server;

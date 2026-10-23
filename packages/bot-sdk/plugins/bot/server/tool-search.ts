@@ -91,13 +91,19 @@ const runToolDefinition = toolDefinition({
  * `describe_tool` and `run_tool` over `tools`, the code's tools as they are now. They read the
  * live definitions, so a tool a deploy added or changed since the Prompt start works at once.
  * A call runs the tool's own `execute`, so its Approval, rules and recording are the tool's.
+ * A name that is none of `tools` is answered by `missing` when it gives an error (a Connector tool
+ * whose Connection listed nothing this Turn), else as unknown.
  */
-export function toolSearchTools(tools: AnyServerTool[]): AnyServerTool[] {
+export function toolSearchTools(
+  tools: AnyServerTool[],
+  missing: (name: string) => string | undefined = () => undefined,
+): AnyServerTool[] {
+  const notFound = (name: string) => ({ error: missing(name) ?? unknownToolError(name) });
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
   const checked = new Map(tools.map((tool) => [tool.name, checkedTool(tool)]));
   const describeTool = describeToolDefinition.server(({ name }) => {
     const tool = byName.get(name);
-    if (!tool) return { error: unknownToolError(name) };
+    if (!tool) return notFound(name);
     return {
       name: tool.name,
       description: tool.description,
@@ -106,7 +112,7 @@ export function toolSearchTools(tools: AnyServerTool[]): AnyServerTool[] {
   });
   const runTool = runToolDefinition.server(async ({ name, args }, context) => {
     const tool = checked.get(name);
-    if (!tool?.execute) return { error: unknownToolError(name) };
+    if (!tool?.execute) return notFound(name);
     return tool.execute(args, context);
   });
   return [describeTool, runTool];

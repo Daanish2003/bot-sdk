@@ -80,7 +80,7 @@ export type ImageCall = {
   /** Whether the Run was stopped during the call. */
   stopped: boolean;
 };
-export type ImageMeter = Meter<ImageCall>;
+export type ImageMeter = TxMeter<ImageCall>;
 
 /** One transcription: the recording's own length, and the length the Provider reports, if any. */
 export type TranscriptionMeter = Meter<{ durationSeconds: number; reportedSeconds?: number }>;

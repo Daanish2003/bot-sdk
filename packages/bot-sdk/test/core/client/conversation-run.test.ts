@@ -62,7 +62,6 @@ function conversationWith(messages: ActiveBranchMessage[]): ConversationData {
     model,
     reasoningEffort: null,
     temporary: false,
-    tools: { connections: [], allowedTools: [] },
     archivedAt: null,
     messages,
   } as unknown as ConversationData;
@@ -151,7 +150,7 @@ afterEach(() => {
 /** Mounts the hook on `conversation`; `procedures` replace the fake server's defaults. */
 function renderRun(
   conversation: ConversationData,
-  options: Pick<Partial<ConversationRunOptions>, "connections" | "webSearchAvailable"> = {},
+  options: Pick<Partial<ConversationRunOptions>, "webSearchAvailable"> = {},
   procedures: Partial<Server> = {},
 ) {
   const ok = () => vi.fn(async (_input: unknown): Promise<unknown> => ({}));
@@ -172,7 +171,6 @@ function renderRun(
       useConversationRun(conversation, {
         ...callbacks,
         webSearchAvailable: false,
-        connections: [],
         ...options,
       }),
     { wrapper },
@@ -204,9 +202,7 @@ describe("useConversationRun", () => {
       await released;
       return sse(replyChunks("r1", ["Fine, ", "thanks"]));
     });
-    const { result } = renderRun(conversationWith([question, answer]), {
-      connections: ["github"],
-    });
+    const { result } = renderRun(conversationWith([question, answer]));
     server.conversation = conversationWith(after);
 
     let sent!: Promise<void>;
@@ -228,7 +224,6 @@ describe("useConversationRun", () => {
           attachmentIds: [],
           model,
           webSearch: false,
-          tools: { connections: ["github"], allowedTools: [] },
         },
       },
     });
@@ -325,12 +320,11 @@ describe("useConversationRun", () => {
     server.conversation = resumed;
 
     expect(result.current.waiting).toBe(true);
-    await act(() => result.current.decide("a1", true, true));
+    await act(() => result.current.decide("a1", true));
 
     expect(server.decide).toHaveBeenCalledWith({
       messageId: "a1",
       approved: true,
-      allowForConversation: true,
       webSearch: false,
     });
     expect(callbacks.onDecided).toHaveBeenCalledOnce();

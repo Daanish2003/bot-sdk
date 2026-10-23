@@ -68,6 +68,8 @@ They need no new shadcn components: `button`, `label`, `popover`, `select`, `tex
 
 Later `ui/` changes a Host that copied an older SDK also needs to port: the Web toggle and the fetched-page Source chip (#157, `plugins/assistant/ui/chat/search-toggle.tsx` and `plugins/assistant/ui/chat/source-chips.tsx`), the context ring (#123, `plugins/assistant/ui/chat/context-ring.tsx`), the approval choice "Allow for this Conversation" (#159, `plugins/assistant/ui/chat/tool-call-row.tsx`), Connections (#160, `plugins/assistant/ui/settings/connections-section.tsx` and `plugins/models/ui/key-settings.tsx`) and the tools menu (#161, `plugins/assistant/ui/chat/tools-menu.tsx`). Compare each against the SDK's copy with the diff in step 2 of Updating.
 
+Since the `mcp` plugin (ADR 0027), Connections live at `plugins/mcp/ui/connections-section.tsx`, and the tools menu and "Allow for this Conversation" are gone: delete `plugins/assistant/ui/chat/tools-menu.tsx` and `plugins/assistant/ui/settings/connections-section.tsx` from your copy.
+
 From #378 on, Run-protocol fixes ship in `plugins/assistant/client/` (`useConversationRun`) and need no porting. A `chat-view.tsx` copied before #378 holds that logic itself: port the SDK's `ChatThread` once so it calls `useConversationRun`, and later protocol fixes reach it with the copy.
 
 ## Dependencies
@@ -95,7 +97,7 @@ The root `ui/` needs nothing beyond `core/`'s packages.
 **What the `assistant` plugin needs (on top of `core/`):**
 
 - `@tanstack/ai-client`, `@tanstack/ai-compaction`
-- `@tanstack/ai-mcp`, pinned at 0.8.1 (the release whose `@tanstack/ai` range matches), the MCP client (`mcpServers` below). The sign-in itself is the SDK's own: the library exports no OAuth helpers. It brings `@modelcontextprotocol/*` and `jose`.
+- `@tanstack/ai-mcp`, pinned at 0.8.1 (the release whose `@tanstack/ai` range matches), the MCP client (the `mcp` plugin below). The sign-in itself is the SDK's own: the library exports no OAuth helpers. It brings `@modelcontextprotocol/*` and `jose`.
 - `html-to-text` (pinned at 10.0.1), which the `fetch_url` tool uses to turn an HTML page into text. Maintained, MIT, about 15M weekly downloads; the other candidates were `turndown` (converts to Markdown, not text), `@mozilla/readability` (needs a DOM, e.g. `linkedom`) and `node-html-parser`.
 - for Knowledge's text extraction: `cheerio`, `htmlparser2`, `csv-parse`, `mammoth`, `pdfjs-dist`, `@thednp/dommatrix`
 - for its `ui/`: `@tanstack/ai-react`, `lucide-react`, and what the `prompt-kit` components need (see below): `class-variance-authority`, `marked`, `react-markdown`, `remark-breaks`, `remark-gfm`, `shiki`, `use-stick-to-bottom`, `@tailwindcss/typography`.
@@ -170,7 +172,7 @@ The server API below is the spec for the SDK (spec #70). Some of it lands in lat
 ```ts
 // server: construct at module load (no side effects)
 // the Model options (Host Providers, BYOK, Quota, ...) go to `models(...)`, the background jobs
-// runner to `runner(...)`, and the assistant's (tools, MCP servers, ...) to `assistant(...)`
+// runner to `runner(...)`, MCP servers to `mcp(...)`, and the assistant's (tools, ...) to `assistant(...)`
 const chat = createBotSdk({
   databaseUrl,
   getUser,
@@ -661,11 +663,11 @@ To give a tool its own look in the chat, edit `plugins/assistant/ui/chat/tool-ca
 
 ## Connections to MCP servers
 
-`mcpServers` lists remote MCP servers your users may sign in to: `assistant({ mcpServers: [{ key, name, url, oauth: { clientId, clientSecret } }] })`. Only Streamable HTTP servers on HTTPS are accepted; a `url` that isn't HTTPS throws when `createBotSdk` runs. `key` names the server in storage (letters, digits, `_` and `-`). Register your OAuth client with each server ahead of time: the SDK doesn't use Dynamic Client Registration.
+The `mcp` plugin lists remote MCP servers your users may sign in to: `mcp({ servers: [{ key, name, url, oauth: { clientId, clientSecret } }] })`, with `mcpClient()` on the client and its `ConnectionsSection` on the keys page. It's imported from `@ai-chat/bot-sdk/plugins/mcp/server` (and `/client`, `/ui`). Only Streamable HTTP servers on HTTPS are accepted; a `url` that isn't HTTPS throws when `createBotSdk` runs. `key` names the server in storage (letters, digits, `_` and `-`). Register your OAuth client with each server ahead of time: the SDK doesn't use Dynamic Client Registration.
 
 Register this redirect URI with each server, with your app's origin in place of the host: `https://<your-app>/<basePath>/mcp/callback`, for example `https://app.example/api/chat/mcp/callback`. The SDK serves the sign-in start (`<basePath>/mcp/connect`) and this callback through the same handler, so the Host mounts no new route.
 
-With no `mcpServers`, the keys page shows no Connections section and connecting is refused. A user's Connection is stored encrypted under the keyring (ADR 0010). A Connection whose tokens no longer decrypt shows as "Reconnect needed". `deleteUser` removes the user's Connections. Discovery and token requests go through the guarded `fetch`.
+With no `servers`, the keys page shows no Connections section and connecting is refused. A user's Connection is stored encrypted under the keyring (ADR 0010). A Connection whose tokens no longer decrypt shows as "Reconnect needed". `deleteUser` removes the user's Connections. Discovery and token requests go through the guarded `fetch`. `sdk.plugin("mcp").forUser(userId).tools({ signal })` gives a user's connected servers' tools, named `<key>_<tool>`, with their clients open until `signal` aborts; it refreshes expired tokens and skips a server that is down. The assistant offers no MCP tools.
 
 ## Rate limits
 

@@ -9,7 +9,7 @@ const forwardMarker = /^[ \t]*(?:-{2,}\s*Forwarded message\s*-{2,}|Begin forward
 /**
  * What the Bot reads from an email (spec #761): the new text only, the quoted history stripped; the
  * subject as a first line unless the mail replies to the Bot's thread (one of its In-Reply-To or
- * References ids is a Bot's, `<id@domain>`); the attachments named in one line;
+ * References ids is a Bot's, `<id@domain>`); the attachments not kept named in one line;
  * and anything below a forward marker in an untrusted fenced block, as for a webhook's payload.
  * Empty when the mail has no subject line, no new text, no forward and no attachment.
  */

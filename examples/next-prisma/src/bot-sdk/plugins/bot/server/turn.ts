@@ -38,7 +38,7 @@ import {
 import { type TodoItem, todoList } from "./helper";
 import { helperTools } from "./helper-tools";
 import { watchUserTool } from "./demonstration";
-import { type LoopKit, type LoopResult, type LoopSetup, runLoop } from "./loop";
+import { type LoopKit, type LoopResult, type LoopSetup, runLoop, seesImagesOnce } from "./loop";
 import {
   definitionsOf,
   loopPromptStart,
@@ -50,6 +50,7 @@ import { closeWaitingReviews } from "./review";
 import { historyFrom, historyTurns, queueAwaySummary, summaryOf, writeSummary } from "./summary";
 import {
   appendBotMessage,
+  controlOf,
   controlParts,
   findBot,
   reactionsOf,
@@ -63,11 +64,18 @@ import { knowledgeChangesOf } from "../../knowledge/server/changes";
 import type { BotKnowledgeChange } from "../../knowledge/shared/changes";
 import { skillChangesOf } from "../../skills/server/skills";
 import { choiceOptionsSchema } from "../shared/choice";
-import { maxFilesPerMessage } from "../shared/files";
+import { maxFilesPerMessage, type SentFile } from "../shared/files";
 import { emojiSchema } from "../shared/reaction";
 import type { RichControl } from "../shared/rich-control";
 import { secretNameSchema } from "../shared/secret";
-import { copyFilesToStorage } from "./files";
+import {
+  botFileRef,
+  copyFilesToStorage,
+  copyUploads,
+  isInlineImage,
+  takeUploads,
+  userFilesLine,
+} from "./files";
 import {
   createRoutineToolName,
   deleteRoutine,
@@ -79,6 +87,8 @@ import {
 } from "./routine";
 import { formatterIn, knownZone, timeNotice } from "./time-zone";
 import { checkedTool, isDirectTool, toolSearchTools } from "./tool-search";
+import { type ConnectorListing, connectorTools } from "./connector-tools";
+import { generateImageTool } from "./generate-image";
 import { webSearchTool } from "./web-search";
 
 // Re-exported: it moved to `thread-change` so `routine` and `check-in` can use it without a cycle.
@@ -145,11 +155,16 @@ export const botSystemPrompt = promptOpening + onlyToolLimits + promptRules;
 
 /**
  * The system prompts of a Bot's Turn. With `computer` on, the Bot's limits allow its Computer, and
- * a second prompt names its own directory and the shared one; with it off, it is `botSystemPrompt`.
+ * a second prompt names its own directory and the shared one, its ladder with connectors when
+ * `withConnectors` (the Host installs `mcp`); with it off, it is `botSystemPrompt`.
  */
-export function botSystemPrompts(botId: string, withComputer: boolean): string[] {
+export function botSystemPrompts(
+  botId: string,
+  withComputer: boolean,
+  withConnectors = false,
+): string[] {
   if (!withComputer) return [botSystemPrompt];
-  return [promptOpening + computerLimits + promptRules, computerPrompt(botId)];
+  return [promptOpening + computerLimits + promptRules, computerPrompt(botId, withConnectors)];
 }
 
 /** What SendToUser returns for an empty `text`: what went wrong, and what to do instead. */
@@ -381,15 +396,26 @@ export async function sendToBot(
     botId,
     id,
     text,
+    files: fileIds = [],
     timeZone,
   }: {
     userId: string;
     botId: string;
     id: string;
     text: string;
+    files?: string[];
     timeZone?: string;
   },
 ): Promise<BotMessage> {
+  const uploads = [...new Set(fileIds.map((fileId) => fileId.toLowerCase()))];
+  if (uploads.length > maxFilesPerMessage) {
+    throw rpcError(
+      "BAD_REQUEST",
+      "error.botFilesTooMany",
+      `A message can carry at most ${maxFilesPerMessage} files`,
+      { max: maxFilesPerMessage },
+    );
+  }
   const found = await findBot(deps.db, userId, botId);
   if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
   const call = await deps.plugin("models").resolveModelCall(userId, found.model);
@@ -416,10 +442,22 @@ export async function sendToBot(
     }
     // Read under the lock, so no Turn starts between this time and the Message's commit.
     const now = deps.clock();
+    // The uploads become the Message's `files` part (spec #801), which holds them from then on.
+    const files = uploads.length ? await takeUploads(tx, userId, uploads) : [];
+    const parts = textParts(text, timeZone);
     const row = await appendMessage(tx, found.conversationId, {
       id,
       role: "user",
-      parts: textParts(text, timeZone),
+      // A files-only Message stores no empty text part, as the email path doesn't.
+      parts: files.length
+        ? {
+            ...parts,
+            parts: [
+              ...(text.trim() ? parts.parts : []),
+              { type: "control", control: { kind: "files", files } },
+            ],
+          }
+        : parts,
       status: "complete",
       createdAt: now,
     });
@@ -845,6 +883,12 @@ async function newestInput(
   todo: TodoItem[] | null,
   changeNotes: string | undefined,
   cutTrigger: (id: string, text: string) => Promise<string>,
+  userFiles: {
+    /** Copies the files onto the Computer: each one's path there, in order, or null. */
+    place: (files: SentFile[]) => Promise<(string | null)[]>;
+    /** Whether the Bot's Model sees images. */
+    canSee: () => Promise<boolean>;
+  },
 ): Promise<ModelMessage[]> {
   const beforeTurn = and(
     eq(message.conversationId, turn.conversationId),
@@ -898,11 +942,27 @@ async function newestInput(
       )
       .orderBy(asc(message.createdAt), asc(message.id)),
   ]);
-  const inputs: { at: number; content: string; messageId?: string }[] = users.map((row) => ({
-    at: row.createdAt.getTime(),
-    content: searchTextOf(row.parts),
-    messageId: row.id,
-  }));
+  // The user's files (spec #801), copied onto the Computer once, in one activity: each Message
+  // names its files' paths, and a Model that can see gets its images inline too.
+  const sent = users.map((row) => controlOf(row.parts, "files")?.files ?? []);
+  const allFiles = sent.flat();
+  const placed = allFiles.length ? await userFiles.place(allFiles) : [];
+  const pathOf = new Map(allFiles.map((file, index) => [file.id, placed[index] ?? null]));
+  const canSee = allFiles.some(isInlineImage) && (await userFiles.canSee());
+  const inputs: { at: number; content: string; messageId?: string; images?: SentFile[] }[] =
+    users.map((row, index) => {
+      const files = sent[index]!;
+      const text = searchTextOf(row.parts);
+      if (files.length === 0)
+        return { at: row.createdAt.getTime(), content: text, messageId: row.id };
+      const line = userFilesLine(files.map((file) => ({ ...file, path: pathOf.get(file.id)! })));
+      return {
+        at: row.createdAt.getTime(),
+        content: text ? `${text}\n\n${line}` : line,
+        messageId: row.id,
+        images: canSee ? files.filter(isInlineImage) : [],
+      };
+    });
   // One at a time: each long one is an activity, in a stable order.
   for (const row of woken) {
     inputs.push({ at: row.receivedAt.getTime(), content: await cutTrigger(row.id, row.text!) });
@@ -924,7 +984,23 @@ async function newestInput(
     newest.content = `${notices.join("\n\n")}\n\n${newest.content}`;
   }
   // One input turn each, never a user Message: a Trigger's text opens with what woke the Bot.
-  return inputs.map((input) => ({ role: "user", content: input.content }));
+  return inputs.map(({ content, images }) => ({
+    role: "user",
+    // The images go as refs, which the loop reads from the blob store when it calls the Model.
+    content: images?.length
+      ? [
+          { type: "text", content },
+          ...images.map((file) => ({
+            type: "image" as const,
+            source: {
+              type: "url" as const,
+              value: `${botFileRef}${file.id}`,
+              mimeType: file.mediaType,
+            },
+          })),
+        ]
+      : content,
+  }));
 }
 
 /** The user's new emojis on the Bot's Messages, one line each, the Message quoted. */
@@ -981,28 +1057,54 @@ async function playTurn(
   // The newest message holds the Change notes, which are read in the loop's setup: it is rendered
   // there, once the Turn's Prompt start is chosen. Stored before the first model call, so a
   // stopped or interrupted Turn keeps what it sent, and a replay reads the recorded input.
+  // The user's files are copied onto the Computer in their own Checkpoint, so a replay doesn't copy
+  // them again and reads the recorded paths.
+  const userFiles = {
+    place: (files: SentFile[]) =>
+      ctx.activity(
+        "user_files",
+        async () =>
+          deps.hasPlugin("computer")
+            ? copyUploads(deps, computerOf(deps, turn.userId), turn.botId, files, attempt)
+            : files.map(() => null),
+        { yields: false },
+      ),
+    // Asked once for the newest message and the loop's model calls.
+    canSee: seesImagesOnce(deps, turn),
+  };
   const renderNewest = async (changeNotes: string | undefined) => {
-    const rendered = await newestInput(db, turn, since, todo, changeNotes, cutTrigger);
+    const rendered = await newestInput(db, turn, since, todo, changeNotes, cutTrigger, userFiles);
     return ctx.activity(turnInputActivity, async (tx) => {
       await tx.update(botTurn).set({ input: rendered }).where(eq(botTurn.id, turn.id));
       return rendered;
     });
   };
-  return runLoop(deps, ctx, {
-    owner: turn,
-    usageKind: "turn",
-    sourceId: turn.id,
-    // The history and the newest message come from the setup, once the Prompt start is chosen.
-    input: [],
-    startedAt: turn.startedAt,
-    stepLimit: turnStepLimit,
-    timeLimitMs: turnTimeLimitMs,
-    plainTextReminder: undeliveredTextReminder,
-    attempt,
-    // Each shell call of the Turn gets Auto-review before it runs (spec #691).
-    review: { turnId: turn.id, conversationId: turn.conversationId },
-    setup: (kit) => turnSetup(deps, turn, kit, db, renderNewest),
-  });
+  // The Connector tools' clients stay open for the Turn's loop, and close when it ends.
+  const connections = new AbortController();
+  try {
+    return await runLoop(deps, ctx, {
+      owner: turn,
+      usageKind: "turn",
+      sourceId: turn.id,
+      // The history and the newest message come from the setup, once the Prompt start is chosen.
+      input: [],
+      startedAt: turn.startedAt,
+      stepLimit: turnStepLimit,
+      timeLimitMs: turnTimeLimitMs,
+      plainTextReminder: undeliveredTextReminder,
+      attempt,
+      seesImages: userFiles.canSee,
+      // Each shell call of the Turn gets Auto-review before it runs (spec #691).
+      review: { turnId: turn.id, conversationId: turn.conversationId },
+      setup: (kit) =>
+        turnSetup(deps, turn, kit, db, renderNewest, {
+          signal: connections.signal,
+          record: (list) => ctx.activity("connectors", list),
+        }),
+    });
+  } finally {
+    connections.abort();
+  }
 }
 
 /**
@@ -1019,6 +1121,10 @@ async function turnSetup(
   kit: LoopKit,
   db: Database | Transaction,
   renderNewest: (changeNotes: string | undefined) => Promise<ModelMessage[]>,
+  connections: {
+    signal: AbortSignal;
+    record: (list: () => Promise<ConnectorListing[]>) => Promise<ConnectorListing[]>;
+  },
 ): Promise<LoopSetup> {
   let endTurn = false;
   // The Bot's Routines as the Turn starts, read once: a replay reads the recorded list.
@@ -1040,7 +1146,7 @@ async function turnSetup(
   const knowledge =
     withComputer && deps.hasPlugin("knowledge") ? await knowledgeSnapshot(deps, turn, kit) : null;
   const knowledgeBlock = knowledge && deps.plugin("knowledge").prompt(knowledge);
-  const tools = turnTools(deps, turn, kit, {
+  const ownTools = turnTools(deps, turn, kit, {
     withComputer,
     // Present whenever the snapshot is: it reads through the Computer like the snapshot does.
     withMemorySearch: memory !== null,
@@ -1048,13 +1154,24 @@ async function turnSetup(
       endTurn = true;
     },
   });
-  // `describe_tool` and `run_tool`, which reach the tools the Prompt start lists by name only.
-  const searchTools = toolSearchTools(tools);
+  // The Connector tools, listed once as the Turn starts: nothing is kept from an earlier Turn.
+  const connectors = deps.hasPlugin("mcp")
+    ? await connectorTools(deps, turn.userId, {
+        ...connections,
+        liveRequest: kit.liveRequest,
+        taken: new Set(["describe_tool", "run_tool", ...ownTools.map((tool) => tool.name)]),
+      })
+    : undefined;
+  const tools = [...ownTools, ...(connectors?.tools ?? [])];
+  // `describe_tool` and `run_tool`, which reach the tools the Prompt start lists by name only. A
+  // Connector tool whose Connection listed nothing this Turn is still answered, with its error.
+  const searchTools = toolSearchTools(tools, connectors?.missing);
   /** What a Prompt start is built from now: by the Bot's first Turn, or by a Summary. */
   const parts = (): PromptStartParts =>
     startParts(turn, deps.clock(), {
       tools,
       withComputer,
+      withConnectors: deps.hasPlugin("mcp"),
       memory,
       skills: skillsBlock,
       knowledge: knowledgeBlock,
@@ -1080,6 +1197,7 @@ async function turnSetup(
     knowledge,
     routines: routines ?? null,
     tools: definitionsOf(tools),
+    connectors: new Set(connectors?.tools.map((tool) => tool.name)),
   });
   // A tool a deploy removed stays defined, as the Prompt start sends it, and says it is gone.
   const known = new Set([...tools, ...searchTools].map((tool) => tool.name));
@@ -1270,6 +1388,10 @@ function turnTools(
     webSearchTool(deps, turn.userId, kit.liveRequest),
     ...(searchMemory ? [searchMemory] : []),
     ...(withComputer ? [...kit.computerTools, ...helperTools(deps, turn, liveActivity)] : []),
+    // Deferred, and listed on two Host settings, so the tool list never changes (spec #801).
+    ...(withComputer && deps.plugin("models").hasHostImageModels
+      ? [generateImageTool(deps, turn, kit.liveRequest)]
+      : []),
     // A Demonstration teaches a Skill, so it comes with the `skills` plugin (spec #713).
     ...(withComputer && deps.hasPlugin("skills") ? [watchUserTool(deps, turn, kit)] : []),
   ];
@@ -1286,6 +1408,7 @@ function startParts(
   {
     tools,
     withComputer,
+    withConnectors,
     memory,
     skills,
     knowledge,
@@ -1293,6 +1416,8 @@ function startParts(
   }: {
     tools: AnyServerTool[];
     withComputer: boolean;
+    /** Whether the Host installs `mcp`, which puts connectors in the ladder. */
+    withConnectors: boolean;
     memory: string | null;
     /** The Skills block, null without the `skills` plugin or when it couldn't be read. */
     skills: string | null;
@@ -1301,7 +1426,7 @@ function startParts(
     routines: string | null;
   },
 ): PromptStartParts {
-  const [rules, computerBlock] = botSystemPrompts(turn.botId, withComputer);
+  const [rules, computerBlock] = botSystemPrompts(turn.botId, withComputer, withConnectors);
   return {
     turn,
     now,
@@ -1356,7 +1481,16 @@ export async function awayStartParts(
     onLastMessage: definitionOnly,
   });
   const routines = (await routinesPrompt(tx, turn.botId)) ?? null;
-  return startParts(facts, now, { tools, withComputer, memory, skills, knowledge, routines });
+  // The Connector tools are listed by a Turn, never here: the next Turn notes them as added.
+  return startParts(facts, now, {
+    tools,
+    withComputer,
+    withConnectors: deps.hasPlugin("mcp"),
+    memory,
+    skills,
+    knowledge,
+    routines,
+  });
 }
 
 /** A tool the Prompt start sent that the code no longer has: it answers that it is gone. */

@@ -1,11 +1,11 @@
-import { BotsApp } from "@ai-chat/bot-sdk/plugins/bot/ui";
-import { Outlet, createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
+import { BotsShell } from "@/components/bots-shell";
 import { getUser } from "@/functions/get-user";
 
-/** The Bots app: signed in, with the same session guard as `_auth`, but without the assistant's shell. */
+/** The Bots app: signed in, with the same session guard and shell as `_auth`. */
 export const Route = createFileRoute("/bots")({
-  component: BotsLayout,
+  component: BotsShell,
   beforeLoad: async () => {
     const session = await getUser();
     if (!session) {
@@ -23,11 +23,3 @@ export const Route = createFileRoute("/bots")({
     }
   },
 });
-
-function BotsLayout() {
-  return (
-    <BotsApp>
-      <Outlet />
-    </BotsApp>
-  );
-}

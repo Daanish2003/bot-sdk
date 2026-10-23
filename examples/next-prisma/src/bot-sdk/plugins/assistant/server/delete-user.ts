@@ -1,19 +1,13 @@
 import { eq } from "drizzle-orm";
 
 import { deleteConversations } from "../../../core/server/chat/delete-conversations";
-import {
-  conversation,
-  project,
-  mcpConnection,
-  savedPrompt,
-  userSettings,
-} from "../../../core/server/db/schema";
+import { conversation, project, savedPrompt, userSettings } from "../../../core/server/db/schema";
 import type { BotSdkContext, UserDeleteHooks } from "../../../core/server/plugin";
 import { assistantConversation } from "./chat/kind";
 
 /**
- * The assistant's part of `sdk.deleteUser` (spec #439). `before` deletes the user's Projects, MCP
- * connections, settings and Saved prompts. `after` runs the Conversation delete's hooks.
+ * The assistant's part of `sdk.deleteUser` (spec #439). `before` deletes the user's Projects, settings
+ * and Saved prompts. `after` runs the Conversation delete's hooks.
  *
  * Every Conversation of the user goes first, in one call of the core's delete, so its hooks see the
  * whole set and no Project's Conversation goes by cascade alone. The core's own Conversation step
@@ -24,7 +18,6 @@ export const assistantUserDelete: UserDeleteHooks<{ afterCommit: () => Promise<v
     // Muted, as the rest of the user delete is (#265).
     const { afterCommit } = await deleteConversations(sdk, tx, { userId, mute: true });
     await tx.delete(project).where(eq(project.userId, userId));
-    await tx.delete(mcpConnection).where(eq(mcpConnection.userId, userId));
     await tx.delete(userSettings).where(eq(userSettings.userId, userId));
     await tx.delete(savedPrompt).where(eq(savedPrompt.userId, userId));
     return { afterCommit };

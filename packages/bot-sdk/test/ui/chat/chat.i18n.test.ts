@@ -16,7 +16,6 @@ import { AttachmentChips } from "../../../plugins/assistant/ui/chat/attachments"
 import { QuotaBanner } from "../../../plugins/models/ui/chat/quota-banner";
 import { QuotaMeter } from "../../../plugins/models/ui/chat/quota-meter";
 import { SearchToggle } from "../../../plugins/assistant/ui/chat/search-toggle";
-import { ToolsMenu } from "../../../plugins/assistant/ui/chat/tools-menu";
 import { UsageBreakdown, UsageInfo } from "../../../plugins/models/ui/chat/usage-info";
 import { Welcome } from "../../../ui/chat/welcome";
 import { ShareButton } from "../../../plugins/assistant/ui/share/share-dialog";
@@ -99,7 +98,6 @@ const conversation: ConversationData = {
   title: "Trip planning",
   model: model.id,
   reasoningEffort: null,
-  tools: { connections: [] },
   messages: [
     {
       id: "user-1",
@@ -217,17 +215,12 @@ describe("the chat view with the dictionary", () => {
     );
   });
 
-  it("shows no untranslated text in the composer, its attachments and the Tools and Web controls", () => {
+  it("shows no untranslated text in the composer, its attachments and the Web control", () => {
     expectTranslated(
       createElement(Composer, {
         onSend: () => {},
         attachments: null,
         children: [
-          createElement(ToolsMenu, {
-            key: "tools",
-            items: [{ key: "gh", name: "GitHub", on: true }],
-            onToggle: () => {},
-          }),
           createElement(SearchToggle, {
             key: "web",
             search: {

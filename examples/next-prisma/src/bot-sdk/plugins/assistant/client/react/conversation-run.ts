@@ -26,8 +26,6 @@ export type ConversationRunOptions = {
   onRefusedSend?: (text: string) => void;
   /** Whether the selected Model can search the web; the user's preference is read with each send. */
   webSearchAvailable: boolean;
-  /** The MCP connections switched on, sent with each command (spec #91). */
-  connections: string[];
 };
 
 /**
@@ -41,7 +39,7 @@ export type ConversationRunOptions = {
  */
 export function useConversationRun(
   conversation: ConversationData,
-  { onDecided, onSynced, onRefusedSend, webSearchAvailable, connections }: ConversationRunOptions,
+  { onDecided, onSynced, onRefusedSend, webSearchAvailable }: ConversationRunOptions,
 ) {
   const queryClient = useQueryClient();
   const { orpc, chatUrl, i18n } = useChatAdapter();
@@ -164,14 +162,13 @@ export function useConversationRun(
   // A hidden reply lost its waiting call with its text (#268), so the composer doesn't wait on it.
   const last = messages.length > 0 ? messageInfo(messages[messages.length - 1]!) : undefined;
   const waiting = last?.status === "awaiting_approval" && !last.hidden;
-  const decide = async (messageId: string, approved: boolean, allowForConversation?: boolean) => {
+  const decide = async (messageId: string, approved: boolean) => {
     // A second click while the first decision is in flight would be refused as stale.
     if (decideCall.isPending) return;
     try {
       await decideCall.mutateAsync({
         messageId,
         approved,
-        allowForConversation,
         // The resumed Run offers the Web tools as a send would (ADR 0008).
         webSearch: webSearchAvailable && readSearchPreference(),
       });
@@ -204,8 +201,6 @@ export function useConversationRun(
       model: conversation.model,
       // Read now: a first Message is sent on mount, before the toggle's state has loaded.
       webSearch: webSearchAvailable && readSearchPreference(),
-      // Read with the send: the first Message takes the composer's choice (the server ignores it later).
-      tools: { connections, allowedTools: [] },
     };
     try {
       if (history) setMessages(history);

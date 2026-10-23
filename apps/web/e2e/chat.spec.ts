@@ -20,7 +20,7 @@ test("a seeded user is signed in, and its password signs in on the form", async 
 
   await page.context().clearCookies();
   await signInOnForm(page, user.email, user.password);
-  await expect(page).toHaveURL(/\/c$/);
+  await expect(page).toHaveURL(/\/bots$/);
 });
 
 test("the palette opens with the platform's shortcut and finds a Message", async ({ page }) => {

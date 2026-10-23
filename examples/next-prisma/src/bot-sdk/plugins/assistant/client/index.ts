@@ -17,21 +17,19 @@ declare module "../../../core/client/chat-client" {
     generatedImagesUrl: string;
     /** A Generated image on a Shared link, by its token and id (`GET <base>/shared/<token>/generated-images/<id>`). */
     sharedGeneratedImagesUrl: (token: string) => string;
-    /** Where the MCP sign-in starts (`GET ?server=<key>&returnTo=<path>`) and finishes. */
-    connectionsUrl: string;
   }
 }
 
 type AssistantUrls = Pick<
   BotSdkClient,
-  "chatUrl" | "generatedImagesUrl" | "sharedGeneratedImagesUrl" | "connectionsUrl"
+  "chatUrl" | "generatedImagesUrl" | "sharedGeneratedImagesUrl"
 >;
 
 export type AssistantClientPlugin = BotSdkClientPlugin<"assistant", AppRouter> & {
   urls: (base: string) => AssistantUrls;
 };
 
-/** The `assistant` plugin's client: its routers, and the URLs of its Runs, images and MCP sign-in. */
+/** The `assistant` plugin's client: its routers, and the URLs of its Runs and images. */
 export function assistantClient(): AssistantClientPlugin {
   return {
     id: "assistant",
@@ -39,7 +37,6 @@ export function assistantClient(): AssistantClientPlugin {
       chatUrl: `${base}/run`,
       generatedImagesUrl: `${base}/generated-images`,
       sharedGeneratedImagesUrl: (token) => `${base}/shared/${token}/generated-images`,
-      connectionsUrl: `${base}/mcp`,
     }),
   };
 }

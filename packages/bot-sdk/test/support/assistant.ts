@@ -24,7 +24,6 @@ export type TestDepsOverrides = botOnly.TestDepsOverrides &
 export function createTestSdk({
   searchClient,
   tools,
-  mcpServers,
   artifacts,
   runs,
   limits,
@@ -34,7 +33,6 @@ export function createTestSdk({
   const assistant = assistantOver({
     searchClient: searchClient ?? createFakeSearchClient(),
     tools: tools ?? [],
-    mcpServers: mcpServers ?? [],
     artifacts: artifacts ?? false,
     runs: runs ?? new Map(),
     // Overrides merge, so a test that sets one limit keeps the rest.

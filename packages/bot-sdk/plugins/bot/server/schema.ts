@@ -21,6 +21,7 @@ import { botSummary, botSummaryKind } from "./db/bot-summary";
 import { botRoutine, botRoutineState } from "./db/bot-routine";
 import { botTrigger, botTriggerChannel, botTriggerSource } from "./db/bot-trigger";
 import { botTurn, botTurnStatus } from "./db/bot-turn";
+import { botUpload } from "./db/bot-upload";
 
 export * from "./db/bot";
 export * from "./db/bot-check-in";
@@ -33,8 +34,9 @@ export * from "./db/bot-secret";
 export * from "./db/bot-summary";
 export * from "./db/bot-trigger";
 export * from "./db/bot-turn";
+export * from "./db/bot-upload";
 
-/** The `bot` plugin's schema module: its `bot`, `bot_turn`, `bot_prompt_start`, `bot_summary`, `bot_trigger`, `bot_routine`, `bot_check_in`, `bot_helper`, `bot_helper_message`, `bot_helper_screenshot`, `bot_review`, `secret`, `bot_demonstration` and `bot_demonstration_event` tables. It adds no fields to core tables. */
+/** The `bot` plugin's schema module: its `bot`, `bot_turn`, `bot_prompt_start`, `bot_summary`, `bot_trigger`, `bot_routine`, `bot_check_in`, `bot_helper`, `bot_helper_message`, `bot_helper_screenshot`, `bot_review`, `secret`, `bot_demonstration`, `bot_demonstration_event` and `bot_upload` tables. It adds no fields to core tables. */
 export const botSchema = {
   tables: {
     bot,
@@ -51,6 +53,7 @@ export const botSchema = {
     botSecret,
     botDemonstration,
     botDemonstrationEvent,
+    botUpload,
   },
   enums: {
     botTurnStatus,

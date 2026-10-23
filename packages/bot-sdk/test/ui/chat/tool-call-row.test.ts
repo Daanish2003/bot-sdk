@@ -104,17 +104,6 @@ describe("a tool call row", () => {
     expect(html).toContain(">Deny<");
   });
 
-  it("offers a third choice on a waiting call: allow this tool for the rest of the Conversation", () => {
-    const call = toolCallOf(waitingPart);
-    if (!call) throw new Error("Expected a tool call");
-
-    const html = renderInChat(createElement(ToolCallRow, { call, onDecide: () => {} }));
-
-    expect(html).toContain(">Allow for this Conversation<");
-    expect(html).toContain(">Approve<");
-    expect(html).toContain(">Deny<");
-  });
-
   it("shows a waiting call, distinct from a streaming one, with no controls without a decision handler", () => {
     const waiting = render(waitingPart);
     const streaming = render(

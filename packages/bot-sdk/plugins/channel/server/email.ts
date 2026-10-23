@@ -1,3 +1,7 @@
+import { type MailFile, MailFileTooLargeError } from "../../bot/server/files";
+
+export { type MailFile, MailFileTooLargeError };
+
 /** A provider's verdict on one sender check of a mail it received. */
 export type AuthVerdict = "pass" | "fail" | "none";
 
@@ -13,8 +17,13 @@ export type InboundMail = {
   /** The plain-text body. */
   text: string;
   headers: Record<string, string>;
-  /** The names of the attachments, which aren't kept. */
+  /** The names of the attachments. */
   attachments: string[];
+  /**
+   * The attachments' bytes, read lazily, so a mail that isn't the owner's is never downloaded. A
+   * provider that can't fetch them leaves it out, and the attachments are only named.
+   */
+  files?: MailFile[];
   /**
    * The provider's sender checks. A DMARC `pass` is an aligned one: DMARC passes only when an SPF or
    * DKIM pass is for the From's domain.

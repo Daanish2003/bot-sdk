@@ -53,10 +53,6 @@ export async function handleChat(
   const owned = await findConversation(deps, userId, command.conversationId);
   if (!owned) return refuse(404, "error.conversationNotFound");
 
-  // The MCP tools switched on here (spec #91). The first Message takes the composer's choice; any
-  // later one reads the stored choice.
-  const takesComposerTools = command.tools !== undefined && owned.activeLeafId === null;
-  const toolSettings = takesComposerTools ? command.tools! : owned.toolSettings;
   const userMessageId = uuidv7();
   const assistantMessageId = uuidv7();
   const planned = await planRun(
@@ -67,7 +63,6 @@ export async function handleChat(
       model: command.model,
       // The Conversation's choice, when the Model offers it: the Run sends it and the reply records it.
       reasoningEffort: owned.reasoningEffort,
-      toolSettings,
       web: command.webSearch,
       replyId: assistantMessageId,
       leafId: command.parentId,
@@ -164,7 +159,6 @@ export async function handleChat(
             // Sending a Message brings an archived Conversation back to the lists.
             archivedAt: null,
             model: plan.model.id,
-            ...(takesComposerTools && { toolSettings }),
           })
           .where(eq(conversation.id, owned.id));
         return "started";

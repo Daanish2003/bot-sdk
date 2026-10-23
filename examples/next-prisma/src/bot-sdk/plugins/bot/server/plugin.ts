@@ -1,8 +1,9 @@
+import { deleteBlobsBestEffort } from "../../../core/server/blob/store";
 import type { BotSdkPlugin } from "../../../core/server/plugin";
 import { isInProcessRunner } from "../../runner/server/jobs/in-process";
 import { runnerJobs } from "../../runner/server/plugin";
 import { cancelUserCheckIns } from "./check-in";
-import { sentFileResponse } from "./files";
+import { deleteUserUploads, sentFileResponse } from "./files";
 import { screenshotsConversationDelete } from "./screenshots";
 import { cancelUserHelpers, hasLiveDemonstration, hasRunningHelper } from "./helper";
 import { cancelUserFires } from "./routine";
@@ -81,8 +82,9 @@ export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
     requires: ["models", "runner"],
     // Softly: with computer on, a Turn has its tools, and a running Turn keeps the Computer awake.
     // With memory on, a Bot has its memory (ADR 0022), with skills on, its Skills (spec #713), and
-    // with knowledge on, the user's Knowledge (spec #737).
-    uses: ["computer", "memory", "skills", "knowledge"],
+    // with knowledge on, the user's Knowledge (spec #737), and with mcp on, its user's Connections
+    // as Connector tools (spec #801).
+    uses: ["computer", "memory", "skills", "knowledge", "mcp"],
     init: (sdk) => {
       // A Turn replays from the history `chat.job` holds. Trigger.dev records nothing and its retry
       // starts over, which would send the Messages again (ADR 0011, the #482 amendment).
@@ -130,6 +132,13 @@ export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
         path: "/bot-files/:id",
         handle: (_request, { user, sdk, params }) => sentFileResponse(sdk, user.id, params.id!),
       },
+      {
+        // The same file for display, an image only.
+        method: "GET",
+        path: "/bot-files/:id/inline",
+        handle: (_request, { user, sdk, params }) =>
+          sentFileResponse(sdk, user.id, params.id!, { inline: true }),
+      },
     ],
     deleteUser: {
       // No Routine, Check-in or Helper runs for a deleted user: its jobs are cancelled.
@@ -137,7 +146,13 @@ export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
         await cancelUserFires(sdk, args.tx, args.userId);
         await cancelUserCheckIns(sdk, args.tx, args.userId);
         await cancelUserHelpers(sdk, args.tx, args.userId);
-        return botUserDelete.before(sdk, args);
+        // The files they uploaded and never sent go too (spec #801), their bytes after the commit.
+        const uploadKeys = await deleteUserUploads(args.tx, args.userId);
+        const afterCommit = await botUserDelete.before(sdk, args);
+        return async () => {
+          await afterCommit();
+          await deleteBlobsBestEffort(sdk, uploadKeys);
+        };
       },
       after: botUserDelete.after,
     },

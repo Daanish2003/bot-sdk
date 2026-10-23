@@ -83,3 +83,12 @@ packages/bot-sdk/eval/knowledge/results/
 
 # Channels eval (packages/bot-sdk/eval/channels): the results it writes
 packages/bot-sdk/eval/channels/results/
+
+# Files eval (packages/bot-sdk/eval/files): the results it writes
+packages/bot-sdk/eval/files/results/
+
+# Connectors eval (packages/bot-sdk/eval/connectors): the results it writes
+packages/bot-sdk/eval/connectors/results/
+
+# Images eval (packages/bot-sdk/eval/images): the results it writes
+packages/bot-sdk/eval/images/results/

@@ -21,6 +21,7 @@ import {
   blob,
   conversation,
   message,
+  modelSettings,
   project,
   userCredentials,
   savedPrompt,
@@ -63,6 +64,9 @@ async function seedOwner(user: TestUser) {
   await getTestDb()
     .insert(userSettings)
     .values({ userId: user.id, backgroundModel: "anthropic:x", instructions: "Be terse." });
+  await getTestDb()
+    .insert(modelSettings)
+    .values({ userId: user.id, imageModel: "openai:gpt-image-2" });
   await getTestDb().insert(project).values({ id: uuidv7(), userId: user.id, name: "Work" });
   await getTestDb()
     .insert(savedPrompt)
@@ -130,6 +134,9 @@ async function ownedRows(userId: string) {
       db.select().from(userCredentials).where(eq(userCredentials.userId, userId)),
     ),
     settings: await count(db.select().from(userSettings).where(eq(userSettings.userId, userId))),
+    modelSettings: await count(
+      db.select().from(modelSettings).where(eq(modelSettings.userId, userId)),
+    ),
     projects: await count(db.select().from(project).where(eq(project.userId, userId))),
     savedPrompts: await count(db.select().from(savedPrompt).where(eq(savedPrompt.userId, userId))),
     usage: await count(db.select().from(usage).where(eq(usage.userId, userId))),
@@ -162,6 +169,7 @@ const emptyRows = {
   messageAttachments: 0,
   credentials: 0,
   settings: 0,
+  modelSettings: 0,
   projects: 0,
   savedPrompts: 0,
   usage: 0,

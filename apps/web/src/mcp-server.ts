@@ -1,8 +1,8 @@
-import type { McpServerConfig } from "@ai-chat/bot-sdk/plugins/assistant/server";
+import type { McpServerConfig } from "@ai-chat/bot-sdk/plugins/mcp/server";
 
 /**
  * The one optional MCP server `apps/web` offers, from its `MCP_SERVER_*` variables (`.env.schema`).
- * Set all five or none: without them users see no Connections section and no MCP tools.
+ * Set all five or none: without them users see no Connections section.
  */
 const variables = [
   "MCP_SERVER_KEY",

@@ -41,6 +41,7 @@ import { demonstrationSteps } from "../demonstration-capture";
 import { botSummaries } from "../summary";
 import { isTimeZone } from "../time-zone";
 import { sendToBot, stopBot } from "../turn";
+import { uploadBotFile } from "../files";
 import { botWarmings, warmBot } from "../warm";
 
 /** A route that applies `action` to one of the caller's Demonstrations. */
@@ -127,21 +128,36 @@ const botRouter = {
    * it runs as a runner job; every tab, this one too, follows it through `changes` (ADR 0026). A
    * send while a Turn runs waits in the Conversation queue for the next Turn. `id` is the client's
    * uuidv7 for the Message: a resend with the same `id` saves nothing new and returns the Message
-   * saved first.
+   * saved first. `files` are ids from `upload`: the Message carries them as its `files` part, and the
+   * Turn that takes it copies them onto the Bot's Computer. With files, the text may be empty.
    */
   send: protectedProcedure
     .input(
-      z.object({
-        botId: z.uuid(),
-        // Lowercased, as the Trigger's text id holds it, so an uppercase resend still re-joins.
-        id: z.uuidv7().transform((id) => id.toLowerCase()),
-        text: z.string().trim().min(1),
-        // The client's IANA zone; the Turn's newest input shows the time in it (UTC when absent).
-        timeZone: z.string().refine(isTimeZone, "Not an IANA time zone").optional(),
-      }),
+      z
+        .object({
+          botId: z.uuid(),
+          // Lowercased, as the Trigger's text id holds it, so an uppercase resend still re-joins.
+          id: z.uuidv7().transform((id) => id.toLowerCase()),
+          text: z.string().trim(),
+          files: z.array(z.uuid()).optional(),
+          // The client's IANA zone; the Turn's newest input shows the time in it (UTC when absent).
+          timeZone: z.string().refine(isTimeZone, "Not an IANA time zone").optional(),
+        })
+        .refine((input) => input.text !== "" || !!input.files?.length, {
+          error: "A message needs text or files",
+          path: ["text"],
+        }),
     )
     .output(botMessageSchema)
     .handler(({ context, input }) => sendToBot(context.sdk, { userId: context.user.id, ...input })),
+
+  /**
+   * Stores a file the caller will send their Bot, of any type up to 25 MB, and returns its id for
+   * `send`'s `files`. One no Message sends is deleted after 24 hours. Rate-limited like attachments.
+   */
+  upload: protectedProcedure
+    .input(z.object({ file: z.file() }))
+    .handler(({ context, input }) => uploadBotFile(context.sdk, context.user.id, input.file)),
 
   /**
    * Stops the caller's Bot's running Turn: a queued one ends `stopped` at once, a running one as

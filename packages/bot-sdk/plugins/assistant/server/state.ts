@@ -1,15 +1,12 @@
 import type { HostServerTool } from "./chat/host-tools";
 import type { RunStreams } from "../../../core/server/chat/run-streams";
 import type { Limits, SearchClient } from "./deps";
-import type { McpServerConfig } from "./mcp/servers";
 import type { BotSdkContext } from "../../../core/server/plugin";
 
 /** What the `assistant` plugin owns beside the core context: its options and its Run machinery. */
 export type AssistantState = {
   /** The Host's own tools, offered to every reply whose Model has tools (`assistant({ tools })`). */
   tools: HostServerTool[];
-  /** The remote MCP servers the Host offers (`assistant({ mcpServers })`, spec #91). */
-  mcpServers: McpServerConfig[];
   /** Whether Artifacts are on: the `create_artifact` tool, the panel and the version route (`assistant({ artifacts })`). */
   artifacts: boolean;
   searchClient: SearchClient;

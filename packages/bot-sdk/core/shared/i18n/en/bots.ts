@@ -1,7 +1,6 @@
 /** The Bots app: its sidebar, the New Bot dialog and a Bot's Conversation. */
 export const botsMessages = {
   "bots.app": "Bots",
-  "bots.backToAssistant": "Assistant",
   "bots.newBot": "New Bot",
   "bots.name": "Name",
   "bots.namePlaceholder": "Name, e.g. Inbox Manager",
@@ -226,6 +225,8 @@ description: Use this when
   "bots.secretSaved": ({ name }: { name: string }) => `Saved secret ${name}`,
   "bots.filesLabel": "Files from the Bot",
   "bots.fileDownload": "Download",
+  "bots.attachFiles": "Attach files",
+  "bots.removeFile": ({ name }: { name: string }) => `Remove ${name}`,
   "bots.reactions": "Reactions",
   "bots.reactToMessage": "React to this message",
   "bots.reactWith": ({ emoji }: { emoji: string }) => `React with ${emoji}`,
