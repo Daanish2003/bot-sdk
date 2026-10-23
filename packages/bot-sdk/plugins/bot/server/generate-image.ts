@@ -81,7 +81,10 @@ async function bytesOf(
   signal?: AbortSignal,
 ): Promise<Uint8Array> {
   if (image.b64Json) return Buffer.from(image.b64Json, "base64");
-  return new Uint8Array(await (await fetch(image.url!, signal ? { signal } : {})).arrayBuffer());
+  const response = await fetch(image.url!, signal ? { signal } : {});
+  if (!response.ok)
+    throw new Error(`The Provider's image could not be downloaded (${response.status})`);
+  return new Uint8Array(await response.arrayBuffer());
 }
 
 /**
@@ -132,6 +135,8 @@ export function generateImageTool(
         if (paths.length > editLimit) {
           return { error: `You can edit at most ${editLimit} images in one call.` };
         }
+        // Before the Computer wakes or any file is read.
+        if (!(await image.meter.mayRun()).ok) return { error: quotaError };
         const computer = computerOf(deps, turn.userId);
         try {
           const sources: {
@@ -147,7 +152,6 @@ export function generateImageTool(
               source: { type: "data", value: Buffer.from(bytes).toString("base64"), mimeType },
             });
           }
-          if (!(await image.meter.mayRun()).ok) return { error: quotaError };
           reached = true;
           answer = await generateImage({
             adapter,
