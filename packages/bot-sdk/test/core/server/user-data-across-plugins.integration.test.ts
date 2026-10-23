@@ -21,6 +21,7 @@ import {
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkPlugin } from "../../../core/server/plugin";
 import { deleteUserData, exportUserData } from "../../../core/server/user-data";
+import { sentFileBlobKey, uploadBotFile } from "../../../plugins/bot/server/files";
 import { bot as botPlugin } from "../../../plugins/bot/server/plugin";
 import { loadSecretValues, secretEncryption } from "../../../plugins/bot/server/secret-values";
 import type { BotExport } from "../../../plugins/bot/server/store";
@@ -95,8 +96,9 @@ async function activeJobsNaming(ids: string[]) {
 
 /**
  * A user with a row in every table above: a Bot whose Conversation has an Attachment, an unused
- * Attachment, an ended Demonstration, a Secret, a Computer, the Memory switch, a Connection,
- * credentials and usage. Returns the blob keys and ids it made.
+ * Attachment, an ended Demonstration, a Secret, a file uploaded and not yet sent to the Bot, a
+ * Computer, the Memory switch, a Connection, credentials and usage. Returns the blob keys and ids
+ * it made.
  */
 async function seedEverything(
   user: TestUser,
@@ -148,6 +150,12 @@ async function seedEverything(
     createdAt: new Date(),
   });
 
+  const upload = await uploadBotFile(
+    deps,
+    user.id,
+    new File(["milk, eggs"], "list.txt", { type: "text/plain" }),
+  );
+
   await deps.plugin("computer").forUser(user.id).run("true");
   // The Bot's memory files, on the disk of the sandbox the run above made, and the Computer's archive.
   fake.files.set(profilePath(botId), new TextEncoder().encode("- Lives in Berlin\n"));
@@ -177,7 +185,12 @@ async function seedEverything(
     estimated: false,
   });
   return {
-    blobKeys: [attachmentBlobKey(used.id), attachmentBlobKey(unused.id), computerBlobKey(user.id)],
+    blobKeys: [
+      attachmentBlobKey(used.id),
+      attachmentBlobKey(unused.id),
+      sentFileBlobKey(upload.id),
+      computerBlobKey(user.id),
+    ],
     ids: [user.id],
   };
 }
