@@ -14,15 +14,20 @@ import { UserIcon } from "lucide-react";
 
 import { authClient } from "@/lib/auth-client";
 
-/** The account menu at the foot of the Bots sidebar: Keys, Account, Admin (Admins only), Sign out. */
+/**
+ * The account menu at the foot of the Bots sidebar: Keys, Account, Admin (Admins only), Sign out.
+ * `compact` sizes it for the assistant's top bar, where a phone shows only the icon.
+ */
 export default function AccountMenu({
   name,
   email,
   isAdmin,
+  compact = false,
 }: {
   name: string;
   email: string;
   isAdmin: boolean;
+  compact?: boolean;
 }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -30,10 +35,16 @@ export default function AccountMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        render={<Button variant="outline" size="sm" className="w-full justify-start" />}
+        render={
+          <Button
+            variant="outline"
+            size="sm"
+            className={compact ? "max-w-40" : "w-full justify-start"}
+          />
+        }
       >
-        <UserIcon />
-        <span className="truncate">{name}</span>
+        <UserIcon className={compact ? "sm:hidden" : undefined} />
+        <span className={compact ? "truncate max-sm:sr-only" : "truncate"}>{name}</span>
       </DropdownMenuTrigger>
       <DropdownMenuContent className="bg-card">
         <DropdownMenuGroup>
