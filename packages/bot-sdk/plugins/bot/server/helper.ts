@@ -1,4 +1,4 @@
-import { type ModelMessage, toolDefinition } from "@tanstack/ai";
+import { type ModelMessage, firstSentence, toolDefinition } from "@tanstack/ai";
 import { and, asc, count, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -20,11 +20,13 @@ import { BrowserSession, browserTools } from "./browser-tools";
 import { desktopTools } from "./desktop-tools";
 import { storeScreenshot } from "./screenshots";
 import { computerOf } from "./computer-tools";
+import { connectorTools } from "./connector-tools";
 import { type LoopKit, type LoopResult, runLoop, totalUsage } from "./loop";
 import { closeWaitingReviews } from "./review";
 import { lockConversation, receive } from "./router";
 import { recordBotChange } from "./thread-change";
 import { hintChanged } from "./turn";
+import { describeToolName, runToolName, toolSearchTools } from "./tool-search";
 import { webSearchTool } from "./web-search";
 import {
   answeredTranscript,
@@ -78,6 +80,11 @@ export const generalHelperPrompt =
   "files, then `web_search`. You have no browser; if the task needs a website search can't reach, " +
   "say so in your report. If a tool is broken, stop and say so in your report instead of working " +
   "around it.";
+
+/** What opens the list of Connector tools a General Helper may use (spec #801). */
+const connectorsPrompt =
+  `The user's connectors are deferred tools: call ${describeToolName} with the name first, then ` +
+  `${runToolName}. Each call is checked against your task.`;
 
 /** The Computer-use Helper's system prompt (#573). */
 export const computerUseHelperPrompt =
@@ -444,6 +451,8 @@ async function playHelper(
       )
     : helperInput(helper);
   let askedUser: string | undefined;
+  // A General Helper's Connector tool clients stay open for its loop, and close when it ends.
+  const connections = new AbortController();
   // Whether an `inbox` activity ran live since the last hint.
   let delivered = false;
   const played = await runLoop(deps, ctx, {
@@ -478,9 +487,26 @@ async function playHelper(
     },
     setup: async (kit) => {
       if (!session) {
+        const own = [...kit.computerTools, webSearchTool(deps, helper.userId, kit.liveRequest)];
+        // The owner's Connector tools, listed by name and reached through a small tool search; a
+        // Computer-use Helper has none (lecture slide 27).
+        const connectors = deps.hasPlugin("mcp")
+          ? await connectorTools(deps, helper.userId, {
+              signal: connections.signal,
+              record: (list) => ctx.activity("connectors", list),
+              liveRequest: kit.liveRequest,
+              taken: new Set([describeToolName, runToolName, ...own.map((tool) => tool.name)]),
+            })
+          : undefined;
+        if (!connectors || connectors.tools.length === 0) {
+          return { systemPrompts: [generalHelperPrompt], tools: own };
+        }
+        const listed = connectors.tools.map(
+          (tool) => `${tool.name}: ${firstSentence(tool.description)}`,
+        );
         return {
-          systemPrompts: [generalHelperPrompt],
-          tools: [...kit.computerTools, webSearchTool(deps, helper.userId, kit.liveRequest)],
+          systemPrompts: [`${generalHelperPrompt} ${connectorsPrompt}\n${listed.join("\n")}`],
+          tools: [...own, ...toolSearchTools(connectors.tools, connectors.missing)],
         };
       }
       // A Screen that won't open now is opened again by the first Browser tool, which tells the
@@ -520,7 +546,7 @@ async function playHelper(
         ended: () => askedUser !== undefined,
       };
     },
-  });
+  }).finally(() => connections.abort());
   return { ...played, input, askedUser };
 }
 
