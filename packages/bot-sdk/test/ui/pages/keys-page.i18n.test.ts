@@ -72,10 +72,6 @@ describe("the keys page with the dictionary", () => {
       queryClient.setQueryData(client.orpc.credentials.mode.queryKey(), { byok: true });
       queryClient.setQueryData(client.orpc.credentials.list.queryKey(), []);
       queryClient.setQueryData(client.orpc.models.imageModel.queryKey(), { imageModel: null });
-      queryClient.setQueryData(client.orpc.settings.get.queryKey(), {
-        backgroundModel: null,
-        instructions: null,
-      });
       queryClient.setQueryData(client.orpc.connections.list.queryKey(), { servers: [] });
       seedModels(queryClient, client);
     });
@@ -94,10 +90,6 @@ describe("the keys page with the dictionary", () => {
           );
           queryClient.setQueryData(client.orpc.credentials.openaiState.queryKey(), state);
           queryClient.setQueryData(client.orpc.models.imageModel.queryKey(), { imageModel: null });
-          queryClient.setQueryData(client.orpc.settings.get.queryKey(), {
-            backgroundModel: null,
-            instructions: null,
-          });
           queryClient.setQueryData(client.orpc.connections.list.queryKey(), { servers: [] });
           seedModels(queryClient, client);
         },
