@@ -330,6 +330,9 @@ importers:
       tailwindcss:
         specifier: 'catalog:'
         version: 4.3.3
+      use-sync-external-store:
+        specifier: 1.7.0
+        version: 1.7.0(react@19.3.0)
       varlock:
         specifier: 'catalog:'
         version: 1.18.0
