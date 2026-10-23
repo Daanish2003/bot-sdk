@@ -102,6 +102,20 @@ async function refusedSend(client: ReturnType<typeof chatRpc>, botId: string) {
 const usageOf = (userId: string) =>
   getTestDb().select().from(usage).where(eq(usage.userId, userId));
 
+/**
+ * Waits out the last seconds before the next UTC `window` starts, so the window a test computes
+ * from the clock is still the one the send is checked in.
+ */
+async function clearOfBoundary(window: "day" | "month") {
+  const now = new Date();
+  const next =
+    window === "day"
+      ? Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1)
+      : Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1);
+  const left = next - now.getTime();
+  if (left < 5_000) await new Promise((resolve) => setTimeout(resolve, left + 100));
+}
+
 describe("Quota enforcement on a Bot's Turn", () => {
   it("refuses a send once the window's spend reaches the budget, after a Turn that spent it", async () => {
     const { client, botId } = await setup({ getQuota: { budgetUsd, window: "day" } });
@@ -118,6 +132,7 @@ describe("Quota enforcement on a Bot's Turn", () => {
   });
 
   it("counts only the spend inside the day's window, which starts at midnight UTC", async () => {
+    await clearOfBoundary("day");
     const now = new Date();
     const lastMidnight = new Date(
       Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
@@ -125,7 +140,7 @@ describe("Quota enforcement on a Bot's Turn", () => {
     const yesterday = await insertUser();
     await spend(yesterday.id, 1_000, new Date(lastMidnight.getTime() - 1_000));
     const today = await insertUser();
-    await spend(today.id, 1_000, now);
+    await spend(today.id, 1_000, lastMidnight);
 
     const allowed = await setup({ user: yesterday, getQuota: { budgetUsd, window: "day" } });
     const refused = await setup({ user: today, getQuota: { budgetUsd, window: "day" } });
@@ -137,6 +152,7 @@ describe("Quota enforcement on a Bot's Turn", () => {
   });
 
   it("counts the whole calendar month's spend in a month's window, and none of the month before", async () => {
+    await clearOfBoundary("month");
     const now = new Date();
     const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
     const thisMonth = await insertUser();
@@ -195,7 +211,9 @@ describe("Quota enforcement on a Bot's Turn", () => {
     expect(events.at(-1)).toMatchObject({ status: "complete" });
     expect(adapterCredentials).toEqual([{ apiKey: "sk-ant-own-key" }]);
     // The spend row from before, and the Turn's model call, recorded at cost 0.
-    expect((await usageOf(user.id)).map((row) => row.costMicros).sort()).toEqual([0, 1_000]);
+    expect((await usageOf(user.id)).map((row) => row.costMicros).toSorted((a, b) => a - b)).toEqual(
+      [0, 1_000],
+    );
   });
 });
 

@@ -280,10 +280,10 @@ describe("Admin over a Bot's Turns", () => {
     await sendToTurnEnd(client, botId);
 
     const until = new Date(Date.now() + 60_000);
-    const models = deps.plugin("models");
+    const modelsApi = deps.plugin("models");
     // 100 × $3/M + 50 × $15/M = 1050 micros.
     expect(
-      (await models.usageTotals({ since, until })).find((row) => row.userId === owner.id),
+      (await modelsApi.usageTotals({ since, until })).find((row) => row.userId === owner.id),
     ).toEqual({
       userId: owner.id,
       costMicros: 1050,
@@ -291,10 +291,10 @@ describe("Admin over a Bot's Turns", () => {
       outputTokens: 50,
       calls: 1,
     });
-    expect(await models.usage({ userId: owner.id, since, until })).toEqual([
+    expect(await modelsApi.usage({ userId: owner.id, since, until })).toEqual([
       expect.objectContaining({ model: sonnet, costMicros: 1050, calls: 1 }),
     ]);
-    expect(await models.quota(owner.id)).toMatchObject({
+    expect(await modelsApi.quota(owner.id)).toMatchObject({
       budgetMicros: 1_000_000,
       spentMicros: 1050,
     });

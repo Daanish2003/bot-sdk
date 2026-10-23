@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../../core/server/create-chat";
 import { bot } from "../../../../plugins/bot/server/plugin";
+import { computer } from "../../../../plugins/computer/server/plugin";
+import { knowledge } from "../../../../plugins/knowledge/server/plugin";
 import { runner } from "../../../../plugins/runner/server/plugin";
 import { models } from "../../../../plugins/models/server/plugin";
 import { memoryRuntime } from "../../../../core/server/runtime";
 import { resolveRateLimits, type RateLimits } from "../../../../core/server/rate-limits";
 import { RateLimitedError } from "../../../../core/client/rate-limit";
 import { createTestSdk } from "../../../support/deps";
+import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
 import { chatRpc, sendAs } from "../../../support/sdk";
 import { testDatabaseUrl } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
@@ -46,6 +49,13 @@ const rpcCases = [
   },
 ];
 
+/** The Bot-only plugins that serve every route in `rpcCases`. */
+const botOnlyPlugins = () => [
+  bot(),
+  computer({ provider: fakeComputerProvider().provider }),
+  knowledge(),
+];
+
 /** An RPC call to `route`. The limit is checked before the body is read, so the body can be empty. */
 const rpcCall = (route: string) =>
   new Request(`http://localhost/api/chat/rpc/${route}`, { method: "POST", body: "{}" });
@@ -54,12 +64,16 @@ describe.each(rpcCases)("$name rate limits", ({ route, rateLimits }) => {
   it("answers 429 with Retry-After once a user passes the limit, and another user is unaffected", async () => {
     const user = await insertUser();
     const other = await insertUser();
-    const deps = createTestSdk({ plugins: [bot()], rateLimits: resolveRateLimits(rateLimits) });
+    const deps = createTestSdk({
+      plugins: botOnlyPlugins(),
+      rateLimits: resolveRateLimits(rateLimits),
+    });
 
     const first = await sendAs(rpcCall(route), user, deps);
     const limited = await sendAs(rpcCall(route), user, deps);
     const others = await sendAs(rpcCall(route), other, deps);
 
+    expect(first.status).not.toBe(404);
     expect(first.status).not.toBe(429);
     expect(limited.status).toBe(429);
     const retryAfter = Number(limited.headers.get("Retry-After"));
@@ -73,7 +87,7 @@ describe.each(rpcCases)("$name rate limits", ({ route, rateLimits }) => {
     const off = Object.fromEntries(
       Object.keys(rateLimits).map((key) => [key, false]),
     ) as RateLimits;
-    const deps = createTestSdk({ plugins: [bot()], rateLimits: resolveRateLimits(off) });
+    const deps = createTestSdk({ plugins: botOnlyPlugins(), rateLimits: resolveRateLimits(off) });
 
     const statuses: number[] = [];
     for (let attempt = 0; attempt < 5; attempt++) {

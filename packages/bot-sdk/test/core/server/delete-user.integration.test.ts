@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { eq, inArray, sql } from "drizzle-orm";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
 import { deleteUserData } from "../../../core/server/user-data";
@@ -150,7 +150,7 @@ describe("deleteUserData, with Bots", () => {
     });
     const { client, botId } = await botOf(deps, owner, sonnet);
     await followSend(client, { botId, id: uuidv7(), text: "Hi" });
-    while (fake.calls.length === 0) await new Promise((resolve) => setTimeout(resolve, 20));
+    await vi.waitFor(() => expect(fake.calls.length).toBeGreaterThan(0), { timeout: 10_000 });
 
     await deleteUserData(deps, owner.id);
     await fake.releaseAll();
