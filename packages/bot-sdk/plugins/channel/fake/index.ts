@@ -13,6 +13,20 @@ const fakeMailSchema = z.object({
   text: z.string().default(""),
   headers: z.record(z.string(), z.string()).default({}),
   attachments: z.array(z.string()).default([]),
+  files: z
+    .array(z.object({ name: z.string(), contentType: z.string(), base64: z.string() }))
+    .optional()
+    .transform((files) =>
+      files?.map((file) => {
+        const content = Uint8Array.from(Buffer.from(file.base64, "base64"));
+        return {
+          name: file.name,
+          contentType: file.contentType,
+          size: content.byteLength,
+          read: async () => content,
+        };
+      }),
+    ),
   authentication: z
     .object({ spf: verdict, dkim: verdict, dmarc: verdict })
     .default({ spf: "none", dkim: "none", dmarc: "none" }),
@@ -27,8 +41,14 @@ const fakeMailSchema = z.object({
 export function fakeEmailProvider(): {
   provider: EmailProvider;
   sent: OutboundMail[];
-  /** A request to the inbound route carrying `mail`, its fields defaulted. */
-  request: (mail?: Partial<InboundMail>) => Request;
+  /**
+   * A request to the inbound route carrying `mail`, its fields defaulted, and `files` as its
+   * attachments (named in `attachments` too).
+   */
+  request: (
+    mail?: Partial<Omit<InboundMail, "files">>,
+    files?: { name: string; contentType: string; content: string | Uint8Array }[],
+  ) => Request;
 } {
   const sent: OutboundMail[] = [];
   const provider: EmailProvider = {
@@ -41,11 +61,26 @@ export function fakeEmailProvider(): {
       sent.push(mail);
     },
   };
-  const request = (mail: Partial<InboundMail> = {}) =>
+  const request = (
+    mail: Partial<Omit<InboundMail, "files">> = {},
+    files?: { name: string; contentType: string; content: string | Uint8Array }[],
+  ) =>
     new Request("http://localhost/api/channels/email", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ from: "", to: [], ...mail }),
+      body: JSON.stringify({
+        from: "",
+        to: [],
+        ...mail,
+        ...(files && {
+          attachments: files.map((file) => file.name),
+          files: files.map((file) => ({
+            name: file.name,
+            contentType: file.contentType,
+            base64: Buffer.from(file.content).toString("base64"),
+          })),
+        }),
+      }),
     });
   return { provider, sent, request };
 }

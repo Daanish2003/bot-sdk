@@ -26,7 +26,7 @@ const message = {
   ],
   Subject: "Hi",
   Text: "hello bot",
-  Attachments: [{ FileName: "notes.pdf" }],
+  Attachments: [{ PartID: "2", FileName: "notes.pdf", ContentType: "application/pdf", Size: 3 }],
 };
 const headers = {
   "In-Reply-To": ["<p0@test.local>"],
@@ -43,6 +43,7 @@ function mailpit(held: Record<string, unknown> = { [webhook.ID]: message }) {
     if (path === "/api/v1/send") return Response.json({ ID: "sent" });
     const [, , , , id, tail] = path.split("/");
     if (!id || !(id in held)) return new Response("not found", { status: 404 });
+    if (tail === "part") return new Response(new Uint8Array([1, 2, 3]));
     return Response.json(tail === "headers" ? headers : held[id]);
   }) as unknown as typeof fetch;
   return { calls, provider: mailpitEmailProvider({ apiUrl: api, fetch: fetcher }) };
@@ -70,8 +71,21 @@ describe("mailpitEmailProvider.parseInbound", () => {
         subject: "Hi",
       },
       attachments: ["notes.pdf"],
+      files: [
+        { name: "notes.pdf", contentType: "application/pdf", size: 3, read: expect.any(Function) },
+      ],
       authentication: { spf: "none", dkim: "none", dmarc: "pass" },
     });
+  });
+
+  it("reads an attachment's bytes from its part only when asked", async () => {
+    const { provider, calls } = mailpit();
+    const mail = await provider.parseInbound(post(webhook));
+    if ("rejected" in mail) throw new Error(mail.rejected);
+    expect(calls.some((call) => call.url.includes("/part/"))).toBe(false);
+
+    expect([...(await mail.files![0]!.read())]).toEqual([1, 2, 3]);
+    expect(calls.at(-1)!.url).toBe(`${api}/api/v1/message/${webhook.ID}/part/2`);
   });
 
   it("refuses a webhook that doesn't name a message Mailpit holds", async () => {

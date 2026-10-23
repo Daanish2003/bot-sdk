@@ -238,6 +238,56 @@ export async function uploadBotFile(
   return upload;
 }
 
+/** One file of an inbound email: its bytes are read only once the mail is the owner's. */
+export type MailFile = {
+  name: string;
+  contentType: string;
+  size: number;
+  read: () => Promise<Uint8Array>;
+};
+
+/**
+ * Stores the files of the owner's email as an upload would be (spec #801, ticket #811): bytes under
+ * `bot-file/<id>`, the same name, type and size limits, with no `bot_upload` row since the Message
+ * holds them at once. A file over `maxFileBytes`, past `maxFilesPerMessage`, or unreadable is left
+ * out and its name returned in `unkept`.
+ */
+export async function storeMailFiles(
+  deps: Pick<BotSdkContext, "blobStore" | "logger">,
+  files: MailFile[],
+): Promise<{ stored: SentFile[]; unkept: string[] }> {
+  const stored: SentFile[] = [];
+  const unkept: string[] = [];
+  for (const file of files) {
+    if (stored.length >= maxFilesPerMessage || file.size > maxFileBytes) {
+      unkept.push(file.name);
+      continue;
+    }
+    try {
+      const bytes = await file.read();
+      if (bytes.byteLength > maxFileBytes) {
+        unkept.push(file.name);
+        continue;
+      }
+      const name = safeFileName(file.name);
+      const upload = {
+        id: uuidv7(),
+        name,
+        size: bytes.byteLength,
+        mediaType: uploadMediaType(file.contentType, name, bytes),
+      };
+      await deps.blobStore.put(sentFileBlobKey(upload.id), bytes, {
+        contentType: upload.mediaType,
+      });
+      stored.push(upload);
+    } catch (caught) {
+      deps.logger.error("Couldn't keep an email attachment", { error: String(caught) });
+      unkept.push(file.name);
+    }
+  }
+  return { stored, unkept };
+}
+
 /**
  * Takes the user's uploads `ids` for the Message a send saves in `tx`: their rows go, since the
  * Message's `files` part holds them from then on, and their bytes stay. An id that isn't one of the
