@@ -108,7 +108,7 @@ Each plugin's `ui/` uses Tailwind v4 classes. In your global stylesheet, import 
 @import "./lib/bot-sdk/ui/theme.css";
 ```
 
-`theme.css` starts with `@source` lines (`@source ".";`, then `@source "../plugins/<name>/ui";` for each plugin with screens), which tell Tailwind to scan those folders wherever the copy sits. Your shadcn theme variables (`--background`, `--primary`, and so on) must also be defined in your stylesheet.
+`theme.css` starts with `@source` lines (`@source "../plugins/<name>/ui";` for each plugin with screens), which tell Tailwind to scan those folders wherever the copy sits. Your shadcn theme variables (`--background`, `--primary`, and so on) must also be defined in your stylesheet.
 
 ## Postgres
 

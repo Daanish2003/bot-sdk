@@ -97,7 +97,7 @@ Shared by the orchestrator and every implementer. Each bullet cost a past run a 
 - **bot-memory-search, again (#761):** "is absent with Memory off…" failed in two more full verifies and passed 2/2 alone each time.
 - **Repeated hand-backs (#761):** an agent whose forked code-review returned late sent the same final report four times. Tell it the ticket is merged and to stop.
 - **Coverage tests outside a ticket's affected set (#801):**
-  - `assistant-user-data` and `user-data-across-plugins` check that `deleteUser` empties every `user_id` table, so a ticket that adds such a table must seed it in both. #805 missed them, and only the full verify caught it.
+  - `user-data-across-plugins.integration.test.ts` and `delete-user.integration.test.ts` check that `deleteUser` empties every `user_id` table, so a ticket that adds such a table must seed it in both. #805 missed them, and only the full verify caught it.
   - Removing UI breaks tests under `packages/bot-sdk/test/ui`, not only next to the component: #806 removed the "back to assistant" link and left `bots-app.test.ts` red.
   - Brief such tickets to run those files.
 - **Run e2e early when a ticket changes a layout or routes (#801):** #806 moved `_auth` into the Bots shell, and every spec that goes through `/c` failed. Shared helpers like `signInWithModel` sign in there, so even the new Bot specs failed (43/88). Nobody saw it until the end-of-run e2e. Run the full e2e right after merging such a ticket.

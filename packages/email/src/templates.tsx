@@ -96,7 +96,7 @@ const copy: { [N in TemplateName]: (props: TemplateProps<N>) => Copy } = {
     subject: `Confirm deleting your ${appName} account`,
     heading: "Confirm account deletion",
     paragraph:
-      "Clicking the button deletes your account at once, with your Conversations, Messages, Attachments, Shared links, Provider credentials, Tool credentials and settings. This cannot be undone.",
+      "Clicking the button deletes your account at once, with your Bots and their Conversations, files, Secrets, Knowledge, Skills, Routines, Computer, Connections, credentials and settings. This cannot be undone.",
     button: "Delete my account",
     expiry: EXPIRY,
     reason: "someone asked to delete the account for this address",

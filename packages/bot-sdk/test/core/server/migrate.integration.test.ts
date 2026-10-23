@@ -616,18 +616,16 @@ describe("the contract migration (#819)", () => {
     expect(deleted).toHaveLength(2);
   });
 
-  it("keeps deleting the other keys from the Host's store when one delete fails", async () => {
-    const url = await seeded("contract_store_fails");
-    const deleted: string[] = [];
+  it("deletes the Host store's assistant bytes in one call", async () => {
+    const url = await seeded("contract_store_batch");
+    const calls: string[][] = [];
     const store: BlobStore = {
       put: async () => {},
       get: async () => null,
       delete: async (keys) => {
-        if (keys.includes(assistantKeys[0]!)) throw new Error("S3 is down");
-        deleted.push(...keys);
+        calls.push([...keys].sort());
       },
     };
-    const error = vi.spyOn(console, "error").mockImplementation(() => {});
 
     await createBotSdk({
       databaseUrl: url,
@@ -638,9 +636,34 @@ describe("the contract migration (#819)", () => {
       plugins: [models(), runner()],
     }).migrate();
 
+    expect(calls).toEqual([assistantKeys]);
+  });
+
+  it("keeps deleting the other keys from the Host's store when one delete fails, and tells the Host's logger", async () => {
+    const url = await seeded("contract_store_fails");
+    const deleted: string[] = [];
+    const store: BlobStore = {
+      put: async () => {},
+      get: async () => null,
+      delete: async (keys) => {
+        if (keys.includes(assistantKeys[0]!)) throw new Error("S3 is down");
+        deleted.push(...keys);
+      },
+    };
+    const logger = { error: vi.fn() };
+
+    await createBotSdk({
+      databaseUrl: url,
+      getUser: () => null,
+      keyEncryptionSecrets,
+      basePath: "/api/chat",
+      blobStore: store,
+      logger,
+      plugins: [models(), runner()],
+    }).migrate();
+
     expect(deleted).toEqual([assistantKeys[1]]);
-    expect(error).toHaveBeenCalledWith("1 of the assistant's 2 blobs are still stored");
-    error.mockRestore();
+    expect(logger.error).toHaveBeenCalledWith("1 of the assistant's 2 blobs are still stored");
   });
 });
 describe("chat.start()", () => {

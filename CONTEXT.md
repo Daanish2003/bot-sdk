@@ -13,7 +13,7 @@ An app that embeds the Bot SDK and supplies its users, its routes and a Postgres
 _Avoid_: Consumer, client app, integrator
 
 **Conversation**:
-The chat thread between a user and one of their Bots. A Bot has exactly one Conversation with the user, and it only ever grows at the end. Pinning or archiving the Conversation pins or archives the Bot.
+The chat thread between a user and one of their Bots. A Bot has exactly one Conversation with the user, and it only ever grows at the end.
 _Avoid_: Chat, thread, session, hidden (for archived)
 
 **Message**:

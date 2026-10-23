@@ -37,13 +37,18 @@ function folderMillis(name: string) {
  * Creates the `chat` schema and `pg_trgm`, and then applies the bundled migrations. A
  * session advisory lock is held for the whole run, so concurrent runs queue up and only one applies.
  *
- * The contract migration (#819) deletes the assistant's bytes in `chat.blob` itself. With the
- * Host's own `blobStore`, the run that applies it then deletes the bytes of the assistant's
- * Attachments and Generated images from that store too.
+ * The contract migration (#819) deletes every `attachment/` and `generated-image/` byte in
+ * `chat.blob` itself. With the Host's own `blobStore`, the run that applies it then deletes the
+ * bytes of the assistant's Attachments and Generated images from that store too, by the keys their
+ * rows held. `BlobStore` can't list keys, so that part is best effort (ADR 0015): a store object with
+ * no row, or one left by a run that stopped before its deletes, stays.
  */
 export async function migrate(
   databaseUrl: string,
-  { blobStore }: { blobStore?: Pick<BlobStore, "delete"> } = {},
+  {
+    blobStore,
+    logger = console,
+  }: { blobStore?: Pick<BlobStore, "delete">; logger?: Pick<Console, "error"> } = {},
 ): Promise<void> {
   const client = new pg.Client({ connectionString: databaseUrl });
   await client.connect();
@@ -58,7 +63,7 @@ export async function migrate(
       migrationsTable: "__migrations",
     });
     await client.query("select pg_advisory_unlock($1)", [MIGRATION_LOCK_ID]);
-    if (blobStore) await deleteAssistantBlobs(assistantKeys, blobStore);
+    if (blobStore) await deleteAssistantBlobs(assistantKeys, blobStore, logger);
   } finally {
     await client.end();
   }
@@ -87,21 +92,32 @@ async function assistantBlobKeys(client: pg.Client): Promise<string[]> {
 
 /**
  * Deletes the assistant's bytes from the Host's store once the migration that dropped their rows
- * has committed, one key at a time so one failure skips only its own key. Logged, never thrown: a
- * stray object costs storage but no data (ADR 0015).
+ * has committed: in one call, and when that fails, one key at a time so one failure skips only its
+ * own key. Logged, never thrown: a stray object costs storage but no data (ADR 0015).
  */
-async function deleteAssistantBlobs(keys: string[], blobStore: Pick<BlobStore, "delete">) {
+async function deleteAssistantBlobs(
+  keys: string[],
+  blobStore: Pick<BlobStore, "delete">,
+  logger: Pick<Console, "error">,
+) {
+  if (keys.length === 0) return;
+  try {
+    await blobStore.delete(keys);
+    return;
+  } catch {
+    // Retried key by key below, so one bad key doesn't keep the others.
+  }
   let failed = 0;
   for (const key of keys) {
     try {
       await blobStore.delete([key]);
     } catch (error) {
       failed += 1;
-      if (failed === 1) console.error("Deleting an assistant blob failed", error);
+      if (failed === 1) logger.error("Deleting an assistant blob failed", error);
     }
   }
   if (failed > 0) {
-    console.error(`${failed} of the assistant's ${keys.length} blobs are still stored`);
+    logger.error(`${failed} of the assistant's ${keys.length} blobs are still stored`);
   }
 }
 
