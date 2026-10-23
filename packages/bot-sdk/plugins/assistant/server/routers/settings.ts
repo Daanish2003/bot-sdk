@@ -7,14 +7,8 @@ import { rpcError } from "../../../../core/server/rpc-error";
 import { loadSettings, saveInstructions, saveBackgroundModel } from "../settings/store";
 
 export const settingsRouter = {
-  /** The user's settings, with the Image Model from the models plugin's `model_settings` (spec #801). */
-  get: protectedProcedure.handler(async ({ context }) => {
-    const [settings, imageModel] = await Promise.all([
-      loadSettings(context.sdk, context.user.id),
-      context.sdk.plugin("models").imageModelSetting(context.user.id),
-    ]);
-    return { ...settings, imageModel };
-  }),
+  /** The user's settings. */
+  get: protectedProcedure.handler(({ context }) => loadSettings(context.sdk, context.user.id)),
 
   /**
    * Chooses the Model that writes automatic titles; `null` is "Same as first reply". Credentials
@@ -34,28 +28,6 @@ export const settingsRouter = {
         );
       }
       await saveBackgroundModel(context.sdk, context.user.id, input.backgroundModel);
-    }),
-
-  /**
-   * Chooses the Image Model Generated images are made with; `null` is the Host's default. The
-   * Model must be one the user can use: a curated Image Model of a Provider they have credentials
-   * for, or one of the Host's Image Models (spec #278).
-   */
-  setImageModel: protectedProcedure
-    .input(z.object({ imageModel: z.string().nullable() }))
-    .handler(async ({ context, input }) => {
-      if (
-        input.imageModel !== null &&
-        !(await context.sdk.plugin("models").resolveImageModel(context.user.id, input.imageModel))
-      ) {
-        throw rpcError(
-          "BAD_REQUEST",
-          "error.imageModelNotAvailable",
-          `"${input.imageModel}" is not an available Image Model`,
-          { model: input.imageModel },
-        );
-      }
-      await context.sdk.plugin("models").saveImageModelSetting(context.user.id, input.imageModel);
     }),
 
   /** Saves the Instructions sent with every Run from the next one; blank or `null` clears them. */

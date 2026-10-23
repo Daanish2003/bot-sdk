@@ -2,12 +2,12 @@
 
 import { useChatAdapter } from "@ai-chat/bot-sdk/core/client";
 import type { SharedConversation as SharedSnapshot } from "@ai-chat/bot-sdk/plugins/assistant/shared/share/conversation";
+import { ImageModelSelect } from "@ai-chat/bot-sdk/plugins/models/ui";
 import {
   ArchivedConversationsSection,
   BackgroundModelSelect,
   ChatView,
   DeleteAllConversationsSection,
-  ImageModelSelect,
   InstructionsField,
   NewConversationPage,
   ProjectPage,

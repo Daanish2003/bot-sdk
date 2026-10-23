@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { ImageModelSelect } from "../../plugins/assistant/ui/index";
+import { ImageModelSelect } from "../../plugins/models/ui/index";
 import { ConnectionsSection } from "../../plugins/mcp/ui/index";
 import {
   CredentialsSections,

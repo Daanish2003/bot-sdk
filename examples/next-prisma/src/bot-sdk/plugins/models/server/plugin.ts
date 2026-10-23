@@ -230,6 +230,9 @@ function modelsPlugin(
     start: async (sdk) => {
       await start?.(sdk, ready(sdk));
     },
+    exportUser: async (sdk, userId) => ({
+      imageModel: await loadImageModelSetting(ready(sdk), userId),
+    }),
     deleteUser: modelsUserDelete,
     rotateKeys: async (sdk) => {
       const deps = ready(sdk);

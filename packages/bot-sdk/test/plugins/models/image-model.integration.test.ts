@@ -1,11 +1,17 @@
+import { randomUUID } from "node:crypto";
+
 import { describe, expect, it } from "vitest";
 
-import { modelSettings } from "../../../../core/server/db/schema";
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
-import type { HostProvider } from "../../../../plugins/assistant/server/deps";
-import { createTestSdk, chatRpc } from "../../../support/assistant";
-import { insertUser, type TestUser } from "../../../support/users";
-import { getTestDb } from "../../../support/test-database";
+import { createBotSdk } from "../../../core/server/create-chat";
+import { models } from "../../../plugins/models/server/plugin";
+
+import { modelSettings } from "../../../core/server/db/schema";
+import { saveCredentials } from "../../../plugins/models/server/credentials/store";
+import type { HostProvider } from "../../../plugins/models/server/types";
+import { createTestSdk } from "../../support/deps";
+import { chatRpc } from "../../support/sdk";
+import { insertUser, type TestUser } from "../../support/users";
+import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 
 // The Host's Image Model is Gemini's, so the tests can tell it from the user's own OpenAI key.
 const hostProviders: HostProvider[] = [
@@ -39,14 +45,14 @@ async function signedIn() {
   return { user, client: chatRpc({ user, deps }) };
 }
 
-describe("settings.setImageModel", () => {
+describe("models.setImageModel", () => {
   it("saves a curated Image Model the user has credentials for", async () => {
     const { user, client } = await signedIn();
     await addCredentials(user, "openai");
 
-    await client.settings.setImageModel({ imageModel: "openai:gpt-image-1-mini" });
+    await client.models.setImageModel({ imageModel: "openai:gpt-image-1-mini" });
 
-    await expect(client.settings.get()).resolves.toMatchObject({
+    await expect(client.models.imageModel()).resolves.toMatchObject({
       imageModel: "openai:gpt-image-1-mini",
     });
   });
@@ -54,20 +60,20 @@ describe("settings.setImageModel", () => {
   it("saves one of the Host's Image Models without the user's own credentials", async () => {
     const { client } = await signedIn();
 
-    await client.settings.setImageModel({ imageModel: "gemini:gemini-3.1-flash-image" });
+    await client.models.setImageModel({ imageModel: "gemini:gemini-3.1-flash-image" });
 
-    await expect(client.settings.get()).resolves.toMatchObject({
+    await expect(client.models.imageModel()).resolves.toMatchObject({
       imageModel: "gemini:gemini-3.1-flash-image",
     });
   });
 
   it("clears the Image Model back to the Host's default", async () => {
     const { client } = await signedIn();
-    await client.settings.setImageModel({ imageModel: "gemini:gemini-3.1-flash-image" });
+    await client.models.setImageModel({ imageModel: "gemini:gemini-3.1-flash-image" });
 
-    await client.settings.setImageModel({ imageModel: null });
+    await client.models.setImageModel({ imageModel: null });
 
-    await expect(client.settings.get()).resolves.toMatchObject({ imageModel: null });
+    await expect(client.models.imageModel()).resolves.toMatchObject({ imageModel: null });
   });
 
   it("reads and writes the models plugin's model_settings, not the assistant's settings (#803)", async () => {
@@ -77,11 +83,11 @@ describe("settings.setImageModel", () => {
       .insert(modelSettings)
       .values({ userId: user.id, imageModel: "gemini:gemini-3.1-flash-image" });
 
-    await expect(client.settings.get()).resolves.toMatchObject({
+    await expect(client.models.imageModel()).resolves.toMatchObject({
       imageModel: "gemini:gemini-3.1-flash-image",
     });
 
-    await client.settings.setImageModel({ imageModel: null });
+    await client.models.setImageModel({ imageModel: null });
 
     await expect(
       getTestDb().select({ imageModel: modelSettings.imageModel }).from(modelSettings),
@@ -92,7 +98,7 @@ describe("settings.setImageModel", () => {
     const { user, client } = await signedIn();
     await addCredentials(user, "openai");
 
-    await expect(client.settings.setImageModel({ imageModel: "openai:nope" })).rejects.toThrow(
+    await expect(client.models.setImageModel({ imageModel: "openai:nope" })).rejects.toThrow(
       /not an available Image Model/,
     );
   });
@@ -101,7 +107,7 @@ describe("settings.setImageModel", () => {
     const { user, client } = await signedIn();
     await addCredentials(user, "openai");
 
-    await expect(client.settings.setImageModel({ imageModel: "openai:gpt-5.6" })).rejects.toThrow(
+    await expect(client.models.setImageModel({ imageModel: "openai:gpt-5.6" })).rejects.toThrow(
       /not an available Image Model/,
     );
   });
@@ -110,9 +116,9 @@ describe("settings.setImageModel", () => {
     const { client } = await signedIn();
 
     await expect(
-      client.settings.setImageModel({ imageModel: "openai:gpt-image-1-mini" }),
+      client.models.setImageModel({ imageModel: "openai:gpt-image-1-mini" }),
     ).rejects.toThrow(/not an available Image Model/);
-    await expect(client.settings.get()).resolves.toMatchObject({ imageModel: null });
+    await expect(client.models.imageModel()).resolves.toMatchObject({ imageModel: null });
   });
 
   it("lists the user's own Image Models first, then the Host's, marked as on Host credentials", async () => {
@@ -128,5 +134,33 @@ describe("settings.setImageModel", () => {
       ["openai:dall-e-3", false],
       ["gemini:gemini-3.1-flash-image", true],
     ]);
+  });
+});
+
+describe("createBotSdk().exportUser, the models plugin", () => {
+  const exportFor = (userId: string) =>
+    createBotSdk({
+      databaseUrl: testDatabaseUrl,
+      getUser: () => null,
+      keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
+      basePath: "/api/chat",
+      plugins: [models()],
+    }).exportUser(userId);
+
+  it("exports the Image Model under the models section", async () => {
+    const user = await insertUser();
+    await getTestDb()
+      .insert(modelSettings)
+      .values({ userId: user.id, imageModel: "openai:gpt-image-2" });
+
+    const document = await exportFor(user.id);
+
+    expect(document.models).toEqual({ imageModel: "openai:gpt-image-2" });
+  });
+
+  it("exports no Image Model for a user who picked none", async () => {
+    const document = await exportFor(randomUUID());
+
+    expect(document.models).toEqual({ imageModel: null });
   });
 });
