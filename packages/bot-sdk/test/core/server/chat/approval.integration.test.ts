@@ -349,6 +349,32 @@ describe("a Host tool that needs Approval", () => {
     });
   });
 
+  it("approving an MCP call stored before the assistant stopped offering MCP tools denies it and ends the reply", async () => {
+    const runs: Runs = [];
+    const { deps, conv, fake, send, decide } = await setup({
+      rounds: [round(mailCall("call-1"))],
+      runs,
+    });
+    await (await send()).text();
+    const reply = await replyOf(deps, conv.id);
+    await deps.db
+      .update(message)
+      .set({ parts: storedParts([{ ...awaitingCall("call-1"), source: "mcp" } as StoredPart]) })
+      .where(eq(message.id, reply.id));
+
+    await decide(reply.id, true);
+
+    // The assistant no longer has the tool, so the Model isn't asked again.
+    expect(runs).toEqual([]);
+    expect(fake.calls).toHaveLength(1);
+    expect(await replyOf(deps, conv.id)).toMatchObject({
+      status: "complete",
+      parts: storedParts([
+        expect.objectContaining({ toolCallId: "call-1", source: "mcp", state: "denied" }),
+      ]),
+    });
+  });
+
   it("a resumed Run can be stopped, and a stop ends it as stopped", async () => {
     const { user, deps, conv, fake, send, decide } = await setup({
       rounds: [round(mailCall("call-1")), round(text("Sent."))],

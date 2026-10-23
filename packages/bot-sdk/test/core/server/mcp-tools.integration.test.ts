@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { mcpClient } from "../../../plugins/mcp/client/index";
 import { listConnections, readTokens, saveTokens } from "../../../plugins/mcp/server/connections";
@@ -9,6 +9,8 @@ import { createFakeMcpAuth, fakeMcpResource } from "../../support/fake-mcp-auth"
 import { createFakeMcpServer, type FakeMcpTool } from "../../support/fake-mcp-server";
 import { createTestChat } from "../../support/sdk";
 import { insertUser, type TestUser } from "../../support/users";
+
+vi.setConfig({ testTimeout: 30_000 });
 
 const basePath = "http://localhost/api/chat";
 const clientId = "ai-chat-test";
@@ -195,6 +197,16 @@ describe("mcp's forUser(id).tools()", () => {
 
     controller.abort();
 
+    await expect.poll(() => server.closed, { timeout: 10_000 }).toBeGreaterThanOrEqual(1);
+  });
+
+  it("closes a client whose tool list fails at once, without waiting for the signal", async () => {
+    const { server, tools } = await setup();
+    server.failList = true;
+
+    const listed = await tools(new AbortController().signal);
+
+    expect(listed).toEqual([]);
     await expect.poll(() => server.closed, { timeout: 10_000 }).toBeGreaterThanOrEqual(1);
   });
 

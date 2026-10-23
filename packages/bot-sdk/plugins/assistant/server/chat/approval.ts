@@ -62,6 +62,7 @@ export async function decideApproval(
     (part): part is ToolCallPart => part.type === "tool_call" && part.state === "awaiting_approval",
   );
   if (!waiting || !owned.threadId || !owned.interruptedRunId) return "not_waiting";
+  if (waiting.source === "mcp") return endMcpCall(deps, owned.id, stored.data.parts, waiting);
   if (!owned.model) return "unavailable";
   const asked = await findConversation(deps, userId, owned.conversationId);
   if (!asked) return "not_found";
@@ -77,8 +78,7 @@ export async function decideApproval(
         : part,
     ),
   );
-  // The resumed Run is planned like the Run that asked, from the Conversation's stored settings, so
-  // the approved call can run. Its Approval still applies to this call: the resume answers that
+  // The resumed Run is planned like the Run that asked, so the approved call can run. Its Approval still applies to this call: the resume answers that
   // interrupt, and a call that no longer asks has none to answer.
   const planned = await planRun(
     deps,
@@ -141,4 +141,30 @@ export async function decideApproval(
     return planned.refused.code === quotaExceededCode ? "quota" : "unavailable";
   }
   return planned.done;
+}
+
+/**
+ * Ends a reply waiting on an MCP call stored before the assistant stopped offering MCP tools
+ * (ADR 0027): the call is denied whatever the decision, and the reply completes without asking the
+ * Model again, since no Run offers that tool to answer it.
+ */
+async function endMcpCall(
+  deps: BotSdkContext,
+  messageId: string,
+  parts: StoredPart[],
+  waiting: ToolCallPart,
+): Promise<DecideResult> {
+  const [row] = await deps.db
+    .update(message)
+    .set({
+      status: "complete",
+      parts: storedParts(
+        parts.map((part) =>
+          part === waiting ? { ...part, state: "denied" as const, result: declinedResult } : part,
+        ),
+      ),
+    })
+    .where(and(eq(message.id, messageId), eq(message.status, "awaiting_approval")))
+    .returning({ id: message.id });
+  return row ? "started" : "not_waiting";
 }

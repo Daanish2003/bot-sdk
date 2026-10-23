@@ -450,6 +450,6 @@ function toolsOf(deps: BotSdkContext, plan: RunPlan, run: RunToolState): AnyServ
           }),
         ]
       : []),
-    ...trackTools(offered.hostTools, { source: "host", ...run }),
+    ...trackTools(offered.hostTools, run),
   ];
 }

@@ -43,9 +43,10 @@ async function accessTokenFor(deps: Deps, userId: string, server: McpServerConfi
 
 /**
  * The tools of the user's connected servers, one client per Connection, open until `signal`
- * aborts. A server that is down, or whose Connection can't be used, is skipped. Each tool is named
- * `<server key>_<tool>`, filtered by the server's `tools` allowlist, and needs approval unless the
- * server's `approvalFree` lists it.
+ * aborts. The servers are opened side by side, so a slow one holds up no other. A server that is
+ * down, or whose Connection can't be used, is skipped. Each tool is named `<server key>_<tool>`,
+ * filtered by the server's `tools` allowlist, and needs approval unless the server's `approvalFree`
+ * lists it.
  */
 export async function openMcpTools(
   deps: Deps,
@@ -53,36 +54,45 @@ export async function openMcpTools(
   userId: string,
   signal: AbortSignal,
 ): Promise<AnyServerTool[]> {
-  const tools: AnyServerTool[] = [];
+  if (signal.aborted) return [];
   const clients: Array<{ close: () => Promise<void> }> = [];
-  const close = () => {
+  const closeAll = () => {
     for (const client of clients.splice(0)) void client.close().catch(() => undefined);
   };
-  signal.addEventListener("abort", close, { once: true });
-  for (const server of servers) {
-    if (signal.aborted) break;
-    try {
-      const accessToken = await accessTokenFor(deps, userId, server);
-      if (!accessToken || signal.aborted) continue;
-      const client = await createMCPClient({
-        transport: {
-          type: "http",
-          url: server.url,
-          headers: { authorization: `Bearer ${accessToken}` },
-          fetch: deps.fetch,
-        },
-        name: "ai-chat",
-        prefix: server.key,
-        toolFilter: (tool) => !server.tools || server.tools.includes(tool.name),
-        needsApproval: (tool) => !(server.approvalFree ?? []).includes(tool.name),
-      });
-      clients.push(client);
-      // A client opened as the signal aborted is closed at once.
-      if (signal.aborted) close();
-      else tools.push(...((await client.tools()) as AnyServerTool[]));
-    } catch {
-      // The server is down or refused the call: its tools are left out.
-    }
-  }
-  return signal.aborted ? [] : tools;
+  signal.addEventListener("abort", closeAll, { once: true });
+
+  const opened = await Promise.all(
+    servers.map(async (server): Promise<AnyServerTool[]> => {
+      const accessToken = await accessTokenFor(deps, userId, server).catch(() => null);
+      if (!accessToken || signal.aborted) return [];
+      let client: { close: () => Promise<void>; tools: () => Promise<unknown> } | undefined;
+      try {
+        client = await createMCPClient({
+          transport: {
+            type: "http",
+            url: server.url,
+            headers: { authorization: `Bearer ${accessToken}` },
+            fetch: deps.fetch,
+          },
+          name: "ai-chat",
+          prefix: server.key,
+          toolFilter: (tool) => !server.tools || server.tools.includes(tool.name),
+          needsApproval: (tool) => !(server.approvalFree ?? []).includes(tool.name),
+        });
+        if (signal.aborted) throw signal.reason;
+        const tools = (await client.tools()) as AnyServerTool[];
+        clients.push(client);
+        // A client opened as the signal aborted is closed at once.
+        if (signal.aborted) closeAll();
+        return tools;
+      } catch {
+        // The server is down or refused the call: its tools are left out and its client closed.
+        void client?.close().catch(() => undefined);
+        return [];
+      }
+    }),
+  );
+  // With no client left open, the signal has nothing to close.
+  if (clients.length === 0) signal.removeEventListener("abort", closeAll);
+  return signal.aborted ? [] : opened.flat();
 }

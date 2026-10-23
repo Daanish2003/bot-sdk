@@ -18,10 +18,7 @@ export type HostServerTool = AnyServerTool;
  * its result and the reply continues. Past the reply's budget, a call gets `toolCallLimitError` and
  * runs nothing.
  */
-export function trackTools(
-  tools: AnyServerTool[],
-  { source, ...run }: RunToolState & { source: "host" },
-): AnyServerTool[] {
+export function trackTools(tools: AnyServerTool[], run: RunToolState): AnyServerTool[] {
   const { parts } = run;
   return tools.map((tool) => ({
     ...tool,
@@ -29,10 +26,10 @@ export function trackTools(
       tool.name,
       run,
       {
-        source,
+        source: "host",
         part: {
           start: (toolCallId, args: unknown) =>
-            parts.startToolCall({ toolCallId, name: tool.name, source, args }),
+            parts.startToolCall({ toolCallId, name: tool.name, source: "host", args }),
           refused: (toolCallId) => limitReached(parts, toolCallId),
           failed: (toolCallId, caught) => {
             const message = caught instanceof Error ? caught.message : String(caught);
