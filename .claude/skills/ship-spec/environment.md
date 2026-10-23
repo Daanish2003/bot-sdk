@@ -26,6 +26,8 @@ Shared by the orchestrator and every implementer. Each bullet cost a past run a 
 - **Never merge into a worktree while a verify runs in it (#791):** a merge that landed mid-verify changed the files under the test run, so that result proved nothing and the verify had to be run again. Hold every merge until the verify reports.
 - **Removing worktrees with `node_modules` (#791):** `git worktree remove --force` failed with "Filename too long" on every worktree in the run. Go straight to `git worktree prune` plus the `node -e "…rmSync…"` removal from the bullet above; it went through each time.
 - **The spec's docs branch (#791):** when the spec branches from a `docs/<map>-…` branch, delete that branch and its worktree too once the integration PR merges (`git merge-base --is-ancestor docs/… main` first).
+- **Merge, then verify, never both at once (#801):** a merge and a background verify were sent as parallel tool calls. The merge conflicted, and the verify had already started on the half-merged tree, so it had to be stopped. Read the merge's result (and `git status` for `UU` files) before starting a verify.
+- **Start a dependent ticket from its blocker's branch (#801):** #809, #807, #808, #810, #811 and #812 each started from their blocker's unpushed tip (`worktree add -b <branch> <path> <blocker-branch or SHA>`) instead of waiting for that blocker's merge and verify. No rework came of it. Put the base SHA in the prompt and tell the agent to review `<SHA>..HEAD`.
 
 ## Databases and services
 
@@ -95,6 +97,21 @@ Shared by the orchestrator and every implementer. Each bullet cost a past run a 
 - **Missing change hints (#761):** a review found user RPCs that recorded a Bot-thread change but never called `hintChanged`, so other tabs waited for focus: Check-in cancel, the Routine approve, decline, pause, resume and delete, and Helper stop. Brief any ticket that adds a thread-changing path to hint after the commit and test it.
 - **bot-memory-search, again (#761):** "is absent with Memory off…" failed in two more full verifies and passed 2/2 alone each time.
 - **Repeated hand-backs (#761):** an agent whose forked code-review returned late sent the same final report four times. Tell it the ticket is merged and to stop.
+- **Coverage tests outside a ticket's affected set (#801):**
+  - `assistant-user-data` and `user-data-across-plugins` check that `deleteUser` empties every `user_id` table, so a ticket that adds such a table must seed it in both. #805 missed them, and only the full verify caught it.
+  - Removing UI breaks tests under `packages/bot-sdk/test/ui`, not only next to the component: #806 removed the "back to assistant" link and left `bots-app.test.ts` red.
+  - Brief such tickets to run those files.
+- **Run e2e early when a ticket changes a layout or routes (#801):** #806 moved `_auth` into the Bots shell, and every spec that goes through `/c` failed. Shared helpers like `signInWithModel` sign in there, so even the new Bot specs failed (43/88). Nobody saw it until the end-of-run e2e. Run the full e2e right after merging such a ticket.
+- **SSR `useSyncExternalStore` errors (#801):** the web server logs `Cannot read properties of null (reading 'useSyncExternalStore')` on signed-in pages. It comes from a duplicate React in the SSR build (#821), it isn't a test failure, and e2e passes with it. Ignore it until #821 is fixed.
+- **More load timeouts (#801):** each of these timed out in one full verify and passed 2–3 times alone:
+  - bot-review "never shows the reviewer a webhook's payload…"
+  - usage "estimates a stopped Run, even when its round reported usage"
+  - bot-names-first-tools "note a tool added after the Prompt start…"
+  - bot-screen "closes the browser's socket once the Screen's socket closes"
+  - bot-change-notes "read only the notes the system rendered…"
+  - bot-helper "ends error after 50 Steps"
+  - bot-memory-search "is absent with Memory off…" (again)
+- **Forked review stays empty (#801):** the #806 follow-up's forked `code-review` came back empty three times in a row, about 5 s each. The orchestrator read the diff itself as part of the branch review. For a small diff, that is quicker than re-sending.
 - **Self-review instead of the skill (#791):** two implementers reviewed their own diff "inline" when the forked `code-review` returned empty, and one never saw its new test go red. Send such a report back. The brief now says to rerun an empty review and never to self-review; still check every report for it.
 - **The example Host's own code calls changed SDK APIs (#791):** after #797 made `KeySettingsPage` render only its children, the re-copied SDK typechecked but the example's `chat-pages.tsx` still rendered `<KeySettingsPage />` with no sections, an empty page. After the copy, grep the example's own `src/` (outside `src/bot-sdk`) for every SDK export the spec changed, and run `pnpm check-types` in `examples/next-prisma`.
 - **The pre-commit formatter rewrites the copy (#791):** lint-staged runs `oxfmt --write` on the copied files. Re-run the CI drift check after committing the copy (`copy.ts` again, then `git diff --name-only` on the example's `src/bot-sdk` minus `VERSION`); in #791 it stayed clean.
