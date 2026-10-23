@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Lesson 6 · Runs outlive the client</title>
-    <link rel="stylesheet" href="../assets/style.css" />
+    <link rel="stylesheet" href="../../assets/style.css" />
   </head>
   <body>
     <main>
@@ -87,14 +87,14 @@
         <li>
           The page loads the Active Branch and finds a Message with status
           <code>streaming</code>.
-          <a href="../../../packages/bot-sdk/plugins/assistant/ui/chat/chat-view.tsx"
+          <a href="../../../../packages/bot-sdk/plugins/assistant/ui/chat/chat-view.tsx"
             ><code>chat-view.tsx</code></a
           >
           takes its id as the Run's id.
         </li>
         <li>
           <code>useChat</code> sends <code>GET /api/chat/run?runId=…</code>.
-          <a href="../../../packages/bot-sdk/plugins/assistant/server/chat/join-run.ts"
+          <a href="../../../../packages/bot-sdk/plugins/assistant/server/chat/join-run.ts"
             ><code>handleJoin</code></a
           >
           checks that the user owns the Conversation, else 404.
@@ -111,7 +111,7 @@
       </figure>
       <p>
         Stop is an RPC, <code>chat.stop</code>, and it can land on any process.
-        <a href="../../../packages/bot-sdk/plugins/assistant/server/chat/run.ts"
+        <a href="../../../../packages/bot-sdk/plugins/assistant/server/chat/run.ts"
           ><code>stopRun</code></a
         >
         does two things: it writes <code>cancel_requested_at</code> on the Message, and it publishes
@@ -121,7 +121,7 @@
       <p>
         The signal is at most once, so it can miss. That is why the owner also reads the column on
         each one-second tick (<a
-          href="../../../packages/bot-sdk/plugins/assistant/server/chat/stop.ts"
+          href="../../../../packages/bot-sdk/plugins/assistant/server/chat/stop.ts"
           ><code>stopRequested</code></a
         >). Either way the owner aborts and saves <code>stopped</code>. If the lease has already run
         out, no owner is left, so <code>stopRun</code> saves <code>stopped</code> itself.
@@ -165,7 +165,7 @@
         If a process crashes, nobody saves its Run, and the Message says <code>streaming</code> for
         ever. So the owner writes <code>heartbeat_at</code> on every snapshot tick (1 s), even when
         no text changed. Every process runs the reaper in <code>start()</code> and then every 30 s
-        (<a href="../../../packages/bot-sdk/plugins/assistant/server/lifecycle.ts"
+        (<a href="../../../../packages/bot-sdk/plugins/assistant/server/lifecycle.ts"
           ><code>lifecycle.ts</code></a
         >).
       </p>
@@ -221,7 +221,7 @@
         </figcaption>
       </figure>
       <p>
-        <a href="../../../packages/bot-sdk/core/server/runtime.ts"><code>runtime.ts</code></a>
+        <a href="../../../../packages/bot-sdk/core/server/runtime.ts"><code>runtime.ts</code></a>
         has the two runtimes. <code>apps/web</code> picks <code>redisRuntime</code> when
         <code>REDIS_URL</code> is set.
       </p>
@@ -280,9 +280,10 @@
         <blockquote>
           "A Run outlives the client and Stop is an explicit call. But its registry, boot sweep and
           polling only work in one process, and the Chat SDK runs in several." (<a
-            href="../../../docs/adr/0006-runs-shared-through-run-log-and-pubsub.md"
+            href="../../../../docs/adr/0006-runs-shared-through-run-log-and-pubsub.md"
             >ADR 0006</a
-          >, which amends <a href="../../../docs/adr/0002-runs-outlive-the-client.md">ADR 0002</a>)
+          >, which amends
+          <a href="../../../../docs/adr/0002-runs-outlive-the-client.md">ADR 0002</a>)
         </blockquote>
         <h3>Side notes</h3>
         <ul>
@@ -299,13 +300,13 @@
           </li>
           <li>
             Stop on a Message that waits for Approval counts as a denial (<a
-              href="../../../packages/bot-sdk/plugins/assistant/server/routers/chat.ts"
+              href="../../../../packages/bot-sdk/plugins/assistant/server/routers/chat.ts"
               ><code>routers/chat.ts</code></a
             >).
           </li>
           <li>
             Defaults live in <code>defaultLimits</code> in
-            <a href="../../../packages/bot-sdk/plugins/assistant/server/deps.ts"
+            <a href="../../../../packages/bot-sdk/plugins/assistant/server/deps.ts"
               ><code>deps.ts</code></a
             >: snapshot 1 s, lease 30 s, reaper 30 s, drain 250 s, Run cap 5 minutes. Tests pass
             smaller ones.
@@ -325,16 +326,17 @@
       <div class="footer-box">
         <p>
           <strong>Primary source:</strong>
-          <a href="../../../docs/adr/0006-runs-shared-through-run-log-and-pubsub.md"
+          <a href="../../../../docs/adr/0006-runs-shared-through-run-log-and-pubsub.md"
             >ADR 0006: Runs are shared across processes through a run log and pub/sub</a
           >, then <code>stopRun</code> and <code>reapStaleRuns</code> at the end of
-          <a href="../../../packages/bot-sdk/plugins/assistant/server/chat/run.ts"
+          <a href="../../../../packages/bot-sdk/plugins/assistant/server/chat/run.ts"
             ><code>run.ts</code></a
           >.
         </p>
         <p>
-          <strong>Cheat sheets:</strong> <a href="../reference/package-map.html">Package map</a> ·
-          <a href="../reference/names.html">Names</a>
+          <strong>Cheat sheets:</strong>
+          <a href="../../reference/package-map.html">Package map</a> ·
+          <a href="../../reference/names.html">Names</a>
         </p>
         <p>
           <strong>Stuck or curious?</strong> Ask your teacher (Claude) anything: "why not let any
@@ -347,11 +349,10 @@
       </div>
     </main>
 
-    <script src="../assets/diagrams.js"></script>
-    <script src="../assets/names.js" data-upto="6"></script>
-    <script src="../assets/explainer.js"></script>
-    <script src="../assets/quiz.js"></script>
-    <script src="../assets/exercise.js"></script>
+    <script src="../../assets/diagrams.js"></script>
+    <script src="../../assets/explainer.js"></script>
+    <script src="../../assets/quiz.js"></script>
+    <script src="../../assets/exercise.js"></script>
     <script>
       const D = Diagrams;
 

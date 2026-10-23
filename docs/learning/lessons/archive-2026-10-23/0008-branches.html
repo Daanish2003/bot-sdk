@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Lesson 8 · Branches</title>
-    <link rel="stylesheet" href="../assets/style.css" />
+    <link rel="stylesheet" href="../../assets/style.css" />
   </head>
   <body>
     <main>
@@ -82,7 +82,7 @@
       <p>
         Think of a road that forks: the old road stays, and a sign shows which road you are on. Both
         actions use <code>branchFrom(messages, messageId)</code> in
-        <a href="../../../packages/bot-sdk/plugins/assistant/client/chat.ts"
+        <a href="../../../../packages/bot-sdk/plugins/assistant/client/chat.ts"
           ><code>plugins/assistant/client/chat.ts</code></a
         >. It returns the parent of <code>messageId</code> on the screen, and that becomes the
         command's <code>parentId</code>, so the new Message goes under the same parent. Follow
@@ -115,7 +115,7 @@
       </figure>
       <p>
         <code>siblingPosition(nodes, node)</code> in
-        <a href="../../../packages/bot-sdk/core/shared/chat/branches.ts"
+        <a href="../../../../packages/bot-sdk/core/shared/chat/branches.ts"
           ><code>branches.ts</code></a
         >
         finds every Message with the same <code>parentId</code>, sorts them oldest first, and
@@ -125,11 +125,11 @@
       </p>
       <p>
         The server does this count: <code>loadActiveBranch</code> in
-        <a href="../../../packages/bot-sdk/plugins/assistant/server/chat/store.ts"
+        <a href="../../../../packages/bot-sdk/plugins/assistant/server/chat/store.ts"
           ><code>store.ts</code></a
         >
         adds <code>siblings</code> to each Message it returns. Then <code>BranchArrows</code> in
-        <a href="../../../packages/bot-sdk/plugins/assistant/ui/chat/message-row.tsx"
+        <a href="../../../../packages/bot-sdk/plugins/assistant/ui/chat/message-row.tsx"
           ><code>message-row.tsx</code></a
         >
         shows <code>index + 1</code>/<code>count</code>, and nothing when <code>count</code> is less
@@ -187,12 +187,12 @@
       </ol>
       <p>
         A switch is refused while a reply streams. <code>switchBranch</code> in
-        <a href="../../../packages/bot-sdk/plugins/assistant/server/chat/store.ts"
+        <a href="../../../../packages/bot-sdk/plugins/assistant/server/chat/store.ts"
           ><code>store.ts</code></a
         >
         locks the Conversation row, like <code>handleChat</code>, and returns
         <code>"streaming"</code>, which the router in
-        <a href="../../../packages/bot-sdk/plugins/assistant/server/routers/conversation.ts"
+        <a href="../../../../packages/bot-sdk/plugins/assistant/server/routers/conversation.ts"
           ><code>conversation.ts</code></a
         >
         turns into <code>CONFLICT</code>. The screen also turns off the arrows while
@@ -274,7 +274,7 @@
           </li>
           <li>
             The tests in
-            <a href="../../../packages/bot-sdk/test/core/shared/chat/branches.test.ts"
+            <a href="../../../../packages/bot-sdk/test/core/shared/chat/branches.test.ts"
               ><code>branches.test.ts</code></a
             >
             use the same tree as this lesson, including the test "is the newest leaf anywhere in the
@@ -316,13 +316,14 @@
           <li>
             Artifact versions belong to the reply that wrote them, so a Branch shows only the
             versions on its path (<a
-              href="../../../docs/adr/0016-artifact-versions-follow-the-message-tree.md"
+              href="../../../../docs/adr/0016-artifact-versions-follow-the-message-tree.md"
               >ADR 0016</a
             >).
           </li>
           <li>
             Why a tree at all: TanStack AI's own storage keeps one straight transcript and deletes
-            later Messages on edit (<a href="../../../docs/adr/0001-own-message-tree.md">ADR 0001</a
+            later Messages on edit (<a href="../../../../docs/adr/0001-own-message-tree.md"
+              >ADR 0001</a
             >).
           </li>
         </ul>
@@ -337,17 +338,20 @@
       <div class="footer-box">
         <p>
           <strong>Primary source:</strong>
-          <a href="../../../docs/adr/0001-own-message-tree.md">ADR 0001: We own the Message tree</a
+          <a href="../../../../docs/adr/0001-own-message-tree.md"
+            >ADR 0001: We own the Message tree</a
           >, then
-          <a href="../../../packages/bot-sdk/core/shared/chat/branches.ts"
+          <a href="../../../../packages/bot-sdk/core/shared/chat/branches.ts"
             ><code>branches.ts</code></a
           >
           (66 lines) and
-          <a href="../../../packages/bot-sdk/test/core/shared/chat/branches.test.ts">its tests</a>.
+          <a href="../../../../packages/bot-sdk/test/core/shared/chat/branches.test.ts">its tests</a
+          >.
         </p>
         <p>
-          <strong>Cheat sheets:</strong> <a href="../reference/package-map.html">Package map</a> ·
-          <a href="../reference/names.html">Names</a>
+          <strong>Cheat sheets:</strong>
+          <a href="../../reference/package-map.html">Package map</a> ·
+          <a href="../../reference/names.html">Names</a>
         </p>
         <p>
           <strong>Stuck or curious?</strong> Ask your teacher (Claude) anything: "what happens if
@@ -361,12 +365,11 @@
       </div>
     </main>
 
-    <script src="../assets/diagrams.js"></script>
-    <script src="../assets/names.js" data-upto="8"></script>
-    <script src="../assets/explainer.js"></script>
-    <script src="../assets/message-tree.js"></script>
-    <script src="../assets/quiz.js"></script>
-    <script src="../assets/exercise.js"></script>
+    <script src="../../assets/diagrams.js"></script>
+    <script src="../../assets/explainer.js"></script>
+    <script src="../../assets/message-tree.js"></script>
+    <script src="../../assets/quiz.js"></script>
+    <script src="../../assets/exercise.js"></script>
     <script>
       const D = Diagrams,
         MT = MessageTree,

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Lesson 2 · createBotSdk</title>
-    <link rel="stylesheet" href="../assets/style.css" />
+    <link rel="stylesheet" href="../../assets/style.css" />
   </head>
   <body>
     <main>
@@ -79,7 +79,7 @@
       </p>
       <p>
         Look at <code>apps/web</code>'s call in
-        <a href="../../../apps/web/src/services.ts"><code>services.ts</code></a
+        <a href="../../../../apps/web/src/services.ts"><code>services.ts</code></a
         >: its <code>getUser</code> asks Better Auth for the session and returns only
         <code>{ id }</code>. That id is all the SDK ever knows about a user.
       </p>
@@ -95,7 +95,7 @@
       </figure>
       <p>
         In
-        <a href="../../../packages/bot-sdk/core/server/create-chat.ts"
+        <a href="../../../../packages/bot-sdk/core/server/create-chat.ts"
           ><code>create-chat.ts</code></a
         >, <code>createBotSdk</code> checks the options and the plugins and builds the
         <code>BotSdkContext</code>, but the database pool connects on first use. So the Host can
@@ -104,11 +104,11 @@
       <p>
         The context is also the test seam. The tests build a fake one with
         <code>createTestSdk()</code>
-        (<a href="../../../packages/bot-sdk/test/support/deps.ts"
+        (<a href="../../../../packages/bot-sdk/test/support/deps.ts"
           ><code>test/support/deps.ts</code></a
         >): the test database and fakes, so nothing reaches the network. They turn it into a handler
         with <code>createChatHandler(sdk, …)</code> in
-        <a href="../../../packages/bot-sdk/core/server/over.ts"><code>over.ts</code></a
+        <a href="../../../../packages/bot-sdk/core/server/over.ts"><code>over.ts</code></a
         >.
       </p>
       <figure id="seam">
@@ -125,7 +125,7 @@
       </figure>
       <p>
         The Host mounts one route,
-        <a href="../../../apps/web/src/routes/api/chat/$.ts"><code>/api/chat/$</code></a
+        <a href="../../../../apps/web/src/routes/api/chat/$.ts"><code>/api/chat/$</code></a
         >, for every method. The handler then reads the path and goes down the ladder from the top;
         the first rung that matches answers:
       </p>
@@ -183,7 +183,7 @@
         <li>
           <strong>Deploy:</strong> <code>migrate()</code> creates the <code>chat</code> schema and
           applies the bundled migrations. <code>apps/web</code> runs it from
-          <a href="../../../apps/web/scripts/migrate.ts"><code>scripts/migrate.ts</code></a>
+          <a href="../../../../apps/web/scripts/migrate.ts"><code>scripts/migrate.ts</code></a>
           (<code>pnpm db:migrate</code>).
         </li>
         <li>
@@ -201,7 +201,7 @@
       <p>
         <code>apps/web</code> calls <code>start()</code> and <code>stop()</code> from one Nitro
         plugin,
-        <a href="../../../apps/web/server/plugins/chat-lifecycle.ts"
+        <a href="../../../../apps/web/server/plugins/chat-lifecycle.ts"
           ><code>chat-lifecycle.ts</code></a
         >: <code>start()</code> when the server boots, <code>stop()</code> on <code>SIGTERM</code>.
       </p>
@@ -278,7 +278,7 @@
         <blockquote>
           "server: construct at module load (no side effects) … one catch-all route on your
           framework, for every chat call and the Shared link read … deploy step, once per deploy …
-          boot and shutdown" (<a href="../../../packages/bot-sdk/README.md">Bot SDK README</a>,
+          boot and shutdown" (<a href="../../../../packages/bot-sdk/README.md">Bot SDK README</a>,
           "Host lifecycle")
         </blockquote>
         <h3>Side notes</h3>
@@ -317,7 +317,7 @@
         <h3>Challenge</h3>
         <p>
           Open
-          <a href="../../../packages/bot-sdk/test/support/sdk.ts"
+          <a href="../../../../packages/bot-sdk/test/support/sdk.ts"
             ><code>test/support/sdk.ts</code></a
           >. The test client's <code>fetch</code> is the handler itself. What does that let a test
           skip that a real browser needs? Tell your teacher.
@@ -327,15 +327,16 @@
       <div class="footer-box">
         <p>
           <strong>Primary source:</strong>
-          <a href="../../../packages/bot-sdk/core/server/create-chat.ts"
+          <a href="../../../../packages/bot-sdk/core/server/create-chat.ts"
             ><code>create-chat.ts</code></a
           >
           (read <code>createHandler</code> and <code>buildBotSdk</code>), then the README's
-          <a href="../../../packages/bot-sdk/README.md">"Host lifecycle"</a> section.
+          <a href="../../../../packages/bot-sdk/README.md">"Host lifecycle"</a> section.
         </p>
         <p>
-          <strong>Cheat sheets:</strong> <a href="../reference/package-map.html">Package map</a> ·
-          <a href="../reference/names.html">Names</a>
+          <strong>Cheat sheets:</strong>
+          <a href="../../reference/package-map.html">Package map</a> ·
+          <a href="../../reference/names.html">Names</a>
         </p>
         <p>
           <strong>Stuck or curious?</strong> Ask your teacher (Claude) anything: "why lazy?", "show
@@ -348,11 +349,10 @@
       </div>
     </main>
 
-    <script src="../assets/diagrams.js"></script>
-    <script src="../assets/names.js" data-upto="2"></script>
-    <script src="../assets/explainer.js"></script>
-    <script src="../assets/quiz.js"></script>
-    <script src="../assets/exercise.js"></script>
+    <script src="../../assets/diagrams.js"></script>
+    <script src="../../assets/explainer.js"></script>
+    <script src="../../assets/quiz.js"></script>
+    <script src="../../assets/exercise.js"></script>
     <script>
       const D = Diagrams;
 

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Lesson 3 · The command the client sends</title>
-    <link rel="stylesheet" href="../assets/style.css" />
+    <link rel="stylesheet" href="../../assets/style.css" />
   </head>
   <body>
     <main>
@@ -75,14 +75,14 @@
       <p>
         The request does carry TanStack AI's <code>messages</code> list, because
         <code>useChat</code> always adds it. But
-        <a href="../../../packages/bot-sdk/plugins/assistant/server/chat/handle-chat.ts"
+        <a href="../../../../packages/bot-sdk/plugins/assistant/server/chat/handle-chat.ts"
           ><code>handleChat</code></a
         >
         parses only <code>body.forwardedProps</code> with <code>chatCommandSchema</code> and answers
         400 <code>error.invalidCommand</code> if it doesn't fit. Then
         <code>loadPath(deps, conversationId, parentId)</code> (in <code>message-tree.ts</code>)
         walks the stored tree up from the parent. So a user can't invent a reply the Model never
-        wrote, and edits keep old Branches (<a href="../../../docs/adr/0001-own-message-tree.md"
+        wrote, and edits keep old Branches (<a href="../../../../docs/adr/0001-own-message-tree.md"
           >ADR 0001</a
         >).
       </p>
@@ -155,7 +155,7 @@
         <figcaption>Every field is an id or a choice; none of them is a Message.</figcaption>
       </figure>
       <p>
-        <a href="../../../packages/bot-sdk/plugins/assistant/shared/chat/command.ts"
+        <a href="../../../../packages/bot-sdk/plugins/assistant/shared/chat/command.ts"
           ><code>command.ts</code></a
         >
         has two more fields: <code>webSearch</code> (the composer's Web toggle) and
@@ -177,7 +177,7 @@
       <p>
         All three actions post the same command. Only <code>parentId</code> and
         <code>text</code> change. For an edit or a regenerate,
-        <a href="../../../packages/bot-sdk/plugins/assistant/client/chat.ts"
+        <a href="../../../../packages/bot-sdk/plugins/assistant/client/chat.ts"
           ><code>branchFrom</code></a
         >
         takes the Messages above the one you pressed, and the last of those is the parent:
@@ -224,7 +224,7 @@
       </figure>
       <p>
         In
-        <a href="../../../packages/bot-sdk/plugins/assistant/ui/chat/chat-view.tsx"
+        <a href="../../../../packages/bot-sdk/plugins/assistant/ui/chat/chat-view.tsx"
           ><code>chat-view.tsx</code></a
         >, <code>send</code> and <code>startBranch</code> both call
         <code>run(parentId, text)</code>. <code>run</code> writes the command into a ref, then calls
@@ -291,7 +291,7 @@
           "What the client asks for: a command, never history (ADR 0001). History is rebuilt from
           the database by walking up from <code>parentId</code>. <code>useChat</code> sends it as
           the AG-UI <code>forwardedProps</code>." (<a
-            href="../../../packages/bot-sdk/plugins/assistant/shared/chat/command.ts"
+            href="../../../../packages/bot-sdk/plugins/assistant/shared/chat/command.ts"
             ><code>command.ts</code></a
           >)
         </blockquote>
@@ -310,14 +310,14 @@
           <li>
             The URL comes from the Host: <code>apps/web/src/utils/orpc.ts</code> calls
             <code>createBotSdkClient({ baseUrl: origin + "/api/chat" })</code>, and
-            <a href="../../../packages/bot-sdk/core/client/chat-client.ts"
+            <a href="../../../../packages/bot-sdk/core/client/chat-client.ts"
               ><code>chat-client.ts</code></a
             >
             makes <code>chatUrl</code> from it: <code>…/api/chat/run</code>.
           </li>
           <li>
             The connection's <code>fetchClient</code> is <code>runFetch</code> (<a
-              href="../../../packages/bot-sdk/core/client/rate-limit.ts"
+              href="../../../../packages/bot-sdk/core/client/rate-limit.ts"
               ><code>rate-limit.ts</code></a
             >). It turns a 429, a moderated 422 and any <code>{ code }</code> refusal into typed
             errors.
@@ -344,16 +344,18 @@
       <div class="footer-box">
         <p>
           <strong>Primary source:</strong>
-          <a href="../../../packages/bot-sdk/plugins/assistant/shared/chat/command.ts"
+          <a href="../../../../packages/bot-sdk/plugins/assistant/shared/chat/command.ts"
             ><code>command.ts</code></a
           >
           (31 lines), then
-          <a href="../../../docs/adr/0001-own-message-tree.md">ADR 0001: We own the Message tree</a
+          <a href="../../../../docs/adr/0001-own-message-tree.md"
+            >ADR 0001: We own the Message tree</a
           >.
         </p>
         <p>
-          <strong>Cheat sheets:</strong> <a href="../reference/package-map.html">Package map</a> ·
-          <a href="../reference/names.html">Names</a>
+          <strong>Cheat sheets:</strong>
+          <a href="../../reference/package-map.html">Package map</a> ·
+          <a href="../../reference/names.html">Names</a>
         </p>
         <p>
           <strong>Stuck or curious?</strong> Ask your teacher (Claude) anything: "why does
@@ -369,11 +371,10 @@
       </div>
     </main>
 
-    <script src="../assets/diagrams.js"></script>
-    <script src="../assets/names.js" data-upto="3"></script>
-    <script src="../assets/explainer.js"></script>
-    <script src="../assets/quiz.js"></script>
-    <script src="../assets/exercise.js"></script>
+    <script src="../../assets/diagrams.js"></script>
+    <script src="../../assets/explainer.js"></script>
+    <script src="../../assets/quiz.js"></script>
+    <script src="../../assets/exercise.js"></script>
     <script>
       const D = Diagrams;
       const BRANCH = [

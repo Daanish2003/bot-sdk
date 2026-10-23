@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Lesson 1 · The Host and the SDK</title>
-    <link rel="stylesheet" href="../assets/style.css" />
+    <link rel="stylesheet" href="../../assets/style.css" />
   </head>
   <body>
     <main>
@@ -58,7 +58,7 @@
       <p>
         The Host stands outside the dashed frame. It imports the SDK, but no file inside the frame
         imports the Host or any <code>@ai-chat/*</code> package. The chat tables also live inside:
-        <a href="../../../packages/bot-sdk/core/server/db/chat-schema.ts"
+        <a href="../../../../packages/bot-sdk/core/server/db/chat-schema.ts"
           ><code>chat-schema.ts</code></a
         >
         puts them in their own Postgres schema, <code>chat</code>. <code>@ai-chat/db</code> holds
@@ -74,11 +74,12 @@
       <p>
         The SDK is never published to npm. A Host runs
         <code>pnpm -F @ai-chat/bot-sdk copy &lt;dest&gt;</code> (<a
-          href="../../../packages/bot-sdk/scripts/copy.ts"
+          href="../../../../packages/bot-sdk/scripts/copy.ts"
           ><code>scripts/copy.ts</code></a
         >). Because <code>core/</code> is replaced every time, an edit there is lost on the next
         update. <code>ui/</code> is copied only when the Host has none yet, so the Host can restyle
-        it freely (<a href="../../../docs/adr/0005-copied-stack-agnostic-chat-sdk.md">ADR 0005</a>).
+        it freely (<a href="../../../../docs/adr/0005-copied-stack-agnostic-chat-sdk.md">ADR 0005</a
+        >).
       </p>
       <figure>
         <div class="table-wrap">
@@ -147,18 +148,18 @@
       </figure>
       <p>
         The SDK can't assume the Host's stack, so the Host gives it three things. In
-        <a href="../../../apps/web/src/services.ts"><code>services.ts</code></a
+        <a href="../../../../apps/web/src/services.ts"><code>services.ts</code></a
         >, apps/web passes <code>databaseUrl</code> (Postgres) and <code>getUser</code>, which asks
         Better Auth for the session and returns <code>{ id }</code> or <code>null</code>. The third
         is one catch-all route,
-        <a href="../../../apps/web/src/routes/api/chat/$.ts"><code>routes/api/chat/$.ts</code></a
+        <a href="../../../../apps/web/src/routes/api/chat/$.ts"><code>routes/api/chat/$.ts</code></a
         >, which passes every method to <code>sdk.handler(request)</code>.
       </p>
       <p>
         Look at the picture: the handler, not the Host, decides what a path means. It sends
         <code>/api/chat/rpc/*</code> to the oRPC routers and <code>POST /api/chat/run</code> to
         <code>handleChat</code> (<a
-          href="../../../packages/bot-sdk/plugins/assistant/server/chat/handle-chat.ts"
+          href="../../../../packages/bot-sdk/plugins/assistant/server/chat/handle-chat.ts"
           ><code>handle-chat.ts</code></a
         >). Lesson 2 opens <code>createBotSdk</code> itself.
       </p>
@@ -171,7 +172,7 @@
         There is one exception to "only down". <code>client</code> and <code>ui</code> import the
         <em>type</em> of the server's router, so their calls are type-checked:
         <code>import type { CoreRouter } from "../server/routers/index"</code> in
-        <a href="../../../packages/bot-sdk/core/client/chat-client.ts"
+        <a href="../../../../packages/bot-sdk/core/client/chat-client.ts"
           ><code>chat-client.ts</code></a
         >. TypeScript erases <code>import type</code> lines, so no server code reaches the browser.
       </p>
@@ -255,7 +256,7 @@
           "It is <strong>copied, never published</strong>: the canonical source is one workspace
           package, <code>packages/bot-sdk/</code>, laid out exactly as a Host receives it, and
           <code>apps/web</code> is just one Host, importing only its public entry points." (<a
-            href="../../../docs/adr/0005-copied-stack-agnostic-chat-sdk.md"
+            href="../../../../docs/adr/0005-copied-stack-agnostic-chat-sdk.md"
             >ADR 0005</a
           >)
         </blockquote>
@@ -300,14 +301,15 @@
       <div class="footer-box">
         <p>
           <strong>Primary source:</strong>
-          <a href="../../../docs/adr/0005-copied-stack-agnostic-chat-sdk.md"
+          <a href="../../../../docs/adr/0005-copied-stack-agnostic-chat-sdk.md"
             >ADR 0005: a copied, stack-agnostic core with Host-owned UI</a
           >, then the first two sections of the
-          <a href="../../../packages/bot-sdk/README.md">SDK README</a>.
+          <a href="../../../../packages/bot-sdk/README.md">SDK README</a>.
         </p>
         <p>
-          <strong>Cheat sheets:</strong> <a href="../reference/package-map.html">Package map</a> ·
-          <a href="../reference/names.html">Names</a>
+          <strong>Cheat sheets:</strong>
+          <a href="../../reference/package-map.html">Package map</a> ·
+          <a href="../../reference/names.html">Names</a>
         </p>
         <p>
           <strong>Stuck or curious?</strong> Ask your teacher (Claude) anything: "why is ui not
@@ -320,12 +322,11 @@
       </div>
     </main>
 
-    <script src="../assets/diagrams.js"></script>
-    <script src="../assets/names.js" data-upto="1"></script>
-    <script src="../assets/explainer.js"></script>
-    <script src="../assets/package-map.js"></script>
-    <script src="../assets/quiz.js"></script>
-    <script src="../assets/exercise.js"></script>
+    <script src="../../assets/diagrams.js"></script>
+    <script src="../../assets/explainer.js"></script>
+    <script src="../../assets/package-map.js"></script>
+    <script src="../../assets/quiz.js"></script>
+    <script src="../../assets/exercise.js"></script>
     <script>
       const D = Diagrams,
         PM = PackageMap;
@@ -558,7 +559,7 @@ function allowed(from, to, typeOnly) {
         },
         {
           file: "plugins/assistant/ui/chat/chat-view.tsx",
-          line: 'import { useChatAdapter } from "../../../../core/client/react/provider"',
+          line: 'import { useChatAdapter } from "../../../../../core/client/react/provider"',
           from: "ui",
           to: "client",
           typeOnly: false,

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Lesson 5 · The Run and its log</title>
-    <link rel="stylesheet" href="../assets/style.css" />
+    <link rel="stylesheet" href="../../assets/style.css" />
   </head>
   <body>
     <main>
@@ -81,7 +81,7 @@
         they play the tape, so a late listener can start from the beginning.
       </p>
       <p>
-        <a href="../../../packages/bot-sdk/plugins/assistant/server/chat/run.ts"
+        <a href="../../../../packages/bot-sdk/plugins/assistant/server/chat/run.ts"
           ><code>startRun</code></a
         >
         does three jobs with one stream. It reads each chunk in a <code>for await</code> loop and
@@ -130,7 +130,7 @@
         </figcaption>
       </figure>
       <p>
-        <a href="../../../packages/bot-sdk/core/server/chat/run-streams.ts"
+        <a href="../../../../packages/bot-sdk/core/server/chat/run-streams.ts"
           ><code>RunStreams</code></a
         >
         has four methods: <code>open</code>, <code>append</code>, <code>close</code> and
@@ -140,7 +140,7 @@
       </p>
       <p>
         Look at the last line of
-        <a href="../../../packages/bot-sdk/plugins/assistant/server/chat/handle-chat.ts"
+        <a href="../../../../packages/bot-sdk/plugins/assistant/server/chat/handle-chat.ts"
           ><code>handleChat</code></a
         >: the POST response is TanStack's <code>resumeServerSentEventsResponse</code> over
         <code>runStreamDurability(assistantState(deps).runStreams, assistantMessageId, START)</code
@@ -180,7 +180,8 @@
       <p>
         Postgres is still the record of history, so the reply must reach it while it streams. A
         <code>setInterval</code> fires every <code>snapshotIntervalMs</code> (1,000 ms in
-        <a href="../../../packages/bot-sdk/plugins/assistant/server/deps.ts"><code>deps.ts</code></a
+        <a href="../../../../packages/bot-sdk/plugins/assistant/server/deps.ts"
+          ><code>deps.ts</code></a
         >):
       </p>
       <ol class="steps">
@@ -303,7 +304,7 @@
         <blockquote>
           "The Run appends every chunk to its log before anyone reads it, and the POST response and
           any later reader both read the log." (<a
-            href="../../../docs/adr/0006-runs-shared-through-run-log-and-pubsub.md"
+            href="../../../../docs/adr/0006-runs-shared-through-run-log-and-pubsub.md"
             >ADR 0006</a
           >)
         </blockquote>
@@ -344,7 +345,7 @@
         <h3>Challenge</h3>
         <p>
           In
-          <a href="../../../packages/bot-sdk/plugins/assistant/server/chat/run.ts"
+          <a href="../../../../packages/bot-sdk/plugins/assistant/server/chat/run.ts"
             ><code>run.ts</code></a
           >, the usage row is recorded before <code>runStreams.close</code>. Read the comment there
           and tell your teacher what a reader could see wrong if the order were swapped.
@@ -354,20 +355,21 @@
       <div class="footer-box">
         <p>
           <strong>Primary source:</strong>
-          <a href="../../../docs/adr/0006-runs-shared-through-run-log-and-pubsub.md"
+          <a href="../../../../docs/adr/0006-runs-shared-through-run-log-and-pubsub.md"
             >ADR 0006: Runs are shared through a run log and pub/sub</a
           >, then
-          <a href="../../../packages/bot-sdk/plugins/assistant/server/chat/run.ts"
+          <a href="../../../../packages/bot-sdk/plugins/assistant/server/chat/run.ts"
             ><code>startRun</code> in run.ts</a
           >
           and
-          <a href="../../../packages/bot-sdk/core/server/chat/run-streams.ts"
+          <a href="../../../../packages/bot-sdk/core/server/chat/run-streams.ts"
             ><code>run-streams.ts</code></a
           >.
         </p>
         <p>
-          <strong>Cheat sheets:</strong> <a href="../reference/package-map.html">Package map</a> ·
-          <a href="../reference/names.html">Names</a>
+          <strong>Cheat sheets:</strong>
+          <a href="../../reference/package-map.html">Package map</a> ·
+          <a href="../../reference/names.html">Names</a>
         </p>
         <p>
           <strong>Stuck or curious?</strong> Ask your teacher (Claude) anything: "why is the
@@ -382,11 +384,10 @@
       </div>
     </main>
 
-    <script src="../assets/diagrams.js"></script>
-    <script src="../assets/names.js" data-upto="5"></script>
-    <script src="../assets/explainer.js"></script>
-    <script src="../assets/quiz.js"></script>
-    <script src="../assets/exercise.js"></script>
+    <script src="../../assets/diagrams.js"></script>
+    <script src="../../assets/explainer.js"></script>
+    <script src="../../assets/quiz.js"></script>
+    <script src="../../assets/exercise.js"></script>
     <script>
       const D = Diagrams;
       // The fake Run: six chunks, as chat() streams them for "Paris is the capital."

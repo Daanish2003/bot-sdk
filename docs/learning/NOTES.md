@@ -19,6 +19,7 @@
 ## Course (rebuilt 2026-10-14; index at `index.html`)
 
 Old Lessons 1–14 (2026-10-08) are in `lessons/archive-2026-10-08/`; most of their source links are dead.
+Lessons 1–8 (the assistant) moved to `lessons/archive-2026-10-23/` when the assistant went (ADR 0027); the course now starts at Lesson 9.
 
 Batch 1 (built 2026-10-14): 1 Host and SDK · 2 createChat · 3 the command · 4 handleChat · 5 the Run and its log · 6 runs outlive the client · 7 Message tree · 8 Branches.
 

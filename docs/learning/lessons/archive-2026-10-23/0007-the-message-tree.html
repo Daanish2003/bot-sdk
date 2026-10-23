@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Lesson 7 · The Message tree</title>
-    <link rel="stylesheet" href="../assets/style.css" />
+    <link rel="stylesheet" href="../../assets/style.css" />
   </head>
   <body>
     <main>
@@ -73,7 +73,7 @@
       <p>
         Think of a family tree where each person writes down only one thing: who their parent is.
         The picture is the test tree from
-        <a href="../../../packages/bot-sdk/test/core/shared/chat/branches.test.ts"
+        <a href="../../../../packages/bot-sdk/test/core/shared/chat/branches.test.ts"
           ><code>branches.test.ts</code></a
         >. Blue boxes are user Messages, grey boxes are replies, and <code>m5</code> means "created
         at minute 5".
@@ -82,7 +82,7 @@
         A list can't hold this, because <code>a1</code> has two children. That is why the SDK
         doesn't use TanStack AI's ready-made storage: it keeps one straight transcript and deletes
         the later Messages when you edit or regenerate, so old Branches would be lost (<a
-          href="../../../docs/adr/0001-own-message-tree.md"
+          href="../../../../docs/adr/0001-own-message-tree.md"
           >ADR 0001</a
         >).
       </p>
@@ -121,7 +121,7 @@
       </figure>
       <p>
         Look at
-        <a href="../../../packages/bot-sdk/core/server/db/core-schema.ts"
+        <a href="../../../../packages/bot-sdk/core/server/db/core-schema.ts"
           ><code>core-schema.ts</code></a
         >: those two columns are the whole tree, in the <code>chat</code> Postgres schema. To find
         children, the code loads every Message of the Conversation and groups them by
@@ -169,7 +169,7 @@
       </figure>
       <p>
         To show the Active Branch, <code>pathTo</code> in
-        <a href="../../../packages/bot-sdk/core/shared/chat/branches.ts"
+        <a href="../../../../packages/bot-sdk/core/shared/chat/branches.ts"
           ><code>branches.ts</code></a
         >
         starts at the leaf and follows <code>parentId</code> up, then turns the list around so the
@@ -187,12 +187,12 @@
       </ol>
       <p>
         Two callers use it. <code>loadActiveBranch</code> in
-        <a href="../../../packages/bot-sdk/plugins/assistant/server/chat/store.ts"
+        <a href="../../../../packages/bot-sdk/plugins/assistant/server/chat/store.ts"
           ><code>store.ts</code></a
         >
         walks up from <code>activeLeafId</code> for the <code>conversation.get</code> call.
         <code>loadPath</code>, in
-        <a href="../../../packages/bot-sdk/core/server/chat/message-tree.ts"
+        <a href="../../../../packages/bot-sdk/core/server/chat/message-tree.ts"
           ><code>message-tree.ts</code></a
         >, walks up from any leaf you give it: the run plan for <code>handleChat</code> gives the
         new Message's parent, so it rebuilds the history for the Model from the database.
@@ -245,7 +245,7 @@
           "TanStack AI's persistence (<code>@tanstack/ai-persistence</code>
           <code>withPersistence</code>) keeps one linear transcript per thread and deletes later
           Messages on edit or regenerate, which rules out Branches." (<a
-            href="../../../docs/adr/0001-own-message-tree.md"
+            href="../../../../docs/adr/0001-own-message-tree.md"
             >ADR 0001</a
           >)
         </blockquote>
@@ -258,11 +258,11 @@
         <p>
           Because a Message never moves, the path from a root to a given leaf is fixed. A Shared
           link can therefore store only a leaf id, not a copy of the Messages (<a
-            href="../../../docs/adr/0004-shared-link-points-at-the-tree.md"
+            href="../../../../docs/adr/0004-shared-link-points-at-the-tree.md"
             >ADR 0004</a
           >). Artifact versions use the same idea: each version belongs to the reply that wrote it,
           so a Branch shows only the versions on its path (<a
-            href="../../../docs/adr/0016-artifact-versions-follow-the-message-tree.md"
+            href="../../../../docs/adr/0016-artifact-versions-follow-the-message-tree.md"
             >ADR 0016</a
           >).
         </p>
@@ -297,7 +297,7 @@
         <h3>Challenge</h3>
         <p>
           Read the tests in
-          <a href="../../../packages/bot-sdk/test/core/shared/chat/branches.test.ts"
+          <a href="../../../../packages/bot-sdk/test/core/shared/chat/branches.test.ts"
             ><code>branches.test.ts</code></a
           >. Which <code>pathTo</code> test would fail if you forgot <code>.reverse()</code>? Tell
           your teacher.
@@ -307,16 +307,18 @@
       <div class="footer-box">
         <p>
           <strong>Primary source:</strong>
-          <a href="../../../docs/adr/0001-own-message-tree.md">ADR 0001: We own the Message tree</a
+          <a href="../../../../docs/adr/0001-own-message-tree.md"
+            >ADR 0001: We own the Message tree</a
           >, then
-          <a href="../../../packages/bot-sdk/core/shared/chat/branches.ts"
+          <a href="../../../../packages/bot-sdk/core/shared/chat/branches.ts"
             ><code>branches.ts</code></a
           >
           (59 lines).
         </p>
         <p>
-          <strong>Cheat sheets:</strong> <a href="../reference/package-map.html">Package map</a> ·
-          <a href="../reference/names.html">Names</a>
+          <strong>Cheat sheets:</strong>
+          <a href="../../reference/package-map.html">Package map</a> ·
+          <a href="../../reference/names.html">Names</a>
         </p>
         <p>
           <strong>Stuck or curious?</strong> Ask your teacher (Claude) anything: "why not store a
@@ -329,12 +331,11 @@
       </div>
     </main>
 
-    <script src="../assets/diagrams.js"></script>
-    <script src="../assets/names.js" data-upto="7"></script>
-    <script src="../assets/explainer.js"></script>
-    <script src="../assets/message-tree.js"></script>
-    <script src="../assets/quiz.js"></script>
-    <script src="../assets/exercise.js"></script>
+    <script src="../../assets/diagrams.js"></script>
+    <script src="../../assets/explainer.js"></script>
+    <script src="../../assets/message-tree.js"></script>
+    <script src="../../assets/quiz.js"></script>
+    <script src="../../assets/exercise.js"></script>
     <script>
       const D = Diagrams,
         MT = MessageTree,
