@@ -86,14 +86,17 @@ export type LoopKit = {
    * `write` is a second activity whose writes commit with its own Checkpoint, so they happen once.
    * Both run only live; a replay returns `run`'s recorded result. A tool call's result over the
    * long-output limit is recorded, and returned, as its cut text (`capResult`), as for
-   * `liveActivity`.
+   * `liveActivity`. `reviewed` is the call's input, given only for a call Auto-review checks (a
+   * Connector tool's): it is reviewed first, as `computerCall`'s is, and a block is its result,
+   * with neither `run` nor `write` called.
    */
   liveRequest: <T>(
     name: string,
     toolCallId: string | undefined,
     run: () => Promise<T>,
     write: (tx: Transaction, result: T | string) => Promise<void>,
-  ) => Promise<T | string>;
+    reviewed?: Record<string, unknown>,
+  ) => Promise<T | string | { error: string }>;
   /** The Computer's tools: Shell, then the file tools Read, Write, Edit and List. */
   computerTools: AnyServerTool[];
   /**
@@ -605,8 +608,11 @@ export async function runLoop(
       if (toolCallId === undefined || !isLong(result)) return result;
       return ctx.activity(`${name}:cut`, () => capLong(result, toolCallId));
     });
-  const liveRequest: LoopKit["liveRequest"] = (name, toolCallId, run, write) =>
+  const liveRequest: LoopKit["liveRequest"] = (name, toolCallId, run, write, reviewed) =>
     toolCall(toolCallId, async () => {
+      // Auto-review first: a blocked call never runs.
+      const blocked = reviewed && (await review(name, toolCallId, reviewed));
+      if (blocked) return blocked;
       const result = await ctx.activity(name, async () => {
         beforeLiveTool();
         return capLong(await run(), toolCallId);

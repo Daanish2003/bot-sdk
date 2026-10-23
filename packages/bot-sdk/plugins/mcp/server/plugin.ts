@@ -20,6 +20,8 @@ export type McpOptions = {
 
 /** The `mcp` plugin's API (`sdk.plugin("mcp")`): a user's Connections as tools. */
 export type McpApi = {
+  /** The servers the Host offers, by key and name: what a tool named `<key>_<tool>` belongs to. */
+  servers: ReadonlyArray<{ key: string; name: string }>;
   forUser: (userId: string) => {
     /**
      * The tools of the user's connected servers, named `<server key>_<tool>`, with their clients
@@ -52,6 +54,7 @@ export function mcp(options: McpOptions = {}): McpPlugin {
       // At construction, so a misconfigured server fails the Host's boot (spec #91).
       checkMcpServers(servers, sdk.fetchAllowHosts);
       const api: McpApi = {
+        servers: servers.map(({ key, name }) => ({ key, name })),
         forUser: (userId) => ({
           tools: ({ signal }) => openMcpTools(sdk, servers, userId, signal),
         }),

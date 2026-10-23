@@ -9,6 +9,10 @@ import { fakeMcpResource } from "./fake-mcp-auth";
 export type FakeMcpTool = {
   name: string;
   annotations?: Record<string, unknown>;
+  /** The tool's description; "The fake <name> tool." unless given. */
+  description?: string;
+  /** The text a call returns; the call's name and arguments as JSON unless given. */
+  result?: string;
 };
 
 export type FakeMcpServer = {
@@ -107,9 +111,9 @@ export function createFakeMcpServer({
             });
           }
           return reply({
-            tools: tools.map(({ name, annotations }) => ({
+            tools: tools.map(({ name, annotations, description }) => ({
               name,
-              description: `The fake ${name} tool.`,
+              description: description ?? `The fake ${name} tool.`,
               inputSchema: { type: "object", properties: {} },
               ...(annotations ? { annotations } : {}),
             })),
@@ -126,7 +130,14 @@ export function createFakeMcpServer({
           const args = message.params?.arguments ?? {};
           server.calls.push({ name, arguments: args });
           return reply({
-            content: [{ type: "text", text: JSON.stringify({ ran: name, arguments: args }) }],
+            content: [
+              {
+                type: "text",
+                text:
+                  tools.find((tool) => tool.name === name)?.result ??
+                  JSON.stringify({ ran: name, arguments: args }),
+              },
+            ],
           });
         }
         default:
