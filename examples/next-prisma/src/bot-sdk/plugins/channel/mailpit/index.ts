@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import type { EmailProvider, InboundMail } from "../server/email";
+import { type EmailProvider, type InboundMail, MailFileTooLargeError } from "../server/email";
 
 /** What Mailpit POSTs for each message it receives (its message summary): only the ID is used. */
 const webhookSchema = z.object({ ID: z.string().regex(/^[A-Za-z0-9]+$/) });
@@ -12,7 +12,16 @@ const messageSchema = z.object({
   To: z.array(addressSchema),
   Subject: z.string(),
   Text: z.string(),
-  Attachments: z.array(z.object({ FileName: z.string() })).nullable(),
+  Attachments: z
+    .array(
+      z.object({
+        PartID: z.string(),
+        FileName: z.string(),
+        ContentType: z.string().default(""),
+        Size: z.number().default(0),
+      }),
+    )
+    .nullable(),
 });
 const headersSchema = z.record(z.string(), z.array(z.string()));
 
@@ -21,6 +30,23 @@ const formatAddress = ({ Name, Address }: z.infer<typeof addressSchema>) =>
 
 /** How long a call to Mailpit may take before it is given up on. */
 const timeoutMs = 10_000;
+
+/** A response's body, read only up to `max` bytes: past it, the read stops and throws. */
+async function readCapped(response: Response, max: number): Promise<Uint8Array> {
+  const tooLarge = () => new MailFileTooLargeError(max);
+  if (Number(response.headers.get("content-length")) > max) {
+    await response.body?.cancel();
+    throw tooLarge();
+  }
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for await (const chunk of response.body ?? []) {
+    total += chunk.byteLength;
+    if (total > max) throw tooLarge();
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks, total);
+}
 
 /** `Name <address>` or a bare address as Mailpit's `{Email, Name}`. */
 function mailpitAddress(header: string): { Email: string; Name?: string } {
@@ -77,6 +103,19 @@ export function mailpitEmailProvider({
           Object.entries(headers).map(([name, values]) => [name.toLowerCase(), values.join(", ")]),
         ),
         attachments: (message.Attachments ?? []).map((attachment) => attachment.FileName),
+        files: (message.Attachments ?? []).map((attachment) => ({
+          name: attachment.FileName,
+          contentType: attachment.ContentType,
+          size: attachment.Size,
+          read: async (maxBytes) => {
+            const part = await fetcher(
+              `${base}/api/v1/message/${ID}/part/${encodeURIComponent(attachment.PartID)}`,
+              { signal: AbortSignal.timeout(timeoutMs) },
+            );
+            if (!part.ok) throw new Error(`Mailpit refused the attachment (${part.status})`);
+            return readCapped(part, maxBytes);
+          },
+        })),
         authentication: { spf: "none", dkim: "none", dmarc: "pass" },
       };
       return mail;

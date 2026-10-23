@@ -51,7 +51,7 @@ import {
   writeDefinition,
   writeTool,
 } from "./computer-tools";
-import { pruneScreenshots, resolveScreenshots } from "./desktop-tools";
+import { pruneScreenshots, resolveImageRefs } from "./desktop-tools";
 import { type LoopPromptStart, type PreviousCall, promptHashesOf } from "./prompt-start";
 import { type ReviewSource, reviewToolCall } from "./review";
 import {
@@ -86,14 +86,17 @@ export type LoopKit = {
    * `write` is a second activity whose writes commit with its own Checkpoint, so they happen once.
    * Both run only live; a replay returns `run`'s recorded result. A tool call's result over the
    * long-output limit is recorded, and returned, as its cut text (`capResult`), as for
-   * `liveActivity`.
+   * `liveActivity`. `reviewed` is the call's input, given only for a call Auto-review checks (a
+   * Connector tool's): it is reviewed first, as `computerCall`'s is, and a block is its result,
+   * with neither `run` nor `write` called.
    */
   liveRequest: <T>(
     name: string,
     toolCallId: string | undefined,
     run: () => Promise<T>,
     write: (tx: Transaction, result: T | string) => Promise<void>,
-  ) => Promise<T | string>;
+    reviewed?: Record<string, unknown>,
+  ) => Promise<T | string | { error: string }>;
   /** The Computer's tools: Shell, then the file tools Read, Write, Edit and List. */
   computerTools: AnyServerTool[];
   /**
@@ -187,6 +190,8 @@ export type LoopOptions = {
    * its activities replay in order, and a throw that recorded nothing is a failure to retry.
    */
   setup: (kit: LoopKit) => Promise<LoopSetup>;
+  /** Whether the Model sees images, when the caller already asked; else the loop asks, once. */
+  seesImages?: () => Promise<boolean>;
   /** The attempt's signal: the live call stops when it aborts. With none, there is no time limit. */
   attempt?: AbortSignal;
   /**
@@ -304,6 +309,32 @@ export async function runLoop(
   let error: string | undefined;
   let finished = false;
 
+  const seesImages = options.seesImages ?? seesImagesOnce(deps, owner);
+
+  /**
+   * The images the last model call read from the blob store, by key: each is read once while the
+   * history keeps it, not on every call. One the next call doesn't send is let go.
+   */
+  let imageReads = new Map<string, Promise<Uint8Array | null>>();
+  let kept = new Map<string, Promise<Uint8Array | null>>();
+  const imageStore = {
+    get: (key: string) => {
+      let read = imageReads.get(key);
+      if (read) kept.set(key, read);
+      if (!read) {
+        read = deps.blobStore.get(key);
+        imageReads.set(key, read);
+        kept.set(key, read);
+        // A failed read is retried on the next call, like the Checkpoint it fails.
+        read.catch(() => {
+          imageReads.delete(key);
+          kept.delete(key);
+        });
+      }
+      return read;
+    },
+  };
+
   /** The Model's call, made once: the credentials and the adapter are only needed for a live call. */
   let live: Promise<{ adapter: AnyTextAdapter; record: ModelCallRecorder }> | undefined;
   const liveCall = () =>
@@ -411,8 +442,11 @@ export async function runLoop(
     // failed read is retried like a Checkpoint that failed to save.
     const pruned = {
       ...sent,
-      messages: await resolveScreenshots(deps.blobStore, sent.messages as ModelMessage[]),
+      messages: await resolveImageRefs(imageStore, sent.messages as ModelMessage[], {
+        seesImages: await seesImages(),
+      }),
     };
+    [imageReads, kept] = [kept, new Map()];
     const chunks: StreamChunk[] = [];
     inLiveCall = true;
     try {
@@ -605,8 +639,11 @@ export async function runLoop(
       if (toolCallId === undefined || !isLong(result)) return result;
       return ctx.activity(`${name}:cut`, () => capLong(result, toolCallId));
     });
-  const liveRequest: LoopKit["liveRequest"] = (name, toolCallId, run, write) =>
+  const liveRequest: LoopKit["liveRequest"] = (name, toolCallId, run, write, reviewed) =>
     toolCall(toolCallId, async () => {
+      // Auto-review first: a blocked call never runs.
+      const blocked = reviewed && (await review(name, toolCallId, reviewed));
+      if (blocked) return blocked;
       const result = await ctx.activity(name, async () => {
         beforeLiveTool();
         return capLong(await run(), toolCallId);
@@ -967,6 +1004,26 @@ export async function runLoop(
  * What one model call bills: the usage its Provider reported, else an estimate from its input and
  * output. A call that failed with no usage reported bills nothing.
  */
+/**
+ * Whether `owner`'s Model sees images, asked once and shared by every caller; a failed ask is
+ * asked again the next time.
+ */
+export function seesImagesOnce(
+  deps: Pick<BotSdkContext, "plugin">,
+  owner: { userId: string; model: string },
+): () => Promise<boolean> {
+  let sees: Promise<boolean> | undefined;
+  return () =>
+    (sees ??= deps
+      .plugin("models")
+      .resolveModel(owner.userId, owner.model)
+      .then((model) => model?.images ?? false)
+      .catch((caught: unknown) => {
+        sees = undefined;
+        throw caught;
+      }));
+}
+
 export function callUsage(
   deps: BotSdkContext,
   provider: string,

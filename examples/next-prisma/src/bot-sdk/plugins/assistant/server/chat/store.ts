@@ -89,26 +89,6 @@ export async function setConversationReasoningEffort(
 }
 
 /**
- * Sets which MCP Connections the user's Conversation has switched on (spec #91). The Conversation's
- * other tool setting is kept. `false` when it isn't theirs.
- */
-export async function setConversationConnections(
-  deps: Deps,
-  userId: string,
-  id: string,
-  connections: string[],
-) {
-  const row = await findConversation(deps, userId, id);
-  if (!row) return false;
-  const rows = await deps.db
-    .update(conversation)
-    .set({ toolSettings: { ...row.toolSettings, connections } })
-    .where(ownConversation(userId, id))
-    .returning({ id: conversation.id });
-  return rows.length > 0;
-}
-
-/**
  * Deletes the user's Conversation and, by cascade, its Messages and Shared link; `false` when it
  * isn't theirs. Its live Runs stop, through the delete hooks. Fires `onConversationDeleted` after
  * the commit (#266).

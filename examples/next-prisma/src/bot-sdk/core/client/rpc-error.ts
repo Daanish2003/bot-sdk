@@ -7,7 +7,7 @@ type ServerErrorData = { code: string; params?: Record<string, unknown> };
  * The code and params an error carries: an oRPC error's `data`, or a chat-route refusal's (the
  * connection wraps it, so the `cause` chain is followed too).
  */
-function serverErrorData(error: unknown): ServerErrorData | null {
+export function serverErrorData(error: unknown): ServerErrorData | null {
   let current: unknown = error;
   for (let depth = 0; depth < 5 && current; depth++) {
     const data = (current as { data?: unknown }).data;

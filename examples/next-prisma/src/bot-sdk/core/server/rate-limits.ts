@@ -63,6 +63,8 @@ export const rpcRateLimits: Record<string, keyof ResolvedRateLimits | undefined>
   // Knowledge uploads share the attachment bucket (spec #737).
   "/knowledge/upload": "attachmentUpload",
   "/knowledge/uploadDocument": "attachmentUpload",
+  // So do the files a user sends their Bot (spec #801).
+  "/bot/upload": "attachmentUpload",
   "/voice/transcribe": "transcription",
   "/credentials/save": "credentialSave",
   "/search/query": "conversationSearch",

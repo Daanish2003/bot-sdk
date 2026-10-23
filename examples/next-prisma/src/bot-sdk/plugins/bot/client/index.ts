@@ -10,7 +10,7 @@ declare module "../../../core/client/plugin" {
 declare module "../../../core/client/chat-client" {
   /** The URLs the bot plugin adds to the client. */
   interface BotSdkClient {
-    /** A file the Bot sent, by id (`GET <botFilesUrl>/<id>`), always a download. */
+    /** A file the Bot sent, by id (`GET <botFilesUrl>/<id>`), a download; add `/inline` to show an image. */
     botFilesUrl: string;
   }
 }

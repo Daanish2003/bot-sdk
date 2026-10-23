@@ -35,8 +35,6 @@ import { QuotaBanner } from "../../../models/ui/chat/quota-banner";
 import { TemporaryBanner } from "./temporary-banner";
 import { QuotaMeter } from "../../../models/ui/chat/quota-meter";
 import { SearchToggle, useWebSearch } from "./search-toggle";
-import { ToolsMenu } from "./tools-menu";
-import { mcpToolsMenu, switchConnection } from "../../client/mcp-tools";
 import { useFocusMessage } from "./use-focus-message";
 
 export type { ConversationData };
@@ -164,26 +162,6 @@ function ChatThread({
   );
   const search = useWebSearch(conversation.model);
 
-  // The MCP tools switched on (spec #91). Before the first Message they live in the composer and go
-  // with the first send; after it, each switch is stored with the Conversation.
-  const firstMessage = conversation.messages.length === 0;
-  const [composerConnections, setComposerConnections] = useState<string[]>([]);
-  const connections = firstMessage ? composerConnections : conversation.tools.connections;
-  const servers = useQuery(orpc.connections.list.queryOptions());
-  const setConnections = useMutation(
-    orpc.conversation.setConnections.mutationOptions({
-      onSuccess: () => refetch(),
-      onError: (caught) =>
-        toast.error(t("chat.toolSwitchFailed", { message: serverErrorText(i18n, caught) })),
-    }),
-  );
-  const toolItems = mcpToolsMenu(servers.data?.servers ?? [], connections);
-  const toggleTool = (key: string, on: boolean) => {
-    const next = switchConnection(connections, key, on);
-    if (firstMessage) setComposerConnections(next);
-    else setConnections.mutate({ id: conversation.id, connections: next });
-  };
-
   const draft = useAttachmentDraft(conversation.model);
 
   const {
@@ -206,7 +184,6 @@ function ChatThread({
     onSynced,
     onRefusedSend: setComposerText,
     webSearchAvailable: search.available,
-    connections,
   });
 
   // The panel opens on an Artifact call from its first delta (spec #304). The calls already done when
@@ -277,8 +254,7 @@ function ChatThread({
                 onRegenerate: () => void regenerate(message.id),
                 onSwitchBranch: (messageId) => switchBranch.mutate({ messageId }),
                 onRate: (rating) => rate(message.id, rating),
-                onDecide: (approved, allowForConversation) =>
-                  void decide(message.id, approved, allowForConversation),
+                onDecide: (approved) => void decide(message.id, approved),
               }}
             />
           ))}
@@ -320,7 +296,6 @@ function ChatThread({
           >
             <AttachButton draft={draft} disabled={!!blocked || quotaBlocked} />
             <SearchToggle search={search} />
-            <ToolsMenu items={toolItems} onToggle={toggleTool} />
             <ContextRing fill={context} />
           </Composer>
         </div>

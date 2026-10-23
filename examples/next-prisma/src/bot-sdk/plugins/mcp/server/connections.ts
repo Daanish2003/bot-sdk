@@ -1,22 +1,22 @@
 import { and, asc, eq, gt, isNotNull, or } from "drizzle-orm";
 
-import { mcpConnection } from "../../../../core/server/db/schema";
+import { mcpConnection } from "../../../core/server/db/schema";
 import {
   decryptCredentials,
   encryptCredentials,
   encryptionKid,
   kidOf,
-} from "../../../../core/server/credentials/encryption";
-import { rotateInPasses } from "../../../../core/server/credentials/rotation";
-import type { BotSdkContext } from "../../../../core/server/plugin";
+} from "../../../core/server/credentials/encryption";
+import { rotateInPasses } from "../../../core/server/credentials/rotation";
+import type { BotSdkContext } from "../../../core/server/plugin";
 import type { TokenSet } from "./oauth";
-import { assistantState } from "../state";
+import type { McpServerConfig } from "./servers";
 
 /**
  * A user's Connections to the Host's MCP servers (spec #91, ADR 0010 for their key). A Connection's
  * tokens and its pending sign-in are encrypted; the client only ever sees the summary below.
  */
-type Deps = Pick<BotSdkContext, "db" | "keyring" | "plugin">;
+type Deps = Pick<BotSdkContext, "db" | "keyring">;
 
 export type ConnectionSummary = {
   key: string;
@@ -88,9 +88,13 @@ export async function readTokens(
 }
 
 /** One entry per server the Host lists, in the Host's order. */
-export async function listConnections(deps: Deps, userId: string): Promise<ConnectionSummary[]> {
+export async function listConnections(
+  deps: Deps,
+  servers: readonly McpServerConfig[],
+  userId: string,
+): Promise<ConnectionSummary[]> {
   const rows = await deps.db.select().from(mcpConnection).where(eq(mcpConnection.userId, userId));
-  return assistantState(deps).mcpServers.map(({ key, name }) => {
+  return servers.map(({ key, name }) => {
     const row = rows.find((candidate) => candidate.serverKey === key);
     if (!row?.encrypted) return { key, name, state: "disconnected", scopes: [] };
     const decrypted = decryptCredentials(row.encrypted, tokenOptions(deps, userId, key));

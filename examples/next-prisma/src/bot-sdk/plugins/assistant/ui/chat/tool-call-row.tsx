@@ -25,11 +25,10 @@ const statusKeys = {
 } as const satisfies Record<ToolCallStatus, string>;
 
 /**
- * One tool call of a reply other than a search (a Host tool, later an MCP tool): a slim line with
- * its name and state, which expands to the arguments and result. A call waiting for Approval shows
- * its full arguments and, when `onDecide` is given, Approve and Deny, plus Allow for this
- * Conversation (`onDecide(true, true)`, #159). A call redacted for a Shared
- * link shows only that it was used (or that it waits). To give one tool its own look, edit this
+ * One tool call of a reply other than a search (a Host tool, or an MCP tool of an older reply): a
+ * slim line with its name and state, which expands to the arguments and result. A call waiting for
+ * Approval shows its full arguments and, when `onDecide` is given, Approve and Deny. A call
+ * redacted for a Shared link shows only that it was used (or that it waits). To give one tool its own look, edit this
  * file in the Host's `ui/`; the SDK copy never overwrites it.
  */
 export function ToolCallRow({
@@ -37,11 +36,8 @@ export function ToolCallRow({
   onDecide,
 }: {
   call: ToolCallView;
-  /**
-   * Answers a call waiting for Approval: `true` approves it, `false` denies it (ADR 0008). An
-   * approval with `allowForConversation` also allows the tool for the rest of the Conversation.
-   */
-  onDecide?: (approved: boolean, allowForConversation?: boolean) => void;
+  /** Answers a call waiting for Approval: `true` approves it, `false` denies it (ADR 0008). */
+  onDecide?: (approved: boolean) => void;
 }) {
   const { t } = useI18n();
   const waiting = call.status === "awaiting_approval";
@@ -90,14 +86,6 @@ export function ToolCallRow({
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
           <Button size="sm" className="max-sm:w-full" onClick={() => onDecide(true)}>
             {t("chat.approve")}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="max-sm:w-full"
-            onClick={() => onDecide(true, true)}
-          >
-            {t("chat.allowForConversation")}
           </Button>
           <Button
             size="sm"

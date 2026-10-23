@@ -4,6 +4,7 @@ import { useSyncExternalStore } from "react";
 
 import { type BotSdkOrpc, useChatAdapter } from "../../../../core/client/react/provider";
 import { uuidv7 } from "../../../../core/shared/uuidv7";
+import type { SentFile } from "../../shared/files";
 import type { BotMessage } from "../../shared/turn";
 import { inOrder, syncBot, useBotSync } from "./bot-sync";
 
@@ -24,7 +25,7 @@ type LocalTurn = { sends: number; pending: ShownBotMessage[] };
 type LocalTurns = {
   snapshot: ReadonlyMap<string, LocalTurn>;
   listeners: Set<() => void>;
-  unsent: Map<string, { text: string; id: string }>;
+  unsent: Map<string, { text: string; files: string; id: string }>;
 };
 
 const noTurns: ReadonlyMap<string, LocalTurn> = new Map();
@@ -84,7 +85,7 @@ function browserTimeZone(): string | undefined {
 /** Calls `bot.send`, again with the same input while the request fails on the network. */
 async function sendWithRetry(
   orpc: BotSdkOrpc,
-  input: { botId: string; id: string; text: string; timeZone?: string },
+  input: { botId: string; id: string; text: string; files?: string[]; timeZone?: string },
 ) {
   for (let attempt = 1; ; attempt++) {
     try {
@@ -112,21 +113,25 @@ async function sendWithRetry(
  * composer as a refused one does, and sending the same text again reuses that `id`.
  *
  * A send the server refuses before saving the Message (402 Quota) removes the bubble and is handed
- * to `onRefused` with its text, so the composer can put it back.
+ * to `onRefused` with its text and files, so the composer can put them back. `files` are uploaded
+ * ones (spec #801): the bubble shows them as the files card at once, and the text may be empty.
  */
 async function runSend(
   queryClient: QueryClient,
   orpc: BotSdkOrpc,
   botId: string,
   text: string,
-  onRefused?: (text: string, error: unknown) => void,
+  files: SentFile[],
+  onRefused?: (text: string, error: unknown, files: SentFile[]) => void,
 ): Promise<void> {
   const getKey = orpc.bot.get.queryOptions({ input: { botId } }).queryKey;
   const listKey = orpc.bot.list.queryKey();
 
   const unsent = storeOf(queryClient).unsent;
   const lost = unsent.get(botId);
-  const id = lost?.text === text ? lost.id : uuidv7();
+  const fileIds = files.map((file) => file.id);
+  const signature = fileIds.join(",");
+  const id = lost?.text === text && lost.files === signature ? lost.id : uuidv7();
   unsent.delete(botId);
   const pending: ShownBotMessage = {
     id: `pending-${++pendingSequence}`,
@@ -134,6 +139,7 @@ async function runSend(
     text,
     createdAt: new Date(),
     pending: true,
+    ...(files.length > 0 && { control: { kind: "files" as const, files } }),
   };
   changeLocalTurn(queryClient, botId, (turn) => ({
     sends: (turn?.sends ?? 0) + 1,
@@ -143,7 +149,13 @@ async function runSend(
     turn && { ...turn, pending: turn.pending.filter((shown) => shown !== pending) };
   let saved = false;
   try {
-    const sent = await sendWithRetry(orpc, { botId, id, text, timeZone: browserTimeZone() });
+    const sent = await sendWithRetry(orpc, {
+      botId,
+      id,
+      text,
+      ...(files.length > 0 && { files: fileIds }),
+      timeZone: browserTimeZone(),
+    });
     saved = true;
     // A `bot.get` that started before this write would answer after it with older Messages.
     if (queryClient.getQueryData(getKey)) await queryClient.cancelQueries({ queryKey: getKey });
@@ -159,8 +171,8 @@ async function runSend(
     // An error after the save (a cache write) is no refusal. A send that got no answer may have been
     // saved, so its id is kept for the same text; a refused one goes back to the composer.
     if (!saved) {
-      if (!(error instanceof ORPCError)) unsent.set(botId, { text, id });
-      onRefused?.(text, error);
+      if (!(error instanceof ORPCError)) unsent.set(botId, { text, files: signature, id });
+      onRefused?.(text, error, files);
     }
   } finally {
     // The Turn that takes the Message, and what it sends, are read from the change log; the Bot
@@ -188,7 +200,9 @@ export function useSendingBotIds(): ReadonlySet<string> {
  */
 export function useBotTurn(
   botId: string,
-  { onRefusedSend }: { onRefusedSend?: (text: string, error: unknown) => void } = {},
+  {
+    onRefusedSend,
+  }: { onRefusedSend?: (text: string, error: unknown, files: SentFile[]) => void } = {},
 ) {
   const { orpc } = useChatAdapter();
   const queryClient = useQueryClient();
@@ -216,7 +230,8 @@ export function useBotTurn(
     working,
     seenMessageId: status === "complete" ? answered : undefined,
     failedMessageId: status === "error" ? answered : undefined,
-    send: (text: string) => runSend(queryClient, orpc, botId, text, onRefusedSend),
+    send: (text: string, files: SentFile[] = []) =>
+      runSend(queryClient, orpc, botId, text, files, onRefusedSend),
     /** Stops the Turn running anywhere; the views then read it as ended. */
     stop: async () => {
       try {

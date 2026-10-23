@@ -18,10 +18,7 @@ import { createTavilyClient } from "../../bot/server/tavily";
 import { defaultLimits } from "./deps";
 import { assistantUserDelete } from "./delete-user";
 import { exportAssistantData } from "./export-user";
-import { rotateConnectionKeys } from "./mcp/connections";
 import { createLifecycle, type Lifecycle } from "./lifecycle";
-import { callbackRoute, connectRoute } from "./mcp/routes";
-import { checkMcpServers, type McpServerConfig } from "./mcp/servers";
 import type { BotSdkContext, BotSdkPlugin, Route } from "../../../core/server/plugin";
 import { defaultRateLimits, type RateLimit } from "../../../core/server/rate-limits";
 import { appRouter } from "./routers/index";
@@ -34,12 +31,6 @@ export type AssistantOptions = {
    * must not be `web_search` or `fetch_url`, the SDK's own tools.
    */
   tools?: HostServerTool[];
-  /**
-   * Remote MCP servers the users may connect to (spec #91). Streamable HTTP over HTTPS only. Each
-   * server needs an OAuth client the Host registered with it ahead of time; the README says which
-   * redirect URI to register.
-   */
-  mcpServers?: McpServerConfig[];
   /**
    * Turns Artifacts on (ADR 0016): the `create_artifact` tool for a Model with tools, the side
    * panel and the version route. Off by default, and then none of them exist.
@@ -84,7 +75,7 @@ const assistantRateLimits: Record<AssistantRule, RateLimit> = {
 };
 
 /**
- * The `assistant` plugin (ADR 0020): Runs and their streams, tools, MCP servers, Artifacts and
+ * The `assistant` plugin (ADR 0020): Runs and their streams, tools, Artifacts and
  * the reaper. It reaches `models`, `runner` for its background jobs, and `memory`
  * when the Host installs it, only through `plugin(id)`.
  */
@@ -99,11 +90,7 @@ export function assistant(options: AssistantOptions = {}): AssistantPlugin {
       throw new Error(`A Host tool can't be named "${builtIn}": the SDK's tool has it`);
     }
   }
-  return assistantPlugin((sdk) => {
-    // At construction, so a misconfigured server fails the Host's boot (spec #91).
-    checkMcpServers(options.mcpServers ?? [], sdk.fetchAllowHosts);
-    return productionState(sdk, options);
-  });
+  return assistantPlugin((sdk) => productionState(sdk, options));
 }
 
 /**
@@ -149,13 +136,6 @@ function assistantPlugin(buildState: (sdk: BotSdkContext) => AssistantState): As
     databaseHooks: { conversation: { delete: assistantConversationDelete } },
     deleteUser: assistantUserDelete,
     exportUser: (sdk, userId, tx) => exportAssistantData(sdk, tx, userId),
-    rotateKeys: async (sdk) => {
-      const { reencrypted, unreadable } = await rotateConnectionKeys(sdk);
-      if (unreadable > 0) {
-        sdk.logger.error("Stored MCP tokens can't be read; left in place", { unreadable });
-      }
-      return { reencrypted, unreadable };
-    },
     // The reaper.
     start: (sdk) => lifecycleOf(sdk).start(),
     // Drains the Runs; the runner drains the jobs after it.
@@ -167,7 +147,6 @@ function assistantPlugin(buildState: (sdk: BotSdkContext) => AssistantState): As
 function productionState(sdk: BotSdkContext, options: AssistantOptions): AssistantState {
   return {
     tools: options.tools ?? [],
-    mcpServers: options.mcpServers ?? [],
     artifacts: options.artifacts ?? false,
     searchClient: createTavilyClient(globalThis.fetch),
     runStreams: sdk.runtime.runStreams,
@@ -214,15 +193,6 @@ const assistantRoutes: Route[] = [
     handle: async (request, { user, sdk, params }) =>
       generatedImageResponse(sdk, user.id, params.id!, wantsDownload(request)),
   },
-  ...(["connect", "callback"] as const).map((step): Route => ({
-    method: "GET",
-    path: `/mcp/${step}`,
-    handle: (request, { user, sdk, basePath }) => {
-      const redirectUri = `${new URL(request.url).origin}${basePath}/mcp/callback`;
-      const route = step === "connect" ? connectRoute : callbackRoute;
-      return route(request, user.id, sdk, redirectUri);
-    },
-  })),
 ];
 
 const wantsDownload = (request: Request) =>

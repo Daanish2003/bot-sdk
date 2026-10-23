@@ -22,7 +22,7 @@ import { withCacheControl } from "../../models/server/cache-control";
 import { parseModelId } from "../../models/shared/models";
 import { defineJob, type JobContext } from "../../runner/server/jobs/define";
 import { computerOf } from "./computer-tools";
-import { pruneScreenshots, resolveScreenshots } from "./desktop-tools";
+import { pruneScreenshots, resolveImageRefs } from "./desktop-tools";
 import { callUsage } from "./loop";
 import { latestPromptStartId, loopPromptStart } from "./prompt-start";
 import { lockConversation, waitingIn } from "./router";
@@ -79,13 +79,14 @@ async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext
     if (!(await meter.mayRun()).ok) return null;
     const start = await loopPromptStart(deps.db, seen.promptStartId, async () => undefined);
     const history = await historyAfter(deps.db, botId, seen.promptStartId);
-    const messages: ModelMessage[] = await resolveScreenshots(
+    const messages: ModelMessage[] = await resolveImageRefs(
       deps.blobStore,
       pruneScreenshots([
         { role: "user", content: start.firstMessage },
         ...history,
         { role: "user", content: summarizeInstruction },
       ]),
+      { seesImages: (await models.resolveModel(seen.userId, seen.model))?.images ?? false },
     );
     const base = models.adapterForCall(seen.model, call);
     // The Prompt start's own tool definitions and the Bot's cache key, as a Turn's calls send them.
