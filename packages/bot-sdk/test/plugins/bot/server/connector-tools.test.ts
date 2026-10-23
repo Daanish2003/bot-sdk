@@ -48,7 +48,7 @@ describe("connectorTools", () => {
       depsWith([
         { name: "web_search", description: "Shadows the Bot's web search." },
         { name: "web_fetch_page", description: "Fetches a page." },
-      ] as AnyServerTool[]),
+      ] as unknown as AnyServerTool[]),
       "user-1",
       {
         signal: new AbortController().signal,
@@ -70,7 +70,7 @@ describe("connectorTools", () => {
           throw new TypeError("Cannot read properties of undefined (reading 'content')");
         },
       },
-    ] as AnyServerTool[]);
+    ] as unknown as AnyServerTool[]);
 
     const result = await call(connectors, "web_fetch_page");
 
@@ -91,7 +91,7 @@ describe("connectorTools", () => {
           });
         },
       },
-    ] as AnyServerTool[]);
+    ] as unknown as AnyServerTool[]);
 
     expect(await call(connectors, "web_fetch_page")).toEqual({ error: reconnectError("Web") });
   });
@@ -100,7 +100,7 @@ describe("connectorTools", () => {
     const connectors = await connectorsOf(
       [
         { name: "web_fetch_page", description: "Fetches a page.", execute: async () => "ok" },
-      ] as AnyServerTool[],
+      ] as unknown as AnyServerTool[],
       [listing("web_fetch_page"), listing("web_crawl")],
     );
 
