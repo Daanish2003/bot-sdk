@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeftIcon, PlusIcon } from "lucide-react";
-import { useState } from "react";
+import { PlusIcon } from "lucide-react";
+import { type ReactNode, useState } from "react";
 
 import { dateFormat } from "../../../core/client/intl";
 import { useChatAdapter, useI18n } from "../../../core/client/react/provider";
@@ -9,8 +9,8 @@ import { useSendingBotIds } from "../client/react/bot-turn";
 import { BotAvatar } from "./bot-avatar";
 import { NewBotDialog } from "./new-bot-dialog";
 
-/** The Bots app's sidebar: the user's Bots, "+ New Bot", and a link back to the assistant. */
-export function BotSidebar() {
+/** The Bots app's sidebar: the user's Bots, "+ New Bot", and the host's account menu at its foot. */
+export function BotSidebar({ accountMenu }: { accountMenu?: ReactNode }) {
   const { orpc, Link } = useChatAdapter();
   const { t, locale } = useI18n();
   const sending = useSendingBotIds();
@@ -27,14 +27,7 @@ export function BotSidebar() {
       aria-label={t("bots.app")}
       className="flex w-80 shrink-0 flex-col border-r bg-muted/40 max-md:w-64"
     >
-      <div className="flex items-center justify-between gap-2 p-4">
-        <Link
-          page={{ to: "new" }}
-          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeftIcon className="size-3" />
-          {t("bots.backToAssistant")}
-        </Link>
+      <div className="flex items-center justify-end gap-2 p-4">
         <Button size="sm" className="rounded-full" onClick={() => setCreating(true)}>
           <PlusIcon />
           {t("bots.newBot")}
@@ -82,6 +75,7 @@ export function BotSidebar() {
       {bots.data?.length === 0 && (
         <p className="px-4 pb-4 text-xs text-muted-foreground">{t("bots.noBots")}</p>
       )}
+      {accountMenu && <div className="border-t p-3">{accountMenu}</div>}
       <NewBotDialog open={creating} onOpenChange={setCreating} />
     </aside>
   );

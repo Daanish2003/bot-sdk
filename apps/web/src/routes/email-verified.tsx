@@ -32,7 +32,7 @@ function EmailVerifiedPage() {
     <div className="mx-auto mt-10 w-full max-w-md space-y-6 p-6 text-center">
       <h1 className="text-3xl font-bold">Your email is verified</h1>
       <p className="text-muted-foreground">Thanks. Your account is ready.</p>
-      <Button onClick={() => navigate({ to: "/c" })}>Continue to chat</Button>
+      <Button onClick={() => navigate({ to: "/bots" })}>Continue to Bots</Button>
     </div>
   );
 }

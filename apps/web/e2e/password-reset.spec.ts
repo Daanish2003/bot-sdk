@@ -66,7 +66,7 @@ test("a reset link sets a new password, signs out the other device, and a used l
     page.getByRole("button", { name: "Sign In", exact: true }),
     "/api/auth/sign-in/email",
   );
-  await expect(page).toHaveURL(/\/c$/);
+  await expect(page).toHaveURL(/\/bots$/);
 
   // The notice arrived by email.
   const mails = await waitForMail(page, seeded.email, 2);

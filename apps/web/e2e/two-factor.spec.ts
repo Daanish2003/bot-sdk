@@ -52,7 +52,7 @@ test("enable through the UI, sign in with a code, sign in with a backup code onc
       login.getByRole("button", { name: "Verify" }),
       `${API}/verify-totp`,
     );
-    await expect(login).toHaveURL(/\/c$/);
+    await expect(login).toHaveURL(/\/bots$/);
 
     // Backup code: works once, and the same code is refused the second time.
     await device.clearCookies();
@@ -66,7 +66,7 @@ test("enable through the UI, sign in with a code, sign in with a backup code onc
       backup.getByRole("button", { name: "Verify" }),
       `${API}/verify-backup-code`,
     );
-    await expect(backup).toHaveURL(/\/c$/);
+    await expect(backup).toHaveURL(/\/bots$/);
 
     await device.clearCookies();
     const reused = await device.newPage();
@@ -94,12 +94,12 @@ test("enable through the UI, sign in with a code, sign in with a backup code onc
       trusted.getByRole("button", { name: "Verify" }),
       `${API}/verify-totp`,
     );
-    await expect(trusted).toHaveURL(/\/c$/);
+    await expect(trusted).toHaveURL(/\/bots$/);
 
     await device.clearCookies({ name: "better-auth.session_token" });
     const again = await device.newPage();
     await signInOnForm(again, seeded.email, seeded.password);
-    await expect(again).toHaveURL(/\/c$/);
+    await expect(again).toHaveURL(/\/bots$/);
   } finally {
     await device.close();
   }
@@ -161,7 +161,7 @@ test("a seeded two-factor user is asked for a code at sign-in", async ({ page, b
       login.getByRole("button", { name: "Verify" }),
       `${API}/verify-totp`,
     );
-    await expect(login).toHaveURL(/\/c$/);
+    await expect(login).toHaveURL(/\/bots$/);
   } finally {
     await device.close();
   }
