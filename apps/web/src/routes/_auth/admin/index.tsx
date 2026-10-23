@@ -4,9 +4,7 @@ import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { z } from "zod";
 
 import { AdminBanControl } from "@/components/admin-ban-control";
-import { type RatingRow } from "@/admin/ratings";
 import { type AdminUser, formatUsd, isAtQuota } from "@/admin/users";
-import { listRatingTotals } from "@/functions/admin-ratings";
 import { listAdminUsers } from "@/functions/admin-users";
 
 const searchSchema = z.object({
@@ -20,23 +18,19 @@ export const Route = createFileRoute("/_auth/admin/")({
   validateSearch: searchSchema,
   loaderDeps: ({ search }) => search,
   loader: async ({ deps }) => {
-    const [users, ratings] = await Promise.all([
-      listAdminUsers({
-        data: {
-          search: deps.search,
-          sort: deps.sort ?? "email",
-          atQuota: deps.atQuota === "1",
-        },
-      }),
-      listRatingTotals(),
-    ]);
-    return { users, ratings };
+    return listAdminUsers({
+      data: {
+        search: deps.search,
+        sort: deps.sort ?? "email",
+        atQuota: deps.atQuota === "1",
+      },
+    });
   },
   component: AdminUsersPage,
 });
 
 function AdminUsersPage() {
-  const { users, ratings } = Route.useLoaderData();
+  const users = Route.useLoaderData();
   const search = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
 
@@ -71,46 +65,7 @@ function AdminUsersPage() {
         </div>
       </div>
       <UsersTable users={users} />
-      <RatingsSection ratings={ratings} />
     </main>
-  );
-}
-
-/** Replies rated in the last 30 days, per Model: 👍, 👎 and the share of 👎. Never per user. */
-function RatingsSection({ ratings }: { ratings: RatingRow[] }) {
-  return (
-    <section aria-labelledby="ratings-heading" className="space-y-3">
-      <h2 id="ratings-heading" className="text-lg font-semibold">
-        Ratings
-      </h2>
-      <p className="text-sm text-muted-foreground">Replies rated in the last 30 days, per Model.</p>
-      {ratings.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No replies have been rated in this window.</p>
-      ) : (
-        <div className="overflow-x-auto rounded-md border">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b bg-muted/50 text-muted-foreground">
-              <tr>
-                <th className="px-3 py-2 font-medium">Model</th>
-                <th className="px-3 py-2 font-medium">👍</th>
-                <th className="px-3 py-2 font-medium">👎</th>
-                <th className="px-3 py-2 font-medium">% 👎</th>
-              </tr>
-            </thead>
-            <tbody>
-              {ratings.map((row) => (
-                <tr key={row.model} className="border-b last:border-0">
-                  <td className="px-3 py-2">{row.model}</td>
-                  <td className="px-3 py-2">{row.up}</td>
-                  <td className="px-3 py-2">{row.down}</td>
-                  <td className="px-3 py-2">{row.downPercent}%</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </section>
   );
 }
 

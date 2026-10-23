@@ -33,16 +33,16 @@ test("a change of email is confirmed from the current address, then verified at 
   await page.goto("/settings/account");
   await expect(page.getByText(`Current address: ${newEmail}`)).toBeVisible();
   await page.getByRole("button", { name: seeded.name }).click();
-  await expect(page.getByRole("menuitem", { name: newEmail })).toBeVisible();
+  await expect(page.getByText(newEmail, { exact: true })).toBeVisible();
 
   // The new address signs in, and the old one no longer does.
-  await page.getByRole("menuitem", { name: "Sign Out" }).click();
+  await page.getByRole("menuitem", { name: "Sign out" }).click();
   await expect(page).toHaveURL(/\/login$/);
   await signInOnForm(page, seeded.email, seeded.password);
   await expect(page.getByText("Invalid email or password")).toBeVisible();
 
   await signInOnForm(page, newEmail, seeded.password);
-  await expect(page).toHaveURL(/\/c$/);
+  await expect(page).toHaveURL(/\/bots$/);
 });
 
 test("an invalid email change link shows an error page", async ({ page }) => {

@@ -21,7 +21,7 @@ export default function SocialSignIn() {
             // Better Auth answers with the provider's authorize URL and the browser follows it.
             const { error } = await authClient.signIn.social({
               provider: provider.id,
-              callbackURL: "/c",
+              callbackURL: "/bots",
               // A failed OAuth sign-in comes back here with `?error=<code>` (a banned user's, spec #277).
               errorCallbackURL: "/login",
             });

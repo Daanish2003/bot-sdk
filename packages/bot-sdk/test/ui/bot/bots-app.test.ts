@@ -89,10 +89,13 @@ describe("the Bots sidebar", () => {
     expect(colours[0]).not.toBe(colours[1]);
   });
 
-  it("links back to the assistant", () => {
-    mount(createElement(BotSidebar));
+  it("shows the host's account menu at its foot, and no link back to the assistant", () => {
+    mount(
+      createElement(BotSidebar, { accountMenu: createElement("button", null, "Account menu") }),
+    );
 
-    expect(screen.getByText("Assistant")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Account menu" })).toBeTruthy();
+    expect(screen.queryByText("Assistant")).toBeNull();
   });
 
   it("doesn't poll the Bots while one runs: the change log and focus refresh it (ADR 0026)", async () => {

@@ -1,5 +1,4 @@
 import type { AnyServerTool, AnyTextAdapter, ChatMiddleware, ModelMessage } from "@tanstack/ai";
-import { eq } from "drizzle-orm";
 
 import { storedParts, type StoredParts } from "../../shared/message-parts";
 import { attachmentsForSend } from "../attachments/send";
@@ -12,7 +11,7 @@ import type { ToolCall } from "../../../models/server/credentials/resolve";
 import type { ErrorParams } from "../../../../core/server/rpc-error";
 import { unusableModelCode } from "../../../models/server/unusable-model";
 import type { BotSdkContext } from "../../../../core/server/plugin";
-import { userSettings, type conversation } from "../../../../core/server/db/schema";
+import type { conversation } from "../../../../core/server/db/schema";
 import { pastChatsOffered } from "../search/past-chats";
 import { projectInstructionsOf } from "../project/store";
 import { loadSettings } from "../settings/store";
@@ -315,25 +314,6 @@ async function offeredFor(
 }
 
 /**
- * The Image Model a call on the user's behalf uses: their saved pick, else the Host's default
- * Image Model, else none (`null`, so no image tool is offered). A pick the user can no longer use
- * (its key was removed) gives none too; the Host default isn't used in its place.
- */
-export async function resolveImageModelFor(
-  deps: Pick<BotSdkContext, "db" | "plugin">,
-  userId: string,
-): Promise<ResolvedImageModel | null> {
-  const [row] = await deps.db
-    .select({ imageModel: userSettings.imageModel })
-    .from(userSettings)
-    .where(eq(userSettings.userId, userId));
-  const models = deps.plugin("models");
-  const id = row?.imageModel ?? models.defaultImageModel;
-  if (!id) return null;
-  return (await models.resolveImageModel(userId, id)) ?? null;
-}
-
-/**
  * The image tool, when the user has a usable Image Model (their pick, else the Host's default) and
  * an adapter serves it (spec #278). A Provider with no image adapter throws from the factory; that
  * Run chats with no image tool rather than failing.
@@ -346,7 +326,7 @@ async function imageToolFor(
     pathAttachments,
   }: { pathMessageIds: string[]; pathAttachments: StoredAttachment[] },
 ): Promise<ImageTool | null> {
-  const image = await resolveImageModelFor(deps, userId);
+  const image = await deps.plugin("models").resolveUserImageModel(userId);
   if (!image) return null;
   let adapter: ReturnType<ModelsApi["imageAdapterFor"]>;
   try {

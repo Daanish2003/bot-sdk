@@ -65,7 +65,7 @@ test("add a passkey, sign out, sign in with it, rename, delete; the notice arriv
   // A POST needs a body (`data`) to send its JSON content type; without one the server answers 415.
   await page.request.post("/api/auth/sign-out", { headers: { origin: baseURL }, data: {} });
   await signInWithPasskey(page);
-  await expect(page).toHaveURL(/\/c$/);
+  await expect(page).toHaveURL(/\/bots$/);
 
   // Rename it.
   await page.goto(ACCOUNT);
@@ -162,7 +162,7 @@ test("a passkey sign-in skips the two-factor prompt for a user with two-factor o
   await page.context().clearCookies();
   await signInWithPasskey(page);
 
-  await expect(page).toHaveURL(/\/c$/);
+  await expect(page).toHaveURL(/\/bots$/);
   await expect(page.getByLabel("Authentication code")).toHaveCount(0);
 });
 

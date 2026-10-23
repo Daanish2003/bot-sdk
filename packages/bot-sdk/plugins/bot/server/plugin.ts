@@ -130,6 +130,13 @@ export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
         path: "/bot-files/:id",
         handle: (_request, { user, sdk, params }) => sentFileResponse(sdk, user.id, params.id!),
       },
+      {
+        // The same file for display, an image only.
+        method: "GET",
+        path: "/bot-files/:id/inline",
+        handle: (_request, { user, sdk, params }) =>
+          sentFileResponse(sdk, user.id, params.id!, { inline: true }),
+      },
     ],
     deleteUser: {
       // No Routine, Check-in or Helper runs for a deleted user: its jobs are cancelled.

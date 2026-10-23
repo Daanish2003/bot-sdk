@@ -5,7 +5,7 @@ import { getUser } from "@/functions/get-user";
 
 export const Route = createFileRoute("/two-factor")({
   beforeLoad: async () => {
-    if (await getUser()) throw redirect({ to: "/c" });
+    if (await getUser()) throw redirect({ to: "/bots" });
   },
   component: TwoFactorChallenge,
 });

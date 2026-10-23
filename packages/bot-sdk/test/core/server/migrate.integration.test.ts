@@ -114,6 +114,7 @@ const sdkTables = [
   "memory_settings",
   "message",
   "message_attachment",
+  "model_settings",
   "project",
   "saved_prompt",
   "secret",
@@ -408,6 +409,34 @@ describe("chat.migrate()", () => {
     ]);
   });
 
+  it("copies each chosen Image Model into chat.model_settings (#803)", async () => {
+    const url = await scratchDatabase("model_settings");
+    // A database at the migration before model_settings, with two users' settings.
+    await migrateUpTo(url, "20261022124724_channel_email");
+    await rows(
+      url,
+      `insert into chat.user_settings (user_id, image_model, instructions)
+       values ('user-picked', 'openai:gpt-image-2', 'Be brief'), ('user-default', null, null)`,
+    );
+
+    await chatFor(url).migrate();
+
+    // A user with no row has the Host's default, so only a pick is copied.
+    expect(
+      await rows(url, "select user_id, image_model from chat.model_settings order by user_id"),
+    ).toEqual([{ user_id: "user-picked", image_model: "openai:gpt-image-2" }]);
+    // user_settings is left as it was until the assistant goes (spec #801).
+    expect(
+      await rows(
+        url,
+        "select user_id, image_model, instructions from chat.user_settings order by user_id",
+      ),
+    ).toEqual([
+      { user_id: "user-default", image_model: null, instructions: null },
+      { user_id: "user-picked", image_model: "openai:gpt-image-2", instructions: "Be brief" },
+    ]);
+  });
+
   it("drops the assistant's Memories and their queued jobs, and keeps the Memory switch (#650)", async () => {
     const url = await scratchDatabase("drop_memory");
     // A database at the migration before the drop, with a Memory switch and the Memory jobs.
@@ -657,7 +686,7 @@ describe("chat.migrate()", () => {
     await expect(Promise.all([chat.migrate(), chat.migrate()])).resolves.toBeDefined();
 
     const applied = await rows<{ count: string }>(url, "select count(*) from chat.__migrations");
-    expect(applied).toEqual([{ count: "61" }]);
+    expect(applied).toEqual([{ count: "62" }]);
   });
 
   it("gives a Conversation's tool settings empty lists by default, so existing rows read as empty", async () => {

@@ -1,12 +1,10 @@
-import { AppShell } from "@ai-chat/bot-sdk/plugins/assistant/ui";
-import { Outlet, createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
-import { InstallPrompt } from "@/components/install-prompt";
-import UserMenu from "@/components/user-menu";
+import { BotsShell } from "@/components/bots-shell";
 import { getUser } from "@/functions/get-user";
 
 export const Route = createFileRoute("/_auth")({
-  component: AuthLayout,
+  component: BotsShell,
   beforeLoad: async () => {
     const session = await getUser();
     if (!session) {
@@ -24,11 +22,3 @@ export const Route = createFileRoute("/_auth")({
     }
   },
 });
-
-function AuthLayout() {
-  return (
-    <AppShell userMenu={<UserMenu />} installPrompt={<InstallPrompt />}>
-      <Outlet />
-    </AppShell>
-  );
-}
