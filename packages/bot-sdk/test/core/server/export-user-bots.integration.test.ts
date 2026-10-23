@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
-import { bot } from "../../../core/server/db/schema";
+import { bot, memorySettings } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { exportUserData } from "../../../core/server/user-data";
 import { bot as botPlugin } from "../../../plugins/bot/server/plugin";
@@ -62,7 +62,7 @@ describe("createBotSdk().exportUser, with Bots", () => {
     expect((document.bot as BotExport).bots).toEqual([
       expect.objectContaining({ name: "Ada", model: "anthropic:claude-sonnet-5-5", messages: [] }),
     ]);
-    expect(document.memory).toEqual({ botMemory: [] });
+    expect(document.memory).toEqual({ memoryEnabled: true, botMemory: [] });
     expect(document.models).toEqual({ imageModel: null });
     expect(document).not.toHaveProperty("assistant");
   });
@@ -103,8 +103,17 @@ describe("createBotSdk().exportUser, with Bots", () => {
     expect(document).toMatchObject({
       version: 2,
       bot: { bots: [] },
-      memory: { botMemory: [] },
+      memory: { memoryEnabled: true, botMemory: [] },
     });
+  });
+
+  it("holds the user's Memory switch in the memory plugin's part", async () => {
+    const owner = await insertUser();
+    await getTestDb().insert(memorySettings).values({ userId: owner.id, enabled: false });
+
+    const document = await chatFor().exportUser(owner.id);
+
+    expect(document.memory).toEqual({ memoryEnabled: false, botMemory: [] });
   });
 });
 

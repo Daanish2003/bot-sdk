@@ -70,6 +70,7 @@ export function memory(): MemoryPlugin {
       after: async () => {},
     },
     exportUser: async (sdk, userId, tx) => ({
+      memoryEnabled: await memoryEnabledFor({ db: tx }, userId),
       botMemory: await exportBotMemory(sdk, tx, userId),
     }),
   };
