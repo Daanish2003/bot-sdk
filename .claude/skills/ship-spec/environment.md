@@ -28,6 +28,7 @@ Shared by the orchestrator and every implementer. Each bullet cost a past run a 
 - **The spec's docs branch (#791):** when the spec branches from a `docs/<map>-…` branch, delete that branch and its worktree too once the integration PR merges (`git merge-base --is-ancestor docs/… main` first).
 - **Merge, then verify, never both at once (#801):** a merge and a background verify were sent as parallel tool calls. The merge conflicted, and the verify had already started on the half-merged tree, so it had to be stopped. Read the merge's result (and `git status` for `UU` files) before starting a verify.
 - **Start a dependent ticket from its blocker's branch (#801):** #809, #807, #808, #810, #811 and #812 each started from their blocker's unpushed tip (`worktree add -b <branch> <path> <blocker-branch or SHA>`) instead of waiting for that blocker's merge and verify. No rework came of it. Put the base SHA in the prompt and tell the agent to review `<SHA>..HEAD`.
+- **A parallel ticket edits a folder another ticket deletes (#813):** #814 hand-copied its change into `examples/next-prisma` while #817 deleted that folder. The merge raised 11 modify/delete and rename/delete conflicts, resolved with `git rm -r examples`. When one ticket in a wave deletes a folder, tell the others in their prompts to leave it alone.
 
 ## Databases and services
 
@@ -95,13 +96,13 @@ Shared by the orchestrator and every implementer. Each bullet cost a past run a 
 - **Providers reject some regexes in tool JSON Schema (#761):** OpenAI refused every call (`Invalid schema for function 'send_to_user' … is not a 'regex'`) because a Zod `.regex` with `p{…}` reached the tool schema. Fake-Model tests never send the schema, so the full suite was green while the real eval was 0/45. Use `.refine` for such checks; a test in `bot-reaction.integration` now fails on `p{`, lookbehind or named groups in any Model-facing tool schema. Run one real eval case early when a ticket changes a tool's input schema.
 - **Missing change hints (#761):** a review found user RPCs that recorded a Bot-thread change but never called `hintChanged`, so other tabs waited for focus: Check-in cancel, the Routine approve, decline, pause, resume and delete, and Helper stop. Brief any ticket that adds a thread-changing path to hint after the commit and test it.
 - **bot-memory-search, again (#761):** "is absent with Memory off…" failed in two more full verifies and passed 2/2 alone each time.
-- **Repeated hand-backs (#761):** an agent whose forked code-review returned late sent the same final report four times. Tell it the ticket is merged and to stop.
+- **Repeated hand-backs (#761):** an agent whose forked code-review returned late sent the same final report four times. Tell it the ticket is merged and to stop. In the #813 run, the #814 agent re-sent its report six times, and every SendMessage, including "stop", woke it up to report again. `TaskStop` refused because the task had already completed. Once a report is merged, ignore the repeats and send nothing.
+- **"Has not reported yet" notices (#813):** while #820 waited on its own forked review and evals, a "finished, has not reported yet" notice arrived every 10–20 s for about 20 minutes. Check the agent's worktree (`git log <base>..HEAD`, `git status`) once, then let the notices pass until the real report arrives.
 - **Coverage tests outside a ticket's affected set (#801):**
   - `user-data-across-plugins.integration.test.ts` and `delete-user.integration.test.ts` check that `deleteUser` empties every `user_id` table, so a ticket that adds such a table must seed it in both. #805 missed them, and only the full verify caught it.
   - Removing UI breaks tests under `packages/bot-sdk/test/ui`, not only next to the component: #806 removed the "back to assistant" link and left `bots-app.test.ts` red.
   - Brief such tickets to run those files.
 - **Run e2e early when a ticket changes a layout or routes (#801):** #806 moved `_auth` into the Bots shell, and every spec that goes through `/c` failed. Shared helpers like `signInWithModel` sign in there, so even the new Bot specs failed (43/88). Nobody saw it until the end-of-run e2e. Run the full e2e right after merging such a ticket.
-- **SSR `useSyncExternalStore` errors (#801):** the web server logs `Cannot read properties of null (reading 'useSyncExternalStore')` on signed-in pages. It comes from a duplicate React in the SSR build (#821), it isn't a test failure, and e2e passes with it. Ignore it until #821 is fixed.
 - **More load timeouts (#801):** each of these timed out in one full verify and passed 2–3 times alone:
   - bot-review "never shows the reviewer a webhook's payload…"
   - usage "estimates a stopped Run, even when its round reported usage"
@@ -112,6 +113,12 @@ Shared by the orchestrator and every implementer. Each bullet cost a past run a 
   - bot-memory-search "is absent with Memory off…" (again)
 - **Forked review stays empty (#801):** the #806 follow-up's forked `code-review` came back empty three times in a row, about 5 s each. The orchestrator read the diff itself as part of the branch review. For a small diff, that is quicker than re-sending.
 - **Self-review instead of the skill (#791):** two implementers reviewed their own diff "inline" when the forked `code-review` returned empty, and one never saw its new test go red. Send such a report back. The brief now says to rerun an empty review and never to self-review; still check every report for it.
+- **A new export section breaks an exact match (#813):** #814 gave the models plugin an `exportUser` section. `user-data-across-plugins` "has the core's version and timestamp on an instance of models alone" compares the export with `toEqual`, and only the full verify caught it. Brief any ticket that adds or moves an export section to run that file.
+- **Deleting a plugin leaves its error keys (#813):** after #819 deleted the assistant, `rpc-error-codes.test.ts` failed on about 43 `error.*` keys that no server code sends anymore. A deletion ticket's affected tests don't include that file; brief it to run it.
+- **More load flakes (#813):** each failed once under load and passed alone:
+  - copy.test "gives a Host core and ui only…" (5 s timeout in a full verify, 3/3 alone)
+  - e2e account "the user menu links to the Account page" (twice under `--workers=2`, 3/3 with `--repeat-each=3`)
+  - e2e bots "a user sends a Bot a file, and the Bot's reply uses it" (once under `--workers=2`, passed alone)
 
 ## Slots
 
@@ -126,6 +133,8 @@ Shared by the orchestrator and every implementer. Each bullet cost a past run a 
 - **Copy script gaps:** `copy.ts` never refreshes `extras/` once it exists and never removes a dropped plugin folder, and `ui/` is Host-owned after the first copy. Diff `extras/` by hand after a copy (the #486 run found a stale Trigger.dev import there). Because `ui/` is Host-owned, a copy does not carry over changes to an existing plugin's `ui/` files. In the #713 run, the Haiku copy ticket left `bot-conversation`, `computer-card` and `show-me-card` stale and had to be sent back. In the copy ticket's brief, list each `ui/` file the spec changed and say to sync it by hand, byte-identical.
 
 ## Evals
+
+- **`--broken` and Computer evals (#813):** only channels, connectors, files and images have a `--broken` mode; the other suites ignore the flag and run their `--fake` run again. computer and computer:lifecycle exit 1 without `E2B_API_KEY`, `E2B_API_URL` and `E2B_SANDBOX_URL`, even with `--fake`, and computer:helper needs a real `EVAL_BOT_MODEL`. A ticket that must run "every eval's `--fake` and `--fake --broken`" reports those three as not run unless the Embed is up and the user agrees to a real Model.
 
 - **The batching case in `eval:turn` is timing-sensitive:** it depends on how messages land between Model calls, and it went from failing to 9/10 only after the #603 harness fix. Compare it A/B against main before calling a change a regression.
 - **Embed slow resume:** after a resume with an open Screen, Chrome's CDP took 5–52 s. Twice in 5 lifecycle runs, the Embed proxy then reset the first live-view connections (ECONNRESET). Re-run the lifecycle eval before treating that as real.
