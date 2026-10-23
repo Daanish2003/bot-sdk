@@ -23,6 +23,7 @@ export type PromptHash = {
 export type UsageEvent = {
   id: string;
   userId: string;
+  /** `run`, `title` and `transcription` are no longer written; they name rows already recorded. */
   kind:
     | "run"
     | "title"

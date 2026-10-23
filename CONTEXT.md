@@ -37,7 +37,7 @@ Provider or Tool credentials the Host supplies for all its users, with the Model
 _Avoid_: Server key, free tier key, platform key
 
 **Quota**:
-How much a user may spend on Host credentials per window (a day or a month), set by the Host per user. It is measured in money, and unlimited when the Host sets none. A Bot's Turns and Helpers spend from it. It is checked before a Turn and before each paid tool call (a web search, a Generated image) or transcription of a voice recording, never by cutting a reply off.
+How much a user may spend on Host credentials per window (a day or a month), set by the Host per user. It is measured in money, and unlimited when the Host sets none. A Bot's Turns and Helpers spend from it. It is checked before a Turn and before each paid tool call (a web search, a Generated image), never by cutting a reply off.
 _Avoid_: Limit, allowance, credits, free tier
 
 **Admin**:
