@@ -87,7 +87,7 @@ describe("the choice card", () => {
       "Red",
       "Blue",
     ]);
-    expect(container.querySelector("input")).toBeNull();
+    expect(container.querySelector("input:not([type=file])")).toBeNull();
 
     fireEvent.click(container.querySelector("[data-option='Blue']")!);
 
@@ -103,10 +103,12 @@ describe("the choice card", () => {
     const chosen: unknown[] = [];
     const { container } = mount([asked(true)], { chosen });
 
-    await waitFor(() => expect(container.querySelector("input")).not.toBeNull());
+    await waitFor(() => expect(container.querySelector("input:not([type=file])")).not.toBeNull());
     const send = container.querySelector<HTMLButtonElement>("button[type=submit]")!;
     expect(send.disabled).toBe(true);
-    fireEvent.change(container.querySelector("input")!, { target: { value: " Green " } });
+    fireEvent.change(container.querySelector("input:not([type=file])")!, {
+      target: { value: " Green " },
+    });
     fireEvent.click(send);
 
     await waitFor(() => expect(chosen).toHaveLength(1));
@@ -119,7 +121,7 @@ describe("the choice card", () => {
     await waitFor(() => expect(container.querySelector("[data-state=answered]")).not.toBeNull());
     expect(container.querySelector("[data-state=answered]")!.textContent).toContain("Red");
     expect(container.querySelector("[data-option]")).toBeNull();
-    expect(container.querySelector("input")).toBeNull();
+    expect(container.querySelector("input:not([type=file])")).toBeNull();
   });
 
   it("draws with the Host's renderer for the choice kind when it gives one", async () => {

@@ -225,6 +225,8 @@ description: Use this when
   "bots.secretSaved": ({ name }: { name: string }) => `Saved secret ${name}`,
   "bots.filesLabel": "Files from the Bot",
   "bots.fileDownload": "Download",
+  "bots.attachFiles": "Attach files",
+  "bots.removeFile": ({ name }: { name: string }) => `Remove ${name}`,
   "bots.reactions": "Reactions",
   "bots.reactToMessage": "React to this message",
   "bots.reactWith": ({ emoji }: { emoji: string }) => `React with ${emoji}`,

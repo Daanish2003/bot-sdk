@@ -54,6 +54,11 @@ export const revisedHeading = "Revised page";
 export const sendMarker = "[send]";
 const sendToUserToolName = "send_to_user";
 export const botReply = "Hello from your Bot.";
+/**
+ * The reply of a Bot sent a file (spec #801): a send-marked prompt that carries the user's files
+ * line, "[Files from the user: <name> (…", gets this with the first file's name, without its folder.
+ */
+export const fileReply = (name: string) => `I read ${name}.`;
 
 /** The JSON the fake host serves for the Artifact's fetch, with the CORS header a read would need. */
 export const dataPath = "/e2e/data";
@@ -242,7 +247,8 @@ export function startFakeOllama(port: number): Promise<Server> {
         return;
       }
       if (stream && !answering && offers(sendToUserToolName) && prompt.includes(sendMarker)) {
-        calls(sendToUserToolName, { text: botReply, endTurn: true });
+        const file = /\[Files from the user: (\S+) \(/.exec(prompt)?.[1]?.split("/").pop();
+        calls(sendToUserToolName, { text: file ? fileReply(file) : botReply, endTurn: true });
         return;
       }
       if (stream && !answering && offers(mcpToolName) && prompt.includes(mcpMarker)) {
