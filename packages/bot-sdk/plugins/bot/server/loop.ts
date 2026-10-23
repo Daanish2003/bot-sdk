@@ -51,7 +51,7 @@ import {
   writeDefinition,
   writeTool,
 } from "./computer-tools";
-import { pruneScreenshots, resolveScreenshots } from "./desktop-tools";
+import { pruneScreenshots, resolveImageRefs } from "./desktop-tools";
 import { type LoopPromptStart, type PreviousCall, promptHashesOf } from "./prompt-start";
 import { type ReviewSource, reviewToolCall } from "./review";
 import {
@@ -304,6 +304,14 @@ export async function runLoop(
   let error: string | undefined;
   let finished = false;
 
+  /** Whether the Model can see the user's images, asked once. */
+  let sees: Promise<boolean> | undefined;
+  const seesImages = () =>
+    (sees ??= deps
+      .plugin("models")
+      .resolveModel(owner.userId, owner.model)
+      .then((model) => model?.images ?? false));
+
   /** The Model's call, made once: the credentials and the adapter are only needed for a live call. */
   let live: Promise<{ adapter: AnyTextAdapter; record: ModelCallRecorder }> | undefined;
   const liveCall = () =>
@@ -411,7 +419,9 @@ export async function runLoop(
     // failed read is retried like a Checkpoint that failed to save.
     const pruned = {
       ...sent,
-      messages: await resolveScreenshots(deps.blobStore, sent.messages as ModelMessage[]),
+      messages: await resolveImageRefs(deps.blobStore, sent.messages as ModelMessage[], {
+        seesImages: await seesImages(),
+      }),
     };
     const chunks: StreamChunk[] = [];
     inLiveCall = true;

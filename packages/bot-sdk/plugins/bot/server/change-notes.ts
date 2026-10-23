@@ -217,7 +217,10 @@ function descriptionIn(text: string): string | undefined {
  * holds no user text: a notes header a user wrote anywhere is never read as one.
  */
 function notesIn(input: ModelMessage[]): string[] {
-  const content = input.at(-1)?.content;
+  const last = input.at(-1)?.content;
+  // With the user's images (spec #801), the text is the first part.
+  const first = Array.isArray(last) ? last[0] : undefined;
+  const content = first?.type === "text" ? first.content : last;
   if (typeof content !== "string") return [];
   const [time, header, ...lines] = content.split("\n\n")[0]!.split("\n");
   return time?.startsWith("[Current time: ") && header === changeNotesHeader ? lines : [];
