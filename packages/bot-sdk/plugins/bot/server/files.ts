@@ -242,6 +242,14 @@ export async function uploadBotFile(
   return upload;
 }
 
+/** What a `MailFile`'s `read` throws past its `maxBytes`: the file is left out, as expected. */
+export class MailFileTooLargeError extends Error {
+  constructor(maxBytes: number) {
+    super(`The attachment is larger than ${maxBytes} bytes`);
+    this.name = "MailFileTooLargeError";
+  }
+}
+
 /** One file of an inbound email: its bytes are read only once the mail is the owner's. */
 export type MailFile = {
   name: string;
@@ -249,7 +257,7 @@ export type MailFile = {
   size: number;
   /**
    * The file's bytes. A provider whose `size` may be missing or wrong stops reading, and throws,
-   * past `maxBytes`, so a huge attachment is never held in memory.
+   * `MailFileTooLargeError` past `maxBytes`, so a huge attachment is never held in memory.
    */
   read: (maxBytes: number) => Promise<Uint8Array>;
 };
@@ -289,6 +297,10 @@ export async function storeMailFiles(
       });
       stored.push(upload);
     } catch (caught) {
+      if (caught instanceof MailFileTooLargeError) {
+        unkept.push(file.name);
+        continue;
+      }
       deps.logger.error("Couldn't keep an email attachment", { error: String(caught) });
       unkept.push(file.name);
     }
@@ -316,10 +328,14 @@ export async function takeUploads(
       mediaType: botUpload.mediaType,
     });
   if (rows.length !== ids.length) {
+    // The missing ids ride along, so the composer keeps the files that are still uploaded.
+    const missing = ids.filter((id) => !rows.some((row) => row.id === id));
     throw rpcError(
       "BAD_REQUEST",
       "error.botFileNotFound",
       "A file to send is no longer uploaded: attach it again",
+      undefined,
+      { missing },
     );
   }
   return ids.map((id) => rows.find((row) => row.id === id)!);

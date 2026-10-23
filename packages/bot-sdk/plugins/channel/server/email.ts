@@ -1,6 +1,6 @@
-import type { MailFile } from "../../bot/server/files";
+import { type MailFile, MailFileTooLargeError } from "../../bot/server/files";
 
-export type { MailFile };
+export { type MailFile, MailFileTooLargeError };
 
 /** A provider's verdict on one sender check of a mail it received. */
 export type AuthVerdict = "pass" | "fail" | "none";

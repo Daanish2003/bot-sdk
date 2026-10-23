@@ -307,12 +307,13 @@ describe("Files from the user", () => {
       await getTestDb().select().from(botUpload).where(eq(botUpload.id, theirs.id)),
     ).toHaveLength(1);
 
-    // A file sent once can't be sent again.
+    // A file sent once can't be sent again; the refusal names it, and not the one still uploaded.
     const mine = await client.bot.upload({ file: fileOf("y.txt", "y", "text/plain") });
     await sendAndWait(client, { botId, text: "once", files: [mine.id] });
+    const fresh = await client.bot.upload({ file: fileOf("z.txt", "z", "text/plain") });
     await expect(
-      client.bot.send({ botId, id: uuidv7(), text: "twice", files: [mine.id] }),
-    ).rejects.toMatchObject({ data: { code: "error.botFileNotFound" } });
+      client.bot.send({ botId, id: uuidv7(), text: "twice", files: [fresh.id, mine.id] }),
+    ).rejects.toMatchObject({ data: { code: "error.botFileNotFound", missing: [mine.id] } });
     // A Message needs text or files.
     await expect(client.bot.send({ botId, id: uuidv7(), text: " " })).rejects.toMatchObject({
       code: "BAD_REQUEST",

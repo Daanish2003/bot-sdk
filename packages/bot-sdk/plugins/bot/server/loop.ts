@@ -309,26 +309,27 @@ export async function runLoop(
   let error: string | undefined;
   let finished = false;
 
-  /** Whether the Model can see the user's images, asked once. */
-  let sees: Promise<boolean> | undefined;
-  const seesImages =
-    options.seesImages ??
-    (() =>
-      (sees ??= deps
-        .plugin("models")
-        .resolveModel(owner.userId, owner.model)
-        .then((model) => model?.images ?? false)));
+  const seesImages = options.seesImages ?? seesImagesOnce(deps, owner);
 
-  /** The images this loop read from the blob store, by key: each is read once, not every call. */
-  const imageReads = new Map<string, Promise<Uint8Array | null>>();
+  /**
+   * The images the last model call read from the blob store, by key: each is read once while the
+   * history keeps it, not on every call. One the next call doesn't send is let go.
+   */
+  let imageReads = new Map<string, Promise<Uint8Array | null>>();
+  let kept = new Map<string, Promise<Uint8Array | null>>();
   const imageStore = {
     get: (key: string) => {
       let read = imageReads.get(key);
+      if (read) kept.set(key, read);
       if (!read) {
         read = deps.blobStore.get(key);
         imageReads.set(key, read);
+        kept.set(key, read);
         // A failed read is retried on the next call, like the Checkpoint it fails.
-        read.catch(() => imageReads.delete(key));
+        read.catch(() => {
+          imageReads.delete(key);
+          kept.delete(key);
+        });
       }
       return read;
     },
@@ -445,6 +446,7 @@ export async function runLoop(
         seesImages: await seesImages(),
       }),
     };
+    [imageReads, kept] = [kept, new Map()];
     const chunks: StreamChunk[] = [];
     inLiveCall = true;
     try {
@@ -1002,6 +1004,26 @@ export async function runLoop(
  * What one model call bills: the usage its Provider reported, else an estimate from its input and
  * output. A call that failed with no usage reported bills nothing.
  */
+/**
+ * Whether `owner`'s Model sees images, asked once and shared by every caller; a failed ask is
+ * asked again the next time.
+ */
+export function seesImagesOnce(
+  deps: Pick<BotSdkContext, "plugin">,
+  owner: { userId: string; model: string },
+): () => Promise<boolean> {
+  let sees: Promise<boolean> | undefined;
+  return () =>
+    (sees ??= deps
+      .plugin("models")
+      .resolveModel(owner.userId, owner.model)
+      .then((model) => model?.images ?? false)
+      .catch((caught: unknown) => {
+        sees = undefined;
+        throw caught;
+      }));
+}
+
 export function callUsage(
   deps: BotSdkContext,
   provider: string,

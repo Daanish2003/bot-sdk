@@ -6,7 +6,8 @@ import { type FormEvent, Fragment, type KeyboardEvent, type ReactNode, useState 
 import { toast } from "sonner";
 
 import { useI18n } from "../../../core/client/react/provider";
-import { serverErrorCode, serverErrorText } from "../../../core/client/rpc-error";
+import { serverErrorData, serverErrorText } from "../../../core/client/rpc-error";
+import type { SentFile } from "../shared/files";
 import type { BotTurnProvenance } from "../shared/turn";
 import { useBotTurn } from "../client/react/bot-turn";
 import { useBotCheckIns } from "../client/react/check-ins";
@@ -73,6 +74,14 @@ export function BotConversation({
   );
 }
 
+/** The files a refused send named as no longer uploaded: all of them when it names none. */
+function goneFiles(refusal: unknown, files: SentFile[]): Set<string> {
+  const data = serverErrorData(refusal);
+  if (data?.code !== "error.botFileNotFound") return new Set();
+  const { missing } = data as { missing?: unknown };
+  return new Set(Array.isArray(missing) ? missing.map(String) : files.map((file) => file.id));
+}
+
 function BotConversationView({
   botId,
   headerEnd,
@@ -111,11 +120,11 @@ function BotConversationView({
     stop,
   } = useBotTurn(botId, {
     // A refused send puts its text back in the composer and says why. Its files come back too,
-    // unless they are no longer uploaded (swept, or taken by an earlier send): the user attaches
+    // except the ones no longer uploaded (swept, or taken by an earlier send): the user attaches
     // them again, as the refusal says.
     onRefusedSend: (text, refusal, files) => {
       setDraft(text);
-      if (serverErrorCode(refusal) !== "error.botFileNotFound") uploads.restore(files);
+      uploads.restore(files.filter((file) => !goneFiles(refusal, files).has(file.id)));
       toast.error(serverErrorText(i18n, refusal));
     },
   });

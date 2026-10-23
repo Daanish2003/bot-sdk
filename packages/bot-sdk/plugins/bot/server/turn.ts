@@ -38,7 +38,7 @@ import {
 import { type TodoItem, todoList } from "./helper";
 import { helperTools } from "./helper-tools";
 import { watchUserTool } from "./demonstration";
-import { type LoopKit, type LoopResult, type LoopSetup, runLoop } from "./loop";
+import { type LoopKit, type LoopResult, type LoopSetup, runLoop, seesImagesOnce } from "./loop";
 import {
   definitionsOf,
   loopPromptStart,
@@ -453,7 +453,7 @@ export async function sendToBot(
         ? {
             ...parts,
             parts: [
-              ...(text ? parts.parts : []),
+              ...(text.trim() ? parts.parts : []),
               { type: "control", control: { kind: "files", files } },
             ],
           }
@@ -1057,8 +1057,6 @@ async function playTurn(
   // The newest message holds the Change notes, which are read in the loop's setup: it is rendered
   // there, once the Turn's Prompt start is chosen. Stored before the first model call, so a
   // stopped or interrupted Turn keeps what it sent, and a replay reads the recorded input.
-  // Whether the Model sees images, asked once for the newest message and the loop's calls.
-  let sees: Promise<boolean> | undefined;
   // The user's files are copied onto the Computer in their own Checkpoint, so a replay doesn't copy
   // them again and reads the recorded paths.
   const userFiles = {
@@ -1071,11 +1069,8 @@ async function playTurn(
             : files.map(() => null),
         { yields: false },
       ),
-    canSee: () =>
-      (sees ??= deps
-        .plugin("models")
-        .resolveModel(turn.userId, turn.model)
-        .then((model) => model?.images ?? false)),
+    // Asked once for the newest message and the loop's model calls.
+    canSee: seesImagesOnce(deps, turn),
   };
   const renderNewest = async (changeNotes: string | undefined) => {
     const rendered = await newestInput(db, turn, since, todo, changeNotes, cutTrigger, userFiles);

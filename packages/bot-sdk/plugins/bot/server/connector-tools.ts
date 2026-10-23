@@ -72,12 +72,14 @@ function isConnectionFailure(error: unknown): boolean {
  * whose cause carries a system error code (ECONNREFUSED, ENOTFOUND...). Any other `TypeError` is a
  * bug in the tool or the client, not a dropped Connection.
  */
+const networkCode = /^(E[A-Z]+|UND_ERR_[A-Z_]+)$/;
+
 function isNetworkFailure(error: Error): boolean {
   if (!(error instanceof TypeError)) return false;
   const { cause } = error as { cause?: unknown };
   return (
     error.message === "fetch failed" ||
-    (cause instanceof Error && typeof (cause as { code?: unknown }).code === "string")
+    (cause instanceof Error && networkCode.test(String((cause as { code?: unknown }).code)))
   );
 }
 

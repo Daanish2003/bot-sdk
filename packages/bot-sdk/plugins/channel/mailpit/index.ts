@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import type { EmailProvider, InboundMail } from "../server/email";
+import { type EmailProvider, type InboundMail, MailFileTooLargeError } from "../server/email";
 
 /** What Mailpit POSTs for each message it receives (its message summary): only the ID is used. */
 const webhookSchema = z.object({ ID: z.string().regex(/^[A-Za-z0-9]+$/) });
@@ -33,7 +33,7 @@ const timeoutMs = 10_000;
 
 /** A response's body, read only up to `max` bytes: past it, the read stops and throws. */
 async function readCapped(response: Response, max: number): Promise<Uint8Array> {
-  const tooLarge = () => new Error(`The attachment is larger than ${max} bytes`);
+  const tooLarge = () => new MailFileTooLargeError(max);
   if (Number(response.headers.get("content-length")) > max) {
     await response.body?.cancel();
     throw tooLarge();
@@ -45,7 +45,7 @@ async function readCapped(response: Response, max: number): Promise<Uint8Array> 
     if (total > max) throw tooLarge();
     chunks.push(chunk);
   }
-  return new Uint8Array(Buffer.concat(chunks));
+  return Buffer.concat(chunks, total);
 }
 
 /** `Name <address>` or a bare address as Mailpit's `{Email, Name}`. */
