@@ -69,8 +69,4 @@ export const errorMessages = {
     `Couldn't reach ${label} to check the key. Try again.`,
   "error.ollamaUnreachable": ({ host }: { host: string }) =>
     `Couldn't reach Ollama at ${host}. Under Docker, use http://host.docker.internal:11434.`,
-  "error.recordingTooLong": "A recording can be at most 10 minutes",
-  "error.recordingType": "That recording isn't an audio type dictation accepts",
-  "error.recordingTooLarge": "A recording can be at most 25 MB",
-  "error.dictationFailed": "The transcription failed",
 };

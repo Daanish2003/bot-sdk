@@ -5,11 +5,11 @@ import { chatSchema } from "../../../../core/server/db/chat-schema";
 
 /**
  * What a recorded call was for. Each kind is written by the call it names: a Run, a
- * title, a web search, a transcription of a voice recording, one generated image, a call that
+ * title, a web search, a transcription, one generated image, a call that
  * makes Memories (ADR 0013), a Bot's Turn, one of its Helpers, the writing of a Summary, a call that
  * warms a Bot's cache, an Auto-review of a Bot's tool call, or the drafting of a Skill from a
- * Demonstration. `embedding` is no longer written: it stays for the rows the old Knowledge left
- * (spec #737).
+ * Demonstration. `run`, `title` and `transcription` (the assistant's, ADR 0027) and `embedding` are no longer
+ * written: they stay for the rows already recorded (`embedding` from the old Knowledge, spec #737).
  */
 export const usageKind = chatSchema.enum("usage_kind", [
   "run",

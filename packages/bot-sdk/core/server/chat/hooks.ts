@@ -36,7 +36,7 @@ export type UsageEvent = {
     | "warm"
     | "review"
     | "skill_draft";
-  /** The `"provider:model"` id, `"tavily"` for a web search, or the transcription or image model's id. */
+  /** The `"provider:model"` id, `"tavily"` for a web search, or the image model's id. */
   model: string;
   /** Every input token, cache reads and writes included. */
   inputTokens: number;
@@ -68,8 +68,8 @@ export type ConversationDeletedEvent = {
  */
 export type EventHooks = {
   /**
-   * Fires after each usage row is written: a call on Host credentials (a web search, a transcription,
-   * a generated image, a Bot's Turn or Helper), or, at `costMicros` 0, a generated image or a Bot's
+   * Fires after each usage row is written: a call on Host credentials (a web search, a generated
+   * image, a Bot's Turn or Helper), or, at `costMicros` 0, a generated image or a Bot's
    * model call on the user's own key or linked plan (#667).
    */
   onUsage?: (usage: UsageEvent) => unknown;

@@ -71,31 +71,6 @@ describe("createBotSdk start", () => {
     await expect(chat.start()).rejects.toThrow(/hostProviders|byok/);
   });
 
-  it("refuses transcription Models on a Provider with no transcription adapter", async () => {
-    const chat = createBotSdk({
-      databaseUrl: testDatabaseUrl,
-      getUser: () => null,
-      keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
-      basePath,
-      plugins: [
-        models({
-          hostProviders: [
-            {
-              provider: "anthropic",
-              credentials: { apiKey: "sk-host" },
-              models: [],
-              transcriptionModels: [{ model: "some-model", pricePerMinuteUsd: 0.01 }],
-            },
-          ],
-        }),
-        runner(),
-        bot(),
-      ],
-    });
-
-    await expect(chat.start()).rejects.toThrow(/anthropic.*transcription/);
-  });
-
   it("refuses a defaultImageModel that is not one of the Host's Image Models", async () => {
     const chat = createBotSdk({
       databaseUrl: testDatabaseUrl,

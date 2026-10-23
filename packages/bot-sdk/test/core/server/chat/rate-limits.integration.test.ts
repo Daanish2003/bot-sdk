@@ -37,11 +37,6 @@ const rpcCases = [
     route: "bot/upload",
     rateLimits: { attachmentUpload: { limit: 1, windowSeconds: 60 } },
   },
-  {
-    name: "Voice transcription",
-    route: "voice/transcribe",
-    rateLimits: { transcription: { limit: 1, windowSeconds: 60 } },
-  },
 ];
 
 /** The Bot-only plugins that serve every route in `rpcCases`. */

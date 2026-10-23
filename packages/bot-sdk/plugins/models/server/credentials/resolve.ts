@@ -38,8 +38,8 @@ export type Payer<Offer> =
   | { payer: "host"; offer: Offer };
 
 /**
- * The one rule that decides who pays for a paid call (ADR 0007), for Models, Tools, Image Models
- * and transcription alike: with `byok` on, the user's own credentials for the
+ * The one rule that decides who pays for a paid call (ADR 0007), for Models, Tools and Image Models
+ * alike: with `byok` on, the user's own credentials for the
  * first of `services` they have win, and are never metered; otherwise the Host's offer, which
  * `hostOffer` looks up for each kind of call. `null` when neither applies.
  */

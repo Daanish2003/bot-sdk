@@ -10,21 +10,17 @@ export type RateLimit = { limit: number; windowSeconds: number };
 export type RateLimits = {
   /** File uploads (Knowledge and the files a user sends their Bot), per user. */
   attachmentUpload?: RateLimit | false;
-  /** Dictation transcriptions, per user (spec #249). */
-  transcription?: RateLimit | false;
   /** Provider and Tool credential saves (each one runs a check), per user. */
   credentialSave?: RateLimit | false;
 };
 
 export type ResolvedRateLimits = {
   attachmentUpload: RateLimit | false;
-  transcription: RateLimit | false;
   credentialSave: RateLimit | false;
 };
 
 export const defaultRateLimits: Record<keyof ResolvedRateLimits, RateLimit> = {
   attachmentUpload: { limit: 30, windowSeconds: 600 },
-  transcription: { limit: 30, windowSeconds: 600 },
   credentialSave: { limit: 10, windowSeconds: 60 },
 };
 
@@ -32,7 +28,6 @@ export const defaultRateLimits: Record<keyof ResolvedRateLimits, RateLimit> = {
 export function resolveRateLimits(overrides: RateLimits = {}): ResolvedRateLimits {
   return {
     attachmentUpload: overrides.attachmentUpload ?? defaultRateLimits.attachmentUpload,
-    transcription: overrides.transcription ?? defaultRateLimits.transcription,
     credentialSave: overrides.credentialSave ?? defaultRateLimits.credentialSave,
   };
 }
@@ -43,7 +38,6 @@ export const rpcRateLimits: Record<string, keyof ResolvedRateLimits | undefined>
   "/knowledge/upload": "attachmentUpload",
   "/knowledge/uploadDocument": "attachmentUpload",
   "/bot/upload": "attachmentUpload",
-  "/voice/transcribe": "transcription",
   "/credentials/save": "credentialSave",
 };
 

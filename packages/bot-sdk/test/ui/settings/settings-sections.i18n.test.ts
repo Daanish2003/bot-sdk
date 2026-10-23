@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import type { BotSdkClient } from "../../../core/client/chat-client";
 import { ConnectionsSection } from "../../../plugins/mcp/ui/connections-section";
+import { ExportDataButton } from "../../../ui/settings/export-data-button";
 import { renderWrapped, untranslated } from "../fake-dictionary";
 
 /** Text the dictionary doesn't translate: the server's name and the scopes it granted. */
@@ -25,5 +26,9 @@ describe("the Bot-only settings sections with the dictionary", () => {
       });
     });
     expect(html).toContain("GitHub");
+  });
+
+  it("shows no untranslated text in Export data", () => {
+    expectTranslated(createElement(ExportDataButton));
   });
 });

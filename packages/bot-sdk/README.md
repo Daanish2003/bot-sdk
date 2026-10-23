@@ -4,7 +4,7 @@ Bots a Host copies into its own source tree: each user's Bots, with their Turns,
 
 - `core/` (`shared`, `server`, `client`, including `client/react`): runtime code the Host never edits. Updating means copying it again.
 - `plugins/<name>/` (`models`, `runner`, `bot`, `memory`, `skills`, `knowledge`, `computer`, `channel`, `mcp`): each plugin's `shared`, `server` and `client` are runtime code like `core/`; its `ui/` is the Host's.
-- `ui/`: the SDK's `theme.css`. Each plugin's `ui/` holds React components the Host owns and may change. They sit on the Host's own shadcn primitives.
+- `ui/` (the SDK's `theme.css` and `settings/export-data-button.tsx`), and each plugin's `ui/`: React components the Host owns and may change. They sit on the Host's own shadcn primitives.
 - `extras/`: optional adapters (the Trigger.dev runner) the Host owns once copied.
 - `package.json`, `README.md` and `NOTICE`: copied alongside, for reference. The Host installs the dependencies listed here.
 
@@ -94,13 +94,13 @@ The `runner`, `memory` and `skills` plugins need nothing beyond `core/` (and `lu
 
 ## shadcn components
 
-Each plugin's `ui/` imports these from the Host's `@/components/ui/*` (and `@/lib/utils` for `cn`). Add them with the shadcn CLI, which also installs each component's own dependencies:
+`ui/` and each plugin's `ui/` import these from the Host's `@/components/ui/*` (and `@/lib/utils` for `cn`). Add them with the shadcn CLI, which also installs each component's own dependencies:
 
 - `button`, `card`, `dialog`, `input`, `label`, `popover`, `select`, `textarea`, `attachment`
 
 ## Tailwind v4
 
-Each plugin's `ui/` uses Tailwind v4 classes. In your global stylesheet, import Tailwind and then the SDK's `theme.css`:
+`ui/` and each plugin's `ui/` use Tailwind v4 classes. In your global stylesheet, import Tailwind and then the SDK's `theme.css`:
 
 ```css
 @import "tailwindcss";
@@ -198,7 +198,7 @@ const client = createBotSdkClient({
 - `getUser(request)` returns `{ id } | null`. The handler answers 401 when it returns `null`.
 - The `router` adapter maps the SDK's pages (`keys`, and `bots` with an optional Bot `id`) to your URLs. It provides `Link` and `navigate(page)`. Pass your own TanStack Query client as `queryClient` if you have one; otherwise the provider creates its own.
 - The Bots app is `BotsApp` from `plugins/bot/ui`, with the Host's account menu at the foot of its sidebar (`accountMenu`); the keys page is `KeySettingsPage` from `plugins/models/ui`.
-- `GET <basePath>/export` answers the signed-in user's export as a JSON download (`chat-export-<date>.json`), the same document as `exportUser`.
+- `GET <basePath>/export` answers the signed-in user's export as a JSON download (`chat-export-<date>.json`), the same document as `exportUser`. The `ExportDataButton` in `ui/settings/export-data-button.tsx` calls it.
 - `start()` refuses to run while the `chat` schema is behind the bundled migrations.
 - `stop()` stops the plugins (the runner takes no new jobs and waits for the running ones), then closes the runtime's connections.
 
@@ -375,7 +375,7 @@ const chat = createBotSdk({
   logger, // where the SDK's own failures go; defaults to console
   hooks: {
     // every usage row written on Host credentials: a Bot Turn, a Helper, a review, a memory pass,
-    // a web search, a transcription, a generated image, ...
+    // a web search, a generated image, ...
     onUsage: (usage) => {
       // usage: { id, userId, kind, model, inputTokens, outputTokens, cacheReadTokens,
       //   cacheWriteTokens, sourceId, promptHashes, costMicros, estimated, createdAt }
@@ -593,7 +593,6 @@ The SDK limits a few actions per user, and the counters live in the `runtime`, s
 
 - `attachmentUpload`: Knowledge uploads and the files a user sends their Bot, together. Default 30 per 10 minutes.
 - `credentialSave`: Provider and Tool credential saves, each of which runs a check. Default 10 a minute.
-- `transcription`: transcriptions. Default 30 per 10 minutes.
 
 Override a limit in `createBotSdk`. Each limit is optional, and `false` turns it off:
 

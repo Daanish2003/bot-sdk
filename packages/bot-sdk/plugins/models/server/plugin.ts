@@ -31,11 +31,6 @@ import { hostImageModelList, resolveImageModel, type ResolvedImageModel } from "
 import { quotaLookup, quotaState, readQuota, type QuotaState } from "./quota";
 import { modelsPluginRouter } from "./routers/index";
 import { bindModelsDeps } from "./state";
-import {
-  transcribeRecording,
-  transcriptionAdapterFor,
-  transcriptionProviders,
-} from "./transcription";
 import { freeModelMeter, type ModelMeter } from "./meter";
 import { reconnectChatgptAdapter } from "./chatgpt-plan";
 import type {
@@ -107,10 +102,6 @@ export type ModelsApi = {
    * none (`null`). A pick they can no longer use gives none.
    */
   resolveUserImageModel: (userId: string) => Promise<ResolvedImageModel | null>;
-  transcribeRecording: (
-    userId: string,
-    recording: Parameters<typeof transcribeRecording>[2],
-  ) => Promise<string>;
   readQuota: (userId: string) => ReturnType<typeof readQuota>;
   messageUsage: typeof messageUsage;
   loadCredentials: (userId: string, service: string) => Promise<Credentials | null>;
@@ -164,7 +155,6 @@ declare module "../../../core/server/plugin" {
 /** The rate-limit rules the `models` plugin declares, and their defaults. */
 const modelsRateLimits = {
   credentialSave: defaultRateLimits.credentialSave,
-  transcription: defaultRateLimits.transcription,
 };
 
 export type ModelsRule = keyof typeof modelsRateLimits;
@@ -251,7 +241,6 @@ export function productionDeps(sdk: BotSdkContext, options: ModelsOptions): Mode
     ollamaFetch: globalThis.fetch,
     adapterFor,
     imageAdapterFor: options.imageAdapterFor ?? productionImageAdapterFor,
-    transcriptionAdapterFor,
     hostProviders: (options.hostProviders ?? []).filter(isHostProvider),
     hostTools: (options.hostProviders ?? []).filter(isHostTool),
     byok: options.byok ?? true,
@@ -274,7 +263,6 @@ function modelsApi(deps: ModelsDeps): ModelsApi {
     imageModelSetting: (userId) => loadImageModelSetting(deps, userId),
     saveImageModelSetting: (userId, imageModel) => saveImageModelSetting(deps, userId, imageModel),
     resolveUserImageModel: (userId) => resolveUserImageModel(deps, userId),
-    transcribeRecording: (userId, recording) => transcribeRecording(deps, userId, recording),
     readQuota: (userId) => readQuota(deps, userId),
     messageUsage,
     loadCredentials: (userId, service) => loadCredentials(deps, userId, service),
@@ -312,15 +300,6 @@ function modelsApi(deps: ModelsDeps): ModelsApi {
 function checkStart(options: ModelsOptions) {
   if (options.byok === false && !options.hostProviders?.length) {
     throw new Error("Configure hostProviders, byok, or both: with neither, no one can chat");
-  }
-  for (const entry of options.hostProviders ?? []) {
-    if (isHostProvider(entry) && entry.transcriptionModels?.length) {
-      if (!transcriptionProviders.includes(entry.provider)) {
-        throw new Error(
-          `hostProviders: ${entry.provider} has no transcription adapter, so it can't list transcriptionModels`,
-        );
-      }
-    }
   }
   const hostProviders = (options.hostProviders ?? []).filter(isHostProvider);
   for (const { provider, imageModels = [] } of hostProviders) {

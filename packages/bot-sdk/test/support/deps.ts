@@ -102,11 +102,6 @@ export function createTestSdk({ plugins, ...overrides }: TestDepsOverrides = {})
           `No fake image adapter for model "${model}"; pass imageAdapterFor to createTestSdk`,
         );
       }),
-    transcriptionAdapterFor:
-      overrides.transcriptionAdapterFor ??
-      ((model) => {
-        throw new Error(`No fake transcription adapter for "${model}"; pass one to createTestSdk`);
-      }),
     hostProviders: overrides.hostProviders ?? [],
     hostTools: overrides.hostTools ?? [],
     byok: overrides.byok ?? true,

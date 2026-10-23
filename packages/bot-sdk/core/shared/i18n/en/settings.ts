@@ -1,5 +1,8 @@
-/** The Keys & settings sections that aren't credentials: Memory, Connections and the Image Model. */
+/** The Keys & settings sections that aren't credentials: Memory, Connections, the Image Model and Export data. */
 export const settingsMessages = {
+  "settings.exportFailed": "Couldn't export your data",
+  "settings.preparing": "Preparing…",
+  "settings.exportData": "Export my data",
   "settings.memory": "Memory",
   "settings.memoryHelp":
     "What your Bots remember about you, kept as files on your Computer. Each Bot's page shows its memory.",

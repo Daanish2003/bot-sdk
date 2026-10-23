@@ -7,7 +7,6 @@ import {
   freeModelMeter,
   hostModelMeter,
   hostSearchMeter,
-  hostTranscriptionMeter,
   imageMeter,
 } from "../../../../plugins/models/server/meter";
 import { createTestSdk } from "../../../support/deps";
@@ -190,23 +189,6 @@ describe("a Host meter", () => {
       expect.any(Error),
     );
     expect(events).toEqual([]);
-  });
-
-  it("bills a Groq transcription for at least its minimum seconds", async () => {
-    const user = await insertUser();
-    const meter = hostTranscriptionMeter(createTestSdk(), user.id, {
-      provider: "groq",
-      model: "groq:whisper-large-v3-turbo",
-      pricePerMinuteUsd: 0.06,
-    });
-
-    await meter.record({ durationSeconds: 3 });
-
-    expect((await rowsOf(user.id))[0]).toMatchObject({
-      kind: "transcription",
-      costMicros: Math.round((10 / 60) * 0.06 * 1_000_000),
-      estimated: true,
-    });
   });
 });
 

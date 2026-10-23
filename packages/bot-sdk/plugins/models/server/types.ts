@@ -1,4 +1,4 @@
-import type { AnyImageAdapter, AnyTextAdapter, AnyTranscriptionAdapter } from "@tanstack/ai";
+import type { AnyImageAdapter, AnyTextAdapter } from "@tanstack/ai";
 
 import type { HookEmitter } from "../../../core/server/chat/hooks";
 import type { Database } from "../../../core/server/db/index";
@@ -49,12 +49,6 @@ export type QuotaSetting =
   | null
   | ((userId: string) => Quota | null | Promise<Quota | null>);
 
-/**
- * A transcription Model the Host pays for, for dictation (spec #249). Its price is per minute of
- * audio, since the Providers' transcription APIs report no cost.
- */
-export type HostTranscriptionModel = { model: string; pricePerMinuteUsd: number };
-
 /** The Host's own credentials for a Provider, and the Models they pay for. */
 export type HostProvider = {
   provider: ProviderId;
@@ -62,8 +56,6 @@ export type HostProvider = {
   models: HostModel[];
   /** The Host's Image Models of this Provider (spec #278). */
   imageModels?: HostImageModel[];
-  /** Transcription Models for dictation, on OpenAI, Groq or Grok only (spec #249). */
-  transcriptionModels?: HostTranscriptionModel[];
 };
 
 /**
@@ -133,11 +125,6 @@ export type ModelsDeps = {
    * Injected so tests and CI can pass a fake.
    */
   imageAdapterFor: (model: string, credentials: Credentials) => AnyImageAdapter | undefined;
-  /**
-   * Builds the TanStack AI transcription adapter for a `"provider:model"` id (spec #249), from the
-   * user's own key for that Provider.
-   */
-  transcriptionAdapterFor: (model: string, credentials: Credentials) => AnyTranscriptionAdapter;
   /** The Host credentials (`hostProviders`, ADR 0007). Never stored. */
   hostProviders: HostProvider[];
   /** The Host's Tools, such as a Tavily key for web search (`hostProviders`, ADR 0007). Never stored. */
