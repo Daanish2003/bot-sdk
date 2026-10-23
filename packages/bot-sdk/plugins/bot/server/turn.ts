@@ -1060,24 +1060,23 @@ async function turnSetup(
   const knowledge =
     withComputer && deps.hasPlugin("knowledge") ? await knowledgeSnapshot(deps, turn, kit) : null;
   const knowledgeBlock = knowledge && deps.plugin("knowledge").prompt(knowledge);
+  const ownTools = turnTools(deps, turn, kit, {
+    withComputer,
+    // Present whenever the snapshot is: it reads through the Computer like the snapshot does.
+    withMemorySearch: memory !== null,
+    onLastMessage: () => {
+      endTurn = true;
+    },
+  });
   // The Connector tools, listed once as the Turn starts: nothing is kept from an earlier Turn.
   const connectors = deps.hasPlugin("mcp")
     ? await connectorTools(deps, turn.userId, {
         ...connections,
         liveRequest: kit.liveRequest,
+        taken: new Set(["describe_tool", "run_tool", ...ownTools.map((tool) => tool.name)]),
       })
     : undefined;
-  const tools = [
-    ...turnTools(deps, turn, kit, {
-      withComputer,
-      // Present whenever the snapshot is: it reads through the Computer like the snapshot does.
-      withMemorySearch: memory !== null,
-      onLastMessage: () => {
-        endTurn = true;
-      },
-    }),
-    ...(connectors?.tools ?? []),
-  ];
+  const tools = [...ownTools, ...(connectors?.tools ?? [])];
   // `describe_tool` and `run_tool`, which reach the tools the Prompt start lists by name only. A
   // Connector tool whose Connection listed nothing this Turn is still answered, with its error.
   const searchTools = toolSearchTools(tools, connectors?.missing);

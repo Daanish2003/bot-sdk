@@ -5,7 +5,7 @@ import type { PromptStartTool } from "./db/bot-prompt-start";
 import type { LoopKit } from "./loop";
 import { definitionsOf } from "./prompt-start";
 import { untrustedBlock } from "./routine";
-import { loadSecretValues, secretMasker } from "./secret-values";
+import { type DecryptedSecrets, loadSecretValues, maskResult, secretMasker } from "./secret-values";
 
 /*
  * Connector tools (spec #801, ADR 0027): the tools of the user's Connections, listed once per Turn
@@ -62,10 +62,13 @@ export async function connectorTools(
     signal,
     record,
     liveRequest,
+    taken,
   }: {
     signal: AbortSignal;
     record: (list: () => Promise<ConnectorListing[]>) => Promise<ConnectorListing[]>;
     liveRequest: LoopKit["liveRequest"];
+    /** The Turn's own tool names: a Connector tool named like one is left out, never shadowing it. */
+    taken: ReadonlySet<string>;
   },
 ): Promise<Connectors> {
   const mcp = deps.plugin("mcp");
@@ -76,9 +79,11 @@ export async function connectorTools(
     const reviewed = new Set(live.filter((tool) => tool.needsApproval).map((tool) => tool.name));
     return definitionsOf(live).map((tool) => ({ ...tool, reviewed: reviewed.has(tool.name) }));
   });
+  // The Secrets decrypted this Turn: each call reads the rows, and decrypts only new ones.
+  const decrypted: DecryptedSecrets = new Map();
   const tools = listed.flatMap((listing): AnyServerTool[] => {
     const connection = serverOf(mcp.servers, listing.name)?.name;
-    if (!connection) return [];
+    if (!connection || taken.has(listing.name)) return [];
     const { reviewed, ...definition } = listing;
     const call = async (
       args: unknown,
@@ -90,11 +95,12 @@ export async function connectorTools(
         async () => {
           const tool = (await open()).find((live) => live.name === listing.name);
           if (!tool?.execute) return { error: reconnectError(connection) };
-          const mask = secretMasker((await loadSecretValues(deps, userId, new Map())).values());
+          const mask = secretMasker((await loadSecretValues(deps, userId, decrypted)).values());
           const fenced = (text: string) =>
             untrustedBlock(connectorResultLabel(listing.name, connection), mask(text));
           try {
-            return fenced(textOf(await tool.execute(args, context)));
+            // Masked before it becomes text, so JSON escaping can't hide a Secret in structured content.
+            return fenced(textOf(maskResult(await tool.execute(args, context), mask)));
           } catch (caught) {
             if (context?.abortSignal?.aborted || signal.aborted) throw caught;
             const message = caught instanceof Error ? caught.message : String(caught);
