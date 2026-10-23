@@ -616,29 +616,6 @@ describe("the contract migration (#819)", () => {
     expect(deleted).toHaveLength(2);
   });
 
-  it("deletes the Host store's assistant bytes in one call", async () => {
-    const url = await seeded("contract_store_batch");
-    const calls: string[][] = [];
-    const store: BlobStore = {
-      put: async () => {},
-      get: async () => null,
-      delete: async (keys) => {
-        calls.push([...keys].sort());
-      },
-    };
-
-    await createBotSdk({
-      databaseUrl: url,
-      getUser: () => null,
-      keyEncryptionSecrets,
-      basePath: "/api/chat",
-      blobStore: store,
-      plugins: [models(), runner()],
-    }).migrate();
-
-    expect(calls).toEqual([assistantKeys]);
-  });
-
   it("keeps deleting the other keys from the Host's store when one delete fails, and tells the Host's logger", async () => {
     const url = await seeded("contract_store_fails");
     const deleted: string[] = [];

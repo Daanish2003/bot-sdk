@@ -5,6 +5,7 @@ import { migrate as applyMigrations } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
 
 import type { BlobStore } from "./blob/store";
+import type { Logger } from "./create-chat";
 
 /**
  * Kept in this file, with no runtime import from the rest of the SDK, so a Host's migrate script can load
@@ -39,16 +40,13 @@ function folderMillis(name: string) {
  *
  * The contract migration (#819) deletes every `attachment/` and `generated-image/` byte in
  * `chat.blob` itself. With the Host's own `blobStore`, the run that applies it then deletes the
- * bytes of the assistant's Attachments and Generated images from that store too, by the keys their
- * rows held. `BlobStore` can't list keys, so that part is best effort (ADR 0015): a store object with
+ * bytes the dropped `chat.attachment` and `chat.generated_image` rows pointed at from that store
+ * too, by the keys those rows held. `BlobStore` can't list keys, so that part is best effort (ADR 0015): a store object with
  * no row, or one left by a run that stopped before its deletes, stays.
  */
 export async function migrate(
   databaseUrl: string,
-  {
-    blobStore,
-    logger = console,
-  }: { blobStore?: Pick<BlobStore, "delete">; logger?: Pick<Console, "error"> } = {},
+  { blobStore, logger = console }: { blobStore?: Pick<BlobStore, "delete">; logger?: Logger } = {},
 ): Promise<void> {
   const client = new pg.Client({ connectionString: databaseUrl });
   await client.connect();
@@ -92,21 +90,14 @@ async function assistantBlobKeys(client: pg.Client): Promise<string[]> {
 
 /**
  * Deletes the assistant's bytes from the Host's store once the migration that dropped their rows
- * has committed: in one call, and when that fails, one key at a time so one failure skips only its
- * own key. Logged, never thrown: a stray object costs storage but no data (ADR 0015).
+ * has committed, one key at a time so one failure skips only its own key. Logged to the Host's
+ * logger, never thrown: a stray object costs storage but no data (ADR 0015).
  */
 async function deleteAssistantBlobs(
   keys: string[],
   blobStore: Pick<BlobStore, "delete">,
-  logger: Pick<Console, "error">,
+  logger: Logger,
 ) {
-  if (keys.length === 0) return;
-  try {
-    await blobStore.delete(keys);
-    return;
-  } catch {
-    // Retried key by key below, so one bad key doesn't keep the others.
-  }
   let failed = 0;
   for (const key of keys) {
     try {

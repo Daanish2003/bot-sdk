@@ -14,7 +14,7 @@ _Avoid_: Consumer, client app, integrator
 
 **Conversation**:
 The chat thread between a user and one of their Bots. A Bot has exactly one Conversation with the user, and it only ever grows at the end.
-_Avoid_: Chat, thread, session, hidden (for archived)
+_Avoid_: Chat, thread, session
 
 **Message**:
 One entry in a Conversation, written by the user or a Bot. A Bot's own model text is never a Message; only what it sends is.
@@ -45,7 +45,7 @@ A user of the Host who runs it for everyone else: sees each user's spend, change
 _Avoid_: Operator (that is the person; Admin is the role), superuser, moderator
 
 **Ban**:
-An Admin shutting a user out, for good or until a set date: the user is signed out everywhere, can't sign in by any method, their running Turns and Helpers stop, and no Routine or Check-in of theirs fires until the Ban ends.
+An Admin shutting a user out, for good or until a set date: the user is signed out everywhere, can't sign in by any method, their running Turns and Helpers stop, and no Routine, Check-in or Channel message of theirs starts a Turn until the Ban ends.
 _Avoid_: Suspension, block, disable
 
 **Tool credential**:
