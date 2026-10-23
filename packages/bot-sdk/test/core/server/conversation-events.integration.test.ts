@@ -25,7 +25,7 @@ describe("GET /api/chat/events, served by the core (#625)", () => {
   it("streams a Bot's Turn event on the Bot's Conversation", async () => {
     const deps = createTestSdk();
     const user = await insertUser();
-    const conv = await insertConversation(user, { kind: "bot", model: null });
+    const conv = await insertConversation(user, { kind: "bot" });
     const response = await sendAs(eventsRequest(conv.id), user, deps);
     expect(response.status).toBe(200);
     const reader = response.body!.getReader();
@@ -38,7 +38,7 @@ describe("GET /api/chat/events, served by the core (#625)", () => {
 
   it("refuses a user who does not own the Conversation", async () => {
     const deps = createTestSdk();
-    const conv = await insertConversation(await insertUser(), { kind: "bot", model: null });
+    const conv = await insertConversation(await insertUser(), { kind: "bot" });
 
     const response = await sendAs(eventsRequest(conv.id), await insertUser(), deps);
 

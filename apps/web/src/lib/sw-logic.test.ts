@@ -24,7 +24,6 @@ describe("the service worker's routing", () => {
     ["the chat API", "/api/chat/conversations"],
     ["the chat's basePath root", "/api/chat"],
     ["auth", "/api/auth/get-session"],
-    ["a Shared link", "/share/some-token"],
   ])("bypasses %s, even for a navigation", (_name, path) => {
     expect(routeOf(get(path, "navigate"), origin)).toBe("bypass");
     expect(routeOf(get(path, "cors"), origin)).toBe("bypass");

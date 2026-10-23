@@ -7,7 +7,7 @@
  * `pnpm db:migrate` runs it with DATABASE_URL from Varlock; the e2e server runs it with its own URL.
  * Plain Node (type stripping), so imports keep their extensions.
  */
-import { createRequire } from "node:module";
+import { createRequire, registerHooks } from "node:module";
 import { fileURLToPath } from "node:url";
 
 import { migrate as migrateChatSchema } from "../../../packages/bot-sdk/core/server/migrate.ts";
@@ -29,6 +29,35 @@ const DROP_OLD_CHAT_SCHEMA = `
   drop type if exists public.message_error_reason, public.message_role, public.message_status;
 `;
 
+/**
+ * `blobStoreOf` from the app's `S3_*` variables, or undefined when none is set. It loads the SDK,
+ * whose extensionless imports plain Node resolves through the hook below (as in `rotate-keys.ts`).
+ */
+async function hostBlobStore() {
+  if (!Object.keys(process.env).some((name) => name.startsWith("S3_") && process.env[name])) {
+    return undefined;
+  }
+  registerHooks({
+    resolve(specifier, context, nextResolve) {
+      try {
+        return nextResolve(specifier, context);
+      } catch (error) {
+        if (!specifier.startsWith(".")) throw error;
+        for (const candidate of [`${specifier}.ts`, `${specifier}/index.ts`]) {
+          try {
+            return nextResolve(candidate, context);
+          } catch {
+            // Try the next form of the path.
+          }
+        }
+        throw error;
+      }
+    },
+  });
+  const { blobStoreOf } = await import("../src/blob-store.ts");
+  return blobStoreOf(process.env);
+}
+
 const db = drizzle(databaseUrl);
 try {
   await migrate(db, {
@@ -40,7 +69,9 @@ try {
   await db.$client.end();
 }
 
-await migrateChatSchema(databaseUrl);
+// The app's S3 file store, when set, so the contract migration (#819) deletes the assistant's bytes
+// from it as well.
+await migrateChatSchema(databaseUrl, { blobStore: await hostBlobStore() });
 
 const cleanup = drizzle(databaseUrl);
 try {

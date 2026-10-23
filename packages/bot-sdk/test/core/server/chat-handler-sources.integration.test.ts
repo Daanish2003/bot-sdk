@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { createChatHandler } from "../../../core/server/over";
-import { createTestSdk } from "../../support/assistant";
+import { createTestSdk } from "../../support/deps";
 
 describe("createChatHandler", () => {
   it("gives each handler its own recent-Model sources", () => {

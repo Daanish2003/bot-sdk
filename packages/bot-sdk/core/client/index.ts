@@ -6,11 +6,10 @@ export {
   createBotSdkClient,
 } from "./chat-client";
 export { type I18n, type MessageKey, type Messages, createI18n, en } from "../shared/i18n";
-export { RateLimitedError, RefusedError, rateLimitedErrorOf, runFetch } from "./rate-limit";
+export { RateLimitedError } from "./rate-limit";
 export {
   type ChatAdapter,
   type ChatLinkProps,
-  type ChatLocation,
   type ChatPage,
   ChatProvider,
   type ChatRouter,

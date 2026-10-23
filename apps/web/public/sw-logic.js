@@ -6,15 +6,10 @@
   // load its chunks until then.
   const ASSET_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
-  // The chat's `basePath` (/api/chat), auth (/api/auth) and the Shared links (/share/*) are never
-  // served from a cache, so their requests go straight to the network.
+  // The chat's `basePath` (/api/chat) and auth (/api/auth) are never served from a cache, so
+  // their requests go straight to the network.
   function isNeverHandled(pathname) {
-    return (
-      pathname === "/api" ||
-      pathname.startsWith("/api/") ||
-      pathname === "/share" ||
-      pathname.startsWith("/share/")
-    );
+    return pathname === "/api" || pathname.startsWith("/api/");
   }
 
   /**

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  addKeyMessage,
   type CredentialService,
   credentialFieldSchemas,
   credentialForms,
@@ -9,13 +8,6 @@ import {
   isCredentialService,
   providers,
 } from "../../../../plugins/models/shared/credentials/services";
-
-describe("addKeyMessage", () => {
-  it("asks for the Provider's key, with the right article", () => {
-    expect(addKeyMessage("openai")).toBe("Add an OpenAI key or pick another Model");
-    expect(addKeyMessage("gemini")).toBe("Add a Google Gemini key or pick another Model");
-  });
-});
 
 describe("credentialFieldSchemas", () => {
   it("asks Cloudflare for an account id and an API token", () => {

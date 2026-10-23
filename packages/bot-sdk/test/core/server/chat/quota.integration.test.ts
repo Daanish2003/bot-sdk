@@ -1,14 +1,16 @@
 import { eq } from "drizzle-orm";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { usage } from "../../../../core/server/db/schema";
-import type { HostProvider, QuotaSetting } from "../../../../plugins/assistant/server/deps";
+import type { HostProvider, QuotaSetting } from "../../../../plugins/models/server/types";
 import { quotaLookup } from "../../../../plugins/models/server/quota";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { insertConversation } from "../../../support/conversations";
-import { createTestSdk, type TestDeps, chatRpc, sendAs } from "../../../support/assistant";
-import { createFakeAdapter, round, text, withUsage } from "../../../support/fake-adapter";
+import { botOf, botSdk, sendToTurnEnd, stopBotRunners } from "../../../support/bot-turns";
+import { createTestSdk } from "../../../support/deps";
+import { createFakeAdapter, round, toolCall, withUsage } from "../../../support/fake-adapter";
+import { followSend } from "../../../support/follow-send";
+import { chatRpc } from "../../../support/sdk";
 import { insertUser, type TestUser } from "../../../support/users";
 import { getTestDb } from "../../../support/test-database";
 
@@ -28,28 +30,30 @@ const hostProviders: HostProvider[] = [
     ],
   },
 ];
-// 200 micros: a Run of 100 input tokens costs 300, so one such Run takes the day over budget.
+// 200 micros: a Turn of 100 input tokens costs 300, so one such Turn takes the window over budget.
 const budgetUsd = 0.0002;
-const oneRun = withUsage(round(text("Hello")), {
-  promptTokens: 100,
-  completionTokens: 0,
-  totalTokens: 100,
+
+/** A Step that sends `text` to the user and ends the Turn, reporting `usage`. */
+const sends = (
+  text: string,
+  { input = 100, output = 0 }: { input?: number; output?: number } = {},
+) =>
+  withUsage(round(toolCall({ name: "send_to_user", input: { text, endTurn: true } })), {
+    promptTokens: input,
+    completionTokens: output,
+    totalTokens: input + output,
+  });
+
+afterEach(async () => {
+  await stopBotRunners();
+  vi.useRealTimers();
 });
 
-function chatRequest(command: Record<string, unknown>) {
-  // useChat posts an AG-UI RunAgentInput; our command rides in `forwardedProps`.
-  return new Request("http://localhost/api/chat/run", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages: [], forwardedProps: command }),
-  });
-}
-
-/** A signed-in user on the Host Model with a scripted adapter and a titled Conversation. */
+/** A user with a Bot on the Host's Model, whose Turns play `rounds`, under `getQuota`. */
 async function setup({
   user,
   getQuota,
-  rounds = [oneRun, oneRun],
+  rounds = [sends("Hello"), sends("Again")],
 }: {
   user?: TestUser;
   getQuota?: QuotaSetting;
@@ -58,7 +62,7 @@ async function setup({
   const owner = user ?? (await insertUser());
   const fake = createFakeAdapter({ rounds });
   const adapterCredentials: Array<Record<string, string>> = [];
-  const deps: TestDeps = createTestSdk({
+  const { deps } = await botSdk({
     hostProviders,
     adapterFor: (_model, credentials) => {
       adapterCredentials.push(credentials);
@@ -66,28 +70,8 @@ async function setup({
     },
     getQuota: quotaLookup(getQuota),
   });
-  const conv = await insertConversation(owner, { model: sonnet, title: "Quota" });
-  const send = () =>
-    sendAs(
-      chatRequest({
-        conversationId: conv.id,
-        parentId: null,
-        text: "Hi",
-        attachmentIds: [],
-        model: sonnet,
-        webSearch: false,
-      }),
-      owner,
-      deps,
-    );
-  return { owner, deps, send, adapterCredentials };
-}
-
-/** Sends a Run and reads it to the end, so its reply is complete before the next send. */
-async function sendToEnd(send: () => Promise<Response>): Promise<number> {
-  const response = await send();
-  await response.text();
-  return response.status;
+  const { client, botId } = await botOf(deps, owner, sonnet);
+  return { owner, deps, client, botId, adapterCredentials };
 }
 
 /** Records spend in `chat.usage` directly, at `createdAt`. */
@@ -95,7 +79,7 @@ async function spend(userId: string, costMicros: number, createdAt: Date) {
   await getTestDb().insert(usage).values({
     id: uuidv7(),
     userId,
-    kind: "run",
+    kind: "turn",
     model: sonnet,
     inputTokens: 0,
     outputTokens: 0,
@@ -105,107 +89,113 @@ async function spend(userId: string, costMicros: number, createdAt: Date) {
   });
 }
 
-/** Sets the clock; only `Date` is faked, so timers and the database run as they do. */
-function atTime(iso: string) {
-  vi.setSystemTime(new Date(iso));
+/** A send that the Quota refuses: its 402 and code. */
+async function refusedSend(client: ReturnType<typeof chatRpc>, botId: string) {
+  return followSend(client, { botId, id: uuidv7(), text: "Hi" }).then(
+    () => {
+      throw new Error("expected the send to be refused");
+    },
+    (caught: unknown) => caught as { status?: number; data?: { code?: string } },
+  );
 }
 
-beforeEach(() => {
-  vi.useFakeTimers({ toFake: ["Date"] });
-});
+const usageOf = (userId: string) =>
+  getTestDb().select().from(usage).where(eq(usage.userId, userId));
 
-afterEach(() => {
-  vi.useRealTimers();
-});
+/**
+ * Waits out the last seconds before the next UTC `window` starts, so the window a test computes
+ * from the clock is still the one the send is checked in.
+ */
+async function clearOfBoundary(window: "day" | "month") {
+  const now = new Date();
+  const next =
+    window === "day"
+      ? Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1)
+      : Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1);
+  const left = next - now.getTime();
+  if (left < 5_000) await new Promise((resolve) => setTimeout(resolve, left + 100));
+}
 
-describe("Quota enforcement on a Run", () => {
-  it("refuses a Run once the day's spend reaches the budget, and allows one in the next UTC day", async () => {
-    atTime("2026-10-10T12:00:00Z");
-    const { send } = await setup({
-      getQuota: { budgetUsd, window: "day" },
+describe("Quota enforcement on a Bot's Turn", () => {
+  it("refuses a send once the window's spend reaches the budget, after a Turn that spent it", async () => {
+    const { client, botId } = await setup({ getQuota: { budgetUsd, window: "day" } });
+
+    expect((await sendToTurnEnd(client, botId)).at(-1)).toEqual({
+      type: "turnEnded",
+      status: "complete",
     });
 
-    expect(await sendToEnd(send)).toBe(200);
-
-    const refused = await send();
-    expect(refused.status).toBe(402);
-    expect(await refused.json()).toEqual({
-      code: "quota_exceeded",
-      params: { resetsAt: "2026-10-11T00:00:00.000Z" },
+    expect(await refusedSend(client, botId)).toMatchObject({
+      status: 402,
+      data: { code: "error.quotaSpent" },
     });
-
-    atTime("2026-10-11T00:00:00Z");
-    expect(await sendToEnd(send)).toBe(200);
   });
 
-  it("refuses a Run once the month's spend reaches the budget, and allows one in the next calendar month", async () => {
-    atTime("2026-10-10T12:00:00Z");
-    const { send } = await setup({
-      getQuota: { budgetUsd, window: "month" },
-    });
-    expect(await sendToEnd(send)).toBe(200);
+  it("counts only the spend inside the day's window, which starts at midnight UTC", async () => {
+    await clearOfBoundary("day");
+    const now = new Date();
+    const lastMidnight = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+    );
+    const yesterday = await insertUser();
+    await spend(yesterday.id, 1_000, new Date(lastMidnight.getTime() - 1_000));
+    const today = await insertUser();
+    await spend(today.id, 1_000, lastMidnight);
 
-    // A new day in the same month keeps the spend.
-    atTime("2026-10-31T23:59:59Z");
-    const refused = await send();
-    expect(refused.status).toBe(402);
-    expect(await refused.json()).toMatchObject({
-      params: { resetsAt: "2026-11-01T00:00:00.000Z" },
-    });
+    const allowed = await setup({ user: yesterday, getQuota: { budgetUsd, window: "day" } });
+    const refused = await setup({ user: today, getQuota: { budgetUsd, window: "day" } });
 
-    atTime("2026-11-01T00:00:00Z");
-    expect(await sendToEnd(send)).toBe(200);
+    expect((await sendToTurnEnd(allowed.client, allowed.botId)).at(-1)).toMatchObject({
+      status: "complete",
+    });
+    expect(await refusedSend(refused.client, refused.botId)).toMatchObject({ status: 402 });
   });
 
-  it("lets a Run started under budget finish, though it takes the spend over the budget", async () => {
-    atTime("2026-10-10T12:00:00Z");
-    const { owner, send } = await setup({
+  it("counts the whole calendar month's spend in a month's window, and none of the month before", async () => {
+    await clearOfBoundary("month");
+    const now = new Date();
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const thisMonth = await insertUser();
+    await spend(thisMonth.id, 1_000, monthStart);
+    const lastMonth = await insertUser();
+    await spend(lastMonth.id, 1_000, new Date(monthStart.getTime() - 1_000));
+
+    const refused = await setup({ user: thisMonth, getQuota: { budgetUsd, window: "month" } });
+    const allowed = await setup({ user: lastMonth, getQuota: { budgetUsd, window: "month" } });
+
+    expect(await refusedSend(refused.client, refused.botId)).toMatchObject({ status: 402 });
+    expect((await sendToTurnEnd(allowed.client, allowed.botId)).at(-1)).toMatchObject({
+      status: "complete",
+    });
+  });
+
+  it("lets a Turn started under budget finish, though it takes the spend over the budget", async () => {
+    const { owner, client, botId } = await setup({
       getQuota: { budgetUsd, window: "day" },
-      rounds: [
-        withUsage(round(text("Finished")), {
-          promptTokens: 100,
-          completionTokens: 50,
-          totalTokens: 150,
-        }),
-      ],
+      rounds: [sends("Finished", { input: 100, output: 50 })],
     });
 
-    const response = await send();
-    const body = await response.text();
+    const events = await sendToTurnEnd(client, botId);
 
-    expect(response.status).toBe(200);
-    expect(body).toContain('"delta":"Finished"');
+    expect(events.at(-1)).toEqual({ type: "turnEnded", status: "complete" });
     // 100 × $3/M + 50 × $15/M = 1050 micros, which is over the 200-micro budget.
-    const [row] = await getTestDb().select().from(usage).where(eq(usage.userId, owner.id));
-    expect(row?.costMicros).toBe(1050);
+    expect(await usageOf(owner.id)).toMatchObject([{ costMicros: 1050 }]);
   });
 
-  it("never refuses a Run when the Quota is null, the default, or a null from getQuota", async () => {
-    atTime("2026-10-10T12:00:00Z");
+  it("never refuses a send when the Quota is null, the default, or a null from getQuota", async () => {
     for (const getQuota of [undefined, null, () => null]) {
       const user = await insertUser();
       await spend(user.id, 1_000_000_000, new Date());
-      const { send } = await setup({ user, getQuota });
+      const { client, botId } = await setup({ user, getQuota });
 
-      expect(await sendToEnd(send)).toBe(200);
+      expect((await sendToTurnEnd(client, botId)).at(-1)).toMatchObject({ status: "complete" });
     }
   });
 
-  it("counts only the spend inside the window", async () => {
-    atTime("2026-10-10T12:00:00Z");
-    const user = await insertUser();
-    // Yesterday's spend is over the budget, but the day's window starts at midnight UTC.
-    await spend(user.id, 1_000, new Date("2026-10-09T23:59:59Z"));
-    const { send } = await setup({ user, getQuota: { budgetUsd, window: "day" } });
-
-    expect(await sendToEnd(send)).toBe(200);
-  });
-
-  it("lets a user who is over their Quota run on their own key, unmetered", async () => {
-    atTime("2026-10-10T12:00:00Z");
+  it("lets a user who is over their Quota run on their own key, at no cost", async () => {
     const user = await insertUser();
     await spend(user.id, 1_000, new Date());
-    const { send, deps, adapterCredentials } = await setup({
+    const { deps, client, botId, adapterCredentials } = await setup({
       user,
       getQuota: { budgetUsd, window: "day" },
     });
@@ -216,13 +206,14 @@ describe("Quota enforcement on a Run", () => {
       verified: true,
     });
 
-    const response = await send();
-    await response.text();
+    const events = await sendToTurnEnd(client, botId);
 
-    expect(response.status).toBe(200);
+    expect(events.at(-1)).toMatchObject({ status: "complete" });
     expect(adapterCredentials).toEqual([{ apiKey: "sk-ant-own-key" }]);
-    const rows = await getTestDb().select().from(usage).where(eq(usage.userId, user.id));
-    expect(rows).toHaveLength(1);
+    // The spend row from before, and the Turn's model call, recorded at cost 0.
+    expect((await usageOf(user.id)).map((row) => row.costMicros).toSorted((a, b) => a - b)).toEqual(
+      [0, 1_000],
+    );
   });
 });
 
@@ -244,14 +235,22 @@ describe("quotaLookup", () => {
 });
 
 describe("the Quota read", () => {
+  /** The caller's client on an SDK with `getQuota`, at a fixed time. */
+  function clientAt(user: TestUser, getQuota: QuotaSetting) {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-10T12:00:00Z"));
+    return chatRpc({
+      user,
+      deps: createTestSdk({ hostProviders, getQuota: quotaLookup(getQuota) }),
+    });
+  }
+
   it("returns the used percentage, the window and its reset time, and no money", async () => {
-    atTime("2026-10-10T12:00:00Z");
     const user = await insertUser();
     // 100 of a 400-micro budget is a quarter.
-    await spend(user.id, 100, new Date());
-    const { deps } = await setup({ user, getQuota: { budgetUsd: 0.0004, window: "day" } });
+    await spend(user.id, 100, new Date("2026-10-10T11:00:00Z"));
 
-    const quota = await chatRpc({ user, deps }).quota.read();
+    const quota = await clientAt(user, { budgetUsd: 0.0004, window: "day" }).quota.read();
 
     expect(quota).toEqual({
       usedPercent: 25,
@@ -263,18 +262,17 @@ describe("the Quota read", () => {
   });
 
   it("caps the percentage at 100 once the spend is over the budget", async () => {
-    atTime("2026-10-10T12:00:00Z");
     const user = await insertUser();
-    await spend(user.id, 1_000, new Date());
-    const { deps } = await setup({ user, getQuota: { budgetUsd, window: "day" } });
+    await spend(user.id, 1_000, new Date("2026-10-10T11:00:00Z"));
 
-    expect(await chatRpc({ user, deps }).quota.read()).toMatchObject({ usedPercent: 100 });
+    expect(await clientAt(user, { budgetUsd, window: "day" }).quota.read()).toMatchObject({
+      usedPercent: 100,
+    });
   });
 
   it("reads null when the user's Quota is unlimited", async () => {
     const user = await insertUser();
-    const { deps } = await setup({ user, getQuota: null });
 
-    expect(await chatRpc({ user, deps }).quota.read()).toBeNull();
+    expect(await clientAt(user, null).quota.read()).toBeNull();
   });
 });

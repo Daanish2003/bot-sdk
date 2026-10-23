@@ -17,8 +17,6 @@ const client = createBotSdkClient({
 const router: ChatRouter = {
   Link: ({ children }) => createElement("a", null, children),
   navigate: () => {},
-  useLocation: () => ({ newConversation: false }),
-  shareUrl: (token) => token,
 };
 
 /** Server-renders `ui` inside a ChatProvider, with the Host's dictionary and locale when given. */

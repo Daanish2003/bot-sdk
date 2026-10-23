@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import { mcpMarker } from "../../../packages/bot-sdk/test/e2e/fake-ollama";
-import { signInAsSeededUserWithModel } from "./helpers";
+import { createBot, signInAsSeededUserWithModel } from "./helpers";
 
 const server = "E2E Tracker";
 
@@ -20,9 +20,9 @@ test("a Connection signed in on the keys page stays connected until disconnected
   await page.reload();
   await expect(connection).toContainText("Connected");
 
-  // The `mcp` plugin owns Connections; the assistant offers no MCP tools, so no Tools menu.
-  await page.goto("/c");
-  await expect(page.getByRole("button", { name: "Model" })).toContainText("e2e-model");
+  // The `mcp` plugin owns Connections; a Bot's composer has no Tools menu.
+  await createBot(page, "Plain");
+  await expect(page.getByRole("textbox", { name: "Message" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Tools", exact: true })).toHaveCount(0);
 
   // Disconnecting offers Connect again.

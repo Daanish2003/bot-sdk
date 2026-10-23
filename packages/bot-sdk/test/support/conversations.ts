@@ -5,24 +5,22 @@ import { eq } from "drizzle-orm";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
 import type { TestUser } from "./users";
 
-export const testModel = "anthropic:claude-sonnet-5-5";
-
-/** Inserts a Conversation for `user` straight into the test database: an assistant one by default. */
+/** Inserts a Conversation for `user` straight into the test database: a Bot one by default. */
 export async function insertConversation(
   user: TestUser,
-  { kind = "assistant", ...fields }: Partial<typeof conversation.$inferInsert> = {},
+  { kind = "bot", ...fields }: Partial<typeof conversation.$inferInsert> = {},
 ) {
   const [row] = await getTestDb()
     .insert(conversation)
-    .values({ id: uuidv7(), userId: user.id, kind, model: testModel, ...fields })
+    .values({ id: uuidv7(), userId: user.id, kind, ...fields })
     .returning();
   if (!row) throw new Error("Inserting the test Conversation returned no row");
   return row;
 }
 
 /**
- * Inserts a Message with the given text straight into the test database (a `complete` reply by
- * default for the assistant). Pass `active: true` to make it the Conversation's Active Branch leaf.
+ * Inserts a Message with the given text straight into the test database (`complete` by default).
+ * Pass `active: true` to make it the Conversation's Active Branch leaf.
  */
 export async function insertMessage({
   conversationId,
@@ -46,13 +44,10 @@ export async function insertMessage({
       conversationId,
       parentId,
       role,
-      // The assistant's current parts version, as the rows these tests stand in for were written.
       parts: { schemaVersion: 5, parts: text ? [{ type: "text", text }] : [] },
-      searchText: text,
       status: "complete",
       // The host clock, like the Run endpoint: the database clock can sit ahead of it, and Messages sort by this.
       createdAt: new Date(),
-      model: role === "assistant" ? testModel : null,
       ...fields,
     })
     .returning();

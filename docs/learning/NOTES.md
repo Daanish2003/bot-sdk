@@ -14,13 +14,14 @@
 ## Components (docs/learning/assets)
 
 - `style.css`, `diagrams.js` (svg/box/arrow/route/text/dot), `explainer.js` (video), `quiz.js`, `exercise.js` (deep-equal ignores key order), `names.js` (NAMES + Names? button; emptied 2026-10-14 and refilled from the new lessons), `package-map.js` (PACKAGES, DEPS, clickable map; rewritten by Lesson 1 for the SDK).
-- `message-tree.js`: `MessageTree.SAMPLE`, `byAge`, `layout`, `draw(nodes, { path, activeLeaf, fresh, tags })`, `render(selector, nodes, { onPick })` (Lessons 7, 8).
+- `message-tree.js`: `MessageTree.SAMPLE`, `byAge`, `layout`, `draw(nodes, { path, activeLeaf, fresh, tags })`, `render(selector, nodes, { onPick })` (archived Lessons 7, 8).
 
 ## Course (rebuilt 2026-10-14; index at `index.html`)
 
 Old Lessons 1–14 (2026-10-08) are in `lessons/archive-2026-10-08/`; most of their source links are dead.
+Lessons 1–8 (the assistant) moved to `lessons/archive-2026-10-23/` when the assistant went (ADR 0027); the course now starts at Lesson 9.
 
-Batch 1 (built 2026-10-14): 1 Host and SDK · 2 createChat · 3 the command · 4 handleChat · 5 the Run and its log · 6 runs outlive the client · 7 Message tree · 8 Branches.
+Batch 1 (built 2026-10-14, archived 2026-10-23): 1 Host and SDK · 2 createChat · 3 the command · 4 handleChat · 5 the Run and its log · 6 runs outlive the client · 7 Message tree · 8 Branches.
 
 Planned (index shows them grey): parts boundary · system prompts and context · tools in a Run · Approval · web search/fetch and Sources · credentials and keyring · Host credentials/Quota/usage · rate limits and moderation · Attachments and blob store · Generated images · Artifacts · Projects and Knowledge · background jobs · Synced sources · Memory · Temporary Conversations · Shared links · titles and Background Model · oRPC routers and error codes · Host hooks and Admin · client and ui/ layers · testing seams.
 

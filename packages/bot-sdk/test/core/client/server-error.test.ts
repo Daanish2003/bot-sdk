@@ -24,13 +24,13 @@ describe("serverErrorText", () => {
   });
 
   it("formats a number param in the locale", () => {
-    const error = rpcFailure({ code: "error.instructionsTooLong", params: { max: 4000 } });
+    const error = rpcFailure({ code: "error.botFilesTooMany", params: { max: 4000 } });
 
     expect(serverErrorText(createI18n({}, "en"), error)).toBe(
-      "Instructions are limited to 4,000 characters",
+      "A message can carry at most 4,000 files",
     );
     expect(serverErrorText(createI18n({}, "de"), error)).toBe(
-      "Instructions are limited to 4.000 characters",
+      "A message can carry at most 4.000 files",
     );
   });
 
@@ -41,9 +41,9 @@ describe("serverErrorText", () => {
   });
 
   it("shows the given fallback when the error carries no code", () => {
-    expect(
-      serverErrorText(wrapped, new Error("Failed to fetch"), "pages.couldntStartConversation"),
-    ).toBe("⟦Couldn't start the Conversation⟧");
+    expect(serverErrorText(wrapped, new Error("Failed to fetch"), "bots.liveViewFailed")).toBe(
+      "⟦The live view couldn't open.⟧",
+    );
   });
 
   it("shows the fallback for a code the dictionary doesn't have", () => {
@@ -53,7 +53,7 @@ describe("serverErrorText", () => {
   });
 
   it("ignores a code that isn't an error key", () => {
-    expect(serverErrorText(wrapped, rpcFailure({ code: "time.today" }))).toBe(
+    expect(serverErrorText(wrapped, rpcFailure({ code: "bots.newBot" }))).toBe(
       "⟦Something went wrong. Try again.⟧",
     );
   });

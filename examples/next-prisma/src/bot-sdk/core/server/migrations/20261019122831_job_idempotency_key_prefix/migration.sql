@@ -1,1 +1,0 @@
-CREATE INDEX "job_idempotency_key_prefix_idx" ON "chat"."job" ("idempotency_key" text_pattern_ops);

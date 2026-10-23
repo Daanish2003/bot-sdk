@@ -1,0 +1,615 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lesson 6 · Runs outlive the client</title>
+    <link rel="stylesheet" href="../../assets/style.css" />
+  </head>
+  <body>
+    <main>
+      <p class="kicker">ai-chat Chat SDK · Lesson 6</p>
+      <h1>Runs outlive the client</h1>
+      <p class="subtitle">
+        A Run belongs to the server, not to the browser tab, so four mechanisms keep it safe.
+      </p>
+      <p class="meta">
+        About 13 minutes · a browser · you'll write <code>reap(messages, now, lease)</code>, the
+        query the reaper runs
+      </p>
+
+      <section class="words">
+        <h2>Words you'll need</h2>
+        <dl>
+          <dt>Join</dt>
+          <dd>Read a live Run's log from a point and then follow it until it closes.</dd>
+          <dt>PubSub</dt>
+          <dd>
+            A signal between processes. It reaches only the listeners present now, at most once.
+          </dd>
+          <dt>Lease</dt>
+          <dd>
+            The Run's proof that its owner is alive: <code>heartbeat_at</code>, written every
+            second.
+          </dd>
+          <dt>Reaper</dt>
+          <dd>A timer in every process that ends Runs whose lease has run out.</dd>
+        </dl>
+        <p class="hint">
+          Forgot a code name? Press the <strong>Names?</strong> button in the bottom-right corner.
+        </p>
+      </section>
+
+      <figure id="video"></figure>
+
+      <div
+        class="quiz"
+        data-answer="2"
+        data-why="handleChat locks the Conversation row, finds the streaming Message and answers 409 error.replyStreaming."
+      >
+        <div class="label">Warm-up · Lesson 4</div>
+        <p class="q">
+          Two tabs send a Message to one Conversation at the same moment. What stops two Runs?
+        </p>
+        <ol class="opts">
+          <li
+            data-why="The client sends a command, and the server decides. Nothing in the browser is trusted."
+          >
+            The browser disables the second Send button.
+          </li>
+          <li
+            data-why="Rate limits count Runs per user and time window; they don't look at one Conversation."
+          >
+            The runStart rate limit refuses the second send.
+          </li>
+          <li>A row lock, then a check for a streaming Message.</li>
+          <li
+            data-why="The Run doesn't exist yet when handleChat checks; it starts only after the transaction."
+          >
+            The first Run aborts the second Run on start.
+          </li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+
+      <h2><span class="num">1</span>Join: a broadcast with a recording</h2>
+      <figure id="join">
+        <figcaption>
+          The tab goes away and comes back; the Run on the server never stops.
+        </figcaption>
+      </figure>
+      <p>
+        Think of a radio station that records every show. It broadcasts whether anyone listens, and
+        a late listener can play the recording from the start and then hear the live show. The Run
+        is the show, and its log (Lesson 5) is the recording.
+      </p>
+      <ol class="steps">
+        <li>
+          The page loads the Active Branch and finds a Message with status
+          <code>streaming</code>.
+          <a href="../../../../packages/bot-sdk/plugins/assistant/ui/chat/chat-view.tsx"
+            ><code>chat-view.tsx</code></a
+          >
+          takes its id as the Run's id.
+        </li>
+        <li>
+          <code>useChat</code> sends <code>GET /api/chat/run?runId=…</code>.
+          <a href="../../../../packages/bot-sdk/plugins/assistant/server/chat/join-run.ts"
+            ><code>handleJoin</code></a
+          >
+          checks that the user owns the Conversation, else 404.
+        </li>
+        <li>
+          It replays the log from the start (or from <code>Last-Event-ID</code> on a reconnect),
+          then follows it until the log closes.
+        </li>
+      </ol>
+
+      <h2><span class="num">2</span>Stop: a signal and a note</h2>
+      <figure id="stop">
+        <figcaption>The note in Postgres catches a Stop that the signal missed.</figcaption>
+      </figure>
+      <p>
+        Stop is an RPC, <code>chat.stop</code>, and it can land on any process.
+        <a href="../../../../packages/bot-sdk/plugins/assistant/server/chat/run.ts"
+          ><code>stopRun</code></a
+        >
+        does two things: it writes <code>cancel_requested_at</code> on the Message, and it publishes
+        <code>"stop"</code> on the PubSub channel <code>run:&lt;id&gt;:cancel</code>. It never
+        writes <code>status</code>, because only the owner process knows how the Run ended.
+      </p>
+      <p>
+        The signal is at most once, so it can miss. That is why the owner also reads the column on
+        each one-second tick (<a
+          href="../../../../packages/bot-sdk/plugins/assistant/server/chat/stop.ts"
+          ><code>stopRequested</code></a
+        >). Either way the owner aborts and saves <code>stopped</code>. If the lease has already run
+        out, no owner is left, so <code>stopRun</code> saves <code>stopped</code> itself.
+      </p>
+
+      <div
+        class="quiz"
+        data-answer="1"
+        data-why="The owner reads cancel_requested_at on its next one-second tick, so the Run stops a little later."
+      >
+        <div class="label">Quiz</div>
+        <p class="q">
+          The Stop signal is lost on its way to the owner process. What happens to the Run?
+        </p>
+        <ol class="opts">
+          <li data-why="The column is the backup for exactly this case.">
+            It keeps going until the five-minute cap.
+          </li>
+          <li>It stops within about one more second.</li>
+          <li
+            data-why="stopRun writes status only when the lease has run out, and here the owner is alive."
+          >
+            stopRun saves it stopped right away.
+          </li>
+          <li
+            data-why="The reaper ends only Runs whose heartbeat is older than 30 s; this owner is still beating."
+          >
+            The reaper ends it after thirty seconds.
+          </li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+
+      <h2><span class="num">3</span>The lease and the reaper</h2>
+      <figure id="lease">
+        <figcaption>
+          Process B dies at 40 s; its Run is reaped once its heartbeat is 30 s old.
+        </figcaption>
+      </figure>
+      <p>
+        If a process crashes, nobody saves its Run, and the Message says <code>streaming</code> for
+        ever. So the owner writes <code>heartbeat_at</code> on every snapshot tick (1 s), even when
+        no text changed. Every process runs the reaper in <code>start()</code> and then every 30 s
+        (<a href="../../../../packages/bot-sdk/plugins/assistant/server/lifecycle.ts"
+          ><code>lifecycle.ts</code></a
+        >).
+      </p>
+      <p>
+        The rule:
+        <strong
+          >a <code>streaming</code> Message whose <code>heartbeat_at</code> is empty or older than
+          <code>now − lease</code> ends as <code>error</code> "interrupted"</strong
+        >. With Process B's Run in the picture:
+      </p>
+      <ol class="steps">
+        <li>The last heartbeat is at 40 s, and the lease is 30 s.</li>
+        <li>At 65 s: <code>65 − 30 = 35</code>, and 40 is not older than 35, so it stays.</li>
+        <li>At 75 s: <code>75 − 30 = 45</code>, and 40 is older than 45, so it is reaped.</li>
+      </ol>
+      <p>
+        <code>reapStaleRuns</code> also marks running tool calls <code>cancelled</code> and ends the
+        log, so a joined tab doesn't reconnect into a Run that is gone.
+      </p>
+
+      <h2><span class="num">4</span>Shutdown, and what needs Redis</h2>
+      <figure>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Mechanism</th>
+                <th>Goes through</th>
+                <th>Two processes on <code>memoryRuntime()</code></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Join</td>
+                <td><code>runStreams</code></td>
+                <td>Fails: the other process has no copy of the log</td>
+              </tr>
+              <tr>
+                <td>Stop</td>
+                <td><code>pubsub</code> + column</td>
+                <td>Works, but only through the column, about 1 s later</td>
+              </tr>
+              <tr>
+                <td>Lease, reaper</td>
+                <td>Postgres</td>
+                <td>Works: every process reads the same table</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <figcaption>
+          <code>redisRuntime()</code> shares the log and the signal between processes.
+        </figcaption>
+      </figure>
+      <p>
+        <a href="../../../../packages/bot-sdk/core/server/runtime.ts"><code>runtime.ts</code></a>
+        has the two runtimes. <code>apps/web</code> picks <code>redisRuntime</code> when
+        <code>REDIS_URL</code> is set.
+      </p>
+      <p>
+        A deploy calls <code>chat.stop()</code>. It answers new Runs with 503, lets local Runs
+        finish for up to 250 s (the drain), then aborts the rest. They save themselves as
+        <code>error</code> "interrupted" and close their logs.
+      </p>
+
+      <h2>Try it</h2>
+      <div id="ex1"></div>
+      <figure id="payoff">
+        <div class="toy-out">
+          <label
+            >now = <strong id="now-out">50</strong> s
+            <input id="now" type="range" min="0" max="120" step="1" value="50"
+          /></label>
+          <span id="pay-out"
+            >Pass the tests first. Then your <code>reap</code> marks dead Runs.</span
+          >
+        </div>
+        <figcaption>
+          Drag the time; your <code>reap</code> paints each Run it would end red.
+        </figcaption>
+      </figure>
+
+      <section class="takeaways">
+        <h2>Key takeaways</h2>
+        <p class="one-thing">
+          <strong>If you remember only one thing:</strong> the owner process alone saves how its Run
+          ended; everyone else leaves a note, sends a signal, or waits for the lease to run out.
+        </p>
+        <ul>
+          <li>
+            <strong>Join reads the recording.</strong> A reloaded tab finds the
+            <code>streaming</code> Message and reads its log from the start.
+          </li>
+          <li>
+            <strong>Stop is a note plus a signal.</strong> <code>cancel_requested_at</code> catches
+            what the at-most-once PubSub misses.
+          </li>
+          <li>
+            <strong>The lease replaces trust.</strong> No heartbeat for 30 s means the owner is
+            gone, and the reaper ends the Run as "interrupted".
+          </li>
+        </ul>
+        <p class="selftest">
+          Self-test: cover this box, then say what happens to a Run when its process crashes, step
+          by step.
+        </p>
+      </section>
+
+      <details class="deeper">
+        <summary>Go deeper: sources, side notes and a challenge</summary>
+        <h3>The decisions</h3>
+        <blockquote>
+          "A Run outlives the client and Stop is an explicit call. But its registry, boot sweep and
+          polling only work in one process, and the Chat SDK runs in several." (<a
+            href="../../../../docs/adr/0006-runs-shared-through-run-log-and-pubsub.md"
+            >ADR 0006</a
+          >, which amends
+          <a href="../../../../docs/adr/0002-runs-outlive-the-client.md">ADR 0002</a>)
+        </blockquote>
+        <h3>Side notes</h3>
+        <ul>
+          <li>
+            The owner's last write uses <code>whileStreaming: true</code>: it updates the row only
+            while it is still <code>streaming</code>. So a Run that another process already saved
+            <code>stopped</code> is never written over. (The first course noted this race; the code
+            now guards it.)
+          </li>
+          <li>
+            A Message can have several Runs (ADR 0008). The second Run's log id is
+            <code>&lt;messageId&gt;:2</code> (<code>runLogId</code>), and a join reads
+            <code>message.run_number</code> to find the newest log.
+          </li>
+          <li>
+            Stop on a Message that waits for Approval counts as a denial (<a
+              href="../../../../packages/bot-sdk/plugins/assistant/server/routers/chat.ts"
+              ><code>routers/chat.ts</code></a
+            >).
+          </li>
+          <li>
+            Defaults live in <code>defaultLimits</code> in
+            <a href="../../../../packages/bot-sdk/plugins/assistant/server/deps.ts"
+              ><code>deps.ts</code></a
+            >: snapshot 1 s, lease 30 s, reaper 30 s, drain 250 s, Run cap 5 minutes. Tests pass
+            smaller ones.
+          </li>
+          <li>
+            The same reaper tick also reaps background jobs and, once an hour, deletes expired
+            Temporary Conversations.
+          </li>
+        </ul>
+        <h3>Challenge</h3>
+        <p>
+          With a 30 s lease and a reaper every 30 s, what is the longest time a crashed Run can
+          still show <code>streaming</code>? Work it out, then tell your teacher.
+        </p>
+      </details>
+
+      <div class="footer-box">
+        <p>
+          <strong>Primary source:</strong>
+          <a href="../../../../docs/adr/0006-runs-shared-through-run-log-and-pubsub.md"
+            >ADR 0006: Runs are shared across processes through a run log and pub/sub</a
+          >, then <code>stopRun</code> and <code>reapStaleRuns</code> at the end of
+          <a href="../../../../packages/bot-sdk/plugins/assistant/server/chat/run.ts"
+            ><code>run.ts</code></a
+          >.
+        </p>
+        <p>
+          <strong>Cheat sheets:</strong>
+          <a href="../../reference/package-map.html">Package map</a> ·
+          <a href="../../reference/names.html">Names</a>
+        </p>
+        <p>
+          <strong>Stuck or curious?</strong> Ask your teacher (Claude) anything: "why not let any
+          process write status?", "show me the snapshot timer", or "quiz me again".
+        </p>
+        <div class="nav">
+          <a href="0005-the-run.html">← Lesson 5: The Run and its log</a
+          ><a href="0007-the-message-tree.html">Lesson 7: The Message tree →</a>
+        </div>
+      </div>
+    </main>
+
+    <script src="../../assets/diagrams.js"></script>
+    <script src="../../assets/explainer.js"></script>
+    <script src="../../assets/quiz.js"></script>
+    <script src="../../assets/exercise.js"></script>
+    <script>
+      const D = Diagrams;
+
+      // ---- Shared pictures -------------------------------------------------------------
+      // The join picture: a tab, the Run on a server, its log.
+      function joinPic({ tab = "open", log = 6, replay = 0, tail = false } = {}) {
+        const cells = [];
+        for (let i = 0; i < 10; i++) {
+          const on = i < log;
+          const read = tab === "back" && i < replay;
+          cells.push(
+            `<rect class="d-box ${read ? "blue" : on ? "" : "ghost"}" x="${300 + i * 34}" y="150" width="28" height="28" rx="4" opacity="${on ? 1 : 0.35}"/>`,
+          );
+        }
+        const tabBox =
+          tab === "gone"
+            ? D.box(30, 40, 180, 50, "tab closed", { tone: "warn", opacity: 0.5 })
+            : D.box(30, 40, 180, 50, tab === "back" ? "reloaded tab" : "browser tab", {
+                tone: "blue",
+              });
+        const link =
+          tab === "gone"
+            ? ""
+            : tab === "back"
+              ? D.arrow(210, 65, 300, 150, { tone: "blue", label: "GET /run?runId", dashed: !tail })
+              : D.arrow(210, 65, 300, 150, { tone: "blue", label: "POST /run" });
+        return (
+          tabBox +
+          D.box(300, 40, 200, 50, "Run (owner process)", { tone: "accent", sub: "keeps going" }) +
+          D.arrow(400, 90, 400, 146, { tone: "accent" }) +
+          D.text(300, 200, "the Run's log: every chunk, in order", { tone: "muted", size: 12 }) +
+          cells.join("") +
+          link
+        );
+      }
+      D.render(
+        "#join",
+        D.svg(760, 220, joinPic({ tab: "back", log: 7, replay: 7, tail: true }), {
+          label: "Joining a Run",
+        }),
+      );
+
+      // The Stop picture: two paths from stopRun to the owner.
+      function stopPic({ signal = true, column = true, saved = false } = {}) {
+        return (
+          D.box(20, 90, 150, 50, "chat.stop", { tone: "blue", sub: "any process" }) +
+          D.box(300, 20, 200, 50, "PubSub", { sub: "run:<id>:cancel" }) +
+          D.box(300, 160, 200, 50, "Postgres message", { sub: "cancel_requested_at" }) +
+          D.box(590, 90, 150, 50, saved ? "saved stopped" : "owner process", {
+            tone: saved ? "ok" : "accent",
+          }) +
+          D.arrow(170, 105, 300, 45, { tone: "blue" }) +
+          D.arrow(170, 125, 300, 185, { tone: "blue" }) +
+          D.arrow(500, 45, 590, 105, {
+            tone: signal ? "accent" : "faint",
+            dashed: !signal,
+            label: signal ? "signal" : "missed",
+          }) +
+          D.arrow(500, 185, 590, 125, {
+            tone: column ? "accent" : "faint",
+            label: column ? "read each 1 s" : "",
+          })
+        );
+      }
+      D.render(
+        "#stop",
+        D.svg(760, 230, stopPic({ signal: false, column: true }), { label: "Two paths for Stop" }),
+      );
+
+      // ---- Lease timeline ---------------------------------------------------------------
+      // Times in seconds. Each Run: when it started, its last heartbeat, and when it ended (if it did).
+      const RUNS = [
+        { id: "run-a", label: "Process A", start: 0, lastBeat: 90, ended: 90 },
+        { id: "run-b", label: "Process B (dies)", start: 0, lastBeat: 40, ended: null },
+        { id: "run-c", label: "Process A, later", start: 20, lastBeat: 120, ended: null },
+      ];
+      // The message rows as the reaper would see them at time `now`.
+      function rowsAt(now) {
+        return RUNS.filter((r) => r.start <= now).map((r) => ({
+          id: r.id,
+          status: r.ended !== null && now >= r.ended ? "complete" : "streaming",
+          heartbeatAt: Math.min(Math.floor(now), r.lastBeat),
+        }));
+      }
+      const X = (t) => 170 + t * 4.8;
+      function leasePic(now, reaped = [], lease = 30) {
+        const parts = [];
+        parts.push(
+          `<rect x="${X(Math.max(0, now - lease))}" y="20" width="${X(now) - X(Math.max(0, now - lease))}" height="170" class="d-box ghost" opacity="0.5"/>`,
+        );
+        RUNS.forEach((r, i) => {
+          const y = 50 + i * 55;
+          parts.push(D.text(10, y, r.label, { size: 13 }));
+          const end = Math.min(now, r.lastBeat);
+          for (let t = r.start; t <= end; t += 5) parts.push(D.dot(X(t), y, 3.5, { tone: "ok" }));
+          if (r.start <= now) {
+            const done = r.ended !== null && now >= r.ended;
+            const dead = reaped.includes(r.id);
+            const tag = done ? "complete" : dead ? "reaped: interrupted" : "streaming";
+            parts.push(
+              D.text(X(Math.min(now, 120)) + 8, y - 14, tag, {
+                size: 12,
+                tone: dead ? "warn" : done ? "ok" : "muted",
+                weight: dead ? 700 : 400,
+              }),
+            );
+          }
+        });
+        parts.push(
+          `<line class="d-line accent" x1="${X(now)}" y1="18" x2="${X(now)}" y2="192" stroke-width="2"/>`,
+        );
+        parts.push(
+          D.text(X(now), 206, `now ${now} s`, { tone: "accent", size: 12, anchor: "middle" }),
+        );
+        parts.push(
+          D.text(X(Math.max(0, now - lease)), 206, "now − 30", {
+            tone: "muted",
+            size: 11,
+            anchor: "middle",
+          }),
+        );
+        return parts.join("");
+      }
+      D.render(
+        "#lease",
+        D.svg(760, 215, leasePic(75, ["run-b"]), { label: "Heartbeats and the lease" }),
+      );
+
+      // ---- Video ------------------------------------------------------------------------
+      Explainer.mount("#video", {
+        title: "Lesson 6 in about 1 minute",
+        width: 760,
+        height: 230,
+        scenes: [
+          {
+            say: "The user closes the tab while a reply is streaming. The Run on the server doesn't care: it keeps writing its log.",
+            draw: (t, A) =>
+              joinPic({ tab: t > 0.4 ? "gone" : "open", log: 3 + Math.floor(A.step(t, 0, 1) * 5) }),
+          },
+          {
+            say: "The user comes back. The page finds a streaming Message, joins its Run, replays the log from the start, and then follows it live.",
+            show: "GET /api/chat/run?runId=<message id>",
+            draw: (t, A) =>
+              joinPic({
+                tab: "back",
+                log: 8 + Math.floor(A.step(t, 0.5, 1) * 2),
+                replay: Math.floor(A.step(t, 0, 0.6) * 9),
+                tail: t > 0.6,
+              }),
+          },
+          {
+            say: "Stop can land on any process. It leaves a note in Postgres and sends a signal. The owner reads either one and saves the Run stopped.",
+            draw: (t, A) => stopPic({ signal: t < 0.5, column: t > 0.3, saved: t > 0.8 }),
+          },
+          {
+            say: "The owner writes a heartbeat every second. If its process dies, the heartbeat gets old. After thirty seconds, the reaper ends the Run as interrupted.",
+            show: 'heartbeat older than now − 30 s → error "interrupted"',
+            draw: (t, A) => {
+              const now = Math.round(A.lerp(30, 80, t));
+              return leasePic(now, now > 70 ? ["run-b"] : []);
+            },
+          },
+          {
+            say: "Now step through it yourself: write reap, the rule the reaper uses, and drag the clock to watch it work.",
+            show: "Next: write reap(messages, now, lease).",
+            draw: (t, A) =>
+              leasePic(
+                Math.round(A.lerp(60, 100, t)),
+                Math.round(A.lerp(60, 100, t)) > 70 ? ["run-b"] : [],
+              ),
+          },
+        ],
+      });
+
+      // ---- Try it: reap -----------------------------------------------------------------
+      const SAMPLE = `// Message rows as the reaper sees them. Times are in seconds.
+// heartbeatAt is null when the owner never wrote one.
+const ROWS = [
+  { id: "a", status: "streaming", heartbeatAt: 70 },
+  { id: "b", status: "streaming", heartbeatAt: 40 },
+  { id: "c", status: "complete",  heartbeatAt: 10 },
+  { id: "d", status: "streaming", heartbeatAt: null },
+];`;
+      const ROWS = [
+        { id: "a", status: "streaming", heartbeatAt: 70 },
+        { id: "b", status: "streaming", heartbeatAt: 40 },
+        { id: "c", status: "complete", heartbeatAt: 10 },
+        { id: "d", status: "streaming", heartbeatAt: null },
+      ];
+      let learnerReap = null;
+      Exercise.mount("#ex1", {
+        title: "Write reap(messages, now, lease)",
+        task: "Return the ids of the Messages the reaper ends: <code>streaming</code>, with a <code>heartbeatAt</code> that is <code>null</code> or older than (less than) <code>now − lease</code>.",
+        storageKey: "ai-chat-sdk-l6-reap",
+        fnName: "reap",
+        starter: `${SAMPLE}
+
+// Example: reap(ROWS, 75, 30) → ["b", "d"]
+//   cutoff = 75 − 30 = 45; b beat at 40 (older), d never beat; c is complete.
+// Hint: work out the cutoff once, then filter and map to ids.
+function reap(messages, now, lease) {
+  return [];
+}`,
+        solution: `${SAMPLE}
+
+function reap(messages, now, lease) {
+  const cutoff = now - lease;
+  return messages
+    .filter((m) => m.status === "streaming")
+    .filter((m) => m.heartbeatAt === null || m.heartbeatAt < cutoff)
+    .map((m) => m.id);
+}`,
+        tests: [
+          {
+            name: "at 75 s, lease 30 → b (old) and d (never beat)",
+            args: [ROWS, 75, 30],
+            expect: ["b", "d"],
+          },
+          {
+            name: "at 65 s → only d: b beat at 40, not older than 35",
+            args: [ROWS, 65, 30],
+            expect: ["d"],
+          },
+          {
+            name: "exactly at the cutoff (70 − 30 = 40) → b stays",
+            args: [ROWS, 70, 30],
+            expect: ["d"],
+          },
+          {
+            name: "at 110 s → a, b and d; c is complete, never reaped",
+            args: [ROWS, 110, 30],
+            expect: ["a", "b", "d"],
+          },
+          { name: "no rows → []", args: [[], 100, 30], expect: [] },
+        ],
+        onResult(fn, all) {
+          learnerReap = all ? fn : null;
+          drawPayoff();
+        },
+      });
+
+      const slider = document.getElementById("now");
+      let payoffSvg;
+      function drawPayoff() {
+        const now = Number(slider.value);
+        document.getElementById("now-out").textContent = now;
+        const rows = rowsAt(now);
+        const reaped = learnerReap ? learnerReap(rows, now, 30) : [];
+        const svg = D.svg(760, 215, leasePic(now, reaped), { label: "Your reaper on a timeline" });
+        if (payoffSvg) payoffSvg.remove();
+        payoffSvg = D.render("#payoff", svg);
+        if (learnerReap)
+          document.getElementById("pay-out").innerHTML =
+            `Your <code>reap(rows, ${now}, 30)</code> → <code>[${reaped.map((id) => `"${id}"`).join(", ")}]</code>`;
+      }
+      slider.addEventListener("input", drawPayoff);
+      drawPayoff();
+    </script>
+  </body>
+</html>

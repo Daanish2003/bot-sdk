@@ -11,7 +11,7 @@ import type { ModelsDeps } from "../../plugins/models/server/types";
 import type { JobRunner } from "../../plugins/runner/server/jobs/runner";
 import { runner, runnerJobs } from "../../plugins/runner/server/plugin";
 
-type OverOptions = Pick<BotSdkOptions, "basePath" | "getUser" | "getClientIp" | "logger">;
+type OverOptions = Pick<BotSdkOptions, "basePath" | "getUser" | "logger">;
 
 /**
  * What the tests and evals drive: the core context of an instance over fakes, with its `models`

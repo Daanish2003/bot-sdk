@@ -82,9 +82,6 @@ export type ImageCall = {
 };
 export type ImageMeter = TxMeter<ImageCall>;
 
-/** One transcription: the recording's own length, and the length the Provider reports, if any. */
-export type TranscriptionMeter = Meter<{ durationSeconds: number; reportedSeconds?: number }>;
-
 /** The meter of a call on the user's own key: never refused, never recorded. */
 export const freeMeter: TxMeter<unknown> = {
   onHost: false,
@@ -326,46 +323,4 @@ export function imageMeter(
       ...imageCostOf(price, cancelsUpstream, call),
     };
   });
-}
-
-/** Groq bills every request for at least this many seconds of audio. */
-const groqMinimumSeconds = 10;
-
-/**
- * The meter of transcriptions on the Host's transcription Model `model` (spec #249, ADR 0007). The
- * minutes are the length the Provider reports, else the recording's own length, which marks the row
- * estimated. Groq's minimum per request applies to either.
- */
-export function hostTranscriptionMeter(
-  deps: MeterDeps,
-  userId: string,
-  {
-    provider,
-    model,
-    pricePerMinuteUsd,
-  }: { provider: string; model: string; pricePerMinuteUsd: number },
-): TranscriptionMeter {
-  const minimum = provider === "groq" ? groqMinimumSeconds : 0;
-  return meterOf(
-    deps,
-    userId,
-    true,
-    ({
-      durationSeconds,
-      reportedSeconds,
-    }: {
-      durationSeconds: number;
-      reportedSeconds?: number;
-    }) => {
-      const seconds = Math.max(reportedSeconds ?? durationSeconds, minimum);
-      return {
-        kind: "transcription",
-        model,
-        inputTokens: 0,
-        outputTokens: 0,
-        costMicros: Math.round((seconds / 60) * pricePerMinuteUsd * 1_000_000),
-        estimated: reportedSeconds === undefined,
-      };
-    },
-  );
 }

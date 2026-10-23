@@ -4,19 +4,16 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { createBotSdkClient } from "../../core/client/chat-client";
-import { assistantClient } from "../../plugins/assistant/client/index";
 import { modelsClient } from "../../plugins/models/client/index";
 import {
   ChatProvider,
   type ChatLinkProps,
   type ChatRouter,
 } from "../../core/client/react/provider";
-import { MissingCredentialsBanner } from "../../plugins/models/ui/chat/missing-credentials-banner";
-import { NoCredentials } from "../../plugins/models/ui/chat/no-credentials";
 import { HostKeysPage } from "./host-keys-page";
 
 const client = createBotSdkClient({
-  plugins: [modelsClient(), assistantClient()],
+  plugins: [modelsClient()],
   baseUrl: "http://localhost/api/chat",
   fetch: async () => {
     throw new Error("Unexpected request in a render test");
@@ -26,8 +23,6 @@ const client = createBotSdkClient({
 const router: ChatRouter = {
   Link: ({ children, className }: ChatLinkProps) => createElement("a", { className }, children),
   navigate: () => {},
-  useLocation: () => ({ newConversation: false }),
-  shareUrl: (token) => token,
 };
 
 /** Renders `ui` with the mode seeded (`undefined`: not yet known, as on first paint). */
@@ -42,22 +37,8 @@ function render(ui: ReturnType<typeof createElement>, byok: boolean | undefined)
   );
 }
 
-describe("the key prompts with byok on", () => {
-  it("shows the key settings link on the missing-credentials banner", () => {
-    const html = render(
-      createElement(MissingCredentialsBanner, { message: "Pick another Model" }),
-      true,
-    );
-
-    expect(html).toContain("Pick another Model.");
-    expect(html).toContain("Key settings");
-  });
-
-  it("shows the add-key empty state for a user with no Models", () => {
-    expect(render(createElement(NoCredentials), true)).toContain("Add Provider credentials");
-  });
-
-  it("shows the Providers and Tools sections on the keys page", () => {
+describe("the keys page with byok on", () => {
+  it("shows the Providers and Tools sections", () => {
     const html = render(createElement(HostKeysPage), true);
 
     expect(html).toContain("Providers");
@@ -65,25 +46,8 @@ describe("the key prompts with byok on", () => {
   });
 });
 
-describe("the key prompts with byok off", () => {
-  it("renders no key settings link on the missing-credentials banner", () => {
-    const html = render(
-      createElement(MissingCredentialsBanner, { message: "Pick another Model" }),
-      false,
-    );
-
-    expect(html).toContain("Pick another Model.");
-    expect(html).not.toContain("Key settings");
-  });
-
-  it("renders no add-key empty state", () => {
-    const html = render(createElement(NoCredentials), false);
-
-    expect(html).not.toContain("Add Provider credentials");
-    expect(html).not.toContain("Bring your own key");
-  });
-
-  it("omits the Providers and Tools sections of the keys page", () => {
+describe("the keys page with byok off", () => {
+  it("omits the Providers and Tools sections", () => {
     const html = render(createElement(HostKeysPage), false);
 
     expect(html).not.toContain("Providers");
@@ -91,12 +55,10 @@ describe("the key prompts with byok off", () => {
     expect(html).not.toContain("Add");
   });
 
-  it("hides the prompts until the mode is known", () => {
-    const html = render(
-      createElement(MissingCredentialsBanner, { message: "Pick another Model" }),
-      undefined,
-    );
+  it("hides them until the mode is known", () => {
+    const html = render(createElement(HostKeysPage), undefined);
 
-    expect(html).not.toContain("Key settings");
+    expect(html).not.toContain("Providers");
+    expect(html).not.toContain("Tools");
   });
 });

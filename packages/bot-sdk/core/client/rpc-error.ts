@@ -4,8 +4,8 @@ import { en, type I18n, type MessageKey } from "../shared/i18n";
 type ServerErrorData = { code: string; params?: Record<string, unknown> };
 
 /**
- * The code and params an error carries: an oRPC error's `data`, or a chat-route refusal's (the
- * connection wraps it, so the `cause` chain is followed too).
+ * The code and params an error carries: an oRPC error's `data`, following the `cause` chain when
+ * another error wraps it.
  */
 export function serverErrorData(error: unknown): ServerErrorData | null {
   let current: unknown = error;
@@ -20,7 +20,7 @@ export function serverErrorData(error: unknown): ServerErrorData | null {
   return null;
 }
 
-/** A code the dictionary has text for: an `error.` key, so `time.today` isn't one. */
+/** A code the dictionary has text for: an `error.` key, so `bots.name` isn't one. */
 function isErrorKey(code: string): code is Extract<MessageKey, `error.${string}`> {
   return code.startsWith("error.") && Object.hasOwn(en, code);
 }

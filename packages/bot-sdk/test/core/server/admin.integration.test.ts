@@ -2,18 +2,35 @@ import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
-import { assistant } from "../../../plugins/assistant/server/plugin";
+import { bot as botPlugin } from "../../../plugins/bot/server/plugin";
 import { runner } from "../../../plugins/runner/server/plugin";
 import { models } from "../../../plugins/models/server/plugin";
-import { message, usage } from "../../../core/server/db/schema";
+import { botTurn, usage } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
-import { insertConversation, insertMessage } from "../../support/conversations";
+import type { HostProvider } from "../../../plugins/models/server/types";
+import { botOf, botSdk, sendToTurnEnd, stopBotRunners } from "../../support/bot-turns";
+import { createFakeAdapter, round, toolCall, withUsage } from "../../support/fake-adapter";
+import { followSend } from "../../support/follow-send";
 import { insertUser, type TestUser } from "../../support/users";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 
 const keyEncryptionSecrets = ["test-key-encryption-secret-not-for-production"];
 const basePath = "/api/chat";
 const sonnet = "anthropic:claude-sonnet-5-5";
+const hostProviders: HostProvider[] = [
+  {
+    provider: "anthropic",
+    credentials: { apiKey: "sk-host" },
+    models: [
+      {
+        modelId: "claude-sonnet-5-5",
+        maxOutputTokens: 512,
+        inputUsdPerMillion: 3,
+        outputUsdPerMillion: 15,
+      },
+    ],
+  },
+];
 
 /** Records one call on Host credentials in `chat.usage`, at `createdAt`. */
 async function record(
@@ -29,7 +46,7 @@ async function record(
   await getTestDb().insert(usage).values({
     id: uuidv7(),
     userId,
-    kind: "run",
+    kind: "turn",
     model,
     inputTokens: input,
     outputTokens: output,
@@ -85,7 +102,7 @@ describe('chat.plugin("models").usageTotals', () => {
       getUser: () => null,
       keyEncryptionSecrets,
       basePath,
-      plugins: [models(), runner(), assistant()],
+      plugins: [models(), runner(), botPlugin()],
     });
     const totals = await chat.plugin("models").usageTotals({ since, until });
 
@@ -155,7 +172,7 @@ describe('chat.plugin("models").usage', () => {
       getUser: () => null,
       keyEncryptionSecrets,
       basePath,
-      plugins: [models(), runner(), assistant()],
+      plugins: [models(), runner(), botPlugin()],
     });
 
     expect(await chat.plugin("models").usage({ userId: owner.id, since, until })).toEqual([
@@ -205,7 +222,7 @@ describe('chat.plugin("models").quota', () => {
           getQuota: (userId) => (userId === owner.id ? { budgetUsd: 1, window: "day" } : null),
         }),
         runner(),
-        assistant(),
+        botPlugin(),
       ],
     });
 
@@ -229,7 +246,7 @@ describe('chat.plugin("models").quota', () => {
           getQuota: () => null,
         }),
         runner(),
-        assistant(),
+        botPlugin(),
       ],
     });
 
@@ -237,141 +254,75 @@ describe('chat.plugin("models").quota', () => {
   });
 });
 
-describe("chat.admin.stopRuns", () => {
-  it("ends the user's streaming Run as stopped, and leaves the other users' Runs alone", async () => {
+describe("Admin over a Bot's Turns", () => {
+  afterEach(stopBotRunners);
+
+  it("counts a Turn's model calls on Host credentials in the usage totals, the usage and the Quota", async () => {
+    // A real Turn: the runner and the Turn's clock run on real time.
+    vi.useRealTimers();
     const owner = await insertUser();
-    const bystander = await insertUser();
-    const conv = await insertConversation(owner);
-    const otherConv = await insertConversation(bystander);
-    // No owner is alive: its last heartbeat is past the lease, so the Stop ends it here.
-    const orphan = await insertMessage({
-      conversationId: conv.id,
-      role: "assistant",
-      text: "Half",
-      status: "streaming",
-      heartbeatAt: new Date(Date.now() - 60_000),
+    const fake = createFakeAdapter({
+      rounds: [
+        withUsage(
+          round(toolCall({ name: "send_to_user", input: { text: "Hello", endTurn: true } })),
+          { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
+        ),
+      ],
     });
-    const theirs = await insertMessage({
-      conversationId: otherConv.id,
-      role: "assistant",
-      text: "Still going",
-      status: "streaming",
-      heartbeatAt: new Date(),
+    const { deps } = await botSdk({
+      hostProviders,
+      adapterFor: () => fake.adapter,
+      getQuota: async () => ({ budgetUsd: 1, window: "day" }),
     });
-    const chat = createBotSdk({
-      databaseUrl: testDatabaseUrl,
-      getUser: () => null,
-      keyEncryptionSecrets,
-      basePath,
-      plugins: [models(), runner(), assistant()],
+    const { client, botId } = await botOf(deps, owner, sonnet);
+    const since = new Date(Date.now() - 60_000);
+
+    await sendToTurnEnd(client, botId);
+
+    const until = new Date(Date.now() + 60_000);
+    const modelsApi = deps.plugin("models");
+    // 100 × $3/M + 50 × $15/M = 1050 micros.
+    expect(
+      (await modelsApi.usageTotals({ since, until })).find((row) => row.userId === owner.id),
+    ).toEqual({
+      userId: owner.id,
+      costMicros: 1050,
+      inputTokens: 100,
+      outputTokens: 50,
+      calls: 1,
     });
-
-    await chat.plugin("assistant").stopRuns(owner.id);
-
-    const [ended] = await getTestDb().select().from(message).where(eq(message.id, orphan.id));
-    expect(ended).toMatchObject({ status: "stopped", cancelRequestedAt: expect.any(Date) });
-    const [untouched] = await getTestDb().select().from(message).where(eq(message.id, theirs.id));
-    expect(untouched).toMatchObject({ status: "streaming", cancelRequestedAt: null });
-  });
-
-  it("asks a live Run to stop through its own owner, by setting cancel_requested_at", async () => {
-    const owner = await insertUser();
-    const conv = await insertConversation(owner);
-    const live = await insertMessage({
-      conversationId: conv.id,
-      role: "assistant",
-      text: "Half",
-      status: "streaming",
-      heartbeatAt: new Date(),
+    expect(await modelsApi.usage({ userId: owner.id, since, until })).toEqual([
+      expect.objectContaining({ model: sonnet, costMicros: 1050, calls: 1 }),
+    ]);
+    expect(await modelsApi.quota(owner.id)).toMatchObject({
+      budgetMicros: 1_000_000,
+      spentMicros: 1050,
     });
-    const chat = createBotSdk({
-      databaseUrl: testDatabaseUrl,
-      getUser: () => null,
-      keyEncryptionSecrets,
-      basePath,
-      plugins: [models(), runner(), assistant()],
-    });
-
-    await chat.plugin("assistant").stopRuns(owner.id);
-
-    const [row] = await getTestDb().select().from(message).where(eq(message.id, live.id));
-    expect(row).toMatchObject({ status: "streaming", cancelRequestedAt: expect.any(Date) });
   });
 });
 
-describe("chat.admin.ratingTotals", () => {
-  it("counts 👍 and 👎 per Model over Ratings stamped at or after `since`, and leaves out older ones", async () => {
+describe('a Ban: chat.plugin("bot").stopTurns', () => {
+  afterEach(stopBotRunners);
+
+  it("ends the banned user's Turn stopped, and leaves another user's Turn alone", async () => {
+    vi.useRealTimers();
+    // An idle runner takes no Turn, so both stay running until the Ban.
+    const { deps } = await botSdk({ hostProviders }, { idle: true });
     const owner = await insertUser();
-    const other = await insertUser();
-    const conv = await insertConversation(owner);
-    const otherConv = await insertConversation(other);
-    const since = new Date("2040-01-10T00:00:00Z");
-    const haiku = "anthropic:claude-haiku-5-5";
-    const rated = (conversationId: string, model: string, rating: "up" | "down", ratedAt: Date) =>
-      insertMessage({ conversationId, role: "assistant", text: "Hi", model, rating, ratedAt });
-    await rated(conv.id, sonnet, "up", new Date("2040-01-10T00:00:00Z"));
-    await rated(conv.id, sonnet, "down", new Date("2040-01-11T12:00:00Z"));
-    await rated(otherConv.id, sonnet, "up", new Date("2040-01-12T08:00:00Z"));
-    await rated(otherConv.id, haiku, "down", new Date("2040-01-13T08:00:00Z"));
-    // Stamped before `since`, and never rated: both left out.
-    await rated(conv.id, sonnet, "down", new Date("2040-01-09T23:59:59Z"));
-    await insertMessage({
-      conversationId: conv.id,
-      role: "assistant",
-      text: "Unrated",
-      model: sonnet,
-    });
-    const chat = createBotSdk({
-      databaseUrl: testDatabaseUrl,
-      getUser: () => null,
-      keyEncryptionSecrets,
-      basePath,
-      plugins: [models(), runner(), assistant()],
-    });
+    const bystander = await insertUser();
+    const own = await botOf(deps, owner, sonnet);
+    const theirs = await botOf(deps, bystander, sonnet);
+    for (const { client, botId } of [own, theirs]) {
+      await followSend(client, { botId, id: uuidv7(), text: "Hi" });
+    }
 
-    const totals = await chat.plugin("assistant").ratingTotals({ since });
+    await deps.plugin("bot").stopTurns(owner.id);
 
-    expect(totals.sort((a, b) => a.model.localeCompare(b.model))).toEqual([
-      { model: haiku, up: 0, down: 1 },
-      { model: sonnet, up: 2, down: 1 },
-    ]);
-  });
-
-  it("drops a deleted Message's Rating from the totals", async () => {
-    const owner = await insertUser();
-    const conv = await insertConversation(owner);
-    const since = new Date("2040-01-10T00:00:00Z");
-    const gone = await insertMessage({
-      conversationId: conv.id,
-      role: "assistant",
-      text: "Gone",
-      model: sonnet,
-      rating: "down",
-      ratedAt: new Date("2040-01-11T00:00:00Z"),
-    });
-    await insertMessage({
-      conversationId: conv.id,
-      role: "assistant",
-      text: "Kept",
-      model: sonnet,
-      rating: "up",
-      ratedAt: new Date("2040-01-11T00:00:00Z"),
-    });
-    const chat = createBotSdk({
-      databaseUrl: testDatabaseUrl,
-      getUser: () => null,
-      keyEncryptionSecrets,
-      basePath,
-      plugins: [models(), runner(), assistant()],
-    });
-    expect(await chat.plugin("assistant").ratingTotals({ since })).toEqual([
-      { model: sonnet, up: 1, down: 1 },
-    ]);
-
-    await getTestDb().delete(message).where(eq(message.id, gone.id));
-
-    expect(await chat.plugin("assistant").ratingTotals({ since })).toEqual([
-      { model: sonnet, up: 1, down: 0 },
-    ]);
+    const statusOf = async (botId: string) =>
+      (await getTestDb().select().from(botTurn).where(eq(botTurn.botId, botId))).map(
+        (turn) => turn.status,
+      );
+    expect(await statusOf(own.botId)).toEqual(["stopped"]);
+    expect(await statusOf(theirs.botId)).toEqual(["running"]);
   });
 });

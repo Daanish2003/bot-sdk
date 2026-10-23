@@ -5,7 +5,6 @@ export type {
   HostModel,
   HostProvider,
   HostTool,
-  HostTranscriptionModel,
   LinkedCredentials,
   LinkedCredentialsHook,
   Quota,

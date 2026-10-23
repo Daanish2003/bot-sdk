@@ -3,18 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   quotaBlocksModel,
   quotaExceeded,
-  quotaMeterFrom,
   quotaResetsAt,
 } from "../../../plugins/models/client/quota";
 
 const hostModel = { onHostCredentials: true };
 const ownModel = { onHostCredentials: false };
-
-describe("the Quota meter's threshold", () => {
-  it("starts the meter at 80%", () => {
-    expect(quotaMeterFrom).toBe(80);
-  });
-});
 
 describe("whether the Quota is spent", () => {
   it("is spent only at 100%", () => {

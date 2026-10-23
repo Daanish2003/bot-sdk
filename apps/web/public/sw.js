@@ -1,5 +1,5 @@
 // The service worker for apps/web (hand-written, no build plugin). It caches the app's static
-// files and an offline page, and never touches the chat's API, auth or Shared links.
+// files and an offline page, and never touches the chat's API or auth.
 //
 // Served from the root so its scope covers the whole app. Registered in production builds only
 // (see src/lib/service-worker.ts). The routing and age decisions live in sw-logic.js, which the

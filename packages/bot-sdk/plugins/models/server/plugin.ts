@@ -31,11 +31,6 @@ import { hostImageModelList, resolveImageModel, type ResolvedImageModel } from "
 import { quotaLookup, quotaState, readQuota, type QuotaState } from "./quota";
 import { modelsPluginRouter } from "./routers/index";
 import { bindModelsDeps } from "./state";
-import {
-  transcribeRecording,
-  transcriptionAdapterFor,
-  transcriptionProviders,
-} from "./transcription";
 import { freeModelMeter, type ModelMeter } from "./meter";
 import { reconnectChatgptAdapter } from "./chatgpt-plan";
 import type {
@@ -57,11 +52,6 @@ export type ModelsOptions = {
   hostProviders?: Array<HostProvider | HostTool>;
   /** Whether users may use their own Provider credentials. Defaults to `true` (ADR 0007). */
   byok?: boolean;
-  /**
-   * The Host's default Background Model: a `"provider:model"` id of one of the `hostProviders`
-   * Models. Titles use it when a user picks none; `start()` refuses any other id.
-   */
-  defaultBackgroundModel?: string;
   /**
    * The Host's default Image Model: a `"provider:model"` id of one of the `hostProviders`'s Image
    * Models. Image generation uses it when a user picks none; with none, there are no Host images.
@@ -112,10 +102,6 @@ export type ModelsApi = {
    * none (`null`). A pick they can no longer use gives none.
    */
   resolveUserImageModel: (userId: string) => Promise<ResolvedImageModel | null>;
-  transcribeRecording: (
-    userId: string,
-    recording: Parameters<typeof transcribeRecording>[2],
-  ) => Promise<string>;
   readQuota: (userId: string) => ReturnType<typeof readQuota>;
   messageUsage: typeof messageUsage;
   loadCredentials: (userId: string, service: string) => Promise<Credentials | null>;
@@ -143,8 +129,6 @@ export type ModelsApi = {
   imageRequestFor: typeof imageRequestFor;
   /** Whether users may use their own Provider credentials (`byok`, ADR 0007). */
   readonly byok: boolean;
-  /** The Host's default Background Model, or `null`. */
-  readonly defaultBackgroundModel: string | null;
   /** The Host's default Image Model, or `null`. */
   readonly defaultImageModel: string | null;
   /** Whether the Host offers any Image Model (`hostProviders`'s `imageModels`). */
@@ -171,7 +155,6 @@ declare module "../../../core/server/plugin" {
 /** The rate-limit rules the `models` plugin declares, and their defaults. */
 const modelsRateLimits = {
   credentialSave: defaultRateLimits.credentialSave,
-  transcription: defaultRateLimits.transcription,
 };
 
 export type ModelsRule = keyof typeof modelsRateLimits;
@@ -230,6 +213,10 @@ function modelsPlugin(
     start: async (sdk) => {
       await start?.(sdk, ready(sdk));
     },
+    exportUser: async (_sdk, userId, tx) => ({
+      // Read in the export's snapshot, not through the pool.
+      imageModel: await loadImageModelSetting({ db: tx }, userId),
+    }),
     deleteUser: modelsUserDelete,
     rotateKeys: async (sdk) => {
       const deps = ready(sdk);
@@ -254,12 +241,10 @@ export function productionDeps(sdk: BotSdkContext, options: ModelsOptions): Mode
     ollamaFetch: globalThis.fetch,
     adapterFor,
     imageAdapterFor: options.imageAdapterFor ?? productionImageAdapterFor,
-    transcriptionAdapterFor,
     hostProviders: (options.hostProviders ?? []).filter(isHostProvider),
     hostTools: (options.hostProviders ?? []).filter(isHostTool),
     byok: options.byok ?? true,
     linkedCredentials: options.linkedCredentials,
-    defaultBackgroundModel: options.defaultBackgroundModel ?? null,
     defaultImageModel: options.defaultImageModel ?? null,
     recentModelSources: [],
     getQuota: quotaLookup(options.getQuota),
@@ -278,7 +263,6 @@ function modelsApi(deps: ModelsDeps): ModelsApi {
     imageModelSetting: (userId) => loadImageModelSetting(deps, userId),
     saveImageModelSetting: (userId, imageModel) => saveImageModelSetting(deps, userId, imageModel),
     resolveUserImageModel: (userId) => resolveUserImageModel(deps, userId),
-    transcribeRecording: (userId, recording) => transcribeRecording(deps, userId, recording),
     readQuota: (userId) => readQuota(deps, userId),
     messageUsage,
     loadCredentials: (userId, service) => loadCredentials(deps, userId, service),
@@ -300,9 +284,6 @@ function modelsApi(deps: ModelsDeps): ModelsApi {
     get byok() {
       return deps.byok;
     },
-    get defaultBackgroundModel() {
-      return deps.defaultBackgroundModel;
-    },
     get defaultImageModel() {
       return deps.defaultImageModel;
     },
@@ -320,27 +301,7 @@ function checkStart(options: ModelsOptions) {
   if (options.byok === false && !options.hostProviders?.length) {
     throw new Error("Configure hostProviders, byok, or both: with neither, no one can chat");
   }
-  for (const entry of options.hostProviders ?? []) {
-    if (isHostProvider(entry) && entry.transcriptionModels?.length) {
-      if (!transcriptionProviders.includes(entry.provider)) {
-        throw new Error(
-          `hostProviders: ${entry.provider} has no transcription adapter, so it can't list transcriptionModels`,
-        );
-      }
-    }
-  }
   const hostProviders = (options.hostProviders ?? []).filter(isHostProvider);
-  const defaultBackground = options.defaultBackgroundModel;
-  if (
-    defaultBackground !== undefined &&
-    !hostProviders.some(({ provider, models }) =>
-      models.some((model) => `${provider}:${model.modelId}` === defaultBackground),
-    )
-  ) {
-    throw new Error(
-      `defaultBackgroundModel "${defaultBackground}" is not one of the hostProviders' Models`,
-    );
-  }
   for (const { provider, imageModels = [] } of hostProviders) {
     for (const model of imageModels) {
       // A Host Image Model is priced per image; without a price its spend isn't recorded.

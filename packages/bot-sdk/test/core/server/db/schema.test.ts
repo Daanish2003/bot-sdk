@@ -90,29 +90,39 @@ describe("composing the chat schema", () => {
     expect(() => assertNoClashes(schemas)).toThrow(/core.*alpha.*message/);
   });
 
-  it("composes the core's and the assistant's columns and indexes into conversation and message", () => {
+  it("composes only the core's columns and indexes into conversation and message", () => {
     const conversationConfig = getTableConfig(conversation);
     const messageConfig = getTableConfig(message);
 
-    expect(conversationConfig.columns.map((c) => c.name)).toEqual(
-      expect.arrayContaining(["id", "user_id", "model", "project_id", "temporary"]),
-    );
-    expect(conversationConfig.indexes.map((i) => i.config.name)).toEqual(
-      expect.arrayContaining([
-        "conversation_title_trgm_idx",
-        "conversation_unprojected_user_id_last_message_at_idx",
-        "conversation_project_id_last_message_at_idx",
-      ]),
-    );
-    expect(messageConfig.columns.map((c) => c.name)).toEqual(
-      expect.arrayContaining(["parts", "search_text", "run_number", "hidden_reason"]),
-    );
+    expect(conversationConfig.columns.map((c) => c.name).sort()).toEqual([
+      "active_leaf_id",
+      "created_at",
+      "id",
+      "kind",
+      "last_message_at",
+      "last_seq",
+      "title",
+      "updated_at",
+      "user_id",
+    ]);
+    expect(conversationConfig.indexes.map((i) => i.config.name)).toEqual([
+      "conversation_user_id_last_message_at_idx",
+    ]);
+    expect(messageConfig.columns.map((c) => c.name).sort()).toEqual([
+      "conversation_id",
+      "created_at",
+      "error",
+      "error_reason",
+      "id",
+      "parent_id",
+      "parts",
+      "role",
+      "status",
+    ]);
   });
 
   it("types ConversationRow and MessageRow as the composed tables' rows", () => {
     expectTypeOf<ConversationRow>().toEqualTypeOf<typeof conversation.$inferSelect>();
     expectTypeOf<MessageRow>().toEqualTypeOf<typeof message.$inferSelect>();
-    expectTypeOf<ConversationRow["model"]>().toEqualTypeOf<string | null>();
-    expectTypeOf<MessageRow["runNumber"]>().toEqualTypeOf<number>();
   });
 });

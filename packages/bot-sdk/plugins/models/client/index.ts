@@ -9,7 +9,7 @@ declare module "../../../core/client/plugin" {
 
 export type ModelsClientPlugin = BotSdkClientPlugin<"models", ModelsRouter>;
 
-/** The `models` plugin's client: its routers are `credentials`, `models`, `quota` and `voice`. */
+/** The `models` plugin's client: its routers are `credentials`, `models` and `quota`. */
 export function modelsClient(): ModelsClientPlugin {
   return { id: "models" };
 }

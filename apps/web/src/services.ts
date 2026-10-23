@@ -7,7 +7,6 @@ import {
   redisRuntime,
   redisStore,
 } from "@ai-chat/bot-sdk/core/server";
-import { assistant } from "@ai-chat/bot-sdk/plugins/assistant/server";
 import { bot } from "@ai-chat/bot-sdk/plugins/bot/server";
 import { channel, emailChannel } from "@ai-chat/bot-sdk/plugins/channel/server";
 import { memory } from "@ai-chat/bot-sdk/plugins/memory/server";
@@ -25,7 +24,6 @@ import { ENV, ssrfAllowHosts } from "./env.server";
 import { blobStoreOf } from "./blob-store";
 import { getQuota } from "./admin/quota";
 import {
-  hostBackgroundModelOf,
   hostDefaultImageModelOf,
   hostImageProvidersOf,
   hostProvidersOf,
@@ -100,7 +98,7 @@ export const sdk = (shared.botSdk ??= createBotSdk({
   fetchAllowHosts: ssrfAllowHosts,
   // File bytes go to the S3 store when S3_* is set, and to Postgres otherwise (ADR 0015).
   blobStore: blobStoreOf(ENV),
-  // A banned user's Shared links are not found while the Ban holds (spec #277).
+  // A banned user's Routines, Check-ins and Channel messages start no Turns while the Ban holds (spec #277).
   isUserBlocked: async (userId) => {
     const row = await db.query.user.findFirst({
       where: { id: userId },
@@ -117,8 +115,6 @@ export const sdk = (shared.botSdk ??= createBotSdk({
       // The Host's Models and their Quota (ADR 0007); unset, users chat only on their own keys.
       // The Host's Image Models (`HOST_IMAGE_*`) come as one more Provider entry beside its chat Models.
       hostProviders: [...hostProvidersOf(ENV), ...hostImageProvidersOf(ENV)],
-      // The Host's default Background Model for titles (`HOST_BACKGROUND_MODEL`), one of its Models.
-      defaultBackgroundModel: hostBackgroundModelOf(ENV),
       // The Host's default Image Model (`HOST_DEFAULT_IMAGE_MODEL`), one of its Image Models.
       defaultImageModel: hostDefaultImageModelOf(ENV),
       // CI only (spec #278): HOST_IMAGE_PROVIDER=fake answers every image with the fake adapter, so no
@@ -136,7 +132,7 @@ export const sdk = (shared.botSdk ??= createBotSdk({
     runner(),
     // The Bots' Computer (spec #519): on only when self-hosted E2B is configured.
     ...(await computerPluginsOf(e2b, computerTemplate)),
-    // Memory (ADR 0013): the assistant's Memories and the user's Memory switch.
+    // Memory (ADR 0022): the Bots' file memory and the user's Memory switch.
     memory(),
     // Skills (spec #713): each Bot's SKILL.md files, listed in its prompt; a Host turns it on or off.
     skills(),
@@ -144,10 +140,6 @@ export const sdk = (shared.botSdk ??= createBotSdk({
     knowledge(),
     // MCP (ADR 0027): the users' Connections to the Host's MCP servers (`MCP_SERVER_*`).
     mcp({ servers: mcpServersOf(ENV) }),
-    assistant({
-      // Artifacts (spec #304): the assistant's create_artifact tool, the side panel and its version route.
-      artifacts: true,
-    }),
     // Bots (spec #463): the full-screen Bots app at /bots.
     bot(),
     // Channels (spec #761): each Bot's own email address. Mail comes in through Mailpit

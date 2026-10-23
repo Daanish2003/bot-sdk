@@ -20,7 +20,7 @@ export interface PluginApis {}
 export type BotSdkContext = {
   db: Database;
   blobStore: BlobStore;
-  /** Carries Runs across processes (ADR 0006); only the assistant reads its run streams. */
+  /** What the SDK shares across processes: PubSub and the rate-limit counters. */
   runtime: BotSdkRuntime;
   pubsub: PubSub;
   counters: CounterStore;
@@ -154,10 +154,10 @@ export type BotSdkPlugin<
 };
 
 /** The rate-limit rules the core declares itself, beside the plugins' (spec #439). */
-export type CoreRule = "attachmentUpload" | "conversationSearch";
+export type CoreRule = "attachmentUpload";
 
 /** The event hooks the core fires itself, beside the plugins' (spec #439). */
-export type CoreEvent = "onConversationCreated" | "onConversationDeleted";
+export type CoreEvent = "onConversationDeleted";
 
 type RuleOf<Plugin> =
   Plugin extends BotSdkPlugin<string, infer Rule, keyof EventHooks> ? Rule : never;

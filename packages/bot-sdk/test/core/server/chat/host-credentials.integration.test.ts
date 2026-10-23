@@ -1,17 +1,18 @@
-import { asc, eq, sql } from "drizzle-orm";
-import { describe, expect, it } from "vitest";
+import { eq, sql } from "drizzle-orm";
+import { afterEach, describe, expect, it } from "vitest";
 
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
-import { message } from "../../../../core/server/db/schema";
-import type { HostProvider } from "../../../../plugins/assistant/server/deps";
-import { insertConversation } from "../../../support/conversations";
+import { botTurn } from "../../../../core/server/db/schema";
 import {
-  createTestSdk,
-  type TestDepsOverrides,
-  type TestDeps,
-  sendAs,
-} from "../../../support/assistant";
-import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
+  deleteCredentials,
+  saveCredentials,
+} from "../../../../plugins/models/server/credentials/store";
+import type { HostProvider } from "../../../../plugins/models/server/types";
+import { uuidv7 } from "../../../../core/server/lib/uuidv7";
+import { botOf, botSdk, sendToTurnEnd, stopBotRunners } from "../../../support/bot-turns";
+import type { TestDepsOverrides } from "../../../support/deps";
+import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
+import { followSend } from "../../../support/follow-send";
+import { chatRpc } from "../../../support/sdk";
 import { insertUser, type TestUser } from "../../../support/users";
 import { getTestDb } from "../../../support/test-database";
 
@@ -32,89 +33,71 @@ const hostProviders: HostProvider[] = [
     ],
   },
 ];
+const ownKey = {
+  service: "anthropic",
+  fields: { apiKey: "sk-ant-own-key" },
+  hint: "…-key",
+  verified: true,
+};
 
-function chatRequest(command: Record<string, unknown>) {
-  // useChat posts an AG-UI RunAgentInput; our command rides in `forwardedProps`.
-  return new Request("http://localhost/api/chat/run", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages: [], forwardedProps: command }),
-  });
-}
+afterEach(stopBotRunners);
 
-/** A scripted run as `user` on `model`, with the adapter calls recorded. */
+/** A Bot SDK whose model calls are recorded, and whose Turns send "Hello" and end. */
 async function setup({
   user,
-  model = anthropicModel,
   deps: overrides = {},
 }: {
   user?: TestUser;
-  model?: string;
   deps?: TestDepsOverrides;
 }) {
   const owner = user ?? (await insertUser());
-  const fake = createFakeAdapter({ rounds: [round(text("Hello"))] });
+  const fake = createFakeAdapter({
+    rounds: [round(toolCall({ name: "send_to_user", input: { text: "Hello", endTurn: true } }))],
+  });
   const adapterCalls: Array<{
     model: string;
     credentials: Record<string, string>;
     options?: { maxOutputTokens?: number };
   }> = [];
-  const deps: TestDeps = createTestSdk({
-    adapterFor: (adapterModel, credentials, options) => {
-      adapterCalls.push({ model: adapterModel, credentials, options });
+  const { deps } = await botSdk({
+    adapterFor: (model, credentials, options) => {
+      adapterCalls.push({ model, credentials, options });
       return fake.adapter;
     },
     ...overrides,
   });
-  // Titled, so no automatic title call takes the scripted adapter.
-  const conv = await insertConversation(owner, { model, title: "Test Conversation" });
-  const send = () =>
-    sendAs(
-      chatRequest({
-        conversationId: conv.id,
-        parentId: null,
-        text: "Hi",
-        attachmentIds: [],
-        model,
-        webSearch: false,
-      }),
-      owner,
-      deps,
-    );
-  return { owner, deps, adapterCalls, conv, send };
+  return { owner, deps, adapterCalls };
 }
 
-describe("Host credentials in a Run", () => {
+/** How a call that should be refused was refused. */
+const refusal = (promise: Promise<unknown>) =>
+  promise.then(
+    () => {
+      throw new Error("expected a refusal");
+    },
+    (caught: unknown) => caught as { status?: number; data?: { code?: string } },
+  );
+
+describe("Host credentials in a Bot's Turn", () => {
   it("runs a user with no credentials on a Host Model, with the Host credentials and the Model's output cap", async () => {
-    const { send, adapterCalls, conv } = await setup({ deps: { hostProviders } });
+    const { owner, deps, adapterCalls } = await setup({ deps: { hostProviders } });
+    const { client, botId } = await botOf(deps, owner, anthropicModel);
 
-    const response = await send();
-    const body = await response.text();
+    const events = await sendToTurnEnd(client, botId);
 
-    expect(response.status).toBe(200);
-    expect(body).toContain('"delta":"Hello"');
+    expect(events.at(-1)).toEqual({ type: "turnEnded", status: "complete" });
     expect(adapterCalls).toEqual([
       { model: anthropicModel, credentials: hostCredentials, options: { maxOutputTokens: 512 } },
     ]);
-    const [reply] = await getTestDb()
-      .select({ status: message.status })
-      .from(message)
-      .where(eq(message.conversationId, conv.id))
-      .orderBy(asc(message.createdAt));
-    expect(reply?.status).toBe("complete");
   });
 
   it("uses the user's own key for the same Provider and Model, never the Host credentials", async () => {
     const user = await insertUser();
-    const { send, adapterCalls, deps } = await setup({ user, deps: { hostProviders } });
-    await saveCredentials(deps, user.id, {
-      service: "anthropic",
-      fields: { apiKey: "sk-ant-own-key" },
-      hint: "…-key",
-      verified: true,
-    });
+    const { deps, adapterCalls } = await setup({ user, deps: { hostProviders } });
+    await saveCredentials(deps, user.id, ownKey);
+    const { client, botId } = await botOf(deps, user, anthropicModel);
 
-    await (await send()).text();
+    await sendToTurnEnd(client, botId);
 
     expect(adapterCalls).toEqual([
       { model: anthropicModel, credentials: { apiKey: "sk-ant-own-key" }, options: {} },
@@ -123,45 +106,45 @@ describe("Host credentials in a Run", () => {
 
   it("ignores the user's own key when byok is off", async () => {
     const user = await insertUser();
-    const { send, adapterCalls, deps } = await setup({
-      user,
-      deps: { hostProviders, byok: false },
-    });
-    await saveCredentials(deps, user.id, {
-      service: "anthropic",
-      fields: { apiKey: "sk-ant-own-key" },
-      hint: "…-key",
-      verified: true,
-    });
+    const { deps, adapterCalls } = await setup({ user, deps: { hostProviders, byok: false } });
+    await saveCredentials(deps, user.id, ownKey);
+    const { client, botId } = await botOf(deps, user, anthropicModel);
 
-    await (await send()).text();
+    await sendToTurnEnd(client, botId);
 
     expect(adapterCalls.map((call) => call.credentials)).toEqual([hostCredentials]);
   });
 
   it("refuses a Model that neither the user's credentials nor the Host offer", async () => {
-    const { send, adapterCalls } = await setup({
-      model: "openai:gpt-5.6",
-      deps: { hostProviders },
+    const user = await insertUser();
+    const { deps, adapterCalls } = await setup({ user, deps: { hostProviders } });
+    const client = chatRpc({ user, deps });
+
+    // A new Bot on it is refused.
+    expect(
+      await refusal(client.bot.create({ name: "Ada", model: "openai:gpt-5.6" })),
+    ).toMatchObject({ status: 400, data: { code: "error.modelNotAvailable" } });
+
+    // So is a send to a Bot whose Model the user's credentials no longer offer.
+    await saveCredentials(deps, user.id, { ...ownKey, service: "openai" });
+    const { botId } = await botOf(deps, user, "openai:gpt-5.6");
+    await deleteCredentials(deps, user.id, "openai");
+    expect(await refusal(followSend(client, { botId, id: uuidv7(), text: "Hi" }))).toMatchObject({
+      status: 400,
+      data: { code: "error.modelNotAvailable" },
     });
-
-    const response = await send();
-
-    expect(response.status).toBe(400);
     expect(adapterCalls).toEqual([]);
   });
 
   it("never writes the Host credentials to any stored row", async () => {
-    const { send, conv } = await setup({ deps: { hostProviders } });
-    await (await send()).text();
+    const { owner, deps } = await setup({ deps: { hostProviders } });
+    const { client, botId } = await botOf(deps, owner, anthropicModel);
+    await sendToTurnEnd(client, botId);
 
     const db = getTestDb();
-    // The Run wrote its reply, so the scan below covers real rows.
-    const replies = await db
-      .select({ status: message.status })
-      .from(message)
-      .where(eq(message.conversationId, conv.id));
-    expect(replies.map((row) => row.status)).toContain("complete");
+    // The Turn finished, so the scan below covers real rows.
+    const turns = await db.select().from(botTurn).where(eq(botTurn.botId, botId));
+    expect(turns.map((turn) => turn.status)).toEqual(["complete"]);
 
     const tables = await db.execute<{ table_name: string }>(
       sql`select table_name from information_schema.tables where table_schema = 'chat'`,

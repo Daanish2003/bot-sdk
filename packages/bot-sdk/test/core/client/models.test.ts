@@ -1,12 +1,7 @@
-import { createI18n } from "../../../core/shared/i18n";
 import { findModel, unknownReasoning } from "../../../plugins/models/shared/models";
 import { describe, expect, it } from "vitest";
 
-import {
-  missingCredentialsMessage,
-  modelGroups,
-  modelLabel,
-} from "../../../plugins/models/client/models";
+import { modelGroups } from "../../../plugins/models/client/models";
 
 const available = [
   "openai:gpt-5.6",
@@ -14,8 +9,6 @@ const available = [
   "anthropic:claude-haiku-4-5",
   "openai:gpt-5.4-mini",
 ].map((id) => findModel(id)!);
-
-const i18n = createI18n();
 
 describe("modelGroups", () => {
   it("groups the Models by Provider, in Provider order", () => {
@@ -74,67 +67,5 @@ describe("modelGroups with live lists", () => {
       ["openrouter", true],
       ["ollama", true],
     ]);
-  });
-});
-
-describe("missingCredentialsMessage", () => {
-  it("is null while the selected Model's Provider has credentials", () => {
-    expect(missingCredentialsMessage(i18n, "openai:gpt-5.6", available, true)).toBeNull();
-  });
-
-  it("asks for the Provider's key when its credentials are gone", () => {
-    expect(missingCredentialsMessage(i18n, "openai:gpt-6-luna", available.slice(1, 3), true)).toBe(
-      "Add an OpenAI key or pick another Model",
-    );
-    expect(missingCredentialsMessage(i18n, "anthropic:claude-opus-5-5", [], true)).toBe(
-      "Add an Anthropic key or pick another Model",
-    );
-  });
-
-  it("asks for the key of a live-listed Model's Provider when its credentials are gone", () => {
-    expect(missingCredentialsMessage(i18n, "openrouter:openai/gpt-5.5", available, true)).toBe(
-      "Add an OpenRouter key or pick another Model",
-    );
-  });
-
-  it("asks for another Model when a live-listed Model left its list", () => {
-    expect(
-      missingCredentialsMessage(
-        i18n,
-        "ollama:llama3.2:latest",
-        [liveModel("ollama", "qwen3:8b")],
-        true,
-      ),
-    ).toBe("Pick another Model");
-  });
-
-  it("asks for another Model when the selected one isn't offered any more", () => {
-    expect(missingCredentialsMessage(i18n, "openai:gpt-2", available, true)).toBe(
-      "Pick another Model",
-    );
-  });
-});
-
-describe("modelLabel", () => {
-  it("is the curated label of a curated Model", () => {
-    expect(modelLabel("anthropic:claude-haiku-4-5")).toBe(
-      findModel("anthropic:claude-haiku-4-5")!.label,
-    );
-  });
-
-  it("is the id without its Provider for a live-listed Model", () => {
-    expect(modelLabel("ollama:llama3.2:3b")).toBe("llama3.2:3b");
-  });
-
-  it("is the id itself when it has no Provider", () => {
-    expect(modelLabel("mystery")).toBe("mystery");
-  });
-});
-
-describe("missingCredentialsMessage with byok off", () => {
-  it("asks for another Model, never for a key, when the Provider has none", () => {
-    expect(missingCredentialsMessage(i18n, "openai:gpt-6-luna", available.slice(1, 3), false)).toBe(
-      "Pick another Model",
-    );
   });
 });

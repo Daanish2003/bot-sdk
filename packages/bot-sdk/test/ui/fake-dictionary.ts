@@ -7,7 +7,6 @@ import { modelsClient } from "../../plugins/models/client/index";
 import {
   type ChatLinkProps,
   ChatProvider,
-  type ChatLocation,
   type ChatRouter,
 } from "../../core/client/react/provider";
 import type { BotSdkClientPlugin } from "../../core/client/plugin";
@@ -77,7 +76,6 @@ export function renderWrapped(ui: ReactElement, options: WrapOptions = {}) {
 
 type WrapOptions = {
   seed?: (queryClient: QueryClient, client: BotSdkClient) => void;
-  location?: Partial<ChatLocation>;
   /** The Host's navigation, to see where the UI goes. Defaults to going nowhere. */
   navigate?: ChatRouter["navigate"];
   messages?: Partial<Messages>;
@@ -95,7 +93,6 @@ export function providerFor(
   ui: ReactElement,
   {
     seed,
-    location = {},
     navigate = () => {},
     messages = wrappedDictionary(),
     plugins = [modelsClient()],
@@ -112,8 +109,6 @@ export function providerFor(
   const router: ChatRouter = {
     Link: ({ children, className }: ChatLinkProps) => createElement("a", { className }, children),
     navigate,
-    useLocation: () => ({ newConversation: false, ...location }),
-    shareUrl: (token) => token,
   };
   const queryClient = new QueryClient();
   seed?.(queryClient, client);

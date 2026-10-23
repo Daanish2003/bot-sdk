@@ -1,0 +1,510 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lesson 7 · The Message tree</title>
+    <link rel="stylesheet" href="../../assets/style.css" />
+  </head>
+  <body>
+    <main>
+      <p class="kicker">ai-chat Chat SDK · Lesson 7</p>
+      <h1>The Message tree</h1>
+      <p class="subtitle">
+        Each Message points at its parent, and the Conversation points at one leaf.
+      </p>
+      <p class="meta">
+        About 12 minutes · a browser · you'll write <code>pathTo(nodes, leafId)</code>, the function
+        that finds the Active Branch
+      </p>
+
+      <section class="words">
+        <h2>Words you'll need</h2>
+        <dl>
+          <dt>Root</dt>
+          <dd>
+            A Message with no parent (<code>parentId</code> is <code>null</code>). A Conversation
+            can have more than one.
+          </dd>
+          <dt>Leaf</dt>
+          <dd>A Message with no children: the end of a Branch.</dd>
+          <dt>Branch</dt>
+          <dd>
+            One path through the tree, from a root down to a leaf (from <code>CONTEXT.md</code>).
+          </dd>
+          <dt>Active Branch</dt>
+          <dd>The one Branch that the screen shows and that the next Message continues.</dd>
+        </dl>
+        <p class="hint">
+          Forgot a code name? Press the <strong>Names?</strong> button in the bottom-right corner.
+        </p>
+      </section>
+
+      <figure id="video"></figure>
+
+      <div
+        class="quiz"
+        data-answer="1"
+        data-why="handleChat plans the Run in run-plan.ts, which calls loadPath(deps, owned.id, input.leafId), so the history comes from Postgres. The client sends only a command."
+      >
+        <div class="label">Warm-up · Lesson 4</div>
+        <p class="q">Where does <code>handleChat</code> get the history it sends to the Model?</p>
+        <ol class="opts">
+          <li data-why="The client never sends the history; a client could change it.">
+            From the messages in the request body
+          </li>
+          <li>From the database, walking up from parentId</li>
+          <li data-why="The run log holds one Run's stream, not the Conversation's history.">
+            From the run log of the previous reply
+          </li>
+          <li data-why="TanStack AI keeps no history here; the SDK owns the tree (ADR 0001).">
+            From TanStack AI's stored chat thread
+          </li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+
+      <h2><span class="num">1</span>A family tree, not a list</h2>
+      <figure id="tree1">
+        <figcaption>
+          Nine Messages, two roots, four leaves: <code>q1b</code> is an edited first Message.
+        </figcaption>
+      </figure>
+      <p>
+        Think of a family tree where each person writes down only one thing: who their parent is.
+        The picture is the test tree from
+        <a href="../../../../packages/bot-sdk/test/core/shared/chat/branches.test.ts"
+          ><code>branches.test.ts</code></a
+        >. Blue boxes are user Messages, grey boxes are replies, and <code>m5</code> means "created
+        at minute 5".
+      </p>
+      <p>
+        A list can't hold this, because <code>a1</code> has two children. That is why the SDK
+        doesn't use TanStack AI's ready-made storage: it keeps one straight transcript and deletes
+        the later Messages when you edit or regenerate, so old Branches would be lost (<a
+          href="../../../../docs/adr/0001-own-message-tree.md"
+          >ADR 0001</a
+        >).
+      </p>
+
+      <h2><span class="num">2</span>Two columns hold the whole tree</h2>
+      <figure>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Column</th>
+                <th>Table</th>
+                <th>Holds</th>
+                <th>Example</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>parentId</code></td>
+                <td><code>chat.message</code></td>
+                <td>The Message this one continues; <code>null</code> for a root</td>
+                <td><code>q2b.parentId = "a1"</code></td>
+              </tr>
+              <tr>
+                <td><code>activeLeafId</code></td>
+                <td><code>chat.conversation</code></td>
+                <td>The leaf of the Active Branch</td>
+                <td><code>activeLeafId = "a2b"</code></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <figcaption>
+          Only upward pointers are stored; nothing lists a Message's children.
+        </figcaption>
+      </figure>
+      <p>
+        Look at
+        <a href="../../../../packages/bot-sdk/core/server/db/core-schema.ts"
+          ><code>core-schema.ts</code></a
+        >: those two columns are the whole tree, in the <code>chat</code> Postgres schema. To find
+        children, the code loads every Message of the Conversation and groups them by
+        <code>parentId</code>.
+      </p>
+      <p>
+        A Message never moves. An edit doesn't update the old row: it inserts a new sibling beside
+        it (Lesson 8). Only a Run writes a Message's parts, while that Run is live.
+      </p>
+
+      <div
+        class="quiz"
+        data-answer="2"
+        data-why="The edit goes beside the first Message, under its parent. That parent is null, so the copy is a second root, like q1b."
+      >
+        <div class="label">Quiz</div>
+        <p class="q">
+          The user edits the first Message of a Conversation. Where does the new Message go?
+        </p>
+        <ol class="opts">
+          <li data-why="Rows are never moved or replaced; the old Message stays for its Branch.">
+            It replaces the old row.
+          </li>
+          <li data-why="An edit goes beside the edited Message, under the same parent.">
+            It goes under the reply.
+          </li>
+          <li>It becomes a new root.</li>
+          <li data-why="The tree lives inside one Conversation; an edit never leaves it.">
+            It goes in a new thread.
+          </li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+
+      <h2><span class="num">3</span>Walk up from the leaf</h2>
+      <figure id="walk">
+        <div class="toy-out">
+          <button class="btn" type="button" id="walk-step">Step up</button>
+          <button class="btn" type="button" id="walk-reset">Reset</button>
+          <span id="walk-out"></span>
+        </div>
+        <figcaption>
+          Press Step up: each step follows one <code>parentId</code> until it reaches a root.
+        </figcaption>
+      </figure>
+      <p>
+        To show the Active Branch, <code>pathTo</code> in
+        <a href="../../../../packages/bot-sdk/core/shared/chat/branches.ts"
+          ><code>branches.ts</code></a
+        >
+        starts at the leaf and follows <code>parentId</code> up, then turns the list around so the
+        oldest Message comes first:
+      </p>
+      <ol class="steps">
+        <li>
+          Start at <code>a2b</code>, then its parent <code>q2b</code>, then <code>a1</code>, then
+          <code>q1</code>.
+        </li>
+        <li>
+          <code>q1.parentId</code> is <code>null</code>, so stop: <code>[a2b, q2b, a1, q1]</code>.
+        </li>
+        <li>Reverse it: <code>[q1, a1, q2b, a2b]</code>. That is what the screen shows.</li>
+      </ol>
+      <p>
+        Two callers use it. <code>loadActiveBranch</code> in
+        <a href="../../../../packages/bot-sdk/plugins/assistant/server/chat/store.ts"
+          ><code>store.ts</code></a
+        >
+        walks up from <code>activeLeafId</code> for the <code>conversation.get</code> call.
+        <code>loadPath</code>, in
+        <a href="../../../../packages/bot-sdk/core/server/chat/message-tree.ts"
+          ><code>message-tree.ts</code></a
+        >, walks up from any leaf you give it: the run plan for <code>handleChat</code> gives the
+        new Message's parent, so it rebuilds the history for the Model from the database.
+      </p>
+
+      <h2>Try it</h2>
+      <div id="ex1"></div>
+      <figure id="payoff">
+        <div class="toy-out">
+          Click any Message to make it <code>activeLeafId</code>.
+          <span id="pay-out"
+            >Pass the tests first. Then your <code>pathTo</code> draws the red Branch.</span
+          >
+        </div>
+        <figcaption>
+          Your <code>pathTo</code> picks the red Branch for the leaf you click.
+        </figcaption>
+      </figure>
+
+      <section class="takeaways">
+        <h2>Key takeaways</h2>
+        <p class="one-thing">
+          <strong>If you remember only one thing:</strong> each Message stores only its parent, and
+          the Active Branch is the walk up from <code>activeLeafId</code>, reversed.
+        </p>
+        <ul>
+          <li>
+            <strong>A tree, not a list.</strong> Edits and regenerates add siblings, so old Branches
+            stay. TanStack's linear storage would delete them (ADR 0001).
+          </li>
+          <li>
+            <strong>Two columns.</strong> <code>message.parentId</code> points up;
+            <code>conversation.activeLeafId</code> picks the leaf.
+          </li>
+          <li>
+            <strong>Messages never move.</strong> New Messages are inserted; a row's place in the
+            tree is fixed when it is written.
+          </li>
+        </ul>
+        <p class="selftest">
+          Self-test: cover this box, then draw the sample tree and say the Active Branch for leaf
+          <code>a1c</code>.
+        </p>
+      </section>
+
+      <details class="deeper">
+        <summary>Go deeper: sources, side notes and a challenge</summary>
+        <h3>The decision</h3>
+        <blockquote>
+          "TanStack AI's persistence (<code>@tanstack/ai-persistence</code>
+          <code>withPersistence</code>) keeps one linear transcript per thread and deletes later
+          Messages on edit or regenerate, which rules out Branches." (<a
+            href="../../../../docs/adr/0001-own-message-tree.md"
+            >ADR 0001</a
+          >)
+        </blockquote>
+        <p>
+          The same ADR stores parts in the SDK's own versioned shape, not TanStack's
+          <code>UIMessage</code>, and converts them at one boundary module. A later lesson covers
+          that boundary.
+        </p>
+        <h3>Why a fixed place in the tree matters</h3>
+        <p>
+          Because a Message never moves, the path from a root to a given leaf is fixed. A Shared
+          link can therefore store only a leaf id, not a copy of the Messages (<a
+            href="../../../../docs/adr/0004-shared-link-points-at-the-tree.md"
+            >ADR 0004</a
+          >). Artifact versions use the same idea: each version belongs to the reply that wrote it,
+          so a Branch shows only the versions on its path (<a
+            href="../../../../docs/adr/0016-artifact-versions-follow-the-message-tree.md"
+            >ADR 0016</a
+          >).
+        </p>
+        <h3>Side notes</h3>
+        <ul>
+          <li>
+            <code>pathTo</code> is in <code>core/shared</code>, so it has no database code: it works
+            on any list of nodes. <code>loadPath</code> loads every Message of the Conversation in
+            one query and walks in memory. The index
+            <code>message_conversation_id_parent_id_idx</code> keeps that query fast.
+          </li>
+          <li>
+            If the leaf id isn't in the Conversation, <code>pathTo</code> returns <code>[]</code>.
+            <code>handleChat</code> uses that to refuse a <code>parentId</code> from another
+            Conversation with the code <code>error.parentNotFound</code>.
+          </li>
+          <li>
+            Deleting a Message would cascade to its children (<code>onDelete: "cascade"</code> on
+            <code>parentId</code>), and <code>activeLeafId</code> would become
+            <code>null</code> (<code>"set null"</code>). Today no code deletes one Message; only
+            whole Conversations are deleted.
+          </li>
+          <li>
+            ADR 0001 says Messages are "never mutated once written". That is true of
+            <code>parentId</code>, but a few columns change later: a Rating (<code
+              >rateMessage</code
+            >
+            in <code>store.ts</code>), and the parts and status of a reply that waits for an
+            Approval, when the decision starts its next Run (<code>approval.ts</code>).
+          </li>
+        </ul>
+        <h3>Challenge</h3>
+        <p>
+          Read the tests in
+          <a href="../../../../packages/bot-sdk/test/core/shared/chat/branches.test.ts"
+            ><code>branches.test.ts</code></a
+          >. Which <code>pathTo</code> test would fail if you forgot <code>.reverse()</code>? Tell
+          your teacher.
+        </p>
+      </details>
+
+      <div class="footer-box">
+        <p>
+          <strong>Primary source:</strong>
+          <a href="../../../../docs/adr/0001-own-message-tree.md"
+            >ADR 0001: We own the Message tree</a
+          >, then
+          <a href="../../../../packages/bot-sdk/core/shared/chat/branches.ts"
+            ><code>branches.ts</code></a
+          >
+          (59 lines).
+        </p>
+        <p>
+          <strong>Cheat sheets:</strong>
+          <a href="../../reference/package-map.html">Package map</a> ·
+          <a href="../../reference/names.html">Names</a>
+        </p>
+        <p>
+          <strong>Stuck or curious?</strong> Ask your teacher (Claude) anything: "why not store a
+          children list?", "show me where activeLeafId is written", or "quiz me again".
+        </p>
+        <div class="nav">
+          <a href="0006-runs-outlive-the-client.html">← Lesson 6: Runs outlive the client</a
+          ><a href="0008-branches.html">Lesson 8: Branches →</a>
+        </div>
+      </div>
+    </main>
+
+    <script src="../../assets/diagrams.js"></script>
+    <script src="../../assets/explainer.js"></script>
+    <script src="../../assets/message-tree.js"></script>
+    <script src="../../assets/quiz.js"></script>
+    <script src="../../assets/exercise.js"></script>
+    <script>
+      const D = Diagrams,
+        MT = MessageTree,
+        T = MT.SAMPLE;
+      const byId = Object.fromEntries(T.map((n) => [n.id, n]));
+      const walkUp = (leaf) => {
+        const up = [];
+        for (let n = byId[leaf]; n; n = byId[n.parentId]) up.push(n.id);
+        return up;
+      };
+
+      // Section 1: the sample tree, Active Branch in red.
+      MT.render("#tree1", T, { path: walkUp("a2b"), activeLeaf: "a2b" });
+
+      // Section 3: the walk-up stepper.
+      const full = walkUp("a2b");
+      let steps = 1;
+      const walk = MT.render("#walk", T, { path: full.slice(0, 1), activeLeaf: "a2b" });
+      const walkOut = document.getElementById("walk-out");
+      const showWalk = () => {
+        const done = steps >= full.length;
+        walk.update(T, { path: full.slice(0, steps), activeLeaf: "a2b" });
+        walkOut.innerHTML = done
+          ? `<code>${full.at(-1)}.parentId</code> is null, so stop. Reversed: <code>[${[...full].reverse().join(", ")}]</code>`
+          : `So far: <code>[${full.slice(0, steps).join(", ")}]</code>`;
+      };
+      document.getElementById("walk-step").addEventListener("click", () => {
+        steps = Math.min(full.length, steps + 1);
+        showWalk();
+      });
+      document.getElementById("walk-reset").addEventListener("click", () => {
+        steps = 1;
+        showWalk();
+      });
+      showWalk();
+
+      // Video.
+      const tree = (o) => MT.draw(T, o);
+      Explainer.mount("#video", {
+        title: "Lesson 7 in about 1 minute",
+        width: 760,
+        height: 308,
+        scenes: [
+          {
+            say: "A chat looks like a list, but edits and regenerates make it fork. So the Chat SDK stores a tree of Messages.",
+            draw: (t, A) =>
+              MT.draw(
+                T.filter((n) => n.at <= Math.floor(A.lerp(0, 8.99, t))),
+                {},
+              ),
+          },
+          {
+            say: "Each Message stores only one pointer: its parent. A root has no parent, and there can be more than one root.",
+            draw: (t, A) =>
+              tree({ fresh: t > 0.5 ? ["q1", "q1b"] : [] }) +
+              A.fade(
+                t,
+                0.5,
+                0.7,
+                D.text(380, 14, "two roots: q1 and q1b", {
+                  tone: "warn",
+                  anchor: "middle",
+                  weight: 600,
+                }),
+              ),
+          },
+          {
+            say: "The Conversation stores one more pointer: the leaf of the Active Branch.",
+            draw: (t, A) => tree({ activeLeaf: t > 0.3 ? "a2b" : null }),
+          },
+          {
+            say: "To show the Active Branch, walk up from that leaf, one parent at a time, then turn the list around.",
+            show: "a2b → q2b → a1 → q1, reversed: q1, a1, q2b, a2b",
+            draw: (t, A) =>
+              tree({
+                activeLeaf: "a2b",
+                path: walkUp("a2b").slice(0, 1 + Math.floor(A.step(t, 0.1, 0.8) * 3.99)),
+              }),
+          },
+          {
+            say: "Messages never move, so old Branches stay. Now step through the walk, then write pathTo yourself.",
+            show: "Next: step through the walk, then write pathTo(nodes, leafId).",
+            draw: (t, A) =>
+              tree({ activeLeaf: "a2", path: walkUp("a2") }) +
+              A.fade(
+                t,
+                0.3,
+                0.6,
+                D.text(380, 14, "a2's Branch is still there", {
+                  tone: "accent",
+                  anchor: "middle",
+                  weight: 600,
+                }),
+              ),
+          },
+        ],
+      });
+
+      // Try it: pathTo.
+      const TREE_SRC = `// The test tree from branches.test.ts. \`at\` is the minute it was created.
+const TREE = [
+  { id: "q1", parentId: null, at: 0 },
+  { id: "a1", parentId: "q1", at: 1 },
+  { id: "q2", parentId: "a1", at: 2 },
+  { id: "a2", parentId: "q2", at: 3 },
+  { id: "a1b", parentId: "q1", at: 4 },
+  { id: "q2b", parentId: "a1", at: 5 },
+  { id: "a2b", parentId: "q2b", at: 6 },
+  { id: "q1b", parentId: null, at: 7 },
+  { id: "a1c", parentId: "q1b", at: 8 },
+];`;
+      const pick = (...ids) => ids.map((id) => byId[id]);
+      let learnerPathTo = null;
+      Exercise.mount("#ex1", {
+        title: "Write pathTo(nodes, leafId)",
+        task: "Return the Messages from a root down to <code>leafId</code>, oldest first. Return <code>[]</code> when <code>leafId</code> is <code>null</code> or isn't in <code>nodes</code>.",
+        storageKey: "ai-chat-sdk-l7-pathTo",
+        fnName: "pathTo",
+        starter: `${TREE_SRC}
+
+// Example: pathTo(TREE, "a2b") → the nodes q1, a1, q2b, a2b.
+// Hint: build a Map from id to node. Start at the leaf, push each node,
+// move to its parent, and stop when there is no parent. Then reverse.
+function pathTo(nodes, leafId) {
+  return [];
+}`,
+        solution: `${TREE_SRC}
+
+function pathTo(nodes, leafId) {
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const path = [];
+  for (let node = leafId ? byId.get(leafId) : undefined; node; ) {
+    path.push(node);
+    node = node.parentId ? byId.get(node.parentId) : undefined;
+  }
+  return path.reverse();
+}`,
+        tests: [
+          {
+            name: "leaf a2b → q1, a1, q2b, a2b",
+            args: [T, "a2b"],
+            expect: pick("q1", "a1", "q2b", "a2b"),
+          },
+          {
+            name: "leaf a1c (under the second root) → q1b, a1c",
+            args: [T, "a1c"],
+            expect: pick("q1b", "a1c"),
+          },
+          { name: "leaf a1b → q1, a1b", args: [T, "a1b"], expect: pick("q1", "a1b") },
+          { name: "a root as the leaf: q1 → just q1", args: [T, "q1"], expect: pick("q1") },
+          { name: "no leaf (null) → []", args: [T, null], expect: [] },
+          { name: "a leaf that isn't in the tree → []", args: [T, "missing"], expect: [] },
+        ],
+        onResult(fn, all) {
+          learnerPathTo = all ? fn : null;
+          drawPayoff("a2b");
+        },
+      });
+      let payoff;
+      function drawPayoff(leaf) {
+        const path = learnerPathTo ? learnerPathTo(T, leaf).map((n) => n.id) : [];
+        const opts = { path, activeLeaf: leaf, onPick: drawPayoff };
+        if (!payoff) payoff = MT.render("#payoff", T, opts);
+        else payoff.update(T, opts);
+        if (learnerPathTo)
+          document.getElementById("pay-out").innerHTML =
+            `Your <code>pathTo(TREE, "${leaf}")</code> → <code>[${path.join(", ")}]</code>`;
+      }
+      drawPayoff("a2b");
+    </script>
+  </body>
+</html>

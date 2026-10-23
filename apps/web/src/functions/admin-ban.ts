@@ -23,7 +23,7 @@ const unbanInput = z.object({
 
 /**
  * Bans a user (spec #277): the plugin's ban deletes their sessions and blocks every sign-in method;
- * their live Runs and Bot Turns stop through the Stop path (#585). An Admin can't be banned, nor can
+ * their live Bot Turns stop through the Stop path (#585). An Admin can't be banned, nor can
  * the Admin themselves.
  * Writes one evlog event for the action.
  */
@@ -52,7 +52,7 @@ export const banUser = createServerFn({ method: "POST" })
       },
       headers: getRequest().headers,
     });
-    // Logged as soon as the Ban holds, so it's recorded even if stopping the Runs throws.
+    // Logged as soon as the Ban holds, so it's recorded even if stopping the Turns throws.
     log.info({
       action: "admin.user.ban",
       message: "User banned by an Admin",
@@ -61,7 +61,6 @@ export const banUser = createServerFn({ method: "POST" })
       reason: data.reason,
       endsAt: endsAt?.toISOString() ?? null,
     });
-    await sdk.plugin("assistant").stopRuns(data.userId);
     await sdk.plugin("bot").stopTurns(data.userId);
 
     return { endsAt: endsAt?.toISOString() ?? null };

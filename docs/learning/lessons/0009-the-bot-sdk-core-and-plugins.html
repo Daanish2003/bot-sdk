@@ -18,6 +18,16 @@
         that sorts plugins by what they require
       </p>
 
+      <div class="rule-box">
+        <strong>Note</strong>
+        The assistant, this lesson's second example, is gone (<a
+          href="../../adr/0027-bot-only-platform.md"
+          >ADR 0027</a
+        >). The platform is Bot-only, so the diagrams and examples below show the core and the Bot
+        plugins. Lessons 1–8 taught the assistant and are in
+        <a href="archive-2026-10-23/">archive-2026-10-23/</a>.
+      </div>
+
       <section class="words">
         <h2>Words you'll need</h2>
         <dl>
@@ -28,7 +38,7 @@
           <dt>Plugin</dt>
           <dd>
             A feature a Host turns on with one call in <code>plugins: […]</code>, such as
-            <code>assistant()</code>.
+            <code>bot()</code>.
           </dd>
           <dt><code>plugin(id)</code></dt>
           <dd>Returns another plugin's API from the context. It is typed.</dd>
@@ -47,7 +57,7 @@
         data-answer="1"
         data-why="The pool connects on first use. Construction opens nothing, so the Host can build the SDK at import time."
       >
-        <div class="label">Warm-up · Lesson 2</div>
+        <div class="label">Warm-up</div>
         <p class="q">When does the SDK first open a database connection?</p>
         <ol class="opts">
           <li
@@ -75,13 +85,18 @@
       <p>
         Think of the Bot SDK as a house. The core is the foundation: the database, the blob store,
         pub/sub, logging, and the Conversation with its Messages and attachments. Every Host gets
-        it. The plugins are rooms the Host adds: <code>models</code> (keys, quota and usage) and
-        <code>assistant</code> (Runs, tools and more; its Memory was removed in #650).
+        it. The plugins are rooms the Host adds: <code>models</code> (keys, quota and usage),
+        <code>runner</code> (durable jobs), <code>bot</code> (always-on Bots),
+        <code>computer</code>, <code>memory</code>, <code>knowledge</code>, <code>skills</code>,
+        <code>channel</code> and <code>mcp</code>.
       </p>
       <p>
         A plugin calls another plugin only when it lists that plugin in <code>requires</code>, as
-        <code>assistant</code> lists <code>models</code>. The core imports plugin code in one place
-        only, the schema module that composes the tables. Everywhere else it uses
+        <code>bot</code> lists <code>models</code> and <code>runner</code>. A softer link,
+        <code>uses</code>, orders the plugins without forcing the other one on:
+        <code>bot</code> uses <code>computer</code>, and asks
+        <code>sdk.hasPlugin("computer")</code> before it touches it. The core imports plugin code in
+        one place only, the schema module that composes the tables. Everywhere else it uses
         <code>import type</code>.
       </p>
       <p>
@@ -105,16 +120,17 @@
         A plugin is the <code>BotSdkPlugin</code> type in
         <a href="../../../packages/bot-sdk/core/server/plugin.ts"
           ><code>core/server/plugin.ts</code></a
-        >. The shape of <code>assistant</code>, trimmed, looks like this:
+        >. The shape of <code>bot</code>, trimmed, looks like this:
       </p>
       <pre><code>{
-  id: "assistant",
-  requires: ["models"],
-  router: appRouter,
+  id: "bot",
+  requires: ["models", "runner"],
+  uses: ["computer", "memory", "skills", "knowledge", "mcp"],
+  router: botPluginRouter,
   init: (sdk) =&gt; { …; return { api }; },
-  start: (sdk) =&gt; lifecycleOf(sdk).start(),
-  stop: (sdk) =&gt; lifecycleOf(sdk).stop(),
-  deleteUser: assistantUserDelete,
+  start: startRoutineReconcile,
+  deleteUser: { before, after },
+  databaseHooks: { conversation: { delete: screenshotsConversationDelete } },
 }</code></pre>
       <p>
         Each hook gets a <code>BotSdkContext</code>: the database, the keyring, the event hooks, a
@@ -126,23 +142,25 @@
       <h2><span class="num">3</span>One schema, composed from parts</h2>
       <figure id="schema">
         <figcaption>
-          The core's columns and the assistant's columns make one <code>conversation</code> table.
+          Each plugin brings its own tables. They sit beside the core's and point at
+          <code>conversation</code>.
         </figcaption>
       </figure>
       <p>
         A plugin's schema module is plain Drizzle. It exports its own tables and enums, plus, for
-        each core table, the columns and indexes it adds. The assistant adds
-        <code>model</code>, <code>reasoning_effort</code>, <code>project_id</code>,
-        <code>tool_settings</code> and <code>temporary</code> to <code>conversation</code>, in the
-        same column builders the core uses.
+        each core table, the columns and indexes it adds. The Bot plugins add none to core tables:
+        <code>bot</code> brings <code>bot</code>, <code>bot_turn</code>, <code>bot_routine</code>
+        and more, and each row points at its Conversation or its user.
       </p>
       <p>
         <a href="../../../packages/bot-sdk/core/server/db/schema.ts"
           ><code>core/server/db/schema.ts</code></a
         >
-        joins the parts into one <code>conversation</code> and one <code>message</code>. If two
-        parts declare the same table, enum, column or index, the module throws at load and names
-        both. CI runs <code>drizzle-kit generate</code> and fails if the migrations folder changes.
+        joins the parts into one <code>chat</code> schema. A plugin that does need a column on
+        <code>conversation</code> or <code>message</code> gives it under
+        <code>fields.conversation.columns</code>, and the composed table spreads it in. If two parts
+        declare the same table, enum, column or index, the module throws at load and names both. CI
+        runs <code>drizzle-kit generate</code> and fails if the migrations folder changes.
       </p>
 
       <div
@@ -176,24 +194,25 @@
       <h2><span class="num">4</span>Every delete goes through one door</h2>
       <figure id="deletes">
         <figcaption>
-          Five paths, one function. The plugin's <code>before</code> runs inside the transaction.
+          A user delete calls one function. The plugin's <code>before</code> runs inside the
+          transaction.
         </figcaption>
       </figure>
       <p>
-        Five paths delete Conversations: a single delete, delete all, the Temporary sweep, a Project
-        delete and the user delete. Each one calls
+        Every path that deletes Conversations calls
         <a href="../../../packages/bot-sdk/core/server/chat/delete-conversations.ts"
           ><code>deleteConversations</code></a
         >
-        before it removes any parent row. It selects the ids, runs each plugin's
+        before it removes any parent row. Today that is a user delete: the core's step and the
+        <code>bot</code> plugin's part both use it. It selects the ids, runs each plugin's
         <code>before</code> in the transaction, deletes the rows, and then runs each
         <code>after</code> once the commit is done.
       </p>
       <p>
         A <code>before</code> that throws rolls the delete back. An <code>after</code> that throws
-        is logged, and the other hooks still run. The assistant's <code>before</code> stops the Runs
-        in the deleted Conversations, and its <code>after</code> deletes their Generated image
-        bytes.
+        is logged, and the other hooks still run. The <code>bot</code> plugin's
+        <code>before</code> collects the blob keys of its Helpers' screenshots, and its
+        <code>after</code> deletes those bytes once the rows are gone.
       </p>
 
       <div
@@ -230,7 +249,7 @@
           >
         </div>
         <figcaption>
-          The sample lists <code>assistant</code> first, but it requires <code>models</code>.
+          The sample lists <code>bot</code> first, but it requires <code>models</code>.
         </figcaption>
       </figure>
 
@@ -255,8 +274,8 @@
           </li>
         </ul>
         <p class="selftest">
-          Self-test: cover this box, draw the core and the two plugins, and name the five delete
-          paths.
+          Self-test: cover this box, draw the core and the plugins <code>bot</code> needs, and say
+          what runs before and after a delete commits.
         </p>
       </section>
 
@@ -269,7 +288,9 @@
           <code>requires</code>, and the core throws at startup when one is missing." (<a
             href="../../../docs/adr/0020-one-core-sdk-with-plugins.md"
             >ADR 0020</a
-          >, amended for the field DSL)
+          >, amended for the field DSL.) Its plugin list is out of date:
+          <a href="../../../docs/adr/0027-bot-only-platform.md">ADR 0027</a> drops
+          <code>assistant</code> and adds <code>mcp</code>.
         </blockquote>
         <p>
           The ADR also says the core holds the Conversation, because it is to this SDK what
@@ -295,13 +316,9 @@
             its plugin id.
           </li>
           <li>
-            The models schema has <code>fields: {}</code> by type. Giving models a column means
-            spreading its fields in <code>schema.ts</code>, which is an edit to the core.
-          </li>
-          <li>
-            Two owner calls are still open. The conversation router stays in the assistant, because
-            its reads filter on assistant fields, and <code>user_settings</code> belongs to the
-            assistant.
+            Every Bot plugin has <code>fields: {}</code> by type. Giving one a column on
+            <code>conversation</code> means spreading its fields in <code>schema.ts</code>, which is
+            an edit to the core.
           </li>
         </ul>
         <h3>Challenge</h3>
@@ -332,11 +349,10 @@
         </p>
         <p>
           <strong>Stuck or curious?</strong> Ask your teacher (Claude) anything: "why does the core
-          not hold assistant columns?", "show me every plugin's requires", or "quiz me again".
+          not hold the Bot tables?", "show me every plugin's requires", or "quiz me again".
         </p>
         <div class="nav">
-          <a href="0008-branches.html">← Lesson 8: Branches</a
-          ><a href="0010-the-week-one-loop.html">Lesson 10: The week-one loop →</a>
+          <a href="0010-the-week-one-loop.html">Lesson 10: The week-one loop →</a>
         </div>
       </div>
     </main>
@@ -349,24 +365,36 @@
     <script>
       const D = Diagrams;
 
-      // Section 1: the core, the plugins and the copy.
+      // Section 1: the core and the Bot plugins, with what each requires.
+      const PLUGINS = [
+        ["models", "keys · quota · usage"],
+        ["runner", "durable jobs"],
+        ["mcp", "Connections"],
+        ["bot", "requires models, runner"],
+        ["computer", "requires runner"],
+        ["memory", "requires models, runner"],
+        ["channel", "requires models, bot, runner"],
+        ["knowledge", "the user's documents"],
+        ["skills", "a Bot's learned procedures"],
+      ];
       D.render(
         "#shape",
         D.svg(
           760,
-          230,
-          D.box(40, 40, 300, 56, "core/", { mono: true, tone: "accent", sub: "always enabled" }) +
-            D.box(40, 150, 140, 44, "plugins/models", { mono: true, tone: "blue" }) +
-            D.box(200, 150, 140, 44, "plugins/assistant", { mono: true, tone: "blue" }) +
-            D.arrow(200, 172, 182, 172, { tone: "ok", dashed: true, label: "requires" }) +
-            D.arrow(380, 120, 470, 120, { label: "copy" }) +
-            D.box(480, 40, 260, 44, "a Host: src/bot-sdk", { mono: true }) +
-            D.box(480, 120, 260, 44, "core/ and plugins/* replaced", {
-              mono: true,
-              tone: "accent",
-            }) +
-            D.box(480, 180, 260, 44, "plugins/*/ui kept as edited", { mono: true, tone: "ok" }),
-          { label: "The core, two plugins, and a copy that replaces all but the ui folders" },
+          290,
+          D.box(40, 16, 680, 50, "core/", {
+            mono: true,
+            tone: "accent",
+            sub: "database · blob store · pub/sub · hooks · Conversation · Message",
+          }) +
+            PLUGINS.map(([id, sub], i) =>
+              D.box(40 + (i % 3) * 232, 96 + Math.floor(i / 3) * 64, 216, 52, "plugins/" + id, {
+                mono: true,
+                tone: id === "bot" || id === "channel" ? "ok" : "blue",
+                sub,
+              }),
+            ).join(""),
+          { label: "The core, and the nine Bot plugins with the plugins each requires" },
         ),
       );
 
@@ -399,7 +427,7 @@
         fieldButtons.append(b);
       }
 
-      // Section 3: two parts, one table.
+      // Section 3: the tables of the core and a plugin, in one schema.
       D.render(
         "#schema",
         D.svg(
@@ -408,51 +436,39 @@
           D.box(20, 20, 300, 60, "core-schema.ts", {
             mono: true,
             tone: "accent",
-            sub: "id · userId · title · activeLeafId · pinned",
+            sub: "conversation · message · attachment",
           }) +
-            D.box(20, 110, 300, 60, "assistant schema.ts", {
+            D.box(20, 110, 300, 60, "bot schema.ts", {
               mono: true,
               tone: "blue",
-              sub: "model · reasoning_effort · project_id · tool_settings · temporary",
+              sub: "bot · bot_turn · bot_routine · bot_helper…",
             }) +
             D.arrow(330, 50, 440, 80, { tone: "faint" }) +
             D.arrow(330, 140, 440, 110, { tone: "faint" }) +
-            D.box(450, 60, 290, 70, "chat.conversation", {
+            D.box(450, 60, 290, 70, "chat schema", {
               mono: true,
               tone: "ok",
-              sub: "one table, composed in schema.ts",
+              sub: "one schema, composed in schema.ts",
             }),
-          { label: "Core columns and assistant columns join into one conversation table" },
+          { label: "The core's tables and the bot plugin's tables join into one chat schema" },
         ),
       );
 
-      // Section 4: five paths, one function, then the hooks.
-      const paths = [
-        "single delete",
-        "delete all",
-        "Temporary sweep",
-        "Project delete",
-        "user delete",
-      ];
+      // Section 4: the user delete, then the hooks.
       D.render(
         "#deletes",
         D.svg(
           760,
-          260,
-          paths
-            .map(
-              (p, i) =>
-                D.box(10, 10 + i * 48, 170, 36, p, { mono: true }) +
-                D.arrow(180, 28 + i * 48, 250, 120, { tone: "faint", width: 1.2 }),
-            )
-            .join("") +
-            D.box(250, 95, 170, 50, "deleteConversations", { mono: true, tone: "accent" }) +
+          220,
+          D.box(10, 90, 190, 40, "user delete", { mono: true }) +
+            D.arrow(200, 110, 250, 110, { tone: "faint", width: 1.2 }) +
+            D.box(250, 85, 170, 50, "deleteConversations", { mono: true, tone: "accent" }) +
             D.box(470, 10, 270, 36, "1. before: in the transaction", { tone: "warn" }) +
             D.box(470, 62, 270, 36, "2. DELETE the rows") +
             D.box(470, 114, 270, 36, "3. commit") +
             D.box(470, 166, 270, 36, "4. after: once committed", { tone: "ok" }) +
-            D.arrow(420, 120, 470, 28, { tone: "faint" }),
-          { label: "Five delete paths call one core function, which runs the plugin hooks" },
+            D.arrow(420, 110, 470, 28, { tone: "faint" }),
+          { label: "A user delete calls one core function, which runs the plugin hooks" },
         ),
       );
 
@@ -475,7 +491,7 @@
                 tone: "blue",
                 opacity: A.step(t, 0.3, 0.6),
               }) +
-              D.box(460, 150, 180, 44, "plugins/assistant", {
+              D.box(460, 150, 180, 44, "plugins/bot", {
                 mono: true,
                 tone: "blue",
                 opacity: A.step(t, 0.5, 0.8),
@@ -486,7 +502,7 @@
             show: 'requires: ["models"]  ·  sdk.plugin("models")',
             draw: (t, A) =>
               D.box(120, 40, 180, 44, "models", { mono: true, tone: "blue" }) +
-              D.box(460, 40, 180, 44, "assistant", { mono: true, tone: "blue" }) +
+              D.box(460, 40, 180, 44, "bot", { mono: true, tone: "blue" }) +
               D.arrow(460, 62, 300, 62, {
                 tone: "ok",
                 dashed: true,
@@ -495,23 +511,23 @@
               }),
           },
           {
-            say: "Each plugin adds its own columns to the one conversation table. The schema is composed in one module.",
+            say: "Each plugin brings its own tables to the one chat schema, and may add columns to a core table. The schema is composed in one module.",
             draw: (t, A) =>
               D.box(40, 30, 220, 40, "core columns", { mono: true, tone: "accent" }) +
-              D.box(40, 90, 220, 40, "assistant columns", {
+              D.box(40, 90, 220, 40, "bot tables", {
                 mono: true,
                 tone: "blue",
                 opacity: A.step(t, 0.2, 0.5),
               }) +
               D.arrow(270, 70, 400, 70, { opacity: A.step(t, 0.5, 0.7) }) +
-              D.box(410, 40, 300, 60, "chat.conversation", {
+              D.box(410, 40, 300, 60, "chat schema", {
                 mono: true,
                 tone: "ok",
                 opacity: A.step(t, 0.6, 0.9),
               }),
           },
           {
-            say: "Every delete of Conversations goes through one function. Its before hooks run inside the transaction, and its after hooks run once it commits.",
+            say: "Deleting Conversations goes through one function. Its before hooks run inside the transaction, and its after hooks run once it commits.",
             show: "before → delete rows → commit → after",
             draw: (t, A) =>
               D.box(40, 40, 200, 44, "any delete path", { mono: true }) +
@@ -533,10 +549,11 @@
       });
 
       // Try it: orderPlugins.
+      const SAMPLE = [{ id: "bot", requires: ["models"] }, { id: "models" }];
       const ORDER_SRC = `// A plugin is { id, requires? }. requires lists the ids it calls.
-      // Sample: assistant requires models, and models is listed second.
+      // Sample: bot requires models, and models is listed second.
       const SAMPLE = [
-        { id: "assistant", requires: ["models"] },
+        { id: "bot", requires: ["models"] },
         { id: "models" },
       ];`;
       const label = (ids) => ids.map((id) => `<code>${id}</code>`).join(" → ");
@@ -573,7 +590,7 @@
         fnName: "orderPlugins",
         starter: `${ORDER_SRC}
 
-      // Example: orderPlugins(SAMPLE) → ["models", "assistant"].
+      // Example: orderPlugins(SAMPLE) → ["models", "bot"].
       // Hint: keep a list of ids you have placed. For each plugin, first place
       // everything it requires (look each id up in a Map), then place the plugin.
       // Skip a plugin you have already placed.
@@ -598,14 +615,14 @@
       }`,
         tests: [
           {
-            name: "assistant listed first, requires models → models, assistant",
-            args: [[{ id: "assistant", requires: ["models"] }, { id: "models" }]],
-            expect: ["models", "assistant"],
+            name: "bot listed first, requires models → models, bot",
+            args: [[{ id: "bot", requires: ["models"] }, { id: "models" }]],
+            expect: ["models", "bot"],
           },
           {
             name: "already in order → unchanged",
-            args: [[{ id: "models" }, { id: "assistant", requires: ["models"] }]],
-            expect: ["models", "assistant"],
+            args: [[{ id: "models" }, { id: "bot", requires: ["models"] }]],
+            expect: ["models", "bot"],
           },
           {
             name: "a chain a → b → c, listed first → c, b, a",

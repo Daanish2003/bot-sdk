@@ -1,19 +1,13 @@
-import { asc, eq } from "drizzle-orm";
-import { describe, expect, it } from "vitest";
+import { eq } from "drizzle-orm";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
-import { message, usage } from "../../../../core/server/db/schema";
-import type { HostProvider } from "../../../../plugins/assistant/server/deps";
-import type { LinkedCredentials } from "../../../../plugins/models/server/types";
-import { insertConversation } from "../../../support/conversations";
-import {
-  createTestSdk,
-  type TestDepsOverrides,
-  type TestDeps,
-  chatRpc,
-  sendAs,
-} from "../../../support/assistant";
-import { createFakeAdapter, round, runError, text } from "../../../support/fake-adapter";
+import { botTurn, usage } from "../../../../core/server/db/schema";
+import type { HostProvider, LinkedCredentials } from "../../../../plugins/models/server/types";
+import { botOf, botSdk, sendToTurnEnd, stopBotRunners } from "../../../support/bot-turns";
+import { createTestSdk, type TestDepsOverrides } from "../../../support/deps";
+import { createFakeAdapter, round, runError, toolCall } from "../../../support/fake-adapter";
+import { chatRpc } from "../../../support/sdk";
 import { insertUser, type TestUser } from "../../../support/users";
 import { getTestDb } from "../../../support/test-database";
 
@@ -34,25 +28,19 @@ const hostOffers = (...modelIds: string[]): HostProvider[] => [
   },
 ];
 
-function chatRequest(command: Record<string, unknown>) {
-  // useChat posts an AG-UI RunAgentInput; our command rides in `forwardedProps`.
-  return new Request("http://localhost/api/chat/run", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages: [], forwardedProps: command }),
-  });
-}
+afterEach(stopBotRunners);
 
-/** A scripted Run as `user` on `model`, with a fake `linkedCredentials` hook and the adapter calls recorded. */
+/**
+ * A Bot SDK with a fake `linkedCredentials` hook and the model calls recorded, whose Turns play
+ * `rounds`.
+ */
 async function setup({
   user,
-  model = planModel,
   link = linked,
-  rounds = [round(text("Hello"))],
+  rounds = [round(toolCall({ name: "send_to_user", input: { text: "Hello", endTurn: true } }))],
   deps: overrides = {},
 }: {
   user?: TestUser;
-  model?: string;
   link?: LinkedCredentials;
   rounds?: Parameters<typeof createFakeAdapter>[0]["rounds"];
   deps?: TestDepsOverrides;
@@ -65,7 +53,7 @@ async function setup({
     options?: { maxOutputTokens?: number; linked?: boolean };
   }> = [];
   const hookCalls: Array<{ userId: string; service: string }> = [];
-  const deps: TestDeps = createTestSdk({
+  const { deps } = await botSdk({
     adapterFor: (adapterModel, credentials, options) => {
       adapterCalls.push({ model: adapterModel, credentials, options });
       return fake.adapter;
@@ -76,58 +64,44 @@ async function setup({
     },
     ...overrides,
   });
-  // Titled, so no automatic title call takes the scripted adapter.
-  const conv = await insertConversation(owner, { model, title: "Linked" });
-  const send = () =>
-    sendAs(
-      chatRequest({
-        conversationId: conv.id,
-        parentId: null,
-        text: "Hi",
-        attachmentIds: [],
-        model,
-        webSearch: false,
-      }),
-      owner,
-      deps,
-    );
-  return { owner, deps, adapterCalls, hookCalls, conv, send };
+  return { owner, deps, adapterCalls, hookCalls };
 }
 
-async function replyOf(conversationId: string) {
-  const rows = await getTestDb()
-    .select({ role: message.role, status: message.status, error: message.error })
-    .from(message)
-    .where(eq(message.conversationId, conversationId))
-    .orderBy(asc(message.createdAt));
-  return rows.find((row) => row.role === "assistant");
+/** How the Bot's only Turn ended. */
+async function turnOf(botId: string) {
+  const [turn] = await getTestDb()
+    .select({ status: botTurn.status, error: botTurn.error })
+    .from(botTurn)
+    .where(eq(botTurn.botId, botId));
+  return turn;
 }
 
-describe("A linked ChatGPT plan in a Run (ADR 0023)", () => {
+describe("A linked ChatGPT plan in a Bot's Turn (ADR 0023)", () => {
   it("runs a plan Model on the linked credentials when the user has no OpenAI key", async () => {
-    const { send, adapterCalls, hookCalls, owner, conv } = await setup({});
+    const { owner, deps, adapterCalls, hookCalls } = await setup({});
+    const { client, botId } = await botOf(deps, owner, planModel);
 
-    const response = await send();
-    expect(await response.text()).toContain('"delta":"Hello"');
+    await sendToTurnEnd(client, botId);
 
     expect(hookCalls).toContainEqual({ userId: owner.id, service: "openai" });
     expect(adapterCalls).toEqual([
       { model: planModel, credentials: linked, options: { linked: true } },
     ]);
-    expect((await replyOf(conv.id))?.status).toBe("complete");
+    expect(await turnOf(botId)).toMatchObject({ status: "complete" });
   });
 
   it("uses the user's OpenAI key when they have both a key and a linked plan", async () => {
     const user = await insertUser();
-    const { send, adapterCalls, deps } = await setup({ user });
+    const { deps, adapterCalls } = await setup({ user });
     await saveCredentials(deps, user.id, {
       service: "openai",
       fields: { apiKey: "sk-own-openai" },
       hint: "…enai",
       verified: true,
     });
+    const { client, botId } = await botOf(deps, user, planModel);
 
-    await (await send()).text();
+    await sendToTurnEnd(client, botId);
 
     expect(adapterCalls).toEqual([
       { model: planModel, credentials: { apiKey: "sk-own-openai" }, options: {} },
@@ -135,72 +109,80 @@ describe("A linked ChatGPT plan in a Run (ADR 0023)", () => {
   });
 
   it("ignores the link when byok is off, running on the Host's credentials", async () => {
-    const { send, adapterCalls } = await setup({
+    const { owner, deps, adapterCalls } = await setup({
       deps: { byok: false, hostProviders: hostOffers("gpt-6.1-sol") },
     });
+    const { client, botId } = await botOf(deps, owner, planModel);
 
-    await (await send()).text();
+    await sendToTurnEnd(client, botId);
 
     expect(adapterCalls.map((call) => call.credentials)).toEqual([hostCredentials]);
   });
 
   it("never uses the link for an OpenAI Model the plan doesn't offer", async () => {
-    const offered = await setup({
-      model: "openai:gpt-5.6",
-      deps: { hostProviders: hostOffers("gpt-5.6") },
-    });
-    await (await offered.send()).text();
+    const offered = await setup({ deps: { hostProviders: hostOffers("gpt-5.6") } });
+    const { client, botId } = await botOf(offered.deps, offered.owner, "openai:gpt-5.6");
+    await sendToTurnEnd(client, botId);
     expect(offered.adapterCalls.map((call) => call.credentials)).toEqual([hostCredentials]);
 
-    const notOffered = await setup({ model: "openai:gpt-5.6" });
-    const response = await notOffered.send();
-    expect(response.status).toBe(400);
+    const notOffered = await setup({});
+    const refused = await botOf(notOffered.deps, notOffered.owner, "openai:gpt-5.6").then(
+      () => null,
+      (caught: unknown) => caught as { status?: number },
+    );
+    expect(refused).toMatchObject({ status: 400 });
     expect(notOffered.adapterCalls).toEqual([]);
   });
 
-  it("checks no Quota and writes no usage row on the linked plan, even when the Host offers the Model", async () => {
-    const { send, adapterCalls, owner, conv } = await setup({
+  it("checks no Quota and writes only cost-free usage on the linked plan, even when the Host offers the Model", async () => {
+    const { owner, deps, adapterCalls } = await setup({
       deps: {
         hostProviders: hostOffers("gpt-6.1-sol"),
         // A spent Quota: a call on Host credentials would be refused.
         getQuota: async () => ({ budgetUsd: 0, window: "day" }),
       },
     });
+    const { client, botId } = await botOf(deps, owner, planModel);
 
-    const response = await send();
-    expect(response.status).toBe(200);
-    await response.text();
+    await sendToTurnEnd(client, botId);
 
     expect(adapterCalls.map((call) => call.credentials)).toEqual([linked]);
-    expect((await replyOf(conv.id))?.status).toBe("complete");
+    expect(await turnOf(botId)).toMatchObject({ status: "complete" });
     const rows = await getTestDb().select().from(usage).where(eq(usage.userId, owner.id));
-    expect(rows).toEqual([]);
+    expect(rows.map((row) => row.costMicros)).toEqual([0]);
   });
 
-  it("fails the Run asking to reconnect when the link is broken, never using the Host's credentials", async () => {
-    const { send, adapterCalls, conv } = await setup({
+  it("fails the Turn asking to reconnect when the link is broken, never using the Host's credentials", async () => {
+    const { owner, deps, adapterCalls } = await setup({
       link: "needs-reconnect",
       deps: { hostProviders: hostOffers("gpt-6.1-sol") },
     });
+    const { client, botId } = await botOf(deps, owner, planModel);
 
-    await (await send()).text();
+    const events = await sendToTurnEnd(client, botId);
 
+    expect(events.at(-1)).toEqual({ type: "turnEnded", status: "error" });
     expect(adapterCalls).toEqual([]);
-    const reply = await replyOf(conv.id);
-    expect(reply).toMatchObject({ status: "error", error: "Reconnect ChatGPT on the Keys page" });
+    expect(await turnOf(botId)).toEqual({
+      status: "error",
+      error: "Reconnect ChatGPT on the Keys page",
+    });
   });
 
-  it("fails the Run with OpenAI's message when the plan rejects the call, never retrying on the Host's credentials", async () => {
-    const { send, adapterCalls, conv } = await setup({
+  it("fails the Turn with OpenAI's message when the plan rejects the call, never retrying on the Host's credentials", async () => {
+    const { owner, deps, adapterCalls } = await setup({
       rounds: [round(runError("You've hit your usage limit.", "usage_limit_reached"))],
       deps: { hostProviders: hostOffers("gpt-6.1-sol") },
     });
+    const { client, botId } = await botOf(deps, owner, planModel);
 
-    await (await send()).text();
+    await sendToTurnEnd(client, botId);
 
     expect(adapterCalls.map((call) => call.credentials)).toEqual([linked]);
-    const reply = await replyOf(conv.id);
-    expect(reply).toMatchObject({ status: "error", error: "You've hit your usage limit." });
+    expect(await turnOf(botId)).toEqual({
+      status: "error",
+      error: "You've hit your usage limit.",
+    });
   });
 });
 

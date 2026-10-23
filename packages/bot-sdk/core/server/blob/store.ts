@@ -1,6 +1,6 @@
 /**
  * Where file bytes live (ADR 0015). The store holds whole byte arrays under keys the SDK makes up,
- * such as `attachment/<id>`; names, types, sizes and owners stay in Postgres. A Host picks the store
+ * such as `bot-file/<id>`; names, types, sizes and owners stay in Postgres. A Host picks the store
  * with `createBotSdk({ blobStore })`, and the default is `postgresBlobStore()`.
  */
 export type BlobStore = {
@@ -11,9 +11,6 @@ export type BlobStore = {
   /** Removes each key's bytes; keys with no bytes are skipped. */
   delete: (keys: string[]) => Promise<void>;
 };
-
-/** The key of an Attachment's bytes. */
-export const attachmentBlobKey = (attachmentId: string) => `attachment/${attachmentId}`;
 
 /**
  * Deletes `keys` from `blobStore` after their rows are gone. A failure is logged and never thrown:

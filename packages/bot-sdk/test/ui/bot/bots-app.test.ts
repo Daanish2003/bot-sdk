@@ -46,7 +46,6 @@ function seed(queryClient: QueryClient, client: BotSdkClient) {
   queryClient.setQueryData(client.orpc.models.list.queryKey(), {
     models: [listed("openai:gpt-5.5", "GPT-5.5"), listed("openai:gpt-5.6", "GPT-5.6")],
     defaultModel: "openai:gpt-5.6",
-    defaultBackgroundModel: null,
     imageModels: [],
     defaultImageModel: null,
     webSearchOnHost: false,

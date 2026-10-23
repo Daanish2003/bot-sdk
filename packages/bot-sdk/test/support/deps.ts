@@ -6,7 +6,6 @@ import { postgresBlobStore } from "../../core/server/blob/postgres";
 import { createMemoryCounters } from "../../core/server/chat/counters";
 import { createHookEmitter, type HookEmitter } from "../../core/server/chat/hooks";
 import { createMemoryPubSub } from "../../core/server/chat/pubsub";
-import { createMemoryRunStreams, type RunStreams } from "../../core/server/chat/run-streams";
 import type { GivenContext } from "../../core/server/create-chat";
 import type { BotSdkPlugin } from "../../core/server/plugin";
 import { createBotSdkOver, type SdkOver } from "../../core/server/over";
@@ -28,8 +27,6 @@ export type TestDepsOverrides = Partial<
     Omit<ModelsDeps, "hooks"> & {
       /** The core's event emitter (`BotSdkContext.events`). */
       hooks: HookEmitter;
-      /** The core's chunk logs (`runtime.runStreams`). */
-      runStreams: RunStreams;
       /** The `runner` plugin's jobs runner (`runner({ jobs })`). */
       jobs: JobRunner;
       /** More plugins, enabled after `models` and `runner`. */
@@ -50,9 +47,8 @@ const passingReviewer = fakeReviewer().adapter;
 /**
  * A real `createBotSdk` instance for tests, over the test database and fakes, with nothing that
  * reaches the network; it returns the instance's core context with its `models` bundle. It is
- * Bot-only: `models`, `runner`, `memory` and the given `plugins`; the assistant's own tests
- * add the assistant through `support/assistant`. Pass overrides for the parts a test scripts (for
- * example `adapterFor` returning a fake adapter).
+ * Bot-only: `models`, `runner`, `memory` and the given `plugins`. Pass overrides for the parts a
+ * test scripts (for example `adapterFor` returning a fake adapter).
  */
 export function createTestSdk({ plugins, ...overrides }: TestDepsOverrides = {}): TestDeps {
   const db = overrides.db ?? getTestDb();
@@ -68,12 +64,10 @@ export function createTestSdk({ plugins, ...overrides }: TestDepsOverrides = {})
     });
   const pubsub = overrides.pubsub ?? overrides.runtime?.pubsub ?? createMemoryPubSub();
   const counters = overrides.counters ?? overrides.runtime?.counters ?? createMemoryCounters();
-  const runStreams =
-    overrides.runStreams ?? overrides.runtime?.runStreams ?? createMemoryRunStreams();
   const context: GivenContext = {
     db,
     blobStore: overrides.blobStore ?? postgresBlobStore(db),
-    runtime: { ...overrides.runtime, runStreams, pubsub, counters },
+    runtime: { ...overrides.runtime, pubsub, counters },
     pubsub,
     counters,
     logger,
@@ -108,16 +102,10 @@ export function createTestSdk({ plugins, ...overrides }: TestDepsOverrides = {})
           `No fake image adapter for model "${model}"; pass imageAdapterFor to createTestSdk`,
         );
       }),
-    transcriptionAdapterFor:
-      overrides.transcriptionAdapterFor ??
-      ((model) => {
-        throw new Error(`No fake transcription adapter for "${model}"; pass one to createTestSdk`);
-      }),
     hostProviders: overrides.hostProviders ?? [],
     hostTools: overrides.hostTools ?? [],
     byok: overrides.byok ?? true,
     linkedCredentials: overrides.linkedCredentials,
-    defaultBackgroundModel: overrides.defaultBackgroundModel ?? null,
     defaultImageModel: overrides.defaultImageModel ?? null,
     recentModelSources: [],
     getQuota: overrides.getQuota ?? (async () => null),

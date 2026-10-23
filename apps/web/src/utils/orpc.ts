@@ -1,5 +1,4 @@
 import { type BotSdkClient, createBotSdkClient } from "@ai-chat/bot-sdk/core/client";
-import { assistantClient } from "@ai-chat/bot-sdk/plugins/assistant/client";
 import { botClient } from "@ai-chat/bot-sdk/plugins/bot/client";
 import { knowledgeClient } from "@ai-chat/bot-sdk/plugins/knowledge/client";
 import { mcpClient } from "@ai-chat/bot-sdk/plugins/mcp/client";
@@ -42,7 +41,6 @@ const getChatClient = createIsomorphicFn()
       baseUrl: `${ENV.BETTER_AUTH_URL}/api/chat`,
       plugins: [
         modelsClient(),
-        assistantClient(),
         memoryClient(),
         skillsClient(),
         knowledgeClient(),
@@ -64,7 +62,6 @@ const getChatClient = createIsomorphicFn()
       baseUrl: `${window.location.origin}/api/chat`,
       plugins: [
         modelsClient(),
-        assistantClient(),
         memoryClient(),
         skillsClient(),
         knowledgeClient(),

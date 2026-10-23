@@ -1,6 +1,3 @@
-/** The used percentage from which the composer shows the Quota meter (ADR 0007). */
-export const quotaMeterFrom = 80;
-
 /** A user's Quota as `quota.read` answers it: the used percentage, never money (ADR 0007). */
 export type QuotaRead = { usedPercent: number; window: "day" | "month"; resetsAt: Date | string };
 
