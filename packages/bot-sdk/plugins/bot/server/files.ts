@@ -7,7 +7,7 @@ import { conversation, message } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import type { ComputerHandle } from "../../computer/server/plugin";
-import { maxFileBytes, maxFilesPerMessage, type SentFile } from "../shared/files";
+import { inlineImageTypes, maxFileBytes, maxFilesPerMessage, type SentFile } from "../shared/files";
 import { resolvePath } from "./computer-tools";
 import { botKind, controlOf } from "./store";
 
@@ -82,9 +82,6 @@ export async function copyFilesToStorage(
   }
   return { files };
 }
-
-/** The image types the inline route serves. SVG is left out: it can carry script. */
-const inlineImageTypes = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 
 /**
  * One file the Bot sent the user, its bytes from the blob store, as a download, or with
