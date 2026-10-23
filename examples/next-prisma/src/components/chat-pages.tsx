@@ -6,7 +6,6 @@ import {
   ArchivedConversationsSection,
   BackgroundModelSelect,
   ChatView,
-  ConnectionsSection,
   DeleteAllConversationsSection,
   ImageModelSelect,
   InstructionsField,
@@ -37,7 +36,6 @@ export function KeySettings() {
   return (
     <KeySettingsPage>
       <CredentialsSections />
-      <ConnectionsSection />
       <SharedLinksSection />
       <ArchivedConversationsSection />
       <InstructionsField />
