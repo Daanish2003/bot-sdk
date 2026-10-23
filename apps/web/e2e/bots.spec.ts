@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import { botReply, sendMarker } from "../../../packages/bot-sdk/test/e2e/fake-ollama";
+import { appWebHost } from "./host";
 import { signInAsSeededUserWithModel } from "./helpers";
 
 test("a Bot replies in a bubble, then stays quiet and shows Seen ✓", async ({ page }) => {
@@ -29,4 +30,10 @@ test("a Bot replies in a bubble, then stays quiet and shows Seen ✓", async ({ 
   await expect(bubbles).toHaveCount(3);
   await expect(bubbles.last()).toHaveText("ok");
   await expect(bubbles.last()).toHaveAttribute("data-role", "user");
+});
+
+test("/ lands on /bots", async ({ page }) => {
+  await appWebHost.signIn(page);
+  await page.goto("/");
+  await expect(page).toHaveURL(/\/bots$/);
 });

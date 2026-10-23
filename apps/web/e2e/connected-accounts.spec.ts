@@ -90,5 +90,5 @@ test("an OAuth-only user sets a first password from the reset link, then signs i
   // The reset signed this device out too, so the new password is the way back in.
   const signIn = await signInOnForm(page, seeded.email, NEW_PASSWORD);
   expect(signIn.status()).toBe(200);
-  await expect(page).toHaveURL(/\/c$/);
+  await expect(page).toHaveURL(/\/bots$/);
 });

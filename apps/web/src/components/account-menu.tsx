@@ -8,55 +8,55 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@ai-chat/ui/components/dropdown-menu";
-import { Skeleton } from "@ai-chat/ui/components/skeleton";
+import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { UserIcon } from "lucide-react";
 
 import { authClient } from "@/lib/auth-client";
 
-export default function UserMenu() {
+/** The account menu at the foot of the Bots sidebar: Keys, Account, Admin (Admins only), Sign out. */
+export default function AccountMenu({
+  name,
+  email,
+  isAdmin,
+}: {
+  name: string;
+  email: string;
+  isAdmin: boolean;
+}) {
   const navigate = useNavigate();
-  const { data: session, isPending } = authClient.useSession();
-
-  if (isPending) {
-    return <Skeleton className="h-9 w-24" />;
-  }
-
-  if (!session) {
-    return (
-      <Link to="/login">
-        <Button variant="outline">Sign In</Button>
-      </Link>
-    );
-  }
+  const queryClient = useQueryClient();
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger render={<Button variant="outline" size="sm" className="max-w-40" />}>
-        <UserIcon className="sm:hidden" />
-        <span className="truncate max-sm:sr-only">{session.user.name}</span>
+      <DropdownMenuTrigger
+        render={<Button variant="outline" size="sm" className="w-full justify-start" />}
+      >
+        <UserIcon />
+        <span className="truncate">{name}</span>
       </DropdownMenuTrigger>
       <DropdownMenuContent className="bg-card">
         <DropdownMenuGroup>
-          <DropdownMenuLabel>My Account</DropdownMenuLabel>
+          <DropdownMenuLabel>{email}</DropdownMenuLabel>
           <DropdownMenuSeparator />
-          <DropdownMenuItem>{session.user.email}</DropdownMenuItem>
+          <DropdownMenuItem render={<Link to="/settings/keys" />}>Keys</DropdownMenuItem>
           <DropdownMenuItem render={<Link to="/settings/account" />}>Account</DropdownMenuItem>
+          {isAdmin && <DropdownMenuItem render={<Link to="/admin" />}>Admin</DropdownMenuItem>}
           <DropdownMenuItem
             variant="destructive"
             onClick={() => {
               authClient.signOut({
                 fetchOptions: {
                   onSuccess: () => {
-                    navigate({
-                      to: "/login",
-                    });
+                    // The next user on this tab must not see this user's cached Bots.
+                    queryClient.clear();
+                    navigate({ to: "/login" });
                   },
                 },
               });
             }}
           >
-            Sign Out
+            Sign out
           </DropdownMenuItem>
         </DropdownMenuGroup>
       </DropdownMenuContent>

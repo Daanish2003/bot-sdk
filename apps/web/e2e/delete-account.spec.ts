@@ -83,7 +83,7 @@ test("deleting the account removes its Conversation and Shared link, and the ema
   expect(verify).toMatchObject({ template: "verify-email" });
   await page.goto(verificationLink(verify));
   // Verifying signs the user in (autoSignInAfterVerification), then the page offers the chat.
-  await expect(page.getByRole("button", { name: "Continue to chat" })).toBeVisible();
-  await page.getByRole("button", { name: "Continue to chat" }).click();
-  await expect(page).toHaveURL(/\/c$/);
+  await expect(page.getByRole("button", { name: "Continue to Bots" })).toBeVisible();
+  await page.getByRole("button", { name: "Continue to Bots" }).click();
+  await expect(page).toHaveURL(/\/bots$/);
 });

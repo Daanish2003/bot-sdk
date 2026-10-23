@@ -16,6 +16,7 @@ import {
   job,
   usage,
   memorySettings,
+  modelSettings,
 } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkPlugin } from "../../../core/server/plugin";
@@ -159,6 +160,9 @@ async function seedEverything(
   });
 
   await getTestDb().insert(memorySettings).values({ userId: user.id, enabled: false });
+  await getTestDb()
+    .insert(modelSettings)
+    .values({ userId: user.id, imageModel: "openai:gpt-image-2" });
   await saveCredentials(deps, user.id, {
     service: "anthropic",
     fields: { apiKey: "sk-ant-test-key" },
@@ -234,6 +238,9 @@ describe("deleteUser across plugins", () => {
       costMicros: 1,
       estimated: false,
     });
+    await getTestDb()
+      .insert(modelSettings)
+      .values({ userId: owner.id, imageModel: "openai:gpt-image-2" });
     const sdk = createBotSdk({
       databaseUrl: testDatabaseUrl,
       getUser: () => null,
@@ -244,7 +251,11 @@ describe("deleteUser across plugins", () => {
 
     await sdk.deleteUser(owner.id);
 
-    expect(await rowsByTable(owner.id)).toMatchObject({ user_credentials: 0, usage: 0 });
+    expect(await rowsByTable(owner.id)).toMatchObject({
+      user_credentials: 0,
+      model_settings: 0,
+      usage: 0,
+    });
   });
 
   it("runs each plugin's before in the transaction and its after once committed, with what before collected", async () => {

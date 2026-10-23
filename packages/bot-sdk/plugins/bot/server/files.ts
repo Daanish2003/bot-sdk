@@ -3,13 +3,12 @@ import { posix } from "node:path";
 import { z } from "zod";
 
 import { deleteBlobsBestEffort } from "../../../core/server/blob/store";
-import { imageTypes } from "../../../core/shared/attachments/kinds";
 import { botUpload, conversation, message } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
 import type { ComputerHandle } from "../../computer/server/plugin";
-import { maxFileBytes, maxFilesPerMessage, type SentFile } from "../shared/files";
+import { inlineImageTypes, maxFileBytes, maxFilesPerMessage, type SentFile } from "../shared/files";
 import { botDirectory, resolvePath } from "./computer-tools";
 import { botKind, controlOf } from "./store";
 
@@ -86,13 +85,15 @@ export async function copyFilesToStorage(
 }
 
 /**
- * One file the Bot sent the user, its bytes from the blob store, always as a download. Another
- * user's file, an unknown id or an id that isn't one is 404.
+ * One file the Bot sent the user, its bytes from the blob store, as a download, or with
+ * `inline` as an image for display. Another user's file, an unknown id, an id that isn't one, or
+ * with `inline` a file that isn't a raster image is 404.
  */
 export async function sentFileResponse(
   deps: BotSdkContext,
   userId: string,
   id: string,
+  options: { inline?: boolean } = {},
 ): Promise<Response> {
   const notFound = () => new Response("Not found", { status: 404 });
   if (!z.uuid().safeParse(id).success) return notFound();
@@ -114,10 +115,13 @@ export async function sentFileResponse(
   const file = row && controlOf(row.parts, "files")?.files.find((sent) => sent.id === id);
   const bytes = file ? await deps.blobStore.get(sentFileBlobKey(id)) : null;
   if (!file || !bytes) return notFound();
+  if (options.inline && !inlineImageTypes.has(file.mediaType)) return notFound();
   return new Response(bytes as Uint8Array<ArrayBuffer>, {
     headers: {
       "Content-Type": file.mediaType,
-      "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(file.name).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)}`,
+      "Content-Disposition": options.inline
+        ? "inline"
+        : `attachment; filename*=UTF-8''${encodeURIComponent(file.name).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)}`,
       "Cache-Control": "private, no-cache",
       "X-Content-Type-Options": "nosniff",
     },
@@ -190,7 +194,7 @@ function uploadMediaType(declared: string, name: string, bytes: Uint8Array): str
   const sniffed = imageSignatures.find(([, matches]) => matches(bytes))?.[0];
   if (sniffed) return sniffed;
   const type = declared || mediaTypeOf(name);
-  return imageTypes.includes(type) ? "application/octet-stream" : type;
+  return inlineImageTypes.has(type) ? "application/octet-stream" : type;
 }
 
 /**
@@ -374,7 +378,7 @@ export const maxInlineImageBytes = (5 * 1024 * 1024 * 3) / 4;
 
 /** Whether a Model that can see gets this file of the user's inline, besides its path. */
 export const isInlineImage = (file: SentFile) =>
-  imageTypes.includes(file.mediaType) && file.size <= maxInlineImageBytes;
+  inlineImageTypes.has(file.mediaType) && file.size <= maxInlineImageBytes;
 
 /** How an image part names a user's file: `bot-file:<id>`, never a real URL. */
 export const botFileRef = "bot-file:";

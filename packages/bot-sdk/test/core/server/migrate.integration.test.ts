@@ -115,6 +115,7 @@ const sdkTables = [
   "memory_settings",
   "message",
   "message_attachment",
+  "model_settings",
   "project",
   "saved_prompt",
   "secret",
@@ -406,6 +407,34 @@ describe("chat.migrate()", () => {
     ).toEqual([
       { user_id: "user-off", instructions: "Be brief" },
       { user_id: "user-on", instructions: null },
+    ]);
+  });
+
+  it("copies each chosen Image Model into chat.model_settings (#803)", async () => {
+    const url = await scratchDatabase("model_settings");
+    // A database at the migration before model_settings, with two users' settings.
+    await migrateUpTo(url, "20261022124724_channel_email");
+    await rows(
+      url,
+      `insert into chat.user_settings (user_id, image_model, instructions)
+       values ('user-picked', 'openai:gpt-image-2', 'Be brief'), ('user-default', null, null)`,
+    );
+
+    await chatFor(url).migrate();
+
+    // A user with no row has the Host's default, so only a pick is copied.
+    expect(
+      await rows(url, "select user_id, image_model from chat.model_settings order by user_id"),
+    ).toEqual([{ user_id: "user-picked", image_model: "openai:gpt-image-2" }]);
+    // user_settings is left as it was until the assistant goes (spec #801).
+    expect(
+      await rows(
+        url,
+        "select user_id, image_model, instructions from chat.user_settings order by user_id",
+      ),
+    ).toEqual([
+      { user_id: "user-default", image_model: null, instructions: null },
+      { user_id: "user-picked", image_model: "openai:gpt-image-2", instructions: "Be brief" },
     ]);
   });
 

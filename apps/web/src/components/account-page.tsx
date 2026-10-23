@@ -45,8 +45,8 @@ function DangerSection({ email }: { email: string }) {
     <section className="space-y-3 rounded-md border border-destructive/50 p-4">
       <h2 className="text-sm font-medium text-destructive">Danger zone</h2>
       <p className="text-sm text-muted-foreground">
-        Deleting your account removes your Conversations, Messages, Attachments, Shared links,
-        Provider credentials, Tool credentials and settings at once. This cannot be undone.
+        Deleting your account removes your Bots, their Conversations and files, Secrets, Knowledge
+        and the Computer at once. This cannot be undone.
       </p>
       {request.isSuccess ? (
         <p className="text-sm">

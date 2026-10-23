@@ -6,6 +6,14 @@ export const maxFilesPerMessage = 10;
 /** The largest file the Bot may send, in bytes. */
 export const maxFileBytes = 25 * 1024 * 1024;
 
+/** The image types shown inline, as thumbnails. SVG is left out: it can carry script. */
+export const inlineImageTypes: ReadonlySet<string> = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+]);
+
 /** One file the Bot sent: its bytes sit in the blob store under `id`. */
 export const sentFileSchema = z.object({
   id: z.uuid(),

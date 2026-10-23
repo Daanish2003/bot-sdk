@@ -13,7 +13,6 @@ import { uuidv7 } from "../../../packages/bot-sdk/core/server/lib/uuidv7";
 import { storedParts } from "../../../packages/bot-sdk/plugins/assistant/shared/message-parts";
 
 import { e2eDatabaseUrl } from "./database";
-import { appWebHost } from "./host";
 import { signInOnForm, waitForMail } from "./helpers";
 import { type SeededUser, seedUser } from "./seed-user";
 
@@ -281,7 +280,7 @@ test("an Admin turns off a user's lost two-factor sign-in: sessions end, the pas
 
   // The password alone signs in: no second-factor screen.
   await signInOnForm(anonymous, target.email, target.password);
-  await expect(anonymous).toHaveURL(/\/c$/);
+  await expect(anonymous).toHaveURL(/\/bots$/);
 
   const mail = await waitForMail(page, target.email, 1);
   expect(mail.map((message) => message.template)).toContain("two-factor-disabled");
@@ -290,77 +289,33 @@ test("an Admin turns off a user's lost two-factor sign-in: sessions end, the pas
   await targetContext.close();
 });
 
-/**
- * Writes a Conversation of `owner`'s with a question and `replies` ended assistant replies on
- * `model`, straight into the e2e database. Returns the replies' ids, oldest first.
- */
-async function writeReplies(owner: SeededUser, model: string, replies: number): Promise<string[]> {
-  const db = createDb({ DATABASE_URL: e2eDatabaseUrl() });
-  const conversationId = uuidv7();
-  const question = uuidv7();
-  const ids = Array.from({ length: replies }, () => uuidv7());
-  const now = new Date();
-  try {
-    await db
-      .insert(conversation)
-      .values({ id: conversationId, userId: owner.id, kind: "assistant", title: "Ratings", model });
-    await db.insert(message).values([
-      {
-        id: question,
-        conversationId,
-        role: "user",
-        parts: storedParts([{ type: "text", text: "Hello" }]),
-        searchText: "Hello",
-        status: "complete",
-        createdAt: now,
-      },
-      ...ids.map((id, index) => ({
-        id,
-        conversationId,
-        parentId: question,
-        role: "assistant" as const,
-        parts: storedParts([{ type: "text", text: `Reply ${index + 1}` }]),
-        searchText: `Reply ${index + 1}`,
-        status: "complete" as const,
-        model,
-        createdAt: new Date(now.getTime() + index + 1),
-      })),
-    ]);
-  } finally {
-    await db.$client.end();
-  }
-  return ids;
-}
-
-test("an Admin sees each Model's 👍, 👎 and % 👎 after a user rates its replies", async ({
-  page,
-  browser,
-}) => {
+test("Settings and Admin are reachable from the Bots shell", async ({ page }) => {
   const admin = await seedUser(page);
   await makeAdmin(admin);
-  // The rater signs in on their own browser context, so the Admin's page keeps the Admin's session.
-  const raterContext = await browser.newContext();
-  const raterPage = await raterContext.newPage();
-  const rater = await seedUser(raterPage);
-  // A Model no other test uses, so the row is this test's alone.
-  const model = `e2e-rated-${randomBytes(4).toString("hex")}`;
-  const [firstUp, secondUp, down] = await writeReplies(rater, model, 3);
+  await page.goto("/bots");
+  const sidebar = page.getByRole("complementary", { name: "Bots" });
 
-  for (const [messageId, rating] of [
-    [firstUp, "up"],
-    [secondUp, "up"],
-    [down, "down"],
-  ] as const) {
-    const response = await raterPage.request.post(`${appWebHost.paths.chatApi}/rpc/chat/rate`, {
-      data: { json: { messageId, rating } },
-    });
-    expect(response.ok()).toBe(true);
-  }
-  await raterContext.close();
+  await sidebar.getByRole("button", { name: admin.name }).click();
+  await page.getByRole("menuitem", { name: "Account" }).click();
+  await expect(page).toHaveURL(/\/settings\/account$/);
+  await expect(page.getByRole("heading", { name: "Account", exact: true })).toBeVisible();
+  await expect(sidebar).toBeVisible();
 
-  await page.goto("/admin");
-  const row = page
-    .getByRole("row")
-    .filter({ has: page.getByRole("cell", { name: model, exact: true }) });
-  await expect(row.getByRole("cell")).toHaveText([model, "2", "1", "33%"]);
+  await sidebar.getByRole("button", { name: admin.name }).click();
+  await page.getByRole("menuitem", { name: "Admin" }).click();
+  await expect(page).toHaveURL(/\/admin$/);
+  await expect(page.getByRole("heading", { name: "Users", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Ratings" })).toHaveCount(0);
+  await expect(sidebar).toBeVisible();
+});
+
+test("the account menu offers no Admin to a user who isn't one", async ({ page }) => {
+  const user = await seedUser(page);
+  await page.goto("/bots");
+  await page
+    .getByRole("complementary", { name: "Bots" })
+    .getByRole("button", { name: user.name })
+    .click();
+  await expect(page.getByRole("menuitem", { name: "Keys" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Admin" })).toHaveCount(0);
 });
