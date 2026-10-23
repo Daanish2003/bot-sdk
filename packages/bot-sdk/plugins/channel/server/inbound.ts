@@ -1,8 +1,10 @@
 import { eq } from "drizzle-orm";
 
+import { deleteBlobsBestEffort } from "../../../core/server/blob/store";
 import { appendMessage } from "../../../core/server/chat/message-tree";
 import { bot, botTrigger, channelEmailAddress } from "../../../core/server/db/schema";
 import type { BotSdkContext } from "../../../core/server/plugin";
+import { sentFileBlobKey, storeMailFiles } from "../../bot/server/files";
 import { lockConversation, receive } from "../../bot/server/router";
 import { textParts } from "../../bot/server/store";
 import { cancelTurn, hintChanged } from "../../bot/server/turn";
@@ -67,6 +69,12 @@ async function deliver(
   if (!(await call.meter.mayRun()).ok) return "the user's Quota is spent";
   if (await sdk.isUserBlocked(owner.userId)) return "the user is Banned";
 
+  // The owner's attachments go to the blob store like a composer's files; the others stay named.
+  const { stored, unkept } = await storeMailFiles(sdk, mail.files ?? []);
+  const body = emailText(
+    { ...mail, attachments: mail.files ? unkept : mail.attachments },
+    channel.domain,
+  );
   const id = `email:${messageId}`;
   const handed = await sdk.db
     .transaction(async (tx) => {
@@ -86,7 +94,17 @@ async function deliver(
       const now = sdk.clock();
       const row = await appendMessage(tx, owner.conversationId, {
         role: "user",
-        parts: { ...textParts(text), channel: "email", subject: mail.subject },
+        parts: {
+          ...textParts(body),
+          ...(stored.length && {
+            parts: [
+              ...textParts(body).parts,
+              { type: "control" as const, control: { kind: "files" as const, files: stored } },
+            ],
+          }),
+          channel: "email",
+          subject: mail.subject,
+        },
         status: "complete",
         createdAt: now,
       });
@@ -103,12 +121,22 @@ async function deliver(
       return owner.conversationId;
     })
     // The same Message-ID handed in another Conversation's transaction meanwhile.
-    .catch((error: unknown) => {
+    .catch(async (error: unknown) => {
       if (isTriggerIdClash(error)) return null;
+      await deleteBlobsBestEffort(
+        sdk,
+        stored.map((file) => sentFileBlobKey(file.id)),
+      );
       throw error;
     });
-  if (handed === "rotated") return "no Bot has the address";
-  if (!handed) return redelivery;
+  if (handed === "rotated" || !handed) {
+    // No Message holds the files, so their bytes go.
+    await deleteBlobsBestEffort(
+      sdk,
+      stored.map((file) => sentFileBlobKey(file.id)),
+    );
+    return handed ? "no Bot has the address" : redelivery;
+  }
   sdk.plugin("runner").wake();
   await hintChanged(sdk, handed);
   return null;

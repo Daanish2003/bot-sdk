@@ -12,7 +12,16 @@ const messageSchema = z.object({
   To: z.array(addressSchema),
   Subject: z.string(),
   Text: z.string(),
-  Attachments: z.array(z.object({ FileName: z.string() })).nullable(),
+  Attachments: z
+    .array(
+      z.object({
+        PartID: z.string(),
+        FileName: z.string(),
+        ContentType: z.string().default(""),
+        Size: z.number().default(0),
+      }),
+    )
+    .nullable(),
 });
 const headersSchema = z.record(z.string(), z.array(z.string()));
 
@@ -77,6 +86,19 @@ export function mailpitEmailProvider({
           Object.entries(headers).map(([name, values]) => [name.toLowerCase(), values.join(", ")]),
         ),
         attachments: (message.Attachments ?? []).map((attachment) => attachment.FileName),
+        files: (message.Attachments ?? []).map((attachment) => ({
+          name: attachment.FileName,
+          contentType: attachment.ContentType,
+          size: attachment.Size,
+          read: async () => {
+            const part = await fetcher(
+              `${base}/api/v1/message/${ID}/part/${encodeURIComponent(attachment.PartID)}`,
+              { signal: AbortSignal.timeout(timeoutMs) },
+            );
+            if (!part.ok) throw new Error(`Mailpit refused the attachment (${part.status})`);
+            return new Uint8Array(await part.arrayBuffer());
+          },
+        })),
         authentication: { spf: "none", dkim: "none", dmarc: "pass" },
       };
       return mail;
