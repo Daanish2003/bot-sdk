@@ -1,8 +1,9 @@
+import { deleteBlobsBestEffort } from "../../../core/server/blob/store";
 import type { BotSdkPlugin } from "../../../core/server/plugin";
 import { isInProcessRunner } from "../../runner/server/jobs/in-process";
 import { runnerJobs } from "../../runner/server/plugin";
 import { cancelUserCheckIns } from "./check-in";
-import { sentFileResponse } from "./files";
+import { deleteUserUploads, sentFileResponse } from "./files";
 import { screenshotsConversationDelete } from "./screenshots";
 import { cancelUserHelpers, hasLiveDemonstration, hasRunningHelper } from "./helper";
 import { cancelUserFires } from "./routine";
@@ -137,7 +138,13 @@ export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
         await cancelUserFires(sdk, args.tx, args.userId);
         await cancelUserCheckIns(sdk, args.tx, args.userId);
         await cancelUserHelpers(sdk, args.tx, args.userId);
-        return botUserDelete.before(sdk, args);
+        // The files they uploaded and never sent go too (spec #801), their bytes after the commit.
+        const uploadKeys = await deleteUserUploads(args.tx, args.userId);
+        const afterCommit = await botUserDelete.before(sdk, args);
+        return async () => {
+          await afterCommit();
+          await deleteBlobsBestEffort(sdk, uploadKeys);
+        };
       },
       after: botUserDelete.after,
     },

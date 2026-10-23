@@ -51,7 +51,7 @@ import {
   writeDefinition,
   writeTool,
 } from "./computer-tools";
-import { pruneScreenshots, resolveScreenshots } from "./desktop-tools";
+import { pruneScreenshots, resolveImageRefs } from "./desktop-tools";
 import { type LoopPromptStart, type PreviousCall, promptHashesOf } from "./prompt-start";
 import { type ReviewSource, reviewToolCall } from "./review";
 import {
@@ -411,7 +411,7 @@ export async function runLoop(
     // failed read is retried like a Checkpoint that failed to save.
     const pruned = {
       ...sent,
-      messages: await resolveScreenshots(deps.blobStore, sent.messages as ModelMessage[]),
+      messages: await resolveImageRefs(deps.blobStore, sent.messages as ModelMessage[]),
     };
     const chunks: StreamChunk[] = [];
     inLiveCall = true;

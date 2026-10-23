@@ -16,7 +16,7 @@ import { withCacheControl } from "../../models/server/cache-control";
 import type { BotWarming } from "../shared/turn";
 import { promptCharactersOf, reportedUsageOf } from "../../models/server/run-usage";
 import { parseModelId } from "../../models/shared/models";
-import { pruneScreenshots, resolveScreenshots } from "./desktop-tools";
+import { pruneScreenshots, resolveImageRefs } from "./desktop-tools";
 import { latestPromptStart, loopPromptStart } from "./prompt-start";
 import { findBot, latestTurnStatus } from "./store";
 import { historyAfter } from "./summary";
@@ -161,7 +161,7 @@ async function warmCall(
   const start = await loopPromptStart(tx, startId, async () => undefined);
   // From the latest Summary on, as the next Turn sends it.
   const history = await historyAfter(tx, botId, startId);
-  const messages: ModelMessage[] = await resolveScreenshots(
+  const messages: ModelMessage[] = await resolveImageRefs(
     deps.blobStore,
     pruneScreenshots([{ role: "user", content: start.firstMessage }, ...history]),
   );

@@ -85,6 +85,9 @@ export const errorMessages = {
   "error.messageTooLong":
     "This message is too long for the Model's context window. Shorten it or remove an attachment.",
   "error.attachmentNotFound": "Attachment not found",
+  "error.botFileTooLarge": ({ name }: { name: string }) => `"${name}" is larger than 25 MB`,
+  "error.botFilesTooMany": ({ max }: { max: number }) => `A message can carry at most ${max} files`,
+  "error.botFileNotFound": "A file to send is no longer uploaded: attach it again",
   "error.modelCantRead": ({ model, kind }: { model: string; kind: "text" | "image" | "pdf" }) =>
     `${model} can't read ${kind === "pdf" ? "PDFs" : kind === "image" ? "images" : "text files"}`,
   "error.branchAttachmentsTooLarge": "Attachments on this Branch would pass 20 MB",

@@ -50,6 +50,7 @@ import { closeWaitingReviews } from "./review";
 import { historyFrom, historyTurns, queueAwaySummary, summaryOf, writeSummary } from "./summary";
 import {
   appendBotMessage,
+  controlOf,
   controlParts,
   findBot,
   reactionsOf,
@@ -63,11 +64,18 @@ import { knowledgeChangesOf } from "../../knowledge/server/changes";
 import type { BotKnowledgeChange } from "../../knowledge/shared/changes";
 import { skillChangesOf } from "../../skills/server/skills";
 import { choiceOptionsSchema } from "../shared/choice";
-import { maxFilesPerMessage } from "../shared/files";
+import { maxFilesPerMessage, type SentFile } from "../shared/files";
 import { emojiSchema } from "../shared/reaction";
 import type { RichControl } from "../shared/rich-control";
 import { secretNameSchema } from "../shared/secret";
-import { copyFilesToStorage } from "./files";
+import {
+  botFileRef,
+  copyFilesToStorage,
+  copyUploads,
+  isInlineImage,
+  takeUploads,
+  userFilesLine,
+} from "./files";
 import {
   createRoutineToolName,
   deleteRoutine,
@@ -381,15 +389,26 @@ export async function sendToBot(
     botId,
     id,
     text,
+    files: fileIds = [],
     timeZone,
   }: {
     userId: string;
     botId: string;
     id: string;
     text: string;
+    files?: string[];
     timeZone?: string;
   },
 ): Promise<BotMessage> {
+  const uploads = [...new Set(fileIds.map((fileId) => fileId.toLowerCase()))];
+  if (uploads.length > maxFilesPerMessage) {
+    throw rpcError(
+      "BAD_REQUEST",
+      "error.botFilesTooMany",
+      `A message can carry at most ${maxFilesPerMessage} files`,
+      { max: maxFilesPerMessage },
+    );
+  }
   const found = await findBot(deps.db, userId, botId);
   if (!found) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
   const call = await deps.plugin("models").resolveModelCall(userId, found.model);
@@ -416,10 +435,18 @@ export async function sendToBot(
     }
     // Read under the lock, so no Turn starts between this time and the Message's commit.
     const now = deps.clock();
+    // The uploads become the Message's `files` part (spec #801), which holds them from then on.
+    const files = uploads.length ? await takeUploads(tx, userId, uploads) : [];
+    const parts = textParts(text, timeZone);
     const row = await appendMessage(tx, found.conversationId, {
       id,
       role: "user",
-      parts: textParts(text, timeZone),
+      parts: files.length
+        ? {
+            ...parts,
+            parts: [...parts.parts, { type: "control", control: { kind: "files", files } }],
+          }
+        : parts,
       status: "complete",
       createdAt: now,
     });
@@ -845,6 +872,12 @@ async function newestInput(
   todo: TodoItem[] | null,
   changeNotes: string | undefined,
   cutTrigger: (id: string, text: string) => Promise<string>,
+  userFiles: {
+    /** Copies the files onto the Computer: each one's path there, in order, or null. */
+    place: (files: SentFile[]) => Promise<(string | null)[]>;
+    /** Whether the Bot's Model sees images. */
+    canSee: () => Promise<boolean>;
+  },
 ): Promise<ModelMessage[]> {
   const beforeTurn = and(
     eq(message.conversationId, turn.conversationId),
@@ -898,11 +931,27 @@ async function newestInput(
       )
       .orderBy(asc(message.createdAt), asc(message.id)),
   ]);
-  const inputs: { at: number; content: string; messageId?: string }[] = users.map((row) => ({
-    at: row.createdAt.getTime(),
-    content: searchTextOf(row.parts),
-    messageId: row.id,
-  }));
+  // The user's files (spec #801), copied onto the Computer once, in one activity: each Message
+  // names its files' paths, and a Model that can see gets its images inline too.
+  const sent = users.map((row) => controlOf(row.parts, "files")?.files ?? []);
+  const allFiles = sent.flat();
+  const placed = allFiles.length ? await userFiles.place(allFiles) : [];
+  const pathOf = new Map(allFiles.map((file, index) => [file.id, placed[index] ?? null]));
+  const canSee = allFiles.some(isInlineImage) && (await userFiles.canSee());
+  const inputs: { at: number; content: string; messageId?: string; images?: SentFile[] }[] =
+    users.map((row, index) => {
+      const files = sent[index]!;
+      const text = searchTextOf(row.parts);
+      if (files.length === 0)
+        return { at: row.createdAt.getTime(), content: text, messageId: row.id };
+      const line = userFilesLine(files.map((file) => ({ ...file, path: pathOf.get(file.id)! })));
+      return {
+        at: row.createdAt.getTime(),
+        content: text ? `${text}\n\n${line}` : line,
+        messageId: row.id,
+        images: canSee ? files.filter(isInlineImage) : [],
+      };
+    });
   // One at a time: each long one is an activity, in a stable order.
   for (const row of woken) {
     inputs.push({ at: row.receivedAt.getTime(), content: await cutTrigger(row.id, row.text!) });
@@ -924,7 +973,23 @@ async function newestInput(
     newest.content = `${notices.join("\n\n")}\n\n${newest.content}`;
   }
   // One input turn each, never a user Message: a Trigger's text opens with what woke the Bot.
-  return inputs.map((input) => ({ role: "user", content: input.content }));
+  return inputs.map(({ content, images }) => ({
+    role: "user",
+    // The images go as refs, which the loop reads from the blob store when it calls the Model.
+    content: images?.length
+      ? [
+          { type: "text", content },
+          ...images.map((file) => ({
+            type: "image" as const,
+            source: {
+              type: "url" as const,
+              value: `${botFileRef}${file.id}`,
+              mimeType: file.mediaType,
+            },
+          })),
+        ]
+      : content,
+  }));
 }
 
 /** The user's new emojis on the Bot's Messages, one line each, the Message quoted. */
@@ -981,8 +1046,23 @@ async function playTurn(
   // The newest message holds the Change notes, which are read in the loop's setup: it is rendered
   // there, once the Turn's Prompt start is chosen. Stored before the first model call, so a
   // stopped or interrupted Turn keeps what it sent, and a replay reads the recorded input.
+  // The user's files are copied onto the Computer in their own Checkpoint, so a replay doesn't copy
+  // them again and reads the recorded paths.
+  const userFiles = {
+    place: (files: SentFile[]) =>
+      ctx.activity(
+        "user_files",
+        async () =>
+          deps.hasPlugin("computer")
+            ? copyUploads(deps, computerOf(deps, turn.userId), turn.botId, files, attempt)
+            : files.map(() => null),
+        { yields: false },
+      ),
+    canSee: async () =>
+      (await deps.plugin("models").resolveModel(turn.userId, turn.model))?.images ?? false,
+  };
   const renderNewest = async (changeNotes: string | undefined) => {
-    const rendered = await newestInput(db, turn, since, todo, changeNotes, cutTrigger);
+    const rendered = await newestInput(db, turn, since, todo, changeNotes, cutTrigger, userFiles);
     return ctx.activity(turnInputActivity, async (tx) => {
       await tx.update(botTurn).set({ input: rendered }).where(eq(botTurn.id, turn.id));
       return rendered;
