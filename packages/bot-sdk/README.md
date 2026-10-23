@@ -110,7 +110,7 @@ The root `ui/` needs nothing beyond `core/`'s packages.
 
 - `email-reply-parser` (pinned at 2.3.9), which strips the quoted history from an inbound email so the Bot reads only the new text.
 
-`core/` imports only npm packages and its own files, so a Host outside this repo can copy and compile it. `examples/next-prisma` is a Host outside this repo that runs it.
+`core/` imports only npm packages and its own files, so a Host outside this repo can copy and compile it.
 
 ## shadcn components
 

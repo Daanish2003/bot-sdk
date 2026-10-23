@@ -350,7 +350,7 @@ describe("deleteUser across plugins", () => {
 });
 
 describe("exportUser across plugins", () => {
-  it("has the core's version and timestamp on an instance of models alone", async () => {
+  it("has the core's version and timestamp, and the models plugin's section, on an instance of models alone", async () => {
     const sdk = createBotSdk({
       databaseUrl: testDatabaseUrl,
       getUser: () => null,
@@ -362,6 +362,8 @@ describe("exportUser across plugins", () => {
     expect(await sdk.exportUser(randomUUID())).toEqual({
       version: 2,
       exportedAt: expect.any(Date),
+      // The models plugin always contributes its section.
+      models: { imageModel: null },
     });
   });
 

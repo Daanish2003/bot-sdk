@@ -17,7 +17,6 @@ import {
   project,
   savedPrompt,
   sharedLink,
-  modelSettings,
   userSettings,
   memorySettings,
 } from "../../../core/server/db/schema";
@@ -111,9 +110,6 @@ describe("createBotSdk().exportUser", () => {
       backgroundModel: "anthropic:background-model",
       instructions: "Answer in French.",
     });
-    await getTestDb()
-      .insert(modelSettings)
-      .values({ userId: owner.id, imageModel: "openai:gpt-image-2" });
     const deps = createTestSdk();
     await saveCredentials(deps, owner.id, {
       service: "anthropic",
@@ -146,7 +142,6 @@ describe("createBotSdk().exportUser", () => {
     });
     expect(exported.settings).toEqual({
       backgroundModel: "anthropic:background-model",
-      imageModel: "openai:gpt-image-2",
       instructions: "Answer in French.",
       memoryEnabled: true,
     });
@@ -393,7 +388,6 @@ describe("createBotSdk().exportUser", () => {
       artifacts: [],
       settings: {
         backgroundModel: null,
-        imageModel: null,
         instructions: null,
         memoryEnabled: true,
       },

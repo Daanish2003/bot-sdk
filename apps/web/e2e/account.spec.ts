@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import { seedSession } from "./seed-user";
-import { signInAsSeededUser } from "./helpers";
+import { signInAsSeededUser, signInOnForm } from "./helpers";
 
 test("the user menu links to the Account page", async ({ page }) => {
   await signInAsSeededUser(page);
@@ -69,4 +69,21 @@ test("sessions list the current device, and sign out the other sessions", async 
 test("a signed-out visitor is sent to the login page from the Account page", async ({ page }) => {
   await page.goto("/settings/account");
   await expect(page).toHaveURL(/\/login$/);
+});
+
+test("the home page sends a signed-out visitor to log in", async ({ page }) => {
+  await page.goto("/");
+  await expect(page).toHaveURL(/\/login$/);
+});
+
+test("a seeded user is signed in, and its password signs in on the form", async ({ page }) => {
+  const user = await signInAsSeededUser(page);
+  await page.goto("/settings/keys");
+  await expect(page.getByRole("heading", { name: "Keys & settings" })).toBeVisible();
+
+  await page.context().clearCookies();
+  await page.goto("/settings/keys");
+  await expect(page).toHaveURL(/\/login$/);
+  await signInOnForm(page, user.email, user.password);
+  await expect(page).toHaveURL(/\/bots$/);
 });

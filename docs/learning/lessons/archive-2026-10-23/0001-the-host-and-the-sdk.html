@@ -1,0 +1,617 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lesson 1 · The Host and the SDK</title>
+    <link rel="stylesheet" href="../../assets/style.css" />
+  </head>
+  <body>
+    <main>
+      <p class="kicker">ai-chat Chat SDK · Lesson 1</p>
+      <h1>The Host and the SDK</h1>
+      <p class="subtitle">
+        The chat feature is one copied folder in four parts, and apps/web is just one Host.
+      </p>
+      <p class="meta">
+        About 12 minutes · a browser · you'll write <code>allowed(from, to, typeOnly)</code>, the
+        import rule a reviewer checks
+      </p>
+
+      <section class="words">
+        <h2>Words you'll need</h2>
+        <dl>
+          <dt>Chat SDK</dt>
+          <dd>
+            The reusable chat feature in <code>packages/bot-sdk</code>. It knows users only by id.
+          </dd>
+          <dt>Host</dt>
+          <dd>An app that embeds the Chat SDK and gives it users, routes and Postgres.</dd>
+          <dt><code>core/</code></dt>
+          <dd>
+            The SDK code a Host never edits: <code>shared</code>, <code>server</code>,
+            <code>client</code>.
+          </dd>
+          <dt><code>ui/</code></dt>
+          <dd>The SDK's React components, which the Host owns and may change.</dd>
+        </dl>
+        <p class="hint">
+          Forgot a code name? Press the <strong>Names?</strong> button in the bottom-right corner.
+        </p>
+      </section>
+
+      <figure id="video"></figure>
+
+      <h2><span class="num">1</span>Floors of a building</h2>
+      <figure id="map">
+        <div class="toy-out" id="map-out">Click a box to see its job and its imports.</div>
+        <figcaption>
+          Click <code>core/server</code>: red lines go out, and only one goes down.
+        </figcaption>
+      </figure>
+      <p>
+        Think of the SDK as a building with floors, and its imports as stairs that only go down.
+        <code>ui</code> is the top floor, <code>client</code> and <code>server</code> sit side by
+        side, and <code>shared</code> is the ground. <code>shared</code> imports only npm packages,
+        such as <code>zod</code> and <code>@tanstack/ai</code>.
+      </p>
+      <p>
+        The Host stands outside the dashed frame. It imports the SDK, but no file inside the frame
+        imports the Host or any <code>@ai-chat/*</code> package. The chat tables also live inside:
+        <a href="../../../../packages/bot-sdk/core/server/db/chat-schema.ts"
+          ><code>chat-schema.ts</code></a
+        >
+        puts them in their own Postgres schema, <code>chat</code>. <code>@ai-chat/db</code> holds
+        only the Host's tables.
+      </p>
+
+      <h2><span class="num">2</span>Copied, not installed</h2>
+      <figure id="copy">
+        <figcaption>
+          Each copy replaces <code>core/</code>, but leaves the Host's <code>ui/</code> alone.
+        </figcaption>
+      </figure>
+      <p>
+        The SDK is never published to npm. A Host runs
+        <code>pnpm -F @ai-chat/bot-sdk copy &lt;dest&gt;</code> (<a
+          href="../../../../packages/bot-sdk/scripts/copy.ts"
+          ><code>scripts/copy.ts</code></a
+        >). Because <code>core/</code> is replaced every time, an edit there is lost on the next
+        update. <code>ui/</code> is copied only when the Host has none yet, so the Host can restyle
+        it freely (<a href="../../../../docs/adr/0005-copied-stack-agnostic-chat-sdk.md">ADR 0005</a
+        >).
+      </p>
+      <figure>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Entry point</th>
+                <th>File</th>
+                <th>apps/web uses it for</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>@ai-chat/bot-sdk/core/server</code></td>
+                <td><code>core/server/index.ts</code></td>
+                <td><code>createBotSdk</code> in <code>services.ts</code></td>
+              </tr>
+              <tr>
+                <td><code>@ai-chat/bot-sdk/core/client</code></td>
+                <td><code>core/client/index.ts</code></td>
+                <td><code>ChatProvider</code> in <code>lib/chat-provider.tsx</code></td>
+              </tr>
+              <tr>
+                <td><code>@ai-chat/bot-sdk/plugins/assistant/ui</code></td>
+                <td><code>plugins/assistant/ui/index.ts</code></td>
+                <td><code>ChatView</code> in <code>routes/_auth/c/$id.tsx</code></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <figcaption>
+          The three doors in <code>package.json</code>; apps/web imports nothing else from the SDK.
+        </figcaption>
+      </figure>
+
+      <div
+        class="quiz"
+        data-answer="2"
+        data-why="core/ is replaced on every copy, so a fix there is lost. The fix goes into packages/bot-sdk, then every Host copies again."
+      >
+        <div class="label">Quiz</div>
+        <p class="q">
+          A Host finds a bug in <code>plugins/assistant/server/chat/run.ts</code> in its copy. Where
+          does the fix go?
+        </p>
+        <ol class="opts">
+          <li data-why="The next copy replaces core/, so this edit disappears.">
+            In the Host's copied core.
+          </li>
+          <li data-why="ui/ holds components only. A ui/ change can't fix core/server.">
+            In the Host's own ui folder.
+          </li>
+          <li>In packages/bot-sdk, then copy.</li>
+          <li data-why="apps/web holds no Run code. The Run lives in the assistant plugin.">
+            In the apps/web route file.
+          </li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+
+      <h2><span class="num">3</span>What the Host gives</h2>
+      <figure id="seam">
+        <figcaption>
+          One request: the Host's route hands it over, and <code>getUser</code> answers "who?".
+        </figcaption>
+      </figure>
+      <p>
+        The SDK can't assume the Host's stack, so the Host gives it three things. In
+        <a href="../../../../apps/web/src/services.ts"><code>services.ts</code></a
+        >, apps/web passes <code>databaseUrl</code> (Postgres) and <code>getUser</code>, which asks
+        Better Auth for the session and returns <code>{ id }</code> or <code>null</code>. The third
+        is one catch-all route,
+        <a href="../../../../apps/web/src/routes/api/chat/$.ts"><code>routes/api/chat/$.ts</code></a
+        >, which passes every method to <code>sdk.handler(request)</code>.
+      </p>
+      <p>
+        Look at the picture: the handler, not the Host, decides what a path means. It sends
+        <code>/api/chat/rpc/*</code> to the oRPC routers and <code>POST /api/chat/run</code> to
+        <code>handleChat</code> (<a
+          href="../../../../packages/bot-sdk/plugins/assistant/server/chat/handle-chat.ts"
+          ><code>handle-chat.ts</code></a
+        >). Lesson 2 opens <code>createBotSdk</code> itself.
+      </p>
+
+      <h2><span class="num">4</span>Stairs go down; types may look up</h2>
+      <figure id="up">
+        <figcaption>Solid up-arrows are refused; the dashed one carries only types.</figcaption>
+      </figure>
+      <p>
+        There is one exception to "only down". <code>client</code> and <code>ui</code> import the
+        <em>type</em> of the server's router, so their calls are type-checked:
+        <code>import type { CoreRouter } from "../server/routers/index"</code> in
+        <a href="../../../../packages/bot-sdk/core/client/chat-client.ts"
+          ><code>chat-client.ts</code></a
+        >. TypeScript erases <code>import type</code> lines, so no server code reaches the browser.
+      </p>
+      <div class="rule-box">
+        <strong>The rule</strong>An import is allowed when it goes down the map.
+        <code>client</code> or <code>ui</code> may reach up to <code>server</code> only with
+        <code>import type</code>. Nothing imports the Host.
+      </div>
+
+      <div
+        class="quiz"
+        data-answer="0"
+        data-why="A value import would pull run.ts, and with it Postgres and Node code, into the browser bundle. Only import type is allowed upward."
+      >
+        <div class="label">Quiz</div>
+        <p class="q">
+          A PR adds <code>import { startRun } from "../server/chat/run"</code> to a file in
+          <code>core/client</code>. What do you say?
+        </p>
+        <ol class="opts">
+          <li>Refuse: it ships server code.</li>
+          <li data-why="It is a value import, not import type, so it isn't erased.">
+            Accept: types are always erased.
+          </li>
+          <li
+            data-why="Moving it to ui/ doesn't help: ui may also reach server only with import type."
+          >
+            Accept: move it into ui first.
+          </li>
+          <li data-why="shared imports only npm packages; it can't import server either.">
+            Refuse: move it to shared.
+          </li>
+        </ol>
+        <p class="fb"></p>
+      </div>
+
+      <h2>Try it</h2>
+      <div id="ex1"></div>
+      <figure id="payoff">
+        <div class="toy-out">
+          <div id="probes"></div>
+          <span id="pay-out"
+            >Pass the tests first. Then your <code>allowed</code> judges real import lines.</span
+          >
+        </div>
+        <figcaption>
+          Pick an import line: green means your rule allows it, red means it refuses.
+        </figcaption>
+      </figure>
+
+      <section class="takeaways">
+        <h2>Key takeaways</h2>
+        <p class="one-thing">
+          <strong>If you remember only one thing:</strong> the chat feature lives in
+          <code>packages/bot-sdk</code>; the Host only gives it users, a route and Postgres.
+        </p>
+        <ul>
+          <li>
+            <strong>Four floors.</strong> <code>ui</code> → <code>client</code> →
+            <code>shared</code>, and <code>server</code> → <code>shared</code>. Stairs go down.
+          </li>
+          <li>
+            <strong>Copied, not installed.</strong> <code>core/</code> is replaced on each copy;
+            <code>ui/</code> is the Host's to change.
+          </li>
+          <li>
+            <strong>Types may look up.</strong> <code>client</code> and <code>ui</code> reach
+            <code>server</code> only with <code>import type</code>, and nothing imports the Host.
+          </li>
+        </ul>
+        <p class="selftest">
+          Self-test: cover this box, draw the four floors from memory, and name the three things the
+          Host gives.
+        </p>
+      </section>
+
+      <details class="deeper">
+        <summary>Go deeper: sources, side notes and a challenge</summary>
+        <h3>The decision</h3>
+        <blockquote>
+          "It is <strong>copied, never published</strong>: the canonical source is one workspace
+          package, <code>packages/bot-sdk/</code>, laid out exactly as a Host receives it, and
+          <code>apps/web</code> is just one Host, importing only its public entry points." (<a
+            href="../../../../docs/adr/0005-copied-stack-agnostic-chat-sdk.md"
+            >ADR 0005</a
+          >)
+        </blockquote>
+        <p>
+          The ADR also lists what was rejected: publishing npm packages, assuming this repo's stack,
+          letting the Host edit everything, and shipping copies of the shadcn primitives.
+        </p>
+        <h3>Side notes</h3>
+        <ul>
+          <li>
+            <code>ui/</code> reaches buttons and dialogs through the Host's own
+            <code>@/components/ui/*</code> alias. In this repo,
+            <code>apps/web/tsconfig.json</code> points that alias at <code>packages/ui</code>, so it
+            is drawn as an edge to <code>@ai-chat/ui</code>.
+          </li>
+          <li>
+            The copy script never copies tests (<code>test</code>, <code>eval</code>,
+            <code>*.test.*</code>), and it also copies <code>extras/</code> only once, like
+            <code>ui/</code>. <code>VERSION</code> in the destination records the commit that was
+            copied.
+          </li>
+          <li>
+            <code>packages/bot-sdk/package.json</code> lists <code>@ai-chat/db</code>, but only the
+            tests and the memory eval import it. <code>core/</code> imports no
+            <code>@ai-chat/*</code> package.
+          </li>
+          <li>
+            ADR 0005 says "the client never imports the server". The code does reach the server with
+            <code>import type</code> (in <code>chat-client.ts</code>, the plugins' client files such
+            as <code>search.ts</code>, and <code>ui/</code> files such as
+            <code>conversation-panel.tsx</code>), which keeps the spirit: no server code is bundled.
+          </li>
+        </ul>
+        <h3>Challenge</h3>
+        <p>
+          Run <code>grep -rn "from \"\.\./server" packages/bot-sdk/core/client</code>. Is every hit
+          an <code>import type</code>? Then find where apps/web calls <code>sdk.start()</code>. Tell
+          your teacher what you found.
+        </p>
+      </details>
+
+      <div class="footer-box">
+        <p>
+          <strong>Primary source:</strong>
+          <a href="../../../../docs/adr/0005-copied-stack-agnostic-chat-sdk.md"
+            >ADR 0005: a copied, stack-agnostic core with Host-owned UI</a
+          >, then the first two sections of the
+          <a href="../../../../packages/bot-sdk/README.md">SDK README</a>.
+        </p>
+        <p>
+          <strong>Cheat sheets:</strong>
+          <a href="../../reference/package-map.html">Package map</a> ·
+          <a href="../../reference/names.html">Names</a>
+        </p>
+        <p>
+          <strong>Stuck or curious?</strong> Ask your teacher (Claude) anything: "why is ui not
+          inside core?", "show me every import type from server", or "quiz me again".
+        </p>
+        <div class="nav">
+          <a href="../../index.html">← Course contents</a
+          ><a href="0002-create-chat.html">Lesson 2: createBotSdk →</a>
+        </div>
+      </div>
+    </main>
+
+    <script src="../../assets/diagrams.js"></script>
+    <script src="../../assets/explainer.js"></script>
+    <script src="../../assets/package-map.js"></script>
+    <script src="../../assets/quiz.js"></script>
+    <script src="../../assets/exercise.js"></script>
+    <script>
+      const D = Diagrams,
+        PM = PackageMap;
+
+      // Section 1: the clickable map.
+      const out = document.getElementById("map-out");
+      PM.render("#map", {
+        onPick(id) {
+          const p = PM.byId[id];
+          const imports = PM.DEPS[id].map((to) => PM.byId[to].label);
+          const by = PM.importedBy(id).map((from) => PM.byId[from].label);
+          out.innerHTML = `<strong>${p.path}</strong>: ${p.job}<br>Imports: ${imports.length ? imports.join(", ") : "only npm packages"}. Imported by: ${by.length ? by.join(", ") : "nobody"}.`;
+        },
+      });
+
+      // Section 2: the copy.
+      const copySvg = (t = 1, A = { step: () => 1 }) => {
+        const s = A.step(t, 0.2, 0.7);
+        return (
+          D.box(20, 30, 210, 46, "packages/bot-sdk", { mono: true, tone: "blue" }) +
+          D.box(40, 100, 80, 36, "core/", { mono: true }) +
+          D.box(130, 100, 80, 36, "ui/", { mono: true }) +
+          D.arrow(240, 53, 330, 53, { label: "copy" }) +
+          D.box(340, 30, 400, 46, "a Host: src/lib/bot-sdk", { mono: true }) +
+          D.box(360, 100, 170, 36, "core/  replaced", {
+            mono: true,
+            tone: "accent",
+            opacity: 0.3 + 0.7 * s,
+          }) +
+          D.box(550, 100, 170, 36, "ui/  kept as edited", { mono: true, tone: "ok" }) +
+          D.text(445, 158, "edits here are lost", { tone: "accent", anchor: "middle", size: 12 }) +
+          D.text(635, 158, "Host restyles freely", { tone: "ok", anchor: "middle", size: 12 })
+        );
+      };
+      D.render(
+        "#copy",
+        D.svg(760, 175, copySvg(), { label: "The copy script replaces core and keeps ui" }),
+      );
+
+      // Section 3: the seam.
+      const seamSvg = (t = 1, A = { step: () => 1 }) =>
+        D.box(10, 70, 100, 46, "Browser", { tone: "blue" }) +
+        D.box(150, 70, 190, 46, "routes/api/chat/$.ts", { mono: true, sub: "Host" }) +
+        D.box(380, 70, 170, 46, "sdk.handler", { mono: true, tone: "accent", sub: "SDK" }) +
+        D.box(590, 10, 160, 40, "/rpc/* → routers", { mono: true }) +
+        D.box(590, 73, 160, 40, "POST /run", { mono: true, sub: "handleChat" }) +
+        D.box(590, 136, 160, 40, "Postgres", { mono: true, sub: "databaseUrl" }) +
+        D.box(380, 150, 170, 40, "getUser → { id }", {
+          mono: true,
+          tone: "ok",
+          opacity: A.step(t, 0.3, 0.6),
+        }) +
+        D.arrow(110, 93, 150, 93) +
+        D.arrow(340, 93, 380, 93) +
+        D.arrow(550, 85, 590, 30) +
+        D.arrow(550, 93, 590, 93) +
+        D.arrow(550, 101, 590, 156) +
+        D.arrow(465, 116, 465, 150, { tone: "ok", dashed: true, label: "who?" });
+      D.render(
+        "#seam",
+        D.svg(760, 200, seamSvg(), { label: "The Host route hands the request to sdk.handler" }),
+      );
+
+      // Section 4: up-arrows.
+      const upSvg =
+        D.box(60, 20, 200, 44, "core/server", { mono: true }) +
+        D.box(60, 130, 200, 44, "core/client", { mono: true }) +
+        D.route(
+          [
+            [120, 130],
+            [120, 64],
+          ],
+          { tone: "ok", dashed: true, width: 2.4 },
+        ) +
+        D.text(130, 97, "import type ✓ erased", { tone: "ok", size: 13, weight: 600 }) +
+        D.route(
+          [
+            [220, 130],
+            [220, 64],
+          ],
+          { tone: "accent", width: 2.4 },
+        ) +
+        D.text(230, 115, "value import ✗", { tone: "accent", size: 13, weight: 600 }) +
+        D.box(460, 130, 200, 44, "core/shared", { mono: true }) +
+        D.box(460, 20, 200, 44, "apps/web", { mono: true }) +
+        D.route(
+          [
+            [560, 130],
+            [560, 64],
+          ],
+          { tone: "accent", width: 2.4 },
+        ) +
+        D.text(570, 97, "anything ✗", { tone: "accent", size: 13, weight: 600 });
+      D.render(
+        "#up",
+        D.svg(760, 190, upSvg, { label: "Upward imports: only import type from client to server" }),
+      );
+
+      // Video.
+      const sdkIds = ["ui", "client", "server", "shared"];
+      Explainer.mount("#video", {
+        title: "Lesson 1 in about 1 minute",
+        width: 760,
+        height: 424,
+        scenes: [
+          {
+            say: "The chat feature is one folder, the Chat SDK, built in four parts like the floors of a building.",
+            draw: (t, A) =>
+              sdkIds
+                .map((id, i) => {
+                  const p = PM.byId[id],
+                    s = A.step(t, 0.1 + i * 0.15, 0.25 + i * 0.15);
+                  return D.box(p.x, p.y - (1 - s) * 20, p.w, 44, p.label, {
+                    mono: true,
+                    opacity: s,
+                  });
+                })
+                .join(""),
+          },
+          {
+            say: "A Host copies the folder in. The core is replaced on every copy, and the ui is copied once, then the Host owns it.",
+            draw: (t, A) => copySvg(t, A),
+          },
+          {
+            say: "The Host gives the SDK three things: who the user is, one catch-all route, and a Postgres database.",
+            show: "getUser · routes/api/chat/$.ts → sdk.handler · databaseUrl",
+            draw: (t, A) => seamSvg(t, A),
+          },
+          {
+            say: "Inside, imports go down. The client may look up at the server's types, but never at its code.",
+            draw: (t, A) =>
+              PM.draw(t < 0.5 ? "server" : "client", {
+                probe: t > 0.6 ? { from: "client", to: "server", ok: false } : null,
+              }),
+          },
+          {
+            say: "Nothing in the SDK imports the Host. Now click through the map, then write the allowed function.",
+            show: "Next: click the map, then write allowed(from, to, typeOnly).",
+            draw: (t, A) =>
+              PM.draw("web") +
+              A.fade(
+                t,
+                0.3,
+                0.6,
+                D.text(380, 90, "imported by nobody", {
+                  tone: "accent",
+                  anchor: "middle",
+                  weight: 600,
+                }),
+              ),
+          },
+        ],
+      });
+
+      // Try it: allowed(from, to, typeOnly).
+      const DOWN_SRC = `// Who may import whom, going down the map (from the lesson's picture).
+const DOWN = {
+  web: ["ui", "client", "server", "shadcn", "auth", "email", "db"],
+  ui: ["client", "shared", "shadcn"],
+  client: ["shared"],
+  server: ["shared"],
+  shared: [],
+  shadcn: [],
+  auth: ["db", "email"],
+  email: [],
+  db: [],
+};`;
+      let learnerAllowed = null;
+      Exercise.mount("#ex1", {
+        title: "Write allowed(from, to, typeOnly)",
+        task: "Return <code>true</code> when the import is allowed: it goes down the map (it is in <code>DOWN[from]</code>), or it goes from <code>client</code> or <code>ui</code> to <code>server</code> with <code>typeOnly</code> set. Otherwise return <code>false</code>.",
+        storageKey: "ai-chat-sdk-l1-allowed",
+        fnName: "allowed",
+        starter: `${DOWN_SRC}
+
+// Example: allowed("client", "server", true) → true (import type is erased).
+// Hint: first check DOWN[from]. Then check the one exception: typeOnly,
+// to is "server", and from is "client" or "ui".
+function allowed(from, to, typeOnly) {
+  return false;
+}`,
+        solution: `${DOWN_SRC}
+
+function allowed(from, to, typeOnly) {
+  if (DOWN[from].includes(to)) return true;
+  return typeOnly && to === "server" && (from === "client" || from === "ui");
+}`,
+        tests: [
+          { name: "ui → client (value) → true", args: ["ui", "client", false], expect: true },
+          { name: "web → server (value) → true", args: ["web", "server", false], expect: true },
+          {
+            name: "client → server (import type) → true",
+            args: ["client", "server", true],
+            expect: true,
+          },
+          { name: "ui → server (import type) → true", args: ["ui", "server", true], expect: true },
+          {
+            name: "client → server (value) → false",
+            args: ["client", "server", false],
+            expect: false,
+          },
+          {
+            name: "server → client (import type) → false",
+            args: ["server", "client", true],
+            expect: false,
+          },
+          {
+            name: "shared → server (import type) → false",
+            args: ["shared", "server", true],
+            expect: false,
+          },
+          { name: "server → db (value) → false", args: ["server", "db", false], expect: false },
+          { name: "server → web (value) → false", args: ["server", "web", false], expect: false },
+        ],
+        onResult(fn, all) {
+          learnerAllowed = all ? fn : null;
+          // Deferred: the payoff map below is built after this mount.
+          setTimeout(() => judge(current));
+        },
+      });
+
+      // Payoff: real and made-up import lines, judged by the learner's function.
+      const PROBES = [
+        {
+          file: "core/client/chat-client.ts",
+          line: 'import type { CoreRouter } from "../server/routers/index"',
+          from: "client",
+          to: "server",
+          typeOnly: true,
+        },
+        {
+          file: "plugins/assistant/ui/chat/chat-view.tsx",
+          line: 'import { useChatAdapter } from "../../../../../core/client/react/provider"',
+          from: "ui",
+          to: "client",
+          typeOnly: false,
+        },
+        {
+          file: "plugins/assistant/server/chat/run.ts (a PR)",
+          line: 'import { db } from "@ai-chat/db"',
+          from: "server",
+          to: "db",
+          typeOnly: false,
+        },
+        {
+          file: "core/client/title.ts (a PR)",
+          line: 'import { loadPath } from "../server/chat/message-tree"',
+          from: "client",
+          to: "server",
+          typeOnly: false,
+        },
+        {
+          file: "core/shared/message-parts.ts (a PR)",
+          line: 'import { ChatView } from "../../ui"',
+          from: "shared",
+          to: "ui",
+          typeOnly: false,
+        },
+      ];
+      const payMap = PM.render("#payoff", {});
+      const probes = document.getElementById("probes");
+      probes.innerHTML = PROBES.map(
+        (p, i) =>
+          `<button class="btn" type="button" data-i="${i}" style="margin:2px">${D.esc(p.file)}</button>`,
+      ).join("");
+      let current = 0;
+      function judge(i) {
+        current = i;
+        const p = PROBES[i];
+        const payOut = document.getElementById("pay-out");
+        if (!learnerAllowed) {
+          payMap.select(null);
+          payOut.innerHTML =
+            "Pass the tests first. Then your <code>allowed</code> judges real import lines.";
+          return;
+        }
+        const ok = learnerAllowed(p.from, p.to, p.typeOnly);
+        payMap.select(p.from, { probe: { from: p.from, to: p.to, ok, typeOnly: p.typeOnly } });
+        payOut.innerHTML = `<code>${D.esc(p.line)}</code><br>Your <code>allowed("${p.from}", "${p.to}", ${p.typeOnly})</code> → <strong>${ok ? "allowed ✓" : "refused ✗"}</strong>`;
+      }
+      probes.addEventListener("click", (e) => {
+        const b = e.target.closest("button[data-i]");
+        if (b) judge(Number(b.dataset.i));
+      });
+      judge(0);
+    </script>
+  </body>
+</html>

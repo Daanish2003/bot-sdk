@@ -12,7 +12,6 @@ import {
   generatedImage,
   savedPrompt,
   sharedLink,
-  modelSettings,
   userSettings,
 } from "../../../core/server/db/schema";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
@@ -36,7 +35,6 @@ const imagePromptSchema = z.object({
 export type AssistantExport = {
   settings: {
     backgroundModel: string | null;
-    imageModel: string | null;
     instructions: string | null;
     /** The user's Memory switch (ADR 0022), kept by the `memory` plugin; `true` without it. */
     memoryEnabled: boolean;
@@ -118,11 +116,6 @@ export async function exportAssistantData(
     })
     .from(userSettings)
     .where(eq(userSettings.userId, userId));
-  // The Image Model is the models plugin's (spec #801); the export keeps it under the settings.
-  const [modelSetting] = await tx
-    .select({ imageModel: modelSettings.imageModel })
-    .from(modelSettings)
-    .where(eq(modelSettings.userId, userId));
 
   const projects = await tx
     .select({
@@ -260,7 +253,6 @@ export async function exportAssistantData(
   return {
     settings: {
       backgroundModel: settings?.backgroundModel ?? null,
-      imageModel: modelSetting?.imageModel ?? null,
       instructions: settings?.instructions ?? null,
       memoryEnabled,
     },

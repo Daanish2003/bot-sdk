@@ -1,1 +1,0 @@
-ALTER TABLE "chat"."bot_turn" ADD COLUMN "skill_changes" jsonb;

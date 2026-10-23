@@ -43,18 +43,43 @@ export async function signInOnForm(page: Page, email: string, password: string) 
 
 const chat = chatPage(expect, appWebHost);
 
-export const { messageRows, send, addFakeOllama } = chat;
+export const { addFakeOllama } = chat;
 
-/** Signs in as a new seeded, verified user (so tests don't share data) on the new Conversation page. */
+/** Signs in as a new seeded, verified user (so tests don't share data) on the Bots app. */
 export async function signInAsSeededUser(page: Page): Promise<SeededUser> {
   const seeded = await appWebHost.signIn(page);
-  await page.goto("/c");
-  await expect(page).toHaveURL(/\/c$/);
+  await page.goto("/bots");
+  await expect(page).toHaveURL(/\/bots$/);
   return seeded;
 }
 
-/** A seeded user with the fake Ollama, on the new Conversation page. */
-export const signInAsSeededUserWithModel = chat.signInWithModel;
+/** A seeded user with the fake Ollama, on the Bots app. */
+export async function signInAsSeededUserWithModel(page: Page): Promise<SeededUser> {
+  const seeded = await signInAsSeededUser(page);
+  await addFakeOllama(page);
+  await page.goto("/bots");
+  return seeded;
+}
+
+/** Creates a Bot on the Host's default Model and opens it. */
+export async function createBot(page: Page, name: string) {
+  await page.goto("/bots");
+  await page.getByRole("button", { name: "New Bot" }).click();
+  await page.getByRole("textbox", { name: "Name" }).fill(name);
+  await page.getByRole("button", { name: "Create", exact: true }).click();
+  await expect(page).toHaveURL(/\/bots\/[\w-]+$/);
+  await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
+}
+
+/** A Bot's Messages on the page. */
+export const botMessages = (page: Page) => page.locator("[data-bot-message]");
+
+/** Sends `text` from the Bot's composer. */
+export async function sendToBot(page: Page, text: string) {
+  const composer = page.getByRole("textbox", { name: "Message" });
+  await composer.fill(text);
+  await composer.press("Enter");
+}
 
 export type CapturedMail = { template: string; subject: string; text: string };
 

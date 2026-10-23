@@ -34,9 +34,9 @@ function renderKeys() {
   const queryClient = new QueryClient();
   queryClient.setQueryData(client.orpc.credentials.mode.queryKey(), { byok: true });
   queryClient.setQueryData(client.orpc.credentials.list.queryKey(), []);
+  queryClient.setQueryData(client.orpc.models.imageModel.queryKey(), { imageModel: null });
   queryClient.setQueryData(client.orpc.settings.get.queryKey(), {
     backgroundModel: null,
-    imageModel: null,
     instructions: null,
   });
   queryClient.setQueryData(client.orpc.connections.list.queryKey(), {

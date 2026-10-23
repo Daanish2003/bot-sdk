@@ -71,9 +71,9 @@ describe("the keys page with the dictionary", () => {
     expectTranslated(createElement(HostKeysPage), (queryClient, client) => {
       queryClient.setQueryData(client.orpc.credentials.mode.queryKey(), { byok: true });
       queryClient.setQueryData(client.orpc.credentials.list.queryKey(), []);
+      queryClient.setQueryData(client.orpc.models.imageModel.queryKey(), { imageModel: null });
       queryClient.setQueryData(client.orpc.settings.get.queryKey(), {
         backgroundModel: null,
-        imageModel: null,
         instructions: null,
       });
       queryClient.setQueryData(client.orpc.connections.list.queryKey(), { servers: [] });
@@ -93,9 +93,9 @@ describe("the keys page with the dictionary", () => {
             state === "key" ? [{ service: "openai", hint: "abcd", verified: true }] : [],
           );
           queryClient.setQueryData(client.orpc.credentials.openaiState.queryKey(), state);
+          queryClient.setQueryData(client.orpc.models.imageModel.queryKey(), { imageModel: null });
           queryClient.setQueryData(client.orpc.settings.get.queryKey(), {
             backgroundModel: null,
-            imageModel: null,
             instructions: null,
           });
           queryClient.setQueryData(client.orpc.connections.list.queryKey(), { servers: [] });
