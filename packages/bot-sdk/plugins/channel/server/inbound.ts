@@ -69,6 +69,13 @@ async function deliver(
   if (!(await call.meter.mayRun()).ok) return "the user's Quota is spent";
   if (await sdk.isUserBlocked(owner.userId)) return "the user is Banned";
 
+  // A redelivery is dropped before its attachments are downloaded and stored again.
+  const [alreadySeen] = await sdk.db
+    .select({ id: botTrigger.id })
+    .from(botTrigger)
+    .where(eq(botTrigger.id, `email:${messageId}`));
+  if (alreadySeen) return redelivery;
+
   // The owner's attachments go to the blob store like a composer's files; the others stay named.
   const { stored, unkept } = await storeMailFiles(sdk, mail.files ?? []);
   const body = emailText(
@@ -95,13 +102,13 @@ async function deliver(
       const row = await appendMessage(tx, owner.conversationId, {
         role: "user",
         parts: {
-          ...textParts(body),
-          ...(stored.length && {
-            parts: [
-              ...textParts(body).parts,
-              { type: "control" as const, control: { kind: "files" as const, files: stored } },
-            ],
-          }),
+          schemaVersion: 1,
+          parts: [
+            ...(body ? textParts(body).parts : []),
+            ...(stored.length
+              ? [{ type: "control" as const, control: { kind: "files" as const, files: stored } }]
+              : []),
+          ],
           channel: "email",
           subject: mail.subject,
         },
