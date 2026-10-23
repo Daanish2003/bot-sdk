@@ -8,10 +8,13 @@ import { loadSettings, saveInstructions, saveBackgroundModel } from "../settings
 
 export const settingsRouter = {
   /** The user's settings, with the Image Model from the models plugin's `model_settings` (spec #801). */
-  get: protectedProcedure.handler(async ({ context }) => ({
-    ...(await loadSettings(context.sdk, context.user.id)),
-    imageModel: await context.sdk.plugin("models").imageModelSetting(context.user.id),
-  })),
+  get: protectedProcedure.handler(async ({ context }) => {
+    const [settings, imageModel] = await Promise.all([
+      loadSettings(context.sdk, context.user.id),
+      context.sdk.plugin("models").imageModelSetting(context.user.id),
+    ]);
+    return { ...settings, imageModel };
+  }),
 
   /**
    * Chooses the Model that writes automatic titles; `null` is "Same as first reply". Credentials
