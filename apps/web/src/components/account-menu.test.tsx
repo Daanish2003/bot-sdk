@@ -2,7 +2,13 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { navigate, signOut } = vi.hoisted(() => ({ navigate: vi.fn(), signOut: vi.fn() }));
+const { navigate, signOut, clear } = vi.hoisted(() => ({
+  navigate: vi.fn(),
+  signOut: vi.fn(),
+  clear: vi.fn(),
+}));
+
+vi.mock("@tanstack/react-query", () => ({ useQueryClient: () => ({ clear }) }));
 
 vi.mock("@/lib/auth-client", () => ({ authClient: { signOut } }));
 
@@ -21,6 +27,7 @@ afterEach(() => {
   cleanup();
   navigate.mockClear();
   signOut.mockClear();
+  clear.mockReset();
 });
 
 const open = () => fireEvent.click(screen.getByRole("button", { name: /Ada/ }));
@@ -41,11 +48,13 @@ describe("AccountMenu", () => {
     expect(screen.getByRole("menuitem", { name: "Admin" })).toBeTruthy();
   });
 
-  it("signs out, then goes to the login page", () => {
+  it("signs out, clears the query cache, then goes to the login page", () => {
     signOut.mockImplementation(async ({ fetchOptions }) => fetchOptions.onSuccess());
     render(<AccountMenu name="Ada" email="ada@example.com" isAdmin={false} />);
     open();
     fireEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
+    expect(clear).toHaveBeenCalledOnce();
     expect(navigate).toHaveBeenCalledWith({ to: "/login" });
+    expect(clear.mock.invocationCallOrder[0]).toBeLessThan(navigate.mock.invocationCallOrder[0]!);
   });
 });

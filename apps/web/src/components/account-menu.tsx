@@ -8,6 +8,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@ai-chat/ui/components/dropdown-menu";
+import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { UserIcon } from "lucide-react";
 
@@ -24,6 +25,7 @@ export default function AccountMenu({
   isAdmin: boolean;
 }) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   return (
     <DropdownMenu>
@@ -44,7 +46,13 @@ export default function AccountMenu({
             variant="destructive"
             onClick={() => {
               authClient.signOut({
-                fetchOptions: { onSuccess: () => navigate({ to: "/login" }) },
+                fetchOptions: {
+                  onSuccess: () => {
+                    // The next user on this tab must not see this user's cached Bots.
+                    queryClient.clear();
+                    navigate({ to: "/login" });
+                  },
+                },
               });
             }}
           >
