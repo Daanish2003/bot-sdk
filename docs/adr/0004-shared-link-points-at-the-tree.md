@@ -1,3 +1,7 @@
+---
+Status: superseded by ADR 0027
+---
+
 # A Shared link points at the Message tree instead of copying it
 
 A Shared link is a snapshot of a Conversation's Active Branch, but we don't copy any Messages to take it. Messages are never mutated once written (edit and regenerate insert siblings, ADR 0001), so the path from a root to a given leaf is fixed for as long as the Conversation exists. A `shared_link` row therefore stores only a random `token`, the `conversationId` (unique: at most one link per Conversation), the `leafMessageId` of the shared Branch and a frozen copy of the `title`. Sharing again moves `leafMessageId` to the current Active Branch under the same token. The public page walks up from `leafMessageId` with the same recursive query as the Active Branch, strips thinking parts and reduces attachments to filename and type.

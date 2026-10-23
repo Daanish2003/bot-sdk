@@ -6,7 +6,7 @@ import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
 import type { BotCheckIn } from "../shared/check-in";
-import { recordBotChange } from "./thread-change";
+import { hintChanged, recordBotChange } from "./thread-change";
 import { lockConversation } from "./router";
 import { lastMessageOfTurn, zonedTime } from "./routine";
 import { newestTimeZone } from "./store";
@@ -120,7 +120,7 @@ export async function cancelCheckIn(
   userId: string,
   checkInId: string,
 ): Promise<void> {
-  await deps.db.transaction(async (tx) => {
+  const cancelledIn = await deps.db.transaction(async (tx) => {
     const [owner] = await tx
       .select({ botId: bot.id, conversationId: bot.conversationId })
       .from(botCheckIn)
@@ -129,8 +129,9 @@ export async function cancelCheckIn(
     if (!owner) throw rpcError("NOT_FOUND", "error.checkInNotFound", "Check-in not found");
     // The Conversation's row lock first, as in a fire.
     await lockConversation(tx, owner.conversationId);
-    await cancelPending(deps, tx, owner, checkInId);
+    return (await cancelPending(deps, tx, owner, checkInId)) ? owner.conversationId : null;
   });
+  if (cancelledIn) await hintChanged(deps, cancelledIn);
 }
 
 /**

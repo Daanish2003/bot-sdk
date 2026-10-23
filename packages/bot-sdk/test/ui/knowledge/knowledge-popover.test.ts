@@ -5,7 +5,6 @@ import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { BotSdkClient } from "../../../core/client/chat-client";
-import { assistantClient } from "../../../plugins/assistant/client/index";
 import { botClient } from "../../../plugins/bot/client/index";
 import { knowledgeClient } from "../../../plugins/knowledge/client/index";
 import type { KnowledgeListing } from "../../../plugins/knowledge/server/files";
@@ -17,7 +16,7 @@ afterEach(() => {
   cleanup();
 });
 
-const plugins = [modelsClient(), assistantClient(), knowledgeClient(), botClient()];
+const plugins = [modelsClient(), knowledgeClient(), botClient()];
 const mib = 1024 * 1024;
 
 const listing: KnowledgeListing = {

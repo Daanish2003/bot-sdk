@@ -1,7 +1,8 @@
-import type { Credentials } from "../../models/server/types";
-import type { SearchErrorReason, SearchResult } from "../shared/chat/web-search";
+import type { SearchErrorReason, SearchResult } from "../../bot/shared/web-search";
 
 export type { SearchErrorReason, SearchResult };
+// Web search's client seam lives in the `bot` plugin; the assistant reads it from there until it is deleted.
+export { type SearchClient, SearchError } from "../../bot/server/search-client";
 // The `models` plugin's types, where the assistant's modules still read them from (spec #439).
 export type {
   Credentials,
@@ -15,25 +16,6 @@ export type {
 } from "../../models/server/types";
 
 export { ImageRefusedError } from "../../models/server/image-refused";
-
-export class SearchError extends Error {
-  readonly reason: SearchErrorReason;
-
-  constructor(reason: SearchErrorReason, message: string = `Web search failed: ${reason}`) {
-    super(message);
-    this.name = "SearchError";
-    this.reason = reason;
-  }
-}
-
-/** Web search backend for the `web_search` tool. Failures throw a `SearchError`. */
-export type SearchClient = {
-  search: (
-    query: string,
-    credentials: Credentials,
-    options?: { signal?: AbortSignal },
-  ) => Promise<SearchResult[]>;
-};
 
 export type Limits = {
   /** Least time between two snapshots of a streaming Message. */

@@ -28,7 +28,7 @@ import { createBytePlusImage } from "@tanstack/ai-byteplus";
 import { chatgptPlanFetch } from "./chatgpt-plan";
 import { withOpenaiCacheWrites } from "./openai-cache-writes";
 import type { Credentials } from "./types";
-import type { AspectRatio } from "../../assistant/shared/chat/generated-image";
+import type { AspectRatio } from "../shared/image-models";
 import { isKnownModel, parseModelId } from "../shared/models";
 
 /** The model id type of an adapter factory. The ids are checked in `models.test.ts`. */

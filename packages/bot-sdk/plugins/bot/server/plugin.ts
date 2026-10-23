@@ -15,7 +15,13 @@ import { handleRoutineWebhook } from "./routine-webhook";
 import { botPluginRouter } from "./routers/index";
 import { rotateSecretKeys } from "./secret";
 import { handleScreenRequest, type ScreenSocketHooks, screenSocketHooks } from "./screen-view";
-import { botUserDelete, exportBots, hasTurnUsingComputer, userHasBot } from "./store";
+import {
+  botUserDelete,
+  exportBots,
+  hasTurnUsingComputer,
+  newestBotModel,
+  userHasBot,
+} from "./store";
 import { stopUserDemonstrations } from "./demonstration";
 import { stopUserHelpers } from "./helper-tools";
 import { stopUserTurns } from "./turn";
@@ -98,6 +104,8 @@ export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
         // Only a user with a Bot gets a Computer, so a Turn racing the user's delete creates none.
         computer.addOwnerCheck(userHasBot);
       }
+      // The default Model of the user's pickers is the newest Bot's.
+      sdk.plugin("models").addRecentModelSource((userId) => newestBotModel(sdk.db, userId));
       const api: BotApi = {
         webhookHandler: (request) => handleRoutineWebhook(sdk, request),
         stopTurns: async (userId) => {

@@ -6,11 +6,17 @@ import { conversation, message, project, memorySettings } from "../../../../core
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { loadSharedConversation } from "../../../../plugins/assistant/server/share/store";
 import type { ChatCommand } from "../../../../plugins/assistant/shared/chat/command";
+import { parseStoredParts } from "../../../../plugins/assistant/shared/chat/parts";
 import { storedParts } from "../../../../plugins/assistant/shared/message-parts";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestSdk, type TestDeps, type TestDepsOverrides } from "../../../support/deps";
+import {
+  createTestSdk,
+  type TestDeps,
+  type TestDepsOverrides,
+  chatRpc,
+  sendAs,
+} from "../../../support/assistant";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
-import { chatRpc, sendAs } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser, type TestUser } from "../../../support/users";
 
@@ -76,7 +82,7 @@ async function replyOf(deps: TestDeps, conversationId: string) {
 
 /** The stored `past_chats_search` part of a reply, if it has one. */
 function searchOf(reply: Awaited<ReturnType<typeof replyOf>>) {
-  return reply.parts.parts.find((part) => part.type === "past_chats_search");
+  return parseStoredParts(reply.parts).parts.find((part) => part.type === "past_chats_search");
 }
 
 const conversationIdsOf = (reply: Awaited<ReturnType<typeof replyOf>>) =>

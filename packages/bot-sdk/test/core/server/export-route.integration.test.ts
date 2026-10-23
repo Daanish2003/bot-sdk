@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { exportUserData } from "../../../core/server/user-data";
-import { insertConversation, insertMessage } from "../../support/conversations";
+import { bot } from "../../../plugins/bot/server/plugin";
+import { saveCredentials } from "../../../plugins/models/server/credentials/store";
 import { createTestSdk } from "../../support/deps";
 import { createTestChat } from "../../support/sdk";
 import { insertUser } from "../../support/users";
@@ -16,12 +17,18 @@ function withoutTimestamp(document: object) {
 
 describe("GET /api/chat/export", () => {
   it("answers the signed-in caller's export as a JSON attachment named by the export date", async () => {
-    const deps = createTestSdk();
+    const deps = createTestSdk({ plugins: [bot()] });
     const owner = await insertUser();
-    const conv = await insertConversation(owner, { title: "Exported" });
-    await insertMessage({ conversationId: conv.id, role: "user", text: "Hi", active: true });
+    await saveCredentials(deps, owner.id, {
+      service: "openai",
+      fields: { apiKey: "openai-test-key" },
+      hint: "…-key",
+      verified: true,
+    });
+    const chat = createTestChat({ user: owner, deps });
+    await chat.rpc.bot.create({ name: "Ada", model: "openai:gpt-5.6" });
 
-    const response = await createTestChat({ user: owner, deps }).fetch(exportRequest());
+    const response = await chat.fetch(exportRequest());
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("application/json");
@@ -30,7 +37,7 @@ describe("GET /api/chat/export", () => {
     );
     const body = await response.json();
     expect(withoutTimestamp(body)).toEqual(withoutTimestamp(await exportUserData(deps, owner.id)));
-    expect(body.conversations).toEqual([expect.objectContaining({ title: "Exported" })]);
+    expect(body.bot.bots).toEqual([expect.objectContaining({ name: "Ada" })]);
   });
 
   it("refuses a signed-out caller with 401 and no document", async () => {

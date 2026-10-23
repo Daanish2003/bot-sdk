@@ -19,6 +19,10 @@ export type ImageModel = {
 /** An Image Model the user can pick (`models.list`). `onHostCredentials`: a Host pays for it (ADR 0007). */
 export type ListedImageModel = ImageModel & { onHostCredentials: boolean };
 
+/** The shapes an Image Model makes an image in. */
+export const aspectRatios = ["square", "landscape", "portrait"] as const;
+export type AspectRatio = (typeof aspectRatios)[number];
+
 function imageModel(
   provider: ProviderId,
   modelId: string,

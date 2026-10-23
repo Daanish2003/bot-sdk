@@ -3,14 +3,24 @@
 import { useChatAdapter } from "@ai-chat/bot-sdk/core/client";
 import type { SharedConversation as SharedSnapshot } from "@ai-chat/bot-sdk/plugins/assistant/shared/share/conversation";
 import {
+  ArchivedConversationsSection,
+  BackgroundModelSelect,
   ChatView,
+  ConnectionsSection,
+  DeleteAllConversationsSection,
+  ImageModelSelect,
+  InstructionsField,
   NewConversationPage,
   ProjectPage,
+  SavedPromptsSection,
   SharedConversationPage,
+  SharedLinksSection,
   type SharedViewer,
   SharedLinkNotFound as SdkSharedLinkNotFound,
+  YourDataSection,
 } from "@ai-chat/bot-sdk/plugins/assistant/ui";
-import { KeySettingsPage } from "@ai-chat/bot-sdk/plugins/models/ui";
+import { MemorySection } from "@ai-chat/bot-sdk/plugins/memory/ui";
+import { CredentialsSections, KeySettingsPage } from "@ai-chat/bot-sdk/plugins/models/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 
@@ -23,7 +33,22 @@ export function ProjectRoute({ id }: { id: string }) {
 }
 
 export function KeySettings() {
-  return <KeySettingsPage />;
+  const { plugins } = useChatAdapter();
+  return (
+    <KeySettingsPage>
+      <CredentialsSections />
+      <ConnectionsSection />
+      <SharedLinksSection />
+      <ArchivedConversationsSection />
+      <InstructionsField />
+      {plugins.includes("memory") && <MemorySection />}
+      <SavedPromptsSection />
+      <BackgroundModelSelect />
+      <ImageModelSelect />
+      <YourDataSection />
+      <DeleteAllConversationsSection />
+    </KeySettingsPage>
+  );
 }
 
 export function SharedConversation({

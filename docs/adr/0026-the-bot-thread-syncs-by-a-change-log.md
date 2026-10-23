@@ -1,5 +1,5 @@
 ---
-Status: accepted
+Status: accepted, amended by ADR 0027 (the owner's email attachments are kept as Attachments)
 ---
 
 # The Bot thread syncs by a per-Conversation change log; pub/sub carries only data-less hints

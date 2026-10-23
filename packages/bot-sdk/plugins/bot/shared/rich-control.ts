@@ -7,6 +7,7 @@ import { filesControlSchema } from "./files";
 import { computerCardSchema } from "./helper";
 import { reviewApprovalSchema } from "./review";
 import { routineApprovalSchema } from "./routine";
+import { storedReactionsSchema } from "./reaction";
 import { secretRequestSchema } from "./secret";
 
 /**
@@ -56,8 +57,10 @@ export const controlPartSchema = z.object({
 });
 
 /**
- * A Bot Message's stored parts: its text, then at most one Rich control. Text is what every
- * Channel can show.
+ * A Bot Message's stored parts, the Bot's own over the core's envelope: its text, then at most one
+ * Rich control. Text is what every Channel can show. Beside the parts: the IANA `timeZone` a user's
+ * Message was sent from, the Channel besides web it came in or also went out on, an emailed user's
+ * Message's subject, which the Bot's emailed reply answers (spec #761), and its emojis.
  */
 export const botMessagePartsSchema = z.object({
   schemaVersion: z.literal(1),
@@ -66,4 +69,10 @@ export const botMessagePartsSchema = z.object({
     .refine((parts) => parts.filter((part) => part.type === "control").length <= 1, {
       error: "A Message has at most one Rich control",
     }),
+  timeZone: z.string().optional(),
+  channel: z.literal("email").optional(),
+  subject: z.string().optional(),
+  reactions: storedReactionsSchema.optional(),
 });
+
+export type BotMessageParts = z.infer<typeof botMessagePartsSchema>;

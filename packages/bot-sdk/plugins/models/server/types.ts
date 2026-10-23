@@ -91,6 +91,13 @@ export type HostTool = {
   pricePerSearchUsd: number;
 };
 
+/**
+ * A source of the user's recent Model, which another plugin registers: the Model the user last
+ * chose through it as a `"provider:model"` id, or nothing. The default Model of `models.list` is
+ * the first source's that the user can use.
+ */
+export type RecentModelSource = (userId: string) => Promise<string | null | undefined>;
+
 /** What the `models` plugin's modules run on: the core's parts they use, and the plugin's options. */
 export type ModelsDeps = {
   db: Database;
@@ -143,6 +150,8 @@ export type ModelsDeps = {
   defaultBackgroundModel: string | null;
   /** The Host's default Image Model, a Host Image Model's id, or `null` (`defaultImageModel`). */
   defaultImageModel: string | null;
+  /** The recent-Model sources other plugins registered, in order (`addRecentModelSource`). */
+  recentModelSources: RecentModelSource[];
   /** A user's Quota on Host credentials, `null` when unlimited (ADR 0007). */
   getQuota: (userId: string) => Promise<Quota | null>;
 };

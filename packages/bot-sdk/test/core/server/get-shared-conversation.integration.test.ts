@@ -11,7 +11,7 @@ import { models } from "../../../plugins/models/server/plugin";
 import { conversation } from "../../../core/server/db/schema";
 import { storedParts } from "../../../plugins/assistant/shared/message-parts";
 import { insertConversation, insertMessage } from "../../support/conversations";
-import { testKeyEncryptionSecret } from "../../support/deps";
+import { testKeyEncryptionSecret } from "../../support/assistant";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 import { insertUser, type TestUser } from "../../support/users";
 

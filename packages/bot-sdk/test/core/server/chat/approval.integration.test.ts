@@ -13,7 +13,13 @@ import type { HostProvider } from "../../../../plugins/assistant/server/deps";
 import { fakeImageAdapter } from "../../../../plugins/models/server/fake-image-adapter";
 import { citationPrompt } from "../../../../plugins/assistant/shared/chat/citations";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestSdk, type TestDepsOverrides, type TestDeps } from "../../../support/deps";
+import {
+  createTestSdk,
+  type TestDepsOverrides,
+  type TestDeps,
+  chatRpc,
+  sendAs,
+} from "../../../support/assistant";
 import {
   createFakeAdapter,
   type FakeAdapter,
@@ -21,8 +27,7 @@ import {
   text,
   toolCall,
 } from "../../../support/fake-adapter";
-import { createFakeSearchClient } from "../../../support/fake-search-client";
-import { chatRpc, sendAs } from "../../../support/sdk";
+import { createFakeSearchClient } from "../../../../plugins/bot/server/fake-search-client";
 import { insertUser, type TestUser } from "../../../support/users";
 
 const anthropicModel = "anthropic:claude-sonnet-5-5";

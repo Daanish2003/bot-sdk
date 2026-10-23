@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { bot as botTable, botTurn, conversation } from "../../../../core/server/db/schema";
+import type { BotExport } from "../../../../plugins/bot/server/store";
 import { deleteUserData, exportUserData } from "../../../../core/server/user-data";
 import { bot } from "../../../../plugins/bot/server/plugin";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
@@ -107,13 +108,6 @@ describe("bot.list and bot.get", () => {
       code: "NOT_FOUND",
     });
   });
-
-  it("keeps Bot Conversations out of the assistant's list", async () => {
-    const { client } = await signedIn();
-    await client.bot.create({ name: "Ada", model });
-
-    expect((await client.conversation.list({})).items).toEqual([]);
-  });
 });
 
 describe("the bot plugin's user data", () => {
@@ -147,8 +141,9 @@ describe("the bot plugin's user data", () => {
     });
 
     const exported = await exportUserData(deps, user.id);
+    const { bots } = exported.bot as BotExport;
 
-    expect(exported.bots).toEqual([
+    expect(bots).toEqual([
       {
         id: created.id,
         name: "Ada",
@@ -164,7 +159,6 @@ describe("the bot plugin's user data", () => {
         ],
       },
     ]);
-    expect(exported.conversations).toEqual([]);
   });
 });
 
@@ -217,5 +211,52 @@ describe("a Bot's status from the server", () => {
     await turn(created.id, "running", "2026-10-17T10:00:00Z");
 
     expect((await client.bot.get({ botId: created.id })).bot.turnStatus).toBe("running");
+  });
+});
+
+describe("a Bot Message's stored parts", () => {
+  it("reads each one by the Bot's schema: a malformed part costs only the control", async () => {
+    const { client } = await signedIn();
+    const created = await client.bot.create({ name: "Ada", model });
+    const conversationId = (await conversationOf(created.id))!.id;
+    const choice = { kind: "choice", options: ["Tea", "Coffee"], other: false };
+    const at = "2099-10-17T09:00:00.000Z";
+    const reactions = { user: { emoji: "👍", at } };
+    const stored = (text: string, parts: unknown[], createdAt: string) =>
+      insertMessage({
+        conversationId,
+        role: "assistant",
+        text,
+        createdAt: new Date(createdAt),
+        parts: {
+          schemaVersion: 1,
+          parts: [{ type: "text", text }, ...parts],
+          reactions,
+          channel: "email",
+        } as never,
+      });
+    await stored("Tea or coffee?", [{ type: "control", control: choice }], "2099-10-17T09:00:00Z");
+    await stored(
+      "Two cards",
+      [
+        { type: "control", control: choice },
+        { type: "control", control: choice },
+      ],
+      "2099-10-17T09:01:00Z",
+    );
+    await stored(
+      "An odd card",
+      [{ type: "control", control: { kind: "nope" } }],
+      "2099-10-17T09:02:00Z",
+    );
+
+    const { messages } = await client.bot.get({ botId: created.id });
+
+    const read = { reactions: { user: { emoji: "👍", at: new Date(at) } }, channel: "email" };
+    expect(messages.map(({ id: _id, createdAt: _at, ...rest }) => rest)).toEqual([
+      { role: "assistant", text: "Tea or coffee?", control: choice, ...read },
+      { role: "assistant", text: "Two cards", ...read },
+      { role: "assistant", text: "An odd card", ...read },
+    ]);
   });
 });

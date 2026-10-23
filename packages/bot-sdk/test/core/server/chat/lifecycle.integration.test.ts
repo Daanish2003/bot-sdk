@@ -5,10 +5,9 @@ import { describe, expect, it } from "vitest";
 import { createLifecycle } from "../../../../plugins/assistant/server/lifecycle";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestSdk } from "../../../support/deps";
+import { createTestSdk, createTestChat } from "../../../support/assistant";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { insertUser } from "../../../support/users";
-import { createTestChat } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { assistantState } from "../../../../plugins/assistant/server/state";
 

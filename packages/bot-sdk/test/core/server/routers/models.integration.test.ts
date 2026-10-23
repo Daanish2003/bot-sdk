@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 
+import { eq } from "drizzle-orm";
+
+import { bot } from "../../../../plugins/bot/server/plugin";
+import { userCredentials } from "../../../../plugins/models/server/db/credentials";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
-import { insertConversation } from "../../../support/conversations";
 import { createTestSdk } from "../../../support/deps";
 import { liveModelsFetch } from "../../../support/live-models";
+import { getTestDb } from "../../../support/test-database";
 import { insertUser, type TestUser } from "../../../support/users";
 import { chatRpc } from "../../../support/sdk";
 
@@ -68,64 +72,6 @@ describe("models.list", () => {
     const { defaultModel } = await client.models.list();
 
     expect(defaultModel).toBe("openai:gpt-5.6");
-  });
-
-  it("defaults a new Conversation to the Model of the user's most recent Conversation", async () => {
-    const { user, client } = await signedIn();
-    await addCredentials(user, "openai");
-    await addCredentials(user, "anthropic");
-    await insertConversation(user, {
-      model: "anthropic:claude-haiku-4-5",
-      lastMessageAt: new Date("2026-10-01T10:00:00Z"),
-    });
-    await insertConversation(user, {
-      model: "anthropic:claude-opus-5-5",
-      lastMessageAt: new Date("2026-10-02T10:00:00Z"),
-    });
-
-    const { defaultModel } = await client.models.list();
-
-    expect(defaultModel).toBe("anthropic:claude-opus-5-5");
-  });
-
-  it("passes over a newer Conversation that has no Model, such as a Bot's", async () => {
-    const { user, client } = await signedIn();
-    await addCredentials(user, "openai");
-    await addCredentials(user, "anthropic");
-    await insertConversation(user, {
-      model: "anthropic:claude-opus-5-5",
-      lastMessageAt: new Date("2026-10-01T10:00:00Z"),
-    });
-    await insertConversation(user, {
-      kind: "bot",
-      model: null,
-      lastMessageAt: new Date("2026-10-02T10:00:00Z"),
-    });
-
-    const { defaultModel } = await client.models.list();
-
-    expect(defaultModel).toBe("anthropic:claude-opus-5-5");
-  });
-
-  it("skips the most recent Conversation's Model when its Provider has no credentials any more", async () => {
-    const { user, client } = await signedIn();
-    await addCredentials(user, "anthropic");
-    await insertConversation(user, { model: "openai:gpt-6-luna" });
-
-    const { defaultModel } = await client.models.list();
-
-    expect(defaultModel).toBe("anthropic:claude-sonnet-5-5");
-  });
-
-  it("ignores other users' Conversations", async () => {
-    const { user, client } = await signedIn();
-    await addCredentials(user, "anthropic");
-    const other = await insertUser();
-    await insertConversation(other, { model: "anthropic:claude-opus-5-5" });
-
-    const { defaultModel } = await client.models.list();
-
-    expect(defaultModel).toBe("anthropic:claude-sonnet-5-5");
   });
 
   it("rejects a caller without a session", async () => {
@@ -297,5 +243,56 @@ describe("models.list with Host credentials", () => {
     await expect(chatRpc({ user, deps: hosted }).models.list()).resolves.toMatchObject({
       webSearchOnHost: true,
     });
+  });
+});
+
+describe("models.list default with the bot plugin", () => {
+  const botDeps = createTestSdk({ plugins: [bot()], memory: false });
+
+  async function botUser(services: Array<"anthropic" | "openai">) {
+    const user = await insertUser();
+    for (const service of services) {
+      await saveCredentials(botDeps, user.id, {
+        service,
+        fields: { apiKey: `${service}-test-key` },
+        hint: "…-key",
+        verified: true,
+      });
+    }
+    return { user, client: chatRpc({ user, deps: botDeps }) };
+  }
+
+  it("is the Host default without a Bot", async () => {
+    const { client } = await botUser(["openai", "anthropic"]);
+
+    const { defaultModel } = await client.models.list();
+
+    expect(defaultModel).toBe("openai:gpt-5.6");
+  });
+
+  it("is the Model of the user's newest Bot", async () => {
+    const { client } = await botUser(["openai", "anthropic"]);
+    await client.bot.create({ name: "Ada", model: "anthropic:claude-haiku-4-5" });
+    await client.bot.create({ name: "Bea", model: "anthropic:claude-opus-5-5" });
+
+    const { defaultModel } = await client.models.list();
+
+    expect(defaultModel).toBe("anthropic:claude-opus-5-5");
+  });
+
+  it("falls through when the newest Bot's Model is not one the user can use any more", async () => {
+    const { user, client } = await botUser(["openai", "anthropic"]);
+    await client.bot.create({ name: "Ada", model: "anthropic:claude-opus-5-5" });
+    await getTestDb().delete(userCredentials).where(eq(userCredentials.userId, user.id));
+    await saveCredentials(botDeps, user.id, {
+      service: "openai",
+      fields: { apiKey: "openai-test-key" },
+      hint: "…-key",
+      verified: true,
+    });
+
+    const { defaultModel } = await client.models.list();
+
+    expect(defaultModel).toBe("openai:gpt-5.6");
   });
 });

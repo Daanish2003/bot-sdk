@@ -11,14 +11,15 @@ import {
   createHookEmitter,
   type RunEndEvent,
 } from "../../../../core/server/chat/hooks";
-import { createChatHandler } from "../../../../plugins/assistant/server/over";
+import { createChatHandler } from "../../../../core/server/over";
 import type { HostToolContext } from "../../../../plugins/assistant/server/chat/host-tools";
 import type { HostProvider } from "../../../../plugins/assistant/server/deps";
 import { message, usage } from "../../../../core/server/db/schema";
+import type { AssistantExport } from "../../../../plugins/assistant/server/export-user";
 import { exportUserData } from "../../../../core/server/user-data";
 import { START } from "../../../../core/server/chat/run-streams";
 import { insertConversation } from "../../../support/conversations";
-import { createTestSdk } from "../../../support/deps";
+import { createTestSdk, chatRpc, sendAs } from "../../../support/assistant";
 import {
   createFakeAdapter,
   round,
@@ -27,7 +28,6 @@ import {
   thinking,
   toolCall,
 } from "../../../support/fake-adapter";
-import { chatRpc, sendAs } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
 import { assistantState } from "../../../../plugins/assistant/server/state";
@@ -165,7 +165,7 @@ describe("the moderate hook on the reply", () => {
     const { messages } = await rpc.conversation.get({ id: conv.id });
     const link = await rpc.share.upsert({ conversationId: conv.id });
     const shared = await chatRpc({ deps }).share.get({ token: link.token });
-    const exported = await exportUserData(deps, user.id);
+    const exported = (await exportUserData(deps, user.id)).assistant as AssistantExport;
     expect(messages.find((m) => m.id === reply.id)).toMatchObject({
       status: "complete",
       hidden: true,

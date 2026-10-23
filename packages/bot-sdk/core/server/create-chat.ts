@@ -1,7 +1,6 @@
 import { onError } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 
-import type { UserExport } from "../../plugins/assistant/server/export-user";
 import { postgresBlobStore } from "./blob/postgres";
 import type { BlobStore } from "./blob/store";
 import { handleConversationEvents } from "./chat/conversation-events";
@@ -28,7 +27,7 @@ import {
 import { defaultRateLimits, rateLimitedFor, rpcRateLimits, type RateLimit } from "./rate-limits";
 import { coreRouter } from "./routers/index";
 import { memoryRuntime, type BotSdkRuntime } from "./runtime";
-import { deleteUserData, exportUserData } from "./user-data";
+import { deleteUserData, exportUserData, type UserExport } from "./user-data";
 
 export type ChatHandler = (request: Request) => Promise<Response>;
 
@@ -118,8 +117,8 @@ export type BotSdk = {
   /** Deletes everything every plugin holds for a user, in one transaction. Idempotent. */
   deleteUser: (userId: string) => Promise<void>;
   /**
-   * Everything the SDK keeps for a user, as one document (`version: 1`), merged from every plugin's
-   * part. Empty for an unknown id.
+   * Everything the SDK keeps for a user, as one document (`version: 2`): the core's `version`
+   * and `exportedAt`, and each exporting plugin's part under its plugin id. Empty for an unknown id.
    */
   exportUser: (userId: string) => Promise<UserExport>;
   /**

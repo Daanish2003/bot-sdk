@@ -12,7 +12,7 @@ import { listHelpers } from "./helper-card";
 import type { LoopKit } from "./loop";
 import { closeWaitingReviews } from "./review";
 import { lockConversation } from "./router";
-import { recordBotChange } from "./thread-change";
+import { hintChanged, recordBotChange } from "./thread-change";
 
 /** The Bot's tool that reads how one of its Helpers stands (#566). */
 export const checkHelperToolName = "check_helper";
@@ -146,6 +146,13 @@ export async function stopBotHelpers(
 ): Promise<{ stopped: string[] } | { error: string }> {
   const result = await deps.db.transaction((tx) => stopHelpers(deps, tx, botId, helperId));
   deps.plugin("runner").wake();
+  if ("stopped" in result && result.stopped.length > 0) {
+    const [owner] = await deps.db
+      .select({ conversationId: bot.conversationId })
+      .from(bot)
+      .where(eq(bot.id, botId));
+    if (owner) await hintChanged(deps, owner.conversationId);
+  }
   return result;
 }
 

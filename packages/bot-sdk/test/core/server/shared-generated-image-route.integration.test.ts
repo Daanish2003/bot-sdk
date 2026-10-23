@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import { fakePngBase64 } from "../../../plugins/models/server/fake-image-adapter";
-import { createTestSdk } from "../../support/deps";
+import { createTestSdk, createTestChat } from "../../support/assistant";
 import { insertConversation, insertMessage } from "../../support/conversations";
 import { insertGeneratedImage } from "../../support/generated-images";
-import { createTestChat } from "../../support/sdk";
 import { insertUser, type TestUser } from "../../support/users";
 
 const pngBytes = new Uint8Array(Buffer.from(fakePngBase64, "base64"));

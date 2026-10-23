@@ -5,7 +5,6 @@ import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { BotSdkClient } from "../../../core/client/chat-client";
-import { assistantClient } from "../../../plugins/assistant/client/index";
 import { botClient } from "../../../plugins/bot/client/index";
 import type { BotMessage, BotTurnProvenance } from "../../../plugins/bot/shared/turn";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
@@ -26,7 +25,7 @@ const changes: BotMemoryChange[] = [
   { kind: "forgot", tier: "log", text: "Moved flat" },
 ];
 
-const plugins = [modelsClient(), assistantClient(), memoryClient(), botClient()];
+const plugins = [modelsClient(), memoryClient(), botClient()];
 
 describe("BotMemoryChip", () => {
   it("shows the count and expands to the three kinds, each with its tier", () => {

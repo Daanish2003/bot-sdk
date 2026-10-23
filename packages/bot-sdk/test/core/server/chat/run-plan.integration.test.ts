@@ -12,9 +12,8 @@ import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { createPartsBuilder } from "../../../../plugins/assistant/shared/chat/parts";
 import { storedParts, type StoredPart } from "../../../../plugins/assistant/shared/message-parts";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestSdk } from "../../../support/deps";
+import { createTestSdk, chatRpc } from "../../../support/assistant";
 import { createFakeAdapter } from "../../../support/fake-adapter";
-import { chatRpc } from "../../../support/sdk";
 import { insertUser } from "../../../support/users";
 
 const anthropicModel = "anthropic:claude-sonnet-5-5";

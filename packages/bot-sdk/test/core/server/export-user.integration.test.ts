@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
@@ -12,6 +13,7 @@ import {
   artifact,
   artifactVersion,
   bot,
+  message,
   project,
   savedPrompt,
   sharedLink,
@@ -21,14 +23,20 @@ import {
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { exportUserData } from "../../../core/server/user-data";
 import { computer } from "../../../plugins/computer/server/plugin";
-import { logPath, notesPath, profilePath } from "../../../plugins/memory/server/bot-memory";
+import type { AssistantExport } from "../../../plugins/assistant/server/export-user";
+import {
+  logPath,
+  notesPath,
+  profilePath,
+  type ExportedBotMemory,
+} from "../../../plugins/memory/server/bot-memory";
 import { fakeComputerProvider } from "../../plugins/computer/server/fake-provider";
 import type { TestUser } from "../../support/users";
 import { insertAttachment, linkTestAttachments } from "../../support/attachments";
 import { fakePngBase64 } from "../../../plugins/models/server/fake-image-adapter";
 import { insertConversation, insertMessage } from "../../support/conversations";
 import { insertGeneratedImage } from "../../support/generated-images";
-import { createTestSdk } from "../../support/deps";
+import { createTestSdk } from "../../support/assistant";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 import { insertUser } from "../../support/users";
 
@@ -67,9 +75,10 @@ describe("createBotSdk().exportUser", () => {
     const file = await insertAttachment(owner, { filename: "notes.txt", mediaType: "text/plain" });
     await linkTestAttachments(question.id, [file.id]);
 
-    const exported = await chatFor().exportUser(owner.id);
+    const document = await chatFor().exportUser(owner.id);
+    const exported = document.assistant as AssistantExport;
 
-    expect(exported.version).toBe(1);
+    expect(document.version).toBe(2);
     expect(exported.conversations).toHaveLength(1);
     const [exportedConv] = exported.conversations;
     expect(exportedConv).toMatchObject({ id: conv.id, title: "Branched", activeLeafId: second.id });
@@ -116,7 +125,8 @@ describe("createBotSdk().exportUser", () => {
       verified: true,
     });
 
-    const exported = await chatFor().exportUser(owner.id);
+    const document = await chatFor().exportUser(owner.id);
+    const exported = document.assistant as AssistantExport;
 
     expect(exported.projects).toEqual([
       expect.objectContaining({
@@ -137,7 +147,7 @@ describe("createBotSdk().exportUser", () => {
       instructions: "Answer in French.",
       memoryEnabled: true,
     });
-    const text = JSON.stringify(exported);
+    const text = JSON.stringify(document);
     expect(text).not.toContain(providerKey);
     expect(text).not.toContain(toolKey);
   });
@@ -164,7 +174,8 @@ describe("createBotSdk().exportUser", () => {
       });
     await insertConversation(other, { title: "Theirs" });
 
-    const exported = await chatFor().exportUser(owner.id);
+    const document = await chatFor().exportUser(owner.id);
+    const exported = document.assistant as AssistantExport;
 
     expect(exported.conversations.map((c) => c.title)).toEqual(["Shared"]);
     expect(exported.sharedLinks).toEqual([
@@ -192,9 +203,10 @@ describe("createBotSdk().exportUser", () => {
       active: true,
     });
 
-    const exported = await chatFor().exportUser(owner.id);
+    const document = await chatFor().exportUser(owner.id);
+    const exported = document.assistant as AssistantExport;
 
-    expect(exported.version).toBe(1);
+    expect(document.version).toBe(2);
     const byId = new Map(exported.conversations[0]!.messages.map((m) => [m.id, m]));
     expect(byId.get(up.id)).toMatchObject({ rating: "up" });
     expect(byId.get(unrated.id)).toMatchObject({ rating: null });
@@ -207,9 +219,10 @@ describe("createBotSdk().exportUser", () => {
     await insertConversation(owner, { title: "Archived", archivedAt });
     await insertConversation(owner, { title: "Live" });
 
-    const exported = await chatFor().exportUser(owner.id);
+    const document = await chatFor().exportUser(owner.id);
+    const exported = document.assistant as AssistantExport;
 
-    expect(exported.version).toBe(1);
+    expect(document.version).toBe(2);
     const byTitle = (title: string) => exported.conversations.find((conv) => conv.title === title);
     expect(byTitle("Archived")?.archivedAt).toEqual(archivedAt);
     expect(byTitle("Live")?.archivedAt).toBeNull();
@@ -222,10 +235,11 @@ describe("createBotSdk().exportUser", () => {
       .insert(savedPrompt)
       .values({ id: uuidv7(), userId: owner.id, name: "review", text: "Review this.", createdAt });
 
-    const exported = await chatFor().exportUser(owner.id);
+    const document = await chatFor().exportUser(owner.id);
+    const exported = document.assistant as AssistantExport;
 
     expect(exported.savedPrompts).toEqual([{ name: "review", text: "Review this.", createdAt }]);
-    expect(exported.version).toBe(1);
+    expect(document.version).toBe(2);
   });
 
   it("exports every Artifact with every version on every Branch", async () => {
@@ -315,9 +329,10 @@ describe("createBotSdk().exportUser", () => {
       .insert(artifact)
       .values({ id: "theirs-art", conversationId: theirs.id, kind: "svg", createdAt });
 
-    const exported = await chatFor().exportUser(owner.id);
+    const document = await chatFor().exportUser(owner.id);
+    const exported = document.assistant as AssistantExport;
 
-    expect(exported.version).toBe(1);
+    expect(document.version).toBe(2);
     expect(exported.artifacts).toHaveLength(2);
     const byId = new Map(exported.artifacts.map((a) => [a.id, a]));
     expect(byId.get("main-art")).toEqual({
@@ -357,16 +372,18 @@ describe("createBotSdk().exportUser", () => {
     const owner = await insertUser();
     await insertConversation(owner, { title: "Plain" });
 
-    const exported = await chatFor().exportUser(owner.id);
+    const document = await chatFor().exportUser(owner.id);
+    const exported = document.assistant as AssistantExport;
 
     expect(exported.artifacts).toEqual([]);
   });
 
   it("exports an empty document for an unknown user id", async () => {
-    const exported = await chatFor().exportUser(randomUUID());
+    const document = await chatFor().exportUser(randomUUID());
+    const exported = document.assistant as AssistantExport;
 
+    expect(document.version).toBe(2);
     expect(exported).toMatchObject({
-      version: 1,
       conversations: [],
       projects: [],
       sharedLinks: [],
@@ -388,7 +405,8 @@ describe("createBotSdk().exportUser, Temporary Conversations", () => {
     await insertMessage({ conversationId: temporary.id, role: "user", text: "Private" });
     const ordinary = await insertConversation(owner, { title: "Ordinary" });
 
-    const exported = await chatFor().exportUser(owner.id);
+    const document = await chatFor().exportUser(owner.id);
+    const exported = document.assistant as AssistantExport;
 
     const byId = new Map(exported.conversations.map((row) => [row.id, row]));
     expect(byId.get(temporary.id)).toMatchObject({ temporary: true, messages: [{ role: "user" }] });
@@ -403,13 +421,38 @@ describe("createBotSdk().exportUser, Generated images", () => {
     const conv = await insertConversation(owner, { title: "Pictures" });
     const imageId = await insertGeneratedImage(deps, owner, conv.id, { prompt: "a red bicycle" });
 
-    const exported = await chatFor().exportUser(owner.id);
+    const document = await chatFor().exportUser(owner.id);
+    const exported = document.assistant as AssistantExport;
 
     const reply = exported.conversations[0]!.messages.find((row) => row.role === "assistant");
     expect(reply?.generatedImages).toEqual([
       { id: imageId, model: "openai:gpt-image-1-mini", prompt: "a red bicycle" },
     ]);
-    expect(JSON.stringify(exported)).not.toContain(fakePngBase64);
+    expect(JSON.stringify(document)).not.toContain(fakePngBase64);
+  });
+
+  it("still exports the prompt of an older image part without a toolCallId", async () => {
+    const owner = await insertUser();
+    const deps = createTestSdk();
+    const conv = await insertConversation(owner, { title: "Old pictures" });
+    const imageId = await insertGeneratedImage(deps, owner, conv.id, { prompt: "a blue kite" });
+    await getTestDb()
+      .update(message)
+      .set({
+        parts: {
+          schemaVersion: 3,
+          parts: [{ type: "generated_image", prompt: "a blue kite", state: "done", imageId }],
+        },
+      })
+      .where(eq(message.conversationId, conv.id));
+
+    const document = await chatFor().exportUser(owner.id);
+    const exported = document.assistant as AssistantExport;
+
+    const reply = exported.conversations[0]!.messages.find((row) => row.role === "assistant");
+    expect(reply?.generatedImages).toEqual([
+      { id: imageId, model: "openai:gpt-image-1-mini", prompt: "a blue kite" },
+    ]);
   });
 });
 
@@ -430,7 +473,8 @@ describe("createBotSdk().exportUser, a Hidden reply's Rating", () => {
       active: true,
     });
 
-    const exported = await chatFor().exportUser(owner.id);
+    const document = await chatFor().exportUser(owner.id);
+    const exported = document.assistant as AssistantExport;
 
     const found = exported.conversations[0]!.messages.find((m) => m.id === hidden.id);
     expect(found).toMatchObject({ hidden: true, rating: null });
@@ -442,7 +486,8 @@ describe("createBotSdk().exportUser, the Memory switch", () => {
     const owner = await insertUser();
     await getTestDb().insert(memorySettings).values({ userId: owner.id, enabled: false });
 
-    const exported = await chatFor().exportUser(owner.id);
+    const document = await chatFor().exportUser(owner.id);
+    const exported = document.assistant as AssistantExport;
 
     expect(exported.settings.memoryEnabled).toBe(false);
   });
@@ -478,7 +523,9 @@ describe("exportUser, Bot memory", () => {
     fake.files.set(logPath(ada, "2026-10"), text("- 2026-10-03 (importance 7) Moved to Berlin\n"));
     fake.files.set(logPath(ada, "2026-09"), text("- 2026-09-02 (importance 6) Started a job\n"));
 
-    const exported = await exportUserData(deps, owner.id);
+    const exported = (await exportUserData(deps, owner.id)).memory as {
+      botMemory: ExportedBotMemory[];
+    };
 
     expect(exported.botMemory).toEqual([
       {
@@ -505,7 +552,9 @@ describe("exportUser, Bot memory", () => {
     fake.files.set(`${profilePath(ada)}/stray.md`, new TextEncoder().encode("x"));
     fake.files.set(profilePath(bea), new TextEncoder().encode("- Works at a bakery\n"));
 
-    const exported = await exportUserData(deps, owner.id);
+    const exported = (await exportUserData(deps, owner.id)).memory as {
+      botMemory: ExportedBotMemory[];
+    };
 
     expect(exported.botMemory).toEqual([
       { botId: bea, profile: "- Works at a bakery\n", notes: "", log: [] },
@@ -521,7 +570,9 @@ describe("exportUser, Bot memory", () => {
     fake.lose(fake.callsOf("create")[0]!.sandboxId);
     fake.failing.add("create");
 
-    const exported = await exportUserData(deps, owner.id);
+    const exported = (await exportUserData(deps, owner.id)).memory as {
+      botMemory: ExportedBotMemory[];
+    };
 
     expect(exported.botMemory).toEqual([]);
   });
@@ -532,7 +583,9 @@ describe("exportUser, Bot memory", () => {
     const owner = await insertUser();
     await insertBot(owner, "Ada", new Date("2026-10-01T10:00:00Z"));
 
-    const exported = await exportUserData(deps, owner.id);
+    const exported = (await exportUserData(deps, owner.id)).memory as {
+      botMemory: ExportedBotMemory[];
+    };
 
     expect(exported.botMemory).toEqual([]);
     expect(fake.callsOf("create")).toEqual([]);

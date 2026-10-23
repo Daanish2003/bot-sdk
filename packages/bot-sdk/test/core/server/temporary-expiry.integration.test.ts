@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { postgresBlobStore } from "../../../core/server/blob/postgres";
 import { attachmentBlobKey } from "../../../core/server/blob/store";
+import type { AssistantExport } from "../../../plugins/assistant/server/export-user";
 import { createBotSdk } from "../../../core/server/create-chat";
 import { assistant } from "../../../plugins/assistant/server/plugin";
 import { runner } from "../../../plugins/runner/server/plugin";
@@ -20,9 +21,8 @@ import {
 import { createLifecycle } from "../../../plugins/assistant/server/lifecycle";
 import { insertAttachment, linkTestAttachments } from "../../support/attachments";
 import { insertConversation, insertMessage, testModel } from "../../support/conversations";
-import { createTestSdk } from "../../support/deps";
+import { createTestSdk, chatRpc, sendAs } from "../../support/assistant";
 import { createFakeAdapter, round, text } from "../../support/fake-adapter";
-import { chatRpc, sendAs } from "../../support/sdk";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 import { insertUser, type TestUser } from "../../support/users";
 import type { ChatCommand } from "../../../plugins/assistant/shared/chat/command";
@@ -287,7 +287,9 @@ describe("an expired Temporary Conversation's other reads", () => {
       keyEncryptionSecrets: [testKey],
       basePath: "/api/chat",
       plugins: [models(), runner(), assistant()],
-    }).exportUser(user.id);
+    })
+      .exportUser(user.id)
+      .then((document) => document.assistant as AssistantExport);
 
     expect(exported.conversations.map((row) => row.id)).toEqual([ordinary.id]);
     expect(exported.conversations[0]!.messages).toEqual([]);

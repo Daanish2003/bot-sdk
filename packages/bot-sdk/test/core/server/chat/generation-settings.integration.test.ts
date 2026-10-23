@@ -5,11 +5,10 @@ import { describe, expect, it } from "vitest";
 
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { insertConversation } from "../../../support/conversations";
-import { createTestSdk } from "../../../support/deps";
+import { createTestSdk, sendAs } from "../../../support/assistant";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { insertUser } from "../../../support/users";
 import { liveModelsFetch } from "../../../support/live-models";
-import { sendAs } from "../../../support/sdk";
 import { findModel } from "../../../../plugins/models/shared/models";
 
 /** One curated Model per Provider with a known max output, and the key its adapter reads. */

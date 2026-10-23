@@ -10,7 +10,7 @@ import {
   rotateCredentialKeys,
   saveCredentials,
 } from "../../../../plugins/models/server/credentials/store";
-import { createTestSdk } from "../../../support/deps";
+import { createTestSdk } from "../../../support/assistant";
 import { userCredentials } from "../../../../core/server/db/schema";
 import { insertUser } from "../../../support/users";
 import { getTestDb, testDatabaseUrl } from "../../../support/test-database";

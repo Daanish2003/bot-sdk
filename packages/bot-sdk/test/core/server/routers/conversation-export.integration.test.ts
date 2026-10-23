@@ -4,10 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { appRouter } from "../../../../plugins/assistant/server/routers/index";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestSdk } from "../../../support/deps";
+import { createTestSdk, chatRpc } from "../../../support/assistant";
 import { insertAttachment, linkTestAttachments } from "../../../support/attachments";
 import { insertUser } from "../../../support/users";
-import { chatRpc } from "../../../support/sdk";
 
 const exportedAt = new Date("2026-10-13T09:30:00Z");
 

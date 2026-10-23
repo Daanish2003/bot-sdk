@@ -13,7 +13,7 @@ import {
 } from "../../core/client/react/provider";
 import { MissingCredentialsBanner } from "../../plugins/models/ui/chat/missing-credentials-banner";
 import { NoCredentials } from "../../plugins/models/ui/chat/no-credentials";
-import { KeySettingsPage } from "../../plugins/models/ui/key-settings";
+import { HostKeysPage } from "./host-keys-page";
 
 const client = createBotSdkClient({
   plugins: [modelsClient(), assistantClient()],
@@ -58,7 +58,7 @@ describe("the key prompts with byok on", () => {
   });
 
   it("shows the Providers and Tools sections on the keys page", () => {
-    const html = render(createElement(KeySettingsPage), true);
+    const html = render(createElement(HostKeysPage), true);
 
     expect(html).toContain("Providers");
     expect(html).toContain("Tools");
@@ -84,7 +84,7 @@ describe("the key prompts with byok off", () => {
   });
 
   it("omits the Providers and Tools sections of the keys page", () => {
-    const html = render(createElement(KeySettingsPage), false);
+    const html = render(createElement(HostKeysPage), false);
 
     expect(html).not.toContain("Providers");
     expect(html).not.toContain("Tools");

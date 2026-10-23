@@ -3,12 +3,11 @@ import { describe, expect, it } from "vitest";
 
 import { conversation, message } from "../../../../core/server/db/schema";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
-import { createTestSdk } from "../../../support/deps";
+import { createTestSdk, chatRpc, createTestChat } from "../../../support/assistant";
 import { insertConversation, insertMessage } from "../../../support/conversations";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
-import { chatRpc, createTestChat } from "../../../support/sdk";
 
 /** An owner with a two-reply Branch that has a thinking part, shared, and the Active Branch leaf. */
 async function sharedConversation() {

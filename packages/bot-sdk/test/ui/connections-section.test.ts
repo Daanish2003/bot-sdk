@@ -11,7 +11,7 @@ import {
   type ChatLinkProps,
   type ChatRouter,
 } from "../../core/client/react/provider";
-import { KeySettingsPage } from "../../plugins/models/ui/key-settings";
+import { HostKeysPage } from "./host-keys-page";
 
 const client = createBotSdkClient({
   plugins: [modelsClient(), assistantClient()],
@@ -46,7 +46,7 @@ function renderKeys(
       client,
       router,
       queryClient,
-      children: createElement(KeySettingsPage),
+      children: createElement(HostKeysPage),
     }),
   );
 }

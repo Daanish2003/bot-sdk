@@ -1,5 +1,5 @@
 ---
-Status: accepted, amended by ADR 0006 (the registry, boot sweep and polling are replaced)
+Status: superseded by ADR 0027
 ---
 
 # Assistant runs outlive the client; Stop is an explicit call

@@ -6,7 +6,6 @@ import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { assistantClient } from "../../../plugins/assistant/client/index";
 import { botClient } from "../../../plugins/bot/client/index";
 import type { BotMessage } from "../../../plugins/bot/shared/turn";
 import { BotConversation } from "../../../plugins/bot/ui/bot-conversation";
@@ -20,7 +19,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const plugins = [modelsClient(), assistantClient(), channelClient(), botClient()];
+const plugins = [modelsClient(), channelClient(), botClient()];
 const first = "ada.k3x9q2mz@bots.example";
 const second = "ada.p7w4n1cv@bots.example";
 

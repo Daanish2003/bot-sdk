@@ -19,8 +19,9 @@ export {
 } from "../../../core/shared/message-parts";
 
 /**
- * The assistant's stored shape of a Message's `parts` (ADR 0001): our own zod union over the
- * core's base parts, versioned, never TanStack AI's `UIMessage` parts. ./chat/parts converts it.
+ * The assistant's stored shape of a Message's `parts` (ADR 0001): the core's envelope with our own
+ * zod union over the core's base parts, versioned, never TanStack AI's `UIMessage` parts. ./chat/parts
+ * converts it.
  */
 
 export const searchResultSchema = z.object({
@@ -138,6 +139,9 @@ export type ArtifactPart = z.infer<typeof artifactPartSchema>;
 export type PastChatsSearchPart = z.infer<typeof pastChatsSearchPartSchema>;
 export type StoredParts = z.infer<typeof storedPartsSchema>;
 
+/** The schema version the assistant writes a Message's parts at. */
+export const storedPartsVersion = 5;
+
 export function storedParts(parts: StoredPart[]): StoredParts {
-  return { schemaVersion: 5, parts };
+  return { schemaVersion: storedPartsVersion, parts };
 }

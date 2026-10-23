@@ -5,9 +5,8 @@ import { saveCredentials } from "../../../../plugins/models/server/credentials/s
 import { loadSharedConversation } from "../../../../plugins/assistant/server/share/store";
 import { message } from "../../../../core/server/db/schema";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestSdk } from "../../../support/deps";
+import { createTestSdk, chatRpc, sendAs } from "../../../support/assistant";
 import { createFakeAdapter, round, text } from "../../../support/fake-adapter";
-import { chatRpc, sendAs } from "../../../support/sdk";
 import { insertUser, type TestUser } from "../../../support/users";
 
 const anthropicModel = "anthropic:claude-sonnet-5-5";

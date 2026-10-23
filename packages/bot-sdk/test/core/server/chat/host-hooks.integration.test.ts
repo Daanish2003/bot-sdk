@@ -19,7 +19,7 @@ import {
 } from "../../../../core/server/chat/hooks";
 import { reapStaleRuns } from "../../../../plugins/assistant/server/chat/run";
 import { createBotSdk, type BotSdkOptions } from "../../../../core/server/create-chat";
-import { createChatHandler } from "../../../../plugins/assistant/server/over";
+import { createChatHandler } from "../../../../core/server/over";
 import { assistant } from "../../../../plugins/assistant/server/plugin";
 import { runner } from "../../../../plugins/runner/server/plugin";
 import { models, type ModelsOptions } from "../../../../plugins/models/server/plugin";
@@ -31,11 +31,15 @@ import { conversation, message, project, usage } from "../../../../core/server/d
 import type { HostProvider } from "../../../../plugins/assistant/server/deps";
 import { createLifecycle } from "../../../../plugins/assistant/server/lifecycle";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { createTestSdk, testKeyEncryptionSecret } from "../../../support/deps";
+import {
+  createTestSdk,
+  testKeyEncryptionSecret,
+  chatRpc,
+  sendAs,
+} from "../../../support/assistant";
 import { insertAttachment } from "../../../support/attachments";
 import { insertConversation, insertMessage } from "../../../support/conversations";
 import { createFakeAdapter, round, runError, text, toolCall } from "../../../support/fake-adapter";
-import { chatRpc, sendAs } from "../../../support/sdk";
 import { getTestDb, testDatabaseUrl } from "../../../support/test-database";
 import { insertUser, type TestUser } from "../../../support/users";
 import { assistantState } from "../../../../plugins/assistant/server/state";

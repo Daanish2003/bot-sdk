@@ -7,11 +7,16 @@ import { saveCredentials } from "../../../../plugins/models/server/credentials/s
 import type { PubSub } from "../../../../core/server/chat/pubsub";
 import { START, type RunEntry } from "../../../../core/server/chat/run-streams";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestSdk, type TestDepsOverrides, type TestDeps } from "../../../support/deps";
+import {
+  createTestSdk,
+  type TestDepsOverrides,
+  type TestDeps,
+  chatRpc,
+  sendAs,
+} from "../../../support/assistant";
 import { liveModelsFetch } from "../../../support/live-models";
 import { createFakeAdapter, round, runError, text, thinking } from "../../../support/fake-adapter";
 import { insertUser, type TestUser } from "../../../support/users";
-import { chatRpc, sendAs } from "../../../support/sdk";
 import type { ChatCommand } from "../../../../plugins/assistant/shared/chat/command";
 import { assistantState } from "../../../../plugins/assistant/server/state";
 

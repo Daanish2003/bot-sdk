@@ -1,4 +1,3 @@
-import { storedParts } from "../../plugins/assistant/shared/message-parts";
 import { conversation, message } from "../../core/server/db/schema";
 import { getTestDb } from "./test-database";
 import { eq } from "drizzle-orm";
@@ -47,7 +46,8 @@ export async function insertMessage({
       conversationId,
       parentId,
       role,
-      parts: storedParts(text ? [{ type: "text", text }] : []),
+      // The assistant's current parts version, as the rows these tests stand in for were written.
+      parts: { schemaVersion: 5, parts: text ? [{ type: "text", text }] : [] },
       searchText: text,
       status: "complete",
       // The host clock, like the Run endpoint: the database clock can sit ahead of it, and Messages sort by this.

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { insertConversation, insertMessage } from "../../../support/conversations";
 import { insertUser } from "../../../support/users";
-import { chatRpc } from "../../../support/sdk";
+import { chatRpc } from "../../../support/assistant";
 
 async function signedIn() {
   const user = await insertUser();

@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { instructionsMaxChars } from "../../../../plugins/assistant/shared/chat/instructions";
-import { createTestSdk } from "../../../support/deps";
+import { createTestSdk, chatRpc } from "../../../support/assistant";
 import { insertUser } from "../../../support/users";
-import { chatRpc } from "../../../support/sdk";
 
 const deps = createTestSdk();
 

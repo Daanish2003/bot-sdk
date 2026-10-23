@@ -8,7 +8,6 @@ import type { Database } from "../../../core/server/db/index";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
 import { searchTextOf } from "../../../core/shared/message-parts";
-import { conversationChannel } from "../../../core/server/chat/conversation-events";
 import type { MessageUsage } from "../../models/shared/usage";
 import type { SkillLine } from "../../skills/server/skills";
 import { defineJob, PermanentJobError } from "../../runner/server/jobs/define";
@@ -25,7 +24,7 @@ import {
   waitingIn,
 } from "./router";
 import { type EarlierTurn, changeNotesFor } from "./change-notes";
-import { recordBotChange } from "./thread-change";
+import { hintChanged, recordBotChange } from "./thread-change";
 import type { PromptStartTool } from "./db/bot-prompt-start";
 import { cancelCheckInTool, pendingCheckIns, saveCheckIn } from "./check-in";
 import {
@@ -81,6 +80,9 @@ import {
 import { formatterIn, knownZone, timeNotice } from "./time-zone";
 import { checkedTool, isDirectTool, toolSearchTools } from "./tool-search";
 import { webSearchTool } from "./web-search";
+
+// Re-exported: it moved to `thread-change` so `routine` and `check-in` can use it without a cycle.
+export { hintChanged };
 
 /** The most Steps a Turn may take; one more ends it `error` with `step_limit`. */
 export const turnStepLimit = 10;
@@ -354,21 +356,6 @@ const listCheckInsDefinition = toolDefinition({
   description: "List your pending Check-ins, soonest first, so you do not set the same one twice.",
   inputSchema: z.object({}),
 });
-
-/**
- * Tells whoever follows the Conversation that it changed, so they re-read it from Postgres. Never
- * throws: a lost hint is covered by a tab's fetch on focus, on reconnect and, while a Turn runs, every 30 s (ADR 0026).
- */
-export async function hintChanged(deps: BotSdkContext, conversationId: string) {
-  try {
-    await deps.pubsub.publish(
-      conversationChannel(conversationId),
-      JSON.stringify({ type: "changed" }),
-    );
-  } catch (caught) {
-    deps.logger.error(`Publishing a change of Conversation ${conversationId} failed`, caught);
-  }
-}
 
 /** The runner job of one Turn, keyed by the Turn's id (ADR 0011, the #482 amendment). */
 export const botTurnJob = defineJob({

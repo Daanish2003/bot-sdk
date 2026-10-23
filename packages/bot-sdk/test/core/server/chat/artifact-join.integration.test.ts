@@ -5,9 +5,8 @@ import { describe, expect, it } from "vitest";
 
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { insertConversation } from "../../../support/conversations";
-import { createTestSdk, type TestDeps } from "../../../support/deps";
+import { createTestSdk, type TestDeps, sendAs } from "../../../support/assistant";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
-import { sendAs } from "../../../support/sdk";
 import { insertUser, type TestUser } from "../../../support/users";
 
 const anthropicModel = "anthropic:claude-sonnet-5-5";

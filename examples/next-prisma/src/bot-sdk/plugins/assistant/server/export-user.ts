@@ -1,4 +1,5 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
+import { z } from "zod";
 
 import {
   artifact,
@@ -14,22 +15,24 @@ import {
   userSettings,
 } from "../../../core/server/db/schema";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
-import type { ExportedBotMemory } from "../../memory/server/bot-memory";
 import { assistantConversation, withModel } from "./chat/kind";
 import { liveConversation } from "./chat/temporary";
 import type { ArtifactKind } from "../shared/chat/artifact";
-import type { StoredParts } from "../shared/message-parts";
-import type { BotExport } from "../../bot/server/store";
+import type { PartsEnvelope } from "../../../core/shared/message-parts";
+
+/** What the export reads of a stored Generated image part: any older part with an image id and a prompt. */
+const imagePromptSchema = z.object({
+  type: z.literal("generated_image"),
+  imageId: z.string().optional(),
+  prompt: z.string(),
+});
 
 /**
- * Everything the SDK keeps for one user, as one JSON-ready document (`chat.exportUser`). Provider
- * and Tool credentials are never in it, and an Attachment appears by name and type only. Usage
- * rows are left out: they are the Quota's record, not the user's data. The `bot` plugin adds `bots`.
+ * The assistant's part of a user's export (`sdk.exportUser`, under the key `assistant`), JSON-ready.
+ * Provider and Tool credentials are never in it, and an Attachment appears by name and type only.
+ * Usage rows are left out: they are the Quota's record, not the user's data.
  */
-export type UserExport = BotExport & {
-  /** The format version. Bumped only when a reader would misread the document. */
-  version: 1;
-  exportedAt: Date;
+export type AssistantExport = {
   settings: {
     backgroundModel: string | null;
     imageModel: string | null;
@@ -64,7 +67,7 @@ export type UserExport = BotExport & {
       id: string;
       parentId: string | null;
       role: "user" | "assistant";
-      parts: StoredParts;
+      parts: PartsEnvelope;
       model: string | null;
       status: string;
       /** The owner's Rating; always null on a user Message, which can't be rated. */
@@ -77,11 +80,6 @@ export type UserExport = BotExport & {
       generatedImages: { id: string; model: string; prompt: string | null }[];
     }[];
   }[];
-  /**
-   * Each Bot's memory files, as the user's Computer holds them (ADR 0022). Empty without the
-   * `memory` and `computer` plugins, or with no Computer. Kept by the `memory` plugin.
-   */
-  botMemory: ExportedBotMemory[];
   /** The user's Shared links: the token, the Conversation it shares and when it was shared. */
   sharedLinks: { token: string; conversationId: string; createdAt: Date }[];
   /** The user's Saved prompts, by name. */
@@ -101,12 +99,6 @@ export type UserExport = BotExport & {
     }[];
   }[];
 };
-
-/** The assistant's part of the export: every key but the core's `version`, `exportedAt`, and the `bot` and `memory` plugins'. */
-export type AssistantExport = Omit<
-  UserExport,
-  "version" | "exportedAt" | keyof BotExport | "botMemory"
->;
 
 /**
  * The assistant's part of `sdk.exportUser`, read in the export's snapshot `tx` and built in memory.
@@ -200,11 +192,10 @@ export async function exportAssistantData(
     : [];
   const promptsByImage = new Map(
     messages.flatMap((row) =>
-      row.parts.parts.flatMap((part) =>
-        part.type === "generated_image" && part.imageId
-          ? [[part.imageId, part.prompt] as const]
-          : [],
-      ),
+      row.parts.parts.flatMap((stored) => {
+        const part = imagePromptSchema.safeParse(stored).data;
+        return part?.imageId ? [[part.imageId, part.prompt] as const] : [];
+      }),
     ),
   );
   const memoryEnabled = sdk.hasPlugin("memory")

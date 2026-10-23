@@ -9,11 +9,16 @@ import { afterEach, describe, expect, it } from "vitest";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import type { HostTool, SearchClient } from "../../../../plugins/assistant/server/deps";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestSdk, type TestDepsOverrides, type TestDeps } from "../../../support/deps";
+import {
+  createTestSdk,
+  type TestDepsOverrides,
+  type TestDeps,
+  chatRpc,
+  sendAs,
+} from "../../../support/assistant";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
-import { createFakeSearchClient } from "../../../support/fake-search-client";
+import { createFakeSearchClient } from "../../../../plugins/bot/server/fake-search-client";
 import { insertUser } from "../../../support/users";
-import { chatRpc, sendAs } from "../../../support/sdk";
 import { citationPrompt } from "../../../../plugins/assistant/shared/chat/citations";
 import type { ChatCommand } from "../../../../plugins/assistant/shared/chat/command";
 import { curatedModels } from "../../../../plugins/models/shared/models";

@@ -7,10 +7,9 @@ import type { HostProvider, QuotaSetting } from "../../../../plugins/assistant/s
 import { quotaLookup } from "../../../../plugins/models/server/quota";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { insertConversation } from "../../../support/conversations";
-import { createTestSdk, type TestDeps } from "../../../support/deps";
+import { createTestSdk, type TestDeps, chatRpc, sendAs } from "../../../support/assistant";
 import { createFakeAdapter, round, text, withUsage } from "../../../support/fake-adapter";
 import { insertUser, type TestUser } from "../../../support/users";
-import { chatRpc, sendAs } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 
 const sonnet = "anthropic:claude-sonnet-5-5";

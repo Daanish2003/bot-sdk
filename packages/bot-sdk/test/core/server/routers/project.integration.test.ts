@@ -9,10 +9,9 @@ import { START } from "../../../../core/server/chat/run-streams";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { insertConversation, insertMessage } from "../../../support/conversations";
-import { createTestSdk } from "../../../support/deps";
+import { createTestSdk, chatRpc, createTestChat } from "../../../support/assistant";
 import { createFakeAdapter, text } from "../../../support/fake-adapter";
 import { insertUser } from "../../../support/users";
-import { chatRpc, createTestChat } from "../../../support/sdk";
 import { assistantState } from "../../../../plugins/assistant/server/state";
 
 async function signedIn() {

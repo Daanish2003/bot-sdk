@@ -5,7 +5,6 @@ import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { BotSdkClient } from "../../../core/client/chat-client";
-import { assistantClient } from "../../../plugins/assistant/client/index";
 import { botClient } from "../../../plugins/bot/client/index";
 import { modelsClient } from "../../../plugins/models/client/index";
 import { skillsClient } from "../../../plugins/skills/client/index";
@@ -18,7 +17,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const plugins = [modelsClient(), assistantClient(), skillsClient(), botClient()];
+const plugins = [modelsClient(), skillsClient(), botClient()];
 const modified = new Date("2030-03-15T12:00:00Z");
 const path = (name: string) => `/home/user/bots/ada/skills/${name}/SKILL.md`;
 const invoices =
