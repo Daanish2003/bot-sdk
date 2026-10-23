@@ -1,5 +1,7 @@
 -- The assistant's Conversations go first; their Messages and links cascade (#819).
 DELETE FROM "chat"."conversation" WHERE "kind" = 'assistant';--> statement-breakpoint
+-- Their bytes in the default Postgres blob store go in the same commit, strays included. migrate() deletes them from a Host's own blob store after the commit.
+DELETE FROM "chat"."blob" WHERE "key" LIKE 'attachment/%' OR "key" LIKE 'generated-image/%';--> statement-breakpoint
 ALTER TABLE "chat"."conversation" DROP CONSTRAINT "conversation_project_id_project_id_fkey";--> statement-breakpoint
 ALTER TABLE "chat"."message" DROP CONSTRAINT "message_context_start_id_message_id_fkey";--> statement-breakpoint
 ALTER TABLE "chat"."artifact_version" DROP CONSTRAINT "artifact_version_artifact_id_artifact_id_fkey";--> statement-breakpoint

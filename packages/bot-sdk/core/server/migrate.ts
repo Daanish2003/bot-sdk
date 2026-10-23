@@ -37,9 +37,9 @@ function folderMillis(name: string) {
  * Creates the `chat` schema and `pg_trgm`, and then applies the bundled migrations. A
  * session advisory lock is held for the whole run, so concurrent runs queue up and only one applies.
  *
- * The run that applies the contract migration (#819) then deletes the assistant's bytes, under
- * `attachment/` and `generated-image/`: from `blobStore` when the Host has its own, else from
- * `chat.blob`.
+ * The contract migration (#819) deletes the assistant's bytes in `chat.blob` itself. With the
+ * Host's own `blobStore`, the run that applies it then deletes the bytes of the assistant's
+ * Attachments and Generated images from that store too.
  */
 export async function migrate(
   databaseUrl: string,
@@ -51,26 +51,25 @@ export async function migrate(
     await client.query("select pg_advisory_lock($1)", [MIGRATION_LOCK_ID]);
     await createChatSchema(client);
     await createTrigramExtension(client);
-    const assistantKeys = await assistantBlobKeys(client);
+    const assistantKeys = blobStore ? await assistantBlobKeys(client) : [];
     await applyMigrations(drizzle({ client }), {
       migrationsFolder: migrationsFolder(),
       migrationsSchema: "chat",
       migrationsTable: "__migrations",
     });
     await client.query("select pg_advisory_unlock($1)", [MIGRATION_LOCK_ID]);
-    if (assistantKeys) await deleteAssistantBlobs(client, assistantKeys, blobStore);
+    if (blobStore) await deleteAssistantBlobs(assistantKeys, blobStore);
   } finally {
     await client.end();
   }
 }
 
 /**
- * The blob keys of the assistant's Attachments and Generated images, while either table exists
- * (the contract migration hasn't run), else null.
+ * The blob keys of the assistant's Attachments and Generated images, while their tables exist
+ * (the contract migration hasn't run); none after.
  */
-async function assistantBlobKeys(client: pg.Client): Promise<string[] | null> {
+async function assistantBlobKeys(client: pg.Client): Promise<string[]> {
   const keys: string[] = [];
-  let present = false;
   for (const [table, prefix] of [
     ["attachment", "attachment/"],
     ["generated_image", "generated-image/"],
@@ -80,31 +79,29 @@ async function assistantBlobKeys(client: pg.Client): Promise<string[] | null> {
       [`chat.${table}`],
     );
     if (!rows[0]?.present) continue;
-    present = true;
     const ids = await client.query<{ id: string }>(`select id from chat.${table}`);
     keys.push(...ids.rows.map((row) => prefix + row.id));
   }
-  return present ? keys : null;
+  return keys;
 }
 
 /**
- * Deletes the assistant's bytes once the migration that dropped their rows has committed. Logged,
- * never thrown: a stray object costs storage but no data (ADR 0015).
+ * Deletes the assistant's bytes from the Host's store once the migration that dropped their rows
+ * has committed, one key at a time so one failure skips only its own key. Logged, never thrown: a
+ * stray object costs storage but no data (ADR 0015).
  */
-async function deleteAssistantBlobs(
-  client: pg.Client,
-  keys: string[],
-  blobStore: Pick<BlobStore, "delete"> | undefined,
-) {
-  try {
-    if (blobStore) await blobStore.delete(keys);
-    else {
-      await client.query(
-        "delete from chat.blob where key like 'attachment/%' or key like 'generated-image/%'",
-      );
+async function deleteAssistantBlobs(keys: string[], blobStore: Pick<BlobStore, "delete">) {
+  let failed = 0;
+  for (const key of keys) {
+    try {
+      await blobStore.delete([key]);
+    } catch (error) {
+      failed += 1;
+      if (failed === 1) console.error("Deleting an assistant blob failed", error);
     }
-  } catch (error) {
-    console.error("Deleting the assistant's blobs failed; their bytes may be stored", error);
+  }
+  if (failed > 0) {
+    console.error(`${failed} of the assistant's ${keys.length} blobs are still stored`);
   }
 }
 

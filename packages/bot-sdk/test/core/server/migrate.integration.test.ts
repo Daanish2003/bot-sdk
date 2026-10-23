@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate as applyMigrations } from "drizzle-orm/node-postgres/migrator";
 import { Client } from "pg";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { BlobStore } from "../../../core/server/blob/store";
 import { createBotSdk } from "../../../core/server/create-chat";
@@ -474,7 +474,8 @@ describe("the contract migration (#819)", () => {
        insert into chat.mcp_connection (user_id, server_key, encrypted) values ('user-1', 'linear', 'sealed');
        insert into chat.model_settings (user_id, image_model) values ('user-1', 'openai:gpt-image-2');
        insert into chat.blob (key, bytes) values
-         ('${assistantKeys[0]}', '\\x6869'), ('${assistantKeys[1]}', '\\x00'), ('${botKey}', '\\x6869');`,
+         ('${assistantKeys[0]}', '\\x6869'), ('${assistantKeys[1]}', '\\x00'), ('${botKey}', '\\x6869'),
+         ('attachment/stray', '\\x00');`,
     );
     return url;
   }
@@ -579,7 +580,7 @@ describe("the contract migration (#819)", () => {
     ]);
   });
 
-  it("deletes the attachment/ and generated-image/ bytes once it commits, and keeps the Bot's", async () => {
+  it("deletes every attachment/ and generated-image/ byte in chat.blob, strays too, and keeps the Bot's", async () => {
     const url = await seeded("contract_blobs");
 
     await chatFor(url).migrate();
@@ -613,6 +614,33 @@ describe("the contract migration (#819)", () => {
     // Only once: a later run finds the tables gone and deletes nothing.
     await chat.migrate();
     expect(deleted).toHaveLength(2);
+  });
+
+  it("keeps deleting the other keys from the Host's store when one delete fails", async () => {
+    const url = await seeded("contract_store_fails");
+    const deleted: string[] = [];
+    const store: BlobStore = {
+      put: async () => {},
+      get: async () => null,
+      delete: async (keys) => {
+        if (keys.includes(assistantKeys[0]!)) throw new Error("S3 is down");
+        deleted.push(...keys);
+      },
+    };
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await createBotSdk({
+      databaseUrl: url,
+      getUser: () => null,
+      keyEncryptionSecrets,
+      basePath: "/api/chat",
+      blobStore: store,
+      plugins: [models(), runner()],
+    }).migrate();
+
+    expect(deleted).toEqual([assistantKeys[1]]);
+    expect(error).toHaveBeenCalledWith("1 of the assistant's 2 blobs are still stored");
+    error.mockRestore();
   });
 });
 describe("chat.start()", () => {
