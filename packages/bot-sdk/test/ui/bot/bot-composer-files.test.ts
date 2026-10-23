@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { os } from "@orpc/server";
+import { ORPCError, os } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { createElement } from "react";
@@ -18,8 +18,11 @@ const fileId = (n: number) => `0199c8a0-0000-7000-8000-00000000000${n}`;
 
 type Upload = { file: File; finish: (result: string | { code: string; params: object }) => void };
 
-/** A Conversation whose uploads wait until the test finishes each one. */
-function mount() {
+/**
+ * A Conversation whose uploads wait until the test finishes each one. A send is refused with each
+ * of `refusals`' codes in turn, then saved.
+ */
+function mount({ refusals = [] }: { refusals?: string[] } = {}) {
   const uploads: Upload[] = [];
   const sends: { text: string; files?: string[] }[] = [];
   const router = {
@@ -37,6 +40,8 @@ function mount() {
         )
         .handler(({ input }) => {
           sends.push({ text: input.text, files: input.files });
+          const refusal = refusals.shift();
+          if (refusal) throw new ORPCError("BAD_REQUEST", { data: { code: refusal } });
           // The saved Message carries its files as the files control.
           const files = (input.files ?? []).map((id) => ({
             id,
@@ -201,6 +206,29 @@ describe("the Bot composer's attachments", () => {
 
     fireEvent.click(view.send());
     await waitFor(() => expect(view.sends).toEqual([{ text: "", files: [fileId(1)] }]));
+  });
+
+  it("puts a refused send's files back, except when they are no longer uploaded", async () => {
+    const view = mount({ refusals: ["error.modelNotAvailable", "error.botFileNotFound"] });
+    await view.attach(file("a.txt"));
+    await waitFor(() => expect(view.uploads).toHaveLength(1));
+    view.uploads[0]!.finish(fileId(1));
+    const textarea = view.container.querySelector("textarea")!;
+    fireEvent.change(textarea, { target: { value: "read it" } });
+    await waitFor(() => expect(view.send().disabled).toBe(false));
+
+    // Any other refusal: the files are still uploaded, so they come back to send again.
+    fireEvent.click(view.send());
+    await waitFor(() => expect(view.sends).toHaveLength(1));
+    await waitFor(() => expect(view.chips()).toHaveLength(1));
+    expect(view.chips()[0]!.dataset.state).toBe("done");
+
+    // Gone (swept, or taken by an earlier send): a resend would be refused again, so they don't.
+    fireEvent.click(view.send());
+    await waitFor(() => expect(view.sends).toHaveLength(2));
+    // The refusal is handled once its text is back in the composer.
+    await waitFor(() => expect(textarea.value).toBe("read it"));
+    expect(view.chips()).toHaveLength(0);
   });
 
   it("takes files dropped on the thread", async () => {

@@ -20,6 +20,11 @@ function serverErrorData(error: unknown): ServerErrorData | null {
   return null;
 }
 
+/** The dictionary code an error from the server carries, if any. */
+export function serverErrorCode(error: unknown): string | undefined {
+  return serverErrorData(error)?.code;
+}
+
 /** A code the dictionary has text for: an `error.` key, so `time.today` isn't one. */
 function isErrorKey(code: string): code is Extract<MessageKey, `error.${string}`> {
   return code.startsWith("error.") && Object.hasOwn(en, code);

@@ -6,7 +6,7 @@ import { type FormEvent, Fragment, type KeyboardEvent, type ReactNode, useState 
 import { toast } from "sonner";
 
 import { useI18n } from "../../../core/client/react/provider";
-import { serverErrorText } from "../../../core/client/rpc-error";
+import { serverErrorCode, serverErrorText } from "../../../core/client/rpc-error";
 import type { BotTurnProvenance } from "../shared/turn";
 import { useBotTurn } from "../client/react/bot-turn";
 import { useBotCheckIns } from "../client/react/check-ins";
@@ -110,10 +110,12 @@ function BotConversationView({
     send,
     stop,
   } = useBotTurn(botId, {
-    // A refused send puts its text back in the composer and says why.
+    // A refused send puts its text back in the composer and says why. Its files come back too,
+    // unless they are no longer uploaded (swept, or taken by an earlier send): the user attaches
+    // them again, as the refusal says.
     onRefusedSend: (text, refusal, files) => {
       setDraft(text);
-      uploads.restore(files);
+      if (serverErrorCode(refusal) !== "error.botFileNotFound") uploads.restore(files);
       toast.error(serverErrorText(i18n, refusal));
     },
   });
