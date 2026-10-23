@@ -31,7 +31,7 @@ test("sign-up says check your email, and the mailbox link signs the user in", as
   await page.goto(verificationLink(mail));
 
   await expect(page.getByRole("heading", { name: "Your email is verified" })).toBeVisible();
-  await page.getByRole("button", { name: "Continue to chat" }).click();
+  await page.getByRole("button", { name: "Continue to Bots" }).click();
   await expect(page).toHaveURL(/\/c$/);
 });
 

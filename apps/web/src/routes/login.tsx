@@ -13,7 +13,7 @@ export const Route = createFileRoute("/login")({
   // so links to /login need no search.
   validateSearch: z.object({ error: z.string().optional().catch(undefined) }),
   beforeLoad: async () => {
-    if (await getUser()) throw redirect({ to: "/c" });
+    if (await getUser()) throw redirect({ to: "/bots" });
   },
   component: RouteComponent,
 });

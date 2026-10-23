@@ -17,7 +17,7 @@ test.describe.configure({ mode: "serial" });
 /** Signs out through the user menu, which lands on the login page. */
 async function signOut(page: Page) {
   await page.getByRole("button", { name: "E2E User" }).click();
-  await page.getByRole("menuitem", { name: "Sign Out" }).click();
+  await page.getByRole("menuitem", { name: "Sign out" }).click();
   await expect(page).toHaveURL(/\/login$/);
 }
 
@@ -54,7 +54,7 @@ test("changing the password signs in with the new one, and mails a notice", asyn
   await signOut(page);
 
   await signIn(page, seeded.email, NEW_PASSWORD);
-  await expect(page).toHaveURL(/\/c$/);
+  await expect(page).toHaveURL(/\/bots$/);
 
   const mails = await waitForMail(page, seeded.email);
   expect(mails.map((mail) => mail.template)).toContain("password-changed");
@@ -67,7 +67,7 @@ test("a wrong current password is refused, and the old password still works", as
 
   await signOut(page);
   await signIn(page, seeded.email, seeded.password);
-  await expect(page).toHaveURL(/\/c$/);
+  await expect(page).toHaveURL(/\/bots$/);
 
   const mails = await mailboxFor(page, seeded.email);
   expect(mails.map((mail) => mail.template)).not.toContain("password-changed");

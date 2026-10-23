@@ -28,7 +28,7 @@ export function TwoFactorChallenge() {
     },
     onSuccess: () => {
       toast.success("Sign in successful");
-      navigate({ to: "/c" });
+      navigate({ to: "/bots" });
     },
     onError: (error) => toast.error(error.message),
   });

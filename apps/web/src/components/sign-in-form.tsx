@@ -52,7 +52,7 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
         passkeyFailed(error);
         return;
       }
-      navigate({ to: "/c" });
+      navigate({ to: "/bots" });
     });
   };
 
@@ -62,7 +62,7 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
       passkeyFailed(error);
       return;
     }
-    navigate({ to: "/c" });
+    navigate({ to: "/bots" });
   };
 
   const form = useForm({
@@ -84,7 +84,7 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
               return;
             }
             navigate({
-              to: "/c",
+              to: "/bots",
             });
             toast.success("Sign in successful");
           },
