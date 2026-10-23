@@ -43,7 +43,7 @@ Your imports then read exactly like this repo's: `@ai-chat/bot-sdk/core/server`,
 ### Updating
 
 1. Run the copy script again. `VERSION` shows the commit you now run.
-2. Your `ui/` folders are untouched. If the release changed a component you also edited, merge that by hand: diff the new SDK's `ui/` folders against yours. A copy from before the Bot-only SDK (ADR 0027) still holds the assistant's folders: delete `plugins/assistant/` and any `ui/chat/`, `ui/shell/`, `ui/pages/` and `ui/settings/` left in your root `ui/`, and drop `@source "../plugins/assistant/ui";` from your `theme.css`.
+2. Your `ui/` folders are untouched. If the release changed a component you also edited, merge that by hand: diff the new SDK's `ui/` folders against yours. A copy from before the Bot-only SDK (ADR 0027) still holds the assistant's folders: delete `plugins/assistant/` and any `ui/chat/`, `ui/shell/`, `ui/pages/` and `ui/settings/` left in your root `ui/`, and drop `@source "../plugins/assistant/ui";` from your `theme.css`. A `theme.css` copied before this release also lacks `@source "../plugins/knowledge/ui";` and `@source "../plugins/skills/ui";`: add them, or the Knowledge and Skills screens lose their styles.
 3. Install any new dependencies listed below, then run your type check.
 
 ## Dependencies
@@ -108,7 +108,7 @@ The `runner`, `memory` and `skills` plugins need nothing beyond `core/` (and `lu
 @import "./lib/bot-sdk/ui/theme.css";
 ```
 
-`theme.css` starts with `@source` lines (`@source ".";`, then `@source "../plugins/<name>/ui";` for each plugin with screens), which tell Tailwind to scan those folders wherever the copy sits. Your shadcn theme variables (`--background`, `--primary`, and so on) must also be defined in your stylesheet.
+`theme.css` starts with `@source` lines (`@source "../plugins/<name>/ui";` for each plugin with screens), which tell Tailwind to scan those folders wherever the copy sits. Your shadcn theme variables (`--background`, `--primary`, and so on) must also be defined in your stylesheet.
 
 ## Postgres
 

@@ -222,3 +222,16 @@ describe("copySdk", () => {
     expect(scenarioFiles).toEqual([]);
   });
 });
+
+describe("ui/theme.css", () => {
+  it("has an @source line for each plugin's ui folder, so Tailwind compiles every screen", () => {
+    const sdk = fileURLToPath(new URL("../../", import.meta.url));
+    const theme = readFileSync(join(sdk, "ui", "theme.css"), "utf8");
+    const sources = [...theme.matchAll(/^@source "([^"]+)";/gm)].map((match) => match[1]);
+    const pluginUis = readdirSync(join(sdk, "plugins"), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && existsSync(join(sdk, "plugins", entry.name, "ui")))
+      .map((entry) => `../plugins/${entry.name}/ui`);
+
+    expect(sources.sort()).toEqual(pluginUis.sort());
+  });
+});

@@ -82,8 +82,9 @@ export function AdminBanControl({ user }: { user: AdminUser }) {
           <DialogHeader>
             <DialogTitle>Ban {user.email}</DialogTitle>
             <DialogDescription>
-              They are signed out everywhere, can't sign in, and their Shared links and live replies
-              stop until the Ban ends or is lifted.
+              They are signed out everywhere, can't sign in, their running Turns and Helpers stop,
+              and no Routine, Check-in or Channel message of theirs starts a Turn until the Ban ends
+              or is lifted.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">

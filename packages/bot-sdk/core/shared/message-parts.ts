@@ -73,7 +73,7 @@ export type PartsEnvelope = {
   [key: string]: unknown;
 };
 
-/** The plain text `message.searchText` holds: the text parts only. */
+/** A message's plain text: the text parts only. */
 export function searchTextOf(envelope: {
   parts: readonly { type: string; text?: string }[];
 }): string {

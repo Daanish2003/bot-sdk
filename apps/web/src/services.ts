@@ -98,7 +98,7 @@ export const sdk = (shared.botSdk ??= createBotSdk({
   fetchAllowHosts: ssrfAllowHosts,
   // File bytes go to the S3 store when S3_* is set, and to Postgres otherwise (ADR 0015).
   blobStore: blobStoreOf(ENV),
-  // A banned user's Shared links are not found while the Ban holds (spec #277).
+  // A banned user's Routines, Check-ins and Channel messages start no Turns while the Ban holds (spec #277).
   isUserBlocked: async (userId) => {
     const row = await db.query.user.findFirst({
       where: { id: userId },

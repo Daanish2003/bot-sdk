@@ -616,7 +616,7 @@ describe("the contract migration (#819)", () => {
     expect(deleted).toHaveLength(2);
   });
 
-  it("keeps deleting the other keys from the Host's store when one delete fails", async () => {
+  it("keeps deleting the other keys from the Host's store when one delete fails, and tells the Host's logger", async () => {
     const url = await seeded("contract_store_fails");
     const deleted: string[] = [];
     const store: BlobStore = {
@@ -627,7 +627,7 @@ describe("the contract migration (#819)", () => {
         deleted.push(...keys);
       },
     };
-    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const logger = { error: vi.fn() };
 
     await createBotSdk({
       databaseUrl: url,
@@ -635,12 +635,12 @@ describe("the contract migration (#819)", () => {
       keyEncryptionSecrets,
       basePath: "/api/chat",
       blobStore: store,
+      logger,
       plugins: [models(), runner()],
     }).migrate();
 
     expect(deleted).toEqual([assistantKeys[1]]);
-    expect(error).toHaveBeenCalledWith("1 of the assistant's 2 blobs are still stored");
-    error.mockRestore();
+    expect(logger.error).toHaveBeenCalledWith("1 of the assistant's 2 blobs are still stored");
   });
 });
 describe("chat.start()", () => {
