@@ -12,6 +12,7 @@ import { createIsomorphicFn } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
 import { toast } from "sonner";
 
+import { ENV } from "../env.server";
 import { sdk } from "../services";
 
 export function createQueryClient() {
@@ -33,10 +34,12 @@ export function createQueryClient() {
 }
 
 // On the server the client calls the chat handler in process; in the browser it calls the route.
+// The server's base is still the app's origin: its URLs (images, files, export) go into the
+// server-rendered HTML, and hydration keeps them (#821).
 const getChatClient = createIsomorphicFn()
   .server((): BotSdkClient =>
     createBotSdkClient({
-      baseUrl: "http://localhost/api/chat",
+      baseUrl: `${ENV.BETTER_AUTH_URL}/api/chat`,
       plugins: [
         modelsClient(),
         assistantClient(),

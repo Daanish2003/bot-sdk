@@ -12,6 +12,9 @@ export default defineConfig({
     // binds only ::1. Browsers reach `localhost` through it too.
     host: "127.0.0.1",
   },
+  // `use-sync-external-store` is a direct dependency only so the SSR build can resolve it (#821).
+  // Unresolvable, Vite bundles Base UI's copy with a runtime `require("react")` that loads a second
+  // React, and signed-in pages fail to server-render.
   resolve: {
     tsconfigPaths: true,
   },
