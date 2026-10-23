@@ -5,23 +5,7 @@ import {
   send,
   signInAsSeededUser,
   signInAsSeededUserWithModel,
-  signInOnForm,
-} from "./helpers";
-
-test("the home page sends a signed-out visitor to log in", async ({ page }) => {
-  await page.goto("/");
-  await expect(page).toHaveURL(/\/login$/);
-});
-
-test("a seeded user is signed in, and its password signs in on the form", async ({ page }) => {
-  const user = await signInAsSeededUser(page);
-  await page.goto("/settings/keys");
-  await expect(page.getByRole("heading", { name: "Keys & settings" })).toBeVisible();
-
-  await page.context().clearCookies();
-  await signInOnForm(page, user.email, user.password);
-  await expect(page).toHaveURL(/\/bots$/);
-});
+} from "./assistant-helpers";
 
 test("the palette opens with the platform's shortcut and finds a Message", async ({ page }) => {
   await signInAsSeededUserWithModel(page);

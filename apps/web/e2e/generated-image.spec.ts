@@ -5,7 +5,7 @@ import {
   imagePrompt,
   imageReply,
 } from "../../../packages/bot-sdk/test/e2e/fake-ollama";
-import { messageRows, signInAsSeededUserWithModel } from "./helpers";
+import { messageRows, signInAsSeededUserWithModel } from "./assistant-helpers";
 
 test("a generated image shows inline, is still there after a reload, and downloads", async ({
   page,

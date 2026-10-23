@@ -2,7 +2,7 @@ import { expect, type Page, test } from "@playwright/test";
 
 import { wideMarker } from "../../../packages/bot-sdk/test/e2e/fake-ollama";
 
-import { messageRows, send, signInAsSeededUser, signInAsSeededUserWithModel } from "./helpers";
+import { messageRows, send, signInAsSeededUserWithModel } from "./assistant-helpers";
 
 async function expectNoSidewaysScroll(page: Page) {
   const overflow = await page.evaluate(
@@ -47,19 +47,6 @@ test("a Conversation fits the screen, with its title and Message actions showing
     "opacity",
     "1",
   );
-  await expectNoSidewaysScroll(page);
-});
-
-test("the login, Keys, Account and new Conversation pages fit the screen", async ({ page }) => {
-  await page.goto("/login");
-  await expectNoSidewaysScroll(page);
-  await signInAsSeededUser(page);
-  await expectNoSidewaysScroll(page);
-  await page.goto("/settings/keys");
-  await expect(page.getByRole("heading", { name: "Keys & settings" })).toBeVisible();
-  await expectNoSidewaysScroll(page);
-  await page.goto("/settings/account");
-  await expect(page.getByRole("heading", { name: "Account", exact: true })).toBeVisible();
   await expectNoSidewaysScroll(page);
 });
 

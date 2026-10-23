@@ -79,16 +79,16 @@ test("signing out other sessions signs a second device out", async ({ page, brow
   try {
     const otherPage = await other.newPage();
     await seedSession(otherPage, seeded.id);
-    await otherPage.goto("/c");
-    await expect(otherPage).toHaveURL(/\/c$/);
+    await otherPage.goto("/bots");
+    await expect(otherPage).toHaveURL(/\/bots$/);
 
     await changePassword(page, seeded.password, NEW_PASSWORD, { signOutOthers: true });
     await expect(page.getByText("Password changed")).toBeVisible();
 
-    await otherPage.goto("/c");
+    await otherPage.goto("/bots");
     await expect(otherPage).toHaveURL(/\/login$/);
-    await page.goto("/c");
-    await expect(page).toHaveURL(/\/c$/);
+    await page.goto("/bots");
+    await expect(page).toHaveURL(/\/bots$/);
   } finally {
     await other.close();
   }
@@ -103,14 +103,14 @@ test("without signing out other sessions, a second device stays signed in", asyn
   try {
     const otherPage = await other.newPage();
     await seedSession(otherPage, seeded.id);
-    await otherPage.goto("/c");
-    await expect(otherPage).toHaveURL(/\/c$/);
+    await otherPage.goto("/bots");
+    await expect(otherPage).toHaveURL(/\/bots$/);
 
     await changePassword(page, seeded.password, NEW_PASSWORD);
     await expect(page.getByText("Password changed")).toBeVisible();
 
-    await otherPage.goto("/c");
-    await expect(otherPage).toHaveURL(/\/c$/);
+    await otherPage.goto("/bots");
+    await expect(otherPage).toHaveURL(/\/bots$/);
   } finally {
     await other.close();
   }

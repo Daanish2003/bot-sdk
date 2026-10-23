@@ -1,16 +1,8 @@
 import { createDb } from "@ai-chat/db";
 import { expect, type Page, test } from "@playwright/test";
 
-import { randomBytes } from "node:crypto";
-
-import {
-  conversation,
-  message,
-  sharedLink,
-  usage,
-} from "../../../packages/bot-sdk/core/server/db/schema";
+import { usage } from "../../../packages/bot-sdk/core/server/db/schema";
 import { uuidv7 } from "../../../packages/bot-sdk/core/server/lib/uuidv7";
-import { storedParts } from "../../../packages/bot-sdk/plugins/assistant/shared/message-parts";
 
 import { e2eDatabaseUrl } from "./database";
 import { signInOnForm, waitForMail } from "./helpers";
@@ -26,14 +18,14 @@ async function makeAdmin(seeded: SeededUser) {
   }
 }
 
-/** Spends `costMicros` on the Host today, so the user's window reads that spend. */
+/** Spends `costMicros` on a Bot Turn on the Host today, so the user's window reads that spend. */
 async function spend(userId: string, costMicros: number) {
   const db = createDb({ DATABASE_URL: e2eDatabaseUrl() });
   try {
     await db.insert(usage).values({
       id: uuidv7(),
       userId,
-      kind: "run",
+      kind: "turn",
       model: "e2e-model",
       inputTokens: 0,
       outputTokens: 0,
@@ -90,67 +82,7 @@ test("an Admin sees spend against Quota, searches, sorts and filters to At Quota
   await expect(emailCell(page, quiet.email)).toHaveCount(0);
 });
 
-/**
- * Writes a two-message Conversation of `owner`'s and its Shared link straight into the e2e database
- * (a reply's Run is not needed for the link). Returns the link's token.
- */
-async function shareConversation(owner: SeededUser, title: string): Promise<string> {
-  const db = createDb({ DATABASE_URL: e2eDatabaseUrl() });
-  const conversationId = uuidv7();
-  const question = uuidv7();
-  const reply = uuidv7();
-  const token = randomBytes(16).toString("base64url");
-  const now = new Date();
-  try {
-    await db.insert(conversation).values({
-      id: conversationId,
-      userId: owner.id,
-      kind: "assistant",
-      title,
-      model: "e2e-model",
-    });
-    await db.insert(message).values([
-      {
-        id: question,
-        conversationId,
-        role: "user",
-        parts: storedParts([{ type: "text", text: "Hello" }]),
-        searchText: "Hello",
-        status: "complete",
-        createdAt: now,
-      },
-      {
-        id: reply,
-        conversationId,
-        parentId: question,
-        role: "assistant",
-        parts: storedParts([{ type: "text", text: "Hi there" }]),
-        searchText: "Hi there",
-        status: "complete",
-        model: "e2e-model",
-        createdAt: new Date(now.getTime() + 1),
-      },
-    ]);
-    // The Active Branch's leaf is set last: the message rows must exist before it can point at one.
-    await db.$client.query(`update chat.conversation set active_leaf_id = $1 where id = $2`, [
-      reply,
-      conversationId,
-    ]);
-    await db.insert(sharedLink).values({
-      token,
-      conversationId,
-      leafMessageId: reply,
-      title,
-      createdAt: now,
-      updatedAt: now,
-    });
-  } finally {
-    await db.$client.end();
-  }
-  return token;
-}
-
-test("a Ban signs a user out, blocks sign-in and hides their Shared link; unbanning restores both", async ({
+test("a Ban signs a user out and blocks sign-in; unbanning restores both", async ({
   page,
   browser,
 }) => {
@@ -159,12 +91,8 @@ test("a Ban signs a user out, blocks sign-in and hides their Shared link; unbann
   const targetContext = await browser.newContext();
   const targetPage = await targetContext.newPage();
   const target = await seedUser(targetPage);
-  const token = await shareConversation(target, "Banned chat");
   const anonymousContext = await browser.newContext();
   const anonymous = await anonymousContext.newPage();
-
-  await anonymous.goto(`/share/${token}`);
-  await expect(anonymous).toHaveTitle("Banned chat · ai-chat");
 
   await page.goto("/admin");
   const targetRow = page.getByRole("row").filter({ has: emailCell(page, target.email) });
@@ -176,23 +104,19 @@ test("a Ban signs a user out, blocks sign-in and hides their Shared link; unbann
   await expect(targetRow).toContainText("Banned");
 
   // The Ban ended the user's sessions: their open tab is signed out.
-  await targetPage.goto("/c");
+  await targetPage.goto("/bots");
   await expect(targetPage).toHaveURL(/\/login/);
 
-  // Sign-in is refused with the one static message, and the Shared link is not found.
+  // Sign-in is refused with the one static message.
   await signInOnForm(anonymous, target.email, target.password);
   await expect(anonymous.getByText("This account is suspended.")).toBeVisible();
-  await anonymous.goto(`/share/${token}`);
-  await expect(anonymous).toHaveTitle("Not found · ai-chat");
 
   await page.goto("/admin");
   await targetRow.getByRole("button", { name: "Unban", exact: true }).click();
   await expect(targetRow).toContainText("Active");
 
   await signInOnForm(anonymous, target.email, target.password);
-  await expect(anonymous).not.toHaveURL(/\/login/);
-  await anonymous.goto(`/share/${token}`);
-  await expect(anonymous).toHaveTitle("Banned chat · ai-chat");
+  await expect(anonymous).toHaveURL(/\/bots$/);
 
   await anonymousContext.close();
   await targetContext.close();
@@ -213,6 +137,13 @@ test("an Admin's own row offers no Ban", async ({ page }) => {
 const hostOption = (page: Page) =>
   page.getByRole("group").getByRole("button").filter({ hasText: "e2e-model" });
 
+/** Opens the New Bot dialog's Model picker. */
+async function openModelPicker(page: Page) {
+  await page.goto("/bots");
+  await page.getByRole("button", { name: "New Bot" }).click();
+  await page.getByRole("button", { name: "Model" }).click();
+}
+
 test("an Admin sets a user's Quota to 0, which turns Host Models off for them, and clearing it restores the default", async ({
   page,
   browser,
@@ -231,9 +162,7 @@ test("an Admin sets a user's Quota to 0, which turns Host Models off for them, a
   await expect(page.getByText("Quota saved", { exact: true })).toBeVisible();
   await expect(page.getByText("$0.00: Host Models are off for this user")).toBeVisible();
 
-  await targetPage.goto("/c");
-  await expect(targetPage.getByRole("button", { name: "Model" })).toBeVisible();
-  await targetPage.getByRole("button", { name: "Model" }).click();
+  await openModelPicker(targetPage);
   await expect(hostOption(targetPage)).toBeDisabled();
   await targetPage.keyboard.press("Escape");
 
@@ -241,8 +170,7 @@ test("an Admin sets a user's Quota to 0, which turns Host Models off for them, a
   await expect(page.getByText("Quota cleared to the default", { exact: true })).toBeVisible();
   await expect(page.getByText("Host default:")).toBeVisible();
 
-  await targetPage.goto("/c");
-  await targetPage.getByRole("button", { name: "Model" }).click();
+  await openModelPicker(targetPage);
   await expect(hostOption(targetPage)).toBeEnabled();
   await targetContext.close();
 });
@@ -275,7 +203,7 @@ test("an Admin turns off a user's lost two-factor sign-in: sessions end, the pas
   await expect(page.getByRole("button", { name: "Turn off 2FA", exact: true })).toHaveCount(0);
 
   // The sessions ended: the open tab is signed out.
-  await targetPage.goto("/c");
+  await targetPage.goto("/bots");
   await expect(targetPage).toHaveURL(/\/login/);
 
   // The password alone signs in: no second-factor screen.

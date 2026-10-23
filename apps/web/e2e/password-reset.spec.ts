@@ -21,10 +21,10 @@ test("a reset link sets a new password, signs out the other device, and a used l
   const otherContext = await browser.newContext();
   const other = await otherContext.newPage();
   await seedSession(other, seeded.id);
-  await other.goto("/c");
-  await expect(other).toHaveURL(/\/c$/);
+  await other.goto("/bots");
+  await expect(other).toHaveURL(/\/bots$/);
 
-  // Signed out, so /login shows the form instead of redirecting to the Conversation page.
+  // Signed out, so /login shows the form instead of redirecting to the Bots app.
   await page.context().clearCookies();
 
   // The same answer for an address with no account.
@@ -52,7 +52,7 @@ test("a reset link sets a new password, signs out the other device, and a used l
   await expect(page.getByRole("heading", { name: "Password changed" })).toBeVisible();
 
   // The other device is signed out.
-  await other.goto("/c");
+  await other.goto("/bots");
   await expect(other).toHaveURL(/\/login$/);
   await otherContext.close();
 

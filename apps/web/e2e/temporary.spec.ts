@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { messageRows, send, signInAsSeededUserWithModel } from "./helpers";
+import { messageRows, send, signInAsSeededUserWithModel } from "./assistant-helpers";
 
 test("a Temporary Conversation stays out of the sidebar and is deleted from the header", async ({
   page,
