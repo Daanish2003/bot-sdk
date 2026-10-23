@@ -1,6 +1,6 @@
 # Run brief: spec #<SPEC>
 
-You are an **implementer** for one ticket of [spec #<SPEC>](https://github.com/Daanish2003/ai-chat/issues/<SPEC>). Your prompt gives you the ticket URL and your worktree. Work only in that worktree; the orchestrator merges, pushes and closes. You do none of those.
+You are an **implementer** for one ticket of [spec #<SPEC>](https://github.com/Daanish2003/bot-sdk/issues/<SPEC>). Your prompt gives you the ticket URL and your worktree. Work only in that worktree; the orchestrator merges, pushes and closes. You do none of those.
 
 - Integration branch: `feature/<SLUG>`
 - Migration slot holder: <TICKET or none>. Only that ticket may add a migration.
@@ -17,7 +17,7 @@ You are an **implementer** for one ticket of [spec #<SPEC>](https://github.com/D
    - `diagnosing-bugs` when something fails and you don't know why;
    - `domain-modeling` when a new term appears.
 4. **Check as you go.** Typecheck the packages you touched, run the affected test files, then `pnpm exec oxlint` and `pnpm exec oxfmt --check` on your changed files. Don't run the whole vitest suite; the orchestrator's verify is the full run. Run every command in the foreground and wait for it to exit.
-5. **Review. This step is required, even for a small diff.** Call the Skill tool with `code-review` on your diff against `origin/feature/<SLUG>`, and fix every confirmed finding. List it under `checks` in your report (`code-review → <n> findings, <n> fixed`). A report without it is sent back.
+5. **Review. This step is required, even for a small diff.** Call the Skill tool with `code-review` on your diff against `origin/feature/<SLUG>` (or `<base SHA>..HEAD` when your prompt names an unpushed base), pointing it at your worktree path, and fix every confirmed finding. If the review returns empty or reviews the wrong range, run it again; a self-review does not count. List it under `checks` in your report (`code-review → <n> findings, <n> fixed`). A report without it is sent back.
 6. **Commit** with Conventional Commits naming the ticket, `(#<N>)`, ending with the attribution line from your instructions.
 7. **Take the tip.** Merge `origin/feature/<SLUG>` into your branch, resolve conflicts keeping both tickets' behaviour, and re-run step 4's checks.
 8. **Report** in this shape, and nothing else:
