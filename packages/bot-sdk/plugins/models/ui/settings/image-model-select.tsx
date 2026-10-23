@@ -1,4 +1,4 @@
-import { findImageModel } from "../../../models/shared/image-models";
+import { findImageModel } from "../../shared/image-models";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -14,7 +14,7 @@ import { toast } from "sonner";
 
 import { serverErrorText } from "../../../../core/client/rpc-error";
 import { useI18n, useOrpc } from "../../../../core/client/react/provider";
-import { groupImageModels } from "../../../models/ui/settings/image-model-groups";
+import { groupImageModels } from "./image-model-groups";
 
 /** The Image Model select: which Model makes Generated images, or the Host's default when none is picked. */
 export function ImageModelSelect() {
@@ -22,18 +22,14 @@ export function ImageModelSelect() {
   const orpc = useOrpc();
   const i18n = useI18n();
   const { t } = i18n;
-  const settings = useQuery(orpc.settings.get.queryOptions());
+  const settings = useQuery(orpc.models.imageModel.queryOptions());
   const models = useQuery(orpc.models.list.queryOptions());
-  const settingsKey = orpc.settings.get.queryKey();
+  const settingsKey = orpc.models.imageModel.queryKey();
   const setImageModel = useMutation(
-    orpc.settings.setImageModel.mutationOptions({
+    orpc.models.setImageModel.mutationOptions({
       onMutate: ({ imageModel }) => {
         const previous = settings.data;
-        queryClient.setQueryData(settingsKey, {
-          backgroundModel: settings.data?.backgroundModel ?? null,
-          imageModel,
-          instructions: settings.data?.instructions ?? null,
-        });
+        queryClient.setQueryData(settingsKey, { imageModel });
         return { previous };
       },
       onError: (error, _, context) => {

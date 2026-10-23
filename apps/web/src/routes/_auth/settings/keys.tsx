@@ -1,7 +1,7 @@
-import { ImageModelSelect } from "@ai-chat/bot-sdk/plugins/assistant/ui";
 import { ConnectionsSection } from "@ai-chat/bot-sdk/plugins/mcp/ui";
 import {
   CredentialsSections,
+  ImageModelSelect,
   KeySettingsPage,
   type LinkedCredentialsHost,
 } from "@ai-chat/bot-sdk/plugins/models/ui";
