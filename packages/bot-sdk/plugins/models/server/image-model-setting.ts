@@ -6,7 +6,7 @@ import type { ModelsDeps } from "./types";
 
 /** The user's Image Model pick, or `null` for the Host's default (`model_settings`, spec #801). */
 export async function loadImageModelSetting(
-  deps: Pick<ModelsDeps, "db">,
+  deps: { db: Pick<ModelsDeps["db"], "select"> },
   userId: string,
 ): Promise<string | null> {
   const [row] = await deps.db

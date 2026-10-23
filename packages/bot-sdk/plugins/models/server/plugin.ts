@@ -230,8 +230,9 @@ function modelsPlugin(
     start: async (sdk) => {
       await start?.(sdk, ready(sdk));
     },
-    exportUser: async (sdk, userId) => ({
-      imageModel: await loadImageModelSetting(ready(sdk), userId),
+    exportUser: async (_sdk, userId, tx) => ({
+      // Read in the export's snapshot, not through the pool.
+      imageModel: await loadImageModelSetting({ db: tx }, userId),
     }),
     deleteUser: modelsUserDelete,
     rotateKeys: async (sdk) => {
