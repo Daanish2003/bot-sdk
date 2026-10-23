@@ -29,10 +29,13 @@ export function useBotUploads() {
     setItems((current) =>
       current.map((item) => (item.key === key ? { ...item, ...fields } : item)),
     );
-  const set = (next: DraftFile[]) => {
-    count.current = next.length;
-    setItems(next);
-  };
+  // From the latest items, not the render's: a refused send restores after later edits.
+  const change = (next: (current: DraftFile[]) => DraftFile[]) =>
+    setItems((current) => {
+      const items = next(current);
+      count.current = items.length;
+      return items;
+    });
 
   const add = (files: Iterable<File>) => {
     for (const file of files) {
@@ -60,11 +63,11 @@ export function useBotUploads() {
   return {
     items,
     add,
-    remove: (key: string) => set(items.filter((item) => item.key !== key)),
-    clear: () => set([]),
+    remove: (key: string) => change((current) => current.filter((item) => item.key !== key)),
+    clear: () => change(() => []),
     /** Puts files back after a refused send: they are still uploaded. */
     restore: (files: SentFile[]) =>
-      set([
+      change((current) => [
         ...files.map((file) => ({
           key: file.id,
           name: file.name,
@@ -72,7 +75,7 @@ export function useBotUploads() {
           state: "done" as const,
           file,
         })),
-        ...items,
+        ...current,
       ]),
     /** The uploaded files, in order, for \`send\`. */
     uploaded: items.flatMap((item) => (item.state === "done" && item.file ? [item.file] : [])),
