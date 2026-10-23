@@ -2,22 +2,9 @@ import { expect, test } from "@playwright/test";
 
 import { messageRows, send, signInAsSeededUserWithModel } from "./helpers";
 
-test("Instructions are saved in settings, and a reply's tokens show in its info popover", async ({
-  page,
-}) => {
+// Instructions left the Keys page with #812; the assistant routes keep the token popover until spec 3.
+test("a reply's tokens show in its info popover", async ({ page }) => {
   await signInAsSeededUserWithModel(page);
-
-  await page.goto("/settings/keys");
-  const instructions = "Answer briefly. Use British spelling.";
-  const form = page.locator("form").filter({ has: page.getByLabel("Your Instructions") });
-  await form.getByLabel("Your Instructions").fill(instructions);
-  await form.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(page.getByText("Instructions saved")).toBeVisible();
-
-  await page.reload();
-  await expect(page.getByLabel("Your Instructions")).toHaveValue(instructions);
-
-  await page.goto("/c");
   // The composer can't send until the Model is known from the models list, which loads after the page does.
   await expect(page.getByRole("button", { name: "Model" })).toContainText("e2e-model");
   await send(page, "Tell me the time");
