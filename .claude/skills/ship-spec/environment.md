@@ -22,6 +22,10 @@ Shared by the orchestrator and every implementer. Each bullet cost a past run a 
 - **A fast-forward that skips verify can carry a stale test (#624):** #631 changed `bot.get`, its agent ran only the affected tests, and the next full verify failed on an untouched test in `bot.integration`. Skip the verify only when the agent ran the whole suite.
 - **`-d` after the PR merges (#761):** once the integration PR is merged and `main` is pulled, `git branch -d` deletes every ticket branch, including ones `-d` refused mid-run. Delete them then, and hand the user only what still refuses.
 - **A busy worktree folder (#761):** `rm -rf` of a worktree folder worked for most, but one failed with "Device or resource busy" because a process an agent started (the example's smoke server) still held it. Give that folder to the user to remove after a restart.
+- **An unpushed base breaks the agent's review (#791):** an agent started from a local, unverified integration tip ran its `code-review` against `origin/feature/…`, which was behind its base. The review saw only older docs commits and none of the agent's code. When a worktree starts from an unpushed tip, put its SHA in the prompt and tell the agent to review `<SHA>..HEAD`.
+- **Never merge into a worktree while a verify runs in it (#791):** a merge that landed mid-verify changed the files under the test run, so that result proved nothing and the verify had to be run again. Hold every merge until the verify reports.
+- **Removing worktrees with `node_modules` (#791):** `git worktree remove --force` failed with "Filename too long" on every worktree in the run. Go straight to `git worktree prune` plus the `node -e "…rmSync…"` removal from the bullet above; it went through each time.
+- **The spec's docs branch (#791):** when the spec branches from a `docs/<map>-…` branch, delete that branch and its worktree too once the integration PR merges (`git merge-base --is-ancestor docs/… main` first).
 
 ## Databases and services
 
@@ -42,6 +46,8 @@ Shared by the orchestrator and every implementer. Each bullet cost a past run a 
 - **Concurrent evals:** give each eval run its own `EVAL_DATABASE_URL` database (for example `ai-chat_eval_ladder`). Two evals on one database truncate each other's rows.
 - **A shared test database name (#761):** an implementer ran its suite against the plain `ai-chat_test` database. Brief every agent with its own exact database and Redis db.
 - **Mailpit (#761):** its webhook is rate-limited to 1 per second and posts a summary without a signature. A probe that sets `MP_WEBHOOK_URL` leaves the container pointing at the probe's port. Recreate it (`docker compose up -d --force-recreate mailpit`) before using the web app.
+- **An expired login stops every agent (#791):** "Login expired · Please run /login" ended all three running implementers at once, mid-edit. After the user ran `/login`, SendMessage to each agent resumed it with its uncommitted work intact. Tell each one which integration commits landed meanwhile.
+- **A restart stops Docker and frees memory (#791):** after a Claude Code restart, Docker Desktop was down again, but free memory went from 450 MB to 6.4 GB because the restart ended tsserver. Restarting the session is a cheaper way to free memory than killing processes by PID, since the user's `taskkill` found the reaped verify's process already gone.
 - **Memory, again (#761):** a background verify was reaped while the session was idle, with tsserver at 2.4 GB. The full verify takes about 12 minutes, longer than the 10-minute foreground limit, so it has to run in the background. Free memory first: ask the user to let you kill tsserver before the verify that gates the PR.
 
 ## Checks
@@ -89,6 +95,9 @@ Shared by the orchestrator and every implementer. Each bullet cost a past run a 
 - **Missing change hints (#761):** a review found user RPCs that recorded a Bot-thread change but never called `hintChanged`, so other tabs waited for focus: Check-in cancel, the Routine approve, decline, pause, resume and delete, and Helper stop. Brief any ticket that adds a thread-changing path to hint after the commit and test it.
 - **bot-memory-search, again (#761):** "is absent with Memory off…" failed in two more full verifies and passed 2/2 alone each time.
 - **Repeated hand-backs (#761):** an agent whose forked code-review returned late sent the same final report four times. Tell it the ticket is merged and to stop.
+- **Self-review instead of the skill (#791):** two implementers reviewed their own diff "inline" when the forked `code-review` returned empty, and one never saw its new test go red. Send such a report back. The brief now says to rerun an empty review and never to self-review; still check every report for it.
+- **The example Host's own code calls changed SDK APIs (#791):** after #797 made `KeySettingsPage` render only its children, the re-copied SDK typechecked but the example's `chat-pages.tsx` still rendered `<KeySettingsPage />` with no sections, an empty page. After the copy, grep the example's own `src/` (outside `src/bot-sdk`) for every SDK export the spec changed, and run `pnpm check-types` in `examples/next-prisma`.
+- **The pre-commit formatter rewrites the copy (#791):** lint-staged runs `oxfmt --write` on the copied files. Re-run the CI drift check after committing the copy (`copy.ts` again, then `git diff --name-only` on the example's `src/bot-sdk` minus `VERSION`); in #791 it stayed clean.
 
 ## Slots
 
