@@ -16,6 +16,7 @@ import {
   job,
   usage,
   memorySettings,
+  modelSettings,
 } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkPlugin } from "../../../core/server/plugin";
@@ -159,6 +160,9 @@ async function seedEverything(
   });
 
   await getTestDb().insert(memorySettings).values({ userId: user.id, enabled: false });
+  await getTestDb()
+    .insert(modelSettings)
+    .values({ userId: user.id, imageModel: "openai:gpt-image-2" });
   await saveCredentials(deps, user.id, {
     service: "anthropic",
     fields: { apiKey: "sk-ant-test-key" },

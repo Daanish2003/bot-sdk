@@ -18,6 +18,7 @@ import {
   usage,
   userSettings,
   memorySettings,
+  modelSettings,
 } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkPlugin } from "../../../core/server/plugin";
@@ -160,6 +161,9 @@ async function seedEverything(
 
   await getTestDb().insert(userSettings).values({ userId: user.id, instructions: "Be terse." });
   await getTestDb().insert(memorySettings).values({ userId: user.id, enabled: false });
+  await getTestDb()
+    .insert(modelSettings)
+    .values({ userId: user.id, imageModel: "openai:gpt-image-2" });
   await getTestDb()
     .insert(savedPrompt)
     .values({ id: uuidv7(), userId: user.id, name: "review", text: "Review this." });

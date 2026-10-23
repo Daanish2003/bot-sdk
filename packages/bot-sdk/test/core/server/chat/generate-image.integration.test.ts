@@ -7,7 +7,7 @@ import {
   conversation,
   message,
   usage,
-  userSettings,
+  modelSettings,
   blob,
 } from "../../../../core/server/db/schema";
 import { asc, eq } from "drizzle-orm";
@@ -157,7 +157,7 @@ describe("the generate_image tool is offered", () => {
       verified: true,
     });
     await getTestDb()
-      .insert(userSettings)
+      .insert(modelSettings)
       .values({ userId: user.id, imageModel: "openai:gpt-image-1-mini" });
 
     await (await send()).text();
@@ -665,7 +665,7 @@ describe("the Host's pricing of generated images", () => {
       hint: "…-key",
       verified: true,
     });
-    await getTestDb().insert(userSettings).values({ userId: user.id, imageModel: hostImageModel });
+    await getTestDb().insert(modelSettings).values({ userId: user.id, imageModel: hostImageModel });
     await spend(user.id, 50_000);
 
     await (await send()).text();

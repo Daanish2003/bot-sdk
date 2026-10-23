@@ -4,15 +4,14 @@ import { instructionsMaxChars } from "../../shared/chat/instructions";
 import { isKnownModel } from "../../../models/shared/models";
 import { protectedProcedure } from "../../../../core/server/procedures";
 import { rpcError } from "../../../../core/server/rpc-error";
-import {
-  loadSettings,
-  saveImageModel,
-  saveInstructions,
-  saveBackgroundModel,
-} from "../settings/store";
+import { loadSettings, saveInstructions, saveBackgroundModel } from "../settings/store";
 
 export const settingsRouter = {
-  get: protectedProcedure.handler(({ context }) => loadSettings(context.sdk, context.user.id)),
+  /** The user's settings, with the Image Model from the models plugin's `model_settings` (spec #801). */
+  get: protectedProcedure.handler(async ({ context }) => ({
+    ...(await loadSettings(context.sdk, context.user.id)),
+    imageModel: await context.sdk.plugin("models").imageModelSetting(context.user.id),
+  })),
 
   /**
    * Chooses the Model that writes automatic titles; `null` is "Same as first reply". Credentials
@@ -53,7 +52,7 @@ export const settingsRouter = {
           { model: input.imageModel },
         );
       }
-      await saveImageModel(context.sdk, context.user.id, input.imageModel);
+      await context.sdk.plugin("models").saveImageModelSetting(context.user.id, input.imageModel);
     }),
 
   /** Saves the Instructions sent with every Run from the next one; blank or `null` clears them. */

@@ -17,6 +17,7 @@ import {
   project,
   savedPrompt,
   sharedLink,
+  modelSettings,
   userSettings,
   memorySettings,
 } from "../../../core/server/db/schema";
@@ -108,9 +109,11 @@ describe("createBotSdk().exportUser", () => {
     await getTestDb().insert(userSettings).values({
       userId: owner.id,
       backgroundModel: "anthropic:background-model",
-      imageModel: "openai:gpt-image-2",
       instructions: "Answer in French.",
     });
+    await getTestDb()
+      .insert(modelSettings)
+      .values({ userId: owner.id, imageModel: "openai:gpt-image-2" });
     const deps = createTestSdk();
     await saveCredentials(deps, owner.id, {
       service: "anthropic",

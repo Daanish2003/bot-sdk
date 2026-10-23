@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
+import { modelSettings } from "../../../../core/server/db/schema";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import type { HostProvider } from "../../../../plugins/assistant/server/deps";
 import { createTestSdk, chatRpc } from "../../../support/assistant";
 import { insertUser, type TestUser } from "../../../support/users";
+import { getTestDb } from "../../../support/test-database";
 
 // The Host's Image Model is Gemini's, so the tests can tell it from the user's own OpenAI key.
 const hostProviders: HostProvider[] = [
@@ -66,6 +68,24 @@ describe("settings.setImageModel", () => {
     await client.settings.setImageModel({ imageModel: null });
 
     await expect(client.settings.get()).resolves.toMatchObject({ imageModel: null });
+  });
+
+  it("reads and writes the models plugin's model_settings, not the assistant's settings (#803)", async () => {
+    const { user, client } = await signedIn();
+    // A pick the migration copied over.
+    await getTestDb()
+      .insert(modelSettings)
+      .values({ userId: user.id, imageModel: "gemini:gemini-3.1-flash-image" });
+
+    await expect(client.settings.get()).resolves.toMatchObject({
+      imageModel: "gemini:gemini-3.1-flash-image",
+    });
+
+    await client.settings.setImageModel({ imageModel: null });
+
+    await expect(
+      getTestDb().select({ imageModel: modelSettings.imageModel }).from(modelSettings),
+    ).resolves.toEqual([{ imageModel: null }]);
   });
 
   it("rejects an id that is not an Image Model", async () => {
