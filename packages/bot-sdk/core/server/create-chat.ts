@@ -25,7 +25,6 @@ import {
   type Route,
 } from "./plugin";
 import { defaultRateLimits, rateLimitedFor, rpcRateLimits, type RateLimit } from "./rate-limits";
-import { coreRouter } from "./routers/index";
 import { memoryRuntime, type BotSdkRuntime } from "./runtime";
 import { deleteUserData, exportUserData, type UserExport } from "./user-data";
 
@@ -38,7 +37,7 @@ export type GetUser = (request: Request) => ChatUser | null | Promise<ChatUser |
 
 export type BotSdkOptions<Plugins extends readonly BotSdkPlugin[] = readonly BotSdkPlugin[]> = {
   databaseUrl: string;
-  /** Who the request is from. `null` answers 401, except for the public Shared link read. */
+  /** Who the request is from. `null` answers 401, except on a plugin's public route. */
   getUser: GetUser;
   /**
    * The keyring (ADR 0010), at least one secret. The first encrypts Provider and Tool credentials
@@ -54,14 +53,8 @@ export type BotSdkOptions<Plugins extends readonly BotSdkPlugin[] = readonly Bot
    */
   rateLimits?: RateLimitsOf<Plugins>;
   /**
-   * The client's IP, for the per-IP limit on Shared link views. The Host reads it from its own
-   * request (for example, a header its proxy sets). The SDK trusts no forwarded header by default,
-   * so without this option there are no per-IP limits.
-   */
-  getClientIp?: (request: Request) => string | null | Promise<string | null>;
-  /**
-   * Where the SDK's own failures go (background writes, usage rows, title generation, the database
-   * pool, the reaper) and the RPC calls' errors. Defaults to `console`.
+   * Where the SDK's own failures go (background writes, usage rows, the database pool, the job
+   * reaper) and the RPC calls' errors. Defaults to `console`.
    */
   logger?: Logger;
   /**
@@ -71,8 +64,8 @@ export type BotSdkOptions<Plugins extends readonly BotSdkPlugin[] = readonly Bot
    */
   hooks?: HooksOf<Plugins>;
   /**
-   * Test-only: `host` or `host:port` entries that `fetch_url` may reach over plain HTTP and at a
-   * private address (the end-to-end tests' fake page). Never set it in production; `apps/web` sets
+   * Test-only: `host` or `host:port` entries the guarded `fetch` may reach over plain HTTP and at
+   * a private address (the end-to-end tests' fake servers). Never set it in production; `apps/web` sets
    * it only from `SSRF_ALLOW_HOSTS`, which needs a localhost `BETTER_AUTH_URL`.
    */
   fetchAllowHosts?: string[];
@@ -83,11 +76,11 @@ export type BotSdkOptions<Plugins extends readonly BotSdkPlugin[] = readonly Bot
    */
   blobStore?: BlobStore;
   /**
-   * Whether the Host has banned a user (spec #277). A banned owner's Shared links are not found:
-   * they can't be read or continued. Unset, nobody is blocked.
+   * Whether the Host has banned a user (spec #277). A banned owner's Routines, Check-ins and
+   * Channel messages don't start Turns. Unset, nobody is blocked.
    */
   isUserBlocked?: (userId: string) => boolean | Promise<boolean>;
-  /** The features this instance serves (ADR 0020), such as `assistant()`. */
+  /** The features this instance serves (ADR 0020), such as `bot()`. */
   plugins: Plugins;
 };
 
@@ -100,18 +93,14 @@ export type BotSdk = {
   /**
    * Refuses (throws) while the `chat` schema is behind the bundled migrations; then starts each
    * plugin, in dependency order. `models` refuses with neither `hostProviders` nor `byok` on; the
-   * runner starts its job reaper and the jobs runner (ADR 0011), and the assistant starts its Run
-   * reaper (now, and every 30 s, ADR 0006).
+   * runner starts its job reaper and the jobs runner (ADR 0011).
    */
   start: () => Promise<void>;
   /**
    * Sets `stopping`, stops each plugin in reverse dependency order, then closes the runtime's
-   * connections. The assistant refuses new Runs with 503 and lets local Runs finish for up to
-   * `drainMs` (250 s), then ends the rest as interrupted; after it, the runner drains its jobs for
-   * up to 250 s, then aborts the rest and waits up to 250 s more for their handlers to end. A
-   * plugin whose stop
-   * throws doesn't stop the others; its error is rethrown once the runtime closes. Call it on
-   * SIGTERM.
+   * connections. The runner drains its jobs for up to 250 s, then aborts the rest and waits up to
+   * 250 s more for their handlers to end. A plugin whose stop throws doesn't stop the others; its
+   * error is rethrown once the runtime closes. Call it on SIGTERM.
    */
   stop: () => Promise<void>;
   /** Deletes everything every plugin holds for a user, in one transaction. Idempotent. */
@@ -132,7 +121,6 @@ export type BotSdk = {
 /** The rate-limit rules the core declares itself, and their defaults. */
 const coreRateLimits: Record<CoreRule, RateLimit> = {
   attachmentUpload: defaultRateLimits.attachmentUpload,
-  conversationSearch: defaultRateLimits.conversationSearch,
 };
 
 /** The core's non-RPC routes, under `basePath`. */
@@ -185,10 +173,9 @@ export function buildBotSdk(
     throw new Error(`basePath must start with "/": ${options.basePath}`);
   }
   const plugins = orderPlugins(options.plugins);
-  // The core serves its own routers, routes and rules beside the plugins', so a plugin can't claim them.
+  // The core serves its own routes and rules beside the plugins', so a plugin can't claim them.
   const core: BotSdkPlugin = {
     id: "core",
-    router: coreRouter,
     routes: coreRoutes((userId) => instance.exportUser(userId)),
     rateLimits: coreRateLimits,
   };
@@ -297,15 +284,13 @@ function buildContext(
 }
 
 function createHandler(
-  { basePath, getUser, getClientIp, logger = console }: BotSdkOptions,
+  { basePath, getUser, logger = console }: BotSdkOptions,
   router: ReturnType<typeof mergeRouters>,
   routes: readonly Route[],
   sdk: BotSdkContext,
 ): ChatHandler {
   const prefix = basePath.replace(/\/+$/, "");
   const rpcPrefix = `${prefix}/rpc` as `/${string}`;
-  // The RPCs a signed-out visitor of a Shared link may call (ADR 0004, ADR 0016).
-  const sharedReadPaths = [`${rpcPrefix}/share/get`, `${rpcPrefix}/share/artifactVersion`];
   const rpc = new RPCHandler(router, {
     interceptors: [onError((error) => logger.error(error))],
   });
@@ -328,24 +313,17 @@ function createHandler(
       return route.handle(request, { user: null, sdk, params, basePath: prefix });
     }
     const user = await getUser(request);
-    const sharedRead = sharedReadPaths.includes(pathname);
-    if (!user && !sharedRead) return unauthorized();
+    if (!user) return unauthorized();
 
     if (pathname === rpcPrefix || pathname.startsWith(`${rpcPrefix}/`)) {
-      if (sharedRead && getClientIp) {
-        const refused = await sharedLinkRefusal(sdk, await getClientIp(request));
-        if (refused) return refused;
-      }
-      if (user) {
-        const refused = await rpcRateLimitRefusal(sdk, user.id, pathname.slice(rpcPrefix.length));
-        if (refused) return refused;
-      }
+      const refused = await rpcRateLimitRefusal(sdk, user.id, pathname.slice(rpcPrefix.length));
+      if (refused) return refused;
       const context: Context = { user, sdk };
       const result = await rpc.handle(request, { prefix: rpcPrefix, context });
       return result.matched ? result.response : notFound();
     }
-    const privateRoute = user ? matchRoute(request, path, false) : null;
-    if (user && privateRoute && !privateRoute.route.public) {
+    const privateRoute = matchRoute(request, path, false);
+    if (privateRoute && !privateRoute.route.public) {
       const { route, params } = privateRoute;
       return route.handle(request, { user, sdk, params, basePath: prefix });
     }
@@ -362,15 +340,6 @@ async function rpcRateLimitRefusal(
   const rule = rpcRateLimits[route];
   if (!rule || !(rule in sdk.rateLimits)) return null;
   return tooManyRequests(await sdk.rateLimit(rule, `${rule}:${userId}`));
-}
-
-/**
- * Counts a Shared link view against its client IP and answers 429 with `Retry-After` once that IP
- * is over its limit. With no IP (the Host gave none), nothing is counted.
- */
-async function sharedLinkRefusal(sdk: BotSdkContext, ip: string | null): Promise<Response | null> {
-  if (!ip || !("sharedLinkView" in sdk.rateLimits)) return null;
-  return tooManyRequests(await sdk.rateLimit("sharedLinkView", `sharedLinkView:${ip}`));
 }
 
 function tooManyRequests(retryAfter: number | null): Response | null {

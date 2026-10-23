@@ -1,7 +1,5 @@
 import net from "node:net";
 
-import type { StreamChunk } from "@tanstack/ai";
-
 import { afterAll, describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../../core/server/create-chat";
@@ -14,12 +12,9 @@ import {
 } from "../../../../core/server/chat/redis-connection";
 import { createRedisCounters } from "../../../../core/server/chat/redis-counters";
 import { createRedisPubSub } from "../../../../core/server/chat/redis-pubsub";
-import { createRedisRunStreams } from "../../../../core/server/chat/redis-run-streams";
-import { START } from "../../../../core/server/chat/run-streams";
 import { redisRuntime } from "../../../../core/server/runtime";
 import { counterStoreContract } from "./counters.contract";
 import { pubsubContract } from "./pubsub.contract";
-import { runStreamsContract } from "./run-streams.contract";
 
 /**
  * The Redis suites need a real Redis: set `TEST_REDIS_URL` (for example
@@ -155,27 +150,12 @@ describe.skipIf(!redisUrl)("redisRuntime on a real Redis", () => {
 
   pubsubContract("redis", () => createRedisPubSub(connection, testPrefix));
 
-  runStreamsContract("redis", (options) => createRedisRunStreams(connection, testPrefix, options));
-
   counterStoreContract("redis", () => createRedisCounters(connection, testPrefix));
 
   it("keeps runtimes with different prefixes apart", async () => {
     const a = redisRuntime({ url: redisUrl!, prefix: `${testPrefix}a:` });
     const b = redisRuntime({ url: redisUrl!, prefix: `${testPrefix}b:` });
     try {
-      const runId = crypto.randomUUID();
-      await a.runStreams.open(runId);
-      await a.runStreams.append(runId, {
-        type: "TEXT_MESSAGE_CONTENT",
-        messageId: "m",
-        delta: "a",
-        timestamp: 0,
-      } as StreamChunk);
-      await a.runStreams.close(runId);
-      const seenByB = [];
-      for await (const entry of b.runStreams.read(runId, START)) seenByB.push(entry);
-      expect(seenByB).toEqual([]);
-
       const heardByA: string[] = [];
       await a.pubsub.subscribe("run:x:cancel", (message) => heardByA.push(message));
       await b.pubsub.publish("run:x:cancel", "stop");
@@ -187,24 +167,18 @@ describe.skipIf(!redisUrl)("redisRuntime on a real Redis", () => {
     }
   });
 
-  it("holds one subscriber connection for many concurrent Runs", async () => {
+  it("holds one subscriber connection for many channels", async () => {
     const proxy = await countingProxy(new URL(redisUrl!));
     const runtime = redisRuntime({ url: proxy.url, prefix: `${testPrefix}shared:` });
     try {
-      const runIds = Array.from({ length: 20 }, () => crypto.randomUUID());
-      for (const runId of runIds) {
-        await runtime.pubsub.subscribe(`run:${runId}:cancel`, () => {});
+      const ids = Array.from({ length: 20 }, () => crypto.randomUUID());
+      for (const id of ids) {
+        await runtime.pubsub.subscribe(`run:${id}:cancel`, () => {});
       }
-      await runtime.runStreams.open(runIds[0]!);
-      await runtime.runStreams.append(runIds[0]!, {
-        type: "TEXT_MESSAGE_CONTENT",
-        messageId: "m",
-        delta: "x",
-        timestamp: 0,
-      } as StreamChunk);
-      await runtime.runStreams.close(runIds[0]!);
+      await runtime.pubsub.publish(`run:${ids[0]!}:cancel`, "stop");
+      await runtime.counters.hit(`count:${ids[0]!}`, 1000);
 
-      // One command connection and one subscriber connection, however many Runs are live.
+      // One command connection and one subscriber connection, however many channels are live.
       expect(proxy.accepted()).toBeLessThanOrEqual(2);
     } finally {
       await runtime.close?.();

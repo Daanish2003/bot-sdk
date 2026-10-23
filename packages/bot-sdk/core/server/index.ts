@@ -6,7 +6,7 @@ export {
   type Logger,
 } from "./create-chat";
 export type { BotSdkContext, BotSdkPlugin, PluginApis, Route } from "./plugin";
-export type { EventHooks, ConversationCreatedEvent, ConversationDeletedEvent } from "./chat/hooks";
+export type { EventHooks, ConversationDeletedEvent } from "./chat/hooks";
 export {
   memoryRuntime,
   redisRuntime,

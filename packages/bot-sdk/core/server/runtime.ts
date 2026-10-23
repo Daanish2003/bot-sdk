@@ -3,25 +3,20 @@ import { createMemoryPubSub, type PubSub } from "./chat/pubsub";
 import { createRedisConnection } from "./chat/redis-connection";
 import { createRedisCounters } from "./chat/redis-counters";
 import { createRedisPubSub } from "./chat/redis-pubsub";
-import { createRedisRunStreams } from "./chat/redis-run-streams";
-import { createMemoryRunStreams, type RunStreams } from "./chat/run-streams";
 
-/** What carries Runs across processes (ADR 0006). The Host passes one to `createBotSdk`. */
+/** What the SDK shares across processes. The Host passes one to `createBotSdk`. */
 export type BotSdkRuntime = {
-  /** Every Run's chunk log, which its POST response and any joiner read. */
-  runStreams: RunStreams;
-  /** Control signals between processes, such as Stop. */
+  /** Signals between processes, such as a Conversation's change hints (ADR 0026). */
   pubsub: PubSub;
   /** Rate-limit counters, shared by every process of the runtime (spec 87). */
   counters: CounterStore;
-  /** Closes the runtime's connections. `stop()` calls it after the drain. */
+  /** Closes the runtime's connections. `stop()` calls it after the plugins stop. */
   close?: () => Promise<void>;
 };
 
-/** The in-process runtime: Runs live in this process's memory only. */
+/** The in-process runtime: signals and counters live in this process's memory only. */
 export function memoryRuntime(): BotSdkRuntime {
   return {
-    runStreams: createMemoryRunStreams(),
     pubsub: createMemoryPubSub(),
     counters: createMemoryCounters(),
   };
@@ -35,14 +30,13 @@ export type RedisRuntimeOptions = {
 };
 
 /**
- * The cross-process runtime: Runs are shared through Redis, so a Run started on one process can be
- * joined, read and stopped from any other (ADR 0006). Use it whenever Runs can overlap processes,
- * including a zero-downtime deploy.
+ * The cross-process runtime: signals and rate-limit counters are shared through Redis, so every
+ * process of the Host sees them. Use it whenever the Host runs more than one process, including
+ * during a zero-downtime deploy.
  */
 export function redisRuntime({ url, prefix = "chat:" }: RedisRuntimeOptions): BotSdkRuntime {
   const connection = createRedisConnection(url);
   return {
-    runStreams: createRedisRunStreams(connection, prefix),
     pubsub: createRedisPubSub(connection, prefix),
     counters: createRedisCounters(connection, prefix),
     close: connection.close,

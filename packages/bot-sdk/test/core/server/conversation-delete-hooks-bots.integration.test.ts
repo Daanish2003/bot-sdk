@@ -50,7 +50,7 @@ function recordingPlugin({ beforeThrows = false, afterThrows = false } = {}) {
 /** The core's delete of the user's Conversations `where` matches, committed, announced to the Host. */
 async function deleteOwn(deps: TestDeps, userId: string, where?: SQL) {
   const { deleted, afterCommit } = await deps.db.transaction((tx) =>
-    deleteConversations(deps, tx, { userId, where, announce: {} }),
+    deleteConversations(deps, tx, { userId, where, announce: true }),
   );
   await afterCommit();
   return deleted;

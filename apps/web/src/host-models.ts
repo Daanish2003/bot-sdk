@@ -10,7 +10,6 @@ export type HostEnv = {
   HOST_PROVIDER?: string | undefined;
   HOST_CREDENTIALS?: string | undefined;
   HOST_MODELS?: string | undefined;
-  HOST_BACKGROUND_MODEL?: string | undefined;
   HOST_QUOTA_BUDGET_USD?: string | undefined;
   HOST_QUOTA_WINDOW?: string | undefined;
   HOST_IMAGE_PROVIDER?: string | undefined;
@@ -58,23 +57,6 @@ export function hostProvidersOf(env: HostEnv): HostProviders {
   // The SDK checks the Provider id against its own list when it lists or runs a Model.
   const provider = env.HOST_PROVIDER!.trim() as ProviderId;
   return [{ provider, credentials, models }];
-}
-
-/**
- * The Host's default Background Model (`HOST_BACKGROUND_MODEL`), a `"provider:model"` id that must
- * name one of the Host's Models. Unset, users who pick none get the reply's Model for titles.
- */
-export function hostBackgroundModelOf(env: HostEnv): string | undefined {
-  if (!isSet(env.HOST_BACKGROUND_MODEL)) return undefined;
-  const id = env.HOST_BACKGROUND_MODEL.trim();
-  // Only a Provider entry carries Models; a Host Tool entry never comes from these variables.
-  const offered = hostProvidersOf(env).flatMap((entry) =>
-    "models" in entry ? entry.models.map((model) => `${entry.provider}:${model.modelId}`) : [],
-  );
-  if (!offered.includes(id)) {
-    throw new Error("HOST_BACKGROUND_MODEL must name one of the HOST_MODELS, as provider:model");
-  }
-  return id;
 }
 
 const hostImageModel = z.object({

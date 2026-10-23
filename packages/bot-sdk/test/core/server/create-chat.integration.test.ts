@@ -96,38 +96,6 @@ describe("createBotSdk start", () => {
     await expect(chat.start()).rejects.toThrow(/anthropic.*transcription/);
   });
 
-  it("refuses a defaultBackgroundModel that is not one of the Host's Models", async () => {
-    const chat = createBotSdk({
-      databaseUrl: testDatabaseUrl,
-      getUser: () => null,
-      keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
-      basePath,
-      plugins: [
-        models({
-          hostProviders: [
-            {
-              provider: "ollama",
-              credentials: { host: "http://localhost:11434" },
-              models: [
-                {
-                  modelId: "llama",
-                  maxOutputTokens: 512,
-                  inputUsdPerMillion: 0,
-                  outputUsdPerMillion: 0,
-                },
-              ],
-            },
-          ],
-          defaultBackgroundModel: "ollama:mistral",
-        }),
-        runner(),
-        bot(),
-      ],
-    });
-
-    await expect(chat.start()).rejects.toThrow(/defaultBackgroundModel/);
-  });
-
   it("refuses a defaultImageModel that is not one of the Host's Image Models", async () => {
     const chat = createBotSdk({
       databaseUrl: testDatabaseUrl,

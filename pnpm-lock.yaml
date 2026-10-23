@@ -440,15 +440,9 @@ importers:
       '@tanstack/ai-byteplus':
         specifier: 0.6.2
         version: 0.6.2(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@tanstack/ai@0.66.0(zod@4.6.5))(undici@7.30.0)(ws@8.22.0)(zod@4.6.5)
-      '@tanstack/ai-client':
-        specifier: 0.39.0
-        version: 0.39.0(zod@4.6.5)
       '@tanstack/ai-cloudflare':
         specifier: 0.2.5
         version: 0.2.5(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@tanstack/ai@0.66.0(zod@4.6.5))(undici@7.30.0)(ws@8.22.0)(zod@4.6.5)
-      '@tanstack/ai-compaction':
-        specifier: 0.1.14
-        version: 0.1.14(@tanstack/ai@0.66.0(zod@4.6.5))
       '@tanstack/ai-gemini':
         specifier: 0.37.0
         version: 0.37.0(@modelcontextprotocol/sdk@1.32.0(zod@4.6.5))(@tanstack/ai@0.66.0(zod@4.6.5))
@@ -479,9 +473,6 @@ importers:
       '@tanstack/ai-openrouter':
         specifier: 0.21.2
         version: 0.21.2(@tanstack/ai@0.66.0(zod@4.6.5))
-      '@tanstack/ai-react':
-        specifier: 0.30.1
-        version: 0.30.1(@tanstack/ai@0.66.0(zod@4.6.5))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(zod@4.6.5)
       '@tanstack/ai-vercel-gateway':
         specifier: 0.3.7
         version: 0.3.7(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@tanstack/ai@0.66.0(zod@4.6.5))(undici@7.30.0)(ws@8.22.0)(zod@4.6.5)
@@ -509,9 +500,6 @@ importers:
       email-reply-parser:
         specifier: 2.3.9
         version: 2.3.9
-      html-to-text:
-        specifier: 10.0.1
-        version: 10.0.1
       htmlparser2:
         specifier: 10.1.0
         version: 10.1.0
@@ -2602,11 +2590,6 @@ packages:
   '@selderee/plugin-htmlparser2@0.11.0':
     resolution: {integrity: sha512-P33hHGdldxGabLFjPPpaTxVolMrzrcegejx+0GxjrIb9Zv48D8yAIA/QTDR2dFl7Uz7urX8aX6+5bCZslr+gWQ==}
 
-  '@selderee/plugin-htmlparser2@0.12.0':
-    resolution: {integrity: sha512-oELmoyA6ML9jDRMV3kgcMQFKxUfBU0yFVn6yTctVaLT5ygXnxH52I3TZEgV9EhXJC68/uFvE5Daj1/25c0Xa/A==}
-    peerDependencies:
-      selderee: ~0.12.0
-
   '@shadcn/react@0.3.1':
     resolution: {integrity: sha512-2gOR0HDMtWeRsCZfNDaU0YDFdgH3zsDQ6lz67Fv/y/qjY9y+R8kJqAn6q56phqv7/zHi0wqURjntrNO9zL7vnQ==}
     peerDependencies:
@@ -2895,16 +2878,8 @@ packages:
     peerDependencies:
       '@tanstack/ai': ^0.66.0
 
-  '@tanstack/ai-client@0.39.0':
-    resolution: {integrity: sha512-FhusK2T/lLTlpnVqGsc8Mh9KJLpFvJII3/fZQK7u6N/r/TtAcNLifCI+pH3O2xvNZEATw7nrY/L6w7uwWoFm4g==}
-
   '@tanstack/ai-cloudflare@0.2.5':
     resolution: {integrity: sha512-B90CF48j1XpUnhqtjVMm+kn7eCkpesEQD/eoRH97ANlPfZ+fQW8dj8LtSaCgcwwZ9q9Iqucd58X95bYbQHUCEw==}
-    peerDependencies:
-      '@tanstack/ai': ^0.66.0
-
-  '@tanstack/ai-compaction@0.1.14':
-    resolution: {integrity: sha512-jznt+cYc/xXOFGhH+Nv4C0hWR+jcNAMwVTK2CxIObY93O+I4eCqaHMOQ15tWyN/vkopnPyrQn3VnOGsFx+7aPg==}
     peerDependencies:
       '@tanstack/ai': ^0.66.0
 
@@ -2968,20 +2943,6 @@ packages:
     peerDependencies:
       '@tanstack/ai': ^0.66.0
 
-  '@tanstack/ai-react@0.30.1':
-    resolution: {integrity: sha512-TAJRmZt2G1si6FrDgJmceY6N4xmCdTzt6imwIwrQPT8HtSMl9KCniC1wvw3zqXDd31V9yXBtxeQr2f7NCBjvuQ==}
-    peerDependencies:
-      '@mcp-ui/client': ^7
-      '@tanstack/ai': ^0.66.0
-      '@types/react': '>=18.0.0'
-      react: '>=18.0.0'
-      react-dom: '>=18.0.0'
-    peerDependenciesMeta:
-      '@mcp-ui/client':
-        optional: true
-      react-dom:
-        optional: true
-
   '@tanstack/ai-utils@0.4.1':
     resolution: {integrity: sha512-B3PGn2WYiRtivZCt7MUN2iXeoK9fwZhgdbrPIz5hPqVR8r8sNDZMmMqtiOkp7sxzPvVlCBItFVHw7QpZ9g6e9w==}
 
@@ -3010,17 +2971,6 @@ packages:
   '@tanstack/history@1.162.4':
     resolution: {integrity: sha512-utTS5L2OkeYUzXGohL1Z8sefu1GLNOJcxe8Hd6iIdc/Xo1K1nDB2JEp4iSFhvYh33xKC9V91TxrS8qfrpoKobQ==}
     engines: {node: '>=20.19'}
-
-  '@tanstack/markdown@0.0.13':
-    resolution: {integrity: sha512-ZSQP2ulBvlPzdpZeRheBJnaELo7e4ET/D/XrfgweHyqhhLMN5vUJJAUl7ufSRd7GlfO/vwdzjKPh0E0JwqJkDA==}
-    peerDependencies:
-      octane: '>=0.1.12'
-      react: '>=18'
-    peerDependenciesMeta:
-      octane:
-        optional: true
-      react:
-        optional: true
 
   '@tanstack/match-sorter-utils@9.2.6':
     resolution: {integrity: sha512-DIpUSOhPfQ7u/qfUi/Wgm0wBO56MyBYXGvnlI0NcauDRPqdBUlAZZjW2Dxm92m+k1UWVhKw8YJ4f47+75Aujyw==}
@@ -3841,10 +3791,6 @@ packages:
     resolution: {integrity: sha512-HOJkrhaYsweh+W+e74Yn7YStZOilkoPb6fycpwNLKzSPtruFs48nYis0zy5yJz1+ktUhHxoRDJ27RQAWLIJVJw==}
     engines: {node: '>=16.0.0'}
 
-  deepmerge-ts@8.0.2:
-    resolution: {integrity: sha512-uqbvqLUMrc6p0MO+WBRtTxY55hmyh94WRwI5a++PZe54X+bfVh59FSN7uWCBCW1CCVjzjnrwzfI8zidE2obMMw==}
-    engines: {node: '>=16.9.0'}
-
   deepmerge@4.3.1:
     resolution: {integrity: sha512-3sUqbMEc77XqpdNO7FRyRog+eW3ph+GYCbj+rK+uYyRMuwsVy0rMiVtPn+QJlKFvWP/1PYpapqYn0Me2knFn+A==}
     engines: {node: '>=0.10.0'}
@@ -4501,10 +4447,6 @@ packages:
     resolution: {integrity: sha512-UikN5yr7xsCDAq87Or5or0PAlD3HJJOKVzM05az588WnpDJ4Ux7a2A53Qi6gofGg2/EtvF/H4hCi/TXfCW4Y6w==}
     engines: {node: ^22.13.0 || >=24.0.0}
 
-  html-to-text@10.0.1:
-    resolution: {integrity: sha512-GiVhRI1BatGARSCmlXWNCjDT0cWrwBWoeduLoV0WSKAgaV/wa+hUWy5LiQLUs4UwiUrE52ZCMfBGiKD87TDPrg==}
-    engines: {node: '>=20.19.0'}
-
   html-to-text@9.0.5:
     resolution: {integrity: sha512-qY60FjREgVZL03vJU6IfMV4GDjGBIoOyvuFdpBDIX9yTlDw0TjxVBQp+P8NvpdIXNJvfWBTNul7fsAQJq2FNpg==}
     engines: {node: '>=14'}
@@ -4763,9 +4705,6 @@ packages:
 
   leac@0.6.0:
     resolution: {integrity: sha512-y+SqErxb8h7nE/fiEX07jsbuhrpO9lL8eca7/Y1nuWV2moNlXhyd59iDGcRf6moVyDMbmTNzL40SUyrFU/yDpg==}
-
-  leac@0.7.0:
-    resolution: {integrity: sha512-qMrZeyEekgdRQ9o6a4NAB2EQZrv827GJdn1vnapwSJ90hWRB4TzUSunvacPkxQ2TnNqHNI1/zSt0hlo0crG8Jw==}
 
   lefthook-darwin-arm64@2.1.17:
     resolution: {integrity: sha512-BHF3rD0qmwBulLLe5EdPYQVGvPibZZqHnSPpWT+LgPyYk2+GxtScLJvSD/NgCOFU49Fzs6XgOHg/zlfXcdKFfQ==}
@@ -5478,9 +5417,6 @@ packages:
   parseley@0.12.1:
     resolution: {integrity: sha512-e6qHKe3a9HWr0oMRVDTRhKce+bRO8VGQR3NyVwcjwrbhMmFCX9KszEV35+rn4AdilFAq9VPxP/Fe1wC9Qjd2lw==}
 
-  parseley@0.13.1:
-    resolution: {integrity: sha512-uNBJZzmb60l6p6VWLTmevizNAGnE0xoSf1n0B4q3ntegDNzcS68NRCcBDZTcyXHxt2XhBChsCuqj4M+nChvE/A==}
-
   parseurl@1.3.3:
     resolution: {integrity: sha512-CiyeOxFT/JZyN5m0z9PfXw4SCBJ6Sygz1Dpl0wqjlhDEGGBP1GnsUVEL0p63hoG1fcj3fHynXi9NYO4nWOL+qQ==}
     engines: {node: '>= 0.8'}
@@ -5520,9 +5456,6 @@ packages:
   pdfjs-dist@5.4.296:
     resolution: {integrity: sha512-DlOzet0HO7OEnmUmB6wWGJrrdvbyJKftI1bhMitK7O2N8W2gc757yyYBbINy9IDafXAV9wmKr9t7xsTaNKRG5Q==}
     engines: {node: '>=20.16.0 || >=22.3.0'}
-
-  peberminta@0.10.0:
-    resolution: {integrity: sha512-80B2AsU+I4Qdb0ZAPSfe9UwvGzwkM37IKIFEvdS3D/3Ndgv2bsuJ0bfG1+iEYO+l7Gfd4EUJmuRyq7efLgRMzQ==}
 
   peberminta@0.9.0:
     resolution: {integrity: sha512-XIxfHpEuSJbITd1H3EeQwpcZbTLHc+VVr8ANI9t5sit565tsI4/xK3KWTUFE2e6QiangUkh3B0jihzmGnNrRsQ==}
@@ -5861,9 +5794,6 @@ packages:
 
   selderee@0.11.0:
     resolution: {integrity: sha512-5TF+l7p4+OsnP8BCCvSyZiSPc4x4//p5uPwK8TCnVPJYRmU2aYKMpOXvw8zM5a5JvuuCGN1jmsMwuU2W02ukfA==}
-
-  selderee@0.12.0:
-    resolution: {integrity: sha512-b1YMh3+DHZp59DLna3qVwQ5iOla/nrI6mLBNW02XxU77M3046Df6VLkoaJyFz20VsGIG5kkp+FK0kg4K4HnUFw==}
 
   semver@6.3.1:
     resolution: {integrity: sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA==}
@@ -8257,12 +8187,6 @@ snapshots:
       domhandler: 5.0.3
       selderee: 0.11.0
 
-  '@selderee/plugin-htmlparser2@0.12.0(selderee@0.12.0)':
-    dependencies:
-      domelementtype: 2.3.0
-      domhandler: 5.0.3
-      selderee: 0.12.0
-
   '@shadcn/react@0.3.1(@types/react@19.3.0)(react@19.3.0)':
     optionalDependencies:
       '@types/react': 19.3.0
@@ -8594,15 +8518,6 @@ snapshots:
       - ws
       - zod
 
-  '@tanstack/ai-client@0.39.0(zod@4.6.5)':
-    dependencies:
-      '@tanstack/ai': 0.66.0(zod@4.6.5)
-      '@tanstack/ai-event-client': 0.13.1
-      '@tanstack/ai-utils': 0.4.1
-    transitivePeerDependencies:
-      - '@opentelemetry/api'
-      - zod
-
   '@tanstack/ai-cloudflare@0.2.5(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@tanstack/ai@0.66.0(zod@4.6.5))(undici@7.30.0)(ws@8.22.0)(zod@4.6.5)':
     dependencies:
       '@cloudflare/workers-types': 4.20260702.1
@@ -8617,10 +8532,6 @@ snapshots:
       - undici
       - ws
       - zod
-
-  '@tanstack/ai-compaction@0.1.14(@tanstack/ai@0.66.0(zod@4.6.5))':
-    dependencies:
-      '@tanstack/ai': 0.66.0(zod@4.6.5)
 
   '@tanstack/ai-event-client@0.13.1':
     dependencies:
@@ -8743,20 +8654,6 @@ snapshots:
       '@tanstack/ai': 0.66.0(zod@4.6.5)
       '@tanstack/ai-utils': 0.4.1
 
-  '@tanstack/ai-react@0.30.1(@tanstack/ai@0.66.0(zod@4.6.5))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(zod@4.6.5)':
-    dependencies:
-      '@tanstack/ai': 0.66.0(zod@4.6.5)
-      '@tanstack/ai-client': 0.39.0(zod@4.6.5)
-      '@tanstack/markdown': 0.0.13(react@19.3.0)
-      '@types/react': 19.3.0
-      react: 19.3.0
-    optionalDependencies:
-      react-dom: 19.3.0(react@19.3.0)
-    transitivePeerDependencies:
-      - '@opentelemetry/api'
-      - octane
-      - zod
-
   '@tanstack/ai-utils@0.4.1': {}
 
   '@tanstack/ai-vercel-gateway@0.3.7(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@tanstack/ai@0.66.0(zod@4.6.5))(undici@7.30.0)(ws@8.22.0)(zod@4.6.5)':
@@ -8793,10 +8690,6 @@ snapshots:
       '@tanstack/store': 0.11.2
 
   '@tanstack/history@1.162.4': {}
-
-  '@tanstack/markdown@0.0.13(react@19.3.0)':
-    optionalDependencies:
-      react: 19.3.0
 
   '@tanstack/match-sorter-utils@9.2.6':
     dependencies:
@@ -9633,8 +9526,6 @@ snapshots:
   deepmerge-ts@7.1.5:
     optional: true
 
-  deepmerge-ts@8.0.2: {}
-
   deepmerge@4.3.1: {}
 
   default-browser-id@5.0.1: {}
@@ -10208,14 +10099,6 @@ snapshots:
     transitivePeerDependencies:
       - '@noble/hashes'
 
-  html-to-text@10.0.1:
-    dependencies:
-      '@selderee/plugin-htmlparser2': 0.12.0(selderee@0.12.0)
-      deepmerge-ts: 8.0.2
-      dom-serializer: 2.0.0
-      htmlparser2: 10.1.0
-      selderee: 0.12.0
-
   html-to-text@9.0.5:
     dependencies:
       '@selderee/plugin-htmlparser2': 0.11.0
@@ -10441,8 +10324,6 @@ snapshots:
   kysely@0.29.6: {}
 
   leac@0.6.0: {}
-
-  leac@0.7.0: {}
 
   lefthook-darwin-arm64@2.1.17:
     optional: true
@@ -11332,11 +11213,6 @@ snapshots:
       leac: 0.6.0
       peberminta: 0.9.0
 
-  parseley@0.13.1:
-    dependencies:
-      leac: 0.7.0
-      peberminta: 0.10.0
-
   parseurl@1.3.3: {}
 
   partial-json@0.1.7: {}
@@ -11361,8 +11237,6 @@ snapshots:
   pathe@2.0.3: {}
 
   pdfjs-dist@5.4.296: {}
-
-  peberminta@0.10.0: {}
 
   peberminta@0.9.0: {}
 
@@ -11750,10 +11624,6 @@ snapshots:
   selderee@0.11.0:
     dependencies:
       parseley: 0.12.1
-
-  selderee@0.12.0:
-    dependencies:
-      parseley: 0.13.1
 
   semver@6.3.1: {}
 

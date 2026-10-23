@@ -160,7 +160,7 @@ async function main() {
   const keyring = [evalKeySecret];
   const realModels = productionDeps(
     { db, keyring, events, logger, fetch } as unknown as BotSdkContext,
-    { defaultBackgroundModel: undefined, linkedCredentials: plan?.linkedCredentials },
+    { linkedCredentials: plan?.linkedCredentials },
   );
   /** The fake Model's case for each run, found by the run's own API key. */
   const scripts = new Map<string, { id: string; rounds: () => ReturnType<typeof round>[] }>();

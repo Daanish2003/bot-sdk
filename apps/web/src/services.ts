@@ -24,7 +24,6 @@ import { ENV, ssrfAllowHosts } from "./env.server";
 import { blobStoreOf } from "./blob-store";
 import { getQuota } from "./admin/quota";
 import {
-  hostBackgroundModelOf,
   hostDefaultImageModelOf,
   hostImageProvidersOf,
   hostProvidersOf,
@@ -116,8 +115,6 @@ export const sdk = (shared.botSdk ??= createBotSdk({
       // The Host's Models and their Quota (ADR 0007); unset, users chat only on their own keys.
       // The Host's Image Models (`HOST_IMAGE_*`) come as one more Provider entry beside its chat Models.
       hostProviders: [...hostProvidersOf(ENV), ...hostImageProvidersOf(ENV)],
-      // The Host's default Background Model for titles (`HOST_BACKGROUND_MODEL`), one of its Models.
-      defaultBackgroundModel: hostBackgroundModelOf(ENV),
       // The Host's default Image Model (`HOST_DEFAULT_IMAGE_MODEL`), one of its Image Models.
       defaultImageModel: hostDefaultImageModelOf(ENV),
       // CI only (spec #278): HOST_IMAGE_PROVIDER=fake answers every image with the fake adapter, so no

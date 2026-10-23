@@ -50,7 +50,6 @@ function seedModels(queryClient: QueryClient, client: BotSdkClient) {
   queryClient.setQueryData(client.orpc.models.list.queryKey(), {
     models: [model],
     defaultModel: null,
-    defaultBackgroundModel: null,
     imageModels: [],
     defaultImageModel: null,
     webSearchOnHost: false,

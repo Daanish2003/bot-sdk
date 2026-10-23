@@ -26,8 +26,6 @@ const client = createBotSdkClient({
 const router: ChatRouter = {
   Link: ({ children, className }: ChatLinkProps) => createElement("a", { className }, children),
   navigate: () => {},
-  useLocation: () => ({ newConversation: false }),
-  shareUrl: (token) => token,
 };
 
 function renderKeys() {

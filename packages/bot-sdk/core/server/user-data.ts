@@ -7,11 +7,11 @@ import { enabledPlugins, type BotSdkContext } from "./plugin";
  * delete. After the commit: the Conversation delete's hooks, then each plugin's `after`. Calling it again, or for
  * an unknown id, does nothing.
  *
- * Muted: a Host's user delete emits nothing, not even `onRunEnd` (#265). The plugins' hooks get an
- * sdk whose events fire nothing.
+ * Muted: a Host's user delete emits nothing, not even `onConversationDeleted`. The plugins' hooks
+ * get an sdk whose events fire nothing.
  */
 export async function deleteUserData(given: BotSdkContext, userId: string): Promise<void> {
-  const sdk = { ...given, events: muted(given.events) };
+  const sdk = { ...given, events: muted };
   const plugins = [...enabledPlugins(sdk)]
     .reverse()
     .flatMap((plugin) => (plugin.deleteUser ? [plugin.deleteUser] : []));

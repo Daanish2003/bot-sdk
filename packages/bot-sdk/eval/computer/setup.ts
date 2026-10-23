@@ -72,9 +72,10 @@ export function createComputerSdk(options: {
   const guarded = createGuardedFetch({ schemes: "http-and-https" });
   const fetch = wrapFetch ? wrapFetch(guarded) : guarded;
   const keyring = [evalKeySecret];
-  const real = productionDeps({ db, keyring, events, logger, fetch } as unknown as BotSdkContext, {
-    defaultBackgroundModel: undefined,
-  });
+  const real = productionDeps(
+    { db, keyring, events, logger, fetch } as unknown as BotSdkContext,
+    {},
+  );
   return createBotSdkOver(
     {
       context: {

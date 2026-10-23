@@ -4,7 +4,7 @@ import { chatSchema } from "./chat-schema";
 
 /**
  * Bytes kept by the default `postgresBlobStore()` (ADR 0015), one row per key. The keys are the
- * SDK's (`attachment/<id>`), and nothing here knows what a key is for; the owner and the metadata
+ * SDK's (`bot-file/<id>`), and nothing here knows what a key is for; the owner and the metadata
  * stay in their own tables.
  */
 export const blob = chatSchema.table("blob", {

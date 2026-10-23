@@ -6,7 +6,6 @@ import { postgresBlobStore } from "../../core/server/blob/postgres";
 import { createMemoryCounters } from "../../core/server/chat/counters";
 import { createHookEmitter, type HookEmitter } from "../../core/server/chat/hooks";
 import { createMemoryPubSub } from "../../core/server/chat/pubsub";
-import { createMemoryRunStreams, type RunStreams } from "../../core/server/chat/run-streams";
 import type { GivenContext } from "../../core/server/create-chat";
 import type { BotSdkPlugin } from "../../core/server/plugin";
 import { createBotSdkOver, type SdkOver } from "../../core/server/over";
@@ -28,8 +27,6 @@ export type TestDepsOverrides = Partial<
     Omit<ModelsDeps, "hooks"> & {
       /** The core's event emitter (`BotSdkContext.events`). */
       hooks: HookEmitter;
-      /** The core's chunk logs (`runtime.runStreams`). */
-      runStreams: RunStreams;
       /** The `runner` plugin's jobs runner (`runner({ jobs })`). */
       jobs: JobRunner;
       /** More plugins, enabled after `models` and `runner`. */
@@ -67,12 +64,10 @@ export function createTestSdk({ plugins, ...overrides }: TestDepsOverrides = {})
     });
   const pubsub = overrides.pubsub ?? overrides.runtime?.pubsub ?? createMemoryPubSub();
   const counters = overrides.counters ?? overrides.runtime?.counters ?? createMemoryCounters();
-  const runStreams =
-    overrides.runStreams ?? overrides.runtime?.runStreams ?? createMemoryRunStreams();
   const context: GivenContext = {
     db,
     blobStore: overrides.blobStore ?? postgresBlobStore(db),
-    runtime: { ...overrides.runtime, runStreams, pubsub, counters },
+    runtime: { ...overrides.runtime, pubsub, counters },
     pubsub,
     counters,
     logger,
@@ -116,7 +111,6 @@ export function createTestSdk({ plugins, ...overrides }: TestDepsOverrides = {})
     hostTools: overrides.hostTools ?? [],
     byok: overrides.byok ?? true,
     linkedCredentials: overrides.linkedCredentials,
-    defaultBackgroundModel: overrides.defaultBackgroundModel ?? null,
     defaultImageModel: overrides.defaultImageModel ?? null,
     recentModelSources: [],
     getQuota: overrides.getQuota ?? (async () => null),

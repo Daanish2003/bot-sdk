@@ -146,8 +146,6 @@ export type ModelsDeps = {
   byok: boolean;
   /** The Host's hook for linked Provider credentials, or none (ADR 0023). */
   linkedCredentials?: LinkedCredentialsHook;
-  /** The Host's default Background Model, a Host Model's id, or `null` (`defaultBackgroundModel`). */
-  defaultBackgroundModel: string | null;
   /** The Host's default Image Model, a Host Image Model's id, or `null` (`defaultImageModel`). */
   defaultImageModel: string | null;
   /** The recent-Model sources other plugins registered, in order (`addRecentModelSource`). */

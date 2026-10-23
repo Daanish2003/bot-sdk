@@ -3,7 +3,6 @@ import { RPCLink } from "@orpc/client/fetch";
 import type { RouterClient } from "@orpc/server";
 import { createTanstackQueryUtils, type RouterUtils } from "@orpc/tanstack-query";
 
-import type { CoreRouter } from "../server/routers/index";
 import type { BotSdkClientPlugin, PluginRouters } from "./plugin";
 import { throwIfRateLimited } from "./rate-limit";
 
@@ -13,10 +12,10 @@ type UnionToIntersection<U> = (U extends unknown ? (union: U) => void : never) e
   ? I
   : never;
 
-/** The core's routers and every enabled plugin's, merged as the handler serves them. */
-type MergedRouter = CoreRouter & UnionToIntersection<PluginRouters[keyof PluginRouters]>;
+/** Every enabled plugin's routers, merged as the handler serves them. */
+type MergedRouter = UnionToIntersection<PluginRouters[keyof PluginRouters]>;
 
-/** The typed RPC client for the core's procedures and the enabled plugins'. */
+/** The typed RPC client for the enabled plugins' procedures. */
 export type BotSdkRpc = RouterClient<MergedRouter>;
 
 /** The oRPC TanStack Query utils for the merged routers. */
@@ -27,7 +26,7 @@ export type BotSdkFetch = (request: Request) => Promise<Response>;
 
 /**
  * The headless client: no React, no router. A client plugin adds its URLs to it by declaration
- * merging (the assistant adds `chatUrl` and the rest).
+ * merging.
  */
 export interface BotSdkClient {
   /** The typed RPC client for the chat's procedures. */

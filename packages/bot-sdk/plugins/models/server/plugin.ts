@@ -58,11 +58,6 @@ export type ModelsOptions = {
   /** Whether users may use their own Provider credentials. Defaults to `true` (ADR 0007). */
   byok?: boolean;
   /**
-   * The Host's default Background Model: a `"provider:model"` id of one of the `hostProviders`
-   * Models. Titles use it when a user picks none; `start()` refuses any other id.
-   */
-  defaultBackgroundModel?: string;
-  /**
    * The Host's default Image Model: a `"provider:model"` id of one of the `hostProviders`'s Image
    * Models. Image generation uses it when a user picks none; with none, there are no Host images.
    * `start()` refuses any other id.
@@ -143,8 +138,6 @@ export type ModelsApi = {
   imageRequestFor: typeof imageRequestFor;
   /** Whether users may use their own Provider credentials (`byok`, ADR 0007). */
   readonly byok: boolean;
-  /** The Host's default Background Model, or `null`. */
-  readonly defaultBackgroundModel: string | null;
   /** The Host's default Image Model, or `null`. */
   readonly defaultImageModel: string | null;
   /** Whether the Host offers any Image Model (`hostProviders`'s `imageModels`). */
@@ -263,7 +256,6 @@ export function productionDeps(sdk: BotSdkContext, options: ModelsOptions): Mode
     hostTools: (options.hostProviders ?? []).filter(isHostTool),
     byok: options.byok ?? true,
     linkedCredentials: options.linkedCredentials,
-    defaultBackgroundModel: options.defaultBackgroundModel ?? null,
     defaultImageModel: options.defaultImageModel ?? null,
     recentModelSources: [],
     getQuota: quotaLookup(options.getQuota),
@@ -304,9 +296,6 @@ function modelsApi(deps: ModelsDeps): ModelsApi {
     get byok() {
       return deps.byok;
     },
-    get defaultBackgroundModel() {
-      return deps.defaultBackgroundModel;
-    },
     get defaultImageModel() {
       return deps.defaultImageModel;
     },
@@ -334,17 +323,6 @@ function checkStart(options: ModelsOptions) {
     }
   }
   const hostProviders = (options.hostProviders ?? []).filter(isHostProvider);
-  const defaultBackground = options.defaultBackgroundModel;
-  if (
-    defaultBackground !== undefined &&
-    !hostProviders.some(({ provider, models }) =>
-      models.some((model) => `${provider}:${model.modelId}` === defaultBackground),
-    )
-  ) {
-    throw new Error(
-      `defaultBackgroundModel "${defaultBackground}" is not one of the hostProviders' Models`,
-    );
-  }
   for (const { provider, imageModels = [] } of hostProviders) {
     for (const model of imageModels) {
       // A Host Image Model is priced per image; without a price its spend isn't recorded.

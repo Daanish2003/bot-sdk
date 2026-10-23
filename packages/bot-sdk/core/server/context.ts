@@ -4,7 +4,7 @@ import type { BotSdkContext } from "./plugin";
 export type ChatUser = { id: string };
 
 export type Context = {
-  /** `null` only for the public Shared link read. */
+  /** Never `null` in a procedure: the handler answers 401 first, and `protectedProcedure` checks. */
   user: ChatUser | null;
   /** The core context; a plugin's procedures reach their own plugin through `sdk.plugin(id)`. */
   sdk: BotSdkContext;
