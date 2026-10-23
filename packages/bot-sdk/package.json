@@ -49,6 +49,7 @@
     "eval:skills": "node --import ./eval/memory/register-ts.mjs eval/skills/run.ts",
     "eval:knowledge": "node --import ./eval/memory/register-ts.mjs eval/knowledge/run.ts",
     "eval:channels": "node --import ./eval/memory/register-ts.mjs eval/channels/run.ts",
+    "eval:connectors": "node --import ./eval/memory/register-ts.mjs eval/connectors/run.ts",
     "eval:files": "node --import ./eval/memory/register-ts.mjs eval/files/run.ts",
     "eval:images": "node --import ./eval/memory/register-ts.mjs eval/images/run.ts",
     "eval:skills:draft": "node --import ./eval/memory/register-ts.mjs eval/skills/draft-run.ts",

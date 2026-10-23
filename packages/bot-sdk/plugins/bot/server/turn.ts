@@ -87,6 +87,7 @@ import {
 } from "./routine";
 import { formatterIn, knownZone, timeNotice } from "./time-zone";
 import { checkedTool, isDirectTool, toolSearchTools } from "./tool-search";
+import { type ConnectorListing, connectorTools } from "./connector-tools";
 import { generateImageTool } from "./generate-image";
 import { webSearchTool } from "./web-search";
 
@@ -154,11 +155,16 @@ export const botSystemPrompt = promptOpening + onlyToolLimits + promptRules;
 
 /**
  * The system prompts of a Bot's Turn. With `computer` on, the Bot's limits allow its Computer, and
- * a second prompt names its own directory and the shared one; with it off, it is `botSystemPrompt`.
+ * a second prompt names its own directory and the shared one, its ladder with connectors when
+ * `withConnectors` (the Host installs `mcp`); with it off, it is `botSystemPrompt`.
  */
-export function botSystemPrompts(botId: string, withComputer: boolean): string[] {
+export function botSystemPrompts(
+  botId: string,
+  withComputer: boolean,
+  withConnectors = false,
+): string[] {
   if (!withComputer) return [botSystemPrompt];
-  return [promptOpening + computerLimits + promptRules, computerPrompt(botId)];
+  return [promptOpening + computerLimits + promptRules, computerPrompt(botId, withConnectors)];
 }
 
 /** What SendToUser returns for an empty `text`: what went wrong, and what to do instead. */
@@ -1069,21 +1075,31 @@ async function playTurn(
       return rendered;
     });
   };
-  return runLoop(deps, ctx, {
-    owner: turn,
-    usageKind: "turn",
-    sourceId: turn.id,
-    // The history and the newest message come from the setup, once the Prompt start is chosen.
-    input: [],
-    startedAt: turn.startedAt,
-    stepLimit: turnStepLimit,
-    timeLimitMs: turnTimeLimitMs,
-    plainTextReminder: undeliveredTextReminder,
-    attempt,
-    // Each shell call of the Turn gets Auto-review before it runs (spec #691).
-    review: { turnId: turn.id, conversationId: turn.conversationId },
-    setup: (kit) => turnSetup(deps, turn, kit, db, renderNewest),
-  });
+  // The Connector tools' clients stay open for the Turn's loop, and close when it ends.
+  const connections = new AbortController();
+  try {
+    return await runLoop(deps, ctx, {
+      owner: turn,
+      usageKind: "turn",
+      sourceId: turn.id,
+      // The history and the newest message come from the setup, once the Prompt start is chosen.
+      input: [],
+      startedAt: turn.startedAt,
+      stepLimit: turnStepLimit,
+      timeLimitMs: turnTimeLimitMs,
+      plainTextReminder: undeliveredTextReminder,
+      attempt,
+      // Each shell call of the Turn gets Auto-review before it runs (spec #691).
+      review: { turnId: turn.id, conversationId: turn.conversationId },
+      setup: (kit) =>
+        turnSetup(deps, turn, kit, db, renderNewest, {
+          signal: connections.signal,
+          record: (list) => ctx.activity("connectors", list),
+        }),
+    });
+  } finally {
+    connections.abort();
+  }
 }
 
 /**
@@ -1100,6 +1116,10 @@ async function turnSetup(
   kit: LoopKit,
   db: Database | Transaction,
   renderNewest: (changeNotes: string | undefined) => Promise<ModelMessage[]>,
+  connections: {
+    signal: AbortSignal;
+    record: (list: () => Promise<ConnectorListing[]>) => Promise<ConnectorListing[]>;
+  },
 ): Promise<LoopSetup> {
   let endTurn = false;
   // The Bot's Routines as the Turn starts, read once: a replay reads the recorded list.
@@ -1121,7 +1141,7 @@ async function turnSetup(
   const knowledge =
     withComputer && deps.hasPlugin("knowledge") ? await knowledgeSnapshot(deps, turn, kit) : null;
   const knowledgeBlock = knowledge && deps.plugin("knowledge").prompt(knowledge);
-  const tools = turnTools(deps, turn, kit, {
+  const ownTools = turnTools(deps, turn, kit, {
     withComputer,
     // Present whenever the snapshot is: it reads through the Computer like the snapshot does.
     withMemorySearch: memory !== null,
@@ -1129,13 +1149,24 @@ async function turnSetup(
       endTurn = true;
     },
   });
-  // `describe_tool` and `run_tool`, which reach the tools the Prompt start lists by name only.
-  const searchTools = toolSearchTools(tools);
+  // The Connector tools, listed once as the Turn starts: nothing is kept from an earlier Turn.
+  const connectors = deps.hasPlugin("mcp")
+    ? await connectorTools(deps, turn.userId, {
+        ...connections,
+        liveRequest: kit.liveRequest,
+        taken: new Set(["describe_tool", "run_tool", ...ownTools.map((tool) => tool.name)]),
+      })
+    : undefined;
+  const tools = [...ownTools, ...(connectors?.tools ?? [])];
+  // `describe_tool` and `run_tool`, which reach the tools the Prompt start lists by name only. A
+  // Connector tool whose Connection listed nothing this Turn is still answered, with its error.
+  const searchTools = toolSearchTools(tools, connectors?.missing);
   /** What a Prompt start is built from now: by the Bot's first Turn, or by a Summary. */
   const parts = (): PromptStartParts =>
     startParts(turn, deps.clock(), {
       tools,
       withComputer,
+      withConnectors: deps.hasPlugin("mcp"),
       memory,
       skills: skillsBlock,
       knowledge: knowledgeBlock,
@@ -1161,6 +1192,7 @@ async function turnSetup(
     knowledge,
     routines: routines ?? null,
     tools: definitionsOf(tools),
+    connectors: new Set(connectors?.tools.map((tool) => tool.name)),
   });
   // A tool a deploy removed stays defined, as the Prompt start sends it, and says it is gone.
   const known = new Set([...tools, ...searchTools].map((tool) => tool.name));
@@ -1371,6 +1403,7 @@ function startParts(
   {
     tools,
     withComputer,
+    withConnectors,
     memory,
     skills,
     knowledge,
@@ -1378,6 +1411,8 @@ function startParts(
   }: {
     tools: AnyServerTool[];
     withComputer: boolean;
+    /** Whether the Host installs `mcp`, which puts connectors in the ladder. */
+    withConnectors: boolean;
     memory: string | null;
     /** The Skills block, null without the `skills` plugin or when it couldn't be read. */
     skills: string | null;
@@ -1386,7 +1421,7 @@ function startParts(
     routines: string | null;
   },
 ): PromptStartParts {
-  const [rules, computerBlock] = botSystemPrompts(turn.botId, withComputer);
+  const [rules, computerBlock] = botSystemPrompts(turn.botId, withComputer, withConnectors);
   return {
     turn,
     now,
@@ -1441,7 +1476,16 @@ export async function awayStartParts(
     onLastMessage: definitionOnly,
   });
   const routines = (await routinesPrompt(tx, turn.botId)) ?? null;
-  return startParts(facts, now, { tools, withComputer, memory, skills, knowledge, routines });
+  // The Connector tools are listed by a Turn, never here: the next Turn notes them as added.
+  return startParts(facts, now, {
+    tools,
+    withComputer,
+    withConnectors: deps.hasPlugin("mcp"),
+    memory,
+    skills,
+    knowledge,
+    routines,
+  });
 }
 
 /** A tool the Prompt start sent that the code no longer has: it answers that it is gone. */

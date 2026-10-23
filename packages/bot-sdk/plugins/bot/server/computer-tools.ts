@@ -70,20 +70,34 @@ export function botDirectory(botId: string): string {
 
 /**
  * The cheapest-first ladder in the Computer system prompt (spec #587, #573), word for word. The
- * rungs are what the Bot knows or has in its files, `web_search`, then a Helper; connectors are
- * not named. It sits in the stable prefix, so it is the same on every Turn.
+ * rungs are what the Bot knows or has in its files, `web_search`, then a Helper. With
+ * `withConnectors` (the Host installs `mcp`, spec #801), the Bot's connectors are rung 2, before
+ * `web_search`. It sits in the stable prefix, so it is the same on every Turn.
  */
-export const ladderPrompt =
-  "Try the cheapest way first: what you already know or have in your files, then `web_search`, " +
-  "then a Helper. If you can do it yourself in a few tool calls, do it. Hand anything bigger to a " +
-  "Helper with `start_helper` so you can keep talking to the user: a general Helper for shell, " +
-  "files and web search; a computer-use Helper when it needs a website or app. Write the task so " +
-  "it stands alone, since the Helper sees nothing else. Its report comes back to you; tell the " +
-  "user what matters in it. Your to-do list shows the Helpers still working or waiting for the " +
-  "user. If a tool is broken, tell the user and ask; never work around it with a browser.";
+export function ladderPrompt(withConnectors: boolean): string {
+  const connectors = withConnectors
+    ? "then your connectors (the deferred tools of the services the user connected), "
+    : "";
+  return (
+    `Try the cheapest way first: what you already know or have in your files, ${connectors}then ` +
+    "`web_search`, then a Helper. " +
+    (withConnectors
+      ? "If a connector is broken, tell the user and ask; don't use the browser. "
+      : "") +
+    "If you can do it yourself in a few tool calls, do it. Hand anything bigger to a " +
+    "Helper with `start_helper` so you can keep talking to the user: a general Helper for shell, " +
+    "files and web search; a computer-use Helper when it needs a website or app. Write the task so " +
+    "it stands alone, since the Helper sees nothing else. Its report comes back to you; tell the " +
+    "user what matters in it. Your to-do list shows the Helpers still working or waiting for the " +
+    "user. If a tool is broken, tell the user and ask; never work around it with a browser."
+  );
+}
 
-/** What the system prompt says about the Computer, with the Bot's own directory in it. */
-export function computerPrompt(botId: string): string {
+/**
+ * What the system prompt says about the Computer, with the Bot's own directory in it, and the
+ * ladder with connectors when `withConnectors`.
+ */
+export function computerPrompt(botId: string, withConnectors: boolean): string {
   return (
     "You have a computer: a Linux machine you share with the user's other Bots. Run commands on " +
     `it with the ${shellToolName} tool. Your own directory is ${botDirectory(botId)}: commands run ` +
@@ -91,7 +105,7 @@ export function computerPrompt(botId: string): string {
     `${sharedDirectory}, to hand files to each other. Keep to your own directory and the shared ` +
     "one, and don't change other Bots' files. The user never sees the computer: tell them what " +
     "you did through your messages. " +
-    ladderPrompt
+    ladderPrompt(withConnectors)
   );
 }
 

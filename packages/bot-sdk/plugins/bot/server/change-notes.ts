@@ -65,6 +65,11 @@ export type CurrentState = {
   routines: string | null;
   /** The definitions of every tool the code has now, deferred ones included. */
   tools: PromptStartTool[];
+  /**
+   * The names of the Connector tools among `tools`: their notes say a Connection, not a deploy,
+   * changed them.
+   */
+  connectors?: ReadonlySet<string>;
 };
 
 type Tier = "profile" | "log" | "notes";
@@ -83,7 +88,7 @@ type Seen = {
   skills: SeenSkills | null;
   knowledge: SeenKnowledge | null;
   routines: Map<string, string>;
-  /** Each sent tool's definition hash. */
+  /** Each sent tool's definition hash, and each deferred one's the Bot loaded with describe_tool. */
   tools: Map<string, string>;
   /** Every tool name the Bot was told of: sent, or listed in the first message or a note. */
   listed: Set<string>;
@@ -284,12 +289,44 @@ function resultFailed(content: ModelMessage["content"]): boolean {
 }
 
 /**
+ * The definition a `describe_tool` result holds, or `undefined` for an error or anything else: a
+ * tool's definition as the Bot loaded it.
+ */
+function describedTool(content: ModelMessage["content"]): PromptStartTool | undefined {
+  if (typeof content !== "string") return undefined;
+  try {
+    const result: unknown = JSON.parse(content);
+    if (typeof result !== "object" || result === null || "error" in result) return undefined;
+    const { name, description, inputSchema } = result as Record<string, unknown>;
+    if (typeof name !== "string" || typeof description !== "string") return undefined;
+    // describe_tool gives `{}` for a tool with no schema, which a definition leaves out.
+    const schema = inputSchema && Object.keys(inputSchema).length > 0 ? { inputSchema } : {};
+    return { name, description, ...schema } as PromptStartTool;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Applies the Bot's own memory writes and Routine tool calls in an earlier Turn's `transcript` to
  * `seen`: it knows what it did, so it gets no note for it. Only its `write` and `edit` calls count
- * for memory, not a shell command.
+ * for memory, not a shell command. A tool it loaded with `describe_tool` is seen as loaded, so a
+ * deferred tool that changed since is noted.
  */
 function applyOwnCalls(botId: string, seen: Seen, transcript: ModelMessage[]) {
   const { memory } = seen;
+  const described = new Set(
+    transcript.flatMap((entry) =>
+      (entry.toolCalls ?? []).flatMap((call) =>
+        call.function.name === describeToolName ? [call.id] : [],
+      ),
+    ),
+  );
+  for (const entry of transcript) {
+    if (entry.role !== "tool" || !described.has(entry.toolCallId ?? "")) continue;
+    const tool = describedTool(entry.content);
+    if (tool) seen.tools.set(tool.name, toolHash(tool));
+  }
   // A call that came back with an error changed nothing.
   const failed = new Set(
     transcript.flatMap((entry) =>
@@ -497,20 +534,22 @@ export async function changeNotesFor(
   for (const tool of current.tools) {
     const before = seen.tools.get(tool.name);
     const hash = toolHash(tool);
+    const connector = current.connectors?.has(tool.name) ?? false;
     if (before === undefined) {
       // A deferred tool is described on demand, so only a tool the Bot was never told of is news.
       if (seen.listed.has(tool.name)) continue;
       notes.push(
-        `[Tool added: ${tool.name}. A deploy added it; call ${describeToolName} for it, then ` +
-          `${runToolName}.]`,
+        `[Tool added: ${tool.name}. ${connector ? "A Connection" : "A deploy"} added it; call ` +
+          `${describeToolName} for it, then ${runToolName}.]`,
       );
     } else if (before !== hash) {
       notes.push(
         // The definition the Prompt start sends is the old one until a Summary rebuilds it, so the
         // Bot loads the new one, which may have arguments the old one lacks, and calls it through
         // run_tool, which checks the call against it.
-        `[Tool changed: ${tool.name}. Its description or arguments changed in a deploy; call ` +
-          `${describeToolName} for it, then call it with ${runToolName}. (definition ${hash})]`,
+        `[Tool changed: ${tool.name}. Its description or arguments changed ` +
+          `${connector ? "on its Connection's server" : "in a deploy"}; call ${describeToolName} ` +
+          `for it, then call it with ${runToolName}. (definition ${hash})]`,
       );
     }
   }
