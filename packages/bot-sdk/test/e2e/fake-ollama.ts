@@ -116,7 +116,6 @@ export function fetchedReply(toolResult: string): string {
 
 /** The reply to the result of the tool the reply asked for last. */
 function replyToTool(asked: string | undefined, content: string): string {
-  if (asked === mcpToolName) return mcpReply(content);
   if (asked === imageToolName) return imageReply;
   if (asked === createArtifactToolName || asked === updateArtifactToolName) {
     return artifactReply(content);
