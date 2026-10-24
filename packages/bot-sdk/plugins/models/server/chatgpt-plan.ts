@@ -7,12 +7,10 @@ const reconnectChatgptCode = "chatgpt_reconnect";
 
 /**
  * The `fetch` the OpenAI adapter uses on a linked ChatGPT plan (the #639 probe). The plan's route
- * differs from the API key's in three ways, each fixed here so the adapter stays as it is:
+ * differs from the API key's in two ways, each fixed here so the adapter stays as it is:
  *
  * - it refuses a request without `store: false`, so the body sets it;
  * - its Models refuse reasoning effort `none` (the chat's "off"), so `none` is sent as `low`;
- * - its stream is "lite": `response.completed` has an empty `output`, so the adapter would never
- *   see a tool call. The items the stream sent (`response.output_item.done`) are put back in.
  *
  * A rejected token (401) means a broken link, so its message asks to reconnect; a 403 keeps
  * OpenAI's own message, and so do a 403 and a 429 (see {@link planErrorResponse}). The plan's
@@ -26,12 +24,7 @@ export function chatgptPlanFetch(
     if (response.status === 401) return reconnectResponse(response);
     if (response.status === 429) return planErrorResponse(response, "chatgpt_plan_rate_limited");
     if (response.status === 403) return planErrorResponse(response, "chatgpt_plan_forbidden");
-    if (!response.ok || !response.body) return response;
-    return new Response(response.body.pipeThrough(fillCompletedOutput()), {
-      status: response.status,
-      statusText: response.statusText,
-      headers: response.headers,
-    });
+    return response;
   };
 }
 
@@ -90,61 +83,6 @@ async function reconnectResponse(response: Response): Promise<Response> {
     }),
     { status: response.status, headers: { "content-type": "application/json" } },
   );
-}
-
-/**
- * Rewrites the server-sent events so an empty `response.completed.output` holds the items the
- * stream already sent, in their output order.
- */
-function fillCompletedOutput(): TransformStream<Uint8Array, Uint8Array> {
-  const decoder = new TextDecoder();
-  const encoder = new TextEncoder();
-  const items: unknown[] = [];
-  let buffer = "";
-  const rewrite = (event: string): string => {
-    const line = event.split("\n").find((entry) => entry.startsWith("data:"));
-    if (!line) return event;
-    let data: {
-      type?: string;
-      output_index?: number;
-      item?: unknown;
-      response?: { output?: unknown[] };
-    };
-    try {
-      data = JSON.parse(line.slice(5));
-    } catch {
-      return event;
-    }
-    if (data.type === "response.output_item.done") {
-      items[data.output_index ?? items.length] = data.item;
-    }
-    if (
-      data.type === "response.completed" &&
-      data.response &&
-      (data.response.output ?? []).length === 0 &&
-      items.length > 0
-    ) {
-      data.response.output = items.filter(Boolean);
-      const rewritten = `data: ${JSON.stringify(data)}`;
-      return event.replace(line, () => rewritten);
-    }
-    return event;
-  };
-  return new TransformStream({
-    transform(chunk, controller) {
-      // Normalized on the whole buffer: a "\r\n" can be split across two chunks.
-      buffer = (buffer + decoder.decode(chunk, { stream: true })).replaceAll("\r\n", "\n");
-      let end: number;
-      while ((end = buffer.indexOf("\n\n")) !== -1) {
-        controller.enqueue(encoder.encode(`${rewrite(buffer.slice(0, end))}\n\n`));
-        buffer = buffer.slice(end + 2);
-      }
-    },
-    flush(controller) {
-      buffer += decoder.decode();
-      if (buffer) controller.enqueue(encoder.encode(rewrite(buffer)));
-    },
-  });
 }
 
 /**

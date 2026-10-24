@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  curatedModels,
   effortFor,
   reasoningChoices,
   type ReasoningSupport,
@@ -63,5 +64,18 @@ describe("effortFor", () => {
     };
     expect(effortFor(low, "high")).toBeUndefined();
     expect(effortFor(low, "off")).toBeUndefined();
+  });
+});
+
+describe("every curated Model", () => {
+  it("sends each effort it offers as it is, and no effort it doesn't offer", () => {
+    for (const model of curatedModels) {
+      const offered = reasoningChoices(model);
+      for (const choice of ["off", "low", "medium", "high"] as const) {
+        expect(effortFor(model, choice), `${model.id} ${choice}`).toBe(
+          offered.includes(choice) ? choice : undefined,
+        );
+      }
+    }
   });
 });
