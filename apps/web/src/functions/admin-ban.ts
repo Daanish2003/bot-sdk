@@ -29,7 +29,7 @@ const unbanInput = z.object({
  */
 export const banUser = createServerFn({ method: "POST" })
   .middleware([adminMiddleware])
-  .inputValidator((input: unknown) => banInput.parse(input))
+  .validator((input: unknown) => banInput.parse(input))
   .handler(async ({ data, context }) => {
     const target = await db.query.user.findFirst({
       where: { id: data.userId },
@@ -69,7 +69,7 @@ export const banUser = createServerFn({ method: "POST" })
 /** Lifts a user's Ban (spec #277), with one evlog event. Their sessions were already ended by the Ban. */
 export const unbanUser = createServerFn({ method: "POST" })
   .middleware([adminMiddleware])
-  .inputValidator((input: unknown) => unbanInput.parse(input))
+  .validator((input: unknown) => unbanInput.parse(input))
   .handler(async ({ data, context }) => {
     await auth.api.unbanUser({
       body: { userId: data.userId },
