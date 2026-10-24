@@ -14,6 +14,7 @@ import { computerUseHelperPrompt } from "../../../../plugins/bot/server/helper";
 import { bot } from "../../../../plugins/bot/server/plugin";
 import { computer } from "../../../../plugins/computer/server/plugin";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
+import type { HostProvider } from "../../../../plugins/models/server/types";
 import {
   inProcessRunner,
   type InProcessRunner,
@@ -44,7 +45,13 @@ const isHelperCall = (options: TextOptions) =>
   );
 
 /** A user whose Bot runs on `model`, over `computer` with a fake provider that photographs `shot`. */
-async function userWith(model: string, turns: Round[], helpers: Round[], shot = png) {
+async function userWith(
+  model: string,
+  turns: Round[],
+  helpers: Round[],
+  shot = png,
+  hostProviders: HostProvider[] = [],
+) {
   const turnFake = createFakeAdapter({ rounds: turns });
   const helperFake = createFakeAdapter({ rounds: helpers });
   const adapter = {
@@ -75,17 +82,20 @@ async function userWith(model: string, turns: Round[], helpers: Round[], shot = 
     jobs,
     adapterFor: () => adapter,
     reviewAdapterFor: () => reviewer.adapter,
+    hostProviders,
   });
   await jobs.start();
   started.push(jobs);
   const user = await insertUser();
   const provider = model.split(":")[0]!;
-  await saveCredentials(deps, user.id, {
-    service: provider as "openai",
-    fields: { apiKey: `${provider}-test-key` },
-    hint: "…-key",
-    verified: true,
-  });
+  if (hostProviders.length === 0) {
+    await saveCredentials(deps, user.id, {
+      service: provider as "openai",
+      fields: { apiKey: `${provider}-test-key` },
+      hint: "…-key",
+      verified: true,
+    });
+  }
   const client = chatRpc({ user, deps });
   const botId = (await client.bot.create({ name: "Ada", model })).id;
   return { helperFake, computerFake, reviewer, client, botId, deps, user };
@@ -279,9 +289,25 @@ describe("a Computer-use Helper's desktop", () => {
 
   it("is present on a model without image input and says it can't see, with no review", async () => {
     const { client, botId, helperFake, computerFake, reviewer } = await userWith(
-      "groq:openai/gpt-oss-120b",
+      "anthropic:claude-text-only",
       [handsOff, round()],
       [round(desktop({ action: "screenshot" })), round(text("Blind."))],
+      png,
+      // A Host Model that can run a Computer-use Helper but has no image input.
+      [
+        {
+          provider: "anthropic",
+          credentials: { apiKey: "sk-host" },
+          models: [
+            {
+              modelId: "claude-text-only",
+              maxOutputTokens: 512,
+              inputUsdPerMillion: 3,
+              outputUsdPerMillion: 15,
+            },
+          ],
+        },
+      ],
     );
 
     const helper = await ran(client, botId);
