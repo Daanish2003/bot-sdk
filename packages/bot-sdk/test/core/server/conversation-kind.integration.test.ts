@@ -12,7 +12,7 @@ import { chatRpc } from "../../support/sdk";
 import { getTestDb } from "../../support/test-database";
 import { insertUser } from "../../support/users";
 
-const model = "openai:gpt-5.6";
+const model = "openai:gpt-6-luna";
 
 /** A user with an OpenAI key and one Bot, and one Conversation of another plugin's holding "otters". */
 async function userWithABotAndAnotherConversation() {

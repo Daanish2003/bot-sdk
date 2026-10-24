@@ -154,6 +154,7 @@ export function generateImageTool(
           reached = true;
           answer = await generateImage({
             adapter,
+            threadId: turn.botId,
             prompt: sources.length > 0 ? [{ type: "text", content: prompt }, ...sources] : prompt,
             ...models().imageRequestFor(image.id, aspectRatio, image.hostModel),
             timeout: imageTimeoutMs,

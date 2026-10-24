@@ -192,6 +192,7 @@ async function warmCall(
     const chunks: StreamChunk[] = [];
     for await (const chunk of chat({
       adapter,
+      threadId: botId,
       messages,
       systemPrompts: start.system.map((block) => block.text),
     })) {
@@ -209,7 +210,7 @@ async function warmCall(
     deps.logger.error(`Warming the cache of Bot ${botId} failed`, caught);
     return "unavailable";
   }
-  const reported = reportedUsageOf(provider, finished);
+  const reported = reportedUsageOf(finished);
   // In a savepoint: the call is made, so a row that fails to save is logged, as `meter.record`
   // does, and never fails the warm.
   try {

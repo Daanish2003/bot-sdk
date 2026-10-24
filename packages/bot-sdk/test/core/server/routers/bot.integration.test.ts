@@ -13,7 +13,7 @@ import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser, type TestUser } from "../../../support/users";
 
-const model = "openai:gpt-5.6";
+const model = "openai:gpt-6-luna";
 
 /** A user with an OpenAI key, so `model` is one of their Models, and their client over a Bot-enabled SDK. */
 async function signedIn(deps = createTestSdk({ plugins: [bot()] })) {

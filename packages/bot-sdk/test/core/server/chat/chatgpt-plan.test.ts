@@ -108,6 +108,7 @@ describe("a call on a linked ChatGPT plan (ADR 0023, #639)", () => {
     );
 
     const result = await chat({
+      threadId: "test-thread",
       adapter,
       messages: [{ role: "user", content: "Weather in Pune?" }],
       tools: [
@@ -144,6 +145,7 @@ describe("a call on a linked ChatGPT plan (ADR 0023, #639)", () => {
     const adapter = adapterFor("openai:gpt-6.1-sol", { apiKey: "t" }, { linked: true });
 
     await chat({
+      threadId: "test-thread",
       adapter,
       messages: [{ role: "user", content: "Weather in Pune?" }],
       tools: [
@@ -164,6 +166,7 @@ describe("a call on a linked ChatGPT plan (ADR 0023, #639)", () => {
     const adapter = adapterFor("openai:gpt-6.1-sol", { apiKey: "t" }, { linked: true });
 
     await chat({
+      threadId: "test-thread",
       adapter,
       messages: [{ role: "user", content: "Hi" }],
       modelOptions: { reasoning: { effort: "none" } },
@@ -182,7 +185,11 @@ describe("a call on a linked ChatGPT plan (ADR 0023, #639)", () => {
     const adapter = adapterFor("openai:gpt-6.1-sol", { apiKey: "t" }, { linked: true });
 
     const chunks = [];
-    for await (const chunk of chat({ adapter, messages: [{ role: "user", content: "Hi" }] })) {
+    for await (const chunk of chat({
+      threadId: "test-thread",
+      adapter,
+      messages: [{ role: "user", content: "Hi" }],
+    })) {
       chunks.push(chunk);
     }
 
@@ -195,6 +202,7 @@ describe("a call on a linked ChatGPT plan (ADR 0023, #639)", () => {
     const adapter = adapterFor("openai:gpt-6.1-sol", { apiKey: "sk-own" });
 
     await chat({
+      threadId: "test-thread",
       adapter,
       messages: [{ role: "user", content: "Hi" }],
       modelOptions: { reasoning: { effort: "none" } },

@@ -53,7 +53,7 @@ import {
 } from "../../../plugins/computer/server/fake-provider";
 import { followSend } from "../../../support/follow-send";
 
-const model = "openai:gpt-5.6";
+const model = "openai:gpt-6-luna";
 const silent = { error: () => {} };
 
 type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
@@ -281,6 +281,9 @@ describe("a Helper's report", () => {
     ]);
     const [helper] = await helpersOf(botId);
     expect(helper).toMatchObject({ status: "complete", report: "There are 3 files." });
+    // The Helper's calls run on its own thread; the Turns' on their Bot's.
+    expect(helperFake.calls.map((call) => call.threadId)).toEqual([helper?.id, helper?.id]);
+    expect(turnFake.calls.every((call) => call.threadId === botId)).toBe(true);
     expect(helper?.endedAt).toBeInstanceOf(Date);
     const [trigger] = await helperTriggers();
     expect(trigger).toMatchObject({

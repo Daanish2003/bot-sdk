@@ -132,7 +132,7 @@ const imagesIn = (message: ModelMessage) =>
 describe("a Computer-use Helper's desktop", () => {
   it("runs xdotool on its Screen's display and returns a screenshot as an image part", async () => {
     const { client, botId, helperFake, computerFake } = await userWith(
-      "openai:gpt-5.6",
+      "openai:gpt-6-luna",
       [handsOff, round()],
       [
         round(desktop({ action: "left_click", coordinate: [10, 20] })),
@@ -197,7 +197,7 @@ describe("a Computer-use Helper's desktop", () => {
 
   it("keeps only the newest 3 screenshots in the next model input", async () => {
     const { client, botId, helperFake } = await userWith(
-      "openai:gpt-5.6",
+      "openai:gpt-6-luna",
       [handsOff, round()],
       [
         ...Array.from({ length: 5 }, () => round(desktop({ action: "screenshot" }))),
@@ -224,7 +224,7 @@ describe("a Computer-use Helper's desktop", () => {
     // About 300 KB of base64 a screenshot, like a real 1280x800 PNG.
     const big = new Uint8Array(225_000).map((_, i) => (i * 31 + 7) % 251);
     const { client, botId, helperFake, deps, user } = await userWith(
-      "openai:gpt-5.6",
+      "openai:gpt-6-luna",
       [handsOff, round()],
       [
         ...Array.from({ length: 5 }, () => round(desktop({ action: "screenshot" }))),
@@ -279,7 +279,7 @@ describe("a Computer-use Helper's desktop", () => {
 
   it("is present on a model without image input and says it can't see, with no review", async () => {
     const { client, botId, helperFake, computerFake, reviewer } = await userWith(
-      "groq:llama-3.3-70b-versatile",
+      "groq:openai/gpt-oss-120b",
       [handsOff, round()],
       [round(desktop({ action: "screenshot" })), round(text("Blind."))],
     );

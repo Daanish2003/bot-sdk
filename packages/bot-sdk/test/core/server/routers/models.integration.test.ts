@@ -37,10 +37,10 @@ describe("models.list", () => {
     expect(models.length).toBeGreaterThan(0);
     expect(models.every((model) => model.provider === "openai")).toBe(true);
     expect(models).toContainEqual({
-      id: "openai:gpt-5.6",
+      id: "openai:gpt-6-luna",
       provider: "openai",
-      modelId: "gpt-5.6",
-      label: "GPT-5.6",
+      modelId: "gpt-6-luna",
+      label: "GPT-6 Luna",
       images: true,
       pdfs: false,
       tools: true,
@@ -70,7 +70,7 @@ describe("models.list", () => {
 
     const { defaultModel } = await client.models.list();
 
-    expect(defaultModel).toBe("openai:gpt-5.6");
+    expect(defaultModel).toBe("openai:gpt-6-luna");
   });
 
   it("rejects a caller without a session", async () => {
@@ -213,7 +213,7 @@ describe("models.list with Host credentials", () => {
 
     expect(models.filter((model) => model.onHostCredentials)).toEqual([]);
     expect(models.some((model) => model.id === "anthropic:claude-haiku-4-5")).toBe(true);
-    expect(defaultModel).toBe("openai:gpt-5.6");
+    expect(defaultModel).toBe("openai:gpt-6-luna");
   });
 
   it("lists a Host Model of a Provider the user has no key for, beside the user's own Models", async () => {
@@ -226,7 +226,7 @@ describe("models.list with Host credentials", () => {
     expect(models.find((model) => model.id === "anthropic:claude-haiku-4-5")).toMatchObject({
       onHostCredentials: true,
     });
-    expect(models.find((model) => model.id === "openai:gpt-5.6")).toMatchObject({
+    expect(models.find((model) => model.id === "openai:gpt-6-luna")).toMatchObject({
       onHostCredentials: false,
     });
   });
@@ -266,7 +266,7 @@ describe("models.list default with the bot plugin", () => {
 
     const { defaultModel } = await client.models.list();
 
-    expect(defaultModel).toBe("openai:gpt-5.6");
+    expect(defaultModel).toBe("openai:gpt-6-luna");
   });
 
   it("is the Model of the user's newest Bot", async () => {
@@ -292,6 +292,6 @@ describe("models.list default with the bot plugin", () => {
 
     const { defaultModel } = await client.models.list();
 
-    expect(defaultModel).toBe("openai:gpt-5.6");
+    expect(defaultModel).toBe("openai:gpt-6-luna");
   });
 });

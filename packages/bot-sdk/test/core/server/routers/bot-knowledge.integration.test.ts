@@ -22,7 +22,7 @@ import { insertUser } from "../../../support/users";
 import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
 import { followSend } from "../../../support/follow-send";
 
-const model = "openai:gpt-5.6";
+const model = "openai:gpt-6-luna";
 const silent = { error: () => {} };
 
 type Round = ReturnType<typeof round>;

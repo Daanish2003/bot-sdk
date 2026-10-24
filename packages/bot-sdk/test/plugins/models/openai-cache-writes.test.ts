@@ -14,7 +14,7 @@ const usage = {
 
 /** A recorded Responses stream that answers "Hi" and completes with `completedUsage`. */
 function recordedStream(completedUsage: unknown): string {
-  const response = { id: "resp_1", object: "response", model: "gpt-5.6", status: "in_progress" };
+  const response = { id: "resp_1", object: "response", model: "gpt-6-luna", status: "in_progress" };
   const message = {
     id: "msg_1",
     type: "message",
@@ -41,7 +41,7 @@ function adapterAnswering(body: string) {
   const base: typeof fetch = async () =>
     new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
   const adapter = withOpenaiCacheWrites(
-    (fetch) => createOpenaiChat("gpt-5.6", "sk-test", { fetch }),
+    (fetch) => createOpenaiChat("gpt-6-luna", "sk-test", { fetch }),
     base,
   );
   return { adapter };
@@ -50,7 +50,7 @@ function adapterAnswering(body: string) {
 async function chunksOf(adapter: ReturnType<typeof adapterAnswering>["adapter"]) {
   const chunks: StreamChunk[] = [];
   for await (const chunk of adapter.chatStream({
-    model: "gpt-5.6",
+    model: "gpt-6-luna",
     messages: [{ role: "user", content: "Hello" }],
     // The engine passes its logger; a call that fails throws instead of being logged.
     logger: new Proxy(
@@ -106,7 +106,7 @@ describe("withOpenaiCacheWrites", () => {
       recordedStream({ ...usage, input_tokens_details: { cached_tokens: 0 } }),
     ];
     const adapter = withOpenaiCacheWrites(
-      (fetch) => createOpenaiChat("gpt-5.6", "sk-test", { fetch }),
+      (fetch) => createOpenaiChat("gpt-6-luna", "sk-test", { fetch }),
       async () => new Response(bodies.shift(), { status: 200 }),
     );
 

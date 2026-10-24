@@ -14,9 +14,9 @@ describe("adapterFor", () => {
   });
 
   it("builds the OpenAI Responses adapter for an OpenAI Model", () => {
-    const adapter = adapterFor("openai:gpt-5.6", { apiKey: "sk-test" });
+    const adapter = adapterFor("openai:gpt-6-luna", { apiKey: "sk-test" });
 
-    expect(adapter).toMatchObject({ kind: "text", name: "openai", model: "gpt-5.6" });
+    expect(adapter).toMatchObject({ kind: "text", name: "openai", model: "gpt-6-luna" });
   });
 
   it("refuses a Model that isn't curated", () => {
@@ -24,7 +24,7 @@ describe("adapterFor", () => {
   });
 
   it("refuses credentials without an API key", () => {
-    expect(() => adapterFor("openai:gpt-5.6", {})).toThrow(/API key/);
+    expect(() => adapterFor("openai:gpt-6-luna", {})).toThrow(/API key/);
   });
 
   it.each([

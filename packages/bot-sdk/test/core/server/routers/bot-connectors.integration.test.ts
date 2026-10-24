@@ -30,7 +30,7 @@ import { fakeComputerProvider } from "../../../plugins/computer/server/fake-prov
 
 vi.setConfig({ testTimeout: 30_000 });
 
-const model = "openai:gpt-5.6";
+const model = "openai:gpt-6-luna";
 const silent = { error: () => {} };
 const basePath = "http://localhost/api/chat";
 const clientId = "ai-chat-test";

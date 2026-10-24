@@ -26,7 +26,7 @@ describe("GET /api/chat/export", () => {
       verified: true,
     });
     const chat = createTestChat({ user: owner, deps });
-    await chat.rpc.bot.create({ name: "Ada", model: "openai:gpt-5.6" });
+    await chat.rpc.bot.create({ name: "Ada", model: "openai:gpt-6-luna" });
 
     const response = await chat.fetch(exportRequest());
 

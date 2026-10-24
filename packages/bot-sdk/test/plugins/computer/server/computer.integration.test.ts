@@ -365,7 +365,7 @@ describe("bot's busy check", () => {
     const created = await createBot(
       getTestDb(),
       user.id,
-      { name: "Ada", model: "openai:gpt-5.6" },
+      { name: "Ada", model: "openai:gpt-6-luna" },
       new Date(),
     );
     await setup.sdk.plugin("computer").forUser(user.id).run("true");
@@ -452,7 +452,7 @@ describe("bot's busy check", () => {
     const otherBot = await createBot(
       getTestDb(),
       other.id,
-      { name: "Bo", model: "openai:gpt-5.6" },
+      { name: "Bo", model: "openai:gpt-6-luna" },
       new Date(),
     );
     await getTestDb()
@@ -927,7 +927,7 @@ describe("deleting", () => {
   async function syncedComputer() {
     const setup = sdkWith({ withBot: true });
     const user = await insertUser();
-    await createBot(getTestDb(), user.id, { name: "Ada", model: "openai:gpt-5.6" }, new Date());
+    await createBot(getTestDb(), user.id, { name: "Ada", model: "openai:gpt-6-luna" }, new Date());
     const handle = setup.sdk.plugin("computer").forUser(user.id);
     await handle.writeFile("/home/user/bots/b1/note.txt", "remember me");
     await sleepNow(setup);
@@ -977,7 +977,7 @@ describe("deleting", () => {
     const created = await createBot(
       getTestDb(),
       user.id,
-      { name: "Ada", model: "openai:gpt-5.6" },
+      { name: "Ada", model: "openai:gpt-6-luna" },
       new Date(),
     );
     await handle.writeFile(`/home/user/bots/${created.id}/work.txt`, "mine");
@@ -1010,7 +1010,7 @@ describe("an operation for a user with nothing that uses a Computer", () => {
     const setup = sdkWith({ withBot: true });
     const { sdk, fake, blobs } = setup;
     const user = await insertUser();
-    await createBot(getTestDb(), user.id, { name: "Ada", model: "openai:gpt-5.6" }, new Date());
+    await createBot(getTestDb(), user.id, { name: "Ada", model: "openai:gpt-6-luna" }, new Date());
     const handle = sdk.plugin("computer").forUser(user.id);
     await handle.run("true");
     await deleteUserData(sdk, user.id);
@@ -1027,7 +1027,7 @@ describe("an operation for a user with nothing that uses a Computer", () => {
   it("creates nothing when it waits on a user delete that commits", async () => {
     const { sdk, fake } = sdkWith({ withBot: true });
     const user = await insertUser();
-    await createBot(getTestDb(), user.id, { name: "Ada", model: "openai:gpt-5.6" }, new Date());
+    await createBot(getTestDb(), user.id, { name: "Ada", model: "openai:gpt-6-luna" }, new Date());
     let commit!: () => void;
     const committing = new Promise<void>((resolve) => (commit = resolve));
     let deleted!: () => void;

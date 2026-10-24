@@ -40,7 +40,7 @@ import {
 } from "../../../plugins/computer/server/fake-provider";
 import { followSend } from "../../../support/follow-send";
 
-const model = "openai:gpt-5.6";
+const model = "openai:gpt-6-luna";
 const silent = { error: () => {} };
 
 type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
@@ -250,6 +250,7 @@ describe("Auto-review of the Bot's shell commands", () => {
 
     expect(events.at(-1)).toEqual({ type: "turnEnded", status: "complete" });
     expect(reviewer.calls).toHaveLength(1);
+    expect(reviewer.calls[0]?.threadId).toBe(botId);
     // The file tools run their own commands on the Computer, unreviewed.
     expect(computerFake.callsOf("run")[0]?.command).toBe("ls");
     expect(toolResultOf(fake.calls[1])).toMatchObject({ exitCode: 0 });
@@ -913,6 +914,7 @@ describe("Auto-review of a Helper's calls", () => {
     for (const row of rows) expect(row).toMatchObject({ helperId: helper.id, turnId: null });
     expect(rows[0]?.input).toEqual({ ref: "e1" });
     expect(reviewer.calls).toHaveLength(5);
+    expect(reviewer.calls.map((call) => call.threadId)).toEqual(rows.map(() => helper.id));
     const sent = sentText(reviewer.calls[0]);
     expect(sent).toContain("buy me a mug");
     expect(sent).toContain("Order the blue mug from the shop.");

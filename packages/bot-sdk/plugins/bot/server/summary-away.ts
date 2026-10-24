@@ -107,6 +107,7 @@ async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext
     try {
       for await (const chunk of chat({
         adapter,
+        threadId: botId,
         messages,
         systemPrompts: start.system.map((block) => block.text),
         abortController,
@@ -118,7 +119,7 @@ async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext
     }
     // A cut-off call records nothing: the cancelled job ends here.
     ctx.signal.throwIfAborted();
-    const bill = callUsage(deps, provider, chunks, messages);
+    const bill = callUsage(deps, chunks, messages);
     if (bill) {
       const onUsage = await deps.db.transaction((tx) =>
         meter.recordIn(tx, {

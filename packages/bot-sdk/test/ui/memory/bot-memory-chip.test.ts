@@ -94,7 +94,7 @@ const seedGet = (queryClient: QueryClient, client: BotSdkClient, turns: BotTurnP
     bot: {
       id: "b2",
       name: "Ada",
-      model: "openai:gpt-5.6",
+      model: "openai:gpt-6-luna",
       createdAt,
       turnStatus: "complete" as const,
       userTurnStatus: "complete" as const,

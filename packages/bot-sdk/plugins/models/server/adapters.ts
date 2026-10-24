@@ -1,4 +1,4 @@
-import type { AnyImageAdapter, AnyTextAdapter } from "@tanstack/ai";
+import type { AnyImageAdapter, AnyTextAdapter, TextOptions } from "@tanstack/ai";
 import { type AnthropicChatModel, createAnthropicChat } from "@tanstack/ai-anthropic";
 import { BedrockConverseTextAdapter, type BedrockConverseModels } from "@tanstack/ai-bedrock";
 import { createBytePlusText } from "@tanstack/ai-byteplus";
@@ -12,13 +12,12 @@ import {
   createGeminiImage,
   type GeminiImageModel,
   type GeminiTextModel,
-  isGeminiNativeImageModel,
 } from "@tanstack/ai-gemini";
 import { createGrokImage, createGrokText } from "@tanstack/ai-grok";
 import { createGroqText } from "@tanstack/ai-groq";
 import { createLLMGatewayText } from "@tanstack/ai-llmgateway";
 import { createLovableImage, createLovableText } from "@tanstack/ai-lovable";
-import { createMistralText } from "@tanstack/ai-mistral";
+import { createMistralText, MistralTextAdapter } from "@tanstack/ai-mistral";
 import { createOllamaChat } from "@tanstack/ai-ollama";
 import { createOpenaiChat, createOpenaiImage, type OpenAIChatModel } from "@tanstack/ai-openai";
 import { createOpenRouterImage, createOpenRouterText } from "@tanstack/ai-openrouter";
@@ -72,7 +71,7 @@ export function adapterFor(
     case "openrouter":
       return createOpenRouterText(modelId as ModelOf<typeof createOpenRouterText>, apiKey);
     case "mistral":
-      return createMistralText(modelId as ModelOf<typeof createMistralText>, apiKey);
+      return createAbortableMistralText(modelId as MistralModel, apiKey);
     case "groq":
       return createGroqText(modelId as ModelOf<typeof createGroqText>, apiKey);
     case "grok":
@@ -170,8 +169,8 @@ const gptImageSizes: SizeTable = {
 /**
  * The size table of an Image Model. Each Provider's sizes come from its TanStack AI package
  * (validated there, so a value outside its list is refused by the adapter): OpenAI and the
- * gpt-image Models on Lovable, Vercel and Cloudflare take WIDTHxHEIGHT; Gemini's native Models
- * take `aspect_resolution`; Grok takes an aspect ratio; BytePlus takes pixels at 2K.
+ * gpt-image Models on Lovable, Vercel and Cloudflare take WIDTHxHEIGHT; Gemini's Models take
+ * `aspect_resolution`; Grok takes an aspect ratio; BytePlus takes pixels at 2K.
  */
 function sizeTableFor(provider: string, modelId: string): SizeTable {
   switch (provider) {
@@ -184,9 +183,8 @@ function sizeTableFor(provider: string, modelId: string): SizeTable {
       }
       return gptImageSizes;
     case "gemini":
-      return isGeminiNativeImageModel(modelId)
-        ? { square: "1:1_1K", landscape: "16:9_1K", portrait: "9:16_1K" }
-        : { square: "1024x1024", landscape: "1792x1024", portrait: "1024x1792" };
+      // Every Gemini Image Model is a native one since TanStack AI 1.0 dropped Imagen.
+      return { square: "1:1_1K", landscape: "16:9_1K", portrait: "9:16_1K" };
     case "grok":
       return { square: "1:1", landscape: "16:9", portrait: "9:16" };
     case "byteplus":
@@ -253,6 +251,51 @@ class AbortableBedrockConverseAdapter<
     if (!response.stream) throw new Error("Bedrock Converse: empty stream response");
     return response.stream;
   }
+}
+
+/**
+ * Mistral's adapter doesn't hand the run's abort signal to its fetch, so Stop would leave the
+ * request to Mistral running. This one adds it to every fetch through `wrapFetch`.
+ */
+class AbortableMistralTextAdapter<TModel extends MistralModel> extends MistralTextAdapter<TModel> {
+  override chatStream(options: Parameters<MistralTextAdapter<TModel>["chatStream"]>[0]) {
+    return super.chatStream(withRunSignal(options));
+  }
+
+  override structuredOutput(
+    options: Parameters<MistralTextAdapter<TModel>["structuredOutput"]>[0],
+  ) {
+    return super.structuredOutput({ ...options, chatOptions: withRunSignal(options.chatOptions) });
+  }
+}
+
+/** `options` with a `wrapFetch` that adds the run's abort signal to every fetch. */
+function withRunSignal<T extends Pick<TextOptions, "request" | "wrapFetch">>(options: T): T {
+  const signal = options.request?.signal;
+  if (!signal) return options;
+  const { wrapFetch } = options;
+  return {
+    ...options,
+    wrapFetch: (next: typeof fetch): typeof fetch => {
+      const base = wrapFetch ? wrapFetch(next) : next;
+      return (input, init) =>
+        base(input, {
+          ...init,
+          signal: init?.signal ? AbortSignal.any([init.signal, signal]) : signal,
+        });
+    },
+  };
+}
+
+type MistralModel = ModelOf<typeof createMistralText>;
+
+/** The Mistral adapter, with Stop cancelling the request. `baseURL` is for tests. */
+export function createAbortableMistralText(
+  model: MistralModel,
+  apiKey: string,
+  config?: { baseURL?: string },
+): AnyTextAdapter {
+  return new AbortableMistralTextAdapter({ ...config, apiKey }, model);
 }
 
 /**

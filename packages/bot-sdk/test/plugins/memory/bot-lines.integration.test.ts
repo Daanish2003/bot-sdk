@@ -10,7 +10,7 @@ import { getTestDb } from "../../support/test-database";
 import { insertUser } from "../../support/users";
 import { fakeComputerProvider } from "../computer/server/fake-provider";
 
-const model = "openai:gpt-5.6";
+const model = "openai:gpt-6-luna";
 const now = new Date("2030-03-15T12:00:00Z");
 
 const dir = (botId: string) => `/home/user/bots/${botId}/memory`;

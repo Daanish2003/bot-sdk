@@ -32,7 +32,7 @@ import {
 import type { CommandResult } from "../../../../plugins/computer/server/provider";
 import { followSend } from "../../../support/follow-send";
 
-const model = "openai:gpt-5.6";
+const model = "openai:gpt-6-luna";
 const silent = { error: () => {} };
 const minuteMs = 60_000;
 

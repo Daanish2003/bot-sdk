@@ -26,7 +26,7 @@ import { followSend } from "../../../support/follow-send";
 
 vi.setConfig({ testTimeout: 30_000 });
 
-const model = "openai:gpt-5.6";
+const model = "openai:gpt-6-luna";
 const silent = { error: () => {} };
 
 type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];

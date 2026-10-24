@@ -7,11 +7,14 @@ import {
 import type { AddressInfo } from "node:net";
 
 import { type AnyTextAdapter, chat } from "@tanstack/ai";
-import { createMistralText } from "@tanstack/ai-mistral";
 import { createOllamaChat } from "@tanstack/ai-ollama";
 import { afterEach, describe, expect, it } from "vitest";
+import { z } from "zod";
 
-import { createAbortableBedrockText } from "../../../../plugins/models/server/adapters";
+import {
+  createAbortableBedrockText,
+  createAbortableMistralText,
+} from "../../../../plugins/models/server/adapters";
 
 /**
  * A Provider that takes a request and never answers it. `connectionClosed` settles when the
@@ -65,12 +68,18 @@ const within = <T>(promise: Promise<T>, ms: number) =>
   ]);
 
 /** Starts a run on the adapter, aborts it once the Provider has the request, and reports whether the connection closed. */
-async function abortMidRequest(adapter: AnyTextAdapter, hanging: typeof provider & {}) {
+async function abortMidRequest(
+  adapter: AnyTextAdapter,
+  hanging: typeof provider & {},
+  outputSchema?: z.ZodType,
+) {
   const abortController = new AbortController();
   const stream = chat({
+    threadId: "test-thread",
     adapter,
     messages: [{ role: "user", content: "Hello" }],
     abortController,
+    ...(outputSchema ? { outputSchema, stream: true as const } : {}),
   });
   void (async () => {
     for await (const _chunk of stream);
@@ -94,11 +103,22 @@ describe("aborting a run cancels the request to the Provider", () => {
 
   it("for Mistral", async () => {
     provider = await hangingProvider();
-    const adapter = createMistralText("mistral-medium-latest", "key-test", {
+    const adapter = createAbortableMistralText("mistral-medium-latest", "key-test", {
       baseURL: provider.url,
     });
 
     expect(await abortMidRequest(adapter, provider)).toBe("settled");
+  });
+
+  it("for a Mistral structured output", async () => {
+    provider = await hangingProvider();
+    const adapter = createAbortableMistralText("mistral-medium-latest", "key-test", {
+      baseURL: provider.url,
+    });
+
+    expect(await abortMidRequest(adapter, provider, z.object({ answer: z.string() }))).toBe(
+      "settled",
+    );
   });
 
   it("for Ollama", async () => {

@@ -10,7 +10,6 @@ import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { searchTextOf } from "../../../core/shared/message-parts";
 import type { ModelMeter } from "../../models/server/meter";
 import type { MessageUsage } from "../../models/shared/usage";
-import { parseModelId } from "../../models/shared/models";
 import { approvalWaitMs, type BotReview, type ReviewApprovalState } from "../shared/review";
 import { parseReply } from "../../memory/server/ask";
 import { lockConversation } from "./router";
@@ -112,7 +111,6 @@ export type ReviewKit = {
   signal: AbortSignal;
   /** Measures a model call's usage from its chunks (`callUsage`). */
   usageOf: (
-    provider: string,
     chunks: StreamChunk[],
     messages: ModelMessage[],
   ) => { usage: MessageUsage; reportedCost?: number } | null;
@@ -406,7 +404,7 @@ export async function judge(
     tool,
     input,
   }: {
-    owner: { userId: string; model: string };
+    owner: { userId: string; botId: string; model: string };
     source: ReviewSource;
     tool: string;
     input: Record<string, unknown>;
@@ -446,6 +444,8 @@ export async function judge(
   try {
     for await (const chunk of chat({
       adapter: models.adapterForCall(model, call),
+      // The Helper's own id for a Helper's call, else its Bot's.
+      threadId: "helperId" in source ? source.helperId : owner.botId,
       messages,
       systemPrompts: [reviewerSystemPrompt],
       abortController,
@@ -460,7 +460,7 @@ export async function judge(
   }
   // Stopped: the call stays unanswered, as any cut-off activity.
   kit.signal.throwIfAborted();
-  const bill = kit.usageOf(parseModelId(model)?.provider ?? "", chunks, messages);
+  const bill = kit.usageOf(chunks, messages);
   // What a slow reviewer used before the cut-off is billed too.
   if (timedOut) return failed(bill);
   const errored = chunks.find((chunk) => chunk.type === EventType.RUN_ERROR);

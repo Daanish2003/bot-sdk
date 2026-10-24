@@ -188,15 +188,6 @@ export const modelsDevSnapshot: Record<string, SnapshotEntry | null> = {
     efforts: [],
     off: false,
   },
-  "groq:llama-3.3-70b-versatile": {
-    source: "groq/llama-3.3-70b-versatile",
-    contextWindow: 131072,
-    maxOutputTokens: 32768,
-    efforts: [],
-    off: false,
-  },
-  "groq:meta-llama/llama-4-maverick-17b-128e-instruct": null,
-  "groq:moonshotai/kimi-k2-instruct-0905": null,
   "groq:openai/gpt-oss-120b": {
     source: "groq/openai/gpt-oss-120b",
     contextWindow: 131072,
@@ -204,7 +195,20 @@ export const modelsDevSnapshot: Record<string, SnapshotEntry | null> = {
     efforts: ["low", "medium", "high"],
     off: false,
   },
-  "groq:qwen/qwen3-32b": null,
+  "groq:openai/gpt-oss-20b": {
+    source: "groq/openai/gpt-oss-20b",
+    contextWindow: 131072,
+    maxOutputTokens: 65536,
+    efforts: ["low", "medium", "high"],
+    off: false,
+  },
+  "groq:qwen/qwen3.8-27b": {
+    source: "groq/qwen/qwen3.8-27b",
+    contextWindow: 131072,
+    maxOutputTokens: 16384,
+    efforts: ["low", "medium", "high"],
+    off: true,
+  },
   "llmgateway:claude-sonnet-5": {
     source: "llmgateway/claude-sonnet-5",
     contextWindow: 1000000,
@@ -306,13 +310,6 @@ export const modelsDevSnapshot: Record<string, SnapshotEntry | null> = {
   "openai:gpt-5.4-mini": {
     source: "openai/gpt-5.4-mini",
     contextWindow: 400000,
-    maxOutputTokens: 128000,
-    efforts: ["low", "medium", "high"],
-    off: true,
-  },
-  "openai:gpt-5.6": {
-    source: "openai/gpt-5.6",
-    contextWindow: 1050000,
     maxOutputTokens: 128000,
     efforts: ["low", "medium", "high"],
     off: true,

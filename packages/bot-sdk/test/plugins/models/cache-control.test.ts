@@ -54,7 +54,7 @@ describe("withCacheControl", () => {
   });
 
   it("sends OpenAI's prompt_cache_key and no retention", () => {
-    const adapter = createOpenaiChat("gpt-5.6", "sk-test") as unknown as {
+    const adapter = createOpenaiChat("gpt-6-luna", "sk-test") as unknown as {
       mapOptionsToRequest: (options: TextOptions) => Record<string, unknown>;
     };
 

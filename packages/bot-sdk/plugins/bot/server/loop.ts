@@ -272,6 +272,9 @@ export async function runLoop(
 ): Promise<LoopResult> {
   const { owner, attempt, startedAt, stepLimit: limit, timeLimitMs } = options;
   const provider = parseModelId(owner.model)?.provider ?? "";
+  // A Turn's calls are its Bot's thread; a Helper's are its own. The cache key names it too.
+  const threadId = options.usageKind === "helper" ? options.sourceId : owner.botId;
+  const cacheKey = `${options.usageKind === "helper" ? "helper" : "bot"}:${threadId}`;
   const abortController = new AbortController();
   const onAttemptAbort = () => abortController.abort(attempt?.reason);
   if (attempt?.aborted) onAttemptAbort();
@@ -452,11 +455,7 @@ export async function runLoop(
     try {
       const { adapter } = await liveCall();
       // The cache controls of the Model's Provider: the Bot's key, or its Helper's.
-      const cached = withCacheControl(
-        provider,
-        options.usageKind === "helper" ? `helper:${options.sourceId}` : `bot:${owner.botId}`,
-        pruned,
-      );
+      const cached = withCacheControl(provider, cacheKey, pruned);
       for await (const chunk of adapter.chatStream(cached)) {
         chunks.push(withoutRaw(chunk));
       }
@@ -499,7 +498,7 @@ export async function runLoop(
             );
           }
           const chunks = await liveChunks(sent);
-          const usage = callUsage(deps, provider, chunks, sent.messages as ModelMessage[]);
+          const usage = callUsage(deps, chunks, sent.messages as ModelMessage[]);
           return { chunks, usage: usage ?? null, ...(hashes ? { hashes } : {}) };
         });
         if (promptStart && recorded.hashes) {
@@ -561,7 +560,7 @@ export async function runLoop(
         const prose = chunks
           .map((chunk) => (chunk.type === EventType.TEXT_MESSAGE_CONTENT ? chunk.delta : ""))
           .join("");
-        return { prose, usage: callUsage(deps, provider, chunks, messages) };
+        return { prose, usage: callUsage(deps, chunks, messages) };
       },
     );
     // The previous Step's input is checked once: the next Step checks its own.
@@ -742,7 +741,7 @@ export async function runLoop(
           inLiveCall = true;
         },
         signal: abortController.signal,
-        usageOf: (reviewProvider, chunks, sent) => callUsage(deps, reviewProvider, chunks, sent),
+        usageOf: (chunks, sent) => callUsage(deps, chunks, sent),
       },
       { owner, source: options.review, toolCallId, tool, input },
     ).finally(() => {
@@ -904,6 +903,7 @@ export async function runLoop(
       let engine: ChatMiddlewareContext | undefined;
       const stream = chat({
         adapter: durableAdapter,
+        threadId,
         messages: [...input, ...messages],
         systemPrompts,
         tools,
@@ -1026,11 +1026,10 @@ export function seesImagesOnce(
 
 export function callUsage(
   deps: BotSdkContext,
-  provider: string,
   chunks: StreamChunk[],
   messages: ModelMessage[],
 ): { usage: MessageUsage; reportedCost?: number } | null {
-  const reported = reportedUsageOf(provider, chunks);
+  const reported = reportedUsageOf(chunks);
   if (!reported.usage && chunks.some((chunk) => chunk.type === EventType.RUN_ERROR)) return null;
   const output = chunks
     .map((chunk) =>

@@ -140,7 +140,7 @@ describe("curated Model metadata", () => {
   });
 
   it("reads OpenAI's window, output cap and reasoning efforts from the snapshot", () => {
-    expect(findModel("openai:gpt-5.6")).toMatchObject({
+    expect(findModel("openai:gpt-6-luna")).toMatchObject({
       contextWindow: 1050000,
       maxOutputTokens: 128000,
       reasoning: { efforts: ["low", "medium", "high"], off: true, defaultEffort: null },

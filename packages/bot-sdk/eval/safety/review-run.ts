@@ -132,7 +132,7 @@ export async function runReviewCase(
       env.sdk,
       kit,
       {
-        owner: { userId, model: env.model },
+        owner: { userId, botId: bot.id, model: env.model },
         source,
         tool: evalCase.tool,
         input: evalCase.input,

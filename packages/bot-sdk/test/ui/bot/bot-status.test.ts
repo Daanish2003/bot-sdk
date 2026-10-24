@@ -21,8 +21,8 @@ afterEach(() => {
 
 const createdAt = new Date("2026-10-17T09:00:00.000Z");
 const bots = [
-  { id: "b1", name: "Inbox Manager", model: "openai:gpt-5.6", createdAt },
-  { id: "b2", name: "Ada", model: "openai:gpt-5.6", createdAt },
+  { id: "b1", name: "Inbox Manager", model: "openai:gpt-6-luna", createdAt },
+  { id: "b2", name: "Ada", model: "openai:gpt-6-luna", createdAt },
 ];
 
 const said = (id: string, role: BotMessage["role"], text: string): BotMessage => ({

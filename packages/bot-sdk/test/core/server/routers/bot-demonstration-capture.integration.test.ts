@@ -39,7 +39,7 @@ import { followSend } from "../../../support/follow-send";
 // Chrome reach the server over its CDP connection, each with a screenshot. Run against a real
 // headless Chromium, as the Browser tools' test does.
 
-const model = "openai:gpt-5.6";
+const model = "openai:gpt-6-luna";
 const silent = { error: () => {} };
 const poll = { timeout: 10_000 };
 

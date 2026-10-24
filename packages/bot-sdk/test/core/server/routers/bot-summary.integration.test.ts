@@ -28,7 +28,7 @@ import { insertUser } from "../../../support/users";
 import { followSend } from "../../../support/follow-send";
 
 /** Its context window is 1,050,000 tokens in the models snapshot, so 75% is 787,500. */
-const model = "openai:gpt-5.6";
+const model = "openai:gpt-6-luna";
 const silent = { error: () => {} };
 
 type Round = ReturnType<typeof round>;

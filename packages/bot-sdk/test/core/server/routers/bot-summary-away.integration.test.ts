@@ -37,7 +37,7 @@ import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
 import { followSend } from "../../../support/follow-send";
 
-const model = "openai:gpt-5.6";
+const model = "openai:gpt-6-luna";
 const planModel = "openai:gpt-6.1-sol";
 const silent = { error: () => {} };
 type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
@@ -237,6 +237,7 @@ describe("a Summary while the user is away", () => {
 
     expect(fake.calls).toHaveLength(2);
     const [first, summaryCall] = fake.calls;
+    expect(summaryCall?.threadId).toBe(botId);
     // The same Prompt start, the Turn's input and transcript, then the summarize instruction.
     expect(summaryCall?.systemPrompts).toEqual(first?.systemPrompts);
     expect(summaryCall?.tools).toEqual(first?.tools);

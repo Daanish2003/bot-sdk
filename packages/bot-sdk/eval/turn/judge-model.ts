@@ -54,6 +54,7 @@ export function judgeCompletion(
   return async (prompt) => {
     const result = await chat({
       adapter,
+      threadId: "eval-judge",
       messages: [{ role: "user", content: prompt }],
       stream: false,
       modelOptions: { temperature: 0 },
