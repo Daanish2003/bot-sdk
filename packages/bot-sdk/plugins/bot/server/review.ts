@@ -145,6 +145,7 @@ export async function reviewToolCall(
   // The meter of the call the live review made; a live write after a replayed review resolves it
   // again, and a replayed write needs none.
   let liveMeter: ModelMeter | undefined;
+  if (ask) kit.beforeLive();
   const reviewed: RecordedReview = ask
     ? { outcome: "block", ...ask, model: owner.model, bill: null }
     : await kit.activity("review", async () => {

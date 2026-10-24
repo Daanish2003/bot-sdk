@@ -228,7 +228,8 @@ function safetyChecksAsk({ pending_safety_checks: checks }: Record<string, unkno
   );
   return {
     reason: safetyChecksReason,
-    summary: messages.filter(Boolean).join(" ") || "Computer action with safety checks",
+    summary:
+      messages.filter(Boolean).join(" ").slice(0, 300) || "Computer action with safety checks",
   };
 }
 
@@ -301,7 +302,7 @@ export function computerUseTool(
             // Past the user's yes, TanStack's own refusal of unapproved checks is answered by
             // acknowledging them: the run gets none, as TanStack's harness hands it after a yes.
             const output = await run(
-              hasSafetyChecks(input) ? { ...input, pending_safety_checks: [] } : input,
+              asked ? { ...input, pending_safety_checks: [] } : input,
               context,
             );
             // `cursor_position` answers in text; every other action, with its screenshot next.
