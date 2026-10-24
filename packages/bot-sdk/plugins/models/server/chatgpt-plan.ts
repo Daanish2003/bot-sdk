@@ -10,7 +10,7 @@ const reconnectChatgptCode = "chatgpt_reconnect";
  * differs from the API key's in two ways, each fixed here so the adapter stays as it is:
  *
  * - it refuses a request without `store: false`, so the body sets it;
- * - its Models refuse reasoning effort `none` (the chat's "off"), so `none` is sent as `low`;
+ * - its Models refuse reasoning effort `none` (the chat's "off"), so `none` is sent as `low`.
  *
  * A rejected token (401) means a broken link, so its message asks to reconnect; a 403 keeps
  * OpenAI's own message, and so do a 403 and a 429 (see {@link planErrorResponse}). The plan's
