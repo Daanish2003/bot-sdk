@@ -2,8 +2,6 @@ import { EventType, type StreamChunk } from "@tanstack/ai";
 import { createOpenaiChat } from "@tanstack/ai-openai";
 import { describe, expect, it } from "vitest";
 
-import { withOpenaiCacheWrites } from "../../../plugins/models/server/openai-cache-writes";
-
 const usage = {
   input_tokens: 100,
   input_tokens_details: { cached_tokens: 40, cache_write_tokens: 60 },
@@ -40,10 +38,7 @@ function recordedStream(completedUsage: unknown): string {
 function adapterAnswering(body: string) {
   const base: typeof fetch = async () =>
     new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
-  const adapter = withOpenaiCacheWrites(
-    (fetch) => createOpenaiChat("gpt-6-luna", "sk-test", { fetch }),
-    base,
-  );
+  const adapter = createOpenaiChat("gpt-6-luna", "sk-test", { fetch: base });
   return { adapter };
 }
 
@@ -72,7 +67,7 @@ async function chunksOf(adapter: ReturnType<typeof adapterAnswering>["adapter"])
 const finishedUsage = (chunks: StreamChunk[]) =>
   chunks.find((chunk) => chunk.type === EventType.RUN_FINISHED)?.usage;
 
-describe("withOpenaiCacheWrites", () => {
+describe("OpenAI's adapter", () => {
   it("surfaces cache_write_tokens from response.completed in the call's usage", async () => {
     const { adapter } = adapterAnswering(recordedStream(usage));
 
@@ -105,10 +100,9 @@ describe("withOpenaiCacheWrites", () => {
       recordedStream(usage),
       recordedStream({ ...usage, input_tokens_details: { cached_tokens: 0 } }),
     ];
-    const adapter = withOpenaiCacheWrites(
-      (fetch) => createOpenaiChat("gpt-6-luna", "sk-test", { fetch }),
-      async () => new Response(bodies.shift(), { status: 200 }),
-    );
+    const adapter = createOpenaiChat("gpt-6-luna", "sk-test", {
+      fetch: async () => new Response(bodies.shift(), { status: 200 }),
+    });
 
     await chunksOf(adapter);
     const second = await chunksOf(adapter);

@@ -56,28 +56,3 @@ describe("chatgptPlanFetch on a rejected call", () => {
     expect(await response.text()).toBe("slow down");
   });
 });
-
-describe("chatgptPlanFetch on a completed stream", () => {
-  it("fills the output without reading $ in the JSON as replacement patterns", async () => {
-    const item = {
-      type: "message",
-      content: [{ type: "output_text", text: "x $$a$$ $& $` $' end" }],
-    };
-    const sse = [
-      { type: "response.output_item.done", output_index: 0, item },
-      { type: "response.completed", response: { id: "r1", output: [] } },
-    ]
-      .map((event) => `data: ${JSON.stringify(event)}\n\n`)
-      .join("");
-    const plan = chatgptPlanFetch(async () => new Response(sse, { status: 200 }));
-
-    const response = await plan("https://chatgpt.test/responses", { method: "POST", body: "{}" });
-    const events = (await response.text())
-      .split("\n\n")
-      .filter(Boolean)
-      .map((event) => JSON.parse(event.slice(6)));
-
-    expect(events[1].response.output).toEqual([item]);
-    expect(events[1].response.id).toBe("r1");
-  });
-});
