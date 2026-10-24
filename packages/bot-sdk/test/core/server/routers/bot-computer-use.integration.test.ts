@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { blob, botHelper, botReview, jobEvent } from "../../../../core/server/db/schema";
 import { deleteUserData } from "../../../../core/server/user-data";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { noVisionError } from "../../../../plugins/bot/server/computer-use-tool";
+import { noVisionError, safetyChecksError } from "../../../../plugins/bot/server/computer-use-tool";
 import { keptScreenshots, removedScreenshot } from "../../../../plugins/bot/server/image-refs";
 import { botHelperJob, computerUseHelperPrompt } from "../../../../plugins/bot/server/helper";
 import { bot } from "../../../../plugins/bot/server/plugin";
@@ -168,7 +168,10 @@ const screenCommands = (computerFake: ReturnType<typeof fakeComputerProvider>) =
   computerFake
     .callsOf("run")
     .map((call) => call.command)
-    .filter((command) => command.includes("xdotool") || command.includes("scrot"));
+    .filter(
+      (command) =>
+        command.includes("xdotool") || command.includes("scrot") || command.startsWith("sleep "),
+    );
 
 const shot = "sleep 0.5 && DISPLAY=:1 scrot -o /tmp/screens/1/desktop.png";
 
@@ -214,10 +217,25 @@ describe("a Computer-use Helper's computer tool", () => {
             ],
           }),
         ),
-        // A click with no coordinate can't run: there is no cursor position to fall back on.
+        // A key xdotool names otherwise.
+        round(computerCall({ action: { type: "keypress", keys: ["CTRL", "/"] } })),
+        // A wait and a held key run on the Computer, so a Stop cuts them short.
+        round(computerCall({ action: "wait", duration: 2 })),
+        round(computerCall({ action: "hold_key", text: "shift", duration: 1 })),
+        // The cursor's position, and a click with no coordinate, which clicks there.
+        round(computerCall({ action: "cursor_position" })),
         round(computerCall({ action: "left_click" })),
+        // Zoom is off, so it can't run.
+        round(computerCall({ action: "zoom", region: [0, 0, 10, 10] })),
         round(text("Done.")),
       ],
+      {
+        onCommand: ({ command }) => ({
+          exitCode: 0,
+          stdout: command.includes("getmouselocation") ? "X=11\nY=22\nSCREEN=0\nWINDOW=3\n" : "",
+          stderr: "",
+        }),
+      },
     );
 
     const helper = await ran(client, botId);
@@ -233,7 +251,7 @@ describe("a Computer-use Helper's computer tool", () => {
       __kind: "computer_use",
       display: { width: 1280, height: 800 },
       environment: "linux",
-      capabilities: { zoom: false, cursorPosition: false },
+      capabilities: { zoom: false, cursorPosition: true },
     });
     expect((helperFake.calls[0]?.tools ?? []).map((entry) => entry.name)).not.toContain("desktop");
     expect(screenCommands(computerFake)).toEqual([
@@ -262,18 +280,30 @@ describe("a Computer-use Helper's computer tool", () => {
       "DISPLAY=:1 xdotool mousemove 7 8 click 1",
       "DISPLAY=:1 xdotool type --delay 12 -- 'hi'",
       shot,
+      "DISPLAY=:1 xdotool key -- 'ctrl+slash'",
+      shot,
+      "sleep 2",
+      shot,
+      "DISPLAY=:1 xdotool keydown -- 'shift' && sleep 1",
+      "DISPLAY=:1 xdotool keyup -- 'shift'",
+      shot,
+      "DISPLAY=:1 xdotool getmouselocation --shell",
+      shot,
+      "DISPLAY=:1 xdotool getmouselocation --shell",
+      "DISPLAY=:1 xdotool mousemove 11 22 click 1",
+      shot,
     ]);
-    // Each action's result is the screenshot as an image part; the click with no coordinate is an
-    // error the Model reads.
+    // Each action's result is the screenshot as an image part; the zoom is an error the Model reads.
     const results = toolMessages(helperFake.calls.at(-1)!);
-    expect(results).toHaveLength(12);
+    expect(results).toHaveLength(17);
+    expect(JSON.stringify(results.at(-3)?.content)).toContain("X=11,Y=22");
     expect(imagesIn(results.at(-2)!)).toEqual([
       {
         type: "image",
         source: { type: "data", value: Buffer.from(png).toString("base64"), mimeType: "image/png" },
       },
     ]);
-    expect(results.at(-1)?.error).toContain('"coordinate" is missing');
+    expect(results.at(-1)?.error).toContain('"zoom" action is not available');
     expect(imagesIn(results.at(-1)!)).toEqual([]);
   }, 60_000);
 
@@ -400,7 +430,7 @@ describe("a Computer-use Helper's computer tool", () => {
 
 describe("Auto-review of the computer tool", () => {
   it("reviews each action that does more than look, and not a screenshot or a wait", async () => {
-    const { client, botId, computerFake, reviewer } = await userWith(
+    const { client, botId, computerFake, reviewer, helperFake } = await userWith(
       "openai:gpt-6-luna",
       [handsOff, round()],
       [
@@ -409,6 +439,13 @@ describe("Auto-review of the computer tool", () => {
         round(computerCall({ action: { type: "screenshot" } })),
         round(computerCall({ action: "left_click", coordinate: [10, 20] })),
         round(computerCall({ actions: [{ type: "wait" }, { type: "type", text: "hi" }] })),
+        // OpenAI's pending safety checks: refused before any review, until #848 asks the user.
+        round(
+          computerCall({
+            action: { type: "click", button: "left", x: 30, y: 40 },
+            pending_safety_checks: [{ id: "check-1", code: "malicious_instructions" }],
+          }),
+        ),
         round(text("Done.")),
       ],
     );
@@ -416,6 +453,10 @@ describe("Auto-review of the computer tool", () => {
     const helper = await ran(client, botId);
 
     expect(helper.status).toBe("complete");
+    expect(toolMessages(helperFake.calls.at(-1)!).at(-1)?.error).toBe(safetyChecksError);
+    expect(screenCommands(computerFake)).not.toContain(
+      "DISPLAY=:1 xdotool mousemove 30 40 click 1",
+    );
     const rows = await reviewsOf(botId);
     expect(rows.map((row) => row.tool)).toEqual(["computer", "computer"]);
     expect(rows.map((row) => row.input)).toEqual([
@@ -460,6 +501,46 @@ describe("Auto-review of the computer tool", () => {
       "DISPLAY=:1 xdotool mousemove 10 20 click 1",
       shot,
     ]);
+  }, 30_000);
+});
+
+describe("a Stop during a computer action", () => {
+  it("still releases the key it held down", async () => {
+    let clicking = false;
+    const { client, botId, computerFake } = await userWith(
+      "openai:gpt-6-luna",
+      [handsOff, round()],
+      [
+        round(computerCall({ action: "left_click", coordinate: [10, 20], text: "ctrl" })),
+        round(text("Never comes.")),
+      ],
+      {
+        // The click hangs on the Screen until its command is killed.
+        onCommand: async ({ command, signal }) => {
+          if (command.includes("click")) {
+            clicking = true;
+            await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve()));
+          }
+          return { exitCode: 0, stdout: "", stderr: "" };
+        },
+      },
+    );
+
+    await sent(client, botId);
+    await expect.poll(() => clicking, { timeout: 10_000 }).toBe(true);
+    const [running] = await helpersOf(botId);
+    await client.bot.helper.stop({ botId, helperId: running!.id });
+    await expect
+      .poll(async () => (await helpersOf(botId))[0]?.status, { timeout: 10_000 })
+      .not.toBe("running");
+
+    await expect
+      .poll(() => screenCommands(computerFake), { timeout: 10_000 })
+      .toEqual([
+        "DISPLAY=:1 xdotool keydown -- 'ctrl'",
+        "DISPLAY=:1 xdotool mousemove 10 20 click 1",
+        "DISPLAY=:1 xdotool keyup -- 'ctrl'",
+      ]);
   }, 30_000);
 });
 

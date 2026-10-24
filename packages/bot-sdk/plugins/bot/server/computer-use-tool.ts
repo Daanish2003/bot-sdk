@@ -25,11 +25,18 @@ export const computerScreenshotActivity = `${computerToolName}:screenshot`;
 export const noVisionError =
   "This model can't see screenshots; use the Browser tools or ask the user.";
 
+/** What a call with OpenAI's pending safety checks returns, until the user can approve one (#848). */
+export const safetyChecksError =
+  "Refused: this action has safety checks that need the user's approval. Ask the user to do it.";
+
 /** The Screen is 1280x800 and its coordinates are never scaled. */
 const display = { width: 1280, height: 800 };
 
 /** How long the screen gets to settle after an action, before it is photographed. */
 const settleSeconds = 0.5;
+
+/** The longest Anthropic `wait` or `hold_key` (its computer tool's own limit). */
+const maxWaitSeconds = 300;
 
 /** How many pixels of a scroll one wheel click is, as TanStack counts a scroll step. */
 const scrollStepPixels = 100;
@@ -55,6 +62,16 @@ const keysyms: Record<string, string> = {
   CapsLock: "Caps_Lock",
   "+": "plus",
   "-": "minus",
+  "/": "slash",
+  "\\": "backslash",
+  ".": "period",
+  ",": "comma",
+  ";": "semicolon",
+  "'": "apostrophe",
+  "=": "equal",
+  "[": "bracketleft",
+  "]": "bracketright",
+  "`": "grave",
 };
 
 const keysym = (key: string) => keysyms[key] ?? key;
@@ -66,23 +83,39 @@ const quoted = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 type ScreenCall = { computer: ComputerHandle; live: FileToolOptions };
 
 /**
+ * `xdotool <args>` on Screen `slot`, in Computer call `call`: its stdout, or a throw of its first
+ * line of stderr. A `release` (a key or button let go) runs even after a Stop, under the live
+ * call's deadline only, so nothing stays held on the Screen.
+ */
+async function xdotool(
+  slot: number,
+  { computer, live }: ScreenCall,
+  args: string,
+  release = false,
+) {
+  const done = await computer.run(
+    `DISPLAY=:${slot} xdotool ${args}`,
+    release ? { deadline: live.deadline } : live,
+  );
+  if ("timedOut" in done) throw new Error("The action timed out.");
+  if (done.exitCode !== 0) {
+    throw new Error(done.stderr.trim().split("\n")[0] || `xdotool exited ${done.exitCode}`);
+  }
+  return done.stdout;
+}
+
+/**
  * Our driver of Screen `slot` (ADR 0028): each action is `xdotool` on the Screen's display,
- * through the Computer plugin's `run`, in the Computer call `call` returns. A failed command throws
- * its first line of stderr. Its `screenshot` is empty: the screenshot is an activity of its own,
- * after the action's (`takeScreenshot`). Its `close` does nothing: the Computer's own sleep and
- * the Screen's lifecycle stay in charge.
+ * through the Computer plugin's `run`, in the Computer call `call` returns. Its `screenshot` is
+ * empty: the screenshot is an activity of its own, after the action's (`takeScreenshot`). Its
+ * `close` does nothing: the Computer's own sleep and the Screen's lifecycle stay in charge.
  */
 function screenDriver(slot: number, call: () => ScreenCall): ComputerDriver {
-  const xdotool = async (args: string) => {
-    const { computer, live } = call();
-    const done = await computer.run(`DISPLAY=:${slot} xdotool ${args}`, live);
-    if ("timedOut" in done) throw new Error("The action timed out.");
-    if (done.exitCode !== 0) {
-      throw new Error(done.stderr.trim().split("\n")[0] || `xdotool exited ${done.exitCode}`);
-    }
+  const run = async (args: string, release = false) => {
+    await xdotool(slot, call(), args, release);
   };
   const at = (x: number, y: number) => `mousemove ${Math.round(x)} ${Math.round(y)}`;
-  /** `steps` wheel clicks of `button`, or nothing. */
+  /** The wheel clicks of a scroll of `pixels`, on `back` or `forward`, or nothing. */
   const wheel = (pixels: number, back: number, forward: number) =>
     pixels === 0
       ? ""
@@ -94,20 +127,63 @@ function screenDriver(slot: number, call: () => ScreenCall): ComputerDriver {
     environment: "linux",
     screenshot: async () => new Uint8Array(),
     click: (x, y, { button, count }) =>
-      xdotool(
+      run(
         `${at(x, y)} ${count > 1 ? `click --repeat ${count} --delay 100` : "click"} ${buttons[button]}`,
       ),
-    move: (x, y) => xdotool(at(x, y)),
-    mouseDown: (button) => xdotool(`mousedown ${buttons[button]}`),
-    mouseUp: (button) => xdotool(`mouseup ${buttons[button]}`),
+    move: (x, y) => run(at(x, y)),
+    mouseDown: (button) => run(`mousedown ${buttons[button]}`),
+    mouseUp: (button) => run(`mouseup ${buttons[button]}`, true),
     scroll: (x, y, deltaX, deltaY) =>
-      xdotool(`${at(x, y)}${wheel(deltaY, 4, 5)}${wheel(deltaX, 6, 7)}`),
-    keyDown: (key) => xdotool(`keydown -- ${quoted(keysym(key))}`),
-    keyUp: (key) => xdotool(`keyup -- ${quoted(keysym(key))}`),
-    press: (keys) => xdotool(`key -- ${quoted(keys.map(keysym).join("+"))}`),
-    type: (text) => xdotool(`type --delay 12 -- ${quoted(text)}`),
+      run(`${at(x, y)}${wheel(deltaY, 4, 5)}${wheel(deltaX, 6, 7)}`),
+    keyDown: (key) => run(`keydown -- ${quoted(keysym(key))}`),
+    keyUp: (key) => run(`keyup -- ${quoted(keysym(key))}`, true),
+    press: (keys) => run(`key -- ${quoted(keys.map(keysym).join("+"))}`),
+    type: (text) => run(`type --delay 12 -- ${quoted(text)}`),
+    cursorPosition: async () => {
+      const shell = await xdotool(slot, call(), "getmouselocation --shell");
+      const x = Number(shell.match(/^X=(\d+)$/m)?.[1]);
+      const y = Number(shell.match(/^Y=(\d+)$/m)?.[1]);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error("No cursor position.");
+      return { x, y };
+    },
     close: async () => {},
   };
+}
+
+/** The seconds of an Anthropic `wait` or `hold_key`, checked as TanStack checks them. */
+function secondsOf(input: Record<string, unknown>): number {
+  const { duration } = input;
+  if (typeof duration !== "number" || !(duration >= 0 && duration <= maxWaitSeconds)) {
+    throw new Error(
+      `Invalid computer action: "duration" must be a number from 0 to ${maxWaitSeconds}.`,
+    );
+  }
+  return duration;
+}
+
+/**
+ * Anthropic's `wait` and `hold_key`, run on the Computer rather than as TanStack's in-process
+ * sleep, so a Stop or the time limit cuts them short; a held key is let go all the same. `false`
+ * for any other action.
+ */
+async function waitOnComputer(slot: number, call: ScreenCall, input: Record<string, unknown>) {
+  if (input.action === "wait") {
+    const done = await call.computer.run(`sleep ${secondsOf(input)}`, call.live);
+    if ("timedOut" in done) throw new Error("The wait timed out.");
+    return true;
+  }
+  if (input.action !== "hold_key") return false;
+  const { text } = input;
+  if (typeof text !== "string" || !text) {
+    throw new Error('Invalid computer action: "text" must be a string.');
+  }
+  const seconds = secondsOf(input);
+  try {
+    await xdotool(slot, call, `keydown -- ${quoted(text)} && sleep ${seconds}`);
+  } finally {
+    await xdotool(slot, call, `keyup -- ${quoted(text)}`, true);
+  }
+  return true;
 }
 
 /** A screenshot of Screen `slot` once it has settled, with `scrot`: its PNG, or what failed. */
@@ -128,30 +204,21 @@ async function takeScreenshot(
   );
 }
 
-/** Anthropic's actions that only look (or wait), and OpenAI's. */
-const lookingActions = new Set(["screenshot", "zoom", "cursor_position", "wait"]);
+/** The actions this driver runs that only look (or wait), Anthropic's and OpenAI's. */
+const lookingActions = new Set(["screenshot", "cursor_position", "wait"]);
 
-/** The action of a call: Anthropic's name, or each of OpenAI's actions. */
-function actionsOf(input: Record<string, unknown>): unknown[] {
+/** The type of each action of a call: Anthropic's name, or each of OpenAI's `type`s. */
+function actionTypes(input: Record<string, unknown>): string[] {
   const { action, actions } = input;
-  return Array.isArray(actions) ? actions : [action];
+  return (Array.isArray(actions) ? actions : [action]).map((item) =>
+    typeof item === "string" ? item : String((item as { type?: unknown } | null)?.type),
+  );
 }
 
-/** Whether a computer call only looks at the Screen, so it needs no Auto-review. */
-const onlyLooks = (input: Record<string, unknown>) =>
-  actionsOf(input).every((item) =>
-    lookingActions.has(
-      typeof item === "string" ? item : String((item as { type?: unknown } | null)?.type),
-    ),
-  );
-
-/** What a computer call did, as its result names it: Anthropic's action, or OpenAI's types. */
-const actionOf = (input: Record<string, unknown>) =>
-  actionsOf(input)
-    .map((item) =>
-      typeof item === "string" ? item : String((item as { type?: unknown } | null)?.type),
-    )
-    .join(", ");
+/** Whether a call carries OpenAI's pending safety checks, read failing closed as TanStack does. */
+function hasSafetyChecks({ pending_safety_checks: checks }: Record<string, unknown>) {
+  return checks !== undefined && checks !== null && !(Array.isArray(checks) && checks.length === 0);
+}
 
 /** The error a failed computer call throws, so its adapter sends a failed call: with its rebuilt note. */
 const failed = ({ error, note }: { error: string; note?: string }) =>
@@ -166,7 +233,8 @@ type KeepScreenshot = (png: Uint8Array) => Promise<string>;
  * native computer tool, on our own driver. The `threadId` it runs under is the Helper's id (the
  * loop's). Its `execute` is wrapped, so each call is recorded activities of the loop:
  *
- * 1. whether the Model can see (`canSee`), asked before the review;
+ * 1. whether the call can run: not with OpenAI's pending safety checks, and only on a Model that
+ *    can see (`canSee`), asked before the review;
  * 2. Auto-review, for a call that does more than look;
  * 3. the action;
  * 4. the screenshot, stored once by `keep` and returned as its ref.
@@ -188,7 +256,7 @@ export function computerUseTool(
     driver: {
       display,
       environment: "linux",
-      capabilities: { zoom: false, cursorPosition: false, navigate: false },
+      capabilities: { zoom: false, cursorPosition: true, navigate: false },
       create: async ({ threadId }) => {
         if (threadId !== helperId) throw new Error(`No Screen for thread ${threadId}`);
         return screenDriver(slot, () => {
@@ -208,16 +276,17 @@ export function computerUseTool(
     ...portable,
     execute: async (input: Record<string, unknown>, context?: Parameters<typeof run>[1]) => {
       const toolCallId = context?.toolCallId;
-      // #848: a call with OpenAI's pending safety checks skips Auto-review and always waits for
-      // the user's Approval, here, before the action. Until then TanStack's `run` refuses it.
+      const types = actionTypes(input);
       const acted = await computerCall(
         computerToolName,
         toolCallId,
         async (computer, live): Promise<{ result: string } | { error: string }> => {
           current = { computer, live };
           try {
-            await run(input, context);
-            return { result: actionOf(input) };
+            if (await waitOnComputer(slot, current, input)) return { result: types.join(", ") };
+            const output = await run(input, context);
+            // `cursor_position` answers in text; every other action, with its screenshot next.
+            return { result: typeof output === "string" ? output : types.join(", ") };
           } catch (caught) {
             // TanStack refuses the rest of a model turn after a failed action; each call here is
             // reviewed and recorded on its own, so the thread starts afresh.
@@ -232,8 +301,12 @@ export function computerUseTool(
         },
         // Its result is short.
         false,
-        onlyLooks(input) ? undefined : input,
-        async () => ((await canSee()) ? null : { error: noVisionError }),
+        types.every((type) => lookingActions.has(type)) ? undefined : input,
+        async () => {
+          // #848 goes here: such a call skips Auto-review and waits for the user's Approval.
+          if (hasSafetyChecks(input)) return { error: safetyChecksError };
+          return (await canSee()) ? null : { error: noVisionError };
+        },
       );
       if ("error" in acted) throw failed(acted);
       const shot = await computerCall(
