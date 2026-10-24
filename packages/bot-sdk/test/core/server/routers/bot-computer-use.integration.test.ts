@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { blob, botHelper, botReview, jobEvent } from "../../../../core/server/db/schema";
 import { deleteUserData } from "../../../../core/server/user-data";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { noVisionError, safetyChecksError } from "../../../../plugins/bot/server/computer-use-tool";
+import { noVisionError } from "../../../../plugins/bot/server/computer-use-tool";
 import { keptScreenshots, removedScreenshot } from "../../../../plugins/bot/server/image-refs";
 import { botHelperJob, computerUseHelperPrompt } from "../../../../plugins/bot/server/helper";
 import { bot } from "../../../../plugins/bot/server/plugin";
@@ -17,6 +17,7 @@ import type { HostProvider } from "../../../../plugins/models/server/types";
 import {
   inProcessRunner,
   type InProcessRunner,
+  systemClock,
 } from "../../../../plugins/runner/server/jobs/in-process";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
@@ -60,6 +61,7 @@ async function userWith(
     reviewer = fakeReviewer(),
     onCommand = () => ({ exitCode: 0, stdout: "", stderr: "" }),
     onShot = async () => {},
+    clock = () => new Date(),
   }: {
     shot?: Uint8Array;
     hostProviders?: HostProvider[];
@@ -67,6 +69,8 @@ async function userWith(
     onCommand?: (command: FakeCommandRun) => CommandResult | Promise<CommandResult>;
     /** Runs before each screenshot lands. */
     onShot?: () => Promise<void>;
+    /** The SDK's and the runner's clock: a test moves it past an Approval's deadline. */
+    clock?: () => Date;
   } = {},
 ) {
   const turnFake = createFakeAdapter({ rounds: turns });
@@ -95,11 +99,13 @@ async function userWith(
     db: getTestDb(),
     logger: silent,
     drainMs: 50,
+    clock: { ...systemClock, now: clock },
     deps: () => deps!,
   });
   deps = createTestSdk({
     plugins: [bot(), computer({ provider: computerFake.provider })],
     jobs,
+    clock,
     adapterFor: () => adapter,
     reviewAdapterFor: () => reviewer.adapter,
     hostProviders,
@@ -430,7 +436,7 @@ describe("a Computer-use Helper's computer tool", () => {
 
 describe("Auto-review of the computer tool", () => {
   it("reviews each action that does more than look, and not a screenshot or a wait", async () => {
-    const { client, botId, computerFake, reviewer, helperFake } = await userWith(
+    const { client, botId, computerFake, reviewer } = await userWith(
       "openai:gpt-6-luna",
       [handsOff, round()],
       [
@@ -439,13 +445,6 @@ describe("Auto-review of the computer tool", () => {
         round(computerCall({ action: { type: "screenshot" } })),
         round(computerCall({ action: "left_click", coordinate: [10, 20] })),
         round(computerCall({ actions: [{ type: "wait" }, { type: "type", text: "hi" }] })),
-        // OpenAI's pending safety checks: refused before any review, until #848 asks the user.
-        round(
-          computerCall({
-            action: { type: "click", button: "left", x: 30, y: 40 },
-            pending_safety_checks: [{ id: "check-1", code: "malicious_instructions" }],
-          }),
-        ),
         round(text("Done.")),
       ],
     );
@@ -453,10 +452,6 @@ describe("Auto-review of the computer tool", () => {
     const helper = await ran(client, botId);
 
     expect(helper.status).toBe("complete");
-    expect(toolMessages(helperFake.calls.at(-1)!).at(-1)?.error).toBe(safetyChecksError);
-    expect(screenCommands(computerFake)).not.toContain(
-      "DISPLAY=:1 xdotool mousemove 30 40 click 1",
-    );
     const rows = await reviewsOf(botId);
     expect(rows.map((row) => row.tool)).toEqual(["computer", "computer"]);
     expect(rows.map((row) => row.input)).toEqual([
@@ -501,6 +496,138 @@ describe("Auto-review of the computer tool", () => {
       "DISPLAY=:1 xdotool mousemove 10 20 click 1",
       shot,
     ]);
+  }, 30_000);
+});
+
+/** An OpenAI click that comes with a pending safety check. */
+const safetyClick = {
+  action: { type: "click", button: "left", x: 30, y: 40 },
+  pending_safety_checks: [
+    { id: "check-1", code: "malicious_instructions", message: "This page may be unsafe." },
+  ],
+};
+const safetyClickCommand = "DISPLAY=:1 xdotool mousemove 30 40 click 1";
+
+describe("OpenAI safety checks on the computer tool", () => {
+  /** The Bot's waiting Approval, once there is one. */
+  async function waitingReview(botId: string) {
+    await expect
+      .poll(async () => (await reviewsOf(botId)).find((row) => row.state === "waiting"), {
+        timeout: 10_000,
+      })
+      .toBeTruthy();
+    return (await reviewsOf(botId)).find((row) => row.state === "waiting")!;
+  }
+
+  it("always waits for an Approval, with no Auto-review, and runs on yes with the checks acknowledged", async () => {
+    const { client, botId, computerFake, reviewer, helperFake } = await userWith(
+      "openai:gpt-6-luna",
+      [handsOff, round()],
+      [round(computerCall(safetyClick)), round(text("Done."))],
+    );
+
+    await sent(client, botId);
+    const waiting = await waitingReview(botId);
+
+    expect(waiting).toMatchObject({ tool: "computer", verdict: "block", turnId: null });
+    expect(waiting.input).toEqual(safetyClick);
+    expect(waiting.deadline).toEqual(expect.any(Date));
+    // Nothing reached the Screen while it waits, and no model reviewed it.
+    expect(screenCommands(computerFake)).toEqual([]);
+    expect(reviewer.calls).toEqual([]);
+
+    await client.bot.review.allow({ reviewId: waiting.id });
+    await expect
+      .poll(async () => (await helpersOf(botId))[0]?.status, { timeout: 10_000 })
+      .toBe("complete");
+
+    expect(screenCommands(computerFake)).toEqual([safetyClickCommand, shot]);
+    expect(reviewer.calls).toEqual([]);
+    expect(toolMessages(helperFake.calls.at(-1)!).at(-1)?.error).toBeUndefined();
+    expect(await reviewsOf(botId)).toHaveLength(1);
+  }, 30_000);
+
+  it("refuses on no, with an error the Helper sees", async () => {
+    const { client, botId, computerFake, helperFake } = await userWith(
+      "openai:gpt-6-luna",
+      [handsOff, round()],
+      [round(computerCall(safetyClick)), round(text("Stopped."))],
+    );
+
+    await sent(client, botId);
+    const waiting = await waitingReview(botId);
+    await client.bot.review.deny({ reviewId: waiting.id });
+    await expect
+      .poll(async () => (await helpersOf(botId))[0]?.status, { timeout: 10_000 })
+      .toBe("complete");
+
+    expect(toolMessages(helperFake.calls.at(-1)!).at(-1)?.error).toContain("The user denied it.");
+    expect(screenCommands(computerFake)).toEqual([]);
+  }, 30_000);
+
+  it("refuses on silence: no answer in 15 seconds is no", async () => {
+    let skewMs = 0;
+    const { client, botId, computerFake, helperFake } = await userWith(
+      "openai:gpt-6-luna",
+      [handsOff, round()],
+      [round(computerCall(safetyClick)), round(text("Stopped."))],
+      { clock: () => new Date(Date.now() + skewMs) },
+    );
+
+    await sent(client, botId);
+    await waitingReview(botId);
+    skewMs += 15_000;
+    await expect
+      .poll(async () => (await helpersOf(botId))[0]?.status, { timeout: 10_000 })
+      .toBe("complete");
+
+    expect(toolMessages(helperFake.calls.at(-1)!).at(-1)?.error).toContain(
+      "didn't approve it within 15 seconds",
+    );
+    expect(screenCommands(computerFake)).toEqual([]);
+    expect((await reviewsOf(botId)).map((row) => row.state)).toEqual(["expired"]);
+  }, 30_000);
+
+  it("doesn't ask again on a replay", async () => {
+    let releaseType: (() => void) | undefined;
+    const { client, botId, deps, computerFake } = await userWith(
+      "openai:gpt-6-luna",
+      [handsOff, round()],
+      [
+        round(computerCall(safetyClick)),
+        round(computerCall({ action: "type", text: "hi" })),
+        round(text("Never comes.")),
+      ],
+      {
+        reviewer: fakeReviewer(() => verdictRound(passVerdict)),
+        // The second action hangs on the Screen until the test lets it go.
+        onCommand: async ({ command }) => {
+          if (command.includes("xdotool type")) {
+            await new Promise<void>((resolve) => (releaseType = resolve));
+          }
+          return { exitCode: 0, stdout: "", stderr: "" };
+        },
+      },
+    );
+
+    await sent(client, botId);
+    await client.bot.review.allow({ reviewId: (await waitingReview(botId)).id });
+    await expect.poll(() => releaseType !== undefined, { timeout: 10_000 }).toBe(true);
+    const [running] = await helpersOf(botId);
+    const commandsBefore = screenCommands(computerFake);
+    expect(commandsBefore).toEqual([
+      safetyClickCommand,
+      shot,
+      "DISPLAY=:1 xdotool type --delay 12 -- 'hi'",
+    ]);
+    const reviewsBefore = await reviewsOf(botId);
+
+    await botHelperJob.onFailed!({ helperId: running!.id }, new Error("lost"), deps);
+
+    // The click is read as recorded: it neither runs nor waits for an Approval again.
+    expect(screenCommands(computerFake)).toEqual(commandsBefore);
+    expect(await reviewsOf(botId)).toEqual(reviewsBefore);
+    releaseType?.();
   }, 30_000);
 });
 

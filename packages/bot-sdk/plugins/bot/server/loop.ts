@@ -53,7 +53,7 @@ import {
 } from "./computer-tools";
 import { pruneScreenshots, resolveImageRefs } from "./image-refs";
 import { type LoopPromptStart, type PreviousCall, promptHashesOf } from "./prompt-start";
-import { type ReviewSource, reviewToolCall } from "./review";
+import { blockedError, type ReviewSource, reviewToolCall } from "./review";
 import {
   type DecryptedSecrets,
   loadSecretValues,
@@ -109,7 +109,8 @@ export type LoopKit = {
    * its result as is. `reviewed` is the tool's input, given only for a tool Auto-review checks
    * (spec #691): the reviewer reads it first, and a block is the call's result, with nothing run.
    * `unless`, asked before the review in a recorded activity, is an error that stops the call
-   * with no review, or `null` to go on. `operate` gets `mask`, which masks the user's Secrets
+   * with no review, or `null` to go on. `ask` is for a call the user always decides: it skips
+   * Auto-review for an Approval with that reason and summary, and runs only on a yes. `operate` gets `mask`, which masks the user's Secrets
    * in a text: for one it cuts down itself, before the cut. Its result is masked all the same.
    */
   computerCall: <T extends object>(
@@ -123,6 +124,7 @@ export type LoopKit = {
     capped?: boolean,
     reviewed?: Record<string, unknown>,
     unless?: () => Promise<{ error: string } | null>,
+    ask?: { reason: string; summary: string },
   ) => Promise<T | { error: string }>;
 };
 
@@ -727,8 +729,10 @@ export async function runLoop(
     tool: string,
     toolCallId: string | undefined,
     input: Record<string, unknown>,
+    ask?: { reason: string; summary: string },
   ): Promise<{ error: string } | null> => {
-    if (!options.review) return null;
+    // A loop with no review source has no one to ask: what the user always decides is refused.
+    if (!options.review) return ask ? { error: blockedError(ask.reason) } : null;
     // The live review is a model call: the loop's time limit cuts it off, as a Stop does.
     return reviewToolCall(
       deps,
@@ -743,7 +747,7 @@ export async function runLoop(
         signal: abortController.signal,
         usageOf: (chunks, sent) => callUsage(deps, chunks, sent),
       },
-      { owner, source: options.review, toolCallId, tool, input },
+      { owner, source: options.review, toolCallId, tool, input, ask },
     ).finally(() => {
       inLiveCall = false;
     });
@@ -817,6 +821,7 @@ export async function runLoop(
     cap = true,
     reviewed,
     unless,
+    ask,
   ) =>
     toolCall(toolCallId, async () => {
       // A call that can't run is told so before its review, so it never waits for an Approval.
@@ -828,7 +833,7 @@ export async function runLoop(
         if (refused) return refused;
       }
       // Auto-review first: a blocked call never reaches the Computer.
-      const blocked = reviewed && (await review(name, toolCallId, reviewed));
+      const blocked = reviewed && (await review(name, toolCallId, reviewed, ask));
       if (blocked) return blocked;
       return recordTold(
         await ctx.activity(name, async () => {

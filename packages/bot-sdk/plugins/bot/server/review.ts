@@ -120,7 +120,8 @@ export type ReviewKit = {
  * Reviews tool call `toolCallId` of `tool` with `input`, from `source`, before it runs: the review
  * as the recorded activity `review`, then its row and its `review` usage in the Checkpoint
  * `review:write`. A replay reads both. Returns the error the Model gets for a block, or `null` for
- * a pass. A Stop during the review throws, like any cut-off activity.
+ * a pass. A Stop during the review throws, like any cut-off activity. With `ask`, no model reviews
+ * the call: it is a block with `ask`'s reason and summary, so the user always decides.
  */
 export async function reviewToolCall(
   deps: BotSdkContext,
@@ -131,21 +132,25 @@ export async function reviewToolCall(
     toolCallId,
     tool,
     input,
+    ask,
   }: {
     owner: { userId: string; botId: string; model: string };
     source: ReviewSource;
     toolCallId: string | undefined;
     tool: string;
     input: Record<string, unknown>;
+    ask?: { reason: string; summary: string };
   },
 ): Promise<{ error: string } | null> {
   // The meter of the call the live review made; a live write after a replayed review resolves it
   // again, and a replayed write needs none.
   let liveMeter: ModelMeter | undefined;
-  const reviewed = await kit.activity("review", async () => {
-    kit.beforeLive();
-    return judge(deps, kit, { owner, source, tool, input }, (meter) => (liveMeter = meter));
-  });
+  const reviewed: RecordedReview = ask
+    ? { outcome: "block", ...ask, model: owner.model, bill: null }
+    : await kit.activity("review", async () => {
+        kit.beforeLive();
+        return judge(deps, kit, { owner, source, tool, input }, (meter) => (liveMeter = meter));
+      });
   // A block asks the user at once: its Approval's deadline counts from the runner's recorded time,
   // so a replay keeps it.
   const deadline =

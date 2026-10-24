@@ -25,9 +25,8 @@ export const computerScreenshotActivity = `${computerToolName}:screenshot`;
 export const noVisionError =
   "This model can't see screenshots; use the Browser tools or ask the user.";
 
-/** What a call with OpenAI's pending safety checks returns, until the user can approve one (#848). */
-export const safetyChecksError =
-  "Refused: this action has safety checks that need the user's approval. Ask the user to do it.";
+/** Why a call with OpenAI's pending safety checks asks the user, whatever Auto-review would say. */
+const safetyChecksReason = "OpenAI flagged this action with safety checks";
 
 /** The Screen is 1280x800 and its coordinates are never scaled. */
 const display = { width: 1280, height: 800 };
@@ -220,6 +219,19 @@ function hasSafetyChecks({ pending_safety_checks: checks }: Record<string, unkno
   return checks !== undefined && checks !== null && !(Array.isArray(checks) && checks.length === 0);
 }
 
+/** The Approval request of a call with safety checks: OpenAI's own message, or a plain one. */
+function safetyChecksAsk({ pending_safety_checks: checks }: Record<string, unknown>) {
+  const messages = (Array.isArray(checks) ? checks : []).flatMap((check) =>
+    typeof (check as { message?: unknown } | null)?.message === "string"
+      ? [(check as { message: string }).message.trim()]
+      : [],
+  );
+  return {
+    reason: safetyChecksReason,
+    summary: messages.filter(Boolean).join(" ") || "Computer action with safety checks",
+  };
+}
+
 /** The error a failed computer call throws, so its adapter sends a failed call: with its rebuilt note. */
 const failed = ({ error, note }: { error: string; note?: string }) =>
   new Error(note ? `${error} ${note}` : error);
@@ -233,9 +245,10 @@ type KeepScreenshot = (png: Uint8Array) => Promise<string>;
  * native computer tool, on our own driver. The `threadId` it runs under is the Helper's id (the
  * loop's). Its `execute` is wrapped, so each call is recorded activities of the loop:
  *
- * 1. whether the call can run: not with OpenAI's pending safety checks, and only on a Model that
- *    can see (`canSee`), asked before the review;
- * 2. Auto-review, for a call that does more than look;
+ * 1. whether the call can run: only on a Model that can see (`canSee`), asked before the review;
+ * 2. Auto-review, for a call that does more than look; a call with OpenAI's pending safety checks
+ *    skips it for an Approval, so the user always decides, and a yes runs it with the checks
+ *    acknowledged;
  * 3. the action;
  * 4. the screenshot, stored once by `keep` and returned as its ref.
  *
@@ -277,6 +290,7 @@ export function computerUseTool(
     execute: async (input: Record<string, unknown>, context?: Parameters<typeof run>[1]) => {
       const toolCallId = context?.toolCallId;
       const types = actionTypes(input);
+      const asked = hasSafetyChecks(input);
       const acted = await computerCall(
         computerToolName,
         toolCallId,
@@ -284,7 +298,12 @@ export function computerUseTool(
           current = { computer, live };
           try {
             if (await waitOnComputer(slot, current, input)) return { result: types.join(", ") };
-            const output = await run(input, context);
+            // Past the user's yes, TanStack's own refusal of unapproved checks is answered by
+            // acknowledging them: the run gets none, as TanStack's harness hands it after a yes.
+            const output = await run(
+              hasSafetyChecks(input) ? { ...input, pending_safety_checks: [] } : input,
+              context,
+            );
             // `cursor_position` answers in text; every other action, with its screenshot next.
             return { result: typeof output === "string" ? output : types.join(", ") };
           } catch (caught) {
@@ -301,12 +320,9 @@ export function computerUseTool(
         },
         // Its result is short.
         false,
-        types.every((type) => lookingActions.has(type)) ? undefined : input,
-        async () => {
-          // #848 goes here: such a call skips Auto-review and waits for the user's Approval.
-          if (hasSafetyChecks(input)) return { error: safetyChecksError };
-          return (await canSee()) ? null : { error: noVisionError };
-        },
+        asked || !types.every((type) => lookingActions.has(type)) ? input : undefined,
+        async () => ((await canSee()) ? null : { error: noVisionError }),
+        asked ? safetyChecksAsk(input) : undefined,
       );
       if ("error" in acted) throw failed(acted);
       const shot = await computerCall(
