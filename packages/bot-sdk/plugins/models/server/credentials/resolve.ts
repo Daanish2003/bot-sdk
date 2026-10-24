@@ -1,5 +1,11 @@
 import { chatgptPlanModels } from "../../shared/credentials/services";
-import { findModel, parseModelId, type CuratedModel, unknownReasoning } from "../../shared/models";
+import {
+  canUseComputer,
+  findModel,
+  parseModelId,
+  type CuratedModel,
+  unknownReasoning,
+} from "../../shared/models";
 import {
   freeMeter,
   hostModelMeter,
@@ -187,6 +193,7 @@ export function hostModelList(deps: Pick<ModelsDeps, "hostProviders">): CuratedM
         images: model.images ?? curated?.images ?? false,
         pdfs: model.pdfs ?? curated?.pdfs ?? false,
         tools: model.tools ?? curated?.tools ?? false,
+        computerUse: canUseComputer(provider),
         contextWindow: curated?.contextWindow ?? null,
         // The Host's cap is the output bound of every Run on it (ADR 0007), so it is this Model's.
         maxOutputTokens: model.maxOutputTokens,

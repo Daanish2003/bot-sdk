@@ -21,6 +21,7 @@ import { deleteUserData } from "../../../../core/server/user-data";
 import type { HostProvider } from "../../../../plugins/models/server/types";
 import {
   botHelperJob,
+  computerUseModelError,
   generalHelperPrompt,
   helperEndings,
   helperQuotaSpentError,
@@ -100,10 +101,13 @@ async function botWith(
     onCommand,
     manualHelpers,
     linked = false,
+    provider = "openai",
     ...overrides
   }: {
     withComputer?: boolean;
     manualHelpers?: boolean;
+    /** The Provider whose key the user has; the Bot is on its Model. */
+    provider?: "openai" | "gemini";
     /** The Bot is on a ChatGPT plan Model and the user has a linked plan, not a key (ADR 0023). */
     linked?: boolean;
     onCommand?: (command: FakeCommandRun) => CommandResult | Promise<CommandResult>;
@@ -136,8 +140,8 @@ async function botWith(
   const user = await insertUser();
   if (!overrides.hostProviders && !linked) {
     await saveCredentials(deps, user.id, {
-      service: "openai",
-      fields: { apiKey: "openai-test-key" },
+      service: provider,
+      fields: { apiKey: "test-key" },
       hint: "…-key",
       verified: true,
     });
@@ -145,7 +149,13 @@ async function botWith(
   const client = chatRpc({ user, deps });
   const created = await client.bot.create({
     name: "Ada",
-    model: overrides.hostProviders ? hostModel : linked ? planModel : model,
+    model: overrides.hostProviders
+      ? hostModel
+      : linked
+        ? planModel
+        : provider === "gemini"
+          ? "gemini:gemini-3.8-flash"
+          : model,
   });
   return { ...fakes, adapterCredentials, computerFake, deps, client, user, botId: created.id };
 }
@@ -569,6 +579,43 @@ describe("a Helper's Quota and usage", () => {
       error: helperQuotaSpentError,
     });
     expect(await helpersOf(botId)).toEqual([]);
+  });
+});
+
+describe("starting a Computer-use Helper on a Model", () => {
+  const startComputerUse = () =>
+    toolCall({ name: "start_helper", input: { type: "computer_use", task: "Open the page." } });
+
+  it("refuses on a Model without computerUse, with a next step, and a General Helper still starts", async () => {
+    const { client, botId, turnFake } = await botWith(
+      [
+        round(startComputerUse()),
+        round(startHelper("Count.")),
+        round(sends({ text: "Can't.", endTurn: true })),
+      ],
+      [round(text("Done."))],
+      { provider: "gemini" },
+    );
+
+    await send(client, botId, "browse");
+
+    expect(resultInTranscript(inputOf(turnFake.calls[1]), "start_helper")).toEqual({
+      error: computerUseModelError,
+    });
+    await settled(botId);
+    expect((await helpersOf(botId)).map((row) => row.type)).toEqual(["general"]);
+  });
+
+  it("starts on a Model with computerUse", async () => {
+    const { client, botId } = await botWith(
+      [round(startComputerUse(), sends({ text: "On it.", endTurn: true }))],
+      [round(text("Done."))],
+      { manualHelpers: true },
+    );
+
+    await send(client, botId, "browse");
+
+    expect(await helpersOf(botId)).toMatchObject([{ type: "computer_use", status: "running" }]);
   });
 });
 

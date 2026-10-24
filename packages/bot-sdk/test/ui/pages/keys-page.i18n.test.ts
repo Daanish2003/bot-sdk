@@ -15,6 +15,7 @@ const model: ListedModel = {
   images: true,
   pdfs: true,
   tools: true,
+  computerUse: true,
   contextWindow: null,
   maxOutputTokens: null,
   onHostCredentials: false,

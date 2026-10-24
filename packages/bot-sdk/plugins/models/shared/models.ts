@@ -60,12 +60,23 @@ export type CuratedModel = {
   images: boolean;
   pdfs: boolean;
   tools: boolean;
+  /** Can run a Computer-use Helper (ADR 0028): see `canUseComputer`. */
+  computerUse: boolean;
   /** Tokens the Model reads in one request. `null` when unknown: never a guess. */
   contextWindow: number | null;
   /** Tokens the Model writes in one reply. `null` when unknown. */
   maxOutputTokens: number | null;
   reasoning: ReasoningSupport;
 };
+
+/**
+ * Whether a Provider's Models can run a Computer-use Helper (ADR 0028): only direct Anthropic and
+ * direct OpenAI (Responses API), whose adapters swap in a native computer tool. Bedrock, gateways
+ * and every other Provider can't, even when the Model underneath is Claude.
+ */
+export function canUseComputer(provider: string): boolean {
+  return provider === "anthropic" || provider === "openai";
+}
 
 /** A Model the user can pick (`models.list`). `onHostCredentials`: a Host pays for it (ADR 0007). */
 export type ListedModel = CuratedModel & { onHostCredentials: boolean };
@@ -84,6 +95,7 @@ function model(
     modelId,
     label,
     ...capabilities,
+    computerUse: canUseComputer(provider),
     contextWindow: limits?.contextWindow ?? null,
     maxOutputTokens: limits?.maxOutputTokens ?? null,
     reasoning: limits

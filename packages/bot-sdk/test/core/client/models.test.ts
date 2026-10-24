@@ -49,6 +49,7 @@ const liveModel = (provider: "openrouter" | "ollama", modelId: string) => ({
   images: false,
   pdfs: false,
   tools: true,
+  computerUse: false,
   contextWindow: null,
   maxOutputTokens: null,
   reasoning: unknownReasoning(),

@@ -6,6 +6,7 @@ import { bot, botDemonstration, botHelper, botHelperMessage } from "../../../cor
 import type { Database } from "../../../core/server/db/index";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
+import { canUseComputer, providerOf } from "../../models/shared/models";
 import type { MessageUsage } from "../../models/shared/usage";
 import { defineJob, PermanentJobError } from "../../runner/server/jobs/define";
 import { loadHistory } from "../../runner/server/jobs/history";
@@ -60,6 +61,9 @@ export const tooManyGeneralHelpersError =
 
 export const computerUseHelperTakenError =
   "A Computer-use Helper is already running; check on or stop it first.";
+
+export const computerUseModelError =
+  "This Bot's Model can't run a Computer-use Helper; tell the user to switch the Bot to a direct Anthropic or OpenAI Model.";
 
 export const screensInUseError = "All 4 Screens are in use; try again later.";
 
@@ -149,6 +153,9 @@ export function startHelperTool(
 ) {
   return startHelperDefinition.server(async ({ type, task }, context) => {
     const result = await liveActivity(startHelperToolName, context?.toolCallId, async (tx) => {
+      if (type === "computer_use" && !canUseComputer(providerOf(turn.model))) {
+        return { error: computerUseModelError };
+      }
       // Checked here only, so a resumed Helper is never refused.
       const call = await deps.plugin("models").resolveModelCall(turn.userId, turn.model);
       if (call && !(await call.meter.mayRun()).ok) return { error: helperQuotaSpentError };
