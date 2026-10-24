@@ -44,6 +44,7 @@ describe("models.list", () => {
       images: true,
       pdfs: false,
       tools: true,
+      computerUse: true,
       onHostCredentials: false,
       contextWindow: 1050000,
       maxOutputTokens: 128000,
@@ -129,6 +130,7 @@ describe("models.list with live lists", () => {
         images: false,
         pdfs: false,
         tools: true,
+        computerUse: false,
         onHostCredentials: false,
         contextWindow: null,
         maxOutputTokens: null,
@@ -189,6 +191,7 @@ describe("models.list with Host credentials", () => {
         pdfs: true,
         tools: true,
         onHostCredentials: true,
+        computerUse: true,
         // The window and efforts fall back to the curated Model; the output is the Host's cap.
         contextWindow: 200000,
         maxOutputTokens: 512,

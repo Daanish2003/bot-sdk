@@ -32,6 +32,7 @@ const listed = (id: string, label: string): ListedModel => ({
   images: true,
   pdfs: true,
   tools: true,
+  computerUse: true,
   contextWindow: null,
   maxOutputTokens: null,
   onHostCredentials: false,

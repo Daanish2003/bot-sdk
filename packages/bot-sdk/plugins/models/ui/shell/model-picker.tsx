@@ -9,6 +9,7 @@ import {
   FileTextIcon,
   GlobeIcon,
   ImageIcon,
+  MonitorIcon,
   PlusIcon,
   SearchIcon,
 } from "lucide-react";
@@ -164,6 +165,7 @@ const capabilities = [
   { key: "images", label: "shell.readsImages", Icon: ImageIcon },
   { key: "pdfs", label: "shell.readsPdfs", Icon: FileTextIcon },
   { key: "tools", label: "shell.usesTools", Icon: GlobeIcon },
+  { key: "computerUse", label: "shell.usesComputer", Icon: MonitorIcon },
 ] as const;
 
 function Capabilities({ model }: { model: CuratedModel }) {

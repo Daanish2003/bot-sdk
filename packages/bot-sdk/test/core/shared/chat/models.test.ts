@@ -93,6 +93,22 @@ describe("curated Model list", () => {
     expect(withPdfs).toEqual([]);
   });
 
+  it("has computerUse only on direct Anthropic and direct OpenAI Models", () => {
+    const withComputer = curatedModels.filter((model) => model.computerUse);
+    expect(withComputer.length).toBeGreaterThan(0);
+    expect(new Set(withComputer.map((model) => model.provider))).toEqual(
+      new Set(["anthropic", "openai"]),
+    );
+    expect(curatedModels.filter((model) => !model.computerUse).map((model) => model.id)).toEqual(
+      expect.arrayContaining([
+        "bedrock:us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        "vercel-gateway:anthropic/claude-sonnet-5.5",
+        "llmgateway:claude-sonnet-5",
+        "gemini:gemini-3.8-flash",
+      ]),
+    );
+  });
+
   it("finds a Model by its provider:model id", () => {
     expect(findModel("anthropic:claude-sonnet-5-5")).toMatchObject({
       provider: "anthropic",

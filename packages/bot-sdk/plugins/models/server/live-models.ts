@@ -121,6 +121,7 @@ function liveModel(
     label,
     pdfs: false,
     tools: true,
+    computerUse: false,
     ...limits,
   };
 }
