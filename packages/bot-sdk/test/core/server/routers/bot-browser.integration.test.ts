@@ -269,7 +269,7 @@ describe("a Computer-use Helper's browser", () => {
       "browser_select",
       "browser_press",
       "browser_tabs",
-      "desktop",
+      "computer",
       "ask_user",
     ]);
     const results = toolResults(helper.transcript ?? []);

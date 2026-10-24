@@ -51,7 +51,7 @@ import {
   writeDefinition,
   writeTool,
 } from "./computer-tools";
-import { pruneScreenshots, resolveImageRefs } from "./desktop-tools";
+import { pruneScreenshots, resolveImageRefs } from "./image-refs";
 import { type LoopPromptStart, type PreviousCall, promptHashesOf } from "./prompt-start";
 import { type ReviewSource, reviewToolCall } from "./review";
 import {

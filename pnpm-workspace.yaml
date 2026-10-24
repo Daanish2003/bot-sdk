@@ -34,6 +34,7 @@ minimumReleaseAgeExclude:
   - "@tanstack/ai-bedrock@1.0.0"
   - "@tanstack/ai-byteplus@1.0.0"
   - "@tanstack/ai-cloudflare@1.0.0"
+  - "@tanstack/ai-computer-use@1.0.0"
   - "@tanstack/ai-event-client@1.0.0"
   - "@tanstack/ai-gemini@1.0.0"
   - "@tanstack/ai-grok@1.0.0"

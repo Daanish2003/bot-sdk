@@ -87,8 +87,8 @@ export const botHelperMessage = chatSchema.table(
 );
 
 /**
- * A screenshot a Computer-use Helper's Desktop tool took (#608). Its PNG is in the blob store under
- * `screenshot/<id>`, stored once; the Helper's transcript and its `desktop` Checkpoints hold only
+ * A screenshot a Computer-use Helper's computer tool took (#608). Its PNG is in the blob store under
+ * `screenshot/<id>`, stored once; the Helper's transcript and its `computer` Checkpoints hold only
  * the id. The row goes with its Helper, so a delete reads the keys first (ADR 0015).
  */
 export const botHelperScreenshot = chatSchema.table(

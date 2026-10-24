@@ -2,7 +2,6 @@ import { convertSchemaToJsonSchema } from "@tanstack/ai";
 import { describe, expect, it } from "vitest";
 
 import { BrowserSession, browserTools } from "../../../../plugins/bot/server/browser-tools";
-import { desktopTools } from "../../../../plugins/bot/server/desktop-tools";
 import { askUserTool } from "../../../../plugins/bot/server/hand-off";
 
 /** The keywords a JSON Schema draft 2020-12 validator (Anthropic's) rejects from earlier drafts. */
@@ -24,7 +23,6 @@ describe("the Computer-use Helper's tool schemas", () => {
     const stub = (async () => ({})) as never;
     const tools = [
       ...browserTools(new BrowserSession(1, "bot") as never, "bot", stub),
-      ...desktopTools(1, stub, async () => true, stub),
       askUserTool(() => "reason"),
     ];
     expect(tools.length).toBeGreaterThan(5);

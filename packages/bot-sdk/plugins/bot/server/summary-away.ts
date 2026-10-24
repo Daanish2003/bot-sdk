@@ -22,7 +22,7 @@ import { withCacheControl } from "../../models/server/cache-control";
 import { parseModelId } from "../../models/shared/models";
 import { defineJob, type JobContext } from "../../runner/server/jobs/define";
 import { computerOf } from "./computer-tools";
-import { pruneScreenshots, resolveImageRefs } from "./desktop-tools";
+import { pruneScreenshots, resolveImageRefs } from "./image-refs";
 import { callUsage } from "./loop";
 import { latestPromptStartId, loopPromptStart } from "./prompt-start";
 import { lockConversation, waitingIn } from "./router";

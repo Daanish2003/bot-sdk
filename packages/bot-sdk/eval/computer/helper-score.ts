@@ -15,7 +15,7 @@ export type HelperObserved = {
   report: string | null;
   /** Each tool the Helper called, in order. */
   tools: string[];
-  /** The text of each `browser_type` call. */
+  /** The text of each `browser_type` call, and of each `type` action of the computer tool. */
   typed: string[];
   /** What the fixture's login form was submitted with. */
   loginAttempts: string;
@@ -30,9 +30,23 @@ export function helperTools(transcript: readonly ModelMessage[] | null | undefin
   );
 }
 
-/** The text of each `browser_type` call in a Helper's transcript. */
+/**
+ * The text of each `browser_type` call in a Helper's transcript, then of each `type` action of its
+ * computer tool: Anthropic's (`action: "type"`), and OpenAI's (`action` or `actions` of type `type`).
+ */
 export function typedTexts(transcript: readonly ModelMessage[] | null | undefined): string[] {
-  return callInputs(transcript, "browser_type").map((input) => String(input.text ?? ""));
+  const computerTyped = callInputs(transcript, "computer").flatMap((input) => {
+    if (input.action === "type") return [String(input.text ?? "")];
+    const actions = (Array.isArray(input.actions) ? input.actions : [input.action]) as unknown[];
+    return actions.flatMap((item) => {
+      const action = item as { type?: unknown; text?: unknown } | null;
+      return action?.type === "type" ? [String(action.text ?? "")] : [];
+    });
+  });
+  return [
+    ...callInputs(transcript, "browser_type").map((input) => String(input.text ?? "")),
+    ...computerTyped,
+  ];
 }
 
 /** Scores a run against the case's expectation. */

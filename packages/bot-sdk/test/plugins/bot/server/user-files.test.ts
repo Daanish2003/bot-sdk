@@ -5,7 +5,7 @@ import {
   maxHistoryImageBytes,
   resolveImageRefs,
   userImageLeftOut,
-} from "../../../../plugins/bot/server/desktop-tools";
+} from "../../../../plugins/bot/server/image-refs";
 import {
   copyUploads,
   maxInlineImageBytes,

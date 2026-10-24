@@ -18,9 +18,9 @@ import {
 } from "../../computer/server/plugin";
 import { liveDemonstrationStates } from "../shared/demonstration";
 import { BrowserSession, browserTools } from "./browser-tools";
-import { desktopTools } from "./desktop-tools";
 import { storeScreenshot } from "./screenshots";
 import { computerOf } from "./computer-tools";
+import { computerUseTool } from "./computer-use-tool";
 import { connectorTools } from "./connector-tools";
 import { type LoopKit, type LoopResult, runLoop, totalUsage } from "./loop";
 import { closeWaitingReviews } from "./review";
@@ -93,7 +93,7 @@ const connectorsPrompt =
 /** The Computer-use Helper's system prompt (#573). */
 export const computerUseHelperPrompt =
   `${helperPromptOpening} Use the browser tools first: read the page with \`browser_snapshot\` ` +
-  "and act by ref. Use `desktop` only for what the browser can't reach, such as desktop apps and " +
+  "and act by ref. Use `computer` only for what the browser can't reach, such as desktop apps and " +
   "system dialogs. At a login, verification code, captcha or payment, stop and call `ask_user` " +
   "with where you are and what the user needs to do; never type a password or a code yourself.";
 
@@ -539,7 +539,8 @@ async function playHelper(
         systemPrompts: [computerUseHelperPrompt],
         tools: [
           ...browserTools(session, helper.botId, kit.computerCall),
-          ...desktopTools(
+          computerUseTool(
+            helper.id,
             session.slot,
             kit.computerCall,
             async () => {

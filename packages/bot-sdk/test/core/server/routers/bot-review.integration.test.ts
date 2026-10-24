@@ -894,7 +894,7 @@ describe("Auto-review of a Helper's calls", () => {
           round(call("browser_type", { ref: "e2", text: "blue" })),
           round(call("browser_select", { ref: "e3", values: ["blue"] })),
           round(call("browser_press", { key: "Enter" })),
-          round(call("desktop", { action: "left_click", coordinate: [10, 20] })),
+          round(call("computer", { action: "left_click", coordinate: [10, 20] })),
           round(text("Done.")),
         ],
       },
@@ -909,7 +909,7 @@ describe("Auto-review of a Helper's calls", () => {
       "browser_type",
       "browser_select",
       "browser_press",
-      "desktop",
+      "computer",
     ]);
     for (const row of rows) expect(row).toMatchObject({ helperId: helper.id, turnId: null });
     expect(rows[0]?.input).toEqual({ ref: "e1" });
