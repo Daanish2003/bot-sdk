@@ -83,8 +83,8 @@ async function botWith(
       bot(),
       ...(withComputer ? [computer({ provider: computerFake.provider })] : []),
       skills(),
-      ...(withKnowledge ? [knowledge()] : []),
     ],
+    features: withKnowledge ? [knowledge()] : [],
     memory: withMemory,
     jobs,
     adapterFor: () => fake.adapter,
@@ -262,7 +262,10 @@ describe("the Knowledge block", { timeout: 30_000 }, () => {
   });
 
   it("is absent without the knowledge plugin, or without a Computer", async () => {
-    for (const options of [{ withKnowledge: false }, { withComputer: false, withMemory: false }]) {
+    for (const options of [
+      { withKnowledge: false },
+      { withComputer: false, withKnowledge: false, withMemory: false },
+    ]) {
       const { fake, client, botId } = await botWith([round()], options);
       await send(client, botId, "hi");
       expect(systemOf(turnCalls(fake.calls)[0]).join("\n")).not.toContain("Knowledge is in");

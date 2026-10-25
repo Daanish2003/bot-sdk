@@ -22,10 +22,8 @@ const knowledgePaths = (files: Map<string, Uint8Array>) =>
 async function setup({ withComputer = true }: { withComputer?: boolean } = {}) {
   const computerFake = fakeComputerProvider();
   const deps = createTestSdk({
-    plugins: [
-      ...(withComputer ? [computer({ provider: computerFake.provider })] : []),
-      knowledge(),
-    ],
+    plugins: withComputer ? [computer({ provider: computerFake.provider })] : [],
+    features: [knowledge()],
   });
   const user = await insertUser();
   const client = chatRpc({ user, deps });
@@ -355,14 +353,8 @@ describe("the knowledge router", { timeout: 30_000 }, () => {
     });
   });
 
-  it("refuses every route without the computer plugin", async () => {
-    const { client } = await setup({ withComputer: false });
-
-    expect(await client.knowledge.status()).toEqual({ available: false });
-    await expect(client.knowledge.list()).rejects.toMatchObject({ code: "BAD_REQUEST" });
-    await expect(client.knowledge.upload({ name: "x.md", content: "x" })).rejects.toMatchObject({
-      code: "BAD_REQUEST",
-    });
+  it("is a configuration error without the computer plugin", async () => {
+    await expect(setup({ withComputer: false })).rejects.toThrow(/computer/);
   });
 
   it("is available with the computer plugin, whatever the Memory switch says", async () => {

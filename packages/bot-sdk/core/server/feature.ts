@@ -1,5 +1,5 @@
 import type { AnyRouter } from "@orpc/server";
-import type { AnyServerTool } from "@tanstack/ai";
+import type { AnyServerTool, ModelMessage } from "@tanstack/ai";
 import { is } from "drizzle-orm";
 import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
 
@@ -88,6 +88,11 @@ export type FeaturePromptTurn = FeatureTurn & {
    * among them.
    */
   told: readonly string[];
+  /**
+   * The Bot's Turns since its Prompt start was built, oldest first: the Change notes each was told
+   * and what it did (its transcript), for a feature to count what the Bot did itself as seen.
+   */
+  earlier: ReadonlyArray<{ notes: readonly string[]; transcript: readonly ModelMessage[] }>;
 };
 
 /**
