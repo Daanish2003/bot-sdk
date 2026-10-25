@@ -7,6 +7,1029 @@
   "rules": {},
   "overrides": [
     {
+      "files": ["packages/bot-sdk/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/storage/**", "!**/storage"],
+                "message": "Import storage through its entry point, core/server/storage (#889)."
+              },
+              {
+                "group": [
+                  "**/runner/server/**",
+                  "!**/runner/server/internal",
+                  "!**/runner/server/index"
+                ],
+                "message": "Import the runner service through its entry point, plugins/runner/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/computer/server/**",
+                  "!**/computer/server/internal",
+                  "!**/computer/server/index"
+                ],
+                "message": "Import the computer service through its entry point, plugins/computer/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/models/server/**",
+                  "!**/models/server/internal",
+                  "!**/models/server/index",
+                  "!**/models/server/routers",
+                  "!**/models/server/routers/index"
+                ],
+                "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/channel/server/**",
+                  "!**/channel/server/internal",
+                  "!**/channel/server/index",
+                  "!**/channel/server/routers",
+                  "!**/channel/server/routers/index"
+                ],
+                "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
+              },
+              {
+                "group": ["**/bot/server/conversation/**"],
+                "message": "Import the conversation module through its entry point, plugins/bot/server/conversation (#889)."
+              },
+              {
+                "group": ["**/bot/server/triggers/**"],
+                "message": "Import the triggers module through its entry point, plugins/bot/server/triggers (#889)."
+              },
+              {
+                "group": ["**/bot/server/routines/**"],
+                "message": "Import the routines module through its entry point, plugins/bot/server/routines (#889)."
+              },
+              {
+                "group": ["**/bot/server/safety/**"],
+                "message": "Import the safety module through its entry point, plugins/bot/server/safety (#889)."
+              },
+              {
+                "group": ["**/bot/server/agent-loop/**"],
+                "message": "Import the agent-loop module through its entry point, plugins/bot/server/agent-loop (#889)."
+              },
+              {
+                "group": ["**/bot/server/context/**"],
+                "message": "Import the context module through its entry point, plugins/bot/server/context (#889)."
+              },
+              {
+                "group": ["**/bot/server/helpers/**"],
+                "message": "Import the helpers module through its entry point, plugins/bot/server/helpers (#889)."
+              },
+              {
+                "group": ["**/bot/server/demonstrations/**"],
+                "message": "Import the demonstrations module through its entry point, plugins/bot/server/demonstrations (#889)."
+              },
+              {
+                "group": ["**/bot/server/tools/**"],
+                "message": "Import the tools module through its entry point, plugins/bot/server/tools (#889)."
+              },
+              {
+                "group": ["**/bot/server/turn/**"],
+                "message": "Import the turn module through its entry point, plugins/bot/server/turn (#889)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/bot-sdk/core/server/storage/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/storage/**", "!**/storage"],
+                "message": "Import storage through its entry point, core/server/storage (#889)."
+              },
+              {
+                "regex": "(^|/)plugins/[^/]+/server(/|$)",
+                "message": "storage is the lowest module: it imports no other module at run time (#889).",
+                "allowTypeImports": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/bot-sdk/plugins/runner/server/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/storage/**", "!**/storage"],
+                "message": "Import storage through its entry point, core/server/storage (#889)."
+              },
+              {
+                "regex": "(^|/)(bot|models|computer|channel)/server(/|$)",
+                "message": "The runner imports only storage (#889)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/bot-sdk/plugins/models/server/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/storage/**", "!**/storage"],
+                "message": "Import storage through its entry point, core/server/storage (#889)."
+              },
+              {
+                "regex": "(^|/)(bot|runner|computer|channel)/server(/|$)",
+                "message": "The models service imports only storage (#889)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/bot-sdk/plugins/computer/server/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/storage/**", "!**/storage"],
+                "message": "Import storage through its entry point, core/server/storage (#889)."
+              },
+              {
+                "group": [
+                  "**/runner/server/**",
+                  "!**/runner/server/internal",
+                  "!**/runner/server/index"
+                ],
+                "message": "Import the runner service through its entry point, plugins/runner/server/internal (#889)."
+              },
+              {
+                "regex": "(^|/)(bot|models|channel)/server(/|$)",
+                "message": "The computer service imports only storage and the runner (#889)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/bot-sdk/plugins/channel/server/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/storage/**", "!**/storage"],
+                "message": "Import storage through its entry point, core/server/storage (#889)."
+              },
+              {
+                "regex": "(^|/)(bot|runner|models|computer)/server(/|$)",
+                "message": "The channel service is the email wire format: it imports only storage (#889)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "packages/bot-sdk/plugins/models/server/routers/**",
+        "packages/bot-sdk/plugins/channel/server/routers/**"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/storage/**", "!**/storage"],
+                "message": "Import storage through its entry point, core/server/storage (#889)."
+              },
+              {
+                "group": [
+                  "**/runner/server/**",
+                  "!**/runner/server/internal",
+                  "!**/runner/server/index"
+                ],
+                "message": "Import the runner service through its entry point, plugins/runner/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/computer/server/**",
+                  "!**/computer/server/internal",
+                  "!**/computer/server/index"
+                ],
+                "message": "Import the computer service through its entry point, plugins/computer/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/models/server/**",
+                  "!**/models/server/internal",
+                  "!**/models/server/index",
+                  "!**/models/server/routers",
+                  "!**/models/server/routers/index"
+                ],
+                "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/channel/server/**",
+                  "!**/channel/server/internal",
+                  "!**/channel/server/index",
+                  "!**/channel/server/routers",
+                  "!**/channel/server/routers/index"
+                ],
+                "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
+              },
+              {
+                "group": ["**/bot/server/conversation/**"],
+                "message": "Import the conversation module through its entry point, plugins/bot/server/conversation (#889)."
+              },
+              {
+                "group": ["**/bot/server/triggers/**"],
+                "message": "Import the triggers module through its entry point, plugins/bot/server/triggers (#889)."
+              },
+              {
+                "group": ["**/bot/server/routines/**"],
+                "message": "Import the routines module through its entry point, plugins/bot/server/routines (#889)."
+              },
+              {
+                "group": ["**/bot/server/safety/**"],
+                "message": "Import the safety module through its entry point, plugins/bot/server/safety (#889)."
+              },
+              {
+                "group": ["**/bot/server/agent-loop/**"],
+                "message": "Import the agent-loop module through its entry point, plugins/bot/server/agent-loop (#889)."
+              },
+              {
+                "group": ["**/bot/server/context/**"],
+                "message": "Import the context module through its entry point, plugins/bot/server/context (#889)."
+              },
+              {
+                "group": ["**/bot/server/helpers/**"],
+                "message": "Import the helpers module through its entry point, plugins/bot/server/helpers (#889)."
+              },
+              {
+                "group": ["**/bot/server/demonstrations/**"],
+                "message": "Import the demonstrations module through its entry point, plugins/bot/server/demonstrations (#889)."
+              },
+              {
+                "group": ["**/bot/server/tools/**"],
+                "message": "Import the tools module through its entry point, plugins/bot/server/tools (#889)."
+              },
+              {
+                "group": ["**/bot/server/turn/**"],
+                "message": "Import the turn module through its entry point, plugins/bot/server/turn (#889)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "packages/bot-sdk/plugins/bot/server/*.ts",
+        "packages/bot-sdk/plugins/bot/server/routers/**"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/storage/**", "!**/storage"],
+                "message": "Import storage through its entry point, core/server/storage (#889)."
+              },
+              {
+                "group": [
+                  "**/runner/server/**",
+                  "!**/runner/server/internal",
+                  "!**/runner/server/index"
+                ],
+                "message": "Import the runner service through its entry point, plugins/runner/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/computer/server/**",
+                  "!**/computer/server/internal",
+                  "!**/computer/server/index"
+                ],
+                "message": "Import the computer service through its entry point, plugins/computer/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/models/server/**",
+                  "!**/models/server/internal",
+                  "!**/models/server/index",
+                  "!**/models/server/routers",
+                  "!**/models/server/routers/index"
+                ],
+                "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/channel/server/**",
+                  "!**/channel/server/internal",
+                  "!**/channel/server/index",
+                  "!**/channel/server/routers",
+                  "!**/channel/server/routers/index"
+                ],
+                "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
+              },
+              {
+                "group": ["**/conversation/**"],
+                "message": "Import the conversation module through its entry point, plugins/bot/server/conversation (#889)."
+              },
+              {
+                "group": ["**/triggers/**"],
+                "message": "Import the triggers module through its entry point, plugins/bot/server/triggers (#889)."
+              },
+              {
+                "group": ["**/routines/**"],
+                "message": "Import the routines module through its entry point, plugins/bot/server/routines (#889)."
+              },
+              {
+                "group": ["**/safety/**"],
+                "message": "Import the safety module through its entry point, plugins/bot/server/safety (#889)."
+              },
+              {
+                "group": ["**/agent-loop/**"],
+                "message": "Import the agent-loop module through its entry point, plugins/bot/server/agent-loop (#889)."
+              },
+              {
+                "group": ["**/context/**"],
+                "message": "Import the context module through its entry point, plugins/bot/server/context (#889)."
+              },
+              {
+                "group": ["**/helpers/**"],
+                "message": "Import the helpers module through its entry point, plugins/bot/server/helpers (#889)."
+              },
+              {
+                "group": ["**/demonstrations/**"],
+                "message": "Import the demonstrations module through its entry point, plugins/bot/server/demonstrations (#889)."
+              },
+              {
+                "group": ["**/tools/**"],
+                "message": "Import the tools module through its entry point, plugins/bot/server/tools (#889)."
+              },
+              {
+                "group": ["**/turn/**"],
+                "message": "Import the turn module through its entry point, plugins/bot/server/turn (#889)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/bot-sdk/plugins/bot/server/conversation/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/storage/**", "!**/storage"],
+                "message": "Import storage through its entry point, core/server/storage (#889)."
+              },
+              {
+                "group": [
+                  "**/runner/server/**",
+                  "!**/runner/server/internal",
+                  "!**/runner/server/index"
+                ],
+                "message": "Import the runner service through its entry point, plugins/runner/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/computer/server/**",
+                  "!**/computer/server/internal",
+                  "!**/computer/server/index"
+                ],
+                "message": "Import the computer service through its entry point, plugins/computer/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/models/server/**",
+                  "!**/models/server/internal",
+                  "!**/models/server/index",
+                  "!**/models/server/routers",
+                  "!**/models/server/routers/index"
+                ],
+                "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/channel/server/**",
+                  "!**/channel/server/internal",
+                  "!**/channel/server/index",
+                  "!**/channel/server/routers",
+                  "!**/channel/server/routers/index"
+                ],
+                "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
+              },
+              {
+                "regex": "^\\.\\./(triggers|routines|safety|agent-loop|context|helpers|demonstrations|tools|turn)(/|$)",
+                "message": "conversation may import only the modules below it (the services): triggers, routines, safety, agent-loop, context, helpers, demonstrations, tools, turn sit above it (#889)."
+              },
+              {
+                "regex": "^\\.\\./(plugin|index|channels|changes|routers)(/|$)",
+                "message": "A Bot module never imports the Bot's root composition (#889)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/bot-sdk/plugins/bot/server/triggers/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/storage/**", "!**/storage"],
+                "message": "Import storage through its entry point, core/server/storage (#889)."
+              },
+              {
+                "group": [
+                  "**/runner/server/**",
+                  "!**/runner/server/internal",
+                  "!**/runner/server/index"
+                ],
+                "message": "Import the runner service through its entry point, plugins/runner/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/computer/server/**",
+                  "!**/computer/server/internal",
+                  "!**/computer/server/index"
+                ],
+                "message": "Import the computer service through its entry point, plugins/computer/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/models/server/**",
+                  "!**/models/server/internal",
+                  "!**/models/server/index",
+                  "!**/models/server/routers",
+                  "!**/models/server/routers/index"
+                ],
+                "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/channel/server/**",
+                  "!**/channel/server/internal",
+                  "!**/channel/server/index",
+                  "!**/channel/server/routers",
+                  "!**/channel/server/routers/index"
+                ],
+                "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
+              },
+              {
+                "regex": "^\\.\\./(conversation)/",
+                "message": "Import a lower module through its entry point (../<module>), never a file inside it (#889)."
+              },
+              {
+                "regex": "^\\.\\./(routines|safety|agent-loop|context|helpers|demonstrations|tools|turn)(/|$)",
+                "message": "triggers may import only the modules below it (conversation): routines, safety, agent-loop, context, helpers, demonstrations, tools, turn sit above it (#889)."
+              },
+              {
+                "regex": "^\\.\\./(plugin|index|channels|changes|routers)(/|$)",
+                "message": "A Bot module never imports the Bot's root composition (#889)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/bot-sdk/plugins/bot/server/routines/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/storage/**", "!**/storage"],
+                "message": "Import storage through its entry point, core/server/storage (#889)."
+              },
+              {
+                "group": [
+                  "**/runner/server/**",
+                  "!**/runner/server/internal",
+                  "!**/runner/server/index"
+                ],
+                "message": "Import the runner service through its entry point, plugins/runner/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/computer/server/**",
+                  "!**/computer/server/internal",
+                  "!**/computer/server/index"
+                ],
+                "message": "Import the computer service through its entry point, plugins/computer/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/models/server/**",
+                  "!**/models/server/internal",
+                  "!**/models/server/index",
+                  "!**/models/server/routers",
+                  "!**/models/server/routers/index"
+                ],
+                "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/channel/server/**",
+                  "!**/channel/server/internal",
+                  "!**/channel/server/index",
+                  "!**/channel/server/routers",
+                  "!**/channel/server/routers/index"
+                ],
+                "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
+              },
+              {
+                "regex": "^\\.\\./(conversation|triggers)/",
+                "message": "Import a lower module through its entry point (../<module>), never a file inside it (#889)."
+              },
+              {
+                "regex": "^\\.\\./(safety|agent-loop|context|helpers|demonstrations|tools|turn)(/|$)",
+                "message": "routines may import only the modules below it (conversation, triggers): safety, agent-loop, context, helpers, demonstrations, tools, turn sit above it (#889)."
+              },
+              {
+                "regex": "^\\.\\./(plugin|index|channels|changes|routers)(/|$)",
+                "message": "A Bot module never imports the Bot's root composition (#889)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/bot-sdk/plugins/bot/server/safety/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/storage/**", "!**/storage"],
+                "message": "Import storage through its entry point, core/server/storage (#889)."
+              },
+              {
+                "group": [
+                  "**/runner/server/**",
+                  "!**/runner/server/internal",
+                  "!**/runner/server/index"
+                ],
+                "message": "Import the runner service through its entry point, plugins/runner/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/computer/server/**",
+                  "!**/computer/server/internal",
+                  "!**/computer/server/index"
+                ],
+                "message": "Import the computer service through its entry point, plugins/computer/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/models/server/**",
+                  "!**/models/server/internal",
+                  "!**/models/server/index",
+                  "!**/models/server/routers",
+                  "!**/models/server/routers/index"
+                ],
+                "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/channel/server/**",
+                  "!**/channel/server/internal",
+                  "!**/channel/server/index",
+                  "!**/channel/server/routers",
+                  "!**/channel/server/routers/index"
+                ],
+                "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
+              },
+              {
+                "regex": "^\\.\\./(conversation|triggers|routines)/",
+                "message": "Import a lower module through its entry point (../<module>), never a file inside it (#889)."
+              },
+              {
+                "regex": "^\\.\\./(agent-loop|context|helpers|demonstrations|tools|turn)(/|$)",
+                "message": "safety may import only the modules below it (conversation, triggers, routines): agent-loop, context, helpers, demonstrations, tools, turn sit above it (#889)."
+              },
+              {
+                "regex": "^\\.\\./(plugin|index|channels|changes|routers)(/|$)",
+                "message": "A Bot module never imports the Bot's root composition (#889)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/bot-sdk/plugins/bot/server/agent-loop/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/storage/**", "!**/storage"],
+                "message": "Import storage through its entry point, core/server/storage (#889)."
+              },
+              {
+                "group": [
+                  "**/runner/server/**",
+                  "!**/runner/server/internal",
+                  "!**/runner/server/index"
+                ],
+                "message": "Import the runner service through its entry point, plugins/runner/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/computer/server/**",
+                  "!**/computer/server/internal",
+                  "!**/computer/server/index"
+                ],
+                "message": "Import the computer service through its entry point, plugins/computer/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/models/server/**",
+                  "!**/models/server/internal",
+                  "!**/models/server/index",
+                  "!**/models/server/routers",
+                  "!**/models/server/routers/index"
+                ],
+                "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/channel/server/**",
+                  "!**/channel/server/internal",
+                  "!**/channel/server/index",
+                  "!**/channel/server/routers",
+                  "!**/channel/server/routers/index"
+                ],
+                "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
+              },
+              {
+                "regex": "^\\.\\./(conversation|triggers|routines|safety)/",
+                "message": "Import a lower module through its entry point (../<module>), never a file inside it (#889)."
+              },
+              {
+                "regex": "^\\.\\./(context|helpers|demonstrations|tools|turn)(/|$)",
+                "message": "agent-loop may import only the modules below it (conversation, triggers, routines, safety): context, helpers, demonstrations, tools, turn sit above it (#889)."
+              },
+              {
+                "regex": "^\\.\\./(plugin|index|channels|changes|routers)(/|$)",
+                "message": "A Bot module never imports the Bot's root composition (#889)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/bot-sdk/plugins/bot/server/context/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/storage/**", "!**/storage"],
+                "message": "Import storage through its entry point, core/server/storage (#889)."
+              },
+              {
+                "group": [
+                  "**/runner/server/**",
+                  "!**/runner/server/internal",
+                  "!**/runner/server/index"
+                ],
+                "message": "Import the runner service through its entry point, plugins/runner/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/computer/server/**",
+                  "!**/computer/server/internal",
+                  "!**/computer/server/index"
+                ],
+                "message": "Import the computer service through its entry point, plugins/computer/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/models/server/**",
+                  "!**/models/server/internal",
+                  "!**/models/server/index",
+                  "!**/models/server/routers",
+                  "!**/models/server/routers/index"
+                ],
+                "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/channel/server/**",
+                  "!**/channel/server/internal",
+                  "!**/channel/server/index",
+                  "!**/channel/server/routers",
+                  "!**/channel/server/routers/index"
+                ],
+                "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
+              },
+              {
+                "regex": "^\\.\\./(conversation|triggers|routines|safety|agent-loop)/",
+                "message": "Import a lower module through its entry point (../<module>), never a file inside it (#889)."
+              },
+              {
+                "regex": "^\\.\\./(helpers|demonstrations|tools|turn)(/|$)",
+                "message": "context may import only the modules below it (conversation, triggers, routines, safety, agent-loop): helpers, demonstrations, tools, turn sit above it (#889)."
+              },
+              {
+                "regex": "^\\.\\./(plugin|index|channels|changes|routers)(/|$)",
+                "message": "A Bot module never imports the Bot's root composition (#889)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/bot-sdk/plugins/bot/server/helpers/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/storage/**", "!**/storage"],
+                "message": "Import storage through its entry point, core/server/storage (#889)."
+              },
+              {
+                "group": [
+                  "**/runner/server/**",
+                  "!**/runner/server/internal",
+                  "!**/runner/server/index"
+                ],
+                "message": "Import the runner service through its entry point, plugins/runner/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/computer/server/**",
+                  "!**/computer/server/internal",
+                  "!**/computer/server/index"
+                ],
+                "message": "Import the computer service through its entry point, plugins/computer/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/models/server/**",
+                  "!**/models/server/internal",
+                  "!**/models/server/index",
+                  "!**/models/server/routers",
+                  "!**/models/server/routers/index"
+                ],
+                "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/channel/server/**",
+                  "!**/channel/server/internal",
+                  "!**/channel/server/index",
+                  "!**/channel/server/routers",
+                  "!**/channel/server/routers/index"
+                ],
+                "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
+              },
+              {
+                "regex": "^\\.\\./(conversation|triggers|routines|safety|agent-loop|context)/",
+                "message": "Import a lower module through its entry point (../<module>), never a file inside it (#889)."
+              },
+              {
+                "regex": "^\\.\\./(demonstrations|tools|turn)(/|$)",
+                "message": "helpers may import only the modules below it (conversation, triggers, routines, safety, agent-loop, context): demonstrations, tools, turn sit above it (#889)."
+              },
+              {
+                "regex": "^\\.\\./(plugin|index|channels|changes|routers)(/|$)",
+                "message": "A Bot module never imports the Bot's root composition (#889)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/bot-sdk/plugins/bot/server/demonstrations/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/storage/**", "!**/storage"],
+                "message": "Import storage through its entry point, core/server/storage (#889)."
+              },
+              {
+                "group": [
+                  "**/runner/server/**",
+                  "!**/runner/server/internal",
+                  "!**/runner/server/index"
+                ],
+                "message": "Import the runner service through its entry point, plugins/runner/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/computer/server/**",
+                  "!**/computer/server/internal",
+                  "!**/computer/server/index"
+                ],
+                "message": "Import the computer service through its entry point, plugins/computer/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/models/server/**",
+                  "!**/models/server/internal",
+                  "!**/models/server/index",
+                  "!**/models/server/routers",
+                  "!**/models/server/routers/index"
+                ],
+                "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/channel/server/**",
+                  "!**/channel/server/internal",
+                  "!**/channel/server/index",
+                  "!**/channel/server/routers",
+                  "!**/channel/server/routers/index"
+                ],
+                "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
+              },
+              {
+                "regex": "^\\.\\./(conversation|triggers|routines|safety|agent-loop|context|helpers)/",
+                "message": "Import a lower module through its entry point (../<module>), never a file inside it (#889)."
+              },
+              {
+                "regex": "^\\.\\./(tools|turn)(/|$)",
+                "message": "demonstrations may import only the modules below it (conversation, triggers, routines, safety, agent-loop, context, helpers): tools, turn sit above it (#889)."
+              },
+              {
+                "regex": "^\\.\\./(plugin|index|channels|changes|routers)(/|$)",
+                "message": "A Bot module never imports the Bot's root composition (#889)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/bot-sdk/plugins/bot/server/tools/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/storage/**", "!**/storage"],
+                "message": "Import storage through its entry point, core/server/storage (#889)."
+              },
+              {
+                "group": [
+                  "**/runner/server/**",
+                  "!**/runner/server/internal",
+                  "!**/runner/server/index"
+                ],
+                "message": "Import the runner service through its entry point, plugins/runner/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/computer/server/**",
+                  "!**/computer/server/internal",
+                  "!**/computer/server/index"
+                ],
+                "message": "Import the computer service through its entry point, plugins/computer/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/models/server/**",
+                  "!**/models/server/internal",
+                  "!**/models/server/index",
+                  "!**/models/server/routers",
+                  "!**/models/server/routers/index"
+                ],
+                "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/channel/server/**",
+                  "!**/channel/server/internal",
+                  "!**/channel/server/index",
+                  "!**/channel/server/routers",
+                  "!**/channel/server/routers/index"
+                ],
+                "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
+              },
+              {
+                "regex": "^\\.\\./(conversation|triggers|routines|safety|agent-loop|context|helpers|demonstrations)/",
+                "message": "Import a lower module through its entry point (../<module>), never a file inside it (#889)."
+              },
+              {
+                "regex": "^\\.\\./(turn)(/|$)",
+                "message": "tools may import only the modules below it (conversation, triggers, routines, safety, agent-loop, context, helpers, demonstrations): turn sit above it (#889)."
+              },
+              {
+                "regex": "^\\.\\./(plugin|index|channels|changes|routers)(/|$)",
+                "message": "A Bot module never imports the Bot's root composition (#889)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/bot-sdk/plugins/bot/server/turn/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/storage/**", "!**/storage"],
+                "message": "Import storage through its entry point, core/server/storage (#889)."
+              },
+              {
+                "group": [
+                  "**/runner/server/**",
+                  "!**/runner/server/internal",
+                  "!**/runner/server/index"
+                ],
+                "message": "Import the runner service through its entry point, plugins/runner/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/computer/server/**",
+                  "!**/computer/server/internal",
+                  "!**/computer/server/index"
+                ],
+                "message": "Import the computer service through its entry point, plugins/computer/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/models/server/**",
+                  "!**/models/server/internal",
+                  "!**/models/server/index",
+                  "!**/models/server/routers",
+                  "!**/models/server/routers/index"
+                ],
+                "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
+              },
+              {
+                "group": [
+                  "**/channel/server/**",
+                  "!**/channel/server/internal",
+                  "!**/channel/server/index",
+                  "!**/channel/server/routers",
+                  "!**/channel/server/routers/index"
+                ],
+                "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
+              },
+              {
+                "regex": "^\\.\\./(conversation|triggers|routines|safety|agent-loop|context|helpers|demonstrations|tools)/",
+                "message": "Import a lower module through its entry point (../<module>), never a file inside it (#889)."
+              },
+              {
+                "regex": "^\\.\\./(plugin|index|channels|changes|routers)(/|$)",
+                "message": "A Bot module never imports the Bot's root composition (#889)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "files": [
         "packages/bot-sdk/core/client/**",
         "packages/bot-sdk/plugins/*/client/**",
