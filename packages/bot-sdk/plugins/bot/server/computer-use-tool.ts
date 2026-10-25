@@ -78,6 +78,9 @@ const keysym = (key: string) => keysyms[key] ?? key;
 /** A shell word for `value`, safe inside single quotes. */
 const quoted = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 
+/** The first line of a command's stderr, trimmed. */
+const firstLine = (stderr: string) => stderr.trim().split("\n")[0];
+
 /** The Computer call a Screen's commands run in: its handle and the live call's limits. */
 type ScreenCall = { computer: ComputerHandle; live: FileToolOptions };
 
@@ -98,7 +101,7 @@ async function xdotool(
   );
   if ("timedOut" in done) throw new Error("The action timed out.");
   if (done.exitCode !== 0) {
-    throw new Error(done.stderr.trim().split("\n")[0] || `xdotool exited ${done.exitCode}`);
+    throw new Error(firstLine(done.stderr) || `xdotool exited ${done.exitCode}`);
   }
   return done.stdout;
 }
@@ -198,9 +201,7 @@ async function takeScreenshot(
   );
   if ("timedOut" in shot) return { error: "The screenshot timed out." };
   const bytes = shot.exitCode === 0 ? await computer.readFile(path, live) : null;
-  return (
-    bytes ?? { error: shot.stderr.trim().split("\n")[0] || "The screenshot could not be taken." }
-  );
+  return bytes ?? { error: firstLine(shot.stderr) || "The screenshot could not be taken." };
 }
 
 /** The actions this driver runs that only look (or wait), Anthropic's and OpenAI's. */
@@ -319,11 +320,13 @@ export function computerUseTool(
             current = undefined;
           }
         },
-        // Its result is short.
-        false,
-        asked || !types.every((type) => lookingActions.has(type)) ? input : undefined,
-        async () => ((await canSee()) ? null : { error: noVisionError }),
-        asked ? safetyChecksAsk(input) : undefined,
+        {
+          // Its result is short.
+          capped: false,
+          reviewed: asked || !types.every((type) => lookingActions.has(type)) ? input : undefined,
+          unless: async () => ((await canSee()) ? null : { error: noVisionError }),
+          ask: asked ? safetyChecksAsk(input) : undefined,
+        },
       );
       if ("error" in acted) throw failed(acted);
       const shot = await computerCall(
@@ -333,7 +336,7 @@ export function computerUseTool(
           const png = await takeScreenshot(computer, slot, live);
           return "error" in png ? png : { screenshotId: await keep(png) };
         },
-        false,
+        { capped: false },
       );
       if ("error" in shot) throw failed(shot);
       // A rebuilt note rides on whichever result it came with.

@@ -53,7 +53,7 @@ import {
 } from "./computer-tools";
 import { pruneScreenshots, resolveImageRefs } from "./image-refs";
 import { type LoopPromptStart, type PreviousCall, promptHashesOf } from "./prompt-start";
-import { blockedError, type ReviewSource, reviewToolCall } from "./review";
+import { blockedError, type ReviewAsk, type ReviewSource, reviewToolCall } from "./review";
 import {
   type DecryptedSecrets,
   loadSecretValues,
@@ -65,6 +65,14 @@ import {
 import { isReservedSecretName, reservedSecretNameMessage } from "../shared/secret";
 import { computerRebuildSeenAt, markComputerRebuildSeen } from "./store";
 import { midTurnNote, summarizeInstruction } from "./summary";
+
+/** The optional parts of a `computerCall`, each described there. */
+export type ComputerCallOptions = {
+  capped?: boolean;
+  reviewed?: Record<string, unknown>;
+  unless?: () => Promise<{ error: string } | null>;
+  ask?: ReviewAsk;
+};
 
 /** What a loop lends the tools of whoever runs it: a Turn today, a Helper next. */
 export type LoopKit = {
@@ -121,10 +129,7 @@ export type LoopKit = {
       live: FileToolOptions,
       mask: (text: string) => string,
     ) => Promise<T>,
-    capped?: boolean,
-    reviewed?: Record<string, unknown>,
-    unless?: () => Promise<{ error: string } | null>,
-    ask?: { reason: string; summary: string },
+    options?: ComputerCallOptions,
   ) => Promise<T | { error: string }>;
 };
 
@@ -729,7 +734,7 @@ export async function runLoop(
     tool: string,
     toolCallId: string | undefined,
     input: Record<string, unknown>,
-    ask?: { reason: string; summary: string },
+    ask?: ReviewAsk,
   ): Promise<{ error: string } | null> => {
     // A loop with no review source has no one to ask: what the user always decides is refused.
     if (!options.review) return ask ? { error: blockedError(ask.reason) } : null;
@@ -818,10 +823,7 @@ export async function runLoop(
     name,
     toolCallId,
     operate,
-    cap = true,
-    reviewed,
-    unless,
-    ask,
+    { capped: cap = true, reviewed, unless, ask } = {},
   ) =>
     toolCall(toolCallId, async () => {
       // A call that can't run is told so before its review, so it never waits for an Approval.
@@ -869,7 +871,7 @@ export async function runLoop(
         name,
         context?.toolCallId,
         (computer, live, mask) => run(computer, owner.botId, input, live, mask),
-        cap,
+        { capped: cap },
       );
   const computerToolsByName: Record<string, AnyServerTool> = {
     [shellDefinition.name]: shell,

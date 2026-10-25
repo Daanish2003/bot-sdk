@@ -77,6 +77,9 @@ const verdictSchema = z.object({
 /** The reviewer's verdict on one call. */
 export type ReviewVerdict = z.infer<typeof verdictSchema>;
 
+/** Why a call needs the user's Approval, and the summary the user is asked about. */
+export type ReviewAsk = { reason: string; summary: string };
+
 /** What a call's review recorded: the verdict, the Model that gave it, and what it bills. */
 type RecordedReview = ReviewVerdict & {
   model: string;
@@ -139,19 +142,17 @@ export async function reviewToolCall(
     toolCallId: string | undefined;
     tool: string;
     input: Record<string, unknown>;
-    ask?: { reason: string; summary: string };
+    ask?: ReviewAsk;
   },
 ): Promise<{ error: string } | null> {
   // The meter of the call the live review made; a live write after a replayed review resolves it
   // again, and a replayed write needs none.
   let liveMeter: ModelMeter | undefined;
-  if (ask) kit.beforeLive();
-  const reviewed: RecordedReview = ask
-    ? { outcome: "block", ...ask, model: owner.model, bill: null }
-    : await kit.activity("review", async () => {
-        kit.beforeLive();
-        return judge(deps, kit, { owner, source, tool, input }, (meter) => (liveMeter = meter));
-      });
+  const reviewed: RecordedReview = await kit.activity("review", async () => {
+    kit.beforeLive();
+    if (ask) return { outcome: "block", ...ask, model: owner.model, bill: null };
+    return judge(deps, kit, { owner, source, tool, input }, (meter) => (liveMeter = meter));
+  });
   // A block asks the user at once: its Approval's deadline counts from the runner's recorded time,
   // so a replay keeps it.
   const deadline =
@@ -450,7 +451,8 @@ export async function judge(
   try {
     for await (const chunk of chat({
       adapter: models.adapterForCall(model, call),
-      // The Helper's own id for a Helper's call, else its Bot's.
+      // The Helper's own id for a Helper's call, else its Bot's. The loop works this out from its
+      // options, which hold no review source for a loop that reviews nothing.
       threadId: "helperId" in source ? source.helperId : owner.botId,
       messages,
       systemPrompts: [reviewerSystemPrompt],

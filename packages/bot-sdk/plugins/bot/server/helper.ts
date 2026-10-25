@@ -65,6 +65,9 @@ export const computerUseHelperTakenError =
 export const computerUseModelError =
   "This Bot's Model can't run a Computer-use Helper; tell the user to switch the Bot to a direct Anthropic or OpenAI Model.";
 
+export const computerUseOnPlanError =
+  "A linked ChatGPT plan can't run a Computer-use Helper; tell the user to switch the Bot to a Model on an OpenAI or Anthropic API key.";
+
 export const screensInUseError = "All 4 Screens are in use; try again later.";
 
 export const demonstrationHoldsScreenError =
@@ -158,6 +161,10 @@ export function startHelperTool(
       }
       // Checked here only, so a resumed Helper is never refused.
       const call = await deps.plugin("models").resolveModelCall(turn.userId, turn.model);
+      // The plan's endpoint rejects the native computer tool.
+      if (type === "computer_use" && call?.linked === "plan") {
+        return { error: computerUseOnPlanError };
+      }
       if (call && !(await call.meter.mayRun()).ok) return { error: helperQuotaSpentError };
       // The Conversation's row lock first, as in every write that changes the Bot thread.
       await lockConversation(tx, turn.conversationId);

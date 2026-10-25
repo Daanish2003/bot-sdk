@@ -7,7 +7,13 @@ import { deleteUserData } from "../../../../core/server/user-data";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { noVisionError } from "../../../../plugins/bot/server/computer-use-tool";
 import { keptScreenshots, removedScreenshot } from "../../../../plugins/bot/server/image-refs";
-import { botHelperJob, computerUseHelperPrompt } from "../../../../plugins/bot/server/helper";
+import {
+  botHelperJob,
+  computerUseHelperPrompt,
+  helperEndings,
+  helperTimeLimitMs,
+} from "../../../../plugins/bot/server/helper";
+import { reapStaleJobs } from "../../../../plugins/runner/server/jobs/store";
 import { bot } from "../../../../plugins/bot/server/plugin";
 import type { ReviewVerdict } from "../../../../plugins/bot/server/review";
 import { computer } from "../../../../plugins/computer/server/plugin";
@@ -628,6 +634,51 @@ describe("OpenAI safety checks on the computer tool", () => {
     expect(screenCommands(computerFake)).toEqual(commandsBefore);
     expect(await reviewsOf(botId)).toEqual(reviewsBefore);
     releaseType?.();
+  }, 30_000);
+
+  it("replays a recorded safety-check call past the time limit, instead of ending the Helper", async () => {
+    let releaseType: (() => void) | undefined;
+    let skewMs = 0;
+    const { client, botId, deps, computerFake } = await userWith(
+      "openai:gpt-6-luna",
+      [handsOff, round()],
+      [
+        round(computerCall(safetyClick)),
+        round(computerCall({ action: "type", text: "hi" })),
+        round(text("Never comes.")),
+      ],
+      {
+        clock: () => new Date(Date.now() + skewMs),
+        reviewer: fakeReviewer(() => verdictRound(passVerdict)),
+        // The second action hangs on the Screen until the test lets it go.
+        onCommand: async ({ command }) => {
+          if (command.includes("xdotool type")) {
+            await new Promise<void>((resolve) => (releaseType = resolve));
+          }
+          return { exitCode: 0, stdout: "", stderr: "" };
+        },
+      },
+    );
+
+    await sent(client, botId);
+    await client.bot.review.allow({ reviewId: (await waitingReview(botId)).id });
+    await expect.poll(() => releaseType !== undefined, { timeout: 10_000 }).toBe(true);
+    const commandsBefore = screenCommands(computerFake);
+    expect(commandsBefore).toHaveLength(3);
+
+    // The attempt is lost, and the next one starts past the Helper's time limit.
+    skewMs = helperTimeLimitMs + 120_000;
+    await reapStaleJobs(getTestDb(), new Date(Date.now() + skewMs), silent, deps);
+    await expect
+      .poll(async () => (await helpersOf(botId))[0]?.status, { timeout: 10_000 })
+      .toBe("error");
+    releaseType?.();
+
+    // The click was read as recorded, so the loop got as far as the next live call, which the
+    // limit ended. Ended at the click, the recorded history no longer fit the code: a crash.
+    const [helper] = await helpersOf(botId);
+    expect(helper).toMatchObject({ status: "error", report: helperEndings.timedOut });
+    expect(screenCommands(computerFake)).toEqual(commandsBefore);
   }, 30_000);
 });
 
