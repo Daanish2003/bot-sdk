@@ -22,6 +22,7 @@ import type { HostProvider } from "../../../../plugins/models/server/types";
 import {
   botHelperJob,
   computerUseModelError,
+  computerUseOnPlanError,
   generalHelperPrompt,
   helperEndings,
   helperQuotaSpentError,
@@ -601,6 +602,26 @@ describe("starting a Computer-use Helper on a Model", () => {
 
     expect(resultInTranscript(inputOf(turnFake.calls[1]), "start_helper")).toEqual({
       error: computerUseModelError,
+    });
+    await settled(botId);
+    expect((await helpersOf(botId)).map((row) => row.type)).toEqual(["general"]);
+  });
+
+  it("refuses on a linked ChatGPT plan, which rejects the native computer tool", async () => {
+    const { client, botId, turnFake } = await botWith(
+      [
+        round(startComputerUse()),
+        round(startHelper("Count.")),
+        round(sends({ text: "Can't.", endTurn: true })),
+      ],
+      [round(text("Done."))],
+      { linked: true },
+    );
+
+    await send(client, botId, "browse");
+
+    expect(resultInTranscript(inputOf(turnFake.calls[1]), "start_helper")).toEqual({
+      error: computerUseOnPlanError,
     });
     await settled(botId);
     expect((await helpersOf(botId)).map((row) => row.type)).toEqual(["general"]);
