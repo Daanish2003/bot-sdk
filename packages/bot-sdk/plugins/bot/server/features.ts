@@ -183,6 +183,8 @@ export async function featureTools(
         },
       );
     } catch (error) {
+      // A Stop or the time limit ends the Turn, not just the feature.
+      kit?.signal.throwIfAborted();
       deps.logger.error(`Feature "${feature.id}" failed to give its tools`, error);
       continue;
     }

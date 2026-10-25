@@ -201,6 +201,10 @@ describe("the search_memory tool", () => {
     await send(failed.client, failed.botIds[0]!, "hi");
 
     expect(toolNamesOf(failed.fake.calls[0])).not.toContain("search_memory");
+    // Main's Prompt start for an unreadable snapshot: no block, and the environment says off.
+    const first = JSON.stringify(failed.fake.calls[0]?.messages ?? []);
+    expect(first).toContain("Memory: off.");
+    expect(first).not.toContain("Memory: on.");
   });
 
   it("tells the Bot its Computer was rebuilt, in its first result after the rebuild", async () => {
