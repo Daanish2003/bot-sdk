@@ -118,7 +118,8 @@ export type LoopKit = {
   /**
    * A live call outside the database, as tool call `toolCallId`, then a write with its result: `run`
    * is one activity with no transaction, re-run after a crash before its Checkpoint is saved, and
-   * `write` is a second activity whose writes commit with its own Checkpoint, so they happen once.
+   * `write` is a second activity whose writes commit with its own Checkpoint, so they happen once
+   * (none without `write`, for a read with nothing to write, such as setup's).
    * Both run only live; a replay returns `run`'s recorded result. A tool call's result over the
    * long-output limit is recorded, and returned, as its cut text (`capResult`), as for
    * `liveActivity`. `reviewed` is the call's input, given only for a call Auto-review checks (a
@@ -129,7 +130,7 @@ export type LoopKit = {
     name: string,
     toolCallId: string | undefined,
     run: () => Promise<T>,
-    write: (tx: Transaction, result: T | string) => Promise<void>,
+    write?: (tx: Transaction, result: T | string) => Promise<void>,
     reviewed?: Record<string, unknown>,
   ) => Promise<T | string | { error: string }>;
   /** The Computer's tools: Shell, then the file tools Read, Write, Edit and List. */
@@ -682,6 +683,7 @@ export async function runLoop(
         return capLong(await run(), toolCallId);
       });
       // Not past a limit or a Stop: what `run` did is written, whenever it ran.
+      if (!write) return result;
       await ctx.activity(`${name}:write`, async (tx) => {
         await write(tx, result);
         return null;

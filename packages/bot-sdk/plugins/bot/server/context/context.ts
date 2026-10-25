@@ -280,11 +280,8 @@ export function recordedReads(
       ),
     features: async () => {
       if (!enabledFeatures(deps).length) return [];
-      const read = await kit.liveRequest(
-        "features",
-        undefined,
-        () => featureSectionsNow(deps, featureTurnOf(turn), turn.startedAt, kit.signal),
-        async () => {},
+      const read = await kit.liveRequest("features", undefined, () =>
+        featureSectionsNow(deps, featureTurnOf(turn), turn.startedAt, kit.signal),
       );
       return Array.isArray(read) ? read : [];
     },

@@ -10,6 +10,7 @@ export {
   computerProvider,
   ComputerUnavailableError,
   computerUserDelete,
+  isComputerFailure,
   createComputer,
   defaultCommandTimeoutMs,
   type FileOperationOptions,

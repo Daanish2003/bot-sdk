@@ -185,6 +185,24 @@ describe("a feature built with defineFeature", { timeout: 30_000 }, () => {
     expect(await rowsOf(user.id, "failing")).toEqual([]);
   });
 
+  it("ends the Turn error when its tools throw, as a Connection whose listing failed did", async () => {
+    const failing = defineFeature({
+      id: "failing",
+      tools: async () => {
+        throw new Error("listing failed");
+      },
+    });
+    const { client, botId } = await botWithPins([round()], [pins(), failing]);
+
+    await send(client, botId, "hello");
+
+    const [turn] = await getTestDb()
+      .select({ status: botTurn.status, error: botTurn.error })
+      .from(botTurn)
+      .where(eq(botTurn.botId, botId));
+    expect(turn).toEqual({ status: "error", error: "listing failed" });
+  });
+
   it("runs its afterTurn in the Turn's end transaction, and the job it queues runs", async () => {
     const { client, botId, user } = await botWithPins([round(pinNote("buy milk")), round()]);
 

@@ -83,15 +83,16 @@ async function seenSince(
 }
 
 /**
- * Each enabled feature's section and Change notes as of now. A feature whose `prompt` throws is
- * logged and left out, so the Turn goes on without it; a failed read of what the Bot has seen
- * throws, so the job retries.
+ * Each enabled feature's section and Change notes as of now. A feature whose `prompt` throws fails
+ * the Turn's read, so the job retries; with `tolerant` (an away Summary), it is logged and left
+ * out, unless a Stop or the time limit caused it. A failed read of what the Bot has seen throws.
  */
 export async function featureSectionsNow(
   deps: BotSdkContext,
   turn: FeatureTurn,
   startedAt: Date,
   signal: AbortSignal,
+  { tolerant = false }: { tolerant?: boolean } = {},
 ): Promise<FeatureSection[]> {
   const prompting = enabledFeatures(deps).filter(({ feature }) => feature.prompt);
   if (!prompting.length) return [];
@@ -114,7 +115,7 @@ export async function featureSectionsNow(
       }
     } catch (error) {
       // A Stop or the time limit ends the Turn, not just the feature.
-      signal.throwIfAborted();
+      if (!tolerant || signal.aborted) throw error;
       deps.logger.error(`Feature "${feature.id}" failed to give its Prompt start section`, error);
     }
   }
@@ -138,21 +139,22 @@ export type FeatureToolSet = {
  * The enabled features' tools for a Turn (or, with `connectorsOnly`, the Connector tools alone,
  * for a Helper). Each call is a live request of the loop's, so a replay reads its recorded result; a tool with
  * `needsApproval` is Auto-reviewed instead of asked of the user. A tool named like one in `taken`
- * is left out and logged, and so are a feature's tools when it throws. Without `kit`, only the definitions are read, as an away Summary does.
+ * is left out and logged. A feature whose `tools` throws ends the Turn `error`, as a Connection
+ * whose listing failed did. Each feature gets the section it gave in `sections`. Without `kit`,
+ * only the definitions are read, as an away Summary does.
  */
 export async function featureTools(
   deps: BotSdkContext,
   turn: FeatureTurn,
   liveRequest: LoopKit["liveRequest"],
   taken: ReadonlySet<string>,
+  sections: readonly FeatureSection[],
   kit?: {
     signal: AbortSignal;
     /** Records a feature's listing as the Turn's activity, named for the feature. */
     record: <T>(featureId: string, list: () => Promise<T>) => Promise<T>;
     /** The loop's Computer call, for the tools a feature lists in `computerTools`. */
     computerCall: LoopKit["computerCall"];
-    /** The sections the Turn's features gave its Prompt start, read before the tools. */
-    sections: readonly FeatureSection[];
   },
   { connectorsOnly = false }: { connectorsOnly?: boolean } = {},
 ): Promise<FeatureToolSet> {
@@ -166,28 +168,19 @@ export async function featureTools(
   );
   for (const { feature, context } of listed) {
     if (!feature.tools || (connectorsOnly && !feature.connectorTools)) continue;
-    let given: Awaited<ReturnType<NonNullable<typeof feature.tools>>>;
-    try {
-      given = await feature.tools(
-        turn,
-        context,
-        kit && {
-          signal: kit.signal,
-          section: kit.sections.find((read) => read.name === feature.id)?.section ?? null,
-          record: (list) => kit.record(feature.id, list),
-          taken: new Set(names),
-          computerCall: (name, toolCallId, operate) =>
-            kit.computerCall(name, toolCallId, (computer, live) => operate(computer, live)),
-          secretMask: async () =>
-            secretMasker((await loadSecretValues(deps, turn.userId, decrypted)).values()),
-        },
-      );
-    } catch (error) {
-      // A Stop or the time limit ends the Turn, not just the feature.
-      kit?.signal.throwIfAborted();
-      deps.logger.error(`Feature "${feature.id}" failed to give its tools`, error);
-      continue;
-    }
+    const given = await feature.tools(
+      { ...turn, section: sections.find((read) => read.name === feature.id)?.section ?? null },
+      context,
+      kit && {
+        signal: kit.signal,
+        record: (list) => kit.record(feature.id, list),
+        taken: new Set(names),
+        computerCall: (name, toolCallId, operate) =>
+          kit.computerCall(name, toolCallId, (computer, live) => operate(computer, live)),
+        secretMask: async () =>
+          secretMasker((await loadSecretValues(deps, turn.userId, decrypted)).values()),
+      },
+    );
     const { tools, missing, computerTools } = Array.isArray(given)
       ? { tools: given, missing: undefined, computerTools: undefined }
       : given;

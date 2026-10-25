@@ -590,9 +590,8 @@ async function playTurn(
         const context = await build(deps, turn, {
           ...recordedReads(deps, turn, kit),
           tools: (sections) =>
-            forTurn(deps, turn, {
+            forTurn(deps, turn, sections, {
               kit,
-              sections,
               signal: connections.signal,
               record: (featureId, list) => ctx.activity(`${featureId}:tools`, list),
             }),

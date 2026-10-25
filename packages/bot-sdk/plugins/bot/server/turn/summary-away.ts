@@ -156,7 +156,7 @@ async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext
   });
   const features: FeatureSection[] = enabledFeatures(deps).length
     ? await ctx.activity("features", () =>
-        featureSectionsNow(deps, facts, deps.clock(), ctx.signal),
+        featureSectionsNow(deps, facts, deps.clock(), ctx.signal, { tolerant: true }),
       )
     : [];
   // Set only by a live write: a replayed one changed nothing, so hints nothing.
@@ -179,7 +179,7 @@ async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext
     const context = await build(deps, turn, {
       routines: async () => (await routinesPrompt(tx, botId)) ?? null,
       features: async () => features,
-      tools: () => forTurn(deps, turn),
+      tools: (sections) => forTurn(deps, turn, sections),
     });
     const id = await writeSummary(tx, {
       parts: context.parts(now),

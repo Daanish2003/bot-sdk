@@ -1,4 +1,5 @@
 import { defineFeature } from "../../../core/server/feature";
+import { isComputerFailure } from "../../computer/server/internal";
 import { knowledgeNotes } from "./notes";
 import { knowledgePrompt, readKnowledgePaths } from "./prompt";
 import { knowledgeRouter } from "./routers/index";
@@ -16,11 +17,16 @@ export function knowledge() {
     id: "knowledge",
     needs: ["computer"],
     router: { knowledge: knowledgeRouter },
-    // A Computer that can't be read throws: the Turn goes on without a Knowledge section.
+    // A Computer that can't be woken or read leaves the Turn without a Knowledge section; any
+    // other failure, or a Stop or the time limit, throws.
     prompt: async (turn, { computer }) => {
-      const paths = await readKnowledgePaths(computer.forUser(turn.userId), {
-        signal: turn.signal,
-      });
+      let paths;
+      try {
+        paths = await readKnowledgePaths(computer.forUser(turn.userId), { signal: turn.signal });
+      } catch (error) {
+        if (turn.signal.aborted || !isComputerFailure(error)) throw error;
+        return null;
+      }
       return {
         section: knowledgePrompt(paths),
         changeNotes: knowledgeNotes(turn.botId, turn.built, turn.earlier, paths),

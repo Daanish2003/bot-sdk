@@ -1,4 +1,5 @@
 import { defineFeature } from "../../../core/server/feature";
+import { isComputerFailure } from "../../computer/server/internal";
 import { skillChangeNotes } from "./changes";
 import { skillsRouter } from "./routers/index";
 import { readBotSkills, skillsPrompt } from "./skills";
@@ -17,10 +18,17 @@ export function skills() {
     router: { skills: skillsRouter },
     // Read once as a Turn starts: the section the Prompt start keeps, and what changed since.
     prompt: async (turn, { computer }) => {
-      // A Computer that can't be read throws: the Turn goes on without a Skills section.
-      const lines = await readBotSkills(computer.forUser(turn.userId), turn.botId, {
-        signal: turn.signal,
-      });
+      // A Computer that can't be woken or read leaves the Turn without a Skills section; any
+      // other failure, or a Stop or the time limit, throws.
+      let lines;
+      try {
+        lines = await readBotSkills(computer.forUser(turn.userId), turn.botId, {
+          signal: turn.signal,
+        });
+      } catch (error) {
+        if (turn.signal.aborted || !isComputerFailure(error)) throw error;
+        return null;
+      }
       return {
         section: skillsPrompt(turn.botId, lines),
         changeNotes: skillChangeNotes(turn.botId, turn.built, turn.earlier, lines),

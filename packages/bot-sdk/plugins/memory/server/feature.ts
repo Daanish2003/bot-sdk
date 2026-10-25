@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { defineFeature } from "../../../core/server/feature";
+import { isComputerFailure } from "../../computer/server/internal";
 import { botMemoryPassJob, enqueueBotMemoryPass } from "./bot-pass";
 import { botMemorySnapshot, botsOf, exportBotMemory, memoryDirectory } from "./bot-memory";
 import { memoryChangeNotes } from "./change-notes";
@@ -45,7 +46,7 @@ export function memory() {
       const enabled = () => memoryEnabledFor(context, turn.userId);
       if (!(await (kit ? kit.record(enabled) : enabled()))) return [];
       // Reads through the Computer like the snapshot: no snapshot this Turn, no search.
-      if (kit && kit.section === null) return [];
+      if (turn.section === null) return [];
       const search = searchMemoryDefinition.server(async ({ query }, options) => {
         // Only a Turn's tool list is called; a list read for its definitions never runs a tool.
         if (!kit) throw new Error("search_memory was called without a Turn");
@@ -66,7 +67,8 @@ export function memory() {
       return { tools: [search], computerTools: [searchMemoryToolName] };
     },
     // The memory block as a Turn starts, from the user's Computer; none with Memory off or when
-    // the Computer can't be read, and the Turn goes on without it.
+    // the Computer can't be woken or read, and the Turn goes on without it. Any other failure
+    // throws, so the job retries.
     prompt: async (turn, context) => {
       const off = { section: null, environment: "Memory: off." };
       if (!(await memoryEnabledFor(context, turn.userId))) return off;
@@ -81,7 +83,7 @@ export function memory() {
         });
       } catch (error) {
         // A Stop or the time limit ends the Turn; it does not leave it without a memory block.
-        turn.signal.throwIfAborted();
+        if (turn.signal.aborted || !isComputerFailure(error)) throw error;
         context.logger.error(`Reading the memory of Bot ${turn.botId} failed`, error);
         return off;
       }

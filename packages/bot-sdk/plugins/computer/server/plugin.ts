@@ -236,6 +236,13 @@ export class ComputerOperationError extends Error {
 }
 
 /**
+ * Whether a Computer call failed because the Computer couldn't be woken or the operation failed,
+ * as opposed to any other failure (a database error, a bug).
+ */
+export const isComputerFailure = (error: unknown): boolean =>
+  error instanceof ComputerUnavailableError || error instanceof ComputerOperationError;
+
+/**
  * What `screenUrls` fails with, as the cause of its `ComputerOperationError`, when the Screen isn't
  * open (never opened, closed, or lost to a rebuild).
  */

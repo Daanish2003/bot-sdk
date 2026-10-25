@@ -67,7 +67,7 @@ async function started(
   const context = await build(deps, turn, {
     routines: async () => routines,
     features: async () => features,
-    tools: () => forTurn(deps, turn),
+    tools: (sections) => forTurn(deps, turn, sections),
   });
   let changeNotes: string | undefined;
   const start = await context.start(kit, {

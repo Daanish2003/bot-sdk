@@ -231,11 +231,9 @@ const listCheckInsDefinition = toolDefinition({
   inputSchema: z.object({}),
 });
 
-/** How a live Turn lists its tools: through its loop's `kit`, after its features' sections. */
+/** How a live Turn lists its tools: through its loop's `kit`. */
 export type LiveCatalogue = {
   kit: LoopKit;
-  /** The sections the Turn's features gave its Prompt start, read before the tools. */
-  sections: readonly FeatureSection[];
   /** The features' tools' clients (the Connector tools') stay open until it aborts. */
   signal: AbortSignal;
   /** Records a feature's listing as the Turn's activity, named for the feature. */
@@ -243,13 +241,15 @@ export type LiveCatalogue = {
 };
 
 /**
- * The tools of `turn`, listed once as it starts: nothing is kept from an earlier Turn. With `live`,
+ * The tools of `turn`, listed once as it starts, after the `sections` its features gave its Prompt
+ * start: nothing is kept from an earlier Turn. With `live`,
  * they run through the Turn's loop; without it, they are built only for their definitions, as an
  * away Summary's Prompt start lists them, and calling one throws.
  */
 export async function forTurn(
   deps: BotSdkContext,
   turn: CatalogueTurn,
+  sections: readonly FeatureSection[],
   live?: LiveCatalogue,
 ): Promise<TurnTools> {
   let ended = false;
@@ -275,11 +275,11 @@ export async function forTurn(
     featureTurnOf(turn),
     kit.liveRequest,
     takenNames(coreTools),
+    sections,
     live && {
       signal: live.signal,
       record: live.record,
       computerCall: kit.computerCall,
-      sections: live.sections,
     },
   );
   const tools = [...coreTools, ...fromFeatures.tools];

@@ -536,11 +536,11 @@ async function playHelper(
               featureTurnOf(helper),
               kit.liveRequest,
               new Set([describeToolName, runToolName, ...own.map((tool) => tool.name)]),
+              [],
               {
                 signal: connections.signal,
                 record: (featureId, list) => ctx.activity(`${featureId}:tools`, list),
                 computerCall: kit.computerCall,
-                sections: [],
               },
               { connectorsOnly: true },
             )

@@ -49,14 +49,18 @@ export type FeatureContext<Needs extends CoreService = never> = {
 export type FeatureTurn = { id: string; userId: string; botId: string; conversationId: string };
 
 /**
+ * The Turn a feature's `tools` are read for, with the section the feature gave its Prompt start
+ * (or an away Summary's): null when it gave none.
+ */
+export type FeatureToolTurn = FeatureTurn & { section: string | null };
+
+/**
  * What the core gives `tools` for a Turn (or a Helper), when the tools are read for one. It is
  * absent when only their definitions are read (a Summary written while the user is away).
  */
 export type FeatureToolKit = {
   /** Aborts when the Turn ends: whatever the feature opened for its tools closes then. */
   signal: AbortSignal;
-  /** The section this feature gave the Turn's Prompt start; null when it gave none. */
-  section: string | null;
   /**
    * Lists once, as the Turn's recorded activity: a replay reads what its attempt listed, and
    * only a live Turn calls `list`.
@@ -160,7 +164,7 @@ export type FeatureDefinition<
    * instead of asked of the user. With a `kit`, a feature may list tools from the outside world.
    */
   tools?: (
-    turn: FeatureTurn,
+    turn: FeatureToolTurn,
     context: FeatureContext<Needs>,
     kit?: FeatureToolKit,
   ) => FeatureTools | Promise<FeatureTools>;
