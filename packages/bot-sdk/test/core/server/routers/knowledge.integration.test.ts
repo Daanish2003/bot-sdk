@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { bot, botTurn } from "../../../../core/server/db/schema";
+import { bot, botTurn } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { insertConversation } from "../../../support/conversations";
 import { getTestDb } from "../../../support/test-database";
@@ -9,7 +9,7 @@ import { knowledge } from "../../../../plugins/knowledge/server/plugin";
 import { createTestSdk } from "../../../support/deps";
 import { chatRpc } from "../../../support/sdk";
 import { insertOwner } from "../../../support/users";
-import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
+import { fakeComputerProvider } from "../../../support/fake-computer-provider";
 
 const folder = "/home/user/shared/knowledge";
 const limit = 50 * 1024 * 1024;

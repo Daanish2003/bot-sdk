@@ -2,25 +2,22 @@ import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { usage } from "../../../../core/server/db/schema";
+import { usage } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import {
   fakeImageAdapter,
   fakePngBase64,
-} from "../../../../plugins/models/server/fake-image-adapter";
-import { quotaLookup } from "../../../../plugins/models/server/quota";
-import type { HostProvider } from "../../../../plugins/models/server/types";
-import {
-  inProcessRunner,
-  type InProcessRunner,
-} from "../../../../plugins/runner/server/jobs/in-process";
+  quotaLookup,
+} from "../../../../plugins/models/server/internal";
+import type { HostProvider } from "../../../../plugins/models/server/internal";
+import { inProcessRunner, type InProcessRunner } from "../../../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps, type TestDepsOverrides } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
 import { followSend } from "../../../support/follow-send";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
-import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
+import { fakeComputerProvider } from "../../../support/fake-computer-provider";
 
 // Every test file here shares a worker with others: a generous test timeout and polling window.
 const testTimeout = 30_000;

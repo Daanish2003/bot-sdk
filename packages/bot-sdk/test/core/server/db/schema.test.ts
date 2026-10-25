@@ -1,14 +1,15 @@
 import { getTableConfig, text } from "drizzle-orm/pg-core";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
-import { chatSchema } from "../../../../core/server/db/chat-schema";
-import { assertNoClashes, type NamedPluginSchema } from "../../../../core/server/db/plugin-schema";
 import {
+  chatSchema,
+  assertNoClashes,
+  type NamedPluginSchema,
   conversation,
   message,
   type ConversationRow,
   type MessageRow,
-} from "../../../../core/server/db/schema";
+} from "../../../../core/server/storage";
 
 const empty = { tables: {}, enums: {} };
 

@@ -1,18 +1,18 @@
 import { and, asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { botTrigger, message } from "../../../../core/server/db/schema";
+import { botTrigger, message } from "../../../../core/server/storage";
 import { maxFileBytes } from "../../../../plugins/bot/shared/files";
-import { findBot } from "../../../../plugins/bot/server/store";
+import { findBot } from "../../../../plugins/bot/server/conversation";
 import { fakeEmailProvider } from "../../../../plugins/channel/fake/index";
 import { emailChannel, type InboundMail } from "../../../../plugins/channel/server/index";
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
+import { saveCredentials } from "../../../../plugins/models/server/internal";
 import {
   inProcessRunner,
   type InProcessRunner,
-} from "../../../../plugins/runner/server/jobs/in-process";
-import { claimJob } from "../../../../plugins/runner/server/jobs/store";
-import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
+  claimJob,
+} from "../../../../plugins/runner/server/internal";
+import { fakeComputerProvider } from "../../../support/fake-computer-provider";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round } from "../../../support/fake-adapter";
 import { fakeJobClock } from "../../../support/jobs";

@@ -2,9 +2,9 @@ import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
-import { botTurn, usage } from "../../../core/server/db/schema";
+import { botTurn, usage } from "../../../core/server/storage";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
-import type { HostProvider } from "../../../plugins/models/server/types";
+import type { HostProvider } from "../../../plugins/models/server/internal";
 import { botOf, botSdk, sendToTurnEnd, stopBotRunners } from "../../support/bot-turns";
 import { createFakeAdapter, round, toolCall, withUsage } from "../../support/fake-adapter";
 import { followSend } from "../../support/follow-send";

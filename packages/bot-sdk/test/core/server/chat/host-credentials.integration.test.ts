@@ -1,12 +1,9 @@
 import { eq, sql } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { botTurn } from "../../../../core/server/db/schema";
-import {
-  deleteCredentials,
-  saveCredentials,
-} from "../../../../plugins/models/server/credentials/store";
-import type { HostProvider } from "../../../../plugins/models/server/types";
+import { botTurn } from "../../../../core/server/storage";
+import { deleteCredentials, saveCredentials } from "../../../../plugins/models/server/internal";
+import type { HostProvider } from "../../../../plugins/models/server/internal";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { botOf, botSdk, sendToTurnEnd, stopBotRunners } from "../../../support/bot-turns";
 import type { TestDepsOverrides } from "../../../support/deps";

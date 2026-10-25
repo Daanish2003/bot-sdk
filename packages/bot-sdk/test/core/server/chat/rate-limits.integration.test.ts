@@ -6,7 +6,7 @@ import { memoryRuntime } from "../../../../core/server/runtime";
 import { resolveRateLimits, type RateLimits } from "../../../../core/server/rate-limits";
 import { RateLimitedError } from "../../../../core/client/rate-limit";
 import { createTestSdk } from "../../../support/deps";
-import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
+import { fakeComputerProvider } from "../../../support/fake-computer-provider";
 import { chatRpc, sendAs } from "../../../support/sdk";
 import { testDatabaseUrl } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";

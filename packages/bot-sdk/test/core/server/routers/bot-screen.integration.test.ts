@@ -2,32 +2,24 @@ import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import {
-  botHelper,
-  botTrigger,
-  computer as computerTable,
-} from "../../../../core/server/db/schema";
+import { botHelper, botTrigger, computer as computerTable } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { askUserToolName } from "../../../../plugins/bot/server/hand-off";
-import { closeScreen } from "../../../../plugins/bot/server/helper";
-import type { ScreenPeer } from "../../../../plugins/bot/server/screen-view";
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
+import { askUserToolName, closeScreen } from "../../../../plugins/bot/server/helpers";
+import type { ScreenPeer } from "../../../../plugins/bot/server/helpers";
+import { saveCredentials } from "../../../../plugins/models/server/internal";
 import {
   inProcessRunner,
   type InProcessRunner,
   systemClock,
-} from "../../../../plugins/runner/server/jobs/in-process";
+} from "../../../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
 import { fakeNovnc } from "../../../support/fake-novnc";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
-import {
-  fakeComputerProvider,
-  type FakeCommandRun,
-} from "../../../plugins/computer/server/fake-provider";
-import type { CommandResult } from "../../../../plugins/computer/server/provider";
+import { fakeComputerProvider, type FakeCommandRun } from "../../../support/fake-computer-provider";
+import type { CommandResult } from "../../../../plugins/computer/server/internal";
 import { followSend } from "../../../support/follow-send";
 
 const model = "openai:gpt-6-luna";

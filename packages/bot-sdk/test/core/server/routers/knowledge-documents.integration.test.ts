@@ -4,7 +4,7 @@ import { crc32, deflateRawSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 
 import { knowledge } from "../../../../plugins/knowledge/server/plugin";
-import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
+import { fakeComputerProvider } from "../../../support/fake-computer-provider";
 import { createTestSdk } from "../../../support/deps";
 import { chatRpc } from "../../../support/sdk";
 import { insertOwner } from "../../../support/users";

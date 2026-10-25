@@ -7,24 +7,27 @@ import {
   botTurn,
   computer as computerTable,
   job,
-} from "../../../../core/server/db/schema";
+} from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { deleteUserData } from "../../../../core/server/user-data";
-import { maxTextBytes } from "../../../../plugins/bot/server/computer-tools";
 import {
+  maxTextBytes,
   computerUnavailableError,
   interruptedShellError,
   rebuiltNote,
-} from "../../../../plugins/bot/server/computer-tools";
-import { turnTimeLimitMs } from "../../../../plugins/bot/server/store";
+} from "../../../../plugins/bot/server/agent-loop";
+
+import { turnTimeLimitMs } from "../../../../plugins/bot/server/conversation";
 import { botSystemPrompt } from "../../../../plugins/bot/server/context";
-import type { CommandResult } from "../../../../plugins/computer/server/provider";
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
+import type { CommandResult } from "../../../../plugins/computer/server/internal";
+import { saveCredentials } from "../../../../plugins/models/server/internal";
 import {
   inProcessRunner,
   type InProcessRunner,
-} from "../../../../plugins/runner/server/jobs/in-process";
-import { claimJob, reapStaleJobs } from "../../../../plugins/runner/server/jobs/store";
+  claimJob,
+  reapStaleJobs,
+} from "../../../../plugins/runner/server/internal";
+
 import { knowledge } from "../../../../plugins/knowledge/server/plugin";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
@@ -32,10 +35,7 @@ import { drainJobs, fakeJobClock } from "../../../support/jobs";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
-import {
-  fakeComputerProvider,
-  type FakeCommandRun,
-} from "../../../plugins/computer/server/fake-provider";
+import { fakeComputerProvider, type FakeCommandRun } from "../../../support/fake-computer-provider";
 import { followSend } from "../../../support/follow-send";
 
 const model = "openai:gpt-6-luna";

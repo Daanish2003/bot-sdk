@@ -10,27 +10,27 @@ import { asc, eq } from "drizzle-orm";
 import { type Browser, chromium } from "playwright-core";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-import { botDemonstration, botDemonstrationEvent } from "../../../../core/server/db/schema";
-import { postgresBlobStore } from "../../../../core/server/blob/postgres";
-import type { BlobStore } from "../../../../core/server/blob/store";
+import {
+  botDemonstration,
+  botDemonstrationEvent,
+  postgresBlobStore,
+} from "../../../../core/server/storage";
+import type { BlobStore } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { deleteUserData } from "../../../../core/server/user-data";
 import {
   demonstrationEventLimit,
   maskedValue,
-} from "../../../../plugins/bot/server/demonstration-capture";
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
-import {
-  inProcessRunner,
-  type InProcessRunner,
-} from "../../../../plugins/runner/server/jobs/in-process";
+} from "../../../../plugins/bot/server/demonstrations";
+import { saveCredentials } from "../../../../plugins/models/server/internal";
+import { inProcessRunner, type InProcessRunner } from "../../../../plugins/runner/server/internal";
 import { skills } from "../../../../plugins/skills/server/plugin";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
-import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
+import { fakeComputerProvider } from "../../../support/fake-computer-provider";
 import { followSend } from "../../../support/follow-send";
 
 // Capture (spec #713, ticket #719): while a Demonstration records, the user's steps in the Screen's

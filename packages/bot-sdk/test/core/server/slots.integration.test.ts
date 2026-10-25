@@ -9,15 +9,14 @@ import {
   type BotSdkOptions,
 } from "../../../core/server/index";
 import { buildBotSdk } from "../../../core/server/create-chat";
-import { blob, bot } from "../../../core/server/db/schema";
-import type { ComputerApi } from "../../../plugins/computer/server/plugin";
+import { blob, bot } from "../../../core/server/storage";
+import type { ComputerApi } from "../../../plugins/computer/server/internal";
 import { fakeEmailProvider } from "../../../plugins/channel/fake/index";
 import { emailChannel } from "../../../plugins/channel/server/index";
-import { models } from "../../../plugins/models/server/plugin";
-import { isInProcessRunner } from "../../../plugins/runner/server/jobs/in-process";
-import type { JobRunner } from "../../../plugins/runner/server/jobs/runner";
-import { runnerJobs } from "../../../plugins/runner/server/plugin";
-import { fakeComputerProvider } from "../../plugins/computer/server/fake-provider";
+import { models } from "../../../plugins/models/server/internal";
+import { isInProcessRunner, runnerJobs } from "../../../plugins/runner/server/internal";
+import type { JobRunner } from "../../../plugins/runner/server/internal";
+import { fakeComputerProvider } from "../../support/fake-computer-provider";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
 import { insertUser } from "../../support/users";
 

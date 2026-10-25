@@ -4,11 +4,11 @@ import { count, eq, inArray, is } from "drizzle-orm";
 import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
 import { describe, expect, it, vi } from "vitest";
 
-import type { BlobStore } from "../../../core/server/blob/store";
+import type { BlobStore } from "../../../core/server/storage";
 import { createHookEmitter } from "../../../core/server/chat/hooks";
 import { buildBotSdk, createBotSdk } from "../../../core/server/create-chat";
 import { defineFeature } from "../../../core/server/feature";
-import * as schema from "../../../core/server/db/schema";
+import { schema } from "../../../core/server/storage";
 import { encryptCredentials } from "../../../core/server/credentials/encryption";
 import {
   bot,
@@ -17,24 +17,23 @@ import {
   job,
   usage,
   modelSettings,
-} from "../../../core/server/db/schema";
+} from "../../../core/server/storage";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { deleteUserData, exportUserData } from "../../../core/server/user-data";
-import { sentFileBlobKey, uploadBotFile } from "../../../plugins/bot/server/files";
-import { loadSecretValues, secretEncryption } from "../../../plugins/bot/server/secret-values";
-import type { BotExport } from "../../../plugins/bot/server/store";
-import { computerBlobKey } from "../../../plugins/computer/server/plugin";
+import { sentFileBlobKey, uploadBotFile } from "../../../plugins/bot/server/conversation";
+import { loadSecretValues, secretEncryption } from "../../../plugins/bot/server/safety";
+import type { BotExport } from "../../../plugins/bot/server/conversation";
+import { computerBlobKey } from "../../../plugins/computer/server/internal";
 import { readTokens, saveTokens } from "../../../plugins/mcp/server/connections";
 import { mcpConnection } from "../../../plugins/mcp/server/db/connection";
 import { mcp } from "../../../plugins/mcp/server/plugin";
 import { profilePath } from "../../../plugins/memory/server/bot-memory";
 import { memorySettings } from "../../../plugins/memory/server/schema";
-import { listCredentials, saveCredentials } from "../../../plugins/models/server/credentials/store";
-import { models } from "../../../plugins/models/server/plugin";
+import { listCredentials, saveCredentials, models } from "../../../plugins/models/server/internal";
 import { insertConversation, insertMessage } from "../../support/conversations";
 import { createTestSdk, withPart, type TestDeps } from "../../support/deps";
 import { getTestDb, testDatabaseUrl } from "../../support/test-database";
-import { fakeComputerProvider } from "../../plugins/computer/server/fake-provider";
+import { fakeComputerProvider } from "../../support/fake-computer-provider";
 import { insertUser, type TestUser } from "../../support/users";
 
 const testKey = "test-key-encryption-secret-not-for-production";

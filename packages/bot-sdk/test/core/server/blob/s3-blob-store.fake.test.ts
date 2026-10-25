@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { s3BlobStore } from "../../../../core/server/blob/s3";
+import { s3BlobStore } from "../../../../core/server/storage";
 import { blobStoreContract } from "./blob.contract";
 import { fakeS3 } from "./fake-s3";
 

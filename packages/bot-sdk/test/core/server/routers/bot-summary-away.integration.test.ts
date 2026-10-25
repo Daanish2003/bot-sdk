@@ -12,15 +12,15 @@ import {
   botTurn,
   job,
   usage,
-} from "../../../../core/server/db/schema";
+} from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { findBot } from "../../../../plugins/bot/server/store";
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
+import { findBot } from "../../../../plugins/bot/server/conversation";
+import { saveCredentials } from "../../../../plugins/models/server/internal";
 import {
   inProcessRunner,
   type InProcessRunner,
-} from "../../../../plugins/runner/server/jobs/in-process";
-import { claimJob } from "../../../../plugins/runner/server/jobs/store";
+  claimJob,
+} from "../../../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import {
   createFakeAdapter,

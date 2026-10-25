@@ -3,16 +3,16 @@ import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { botTurn } from "../../../core/server/db/schema";
+import { botTurn } from "../../../core/server/storage";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { deleteUserData, exportUserData } from "../../../core/server/user-data";
-import { saveCredentials } from "../../../plugins/models/server/credentials/store";
+import { saveCredentials } from "../../../plugins/models/server/internal";
 import {
   inProcessRunner,
   type InProcessRunner,
   systemClock,
-} from "../../../plugins/runner/server/jobs/in-process";
-import { fakeComputerProvider } from "../../plugins/computer/server/fake-provider";
+} from "../../../plugins/runner/server/internal";
+import { fakeComputerProvider } from "../../support/fake-computer-provider";
 import { createTestSdk, type TestDeps } from "../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../support/fake-adapter";
 import { followSend } from "../../support/follow-send";

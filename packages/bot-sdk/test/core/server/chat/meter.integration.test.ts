@@ -8,9 +8,9 @@ import {
   hostModelMeter,
   hostSearchMeter,
   imageMeter,
-} from "../../../../plugins/models/server/meter";
+} from "../../../../plugins/models/server/internal";
 import { createTestSdk } from "../../../support/deps";
-import { usage } from "../../../../core/server/db/schema";
+import { usage } from "../../../../core/server/storage";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
 

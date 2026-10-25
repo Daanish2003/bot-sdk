@@ -7,24 +7,24 @@ import {
   botDemonstrationEvent,
   botHelper,
   botTurn,
-} from "../../../../core/server/db/schema";
+} from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import {
   computerUseHelperHoldsScreenError,
   demonstrationEndedWhileOpeningError,
   demonstrationRunningError,
-} from "../../../../plugins/bot/server/demonstration";
+} from "../../../../plugins/bot/server/demonstrations";
 import {
   demonstrationHoldsScreenError,
   screensInUseError,
-} from "../../../../plugins/bot/server/helper";
-import { findBot } from "../../../../plugins/bot/server/store";
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
+} from "../../../../plugins/bot/server/helpers";
+import { findBot } from "../../../../plugins/bot/server/conversation";
+import { saveCredentials } from "../../../../plugins/models/server/internal";
 import {
   inProcessRunner,
   type InProcessRunner,
-} from "../../../../plugins/runner/server/jobs/in-process";
-import { claimJob } from "../../../../plugins/runner/server/jobs/store";
+  claimJob,
+} from "../../../../plugins/runner/server/internal";
 import { skills } from "../../../../plugins/skills/server/plugin";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
@@ -32,10 +32,7 @@ import { fakeJobClock } from "../../../support/jobs";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
-import {
-  type FakeCommandRun,
-  fakeComputerProvider,
-} from "../../../plugins/computer/server/fake-provider";
+import { type FakeCommandRun, fakeComputerProvider } from "../../../support/fake-computer-provider";
 import { followSend } from "../../../support/follow-send";
 
 const model = "openai:gpt-6-luna";

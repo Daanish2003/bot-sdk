@@ -5,7 +5,7 @@ import { buildBotSdk, createBotSdk } from "../../../core/server/create-chat";
 import { defineFeature } from "../../../core/server/feature";
 import type { BotSdkPlugin } from "../../../core/server/plugin";
 import { memoryRuntime } from "../../../core/server/runtime";
-import { models } from "../../../plugins/models/server/plugin";
+import { models } from "../../../plugins/models/server/internal";
 import { testDatabaseUrl } from "../../support/test-database";
 
 const basePath = "/api/chat";

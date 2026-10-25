@@ -8,7 +8,7 @@ import { migrate as applyMigrations } from "drizzle-orm/node-postgres/migrator";
 import { Client } from "pg";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { BlobStore } from "../../../core/server/blob/store";
+import type { BlobStore } from "../../../core/server/storage";
 import { createBotSdk } from "../../../core/server/create-chat";
 import { LATEST_MIGRATION } from "../../../core/server/migrate";
 import {

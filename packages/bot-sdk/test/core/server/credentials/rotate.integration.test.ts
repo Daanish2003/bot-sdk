@@ -6,9 +6,9 @@ import {
   listCredentials,
   rotateCredentialKeys,
   saveCredentials,
-} from "../../../../plugins/models/server/credentials/store";
+} from "../../../../plugins/models/server/internal";
 import { createTestSdk } from "../../../support/deps";
-import { userCredentials } from "../../../../core/server/db/schema";
+import { userCredentials } from "../../../../core/server/storage";
 import { insertUser } from "../../../support/users";
 import { getTestDb, testDatabaseUrl } from "../../../support/test-database";
 

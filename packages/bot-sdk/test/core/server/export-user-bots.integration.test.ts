@@ -3,11 +3,11 @@ import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
-import { bot } from "../../../core/server/db/schema";
+import { bot } from "../../../core/server/storage";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { exportUserData } from "../../../core/server/user-data";
-import type { BotExport } from "../../../plugins/bot/server/store";
-import { saveSecret } from "../../../plugins/bot/server/secret";
+import type { BotExport } from "../../../plugins/bot/server/conversation";
+import { saveSecret } from "../../../plugins/bot/server/safety";
 import { saveTokens } from "../../../plugins/mcp/server/connections";
 import { mcp } from "../../../plugins/mcp/server/plugin";
 import {
@@ -18,8 +18,8 @@ import {
 } from "../../../plugins/memory/server/bot-memory";
 import { memorySettings } from "../../../plugins/memory/server/schema";
 import { memory } from "../../../plugins/memory/server/feature";
-import { saveCredentials } from "../../../plugins/models/server/credentials/store";
-import { fakeComputerProvider } from "../../plugins/computer/server/fake-provider";
+import { saveCredentials } from "../../../plugins/models/server/internal";
+import { fakeComputerProvider } from "../../support/fake-computer-provider";
 import { botOf, botSdk, stopBotRunners } from "../../support/bot-turns";
 import { insertConversation } from "../../support/conversations";
 import { createTestSdk } from "../../support/deps";

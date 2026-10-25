@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  loadCredentials,
-  saveCredentials,
-} from "../../../../plugins/models/server/credentials/store";
+import { loadCredentials, saveCredentials } from "../../../../plugins/models/server/internal";
 import { createTestSdk } from "../../../support/deps";
 import { insertUser } from "../../../support/users";
 import { chatRpc } from "../../../support/sdk";

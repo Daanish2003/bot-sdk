@@ -2,24 +2,25 @@ import type { AnyTextAdapter, ModelMessage, TextOptions } from "@tanstack/ai";
 import { asc, eq, inArray } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { botHelper, botReview, botTurn, job, usage } from "../../../../core/server/db/schema";
+import { botHelper, botReview, botTurn, job, usage } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { deleteUserData } from "../../../../core/server/user-data";
-import { interruptedShellError } from "../../../../plugins/bot/server/computer-tools";
+import { interruptedShellError } from "../../../../plugins/bot/server/agent-loop";
 import {
   listedReviews,
   reviewFailedReason,
   reviewTimeoutMs,
   type ReviewVerdict,
-} from "../../../../plugins/bot/server/review";
-import type { CommandResult } from "../../../../plugins/computer/server/provider";
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
+} from "../../../../plugins/bot/server/safety";
+import type { CommandResult } from "../../../../plugins/computer/server/internal";
+import { saveCredentials } from "../../../../plugins/models/server/internal";
 import {
   inProcessRunner,
   type InProcessRunner,
   systemClock,
-} from "../../../../plugins/runner/server/jobs/in-process";
-import { claimJob, reapStaleJobs } from "../../../../plugins/runner/server/jobs/store";
+  claimJob,
+  reapStaleJobs,
+} from "../../../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, runError, text, toolCall } from "../../../support/fake-adapter";
 import {
@@ -32,10 +33,7 @@ import { fakeJobClock } from "../../../support/jobs";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
-import {
-  fakeComputerProvider,
-  type FakeCommandRun,
-} from "../../../plugins/computer/server/fake-provider";
+import { fakeComputerProvider, type FakeCommandRun } from "../../../support/fake-computer-provider";
 import { followSend } from "../../../support/follow-send";
 
 const model = "openai:gpt-6-luna";

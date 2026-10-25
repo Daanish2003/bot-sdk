@@ -2,10 +2,12 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { checkCredentials } from "../../../plugins/models/server/credentials/check";
+import {
+  checkCredentials,
+  ollamaModels,
+  productionDeps,
+} from "../../../plugins/models/server/internal";
 import { buildBotSdk } from "../../../core/server/create-chat";
-import { ollamaModels } from "../../../plugins/models/server/live-models";
-import { productionDeps } from "../../../plugins/models/server/plugin";
 import type { BotSdkContext } from "../../../core/server/plugin";
 import { BlockedAddressError } from "../../../core/server/lib/guarded-fetch";
 

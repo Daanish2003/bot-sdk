@@ -3,22 +3,18 @@ import { asc, eq, sql } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createHookEmitter } from "../../../../core/server/chat/hooks";
-import { botHelper, usage } from "../../../../core/server/db/schema";
+import { botHelper, usage } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import type { HostProvider } from "../../../../plugins/models/server/types";
-import { webSearchUnavailableError } from "../../../../plugins/bot/server/web-search";
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
-import { quotaLookup } from "../../../../plugins/models/server/quota";
-import {
-  inProcessRunner,
-  type InProcessRunner,
-} from "../../../../plugins/runner/server/jobs/in-process";
+import type { HostProvider } from "../../../../plugins/models/server/internal";
+import { webSearchUnavailableError } from "../../../../plugins/bot/server/agent-loop";
+import { saveCredentials, quotaLookup } from "../../../../plugins/models/server/internal";
+import { inProcessRunner, type InProcessRunner } from "../../../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps, type TestDepsOverrides } from "../../../support/deps";
 import { createFakeAdapter, round, text, toolCall } from "../../../support/fake-adapter";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
-import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
+import { fakeComputerProvider } from "../../../support/fake-computer-provider";
 import { followSend } from "../../../support/follow-send";
 
 const model = "openai:gpt-6-luna";

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
-import { modelSettings } from "../../../../core/server/db/schema";
-import type { HostProvider } from "../../../../plugins/models/server/types";
+import { saveCredentials } from "../../../../plugins/models/server/internal";
+import { modelSettings } from "../../../../core/server/storage";
+import type { HostProvider } from "../../../../plugins/models/server/internal";
 import { createTestSdk } from "../../../support/deps";
 import { insertUser, type TestUser } from "../../../support/users";
 import { getTestDb } from "../../../support/test-database";

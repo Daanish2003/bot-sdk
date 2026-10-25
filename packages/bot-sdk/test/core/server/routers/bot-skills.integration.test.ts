@@ -2,15 +2,15 @@ import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { botPromptStart, botTurn } from "../../../../core/server/db/schema";
+import { botPromptStart, botTurn } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
+import { saveCredentials } from "../../../../plugins/models/server/internal";
 import {
   inProcessRunner,
   type InProcessRunner,
   systemClock,
-} from "../../../../plugins/runner/server/jobs/in-process";
-import { claimJob } from "../../../../plugins/runner/server/jobs/store";
+  claimJob,
+} from "../../../../plugins/runner/server/internal";
 import { skills } from "../../../../plugins/skills/server/plugin";
 import { readSkillsScript } from "../../../../plugins/skills/server/skills";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
@@ -19,11 +19,8 @@ import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapte
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
-import type { CommandResult } from "../../../../plugins/computer/server/provider";
-import {
-  fakeComputerProvider,
-  type FakeCommandRun,
-} from "../../../plugins/computer/server/fake-provider";
+import type { CommandResult } from "../../../../plugins/computer/server/internal";
+import { fakeComputerProvider, type FakeCommandRun } from "../../../support/fake-computer-provider";
 import { followSend } from "../../../support/follow-send";
 
 const model = "openai:gpt-6-luna";

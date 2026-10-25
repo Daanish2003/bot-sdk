@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { deleteConversations } from "../../../core/server/chat/delete-conversations";
 import { createHookEmitter } from "../../../core/server/chat/hooks";
-import { bot, conversation } from "../../../core/server/db/schema";
+import { bot, conversation } from "../../../core/server/storage";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkContext, BotSdkPlugin } from "../../../core/server/plugin";
 import { deleteUserData } from "../../../core/server/user-data";

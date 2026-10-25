@@ -2,23 +2,23 @@ import type { ContentPart, ModelMessage, TextOptions } from "@tanstack/ai";
 import { and, asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { bot as botTable, botTurn, botUpload, message } from "../../../../core/server/db/schema";
+import { bot as botTable, botTurn, botUpload, message } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { deleteUserData } from "../../../../core/server/user-data";
-import { sentFileBlobKey, sentFileResponse } from "../../../../plugins/bot/server/files";
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
+import { sentFileBlobKey, sentFileResponse } from "../../../../plugins/bot/server/conversation";
+import { saveCredentials } from "../../../../plugins/models/server/internal";
 import {
   inProcessRunner,
   type InProcessRunner,
   systemClock,
-} from "../../../../plugins/runner/server/jobs/in-process";
+} from "../../../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
 import { followSend } from "../../../support/follow-send";
 import { chatRpc } from "../../../support/sdk";
 import { getTestDb } from "../../../support/test-database";
 import { insertUser } from "../../../support/users";
-import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
+import { fakeComputerProvider } from "../../../support/fake-computer-provider";
 
 vi.setConfig({ testTimeout: 30_000 });
 

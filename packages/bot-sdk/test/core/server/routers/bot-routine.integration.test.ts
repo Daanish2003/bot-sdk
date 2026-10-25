@@ -3,15 +3,12 @@ import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { conversationChannel } from "../../../../core/server/chat/conversation-events";
-import { botPromptStart, botRoutine, botTurn } from "../../../../core/server/db/schema";
+import { botPromptStart, botRoutine, botTurn } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { deleteUserData } from "../../../../core/server/user-data";
-import { findBot } from "../../../../plugins/bot/server/store";
-import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
-import {
-  inProcessRunner,
-  type InProcessRunner,
-} from "../../../../plugins/runner/server/jobs/in-process";
+import { findBot } from "../../../../plugins/bot/server/conversation";
+import { saveCredentials } from "../../../../plugins/models/server/internal";
+import { inProcessRunner, type InProcessRunner } from "../../../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
 import { chatRpc } from "../../../support/sdk";
