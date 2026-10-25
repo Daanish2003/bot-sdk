@@ -38,7 +38,12 @@ import { bot } from "../../plugins/bot/server/plugin";
 import { channel, type ChannelAdapter } from "../../plugins/channel/server/plugin";
 import { computer } from "../../plugins/computer/server/plugin";
 import type { ComputerProvider } from "../../plugins/computer/server/provider";
-import { models, type ModelsOptions, type ModelsPlugin } from "../../plugins/models/server/plugin";
+import {
+  models,
+  type ModelsApi,
+  type ModelsOptions,
+  type ModelsPlugin,
+} from "../../plugins/models/server/plugin";
 import type { JobRunner } from "../../plugins/runner/server/jobs/runner";
 import { runner } from "../../plugins/runner/server/plugin";
 
@@ -154,6 +159,8 @@ export type BotSdk = {
   handler: ChatHandler;
   /** An enabled plugin's API. Throws for a plugin that isn't enabled. */
   plugin: BotSdkContext["plugin"];
+  /** The core's Models (spec #871): metering, the Quota and the Admin views' usage reads. */
+  models: ModelsApi;
   /** Creates the `chat` schema and applies the bundled migrations. Run it at deploy time. */
   migrate: () => Promise<void>;
   /**
@@ -214,7 +221,9 @@ function exportResponse(document: UserExport) {
 }
 
 /** The parts of the core context a test may give instead of having them built. */
-export type GivenContext = Partial<Omit<BotSdkContext, "plugin" | "hasPlugin" | "rateLimit">>;
+export type GivenContext = Partial<
+  Omit<BotSdkContext, "plugin" | "hasPlugin" | "rateLimit" | "models">
+>;
 
 /**
  * The Bot SDK for a Host: one instance over its plugins (ADR 0020). Construction checks each
@@ -302,6 +311,7 @@ export function buildBotSdk(
   const instance: BotSdk = {
     handler: createHandler(options, router, routes, sdk),
     plugin: sdk.plugin,
+    models: sdk.models,
     migrate: () =>
       migrateSchema(options.databaseUrl, {
         blobStore: options.blobs ?? options.blobStore,
@@ -395,11 +405,24 @@ function buildContext(
         throw new Error(`No enabled plugin declares the rate limit "${rule}"`);
       return rateLimitedFor(counters, limit, key);
     },
+    // Set by the Models' init, which runs before every plugin's.
+    models: modelsUnconfigured,
     plugin: <Id extends keyof PluginApis>(id: Id) => plugin(id) as PluginApis[Id],
     // From the plugin list, so it holds already in an `init` that runs before the other plugin's.
     hasPlugin: (id) => enabledIds.has(id),
   };
 }
+
+/**
+ * The `models` service of an instance whose plugin list has no `models()`: reading any of it
+ * throws. Symbols and `then` read as unset, so printing or awaiting it doesn't.
+ */
+const modelsUnconfigured = new Proxy({} as ModelsApi, {
+  get: (_target, key) => {
+    if (typeof key === "symbol" || key === "then") return undefined;
+    throw new Error("Models aren't configured: set the models slot");
+  },
+});
 
 function createHandler(
   { basePath, getUser, logger = console }: BotSdkOptions,

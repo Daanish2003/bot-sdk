@@ -160,7 +160,7 @@ export function startHelperTool(
         return { error: computerUseModelError };
       }
       // Checked here only, so a resumed Helper is never refused.
-      const call = await deps.plugin("models").resolveModelCall(turn.userId, turn.model);
+      const call = await deps.models.resolveModelCall(turn.userId, turn.model);
       // The plan's endpoint rejects the native computer tool.
       if (type === "computer_use" && call?.linked === "plan") {
         return { error: computerUseOnPlanError };
@@ -551,7 +551,7 @@ async function playHelper(
             session.slot,
             kit.computerCall,
             async () => {
-              const model = await deps.plugin("models").resolveModel(helper.userId, helper.model);
+              const model = await deps.models.resolveModel(helper.userId, helper.model);
               return model?.images ?? false;
             },
             (png) => storeScreenshot(deps, helper.id, png),

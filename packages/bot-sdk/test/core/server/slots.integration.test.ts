@@ -54,6 +54,29 @@ describe("createBotSdk with flat slots", () => {
     expect(await bots.json()).toEqual({ json: [] });
   });
 
+  it("serves the Models the models slot configures as sdk.models", async () => {
+    vi.setSystemTime(new Date("2026-10-10T18:00:00Z"));
+    try {
+      const user = await insertUser();
+      const sdk = createBotSdk(
+        slots({
+          databaseUrl: testDatabaseUrl,
+          models: { getQuota: () => ({ budgetUsd: 2, window: "day" }), byok: false },
+        }),
+      );
+
+      expect(await sdk.models.quota(user.id)).toEqual({
+        budgetMicros: 2_000_000,
+        spentMicros: 0,
+        window: "day",
+        resetsAt: new Date("2026-10-11T00:00:00Z"),
+      });
+      expect(sdk.models.byok).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("falls back to the in-process runner, Postgres blobs and no Computer", async () => {
     const { context } = buildBotSdk(slots({ databaseUrl: testDatabaseUrl }), {});
 

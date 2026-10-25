@@ -79,7 +79,7 @@ export type ModelsOptions = {
 };
 
 /**
- * The `models` plugin's API (`sdk.plugin("models")`): who pays for a call and with which
+ * The core's Models (`sdk.models`, spec #871): who pays for a call and with which
  * credentials, the Models a user can pick, metering and the Quota.
  */
 export type ModelsApi = {
@@ -146,12 +146,6 @@ export type ModelsApi = {
   quota: (userId: string) => Promise<QuotaState | null>;
 };
 
-declare module "../../../core/server/plugin" {
-  interface PluginApis {
-    models: ModelsApi;
-  }
-}
-
 /** The rate-limit rules the `models` plugin declares, and their defaults. */
 const modelsRateLimits = {
   credentialSave: defaultRateLimits.credentialSave,
@@ -204,11 +198,12 @@ function modelsPlugin(
     id: "models",
     router: modelsPluginRouter,
     rateLimits: modelsRateLimits,
+    // The core's `models` service, set before any plugin that calls it is initialised.
     init: (sdk) => {
       const deps = ready(sdk);
       const api = modelsApi(deps);
       bindModelsDeps(api, deps);
-      return { api };
+      sdk.models = api;
     },
     start: async (sdk) => {
       await start?.(sdk, ready(sdk));

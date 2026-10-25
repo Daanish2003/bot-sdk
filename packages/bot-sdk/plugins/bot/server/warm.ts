@@ -151,7 +151,7 @@ async function warmCall(
   }: { userId: string; botId: string; model: string; provider: "anthropic" | "openai" },
   startId: string,
 ): Promise<(() => void) | "unsupported" | "unavailable"> {
-  const models = deps.plugin("models");
+  const models = deps.models;
   const call = await models.resolveModelCall(userId, model);
   // The plan caches nothing (probe #664), and a broken link has nothing to warm with.
   if (!call || call.linked) return "unsupported";
