@@ -1151,13 +1151,10 @@ async function turnSetup(
   });
   // The features' tools, never shadowing the core's, listed once as the Turn starts: nothing is
   // kept from an earlier Turn.
-  const fromFeatures = await featureTools(
-    deps,
-    facts,
-    kit.liveRequest,
-    takenNames(coreTools),
-    connections,
-  );
+  const fromFeatures = await featureTools(deps, facts, kit.liveRequest, takenNames(coreTools), {
+    ...connections,
+    sections: features,
+  });
   const tools = [...coreTools, ...fromFeatures.tools];
   // `describe_tool` and `run_tool`, which reach the tools the Prompt start lists by name only. A
   // Connector tool whose Connection listed nothing this Turn is still answered, with its error.

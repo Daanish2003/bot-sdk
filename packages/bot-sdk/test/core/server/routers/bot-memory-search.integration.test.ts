@@ -194,6 +194,15 @@ describe("the search_memory tool", () => {
     expect(toolNamesOf(on.fake.calls[0])).toContain("search_memory");
   });
 
+  it("is not offered when the memory snapshot could not be read this Turn", async () => {
+    const failed = await botsWith([round()]);
+    failed.computerFake.failing.add("create");
+
+    await send(failed.client, failed.botIds[0]!, "hi");
+
+    expect(toolNamesOf(failed.fake.calls[0])).not.toContain("search_memory");
+  });
+
   it("tells the Bot its Computer was rebuilt, in its first result after the rebuild", async () => {
     const { client, botIds, fake, computerFake, deps, user } = await botsWith([
       round(search("espresso")),

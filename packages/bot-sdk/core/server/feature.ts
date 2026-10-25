@@ -55,6 +55,8 @@ export type FeatureTurn = { id: string; userId: string; botId: string; conversat
 export type FeatureToolKit = {
   /** Aborts when the Turn ends: whatever the feature opened for its tools closes then. */
   signal: AbortSignal;
+  /** The section this feature gave the Turn's Prompt start; null when it gave none. */
+  section: string | null;
   /**
    * Lists once, as the Turn's recorded activity: a replay reads what its attempt listed, and
    * only a live Turn calls `list`.

@@ -151,6 +151,8 @@ export async function featureTools(
     record: <T>(featureId: string, list: () => Promise<T>) => Promise<T>;
     /** The loop's Computer call, for the tools a feature lists in `computerTools`. */
     computerCall: LoopKit["computerCall"];
+    /** The sections the Turn's features gave its Prompt start, read before the tools. */
+    sections: readonly FeatureSection[];
   },
   only?: string,
 ): Promise<FeatureToolSet> {
@@ -171,6 +173,7 @@ export async function featureTools(
         context,
         kit && {
           signal: kit.signal,
+          section: kit.sections.find((read) => read.name === feature.id)?.section ?? null,
           record: (list) => kit.record(feature.id, list),
           taken: new Set(names),
           computerCall: (name, toolCallId, operate) =>

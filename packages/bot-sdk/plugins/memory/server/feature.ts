@@ -44,6 +44,8 @@ export function memory() {
       // Read once and recorded, so a replay lists what its attempt did, even if the switch moved.
       const enabled = () => memoryEnabledFor(context, turn.userId);
       if (!(await (kit ? kit.record(enabled) : enabled()))) return [];
+      // Reads through the Computer like the snapshot: no snapshot this Turn, no search.
+      if (kit && kit.section === null) return [];
       const search = searchMemoryDefinition.server(async ({ query }, options) => {
         // Only a Turn's tool list is called; a list read for its definitions never runs a tool.
         if (!kit) throw new Error("search_memory was called without a Turn");
