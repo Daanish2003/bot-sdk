@@ -119,6 +119,12 @@ export type BotSdkOptions<Features extends readonly FeatureEntry[] = readonly Fe
    * their Bots. Unset, none does.
    */
   verifiedEmail?: (userId: string) => Promise<string | null>;
+  /**
+   * The Model that reviews each Bot's risky tool calls before they run (Auto-review), a
+   * `"provider:model"` id from the Models' list, resolved per user. Unset, or one the user can't
+   * use, the Bot's own Model reviews, in a fresh context.
+   */
+  reviewModel?: string;
   /** Overrides for the core's rate limits (spec 87). Each rule is optional; `false` turns it off. */
   rateLimits?: RateLimitsOf<[ModelsPlugin]>;
   /**
@@ -220,14 +226,17 @@ export function createBotSdk<const Features extends readonly FeatureEntry[] = []
 }
 
 /**
- * The core's parts the slots configure: Models, the Bots, and the Channels when their slot is set.
- * Models come first, so every other part's `init` finds `sdk.models` set.
+ * The core's parts the slots configure: Models (`modelsPart`, by default the models slot's), the
+ * Bots, and the Channels when their slot is set. Models come first, so every other part's `init`
+ * finds `sdk.models` set.
  */
-function coreParts(options: BotSdkOptions): BotSdkPlugin[] {
-  if (!options.models) throw new Error("Models aren't configured: set the models slot");
+export function coreParts(options: BotSdkOptions, modelsPart?: BotSdkPlugin): BotSdkPlugin[] {
+  if (!modelsPart && !options.models) {
+    throw new Error("Models aren't configured: set the models slot");
+  }
   return [
-    models(options.models),
-    bot(),
+    modelsPart ?? models(options.models),
+    bot({ reviewModel: options.reviewModel }),
     ...(options.channels
       ? [
           channel({

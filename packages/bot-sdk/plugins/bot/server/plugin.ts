@@ -52,7 +52,7 @@ export type BotApi = {
    * at `screenViewPath/<view token>/websockify` (Nitro: `defineWebSocketHandler(screenSocket)`).
    */
   screenSocket: ScreenSocketHooks;
-  /** The Model that reviews the Bots' risky tool calls, as `bot({ reviewModel })` named it, if any. */
+  /** The Model that reviews the Bots' risky tool calls, as the `reviewModel` option named it, if any. */
   reviewModel: string | undefined;
 };
 
