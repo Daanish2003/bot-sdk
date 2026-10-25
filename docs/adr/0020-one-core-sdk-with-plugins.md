@@ -1,5 +1,5 @@
 ---
-Status: accepted, amended by ADR 0027 (the plugin list loses `assistant` and gains `mcp`)
+Status: superseded by ADR 0029
 ---
 
 # One core SDK with plugins, like Better Auth

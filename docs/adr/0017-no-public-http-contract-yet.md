@@ -1,5 +1,5 @@
 ---
-Status: accepted
+Status: superseded by ADR 0029
 ---
 
 # User API keys stay with the Host, and the SDK publishes no public HTTP contract yet

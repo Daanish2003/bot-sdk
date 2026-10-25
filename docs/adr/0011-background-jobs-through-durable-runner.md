@@ -1,5 +1,5 @@
 ---
-Status: accepted
+Status: accepted, amended by ADR 0029 (the runner interface, Trigger.dev adapter, internal-only jobs and "runner is a plugin" are superseded by an Executor seam; the history-replay amendment still holds)
 ---
 
 # Background jobs go through a durable runner in the Chat SDK core, in-process by default

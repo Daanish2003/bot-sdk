@@ -1,5 +1,5 @@
 ---
-Status: accepted
+Status: accepted, amended by ADR 0029 (the plugin list becomes a Bot core plus features)
 ---
 
 # The platform is Bot-only: the assistant chat product goes, and the capabilities Bots can use move to plugins

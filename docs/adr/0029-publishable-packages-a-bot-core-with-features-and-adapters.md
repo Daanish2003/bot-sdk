@@ -1,5 +1,5 @@
 ---
-Status: proposed
+Status: accepted
 ---
 
 # The Bot SDK is published packages: a headless Bot core, features, and adapters
