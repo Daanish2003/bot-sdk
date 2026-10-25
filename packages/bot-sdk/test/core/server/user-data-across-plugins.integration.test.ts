@@ -25,12 +25,11 @@ import { sentFileBlobKey, uploadBotFile } from "../../../plugins/bot/server/file
 import { bot as botPlugin } from "../../../plugins/bot/server/plugin";
 import { loadSecretValues, secretEncryption } from "../../../plugins/bot/server/secret-values";
 import type { BotExport } from "../../../plugins/bot/server/store";
-import { computer, computerBlobKey } from "../../../plugins/computer/server/plugin";
+import { computerBlobKey } from "../../../plugins/computer/server/plugin";
 import { readTokens, saveTokens } from "../../../plugins/mcp/server/connections";
 import { mcpConnection } from "../../../plugins/mcp/server/db/connection";
 import { mcp } from "../../../plugins/mcp/server/plugin";
 import { profilePath } from "../../../plugins/memory/server/bot-memory";
-import { runner } from "../../../plugins/runner/server/plugin";
 import { listCredentials, saveCredentials } from "../../../plugins/models/server/credentials/store";
 import { models } from "../../../plugins/models/server/plugin";
 import { insertConversation, insertMessage } from "../../support/conversations";
@@ -141,7 +140,7 @@ async function seedEverything(
     new File(["milk, eggs"], "list.txt", { type: "text/plain" }),
   );
 
-  await deps.plugin("computer").forUser(user.id).run("true");
+  await deps.computer!.forUser(user.id).run("true");
   // The Bot's memory files, on the disk of the sandbox the run above made, and the Computer's archive.
   fake.files.set(profilePath(botId), new TextEncoder().encode("- Lives in Berlin\n"));
   await deps.blobStore.put(computerBlobKey(user.id), new Uint8Array([1]), {
@@ -181,7 +180,8 @@ describe("deleteUser across plugins", () => {
     const fake = fakeComputerProvider();
     const deps = createTestSdk({
       blobStore: store,
-      plugins: [botPlugin(), computer({ provider: fake.provider })],
+      computer: fake.provider,
+      plugins: [botPlugin()],
       features: [mcp()],
     });
     const owner = await insertUser();
@@ -402,7 +402,7 @@ describe("rotateKeys across plugins", () => {
       keyEncryptionSecrets: [keyB, keyA],
       basePath: "/api/chat",
       logger,
-      plugins: [models(), runner(), botPlugin()],
+      plugins: [models(), botPlugin()],
       features: [mcp()],
     });
 

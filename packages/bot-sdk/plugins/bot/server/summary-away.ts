@@ -284,7 +284,7 @@ async function memoryNow(
   userId: string,
   signal: AbortSignal,
 ): Promise<string | null> {
-  if (!deps.hasPlugin("computer") || !deps.hasPlugin("memory")) return null;
+  if (!deps.computer || !deps.hasPlugin("memory")) return null;
   try {
     return await deps.plugin("memory").botSnapshot({
       userId,

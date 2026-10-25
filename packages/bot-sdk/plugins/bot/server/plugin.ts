@@ -79,11 +79,9 @@ declare module "../../../core/server/plugin" {
 export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
   return {
     id: "bot",
-    requires: ["runner"],
-    // Softly: with computer on, a Turn has its tools, and a running Turn keeps the Computer awake.
-    // With memory on, a Bot has its memory (ADR 0022), and
-    // with mcp on, its user's Connections as Connector tools (spec #801).
-    uses: ["computer", "memory", "mcp"],
+    // Softly: with memory on, a Bot has its memory (ADR 0022), and with mcp on, its user's
+    // Connections as Connector tools (spec #801).
+    uses: ["memory", "mcp"],
     init: (sdk) => {
       // A Turn replays from the history `chat.job` holds. Trigger.dev records nothing and its retry
       // starts over, which would send the Messages again (ADR 0011, the #482 amendment).
@@ -92,8 +90,9 @@ export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
           "The bot plugin needs the in-process runner: a Trigger.dev retry starts a Turn over and would send its Messages again",
         );
       }
-      if (sdk.hasPlugin("computer")) {
-        const computer = sdk.plugin("computer");
+      // With a Computer, a Turn has its tools, and a running Turn keeps the Computer awake.
+      const { computer } = sdk;
+      if (computer) {
         // Never mid-Turn (#508): a Turn that started before the Computer's last activity holds it.
         computer.addBusyCheck((userId, lastActiveAt) =>
           hasTurnUsingComputer(sdk.db, userId, lastActiveAt),

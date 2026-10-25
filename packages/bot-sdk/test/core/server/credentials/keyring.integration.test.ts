@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createBotSdk } from "../../../../core/server/create-chat";
 import { bot } from "../../../../plugins/bot/server/plugin";
-import { runner } from "../../../../plugins/runner/server/plugin";
 import { models } from "../../../../plugins/models/server/plugin";
 import { resolvedServices } from "../../../../plugins/models/server/credentials/resolve";
 import {
@@ -74,7 +73,7 @@ describe("the keyring", () => {
       keyEncryptionSecrets: [keyB],
       basePath: "/api/chat",
       logger,
-      plugins: [models(), runner(), bot()],
+      plugins: [models(), bot()],
     });
 
     await chat.start();

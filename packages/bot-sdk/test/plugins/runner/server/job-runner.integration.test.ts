@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { createBotSdk } from "../../../../core/server/create-chat";
-import { runner } from "../../../../plugins/runner/server/plugin";
 import { models } from "../../../../plugins/models/server/plugin";
 import { job } from "../../../../core/server/db/schema";
 import { defineJob, PermanentJobError } from "../../../../plugins/runner/server/jobs/define";
@@ -974,7 +973,7 @@ describe("schedule", () => {
   });
 });
 
-describe("runner({ jobs })", () => {
+describe("the runner slot", () => {
   it("starts and stops the Host's runner with chat.start() and chat.stop()", async () => {
     const jobs: JobRunner = {
       enqueue: vi.fn(async () => "job-id"),
@@ -990,7 +989,8 @@ describe("runner({ jobs })", () => {
       keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
       basePath: "/api/chat",
       logger: silent,
-      plugins: [models(), runner({ jobs })],
+      plugins: [models()],
+      runner: jobs,
     });
 
     await chat.start();

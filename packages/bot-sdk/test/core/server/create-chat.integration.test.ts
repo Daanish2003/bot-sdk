@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
 import { bot } from "../../../plugins/bot/server/plugin";
-import { runner } from "../../../plugins/runner/server/plugin";
 import { models } from "../../../plugins/models/server/plugin";
 import { saveCredentials } from "../../../plugins/models/server/credentials/store";
 import { createTestSdk } from "../../support/deps";
@@ -21,7 +20,7 @@ describe("createBotSdk", () => {
         getUser: () => null,
         keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
         basePath,
-        plugins: [models(), runner(), bot()],
+        plugins: [models(), bot()],
       }),
     ).not.toThrow();
   });
@@ -33,7 +32,7 @@ describe("createBotSdk", () => {
         getUser: () => null,
         keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
         basePath,
-        plugins: [runner(), bot(), models()],
+        plugins: [bot(), models()],
       }),
     ).not.toThrow();
   });
@@ -45,21 +44,9 @@ describe("createBotSdk", () => {
         getUser: () => null,
         keyEncryptionSecrets: [],
         basePath,
-        plugins: [models(), runner(), bot()],
-      }),
-    ).toThrow(/at least one/);
-  });
-
-  it("throws when the bot plugin is enabled without the runner", () => {
-    expect(() =>
-      createBotSdk({
-        databaseUrl: "postgresql://nobody:nothing@127.0.0.1:1/unreachable",
-        getUser: () => null,
-        keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
-        basePath,
         plugins: [models(), bot()],
       }),
-    ).toThrow(/Plugin "bot" requires plugin "runner"/);
+    ).toThrow(/at least one/);
   });
 });
 
@@ -75,7 +62,6 @@ describe("createBotSdk start", () => {
         models({
           byok: false,
         }),
-        runner(),
         bot(),
       ],
     });
@@ -108,7 +94,6 @@ describe("createBotSdk start", () => {
           ],
           defaultImageModel: "openai:gpt-image-2",
         }),
-        runner(),
         bot(),
       ],
     });
@@ -136,7 +121,6 @@ describe("createBotSdk start", () => {
             },
           ],
         }),
-        runner(),
         bot(),
       ],
     });

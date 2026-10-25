@@ -147,14 +147,16 @@ const chat = createBotSdk({
 
 ```ts
 // server: construct at module load (no side effects)
-// the Model options (Host Providers, BYOK, Quota, ...) go to `models(...)`, the background jobs
-// runner to `runner(...)`, MCP servers to `mcp(...)`, and the Computer's provider to `computer(...)`
+// the Model options (Host Providers, BYOK, Quota, ...) go to `models(...)`, MCP servers to
+// `mcp(...)`, a background jobs runner to the `runner` slot, and the Computer's provider to the
+// `computer` slot
 const chat = createBotSdk({
   databaseUrl,
   getUser,
   keyEncryptionSecrets,
   basePath: "/api/chat",
-  plugins: [models(), runner(), memory(), bot()],
+  computer: e2bProvider({ apiKey, apiUrl, sandboxUrl, template }),
+  plugins: [models(), memory(), bot()],
   features: [skills(), knowledge(), mcp({ servers })],
 });
 
@@ -205,9 +207,9 @@ const client = createBotSdkClient({
 
 ## Background jobs: `runner`
 
-The `runner` plugin runs the background work (ADR 0011): Bot Turns, Routines, Check-ins and Memory passes. `bot` requires it, so a Host lists it: `plugins: [models(), runner(), bot()]`. It's imported from `@ai-chat/bot-sdk/plugins/runner/server`.
+The runner is part of the core: it runs the background work (ADR 0011), Bot Turns, Routines, Check-ins and Memory passes. A Host lists nothing for it.
 
-`runner({ jobs })` takes the runner for background work. The default is the in-process runner: it keeps jobs in the `chat.job` table, which the `chat` schema already has, polls it every 2 s, runs two jobs at once and retries a failed job up to three times, after about 10 s and 1 min. `start()` starts it, and `stop()` takes no new jobs and waits for the running ones. Nothing else to configure, and no second database.
+The `runner` slot (`createBotSdk({ runner })`) takes the runner for background work. The default is the in-process runner: it keeps jobs in the `chat.job` table, which the `chat` schema already has, polls it every 2 s, runs two jobs at once and retries a failed job up to three times, after about 10 s and 1 min. `start()` starts it, and `stop()` takes no new jobs and waits for the running ones. Nothing else to configure, and no second database.
 
 A custom runner is any object with `enqueue(name, payload, options?)`, `start()` and `stop()`, and it takes the place of the default. Jobs are internal to the SDK: a Host can't declare its own.
 
@@ -225,41 +227,42 @@ import { chat } from "@/lib/chat";
 export const chatJob = task({
   id: "chat-job",
   run: async ({ name, payload }: { name: string; payload: unknown }) => {
-    await chat.plugin("runner").runJob(name, payload);
+    await chat.runner.runJob(name, payload);
   },
 });
 
 // src/lib/chat.ts (where createBotSdk is called)
 export const chat = createBotSdk({
   /* ...as before */
-  plugins: [models(), runner({ jobs: triggerJobRunner({ taskId: "chat-job" }) }), memory()],
+  runner: triggerJobRunner({ taskId: "chat-job" }),
+  plugins: [models(), memory()],
 });
 ```
 
-`chat.plugin("runner").runJob(name, payload)` runs a job's handler in the calling process, after validating the payload with the job's schema. It rejects an unknown name or a bad payload, and a handler's error reaches the task, so Trigger.dev's retries apply. The Trigger.dev runner supports `enqueue` only: `cancel`, `status` and `schedule` throw until they are needed. Trigger.dev's idempotency keys also match runs that have finished, so unlike the in-process runner, an `idempotencyKey` can't be reused after its job ends.
+`chat.runner.runJob(name, payload)` runs a job's handler in the calling process, after validating the payload with the job's schema. It rejects an unknown name or a bad payload, and a handler's error reaches the task, so Trigger.dev's retries apply. The Trigger.dev runner supports `enqueue` only: `cancel`, `status` and `schedule` throw until they are needed. Trigger.dev's idempotency keys also match runs that have finished, so unlike the in-process runner, an `idempotencyKey` can't be reused after its job ends.
 
 ## Memory: `memory`
 
-The `memory` plugin keeps each Bot's file memory (ADR 0022), its post-turn pass, and the user's Memory switch. It requires `models` and `runner`: `plugins: [models(), runner(), memory(), bot()]`, with `memoryClient()` on the client. It's imported from `@ai-chat/bot-sdk/plugins/memory/server` (and `/client`, `/ui`). A Host turns Memory off by leaving it out: Bots then keep no Memory, and the keys page shows no Memory section.
+The `memory` plugin keeps each Bot's file memory (ADR 0022), its post-turn pass, and the user's Memory switch. It requires `models`: `plugins: [models(), memory(), bot()]`, with `memoryClient()` on the client. It's imported from `@ai-chat/bot-sdk/plugins/memory/server` (and `/client`, `/ui`). A Host turns Memory off by leaving it out: Bots then keep no Memory, and the keys page shows no Memory section.
 
 The `skills` feature (each Bot's `SKILL.md` files, spec #713) and the `knowledge` feature (a user's Knowledge as plain files, spec #737), both listed in `features`, keep their files on the user's Computer, so they need `computer`. Without it, `createBotSdk` throws for `skills()` and `knowledge()`.
 
 ## A Computer for Bots: `computer`
 
-The `computer` plugin gives each user one Computer, a real machine where their Bots run shell commands and keep files. It requires `runner`, and it is imported from `@ai-chat/bot-sdk/plugins/computer/server`. Leave it out and Bots run without a Computer: no tools, and no mention of them in the system prompt.
+The Computer is part of the core: it gives each user one Computer, a real machine where their Bots run shell commands and keep files. Leave the `computer` slot unset and Bots run without a Computer: no tools, and no mention of them in the system prompt.
 
-The plugin runs on a provider. The E2B provider is on its own subpath, so a Host that never imports it never loads the `e2b` package:
+The slot takes a provider. The E2B provider is on its own subpath, so a Host that never imports it never loads the `e2b` package:
 
 ```ts
 import { e2bProvider } from "@ai-chat/bot-sdk/plugins/computer/e2b";
-import { computer } from "@ai-chat/bot-sdk/plugins/computer/server";
 
-computer({
-  provider: e2bProvider({ apiKey, apiUrl, sandboxUrl, template: "ai-chat-computer-v3" }),
+createBotSdk({
+  // ...
+  computer: e2bProvider({ apiKey, apiUrl, sandboxUrl, template: "ai-chat-computer-v3" }),
 });
 ```
 
-`apps/web` turns `computer` on only when `E2B_API_KEY`, `E2B_API_URL` and `E2B_SANDBOX_URL` are all set.
+`apps/web` sets the `computer` slot only when `E2B_API_KEY`, `E2B_API_URL` and `E2B_SANDBOX_URL` are all set.
 
 A user's Computer is created on their first operation, and with `bot` on, only for a user who has a Bot: `bot` adds that owner check (`addOwnerCheck`), so a Turn that races its user's delete leaves no Computer behind. A plugin that uses the Computer for users without a Bot adds its own check.
 
@@ -332,7 +335,7 @@ pnpm exec vitest run --maxWorkers=1 --no-file-parallelism packages/bot-sdk/test/
 
 ## Email for Bots: `channel`
 
-The `channel` plugin gives each Bot its own email address (spec #761, ADR 0026): the owner's mail to it wakes the Bot like a web Message, and the Bot's replies are emailed back. It requires `models`, `bot` and `runner`, and it is imported from `@ai-chat/bot-sdk/plugins/channel/server` (and `/client`, `/ui` for the Bot header's Email popover). Leave it out and Bots have no address.
+The `channel` plugin gives each Bot its own email address (spec #761, ADR 0026): the owner's mail to it wakes the Bot like a web Message, and the Bot's replies are emailed back. It requires `models` and `bot`, and it is imported from `@ai-chat/bot-sdk/plugins/channel/server` (and `/client`, `/ui` for the Bot header's Email popover). Leave it out and Bots have no address.
 
 ```ts
 import { channel, emailChannel } from "@ai-chat/bot-sdk/plugins/channel/server";
@@ -536,11 +539,7 @@ These options go in the `models` slot, `createBotSdk({ models: { hostProviders, 
 ```ts
 const chat = createBotSdk({
   // ...
-  plugins: [
-    models({ getQuota: async (userId) => ({ budgetUsd: 0.5, window: "day" }) }),
-    runner(),
-    bot(),
-  ],
+  plugins: [models({ getQuota: async (userId) => ({ budgetUsd: 0.5, window: "day" }) }), bot()],
 });
 ```
 
@@ -574,7 +573,6 @@ const chat = createBotSdk({
       ],
       byok: true,
     }),
-    runner(),
     bot(),
   ],
 });

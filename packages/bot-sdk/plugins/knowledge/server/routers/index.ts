@@ -16,7 +16,7 @@ const pathInput = z.object({ path: z.string() });
 
 /** The Knowledge procedures: a user's view of their shared Knowledge folder (spec #737). */
 export const knowledgeRouter = {
-  /** Whether the user can have Knowledge, which needs the `computer` plugin. Reads nothing. */
+  /** Whether the user can have Knowledge, which needs the computer slot. Reads nothing. */
   status: protectedProcedure.handler(({ context }) => ({
     available: knowledgeAvailable(context.sdk),
   })),

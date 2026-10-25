@@ -155,7 +155,7 @@ export async function helperDone(
   userId: string,
   helperId: string,
 ): Promise<{ status: "running" }> {
-  const runner = deps.plugin("runner");
+  const runner = deps.runner;
   const resumed = await deps.db.transaction(async (tx) => {
     const [owned] = await tx
       .select({ conversationId: bot.conversationId })

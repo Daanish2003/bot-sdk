@@ -285,7 +285,7 @@ export async function runCacheCase(env: ContextEnv, repeat: number): Promise<Con
             receivedAt: now,
           });
         });
-        env.sdk.plugin("runner").wake();
+        env.sdk.runner.wake();
         const turnId = turnIdOf(taken);
         const ended = await waitForTurn(turnEnvOf(env, key), turnId);
         if (ended.status !== "complete")
@@ -401,7 +401,7 @@ export async function runSummaryCase(env: ContextEnv, repeat: number): Promise<C
     if (queued.status === "queued") {
       await env.db.update(job).set({ runAfter: new Date() }).where(eq(job.id, queued.id));
     }
-    env.sdk.plugin("runner").wake();
+    env.sdk.runner.wake();
     const summary = await summaryWritten(env.db, bot.id);
 
     // The Bot's last 3 Messages to the user up to the Summary, read from the Conversation itself.

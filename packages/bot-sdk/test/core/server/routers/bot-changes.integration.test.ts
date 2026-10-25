@@ -15,7 +15,6 @@ import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { bot } from "../../../../plugins/bot/server/plugin";
 import { findBot } from "../../../../plugins/bot/server/store";
 import type { BotChange } from "../../../../plugins/bot/shared/changes";
-import { computer } from "../../../../plugins/computer/server/plugin";
 import {
   deleteCredentials,
   saveCredentials,
@@ -67,7 +66,8 @@ async function botWith(turns: Round[] = [], helpers: Round[] = []) {
   let deps: TestDeps | undefined;
   const jobs = inProcessRunner({ db: getTestDb(), logger: silent, drainMs: 50, deps: () => deps! });
   deps = createTestSdk({
-    plugins: [bot(), computer({ provider: fakeComputerProvider().provider })],
+    computer: fakeComputerProvider().provider,
+    plugins: [bot()],
     jobs,
     adapterFor: () => adapter,
     memory: false,

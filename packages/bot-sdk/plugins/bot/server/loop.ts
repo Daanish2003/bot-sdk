@@ -624,9 +624,7 @@ export async function runLoop(
    */
   const capLong = async <T>(result: T, toolCallId: string | undefined): Promise<T> => {
     if (toolCallId === undefined) return result;
-    const computer = deps.hasPlugin("computer")
-      ? (userComputer ??= computerOf(deps, owner.userId))
-      : undefined;
+    const computer = deps.computer ? (userComputer ??= computerOf(deps, owner.userId)) : undefined;
     return (await capResult(
       result,
       spillPath(owner.botId, toolCallId),

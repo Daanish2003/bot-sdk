@@ -41,14 +41,12 @@ export async function queueFire(
   routineId: string,
   slot: Date,
 ): Promise<void> {
-  await deps
-    .plugin("runner")
-    .enqueueIn(
-      tx,
-      routineFireJobName,
-      { routineId, slot: slot.toISOString() },
-      { idempotencyKey: fireKey(routineId, slot), runAfter: slot },
-    );
+  await deps.runner.enqueueIn(
+    tx,
+    routineFireJobName,
+    { routineId, slot: slot.toISOString() },
+    { idempotencyKey: fireKey(routineId, slot), runAfter: slot },
+  );
 }
 
 /** Cancels the queued fires of the user's Routines, in `tx`, so none fires once they are deleted. */
@@ -86,7 +84,7 @@ async function cancelFires(
         or(...routineIds.map((id) => like(job.idempotencyKey, `routine:${id}:%`))),
       ),
     );
-  const runner = deps.plugin("runner");
+  const runner = deps.runner;
   for (const { key } of fires) if (key) await runner.cancelIn(tx, key);
 }
 

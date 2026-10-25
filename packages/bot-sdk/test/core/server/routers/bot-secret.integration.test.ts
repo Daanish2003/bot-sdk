@@ -20,7 +20,6 @@ import { richControlJsonSchema } from "../../../../plugins/bot/client/index";
 import { secretNameSchema } from "../../../../plugins/bot/shared/secret";
 import { rotateSecretKeys } from "../../../../plugins/bot/server/secret";
 import { loadSecretValues, secretEncryption } from "../../../../plugins/bot/server/secret-values";
-import { computer } from "../../../../plugins/computer/server/plugin";
 import type { CommandResult } from "../../../../plugins/computer/server/provider";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
@@ -65,7 +64,8 @@ async function botWith(
   let deps: TestDeps | undefined;
   const jobs = inProcessRunner({ db: getTestDb(), logger: silent, drainMs: 50, deps: () => deps! });
   deps = createTestSdk({
-    plugins: [bot(), computer({ provider: computerFake.provider })],
+    computer: computerFake.provider,
+    plugins: [bot()],
     jobs,
     adapterFor: () => fake.adapter,
     reviewAdapterFor: () => reviewer.adapter,

@@ -13,7 +13,6 @@ import {
 } from "../../../../plugins/bot/server/helper";
 import { bot } from "../../../../plugins/bot/server/plugin";
 import { findBot } from "../../../../plugins/bot/server/store";
-import { computer } from "../../../../plugins/computer/server/plugin";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
   inProcessRunner,
@@ -71,7 +70,8 @@ async function botWith(turns: Round[], helpers: Round[], { clock }: { clock?: ()
     ...(clock && { clock: { ...systemClock, now: clock } }),
   });
   deps = createTestSdk({
-    plugins: [bot(), computer({ provider: computerFake.provider })],
+    computer: computerFake.provider,
+    plugins: [bot()],
     jobs,
     adapterFor: () => adapter,
     ...(clock && { clock }),

@@ -10,6 +10,7 @@ import type { FeatureEntry, GivenContext } from "../../core/server/create-chat";
 import type { BotSdkPlugin } from "../../core/server/plugin";
 import { createBotSdkOver, type SdkOver } from "../../core/server/over";
 import { memory } from "../../plugins/memory/server/plugin";
+import type { ComputerProvider } from "../../plugins/computer/server/provider";
 import type { ModelsDeps } from "../../plugins/models/server/types";
 import type { JobRunner } from "../../plugins/runner/server/jobs/runner";
 import { resolveRateLimits } from "../../core/server/rate-limits";
@@ -27,9 +28,11 @@ export type TestDepsOverrides = Partial<
     Omit<ModelsDeps, "hooks"> & {
       /** The core's event emitter (`BotSdkContext.events`). */
       hooks: HookEmitter;
-      /** The `runner` plugin's jobs runner (`runner({ jobs })`). */
+      /** The runner slot's jobs runner. */
       jobs: JobRunner;
-      /** More plugins, enabled after `models` and `runner`. */
+      /** The computer slot's provider (`fakeComputerProvider().provider`); no Computer by default. */
+      computer: ComputerProvider;
+      /** More plugins, enabled after `models`. */
       plugins: readonly BotSdkPlugin[];
       /** The features, as the `features` slot takes them. */
       features: readonly FeatureEntry[];
@@ -49,12 +52,13 @@ const passingReviewer = fakeReviewer().adapter;
 /**
  * A real `createBotSdk` instance for tests, over the test database and fakes, with nothing that
  * reaches the network; it returns the instance's core context with its `models` bundle. It is
- * Bot-only: `models`, `runner`, `memory` and the given `plugins`. Pass overrides for the parts a
+ * Bot-only: `models`, `memory` and the given `plugins`, with the runner and the given `computer`. Pass overrides for the parts a
  * test scripts (for example `adapterFor` returning a fake adapter).
  */
 export function createTestSdk({
   plugins,
   features,
+  computer,
   ...overrides
 }: TestDepsOverrides = {}): TestDeps {
   const db = overrides.db ?? getTestDb();
@@ -118,7 +122,7 @@ export function createTestSdk({
   };
   const installed = [...(overrides.memory === false ? [] : [memory()]), ...(plugins ?? [])];
   return createBotSdkOver(
-    { context, models, jobs: overrides.jobs, plugins: installed, features },
+    { context, models, jobs: overrides.jobs, computer, plugins: installed, features },
     { basePath: "/api/chat", getUser: () => null, logger: { error: () => {} } },
   ).sdk;
 }

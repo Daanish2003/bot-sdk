@@ -1,5 +1,4 @@
 export {
-  computer,
   ComputerOperationError,
   ComputerUnavailableError,
   defaultCommandTimeoutMs,
@@ -7,7 +6,6 @@ export {
   ScreenNotOpenError,
   type ComputerApi,
   type ComputerHandle,
-  type ComputerPlugin,
   type ScreenControl,
   type ScreenUrls,
 } from "./plugin";

@@ -33,7 +33,6 @@ import {
 import { secretEncryption } from "../../../../plugins/bot/server/secret-values";
 import { listHelpers } from "../../../../plugins/bot/server/helper-card";
 import { bot } from "../../../../plugins/bot/server/plugin";
-import { computer } from "../../../../plugins/computer/server/plugin";
 import type { CommandResult } from "../../../../plugins/computer/server/provider";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { quotaLookup } from "../../../../plugins/models/server/quota";
@@ -125,7 +124,8 @@ async function botWith(
     deps: () => deps!,
   });
   deps = createTestSdk({
-    plugins: withComputer ? [bot(), computer({ provider: computerFake.provider })] : [bot()],
+    ...(withComputer && { computer: computerFake.provider }),
+    plugins: [bot()],
     jobs,
     adapterFor: (_model, credentials) => {
       adapterCredentials.push(credentials);
@@ -438,7 +438,8 @@ describe("a Helper's limits", () => {
     });
     started.push(jobs);
     deps = createTestSdk({
-      plugins: [bot(), computer({ provider: fakeComputerProvider().provider })],
+      computer: fakeComputerProvider().provider,
+      plugins: [bot()],
       jobs,
       adapterFor: () => fakes.adapter,
       memory: false,
@@ -684,7 +685,7 @@ describe("a rebuilt Computer", () => {
       [round(shell("ls")), round(shell("ls")), round(text("No files."))],
     );
     // The user's Computer exists and sleeps, then its sandbox is lost: its next wake rebuilds it.
-    await deps.plugin("computer").forUser(user.id).run("true");
+    await deps.computer!.forUser(user.id).run("true");
     await getTestDb()
       .update(computerTable)
       .set({ state: "asleep" })

@@ -12,7 +12,6 @@ import { askUserToolName } from "../../../../plugins/bot/server/hand-off";
 import { closeScreen } from "../../../../plugins/bot/server/helper";
 import { bot } from "../../../../plugins/bot/server/plugin";
 import type { ScreenPeer } from "../../../../plugins/bot/server/screen-view";
-import { computer } from "../../../../plugins/computer/server/plugin";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
   inProcessRunner,
@@ -96,7 +95,8 @@ async function waitingHelper(
     clock: { ...systemClock, now: clock },
   });
   deps = createTestSdk({
-    plugins: [bot(), computer({ provider: computerFake.provider })],
+    computer: computerFake.provider,
+    plugins: [bot()],
     jobs,
     adapterFor: () => adapter,
     clock,

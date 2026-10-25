@@ -23,7 +23,7 @@ export const routineFireJob = defineJob({
       fireRoutine(deps, tx, routineId, new Date(slot)),
     );
     if (!fired) return;
-    if (fired.woke) deps.plugin("runner").wake();
+    if (fired.woke) deps.runner.wake();
     await hintChanged(deps, fired.conversationId);
   },
   // A fire that failed for good queued no next fire (its Checkpoint rolled back): queue it here, so
@@ -134,13 +134,11 @@ const reconcileEveryMs = 60 * 60_000;
  * share one job.
  */
 async function queueReconcile(deps: BotSdkContext, at: Date): Promise<void> {
-  await deps
-    .plugin("runner")
-    .enqueue(
-      routineReconcileJobName,
-      { at: at.toISOString() },
-      { idempotencyKey: `routine_reconcile:${at.toISOString()}`, runAfter: at },
-    );
+  await deps.runner.enqueue(
+    routineReconcileJobName,
+    { at: at.toISOString() },
+    { idempotencyKey: `routine_reconcile:${at.toISOString()}`, runAfter: at },
+  );
 }
 
 /**
