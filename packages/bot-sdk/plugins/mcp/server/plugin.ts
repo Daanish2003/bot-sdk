@@ -1,9 +1,11 @@
 import type { AnyServerTool } from "@tanstack/ai";
 import { eq } from "drizzle-orm";
 
-import { mcpConnection } from "../../../core/server/db/schema";
-import type { BotSdkPlugin, Route } from "../../../core/server/plugin";
+import { defineFeature } from "../../../core/server/feature";
+import type { Route } from "../../../core/server/plugin";
 import { rotateConnectionKeys } from "./connections";
+import { connectorTools } from "./connector-tools";
+import { mcpConnection } from "./db/connection";
 import { callbackRoute, connectRoute } from "./routes";
 import { connectionsRouter, type McpRouter } from "./routers/index";
 import { checkMcpServers, type McpServerConfig } from "./servers";
@@ -18,7 +20,7 @@ export type McpOptions = {
   servers?: McpServerConfig[];
 };
 
-/** The `mcp` plugin's API (`sdk.plugin("mcp")`): a user's Connections as tools. */
+/** The `mcp` feature's API (`sdk.mcp`): a user's Connections as tools. */
 export type McpApi = {
   /** The servers the Host offers, by key and name: what a tool named `<key>_<tool>` belongs to. */
   servers: ReadonlyArray<{ key: string; name: string }>;
@@ -38,43 +40,53 @@ declare module "../../../core/server/plugin" {
   }
 }
 
-export type McpPlugin = BotSdkPlugin<"mcp", never, never>;
-
 /**
- * The `mcp` plugin (ADR 0027): the Host's MCP servers, the users' Connections to them (the sign-in
- * routes, the `connections` router and key rotation) and their tools.
+ * The `mcp` feature (ADR 0027, spec #871): the Host's MCP servers, the users' Connections to them
+ * (the sign-in routes, the `connections` router and key rotation) and their tools. A Host turns it
+ * on with `mcp({ servers })` in `features`.
  */
-export function mcp(options: McpOptions = {}): McpPlugin {
+export function mcp(options: McpOptions = {}) {
   const servers = options.servers ?? [];
-  return {
+  return defineFeature({
     id: "mcp",
+    schema: { mcpConnection },
+    connectorTools: true,
     router: { connections: connectionsRouter(servers) } satisfies McpRouter,
     routes: mcpRoutes(servers),
-    init: (sdk) => {
+    api: (context): McpApi => {
       // At construction, so a misconfigured server fails the Host's boot (spec #91).
-      checkMcpServers(servers, sdk.fetchAllowHosts);
-      const api: McpApi = {
+      checkMcpServers(servers, context.fetchAllowHosts);
+      return {
         servers: servers.map(({ key, name }) => ({ key, name })),
         forUser: (userId) => ({
-          tools: ({ signal }) => openMcpTools(sdk, servers, userId, signal),
+          tools: ({ signal }) => openMcpTools(context, servers, userId, signal),
         }),
       };
-      return { api };
     },
-    deleteUser: {
-      before: async (_sdk, { userId, tx }) => {
-        await tx.delete(mcpConnection).where(eq(mcpConnection.userId, userId));
+    // Listed by a Turn, never when only the definitions are read: the next Turn notes them added.
+    tools: async (turn, context, kit) => {
+      if (!kit) return [];
+      return connectorTools({
+        servers,
+        open: (signal) => openMcpTools(context, servers, turn.userId, signal),
+        ...kit,
+      });
+    },
+    userData: {
+      delete: {
+        before: async (tx, userId) => {
+          await tx.delete(mcpConnection).where(eq(mcpConnection.userId, userId));
+        },
       },
-      after: async () => {},
     },
-    rotateKeys: async (sdk) => {
-      const { reencrypted, unreadable } = await rotateConnectionKeys(sdk);
+    rotateKeys: async (context) => {
+      const { reencrypted, unreadable } = await rotateConnectionKeys(context);
       if (unreadable > 0) {
-        sdk.logger.error("Stored MCP tokens can't be read; left in place", { unreadable });
+        context.logger.error("Stored MCP tokens can't be read; left in place", { unreadable });
       }
       return { reencrypted, unreadable };
     },
-  };
+  });
 }
 
 /** The sign-in routes, under `basePath`: `/mcp/connect` starts one and `/mcp/callback` ends it. */

@@ -1,32 +1,28 @@
 import type { AnyServerTool } from "@tanstack/ai";
 import { describe, expect, it } from "vitest";
 
-import type { BotSdkContext } from "../../../../core/server/plugin";
 import {
   type ConnectorListing,
   connectorTools,
   reconnectError,
-} from "../../../../plugins/bot/server/connector-tools";
+} from "../../../../plugins/mcp/server/connector-tools";
 
-/** Deps whose `mcp` plugin offers one server, keyed `web`, listing `tools`, and the user no Secrets. */
-const depsWith = (tools: AnyServerTool[]) =>
-  ({
-    plugin: () => ({
-      servers: [{ key: "web", name: "Web" }],
-      forUser: () => ({ tools: async () => tools }),
-    }),
-    db: { select: () => ({ from: () => ({ where: async () => [] }) }) },
-  }) as unknown as BotSdkContext;
+/** The wiring of a Turn whose one server, keyed `web`, lists `tools`, and the user has no Secrets. */
+const wiring = (tools: AnyServerTool[]) => ({
+  servers: [{ key: "web", name: "Web" }],
+  open: async () => tools,
+  secretMask: async () => (text: string) => text,
+});
 
 /**
  * The Connector tools over `live`, as a Turn whose recorded listing is `recorded` (a replay) or the
  * live one, each call run at once.
  */
 const connectorsOf = (live: AnyServerTool[], recorded?: ConnectorListing[]) =>
-  connectorTools(depsWith(live), "user-1", {
+  connectorTools({
+    ...wiring(live),
     signal: new AbortController().signal,
     record: async (list) => recorded ?? list(),
-    liveRequest: async (_name, _id, run) => run(),
     taken: new Set(),
   });
 
@@ -44,19 +40,15 @@ async function call(connectors: Awaited<ReturnType<typeof connectorsOf>>, name: 
 
 describe("connectorTools", () => {
   it("leaves out a Connector tool named like one of the Turn's own tools", async () => {
-    const connectors = await connectorTools(
-      depsWith([
+    const connectors = await connectorTools({
+      ...wiring([
         { name: "web_search", description: "Shadows the Bot's web search." },
         { name: "web_fetch_page", description: "Fetches a page." },
       ] as unknown as AnyServerTool[]),
-      "user-1",
-      {
-        signal: new AbortController().signal,
-        record: (list) => list(),
-        liveRequest: async () => "unused",
-        taken: new Set(["web_search", "send_to_user"]),
-      },
-    );
+      signal: new AbortController().signal,
+      record: (list) => list(),
+      taken: new Set(["web_search", "send_to_user"]),
+    });
 
     expect(connectors.tools.map((tool) => tool.name)).toEqual(["web_fetch_page"]);
   });

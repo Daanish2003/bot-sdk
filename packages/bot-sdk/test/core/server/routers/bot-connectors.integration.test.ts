@@ -98,11 +98,8 @@ async function botWith(
     deps: () => deps!,
   });
   deps = createTestSdk({
-    plugins: [
-      bot(),
-      computer({ provider: fakeComputerProvider().provider }),
-      ...(withMcp ? [mcp({ servers: [linear] })] : []),
-    ],
+    plugins: [bot(), computer({ provider: fakeComputerProvider().provider })],
+    features: withMcp ? [mcp({ servers: [linear] })] : [],
     fetch,
     jobs,
     adapterFor: () => fake.adapter,

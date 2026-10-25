@@ -110,11 +110,8 @@ async function world({
     deps: () => deps!,
   });
   deps = createTestSdk({
-    plugins: [
-      bot(),
-      computer({ provider: fakeComputerProvider().provider }),
-      mcp({ servers: [linear] }),
-    ],
+    plugins: [bot(), computer({ provider: fakeComputerProvider().provider })],
+    features: [mcp({ servers: [linear] })],
     fetch,
     jobs,
     adapterFor: () => adapter,

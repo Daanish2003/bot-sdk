@@ -44,7 +44,8 @@ function chatFor() {
     getUser: () => null,
     keyEncryptionSecrets: [testKey],
     basePath: "/api/chat",
-    plugins: [models(), runner(), memoryPlugin(), botPlugin(), mcp()],
+    plugins: [models(), runner(), memoryPlugin(), botPlugin()],
+    features: [mcp()],
   });
 }
 
@@ -69,7 +70,7 @@ describe("createBotSdk().exportUser, with Bots", () => {
 
   it("never includes the Provider or Tool keys, a Secret's value or a Connection's tokens", async () => {
     const owner = await insertUser();
-    const { deps } = await botSdk({ plugins: [mcp()] }, { idle: true });
+    const { deps } = await botSdk({ features: [mcp()] }, { idle: true });
     await saveCredentials(deps, owner.id, {
       service: "anthropic",
       fields: { apiKey: providerKey },

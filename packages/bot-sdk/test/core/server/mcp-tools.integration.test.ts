@@ -56,7 +56,7 @@ async function setup({ servers = [linear] }: { servers?: McpServerConfig[] } = {
     const isEndpoint = url.origin === mcpOrigin && url.pathname === "/mcp";
     return (isEndpoint ? server.fetch : auth.fetch)(input, init);
   }) as typeof globalThis.fetch;
-  const deps = createTestSdk({ fetch, plugins: [mcp({ servers })] });
+  const deps = createTestSdk({ fetch, features: [mcp({ servers })] });
   await connect(user, deps, auth);
   const tools = (signal: AbortSignal) => deps.plugin("mcp").forUser(user.id).tools({ signal });
   return { user, deps, auth, server, tools };

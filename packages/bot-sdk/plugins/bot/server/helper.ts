@@ -21,8 +21,8 @@ import { BrowserSession, browserTools } from "./browser-tools";
 import { storeScreenshot } from "./screenshots";
 import { computerOf } from "./computer-tools";
 import { computerUseTool } from "./computer-use-tool";
-import { connectorTools } from "./connector-tools";
 import { type LoopKit, type LoopResult, runLoop, totalUsage } from "./loop";
+import { featureTools, featureTurnOf } from "./features";
 import { closeWaitingReviews } from "./review";
 import { lockConversation, receive } from "./router";
 import { recordBotChange } from "./thread-change";
@@ -504,13 +504,19 @@ async function playHelper(
         const own = [...kit.computerTools, webSearchTool(deps, helper.userId, kit.liveRequest)];
         // The owner's Connector tools, listed by name and reached through a small tool search; a
         // Computer-use Helper has none (lecture slide 27).
+        // Only the `mcp` feature's tools: a Helper gets no other feature's.
         const connectors = deps.hasPlugin("mcp")
-          ? await connectorTools(deps, helper.userId, {
-              signal: connections.signal,
-              record: (list) => ctx.activity("connectors", list),
-              liveRequest: kit.liveRequest,
-              taken: new Set([describeToolName, runToolName, ...own.map((tool) => tool.name)]),
-            })
+          ? await featureTools(
+              deps,
+              featureTurnOf(helper),
+              kit.liveRequest,
+              new Set([describeToolName, runToolName, ...own.map((tool) => tool.name)]),
+              {
+                signal: connections.signal,
+                record: (featureId, list) => ctx.activity(`${featureId}:tools`, list),
+              },
+              "mcp",
+            )
           : undefined;
         if (!connectors || connectors.tools.length === 0) {
           return { systemPrompts: [generalHelperPrompt], tools: own };
