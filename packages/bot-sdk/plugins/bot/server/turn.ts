@@ -467,7 +467,7 @@ export async function sendToBot(
     const ended = waitsFor ? await cancelTurn(deps, tx, waitsFor) : false;
     return { userMessage: toBotMessage(row), started: true, ended };
   });
-  if (sent.started) deps.plugin("runner").wake();
+  if (sent.started) deps.runner.wake();
   // Other tabs fetch the new Message (and the Turn this send interrupted, if any).
   if (sent.started) await hintChanged(deps, found.conversationId);
   return sent.userMessage;
@@ -519,7 +519,7 @@ export async function stopBot(deps: BotSdkContext, userId: string, botId: string
     return cancelTurn(deps, tx, running);
   });
   if (!ended) return;
-  deps.plugin("runner").wake();
+  deps.runner.wake();
   await hintChanged(deps, found.conversationId);
 }
 
@@ -552,7 +552,7 @@ export async function cancelTurn(
   tx: Transaction,
   turnId: string,
 ): Promise<boolean> {
-  const cancelled = await deps.plugin("runner").cancelIn(tx, turnId);
+  const cancelled = await deps.runner.cancelIn(tx, turnId);
   // Cancelled first: under the job's row lock, a `waiting` row's Checkpoint either committed
   // before the denial reads it, or fails its fence and rolls back.
   await closeWaitingReviews(deps, tx, { turnId }, "denied");
@@ -667,7 +667,7 @@ async function runTurnJob(
     if (ctx.signal.aborted) await stopIfCancelled(deps, turn, played);
     throw caught;
   }
-  deps.plugin("runner").wake();
+  deps.runner.wake();
   await hintChanged(deps, turn.conversationId);
 }
 
@@ -678,7 +678,7 @@ async function runTurnJob(
  * resumes it.
  */
 async function stopIfCancelled(deps: BotSdkContext, turn: TurnFacts, played: PlayedTurn) {
-  const cancelled = turn.jobId && (await deps.plugin("runner").status(turn.jobId));
+  const cancelled = turn.jobId && (await deps.runner.status(turn.jobId));
   if (!cancelled || cancelled.status !== "cancelled") return;
   await endRunningTurn(deps, turn, { status: "stopped", error: null }, played);
 }
@@ -753,7 +753,7 @@ async function endRunningTurn(
     await turnEnded(deps, tx, turn.id);
     return true;
   });
-  if (ended) deps.plugin("runner").wake();
+  if (ended) deps.runner.wake();
   await hintChanged(deps, turn.conversationId);
 }
 
@@ -1008,7 +1008,7 @@ function reactionNotice(rows: { parts: MessageRow["parts"] }[]): string {
 
 /**
  * The Turn's loop (slide 2), run through `runLoop`: SendToUser, the Routine and Check-in tools and,
- * whenever `computer` is on, the Computer's tools and `start_helper`. A SendToUser's Message commits with its
+ * whenever the computer slot is set, the Computer's tools and `start_helper`. A SendToUser's Message commits with its
  * Checkpoint, so it is sent once. A Step with no tool call ends the Turn quiet, except that the
  * first one with plain text gets one more Step, after `undeliveredTextReminder`, when a Step is left
  * under the limit; the Step and time limits end it `error`.
@@ -1034,7 +1034,7 @@ async function playTurn(
       : ctx.activity(
           "trigger_text",
           async () => {
-            const computer = deps.hasPlugin("computer") ? computerOf(deps, turn.userId) : undefined;
+            const computer = deps.computer ? computerOf(deps, turn.userId) : undefined;
             return capText(
               text,
               spillPath(turn.botId, id),
@@ -1057,7 +1057,7 @@ async function playTurn(
       ctx.activity(
         "user_files",
         async () =>
-          deps.hasPlugin("computer")
+          deps.computer
             ? copyUploads(deps, computerOf(deps, turn.userId), turn.botId, files, attempt)
             : files.map(() => null),
         { yields: false },
@@ -1128,9 +1128,9 @@ async function turnSetup(
     undefined,
     async (tx) => (await routinesPrompt(tx, turn.botId)) ?? null,
   );
-  // The Computer's tools and Helpers, whenever `computer` is on: the tool set never changes
+  // The Computer's tools and Helpers, whenever the computer slot is set: the tool set never changes
   // mid-conversation.
-  const withComputer = deps.hasPlugin("computer");
+  const withComputer = Boolean(deps.computer);
   const facts = featureTurnOf(turn);
   // The features' sections and Change notes (spec #871), read once: a replay reads the recorded
   // ones. With no feature, there is no activity, so the histories of Turns without one don't change.
@@ -1431,7 +1431,7 @@ export async function awayStartParts(
   now: Date,
   features: FeatureSection[],
 ): Promise<PromptStartParts> {
-  const withComputer = deps.hasPlugin("computer");
+  const withComputer = Boolean(deps.computer);
   const kit: LoopKit = {
     liveActivity: definitionOnly,
     liveRequest: definitionOnly,

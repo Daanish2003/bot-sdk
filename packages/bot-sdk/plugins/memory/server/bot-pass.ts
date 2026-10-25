@@ -142,7 +142,7 @@ async function runBotMemoryPass(
     .innerJoin(bot, eq(bot.id, botTurn.botId))
     .where(eq(botTurn.id, turnId));
   if (!turn || (turn.status !== "complete" && turn.status !== "stopped")) return;
-  const computer = () => deps.plugin("computer").forUser(turn.userId);
+  const computer = () => deps.computer!.forUser(turn.userId);
 
   const changes = await deps.db.transaction(async (lock) => {
     // One pass at a time per Bot, as the assistant's Memory job does per user: a later pass is
@@ -153,7 +153,7 @@ async function runBotMemoryPass(
     // The checks are part of the recorded call: a retry applies the operations its first attempt
     // planned, even once Memory is off or the Quota is spent.
     const planned = await activity("memory_ops", async () => {
-      if (!deps.hasPlugin("computer") || !(await memoryEnabledFor(deps, turn.userId))) return null;
+      if (!deps.computer || !(await memoryEnabledFor(deps, turn.userId))) return null;
       const call = await deps.models.resolveModelCall(turn.userId, turn.model);
       if (!call || !(await call.meter.mayRun()).ok) return null;
       const shown = await shownLines(computer(), {

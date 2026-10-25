@@ -26,7 +26,7 @@ export class SandboxGoneError extends Error {
 }
 
 /**
- * The seam between the `computer` plugin and what runs a user's Computer: a sandbox, named only
+ * The seam between the Computer and what runs a user's Computer: a sandbox, named only
  * here. The plugin keeps each user's sandbox id and state in `chat.computer`; the provider only
  * acts on the sandbox it is given.
  */

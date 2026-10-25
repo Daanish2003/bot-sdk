@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { botHelper, botPromptStart, botTurn, job, usage } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { bot } from "../../../../plugins/bot/server/plugin";
-import { computer } from "../../../../plugins/computer/server/plugin";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
   inProcessRunner,
@@ -57,7 +56,8 @@ async function botWith(rounds: Round[], { withComputer = true, modelId = model }
     deps: () => deps!,
   });
   deps = createTestSdk({
-    plugins: withComputer ? [bot(), computer({ provider: computerFake.provider })] : [bot()],
+    ...(withComputer && { computer: computerFake.provider }),
+    plugins: [bot()],
     memory: withComputer,
     jobs,
     adapterFor: () => fake.adapter,

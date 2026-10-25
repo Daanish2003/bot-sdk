@@ -7,7 +7,6 @@ import { botReview, botSecret, botTurn } from "../../../../core/server/db/schema
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { bot } from "../../../../plugins/bot/server/plugin";
 import { secretEncryption } from "../../../../plugins/bot/server/secret-values";
-import { computer } from "../../../../plugins/computer/server/plugin";
 import { mcpClient } from "../../../../plugins/mcp/client/index";
 import { mcp } from "../../../../plugins/mcp/server/plugin";
 import type { McpServerConfig } from "../../../../plugins/mcp/server/servers";
@@ -98,7 +97,8 @@ async function botWith(
     deps: () => deps!,
   });
   deps = createTestSdk({
-    plugins: [bot(), computer({ provider: fakeComputerProvider().provider })],
+    computer: fakeComputerProvider().provider,
+    plugins: [bot()],
     features: withMcp ? [mcp({ servers: [linear] })] : [],
     fetch,
     jobs,

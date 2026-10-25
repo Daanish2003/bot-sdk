@@ -27,7 +27,7 @@ export async function memoryEnabledFor(
 export async function memoryStatus(deps: BotSdkContext, userId: string): Promise<MemoryStatus> {
   return {
     enabled: await memoryEnabledFor(deps, userId),
-    botMemoryAvailable: deps.hasPlugin("computer"),
+    botMemoryAvailable: Boolean(deps.computer),
   };
 }
 

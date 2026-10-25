@@ -9,7 +9,6 @@ import { exportUserData } from "../../../core/server/user-data";
 import { bot as botPlugin } from "../../../plugins/bot/server/plugin";
 import type { BotExport } from "../../../plugins/bot/server/store";
 import { saveSecret } from "../../../plugins/bot/server/secret";
-import { computer } from "../../../plugins/computer/server/plugin";
 import { saveTokens } from "../../../plugins/mcp/server/connections";
 import { mcp } from "../../../plugins/mcp/server/plugin";
 import {
@@ -22,7 +21,6 @@ import { memorySettings } from "../../../plugins/memory/server/schema";
 import { memory } from "../../../plugins/memory/server/feature";
 import { saveCredentials } from "../../../plugins/models/server/credentials/store";
 import { models } from "../../../plugins/models/server/plugin";
-import { runner } from "../../../plugins/runner/server/plugin";
 import { fakeComputerProvider } from "../../plugins/computer/server/fake-provider";
 import { botOf, botSdk, stopBotRunners } from "../../support/bot-turns";
 import { insertConversation } from "../../support/conversations";
@@ -45,12 +43,8 @@ function chatFor() {
     getUser: () => null,
     keyEncryptionSecrets: [testKey],
     basePath: "/api/chat",
-    plugins: [
-      models(),
-      runner(),
-      computer({ provider: fakeComputerProvider().provider }),
-      botPlugin(),
-    ],
+    computer: fakeComputerProvider().provider,
+    plugins: [models(), botPlugin()],
     features: [memory(), mcp()],
   });
 }
@@ -142,12 +136,12 @@ async function insertBot(owner: TestUser, name: string, createdAt: Date): Promis
 describe("exportUser, Bot memory", () => {
   it("holds each Bot's profile, its Log months and its notes as the Computer has them", async () => {
     const fake = fakeComputerProvider();
-    const deps = createTestSdk({ plugins: [botPlugin(), computer({ provider: fake.provider })] });
+    const deps = createTestSdk({ computer: fake.provider, plugins: [botPlugin()] });
     const owner = await insertUser();
     const ada = await insertBot(owner, "Ada", new Date("2026-10-01T10:00:00Z"));
     const bea = await insertBot(owner, "Bea", new Date("2026-10-02T10:00:00Z"));
     // Creates the user's Computer, so its disk is the one the files go on.
-    await deps.plugin("computer").forUser(owner.id).run("true");
+    await deps.computer!.forUser(owner.id).run("true");
     const text = (content: string) => new TextEncoder().encode(content);
     fake.files.set(profilePath(ada), text("- Prefers short replies\n"));
     fake.files.set(notesPath(ada), text("- 2026-10-20 Waiting on the landlord\n"));
@@ -174,11 +168,11 @@ describe("exportUser, Bot memory", () => {
 
   it("leaves out a Bot whose files the Computer fails to read, and keeps the rest", async () => {
     const fake = fakeComputerProvider();
-    const deps = createTestSdk({ plugins: [botPlugin(), computer({ provider: fake.provider })] });
+    const deps = createTestSdk({ computer: fake.provider, plugins: [botPlugin()] });
     const owner = await insertUser();
     const ada = await insertBot(owner, "Ada", new Date("2026-10-01T10:00:00Z"));
     const bea = await insertBot(owner, "Bea", new Date("2026-10-02T10:00:00Z"));
-    await deps.plugin("computer").forUser(owner.id).run("true");
+    await deps.computer!.forUser(owner.id).run("true");
     // Ada's profile.md is a directory, so reading it fails.
     fake.files.set(`${profilePath(ada)}/stray.md`, new TextEncoder().encode("x"));
     fake.files.set(profilePath(bea), new TextEncoder().encode("- Works at a bakery\n"));
@@ -194,10 +188,10 @@ describe("exportUser, Bot memory", () => {
 
   it("exports the rest, with no Bot memory, when the Computer can't be woken", async () => {
     const fake = fakeComputerProvider();
-    const deps = createTestSdk({ plugins: [botPlugin(), computer({ provider: fake.provider })] });
+    const deps = createTestSdk({ computer: fake.provider, plugins: [botPlugin()] });
     const owner = await insertUser();
     await insertBot(owner, "Ada", new Date("2026-10-01T10:00:00Z"));
-    await deps.plugin("computer").forUser(owner.id).run("true");
+    await deps.computer!.forUser(owner.id).run("true");
     fake.lose(fake.callsOf("create")[0]!.sandboxId);
     fake.failing.add("create");
 
@@ -210,7 +204,7 @@ describe("exportUser, Bot memory", () => {
 
   it("reads nothing and creates no Computer for a user who has none", async () => {
     const fake = fakeComputerProvider();
-    const deps = createTestSdk({ plugins: [botPlugin(), computer({ provider: fake.provider })] });
+    const deps = createTestSdk({ computer: fake.provider, plugins: [botPlugin()] });
     const owner = await insertUser();
     await insertBot(owner, "Ada", new Date("2026-10-01T10:00:00Z"));
 

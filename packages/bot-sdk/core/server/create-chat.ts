@@ -36,7 +36,7 @@ import { memoryRuntime, type BotSdkRuntime } from "./runtime";
 import { deleteUserData, exportUserData, type UserExport } from "./user-data";
 import { bot } from "../../plugins/bot/server/plugin";
 import { channel, type ChannelAdapter } from "../../plugins/channel/server/plugin";
-import { computer } from "../../plugins/computer/server/plugin";
+import { createComputer } from "../../plugins/computer/server/plugin";
 import type { ComputerProvider } from "../../plugins/computer/server/provider";
 import {
   isModelsPlugin,
@@ -46,7 +46,7 @@ import {
   type ModelsPlugin,
 } from "../../plugins/models/server/plugin";
 import type { JobRunner } from "../../plugins/runner/server/jobs/runner";
-import { runner } from "../../plugins/runner/server/plugin";
+import { createRunner, type RunnerApi } from "../../plugins/runner/server/plugin";
 
 export type ChatHandler = (request: Request) => Promise<Response>;
 
@@ -55,7 +55,7 @@ export type Logger = Pick<Console, "error"> & Partial<Pick<Console, "warn">>;
 
 export type GetUser = (request: Request) => ChatUser | null | Promise<ChatUser | null>;
 
-/** What the `features` slot takes: features, and until #880–#883 the plugins that become them. */
+/** What the `features` slot takes: features, and until #882 the plugin that becomes one. */
 export type FeatureEntry = AnyFeature | BotSdkPlugin;
 
 /** The options both shapes of the factory share. */
@@ -103,9 +103,13 @@ type SharedOptions<Features extends readonly FeatureEntry[]> = {
   isUserBlocked?: (userId: string) => boolean | Promise<boolean>;
   /**
    * The optional capabilities (spec #871): features built with `defineFeature`, each API served
-   * as `sdk.<id>`. Until #880–#883, Memory, Skills, Knowledge and MCP are plugins listed here.
+   * as `sdk.<id>`.
    */
   features?: Features;
+  /** Runs the background jobs. Defaults to the in-process runner, which needs only Postgres. */
+  runner?: JobRunner;
+  /** Each user's Computer. With none, Bots have no Computer and no feature that needs one. */
+  computer?: ComputerProvider;
 };
 
 /**
@@ -115,10 +119,6 @@ type SharedOptions<Features extends readonly FeatureEntry[]> = {
 export type SlotOptions = {
   /** The Models: Host credentials, user keys, Quota, linked credentials, default Image Model. */
   models: ModelsOptions;
-  /** Runs the background jobs. Defaults to the in-process runner, which needs only Postgres. */
-  runner?: JobRunner;
-  /** Each user's Computer. With none, Bots have no Computer and no feature that needs one. */
-  computer?: ComputerProvider;
   /** The Channels besides web, each an adapter (email). With none, Bots talk on the web only. */
   channels?: readonly ChannelAdapter[];
   /**
@@ -145,8 +145,6 @@ export type PluginOptions<Plugins extends readonly BotSdkPlugin[]> = {
   /** The plugins this instance serves (ADR 0020), such as `bot()`. */
   plugins: Plugins;
   models?: never;
-  runner?: never;
-  computer?: never;
   channels?: never;
   verifiedEmail?: never;
 };
@@ -158,6 +156,8 @@ export type BotSdkOptions<
 
 export type BotSdk = {
   handler: ChatHandler;
+  /** The runner's jobs: `runJob` is what a Host's own worker (such as a Trigger.dev task) calls. */
+  runner: RunnerApi;
   /** An enabled plugin's API. Throws for a plugin that isn't enabled. */
   plugin: BotSdkContext["plugin"];
   /** The core's Models (spec #871): metering, the Quota and the Admin views' usage reads. */
@@ -223,7 +223,7 @@ function exportResponse(document: UserExport) {
 
 /** The parts of the core context a test may give instead of having them built. */
 export type GivenContext = Partial<
-  Omit<BotSdkContext, "plugin" | "hasPlugin" | "rateLimit" | "models">
+  Omit<BotSdkContext, "plugin" | "hasPlugin" | "rateLimit" | "models" | "runner" | "computer">
 >;
 
 /**
@@ -240,14 +240,12 @@ export function createBotSdk<
 }
 
 /**
- * The plugins the slots stand for, until #884–#887 fold them into the core: Models, the runner,
- * the Bots, and the Computer and Channels when their slots are set.
+ * The plugins the slots stand for, until #885–#887 fold them into the core: Models, the Bots, and
+ * the Channels when their slot is set.
  */
 function slotPlugins(options: SlotOptions): BotSdkPlugin[] {
   return [
     models(options.models),
-    runner({ jobs: options.runner }),
-    ...(options.computer ? [computer({ provider: options.computer })] : []),
     bot(),
     ...(options.channels
       ? [
@@ -264,15 +262,19 @@ function slotPlugins(options: SlotOptions): BotSdkPlugin[] {
  * The instance's plugins, in dependency order: the slots' (or the plugin list's), then each
  * feature as a plugin. Throws when a feature's needs aren't met or its schema touches the core's.
  */
-function pluginsOf(options: BotSdkOptions): { plugins: BotSdkPlugin[]; features: AnyFeature[] } {
+function pluginsOf(options: BotSdkOptions): {
+  plugins: BotSdkPlugin[];
+  features: AnyFeature[];
+} {
   const entries = options.features ?? [];
   const features = entries.filter(isFeature);
   const listed = [
     ...(options.plugins ?? slotPlugins(options as SlotOptions)),
     ...entries.map((entry) => (isFeature(entry) ? featurePlugin(entry) : entry)),
   ];
-  const ids = new Set(listed.map((plugin) => plugin.id));
-  for (const feature of features) checkFeature(feature, ids);
+  // The core services the instance has: a feature's `needs` are checked against them.
+  const services = new Set(["runner", ...(options.computer ? ["computer"] : [])]);
+  for (const feature of features) checkFeature(feature, services);
   // The core's Models first, so every plugin's `init` finds `sdk.models` set.
   const ordered = orderPlugins(listed);
   return {
@@ -309,13 +311,18 @@ export function buildBotSdk(
     const api = apis.get(id);
     if (!api) throw new Error(`Plugin "${id}" isn't enabled`);
     return api;
-  });
+  }) as BotSdkContext;
+  // The core services, over the context they belong to, before any plugin's `init` runs.
+  const runner = createRunner(sdk, options.runner);
+  sdk.runner = runner.api;
+  sdk.computer = options.computer ? createComputer(sdk, options.computer) : null;
   // In dependency order, so a plugin's `init` can call the plugins it requires.
   for (const plugin of plugins) apis.set(plugin.id, plugin.init?.(sdk)?.api ?? {});
   bindPlugins(sdk, plugins);
 
   const instance: BotSdk = {
     handler: createHandler(options, router, routes, sdk),
+    runner: sdk.runner,
     plugin: sdk.plugin,
     models: sdk.models,
     migrate: () =>
@@ -334,6 +341,8 @@ export function buildBotSdk(
         else logger.error(warning);
       }
       for (const plugin of plugins) await plugin.start?.(sdk);
+      // The reaper, then the jobs runner.
+      await runner.lifecycle.start();
     },
     stop: async () => {
       sdk.lifecycle.stopping = true;
@@ -346,6 +355,12 @@ export function buildBotSdk(
         } catch (error) {
           errors.push(error);
         }
+      }
+      // Drains the jobs, once the plugins that queue them have stopped.
+      try {
+        await runner.lifecycle.stop();
+      } catch (error) {
+        errors.push(error);
       }
       await (options.pubsub ?? options.runtime)?.close?.();
       if (errors.length === 1) throw errors[0];
@@ -375,7 +390,7 @@ function buildContext(
   ruleDefaults: ReturnType<typeof mergeRateLimits>,
   enabledIds: ReadonlySet<string>,
   plugin: (id: string) => object,
-): BotSdkContext {
+): Omit<BotSdkContext, "runner" | "computer"> {
   const logger = options.logger ?? console;
   const db = given.db ?? createDb({ DATABASE_URL: options.databaseUrl }, logger);
   const runtime = given.runtime ?? options.pubsub ?? options.runtime ?? memoryRuntime();

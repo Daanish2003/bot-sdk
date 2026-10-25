@@ -34,7 +34,7 @@ const homeDirectory = "/home/user";
 const maxTimerMs = 2 ** 31 - 1;
 
 /**
- * The `computer` plugin's provider on self-hosted E2B (the open-source Firecracker runtime). It
+ * The computer slot's provider on self-hosted E2B (the open-source Firecracker runtime). It
  * is the only module that loads the `e2b` SDK, so a Host that never imports this subpath never
  * loads it.
  */

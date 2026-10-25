@@ -20,7 +20,6 @@ import {
 } from "../../../../plugins/bot/server/helper";
 import { bot } from "../../../../plugins/bot/server/plugin";
 import { findBot } from "../../../../plugins/bot/server/store";
-import { computer } from "../../../../plugins/computer/server/plugin";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
   inProcessRunner,
@@ -97,7 +96,8 @@ async function botWith(
     deps: () => deps!,
   });
   deps = createTestSdk({
-    plugins: [bot(), computer({ provider: computerFake.provider })],
+    computer: computerFake.provider,
+    plugins: [bot()],
     features: withSkills ? [skills()] : [],
     memory: false,
     jobs,

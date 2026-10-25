@@ -80,6 +80,6 @@ export async function answerChoice(
       receivedAt: now,
     });
   });
-  sdk.plugin("runner").wake();
+  sdk.runner.wake();
   await hintChanged(sdk, found.conversationId);
 }

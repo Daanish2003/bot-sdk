@@ -9,7 +9,6 @@ import { deleteUserData } from "../../../../core/server/user-data";
 import { richControlJsonSchema } from "../../../../plugins/bot/client/index";
 import { sentFileBlobKey, sentFileResponse } from "../../../../plugins/bot/server/files";
 import { bot } from "../../../../plugins/bot/server/plugin";
-import { computer } from "../../../../plugins/computer/server/plugin";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
   inProcessRunner,
@@ -45,7 +44,8 @@ async function botWith(rounds: Round[]) {
   let deps: TestDeps | undefined;
   const jobs = inProcessRunner({ db: getTestDb(), logger: silent, drainMs: 50, deps: () => deps! });
   deps = createTestSdk({
-    plugins: [bot(), computer({ provider: computerFake.provider })],
+    computer: computerFake.provider,
+    plugins: [bot()],
     jobs,
     adapterFor: () => fake.adapter,
     reviewAdapterFor: () => reviewer.adapter,
@@ -100,7 +100,7 @@ describe("Files from the Bot", () => {
     const { client, botId, deps, user } = await botWith([
       round(sendsFiles("Here is the report.", ["report.csv", "/home/user/shared/notes.txt"])),
     ]);
-    const handle = deps.plugin("computer").forUser(user.id);
+    const handle = deps.computer!.forUser(user.id);
     await handle.writeFile(`/home/user/bots/${botId}/report.csv`, "a,b\n1,2\n");
     await handle.writeFile("/home/user/shared/notes.txt", "hello");
 
@@ -139,7 +139,7 @@ describe("Files from the Bot", () => {
     const { client, botId, deps, user } = await botWith([
       round(sendsFiles("Here are all three.", ["chart.png", "report.csv", "logo.svg"])),
     ]);
-    const handle = deps.plugin("computer").forUser(user.id);
+    const handle = deps.computer!.forUser(user.id);
     await handle.writeFile(`/home/user/bots/${botId}/chart.png`, "png-bytes");
     await handle.writeFile(`/home/user/bots/${botId}/report.csv`, "a,b\n");
     await handle.writeFile(`/home/user/bots/${botId}/logo.svg`, "<svg/>");
@@ -175,7 +175,7 @@ describe("Files from the Bot", () => {
         toolCall({ name: "send_to_user", input: { text: "Sorry, it is gone.", endTurn: true } }),
       ),
     ]);
-    const handle = deps.plugin("computer").forUser(user.id);
+    const handle = deps.computer!.forUser(user.id);
     await handle.writeFile(`/home/user/bots/${botId}/report.csv`, "a,b\n");
 
     await send(client, botId, "send me the report");

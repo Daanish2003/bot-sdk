@@ -57,7 +57,7 @@ export function channel({ adapters, verifiedEmail }: ChannelOptions): ChannelPlu
   const email = adapters.find((adapter) => adapter.id === "email");
   return {
     id: "channel",
-    requires: ["bot", "runner"],
+    requires: ["bot"],
     router: { channel: channelRouter },
     init: (sdk) => {
       const api: ChannelApi = {

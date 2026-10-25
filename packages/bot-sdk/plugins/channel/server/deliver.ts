@@ -159,7 +159,7 @@ export async function deliverIn(
     subject,
     ...(inReplyTo && { inReplyTo }),
   };
-  await deps.plugin("runner").enqueueIn(tx, deliveryJobName, payload, {
+  await deps.runner.enqueueIn(tx, deliveryJobName, payload, {
     idempotencyKey: deliveryKey(args.messageId, "email"),
   });
 }

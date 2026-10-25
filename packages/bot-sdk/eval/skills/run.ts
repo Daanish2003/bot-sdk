@@ -225,7 +225,7 @@ async function main() {
           });
         });
         turnId = turnIdOf(taken);
-        sdk.plugin("runner").wake();
+        sdk.runner.wake();
       }
       const turn = await waitForTurn(env, turnId, 5 * 60_000);
       toolCalls = toolCallsOf(turn.transcript);

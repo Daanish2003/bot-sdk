@@ -1,9 +1,10 @@
 import { deleteConversations, muted } from "./chat/delete-conversations";
-import { enabledPlugins, type BotSdkContext } from "./plugin";
+import { enabledPlugins, type BotSdkContext, type UserDeleteHooks } from "./plugin";
+import { computerUserDelete } from "../../plugins/computer/server/plugin";
 
 /**
  * Deletes everything the SDK holds for a user, in one transaction (spec #439): each plugin's
- * `deleteUser.before` in reverse dependency order, then the user's Conversations through the core's
+ * `deleteUser.before` in reverse dependency order and the Computer's after them all, then the user's Conversations through the core's
  * delete. After the commit: the Conversation delete's hooks, then each plugin's `after`. Calling it again, or for
  * an unknown id, does nothing.
  *
@@ -12,9 +13,13 @@ import { enabledPlugins, type BotSdkContext } from "./plugin";
  */
 export async function deleteUserData(given: BotSdkContext, userId: string): Promise<void> {
   const sdk = { ...given, events: muted };
-  const plugins = [...enabledPlugins(sdk)]
-    .reverse()
-    .flatMap((plugin) => (plugin.deleteUser ? [plugin.deleteUser] : []));
+  const plugins: UserDeleteHooks[] = [
+    ...[...enabledPlugins(sdk)]
+      .reverse()
+      .flatMap((plugin) => (plugin.deleteUser ? [plugin.deleteUser] : [])),
+    // Last, after the owner checks' locks (see `createRow` in the Computer).
+    ...(sdk.computer ? [computerUserDelete] : []),
+  ];
   const { collected, afterCommit } = await sdk.db.transaction(async (tx) => {
     const collected: unknown[] = [];
     for (const hooks of plugins) collected.push(await hooks.before(sdk, { userId, tx }));

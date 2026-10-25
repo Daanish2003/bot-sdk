@@ -2,7 +2,6 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { memorySettings } from "../../../plugins/memory/server/schema";
-import { computer } from "../../../plugins/computer/server/plugin";
 import { createTestSdk } from "../../support/deps";
 import { chatRpc } from "../../support/sdk";
 import { getTestDb } from "../../support/test-database";
@@ -13,7 +12,7 @@ describe("the Memory switch procedures", () => {
   it("gets and sets the Memory switch", async () => {
     const user = await insertUser();
     const deps = createTestSdk({
-      plugins: [computer({ provider: fakeComputerProvider().provider })],
+      computer: fakeComputerProvider().provider,
     });
     const rpc = chatRpc({ user, deps });
 

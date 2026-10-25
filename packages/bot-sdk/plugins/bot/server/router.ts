@@ -74,7 +74,7 @@ export async function receive(
   await tx.update(botTrigger).set({ turnId: running.id }).where(eq(botTrigger.id, trigger.id));
   // The runner has no reschedule: the queued job is cancelled and a replacement queued, in this
   // transaction, and the Turn is relinked to it.
-  const runner = deps.plugin("runner");
+  const runner = deps.runner;
   await runner.cancelIn(tx, running.id);
   const jobId = await enqueueTurnJob(deps, tx, running.id, eq(botTrigger.turnId, running.id));
   await tx.update(botTurn).set({ jobId }).where(eq(botTurn.id, running.id));
@@ -121,7 +121,7 @@ async function enqueueTurnJob(
   const first = batch?.first?.getTime() ?? now;
   const newest = batch?.newest?.getTime() ?? now;
   const runAfter = Math.min(newest + batchQuietMs, first + batchLongestMs);
-  const runner = deps.plugin("runner");
+  const runner = deps.runner;
   const jobId = await runner.enqueueIn(
     tx,
     botTurnJobName,

@@ -13,7 +13,6 @@ import {
   reviewTimeoutMs,
   type ReviewVerdict,
 } from "../../../../plugins/bot/server/review";
-import { computer } from "../../../../plugins/computer/server/plugin";
 import type { CommandResult } from "../../../../plugins/computer/server/provider";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
@@ -101,7 +100,8 @@ async function botWith(
     deps: () => deps!,
   });
   deps = createTestSdk({
-    plugins: [bot({ reviewModel }), computer({ provider: computerFake.provider })],
+    computer: computerFake.provider,
+    plugins: [bot({ reviewModel })],
     jobs,
     clock,
     adapterFor: () => adapter,
@@ -751,7 +751,8 @@ describe("an Approval wait cut off by a crash", () => {
       });
       started.push(jobs);
       deps = createTestSdk({
-        plugins: [bot(), computer({ provider: computerFake.provider })],
+        computer: computerFake.provider,
+        plugins: [bot()],
         jobs,
         clock: () => start,
         adapterFor: () => fake.adapter,

@@ -15,7 +15,6 @@ import {
   type InProcessRunner,
 } from "../../../../plugins/runner/server/jobs/in-process";
 import { claimJob, reapStaleJobs } from "../../../../plugins/runner/server/jobs/store";
-import { runner } from "../../../../plugins/runner/server/plugin";
 import { NonDeterminismError } from "../../../../plugins/runner/server/workflow/engine";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { fakeJobClock } from "../../../support/jobs";
@@ -678,11 +677,11 @@ describe("runJob (a Host's worker)", () => {
       keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
       basePath: "/api/chat",
       logger: silent,
-      plugins: [models(), runner()],
+      plugins: [models()],
     });
 
-    await chat.plugin("runner").runJob("workflow.write", {});
-    await chat.plugin("runner").runJob("workflow.steps", {});
+    await chat.runner.runJob("workflow.write", {});
+    await chat.runner.runJob("workflow.steps", {});
 
     expect(await markers()).toHaveLength(1);
     expect(effects).toEqual(["a", "b", "c"]);

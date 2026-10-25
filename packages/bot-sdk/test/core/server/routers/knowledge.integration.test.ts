@@ -5,7 +5,6 @@ import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { insertConversation } from "../../../support/conversations";
 import { getTestDb } from "../../../support/test-database";
 
-import { computer } from "../../../../plugins/computer/server/plugin";
 import { knowledge } from "../../../../plugins/knowledge/server/plugin";
 import { createTestSdk } from "../../../support/deps";
 import { chatRpc } from "../../../support/sdk";
@@ -22,7 +21,7 @@ const knowledgePaths = (files: Map<string, Uint8Array>) =>
 async function setup({ withComputer = true }: { withComputer?: boolean } = {}) {
   const computerFake = fakeComputerProvider();
   const deps = createTestSdk({
-    plugins: withComputer ? [computer({ provider: computerFake.provider })] : [],
+    ...(withComputer && { computer: computerFake.provider }),
     features: [knowledge()],
   });
   const user = await insertUser();

@@ -81,7 +81,7 @@ export async function startCapture(
   round = 1,
   delayMs = 0,
 ) {
-  await deps.plugin("runner").enqueue(
+  await deps.runner.enqueue(
     demonstrationCaptureJobName,
     { demonstrationId, round },
     {
@@ -233,14 +233,12 @@ async function startDemonstration(
     }),
     createdAt: now,
   });
-  await deps
-    .plugin("runner")
-    .enqueueIn(
-      tx,
-      demonstrationCheckJobName,
-      { demonstrationId, step: 1, recordedMs: 0, checkedAt: now.toISOString() },
-      { idempotencyKey: checkKey(demonstrationId, 1), runAfter: after(now) },
-    );
+  await deps.runner.enqueueIn(
+    tx,
+    demonstrationCheckJobName,
+    { demonstrationId, step: 1, recordedMs: 0, checkedAt: now.toISOString() },
+    { idempotencyKey: checkKey(demonstrationId, 1), runAfter: after(now) },
+  );
   return { demonstrationId, screen };
 }
 
@@ -341,7 +339,7 @@ async function moveIn(
     ...(ended && { endedAt: now.toISOString() }),
   }));
   if (ended) {
-    const runner = deps.plugin("runner");
+    const runner = deps.runner;
     if (next === "drafting") {
       await runner.enqueueIn(
         tx,
@@ -425,7 +423,7 @@ export async function move(
   if (moved.ended) {
     await closeScreen(deps, { id: demonstrationId, userId: moved.userId, screen: moved.screen });
     // The drafting pass, queued with the move, runs now.
-    if (moved.state === "drafting") deps.plugin("runner").wake();
+    if (moved.state === "drafting") deps.runner.wake();
   }
   await hintChanged(deps, moved.conversationId);
   return moved.state;
@@ -499,12 +497,10 @@ export const demonstrationCheckJob = defineJob({
       await move(deps, demonstrationId, "done");
       return;
     }
-    await deps
-      .plugin("runner")
-      .enqueue(
-        demonstrationCheckJobName,
-        { demonstrationId, step: step + 1, recordedMs: recorded, checkedAt: now.toISOString() },
-        { idempotencyKey: checkKey(demonstrationId, step + 1), runAfter: after(now) },
-      );
+    await deps.runner.enqueue(
+      demonstrationCheckJobName,
+      { demonstrationId, step: step + 1, recordedMs: recorded, checkedAt: now.toISOString() },
+      { idempotencyKey: checkKey(demonstrationId, step + 1), runAfter: after(now) },
+    );
   },
 });

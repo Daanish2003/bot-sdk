@@ -6,7 +6,6 @@ import { botTrigger, botTurn } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { richControlJsonSchema } from "../../../../plugins/bot/client/index";
 import { bot } from "../../../../plugins/bot/server/plugin";
-import { computer } from "../../../../plugins/computer/server/plugin";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
   inProcessRunner,
@@ -43,7 +42,8 @@ async function botWith(rounds: Round[]) {
   let deps: TestDeps | undefined;
   const jobs = inProcessRunner({ db: getTestDb(), logger: silent, drainMs: 50, deps: () => deps! });
   deps = createTestSdk({
-    plugins: [bot(), computer({ provider: fakeComputerProvider().provider })],
+    computer: fakeComputerProvider().provider,
+    plugins: [bot()],
     jobs,
     adapterFor: () => fake.adapter,
     reviewAdapterFor: () => reviewer.adapter,

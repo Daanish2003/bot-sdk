@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { computer as computerTable } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { bot } from "../../../../plugins/bot/server/plugin";
-import { computer } from "../../../../plugins/computer/server/plugin";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
   inProcessRunner,
@@ -54,7 +53,8 @@ async function botsWith(
     deps: () => deps!,
   });
   deps = createTestSdk({
-    plugins: withComputer ? [bot(), computer({ provider: computerFake.provider })] : [bot()],
+    ...(withComputer && { computer: computerFake.provider }),
+    plugins: [bot()],
     jobs,
     adapterFor: () => fake.adapter,
     clock,
@@ -200,7 +200,7 @@ describe("the search_memory tool", () => {
       round(),
     ]);
     const [ada] = botIds as [string];
-    await deps.plugin("computer").forUser(user.id).list("/home/user");
+    await deps.computer!.forUser(user.id).list("/home/user");
     // The Computer sleeps and its sandbox is lost: the next call rebuilds it.
     await getTestDb()
       .update(computerTable)

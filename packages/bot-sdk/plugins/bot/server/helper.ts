@@ -204,9 +204,12 @@ export function startHelperTool(
       }
       const helperId = uuidv7();
       const startedAt = deps.clock();
-      const jobId = await deps
-        .plugin("runner")
-        .enqueueIn(tx, botHelperJobName, { helperId }, { idempotencyKey: helperJobKey(helperId) });
+      const jobId = await deps.runner.enqueueIn(
+        tx,
+        botHelperJobName,
+        { helperId },
+        { idempotencyKey: helperJobKey(helperId) },
+      );
       await tx.insert(botHelper).values({
         id: helperId,
         botId: turn.botId,
@@ -222,7 +225,7 @@ export function startHelperTool(
       return { helperId, status: "running" as const };
     });
     if ("helperId" in result) {
-      deps.plugin("runner").wake();
+      deps.runner.wake();
       await hintChanged(deps, turn.conversationId);
     }
     return result;
@@ -716,7 +719,7 @@ async function endHelper(
 
 /** Once a report's Trigger has committed: the Turn it started runs, and followers re-read. */
 async function afterReport(deps: BotSdkContext, conversationId: string) {
-  deps.plugin("runner").wake();
+  deps.runner.wake();
   await hintChanged(deps, conversationId);
 }
 
@@ -855,6 +858,6 @@ export async function cancelUserHelpers(
     .from(botHelper)
     .innerJoin(bot, eq(bot.id, botHelper.botId))
     .where(and(eq(bot.userId, userId), eq(botHelper.status, "running")));
-  const runner = deps.plugin("runner");
+  const runner = deps.runner;
   for (const { id } of rows) await runner.cancelIn(tx, helperJobKey(id));
 }
