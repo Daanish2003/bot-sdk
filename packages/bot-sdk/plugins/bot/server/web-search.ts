@@ -37,7 +37,7 @@ export function webSearchTool(
   liveRequest: LoopKit["liveRequest"],
 ) {
   const client = createTavilyClient(deps.fetch);
-  const resolve = () => deps.plugin("models").resolveToolCall(userId, tavilyService);
+  const resolve = () => deps.models.resolveToolCall(userId, tavilyService);
   return webSearchDefinition.server(async ({ query }, context) => {
     // What the live search ran on; an attempt that resumes at the write resolves it again.
     let call: ToolCall | null | undefined;

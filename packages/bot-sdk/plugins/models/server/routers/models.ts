@@ -13,7 +13,7 @@ export const modelsRouter = {
 
   /** The user's Image Model pick, or `null` for the Host's default. */
   imageModel: protectedProcedure.handler(async ({ context }) => ({
-    imageModel: await context.sdk.plugin("models").imageModelSetting(context.user.id),
+    imageModel: await context.sdk.models.imageModelSetting(context.user.id),
   })),
 
   /**
@@ -24,7 +24,7 @@ export const modelsRouter = {
   setImageModel: protectedProcedure
     .input(z.object({ imageModel: z.string().nullable() }))
     .handler(async ({ context, input }) => {
-      const models = context.sdk.plugin("models");
+      const models = context.sdk.models;
       if (
         input.imageModel !== null &&
         !(await models.resolveImageModel(context.user.id, input.imageModel))

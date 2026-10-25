@@ -70,7 +70,7 @@ type Seen = {
 async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext) {
   const seen = await ctx.activity("check", () => toSummarize(deps, botId));
   if (!seen) return;
-  const models = deps.plugin("models");
+  const models = deps.models;
   const call = await models.resolveModelCall(seen.userId, seen.model);
   if (!call) return;
   // On the user's own key or plan, the call is still recorded, at cost 0, as a Turn's are.

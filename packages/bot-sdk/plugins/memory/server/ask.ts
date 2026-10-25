@@ -20,7 +20,7 @@ export async function askBackground(
 ): Promise<string> {
   const messages: ModelMessage[] = [{ role: "user", content: user }];
   const result = await chat({
-    adapter: deps.plugin("models").adapterForCall(plan.model, plan.call),
+    adapter: deps.models.adapterForCall(plan.model, plan.call),
     threadId: botId,
     systemPrompts: [system],
     messages,
@@ -29,7 +29,7 @@ export async function askBackground(
   const reported = reportedUsageOf(result.chunks);
   await plan.call.meter.record({
     kind: "memory",
-    usage: deps.plugin("models").messageUsage(reported.usage, {
+    usage: deps.models.messageUsage(reported.usage, {
       promptCharacters: promptCharactersOf(messages),
       parts: [{ type: "text", text: result.text }],
     }),

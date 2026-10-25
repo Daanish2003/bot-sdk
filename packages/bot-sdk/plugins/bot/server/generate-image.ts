@@ -92,7 +92,7 @@ export function generateImageTool(
   turn: { userId: string; botId: string },
   liveRequest: LoopKit["liveRequest"],
 ) {
-  const models = () => deps.plugin("models");
+  const models = () => deps.models;
   const resolve = () => models().resolveUserImageModel(turn.userId);
   // Reserved before anything is awaited, so parallel calls can't pass the cap.
   let images = 0;
