@@ -348,7 +348,7 @@ describe("Auto-review of the Bot's shell commands", () => {
     const [routine] = await client.bot.routine.list({ botId });
     const { webhookToken } = await client.bot.routine.approve({ routineId: routine!.id });
 
-    const response = await deps.bot.webhookHandler(
+    const response = await deps.bots.webhookHandler(
       new Request(`https://bots.example/api/routines/webhook/${webhookToken}`, {
         method: "POST",
         body: JSON.stringify({ note: injected }),

@@ -171,7 +171,7 @@ export type BotSdk = {
    * The core's Bots (spec #871): the Routines' webhook handler, the live view's handler and
    * socket, and `stopTurns` for a Ban.
    */
-  bot: BotApi;
+  bots: BotApi;
   /** The core's Channels (spec #871): the inbound handler of each adapter in the channels slot. */
   channels: ChannelApi;
   /** Creates the `chat` schema and applies the bundled migrations. Run it at deploy time. */
@@ -237,7 +237,7 @@ function exportResponse(document: UserExport) {
 export type GivenContext = Partial<
   Omit<
     BotSdkContext,
-    "plugin" | "hasPlugin" | "rateLimit" | "models" | "runner" | "computer" | "bot" | "channels"
+    "plugin" | "hasPlugin" | "rateLimit" | "models" | "runner" | "computer" | "bots" | "channels"
   >
 >;
 
@@ -349,7 +349,7 @@ export function buildBotSdk(
     runner: sdk.runner,
     plugin: sdk.plugin,
     models: sdk.models,
-    bot: sdk.bot,
+    bots: sdk.bots,
     channels: sdk.channels,
     migrate: () =>
       migrateSchema(options.databaseUrl, {
@@ -455,7 +455,7 @@ function buildContext(
     // Set by the Models' init, which `pluginsOf` runs before every other plugin's.
     models: modelsUnconfigured,
     // Set by the Bots' init, which the slots always enable.
-    bot: botsUnconfigured,
+    bots: botsUnconfigured,
     plugin: <Id extends keyof PluginApis>(id: Id) => plugin(id) as PluginApis[Id],
     // From the plugin list, so it holds already in an `init` that runs before the other plugin's.
     hasPlugin: (id) => enabledIds.has(id),
@@ -506,20 +506,21 @@ const modelsUnconfigured = new Proxy({} as ModelsApi, {
 /** The `bot` service of an instance whose plugin list has no `bot()`: reading its API throws. */
 const botsUnconfigured = new Proxy({} as BotApi, {
   get: (_target, key) => {
-    if (typeof key === "string" && botApiKeys.has(key)) {
+    if (typeof key === "string" && key in botApiKeys) {
       throw new Error("The Bots aren't enabled: build the SDK with the slots");
     }
     return undefined;
   },
 });
 
-const botApiKeys = new Set<string>([
-  "webhookHandler",
-  "stopTurns",
-  "screenHandler",
-  "screenSocket",
-  "reviewModel",
-] satisfies (keyof BotApi)[]);
+/** Every name of the Bots' API, so the stand-in throws on those alone. */
+const botApiKeys: Record<keyof BotApi, true> = {
+  webhookHandler: true,
+  stopTurns: true,
+  screenHandler: true,
+  screenSocket: true,
+  reviewModel: true,
+};
 
 function createHandler(
   { basePath, getUser, logger = console }: BotSdkOptions,

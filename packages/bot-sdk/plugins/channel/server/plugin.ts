@@ -59,14 +59,14 @@ export function createChannels(
       return receiveEmail(sdk, { channel: email, verifiedEmail }, request);
     },
     emailDomain: () => {
-      if (!email) throw new Error("The channels slot has no email adapter");
+      if (!email) throw new Error("The channel plugin has no email adapter");
       return email.domain;
     },
     deliverIn: async (tx, sent) => {
       if (email) await deliverIn(sdk, tx, email, sent);
     },
     sendDelivery: async (payload) => {
-      if (!email) throw new Error("The channels slot has no email adapter");
+      if (!email) throw new Error("The channel plugin has no email adapter");
       await sendDelivery(sdk, email, verifiedEmail, payload);
     },
   };

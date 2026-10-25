@@ -56,7 +56,7 @@ export type BotSdkContext = {
    */
   models: ModelsApi;
   /** The core's Bots (spec #871): the Host's handlers and the Ban's stop. */
-  bot: BotApi;
+  bots: BotApi;
   /**
    * The core's Channels besides web (spec #871), over the channels slot's adapters. With none,
    * every inbound answers 404 and no reply goes out by email.

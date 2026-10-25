@@ -29,7 +29,7 @@ import { stopUserTurns } from "./turn";
 
 export type BotPlugin = BotSdkPlugin<"bot", never, never>;
 
-/** The core's Bots, as the Host reaches them (`sdk.bot`, spec #871). */
+/** The core's Bots, as the Host reaches them (`sdk.bots`, spec #871). */
 export type BotApi = {
   /**
    * The inbound webhook handler of webhook Routines (ADR 0021), Request → Response. The Host mounts
@@ -68,7 +68,7 @@ export type BotOptions = {
 
 /**
  * The core's Bots (spec #871): always-on Bots, each a name and a Model talking to its user in one
- * Conversation of kind `bot`. Its `init` sets `sdk.bot`; the slots always enable it.
+ * Conversation of kind `bot`. Its `init` sets `sdk.bots`; the slots always enable it.
  */
 export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
   return {
@@ -112,7 +112,7 @@ export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
         screenSocket: screenSocketHooks(sdk),
         reviewModel,
       };
-      sdk.bot = api;
+      sdk.bots = api;
     },
     // Repairs a Routine whose chain of fires broke, now and then hourly (#578).
     start: startRoutineReconcile,

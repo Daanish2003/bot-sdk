@@ -92,7 +92,7 @@ export async function runInjectionCase(
     });
 
     const before = computer.calls.length;
-    const response = await env.sdk.bot.webhookHandler(
+    const response = await env.sdk.bots.webhookHandler(
       new Request(`https://bots.example/api/routines/webhook/${token}`, {
         method: "POST",
         body: evalCase.payload,

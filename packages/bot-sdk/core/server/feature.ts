@@ -244,7 +244,7 @@ const instanceKeys = new Set([
   "rotateKeys",
   "runner",
   "models",
-  "bot",
+  "bots",
   "channels",
 ]);
 

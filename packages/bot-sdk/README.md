@@ -333,16 +333,17 @@ With the three variables set and the template built, two test files run the adap
 pnpm exec vitest run --maxWorkers=1 --no-file-parallelism packages/bot-sdk/test/plugins/computer/e2b
 ```
 
-## Email for Bots: `channel`
+## Email for Bots: `channels`
 
-The `channel` plugin gives each Bot its own email address (spec #761, ADR 0026): the owner's mail to it wakes the Bot like a web Message, and the Bot's replies are emailed back. It requires `models` and `bot`, and it is imported from `@ai-chat/bot-sdk/plugins/channel/server` (and `/client`, `/ui` for the Bot header's Email popover). Leave it out and Bots have no address.
+The core's Channels (`sdk.channels`) give each Bot its own email address (spec #761, ADR 0026): the owner's mail to it wakes the Bot like a web Message, and the Bot's replies are emailed back. Email is an adapter in the `channels` slot, imported from `@ai-chat/bot-sdk/plugins/channel/server` (and `/client`, `/ui` for the Bot header's Email popover). Leave the slot out and Bots have no address.
 
 ```ts
-import { channel, emailChannel } from "@ai-chat/bot-sdk/plugins/channel/server";
+import { emailChannel } from "@ai-chat/bot-sdk/plugins/channel/server";
 import { mailpitEmailProvider } from "@ai-chat/bot-sdk/plugins/channel/mailpit";
 
-channel({
-  adapters: [
+createBotSdk({
+  // …
+  channels: [
     emailChannel({
       provider: mailpitEmailProvider({ apiUrl: "http://localhost:8025" }),
       domain: "bots.localhost", // the Bots' addresses are name@<domain>
@@ -485,11 +486,11 @@ User-configured webhooks, where a user enters a URL in settings, are out of scop
 
 ## Inbound webhooks for Routines
 
-A Bot's Routine can run whenever an outside service calls its secret URL (ADR 0021). The `bot` plugin exports the handler. Mount it for `POST` at `/api/routines/webhook/<token>`, outside the chat handler and with no sign-in, since the token is the authentication:
+A Bot's Routine can run whenever an outside service calls its secret URL (ADR 0021). The core serves the handler as `sdk.bots.webhookHandler`. Mount it for `POST` at `/api/routines/webhook/<token>`, outside the chat handler and with no sign-in, since the token is the authentication:
 
 ```ts
 // For example, a TanStack Start route at /api/routines/webhook/$token
-const handle = ({ request }: { request: Request }) => sdk.bot.webhookHandler(request);
+const handle = ({ request }: { request: Request }) => sdk.bots.webhookHandler(request);
 ```
 
 It answers `202` at once, `413` to a body over 64 KB, and `404` to a token that matches no active Routine. With an `Idempotency-Key` header, a retried delivery wakes the Bot once. The token is stored only as a hash, so the app shows a Routine's URL once, after it is approved or rotated.

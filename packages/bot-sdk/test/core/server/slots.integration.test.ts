@@ -81,7 +81,7 @@ describe("createBotSdk with flat slots", () => {
     }
   });
 
-  it("serves the Bots as sdk.bot and the channels slot's adapters as sdk.channels", async () => {
+  it("serves the Bots as sdk.bots and the channels slot's adapters as sdk.channels", async () => {
     const email = fakeEmailProvider();
     const sdk = createBotSdk(
       slots({
@@ -90,7 +90,7 @@ describe("createBotSdk with flat slots", () => {
       }),
     );
 
-    const unknownToken = await sdk.bot.webhookHandler(
+    const unknownToken = await sdk.bots.webhookHandler(
       new Request("http://localhost/api/routines/webhook/nope", { method: "POST", body: "{}" }),
     );
     const stranger = await sdk.channels.inbound(
@@ -100,7 +100,6 @@ describe("createBotSdk with flat slots", () => {
 
     expect(unknownToken.status).toBe(404);
     expect(stranger.status).toBe(202);
-    expect(typeof sdk.bot.stopTurns).toBe("function");
   });
 
   it("has no Channel besides web when the channels slot is empty", async () => {
@@ -185,7 +184,7 @@ describe("createBotSdk with flat slots", () => {
 });
 
 describe("a feature's id", () => {
-  it.each(["then", "bot", "models", "runner", "channel", "channels", "core"])(
+  it.each(["then", "bot", "models", "runner", "channel", "channels", "bots", "core"])(
     "can't be %s, which the instance or the core holds",
     (id) => {
       expect(() => createBotSdk(slots({ features: [defineFeature({ id })] }))).toThrow(

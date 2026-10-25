@@ -7,7 +7,7 @@ import { sdk } from "../../../services";
  * traffic token added server-side. No sign-in: the view token in the path is the authentication,
  * and a request without a valid one answers 403. Its socket is the Nitro route beside it.
  */
-const handle = ({ request }: { request: Request }) => sdk.bot.screenHandler(request);
+const handle = ({ request }: { request: Request }) => sdk.bots.screenHandler(request);
 
 export const Route = createFileRoute("/api/screens/$")({
   server: {
