@@ -97,11 +97,8 @@ async function botWith(
     deps: () => deps!,
   });
   deps = createTestSdk({
-    plugins: [
-      bot(),
-      computer({ provider: computerFake.provider }),
-      ...(withSkills ? [skills()] : []),
-    ],
+    plugins: [bot(), computer({ provider: computerFake.provider })],
+    features: withSkills ? [skills()] : [],
     memory: false,
     jobs,
     adapterFor: () => fake.adapter,

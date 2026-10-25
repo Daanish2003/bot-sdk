@@ -104,6 +104,7 @@ export function fakeComputerProvider({
   template = "fake-computer-v1",
   onCommand = () => ({ exitCode: 0, stdout: "", stderr: "" }),
   onPause = () => {},
+  holds = () => false,
   hostUrl = (sandboxId, port) => `https://${port}-${sandboxId}.fake.test`,
 }: {
   template?: string;
@@ -111,6 +112,8 @@ export function fakeComputerProvider({
   hostUrl?: (sandboxId: string, port: number) => string;
   onCommand?: (command: FakeCommandRun) => CommandResult | Promise<CommandResult>;
   onPause?: (sandboxId: string) => void | Promise<void>;
+  /** A command the fake does not answer itself: `onCommand` gets it, so a test can hold it until a kill. */
+  holds?: (command: string) => boolean;
 } = {}) {
   const calls: FakeCall[] = [];
   const failing = new Set<Lifecycle>();
@@ -184,7 +187,9 @@ export function fakeComputerProvider({
     run: async (sandboxId, command, { cwd, timeoutMs, signal, envs }) => {
       const disk = runningDisk(sandboxId);
       calls.push({ type: "run", sandboxId, command, cwd, timeoutMs, ...(envs && { envs }) });
-      const builtIn = runBuiltIn(disk, command, cwd ?? "/home/user", write);
+      const builtIn = holds(command)
+        ? undefined
+        : runBuiltIn(disk, command, cwd ?? "/home/user", write);
       if (builtIn) return bounded(builtIn);
       const killed = new AbortController();
       let stdout = "";
