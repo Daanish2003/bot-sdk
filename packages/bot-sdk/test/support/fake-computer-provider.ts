@@ -7,16 +7,16 @@ import {
   type ComputerProvider,
   type FileEntry,
   type TimedOutCommand,
-} from "../../../../plugins/computer/server/provider";
+} from "../../plugins/computer/server/internal";
 import {
   fetchedLineBytes,
   maxFetchedBytes,
   readScript,
   sizeScript,
-} from "../../../../plugins/bot/server/computer-tools";
-import { boundedOutput } from "../../../../plugins/computer/e2b/bounded-output";
-import { stampScript, walkScript } from "../../../../plugins/knowledge/server/files";
-import { readSkillsScript, skillHeadBytes } from "../../../../plugins/skills/server/skills";
+} from "../../plugins/bot/server/agent-loop";
+import { boundedOutput } from "../../plugins/computer/e2b/bounded-output";
+import { stampScript, walkScript } from "../../plugins/knowledge/server/files";
+import { readSkillsScript, skillHeadBytes } from "../../plugins/skills/server/skills";
 
 /** One command the fake ran: where, on which sandbox, and with what time limit. */
 export type FakeCommand = {

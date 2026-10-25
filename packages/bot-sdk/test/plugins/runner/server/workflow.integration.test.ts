@@ -6,15 +6,17 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { createBotSdk } from "../../../../core/server/create-chat";
-import { job, jobEvent } from "../../../../core/server/db/schema";
+import { job, jobEvent } from "../../../../core/server/storage";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { defineJob, type JobContext } from "../../../../plugins/runner/server/jobs/define";
 import {
+  defineJob,
+  type JobContext,
   inProcessRunner,
   type InProcessRunner,
-} from "../../../../plugins/runner/server/jobs/in-process";
-import { claimJob, reapStaleJobs } from "../../../../plugins/runner/server/jobs/store";
-import { NonDeterminismError } from "../../../../plugins/runner/server/workflow/engine";
+  claimJob,
+  reapStaleJobs,
+  NonDeterminismError,
+} from "../../../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { fakeJobClock } from "../../../support/jobs";
 import { getTestDb, testDatabaseUrl } from "../../../support/test-database";

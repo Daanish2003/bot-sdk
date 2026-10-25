@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { e2bProvider } from "../../../../plugins/computer/e2b";
 import { keptEndCharacters } from "../../../../plugins/computer/e2b/bounded-output";
-import { SandboxGoneError } from "../../../../plugins/computer/server/provider";
+import { SandboxGoneError } from "../../../../plugins/computer/server/internal";
 
 const sdkRoot = fileURLToPath(new URL("../../../../", import.meta.url));
 

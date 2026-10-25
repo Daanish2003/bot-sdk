@@ -2,7 +2,7 @@ import type { AnyTextAdapter } from "@tanstack/ai";
 
 import { getTestDb } from "./test-database";
 
-import { postgresBlobStore } from "../../core/server/blob/postgres";
+import { postgresBlobStore } from "../../core/server/storage";
 import { createMemoryCounters } from "../../core/server/chat/counters";
 import { createHookEmitter, type HookEmitter } from "../../core/server/chat/hooks";
 import { createMemoryPubSub } from "../../core/server/chat/pubsub";
@@ -10,9 +10,9 @@ import type { FeatureEntry, GivenContext } from "../../core/server/create-chat";
 import { createBotSdkOver, type OverSlots, type SdkOver } from "../../core/server/over";
 import type { BotSdkPlugin } from "../../core/server/plugin";
 import { memory } from "../../plugins/memory/server/feature";
-import type { ComputerProvider } from "../../plugins/computer/server/provider";
-import type { ModelsDeps } from "../../plugins/models/server/types";
-import type { JobRunner } from "../../plugins/runner/server/jobs/runner";
+import type { ComputerProvider } from "../../plugins/computer/server/internal";
+import type { ModelsDeps } from "../../plugins/models/server/internal";
+import type { JobRunner } from "../../plugins/runner/server/internal";
 import { resolveRateLimits } from "../../core/server/rate-limits";
 import { fakeReviewer, withReviewer } from "./fake-reviewer";
 

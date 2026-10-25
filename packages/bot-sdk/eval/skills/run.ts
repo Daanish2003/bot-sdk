@@ -15,21 +15,21 @@ import { fileURLToPath } from "node:url";
 
 import { eq } from "drizzle-orm";
 
-import { botTrigger } from "../../core/server/db/schema";
+import { botTrigger } from "../../core/server/storage";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
-import { computerOf } from "../../plugins/bot/server/computer-tools";
-import { lockConversation, receive } from "../../plugins/bot/server/router";
-import { routineSnapshot, webhookPayloadLabel } from "../../plugins/bot/server/routine";
-import { defaultTimeZone } from "../../plugins/bot/server/time-zone";
-import { sendToUserToolName } from "../../plugins/bot/server/tool-names";
+import { computerOf } from "../../plugins/bot/server/agent-loop";
+import { lockConversation, receive } from "../../plugins/bot/server/triggers";
+import { routineSnapshot, webhookPayloadLabel } from "../../plugins/bot/server/routines";
+import { defaultTimeZone } from "../../plugins/bot/server/conversation";
+import { sendToUserToolName } from "../../plugins/bot/server/context";
 import { skills } from "../../plugins/skills/server/plugin";
 import { skillsDirectory } from "../../plugins/skills/server/skills";
-import { runnerJobs } from "../../plugins/runner/server/plugin";
+import { runnerJobs } from "../../plugins/runner/server/internal";
 import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
 
 import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adapter";
 import { isReviewCall, passVerdict, verdictRound } from "../../test/support/fake-reviewer";
-import { fakeComputerProvider } from "../../test/plugins/computer/server/fake-provider";
+import { fakeComputerProvider } from "../../test/support/fake-computer-provider";
 import { chatgptPlanFromEnv } from "../chatgpt-plan";
 import { createComputerSdk, databaseUrlFromEnv, prepareSchema } from "../computer/setup";
 import { fail, keyFor } from "../turn/judge-model";

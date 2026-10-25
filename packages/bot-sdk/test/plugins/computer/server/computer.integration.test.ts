@@ -1,30 +1,33 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
-import { postgresBlobStore } from "../../../../core/server/blob/postgres";
-import type { BlobStore } from "../../../../core/server/blob/store";
 import {
+  postgresBlobStore,
   bot as botTable,
   botHelper,
   botTurn,
   computer as computerTable,
   job,
-} from "../../../../core/server/db/schema";
+} from "../../../../core/server/storage";
+import type { BlobStore } from "../../../../core/server/storage";
+
 import { deleteUserData } from "../../../../core/server/user-data";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { createBot } from "../../../../plugins/bot/server/store";
+import { createBot } from "../../../../plugins/bot/server/conversation";
 import {
   ComputerOperationError,
   ComputerUnavailableError,
   syncCapBytes,
-} from "../../../../plugins/computer/server/plugin";
-import { SandboxGoneError, type CommandResult } from "../../../../plugins/computer/server/provider";
-import type { JobRunner } from "../../../../plugins/runner/server/jobs/runner";
+  SandboxGoneError,
+  type CommandResult,
+} from "../../../../plugins/computer/server/internal";
+
+import type { JobRunner } from "../../../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { drainJobs } from "../../../support/jobs";
 import { getTestDb } from "../../../support/test-database";
 import { insertOwner, insertUser } from "../../../support/users";
-import { fakeComputerProvider, type FakeCommand } from "./fake-provider";
+import { fakeComputerProvider, type FakeCommand } from "../../../support/fake-computer-provider";
 
 const ok: CommandResult = { exitCode: 0, stdout: "", stderr: "" };
 

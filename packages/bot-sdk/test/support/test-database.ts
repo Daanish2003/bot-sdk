@@ -5,7 +5,7 @@ import { sql } from "drizzle-orm";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Client } from "pg";
 
-import { createDb, type Database } from "../../core/server/db/index";
+import { createDb, type Database } from "../../core/server/storage";
 import { migrate as migrateChatSchema } from "../../core/server/migrate";
 
 const DEFAULT_TEST_DATABASE_URL = "postgresql://postgres:password@localhost:5432/ai-chat_test";

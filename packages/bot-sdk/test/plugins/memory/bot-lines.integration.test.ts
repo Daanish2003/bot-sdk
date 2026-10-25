@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import { memory } from "../../../plugins/memory/server/feature";
 import { memorySettings } from "../../../plugins/memory/server/schema";
-import { saveCredentials } from "../../../plugins/models/server/credentials/store";
+import { saveCredentials } from "../../../plugins/models/server/internal";
 import { createTestSdk } from "../../support/deps";
 import { chatRpc } from "../../support/sdk";
 import { getTestDb } from "../../support/test-database";
 import { insertUser } from "../../support/users";
-import { fakeComputerProvider } from "../computer/server/fake-provider";
+import { fakeComputerProvider } from "../../support/fake-computer-provider";
 
 const model = "openai:gpt-6-luna";
 const now = new Date("2030-03-15T12:00:00Z");

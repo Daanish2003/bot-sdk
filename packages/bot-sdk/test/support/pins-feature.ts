@@ -4,7 +4,7 @@ import { pgSchema, text } from "drizzle-orm/pg-core";
 import { z } from "zod";
 
 import { defineFeature, type Database } from "../../core/server/index";
-import { defineJob } from "../../plugins/runner/server/jobs/define";
+import { defineJob } from "../../plugins/runner/server/internal";
 
 /*
  * A test-only feature written against the public `defineFeature` (spec #871): a Bot pins short

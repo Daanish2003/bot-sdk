@@ -17,7 +17,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { ComputerProvider } from "../../plugins/computer/server";
-import { runnerJobs } from "../../plugins/runner/server/plugin";
+import { runnerJobs } from "../../plugins/runner/server/internal";
 import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adapter";
 import { createComputerSdk, databaseUrlFromEnv, prepareSchema } from "../computer/setup";
 import { chatgptPlanFromEnv } from "../chatgpt-plan";

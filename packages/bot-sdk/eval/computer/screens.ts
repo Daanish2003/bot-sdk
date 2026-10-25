@@ -10,12 +10,12 @@ import { Readable } from "node:stream";
 
 import { chromium } from "playwright-core";
 
-import { botHelper, botTurn } from "../../core/server/db/schema";
-import type { Database } from "../../core/server/db/index";
+import { botHelper, botTurn } from "../../core/server/storage";
+import type { Database } from "../../core/server/storage";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
-import { screenView } from "../../plugins/bot/server/screen-view";
-import { createBot } from "../../plugins/bot/server/store";
-import type { ComputerHandle } from "../../plugins/computer/server/plugin";
+import { screenView } from "../../plugins/bot/server/helpers";
+import { createBot } from "../../plugins/bot/server/conversation";
+import type { ComputerHandle } from "../../plugins/computer/server/internal";
 import type { createComputerSdk } from "./setup";
 import { acceptSocket } from "./ws-server";
 

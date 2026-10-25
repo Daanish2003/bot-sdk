@@ -5,10 +5,9 @@ import { fileURLToPath } from "node:url";
 
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 
-import { postgresBlobStore } from "../../core/server/blob/postgres";
+import { postgresBlobStore, createDb, type Database } from "../../core/server/storage";
 import { createHookEmitter } from "../../core/server/chat/hooks";
 import type { FeatureEntry } from "../../core/server/create-chat";
-import { createDb, type Database } from "../../core/server/db/index";
 import { createGuardedFetch } from "../../core/server/lib/guarded-fetch";
 import { migrate as migrateChatSchema } from "../../core/server/migrate";
 import type { BotSdkContext } from "../../core/server/plugin";
@@ -17,8 +16,8 @@ import { memoryRuntime } from "../../core/server/runtime";
 import { createBotSdkOver, type OverSlots } from "../../core/server/over";
 import { e2bProvider } from "../../plugins/computer/e2b";
 import type { ComputerProvider } from "../../plugins/computer/server";
-import { productionDeps } from "../../plugins/models/server/plugin";
-import type { ModelsDeps } from "../../plugins/models/server/types";
+import { productionDeps } from "../../plugins/models/server/internal";
+import type { ModelsDeps } from "../../plugins/models/server/internal";
 
 /** The key the eval's own credentials are encrypted with. Test data only: nothing is kept. */
 const evalKeySecret = "eval-computer-key-secret-not-for-production";

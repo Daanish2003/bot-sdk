@@ -12,11 +12,11 @@ import { fileURLToPath } from "node:url";
 
 import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
 
-import { saveCredentials } from "../../plugins/models/server/credentials/store";
-import { runnerJobs } from "../../plugins/runner/server/plugin";
+import { saveCredentials } from "../../plugins/models/server/internal";
+import { runnerJobs } from "../../plugins/runner/server/internal";
 import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adapter";
 import { isReviewCall, verdictRound } from "../../test/support/fake-reviewer";
-import { fakeComputerProvider } from "../../test/plugins/computer/server/fake-provider";
+import { fakeComputerProvider } from "../../test/support/fake-computer-provider";
 import { chatgptPlanFromEnv } from "../chatgpt-plan";
 import { createComputerSdk, databaseUrlFromEnv, fail, prepareSchema } from "../computer/setup";
 import { keyFor } from "../turn/judge-model";

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { createBotSdk } from "../../../../core/server/create-chat";
-import { defineJob } from "../../../../plugins/runner/server/jobs/define";
+import { defineJob } from "../../../../plugins/runner/server/internal";
 import { testDatabaseUrl } from "../../../support/test-database";
 
 const silent = { error: () => {} };

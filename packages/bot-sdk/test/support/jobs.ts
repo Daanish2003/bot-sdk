@@ -1,6 +1,5 @@
-import type { Database } from "../../core/server/db/index";
-import { inProcessRunner, type JobClock } from "../../plugins/runner/server/jobs/in-process";
-import { claimJob } from "../../plugins/runner/server/jobs/store";
+import type { Database } from "../../core/server/storage";
+import { inProcessRunner, type JobClock, claimJob } from "../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps } from "./deps";
 import { getTestDb } from "./test-database";
 

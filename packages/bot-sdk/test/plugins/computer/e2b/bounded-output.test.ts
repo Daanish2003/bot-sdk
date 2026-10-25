@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { capOutput, spillThreshold } from "../../../../plugins/bot/server/computer-tools";
+import { capOutput, spillThreshold } from "../../../../plugins/bot/server/agent-loop";
 import {
   boundedOutput,
   keptEndCharacters,

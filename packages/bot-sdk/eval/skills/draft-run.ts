@@ -10,13 +10,16 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { botDemonstration, botDemonstrationEvent } from "../../core/server/db/schema";
+import { botDemonstration, botDemonstrationEvent } from "../../core/server/storage";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
-import { demonstrationEventBlobKey } from "../../plugins/bot/server/demonstration-capture";
-import { draftSkill, type Drafted } from "../../plugins/bot/server/demonstration-draft";
+import {
+  demonstrationEventBlobKey,
+  draftSkill,
+  type Drafted,
+} from "../../plugins/bot/server/demonstrations";
 import { skills } from "../../plugins/skills/server/plugin";
 import { createFakeAdapter, round, text } from "../../test/support/fake-adapter";
-import { fakeComputerProvider } from "../../test/plugins/computer/server/fake-provider";
+import { fakeComputerProvider } from "../../test/support/fake-computer-provider";
 import { chatgptPlanFromEnv } from "../chatgpt-plan";
 import { createComputerSdk, databaseUrlFromEnv, prepareSchema } from "../computer/setup";
 import { freshBot, type TurnEnv } from "../turn/case";

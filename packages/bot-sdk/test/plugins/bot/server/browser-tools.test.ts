@@ -4,9 +4,9 @@ import {
   type BrowserSession,
   browserTools,
   snapshotLimit,
-} from "../../../../plugins/bot/server/browser-tools";
-import type { LoopKit } from "../../../../plugins/bot/server/loop";
-import { maskSecrets } from "../../../../plugins/bot/server/secret-values";
+} from "../../../../plugins/bot/server/helpers";
+import type { LoopKit } from "../../../../plugins/bot/server/agent-loop";
+import { maskSecrets } from "../../../../plugins/bot/server/safety";
 
 const secret = "ghp_0123456789abcdef";
 

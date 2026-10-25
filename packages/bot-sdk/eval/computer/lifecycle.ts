@@ -17,12 +17,11 @@ import { fileURLToPath } from "node:url";
 import { user as userTable } from "@ai-chat/db/schema/auth";
 import { eq } from "drizzle-orm";
 
-import { computer as computerTable } from "../../core/server/db/schema";
-import { createBot } from "../../plugins/bot/server/store";
-import { computerBlobKey, computerIdleMs } from "../../plugins/computer/server/plugin";
+import { computer as computerTable } from "../../core/server/storage";
+import { createBot } from "../../plugins/bot/server/conversation";
+import { computerBlobKey, computerIdleMs } from "../../plugins/computer/server/internal";
 import type { ComputerProvider } from "../../plugins/computer/server";
-import { inProcessRunner } from "../../plugins/runner/server/jobs/in-process";
-import { claimJob } from "../../plugins/runner/server/jobs/store";
+import { inProcessRunner, claimJob } from "../../plugins/runner/server/internal";
 import { checkScreens } from "./screens";
 import {
   createComputerSdk,

@@ -11,11 +11,15 @@ import { fileURLToPath } from "node:url";
 
 import { asc, eq } from "drizzle-orm";
 
-import { botHelper, botTurn, computer as computerTable } from "../../core/server/db/schema";
+import {
+  botHelper,
+  botTurn,
+  computer as computerTable,
+  job as jobTable,
+} from "../../core/server/storage";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
-import { computerOf } from "../../plugins/bot/server/computer-tools";
-import { job as jobTable } from "../../plugins/runner/server/db/job";
-import { runnerJobs } from "../../plugins/runner/server/plugin";
+import { computerOf } from "../../plugins/bot/server/agent-loop";
+import { runnerJobs } from "../../plugins/runner/server/internal";
 import { chatgptPlanFromEnv } from "../chatgpt-plan";
 import { freshBot } from "../turn/case";
 import { keyFor } from "../turn/judge-model";

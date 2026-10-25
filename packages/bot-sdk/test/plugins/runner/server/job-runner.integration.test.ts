@@ -3,17 +3,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { buildBotSdk } from "../../../../core/server/create-chat";
-import { models } from "../../../../plugins/models/server/plugin";
-import { job } from "../../../../core/server/db/schema";
-import { defineJob, PermanentJobError } from "../../../../plugins/runner/server/jobs/define";
-import { inProcessRunner } from "../../../../plugins/runner/server/jobs/in-process";
-import type { JobRunner } from "../../../../plugins/runner/server/jobs/runner";
+import { models } from "../../../../plugins/models/server/internal";
+import { job } from "../../../../core/server/storage";
 import {
+  defineJob,
+  PermanentJobError,
+  inProcessRunner,
   cancelJob,
   claimJob,
   pruneFinishedJobs,
   reapStaleJobs,
-} from "../../../../plugins/runner/server/jobs/store";
+} from "../../../../plugins/runner/server/internal";
+import type { JobRunner } from "../../../../plugins/runner/server/internal";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { drainJobs, fakeJobClock } from "../../../support/jobs";
 import { getTestDb, testDatabaseUrl } from "../../../support/test-database";

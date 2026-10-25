@@ -12,10 +12,10 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { botTurn, computer as computerTable } from "../../core/server/db/schema";
+import { botTurn, computer as computerTable } from "../../core/server/storage";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
-import { botDirectory, computerOf } from "../../plugins/bot/server/computer-tools";
-import { runnerJobs } from "../../plugins/runner/server/plugin";
+import { computerOf } from "../../plugins/bot/server/agent-loop";
+import { runnerJobs } from "../../plugins/runner/server/internal";
 import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adapter";
 import { desc, eq } from "drizzle-orm";
 import { freshBot, seedHistory } from "../turn/case";
@@ -29,6 +29,7 @@ import {
   localE2bProvider,
   prepareSchema,
 } from "./setup";
+import { botDirectory } from "../../plugins/bot/server/conversation";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 const resultsDir = join(here, "results");

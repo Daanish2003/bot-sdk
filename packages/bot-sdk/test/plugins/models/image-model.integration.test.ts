@@ -4,9 +4,9 @@ import { describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
 
-import { modelSettings } from "../../../core/server/db/schema";
-import { saveCredentials } from "../../../plugins/models/server/credentials/store";
-import type { HostProvider } from "../../../plugins/models/server/types";
+import { modelSettings } from "../../../core/server/storage";
+import { saveCredentials } from "../../../plugins/models/server/internal";
+import type { HostProvider } from "../../../plugins/models/server/internal";
 import { createTestSdk } from "../../support/deps";
 import { chatRpc } from "../../support/sdk";
 import { insertUser, type TestUser } from "../../support/users";

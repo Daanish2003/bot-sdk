@@ -4,7 +4,7 @@ import { user as userTable } from "@ai-chat/db/schema/auth";
 
 import { getTestDb } from "./test-database";
 
-import { createBot } from "../../plugins/bot/server/store";
+import { createBot } from "../../plugins/bot/server/conversation";
 
 export type TestUser = typeof userTable.$inferSelect;
 

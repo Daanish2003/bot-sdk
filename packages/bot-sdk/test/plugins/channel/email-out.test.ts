@@ -7,7 +7,7 @@ import {
   maxAttachedBytes,
   namedAddress,
   replySubject,
-} from "../../../plugins/channel/server/email-out";
+} from "../../../plugins/channel/server/internal";
 
 const botUrl = "https://app.example/bots/b1";
 const file = (id: string, name: string, size: number) => ({

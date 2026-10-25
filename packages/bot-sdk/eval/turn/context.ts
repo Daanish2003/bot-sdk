@@ -11,8 +11,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { memory } from "../../plugins/memory/server/feature";
-import { runnerJobs } from "../../plugins/runner/server/plugin";
-import { fakeComputerProvider } from "../../test/plugins/computer/server/fake-provider";
+import { runnerJobs } from "../../plugins/runner/server/internal";
+import { fakeComputerProvider } from "../../test/support/fake-computer-provider";
 import { chatgptPlanFromEnv } from "../chatgpt-plan";
 import { createComputerSdk, databaseUrlFromEnv, prepareSchema } from "../computer/setup";
 import { toolSearchCases } from "./context-cases";

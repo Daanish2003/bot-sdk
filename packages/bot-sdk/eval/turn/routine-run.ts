@@ -5,12 +5,11 @@ import { sendAndFollow } from "../../test/support/follow-send";
 
 import { eq } from "drizzle-orm";
 
-import { botTrigger, botTurn } from "../../core/server/db/schema";
+import { botTrigger, botTurn } from "../../core/server/storage";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
-import { checkInNotice } from "../../plugins/bot/server/check-in";
-import { lockConversation, receive } from "../../plugins/bot/server/router";
-import { routineSnapshot } from "../../plugins/bot/server/routine";
-import { defaultTimeZone } from "../../plugins/bot/server/time-zone";
+import { checkInNotice, routineSnapshot } from "../../plugins/bot/server/routines";
+import { lockConversation, receive } from "../../plugins/bot/server/triggers";
+import { defaultTimeZone } from "../../plugins/bot/server/conversation";
 import { freshBot, seedHistory, type TurnEnv } from "./case";
 import type { RoutineCase } from "./routine-cases";
 import {

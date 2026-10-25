@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { forwardedEmailLabel as forwardedLabel } from "../../../plugins/bot/server/routine";
-import { emailText as textOn } from "../../../plugins/channel/server/email-text";
+import { forwardedEmailLabel as forwardedLabel } from "../../../plugins/bot/server/routines";
+import { emailText as textOn } from "../../../plugins/bot/server/turn";
 
 const base = { subject: "Plans", headers: {}, attachments: [] };
 

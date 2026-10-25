@@ -6,7 +6,7 @@ import { createTestSdk } from "../../support/deps";
 import { chatRpc } from "../../support/sdk";
 import { getTestDb } from "../../support/test-database";
 import { insertUser } from "../../support/users";
-import { fakeComputerProvider } from "../computer/server/fake-provider";
+import { fakeComputerProvider } from "../../support/fake-computer-provider";
 
 describe("the Memory switch procedures", () => {
   it("gets and sets the Memory switch", async () => {
