@@ -37,7 +37,7 @@ export type InProcessRunnerOptions = {
    */
   drainMs?: number;
   clock?: JobClock;
-  /** The core context, read when a job runs. The `runner` plugin passes its instance's. */
+  /** The core context, read when a job runs. The core passes its instance's. */
   deps: () => BotSdkContext;
 };
 

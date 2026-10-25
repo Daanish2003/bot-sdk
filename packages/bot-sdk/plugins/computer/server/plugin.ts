@@ -266,15 +266,24 @@ declare module "../../../core/server/plugin" {
   }
 }
 
-// Each instance's sleep check and provider, keyed by its `computer` service.
-const sleepChecks = new WeakMap<ComputerApi, (userId: string) => Promise<void>>();
-const providers = new WeakMap<ComputerApi, ComputerProvider>();
+/** What the core keeps of an instance's Computer besides its API: its provider and sleep check. */
+type ComputerInternals = {
+  provider: ComputerProvider;
+  sleepCheck: (userId: string) => Promise<void>;
+};
+
+// Each instance's Computer internals, keyed by its `computer` service.
+const internals = new WeakMap<ComputerApi, ComputerInternals>();
+
+function internalsOf(computer: ComputerApi | null): ComputerInternals {
+  const found = computer && internals.get(computer);
+  if (!found) throw new Error("The Computer wasn't built by createBotSdk");
+  return found;
+}
 
 /** The provider the instance's Computer runs on. The test seam reuses it. */
 export function computerProvider(computer: ComputerApi): ComputerProvider {
-  const provider = providers.get(computer);
-  if (!provider) throw new Error("The Computer wasn't built by createBotSdk");
-  return provider;
+  return internalsOf(computer).provider;
 }
 
 /**
@@ -286,11 +295,9 @@ export const computerSleepJob = defineJob({
   name: sleepJobName,
   payload: z.object({ userId: z.string() }),
   run: async ({ userId }, { deps }) => {
-    // A check queued before the Host turned computer off ends its chain.
+    // A check queued before the Host unset the computer slot ends its chain.
     if (!deps.computer) return;
-    const check = sleepChecks.get(deps.computer);
-    if (!check) throw new Error("The Computer wasn't built by createBotSdk");
-    await check(userId);
+    await internalsOf(deps.computer).sleepCheck(userId);
   },
   onFailed: async ({ userId }, error, deps) => {
     deps.logger.error(`The sleep check of the Computer of user ${userId} failed`, error);
@@ -428,8 +435,10 @@ export function createComputer(sdk: BotSdkContext, provider: ComputerProvider): 
       ownerChecks.push(check);
     },
   };
-  sleepChecks.set(api, (userId) => sleepCheck(sdk, provider, busyChecks, userId));
-  providers.set(api, provider);
+  internals.set(api, {
+    provider,
+    sleepCheck: (userId) => sleepCheck(sdk, provider, busyChecks, userId),
+  });
   return api;
 }
 
@@ -449,9 +458,9 @@ export const computerUserDelete: UserDeleteHooks = {
     return deleted?.sandboxId ?? null;
   },
   after: async (sdk, { userId, collected }) => {
-    if (typeof collected === "string" && sdk.computer) {
-      await killBestEffort(sdk, computerProvider(sdk.computer), userId, collected);
-    }
+    // Only an instance with a Computer runs these hooks (`deleteUserData`).
+    const { provider } = internalsOf(sdk.computer);
+    if (typeof collected === "string") await killBestEffort(sdk, provider, userId, collected);
     await deleteBlobsBestEffort(sdk, [computerBlobKey(userId)]);
   },
 };

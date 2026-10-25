@@ -1023,7 +1023,7 @@ function reactionNotice(rows: { parts: MessageRow["parts"] }[]): string {
 
 /**
  * The Turn's loop (slide 2), run through `runLoop`: SendToUser, the Routine and Check-in tools and,
- * whenever `computer` is on, the Computer's tools and `start_helper`. A SendToUser's Message commits with its
+ * whenever the computer slot is set, the Computer's tools and `start_helper`. A SendToUser's Message commits with its
  * Checkpoint, so it is sent once. A Step with no tool call ends the Turn quiet, except that the
  * first one with plain text gets one more Step, after `undeliveredTextReminder`, when a Step is left
  * under the limit; the Step and time limits end it `error`.
@@ -1049,7 +1049,7 @@ async function playTurn(
       : ctx.activity(
           "trigger_text",
           async () => {
-            const computer = deps.computer !== null ? computerOf(deps, turn.userId) : undefined;
+            const computer = deps.computer ? computerOf(deps, turn.userId) : undefined;
             return capText(
               text,
               spillPath(turn.botId, id),
@@ -1072,7 +1072,7 @@ async function playTurn(
       ctx.activity(
         "user_files",
         async () =>
-          deps.computer !== null
+          deps.computer
             ? copyUploads(deps, computerOf(deps, turn.userId), turn.botId, files, attempt)
             : files.map(() => null),
         { yields: false },
@@ -1141,9 +1141,9 @@ async function turnSetup(
     undefined,
     async (tx) => (await routinesPrompt(tx, turn.botId)) ?? null,
   );
-  // The Computer's tools and Helpers, whenever `computer` is on: the tool set never changes
+  // The Computer's tools and Helpers, whenever the computer slot is set: the tool set never changes
   // mid-conversation.
-  const withComputer = deps.computer !== null;
+  const withComputer = Boolean(deps.computer);
   const memory =
     withComputer && deps.hasPlugin("memory") ? await memorySnapshot(deps, turn, kit) : null;
   // The Skills, read in the same wake as the memory snapshot; on whatever the Memory switch says.
@@ -1499,7 +1499,7 @@ export async function awayStartParts(
   knowledge: string | null,
   features: FeatureSection[],
 ): Promise<PromptStartParts> {
-  const withComputer = deps.computer !== null;
+  const withComputer = Boolean(deps.computer);
   const kit: LoopKit = {
     liveActivity: definitionOnly,
     liveRequest: definitionOnly,

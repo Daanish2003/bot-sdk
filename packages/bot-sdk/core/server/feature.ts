@@ -177,6 +177,7 @@ const instanceKeys = new Set([
   "deleteUser",
   "exportUser",
   "rotateKeys",
+  "runner",
 ]);
 
 /** The core's tables, by name: a feature declares none of them. */

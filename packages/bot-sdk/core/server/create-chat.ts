@@ -254,7 +254,11 @@ function slotPlugins(options: SlotOptions): BotSdkPlugin[] {
  * The instance's plugins, in dependency order: the slots' (or the plugin list's), then each
  * feature as a plugin. Throws when a feature's needs aren't met or its schema touches the core's.
  */
-function pluginsOf(options: BotSdkOptions): { plugins: BotSdkPlugin[]; features: AnyFeature[] } {
+function pluginsOf(options: BotSdkOptions): {
+  plugins: BotSdkPlugin[];
+  features: AnyFeature[];
+  services: ReadonlySet<string>;
+} {
   const entries = options.features ?? [];
   const features = entries.filter(isFeature);
   const listed = [
@@ -264,7 +268,7 @@ function pluginsOf(options: BotSdkOptions): { plugins: BotSdkPlugin[]; features:
   // The core services the instance has: a plugin's `requires` of one is met.
   const services = new Set(["runner", ...(options.computer ? ["computer"] : [])]);
   for (const feature of features) checkFeature(feature, services);
-  return { plugins: orderPlugins(listed, services), features };
+  return { plugins: orderPlugins(listed, services), features, services };
 }
 
 export function buildBotSdk(
@@ -277,7 +281,7 @@ export function buildBotSdk(
   if (!options.basePath.startsWith("/")) {
     throw new Error(`basePath must start with "/": ${options.basePath}`);
   }
-  const { plugins, features } = pluginsOf(options);
+  const { plugins, features, services } = pluginsOf(options);
   // The core serves its own routes and rules beside the plugins', so a plugin can't claim them.
   const core: BotSdkPlugin = {
     id: "core",
@@ -291,11 +295,7 @@ export function buildBotSdk(
   const apis = new Map<string, object>();
   // Building the context opens nothing: the pool and the runtime connect on first use.
   // With the core services, until #880–#883 (see `apis` below).
-  const enabledIds = new Set([
-    ...plugins.map((plugin) => plugin.id),
-    "runner",
-    ...(options.computer ? ["computer"] : []),
-  ]);
+  const enabledIds = new Set([...plugins.map((plugin) => plugin.id), ...services]);
   const sdk = buildContext(options, given, ruleDefaults, enabledIds, (id) => {
     const api = apis.get(id);
     if (!api) throw new Error(`Plugin "${id}" isn't enabled`);
