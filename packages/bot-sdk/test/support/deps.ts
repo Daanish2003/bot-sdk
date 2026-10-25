@@ -6,8 +6,8 @@ import { postgresBlobStore } from "../../core/server/blob/postgres";
 import { createMemoryCounters } from "../../core/server/chat/counters";
 import { createHookEmitter, type HookEmitter } from "../../core/server/chat/hooks";
 import { createMemoryPubSub } from "../../core/server/chat/pubsub";
-import type { BotSdkOptions, FeatureEntry, GivenContext } from "../../core/server/create-chat";
-import { createBotSdkOver, type SdkOver } from "../../core/server/over";
+import type { FeatureEntry, GivenContext } from "../../core/server/create-chat";
+import { createBotSdkOver, type OverSlots, type SdkOver } from "../../core/server/over";
 import type { BotSdkPlugin } from "../../core/server/plugin";
 import { memory } from "../../plugins/memory/server/feature";
 import type { ComputerProvider } from "../../plugins/computer/server/provider";
@@ -25,7 +25,7 @@ export type TestDeps = SdkOver;
 /** What a test may override in `createTestSdk`: a part of the core context or of `models`. */
 export type TestDepsOverrides = Partial<
   Omit<GivenContext, "events" | "keyring"> &
-    Pick<BotSdkOptions, "channels" | "verifiedEmail" | "reviewModel"> &
+    OverSlots &
     Omit<ModelsDeps, "hooks"> & {
       /** The core's event emitter (`BotSdkContext.events`). */
       hooks: HookEmitter;

@@ -7,14 +7,14 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 
 import { postgresBlobStore } from "../../core/server/blob/postgres";
 import { createHookEmitter } from "../../core/server/chat/hooks";
-import type { BotSdkOptions, FeatureEntry } from "../../core/server/create-chat";
+import type { FeatureEntry } from "../../core/server/create-chat";
 import { createDb, type Database } from "../../core/server/db/index";
 import { createGuardedFetch } from "../../core/server/lib/guarded-fetch";
 import { migrate as migrateChatSchema } from "../../core/server/migrate";
 import type { BotSdkContext } from "../../core/server/plugin";
 import { resolveRateLimits } from "../../core/server/rate-limits";
 import { memoryRuntime } from "../../core/server/runtime";
-import { createBotSdkOver } from "../../core/server/over";
+import { createBotSdkOver, type OverSlots } from "../../core/server/over";
 import { e2bProvider } from "../../plugins/computer/e2b";
 import type { ComputerProvider } from "../../plugins/computer/server";
 import { productionDeps } from "../../plugins/models/server/plugin";
@@ -61,7 +61,7 @@ export async function prepareSchema(url: string): Promise<Database> {
  * `wrapFetch` may wrap the guarded fetch the SDK and the Models use (the ladder eval answers Tavily itself).
  */
 export function createComputerSdk(
-  options: Pick<BotSdkOptions, "channels" | "verifiedEmail" | "reviewModel"> & {
+  options: OverSlots & {
     db: Database;
     provider: ComputerProvider;
     /** Features, such as `memory()`; they get the Computer. */

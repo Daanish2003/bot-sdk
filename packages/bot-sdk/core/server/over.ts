@@ -19,7 +19,7 @@ import { runnerJobs } from "../../plugins/runner/server/plugin";
 type OverOptions = Pick<BotSdkOptions, "basePath" | "getUser" | "logger">;
 
 /** The factory's options the seam passes on as they are. */
-type OverSlots = Pick<BotSdkOptions, "channels" | "verifiedEmail" | "reviewModel">;
+export type OverSlots = Pick<BotSdkOptions, "channels" | "verifiedEmail" | "reviewModel">;
 
 /**
  * What the tests and evals drive: the core context of an instance over fakes, with its Models

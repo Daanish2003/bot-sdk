@@ -56,13 +56,9 @@ export type BotApi = {
   reviewModel: string | undefined;
 };
 
-/** How the Host sets up the `bot` plugin. */
+/** How the core sets up its Bots, from the factory's options. */
 export type BotOptions = {
-  /**
-   * The Model that reviews each Bot's risky tool calls before they run (Auto-review), a
-   * `"provider:model"` id from the `models` plugin's list, resolved per user. With none, or one
-   * the user can't use, the Bot's own Model reviews, in a fresh context.
-   */
+  /** The factory's `reviewModel` option: the Model that Auto-reviews the Bots' risky tool calls. */
   reviewModel?: string;
 };
 
