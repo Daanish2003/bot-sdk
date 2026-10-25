@@ -242,6 +242,17 @@ describe("callsToJudge", () => {
     expect(out.text).toContain("set_check_in");
     expect(out.rejection).toBeUndefined();
   });
+
+  it("judges a call made through run_tool as the tool it names", () => {
+    const transcript = turnWith(
+      "run_tool",
+      { name: "create_routine", args: { name: "Digest", schedule: "daily" } },
+      { saved: { id: "x" } },
+    );
+    const out = callsToJudge(transcript, "create_routine", now, "UTC");
+    expect(out.text).toBe('create_routine {"name":"Digest","schedule":"daily"}');
+    expect(out.rejection).toBeUndefined();
+  });
 });
 
 describe("turnIdOf", () => {
