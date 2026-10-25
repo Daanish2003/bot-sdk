@@ -40,11 +40,7 @@ const rpcCases = [
 ];
 
 /** The Bot-only plugins that serve every route in `rpcCases`. */
-const botOnlyPlugins = () => [
-  bot(),
-  computer({ provider: fakeComputerProvider().provider }),
-  knowledge(),
-];
+const botOnlyPlugins = () => [bot(), computer({ provider: fakeComputerProvider().provider })];
 
 /** An RPC call to `route`. The limit is checked before the body is read, so the body can be empty. */
 const rpcCall = (route: string) =>
@@ -56,6 +52,7 @@ describe.each(rpcCases)("$name rate limits", ({ route, rateLimits }) => {
     const other = await insertUser();
     const deps = createTestSdk({
       plugins: botOnlyPlugins(),
+      features: [knowledge()],
       rateLimits: resolveRateLimits(rateLimits),
     });
 
@@ -77,7 +74,11 @@ describe.each(rpcCases)("$name rate limits", ({ route, rateLimits }) => {
     const off = Object.fromEntries(
       Object.keys(rateLimits).map((key) => [key, false]),
     ) as RateLimits;
-    const deps = createTestSdk({ plugins: botOnlyPlugins(), rateLimits: resolveRateLimits(off) });
+    const deps = createTestSdk({
+      plugins: botOnlyPlugins(),
+      features: [knowledge()],
+      rateLimits: resolveRateLimits(off),
+    });
 
     const statuses: number[] = [];
     for (let attempt = 0; attempt < 5; attempt++) {

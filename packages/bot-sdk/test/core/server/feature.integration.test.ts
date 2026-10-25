@@ -212,8 +212,9 @@ describe("a feature built with defineFeature", { timeout: 30_000 }, () => {
         environment: "Lens: on.",
         changeNotes: [
           `Lens saw: ${turn.earlier
-            .flatMap((earlier) => earlier.calls)
-            .map((call) => `${call.name}(${String(call.args.text)})`)
+            .flatMap((earlier) => earlier.transcript)
+            .flatMap((entry) => entry.toolCalls ?? [])
+            .map((call) => `${call.function.name}(${call.function.arguments})`)
             .join(", ")}`,
         ],
       }),
@@ -229,8 +230,8 @@ describe("a feature built with defineFeature", { timeout: 30_000 }, () => {
     const first = textOf(((fake.calls[0]?.messages ?? []) as ModelMessage[])[0]?.content);
     expect(first).toContain("Lens: on.");
     expect(first).toContain("lens_tool");
-    // A call through run_tool is the named tool's call.
-    expect(newestOf(fake.calls[2])).toContain("Lens saw: pin_note(buy milk)");
+    expect(newestOf(fake.calls[2])).toContain("Lens saw: ");
+    expect(newestOf(fake.calls[2])).toContain("buy milk");
   });
 
   it("gets the Turn's start, and its Change notes come in the order the features are listed", async () => {

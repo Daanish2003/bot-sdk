@@ -1135,10 +1135,6 @@ async function turnSetup(
   const skills =
     withComputer && deps.hasPlugin("skills") ? await skillsSnapshot(deps, turn, kit) : null;
   const skillsBlock = skills && deps.plugin("skills").prompt(turn.botId, skills);
-  // The user's Knowledge, read in the same wake too.
-  const knowledge =
-    withComputer && deps.hasPlugin("knowledge") ? await knowledgeSnapshot(deps, turn, kit) : null;
-  const knowledgeBlock = knowledge && deps.plugin("knowledge").prompt(knowledge);
   const facts = featureTurnOf(turn);
   // The features' sections and Change notes (spec #871), read once: a replay reads the recorded
   // ones. With no feature, there is no activity, so the histories of Turns without one don't change.
@@ -1146,7 +1142,7 @@ async function turnSetup(
     ? await kit.liveRequest(
         "features",
         undefined,
-        () => featureSectionsNow(deps, facts, turn.startedAt),
+        () => featureSectionsNow(deps, facts, turn.startedAt, kit.signal),
         async () => {},
       )
     : [];
@@ -1177,7 +1173,6 @@ async function turnSetup(
       withComputer,
       withConnectors: deps.hasPlugin("mcp"),
       skills: skillsBlock,
-      knowledge: knowledgeBlock,
       features,
       routines,
     });
@@ -1197,7 +1192,6 @@ async function turnSetup(
   // the Knowledge and the Routines as recorded above, and the live tools.
   const changeNotes = await changeNotesFor(db, id, seenSince, {
     skills,
-    knowledge,
     features,
     routines: routines ?? null,
     tools: definitionsOf(tools),
@@ -1395,7 +1389,6 @@ function startParts(
     withComputer,
     withConnectors,
     skills,
-    knowledge,
     features,
     routines,
   }: {
@@ -1405,8 +1398,6 @@ function startParts(
     withConnectors: boolean;
     /** The Skills block, null without the `skills` plugin or when it couldn't be read. */
     skills: string | null;
-    /** The Knowledge block, null without the `knowledge` plugin or when it couldn't be read. */
-    knowledge: string | null;
     /** The enabled features' sections, each named by its feature's id (spec #871). */
     features: FeatureSection[];
     routines: string | null;
@@ -1421,7 +1412,6 @@ function startParts(
       ...(computerBlock ? [{ name: "computer", text: computerBlock }] : []),
       ...features.flatMap(({ name, section }) => (section ? [{ name, text: section }] : [])),
       ...(skills ? [{ name: "skills", text: skills }] : []),
-      ...(knowledge ? [{ name: "knowledge", text: knowledge }] : []),
       ...(routines ? [{ name: "routines", text: routines }] : []),
     ],
     tools: [...tools.filter(isDirectTool), ...toolSearchTools(tools)],
@@ -1442,8 +1432,7 @@ const definitionOnly = (): never => {
  * What a Summary written while the user is away builds its Prompt start from, at `now`: the Bot's
  * tools and system blocks as a Turn starting now reads them, the Routines read in `tx`,
  * `skills`,
- * the Skills block read with it (null without the `skills` plugin or unreadable), and `knowledge`,
- * the Knowledge block read with them (null without the `knowledge` plugin or unreadable). `turn`
+ * the Skills block read with it (null without the `skills` plugin or unreadable). `turn`
  * is the Bot's newest Turn, which the Summary follows.
  */
 export async function awayStartParts(
@@ -1452,7 +1441,6 @@ export async function awayStartParts(
   turn: Omit<TurnFacts, "startedAt" | "jobId">,
   now: Date,
   skills: string | null,
-  knowledge: string | null,
   features: FeatureSection[],
 ): Promise<PromptStartParts> {
   const withComputer = deps.hasPlugin("computer");
@@ -1460,6 +1448,7 @@ export async function awayStartParts(
     liveActivity: definitionOnly,
     liveRequest: definitionOnly,
     computerCall: definitionOnly,
+    signal: new AbortController().signal,
     computerTools: computerToolDefinitions.map((definition) => definition.server(definitionOnly)),
   };
   const facts: TurnFacts = { ...turn, startedAt: now, jobId: null };
@@ -1478,7 +1467,6 @@ export async function awayStartParts(
     withComputer,
     withConnectors: deps.hasPlugin("mcp"),
     skills,
-    knowledge,
     features,
     routines,
   });
@@ -1514,25 +1502,6 @@ async function skillsSnapshot(
     }),
   }));
   return "error" in read ? null : read.skills;
-}
-
-/**
- * The readable paths of the user's Knowledge as the Turn starts (spec #737), read once from the
- * Computer like the memory snapshot, as a Computer call of the loop's: a replay reads the recorded
- * list. Null when the Computer can't be woken or read, so the Turn goes on without them.
- */
-async function knowledgeSnapshot(
-  deps: BotSdkContext,
-  turn: TurnFacts,
-  kit: LoopKit,
-): Promise<string[] | null> {
-  const read = await kit.computerCall("knowledge", undefined, async (_computer, live) => ({
-    paths: await deps.plugin("knowledge").readablePaths({
-      computer: computerOf(deps, turn.userId),
-      signal: live.signal,
-    }),
-  }));
-  return "error" in read ? null : read.paths;
 }
 
 /** How a Turn ended, and why when it failed: a limit's code or the Provider's error. */

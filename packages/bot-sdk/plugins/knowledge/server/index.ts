@@ -1,1 +1,1 @@
-export { knowledge, type KnowledgePlugin } from "./plugin";
+export { knowledge } from "./plugin";

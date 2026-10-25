@@ -1,4 +1,5 @@
-import type { FeatureCall, FeatureEarlierTurn } from "../../../core/server/feature";
+import type { FeaturePromptTurn } from "../../../core/server/feature";
+import { type FeatureCall, successfulCalls } from "../../bot/server/change-notes";
 
 /*
  * The Change notes of the memory block (slide 31, ADR 0022 amended): the Prompt start freezes the
@@ -107,14 +108,14 @@ function applyOwnCalls(botId: string, seen: MemoryLines, calls: readonly Feature
 export function memoryChangeNotes(
   botId: string,
   built: string | null,
-  earlier: readonly FeatureEarlierTurn[],
+  earlier: FeaturePromptTurn["earlier"],
   current: string,
 ): string[] {
   if (built === null) return [];
   const seen = memoryLinesOf(built);
-  for (const { notes, calls } of earlier) {
+  for (const { notes, transcript } of earlier) {
     applyNotes(seen, notes);
-    applyOwnCalls(botId, seen, calls);
+    applyOwnCalls(botId, seen, successfulCalls(transcript));
   }
   const notes: string[] = [];
   const now = memoryLinesOf(current);

@@ -71,7 +71,8 @@ function docxWithText(text: string, name = "long.docx") {
 async function setup() {
   const computerFake = fakeComputerProvider();
   const deps = createTestSdk({
-    plugins: [computer({ provider: computerFake.provider }), knowledge()],
+    plugins: [computer({ provider: computerFake.provider })],
+    features: [knowledge()],
   });
   const client = chatRpc({ user: await insertUser(), deps });
   return { computerFake, client };
