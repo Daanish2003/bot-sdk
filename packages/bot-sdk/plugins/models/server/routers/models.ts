@@ -1,8 +1,9 @@
-import { listAvailableModels, modelsDeps } from "../internal";
+import { listAvailableModels } from "../available-models";
 import { protectedProcedure } from "../../../../core/server/procedures";
 import { z } from "zod";
 
 import { rpcError } from "../../../../core/server/rpc-error";
+import { modelsDeps } from "../state";
 
 export const modelsRouter = {
   /** The Models of Providers the caller has credentials for, and a new Conversation's default. */

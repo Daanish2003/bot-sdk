@@ -1,6 +1,6 @@
-import type { Credentials } from "../../../models/server/internal";
-import type { SearchErrorReason, SearchResult } from "../../shared/web-search";
-import { type SearchClient, SearchError } from "./search-client";
+import type { Credentials } from "../../plugins/models/server/internal";
+import type { SearchErrorReason, SearchResult } from "../../plugins/bot/shared/web-search";
+import { type SearchClient, SearchError } from "../../plugins/bot/server/agent-loop";
 
 export type FakeSearchClient = SearchClient & {
   /** Every search made, in order. */

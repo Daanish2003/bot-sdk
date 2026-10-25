@@ -445,3 +445,6 @@ const botRouter = {
 /** The `bot` plugin's routers, served under `<basePath>/rpc/<key>`. */
 export const botPluginRouter = { bot: botRouter };
 export type BotRouter = typeof botPluginRouter;
+
+// The email Channel's router type, for the channel client (ADR 0005: clients import routers/index only).
+export type { ChannelRouter } from "./channel";

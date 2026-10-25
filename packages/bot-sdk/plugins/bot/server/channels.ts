@@ -1,6 +1,6 @@
 import type { BotSdkContext } from "../../../core/server/plugin";
 import type { ChannelApi, ChannelOptions, ChannelPlugin } from "../../channel/server/internal";
-import { channelRouter } from "../../channel/server/routers/index";
+import { channelRouter } from "./routers/channel";
 import { deliverIn, sendDelivery } from "./conversation";
 import { receiveEmail } from "./turn";
 

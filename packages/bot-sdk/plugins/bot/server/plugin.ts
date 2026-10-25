@@ -31,6 +31,11 @@ import {
 
 import { stopUserTurns } from "./turn";
 import { stopUserDemonstrations } from "./demonstrations";
+// The entries of these modules load the files that register jobs at import time: check-in fire,
+// the away Summary, Demonstration capture and draft.
+import "./routines";
+import "./turn";
+import "./demonstrations";
 
 import { botPluginRouter } from "./routers";
 import { rotateSecretKeys } from "./safety";

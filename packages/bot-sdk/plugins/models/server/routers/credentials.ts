@@ -1,21 +1,21 @@
 import { z } from "zod";
 
-import {
-  checkCredentials,
-  shownLinkedPlan,
-  deleteCredentials,
-  listCredentials,
-  loadCredentials,
-  saveCredentials,
-  modelsDeps,
-} from "../internal";
+import { checkCredentials } from "../credentials/check";
 import {
   credentialHint,
   credentialServices,
   type OpenaiCredentialsState,
   saveCredentialsInput,
 } from "../../shared/credentials/services";
+import { shownLinkedPlan } from "../credentials/resolve";
+import {
+  deleteCredentials,
+  listCredentials,
+  loadCredentials,
+  saveCredentials,
+} from "../credentials/store";
 import { protectedProcedure } from "../../../../core/server/procedures";
+import { modelsDeps } from "../state";
 import { rpcError } from "../../../../core/server/rpc-error";
 
 /** Provider credentials and Tool credentials. Write-only: the client only ever sees hints (ADR 0003). */

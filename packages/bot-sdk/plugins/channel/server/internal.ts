@@ -18,10 +18,11 @@ export {
   namedAddress,
   replySubject,
 } from "./email-out";
-export type {
-  ChannelAdapter,
-  ChannelApi,
-  ChannelOptions,
-  ChannelPlugin,
-  DeliveryPayload,
+export {
+  type ChannelAdapter,
+  type ChannelApi,
+  type ChannelOptions,
+  type ChannelPlugin,
+  deliveryPayload,
+  type DeliveryPayload,
 } from "./plugin";

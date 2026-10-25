@@ -1,8 +1,16 @@
+import { z } from "zod";
+
 import type { BotSdkPlugin, Transaction } from "../../../core/server/plugin";
 import type { EmailChannel } from "./email";
 
 /** What a `channel.deliver` job carries: the headers fixed when the Message was saved. */
-export type DeliveryPayload = { messageId: string; subject: string; inReplyTo?: string };
+export const deliveryPayload = z.object({
+  messageId: z.uuid(),
+  subject: z.string(),
+  inReplyTo: z.string().optional(),
+});
+
+export type DeliveryPayload = z.infer<typeof deliveryPayload>;
 
 /** A Channel adapter (spec #761): its wire format only. Email is the one there is. */
 export type ChannelAdapter = EmailChannel;

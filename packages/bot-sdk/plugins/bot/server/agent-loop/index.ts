@@ -18,7 +18,6 @@ export {
   spillPath,
   spillThreshold,
 } from "./computer-tools";
-export { createFakeSearchClient } from "./fake-search-client";
 export {
   callUsage,
   type LoopKit,
@@ -36,6 +35,6 @@ export {
   type PreviousCall,
   sha256,
 } from "./prompt-hashes";
-export { SearchError } from "./search-client";
+export { type SearchClient, SearchError } from "./search-client";
 export { createTavilyClient } from "./tavily";
 export { webSearchTool, webSearchUnavailableError } from "./web-search";

@@ -1,5 +1,4 @@
 import { and, desc, eq, sql } from "drizzle-orm";
-import { z } from "zod";
 
 import { bot, botTrigger, message } from "../../../../core/server/storage";
 import type { BotSdkContext, Transaction } from "../../../../core/server/plugin";
@@ -7,7 +6,11 @@ import { sentFileBlobKey } from "./files";
 import { controlOf, subjectOf, toBotMessage } from "./store";
 import { defineJob, PermanentJobError } from "../../../runner/server/internal";
 import { emailAddressOf } from "./email-address";
-import type { EmailChannel, DeliveryPayload } from "../../../channel/server/internal";
+import {
+  deliveryPayload,
+  type DeliveryPayload,
+  type EmailChannel,
+} from "../../../channel/server/internal";
 import {
   emailBody,
   type FileBytes,
@@ -26,13 +29,6 @@ export type DeliveryChannel = "email";
 /** The delivery job's key: one per Message and Channel, so a Message is enqueued once. */
 export const deliveryKey = (messageId: string, channel: DeliveryChannel) =>
   `${deliveryJobName}:${messageId}:${channel}`;
-
-/** What a delivery job carries: the headers fixed when the Message was saved. */
-const deliveryPayload = z.object({
-  messageId: z.uuid(),
-  subject: z.string(),
-  inReplyTo: z.string().optional(),
-});
 
 /** A Message-ID header for `id` on `domain`, deterministic, so a resend repeats it. */
 const messageIdOf = (id: string, domain: string) => `<${id}@${domain}>`;

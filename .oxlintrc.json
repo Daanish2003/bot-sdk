@@ -37,9 +37,7 @@
                 "group": [
                   "**/models/server/**",
                   "!**/models/server/internal",
-                  "!**/models/server/index",
-                  "!**/models/server/routers",
-                  "!**/models/server/routers/index"
+                  "!**/models/server/index"
                 ],
                 "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
               },
@@ -47,9 +45,7 @@
                 "group": [
                   "**/channel/server/**",
                   "!**/channel/server/internal",
-                  "!**/channel/server/index",
-                  "!**/channel/server/routers",
-                  "!**/channel/server/routers/index"
+                  "!**/channel/server/index"
                 ],
                 "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
               },
@@ -208,10 +204,7 @@
       }
     },
     {
-      "files": [
-        "packages/bot-sdk/plugins/models/server/routers/**",
-        "packages/bot-sdk/plugins/channel/server/routers/**"
-      ],
+      "files": ["packages/bot-sdk/plugins/channel/server/index.ts"],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -241,9 +234,7 @@
                 "group": [
                   "**/models/server/**",
                   "!**/models/server/internal",
-                  "!**/models/server/index",
-                  "!**/models/server/routers",
-                  "!**/models/server/routers/index"
+                  "!**/models/server/index"
                 ],
                 "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
               },
@@ -251,9 +242,7 @@
                 "group": [
                   "**/channel/server/**",
                   "!**/channel/server/internal",
-                  "!**/channel/server/index",
-                  "!**/channel/server/routers",
-                  "!**/channel/server/routers/index"
+                  "!**/channel/server/index"
                 ],
                 "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
               },
@@ -336,9 +325,7 @@
                 "group": [
                   "**/models/server/**",
                   "!**/models/server/internal",
-                  "!**/models/server/index",
-                  "!**/models/server/routers",
-                  "!**/models/server/routers/index"
+                  "!**/models/server/index"
                 ],
                 "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
               },
@@ -346,9 +333,7 @@
                 "group": [
                   "**/channel/server/**",
                   "!**/channel/server/internal",
-                  "!**/channel/server/index",
-                  "!**/channel/server/routers",
-                  "!**/channel/server/routers/index"
+                  "!**/channel/server/index"
                 ],
                 "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
               },
@@ -428,9 +413,7 @@
                 "group": [
                   "**/models/server/**",
                   "!**/models/server/internal",
-                  "!**/models/server/index",
-                  "!**/models/server/routers",
-                  "!**/models/server/routers/index"
+                  "!**/models/server/index"
                 ],
                 "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
               },
@@ -438,9 +421,7 @@
                 "group": [
                   "**/channel/server/**",
                   "!**/channel/server/internal",
-                  "!**/channel/server/index",
-                  "!**/channel/server/routers",
-                  "!**/channel/server/routers/index"
+                  "!**/channel/server/index"
                 ],
                 "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
               },
@@ -488,9 +469,7 @@
                 "group": [
                   "**/models/server/**",
                   "!**/models/server/internal",
-                  "!**/models/server/index",
-                  "!**/models/server/routers",
-                  "!**/models/server/routers/index"
+                  "!**/models/server/index"
                 ],
                 "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
               },
@@ -498,9 +477,7 @@
                 "group": [
                   "**/channel/server/**",
                   "!**/channel/server/internal",
-                  "!**/channel/server/index",
-                  "!**/channel/server/routers",
-                  "!**/channel/server/routers/index"
+                  "!**/channel/server/index"
                 ],
                 "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
               },
@@ -552,9 +529,7 @@
                 "group": [
                   "**/models/server/**",
                   "!**/models/server/internal",
-                  "!**/models/server/index",
-                  "!**/models/server/routers",
-                  "!**/models/server/routers/index"
+                  "!**/models/server/index"
                 ],
                 "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
               },
@@ -562,9 +537,7 @@
                 "group": [
                   "**/channel/server/**",
                   "!**/channel/server/internal",
-                  "!**/channel/server/index",
-                  "!**/channel/server/routers",
-                  "!**/channel/server/routers/index"
+                  "!**/channel/server/index"
                 ],
                 "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
               },
@@ -616,9 +589,7 @@
                 "group": [
                   "**/models/server/**",
                   "!**/models/server/internal",
-                  "!**/models/server/index",
-                  "!**/models/server/routers",
-                  "!**/models/server/routers/index"
+                  "!**/models/server/index"
                 ],
                 "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
               },
@@ -626,9 +597,7 @@
                 "group": [
                   "**/channel/server/**",
                   "!**/channel/server/internal",
-                  "!**/channel/server/index",
-                  "!**/channel/server/routers",
-                  "!**/channel/server/routers/index"
+                  "!**/channel/server/index"
                 ],
                 "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
               },
@@ -680,9 +649,7 @@
                 "group": [
                   "**/models/server/**",
                   "!**/models/server/internal",
-                  "!**/models/server/index",
-                  "!**/models/server/routers",
-                  "!**/models/server/routers/index"
+                  "!**/models/server/index"
                 ],
                 "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
               },
@@ -690,9 +657,7 @@
                 "group": [
                   "**/channel/server/**",
                   "!**/channel/server/internal",
-                  "!**/channel/server/index",
-                  "!**/channel/server/routers",
-                  "!**/channel/server/routers/index"
+                  "!**/channel/server/index"
                 ],
                 "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
               },
@@ -744,9 +709,7 @@
                 "group": [
                   "**/models/server/**",
                   "!**/models/server/internal",
-                  "!**/models/server/index",
-                  "!**/models/server/routers",
-                  "!**/models/server/routers/index"
+                  "!**/models/server/index"
                 ],
                 "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
               },
@@ -754,9 +717,7 @@
                 "group": [
                   "**/channel/server/**",
                   "!**/channel/server/internal",
-                  "!**/channel/server/index",
-                  "!**/channel/server/routers",
-                  "!**/channel/server/routers/index"
+                  "!**/channel/server/index"
                 ],
                 "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
               },
@@ -808,9 +769,7 @@
                 "group": [
                   "**/models/server/**",
                   "!**/models/server/internal",
-                  "!**/models/server/index",
-                  "!**/models/server/routers",
-                  "!**/models/server/routers/index"
+                  "!**/models/server/index"
                 ],
                 "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
               },
@@ -818,9 +777,7 @@
                 "group": [
                   "**/channel/server/**",
                   "!**/channel/server/internal",
-                  "!**/channel/server/index",
-                  "!**/channel/server/routers",
-                  "!**/channel/server/routers/index"
+                  "!**/channel/server/index"
                 ],
                 "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
               },
@@ -872,9 +829,7 @@
                 "group": [
                   "**/models/server/**",
                   "!**/models/server/internal",
-                  "!**/models/server/index",
-                  "!**/models/server/routers",
-                  "!**/models/server/routers/index"
+                  "!**/models/server/index"
                 ],
                 "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
               },
@@ -882,9 +837,7 @@
                 "group": [
                   "**/channel/server/**",
                   "!**/channel/server/internal",
-                  "!**/channel/server/index",
-                  "!**/channel/server/routers",
-                  "!**/channel/server/routers/index"
+                  "!**/channel/server/index"
                 ],
                 "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
               },
@@ -936,9 +889,7 @@
                 "group": [
                   "**/models/server/**",
                   "!**/models/server/internal",
-                  "!**/models/server/index",
-                  "!**/models/server/routers",
-                  "!**/models/server/routers/index"
+                  "!**/models/server/index"
                 ],
                 "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
               },
@@ -946,9 +897,7 @@
                 "group": [
                   "**/channel/server/**",
                   "!**/channel/server/internal",
-                  "!**/channel/server/index",
-                  "!**/channel/server/routers",
-                  "!**/channel/server/routers/index"
+                  "!**/channel/server/index"
                 ],
                 "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
               },
@@ -1000,9 +949,7 @@
                 "group": [
                   "**/models/server/**",
                   "!**/models/server/internal",
-                  "!**/models/server/index",
-                  "!**/models/server/routers",
-                  "!**/models/server/routers/index"
+                  "!**/models/server/index"
                 ],
                 "message": "Import the models service through its entry point, plugins/models/server/internal (#889)."
               },
@@ -1010,9 +957,7 @@
                 "group": [
                   "**/channel/server/**",
                   "!**/channel/server/internal",
-                  "!**/channel/server/index",
-                  "!**/channel/server/routers",
-                  "!**/channel/server/routers/index"
+                  "!**/channel/server/index"
                 ],
                 "message": "Import the channel service through its entry point, plugins/channel/server/internal (#889)."
               },
