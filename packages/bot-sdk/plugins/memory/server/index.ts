@@ -1,2 +1,2 @@
-export { memory, type MemoryApi, type MemoryPlugin } from "./plugin";
+export { memory } from "./feature";
 export type { MemoryRouter } from "./routers/index";

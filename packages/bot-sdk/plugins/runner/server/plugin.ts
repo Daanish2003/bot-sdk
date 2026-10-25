@@ -33,13 +33,6 @@ export type RunnerApi = Pick<JobRunner, "enqueue" | "cancel" | "status"> & {
   wake: () => void;
 };
 
-declare module "../../../core/server/plugin" {
-  interface PluginApis {
-    /** Until #882 moves Memory onto the feature context: `sdk.runner`. */
-    runner: RunnerApi;
-  }
-}
-
 // Each instance's jobs runner, keyed by its `runner` service.
 const jobRunners = new WeakMap<RunnerApi, JobRunner>();
 

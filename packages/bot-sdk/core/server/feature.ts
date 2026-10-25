@@ -55,6 +55,8 @@ export type FeatureTurn = { id: string; userId: string; botId: string; conversat
 export type FeatureToolKit = {
   /** Aborts when the Turn ends: whatever the feature opened for its tools closes then. */
   signal: AbortSignal;
+  /** The section this feature gave the Turn's Prompt start; null when it gave none. */
+  section: string | null;
   /**
    * Lists once, as the Turn's recorded activity: a replay reads what its attempt listed, and
    * only a live Turn calls `list`.
@@ -64,6 +66,20 @@ export type FeatureToolKit = {
   taken: ReadonlySet<string>;
   /** Masks the user's Secrets in a text; reads them on each call. */
   secretMask: () => Promise<(text: string) => string>;
+  /**
+   * A call on the user's Computer, as tool call `toolCallId` of the tool `name` (list the name
+   * in `computerTools`): the Turn's own Computer call, which is recorded and re-run after a crash,
+   * stopped by a Stop and the time limit, masks Secrets, cuts a long result, and tells the Bot of a
+   * rebuild of its Computer in the result. A failed wake or operation is its `{ error }`.
+   */
+  computerCall: <T extends object>(
+    name: string,
+    toolCallId: string | undefined,
+    operate: (
+      computer: ReturnType<ComputerApi["forUser"]>,
+      live: { signal?: AbortSignal; deadline?: Date },
+    ) => Promise<T>,
+  ) => Promise<T | { error: string }>;
 };
 
 /** What a feature's `tools` gives: its tools, and for a Turn that lists them, what it says of a missing one. */
@@ -73,6 +89,11 @@ export type FeatureTools =
       tools: AnyServerTool[];
       /** The error for a tool of the feature that isn't among `tools` this Turn, else `undefined`. */
       missing?: (name: string) => string | undefined;
+      /**
+       * The names of the tools that make their own live call through `kit.computerCall`: the core
+       * doesn't wrap them in a live request of its own.
+       */
+      computerTools?: readonly string[];
     };
 
 /** What `prompt` is called with: the Turn, and what the Bot has seen of the feature's section. */
@@ -88,6 +109,8 @@ export type FeaturePromptTurn = FeatureTurn & {
    * among them.
    */
   told: readonly string[];
+  /** When the Turn started (for a Summary written while away, now): what ages and days count from. */
+  startedAt: Date;
   /**
    * The Bot's Turns since its Prompt start was built, oldest first: the Change notes each was told
    * and what it did (its transcript), for a feature to count what the Bot did itself as seen.
@@ -102,7 +125,15 @@ export type FeaturePromptTurn = FeatureTurn & {
  * built, and the Change notes that tell the Bot what changed since what it has seen (`built` and
  * `told`). The core tells them as given; a `null` section still tells its notes.
  */
-export type FeaturePrompt = { section: string | null; changeNotes?: string[] };
+export type FeaturePrompt = {
+  section: string | null;
+  changeNotes?: string[];
+  /**
+   * A line for the Bot's environment, in the first message of its Prompt start (for example
+   * "Memory: on."). Told even when `section` is null.
+   */
+  environment?: string;
+};
 
 /**
  * A feature, as `defineFeature` takes it. Every part is optional but `id`, which names its API on

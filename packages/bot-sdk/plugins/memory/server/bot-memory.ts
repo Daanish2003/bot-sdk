@@ -1,6 +1,7 @@
 import { asc, eq } from "drizzle-orm";
 
 import { bot, computer as computerTable } from "../../../core/server/db/schema";
+import type { FeatureContext } from "../../../core/server/feature";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import {
   ComputerOperationError,
@@ -216,22 +217,21 @@ export type ExportedBotMemory = {
 /**
  * Every Bot's memory files of user `userId` (ADR 0022), read from the user's Computer for the
  * export, in the export's snapshot `tx`. It wakes the Computer. A user with no Computer row has
- * no files, so none is woken or created, and an instance without the `computer` plugin has none.
+ * no files, so none is woken or created.
  * A Bot whose files the Computer fails to read is left out, and the Bots not yet read once it
  * can't be woken, so the rest of the export still succeeds.
  */
 export async function exportBotMemory(
-  sdk: BotSdkContext,
+  { computer: computers, logger }: Pick<FeatureContext<"computer">, "computer" | "logger">,
   tx: Transaction,
   userId: string,
 ): Promise<ExportedBotMemory[]> {
-  if (!sdk.hasPlugin("computer")) return [];
   const [row] = await tx
     .select({ userId: computerTable.userId })
     .from(computerTable)
     .where(eq(computerTable.userId, userId));
   if (!row) return [];
-  const computer = sdk.plugin("computer").forUser(userId);
+  const computer = computers.forUser(userId);
   const exported: ExportedBotMemory[] = [];
   for (const { id: botId } of await botsOf({ db: tx }, userId)) {
     try {
@@ -239,7 +239,7 @@ export async function exportBotMemory(
     } catch (caught) {
       const unavailable = caught instanceof ComputerUnavailableError;
       if (!unavailable && !(caught instanceof ComputerOperationError)) throw caught;
-      sdk.logger.error(`Exporting the memory of Bot ${botId} failed`, caught);
+      logger.error(`Exporting the memory of Bot ${botId} failed`, caught);
       if (unavailable) return exported;
     }
   }

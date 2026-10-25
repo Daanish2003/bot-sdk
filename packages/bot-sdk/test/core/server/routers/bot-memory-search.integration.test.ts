@@ -1,6 +1,8 @@
 import type { ModelMessage, TextOptions } from "@tanstack/ai";
+import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { computer as computerTable } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { bot } from "../../../../plugins/bot/server/plugin";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
@@ -74,7 +76,7 @@ async function botsWith(
       memoryPath(botId, file),
       new TextEncoder().encode(`${lines.join("\n")}\n`),
     );
-  return { fake, client, botIds, seed };
+  return { fake, client, botIds, seed, computerFake, deps, user };
 }
 
 async function send(client: ReturnType<typeof chatRpc>, botId: string, text: string) {
@@ -190,5 +192,44 @@ describe("the search_memory tool", () => {
     const on = await botsWith([round()]);
     await send(on.client, on.botIds[0]!, "hi");
     expect(toolNamesOf(on.fake.calls[0])).toContain("search_memory");
+  });
+
+  it("is not offered when the memory snapshot could not be read this Turn", async () => {
+    const failed = await botsWith([round()]);
+    failed.computerFake.failing.add("create");
+
+    await send(failed.client, failed.botIds[0]!, "hi");
+
+    expect(toolNamesOf(failed.fake.calls[0])).not.toContain("search_memory");
+    // Main's Prompt start for an unreadable snapshot: no block, and the environment says off.
+    const first = JSON.stringify(failed.fake.calls[0]?.messages ?? []);
+    expect(first).toContain("Memory: off.");
+    expect(first).not.toContain("Memory: on.");
+  });
+
+  it("tells the Bot its Computer was rebuilt, in its first result after the rebuild", async () => {
+    const { client, botIds, fake, computerFake, deps, user } = await botsWith([
+      round(search("espresso")),
+      round(),
+    ]);
+    const [ada] = botIds as [string];
+    await deps.computer!.forUser(user.id).list("/home/user");
+    // The Computer sleeps and its sandbox is lost: the next call rebuilds it.
+    await getTestDb()
+      .update(computerTable)
+      .set({ state: "asleep" })
+      .where(eq(computerTable.userId, user.id));
+    computerFake.lose(computerFake.callsOf("create")[0]!.sandboxId);
+
+    await send(client, ada, "what about espresso?");
+
+    const result = JSON.parse(
+      String(
+        ((fake.calls[1]?.messages ?? []) as ModelMessage[]).findLast(
+          (entry) => entry.role === "tool",
+        )?.content,
+      ),
+    );
+    expect(result.note).toContain("Your computer was rebuilt");
   });
 });

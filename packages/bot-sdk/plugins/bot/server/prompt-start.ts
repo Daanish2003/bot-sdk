@@ -92,7 +92,8 @@ const builtTime: Intl.DateTimeFormatOptions = {
 
 /**
  * The first message: the Bot's environment (its name, the user's time zone, when the Prompt start
- * was built, and which of Computer, Memory and Helpers are on, with their directories), then every
+ * was built, and which of Computer and Helpers are on, with their directories, and the features'
+ * own lines), then every
  * tool's name with the first sentence of its description: the tools every call sends, then the
  * deferred ones, which need `describe_tool` first, then the Summary when there is one.
  */
@@ -102,7 +103,7 @@ function firstMessageOf({
   zone,
   builtAt,
   computer,
-  memory,
+  features,
   tools,
   deferred,
   summary,
@@ -112,7 +113,8 @@ function firstMessageOf({
   zone: string;
   builtAt: Date;
   computer: boolean;
-  memory: boolean;
+  /** The enabled features' environment lines. */
+  features: string[];
   tools: PromptStartTool[];
   deferred: PromptStartTool[];
   summary: string | undefined;
@@ -125,7 +127,7 @@ function firstMessageOf({
     computer
       ? `Computer: on. Your own directory is ${botDirectory(botId)}, and the Bots share ${sharedDirectory}.`
       : "Computer: off.",
-    memory ? `Memory: on. Your memory files are in ${botDirectory(botId)}/memory.` : "Memory: off.",
+    ...features,
     // Helpers run on the Computer, so they are on with it.
     computer ? "Helpers: on." : "Helpers: off.",
   ];
@@ -153,14 +155,15 @@ const sectionOf = (name: string, text: string): PromptStartSection => ({
 export type PromptStartParts = {
   turn: { id: string; botId: string; conversationId: string; startedAt: Date };
   now: Date;
-  /** The system blocks in their fixed order: rules, Computer, memory snapshot, Skills, Routines. */
+  /** The system blocks in their fixed order: rules, Computer, features, Skills, Routines. */
   system: { name: string; text: string }[];
   /** The tools every call sends. */
   tools: AnyServerTool[];
   /** The tools listed in the first message only, loaded on demand. */
   deferred: PromptStartTool[];
   computer: boolean;
-  memory: boolean;
+  /** The enabled features' lines for the first message's environment. */
+  features: string[];
 };
 
 /** The Bot's latest Prompt start's id and build time, or `undefined` before its first Turn builds one. */
@@ -215,7 +218,7 @@ export async function buildPromptStart(
     zone: await userZoneAt(tx, turn),
     builtAt: parts.now,
     computer: parts.computer,
-    memory: parts.memory,
+    features: parts.features,
     tools,
     deferred: parts.deferred,
     summary: summary?.text,

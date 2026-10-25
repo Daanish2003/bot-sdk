@@ -1,5 +1,5 @@
 import type { AnyServerTool } from "@tanstack/ai";
-import { and, asc, eq, ne, or } from "drizzle-orm";
+import { and, asc, eq, lt, ne, or } from "drizzle-orm";
 
 import { botPromptStart, botTurn } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
@@ -21,7 +21,13 @@ import { type DecryptedSecrets, loadSecretValues, secretMasker } from "./secret-
  */
 
 /** A feature's part of a Turn's Prompt start: its section now, and its Change notes to tell. */
-export type FeatureSection = { name: string; section: string | null; changeNotes: string[] };
+export type FeatureSection = {
+  name: string;
+  section: string | null;
+  changeNotes: string[];
+  /** The feature's line for the first message's environment, if it gave one. */
+  environment?: string;
+};
 
 /** The Turn as a feature sees it (spec #871). */
 export const featureTurnOf = ({ id, userId, botId, conversationId }: FeatureTurn): FeatureTurn => ({
@@ -43,6 +49,7 @@ async function seenSince(
   db: Database,
   botId: string,
   turnId: string,
+  startedAt: Date,
 ): Promise<{ sections: Map<string, string>; earlier: FeaturePromptTurn["earlier"] }> {
   const id = await latestPromptStartId(db, botId);
   if (!id) return { sections: new Map(), earlier: [] };
@@ -61,6 +68,8 @@ async function seenSince(
       and(
         or(eq(botTurn.promptStartId, id), mid?.turnId ? eq(botTurn.id, mid.turnId) : undefined),
         ne(botTurn.id, turnId),
+        // Only the Turns that started before this one: a later Turn is not seen by it.
+        lt(botTurn.startedAt, startedAt),
       ),
     )
     .orderBy(asc(botTurn.startedAt));
@@ -81,17 +90,18 @@ async function seenSince(
 export async function featureSectionsNow(
   deps: BotSdkContext,
   turn: FeatureTurn,
+  startedAt: Date,
   signal: AbortSignal,
 ): Promise<FeatureSection[]> {
   const prompting = enabledFeatures(deps).filter(({ feature }) => feature.prompt);
   if (!prompting.length) return [];
-  const { sections: built, earlier } = await seenSince(deps.db, turn.botId, turn.id);
+  const { sections: built, earlier } = await seenSince(deps.db, turn.botId, turn.id, startedAt);
   const told = earlier.flatMap((earlierTurn) => earlierTurn.notes);
   const sections: FeatureSection[] = [];
   for (const { feature, context } of prompting) {
     try {
       const read = await feature.prompt!(
-        { ...turn, built: built.get(feature.id) ?? null, told, earlier, signal },
+        { ...turn, built: built.get(feature.id) ?? null, told, startedAt, earlier, signal },
         context,
       );
       if (read) {
@@ -99,6 +109,7 @@ export async function featureSectionsNow(
           name: feature.id,
           section: read.section,
           changeNotes: read.changeNotes ?? [],
+          ...(read.environment !== undefined && { environment: read.environment }),
         });
       }
     } catch (error) {
@@ -127,7 +138,7 @@ export type FeatureToolSet = {
  * The enabled features' tools for a Turn (or, with `only`, one feature's, for a Helper). Each
  * call is a live request of the loop's, so a replay reads its recorded result; a tool with
  * `needsApproval` is Auto-reviewed instead of asked of the user. A tool named like one in `taken`
- * is left out and logged. Without `kit`, only the definitions are read, as an away Summary does.
+ * is left out and logged, and so are a feature's tools when it throws. Without `kit`, only the definitions are read, as an away Summary does.
  */
 export async function featureTools(
   deps: BotSdkContext,
@@ -138,6 +149,10 @@ export async function featureTools(
     signal: AbortSignal;
     /** Records a feature's listing as the Turn's activity, named for the feature. */
     record: <T>(featureId: string, list: () => Promise<T>) => Promise<T>;
+    /** The loop's Computer call, for the tools a feature lists in `computerTools`. */
+    computerCall: LoopKit["computerCall"];
+    /** The sections the Turn's features gave its Prompt start, read before the tools. */
+    sections: readonly FeatureSection[];
   },
   only?: string,
 ): Promise<FeatureToolSet> {
@@ -151,18 +166,31 @@ export async function featureTools(
   );
   for (const { feature, context } of listed) {
     if (!feature.tools || (only !== undefined && feature.id !== only)) continue;
-    const given = await feature.tools(
-      turn,
-      context,
-      kit && {
-        signal: kit.signal,
-        record: (list) => kit.record(feature.id, list),
-        taken: new Set(names),
-        secretMask: async () =>
-          secretMasker((await loadSecretValues(deps, turn.userId, decrypted)).values()),
-      },
-    );
-    const { tools, missing } = Array.isArray(given) ? { tools: given, missing: undefined } : given;
+    let given: Awaited<ReturnType<NonNullable<typeof feature.tools>>>;
+    try {
+      given = await feature.tools(
+        turn,
+        context,
+        kit && {
+          signal: kit.signal,
+          section: kit.sections.find((read) => read.name === feature.id)?.section ?? null,
+          record: (list) => kit.record(feature.id, list),
+          taken: new Set(names),
+          computerCall: (name, toolCallId, operate) =>
+            kit.computerCall(name, toolCallId, (computer, live) => operate(computer, live)),
+          secretMask: async () =>
+            secretMasker((await loadSecretValues(deps, turn.userId, decrypted)).values()),
+        },
+      );
+    } catch (error) {
+      // A Stop or the time limit ends the Turn, not just the feature.
+      kit?.signal.throwIfAborted();
+      deps.logger.error(`Feature "${feature.id}" failed to give its tools`, error);
+      continue;
+    }
+    const { tools, missing, computerTools } = Array.isArray(given)
+      ? { tools: given, missing: undefined, computerTools: undefined }
+      : given;
     if (missing) missings.push(missing);
     for (const tool of tools) {
       if (names.has(tool.name)) {
@@ -175,6 +203,10 @@ export async function featureTools(
       const execute = tool.execute;
       if (!execute) {
         set.tools.push(tool);
+        continue;
+      }
+      if (computerTools?.includes(tool.name)) {
+        set.tools.push(rest as AnyServerTool);
         continue;
       }
       set.tools.push({

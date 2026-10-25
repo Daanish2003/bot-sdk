@@ -259,13 +259,6 @@ export type ComputerApi = {
   addOwnerCheck: (check: OwnerCheck) => void;
 };
 
-declare module "../../../core/server/plugin" {
-  interface PluginApis {
-    /** Until #882 moves Memory onto the feature context: `sdk.computer`. */
-    computer: ComputerApi;
-  }
-}
-
 /** What the core keeps of an instance's Computer besides its API: its provider and sleep check. */
 type ComputerInternals = {
   provider: ComputerProvider;

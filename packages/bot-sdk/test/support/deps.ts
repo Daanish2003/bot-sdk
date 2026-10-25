@@ -9,7 +9,7 @@ import { createMemoryPubSub } from "../../core/server/chat/pubsub";
 import type { FeatureEntry, GivenContext } from "../../core/server/create-chat";
 import type { BotSdkPlugin } from "../../core/server/plugin";
 import { createBotSdkOver, type SdkOver } from "../../core/server/over";
-import { memory } from "../../plugins/memory/server/plugin";
+import { memory } from "../../plugins/memory/server/feature";
 import type { ComputerProvider } from "../../plugins/computer/server/provider";
 import type { ModelsDeps } from "../../plugins/models/server/types";
 import type { JobRunner } from "../../plugins/runner/server/jobs/runner";
@@ -36,7 +36,7 @@ export type TestDepsOverrides = Partial<
       plugins: readonly BotSdkPlugin[];
       /** The features, as the `features` slot takes them. */
       features: readonly FeatureEntry[];
-      /** Whether the `memory` plugin is installed; `true` by default. */
+      /** Whether the Memory feature is on; `true` by default, and only with a `computer`. */
       memory: boolean;
       /**
        * The adapter a Bot's Auto-review calls on `model` go to, in place of `adapterFor`'s: by
@@ -52,7 +52,8 @@ const passingReviewer = fakeReviewer().adapter;
 /**
  * A real `createBotSdk` instance for tests, over the test database and fakes, with nothing that
  * reaches the network; it returns the instance's core context with its `models` bundle. It is
- * Bot-only: `models`, `memory` and the given `plugins`, with the runner and the given `computer`. Pass overrides for the parts a
+ * Bot-only: `models`, the runner, the given `computer`, the Memory feature (with a `computer`) and
+ * the given `plugins` and `features`. Pass overrides for the parts a
  * test scripts (for example `adapterFor` returning a fake adapter).
  */
 export function createTestSdk({
@@ -120,9 +121,17 @@ export function createTestSdk({
     recentModelSources: [],
     getQuota: overrides.getQuota ?? (async () => null),
   };
-  const installed = [...(overrides.memory === false ? [] : [memory()]), ...(plugins ?? [])];
+  // Memory keeps its files on the Computer, so it needs one.
+  const withMemory = overrides.memory !== false && computer !== undefined;
   return createBotSdkOver(
-    { context, models, jobs: overrides.jobs, computer, plugins: installed, features },
+    {
+      context,
+      models,
+      jobs: overrides.jobs,
+      computer,
+      plugins,
+      features: [...(withMemory ? [memory()] : []), ...(features ?? [])],
+    },
     { basePath: "/api/chat", getUser: () => null, logger: { error: () => {} } },
   ).sdk;
 }

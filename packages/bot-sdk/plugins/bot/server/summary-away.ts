@@ -21,7 +21,6 @@ import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { withCacheControl } from "../../models/server/cache-control";
 import { parseModelId } from "../../models/shared/models";
 import { defineJob, type JobContext } from "../../runner/server/jobs/define";
-import { computerOf } from "./computer-tools";
 import { pruneScreenshots, resolveImageRefs } from "./image-refs";
 import { callUsage } from "./loop";
 import { latestPromptStartId, loopPromptStart } from "./prompt-start";
@@ -143,11 +142,7 @@ async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext
   // A reply with no summary replaces nothing.
   if (!written?.prose.trim()) return;
 
-  // The memory block as a Turn starting now reads it, for the new Prompt start.
-  const memory = await ctx.activity("memory", () =>
-    memoryNow(deps, botId, seen.userId, ctx.signal),
-  );
-  // And the features' sections (spec #871); with no feature, no activity, as before.
+  // The features' sections (spec #871); with no feature, no activity, as before.
   const facts = featureTurnOf({
     id: seen.turnId,
     userId: seen.userId,
@@ -155,7 +150,9 @@ async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext
     conversationId: seen.conversationId,
   });
   const features: FeatureSection[] = enabledFeatures(deps).length
-    ? await ctx.activity("features", () => featureSectionsNow(deps, facts, ctx.signal))
+    ? await ctx.activity("features", () =>
+        featureSectionsNow(deps, facts, deps.clock(), ctx.signal),
+      )
     : [];
   // Set only by a live write: a replayed one changed nothing, so hints nothing.
   let wrote = false;
@@ -174,7 +171,6 @@ async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext
         model: seen.model,
       },
       now,
-      memory,
       features,
     );
     const id = await writeSummary(tx, { parts, prose: written.prose, kind: "away" });
@@ -272,29 +268,4 @@ async function turnedSince(tx: Transaction, botId: string, seen: Seen): Promise<
   const newest = await newestTurn(tx, botId);
   if (newest?.id !== seen.turnId) return true;
   return (await latestPromptStartId(tx, botId)) !== seen.promptStartId;
-}
-
-/**
- * The Bot's memory block as of now (ADR 0022), read through its Computer, or null with Memory off,
- * or when it can't be read, as a Turn carries on with none.
- */
-async function memoryNow(
-  deps: BotSdkContext,
-  botId: string,
-  userId: string,
-  signal: AbortSignal,
-): Promise<string | null> {
-  if (!deps.computer || !deps.hasPlugin("memory")) return null;
-  try {
-    return await deps.plugin("memory").botSnapshot({
-      userId,
-      botId,
-      now: deps.clock(),
-      computer: computerOf(deps, userId),
-      signal,
-    });
-  } catch {
-    signal.throwIfAborted();
-    return null;
-  }
 }

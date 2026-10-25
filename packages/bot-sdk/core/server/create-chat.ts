@@ -108,7 +108,7 @@ type SharedOptions<Features extends readonly FeatureEntry[]> = {
   isUserBlocked?: (userId: string) => boolean | Promise<boolean>;
   /**
    * The optional capabilities (spec #871): features built with `defineFeature`, each API served
-   * as `sdk.<id>`. Until #882, Memory is a plugin listed here.
+   * as `sdk.<id>`.
    */
   features?: Features;
   /** Runs the background jobs. Defaults to the in-process runner, which needs only Postgres. */
@@ -280,7 +280,6 @@ function slotPlugins(options: SlotOptions): BotSdkPlugin[] {
 function pluginsOf(options: BotSdkOptions): {
   plugins: BotSdkPlugin[];
   features: AnyFeature[];
-  services: ReadonlySet<string>;
 } {
   const entries = options.features ?? [];
   const features = entries.filter(isFeature);
@@ -288,15 +287,14 @@ function pluginsOf(options: BotSdkOptions): {
     ...(options.plugins ?? slotPlugins(options as SlotOptions)),
     ...entries.map((entry) => (isFeature(entry) ? featurePlugin(entry) : entry)),
   ];
-  // The core services the instance has: a plugin's `requires` of one is met.
+  // The core services the instance has: a feature's `needs` are checked against them.
   const services = new Set(["runner", ...(options.computer ? ["computer"] : [])]);
   for (const feature of features) checkFeature(feature, services);
   // The core's Models first, so every plugin's `init` finds `sdk.models` set.
-  const ordered = orderPlugins(listed, services);
+  const ordered = orderPlugins(listed);
   return {
     plugins: [...ordered.filter(isModelsPlugin), ...ordered.filter((p) => !isModelsPlugin(p))],
     features,
-    services,
   };
 }
 
@@ -310,7 +308,7 @@ export function buildBotSdk(
   if (!options.basePath.startsWith("/")) {
     throw new Error(`basePath must start with "/": ${options.basePath}`);
   }
-  const { plugins, features, services } = pluginsOf(options);
+  const { plugins, features } = pluginsOf(options);
   // The core serves its own routes and rules beside the plugins', so a plugin can't claim them.
   const core: BotSdkPlugin = {
     id: "core",
@@ -323,8 +321,7 @@ export function buildBotSdk(
 
   const apis = new Map<string, object>();
   // Building the context opens nothing: the pool and the runtime connect on first use.
-  // With the core services, until #882 (see `apis` below).
-  const enabledIds = new Set([...plugins.map((plugin) => plugin.id), ...services]);
+  const enabledIds = new Set(plugins.map((plugin) => plugin.id));
   const sdk = buildContext(options, given, ruleDefaults, enabledIds, (id) => {
     const api = apis.get(id);
     if (!api) throw new Error(`Plugin "${id}" isn't enabled`);
@@ -336,10 +333,6 @@ export function buildBotSdk(
   sdk.computer = options.computer ? createComputer(sdk, options.computer) : null;
   // No Channel besides web, until the channels slot's init sets its adapters.
   sdk.channels = createChannels(sdk, { adapters: [], verifiedEmail: async () => null });
-  // Until #882 moves Memory onto the feature context, which reaches the
-  // services as `sdk.runner` and `sdk.computer`.
-  apis.set("runner", sdk.runner);
-  if (sdk.computer) apis.set("computer", sdk.computer);
   // In dependency order, so a plugin's `init` can call the plugins it requires.
   for (const plugin of plugins) apis.set(plugin.id, plugin.init?.(sdk)?.api ?? {});
   bindPlugins(sdk, plugins);

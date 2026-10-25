@@ -3,7 +3,6 @@ import { getTableConfig } from "drizzle-orm/pg-core";
 import { botSchema } from "../../../plugins/bot/server/schema";
 import { channelSchema } from "../../../plugins/channel/server/schema";
 import { computerSchema } from "../../../plugins/computer/server/schema";
-import { memorySchema } from "../../../plugins/memory/server/schema";
 import { modelsSchema } from "../../../plugins/models/server/schema";
 import { runnerSchema } from "../../../plugins/runner/server/schema";
 import { chatSchema } from "./chat-schema";
@@ -19,7 +18,6 @@ export * from "../../../plugins/models/server/schema";
 export * from "../../../plugins/runner/server/schema";
 export * from "../../../plugins/bot/server/schema";
 export * from "../../../plugins/computer/server/schema";
-export * from "../../../plugins/memory/server/schema";
 export * from "../../../plugins/channel/server/schema";
 
 const schemas: NamedPluginSchema[] = [
@@ -28,7 +26,6 @@ const schemas: NamedPluginSchema[] = [
   { id: "runner", schema: runnerSchema },
   { id: "bot", schema: botSchema },
   { id: "computer", schema: computerSchema },
-  { id: "memory", schema: memorySchema },
   { id: "channel", schema: channelSchema },
 ];
 assertNoClashes(schemas);

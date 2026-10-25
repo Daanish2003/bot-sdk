@@ -7,10 +7,10 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 
 import { postgresBlobStore } from "../../core/server/blob/postgres";
 import { createHookEmitter } from "../../core/server/chat/hooks";
+import type { FeatureEntry } from "../../core/server/create-chat";
 import { createDb, type Database } from "../../core/server/db/index";
 import { createGuardedFetch } from "../../core/server/lib/guarded-fetch";
 import { migrate as migrateChatSchema } from "../../core/server/migrate";
-import type { FeatureEntry } from "../../core/server/create-chat";
 import type { BotSdkContext, BotSdkPlugin } from "../../core/server/plugin";
 import { resolveRateLimits } from "../../core/server/rate-limits";
 import { memoryRuntime } from "../../core/server/runtime";
@@ -64,6 +64,7 @@ export function createComputerSdk(options: {
   db: Database;
   provider: ComputerProvider;
   more?: readonly BotSdkPlugin[];
+  /** Features, such as `memory()`; they get the Computer. */
   features?: readonly FeatureEntry[];
   models?: (real: ModelsDeps) => ModelsDeps;
   wrapFetch?: (real: typeof globalThis.fetch) => typeof globalThis.fetch;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { memorySettings } from "../../../core/server/db/schema";
+import { memory } from "../../../plugins/memory/server/feature";
+import { memorySettings } from "../../../plugins/memory/server/schema";
 import { bot } from "../../../plugins/bot/server/plugin";
 import { saveCredentials } from "../../../plugins/models/server/credentials/store";
 import { createTestSdk } from "../../support/deps";
@@ -15,10 +16,10 @@ const now = new Date("2030-03-15T12:00:00Z");
 const dir = (botId: string) => `/home/user/bots/${botId}/memory`;
 
 /** Two Bots of one user on a fake Computer, and a second user with a Bot of their own. */
-async function setup({ withComputer = true } = {}) {
+async function setup() {
   const computerFake = fakeComputerProvider();
   const deps = createTestSdk({
-    ...(withComputer && { computer: computerFake.provider }),
+    computer: computerFake.provider,
     plugins: [bot()],
     clock: () => now,
   });
@@ -107,17 +108,10 @@ describe("the Bot memory procedures", () => {
     ]);
   });
 
-  it("says Bot memory is unavailable, and reads nothing, with no computer plugin", async () => {
-    const { mine } = await setup({ withComputer: false });
-
-    expect(await mine.client.memory.botList({ botId: mine.ada })).toEqual({
-      available: false,
-      enabled: true,
-      profile: [],
-      log: [],
-      notes: [],
-    });
-    expect((await mine.client.memory.status()).botMemoryAvailable).toBe(false);
+  it("is a configuration error without a Computer: the feature needs one", () => {
+    expect(() => createTestSdk({ plugins: [bot()], features: [memory()] })).toThrow(
+      /Feature "memory" needs the Computer/,
+    );
   });
 
   it("edits, deletes and adds lines, and edits another Bot's Profile line", async () => {

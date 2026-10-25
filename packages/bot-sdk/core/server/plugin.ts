@@ -210,13 +210,9 @@ export function enabledPlugins(sdk: Pick<BotSdkContext, "plugin">): readonly Bot
 
 /**
  * The plugins in dependency order: each after the plugins it requires or uses, otherwise as listed.
- * A requirement in `services` (the core services the instance has, such as `runner`) is met
- * already. Throws on a duplicate id, a missing requirement or a cycle.
+ * Throws on a duplicate id, a missing requirement or a cycle.
  */
-export function orderPlugins<Plugin extends BotSdkPlugin>(
-  plugins: readonly Plugin[],
-  services: ReadonlySet<string> = new Set(),
-): Plugin[] {
+export function orderPlugins<Plugin extends BotSdkPlugin>(plugins: readonly Plugin[]): Plugin[] {
   const byId = new Map<string, Plugin>();
   for (const plugin of plugins) {
     if (byId.has(plugin.id)) throw new Error(`Plugin "${plugin.id}" is enabled twice`);
@@ -234,7 +230,6 @@ export function orderPlugins<Plugin extends BotSdkPlugin>(
     visiting.add(plugin.id);
     for (const id of plugin.requires ?? []) {
       const required = byId.get(id);
-      if (!required && services.has(id)) continue;
       if (!required) {
         throw new Error(`Plugin "${plugin.id}" requires plugin "${id}", which isn't enabled`);
       }

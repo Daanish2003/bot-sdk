@@ -1,7 +1,9 @@
-import type { ModelMessage, TextOptions } from "@tanstack/ai";
+import { type ModelMessage, type TextOptions, toolDefinition } from "@tanstack/ai";
 import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { z } from "zod";
 
+import { botTurn } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { deleteUserData, exportUserData } from "../../../core/server/user-data";
 import { bot } from "../../../plugins/bot/server/plugin";
@@ -193,6 +195,95 @@ describe("a feature built with defineFeature", { timeout: 30_000 }, () => {
     // Inside the end's transaction, the Turn's row already holds its ended status.
     expect(await rowsOf(user.id, "turn_end")).toEqual(["complete"]);
     await expect.poll(() => rowsOf(user.id, "digest"), { timeout: 10_000 }).toEqual(["buy milk"]);
+  });
+
+  it("gives its tools asynchronously, a line of the first message's environment, and the earlier Turns' tool calls", async () => {
+    const lens = defineFeature({
+      id: "lens",
+      tools: async () => [
+        toolDefinition({
+          name: "lens_tool",
+          description: "Looks.",
+          inputSchema: z.object({}),
+        }).server(async () => ({ looked: true })),
+      ],
+      prompt: async (turn) => ({
+        section: "[Lens]",
+        environment: "Lens: on.",
+        changeNotes: [
+          `Lens saw: ${turn.earlier
+            .flatMap((earlier) => earlier.transcript)
+            .flatMap((entry) => entry.toolCalls ?? [])
+            .map((call) => `${call.function.name}(${call.function.arguments})`)
+            .join(", ")}`,
+        ],
+      }),
+    });
+    const { fake, client, botId } = await botWithPins(
+      [round(pinNote("buy milk")), round(), round()],
+      [pins(), lens],
+    );
+
+    await send(client, botId, "remember to buy milk");
+    await send(client, botId, "anything new?");
+
+    const first = textOf(((fake.calls[0]?.messages ?? []) as ModelMessage[])[0]?.content);
+    expect(first).toContain("Lens: on.");
+    expect(first).toContain("lens_tool");
+    expect(newestOf(fake.calls[2])).toContain("Lens saw: ");
+    expect(newestOf(fake.calls[2])).toContain("buy milk");
+  });
+
+  it("gets the Turn's start, and its Change notes come in the order the features are listed", async () => {
+    const starts: Date[] = [];
+    const named = (id: string, onPrompt?: (startedAt: Date) => void) =>
+      defineFeature({
+        id,
+        prompt: async (turn) => {
+          onPrompt?.(turn.startedAt);
+          return { section: `[${id}]`, changeNotes: [`note from ${id}`] };
+        },
+      });
+    const { fake, client, botId } = await botWithPins(
+      [round(), round()],
+      [named("zeta", (startedAt) => starts.push(startedAt)), named("alpha")],
+    );
+
+    await send(client, botId, "hi");
+    await send(client, botId, "again");
+
+    const [turn] = await getTestDb()
+      .select({ startedAt: botTurn.startedAt })
+      .from(botTurn)
+      .where(eq(botTurn.botId, botId))
+      .orderBy(botTurn.startedAt)
+      .limit(1);
+    expect(starts[0]).toEqual(turn!.startedAt);
+    const newest = newestOf(fake.calls[1]);
+    expect(newest.indexOf("note from zeta")).toBeGreaterThanOrEqual(0);
+    expect(newest.indexOf("note from zeta")).toBeLessThan(newest.indexOf("note from alpha"));
+  });
+
+  it("counts only the Turns that started before the Turn it builds as seen", async () => {
+    const counts: number[] = [];
+    const watcher = defineFeature({
+      id: "watcher",
+      prompt: async (turn) => {
+        counts.push(turn.earlier.length);
+        return { section: "[Watcher]" };
+      },
+    });
+    const { client, botId } = await botWithPins([round(), round()], [watcher]);
+    await send(client, botId, "hi");
+    // A Turn of the same Prompt start that started after the next one: not yet seen by it.
+    const [first] = await getTestDb().select().from(botTurn).where(eq(botTurn.botId, botId));
+    await getTestDb()
+      .insert(botTurn)
+      .values({ ...first!, id: uuidv7(), startedAt: new Date(Date.now() + 3_600_000) });
+
+    await send(client, botId, "again");
+
+    expect(counts).toEqual([0, 1]);
   });
 
   it("takes part in the user's export and delete", async () => {

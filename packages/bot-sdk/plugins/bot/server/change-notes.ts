@@ -40,8 +40,6 @@ export type EarlierTurn = {
  * tools.
  */
 export type CurrentState = {
-  /** The memory block, or null with Memory off or unreadable. */
-  memory: string | null;
   /**
    * The enabled features' sections and their Change notes (spec #871). Each feature computes its
    * notes from its section in the Prompt start and the notes told since, so they are told as given.
@@ -58,18 +56,11 @@ export type CurrentState = {
   connectors?: ReadonlySet<string>;
 };
 
-type Tier = "profile" | "log" | "notes";
-const tiers: Tier[] = ["profile", "log", "notes"];
-const tierHeading: Record<string, Tier> = { Profile: "profile", Log: "log", Notes: "notes" };
-const tierLabel: Record<Tier, string> = { profile: "Profile", log: "Log", notes: "Notes" };
-
-type MemoryLines = Record<Tier, string[]>;
-
 /**
- * What the Bot has seen: the memory lines (null without a memory block), Routines and tools.
+ * What the Bot has seen: the Routines and tools. The features work out what the Bot has seen of
+ * their own sections.
  */
 type Seen = {
-  memory: MemoryLines | null;
   routines: Map<string, string>;
   /** Each sent tool's definition hash, and each deferred one's the Bot loaded with describe_tool. */
   tools: Map<string, string>;
@@ -82,17 +73,6 @@ const waiting = "(waiting for OK)";
 /** The first eight hex digits of a tool definition's sha256: enough to tell one deploy from another. */
 export const toolHash = (tool: PromptStartTool) => sha256(canonicalJson(tool)).slice(0, 8);
 
-/** The lines of a memory block, by tier. */
-function memoryLinesOf(block: string): MemoryLines {
-  const lines: MemoryLines = { profile: [], log: [], notes: [] };
-  let tier: Tier | undefined;
-  for (const line of block.split("\n")) {
-    if (line.startsWith("## ")) tier = tierHeading[line.slice(3)];
-    else if (tier && line.startsWith("- ")) lines[tier].push(line.slice(2));
-  }
-  return lines;
-}
-
 /** A Routines block's lines by Routine name. */
 function routinesOf(block: string | null | undefined): Map<string, string> {
   const routines = new Map<string, string>();
@@ -100,29 +80,6 @@ function routinesOf(block: string | null | undefined): Map<string, string> {
     routines.set(line.split("  ")[0]!, line);
   }
   return routines;
-}
-
-/** The text lines of a memory file's content, without their `- ` marker. */
-function fileLines(content: string): string[] {
-  return content
-    .split(/\r?\n/)
-    .map((raw) =>
-      raw
-        .trim()
-        .replace(/^[-*]\s+/, "")
-        .trim(),
-    )
-    .filter((text) => text !== "" && !text.startsWith("#"));
-}
-
-const memoryFile = /(?:^|\/)memory\/(?:(profile|notes)\.md|log\/(\d{4}-\d{2})\.md)$/;
-
-/** Which of the Bot's memory files `path` is: its tier and, for a Log, its month. */
-function memoryTarget(botId: string, path: string): { tier: Tier; month?: string } | undefined {
-  if (path.includes("/bots/") && !path.includes(`/bots/${botId}/`)) return undefined;
-  const match = memoryFile.exec(path);
-  if (!match) return undefined;
-  return match[1] ? { tier: match[1] as Tier } : { tier: "log", month: match[2] };
 }
 
 /**
@@ -140,22 +97,9 @@ export function notesIn(input: ModelMessage[]): string[] {
   return time?.startsWith("[Current time: ") && header === changeNotesHeader ? lines : [];
 }
 
-const removeOne = (lines: string[], text: string) => {
-  const at = lines.indexOf(text);
-  if (at >= 0) lines.splice(at, 1);
-};
-
 /** Applies the lines of an earlier Turn's Change notes to `seen`: the Bot was told them. */
 function applyNotes(seen: Seen, notes: string[]) {
   for (const note of notes) {
-    const memory = /^Memory (added|removed) \((Profile|Log|Notes)\): (.*)$/.exec(note);
-    if (memory) {
-      const lines = seen.memory?.[tierHeading[memory[2]!]!];
-      if (!lines) continue;
-      if (memory[1] === "added") lines.push(memory[3]!);
-      else removeOne(lines, memory[3]!);
-      continue;
-    }
     const routine = /^Routine (?:created|approved|changed): (.*)$/.exec(note);
     if (routine) seen.routines.set(routine[1]!.split("  ")[0]!, routine[1]!);
     const deleted = /^Routine deleted: (.*)$/.exec(note);
@@ -208,14 +152,48 @@ function describedTool(content: ModelMessage["content"]): PromptStartTool | unde
   }
 }
 
+/** A tool call of the Bot's that came back without an error, a `run_tool` call unwrapped. */
+export type FeatureCall = { name: string; args: Record<string, unknown> };
+
 /**
- * Applies the Bot's own memory writes and Routine tool calls in an earlier Turn's `transcript` to
- * `seen`: it knows what it did, so it gets no note for it. Only its `write` and `edit` calls count
- * for memory, not a shell command. A tool it loaded with `describe_tool` is seen as loaded, so a
- * deferred tool that changed since is noted.
+ * The tool calls in an earlier Turn's `transcript` that came back without an error, in order, a
+ * call through `run_tool` as the named tool's call. A call that errored changed nothing.
  */
-function applyOwnCalls(botId: string, seen: Seen, transcript: ModelMessage[]) {
-  const { memory } = seen;
+export function successfulCalls(transcript: readonly ModelMessage[]): FeatureCall[] {
+  const failed = new Set(
+    transcript.flatMap((entry) =>
+      entry.role === "tool" && entry.toolCallId && resultFailed(entry.content)
+        ? [entry.toolCallId]
+        : [],
+    ),
+  );
+  const calls: FeatureCall[] = [];
+  for (const call of transcript.flatMap((entry) => entry.toolCalls ?? [])) {
+    if (failed.has(call.id)) continue;
+    try {
+      let args = JSON.parse(call.function.arguments) as Record<string, unknown>;
+      let name = call.function.name;
+      if (name === runToolName) {
+        const wrapped = args as { name?: unknown; args?: unknown };
+        if (typeof wrapped.name !== "string" || typeof wrapped.args !== "object" || !wrapped.args)
+          continue;
+        name = wrapped.name;
+        args = wrapped.args as Record<string, unknown>;
+      }
+      calls.push({ name, args });
+    } catch {
+      continue;
+    }
+  }
+  return calls;
+}
+
+/**
+ * Applies the Bot's own Routine tool calls in an earlier Turn's `transcript` to `seen`: it knows
+ * what it did, so it gets no note for it. A tool it loaded with `describe_tool` is seen as loaded,
+ * so a deferred tool that changed since is noted.
+ */
+function applyOwnCalls(seen: Seen, transcript: ModelMessage[]) {
   const described = new Set(
     transcript.flatMap((entry) =>
       (entry.toolCalls ?? []).flatMap((call) =>
@@ -228,62 +206,15 @@ function applyOwnCalls(botId: string, seen: Seen, transcript: ModelMessage[]) {
     const tool = describedTool(entry.content);
     if (tool) seen.tools.set(tool.name, toolHash(tool));
   }
-  // A call that came back with an error changed nothing.
-  const failed = new Set(
-    transcript.flatMap((entry) =>
-      entry.role === "tool" && entry.toolCallId && resultFailed(entry.content)
-        ? [entry.toolCallId]
-        : [],
-    ),
-  );
-  for (const call of transcript.flatMap((entry) => entry.toolCalls ?? [])) {
-    if (failed.has(call.id)) continue;
-    let args: CallArguments;
-    let toolName = call.function.name;
-    try {
-      args = JSON.parse(call.function.arguments) as CallArguments;
-      // A call through `run_tool` is the named tool's call.
-      if (toolName === runToolName) {
-        const wrapped = args as { name?: unknown; args?: unknown };
-        if (typeof wrapped.name !== "string" || typeof wrapped.args !== "object" || !wrapped.args)
-          continue;
-        toolName = wrapped.name;
-        args = wrapped.args as CallArguments;
-      }
-    } catch {
-      continue;
-    }
+  for (const { name: toolName, args } of successfulCalls(transcript) as {
+    name: string;
+    args: CallArguments;
+  }[]) {
     if (typeof args.name === "string") {
       if (toolName === createRoutineToolName || toolName === updateRoutineToolName) {
         seen.routines.set(args.name, ownRoutine);
       } else if (toolName === deleteRoutineToolName) {
         seen.routines.delete(args.name);
-      }
-    }
-    if (toolName !== "write" && toolName !== "edit") continue;
-    if (!memory) continue;
-    const target = typeof args.path === "string" ? memoryTarget(botId, args.path) : undefined;
-    if (!target) continue;
-    const lines = memory[target.tier];
-    if (toolName === "write" && typeof args.content === "string") {
-      // The file is replaced whole: its own lines in `seen` go, and what it holds now is seen.
-      const own = (line: string) =>
-        target.tier === "profile"
-          ? !line.startsWith("[")
-          : target.tier === "log"
-            ? line.startsWith(`${target.month}-`)
-            : true;
-      memory[target.tier] = [...lines.filter((line) => !own(line)), ...fileLines(args.content)];
-    } else if (typeof args.oldText === "string" && typeof args.newText === "string") {
-      const { oldText, newText } = args;
-      if (oldText.includes("\n")) {
-        const before = fileLines(oldText);
-        const after = fileLines(newText);
-        for (const line of before.filter((line) => !after.includes(line))) removeOne(lines, line);
-        lines.push(...after.filter((line) => !before.includes(line)));
-      } else if (oldText !== "") {
-        const at = lines.findIndex((line) => line.includes(oldText));
-        if (at >= 0) lines[at] = lines[at]!.replace(oldText, newText);
       }
     }
   }
@@ -304,33 +235,17 @@ export async function changeNotesFor(
   const [start] = await db.select().from(botPromptStart).where(eq(botPromptStart.id, startId));
   if (!start) return undefined;
   const block = (name: string) => start.sections.find((section) => section.name === name)?.text;
-  const memoryBlock = block("memory");
   const seen: Seen = {
-    memory: memoryBlock === undefined ? null : memoryLinesOf(memoryBlock),
     routines: routinesOf(block("routines")),
     tools: new Map(start.tools.map((tool) => [tool.name, toolHash(tool)])),
     listed: listedToolNames(block(firstMessageSection) ?? ""),
   };
   for (const row of earlier.filter((row) => row.promptStartId === startId)) {
     applyNotes(seen, notesIn(row.input ?? []));
-    applyOwnCalls(start.botId, seen, row.transcript ?? []);
+    applyOwnCalls(seen, row.transcript ?? []);
   }
 
   const notes: string[] = [];
-  if (seen.memory && current.memory !== null) {
-    const now = memoryLinesOf(current.memory);
-    for (const tier of tiers) {
-      const before = new Set(seen.memory[tier]);
-      const after = new Set(now[tier]);
-      for (const line of after) {
-        if (!before.has(line)) notes.push(`Memory added (${tierLabel[tier]}): ${line}`);
-      }
-      if (tier !== "profile") continue;
-      for (const line of before) {
-        if (!after.has(line)) notes.push(`Memory removed (${tierLabel[tier]}): ${line}`);
-      }
-    }
-  }
   // The features' notes, as each computed them from what the Bot has seen.
   for (const { changeNotes } of current.features ?? []) notes.push(...changeNotes);
   const routines = routinesOf(current.routines);

@@ -15,7 +15,6 @@ import {
   botSecret,
   job,
   usage,
-  memorySettings,
   modelSettings,
 } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
@@ -30,6 +29,7 @@ import { readTokens, saveTokens } from "../../../plugins/mcp/server/connections"
 import { mcpConnection } from "../../../plugins/mcp/server/db/connection";
 import { mcp } from "../../../plugins/mcp/server/plugin";
 import { profilePath } from "../../../plugins/memory/server/bot-memory";
+import { memorySettings } from "../../../plugins/memory/server/schema";
 import { listCredentials, saveCredentials } from "../../../plugins/models/server/credentials/store";
 import { models } from "../../../plugins/models/server/plugin";
 import { insertConversation, insertMessage } from "../../support/conversations";
@@ -53,8 +53,8 @@ function fakeBlobStore() {
   return { store, held };
 }
 
-/** Every table of the composed schema and the mcp feature's with a `user_id` column, with that column. */
-const userTables = [...Object.values(schema), mcpConnection].flatMap((value) => {
+/** Every table of the composed schema and the mcp and memory features' with a `user_id` column, with that column. */
+const userTables = [...Object.values(schema), mcpConnection, memorySettings].flatMap((value) => {
   if (!is(value, PgTable)) return [];
   const { name, columns } = getTableConfig(value);
   const column = columns.find((candidate) => candidate.name === "user_id");
@@ -255,6 +255,7 @@ describe("deleteUser across plugins", () => {
     const seen: string[] = [];
     const extra: BotSdkPlugin = {
       id: "extra",
+      uses: ["memory"],
       deleteUser: {
         before: async (_sdk, { userId, tx }) => {
           const [row] = await tx
@@ -275,7 +276,10 @@ describe("deleteUser across plugins", () => {
       },
     };
 
-    await deleteUserData(createTestSdk({ plugins: [extra] }), owner.id);
+    await deleteUserData(
+      createTestSdk({ computer: fakeComputerProvider().provider, plugins: [extra] }),
+      owner.id,
+    );
 
     expect(seen).toEqual(["before: settings 1", "after: collected, settings 0"]);
   });
@@ -317,13 +321,17 @@ describe("deleteUser across plugins", () => {
       },
     });
 
+    const withComputer = (plugin: BotSdkPlugin) => ({
+      computer: fakeComputerProvider().provider,
+      plugins: [plugin],
+    });
     await expect(
-      deleteUserData(createTestSdk({ plugins: [failing("before")] }), owner.id),
+      deleteUserData(createTestSdk(withComputer(failing("before"))), owner.id),
     ).rejects.toThrow("injected failure");
     expect(await rowsByTable(owner.id)).toMatchObject({ memory_settings: 1 });
 
     const logger = { error: vi.fn() };
-    await deleteUserData(createTestSdk({ logger, plugins: [failing("after")] }), owner.id);
+    await deleteUserData(createTestSdk({ logger, ...withComputer(failing("after")) }), owner.id);
     expect(await rowsByTable(owner.id)).toMatchObject({ memory_settings: 0 });
     expect(logger.error).toHaveBeenCalledOnce();
   });
