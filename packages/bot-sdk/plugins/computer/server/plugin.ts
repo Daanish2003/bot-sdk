@@ -3,13 +3,16 @@ import { createHash, randomBytes } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { deleteBlobsBestEffort } from "../../../core/server/blob/store";
-import { computer as computerTable } from "../../../core/server/db/schema";
+import { deleteBlobsBestEffort, computer as computerTable } from "../../../core/server/storage";
+
 import type { BotSdkContext, Transaction, UserDeleteHooks } from "../../../core/server/plugin";
-import { defineJob } from "../../runner/server/jobs/define";
-import { isInProcessRunner } from "../../runner/server/jobs/in-process";
-import { cancelQueuedJobsIn } from "../../runner/server/jobs/store";
-import { runnerJobs } from "../../runner/server/plugin";
+import {
+  defineJob,
+  isInProcessRunner,
+  cancelQueuedJobsIn,
+  runnerJobs,
+} from "../../runner/server/internal";
+
 import {
   type CommandResult,
   type ComputerProvider,

@@ -5,7 +5,7 @@ import "varlock/auto-load";
 export default defineConfig({
   // A feature's tables are listed beside the core's: they are not part of its composed schema.
   schema: [
-    "./core/server/db/schema.ts",
+    "./core/server/storage/schema.ts",
     "./plugins/mcp/server/db/connection.ts",
     "./plugins/memory/server/schema.ts",
   ],

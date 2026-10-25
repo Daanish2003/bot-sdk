@@ -1,8 +1,11 @@
 import { z } from "zod";
 
 import { protectedProcedure } from "../../../../core/server/procedures";
-import { emailAddressOf, rotateEmailAddress } from "../address";
-import { lastUsedChannel } from "../deliver";
+import {
+  emailAddressOf,
+  rotateEmailAddress,
+  lastUsedChannel,
+} from "../../../bot/server/conversation";
 
 const botInput = z.object({ botId: z.uuid() });
 

@@ -1,7 +1,7 @@
 import type { AnyImageAdapter, AnyTextAdapter } from "@tanstack/ai";
 
 import type { HookEmitter } from "../../../core/server/chat/hooks";
-import type { Database } from "../../../core/server/db/index";
+import type { Database } from "../../../core/server/storage";
 import type { ProviderId } from "../shared/credentials/services";
 
 /** Decrypted Provider credentials or Tool credential fields, keyed by field name. */

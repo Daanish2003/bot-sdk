@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 
-import { bot, botTurn } from "../../../core/server/db/schema";
+import { bot, botTurn } from "../../../core/server/storage";
 import type { BotSdkContext } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
 import {
@@ -8,7 +8,7 @@ import {
   ComputerUnavailableError,
   type ComputerHandle,
   type FileOperationOptions,
-} from "../../computer/server/plugin";
+} from "../../computer/server/internal";
 import {
   knowledgeDirectory,
   knowledgeDocumentExtensions,

@@ -1,5 +1,5 @@
 import type { FeaturePromptTurn } from "../../../core/server/feature";
-import { type FeatureCall, successfulCalls } from "../../bot/server/change-notes";
+import { type FeatureCall, successfulCalls } from "../../bot/server/context";
 
 /*
  * The Change notes of the memory block (slide 31, ADR 0022 amended): the Prompt start freezes the

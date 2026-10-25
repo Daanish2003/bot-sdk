@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 
-import { conversation, message, type MessageRow } from "../db/schema";
+import { conversation, message, type MessageRow } from "../storage";
 import { uuidv7 } from "../lib/uuidv7";
 import { recordChange } from "./change-log";
 import type { Transaction } from "../plugin";

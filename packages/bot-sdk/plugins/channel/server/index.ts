@@ -1,10 +1,4 @@
-export {
-  channel,
-  type ChannelAdapter,
-  type ChannelApi,
-  type ChannelOptions,
-  type ChannelPlugin,
-} from "./plugin";
+export type { ChannelAdapter, ChannelApi, ChannelOptions, ChannelPlugin } from "./plugin";
 export {
   emailChannel,
   type AuthVerdict,

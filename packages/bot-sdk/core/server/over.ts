@@ -9,12 +9,12 @@ import {
 } from "./create-chat";
 import { enabledFeatures } from "./feature";
 import { enabledPlugins, type BotSdkContext } from "./plugin";
-import { modelsOver } from "../../plugins/models/server/plugin";
-import type { ModelsDeps } from "../../plugins/models/server/types";
-import { computerProvider } from "../../plugins/computer/server/plugin";
-import type { ComputerProvider } from "../../plugins/computer/server/provider";
-import type { JobRunner } from "../../plugins/runner/server/jobs/runner";
-import { runnerJobs } from "../../plugins/runner/server/plugin";
+import { modelsOver } from "../../plugins/models/server/internal";
+import type { ModelsDeps } from "../../plugins/models/server/internal";
+import { computerProvider } from "../../plugins/computer/server/internal";
+import type { ComputerProvider } from "../../plugins/computer/server/internal";
+import type { JobRunner } from "../../plugins/runner/server/internal";
+import { runnerJobs } from "../../plugins/runner/server/internal";
 
 type OverOptions = Pick<BotSdkOptions, "basePath" | "getUser" | "logger">;
 

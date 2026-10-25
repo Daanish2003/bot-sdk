@@ -1,8 +1,8 @@
-import type { BotSdkContext, BotSdkPlugin, Transaction } from "../../../core/server/plugin";
-import { type DeliveryPayload, deliverIn, sendDelivery } from "./deliver";
+import type { BotSdkPlugin, Transaction } from "../../../core/server/plugin";
 import type { EmailChannel } from "./email";
-import { receiveEmail } from "./inbound";
-import { channelRouter } from "./routers/index";
+
+/** What a `channel.deliver` job carries: the headers fixed when the Message was saved. */
+export type DeliveryPayload = { messageId: string; subject: string; inReplyTo?: string };
 
 /** A Channel adapter (spec #761): its wire format only. Email is the one there is. */
 export type ChannelAdapter = EmailChannel;
@@ -43,46 +43,3 @@ export type ChannelOptions = {
 };
 
 export type ChannelPlugin = BotSdkPlugin<"channel", never, never>;
-
-/**
- * The Channels over `adapters`: what `sdk.channels` is. With no adapter, the Bots talk on the web
- * only: every inbound answers 404 and no reply goes out by email.
- */
-export function createChannels(
-  sdk: BotSdkContext,
-  { adapters, verifiedEmail }: ChannelOptions,
-): ChannelApi {
-  const email = adapters.find((adapter) => adapter.id === "email");
-  return {
-    inbound: async (id, request) => {
-      if (id !== "email" || !email) return new Response("Not found", { status: 404 });
-      return receiveEmail(sdk, { channel: email, verifiedEmail }, request);
-    },
-    emailDomain: () => {
-      if (!email) throw new Error("The channel plugin has no email adapter");
-      return email.domain;
-    },
-    deliverIn: async (tx, sent) => {
-      if (email) await deliverIn(sdk, tx, email, sent);
-    },
-    sendDelivery: async (payload) => {
-      if (!email) throw new Error("The channel plugin has no email adapter");
-      await sendDelivery(sdk, email, verifiedEmail, payload);
-    },
-  };
-}
-
-/**
- * The Channels besides web (spec #761) that the user talks to their Bots on, each an adapter, as
- * the core's `sdk.channels` with their router. It owns turning an inbound into a Trigger, the
- * sender check and dedupe.
- */
-export function channel(options: ChannelOptions): ChannelPlugin {
-  return {
-    id: "channel",
-    router: { channel: channelRouter },
-    init: (sdk) => {
-      sdk.channels = createChannels(sdk, options);
-    },
-  };
-}

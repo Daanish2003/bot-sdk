@@ -1,6 +1,6 @@
 import { deleteConversations, muted } from "./chat/delete-conversations";
 import { enabledPlugins, type BotSdkContext, type UserDeleteHooks } from "./plugin";
-import { computerUserDelete } from "../../plugins/computer/server/plugin";
+import { computerUserDelete } from "../../plugins/computer/server/internal";
 
 /**
  * Deletes everything the SDK holds for a user, in one transaction (spec #439): each plugin's

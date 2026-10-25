@@ -1,9 +1,9 @@
 import { and, eq } from "drizzle-orm";
 
-import { bot } from "../../../core/server/db/schema";
+import { bot } from "../../../core/server/storage";
 import type { BotSdkContext } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
-import { ComputerUnavailableError, type ComputerHandle } from "../../computer/server/plugin";
+import { ComputerUnavailableError, type ComputerHandle } from "../../computer/server/internal";
 import {
   namePattern,
   nameLimit,

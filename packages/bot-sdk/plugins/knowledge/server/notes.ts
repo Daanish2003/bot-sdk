@@ -1,10 +1,10 @@
 import type { ModelMessage } from "@tanstack/ai";
 
 import type { FeaturePromptTurn } from "../../../core/server/feature";
-import { resolvePath } from "../../bot/server/computer-tools";
-import { runToolName } from "../../bot/server/tool-search";
+import { runToolName } from "../../bot/server/context";
 import { knowledgeDirectory, readableCopyPath } from "../shared/folder";
 import { byCodeUnit, isMoreKnowledge, knowledgeBlockLimit, promptSafePath } from "./prompt";
+import { resolvePath } from "../../bot/server/conversation";
 
 /*
  * The Knowledge Change notes (slide 31, ADR 0022 amended, ADR 0025): what the Bot has seen of the

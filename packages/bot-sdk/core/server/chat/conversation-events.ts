@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import type { ChatUser } from "../context";
-import { conversation } from "../db/schema";
+import { conversation } from "../storage";
 import type { BotSdkContext } from "../plugin";
 
 /** The pub/sub channel of a Conversation: any plugin publishes its live events here (#290, #625). */

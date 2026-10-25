@@ -1,4 +1,4 @@
-import type { JobRow } from "../../../../core/server/db/schema";
+import type { JobRow } from "../../../../core/server/storage";
 
 export type EnqueueOptions = {
   /** A job with this key that is still queued or running makes this enqueue a no-op. */

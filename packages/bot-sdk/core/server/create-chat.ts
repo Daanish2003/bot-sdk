@@ -1,12 +1,11 @@
 import { onError } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 
-import { postgresBlobStore } from "./blob/postgres";
-import type { BlobStore } from "./blob/store";
+import { postgresBlobStore, createDb } from "./storage";
+import type { BlobStore } from "./storage";
 import { handleConversationEvents } from "./chat/conversation-events";
 import { createHookEmitter } from "./chat/hooks";
 import type { ChatUser, Context } from "./context";
-import { createDb } from "./db/index";
 import { createGuardedFetch } from "./lib/guarded-fetch";
 import {
   checkFeature,
@@ -32,22 +31,18 @@ import { defaultRateLimits, rateLimitedFor, rpcRateLimits, type RateLimit } from
 import { memoryRuntime, type BotSdkRuntime } from "./runtime";
 import { deleteUserData, exportUserData, type UserExport } from "./user-data";
 import { bot, type BotApi } from "../../plugins/bot/server/plugin";
-import {
-  channel,
-  createChannels,
-  type ChannelAdapter,
-  type ChannelApi,
-} from "../../plugins/channel/server/plugin";
-import { createComputer } from "../../plugins/computer/server/plugin";
-import type { ComputerProvider } from "../../plugins/computer/server/provider";
+import { channel, createChannels } from "../../plugins/bot/server/channels";
+import type { ChannelAdapter, ChannelApi } from "../../plugins/channel/server/internal";
+import { createComputer } from "../../plugins/computer/server/internal";
+import type { ComputerProvider } from "../../plugins/computer/server/internal";
 import {
   models,
   type ModelsApi,
   type ModelsOptions,
   type ModelsPlugin,
-} from "../../plugins/models/server/plugin";
-import type { JobRunner } from "../../plugins/runner/server/jobs/runner";
-import { createRunner, type RunnerApi } from "../../plugins/runner/server/plugin";
+} from "../../plugins/models/server/internal";
+import type { JobRunner } from "../../plugins/runner/server/internal";
+import { createRunner, type RunnerApi } from "../../plugins/runner/server/internal";
 
 export type ChatHandler = (request: Request) => Promise<Response>;
 

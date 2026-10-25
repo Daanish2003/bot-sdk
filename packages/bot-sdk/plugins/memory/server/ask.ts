@@ -1,9 +1,9 @@
 import { chat, type ModelMessage } from "@tanstack/ai";
 import type { z } from "zod";
 
-import { promptCharactersOf, reportedUsageOf } from "../../models/server/run-usage";
+import { promptCharactersOf, reportedUsageOf } from "../../models/server/internal";
 import type { BotSdkContext } from "../../../core/server/plugin";
-import type { ModelCall } from "../../models/server/credentials/resolve";
+import type { ModelCall } from "../../models/server/internal";
 
 /**
  * One call on a Bot's Model for its post-turn pass, recorded against the Quota when it is on Host

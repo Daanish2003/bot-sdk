@@ -1,9 +1,9 @@
 import type { ModelMessage } from "@tanstack/ai";
 
 import type { FeaturePromptTurn } from "../../../core/server/feature";
-import { resolvePath } from "../../bot/server/computer-tools";
-import { runToolName } from "../../bot/server/tool-search";
+import { runToolName } from "../../bot/server/context";
 import { isSkillFile, type SkillLine, skillLineOf, skillsDirectory } from "./skills";
+import { resolvePath } from "../../bot/server/conversation";
 
 /*
  * The Skills feature's Change notes (slide 31): what the Bot has been told of its Skills since its

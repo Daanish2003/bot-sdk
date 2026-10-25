@@ -27,7 +27,7 @@ export {
 export { redisStore, type RedisStore } from "./chat/redis-store";
 export type { PubSub } from "./chat/pubsub";
 export type { RateLimit, RateLimits } from "./rate-limits";
-export { createDb, type Database } from "./db";
-export type { BlobStore } from "./blob/store";
-export { postgresBlobStore } from "./blob/postgres";
-export { s3BlobStore, type S3BlobStoreOptions } from "./blob/s3";
+export { createDb, type Database } from "./storage";
+export type { BlobStore } from "./storage";
+export { postgresBlobStore } from "./storage";
+export { s3BlobStore, type S3BlobStoreOptions } from "./storage";

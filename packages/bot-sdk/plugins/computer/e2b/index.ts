@@ -11,7 +11,7 @@ import {
 } from "e2b";
 
 import type { CommandResult, ComputerProvider, FileEntry, TimedOutCommand } from "../server";
-import { SandboxGoneError } from "../server/provider";
+import { SandboxGoneError } from "../server/internal";
 import { boundedOutput, redactedOutput } from "./bounded-output";
 
 /** The self-hosted E2B a Host points the adapter at, and the template it builds Computers from. */

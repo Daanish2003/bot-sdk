@@ -1,6 +1,6 @@
 import { and, eq, gte, lt, sql } from "drizzle-orm";
 
-import { usage } from "../../../core/server/db/schema";
+import { usage } from "../../../core/server/storage";
 import type { RunUsage } from "./run-usage";
 import type { MessageUsage } from "../shared/usage";
 import type { ModelsDeps } from "./types";

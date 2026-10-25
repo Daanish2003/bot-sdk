@@ -3,12 +3,12 @@ import type { AnyServerTool, ModelMessage } from "@tanstack/ai";
 import { is } from "drizzle-orm";
 import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
 
-import * as coreTables from "./db/schema";
-import type { Database } from "./db/index";
+import { schema as coreTables } from "./storage";
+import type { Database } from "./storage";
 import type { BotSdkContext, BotSdkPlugin, Route, Transaction } from "./plugin";
-import type { ComputerApi } from "../../plugins/computer/server/plugin";
-import { type JobDefinition, registerJob } from "../../plugins/runner/server/jobs/define";
-import type { EnqueueOptions } from "../../plugins/runner/server/jobs/runner";
+import type { ComputerApi } from "../../plugins/computer/server/internal";
+import { type JobDefinition, registerJob } from "../../plugins/runner/server/internal";
+import type { EnqueueOptions } from "../../plugins/runner/server/internal";
 
 /*
  * Features (spec #871, ADR 0029): optional capabilities beside the Bot core, written against

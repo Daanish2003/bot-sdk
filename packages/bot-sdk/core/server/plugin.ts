@@ -1,19 +1,18 @@
 import type { AnyRouter } from "@orpc/server";
 
-import type { BlobStore } from "./blob/store";
+import type { BlobStore, Database } from "./storage";
 import type { CounterStore } from "./chat/counters";
 import type { EventHooks, HookEmitter } from "./chat/hooks";
 import type { PubSub } from "./chat/pubsub";
 import type { ChatUser } from "./context";
-import type { Database } from "./db/index";
 import type { RateLimit } from "./rate-limits";
 import type { BotSdkRuntime } from "./runtime";
 import type { EnabledFeature } from "./feature";
 import type { BotApi } from "../../plugins/bot/server/plugin";
-import type { ChannelApi } from "../../plugins/channel/server/plugin";
-import type { ComputerApi } from "../../plugins/computer/server/plugin";
-import type { ModelsApi } from "../../plugins/models/server/plugin";
-import type { RunnerApi } from "../../plugins/runner/server/plugin";
+import type { ChannelApi } from "../../plugins/channel/server/internal";
+import type { ComputerApi } from "../../plugins/computer/server/internal";
+import type { ModelsApi } from "../../plugins/models/server/internal";
+import type { RunnerApi } from "../../plugins/runner/server/internal";
 
 /** What the core gives its parts: the infrastructure and the core services. */
 export type BotSdkContext = {

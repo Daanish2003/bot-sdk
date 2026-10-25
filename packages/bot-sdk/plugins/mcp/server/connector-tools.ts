@@ -1,9 +1,9 @@
 import type { AnyServerTool } from "@tanstack/ai";
 
-import type { PromptStartTool } from "../../bot/server/db/bot-prompt-start";
-import { definitionsOf } from "../../bot/server/prompt-start";
-import { untrustedBlock } from "../../bot/server/routine";
-import { maskResult } from "../../bot/server/secret-values";
+import type { PromptStartTool } from "../../../core/server/storage";
+import { definitionsOf } from "../../bot/server/context";
+import { untrustedBlock } from "../../bot/server/routines";
+import { maskResult } from "../../bot/server/safety";
 
 /*
  * Connector tools (spec #801, ADR 0027): the tools of the user's Connections, listed once per Turn

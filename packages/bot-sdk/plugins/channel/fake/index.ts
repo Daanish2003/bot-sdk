@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import type { EmailProvider, InboundMail, OutboundMail } from "../server/email";
+import type { EmailProvider, InboundMail, OutboundMail } from "../server/internal";
 
 const verdict = z.enum(["pass", "fail", "none"]);
 

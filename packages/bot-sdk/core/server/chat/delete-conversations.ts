@@ -1,6 +1,6 @@
 import { and, eq, inArray, type SQL } from "drizzle-orm";
 
-import { conversation } from "../db/schema";
+import { conversation } from "../storage";
 import { enabledPlugins, type BotSdkContext, type Transaction } from "../plugin";
 import type { HookEmitter } from "./hooks";
 

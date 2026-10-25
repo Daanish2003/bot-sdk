@@ -1,6 +1,5 @@
-import { readQuota } from "../quota";
+import { readQuota, modelsDeps } from "../internal";
 import { protectedProcedure } from "../../../../core/server/procedures";
-import { modelsDeps } from "../state";
 
 export const quotaRouter = {
   /**

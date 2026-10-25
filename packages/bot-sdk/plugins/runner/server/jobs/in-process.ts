@@ -1,4 +1,4 @@
-import type { Database } from "../../../../core/server/db/index";
+import type { Database } from "../../../../core/server/storage";
 import type { BotSdkContext } from "../../../../core/server/plugin";
 import { jobNamesInLane } from "./define";
 import { cancelJob, claimJob, enqueueJob, readJob, runClaimedJob, type ClaimedJob } from "./store";

@@ -1,6 +1,6 @@
 import { asc, eq } from "drizzle-orm";
 
-import { bot, computer as computerTable } from "../../../core/server/db/schema";
+import { bot, computer as computerTable } from "../../../core/server/storage";
 import type { FeatureContext } from "../../../core/server/feature";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import {
@@ -8,7 +8,7 @@ import {
   ComputerUnavailableError,
   type ComputerHandle,
   type FileOperationOptions,
-} from "../../computer/server/plugin";
+} from "../../computer/server/internal";
 import { memoryEnabledFor } from "./manage";
 
 /*
