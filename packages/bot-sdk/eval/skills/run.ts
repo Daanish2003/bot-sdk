@@ -17,7 +17,6 @@ import { eq } from "drizzle-orm";
 
 import { botTrigger } from "../../core/server/db/schema";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
-import { bot } from "../../plugins/bot/server/plugin";
 import { computerOf } from "../../plugins/bot/server/computer-tools";
 import { lockConversation, receive } from "../../plugins/bot/server/router";
 import { routineSnapshot, webhookPayloadLabel } from "../../plugins/bot/server/routine";
@@ -122,7 +121,6 @@ async function main() {
   const sdk = createComputerSdk({
     db,
     provider: computerFake.provider,
-    more: [bot()],
     features: [skills()],
     models: (real) =>
       fake

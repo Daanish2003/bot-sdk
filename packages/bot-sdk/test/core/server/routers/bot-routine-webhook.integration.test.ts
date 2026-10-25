@@ -4,7 +4,6 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { botPromptStart, botRoutine, botTrigger } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { bot } from "../../../../plugins/bot/server/plugin";
 import { webhookTokenHash } from "../../../../plugins/bot/server/routine";
 import { findBot } from "../../../../plugins/bot/server/store";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
@@ -73,7 +72,6 @@ async function botWithRoutine({
   });
   deps = createTestSdk({
     ...(computerFake && { computer: computerFake.provider }),
-    plugins: [bot()],
     jobs,
     adapterFor: () => fake.adapter,
     clock: timer.clock.now,

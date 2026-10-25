@@ -6,7 +6,6 @@ import { botHelper, botReview, botTurn, job, usage } from "../../../../core/serv
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { deleteUserData } from "../../../../core/server/user-data";
 import { interruptedShellError } from "../../../../plugins/bot/server/computer-tools";
-import { bot } from "../../../../plugins/bot/server/plugin";
 import {
   listedReviews,
   reviewFailedReason,
@@ -101,7 +100,7 @@ async function botWith(
   });
   deps = createTestSdk({
     computer: computerFake.provider,
-    plugins: [bot({ reviewModel })],
+    reviewModel,
     jobs,
     clock,
     adapterFor: () => adapter,
@@ -752,7 +751,6 @@ describe("an Approval wait cut off by a crash", () => {
       started.push(jobs);
       deps = createTestSdk({
         computer: computerFake.provider,
-        plugins: [bot()],
         jobs,
         clock: () => start,
         adapterFor: () => fake.adapter,

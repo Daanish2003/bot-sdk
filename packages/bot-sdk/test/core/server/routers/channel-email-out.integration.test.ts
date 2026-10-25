@@ -3,9 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { botTurn, job } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { bot } from "../../../../plugins/bot/server/plugin";
 import { fakeEmailProvider } from "../../../../plugins/channel/fake/index";
-import { channel, emailChannel, type OutboundMail } from "../../../../plugins/channel/server/index";
+import { emailChannel, type OutboundMail } from "../../../../plugins/channel/server/index";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
   inProcessRunner,
@@ -71,13 +70,8 @@ async function emailBot(
   });
   const user = await insertUser();
   deps = createTestSdk({
-    plugins: [
-      bot(),
-      channel({
-        adapters: [emailChannel({ provider, domain, appUrl })],
-        verifiedEmail: async (userId) => (userId === user.id ? ownerEmail : null),
-      }),
-    ],
+    channels: [emailChannel({ provider, domain, appUrl })],
+    verifiedEmail: async (userId) => (userId === user.id ? ownerEmail : null),
     jobs,
     adapterFor: () => fake.adapter,
     clock: timer.clock.now,

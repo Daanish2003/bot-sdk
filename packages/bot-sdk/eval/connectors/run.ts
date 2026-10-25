@@ -24,7 +24,6 @@ import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
 
 import { botTrigger } from "../../core/server/db/schema";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
-import { bot } from "../../plugins/bot/server/plugin";
 import { saveTokens } from "../../plugins/mcp/server/connections";
 import { mcp } from "../../plugins/mcp/server/plugin";
 import { runnerJobs } from "../../plugins/runner/server/plugin";
@@ -110,7 +109,6 @@ async function main() {
   const sdk = createComputerSdk({
     db,
     provider: fakeComputerProvider().provider,
-    more: [bot()],
     features: [
       mcp({
         servers: [

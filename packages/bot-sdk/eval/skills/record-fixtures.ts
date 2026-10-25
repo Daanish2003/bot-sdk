@@ -20,7 +20,6 @@ import { type Page, chromium } from "playwright-core";
 
 import { botDemonstration, botDemonstrationEvent } from "../../core/server/db/schema";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
-import { bot } from "../../plugins/bot/server/plugin";
 import { sendToUserToolName } from "../../plugins/bot/server/turn";
 import { skills } from "../../plugins/skills/server/plugin";
 import { runnerJobs } from "../../plugins/runner/server/plugin";
@@ -195,7 +194,6 @@ async function record(script: Script, databaseUrl: string) {
   const sdk = createComputerSdk({
     db,
     provider: computerFake.provider,
-    more: [bot()],
     features: [skills()],
     models: (real) => ({ ...real, adapterFor: () => fake.adapter }),
   });

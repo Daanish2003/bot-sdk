@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../../core/server/create-chat";
-import { bot } from "../../../../plugins/bot/server/plugin";
 import { knowledge } from "../../../../plugins/knowledge/server/plugin";
-import { models } from "../../../../plugins/models/server/plugin";
 import { memoryRuntime } from "../../../../core/server/runtime";
 import { resolveRateLimits, type RateLimits } from "../../../../core/server/rate-limits";
 import { RateLimitedError } from "../../../../core/client/rate-limit";
@@ -40,7 +38,6 @@ const rpcCases = [
 /** The Bot-only plugins and features that serve every route in `rpcCases`, with the Computer they need. */
 const botOnly = () => ({
   computer: fakeComputerProvider().provider,
-  plugins: [bot()],
   features: [knowledge()],
 });
 
@@ -93,9 +90,9 @@ it("takes its limit from createBotSdk's rateLimits override", async () => {
     getUser: () => ({ id: user.id }),
     keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
     basePath: "/api/chat",
-    runtime: memoryRuntime(),
+    pubsub: memoryRuntime(),
     rateLimits: { credentialSave: { limit: 1, windowSeconds: 60 } },
-    plugins: [models(), bot()],
+    models: {},
   });
 
   const first = await chat.handler(rpcCall("credentials/save"));
@@ -117,7 +114,6 @@ it("surfaces the limit to the typed client as a RateLimitedError with the retry 
   const client = chatRpc({
     user,
     deps: createTestSdk({
-      plugins: [bot()],
       rateLimits: resolveRateLimits({ attachmentUpload: { limit: 0, windowSeconds: 60 } }),
     }),
   });

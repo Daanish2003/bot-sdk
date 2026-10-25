@@ -12,7 +12,6 @@ import {
   conversationChange,
 } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { bot } from "../../../../plugins/bot/server/plugin";
 import { findBot } from "../../../../plugins/bot/server/store";
 import type { BotChange } from "../../../../plugins/bot/shared/changes";
 import {
@@ -67,7 +66,6 @@ async function botWith(turns: Round[] = [], helpers: Round[] = []) {
   const jobs = inProcessRunner({ db: getTestDb(), logger: silent, drainMs: 50, deps: () => deps! });
   deps = createTestSdk({
     computer: fakeComputerProvider().provider,
-    plugins: [bot()],
     jobs,
     adapterFor: () => adapter,
     memory: false,

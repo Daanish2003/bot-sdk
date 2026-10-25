@@ -18,7 +18,6 @@ import {
   demonstrationHoldsScreenError,
   screensInUseError,
 } from "../../../../plugins/bot/server/helper";
-import { bot } from "../../../../plugins/bot/server/plugin";
 import { findBot } from "../../../../plugins/bot/server/store";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
@@ -97,7 +96,6 @@ async function botWith(
   });
   deps = createTestSdk({
     computer: computerFake.provider,
-    plugins: [bot()],
     features: withSkills ? [skills()] : [],
     memory: false,
     jobs,

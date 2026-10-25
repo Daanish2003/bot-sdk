@@ -10,7 +10,6 @@ import {
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { askUserToolName } from "../../../../plugins/bot/server/hand-off";
 import { closeScreen } from "../../../../plugins/bot/server/helper";
-import { bot } from "../../../../plugins/bot/server/plugin";
 import type { ScreenPeer } from "../../../../plugins/bot/server/screen-view";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
@@ -96,7 +95,6 @@ async function waitingHelper(
   });
   deps = createTestSdk({
     computer: computerFake.provider,
-    plugins: [bot()],
     jobs,
     adapterFor: () => adapter,
     clock,

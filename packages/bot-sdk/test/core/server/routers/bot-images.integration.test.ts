@@ -4,7 +4,6 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { usage } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { bot } from "../../../../plugins/bot/server/plugin";
 import {
   fakeImageAdapter,
   fakePngBase64,
@@ -104,7 +103,6 @@ async function botWith(
   const jobs = inProcessRunner({ db: getTestDb(), logger: silent, drainMs: 50, deps: () => deps! });
   deps = createTestSdk({
     ...(withComputer && { computer: computerFake.provider }),
-    plugins: [bot()],
     jobs,
     adapterFor: () => adapter,
     imageAdapterFor: () => imageAdapter,

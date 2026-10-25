@@ -7,7 +7,6 @@ import { createMemoryPubSub } from "../../../../core/server/chat/pubsub";
 import { botTurn, job, usage } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import type { HostProvider } from "../../../../plugins/models/server/types";
-import { bot } from "../../../../plugins/bot/server/plugin";
 import { findBot } from "../../../../plugins/bot/server/store";
 import { botMemoryPassJob } from "../../../../plugins/memory/server/bot-pass";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
@@ -88,7 +87,6 @@ async function botsWith(
   });
   deps = createTestSdk({
     computer: computerFake.provider,
-    plugins: [bot()],
     jobs,
     adapterFor: () => fake.adapter,
     clock,

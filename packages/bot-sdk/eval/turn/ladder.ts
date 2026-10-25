@@ -16,7 +16,6 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { bot } from "../../plugins/bot/server/plugin";
 import type { ComputerProvider } from "../../plugins/computer/server";
 import { runnerJobs } from "../../plugins/runner/server/plugin";
 import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adapter";
@@ -132,7 +131,6 @@ async function main() {
   const sdk = createComputerSdk({
     db,
     provider: emptyComputer,
-    more: [bot()],
     wrapFetch: tavilyAnswered,
     models: (real) =>
       fake

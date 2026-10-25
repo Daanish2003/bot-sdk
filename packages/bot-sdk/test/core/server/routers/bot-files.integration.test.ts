@@ -8,7 +8,6 @@ import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { deleteUserData } from "../../../../core/server/user-data";
 import { richControlJsonSchema } from "../../../../plugins/bot/client/index";
 import { sentFileBlobKey, sentFileResponse } from "../../../../plugins/bot/server/files";
-import { bot } from "../../../../plugins/bot/server/plugin";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
   inProcessRunner,
@@ -45,7 +44,6 @@ async function botWith(rounds: Round[]) {
   const jobs = inProcessRunner({ db: getTestDb(), logger: silent, drainMs: 50, deps: () => deps! });
   deps = createTestSdk({
     computer: computerFake.provider,
-    plugins: [bot()],
     jobs,
     adapterFor: () => fake.adapter,
     reviewAdapterFor: () => reviewer.adapter,

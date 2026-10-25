@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
-import { bot } from "../../../plugins/bot/server/plugin";
-import { models } from "../../../plugins/models/server/plugin";
 import { saveCredentials } from "../../../plugins/models/server/credentials/store";
 import { createTestSdk } from "../../support/deps";
 import { createTestChat } from "../../support/sdk";
@@ -20,19 +18,7 @@ describe("createBotSdk", () => {
         getUser: () => null,
         keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
         basePath,
-        plugins: [models(), bot()],
-      }),
-    ).not.toThrow();
-  });
-
-  it("sets up the core's Models before the plugins, wherever models() is listed", () => {
-    expect(() =>
-      createBotSdk({
-        databaseUrl: "postgresql://nobody:nothing@127.0.0.1:1/unreachable",
-        getUser: () => null,
-        keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
-        basePath,
-        plugins: [bot(), models()],
+        models: {},
       }),
     ).not.toThrow();
   });
@@ -44,13 +30,13 @@ describe("createBotSdk", () => {
         getUser: () => null,
         keyEncryptionSecrets: [],
         basePath,
-        plugins: [models(), bot()],
+        models: {},
       }),
     ).toThrow(/at least one/);
   });
 });
 
-// start() checks the schema before any plugin, so these run on the migrated test database.
+// start() checks the schema before any part, so these run on the migrated test database.
 describe("createBotSdk start", () => {
   it("refuses to start with neither Host credentials nor BYOK", async () => {
     const chat = createBotSdk({
@@ -58,12 +44,9 @@ describe("createBotSdk start", () => {
       getUser: () => null,
       keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
       basePath,
-      plugins: [
-        models({
-          byok: false,
-        }),
-        bot(),
-      ],
+      models: {
+        byok: false,
+      },
     });
 
     await expect(chat.start()).rejects.toThrow(/hostProviders|byok/);
@@ -75,27 +58,24 @@ describe("createBotSdk start", () => {
       getUser: () => null,
       keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
       basePath,
-      plugins: [
-        models({
-          hostProviders: [
-            {
-              provider: "openai",
-              credentials: { apiKey: "host-key" },
-              models: [],
-              imageModels: [
-                {
-                  modelId: "gpt-image-1-mini",
-                  size: "1024x1024",
-                  quality: "medium",
-                  pricePerImageUsd: 0.01,
-                },
-              ],
-            },
-          ],
-          defaultImageModel: "openai:gpt-image-2",
-        }),
-        bot(),
-      ],
+      models: {
+        hostProviders: [
+          {
+            provider: "openai",
+            credentials: { apiKey: "host-key" },
+            models: [],
+            imageModels: [
+              {
+                modelId: "gpt-image-1-mini",
+                size: "1024x1024",
+                quality: "medium",
+                pricePerImageUsd: 0.01,
+              },
+            ],
+          },
+        ],
+        defaultImageModel: "openai:gpt-image-2",
+      },
     });
 
     await expect(chat.start()).rejects.toThrow(/defaultImageModel/);
@@ -107,29 +87,26 @@ describe("createBotSdk start", () => {
       getUser: () => null,
       keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
       basePath,
-      plugins: [
-        models({
-          hostProviders: [
-            {
-              provider: "openai",
-              credentials: { apiKey: "host-key" },
-              models: [],
-              imageModels: [
-                // Left unpriced on purpose: a JavaScript Host can omit what TypeScript requires.
-                { modelId: "gpt-image-1-mini", size: "1024x1024", quality: "medium" } as never,
-              ],
-            },
-          ],
-        }),
-        bot(),
-      ],
+      models: {
+        hostProviders: [
+          {
+            provider: "openai",
+            credentials: { apiKey: "host-key" },
+            models: [],
+            imageModels: [
+              // Left unpriced on purpose: a JavaScript Host can omit what TypeScript requires.
+              { modelId: "gpt-image-1-mini", size: "1024x1024", quality: "medium" } as never,
+            ],
+          },
+        ],
+      },
     });
 
     await expect(chat.start()).rejects.toThrow(/pricePerImageUsd/);
   });
 });
 
-describe("an instance with only the models plugin", () => {
+describe("an instance with no feature", () => {
   it("serves the models procedures", async () => {
     const user = await insertUser();
     const chat = createBotSdk({
@@ -137,7 +114,7 @@ describe("an instance with only the models plugin", () => {
       getUser: () => ({ id: user.id }),
       keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
       basePath,
-      plugins: [models()],
+      models: {},
     });
 
     const response = await chat.handler(
@@ -151,7 +128,7 @@ describe("an instance with only the models plugin", () => {
 
 describe("the chat handler", () => {
   it("answers 401 to an RPC call or a plugin's route without a user", async () => {
-    const client = createTestChat({ user: null, deps: createTestSdk({ plugins: [bot()] }) });
+    const client = createTestChat({ user: null, deps: createTestSdk() });
 
     const rpc = await client.fetch(
       new Request(`${baseUrl}/rpc/bot/list`, { method: "POST", body: "{}" }),
@@ -163,7 +140,7 @@ describe("the chat handler", () => {
 
   it("round trips an RPC call for the signed-in user", async () => {
     const user = await insertUser();
-    const deps = createTestSdk({ plugins: [bot()] });
+    const deps = createTestSdk();
     const client = createTestChat({ user, deps }).rpc;
     await saveCredentials(deps, user.id, {
       service: "anthropic",

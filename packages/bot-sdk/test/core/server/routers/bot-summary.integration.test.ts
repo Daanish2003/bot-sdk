@@ -4,7 +4,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { botPromptStart, botSummary, botTurn, job, usage } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { bot } from "../../../../plugins/bot/server/plugin";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
   inProcessRunner,
@@ -64,7 +63,6 @@ async function botWith(rounds: Round[]) {
     deps: () => deps!,
   });
   deps = createTestSdk({
-    plugins: [bot()],
     memory: false,
     jobs,
     adapterFor: () => fake.adapter,
@@ -334,7 +332,6 @@ describe("a Turn that crashes after its Summary", () => {
       });
       started.push(jobs);
       deps = createTestSdk({
-        plugins: [bot()],
         memory: false,
         jobs,
         adapterFor: () => fake.adapter,

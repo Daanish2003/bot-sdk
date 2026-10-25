@@ -3,24 +3,25 @@ import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { checkCredentials } from "../../../plugins/models/server/credentials/check";
-import { createBotSdk } from "../../../core/server/create-chat";
+import { buildBotSdk } from "../../../core/server/create-chat";
 import { ollamaModels } from "../../../plugins/models/server/live-models";
 import { productionDeps } from "../../../plugins/models/server/plugin";
 import type { BotSdkContext } from "../../../core/server/plugin";
 import { BlockedAddressError } from "../../../core/server/lib/guarded-fetch";
 
-/** The core context of a real instance, caught by a plugin's `init`. Nothing connects. */
+/** The core context of a real instance. Nothing connects. */
 function buildDeps(): BotSdkContext {
-  let context: BotSdkContext | undefined;
-  createBotSdk({
-    databaseUrl: "postgresql://unused@127.0.0.1:9/unused",
-    basePath: "/api/chat",
-    getUser: () => null,
-    keyEncryptionSecrets: ["test-secret"],
-    logger: { error: () => {} },
-    plugins: [{ id: "probe", init: (sdk) => void (context = sdk) }],
-  });
-  return context!;
+  return buildBotSdk(
+    {
+      databaseUrl: "postgresql://unused@127.0.0.1:9/unused",
+      basePath: "/api/chat",
+      getUser: () => null,
+      keyEncryptionSecrets: ["test-secret"],
+      logger: { error: () => {} },
+      models: {},
+    },
+    {},
+  ).context;
 }
 
 /** The models plugin's production bundle, over a real core context. */

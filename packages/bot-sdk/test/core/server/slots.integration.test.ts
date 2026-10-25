@@ -7,7 +7,6 @@ import {
   defineFeature,
   memoryRuntime,
   type BotSdkOptions,
-  type SlotOptions,
 } from "../../../core/server/index";
 import { buildBotSdk } from "../../../core/server/create-chat";
 import { blob, bot } from "../../../core/server/db/schema";
@@ -33,7 +32,7 @@ const unreachable = "postgresql://nobody:nothing@127.0.0.1:1/unreachable";
 
 const shared = { databaseUrl: unreachable, getUser: () => null, keyEncryptionSecrets, basePath };
 
-const slots = (options: Partial<SlotOptions & BotSdkOptions> = {}) =>
+const slots = (options: Partial<BotSdkOptions> = {}) =>
   ({ ...shared, models: {}, ...options }) as BotSdkOptions;
 
 describe("createBotSdk with flat slots", () => {
@@ -102,6 +101,16 @@ describe("createBotSdk with flat slots", () => {
     expect(stranger.status).toBe(202);
   });
 
+  it("has no plugin lookup and takes no plugin list (#887)", () => {
+    const sdk = createBotSdk(slots());
+
+    expect("plugin" in sdk).toBe(false);
+    expect(() =>
+      // @ts-expect-error -- the plugin-list shape is gone: the core is always on.
+      createBotSdk({ ...shared, plugins: [] }),
+    ).toThrow(/models slot/);
+  });
+
   it("has no Channel besides web when the channels slot is empty", async () => {
     const sdk = createBotSdk(slots({ databaseUrl: testDatabaseUrl }));
 
@@ -133,8 +142,8 @@ describe("createBotSdk with flat slots", () => {
       start: vi.fn(async () => {}),
       stop: vi.fn(async () => {}),
     };
-    // Without the Bots, which refuse a runner other than the in-process one.
-    const sdk = createBotSdk({ ...shared, plugins: [models()], runner: jobs });
+    // Models alone, without the Bots, which refuse a runner other than the in-process one.
+    const sdk = buildBotSdk(slots({ runner: jobs }), {}, [models()]).instance;
 
     expect(await sdk.runner.enqueue("slots.job", { n: 1 })).toBe("job-id");
     expect(jobs.enqueue).toHaveBeenCalledWith("slots.job", { n: 1 }, undefined);

@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { bot, botDemonstration, botHelper, botHelperMessage } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
+import { hasConnectorFeature } from "../../../core/server/feature";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { canUseComputer, providerOf } from "../../models/shared/models";
@@ -507,8 +508,8 @@ async function playHelper(
         const own = [...kit.computerTools, webSearchTool(deps, helper.userId, kit.liveRequest)];
         // The owner's Connector tools, listed by name and reached through a small tool search; a
         // Computer-use Helper has none (lecture slide 27).
-        // Only the `mcp` feature's tools: a Helper gets no other feature's.
-        const connectors = deps.hasPlugin("mcp")
+        // Only the Connector tools: a Helper gets no other feature's.
+        const connectors = hasConnectorFeature(deps)
           ? await featureTools(
               deps,
               featureTurnOf(helper),
@@ -520,7 +521,7 @@ async function playHelper(
                 computerCall: kit.computerCall,
                 sections: [],
               },
-              "mcp",
+              true,
             )
           : undefined;
         if (!connectors || connectors.tools.length === 0) {

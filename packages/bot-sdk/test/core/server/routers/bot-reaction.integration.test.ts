@@ -6,7 +6,6 @@ import { emojiSchema } from "../../../../plugins/bot/shared/reaction";
 import { richControlJsonSchema } from "../../../../plugins/bot/shared/rich-control";
 import { botTrigger, botTurn } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { bot } from "../../../../plugins/bot/server/plugin";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
   inProcessRunner,
@@ -43,7 +42,6 @@ async function botWith(rounds: Round[]) {
   const jobs = inProcessRunner({ db: getTestDb(), logger: silent, drainMs: 50, deps: () => deps! });
   deps = createTestSdk({
     computer: fakeComputerProvider().provider,
-    plugins: [bot()],
     jobs,
     adapterFor: () => fake.adapter,
     reviewAdapterFor: () => reviewer.adapter,

@@ -16,7 +16,6 @@ import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import type { Transaction } from "../../../../core/server/plugin";
 import type { HostProvider } from "../../../../plugins/models/server/types";
 import { appendMessage } from "../../../../core/server/chat/message-tree";
-import { bot } from "../../../../plugins/bot/server/plugin";
 import { receive } from "../../../../plugins/bot/server/router";
 import { turnTimeLimitMs } from "../../../../plugins/bot/server/store";
 import { findBot, newestTimeZone, textParts } from "../../../../plugins/bot/server/store";
@@ -105,7 +104,7 @@ async function sdkWithRunner(
     deps: () => deps!,
   });
   const pubsub = countingPubSub(overrides.pubsub ?? createMemoryPubSub());
-  deps = createTestSdk({ plugins: [bot()], jobs, ...overrides, pubsub });
+  deps = createTestSdk({ jobs, ...overrides, pubsub });
   // An idle runner never claims a job, so a Turn stays queued.
   if (!idle) await jobs.start();
   started.push(jobs);
@@ -1579,7 +1578,6 @@ describe("a Turn that resumes after a crash", () => {
       });
       started.push(jobs);
       deps = createTestSdk({
-        plugins: [bot()],
         jobs,
         adapterFor: () => fake.adapter,
         pubsub,
@@ -2242,6 +2240,6 @@ describe("the bot plugin on a runner that is not in-process", () => {
       stop: async () => {},
     };
 
-    expect(() => createTestSdk({ plugins: [bot()], jobs: elsewhere })).toThrow(/in-process/);
+    expect(() => createTestSdk({ jobs: elsewhere })).toThrow(/in-process/);
   });
 });

@@ -266,7 +266,6 @@ const instanceKeys = new Set([
   // An instance with a `then` would be awaited as a promise.
   "then",
   "handler",
-  "plugin",
   "migrate",
   "start",
   "stop",
@@ -320,12 +319,20 @@ export type EnabledFeature = {
   context: FeatureContext<CoreService>;
 };
 
-// Each instance's features, keyed by its context's `plugin`, which every copy of the context shares.
-const featuresOf = new WeakMap<BotSdkContext["plugin"], EnabledFeature[]>();
-
 /** The instance's enabled features, in the order the Host listed them. */
-export function enabledFeatures(sdk: Pick<BotSdkContext, "plugin">): readonly EnabledFeature[] {
-  return featuresOf.get(sdk.plugin) ?? [];
+export function enabledFeatures(
+  sdk: Partial<Pick<BotSdkContext, "parts">>,
+): readonly EnabledFeature[] {
+  return sdk.parts?.features ?? [];
+}
+
+/** Whether an enabled feature gives Connector tools (`mcp`). */
+export const hasConnectorFeature = (sdk: Partial<Pick<BotSdkContext, "parts">>): boolean =>
+  enabledFeatures(sdk).some(({ feature }) => feature.connectorTools);
+
+/** A feature, enabled on `sdk`: its context holds the core services it needs. */
+export function enableFeature(sdk: BotSdkContext, feature: AnyFeature): EnabledFeature {
+  return { feature, context: contextOf(sdk, feature.needs ?? []) };
 }
 
 function contextOf(sdk: BotSdkContext, needs: readonly CoreService[]): FeatureContext<CoreService> {
@@ -349,18 +356,11 @@ function contextOf(sdk: BotSdkContext, needs: readonly CoreService[]): FeatureCo
 }
 
 /**
- * The plugin a feature runs as, until the plugin mechanism goes (#887): its `init` builds the
- * feature's context and API, and records the feature for the core's Turns.
+ * The part an enabled feature runs as: its `init` builds the feature's API, and its routes,
+ * routers, key rotation, delete and export are the instance's.
  */
-export function featurePlugin(feature: AnyFeature): BotSdkPlugin {
+export function featurePlugin({ feature, context }: EnabledFeature): BotSdkPlugin {
   for (const job of feature.jobs ?? []) registerJob(job);
-  // One context per instance, built by `init`.
-  const contexts = new WeakMap<BotSdkContext["plugin"], FeatureContext<CoreService>>();
-  const contextFor = (sdk: BotSdkContext) => {
-    const context = contexts.get(sdk.plugin);
-    if (!context) throw new Error(`Feature "${feature.id}" wasn't initialised`);
-    return context;
-  };
   const { userData } = feature;
   const remove = userData?.delete;
   const exportPart = userData?.export;
@@ -368,27 +368,17 @@ export function featurePlugin(feature: AnyFeature): BotSdkPlugin {
     id: feature.id,
     router: feature.router,
     routes: feature.routes,
-    init: (sdk) => {
-      const context = contextOf(sdk, feature.needs ?? []);
-      contexts.set(sdk.plugin, context);
-      const enabled = featuresOf.get(sdk.plugin) ?? [];
-      featuresOf.set(sdk.plugin, [...enabled, { feature, context }]);
-      return { api: feature.api?.(context) ?? {} };
-    },
-    ...(feature.rotateKeys && {
-      rotateKeys: (sdk: BotSdkContext) => feature.rotateKeys!(contextFor(sdk)),
-    }),
+    init: () => ({ api: feature.api?.(context) ?? {} }),
+    ...(feature.rotateKeys && { rotateKeys: () => feature.rotateKeys!(context) }),
     ...(remove && {
       deleteUser: {
-        before: (sdk, { tx, userId }) => remove.before(tx, userId, contextFor(sdk)),
-        after: async (sdk, { userId, collected }) => {
-          await remove.after?.(userId, collected, contextFor(sdk));
+        before: (_sdk, { tx, userId }) => remove.before(tx, userId, context),
+        after: async (_sdk, { userId, collected }) => {
+          await remove.after?.(userId, collected, context);
         },
       },
     }),
-    ...(exportPart && {
-      exportUser: (sdk, userId, tx) => exportPart(tx, userId, contextFor(sdk)),
-    }),
+    ...(exportPart && { exportUser: (_sdk, userId, tx) => exportPart(tx, userId, context) }),
   };
 }
 

@@ -15,7 +15,6 @@ import {
 import { encryptCredentials } from "../../../../core/server/credentials/encryption";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { deleteUserData } from "../../../../core/server/user-data";
-import { bot } from "../../../../plugins/bot/server/plugin";
 import { richControlJsonSchema } from "../../../../plugins/bot/client/index";
 import { secretNameSchema } from "../../../../plugins/bot/shared/secret";
 import { rotateSecretKeys } from "../../../../plugins/bot/server/secret";
@@ -65,7 +64,6 @@ async function botWith(
   const jobs = inProcessRunner({ db: getTestDb(), logger: silent, drainMs: 50, deps: () => deps! });
   deps = createTestSdk({
     computer: computerFake.provider,
-    plugins: [bot()],
     jobs,
     adapterFor: () => fake.adapter,
     reviewAdapterFor: () => reviewer.adapter,

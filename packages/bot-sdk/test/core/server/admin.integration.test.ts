@@ -2,8 +2,6 @@ import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
-import { bot as botPlugin } from "../../../plugins/bot/server/plugin";
-import { models } from "../../../plugins/models/server/plugin";
 import { botTurn, usage } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import type { HostProvider } from "../../../plugins/models/server/types";
@@ -101,7 +99,7 @@ describe("chat.models.usageTotals", () => {
       getUser: () => null,
       keyEncryptionSecrets,
       basePath,
-      plugins: [models(), botPlugin()],
+      models: {},
     });
     const totals = await chat.models.usageTotals({ since, until });
 
@@ -171,7 +169,7 @@ describe("chat.models.usage", () => {
       getUser: () => null,
       keyEncryptionSecrets,
       basePath,
-      plugins: [models(), botPlugin()],
+      models: {},
     });
 
     expect(await chat.models.usage({ userId: owner.id, since, until })).toEqual([
@@ -216,12 +214,9 @@ describe("chat.models.quota", () => {
       getUser: () => null,
       keyEncryptionSecrets,
       basePath,
-      plugins: [
-        models({
-          getQuota: (userId) => (userId === owner.id ? { budgetUsd: 1, window: "day" } : null),
-        }),
-        botPlugin(),
-      ],
+      models: {
+        getQuota: (userId) => (userId === owner.id ? { budgetUsd: 1, window: "day" } : null),
+      },
     });
 
     expect(await chat.models.quota(owner.id)).toEqual({
@@ -239,12 +234,9 @@ describe("chat.models.quota", () => {
       getUser: () => null,
       keyEncryptionSecrets,
       basePath,
-      plugins: [
-        models({
-          getQuota: () => null,
-        }),
-        botPlugin(),
-      ],
+      models: {
+        getQuota: () => null,
+      },
     });
 
     expect(await chat.models.quota(free.id)).toBeNull();

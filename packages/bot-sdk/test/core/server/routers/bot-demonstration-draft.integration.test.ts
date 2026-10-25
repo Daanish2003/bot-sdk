@@ -12,7 +12,6 @@ import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import type { HostProvider } from "../../../../plugins/models/server/types";
 import { demonstrationEventBlobKey } from "../../../../plugins/bot/server/demonstration-capture";
 import { demonstrationDraftMarker } from "../../../../plugins/bot/server/demonstration-draft";
-import { bot } from "../../../../plugins/bot/server/plugin";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
   inProcessRunner,
@@ -123,7 +122,6 @@ async function demonstrating({
   });
   deps = createTestSdk({
     computer: computerFake.provider,
-    plugins: [bot()],
     features: [skills()],
     memory: false,
     jobs,

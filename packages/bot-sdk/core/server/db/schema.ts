@@ -1,13 +1,17 @@
-import { getTableConfig } from "drizzle-orm/pg-core";
-
 import { botSchema } from "../../../plugins/bot/server/schema";
 import { channelSchema } from "../../../plugins/channel/server/schema";
 import { computerSchema } from "../../../plugins/computer/server/schema";
 import { modelsSchema } from "../../../plugins/models/server/schema";
 import { runnerSchema } from "../../../plugins/runner/server/schema";
 import { chatSchema } from "./chat-schema";
-import { coreSchema } from "./core-schema";
-import { assertNoClashes, composeIndexes, type NamedPluginSchema } from "./plugin-schema";
+import {
+  conversationColumns,
+  conversationIndexes,
+  coreSchema,
+  messageColumns,
+  messageIndexes,
+} from "./core-schema";
+import { assertNoClashes, type NamedPluginSchema } from "./plugin-schema";
 
 /*
  * The composed `chat` schema: the core plus every plugin in the package. drizzle-kit, the
@@ -30,25 +34,15 @@ const schemas: NamedPluginSchema[] = [
 ];
 assertNoClashes(schemas);
 
-// No plugin adds fields to the core tables, so only the core's columns are spread.
-
 /** A Conversation, owned by one user. Its Messages form a tree (ADR 0001). */
 export const conversation = chatSchema.table(
   "conversation",
-  { ...coreSchema.fields.conversation.columns },
-  composeIndexes("conversation", schemas),
+  conversationColumns,
+  conversationIndexes,
 );
 
 /** One Message of a Conversation. Several roots are allowed; there is no hidden root. */
-export const message = chatSchema.table(
-  "message",
-  { ...coreSchema.fields.message.columns },
-  composeIndexes("message", schemas),
-);
-
-// Builds both index lists now, so a clash between two parts' indexes fails at load.
-getTableConfig(conversation);
-getTableConfig(message);
+export const message = chatSchema.table("message", messageColumns, messageIndexes);
 
 export type ConversationRow = typeof conversation.$inferSelect;
 export type MessageRow = typeof message.$inferSelect;

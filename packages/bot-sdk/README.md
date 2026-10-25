@@ -147,7 +147,7 @@ const chat = createBotSdk({
 
 ```ts
 // server: construct at module load (no side effects)
-// the Model options (Host Providers, BYOK, Quota, ...) go to `models(...)`, MCP servers to
+// the Model options (Host Providers, BYOK, Quota, ...) go to the `models` slot, MCP servers to
 // `mcp(...)`, a background jobs runner to the `runner` slot, and the Computer's provider to the
 // `computer` slot
 const chat = createBotSdk({
@@ -156,7 +156,7 @@ const chat = createBotSdk({
   keyEncryptionSecrets,
   basePath: "/api/chat",
   computer: e2bProvider({ apiKey, apiUrl, sandboxUrl, template }),
-  plugins: [models(), bot()],
+  models: {},
   features: [memory(), skills(), knowledge(), mcp({ servers })],
 });
 
@@ -235,7 +235,7 @@ export const chatJob = task({
 export const chat = createBotSdk({
   /* ...as before */
   runner: triggerJobRunner({ taskId: "chat-job" }),
-  plugins: [models()],
+  models: {},
   features: [memory()],
 });
 ```
@@ -244,7 +244,7 @@ export const chat = createBotSdk({
 
 ## Memory: `memory`
 
-The `memory` feature keeps each Bot's file memory (ADR 0022), its post-turn pass, the `search_memory` tool and the user's Memory switch. A Host turns it on in `features`: `features: [memory()]`, with `memoryClient()` on the client. It needs a Computer, where the files live: `createBotSdk` throws at construction when the `computer` plugin is missing. It's imported from `@ai-chat/bot-sdk/plugins/memory/server` (and `/client`, `/ui`). A Host turns Memory off by leaving it out: Bots then keep no Memory, and the keys page shows no Memory section.
+The `memory` feature keeps each Bot's file memory (ADR 0022), its post-turn pass, the `search_memory` tool and the user's Memory switch. A Host turns it on in `features`: `features: [memory()]`, with `memoryClient()` on the client. It needs a Computer, where the files live: `createBotSdk` throws at construction when the `computer` slot is empty. It's imported from `@ai-chat/bot-sdk/plugins/memory/server` (and `/client`, `/ui`). A Host turns Memory off by leaving it out: Bots then keep no Memory, and the keys page shows no Memory section.
 
 The `skills` feature (each Bot's `SKILL.md` files, spec #713) and the `knowledge` feature (a user's Knowledge as plain files, spec #737), both listed in `features`, keep their files on the user's Computer, so they need `computer`. Without it, `createBotSdk` throws for `skills()` and `knowledge()`.
 
@@ -541,7 +541,7 @@ These options go in the `models` slot, `createBotSdk({ models: { hostProviders, 
 ```ts
 const chat = createBotSdk({
   // ...
-  plugins: [models({ getQuota: async (userId) => ({ budgetUsd: 0.5, window: "day" }) }), bot()],
+  models: { getQuota: async (userId) => ({ budgetUsd: 0.5, window: "day" }) },
 });
 ```
 
@@ -557,26 +557,23 @@ const chat = createBotSdk({
   getUser,
   keyEncryptionSecrets,
   basePath: "/api/chat",
-  plugins: [
-    models({
-      hostProviders: [
-        {
-          provider: "anthropic",
-          credentials: { apiKey: process.env.ANTHROPIC_API_KEY! },
-          models: [
-            {
-              modelId: "claude-haiku-4-5",
-              maxOutputTokens: 1024,
-              inputUsdPerMillion: 1,
-              outputUsdPerMillion: 5,
-            },
-          ],
-        },
-      ],
-      byok: true,
-    }),
-    bot(),
-  ],
+  models: {
+    hostProviders: [
+      {
+        provider: "anthropic",
+        credentials: { apiKey: process.env.ANTHROPIC_API_KEY! },
+        models: [
+          {
+            modelId: "claude-haiku-4-5",
+            maxOutputTokens: 1024,
+            inputUsdPerMillion: 1,
+            outputUsdPerMillion: 5,
+          },
+        ],
+      },
+    ],
+    byok: true,
+  },
 });
 ```
 

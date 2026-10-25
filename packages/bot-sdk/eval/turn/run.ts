@@ -22,7 +22,6 @@ import type { BotSdkContext } from "../../core/server/plugin";
 import { resolveRateLimits } from "../../core/server/rate-limits";
 import { memoryRuntime } from "../../core/server/runtime";
 import { createBotSdkOver } from "../../core/server/over";
-import { bot } from "../../plugins/bot/server/plugin";
 import { runnerJobs } from "../../plugins/runner/server/plugin";
 import { productionDeps } from "../../plugins/models/server/plugin";
 import type { ModelsDeps } from "../../plugins/models/server/types";
@@ -199,7 +198,6 @@ async function main() {
         rateLimits: resolveRateLimits(),
       },
       models: modelsDeps,
-      plugins: [bot()],
     },
     { basePath: "/api/chat", getUser: () => null, logger: { error: () => {} } },
   );

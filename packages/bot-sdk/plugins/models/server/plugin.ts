@@ -155,13 +155,6 @@ export type ModelsRule = keyof typeof modelsRateLimits;
 
 export type ModelsPlugin = BotSdkPlugin<"models", ModelsRule, "onUsage">;
 
-const modelsBrand = Symbol("models");
-
-/** Whether `plugin` is the core's Models (`models()` or `modelsOver()`), which the core inits first. */
-export function isModelsPlugin(plugin: BotSdkPlugin): boolean {
-  return modelsBrand in plugin;
-}
-
 /**
  * The `models` plugin (ADR 0020): Provider and Tool credentials, who pays for each call, the
  * Models a user can pick, usage metering and the Quota.
@@ -230,7 +223,7 @@ function modelsPlugin(
       return { reencrypted, unreadable: unreadableCount };
     },
   };
-  return Object.assign(plugin, { [modelsBrand]: true });
+  return plugin;
 }
 
 /** The production `ModelsDeps`, over the core context. Exported for its test. */

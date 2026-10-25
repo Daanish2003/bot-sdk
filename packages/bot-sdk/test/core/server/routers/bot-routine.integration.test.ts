@@ -6,7 +6,6 @@ import { conversationChannel } from "../../../../core/server/chat/conversation-e
 import { botPromptStart, botRoutine, botTurn } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { deleteUserData } from "../../../../core/server/user-data";
-import { bot } from "../../../../plugins/bot/server/plugin";
 import { findBot } from "../../../../plugins/bot/server/store";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
@@ -40,7 +39,7 @@ async function botWith(rounds: Round[]) {
     drainMs: 50,
     deps: () => deps!,
   });
-  deps = createTestSdk({ plugins: [bot()], jobs, adapterFor: () => fake.adapter });
+  deps = createTestSdk({ jobs, adapterFor: () => fake.adapter });
   await jobs.start();
   started.push(jobs);
   const user = await insertUser();

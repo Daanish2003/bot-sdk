@@ -6,7 +6,6 @@ import { z } from "zod";
 import { botTurn } from "../../../core/server/db/schema";
 import { uuidv7 } from "../../../core/server/lib/uuidv7";
 import { deleteUserData, exportUserData } from "../../../core/server/user-data";
-import { bot } from "../../../plugins/bot/server/plugin";
 import { saveCredentials } from "../../../plugins/models/server/credentials/store";
 import {
   inProcessRunner,
@@ -58,7 +57,6 @@ async function botWithPins(rounds: Round[], features: FeatureEntry[] = [pins()])
   });
   deps = createTestSdk({
     computer: computerFake.provider,
-    plugins: [bot()],
     features,
     // No memory pass: every model call the fake plays is a Turn's.
     memory: false,

@@ -19,7 +19,6 @@ import {
   computerUseHelperTakenError,
   screensInUseError,
 } from "../../../../plugins/bot/server/helper";
-import { bot } from "../../../../plugins/bot/server/plugin";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
   inProcessRunner,
@@ -151,7 +150,6 @@ async function userWith(
   });
   deps = createTestSdk({
     computer: computerFake.provider,
-    plugins: [bot()],
     jobs,
     adapterFor: () => adapter,
     // No memory pass takes a Turn's round.

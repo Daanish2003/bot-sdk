@@ -1,12 +1,8 @@
-import { getTableConfig, index, text } from "drizzle-orm/pg-core";
+import { getTableConfig, text } from "drizzle-orm/pg-core";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import { chatSchema } from "../../../../core/server/db/chat-schema";
-import {
-  assertNoClashes,
-  composeIndexes,
-  type NamedPluginSchema,
-} from "../../../../core/server/db/plugin-schema";
+import { assertNoClashes, type NamedPluginSchema } from "../../../../core/server/db/plugin-schema";
 import {
   conversation,
   message,
@@ -14,52 +10,9 @@ import {
   type MessageRow,
 } from "../../../../core/server/db/schema";
 
-const empty = { tables: {}, enums: {}, fields: {} };
+const empty = { tables: {}, enums: {} };
 
 describe("composing the chat schema", () => {
-  it("throws, naming both plugins and the column, when two plugins add the same column", () => {
-    const schemas: NamedPluginSchema[] = [
-      {
-        id: "alpha",
-        schema: { ...empty, fields: { conversation: { columns: { mood: text() } } } },
-      },
-      { id: "beta", schema: { ...empty, fields: { conversation: { columns: { mood: text() } } } } },
-    ];
-
-    expect(() => assertNoClashes(schemas)).toThrow(/alpha.*beta.*conversation\.mood/);
-  });
-
-  it("throws when two plugins' columns share a Postgres name under different keys", () => {
-    const schemas: NamedPluginSchema[] = [
-      { id: "alpha", schema: { ...empty, fields: { message: { columns: { a: text("mood") } } } } },
-      { id: "beta", schema: { ...empty, fields: { message: { columns: { b: text("mood") } } } } },
-    ];
-
-    expect(() => assertNoClashes(schemas)).toThrow(/alpha.*beta.*message\.mood/);
-  });
-
-  it("throws, naming both plugins and the index, when two plugins add the same index", () => {
-    const schemas: NamedPluginSchema[] = ["alpha", "beta"].map((id) => ({
-      id,
-      schema: {
-        ...empty,
-        fields: {
-          conversation: {
-            columns: {},
-            indexes: (t) => [index("conversation_mood_idx").on(t.id!)],
-          },
-        },
-      },
-    }));
-    const table = chatSchema.table(
-      "conversation",
-      { id: text().primaryKey() },
-      composeIndexes("conversation", schemas),
-    );
-
-    expect(() => getTableConfig(table)).toThrow(/alpha.*beta.*conversation_mood_idx/);
-  });
-
   it("throws, naming both plugins and the table, when two plugins declare the same table", () => {
     const widget = () => chatSchema.table("widget", { id: text().primaryKey() });
     const schemas: NamedPluginSchema[] = [
@@ -90,7 +43,7 @@ describe("composing the chat schema", () => {
     expect(() => assertNoClashes(schemas)).toThrow(/core.*alpha.*message/);
   });
 
-  it("composes only the core's columns and indexes into conversation and message", () => {
+  it("has only the core's columns and indexes on conversation and message", () => {
     const conversationConfig = getTableConfig(conversation);
     const messageConfig = getTableConfig(message);
 

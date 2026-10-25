@@ -1,4 +1,4 @@
-import type { CoreTableName, PluginSchema } from "../../../core/server/db/plugin-schema";
+import type { PluginSchema } from "../../../core/server/db/plugin-schema";
 import { bot } from "./db/bot";
 import { botCheckIn, botCheckInState } from "./db/bot-check-in";
 import {
@@ -36,7 +36,7 @@ export * from "./db/bot-trigger";
 export * from "./db/bot-turn";
 export * from "./db/bot-upload";
 
-/** The `bot` plugin's schema module: its `bot`, `bot_turn`, `bot_prompt_start`, `bot_summary`, `bot_trigger`, `bot_routine`, `bot_check_in`, `bot_helper`, `bot_helper_message`, `bot_helper_screenshot`, `bot_review`, `secret`, `bot_demonstration`, `bot_demonstration_event` and `bot_upload` tables. It adds no fields to core tables. */
+/** The `bot` plugin's schema module: its `bot`, `bot_turn`, `bot_prompt_start`, `bot_summary`, `bot_trigger`, `bot_routine`, `bot_check_in`, `bot_helper`, `bot_helper_message`, `bot_helper_screenshot`, `bot_review`, `secret`, `bot_demonstration`, `bot_demonstration_event` and `bot_upload` tables. */
 export const botSchema = {
   tables: {
     bot,
@@ -69,6 +69,4 @@ export const botSchema = {
     botDemonstrationState,
     botDemonstrationEventKind,
   },
-  // Kept empty by type: core/server/db/schema.ts spreads no bot columns, so adding some means adding the spread there.
-  fields: {} satisfies Partial<Record<CoreTableName, never>>,
 } satisfies PluginSchema;

@@ -14,7 +14,6 @@ import { fileURLToPath } from "node:url";
 
 import { botTurn, computer as computerTable } from "../../core/server/db/schema";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
-import { bot } from "../../plugins/bot/server/plugin";
 import { botDirectory, computerOf } from "../../plugins/bot/server/computer-tools";
 import { runnerJobs } from "../../plugins/runner/server/plugin";
 import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adapter";
@@ -84,7 +83,6 @@ async function main() {
   const sdk = createComputerSdk({
     db,
     provider: computerProvider,
-    more: [bot()],
     models: (real) =>
       fake
         ? {

@@ -14,7 +14,6 @@ import { botDemonstration, botDemonstrationEvent } from "../../core/server/db/sc
 import { uuidv7 } from "../../core/server/lib/uuidv7";
 import { demonstrationEventBlobKey } from "../../plugins/bot/server/demonstration-capture";
 import { draftSkill, type Drafted } from "../../plugins/bot/server/demonstration-draft";
-import { bot } from "../../plugins/bot/server/plugin";
 import { skills } from "../../plugins/skills/server/plugin";
 import { createFakeAdapter, round, text } from "../../test/support/fake-adapter";
 import { fakeComputerProvider } from "../../test/plugins/computer/server/fake-provider";
@@ -57,7 +56,6 @@ async function main() {
   const sdk = createComputerSdk({
     db,
     provider: fakeComputerProvider().provider,
-    more: [bot()],
     features: [skills()],
     models: (real) =>
       fake

@@ -19,7 +19,6 @@ import { and, asc, eq } from "drizzle-orm";
 import { botTurn } from "../../core/server/db/schema";
 import type { Database } from "../../core/server/db/index";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
-import { bot } from "../../plugins/bot/server/plugin";
 import { computerOf } from "../../plugins/bot/server/computer-tools";
 import { createBot } from "../../plugins/bot/server/store";
 import { sendToUserToolName } from "../../plugins/bot/server/turn";
@@ -142,7 +141,6 @@ async function main() {
   const sdk = createComputerSdk({
     db,
     provider: computerFake.provider,
-    more: [bot()],
     features: [memory()],
     models: (real) =>
       fake

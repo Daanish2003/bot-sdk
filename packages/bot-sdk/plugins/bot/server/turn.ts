@@ -23,7 +23,7 @@ import {
   waitingIn,
 } from "./router";
 import { type EarlierTurn, changeNotesFor } from "./change-notes";
-import { enabledFeatures } from "../../../core/server/feature";
+import { enabledFeatures, hasConnectorFeature } from "../../../core/server/feature";
 import {
   type FeatureSection,
   featureSectionsNow,
@@ -1164,7 +1164,7 @@ async function turnSetup(
     startParts(turn, deps.clock(), {
       tools,
       withComputer,
-      withConnectors: deps.hasPlugin("mcp"),
+      withConnectors: hasConnectorFeature(deps),
       features,
       routines,
     });
@@ -1450,7 +1450,7 @@ export async function awayStartParts(
   return startParts(facts, now, {
     tools,
     withComputer,
-    withConnectors: deps.hasPlugin("mcp"),
+    withConnectors: hasConnectorFeature(deps),
     features,
     routines,
   });

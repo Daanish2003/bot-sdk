@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { memory } from "../../../plugins/memory/server/feature";
 import { memorySettings } from "../../../plugins/memory/server/schema";
-import { bot } from "../../../plugins/bot/server/plugin";
 import { saveCredentials } from "../../../plugins/models/server/credentials/store";
 import { createTestSdk } from "../../support/deps";
 import { chatRpc } from "../../support/sdk";
@@ -20,7 +19,6 @@ async function setup() {
   const computerFake = fakeComputerProvider();
   const deps = createTestSdk({
     computer: computerFake.provider,
-    plugins: [bot()],
     clock: () => now,
   });
   const make = async () => {
@@ -109,7 +107,7 @@ describe("the Bot memory procedures", () => {
   });
 
   it("is a configuration error without a Computer: the feature needs one", () => {
-    expect(() => createTestSdk({ plugins: [bot()], features: [memory()] })).toThrow(
+    expect(() => createTestSdk({ features: [memory()] })).toThrow(
       /Feature "memory" needs the Computer/,
     );
   });

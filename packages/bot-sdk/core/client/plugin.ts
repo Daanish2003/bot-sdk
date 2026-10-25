@@ -1,6 +1,6 @@
 /**
- * The routers each enabled plugin serves, by plugin id. A client plugin adds itself by declaration
- * merging, as a server plugin adds its API to `PluginApis`:
+ * The routers each part of the instance serves, by id. A client plugin adds itself by declaration
+ * merging:
  * `declare module "…/plugin" { interface PluginRouters { models: ModelsRouter } }`.
  */
 // oxlint-disable-next-line typescript/no-empty-object-type -- extended by declaration merging

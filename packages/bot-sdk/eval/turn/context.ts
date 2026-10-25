@@ -10,7 +10,6 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { bot } from "../../plugins/bot/server/plugin";
 import { memory } from "../../plugins/memory/server/feature";
 import { runnerJobs } from "../../plugins/runner/server/plugin";
 import { fakeComputerProvider } from "../../test/plugins/computer/server/fake-provider";
@@ -79,7 +78,6 @@ async function main() {
   const sdk = createComputerSdk({
     db,
     provider: fakeComputerProvider().provider,
-    more: [bot()],
     features: [memory()],
     models: (real) =>
       fake

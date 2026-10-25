@@ -19,7 +19,6 @@ import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
 
 import { botTrigger, computer as computerTable } from "../../core/server/db/schema";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
-import { bot } from "../../plugins/bot/server/plugin";
 import { computerOf } from "../../plugins/bot/server/computer-tools";
 import { sendToUserToolName } from "../../plugins/bot/server/turn";
 import { walk } from "../../plugins/knowledge/server/files";
@@ -111,7 +110,6 @@ async function main() {
   const sdk = createComputerSdk({
     db,
     provider: computerProvider,
-    more: [bot()],
     features: [knowledge()],
     models: (real) =>
       fake

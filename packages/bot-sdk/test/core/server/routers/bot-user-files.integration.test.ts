@@ -6,7 +6,6 @@ import { bot as botTable, botTurn, botUpload, message } from "../../../../core/s
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { deleteUserData } from "../../../../core/server/user-data";
 import { sentFileBlobKey, sentFileResponse } from "../../../../plugins/bot/server/files";
-import { bot } from "../../../../plugins/bot/server/plugin";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
   inProcessRunner,
@@ -54,7 +53,6 @@ async function botWith({
   });
   deps = createTestSdk({
     ...(withComputer && { computer: computerFake.provider }),
-    plugins: [bot()],
     jobs,
     adapterFor: () => fake.adapter,
     memory: false,

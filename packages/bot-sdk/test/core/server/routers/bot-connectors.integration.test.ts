@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { encryptCredentials } from "../../../../core/server/credentials/encryption";
 import { botReview, botSecret, botTurn } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { bot } from "../../../../plugins/bot/server/plugin";
 import { secretEncryption } from "../../../../plugins/bot/server/secret-values";
 import { mcpClient } from "../../../../plugins/mcp/client/index";
 import { mcp } from "../../../../plugins/mcp/server/plugin";
@@ -98,7 +97,6 @@ async function botWith(
   });
   deps = createTestSdk({
     computer: fakeComputerProvider().provider,
-    plugins: [bot()],
     features: withMcp ? [mcp({ servers: [linear] })] : [],
     fetch,
     jobs,

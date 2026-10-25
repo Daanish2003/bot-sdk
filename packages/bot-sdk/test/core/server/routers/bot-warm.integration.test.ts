@@ -4,7 +4,6 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { bot as botTable, botPromptStart, botTurn, usage } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { bot } from "../../../../plugins/bot/server/plugin";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
   inProcessRunner,
@@ -45,7 +44,6 @@ async function botWith(
     deps: () => deps!,
   });
   deps = createTestSdk({
-    plugins: [bot()],
     memory: false,
     jobs,
     adapterFor: () => fake.adapter,

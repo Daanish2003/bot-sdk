@@ -4,7 +4,7 @@ import { computerUserDelete } from "../../plugins/computer/server/plugin";
 
 /**
  * Deletes everything the SDK holds for a user, in one transaction (spec #439): each plugin's
- * `deleteUser.before` in reverse dependency order and the Computer's after them all, then the user's Conversations through the core's
+ * `deleteUser.before` in reverse order (the features first) and the Computer's after them all, then the user's Conversations through the core's
  * delete. After the commit: the Conversation delete's hooks, then each plugin's `after`. Calling it again, or for
  * an unknown id, does nothing.
  *

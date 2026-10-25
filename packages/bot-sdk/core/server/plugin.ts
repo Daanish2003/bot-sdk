@@ -8,20 +8,14 @@ import type { ChatUser } from "./context";
 import type { Database } from "./db/index";
 import type { RateLimit } from "./rate-limits";
 import type { BotSdkRuntime } from "./runtime";
+import type { EnabledFeature } from "./feature";
 import type { BotApi } from "../../plugins/bot/server/plugin";
 import type { ChannelApi } from "../../plugins/channel/server/plugin";
 import type { ComputerApi } from "../../plugins/computer/server/plugin";
 import type { ModelsApi } from "../../plugins/models/server/plugin";
 import type { RunnerApi } from "../../plugins/runner/server/plugin";
 
-/**
- * Each plugin's API, by plugin id. A plugin adds its own by declaration merging:
- * `declare module "…/plugin" { interface PluginApis { models: ModelsApi } }`.
- */
-// oxlint-disable-next-line typescript/no-empty-object-type -- filled by declaration merging
-export interface PluginApis {}
-
-/** What the core gives every plugin: the infrastructure, and the other plugins through `plugin(id)`. */
+/** What the core gives its parts: the infrastructure and the core services. */
 export type BotSdkContext = {
   db: Database;
   blobStore: BlobStore;
@@ -62,10 +56,11 @@ export type BotSdkContext = {
    * every inbound answers 404 and no reply goes out by email.
    */
   channels: ChannelApi;
-  /** An enabled plugin's API. Throws for a plugin that isn't enabled. */
-  plugin: <Id extends keyof PluginApis>(id: Id) => PluginApis[Id];
-  /** Whether the instance enabled plugin `id`, for a plugin that uses another softly, without `requires`. */
-  hasPlugin: (id: string) => boolean;
+  /**
+   * The instance's parts, for the core's work across them (deletes, exports, a Turn's features):
+   * every part in order (the core's, then a plugin for each feature), and the enabled features.
+   */
+  parts: { all: readonly BotSdkPlugin[]; features: readonly EnabledFeature[] };
 };
 
 /** A transaction on the core's database. */
@@ -124,8 +119,9 @@ export type Route = {
 );
 
 /**
- * A plugin of the Bot SDK (ADR 0020): a plain object. `Rule` names its rate-limit rules and `Event`
- * the event hooks it fires; the root `rateLimits` and `hooks` options are typed by them.
+ * One part of an instance, internal to the SDK: the core's Models, Bots and Channels, and the
+ * plugin each feature runs as. `Rule` names its rate-limit rules and `Event` the event hooks it
+ * fires; the root `rateLimits` and `hooks` options are typed by them.
  */
 export type BotSdkPlugin<
   Id extends string = string,
@@ -133,23 +129,16 @@ export type BotSdkPlugin<
   Event extends keyof EventHooks = keyof EventHooks,
 > = {
   id: Id;
-  /** The ids of the plugins this one calls. `createBotSdk` throws when one isn't enabled. */
-  requires?: readonly string[];
-  /**
-   * The ids of the plugins this one calls only when they're enabled (`hasPlugin`). Each enabled
-   * one is ordered before it, as with `requires`, so its `init` can call them; a missing one is fine.
-   */
-  uses?: readonly string[];
   /** oRPC routers, served under `<basePath>/rpc/<key>`. A key two plugins claim throws. */
   router?: Record<string, AnyRouter>;
   routes?: readonly Route[];
   /** This plugin's rate-limit rules and their defaults; the root `rateLimits` overrides them. */
   rateLimits?: Record<Rule, RateLimit>;
-  /** Runs once, in dependency order, when the instance is built. It must open no connection. */
+  /** Runs once, in order, when the instance is built. It must open no connection. */
   init?: (sdk: BotSdkContext) => { api?: object } | void;
-  /** Runs in dependency order, after the schema check. */
+  /** Runs in order, after the schema check. */
   start?: (sdk: BotSdkContext) => Promise<void>;
-  /** Runs in reverse dependency order, after `stopping` is set. */
+  /** Runs in reverse order, after `stopping` is set. */
   stop?: (sdk: BotSdkContext) => Promise<void>;
   /**
    * Re-encrypts this plugin's stored secrets under the keyring's first secret (ADR 0010).
@@ -160,7 +149,7 @@ export type BotSdkPlugin<
   databaseHooks?: { conversation?: { delete?: ConversationDeleteHooks } };
   /**
    * Deletes this plugin's data for a user (`sdk.deleteUser`): `before` in the delete's transaction,
-   * in reverse dependency order, ahead of the core's Conversation and Attachment deletes; `after`
+   * in reverse order, ahead of the core's Conversation and Attachment deletes; `after`
    * once it commits.
    */
   deleteUser?: UserDeleteHooks;
@@ -195,55 +184,11 @@ export type HooksOf<Plugins extends readonly BotSdkPlugin[]> = Pick<
   CoreEvent | EventOf<Plugins[number]>
 >;
 
-// Each instance's plugins, keyed by its context's `plugin`, which every copy of the context shares.
-const pluginsOf = new WeakMap<BotSdkContext["plugin"], readonly BotSdkPlugin[]>();
-
-/** Records an instance's plugins, in dependency order, for the core's work across plugins. */
-export function bindPlugins(sdk: BotSdkContext, plugins: readonly BotSdkPlugin[]): void {
-  pluginsOf.set(sdk.plugin, plugins);
-}
-
-/** The instance's plugins, in dependency order. */
-export function enabledPlugins(sdk: Pick<BotSdkContext, "plugin">): readonly BotSdkPlugin[] {
-  return pluginsOf.get(sdk.plugin) ?? [];
-}
-
-/**
- * The plugins in dependency order: each after the plugins it requires or uses, otherwise as listed.
- * Throws on a duplicate id, a missing requirement or a cycle.
- */
-export function orderPlugins<Plugin extends BotSdkPlugin>(plugins: readonly Plugin[]): Plugin[] {
-  const byId = new Map<string, Plugin>();
-  for (const plugin of plugins) {
-    if (byId.has(plugin.id)) throw new Error(`Plugin "${plugin.id}" is enabled twice`);
-    byId.set(plugin.id, plugin);
-  }
-  const ordered: Plugin[] = [];
-  const visiting = new Set<string>();
-  const visit = (plugin: Plugin) => {
-    if (ordered.includes(plugin)) return;
-    if (visiting.has(plugin.id)) {
-      throw new Error(
-        `Plugin "${plugin.id}" is in a cycle of requires or uses: ${[...visiting, plugin.id].join(" → ")}`,
-      );
-    }
-    visiting.add(plugin.id);
-    for (const id of plugin.requires ?? []) {
-      const required = byId.get(id);
-      if (!required) {
-        throw new Error(`Plugin "${plugin.id}" requires plugin "${id}", which isn't enabled`);
-      }
-      visit(required);
-    }
-    for (const id of plugin.uses ?? []) {
-      const used = byId.get(id);
-      if (used) visit(used);
-    }
-    visiting.delete(plugin.id);
-    ordered.push(plugin);
-  };
-  for (const plugin of plugins) visit(plugin);
-  return ordered;
+/** The instance's parts, in order: the core's, then a plugin for each feature. */
+export function enabledPlugins(
+  sdk: Partial<Pick<BotSdkContext, "parts">>,
+): readonly BotSdkPlugin[] {
+  return sdk.parts?.all ?? [];
 }
 
 /** Every plugin's routers in one, by key. Throws when two plugins claim one key. */

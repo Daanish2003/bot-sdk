@@ -4,6 +4,8 @@ import { user as userTable } from "@ai-chat/db/schema/auth";
 
 import { getTestDb } from "./test-database";
 
+import { createBot } from "../../plugins/bot/server/store";
+
 export type TestUser = typeof userTable.$inferSelect;
 
 /** Inserts a user row into the test database. */
@@ -15,4 +17,11 @@ export async function insertUser(fields: Partial<typeof userTable.$inferInsert> 
     .returning();
   if (!row) throw new Error("Inserting the test user returned no row");
   return row;
+}
+
+/** Inserts a user with a Bot: the Bots give only such a user a Computer. */
+export async function insertOwner() {
+  const user = await insertUser();
+  await createBot(getTestDb(), user.id, { name: "Owner", model: "openai:gpt-6-luna" }, new Date());
+  return user;
 }

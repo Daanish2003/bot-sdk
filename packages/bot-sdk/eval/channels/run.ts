@@ -23,10 +23,9 @@ import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
 
 import { botTrigger } from "../../core/server/db/schema";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
-import { bot } from "../../plugins/bot/server/plugin";
 import { emailAddressOf } from "../../plugins/channel/server/address";
 import { fakeEmailProvider } from "../../plugins/channel/fake/index";
-import { channel, emailChannel } from "../../plugins/channel/server/index";
+import { emailChannel } from "../../plugins/channel/server/index";
 import { runnerJobs } from "../../plugins/runner/server/plugin";
 import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adapter";
 import { isReviewCall, passVerdict, verdictRound } from "../../test/support/fake-reviewer";
@@ -110,20 +109,15 @@ async function main() {
   const sdk = createComputerSdk({
     db,
     provider: fakeComputerProvider().provider,
-    more: [
-      bot(),
-      channel({
-        adapters: [
-          emailChannel({
-            provider: email.provider,
-            domain: inboundDomain,
-            appUrl: "https://app.invalid",
-          }),
-        ],
-        // freshBot gives each user this address, and the injection cases mail from it.
-        verifiedEmail: async (userId) => `${userId}@eval.invalid`,
+    channels: [
+      emailChannel({
+        provider: email.provider,
+        domain: inboundDomain,
+        appUrl: "https://app.invalid",
       }),
     ],
+    // freshBot gives each user this address, and the injection cases mail from it.
+    verifiedEmail: async (userId) => `${userId}@eval.invalid`,
     models: (real) =>
       fake
         ? {

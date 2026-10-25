@@ -7,7 +7,6 @@ import { botCheckIn, botTrigger, job, usage } from "../../../../core/server/db/s
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { deleteUserData } from "../../../../core/server/user-data";
 import type { HostProvider } from "../../../../plugins/models/server/types";
-import { bot } from "../../../../plugins/bot/server/plugin";
 import { findBot } from "../../../../plugins/bot/server/store";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
@@ -89,7 +88,6 @@ async function botTurn({
     deps: () => deps!,
   });
   deps = createTestSdk({
-    plugins: [bot()],
     jobs,
     adapterFor: (_model, credentials) => {
       adapterCredentials.push(credentials);

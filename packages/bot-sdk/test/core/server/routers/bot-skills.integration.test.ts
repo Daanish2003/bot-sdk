@@ -4,7 +4,6 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { botPromptStart, botTurn } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { bot } from "../../../../plugins/bot/server/plugin";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
   inProcessRunner,
@@ -93,7 +92,6 @@ async function botWith(
   });
   deps = createTestSdk({
     ...(withComputer && { computer: computerFake.provider }),
-    plugins: [bot()],
     features: withSkills && withComputer ? [skills()] : [],
     memory: withMemory,
     jobs,
@@ -370,7 +368,6 @@ describe("the Skills read", { timeout: 30_000 }, () => {
     started.push(jobs);
     deps = createTestSdk({
       computer: computerFake.provider,
-      plugins: [bot()],
       features: [skills()],
       jobs,
       adapterFor: () => fake.adapter,
@@ -877,9 +874,7 @@ describe("the skills router", { timeout: 30_000 }, () => {
   });
 
   it("can't be turned on without a Computer: the factory throws", () => {
-    expect(() => createTestSdk({ plugins: [bot()], features: [skills()] })).toThrow(
-      /needs the Computer/,
-    );
+    expect(() => createTestSdk({ features: [skills()] })).toThrow(/needs the Computer/);
   });
 
   it("tells the Bot of a user's changes as Change notes in its next Turn", async () => {

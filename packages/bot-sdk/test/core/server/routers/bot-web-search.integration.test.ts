@@ -7,7 +7,6 @@ import { botHelper, usage } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import type { HostProvider } from "../../../../plugins/models/server/types";
 import { webSearchUnavailableError } from "../../../../plugins/bot/server/web-search";
-import { bot } from "../../../../plugins/bot/server/plugin";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { quotaLookup } from "../../../../plugins/models/server/quota";
 import {
@@ -115,7 +114,6 @@ async function botWith(
   const jobs = inProcessRunner({ db: getTestDb(), logger: silent, drainMs: 50, deps: () => deps! });
   deps = createTestSdk({
     ...(withComputer && { computer: computerFake.provider }),
-    plugins: [bot()],
     jobs,
     adapterFor: () => adapter,
     fetch: tavily.fetch,

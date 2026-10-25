@@ -111,7 +111,6 @@ async function approvedRoutine({
     deps: () => deps!,
   });
   deps = createTestSdk({
-    plugins: [bot()],
     jobs,
     adapterFor: (_model, credentials) => {
       adapterCredentials.push(credentials);

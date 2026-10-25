@@ -1,8 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createBotSdk } from "../../../../core/server/create-chat";
-import { bot } from "../../../../plugins/bot/server/plugin";
-import { models } from "../../../../plugins/models/server/plugin";
 import { resolvedServices } from "../../../../plugins/models/server/credentials/resolve";
 import {
   listCredentials,
@@ -73,7 +71,7 @@ describe("the keyring", () => {
       keyEncryptionSecrets: [keyB],
       basePath: "/api/chat",
       logger,
-      plugins: [models(), bot()],
+      models: {},
     });
 
     await chat.start();

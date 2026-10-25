@@ -7,7 +7,7 @@ import { computerIdleMs } from "../../../../plugins/computer/server/plugin";
 import { createTestSdk } from "../../../support/deps";
 import { drainJobs } from "../../../support/jobs";
 import { getTestDb } from "../../../support/test-database";
-import { insertUser } from "../../../support/users";
+import { insertOwner } from "../../../support/users";
 
 // Against a real self-hosted E2B (hand-run: see the SDK README). Skipped when it is not set up.
 const apiKey = process.env.E2B_API_KEY;
@@ -38,11 +38,10 @@ describe.skipIf(!apiKey || !apiUrl || !sandboxUrl)("the computer plugin on real 
     const logged: unknown[][] = [];
     const sdk = createTestSdk({
       computer: provider(),
-      plugins: [],
       clock: () => clock.now,
       logger: { error: (...args: unknown[]) => logged.push(args) },
     });
-    const user = await insertUser();
+    const user = await insertOwner();
     users.push(user.id);
     const handle = sdk.computer!.forUser(user.id);
 

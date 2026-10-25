@@ -11,7 +11,6 @@ import {
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { deleteUserData } from "../../../../core/server/user-data";
 import { maxTextBytes } from "../../../../plugins/bot/server/computer-tools";
-import { bot } from "../../../../plugins/bot/server/plugin";
 import {
   computerUnavailableError,
   interruptedShellError,
@@ -78,7 +77,6 @@ async function botWith(
   const jobs = inProcessRunner({ db: getTestDb(), logger: silent, drainMs: 50, deps: () => deps! });
   deps = createTestSdk({
     ...(withComputer && { computer: computerFake.provider }),
-    plugins: [bot()],
     features: withKnowledge ? [knowledge()] : [],
     jobs,
     adapterFor: () => fake.adapter,
@@ -480,7 +478,6 @@ describe("a shell call whose attempt is cut off", () => {
       started.push(jobs);
       deps = createTestSdk({
         computer: computerFake.provider,
-        plugins: [bot()],
         jobs,
         adapterFor: () => fake.adapter,
         memory: false,

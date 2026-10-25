@@ -7,7 +7,7 @@ import { knowledge } from "../../../../plugins/knowledge/server/plugin";
 import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
 import { createTestSdk } from "../../../support/deps";
 import { chatRpc } from "../../../support/sdk";
-import { insertUser } from "../../../support/users";
+import { insertOwner } from "../../../support/users";
 
 const folder = "/home/user/shared/knowledge";
 const fixture = (name: string) =>
@@ -73,7 +73,7 @@ async function setup() {
     computer: computerFake.provider,
     features: [knowledge()],
   });
-  const client = chatRpc({ user: await insertUser(), deps });
+  const client = chatRpc({ user: await insertOwner(), deps });
   return { computerFake, client };
 }
 

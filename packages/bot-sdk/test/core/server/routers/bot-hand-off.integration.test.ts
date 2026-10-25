@@ -11,7 +11,6 @@ import {
   hasRunningHelper,
   helperMessagePrefix,
 } from "../../../../plugins/bot/server/helper";
-import { bot } from "../../../../plugins/bot/server/plugin";
 import { findBot } from "../../../../plugins/bot/server/store";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
@@ -71,7 +70,6 @@ async function botWith(turns: Round[], helpers: Round[], { clock }: { clock?: ()
   });
   deps = createTestSdk({
     computer: computerFake.provider,
-    plugins: [bot()],
     jobs,
     adapterFor: () => adapter,
     ...(clock && { clock }),

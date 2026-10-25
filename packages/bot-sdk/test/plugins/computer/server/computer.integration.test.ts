@@ -12,7 +12,6 @@ import {
 } from "../../../../core/server/db/schema";
 import { deleteUserData } from "../../../../core/server/user-data";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { bot } from "../../../../plugins/bot/server/plugin";
 import { createBot } from "../../../../plugins/bot/server/store";
 import {
   ComputerOperationError,
@@ -24,7 +23,7 @@ import type { JobRunner } from "../../../../plugins/runner/server/jobs/runner";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { drainJobs } from "../../../support/jobs";
 import { getTestDb } from "../../../support/test-database";
-import { insertUser } from "../../../support/users";
+import { insertOwner, insertUser } from "../../../support/users";
 import { fakeComputerProvider, type FakeCommand } from "./fake-provider";
 
 const ok: CommandResult = { exitCode: 0, stdout: "", stderr: "" };
@@ -38,12 +37,9 @@ const minuteMs = 60_000;
 function sdkWith({
   onCommand,
   onPause,
-  withBot = false,
 }: {
   onCommand?: (command: FakeCommand) => CommandResult | Promise<CommandResult>;
   onPause?: (sandboxId: string) => void | Promise<void>;
-  /** Turns `bot` on too, listed first, so its busy check must not depend on the order. */
-  withBot?: boolean;
 } = {}) {
   const clock = { now: new Date() };
   const fake = fakeComputerProvider({ onCommand, onPause });
@@ -51,7 +47,6 @@ function sdkWith({
   const logged: unknown[][] = [];
   const sdk = createTestSdk({
     computer: fake.provider,
-    plugins: withBot ? [bot()] : [],
     clock: () => clock.now,
     blobStore: blobs.store,
     logger: { error: (...args: unknown[]) => logged.push(args) },
@@ -108,7 +103,7 @@ const queuedChecks = async () =>
 describe("forUser(userId).run", () => {
   it("creates the row and the sandbox on the user's first operation", async () => {
     const { sdk, fake, clock } = sdkWith();
-    const user = await insertUser();
+    const user = await insertOwner();
     expect(await computerRow(user.id)).toBeUndefined();
 
     await sdk.computer!.forUser(user.id).run("true");
@@ -140,7 +135,7 @@ describe("forUser(userId).run", () => {
         return ok;
       },
     });
-    const user = await insertUser();
+    const user = await insertOwner();
     await sdk.computer!.forUser(user.id).run("true");
     clock.now = started;
 
@@ -154,7 +149,7 @@ describe("forUser(userId).run", () => {
     const { sdk, fake } = sdkWith({
       onCommand: () => ({ exitCode: 1, stdout: "out", stderr: "err" }),
     });
-    const user = await insertUser();
+    const user = await insertOwner();
 
     const result = await sdk.computer!.forUser(user.id).run("false", { cwd: "/tmp" });
 
@@ -166,7 +161,7 @@ describe("forUser(userId).run", () => {
 
   it("wakes once for concurrent first operations", async () => {
     const { sdk, fake } = sdkWith();
-    const user = await insertUser();
+    const user = await insertOwner();
     const handle = sdk.computer!.forUser(user.id);
 
     await Promise.all([handle.run("echo a"), handle.run("echo b"), handle.run("echo c")]);
@@ -179,7 +174,7 @@ describe("forUser(userId).run", () => {
 describe("the sleep check", () => {
   it("pauses an idle Computer that nothing holds, and marks it asleep", async () => {
     const { sdk, fake, clock } = sdkWith();
-    const user = await insertUser();
+    const user = await insertOwner();
     await sdk.computer!.forUser(user.id).run("true");
     const [created] = fake.callsOf("create");
 
@@ -195,7 +190,7 @@ describe("the sleep check", () => {
 
   it("keeps a Computer that isn't idle awake, extends its timeout and checks again when it would be", async () => {
     const { sdk, fake, clock } = sdkWith();
-    const user = await insertUser();
+    const user = await insertOwner();
     const handle = sdk.computer!.forUser(user.id);
     await handle.run("true");
     const lastActive = after(clock.now, 2 * minuteMs);
@@ -214,7 +209,7 @@ describe("the sleep check", () => {
   it("checks again in a minute when the Computer would already be idle", async () => {
     const { sdk, clock } = sdkWith();
     sdk.computer!.addBusyCheck(async () => true);
-    const user = await insertUser();
+    const user = await insertOwner();
     await sdk.computer!.forUser(user.id).run("true");
 
     clock.now = after(clock.now, 5 * minuteMs);
@@ -226,7 +221,7 @@ describe("the sleep check", () => {
 
   it("keeps an idle Computer awake while a busy check holds it, and checks again in a minute", async () => {
     const { sdk, fake, clock } = sdkWith();
-    const user = await insertUser();
+    const user = await insertOwner();
     const seen: { userId: string; lastActiveAt: Date }[] = [];
     let busy = true;
     sdk.computer!.addBusyCheck(async () => false);
@@ -255,7 +250,7 @@ describe("the sleep check", () => {
 
   it("arms exactly one check on each wake from asleep, and a stray duplicate is harmless", async () => {
     const { sdk, fake, clock } = sdkWith();
-    const user = await insertUser();
+    const user = await insertOwner();
     const handle = sdk.computer!.forUser(user.id);
     await Promise.all([handle.run("echo a"), handle.run("echo b")]);
     expect(await queuedChecks()).toEqual([after(clock.now, 5 * minuteMs)]);
@@ -293,7 +288,7 @@ describe("the sleep check", () => {
         await held;
       },
     });
-    const user = await insertUser();
+    const user = await insertOwner();
     const handle = sdk.computer!.forUser(user.id);
     await handle.run("echo before");
 
@@ -334,7 +329,7 @@ describe("the sleep check", () => {
         if (failing) throw new Error("pause failed");
       },
     });
-    const user = await insertUser();
+    const user = await insertOwner();
     await sdk.computer!.forUser(user.id).run("true");
 
     clock.now = after(clock.now, 6 * minuteMs);
@@ -361,8 +356,8 @@ describe("the sleep check", () => {
 describe("bot's busy check", () => {
   /** A user's Computer, last active at the clock's start, and a Bot of theirs with no Turn yet. */
   async function idleWithBot() {
-    const setup = sdkWith({ withBot: true });
-    const user = await insertUser();
+    const setup = sdkWith();
+    const user = await insertOwner();
     const lastActive = setup.clock.now;
     const created = await createBot(
       getTestDb(),
@@ -450,7 +445,7 @@ describe("bot's busy check", () => {
   it("doesn't hold the Computer for a Turn that ended, or another user's running Turn", async () => {
     const { sdk, clock, user, lastActive, insertTurn } = await idleWithBot();
     await insertTurn("complete", after(lastActive, -1_000));
-    const other = await insertUser();
+    const other = await insertOwner();
     const otherBot = await createBot(
       getTestDb(),
       other.id,
@@ -485,7 +480,7 @@ describe("syncing the files at sleep", () => {
   it("stores an archive after a file change and records it, and uploads nothing when nothing changed", async () => {
     const setup = sdkWith();
     const { sdk, fake, clock, blobs } = setup;
-    const user = await insertUser();
+    const user = await insertOwner();
     const handle = sdk.computer!.forUser(user.id);
     await handle.writeFile("/home/user/bots/b1/note.txt", "hello");
 
@@ -523,7 +518,7 @@ describe("syncing the files at sleep", () => {
   it("leaves .outputs/ out of the archive", async () => {
     const setup = sdkWith();
     const { sdk, fake } = setup;
-    const user = await insertUser();
+    const user = await insertOwner();
     const handle = sdk.computer!.forUser(user.id);
     await handle.writeFile("/home/user/bots/b1/note.txt", "keep");
     await handle.writeFile("/home/user/bots/b1/.outputs/call-1.txt", "spilled");
@@ -540,7 +535,7 @@ describe("syncing the files at sleep", () => {
   it("still pauses when the archive is over the cap, logging its size, and keeps the last archive", async () => {
     const setup = sdkWith();
     const { sdk, fake, blobs, logged } = setup;
-    const user = await insertUser();
+    const user = await insertOwner();
     const handle = sdk.computer!.forUser(user.id);
     await handle.writeFile("/home/user/bots/b1/note.txt", "small");
     await sleepNow(setup);
@@ -561,7 +556,7 @@ describe("syncing the files at sleep", () => {
   it("still pauses when the blob store fails, logging the cause, and keeps the columns", async () => {
     const setup = sdkWith();
     const { sdk, fake, blobs, logged } = setup;
-    const user = await insertUser();
+    const user = await insertOwner();
     const handle = sdk.computer!.forUser(user.id);
     await handle.writeFile("/home/user/bots/b1/note.txt", "one");
     await sleepNow(setup);
@@ -584,7 +579,7 @@ describe("a wake that rebuilds", () => {
   /** A user whose Computer has a synced note and is asleep. */
   async function asleepWithNote() {
     const setup = sdkWith();
-    const user = await insertUser();
+    const user = await insertOwner();
     const handle = setup.sdk.computer!.forUser(user.id);
     await handle.writeFile("/home/user/bots/b1/note.txt", "remember me");
     await sleepNow(setup);
@@ -600,7 +595,7 @@ describe("a wake that rebuilds", () => {
 
   it("is a plain create on the first wake, with no restore and no rebuild to tell", async () => {
     const { sdk, fake, blobs } = sdkWith();
-    const user = await insertUser();
+    const user = await insertOwner();
     const handle = sdk.computer!.forUser(user.id);
 
     await handle.list("/home/user");
@@ -714,7 +709,7 @@ describe("a wake that rebuilds", () => {
 
   it("starts empty when a lost Computer was never synced, and says so", async () => {
     const { sdk, fake, clock } = sdkWith();
-    const user = await insertUser();
+    const user = await insertOwner();
     const handle = sdk.computer!.forUser(user.id);
     await handle.list("/home/user");
     await getTestDb()
@@ -734,7 +729,7 @@ describe("an awake Computer whose sandbox is gone", () => {
   /** A user whose Computer has a synced note, was woken again, and then lost its sandbox. */
   async function awakeAndLost() {
     const setup = sdkWith();
-    const user = await insertUser();
+    const user = await insertOwner();
     const handle = setup.sdk.computer!.forUser(user.id);
     await handle.writeFile("/home/user/bots/b1/note.txt", "remember me");
     await sleepNow(setup);
@@ -804,7 +799,7 @@ describe("an awake Computer whose sandbox is gone", () => {
 describe("a wake whose transaction fails after its create", () => {
   it("kills the new sandbox, and the next call creates another", async () => {
     const { sdk, fake, logged } = sdkWith();
-    const user = await insertUser();
+    const user = await insertOwner();
     const handle = sdk.computer!.forUser(user.id);
     const runner = sdk.runner;
     const enqueueIn = runner.enqueueIn;
@@ -855,7 +850,7 @@ describe("an operation the provider fails", () => {
         throw new Error("cwd: permission denied");
       },
     });
-    const user = await insertUser();
+    const user = await insertOwner();
     const handle = sdk.computer!.forUser(user.id);
     await handle.writeFile("/home/user/bots/b1/note.txt", "hi");
 
@@ -872,7 +867,7 @@ describe("an operation the provider fails", () => {
 
   it("rethrows a stop as it is, not as an operation error", async () => {
     const { sdk } = sdkWith({ onCommand: () => new Promise(() => {}) });
-    const user = await insertUser();
+    const user = await insertOwner();
     const stop = new AbortController();
     const reason = new Error("stopped");
 
@@ -886,7 +881,7 @@ describe("an operation the provider fails", () => {
 describe("a sleep check left queued", () => {
   it("ends on an instance with computer turned off, with no follow-up", async () => {
     const sdk = createTestSdk();
-    const user = await insertUser();
+    const user = await insertOwner();
     await sdk.runner.enqueue("computer.sleep", { userId: user.id });
 
     await runDueJobs(sdk, new Date());
@@ -899,13 +894,13 @@ describe("a sleep check left queued", () => {
   it("by an earlier process over the same database pauses none of this process's sandboxes", async () => {
     // An earlier process (the memory eval's last run) left a user's Computer awake, with its check.
     const earlier = sdkWith();
-    const left = await insertUser();
+    const left = await insertOwner();
     await earlier.sdk.computer!.forUser(left.id).run("true");
 
     // This process's provider starts afresh, and a user of its own uses their Computer.
     const { sdk, fake, clock } = sdkWith();
     clock.now = after(earlier.clock.now, 5 * minuteMs);
-    const user = await insertUser();
+    const user = await insertOwner();
     const own = sdk.computer!.forUser(user.id);
     await own.run("true");
 
@@ -922,8 +917,8 @@ describe("a sleep check left queued", () => {
 describe("deleting", () => {
   /** A user with a synced Computer, asleep, with a note of a Bot in its directory. */
   async function syncedComputer() {
-    const setup = sdkWith({ withBot: true });
-    const user = await insertUser();
+    const setup = sdkWith();
+    const user = await insertOwner();
     await createBot(getTestDb(), user.id, { name: "Ada", model: "openai:gpt-6-luna" }, new Date());
     const handle = setup.sdk.computer!.forUser(user.id);
     await handle.writeFile("/home/user/bots/b1/note.txt", "remember me");
@@ -960,7 +955,7 @@ describe("deleting", () => {
 
   it("does nothing for a user who never used their Computer", async () => {
     const { sdk, fake, blobs } = sdkWith();
-    const user = await insertUser();
+    const user = await insertOwner();
 
     await deleteUserData(sdk, user.id);
 
@@ -1004,9 +999,9 @@ async function waitForLockWait() {
 
 describe("an operation for a user with nothing that uses a Computer", () => {
   it("creates no row, no sandbox and no blob once the user is deleted", async () => {
-    const setup = sdkWith({ withBot: true });
+    const setup = sdkWith();
     const { sdk, fake, blobs } = setup;
-    const user = await insertUser();
+    const user = await insertOwner();
     await createBot(getTestDb(), user.id, { name: "Ada", model: "openai:gpt-6-luna" }, new Date());
     const handle = sdk.computer!.forUser(user.id);
     await handle.run("true");
@@ -1022,8 +1017,8 @@ describe("an operation for a user with nothing that uses a Computer", () => {
   });
 
   it("creates nothing when it waits on a user delete that commits", async () => {
-    const { sdk, fake } = sdkWith({ withBot: true });
-    const user = await insertUser();
+    const { sdk, fake } = sdkWith();
+    const user = await insertOwner();
     await createBot(getTestDb(), user.id, { name: "Ada", model: "openai:gpt-6-luna" }, new Date());
     let commit!: () => void;
     const committing = new Promise<void>((resolve) => (commit = resolve));
@@ -1048,18 +1043,14 @@ describe("an operation for a user with nothing that uses a Computer", () => {
     expect(fake.calls).toEqual([]);
   });
 
-  it("is refused for a user with no Bot when bot is on, and allowed when no plugin checks", async () => {
-    const withBot = sdkWith({ withBot: true });
-    const alone = sdkWith();
+  it("is refused for a user with no Bot", async () => {
+    const { sdk } = sdkWith();
     const user = await insertUser();
 
-    await expect(withBot.sdk.computer!.forUser(user.id).run("true")).rejects.toBeInstanceOf(
+    await expect(sdk.computer!.forUser(user.id).run("true")).rejects.toBeInstanceOf(
       ComputerUnavailableError,
     );
     expect(await computerRow(user.id)).toBeUndefined();
-
-    await alone.sdk.computer!.forUser(user.id).run("true");
-    expect((await computerRow(user.id))?.state).toBe("awake");
   });
 });
 
@@ -1076,7 +1067,7 @@ describe("a long operation", () => {
         return ok;
       },
     });
-    const user = await insertUser();
+    const user = await insertOwner();
     const start = clock.now;
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
     try {
@@ -1117,7 +1108,7 @@ describe("Screens", () => {
 
   it("opens a Screen with a fresh token and the profile key, and closes it", async () => {
     const { sdk, fake } = sdkWith();
-    const user = await insertUser();
+    const user = await insertOwner();
     const handle = sdk.computer!.forUser(user.id);
 
     await handle.openScreen(2, "work");
@@ -1136,7 +1127,7 @@ describe("Screens", () => {
 
   it("gives the CDP endpoint and the tokened noVNC link of an open Screen", async () => {
     const { sdk, fake } = sdkWith();
-    const user = await insertUser();
+    const user = await insertOwner();
     const handle = sdk.computer!.forUser(user.id);
     await handle.openScreen(3, "work");
     const [created] = fake.callsOf("create");
@@ -1162,7 +1153,7 @@ describe("Screens", () => {
 
   it("refuses the links of a Screen that isn't open", async () => {
     const { sdk } = sdkWith();
-    const user = await insertUser();
+    const user = await insertOwner();
     const handle = sdk.computer!.forUser(user.id);
 
     await expect(handle.screenUrls(1)).rejects.toBeInstanceOf(ComputerOperationError);
@@ -1170,7 +1161,7 @@ describe("Screens", () => {
 
   it("switches a Screen between view-only and control", async () => {
     const { sdk, fake } = sdkWith();
-    const user = await insertUser();
+    const user = await insertOwner();
     const handle = sdk.computer!.forUser(user.id);
 
     await handle.setScreenControl(1, "control");
@@ -1185,7 +1176,7 @@ describe("Screens", () => {
   it("counts a live view's heartbeat as activity, without waking an asleep Computer", async () => {
     const setup = sdkWith();
     const { sdk, fake, clock } = setup;
-    const user = await insertUser();
+    const user = await insertOwner();
     const handle = sdk.computer!.forUser(user.id);
     await handle.openScreen(1, "work");
     const start = clock.now;
@@ -1214,7 +1205,7 @@ describe("Screens", () => {
     const { sdk } = sdkWith({
       onCommand: () => ({ exitCode: 1, stdout: "", stderr: "Xvfb did not start" }),
     });
-    const user = await insertUser();
+    const user = await insertOwner();
     const handle = sdk.computer!.forUser(user.id);
 
     await expect(handle.openScreen(1, "work")).rejects.toThrow(/Xvfb did not start/);
@@ -1222,7 +1213,7 @@ describe("Screens", () => {
 
   it("rejects a slot outside 1 to 4 and a profile key with other characters, before waking", async () => {
     const { sdk, fake } = sdkWith();
-    const user = await insertUser();
+    const user = await insertOwner();
     const handle = sdk.computer!.forUser(user.id);
 
     await expect(handle.openScreen(5, "work")).rejects.toThrow(RangeError);
@@ -1235,7 +1226,7 @@ describe("Screens", () => {
   it("keeps Chrome profiles out of the synced archive", async () => {
     const setup = sdkWith();
     const { sdk, fake } = setup;
-    const user = await insertUser();
+    const user = await insertOwner();
     const handle = sdk.computer!.forUser(user.id);
     await handle.writeFile("/home/user/bots/b1/note.txt", "keep");
     await handle.writeFile("/home/user/.chrome-profiles/work/Cookies", "secret");

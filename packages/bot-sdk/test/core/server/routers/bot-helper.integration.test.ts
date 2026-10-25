@@ -32,7 +32,6 @@ import {
 } from "../../../../plugins/bot/server/helper";
 import { secretEncryption } from "../../../../plugins/bot/server/secret-values";
 import { listHelpers } from "../../../../plugins/bot/server/helper-card";
-import { bot } from "../../../../plugins/bot/server/plugin";
 import type { CommandResult } from "../../../../plugins/computer/server/provider";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import { quotaLookup } from "../../../../plugins/models/server/quota";
@@ -125,7 +124,6 @@ async function botWith(
   });
   deps = createTestSdk({
     ...(withComputer && { computer: computerFake.provider }),
-    plugins: [bot()],
     jobs,
     adapterFor: (_model, credentials) => {
       adapterCredentials.push(credentials);
@@ -439,7 +437,6 @@ describe("a Helper's limits", () => {
     started.push(jobs);
     deps = createTestSdk({
       computer: fakeComputerProvider().provider,
-      plugins: [bot()],
       jobs,
       adapterFor: () => fakes.adapter,
       memory: false,

@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 
 import { bot as botTable, conversation } from "../../../core/server/db/schema";
 import { deleteUserData, exportUserData } from "../../../core/server/user-data";
-import { bot } from "../../../plugins/bot/server/plugin";
 import type { BotExport } from "../../../plugins/bot/server/store";
 import { saveCredentials } from "../../../plugins/models/server/credentials/store";
 import { insertConversation, insertMessage } from "../../support/conversations";
@@ -16,7 +15,7 @@ const model = "openai:gpt-6-luna";
 
 /** A user with an OpenAI key and one Bot, and one Conversation of another plugin's holding "otters". */
 async function userWithABotAndAnotherConversation() {
-  const deps = createTestSdk({ plugins: [bot()] });
+  const deps = createTestSdk();
   const user = await insertUser();
   await saveCredentials(deps, user.id, {
     service: "openai",

@@ -34,12 +34,6 @@ export type McpApi = {
   };
 };
 
-declare module "../../../core/server/plugin" {
-  interface PluginApis {
-    mcp: McpApi;
-  }
-}
-
 /**
  * The `mcp` feature (ADR 0027, spec #871): the Host's MCP servers, the users' Connections to them
  * (the sign-in routes, the `connections` router and key rotation) and their tools. A Host turns it

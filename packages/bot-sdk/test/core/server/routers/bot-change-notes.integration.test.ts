@@ -4,7 +4,6 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { botPromptStart, botRoutine, botTurn } from "../../../../core/server/db/schema";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
-import { bot } from "../../../../plugins/bot/server/plugin";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
   inProcessRunner,
@@ -65,7 +64,6 @@ async function botWith(turnRounds: Round[]) {
   });
   deps = createTestSdk({
     computer: computerFake.provider,
-    plugins: [bot()],
     memory: true,
     jobs,
     adapterFor: () => fake.adapter,

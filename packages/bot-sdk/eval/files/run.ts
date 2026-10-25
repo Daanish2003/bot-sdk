@@ -20,7 +20,6 @@ import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
 import { botTrigger, computer as computerTable } from "../../core/server/db/schema";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
 import { uploadBotFile } from "../../plugins/bot/server/files";
-import { bot } from "../../plugins/bot/server/plugin";
 import { runnerJobs } from "../../plugins/runner/server/plugin";
 import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adapter";
 import { isReviewCall, passVerdict, verdictRound } from "../../test/support/fake-reviewer";
@@ -106,7 +105,6 @@ async function main() {
   const sdk = createComputerSdk({
     db,
     provider: computerProvider,
-    more: [bot()],
     models: (real) =>
       fake
         ? {

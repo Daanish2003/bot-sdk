@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
-import { models } from "../../../plugins/models/server/plugin";
 
 import { modelSettings } from "../../../core/server/db/schema";
 import { saveCredentials } from "../../../plugins/models/server/credentials/store";
@@ -144,7 +143,7 @@ describe("createBotSdk().exportUser, the models plugin", () => {
       getUser: () => null,
       keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
       basePath: "/api/chat",
-      plugins: [models()],
+      models: {},
     }).exportUser(userId);
 
   it("exports the Image Model under the models section", async () => {

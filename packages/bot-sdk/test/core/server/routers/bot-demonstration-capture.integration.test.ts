@@ -19,7 +19,6 @@ import {
   demonstrationEventLimit,
   maskedValue,
 } from "../../../../plugins/bot/server/demonstration-capture";
-import { bot } from "../../../../plugins/bot/server/plugin";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {
   inProcessRunner,
@@ -178,7 +177,6 @@ async function demonstrating(path = "/") {
   const jobs = inProcessRunner({ db: getTestDb(), logger: silent, drainMs: 50, deps: () => deps! });
   deps = createTestSdk({
     computer: computerFake.provider,
-    plugins: [bot()],
     features: [skills()],
     jobs,
     adapterFor: () => fake.adapter,

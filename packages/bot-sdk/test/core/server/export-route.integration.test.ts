@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import { exportUserData } from "../../../core/server/user-data";
-import { bot } from "../../../plugins/bot/server/plugin";
 import { saveCredentials } from "../../../plugins/models/server/credentials/store";
 import { createTestSdk } from "../../support/deps";
 import { createTestChat } from "../../support/sdk";
@@ -17,7 +16,7 @@ function withoutTimestamp(document: object) {
 
 describe("GET /api/chat/export", () => {
   it("answers the signed-in caller's export as a JSON attachment named by the export date", async () => {
-    const deps = createTestSdk({ plugins: [bot()] });
+    const deps = createTestSdk();
     const owner = await insertUser();
     await saveCredentials(deps, owner.id, {
       service: "openai",

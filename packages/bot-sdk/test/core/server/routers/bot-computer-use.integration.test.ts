@@ -14,7 +14,6 @@ import {
   helperTimeLimitMs,
 } from "../../../../plugins/bot/server/helper";
 import { reapStaleJobs } from "../../../../plugins/runner/server/jobs/store";
-import { bot } from "../../../../plugins/bot/server/plugin";
 import type { ReviewVerdict } from "../../../../plugins/bot/server/review";
 import type { CommandResult } from "../../../../plugins/computer/server/provider";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
@@ -109,7 +108,6 @@ async function userWith(
   });
   deps = createTestSdk({
     computer: computerFake.provider,
-    plugins: [bot()],
     jobs,
     clock,
     adapterFor: () => adapter,

@@ -12,7 +12,6 @@ import { fileURLToPath } from "node:url";
 
 import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
 
-import { bot } from "../../plugins/bot/server/plugin";
 import { saveCredentials } from "../../plugins/models/server/credentials/store";
 import { runnerJobs } from "../../plugins/runner/server/plugin";
 import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adapter";
@@ -86,7 +85,7 @@ async function main() {
   const sdk = createComputerSdk({
     db,
     provider: computer.provider,
-    more: [bot({ reviewModel })],
+    reviewModel,
     models: (real) =>
       fake
         ? {

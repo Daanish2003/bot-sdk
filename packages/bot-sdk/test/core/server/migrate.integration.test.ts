@@ -10,7 +10,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { BlobStore } from "../../../core/server/blob/store";
 import { createBotSdk } from "../../../core/server/create-chat";
-import { models } from "../../../plugins/models/server/plugin";
 import { LATEST_MIGRATION } from "../../../core/server/migrate";
 import {
   dropScratchDatabase,
@@ -26,7 +25,7 @@ function chatFor(databaseUrl: string) {
     getUser: () => null,
     keyEncryptionSecrets,
     basePath: "/api/chat",
-    plugins: [models()],
+    models: {},
   });
 }
 
@@ -603,8 +602,8 @@ describe("the contract migration (#819)", () => {
       getUser: () => null,
       keyEncryptionSecrets,
       basePath: "/api/chat",
-      blobStore: store,
-      plugins: [models()],
+      blobs: store,
+      models: {},
     });
 
     await chat.migrate();
@@ -633,9 +632,9 @@ describe("the contract migration (#819)", () => {
       getUser: () => null,
       keyEncryptionSecrets,
       basePath: "/api/chat",
-      blobStore: store,
+      blobs: store,
       logger,
-      plugins: [models()],
+      models: {},
     }).migrate();
 
     expect(deleted).toEqual([assistantKeys[1]]);

@@ -1,5 +1,6 @@
 import {
   type AnyPgColumn,
+  type ExtraConfigColumn,
   index,
   integer,
   jsonb,
@@ -12,7 +13,7 @@ import type { PartsEnvelope } from "../../shared/message-parts";
 import { blob } from "./blob";
 import { chatSchema } from "./chat-schema";
 import { conversationChange } from "./conversation-change";
-import type { IndexColumns, PluginSchema } from "./plugin-schema";
+import type { PluginSchema } from "./plugin-schema";
 import { conversation, message } from "./schema";
 
 export * from "./blob";
@@ -32,8 +33,8 @@ export const messageErrorReason = chatSchema.enum("message_error_reason", [
   "provider_error",
 ]);
 
-/** The core's columns of a Conversation, owned by one user. Its Messages form a tree (ADR 0001). */
-const conversationColumns = {
+/** The columns of a Conversation, owned by one user. Its Messages form a tree (ADR 0001). */
+export const conversationColumns = {
   /** uuidv7, generated in app code. */
   id: uuid("id").primaryKey(),
   /** The Host's user id. The SDK trusts `getUser` and keeps no foreign key to the user. */
@@ -56,8 +57,8 @@ const conversationColumns = {
     .notNull(),
 };
 
-/** The core's columns of one Message of a Conversation. Several roots are allowed; there is no hidden root. */
-const messageColumns = {
+/** The columns of one Message of a Conversation. Several roots are allowed; there is no hidden root. */
+export const messageColumns = {
   /** uuidv7, generated in app code; client ids are ignored. */
   id: uuid("id").primaryKey(),
   conversationId: uuid("conversation_id")
@@ -74,25 +75,20 @@ const messageColumns = {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 };
 
-/** The core's schema module: Conversation and Message, blobs and the change log. */
+type IndexColumns<Columns> = { [K in keyof Columns]: ExtraConfigColumn };
+
+/** The indexes of `conversation`. */
+export const conversationIndexes = (table: IndexColumns<typeof conversationColumns>) => [
+  index("conversation_user_id_last_message_at_idx").on(table.userId, table.lastMessageAt.desc()),
+];
+
+/** The indexes of `message`. */
+export const messageIndexes = (table: IndexColumns<typeof messageColumns>) => [
+  index("message_conversation_id_parent_id_idx").on(table.conversationId, table.parentId),
+];
+
+/** The core's schema module besides Conversation and Message: blobs and the change log. */
 export const coreSchema = {
   tables: { blob, conversationChange },
   enums: { messageRole, messageStatus, messageErrorReason },
-  fields: {
-    conversation: {
-      columns: conversationColumns,
-      indexes: (table: IndexColumns<typeof conversationColumns>) => [
-        index("conversation_user_id_last_message_at_idx").on(
-          table.userId,
-          table.lastMessageAt.desc(),
-        ),
-      ],
-    },
-    message: {
-      columns: messageColumns,
-      indexes: (table: IndexColumns<typeof messageColumns>) => [
-        index("message_conversation_id_parent_id_idx").on(table.conversationId, table.parentId),
-      ],
-    },
-  },
 } satisfies PluginSchema;

@@ -7,9 +7,10 @@ import { createMemoryCounters } from "../../core/server/chat/counters";
 import { createHookEmitter, type HookEmitter } from "../../core/server/chat/hooks";
 import { createMemoryPubSub } from "../../core/server/chat/pubsub";
 import type { FeatureEntry, GivenContext } from "../../core/server/create-chat";
-import type { BotSdkPlugin } from "../../core/server/plugin";
 import { createBotSdkOver, type SdkOver } from "../../core/server/over";
+import type { BotSdkPlugin } from "../../core/server/plugin";
 import { memory } from "../../plugins/memory/server/feature";
+import type { ChannelAdapter } from "../../plugins/channel/server/plugin";
 import type { ComputerProvider } from "../../plugins/computer/server/provider";
 import type { ModelsDeps } from "../../plugins/models/server/types";
 import type { JobRunner } from "../../plugins/runner/server/jobs/runner";
@@ -32,8 +33,12 @@ export type TestDepsOverrides = Partial<
       jobs: JobRunner;
       /** The computer slot's provider (`fakeComputerProvider().provider`); no Computer by default. */
       computer: ComputerProvider;
-      /** More plugins, enabled after `models`. */
-      plugins: readonly BotSdkPlugin[];
+      /** The channels slot's adapters; no Channel besides web by default. */
+      channels: readonly ChannelAdapter[];
+      /** The user's verified account email, as the factory's `verifiedEmail`. */
+      verifiedEmail: (userId: string) => Promise<string | null>;
+      /** The Model that Auto-reviews the Bots' risky tool calls; the Bot's own by default. */
+      reviewModel: string;
       /** The features, as the `features` slot takes them. */
       features: readonly FeatureEntry[];
       /** Whether the Memory feature is on; `true` by default, and only with a `computer`. */
@@ -51,15 +56,16 @@ const passingReviewer = fakeReviewer().adapter;
 
 /**
  * A real `createBotSdk` instance for tests, over the test database and fakes, with nothing that
- * reaches the network; it returns the instance's core context with its `models` bundle. It is
- * Bot-only: `models`, the runner, the given `computer`, the Memory feature (with a `computer`) and
- * the given `plugins` and `features`. Pass overrides for the parts a
- * test scripts (for example `adapterFor` returning a fake adapter).
+ * reaches the network; it returns the instance's core context with its `models` bundle: the Bot
+ * core, the runner, the given `computer` and `channels`, the Memory feature (with a `computer`) and
+ * the given `features`. Pass overrides for the parts a test scripts (for example `adapterFor` returning a fake adapter).
  */
 export function createTestSdk({
-  plugins,
   features,
   computer,
+  channels,
+  verifiedEmail,
+  reviewModel,
   ...overrides
 }: TestDepsOverrides = {}): TestDeps {
   const db = overrides.db ?? getTestDb();
@@ -129,9 +135,19 @@ export function createTestSdk({
       models,
       jobs: overrides.jobs,
       computer,
-      plugins,
+      channels,
+      verifiedEmail,
+      reviewModel,
       features: [...(withMemory ? [memory()] : []), ...(features ?? [])],
     },
     { basePath: "/api/chat", getUser: () => null, logger: { error: () => {} } },
   ).sdk;
+}
+
+/**
+ * `deps` with one more of the core's parts after its own, as the core's work across its parts (a
+ * Conversation delete's hooks, a user's delete and export) sees it: for the tests of that work.
+ */
+export function withPart(deps: TestDeps, part: BotSdkPlugin): TestDeps {
+  return { ...deps, parts: { ...deps.parts, all: [...deps.parts.all, part] } };
 }

@@ -5,8 +5,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createBotSdk } from "../../../core/server/create-chat";
 import { deleteUserData } from "../../../core/server/user-data";
-import { bot as botPlugin } from "../../../plugins/bot/server/plugin";
-import { models } from "../../../plugins/models/server/plugin";
 import { saveCredentials } from "../../../plugins/models/server/credentials/store";
 import {
   bot,
@@ -171,7 +169,7 @@ describe("createBotSdk().deleteUser", () => {
       getUser: () => null,
       keyEncryptionSecrets: [testKey],
       basePath: "/api/chat",
-      plugins: [models(), botPlugin()],
+      models: {},
     });
 
     await chat.deleteUser(owner.id);

@@ -3,8 +3,6 @@ import net from "node:net";
 import { afterAll, describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../../../../core/server/create-chat";
-import { bot } from "../../../../plugins/bot/server/plugin";
-import { models } from "../../../../plugins/models/server/plugin";
 import {
   createRedisConnection,
   type RedisConnection,
@@ -93,8 +91,8 @@ describe("redisRuntime without Redis", () => {
         getUser: () => null,
         keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
         basePath: "/api/chat",
-        runtime,
-        plugins: [models(), bot()],
+        pubsub: runtime,
+        models: {},
       });
       await sleep(50);
 
@@ -113,8 +111,8 @@ describe("redisRuntime without Redis", () => {
         getUser: () => null,
         keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
         basePath: "/api/chat",
-        runtime,
-        plugins: [models(), bot()],
+        pubsub: runtime,
+        models: {},
       });
 
       // Never resolves: the server never answers the handshake. It must still be closable.

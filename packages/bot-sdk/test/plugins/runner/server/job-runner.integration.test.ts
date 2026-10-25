@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { createBotSdk } from "../../../../core/server/create-chat";
+import { buildBotSdk } from "../../../../core/server/create-chat";
 import { models } from "../../../../plugins/models/server/plugin";
 import { job } from "../../../../core/server/db/schema";
 import { defineJob, PermanentJobError } from "../../../../plugins/runner/server/jobs/define";
@@ -983,15 +983,20 @@ describe("the runner slot", () => {
       start: vi.fn(async () => {}),
       stop: vi.fn(async () => {}),
     };
-    const chat = createBotSdk({
-      databaseUrl: testDatabaseUrl,
-      getUser: () => null,
-      keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
-      basePath: "/api/chat",
-      logger: silent,
-      plugins: [models()],
-      runner: jobs,
-    });
+    // Models alone, without the Bots, which refuse a runner other than the in-process one.
+    const chat = buildBotSdk(
+      {
+        databaseUrl: testDatabaseUrl,
+        getUser: () => null,
+        keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
+        basePath: "/api/chat",
+        logger: silent,
+        models: {},
+        runner: jobs,
+      },
+      {},
+      [models()],
+    ).instance;
 
     await chat.start();
     expect(jobs.start).toHaveBeenCalledTimes(1);

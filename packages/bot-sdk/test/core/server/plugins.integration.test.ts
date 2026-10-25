@@ -1,9 +1,11 @@
 import { os } from "@orpc/server";
 import { describe, expect, it } from "vitest";
 
-import { createBotSdk } from "../../../core/server/create-chat";
+import { buildBotSdk, createBotSdk } from "../../../core/server/create-chat";
+import { defineFeature } from "../../../core/server/feature";
 import type { BotSdkPlugin } from "../../../core/server/plugin";
 import { memoryRuntime } from "../../../core/server/runtime";
+import { models } from "../../../plugins/models/server/plugin";
 import { testDatabaseUrl } from "../../support/test-database";
 
 const basePath = "/api/chat";
@@ -12,52 +14,49 @@ const core = {
   getUser: () => ({ id: "user" }),
   keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
   basePath,
+  models: {},
 };
 
-describe("createBotSdk plugins", () => {
-  it("throws when a plugin's required plugin is missing", () => {
-    expect(() =>
-      createBotSdk({ ...core, plugins: [{ id: "assistant", requires: ["models"] }] }),
-    ).toThrow(/assistant.*models/);
-  });
-
-  it("throws when two plugins claim the same router key", () => {
+describe("createBotSdk features", () => {
+  it("throws when two features claim the same router key", () => {
     const procedure = os.handler(() => "ok");
     expect(() =>
       createBotSdk({
         ...core,
-        plugins: [
-          { id: "first", router: { shared: { ping: procedure } } },
-          { id: "second", router: { shared: { pong: procedure } } },
+        features: [
+          defineFeature({ id: "first", router: { shared: { ping: procedure } } }),
+          defineFeature({ id: "second", router: { shared: { pong: procedure } } }),
         ],
       }),
     ).toThrow(/shared.*first.*second/);
   });
 
-  it("throws when a plugin claims a core route", () => {
+  it("throws when a feature claims a core route", () => {
     const route = { method: "GET", path: "/export", handle: async () => new Response() } as const;
-    expect(() => createBotSdk({ ...core, plugins: [{ id: "first", routes: [route] }] })).toThrow(
-      /GET \/export.*core.*first/,
-    );
+    expect(() =>
+      createBotSdk({ ...core, features: [defineFeature({ id: "first", routes: [route] })] }),
+    ).toThrow(/GET \/export.*core.*first/);
   });
 
-  it("throws when two plugins claim the same route", () => {
+  it("throws when two features claim the same route", () => {
     const route = { method: "GET", path: "/thing", handle: async () => new Response() } as const;
     expect(() =>
       createBotSdk({
         ...core,
-        plugins: [
-          { id: "first", routes: [route] },
-          { id: "second", routes: [route] },
+        features: [
+          defineFeature({ id: "first", routes: [route] }),
+          defineFeature({ id: "second", routes: [route] }),
         ],
       }),
     ).toThrow(/GET \/thing.*first.*second/);
   });
 
-  it("serves each plugin's router under <basePath>/rpc/<key>", async () => {
+  it("serves each feature's router under <basePath>/rpc/<key>", async () => {
     const sdk = createBotSdk({
       ...core,
-      plugins: [{ id: "first", router: { greeting: { hello: os.handler(() => "hi") } } }],
+      features: [
+        defineFeature({ id: "first", router: { greeting: { hello: os.handler(() => "hi") } } }),
+      ],
     });
 
     const response = await sdk.handler(
@@ -72,19 +71,14 @@ describe("createBotSdk plugins", () => {
     expect(await response.json()).toEqual({ json: "hi" });
   });
 
-  it("starts plugins in dependency order and stops them in reverse", async () => {
+  it("starts the core's parts in order and stops them in reverse", async () => {
     const calls: string[] = [];
-    const plugin = (id: string, requires: string[] = []): BotSdkPlugin => ({
+    const part = (id: string): BotSdkPlugin => ({
       id,
-      requires,
       start: async () => void calls.push(`start ${id}`),
       stop: async () => void calls.push(`stop ${id}`),
     });
-    // Listed before what it requires, so the order comes from `requires`, not the list.
-    const sdk = createBotSdk({
-      ...core,
-      plugins: [plugin("c", ["b"]), plugin("b", ["a"]), plugin("a")],
-    });
+    const sdk = buildBotSdk(core, {}, [models(), part("a"), part("b"), part("c")]).instance;
 
     await sdk.start();
     await sdk.stop();
@@ -92,93 +86,38 @@ describe("createBotSdk plugins", () => {
     expect(calls).toEqual(["start a", "start b", "start c", "stop c", "stop b", "stop a"]);
   });
 
-  it("stops every plugin and closes the runtime when one plugin's stop throws, then rethrows", async () => {
+  it("stops every part and closes the runtime when one part's stop throws, then rethrows", async () => {
     const calls: string[] = [];
-    const plugin = (id: string, fails = false): BotSdkPlugin => ({
+    const part = (id: string, fails = false): BotSdkPlugin => ({
       id,
       stop: async () => {
         calls.push(`stop ${id}`);
         if (fails) throw new Error(`${id} failed`);
       },
     });
-    const sdk = createBotSdk({
-      ...core,
-      runtime: { ...memoryRuntime(), close: async () => void calls.push("close") },
-      plugins: [plugin("a"), plugin("b", true), plugin("c")],
-    });
+    const sdk = buildBotSdk(
+      { ...core, pubsub: { ...memoryRuntime(), close: async () => void calls.push("close") } },
+      {},
+      [models(), part("a"), part("b", true), part("c")],
+    ).instance;
 
     await expect(sdk.stop()).rejects.toThrow("b failed");
 
     expect(calls).toEqual(["stop c", "stop b", "stop a", "close"]);
   });
 
-  it("gives each plugin the APIs of the plugins it requires", async () => {
-    const seen: unknown[] = [];
-    const sdk = createBotSdk({
-      ...core,
-      plugins: [
-        {
-          id: "reader",
-          requires: ["source"],
-          start: async (context) => {
-            seen.push((context.plugin as (id: string) => unknown)("source"));
-          },
-        },
-        { id: "source", init: () => ({ api: { answer: 42 } }) },
-      ],
-    });
-
-    await sdk.start();
-
-    expect(seen).toEqual([{ answer: 42 }]);
-  });
-
-  it("inits a plugin after the plugins it uses when they're enabled, and without them when not", () => {
-    const seen: unknown[] = [];
-    const user: BotSdkPlugin = {
-      id: "user",
-      uses: ["source"],
-      init: (context) => {
-        if (context.hasPlugin("source")) {
-          seen.push((context.plugin as (id: string) => unknown)("source"));
-        }
-      },
-    };
-
-    // Listed before what it uses, so the order comes from `uses`, not the list.
-    createBotSdk({
-      ...core,
-      plugins: [user, { id: "source", init: () => ({ api: { answer: 42 } }) }],
-    });
-    createBotSdk({ ...core, plugins: [user] });
-
-    expect(seen).toEqual([{ answer: 42 }]);
-  });
-
-  it("throws from plugin(id) for a plugin that isn't enabled", () => {
-    const sdk = createBotSdk({ ...core, plugins: [{ id: "first" }] });
-
-    expect(() => (sdk.plugin as (id: string) => unknown)("absent")).toThrow(/absent/);
-  });
-
-  it("types hooks and rateLimits by the enabled plugins", () => {
-    const quiet: BotSdkPlugin<"quiet", "ping", "onUsage"> = {
-      id: "quiet",
-      rateLimits: { ping: { limit: 1, windowSeconds: 60 } },
-    };
+  it("types hooks and rateLimits by the core", () => {
     expect(() =>
       createBotSdk({
         ...core,
-        plugins: [quiet],
         hooks: {
           onUsage: () => {},
-          // @ts-expect-error onRunEnd is no enabled plugin's event.
-          onRunEnd: () => {},
+          // @ts-expect-error onNothing is no event of the core's.
+          onNothing: () => {},
         },
         rateLimits: {
-          ping: false,
-          // @ts-expect-error runStart is no enabled plugin's rule.
-          runStart: false,
+          // @ts-expect-error nothing is no rule of the core's.
+          nothing: false,
         },
       }),
     ).not.toThrow();

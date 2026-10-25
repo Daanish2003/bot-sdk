@@ -8,7 +8,7 @@ import { getTestDb } from "../../../support/test-database";
 import { knowledge } from "../../../../plugins/knowledge/server/plugin";
 import { createTestSdk } from "../../../support/deps";
 import { chatRpc } from "../../../support/sdk";
-import { insertUser } from "../../../support/users";
+import { insertOwner } from "../../../support/users";
 import { fakeComputerProvider } from "../../../plugins/computer/server/fake-provider";
 
 const folder = "/home/user/shared/knowledge";
@@ -24,7 +24,7 @@ async function setup({ withComputer = true }: { withComputer?: boolean } = {}) {
     ...(withComputer && { computer: computerFake.provider }),
     features: [knowledge()],
   });
-  const user = await insertUser();
+  const user = await insertOwner();
   const client = chatRpc({ user, deps });
   return { computerFake, client, deps, user };
 }
@@ -364,8 +364,8 @@ describe("the knowledge router", { timeout: 30_000 }, () => {
 
   it("keeps one user's Knowledge from another", async () => {
     const { deps } = await setup();
-    const alice = chatRpc({ user: await insertUser(), deps });
-    const bob = chatRpc({ user: await insertUser(), deps });
+    const alice = chatRpc({ user: await insertOwner(), deps });
+    const bob = chatRpc({ user: await insertOwner(), deps });
     await alice.knowledge.upload({ name: "secret.md", content: "alice" });
 
     expect((await bob.knowledge.list()).files).toEqual([]);
