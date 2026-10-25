@@ -86,23 +86,27 @@ async function seenSince(
  * Each enabled feature's section and Change notes as of now. A feature whose `prompt` throws fails
  * the Turn's read, so the job retries; with `tolerant` (an away Summary), it is logged and left
  * out, unless a Stop or the time limit caused it. A failed read of what the Bot has seen throws.
+ * With `masked` (a Turn), each feature gets the user's Secrets to mask what it read.
  */
 export async function featureSectionsNow(
   deps: BotSdkContext,
   turn: FeatureTurn,
   startedAt: Date,
   signal: AbortSignal,
-  { tolerant = false }: { tolerant?: boolean } = {},
+  { tolerant = false, masked = false }: { tolerant?: boolean; masked?: boolean } = {},
 ): Promise<FeatureSection[]> {
   const prompting = enabledFeatures(deps).filter(({ feature }) => feature.prompt);
   if (!prompting.length) return [];
+  const mask = masked
+    ? secretMasker((await loadSecretValues(deps, turn.userId, new Map())).values())
+    : (text: string) => text;
   const { sections: built, earlier } = await seenSince(deps.db, turn.botId, turn.id, startedAt);
   const told = earlier.flatMap((earlierTurn) => earlierTurn.notes);
   const sections: FeatureSection[] = [];
   for (const { feature, context } of prompting) {
     try {
       const read = await feature.prompt!(
-        { ...turn, built: built.get(feature.id) ?? null, told, startedAt, earlier, signal },
+        { ...turn, built: built.get(feature.id) ?? null, told, startedAt, earlier, signal, mask },
         context,
       );
       if (read) {

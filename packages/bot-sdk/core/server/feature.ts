@@ -122,6 +122,12 @@ export type FeaturePromptTurn = FeatureTurn & {
   earlier: ReadonlyArray<{ notes: readonly string[]; transcript: readonly ModelMessage[] }>;
   /** Aborts on a Stop or the time limit: whatever the feature reads for its section stops then. */
   signal: AbortSignal;
+  /**
+   * Masks the user's Secrets in a text, as a Turn's Computer reads are masked: a feature masks what
+   * it read before it builds its section and Change notes from it. An away Summary's leaves the
+   * text as it is.
+   */
+  mask: (text: string) => string;
 };
 
 /**

@@ -30,6 +30,7 @@ export function skills() {
         logger.error(`Reading the Skills of Bot ${turn.botId} failed`, error);
         return null;
       }
+      lines = lines.map(({ name, text }) => ({ name: turn.mask(name), text: turn.mask(text) }));
       return {
         section: skillsPrompt(turn.botId, lines),
         changeNotes: skillChangeNotes(turn.botId, turn.built, turn.earlier, lines),

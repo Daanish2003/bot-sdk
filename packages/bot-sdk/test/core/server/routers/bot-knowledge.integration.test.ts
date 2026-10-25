@@ -2,7 +2,9 @@ import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { botPromptStart } from "../../../../core/server/storage";
+import { botPromptStart, botSecret } from "../../../../core/server/storage";
+import { encryptCredentials } from "../../../../core/server/credentials/encryption";
+import { secretEncryption } from "../../../../plugins/bot/server/safety";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { knowledge } from "../../../../plugins/knowledge/server/plugin";
 import { saveCredentials } from "../../../../plugins/models/server/internal";
@@ -95,7 +97,7 @@ async function botWith(
   });
   const client = chatRpc({ user, deps });
   const { id: botId } = await client.bot.create({ name: "Ada", model });
-  return { fake, computerFake, client, botId };
+  return { fake, computerFake, client, botId, deps, user };
 }
 
 async function send(client: ReturnType<typeof chatRpc>, botId: string, text: string) {
@@ -176,6 +178,26 @@ describe("the Knowledge block", { timeout: 30_000 }, () => {
       "- notes.txt.md",
       "- prices.csv",
     ]);
+  });
+
+  it("masks the user's Secrets in the listed paths, as a Computer read's result is masked", async () => {
+    const value = "ghp_knowledge_secret_value_1234";
+    const { fake, computerFake, client, botId, deps, user } = await botWith([round()]);
+    computerFake.files.set(knowledgePath(`token-${value}.txt`), encode("x"));
+    await getTestDb()
+      .insert(botSecret)
+      .values({
+        userId: user.id,
+        name: "GITHUB_TOKEN",
+        encrypted: encryptCredentials({ value }, secretEncryption(deps, user.id, "GITHUB_TOKEN")),
+        createdAt: new Date(),
+      });
+
+    await send(client, botId, "hi");
+
+    const block = knowledgeBlock(turnCalls(fake.calls)[0]);
+    expect(listed(block)).toHaveLength(1);
+    expect(block).not.toContain(value);
   });
 
   it("says there are no files yet when Knowledge is empty", async () => {

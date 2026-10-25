@@ -2,7 +2,9 @@ import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { botPromptStart, botTurn } from "../../../../core/server/storage";
+import { botPromptStart, botSecret, botTurn } from "../../../../core/server/storage";
+import { encryptCredentials } from "../../../../core/server/credentials/encryption";
+import { secretEncryption } from "../../../../plugins/bot/server/safety";
 import { uuidv7 } from "../../../../core/server/lib/uuidv7";
 import { saveCredentials } from "../../../../plugins/models/server/internal";
 import {
@@ -209,6 +211,29 @@ describe("the Skills block", { timeout: 30_000 }, () => {
       "- too-long: (not usable: description is over 200 characters)",
       "- weekly-report: Use this when the user asks for the weekly report.",
     ]);
+  });
+
+  it("masks the user's Secrets in the block, as a Computer read's result is masked", async () => {
+    const value = "ghp_skills_secret_value_1234";
+    const { fake, computerFake, client, botId, deps, user } = await botWith([round()]);
+    computerFake.files.set(
+      skillPath(botId, "deploy"),
+      encode(skillFile("deploy", `Use this when deploying with the token ${value}.`)),
+    );
+    await getTestDb()
+      .insert(botSecret)
+      .values({
+        userId: user.id,
+        name: "GITHUB_TOKEN",
+        encrypted: encryptCredentials({ value }, secretEncryption(deps, user.id, "GITHUB_TOKEN")),
+        createdAt: new Date(),
+      });
+
+    await send(client, botId, "hi");
+
+    const block = systemOf(turnCalls(fake.calls)[0]).find((text) => text.startsWith(header(botId)));
+    expect(block).toContain("Use this when deploying with the token");
+    expect(block).not.toContain(value);
   });
 
   it("reads every SKILL.md in one Computer command", async () => {

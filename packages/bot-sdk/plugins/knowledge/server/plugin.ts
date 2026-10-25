@@ -28,6 +28,7 @@ export function knowledge() {
         logger.error(`Reading the Knowledge of user ${turn.userId} failed`, error);
         return null;
       }
+      paths = paths.map(turn.mask);
       return {
         section: knowledgePrompt(paths),
         changeNotes: knowledgeNotes(turn.botId, turn.built, turn.earlier, paths),

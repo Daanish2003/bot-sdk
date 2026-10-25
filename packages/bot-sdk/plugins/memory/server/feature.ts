@@ -88,6 +88,7 @@ export function memory() {
         return off;
       }
       if (block === null) return off;
+      block = turn.mask(block);
       return {
         section: block,
         changeNotes: memoryChangeNotes(turn.botId, turn.built, turn.earlier, block),

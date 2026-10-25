@@ -60,6 +60,7 @@ async function promptWith(feature: "memory" | "skills" | "knowledge", error: Err
       startedAt: new Date(),
       earlier: [],
       signal: new AbortController().signal,
+      mask: (text: string) => text,
     },
     context as never,
   );
