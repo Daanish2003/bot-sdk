@@ -521,7 +521,7 @@ async function playHelper(
                 computerCall: kit.computerCall,
                 sections: [],
               },
-              true,
+              { connectorsOnly: true },
             )
           : undefined;
         if (!connectors || connectors.tools.length === 0) {

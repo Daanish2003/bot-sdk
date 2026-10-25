@@ -135,8 +135,8 @@ export type FeatureToolSet = {
 };
 
 /**
- * The enabled features' tools for a Turn (or, with `connectorsOnly`, the Connector tools alone, for a Helper). Each
- * call is a live request of the loop's, so a replay reads its recorded result; a tool with
+ * The enabled features' tools for a Turn (or, with `connectorsOnly`, the Connector tools alone,
+ * for a Helper). Each call is a live request of the loop's, so a replay reads its recorded result; a tool with
  * `needsApproval` is Auto-reviewed instead of asked of the user. A tool named like one in `taken`
  * is left out and logged, and so are a feature's tools when it throws. Without `kit`, only the definitions are read, as an away Summary does.
  */
@@ -154,7 +154,7 @@ export async function featureTools(
     /** The sections the Turn's features gave its Prompt start, read before the tools. */
     sections: readonly FeatureSection[];
   },
-  connectorsOnly = false,
+  { connectorsOnly = false }: { connectorsOnly?: boolean } = {},
 ): Promise<FeatureToolSet> {
   const names = new Set(taken);
   const decrypted: DecryptedSecrets = new Map();

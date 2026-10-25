@@ -74,7 +74,8 @@ export function createComputerSdk(options: {
   models?: (real: ModelsDeps) => ModelsDeps;
   wrapFetch?: (real: typeof globalThis.fetch) => typeof globalThis.fetch;
 }) {
-  const { db, provider, features, models, wrapFetch } = options;
+  const { db, provider, channels, verifiedEmail, reviewModel, features, models, wrapFetch } =
+    options;
   const logger: Pick<Console, "error"> = console;
   const events = createHookEmitter(undefined, logger);
   const guarded = createGuardedFetch({ schemes: "http-and-https" });
@@ -98,9 +99,9 @@ export function createComputerSdk(options: {
       },
       models: models ? models(real) : real,
       computer: provider,
-      channels: options.channels,
-      verifiedEmail: options.verifiedEmail,
-      reviewModel: options.reviewModel,
+      channels,
+      verifiedEmail,
+      reviewModel,
       features,
     },
     { basePath: "/api/chat", getUser: () => null, logger: { error: () => {} } },

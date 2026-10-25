@@ -203,6 +203,16 @@ describe("a feature's id", () => {
   );
 });
 
+describe("a feature's enabling", () => {
+  it("throws for a feature listed twice", () => {
+    expect(() =>
+      createBotSdk(
+        slots({ features: [defineFeature({ id: "twice" }), defineFeature({ id: "twice" })] }),
+      ),
+    ).toThrow('Feature "twice" is enabled twice');
+  });
+});
+
 describe("a feature's needs", () => {
   const needsComputer = () =>
     defineFeature({

@@ -185,10 +185,8 @@ export type HooksOf<Plugins extends readonly BotSdkPlugin[]> = Pick<
 >;
 
 /** The instance's parts, in order: the core's, then a plugin for each feature. */
-export function enabledPlugins(
-  sdk: Partial<Pick<BotSdkContext, "parts">>,
-): readonly BotSdkPlugin[] {
-  return sdk.parts?.all ?? [];
+export function enabledPlugins(sdk: Pick<BotSdkContext, "parts">): readonly BotSdkPlugin[] {
+  return sdk.parts.all;
 }
 
 /** Every plugin's routers in one, by key. Throws when two plugins claim one key. */

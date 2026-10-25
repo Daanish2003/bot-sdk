@@ -320,14 +320,12 @@ export type EnabledFeature = {
 };
 
 /** The instance's enabled features, in the order the Host listed them. */
-export function enabledFeatures(
-  sdk: Partial<Pick<BotSdkContext, "parts">>,
-): readonly EnabledFeature[] {
-  return sdk.parts?.features ?? [];
+export function enabledFeatures(sdk: Pick<BotSdkContext, "parts">): readonly EnabledFeature[] {
+  return sdk.parts.features;
 }
 
 /** Whether an enabled feature gives Connector tools (`mcp`). */
-export const hasConnectorFeature = (sdk: Partial<Pick<BotSdkContext, "parts">>): boolean =>
+export const hasConnectorFeature = (sdk: Pick<BotSdkContext, "parts">): boolean =>
   enabledFeatures(sdk).some(({ feature }) => feature.connectorTools);
 
 /** A feature, enabled on `sdk`: its context holds the core services it needs. */

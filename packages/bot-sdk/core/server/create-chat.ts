@@ -241,13 +241,13 @@ function coreParts(options: BotSdkOptions): BotSdkPlugin[] {
 
 /**
  * The instance over `options`, with any `given` part of the core context in its place, and the
- * core's parts (`core`: by default the ones the slots configure, Models first). The factory and
- * the tests' instances share it.
+ * core's parts (`core`: by default the ones the slots configure; Models first, since the other
+ * parts' inits read them). The factory and the tests' instances share it.
  */
 export function buildBotSdk(
   options: BotSdkOptions,
   given: GivenContext,
-  core: readonly BotSdkPlugin[] = coreParts(options),
+  parts?: readonly BotSdkPlugin[],
 ): { instance: BotSdk; context: BotSdkContext } {
   if (options.keyEncryptionSecrets.length === 0) {
     throw new Error("keyEncryptionSecrets must hold at least one secret");
@@ -255,6 +255,8 @@ export function buildBotSdk(
   if (!options.basePath.startsWith("/")) {
     throw new Error(`basePath must start with "/": ${options.basePath}`);
   }
+  const core = parts ?? coreParts(options);
+  if (core[0]?.id !== "models") throw new Error("The core's parts must start with Models");
   const features: readonly AnyFeature[] = options.features ?? [];
   // The core services the instance has: a feature's `needs` are checked against them.
   const services = new Set(["runner", ...(options.computer ? ["computer"] : [])]);

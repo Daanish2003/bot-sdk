@@ -106,6 +106,11 @@ describe("createBotSdk features", () => {
     expect(calls).toEqual(["stop c", "stop b", "stop a", "close"]);
   });
 
+  it("throws when the core's parts don't start with Models, which the others' inits read", () => {
+    const part: BotSdkPlugin = { id: "a" };
+    expect(() => buildBotSdk(core, {}, [part, models()])).toThrow(/start with Models/);
+  });
+
   it("types hooks and rateLimits by the core", () => {
     expect(() =>
       createBotSdk({
