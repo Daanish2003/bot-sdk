@@ -1,5 +1,6 @@
 import {
   buildBotSdk,
+  coreParts,
   type BotSdk,
   type BotSdkOptions,
   type ChatHandler,
@@ -8,8 +9,6 @@ import {
 } from "./create-chat";
 import { enabledFeatures } from "./feature";
 import { enabledPlugins, type BotSdkContext } from "./plugin";
-import { bot } from "../../plugins/bot/server/plugin";
-import { channel, type ChannelAdapter } from "../../plugins/channel/server/plugin";
 import { modelsOver } from "../../plugins/models/server/plugin";
 import type { ModelsDeps } from "../../plugins/models/server/types";
 import { computerProvider } from "../../plugins/computer/server/plugin";
@@ -18,6 +17,9 @@ import type { JobRunner } from "../../plugins/runner/server/jobs/runner";
 import { runnerJobs } from "../../plugins/runner/server/plugin";
 
 type OverOptions = Pick<BotSdkOptions, "basePath" | "getUser" | "logger">;
+
+/** The factory's options the seam passes on as they are. */
+export type OverSlots = Pick<BotSdkOptions, "channels" | "verifiedEmail" | "reviewModel">;
 
 /**
  * What the tests and evals drive: the core context of an instance over fakes, with its Models
@@ -31,41 +33,34 @@ export type SdkOver = BotSdkContext & ModelsDeps;
  * Returns the instance and its context with the Models bundle.
  */
 export function createBotSdkOver(
-  given: {
+  given: OverSlots & {
     context: GivenContext;
     models: ModelsDeps;
     /** The runner slot's jobs runner; the in-process runner by default. */
     jobs?: JobRunner;
     /** The computer slot's provider; no Computer by default. */
     computer?: ComputerProvider;
-    /** The channels slot's adapters; no Channel besides web by default. */
-    channels?: readonly ChannelAdapter[];
-    /** The user's verified account email, as the factory's `verifiedEmail`. */
-    verifiedEmail?: (userId: string) => Promise<string | null>;
-    /** The Model that Auto-reviews the Bots' risky tool calls; the Bot's own by default. */
-    reviewModel?: string;
     /** The features, as the `features` slot takes them. */
     features?: readonly FeatureEntry[];
   },
   options: OverOptions,
 ): { instance: BotSdk; sdk: SdkOver } {
-  const { channels, verifiedEmail = async () => null } = given;
+  const slots: BotSdkOptions = {
+    ...options,
+    databaseUrl: "",
+    keyEncryptionSecrets: given.context.keyring ?? given.models.keyEncryptionSecrets,
+    models: {},
+    runner: given.jobs,
+    computer: given.computer,
+    features: given.features,
+    channels: given.channels,
+    verifiedEmail: given.verifiedEmail,
+    reviewModel: given.reviewModel,
+  };
   const { instance, context } = buildBotSdk(
-    {
-      ...options,
-      databaseUrl: "",
-      keyEncryptionSecrets: given.context.keyring ?? given.models.keyEncryptionSecrets,
-      models: {},
-      runner: given.jobs,
-      computer: given.computer,
-      features: given.features,
-    },
+    slots,
     given.context,
-    [
-      modelsOver(given.models),
-      bot({ reviewModel: given.reviewModel }),
-      ...(channels ? [channel({ adapters: channels, verifiedEmail })] : []),
-    ],
+    coreParts(slots, modelsOver(given.models)),
   );
   return { instance, sdk: { ...given.models, ...context } };
 }

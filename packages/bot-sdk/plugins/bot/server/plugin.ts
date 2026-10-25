@@ -52,17 +52,13 @@ export type BotApi = {
    * at `screenViewPath/<view token>/websockify` (Nitro: `defineWebSocketHandler(screenSocket)`).
    */
   screenSocket: ScreenSocketHooks;
-  /** The Model that reviews the Bots' risky tool calls, as `bot({ reviewModel })` named it, if any. */
+  /** The Model that reviews the Bots' risky tool calls, as the `reviewModel` option named it, if any. */
   reviewModel: string | undefined;
 };
 
-/** How the Host sets up the `bot` plugin. */
+/** How the core sets up its Bots, from the factory's options. */
 export type BotOptions = {
-  /**
-   * The Model that reviews each Bot's risky tool calls before they run (Auto-review), a
-   * `"provider:model"` id from the `models` plugin's list, resolved per user. With none, or one
-   * the user can't use, the Bot's own Model reviews, in a fresh context.
-   */
+  /** The factory's `reviewModel` option: the Model that Auto-reviews the Bots' risky tool calls. */
   reviewModel?: string;
 };
 

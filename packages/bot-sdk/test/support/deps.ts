@@ -7,10 +7,9 @@ import { createMemoryCounters } from "../../core/server/chat/counters";
 import { createHookEmitter, type HookEmitter } from "../../core/server/chat/hooks";
 import { createMemoryPubSub } from "../../core/server/chat/pubsub";
 import type { FeatureEntry, GivenContext } from "../../core/server/create-chat";
-import { createBotSdkOver, type SdkOver } from "../../core/server/over";
+import { createBotSdkOver, type OverSlots, type SdkOver } from "../../core/server/over";
 import type { BotSdkPlugin } from "../../core/server/plugin";
 import { memory } from "../../plugins/memory/server/feature";
-import type { ChannelAdapter } from "../../plugins/channel/server/plugin";
 import type { ComputerProvider } from "../../plugins/computer/server/provider";
 import type { ModelsDeps } from "../../plugins/models/server/types";
 import type { JobRunner } from "../../plugins/runner/server/jobs/runner";
@@ -26,6 +25,7 @@ export type TestDeps = SdkOver;
 /** What a test may override in `createTestSdk`: a part of the core context or of `models`. */
 export type TestDepsOverrides = Partial<
   Omit<GivenContext, "events" | "keyring"> &
+    OverSlots &
     Omit<ModelsDeps, "hooks"> & {
       /** The core's event emitter (`BotSdkContext.events`). */
       hooks: HookEmitter;
@@ -33,12 +33,6 @@ export type TestDepsOverrides = Partial<
       jobs: JobRunner;
       /** The computer slot's provider (`fakeComputerProvider().provider`); no Computer by default. */
       computer: ComputerProvider;
-      /** The channels slot's adapters; no Channel besides web by default. */
-      channels: readonly ChannelAdapter[];
-      /** The user's verified account email, as the factory's `verifiedEmail`. */
-      verifiedEmail: (userId: string) => Promise<string | null>;
-      /** The Model that Auto-reviews the Bots' risky tool calls; the Bot's own by default. */
-      reviewModel: string;
       /** The features, as the `features` slot takes them. */
       features: readonly FeatureEntry[];
       /** Whether the Memory feature is on; `true` by default, and only with a `computer`. */

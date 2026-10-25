@@ -101,6 +101,15 @@ describe("createBotSdk with flat slots", () => {
     expect(stranger.status).toBe(202);
   });
 
+  it("gives Auto-review the reviewModel option's Model, and none when it's unset", () => {
+    const set = createBotSdk(slots({ reviewModel: "openai:gpt-5.4-mini" }));
+    const unset = createBotSdk(slots());
+
+    // What Auto-review reads (`review.ts`): the Host's Model, else the Bot's own.
+    expect(set.bots.reviewModel).toBe("openai:gpt-5.4-mini");
+    expect(unset.bots.reviewModel).toBeUndefined();
+  });
+
   it("has no plugin lookup and takes no plugin list (#887)", () => {
     const sdk = createBotSdk(slots());
 

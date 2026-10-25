@@ -201,6 +201,7 @@ const client = createBotSdkClient({
 ```
 
 - `getUser(request)` returns `{ id } | null`. The handler answers 401 when it returns `null`.
+- `reviewModel` (optional) is the Model that Auto-reviews each Bot's risky tool calls before they run, a `"provider:model"` id from the Models' list, resolved per user: `createBotSdk({ reviewModel: "openai:gpt-5.4-mini" })`. Unset, or one the user can't use, the Bot's own Model reviews, in a fresh context.
 - The `router` adapter maps the SDK's pages (`keys`, and `bots` with an optional Bot `id`) to your URLs. It provides `Link` and `navigate(page)`. Pass your own TanStack Query client as `queryClient` if you have one; otherwise the provider creates its own.
 - The Bots app is `BotsApp` from `plugins/bot/ui`, with the Host's account menu at the foot of its sidebar (`accountMenu`); the keys page is `KeySettingsPage` from `plugins/models/ui`.
 - `GET <basePath>/export` answers the signed-in user's export as a JSON download (`chat-export-<date>.json`), the same document as `exportUser`. The `ExportDataButton` in `ui/settings/export-data-button.tsx` calls it.

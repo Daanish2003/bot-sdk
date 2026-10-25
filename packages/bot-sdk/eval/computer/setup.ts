@@ -14,8 +14,7 @@ import { migrate as migrateChatSchema } from "../../core/server/migrate";
 import type { BotSdkContext } from "../../core/server/plugin";
 import { resolveRateLimits } from "../../core/server/rate-limits";
 import { memoryRuntime } from "../../core/server/runtime";
-import { createBotSdkOver } from "../../core/server/over";
-import type { ChannelAdapter } from "../../plugins/channel/server/plugin";
+import { createBotSdkOver, type OverSlots } from "../../core/server/over";
 import { e2bProvider } from "../../plugins/computer/e2b";
 import type { ComputerProvider } from "../../plugins/computer/server";
 import { productionDeps } from "../../plugins/models/server/plugin";
@@ -61,19 +60,16 @@ export async function prepareSchema(url: string): Promise<Database> {
  * `models` may replace the Models bundle (the dry run's fake Model); by default it is the real one.
  * `wrapFetch` may wrap the guarded fetch the SDK and the Models use (the ladder eval answers Tavily itself).
  */
-export function createComputerSdk(options: {
-  db: Database;
-  provider: ComputerProvider;
-  /** The channels slot's adapters, and the users' verified emails they need. */
-  channels?: readonly ChannelAdapter[];
-  verifiedEmail?: (userId: string) => Promise<string | null>;
-  /** The Model that Auto-reviews the Bots' risky tool calls; the Bot's own by default. */
-  reviewModel?: string;
-  /** Features, such as `memory()`; they get the Computer. */
-  features?: readonly FeatureEntry[];
-  models?: (real: ModelsDeps) => ModelsDeps;
-  wrapFetch?: (real: typeof globalThis.fetch) => typeof globalThis.fetch;
-}) {
+export function createComputerSdk(
+  options: OverSlots & {
+    db: Database;
+    provider: ComputerProvider;
+    /** Features, such as `memory()`; they get the Computer. */
+    features?: readonly FeatureEntry[];
+    models?: (real: ModelsDeps) => ModelsDeps;
+    wrapFetch?: (real: typeof globalThis.fetch) => typeof globalThis.fetch;
+  },
+) {
   const { db, provider, channels, verifiedEmail, reviewModel, features, models, wrapFetch } =
     options;
   const logger: Pick<Console, "error"> = console;
