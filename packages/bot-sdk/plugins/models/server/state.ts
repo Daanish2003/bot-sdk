@@ -15,6 +15,6 @@ export function bindModelsDeps(api: object, deps: ModelsDeps): void {
  */
 export function modelsDeps(context: Pick<Context, "sdk">): ModelsDeps {
   const state = states.get(context.sdk.models);
-  if (!state) throw new Error("The models plugin isn't enabled");
+  if (!state) throw new Error("Models aren't configured: set the models slot");
   return state;
 }

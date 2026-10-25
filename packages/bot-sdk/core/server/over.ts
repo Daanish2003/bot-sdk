@@ -66,7 +66,7 @@ export function createChatHandler(sdk: SdkOver, options: OverOptions): ChatHandl
   } = sdk;
   // Its own sources: the plugins register theirs again when the new instance runs their inits.
   const models = {
-    ...sdk,
+    ...context,
     hooks: sdk.events,
     keyEncryptionSecrets: sdk.keyring,
     recentModelSources: [],

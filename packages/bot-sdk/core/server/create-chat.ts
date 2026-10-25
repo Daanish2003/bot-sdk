@@ -39,6 +39,7 @@ import { channel, type ChannelAdapter } from "../../plugins/channel/server/plugi
 import { computer } from "../../plugins/computer/server/plugin";
 import type { ComputerProvider } from "../../plugins/computer/server/provider";
 import {
+  isModelsPlugin,
   models,
   type ModelsApi,
   type ModelsOptions,
@@ -272,7 +273,12 @@ function pluginsOf(options: BotSdkOptions): { plugins: BotSdkPlugin[]; features:
   ];
   const ids = new Set(listed.map((plugin) => plugin.id));
   for (const feature of features) checkFeature(feature, ids);
-  return { plugins: orderPlugins(listed), features };
+  // The core's Models first, so every plugin's `init` finds `sdk.models` set.
+  const ordered = orderPlugins(listed);
+  return {
+    plugins: [...ordered.filter(isModelsPlugin), ...ordered.filter((p) => !isModelsPlugin(p))],
+    features,
+  };
 }
 
 export function buildBotSdk(
@@ -405,7 +411,7 @@ function buildContext(
         throw new Error(`No enabled plugin declares the rate limit "${rule}"`);
       return rateLimitedFor(counters, limit, key);
     },
-    // Set by the Models' init, which runs before every plugin's.
+    // Set by the Models' init, which `pluginsOf` runs before every other plugin's.
     models: modelsUnconfigured,
     plugin: <Id extends keyof PluginApis>(id: Id) => plugin(id) as PluginApis[Id],
     // From the plugin list, so it holds already in an `init` that runs before the other plugin's.
@@ -413,14 +419,44 @@ function buildContext(
   };
 }
 
+/** Every name of the Models' API, so the unconfigured stand-in throws on those alone. */
+const modelsApiKeys: Record<keyof ModelsApi, true> = {
+  resolveModelCall: true,
+  resolveToolCall: true,
+  resolvePayer: true,
+  resolveModel: true,
+  listAvailableModels: true,
+  resolveImageModel: true,
+  imageModelSetting: true,
+  saveImageModelSetting: true,
+  resolveUserImageModel: true,
+  readQuota: true,
+  messageUsage: true,
+  loadCredentials: true,
+  adapterFor: true,
+  adapterForCall: true,
+  freeModelMeter: true,
+  addRecentModelSource: true,
+  imageAdapterFor: true,
+  imageRequestFor: true,
+  byok: true,
+  defaultImageModel: true,
+  hasHostImageModels: true,
+  usageTotals: true,
+  usage: true,
+  quota: true,
+};
+
 /**
- * The `models` service of an instance whose plugin list has no `models()`: reading any of it
- * throws. Symbols and `then` read as unset, so printing or awaiting it doesn't.
+ * The `models` service of an instance whose plugin list has no `models()`: reading any part of
+ * its API throws. Other keys read as unset, so printing, serialising or awaiting it doesn't.
  */
 const modelsUnconfigured = new Proxy({} as ModelsApi, {
   get: (_target, key) => {
-    if (typeof key === "symbol" || key === "then") return undefined;
-    throw new Error("Models aren't configured: set the models slot");
+    if (typeof key === "string" && key in modelsApiKeys) {
+      throw new Error("Models aren't configured: set the models slot");
+    }
+    return undefined;
   },
 });
 
