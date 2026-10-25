@@ -71,11 +71,16 @@ a few cents on a small Model. It is billed on your key.
 
 ```sh
 EVAL_BOT_MODEL=anthropic:claude-sonnet-5-5 ANTHROPIC_API_KEY=... pnpm -F @ai-chat/bot-sdk eval:computer:helper
+# or, on the owner's ChatGPT plan (see below)
+EVAL_CHATGPT_USER_ID=<user id> EVAL_BOT_MODEL=openai:gpt-6.1-sol DATABASE_URL=... BETTER_AUTH_URL=... \
+BETTER_AUTH_SECRET=... CHATGPT_CLIENT_ID=... CHATGPT_HOST_ID=... pnpm -F @ai-chat/bot-sdk eval:computer:helper
 ```
 
 `EVAL_BOT_MODEL`, the key variable and `EVAL_REPEATS` (default 1 here) work as above; `--case=<id>` runs one
-case. Only a direct Anthropic or OpenAI Model can run a Computer-use Helper (ADR 0028): its desktop is the
-Provider's native computer tool, so an OpenRouter Model's Bot can't start one. A password typed through the
+case. `EVAL_CHATGPT_USER_ID` (with the web app's settings, as in "On a ChatGPT plan" in `eval/turn/README.md`)
+runs the plan's Model on that user's linked plan instead of `OPENAI_API_KEY`, e.g. with
+`EVAL_BOT_MODEL=openai:gpt-6.1-sol`. Only a direct Anthropic or OpenAI Model can run a Computer-use Helper
+(ADR 0028): its desktop is the Provider's native computer tool, so an OpenRouter Model's Bot can't start one. A password typed through the
 computer tool counts as typed, as one typed with `browser_type` does. Each run is a fresh user, Bot and Computer. A small fixture site (the "Meridian Observatory") is
 written into the Computer and served on `127.0.0.1:8099` inside it, so the Screen's Chrome reaches it on
 localhost. The user's Message asks the Bot to use a Computer-use Helper; the run then waits for the
