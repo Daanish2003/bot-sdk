@@ -75,8 +75,11 @@ export function memory() {
           botId: turn.botId,
           now: turn.startedAt,
           computer: context.computer.forUser(turn.userId),
+          signal: turn.signal,
         });
       } catch (error) {
+        // A Stop or the time limit ends the Turn; it does not leave it without a memory block.
+        turn.signal.throwIfAborted();
         context.logger.error(`Reading the memory of Bot ${turn.botId} failed`, error);
         return off;
       }
