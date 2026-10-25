@@ -99,6 +99,8 @@ export type FeaturePromptTurn = FeatureTurn & {
    * among them.
    */
   told: readonly string[];
+  /** Aborts when the Turn is stopped: a read the feature makes outside the database ends then. */
+  signal: AbortSignal;
   /**
    * The Bot's Turns since its Prompt start, oldest first, with what each was told and what the Bot
    * did: it knows its own work, so a feature leaves that out of its Change notes.

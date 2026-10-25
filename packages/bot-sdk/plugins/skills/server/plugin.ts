@@ -19,9 +19,13 @@ export function skills() {
     prompt: async (turn, { computer }) => {
       let lines: SkillLine[];
       try {
-        lines = await readBotSkills(computer.forUser(turn.userId), turn.botId);
+        lines = await readBotSkills(computer.forUser(turn.userId), turn.botId, {
+          signal: turn.signal,
+        });
       } catch {
-        // The Computer can't be woken or read: the Turn goes on without Skills.
+        // A Stop ends the Turn; otherwise the Computer can't be woken or read, and it goes on
+        // without Skills.
+        turn.signal.throwIfAborted();
         return null;
       }
       return {

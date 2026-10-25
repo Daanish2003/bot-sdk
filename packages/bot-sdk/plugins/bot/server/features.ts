@@ -82,6 +82,7 @@ async function seenSince(
 export async function featureSectionsNow(
   deps: BotSdkContext,
   turn: FeatureTurn,
+  signal: AbortSignal,
 ): Promise<FeatureSection[]> {
   const prompting = enabledFeatures(deps).filter(({ feature }) => feature.prompt);
   if (!prompting.length) return [];
@@ -91,7 +92,7 @@ export async function featureSectionsNow(
   for (const { feature, context } of prompting) {
     try {
       const read = await feature.prompt!(
-        { ...turn, built: built.get(feature.id) ?? null, told, earlier },
+        { ...turn, built: built.get(feature.id) ?? null, told, earlier, signal },
         context,
       );
       if (read) {
@@ -102,6 +103,8 @@ export async function featureSectionsNow(
         });
       }
     } catch (error) {
+      // A Stop ends the Turn; it is not the feature failing.
+      signal.throwIfAborted();
       deps.logger.error(`Feature "${feature.id}" failed to give its Prompt start section`, error);
     }
   }

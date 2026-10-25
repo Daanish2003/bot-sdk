@@ -101,7 +101,7 @@ export type LoopKit = {
   liveRequest: <T>(
     name: string,
     toolCallId: string | undefined,
-    run: () => Promise<T>,
+    run: (signal: AbortSignal) => Promise<T>,
     write: (tx: Transaction, result: T | string) => Promise<void>,
     reviewed?: Record<string, unknown>,
   ) => Promise<T | string | { error: string }>;
@@ -652,7 +652,7 @@ export async function runLoop(
       if (blocked) return blocked;
       const result = await ctx.activity(name, async () => {
         beforeLiveTool();
-        return capLong(await run(), toolCallId);
+        return capLong(await run(abortController.signal), toolCallId);
       });
       // Not past a limit or a Stop: what `run` did is written, whenever it ran.
       await ctx.activity(`${name}:write`, async (tx) => {

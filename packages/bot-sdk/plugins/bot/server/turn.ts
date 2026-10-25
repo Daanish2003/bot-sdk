@@ -1156,7 +1156,7 @@ async function turnSetup(
     ? await kit.liveRequest(
         "features",
         undefined,
-        () => featureSectionsNow(deps, facts),
+        (signal) => featureSectionsNow(deps, facts, signal),
         async () => {},
       )
     : [];
