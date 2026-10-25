@@ -26,6 +26,7 @@ import {
   type InProcessRunner,
 } from "../../../../plugins/runner/server/jobs/in-process";
 import { claimJob, reapStaleJobs } from "../../../../plugins/runner/server/jobs/store";
+import { knowledge } from "../../../../plugins/knowledge/server/plugin";
 import { createTestSdk, type TestDeps } from "../../../support/deps";
 import { createFakeAdapter, round, toolCall } from "../../../support/fake-adapter";
 import { drainJobs, fakeJobClock } from "../../../support/jobs";
@@ -60,11 +61,13 @@ async function botWith(
   {
     withComputer = true,
     withMemory = false,
+    withKnowledge = false,
     onCommand,
     clock,
   }: {
     withComputer?: boolean;
     withMemory?: boolean;
+    withKnowledge?: boolean;
     clock?: () => Date;
     onCommand?: (command: FakeCommandRun) => CommandResult | Promise<CommandResult>;
   } = {},
@@ -76,6 +79,7 @@ async function botWith(
   deps = createTestSdk({
     ...(withComputer && { computer: computerFake.provider }),
     plugins: [bot()],
+    features: withKnowledge ? [knowledge()] : [],
     jobs,
     adapterFor: () => fake.adapter,
     memory: withMemory,
@@ -1036,6 +1040,32 @@ describe("a long list result", () => {
 });
 
 describe("a rebuilt Computer", () => {
+  it("is still told in the first tool result with Knowledge on, whose prompt reads the Computer first", async () => {
+    const { client, botId, fake, computerFake, deps, user } = await botWith(
+      [
+        round(file("write", { path: "note.txt", content: "kept" })),
+        round(),
+        round(file("read", { path: "note.txt" })),
+        round(),
+      ],
+      { withKnowledge: true },
+    );
+    await send(client, botId, "take a note");
+    await getTestDb()
+      .update(computerTable)
+      .set({ lastActiveAt: new Date(Date.now() - 10 * 60_000) })
+      .where(eq(computerTable.userId, user.id));
+    await drainJobs({ deps });
+    const synced = await computerRow(user.id);
+    computerFake.lose(computerFake.callsOf("create")[0]!.sandboxId);
+
+    await send(client, botId, "read it back");
+
+    const [read] = toolResultsOf(fake.calls[3]).slice(-1);
+    const { rebuiltAt } = (await computerRow(user.id))!;
+    expect(read.note).toBe(rebuiltNote({ rebuiltAt: rebuiltAt!, restoredAsOf: synced!.syncedAt }));
+  });
+
   it("says so once, in the first tool result after the rebuild, with the files restored", async () => {
     const { client, botId, fake, computerFake, deps, user } = await botWith([
       round(file("write", { path: "note.txt", content: "kept" })),

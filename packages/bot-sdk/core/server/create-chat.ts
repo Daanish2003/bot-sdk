@@ -55,7 +55,7 @@ export type Logger = Pick<Console, "error"> & Partial<Pick<Console, "warn">>;
 
 export type GetUser = (request: Request) => ChatUser | null | Promise<ChatUser | null>;
 
-/** What the `features` slot takes: features, and until #880–#882 the plugins that become them. */
+/** What the `features` slot takes: features, and until #880 and #882 the plugins that become them. */
 export type FeatureEntry = AnyFeature | BotSdkPlugin;
 
 /** The options both shapes of the factory share. */
@@ -103,7 +103,7 @@ type SharedOptions<Features extends readonly FeatureEntry[]> = {
   isUserBlocked?: (userId: string) => boolean | Promise<boolean>;
   /**
    * The optional capabilities (spec #871): features built with `defineFeature`, each API served
-   * as `sdk.<id>`. Until #880–#882, Memory, Skills and Knowledge are plugins listed here.
+   * as `sdk.<id>`. Until #880 and #882, Memory and Skills are plugins listed here.
    */
   features?: Features;
   /** Runs the background jobs. Defaults to the in-process runner, which needs only Postgres. */
@@ -308,7 +308,7 @@ export function buildBotSdk(
 
   const apis = new Map<string, object>();
   // Building the context opens nothing: the pool and the runtime connect on first use.
-  // With the core services, until #880–#882 (see `apis` below).
+  // With the core services, until #880 and #882 (see `apis` below).
   const enabledIds = new Set([...plugins.map((plugin) => plugin.id), ...services]);
   const sdk = buildContext(options, given, ruleDefaults, enabledIds, (id) => {
     const api = apis.get(id);
@@ -319,7 +319,7 @@ export function buildBotSdk(
   const runner = createRunner(sdk, options.runner);
   sdk.runner = runner.api;
   sdk.computer = options.computer ? createComputer(sdk, options.computer) : null;
-  // Until #880–#882 move Memory, Skills and Knowledge onto the feature context, which reaches the
+  // Until #880 and #882 move Memory and Skills onto the feature context, which reaches the
   // services as `sdk.runner` and `sdk.computer`.
   apis.set("runner", sdk.runner);
   if (sdk.computer) apis.set("computer", sdk.computer);

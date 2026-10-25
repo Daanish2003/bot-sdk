@@ -1,13 +1,18 @@
 import type { AnyServerTool } from "@tanstack/ai";
-import { and, asc, eq, ne } from "drizzle-orm";
+import { and, asc, eq, ne, or } from "drizzle-orm";
 
 import { botPromptStart, botTurn } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
-import { enabledFeatures, type FeatureTurn } from "../../../core/server/feature";
+import {
+  enabledFeatures,
+  type FeaturePromptTurn,
+  type FeatureTurn,
+} from "../../../core/server/feature";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { notesIn } from "./change-notes";
 import type { LoopKit } from "./loop";
 import { latestPromptStartId } from "./prompt-start";
+import { summaryOf } from "./summary";
 import { type DecryptedSecrets, loadSecretValues, secretMasker } from "./secret-values";
 
 /*
@@ -31,28 +36,40 @@ export const takenNames = (tools: readonly AnyServerTool[]): ReadonlySet<string>
   new Set(["describe_tool", "run_tool", ...tools.map((tool) => tool.name)]);
 
 /**
- * The sections of the Bot's latest Prompt start, by name, and the Change notes the Turns since
- * (but `turnId`) were told: what the Bot has seen. Nothing before the Bot's first Prompt start.
+ * The sections of the Bot's latest Prompt start, by name, and the Turns since (but `turnId`):
+ * what the Bot has seen. Nothing before the Bot's first Prompt start.
  */
 async function seenSince(
   db: Database,
   botId: string,
   turnId: string,
-): Promise<{ sections: Map<string, string>; told: string[] }> {
+): Promise<{ sections: Map<string, string>; earlier: FeaturePromptTurn["earlier"] }> {
   const id = await latestPromptStartId(db, botId);
-  if (!id) return { sections: new Map(), told: [] };
+  if (!id) return { sections: new Map(), earlier: [] };
   const [row] = await db
     .select({ sections: botPromptStart.sections })
     .from(botPromptStart)
     .where(eq(botPromptStart.id, id));
+  // A mid-Turn Summary's Prompt start was built from what its Turn read at its start, so what the
+  // Bot saw and did in that Turn counts as seen since it too.
+  const summary = await summaryOf(db, id);
+  const mid = summary?.kind === "mid_turn" ? summary : undefined;
   const turns = await db
-    .select({ input: botTurn.input })
+    .select({ input: botTurn.input, transcript: botTurn.transcript })
     .from(botTurn)
-    .where(and(eq(botTurn.promptStartId, id), ne(botTurn.id, turnId)))
+    .where(
+      and(
+        or(eq(botTurn.promptStartId, id), mid?.turnId ? eq(botTurn.id, mid.turnId) : undefined),
+        ne(botTurn.id, turnId),
+      ),
+    )
     .orderBy(asc(botTurn.startedAt));
   return {
     sections: new Map((row?.sections ?? []).map(({ name, text }) => [name, text])),
-    told: turns.flatMap((turn) => notesIn(turn.input ?? [])),
+    earlier: turns.map((turn) => ({
+      notes: notesIn(turn.input ?? []),
+      transcript: turn.transcript ?? [],
+    })),
   };
 }
 
@@ -64,15 +81,17 @@ async function seenSince(
 export async function featureSectionsNow(
   deps: BotSdkContext,
   turn: FeatureTurn,
+  signal: AbortSignal,
 ): Promise<FeatureSection[]> {
   const prompting = enabledFeatures(deps).filter(({ feature }) => feature.prompt);
   if (!prompting.length) return [];
-  const { sections: built, told } = await seenSince(deps.db, turn.botId, turn.id);
+  const { sections: built, earlier } = await seenSince(deps.db, turn.botId, turn.id);
+  const told = earlier.flatMap((earlierTurn) => earlierTurn.notes);
   const sections: FeatureSection[] = [];
   for (const { feature, context } of prompting) {
     try {
       const read = await feature.prompt!(
-        { ...turn, built: built.get(feature.id) ?? null, told },
+        { ...turn, built: built.get(feature.id) ?? null, told, earlier, signal },
         context,
       );
       if (read) {
@@ -83,6 +102,8 @@ export async function featureSectionsNow(
         });
       }
     } catch (error) {
+      // A Stop or the time limit ends the Turn, not just the feature.
+      signal.throwIfAborted();
       deps.logger.error(`Feature "${feature.id}" failed to give its Prompt start section`, error);
     }
   }

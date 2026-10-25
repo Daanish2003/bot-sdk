@@ -56,7 +56,8 @@ async function botWith(turnRounds: ReturnType<typeof round>[]) {
   });
   deps = createTestSdk({
     computer: computerFake.provider,
-    plugins: [bot(), knowledge()],
+    plugins: [bot()],
+    features: [knowledge()],
     jobs,
     adapterFor: () => fake.adapter,
     clock,

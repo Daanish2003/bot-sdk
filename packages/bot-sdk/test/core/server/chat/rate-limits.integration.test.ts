@@ -37,10 +37,11 @@ const rpcCases = [
   },
 ];
 
-/** The Bot-only plugins that serve every route in `rpcCases`, with the Computer they need. */
+/** The Bot-only plugins and features that serve every route in `rpcCases`, with the Computer they need. */
 const botOnly = () => ({
   computer: fakeComputerProvider().provider,
-  plugins: [bot(), knowledge()],
+  plugins: [bot()],
+  features: [knowledge()],
 });
 
 /** An RPC call to `route`. The limit is checked before the body is read, so the body can be empty. */

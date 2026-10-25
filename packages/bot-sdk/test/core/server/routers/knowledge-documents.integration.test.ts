@@ -71,7 +71,7 @@ async function setup() {
   const computerFake = fakeComputerProvider();
   const deps = createTestSdk({
     computer: computerFake.provider,
-    plugins: [knowledge()],
+    features: [knowledge()],
   });
   const client = chatRpc({ user: await insertUser(), deps });
   return { computerFake, client };

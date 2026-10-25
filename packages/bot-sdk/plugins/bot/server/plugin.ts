@@ -80,9 +80,8 @@ export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
   return {
     id: "bot",
     // Softly: with memory on, a Bot has its memory (ADR 0022), with skills on, its Skills (spec #713), and
-    // with knowledge on, the user's Knowledge (spec #737), and with mcp on, its user's Connections
-    // as Connector tools (spec #801).
-    uses: ["memory", "skills", "knowledge", "mcp"],
+    // with mcp on, its user's Connections as Connector tools (spec #801).
+    uses: ["memory", "skills", "mcp"],
     init: (sdk) => {
       // A Turn replays from the history `chat.job` holds. Trigger.dev records nothing and its retry
       // starts over, which would send the Messages again (ADR 0011, the #482 amendment).
