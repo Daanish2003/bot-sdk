@@ -97,7 +97,7 @@ async function emailBot({
     mail: Parameters<typeof email.request>[0] = {},
     files?: Parameters<typeof email.request>[1],
   ) =>
-    deps!.plugin("channel").inbound(
+    deps!.channels.inbound(
       "email",
       email.request(
         {
@@ -349,7 +349,7 @@ describe("an email to a Bot's address", () => {
   it("answers 400 to a request the provider can't read, and makes nothing", async () => {
     const { deps, conversationId } = await emailBot();
 
-    const response = await deps.plugin("channel").inbound(
+    const response = await deps.channels.inbound(
       "email",
       new Request("https://host.example/api/channels/email", {
         method: "POST",
@@ -371,7 +371,7 @@ describe("an email to a Bot's address", () => {
     async (_name, fields) => {
       const { deps, conversationId } = await emailBot();
 
-      const response = await deps.plugin("channel").inbound(
+      const response = await deps.channels.inbound(
         "email",
         new Request("https://host.example/api/channels/email", {
           method: "POST",

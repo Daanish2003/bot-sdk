@@ -112,7 +112,7 @@ async function botWithRoutine({
   };
   /** Calls the webhook URL of `token` with `body` and `headers`, as an outside service would. */
   const call = (token: string, body: string = "{}", headers: Record<string, string> = {}) =>
-    deps!.plugin("bot").webhookHandler(
+    deps!.bots.webhookHandler(
       new Request(`https://bots.example/api/routines/webhook/${token}`, {
         method: "POST",
         body,

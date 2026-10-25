@@ -258,6 +258,7 @@ const reservedIds = new Set([
   "models",
   "runner",
   "channel",
+  "channels",
 ]);
 
 /** The names the SDK instance has, or must not have, which a feature's API can't take. */
@@ -273,6 +274,9 @@ const instanceKeys = new Set([
   "exportUser",
   "rotateKeys",
   "runner",
+  "models",
+  "bots",
+  "channels",
 ]);
 
 /** The core's tables, by name: a feature declares none of them. */

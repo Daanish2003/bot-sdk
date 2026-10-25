@@ -70,6 +70,8 @@ export function createChatHandler(sdk: SdkOver, options: OverOptions): ChatHandl
     models: _models,
     runner: _runner,
     computer,
+    bots: _bots,
+    channels: _channels,
     ...context
   } = sdk;
   // Its own sources: the plugins register theirs again when the new instance runs their inits.

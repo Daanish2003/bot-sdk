@@ -206,7 +206,7 @@ async function main() {
           domain: inboundDomain,
         });
         const messageId = `eval-${evalCase.id}-${repeat}-${randomUUID()}@mail.example`;
-        const response = await sdk.plugin("channel").inbound(
+        const response = await sdk.channels.inbound(
           "email",
           email.request({
             from: `Eval <${userId}@eval.invalid>`,

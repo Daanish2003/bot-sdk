@@ -166,9 +166,8 @@ export async function appendBotMessage(
     status: "complete",
     createdAt,
   });
-  if (deps.hasPlugin("channel")) {
-    await deps.plugin("channel").deliverIn(tx, { conversationId, messageId: row.id, turnId });
-  }
+  // A no-op with no email adapter in the channels slot.
+  await deps.channels.deliverIn(tx, { conversationId, messageId: row.id, turnId });
 }
 
 /** A Message row as the client sees it, with its Rich control when it has one. */
