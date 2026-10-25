@@ -21,7 +21,6 @@ import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { withCacheControl } from "../../models/server/cache-control";
 import { parseModelId } from "../../models/shared/models";
 import { defineJob, type JobContext } from "../../runner/server/jobs/define";
-import { computerOf } from "./computer-tools";
 import { pruneScreenshots, resolveImageRefs } from "./image-refs";
 import { callUsage } from "./loop";
 import { latestPromptStartId, loopPromptStart } from "./prompt-start";
@@ -143,11 +142,7 @@ async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext
   // A reply with no summary replaces nothing.
   if (!written?.prose.trim()) return;
 
-  // The Skills block as a Turn starting now reads it, for the new Prompt start.
-  const skills = await ctx.activity("skills", () =>
-    skillsNow(deps, botId, seen.userId, ctx.signal),
-  );
-  // And the features' sections (spec #871); with no feature, no activity, as before.
+  // The features' sections (spec #871); with no feature, no activity, as before.
   const facts = featureTurnOf({
     id: seen.turnId,
     userId: seen.userId,
@@ -176,7 +171,6 @@ async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext
         model: seen.model,
       },
       now,
-      skills,
       features,
     );
     const id = await writeSummary(tx, { parts, prose: written.prose, kind: "away" });
@@ -274,27 +268,4 @@ async function turnedSince(tx: Transaction, botId: string, seen: Seen): Promise<
   const newest = await newestTurn(tx, botId);
   if (newest?.id !== seen.turnId) return true;
   return (await latestPromptStartId(tx, botId)) !== seen.promptStartId;
-}
-
-/**
- * The Bot's Skills block as of now (spec #713), read through its Computer, or null without the
- * `computer` or `skills` plugin, or when it can't be read, as a Turn carries on with none.
- */
-async function skillsNow(
-  deps: BotSdkContext,
-  botId: string,
-  userId: string,
-  signal: AbortSignal,
-): Promise<string | null> {
-  if (!deps.hasPlugin("computer") || !deps.hasPlugin("skills")) return null;
-  const api = deps.plugin("skills");
-  try {
-    return api.prompt(
-      botId,
-      await api.botSkills({ botId, computer: computerOf(deps, userId), signal }),
-    );
-  } catch {
-    signal.throwIfAborted();
-    return null;
-  }
 }

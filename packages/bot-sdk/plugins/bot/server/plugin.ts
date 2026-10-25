@@ -81,9 +81,8 @@ export function bot({ reviewModel }: BotOptions = {}): BotPlugin {
     id: "bot",
     requires: ["runner"],
     // Softly: with computer on, a Turn has its tools, and a running Turn keeps the Computer awake.
-    // With skills on, a Bot has its Skills (spec #713), and
-    // with mcp on, its user's Connections as Connector tools (spec #801).
-    uses: ["computer", "skills", "mcp"],
+    // With mcp on, its user's Connections as Connector tools (spec #801).
+    uses: ["computer", "mcp"],
     init: (sdk) => {
       // A Turn replays from the history `chat.job` holds. Trigger.dev records nothing and its retry
       // starts over, which would send the Messages again (ADR 0011, the #482 amendment).

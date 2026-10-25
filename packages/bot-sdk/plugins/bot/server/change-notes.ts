@@ -4,13 +4,6 @@ import { eq } from "drizzle-orm";
 import { botPromptStart } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
 import type { Transaction } from "../../../core/server/plugin";
-import {
-  isSkillFile,
-  type SkillLine,
-  skillLineOf,
-  skillsDirectory,
-} from "../../skills/server/skills";
-import { resolvePath } from "./computer-tools";
 import type { PromptStartTool } from "./db/bot-prompt-start";
 import type { FeatureSection } from "./features";
 import { canonicalJson, firstMessageSection, listedToolNames, sha256 } from "./prompt-start";
@@ -43,12 +36,10 @@ export type EarlierTurn = {
 };
 
 /**
- * What a Turn reads now, as recorded activities: the memory block, the Skills, the Routines and the
+ * What a Turn reads now, as recorded activities: the memory block, the Routines and the
  * tools.
  */
 export type CurrentState = {
-  /** Every Skill, sorted by name, or null without the `skills` plugin or unreadable. */
-  skills: SkillLine[] | null;
   /**
    * The enabled features' sections and their Change notes (spec #871). Each feature computes its
    * notes from its section in the Prompt start and the notes told since, so they are told as given.
@@ -66,11 +57,10 @@ export type CurrentState = {
 };
 
 /**
- * What the Bot has seen: the Skills (null without a Skills block), the Knowledge, Routines and
- * tools. The features work out what the Bot has seen of their own sections.
+ * What the Bot has seen: the Routines and tools. The features work out what the Bot has seen of
+ * their own sections.
  */
 type Seen = {
-  skills: SeenSkills | null;
   routines: Map<string, string>;
   /** Each sent tool's definition hash, and each deferred one's the Bot loaded with describe_tool. */
   tools: Map<string, string>;
@@ -83,38 +73,6 @@ const waiting = "(waiting for OK)";
 /** The first eight hex digits of a tool definition's sha256: enough to tell one deploy from another. */
 export const toolHash = (tool: PromptStartTool) => sha256(canonicalJson(tool)).slice(0, 8);
 
-/**
- * The Skills a Skills block lists, each Skill's text by name. A capped block lists only the first
- * Skills by name: `listedUpTo` is then the last one it lists, and the Bot was told of none after it.
- */
-type SeenSkills = { lines: Map<string, string>; listedUpTo: string | undefined };
-
-/**
- * A Skill's `<name>: <text>`, split. A usable Skill's name has no ": ", but a broken one's is any
- * folder name, so its text is found by its `(not usable: …)` end instead.
- */
-function skillParts(entry: string): [name: string, text: string] | undefined {
-  const broken = /^(.+): (\(not usable: .*\))$/.exec(entry);
-  if (broken) return [broken[1]!, broken[2]!];
-  const at = entry.indexOf(": ");
-  return at > 0 ? [entry.slice(0, at), entry.slice(at + 2)] : undefined;
-}
-
-/** A Skills block's Skills. */
-function skillsOf(block: string): SeenSkills {
-  const lines = new Map<string, string>();
-  let capped = false;
-  for (const line of block.split("\n")) {
-    if (/^\d+ more Skills: /.test(line)) capped = true;
-    const parts = line.startsWith("- ") ? skillParts(line.slice(2)) : undefined;
-    if (parts) lines.set(...parts);
-  }
-  return { lines, listedUpTo: capped ? [...lines.keys()].at(-1) : undefined };
-}
-
-/** How long the Skills lines of one Turn's Change notes may be, as the Skills block. */
-const skillNotesLimit = 8_000;
-
 /** A Routines block's lines by Routine name. */
 function routinesOf(block: string | null | undefined): Map<string, string> {
   const routines = new Map<string, string>();
@@ -122,23 +80,6 @@ function routinesOf(block: string | null | undefined): Map<string, string> {
     routines.set(line.split("  ")[0]!, line);
   }
   return routines;
-}
-
-/**
- * The folder of the Skill in the Bot's own folder that `path` is the SKILL.md of, if any, with
- * `path` resolved as the write and edit tools resolve it.
- */
-function skillTarget(botId: string, path: string): string | undefined {
-  const resolved = resolvePath(botId, path);
-  return isSkillFile(botId, resolved)
-    ? resolved.slice(skillsDirectory(botId).length + 1).split("/")[0]
-    : undefined;
-}
-
-/** The description an `edit`'s new text sets, quotes removed. */
-function descriptionIn(text: string): string | undefined {
-  const value = /^description:[ \t]*(.+?)[ \t]*$/m.exec(text)?.[1];
-  return value === undefined ? undefined : (/^(["'])(.*)\1$/.exec(value)?.[2] ?? value);
 }
 
 /**
@@ -159,11 +100,6 @@ export function notesIn(input: ModelMessage[]): string[] {
 /** Applies the lines of an earlier Turn's Change notes to `seen`: the Bot was told them. */
 function applyNotes(seen: Seen, notes: string[]) {
   for (const note of notes) {
-    const skill = /^Skill (?:added|changed): (.*)$/.exec(note);
-    const parts = skill && skillParts(skill[1]!);
-    if (parts) seen.skills?.lines.set(...parts);
-    const removedSkill = /^Skill removed: (.*)$/.exec(note);
-    if (removedSkill) seen.skills?.lines.delete(removedSkill[1]!);
     const routine = /^Routine (?:created|approved|changed): (.*)$/.exec(note);
     if (routine) seen.routines.set(routine[1]!.split("  ")[0]!, routine[1]!);
     const deleted = /^Routine deleted: (.*)$/.exec(note);
@@ -253,12 +189,11 @@ export function successfulCalls(transcript: readonly ModelMessage[]): FeatureCal
 }
 
 /**
- * Applies the Bot's own Skill and Knowledge writes and Routine tool calls in an earlier Turn's
- * `transcript` to `seen`: it knows what it did, so it gets no note for it. Only its `write` and
- * `edit` calls count for files, not a shell command. A tool it loaded with `describe_tool` is seen as loaded, so a
- * deferred tool that changed since is noted.
+ * Applies the Bot's own Routine tool calls in an earlier Turn's `transcript` to `seen`: it knows
+ * what it did, so it gets no note for it. A tool it loaded with `describe_tool` is seen as loaded,
+ * so a deferred tool that changed since is noted.
  */
-function applyOwnCalls(botId: string, seen: Seen, transcript: ModelMessage[]) {
+function applyOwnCalls(seen: Seen, transcript: ModelMessage[]) {
   const described = new Set(
     transcript.flatMap((entry) =>
       (entry.toolCalls ?? []).flatMap((call) =>
@@ -282,23 +217,6 @@ function applyOwnCalls(botId: string, seen: Seen, transcript: ModelMessage[]) {
         seen.routines.delete(args.name);
       }
     }
-    if (toolName !== "write" && toolName !== "edit") continue;
-    const skill = typeof args.path === "string" ? skillTarget(botId, args.path) : undefined;
-    if (skill !== undefined) {
-      // The Bot knows its own Skill write. A body edit changes nothing the block lists.
-      if (!seen.skills) continue;
-      if (toolName === "write" && typeof args.content === "string") {
-        seen.skills.lines.set(skill, skillLineOf(skill, args.content).text);
-      } else if (typeof args.newText === "string") {
-        // Only an edit that replaces the description line itself changes it.
-        const description =
-          typeof args.oldText === "string" && /^description:/m.test(args.oldText)
-            ? descriptionIn(args.newText)
-            : undefined;
-        if (description !== undefined) seen.skills.lines.set(skill, description);
-      }
-      continue;
-    }
   }
 }
 
@@ -317,49 +235,19 @@ export async function changeNotesFor(
   const [start] = await db.select().from(botPromptStart).where(eq(botPromptStart.id, startId));
   if (!start) return undefined;
   const block = (name: string) => start.sections.find((section) => section.name === name)?.text;
-  const skillsBlock = block("skills");
   const seen: Seen = {
-    skills: skillsBlock === undefined ? null : skillsOf(skillsBlock),
     routines: routinesOf(block("routines")),
     tools: new Map(start.tools.map((tool) => [tool.name, toolHash(tool)])),
     listed: listedToolNames(block(firstMessageSection) ?? ""),
   };
   for (const row of earlier.filter((row) => row.promptStartId === startId)) {
     applyNotes(seen, notesIn(row.input ?? []));
-    applyOwnCalls(start.botId, seen, row.transcript ?? []);
+    applyOwnCalls(seen, row.transcript ?? []);
   }
 
   const notes: string[] = [];
   // The features' notes, as each computed them from what the Bot has seen.
   for (const { changeNotes } of current.features ?? []) notes.push(...changeNotes);
-  if (seen.skills && current.skills !== null) {
-    const { lines, listedUpTo } = seen.skills;
-    const skillNotes: string[] = [];
-    for (const { name, text } of current.skills) {
-      const before = lines.get(name);
-      // A Skill past a capped block's last line was never listed, so it is no news.
-      if (before === undefined && listedUpTo !== undefined && name > listedUpTo) continue;
-      if (before === undefined) skillNotes.push(`Skill added: ${name}: ${text}`);
-      // Only the description is in the block: a body edit needs no note, the Bot reads it fresh.
-      else if (before !== text) skillNotes.push(`Skill changed: ${name}: ${text}`);
-    }
-    const now = new Set(current.skills.map((skill) => skill.name));
-    for (const name of lines.keys()) {
-      if (!now.has(name)) skillNotes.push(`Skill removed: ${name}`);
-    }
-    // Capped like the block: the notes left out are told again next Turn, until a Summary.
-    let length = 0;
-    for (const [index, note] of skillNotes.entries()) {
-      length += note.length + 1;
-      if (length > skillNotesLimit) {
-        notes.push(
-          `Skill changes: ${skillNotes.length - index} more; list \`skills/\` to see them`,
-        );
-        break;
-      }
-      notes.push(note);
-    }
-  }
   const routines = routinesOf(current.routines);
   for (const [name, line] of routines) {
     const before = seen.routines.get(name);
