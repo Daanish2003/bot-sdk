@@ -82,7 +82,7 @@ async function fireRoutine(
   if (!owner) return null;
   // The Quota and the Ban are read before any lock is taken, so a slow read never holds up the
   // Conversation.
-  const call = await deps.plugin("models").resolveModelCall(owner.userId, owner.model);
+  const call = await deps.models.resolveModelCall(owner.userId, owner.model);
   const quotaSpent = call ? !(await call.meter.mayRun()).ok : false;
   const banned = await deps.isUserBlocked(owner.userId);
   // The Conversation's row lock first, as in every transaction that hands the Router a Trigger.

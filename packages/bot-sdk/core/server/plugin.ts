@@ -9,6 +9,7 @@ import type { Database } from "./db/index";
 import type { RateLimit } from "./rate-limits";
 import type { BotSdkRuntime } from "./runtime";
 import type { ComputerApi } from "../../plugins/computer/server/plugin";
+import type { ModelsApi } from "../../plugins/models/server/plugin";
 import type { RunnerApi } from "../../plugins/runner/server/plugin";
 
 /**
@@ -47,6 +48,11 @@ export type BotSdkContext = {
   runner: RunnerApi;
   /** Each user's Computer, on the computer slot's provider, or `null` when the slot isn't set. */
   computer: ComputerApi | null;
+  /**
+   * The core's Models (spec #871), configured by the `models` slot: who pays for a call and with
+   * which credentials, the Models a user can pick, metering and the Quota.
+   */
+  models: ModelsApi;
   /** An enabled plugin's API. Throws for a plugin that isn't enabled. */
   plugin: <Id extends keyof PluginApis>(id: Id) => PluginApis[Id];
   /** Whether the instance enabled plugin `id`, for a plugin that uses another softly, without `requires`. */

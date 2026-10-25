@@ -49,7 +49,7 @@ export async function saveSecret(
   }
   // The save always stores the Secret. It wakes the Bot only while the Bot can run, as a Check-in
   // fire does: no Turn starts on a Model the user can't use or once their Quota is spent.
-  const call = await sdk.plugin("models").resolveModelCall(userId, found.model);
+  const call = await sdk.models.resolveModelCall(userId, found.model);
   const mayWake = call ? (await call.meter.mayRun()).ok : false;
   const encrypted = encryptCredentials({ value }, secretEncryption(sdk, userId, name));
   const now = sdk.clock();

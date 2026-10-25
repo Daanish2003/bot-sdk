@@ -9,10 +9,8 @@ describe("a review's replay", () => {
     const publish = vi.fn(async () => {});
     const deps = {
       pubsub: { publish },
-      plugin: (name: string) =>
-        name === "models"
-          ? { resolveModelCall, freeModelMeter: vi.fn() }
-          : { reviewModel: undefined },
+      models: { resolveModelCall, freeModelMeter: vi.fn() },
+      plugin: () => ({ reviewModel: undefined }),
     } as unknown as BotSdkContext;
     // Every activity was recorded: a replay returns what it saved.
     const recorded: Record<string, unknown> = {

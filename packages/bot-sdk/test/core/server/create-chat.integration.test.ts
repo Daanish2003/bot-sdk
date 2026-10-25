@@ -25,6 +25,18 @@ describe("createBotSdk", () => {
     ).not.toThrow();
   });
 
+  it("sets up the core's Models before the plugins, wherever models() is listed", () => {
+    expect(() =>
+      createBotSdk({
+        databaseUrl: "postgresql://nobody:nothing@127.0.0.1:1/unreachable",
+        getUser: () => null,
+        keyEncryptionSecrets: ["test-key-encryption-secret-not-for-production"],
+        basePath,
+        plugins: [bot(), models()],
+      }),
+    ).not.toThrow();
+  });
+
   it("rejects an empty keyring", () => {
     expect(() =>
       createBotSdk({

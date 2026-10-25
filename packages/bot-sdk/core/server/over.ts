@@ -67,13 +67,14 @@ export function createChatHandler(sdk: SdkOver, options: OverOptions): ChatHandl
     plugin: _plugin,
     hasPlugin: _hasPlugin,
     rateLimit: _rateLimit,
+    models: _models,
     runner: _runner,
     computer,
     ...context
   } = sdk;
   // Its own sources: the plugins register theirs again when the new instance runs their inits.
   const models = {
-    ...sdk,
+    ...context,
     hooks: sdk.events,
     keyEncryptionSecrets: sdk.keyring,
     recentModelSources: [],

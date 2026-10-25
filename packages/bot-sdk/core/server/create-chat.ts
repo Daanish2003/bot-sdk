@@ -38,7 +38,13 @@ import { bot } from "../../plugins/bot/server/plugin";
 import { channel, type ChannelAdapter } from "../../plugins/channel/server/plugin";
 import { createComputer } from "../../plugins/computer/server/plugin";
 import type { ComputerProvider } from "../../plugins/computer/server/provider";
-import { models, type ModelsOptions, type ModelsPlugin } from "../../plugins/models/server/plugin";
+import {
+  isModelsPlugin,
+  models,
+  type ModelsApi,
+  type ModelsOptions,
+  type ModelsPlugin,
+} from "../../plugins/models/server/plugin";
 import type { JobRunner } from "../../plugins/runner/server/jobs/runner";
 import { createRunner, type RunnerApi } from "../../plugins/runner/server/plugin";
 
@@ -49,7 +55,7 @@ export type Logger = Pick<Console, "error"> & Partial<Pick<Console, "warn">>;
 
 export type GetUser = (request: Request) => ChatUser | null | Promise<ChatUser | null>;
 
-/** What the `features` slot takes: features, and until #880–#883 the plugins that become them. */
+/** What the `features` slot takes: features, and until #880–#882 the plugins that become them. */
 export type FeatureEntry = AnyFeature | BotSdkPlugin;
 
 /** The options both shapes of the factory share. */
@@ -97,7 +103,7 @@ type SharedOptions<Features extends readonly FeatureEntry[]> = {
   isUserBlocked?: (userId: string) => boolean | Promise<boolean>;
   /**
    * The optional capabilities (spec #871): features built with `defineFeature`, each API served
-   * as `sdk.<id>`. Until #880–#883, Memory, Skills, Knowledge and MCP are plugins listed here.
+   * as `sdk.<id>`. Until #880–#882, Memory, Skills and Knowledge are plugins listed here.
    */
   features?: Features;
   /** Runs the background jobs. Defaults to the in-process runner, which needs only Postgres. */
@@ -154,6 +160,8 @@ export type BotSdk = {
   runner: RunnerApi;
   /** An enabled plugin's API. Throws for a plugin that isn't enabled. */
   plugin: BotSdkContext["plugin"];
+  /** The core's Models (spec #871): metering, the Quota and the Admin views' usage reads. */
+  models: ModelsApi;
   /** Creates the `chat` schema and applies the bundled migrations. Run it at deploy time. */
   migrate: () => Promise<void>;
   /**
@@ -215,7 +223,7 @@ function exportResponse(document: UserExport) {
 
 /** The parts of the core context a test may give instead of having them built. */
 export type GivenContext = Partial<
-  Omit<BotSdkContext, "plugin" | "hasPlugin" | "rateLimit" | "runner" | "computer">
+  Omit<BotSdkContext, "plugin" | "hasPlugin" | "rateLimit" | "models" | "runner" | "computer">
 >;
 
 /**
@@ -268,7 +276,13 @@ function pluginsOf(options: BotSdkOptions): {
   // The core services the instance has: a plugin's `requires` of one is met.
   const services = new Set(["runner", ...(options.computer ? ["computer"] : [])]);
   for (const feature of features) checkFeature(feature, services);
-  return { plugins: orderPlugins(listed, services), features, services };
+  // The core's Models first, so every plugin's `init` finds `sdk.models` set.
+  const ordered = orderPlugins(listed, services);
+  return {
+    plugins: [...ordered.filter(isModelsPlugin), ...ordered.filter((p) => !isModelsPlugin(p))],
+    features,
+    services,
+  };
 }
 
 export function buildBotSdk(
@@ -294,7 +308,7 @@ export function buildBotSdk(
 
   const apis = new Map<string, object>();
   // Building the context opens nothing: the pool and the runtime connect on first use.
-  // With the core services, until #880–#883 (see `apis` below).
+  // With the core services, until #880–#882 (see `apis` below).
   const enabledIds = new Set([...plugins.map((plugin) => plugin.id), ...services]);
   const sdk = buildContext(options, given, ruleDefaults, enabledIds, (id) => {
     const api = apis.get(id);
@@ -305,7 +319,7 @@ export function buildBotSdk(
   const runner = createRunner(sdk, options.runner);
   sdk.runner = runner.api;
   sdk.computer = options.computer ? createComputer(sdk, options.computer) : null;
-  // Until #880–#883 move Memory, Skills and Knowledge onto the feature context, which reaches the
+  // Until #880–#882 move Memory, Skills and Knowledge onto the feature context, which reaches the
   // services as `sdk.runner` and `sdk.computer`.
   apis.set("runner", sdk.runner);
   if (sdk.computer) apis.set("computer", sdk.computer);
@@ -317,6 +331,7 @@ export function buildBotSdk(
     handler: createHandler(options, router, routes, sdk),
     runner: sdk.runner,
     plugin: sdk.plugin,
+    models: sdk.models,
     migrate: () =>
       migrateSchema(options.databaseUrl, {
         blobStore: options.blobs ?? options.blobStore,
@@ -418,11 +433,54 @@ function buildContext(
         throw new Error(`No enabled plugin declares the rate limit "${rule}"`);
       return rateLimitedFor(counters, limit, key);
     },
+    // Set by the Models' init, which `pluginsOf` runs before every other plugin's.
+    models: modelsUnconfigured,
     plugin: <Id extends keyof PluginApis>(id: Id) => plugin(id) as PluginApis[Id],
     // From the plugin list, so it holds already in an `init` that runs before the other plugin's.
     hasPlugin: (id) => enabledIds.has(id),
   };
 }
+
+/** Every name of the Models' API, so the unconfigured stand-in throws on those alone. */
+const modelsApiKeys: Record<keyof ModelsApi, true> = {
+  resolveModelCall: true,
+  resolveToolCall: true,
+  resolvePayer: true,
+  resolveModel: true,
+  listAvailableModels: true,
+  resolveImageModel: true,
+  imageModelSetting: true,
+  saveImageModelSetting: true,
+  resolveUserImageModel: true,
+  readQuota: true,
+  messageUsage: true,
+  loadCredentials: true,
+  adapterFor: true,
+  adapterForCall: true,
+  freeModelMeter: true,
+  addRecentModelSource: true,
+  imageAdapterFor: true,
+  imageRequestFor: true,
+  byok: true,
+  defaultImageModel: true,
+  hasHostImageModels: true,
+  usageTotals: true,
+  usage: true,
+  quota: true,
+};
+
+/**
+ * The `models` service of an instance whose plugin list has no `models()`: reading any part of
+ * its API throws. Other keys read as unset, so printing, serialising or awaiting it doesn't.
+ */
+const modelsUnconfigured = new Proxy({} as ModelsApi, {
+  get: (_target, key) => {
+    if (typeof key === "string" && key in modelsApiKeys) {
+      throw new Error("Models aren't configured: set the models slot");
+    }
+    return undefined;
+  },
+});
 
 function createHandler(
   { basePath, getUser, logger = console }: BotSdkOptions,

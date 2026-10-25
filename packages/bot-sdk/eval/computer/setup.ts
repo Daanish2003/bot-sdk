@@ -10,6 +10,7 @@ import { createHookEmitter } from "../../core/server/chat/hooks";
 import { createDb, type Database } from "../../core/server/db/index";
 import { createGuardedFetch } from "../../core/server/lib/guarded-fetch";
 import { migrate as migrateChatSchema } from "../../core/server/migrate";
+import type { FeatureEntry } from "../../core/server/create-chat";
 import type { BotSdkContext, BotSdkPlugin } from "../../core/server/plugin";
 import { resolveRateLimits } from "../../core/server/rate-limits";
 import { memoryRuntime } from "../../core/server/runtime";
@@ -63,10 +64,11 @@ export function createComputerSdk(options: {
   db: Database;
   provider: ComputerProvider;
   more?: readonly BotSdkPlugin[];
+  features?: readonly FeatureEntry[];
   models?: (real: ModelsDeps) => ModelsDeps;
   wrapFetch?: (real: typeof globalThis.fetch) => typeof globalThis.fetch;
 }) {
-  const { db, provider, more = [], models, wrapFetch } = options;
+  const { db, provider, more = [], features, models, wrapFetch } = options;
   const logger: Pick<Console, "error"> = console;
   const events = createHookEmitter(undefined, logger);
   const guarded = createGuardedFetch({ schemes: "http-and-https" });
@@ -91,6 +93,7 @@ export function createComputerSdk(options: {
       models: models ? models(real) : real,
       computer: provider,
       plugins: more,
+      features,
     },
     { basePath: "/api/chat", getUser: () => null, logger: { error: () => {} } },
   ).sdk;

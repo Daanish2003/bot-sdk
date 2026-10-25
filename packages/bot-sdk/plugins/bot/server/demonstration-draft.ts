@@ -159,7 +159,7 @@ export async function draftSkill(
   deps: BotSdkContext,
   demonstration: Drafted,
 ): Promise<{ reply: string } | { error: string }> {
-  const models = deps.plugin("models");
+  const models = deps.models;
   const call = await models.resolveModelCall(demonstration.userId, demonstration.model);
   if (!call) return { error: "the Bot's model can't be called" };
   if (!(await call.meter.mayRun()).ok) return { error: "the user's Quota is spent" };

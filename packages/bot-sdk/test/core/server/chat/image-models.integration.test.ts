@@ -44,7 +44,7 @@ describe("models.resolveUserImageModel", () => {
       .insert(modelSettings)
       .values({ userId: user.id, imageModel: "openai:gpt-image-1-mini" });
 
-    const resolved = await deps.plugin("models").resolveUserImageModel(user.id);
+    const resolved = await deps.models.resolveUserImageModel(user.id);
 
     expect(resolved).toMatchObject({
       id: "openai:gpt-image-1-mini",
@@ -61,7 +61,7 @@ describe("models.resolveUserImageModel", () => {
     });
     const user = await insertUser();
 
-    const resolved = await deps.plugin("models").resolveUserImageModel(user.id);
+    const resolved = await deps.models.resolveUserImageModel(user.id);
 
     expect(resolved).toMatchObject({
       id: "gemini:gemini-3.1-flash-image",
@@ -75,7 +75,7 @@ describe("models.resolveUserImageModel", () => {
     const deps = createTestSdk({ hostProviders });
     const user = await insertUser();
 
-    await expect(deps.plugin("models").resolveUserImageModel(user.id)).resolves.toBeNull();
+    await expect(deps.models.resolveUserImageModel(user.id)).resolves.toBeNull();
   });
 
   it("resolves to none, not the Host's default, when the user's pick has lost its credentials", async () => {
@@ -88,7 +88,7 @@ describe("models.resolveUserImageModel", () => {
       .insert(modelSettings)
       .values({ userId: user.id, imageModel: "openai:gpt-image-1-mini" });
 
-    await expect(deps.plugin("models").resolveUserImageModel(user.id)).resolves.toBeNull();
+    await expect(deps.models.resolveUserImageModel(user.id)).resolves.toBeNull();
   });
 
   it("ignores the user's own credentials when byok is off", async () => {
@@ -103,6 +103,6 @@ describe("models.resolveUserImageModel", () => {
       .insert(modelSettings)
       .values({ userId: user.id, imageModel: "openai:gpt-image-1-mini" });
 
-    await expect(deps.plugin("models").resolveUserImageModel(user.id)).resolves.toBeNull();
+    await expect(deps.models.resolveUserImageModel(user.id)).resolves.toBeNull();
   });
 });

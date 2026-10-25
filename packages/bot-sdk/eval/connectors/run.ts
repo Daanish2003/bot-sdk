@@ -110,8 +110,8 @@ async function main() {
   const sdk = createComputerSdk({
     db,
     provider: fakeComputerProvider().provider,
-    more: [
-      bot(),
+    more: [bot()],
+    features: [
       mcp({
         servers: [
           {
