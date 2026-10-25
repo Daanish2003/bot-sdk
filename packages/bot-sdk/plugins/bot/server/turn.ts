@@ -1,18 +1,16 @@
-import { type AnyServerTool, type ModelMessage, toolDefinition } from "@tanstack/ai";
-import { and, asc, desc, eq, gt, gte, isNotNull, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
+import type { ModelMessage } from "@tanstack/ai";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { appendMessage } from "../../../core/server/chat/message-tree";
-import { bot, botTrigger, botTurn, message, type MessageRow } from "../../../core/server/db/schema";
+import { bot, botTrigger, botTurn, message } from "../../../core/server/db/schema";
 import type { Database } from "../../../core/server/db/index";
 import type { BotSdkContext, Transaction } from "../../../core/server/plugin";
 import { rpcError } from "../../../core/server/rpc-error";
-import { searchTextOf } from "../../../core/shared/message-parts";
 import type { MessageUsage } from "../../models/shared/usage";
 import { defineJob, PermanentJobError } from "../../runner/server/jobs/define";
 import { loadHistory } from "../../runner/server/jobs/history";
 import { createWorkflow, type WorkflowContext } from "../../runner/server/workflow/engine";
-import { routineScheduleSchema } from "../shared/routine";
 import type { BotMessage, TurnStatus } from "../shared/turn";
 import {
   botTurnJobName,
@@ -22,159 +20,28 @@ import {
   turnStarted,
   waitingIn,
 } from "./router";
-import { type EarlierTurn, changeNotesFor } from "./change-notes";
-import { enabledFeatures, hasConnectorFeature } from "../../../core/server/feature";
-import {
-  type FeatureSection,
-  featureSectionsNow,
-  featuresDemonstrate,
-  featureTools,
-  featureTurnOf,
-  takenNames,
-} from "./features";
+import { build, type ContextTurn, newestRenderer, recordedReads } from "./context";
 import { hintChanged, recordBotChange } from "./thread-change";
-import type { PromptStartTool } from "./db/bot-prompt-start";
-import { cancelCheckInTool, pendingCheckIns, saveCheckIn } from "./check-in";
-import {
-  capText,
-  computerOf,
-  computerPrompt,
-  computerToolDefinitions,
-  spillPath,
-  spillThreshold,
-} from "./computer-tools";
 import { type TodoItem, todoList } from "./helper";
-import { helperTools } from "./helper-tools";
-import { watchUserTool } from "./demonstration";
-import { type LoopKit, type LoopResult, type LoopSetup, runLoop, seesImagesOnce } from "./loop";
-import {
-  definitionsOf,
-  loopPromptStart,
-  previousTurnCall,
-  type PromptStartParts,
-  promptStartFor,
-} from "./prompt-start";
+import { type LoopResult, runLoop, seesImagesOnce } from "./loop";
 import { closeWaitingReviews } from "./review";
-import { historyFrom, historyTurns, queueAwaySummary, summaryOf, writeSummary } from "./summary";
-import {
-  appendBotMessage,
-  controlOf,
-  controlParts,
-  findBot,
-  reactionsOf,
-  setReaction,
-  textParts,
-  toBotMessage,
-  turnTimeLimitMs,
-} from "./store";
+import { queueAwaySummary } from "./summary";
+import { findBot, textParts, toBotMessage, turnTimeLimitMs } from "./store";
 import type { BotSkillChange } from "../../skills/shared/changes";
 import { knowledgeChangesOf } from "../../knowledge/server/changes";
 import type { BotKnowledgeChange } from "../../knowledge/shared/changes";
 import { skillChangesOf } from "../../skills/server/skills";
-import { choiceOptionsSchema } from "../shared/choice";
-import { maxFilesPerMessage, type SentFile } from "../shared/files";
-import { emojiSchema } from "../shared/reaction";
-import type { RichControl } from "../shared/rich-control";
-import { secretNameSchema } from "../shared/secret";
-import {
-  botFileRef,
-  copyFilesToStorage,
-  copyUploads,
-  isInlineImage,
-  takeUploads,
-  userFilesLine,
-} from "./files";
-import {
-  createRoutineToolName,
-  deleteRoutine,
-  deleteRoutineToolName,
-  routinesPrompt,
-  saveRoutine,
-  updateRoutine,
-  updateRoutineToolName,
-} from "./routine";
-import { formatterIn, knownZone, timeNotice } from "./time-zone";
-import { checkedTool, isDirectTool, toolSearchTools } from "./tool-search";
-import { generateImageTool } from "./generate-image";
-import { webSearchTool } from "./web-search";
+import { maxFilesPerMessage } from "../shared/files";
+import { takeUploads } from "./files";
+import { forTurn } from "./tool-catalogue";
+import { sendToUserToolName } from "./tool-names";
+import { checkedTool } from "./tool-search";
 
 // Re-exported: it moved to `thread-change` so `routine` and `check-in` can use it without a cycle.
 export { hintChanged };
 
 /** The most Steps a Turn may take; one more ends it `error` with `step_limit`. */
 export const turnStepLimit = 10;
-
-/** The Bot's tool for reaching the user: the only way it does. */
-export const sendToUserToolName = "send_to_user";
-
-/** The activity that copies the files of a `send_to_user` call to storage. */
-const sendFilesActivity = "send_to_user:files";
-
-/** The Bot tool that sets a Check-in for itself, with no Approval (#540). */
-export const setCheckInToolName = "set_check_in";
-
-/** The Bot tool that cancels one of its pending Check-ins (#540). */
-export const cancelCheckInToolName = "cancel_check_in";
-
-/** The Bot tool that lists its pending Check-ins (#540). */
-export const listCheckInsToolName = "list_check_ins";
-
-const promptOpening =
-  "You are a Bot the user talks to in a messenger. The user never sees your text replies or your " +
-  `tool calls; they see only the messages you send with the ${sendToUserToolName} tool. `;
-
-/** What the Bot can't do, with no Computer. */
-const onlyToolLimits =
-  "Besides it, you have only web_search: you cannot send email or messages to anyone else, or act " +
-  "outside this chat. ";
-
-/** What the Bot can't do, with its Computer. */
-const computerLimits =
-  "Besides it, you have only web_search and your computer (below): you cannot send email or " +
-  "messages to anyone else. ";
-
-/**
- * The Bot's rules, with or without its Computer. The sentence after "say plainly that you cannot"
- * is a recorded deviation from eval tuning (#575): gpt-5.4-mini answered "I can send the summary if
- * you paste it here, but I can't message your boss directly".
- */
-const promptRules =
-  "When asked to, say plainly that you cannot, then offer what you can do. Start with the refusal " +
-  `(for example, "I can't send email"), and never offer to send anything to anyone but the user. ` +
-  `To say something, call ${sendToUserToolName}. You may call it more than once, in order. Set endTurn to ` +
-  "true on your last message, so you stop there. Anything you want the user to read goes through " +
-  "it, including a refusal (you cannot do what they asked) and a question you need answered. If " +
-  "there is nothing worth saying (the user just acknowledged, said goodbye for now, or needs no " +
-  "answer), send nothing: reply with no text and no tool call, not even to say you are staying " +
-  "quiet. Do not send a pleasantry (you're welcome, good luck, see you) in reply to one. " +
-  `When the user asks for something to happen on a schedule, save it with ${createRoutineToolName}; ` +
-  "it runs only once the user approves it, and it repeats. For a one-time reminder, or to come back to something once, at a time you choose, " +
-  `set a Check-in with ${setCheckInToolName}; it needs no approval, ${listCheckInsToolName} shows ` +
-  `the ones you have pending, and ${cancelCheckInToolName} cancels one. When a Routine run finds ` +
-  "nothing new worth telling the user, send nothing, not even to say so. When a Check-in you set " +
-  "fires, do what its note says.";
-
-/** The fixed Bot system prompt with no Computer: there are no per-Bot instructions. */
-export const botSystemPrompt = promptOpening + onlyToolLimits + promptRules;
-
-/**
- * The system prompts of a Bot's Turn. With `computer` on, the Bot's limits allow its Computer, and
- * a second prompt names its own directory and the shared one, its ladder with connectors when
- * `withConnectors` (the Host installs `mcp`); with it off, it is `botSystemPrompt`.
- */
-export function botSystemPrompts(
-  botId: string,
-  withComputer: boolean,
-  withConnectors = false,
-): string[] {
-  if (!withComputer) return [botSystemPrompt];
-  return [promptOpening + computerLimits + promptRules, computerPrompt(botId, withConnectors)];
-}
-
-/** What SendToUser returns for an empty `text`: what went wrong, and what to do instead. */
-export const emptyTextError =
-  `The message was not sent: text is empty. Call ${sendToUserToolName} again with the words the ` +
-  "user should read, or, if there is nothing worth saying, reply with no text and no tool call.";
 
 /**
  * The note a Turn adds as a user turn when a Step ends in plain text and no tool call, for one
@@ -196,174 +63,6 @@ export const undeliveredTextReminder =
 
 /** The first Checkpoint of a Turn's job, which starts the Turn (#501). */
 const startTurnActivity = "start_turn";
-
-/** The Checkpoint that stores the Turn's newest message, before its first model call. */
-const turnInputActivity = "turn_input";
-
-const sendToUserDefinition = toolDefinition({
-  name: sendToUserToolName,
-  description:
-    "Send one message to the user. This is the only way the user sees anything from you: your " +
-    "plain text replies stay private. Each call appears to the user at once as its own message, " +
-    "in the order you call it. Set endTurn to true on your last message of this turn, so the " +
-    "turn ends there; set it to false when you will send more.",
-  inputSchema: z.object({
-    text: z.string().meta({ description: "The message the user reads, as plain text." }),
-    endTurn: z.boolean().meta({
-      description: "true on your last message of this turn, false when you will send more.",
-    }),
-    secret: z
-      .object({
-        name: secretNameSchema.meta({
-          description: "The Secret's name, an environment-variable name like GITHUB_TOKEN.",
-        }),
-        why: z.string().meta({ description: "Why you need it, in a sentence the user reads." }),
-      })
-      .optional()
-      .meta({
-        description:
-          "Ask the user for a password or token. The message shows a secure field; the value goes " +
-          "straight to the server and you never see it. You are woken with 'Saved secret NAME' " +
-          "once they save it. Use it by naming it in the secrets of a shell call.",
-      }),
-    files: z
-      .array(z.string())
-      .min(1)
-      .max(maxFilesPerMessage)
-      .optional()
-      .meta({
-        description:
-          "Paths of files on your computer to send with the message, as downloads under it. They " +
-          "are copied when you send, and nothing is sent if one is missing. Not with secret.",
-      }),
-    choice: z
-      .object({
-        options: choiceOptionsSchema.meta({ description: "The options the user picks one from." }),
-        other: z.boolean().optional().meta({
-          description: "true to add an Other option where the user types their own answer.",
-        }),
-      })
-      .optional()
-      .meta({
-        description:
-          "Ask the user to pick one option; the text is the question. You are woken with " +
-          'Answered "<question>": <option> once they answer. Not with secret or files.',
-      }),
-    react: z
-      .object({
-        messageId: z.uuid().meta({ description: "The id of the user's message to react to." }),
-        emoji: emojiSchema.meta({ description: "One emoji." }),
-      })
-      .optional()
-      .meta({
-        description:
-          "Put an emoji on one of the user's messages instead of replying, such as for a thanks. " +
-          "Send no text with it: it makes no message. A second reaction to the same message " +
-          "replaces the first. Use endTurn as usual. Not with secret, files or choice.",
-      }),
-  }),
-});
-
-/** A Routine's name: a slug, unique per Bot. */
-const routineName = z
-  .string()
-  .regex(
-    /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
-    'name must be a slug: lowercase letters, digits and hyphens, like "morning-brief"',
-  )
-  .max(60, "name must be at most 60 characters");
-
-const createRoutineDefinition = toolDefinition({
-  name: createRoutineToolName,
-  description:
-    "Save a Routine: a prompt that repeats on a schedule (days of the week at a time in the user's " +
-    "time zone) or whenever an outside service calls its webhook URL, never a one-time reminder. Give exactly one of schedule or " +
-    "webhook. Use it when the user asks for something recurring, or for something to happen when " +
-    "another service sends an event. It runs only once the user approves it, and each run wakes " +
-    "you with its prompt. The user gets a webhook Routine's URL in the app; you never see it.",
-  inputSchema: z.object({
-    name: routineName.meta({
-      description: 'A short slug naming the Routine, like "morning-brief".',
-    }),
-    prompt: z
-      .string()
-      .trim()
-      .min(1, "prompt must not be empty")
-      .meta({ description: "What to do on each run, written as an instruction to yourself." }),
-    schedule: routineScheduleSchema.optional().meta({
-      description:
-        'When it runs, like { "days": ["mon", "tue", "wed", "thu", "fri"], "at": "08:00" }. ' +
-        "Leave it out for a webhook Routine.",
-    }),
-    webhook: z
-      .boolean()
-      .optional()
-      .meta({
-        description:
-          "true to run whenever its webhook URL is called, in place of a schedule. A run reads what " +
-          "the call sent after the prompt, as untrusted data.",
-      }),
-  }),
-});
-
-const updateRoutineDefinition = toolDefinition({
-  name: updateRoutineToolName,
-  description:
-    "Change the prompt or the schedule of one of your Routines, named as in your list. A change to " +
-    "a Routine the user approved sends it back for their OK: it stops running until they approve it.",
-  inputSchema: z.object({
-    name: routineName.meta({ description: "The name of the Routine to change." }),
-    prompt: z
-      .string()
-      .trim()
-      .min(1, "prompt must not be empty")
-      .optional()
-      .meta({ description: "The new prompt; leave it out to keep the current one." }),
-    schedule: routineScheduleSchema.optional().meta({
-      description: "The new schedule; leave it out to keep the current one.",
-    }),
-  }),
-});
-
-const deleteRoutineDefinition = toolDefinition({
-  name: deleteRoutineToolName,
-  description: "Delete one of your Routines, named as in your list. It never runs again.",
-  inputSchema: z.object({
-    name: routineName.meta({ description: "The name of the Routine to delete." }),
-  }),
-});
-
-const setCheckInDefinition = toolDefinition({
-  name: setCheckInToolName,
-  description:
-    "Set a Check-in: a one-time reminder or wake-up at a moment you choose, with a note to your future self. It needs no approval " +
-    "and fires once. Use it for a reminder (remind me on Friday), or to follow up later, like checking on Thursday whether someone replied. " +
-    "Anything that repeats is a Routine instead.",
-  inputSchema: z.object({
-    at: z.iso
-      .datetime({ offset: true, message: "at must be an ISO 8601 time with an offset" })
-      .meta({
-        description:
-          'When to wake, with an explicit offset, like "2026-10-22T09:00:00+01:00". At least a minute from now.',
-      }),
-    note: z.string().trim().min(1, "note must not be empty").meta({
-      description: "What you will want to remember when you wake, as a note to yourself.",
-    }),
-  }),
-});
-
-const cancelCheckInDefinition = toolDefinition({
-  name: cancelCheckInToolName,
-  description:
-    "Cancel one of your pending Check-ins, by the id list_check_ins or set_check_in gave.",
-  inputSchema: z.object({ id: z.uuid().meta({ description: "The Check-in id." }) }),
-});
-
-const listCheckInsDefinition = toolDefinition({
-  name: listCheckInsToolName,
-  description: "List your pending Check-ins, soonest first, so you do not set the same one twice.",
-  inputSchema: z.object({}),
-});
 
 /** The runner job of one Turn, keyed by the Turn's id (ADR 0011, the #482 amendment). */
 export const botTurnJob = defineJob({
@@ -582,15 +281,7 @@ export async function cancelTurn(
 type PlayedTurn = Pick<LoopResult, "transcript" | "usage"> & { lastInput?: number };
 
 /** What a Turn's job reads once per attempt: facts set when the Turn was created. */
-type TurnFacts = {
-  id: string;
-  botId: string;
-  userId: string;
-  conversationId: string;
-  model: string;
-  startedAt: Date;
-  jobId: string | null;
-};
+type TurnFacts = ContextTurn & { jobId: string | null };
 
 async function turnFacts(
   db: Database | Transaction,
@@ -813,199 +504,6 @@ async function endTurn(
   if (ended) await recordBotChange(tx, ended, "turn", turnId, ending.endedAt);
 }
 
-const sinceTime: Intl.DateTimeFormatOptions = {
-  hour: "2-digit",
-  minute: "2-digit",
-  hourCycle: "h23",
-};
-
-/**
- * The Bot's to-do list (#567), after the time notice: one line per running or waiting Helper,
- * `<id> · General · running: <gist> · since 10:42`, the time in the user's zone. A Helper waiting
- * on a hand-off reads `waiting for the user: <reason> · task: <gist>`.
- */
-function todoNotice(todo: TodoItem[], stored: string | undefined): string {
-  const since = formatterIn(knownZone(stored), sinceTime);
-  const lines = todo.map((item) => {
-    const kind = item.type === "general" ? "General" : "Computer-use";
-    const state = item.status === "waiting" ? "waiting for the user" : "running";
-    const doing = item.reason === undefined ? item.gist : `${item.reason} · task: ${item.gist}`;
-    return `${item.id} · ${kind} · ${state}: ${doing} · since ${since.format(new Date(item.startedAt))}`;
-  });
-  return ["[Your to-do list: the Helpers still working or waiting for the user]", ...lines].join(
-    "\n",
-  );
-}
-
-/**
- * When the Bot's last Turn before `turn` that took its input started: the last one that stored its
- * input, or one from before Turns stored it (a transcript and no input), whose Messages are not
- * rendered again. `undefined` for the Bot's first Turn.
- */
-async function lastInputAt(db: Database | Transaction, turn: TurnFacts): Promise<Date | undefined> {
-  const [row] = await db
-    .select({ startedAt: botTurn.startedAt })
-    .from(botTurn)
-    .where(
-      and(
-        eq(botTurn.botId, turn.botId),
-        lt(botTurn.startedAt, turn.startedAt),
-        // A Turn stores its input before its first model call, so one with a transcript and no
-        // input is from before inputs were stored. One that never ran (stopped while queued, or
-        // failed before its first call) has neither, and what it took is still new.
-        or(isNotNull(botTurn.input), sql`jsonb_array_length(${botTurn.transcript}) > 0`),
-      ),
-    )
-    .orderBy(desc(botTurn.startedAt), desc(botTurn.id))
-    .limit(1);
-  return row?.startedAt;
-}
-
-/**
- * The Turn's newest message, rendered once: what arrived since `since`, the start of the last Turn
- * that stored its input, in order. Each user Message is a user turn, and each Trigger with no Message (such as a Routine's
- * fire) an input turn of its text, through `cutTrigger`, which cuts a long one once (#668). The
- * newest opens with the time in the newest user Message's zone, as of the Turn's start, then the
- * Change notes (#671), then the to-do list as the Turn's start Checkpoint recorded it. Only what came before the Turn counts, so
- * every attempt reads the same.
- */
-async function newestInput(
-  db: Database | Transaction,
-  turn: TurnFacts,
-  since: Date | undefined,
-  todo: TodoItem[] | null,
-  changeNotes: string | undefined,
-  cutTrigger: (id: string, text: string) => Promise<string>,
-  userFiles: {
-    /** Copies the files onto the Computer: each one's path there, in order, or null. */
-    place: (files: SentFile[]) => Promise<(string | null)[]>;
-    /** Whether the Bot's Model sees images. */
-    canSee: () => Promise<boolean>;
-  },
-): Promise<ModelMessage[]> {
-  const beforeTurn = and(
-    eq(message.conversationId, turn.conversationId),
-    eq(message.role, "user"),
-    lt(message.createdAt, turn.startedAt),
-  );
-  const [users, woken, [newestUser], reacted] = await Promise.all([
-    db
-      .select({ id: message.id, parts: message.parts, createdAt: message.createdAt })
-      .from(message)
-      .where(and(beforeTurn, since && gte(message.createdAt, since)))
-      .orderBy(asc(message.createdAt), asc(message.id)),
-    // The Triggers that carry no Message (a Routine's fire, #539), taken and received by the time
-    // this Turn started: never one taken later. A Turn's input holds the ones taken and received by
-    // its start, so one a Stop handed to it later goes to the next Turn, once.
-    db
-      .select({ id: botTrigger.id, text: botTrigger.text, receivedAt: botTrigger.receivedAt })
-      .from(botTrigger)
-      .innerJoin(botTurn, eq(botTurn.id, botTrigger.turnId))
-      .where(
-        and(
-          eq(botTrigger.conversationId, turn.conversationId),
-          // A user Trigger without a Message is a saved Secret: its text wakes the Bot (spec #691).
-          or(ne(botTrigger.source, "user"), isNull(botTrigger.messageId)),
-          isNotNull(botTrigger.text),
-          lte(botTurn.startedAt, turn.startedAt),
-          lte(botTrigger.receivedAt, turn.startedAt),
-          since && or(gt(botTurn.startedAt, since), gt(botTrigger.receivedAt, since)),
-        ),
-      )
-      .orderBy(asc(botTrigger.receivedAt), asc(botTrigger.id)),
-    db
-      .select({ parts: message.parts })
-      .from(message)
-      .where(beforeTurn)
-      .orderBy(desc(message.createdAt), desc(message.id))
-      .limit(1),
-    // The user's emojis on the Bot's Messages since the last Turn began (spec #761). They wake
-    // nothing, so this is the only way the Bot hears of them.
-    db
-      .select({ parts: message.parts })
-      .from(message)
-      .where(
-        and(
-          eq(message.conversationId, turn.conversationId),
-          eq(message.role, "assistant"),
-          sql`(${message.parts}->'reactions'->'user'->>'at')::timestamptz <= ${turn.startedAt.toISOString()}::timestamptz`,
-          since &&
-            sql`(${message.parts}->'reactions'->'user'->>'at')::timestamptz > ${since.toISOString()}::timestamptz`,
-        ),
-      )
-      .orderBy(asc(message.createdAt), asc(message.id)),
-  ]);
-  // The user's files (spec #801), copied onto the Computer once, in one activity: each Message
-  // names its files' paths, and a Model that can see gets its images inline too.
-  const sent = users.map((row) => controlOf(row.parts, "files")?.files ?? []);
-  const allFiles = sent.flat();
-  const placed = allFiles.length ? await userFiles.place(allFiles) : [];
-  const pathOf = new Map(allFiles.map((file, index) => [file.id, placed[index] ?? null]));
-  const canSee = allFiles.some(isInlineImage) && (await userFiles.canSee());
-  const inputs: { at: number; content: string; messageId?: string; images?: SentFile[] }[] =
-    users.map((row, index) => {
-      const files = sent[index]!;
-      const text = searchTextOf(row.parts);
-      if (files.length === 0)
-        return { at: row.createdAt.getTime(), content: text, messageId: row.id };
-      const line = userFilesLine(files.map((file) => ({ ...file, path: pathOf.get(file.id)! })));
-      return {
-        at: row.createdAt.getTime(),
-        content: text ? `${text}\n\n${line}` : line,
-        messageId: row.id,
-        images: canSee ? files.filter(isInlineImage) : [],
-      };
-    });
-  // One at a time: each long one is an activity, in a stable order.
-  for (const row of woken) {
-    inputs.push({ at: row.receivedAt.getTime(), content: await cutTrigger(row.id, row.text!) });
-  }
-  // A stable sort keeps a user Message before a Trigger received at the same time.
-  inputs.sort((a, b) => a.at - b.at);
-  const newest = inputs.at(-1);
-  if (newest) {
-    const zone = newestUser?.parts.timeZone;
-    // The Change notes share the time's block, which holds no user text: only there are they read
-    // back as told (`notesIn`).
-    const time = timeNotice(turn.startedAt, zone);
-    const notices = [
-      changeNotes ? `${time}\n${changeNotes}` : time,
-      ...(newest.messageId ? [`[The user's message id, to react to it: ${newest.messageId}]`] : []),
-      ...(reacted.length ? [reactionNotice(reacted)] : []),
-      ...(todo?.length ? [todoNotice(todo, zone)] : []),
-    ];
-    newest.content = `${notices.join("\n\n")}\n\n${newest.content}`;
-  }
-  // One input turn each, never a user Message: a Trigger's text opens with what woke the Bot.
-  return inputs.map(({ content, images }) => ({
-    role: "user",
-    // The images go as refs, which the loop reads from the blob store when it calls the Model.
-    content: images?.length
-      ? [
-          { type: "text", content },
-          ...images.map((file) => ({
-            type: "image" as const,
-            source: {
-              type: "url" as const,
-              value: `${botFileRef}${file.id}`,
-              mimeType: file.mediaType,
-            },
-          })),
-        ]
-      : content,
-  }));
-}
-
-/** The user's new emojis on the Bot's Messages, one line each, the Message quoted. */
-function reactionNotice(rows: { parts: MessageRow["parts"] }[]): string {
-  const lines = rows.map((row) => {
-    const quote = searchTextOf(row.parts).replace(/\s+/g, " ").trim();
-    const cut = quote.length > 80 ? `${quote.slice(0, 80)}...` : quote;
-    return `${reactionsOf(row.parts)?.user?.emoji} on your message "${cut}"`;
-  });
-  return ["[The user reacted since your last turn]", ...lines].join("\n");
-}
-
 /**
  * The Turn's loop (slide 2), run through `runLoop`: SendToUser, the Routine and Check-in tools and,
  * whenever the computer slot is set, the Computer's tools and `start_helper`. A SendToUser's Message commits with its
@@ -1026,52 +524,11 @@ async function playTurn(
     todo,
   }: { attempt?: AbortSignal; db?: Database | Transaction; todo: TodoItem[] | null },
 ): Promise<LoopResult> {
-  // A long Trigger of this Turn is cut once, in an activity: the full text goes to the Computer,
-  // and a replay reads the recorded cut text without waking it.
-  const cutTrigger = (id: string, text: string) =>
-    text.length <= spillThreshold
-      ? Promise.resolve(text)
-      : ctx.activity(
-          "trigger_text",
-          async () => {
-            const computer = deps.computer ? computerOf(deps, turn.userId) : undefined;
-            return capText(
-              text,
-              spillPath(turn.botId, id),
-              computer && ((path, content) => computer.writeFile(path, content)),
-            );
-          },
-          { yields: false },
-        );
-  // History is each earlier Turn's stored input, then its transcript, from the Prompt start's
-  // Summary on (`turnSetup`): nothing is rendered again, so its bytes never change. What an earlier
-  // Turn sent is in its input; only what came after the last such Turn started is new.
-  const since = await lastInputAt(db, turn);
+  // Asked once for the newest message and the loop's model calls.
+  const canSee = seesImagesOnce(deps, turn);
   // The newest message holds the Change notes, which are read in the loop's setup: it is rendered
-  // there, once the Turn's Prompt start is chosen. Stored before the first model call, so a
-  // stopped or interrupted Turn keeps what it sent, and a replay reads the recorded input.
-  // The user's files are copied onto the Computer in their own Checkpoint, so a replay doesn't copy
-  // them again and reads the recorded paths.
-  const userFiles = {
-    place: (files: SentFile[]) =>
-      ctx.activity(
-        "user_files",
-        async () =>
-          deps.computer
-            ? copyUploads(deps, computerOf(deps, turn.userId), turn.botId, files, attempt)
-            : files.map(() => null),
-        { yields: false },
-      ),
-    // Asked once for the newest message and the loop's model calls.
-    canSee: seesImagesOnce(deps, turn),
-  };
-  const renderNewest = async (changeNotes: string | undefined) => {
-    const rendered = await newestInput(db, turn, since, todo, changeNotes, cutTrigger, userFiles);
-    return ctx.activity(turnInputActivity, async (tx) => {
-      await tx.update(botTurn).set({ input: rendered }).where(eq(botTurn.id, turn.id));
-      return rendered;
-    });
-  };
+  // there, once the Turn's Prompt start is chosen.
+  const newest = await newestRenderer(deps, turn, ctx, { db, todo, attempt, canSee });
   // The features' tools' clients (the Connector tools') stay open for the Turn's loop, and close when it ends.
   const connections = new AbortController();
   try {
@@ -1086,387 +543,37 @@ async function playTurn(
       timeLimitMs: turnTimeLimitMs,
       plainTextReminder: undeliveredTextReminder,
       attempt,
-      seesImages: userFiles.canSee,
+      seesImages: canSee,
       // Each shell call of the Turn gets Auto-review before it runs (spec #691).
       review: { turnId: turn.id, conversationId: turn.conversationId },
-      setup: (kit) =>
-        turnSetup(deps, turn, kit, db, renderNewest, {
-          signal: connections.signal,
-          record: (featureId, list) => ctx.activity(`${featureId}:tools`, list),
-          computerCall: kit.computerCall,
-        }),
+      setup: async (kit) => {
+        // The Turn's context and its tool catalogue, read once as it starts (spec #871).
+        const context = await build(deps, turn, {
+          ...recordedReads(deps, turn, kit),
+          tools: (sections) =>
+            forTurn(deps, turn, {
+              kit,
+              sections,
+              signal: connections.signal,
+              record: (featureId, list) => ctx.activity(`${featureId}:tools`, list),
+            }),
+        });
+        const start = await context.start(kit, { db, newest });
+        const { tools, searchTools, ended } = context.tools;
+        return {
+          promptStart: start.promptStart,
+          history: start.history,
+          summarize: start.summarize,
+          tools: [...[...tools, ...searchTools].map(checkedTool), ...start.retired],
+          ended,
+          newest: start.newest,
+        };
+      },
     });
   } finally {
     connections.abort();
   }
 }
-
-/**
- * The Turn's tools and its Prompt start, given the loop's `kit`: the Bot's latest, or the one its
- * first Turn builds from the system blocks and tools as they are now. Memory and Routines are still
- * read every Turn (ADR 0022, amended), but the Prompt start keeps them as they were when it was
- * built. History is the earlier Turns from its Summary on, the only ones read. A Summary written mid-Turn builds the
- * next Prompt start from the tools and the system blocks as this Turn read them at its start.
- * `db` reads the stored Prompt start.
- */
-async function turnSetup(
-  deps: BotSdkContext,
-  turn: TurnFacts,
-  kit: LoopKit,
-  db: Database | Transaction,
-  renderNewest: (changeNotes: string | undefined) => Promise<ModelMessage[]>,
-  connections: {
-    signal: AbortSignal;
-    record: <T>(featureId: string, list: () => Promise<T>) => Promise<T>;
-    computerCall: LoopKit["computerCall"];
-  },
-): Promise<LoopSetup> {
-  let endTurn = false;
-  // The Bot's Routines as the Turn starts, read once: a replay reads the recorded list.
-  const routines = await kit.liveActivity(
-    "routines",
-    undefined,
-    async (tx) => (await routinesPrompt(tx, turn.botId)) ?? null,
-  );
-  // The Computer's tools and Helpers, whenever the computer slot is set: the tool set never changes
-  // mid-conversation.
-  const withComputer = Boolean(deps.computer);
-  const facts = featureTurnOf(turn);
-  // The features' sections and Change notes (spec #871), read once: a replay reads the recorded
-  // ones. With no feature, there is no activity, so the histories of Turns without one don't change.
-  const read = enabledFeatures(deps).length
-    ? await kit.liveRequest(
-        "features",
-        undefined,
-        () => featureSectionsNow(deps, facts, turn.startedAt, kit.signal),
-        async () => {},
-      )
-    : [];
-  const features = Array.isArray(read) ? read : [];
-  const coreTools = turnTools(deps, turn, kit, {
-    withComputer,
-    onLastMessage: () => {
-      endTurn = true;
-    },
-  });
-  // The features' tools, never shadowing the core's, listed once as the Turn starts: nothing is
-  // kept from an earlier Turn.
-  const fromFeatures = await featureTools(deps, facts, kit.liveRequest, takenNames(coreTools), {
-    ...connections,
-    sections: features,
-  });
-  const tools = [...coreTools, ...fromFeatures.tools];
-  // `describe_tool` and `run_tool`, which reach the tools the Prompt start lists by name only. A
-  // Connector tool whose Connection listed nothing this Turn is still answered, with its error.
-  const searchTools = toolSearchTools(tools, fromFeatures.missing);
-  /** What a Prompt start is built from now: by the Bot's first Turn, or by a Summary. */
-  const parts = (): PromptStartParts =>
-    startParts(turn, deps.clock(), {
-      tools,
-      withComputer,
-      withConnectors: hasConnectorFeature(deps),
-      features,
-      routines,
-    });
-  // Recorded, so a replay sends the row its attempt chose.
-  const { id } = await kit.liveActivity("prompt_start", undefined, async (tx) => ({
-    id: await promptStartFor(tx, parts()),
-  }));
-  const promptStart = await loopPromptStart(db, id, () => previousTurnCall(deps.db, turn));
-  const summary = await summaryOf(db, id);
-  const earlier = await historyTurns(db, turn.botId, summary, turn.startedAt);
-  // A mid-Turn Summary's Prompt start was built from what its Turn read at its start, so what the
-  // Bot saw and did in that Turn counts as seen since it too.
-  const seenSince: EarlierTurn[] = earlier.map((row) =>
-    summary?.kind === "mid_turn" && row.id === summary.turnId ? { ...row, promptStartId: id } : row,
-  );
-  // What changed since the Prompt start, from what this Turn read: the features' sections and the
-  // Routines as recorded above, and the live tools.
-  const changeNotes = await changeNotesFor(db, id, seenSince, {
-    features,
-    routines: routines ?? null,
-    tools: definitionsOf(tools),
-    connectors: fromFeatures.connectorNames,
-  });
-  // A tool a deploy removed stays defined, as the Prompt start sends it, and says it is gone.
-  const known = new Set([...tools, ...searchTools].map((tool) => tool.name));
-  const retired = promptStart.tools.filter((tool) => !known.has(tool.name)).map(retiredTool);
-  return {
-    promptStart,
-    history: historyFrom(earlier, summary),
-    summarize: {
-      write: (tx, prose) => writeSummary(tx, { parts: parts(), prose, kind: "mid_turn" }),
-      load: (summarized) => loopPromptStart(db, summarized, async () => undefined),
-    },
-    tools: [...[...tools, ...searchTools].map(checkedTool), ...retired],
-    ended: () => endTurn,
-    newest: await renderNewest(changeNotes),
-  };
-}
-
-/**
- * The Bot's tools for a Turn, run through the loop's `kit`: SendToUser, the Routine and Check-in
- * tools, web search, and with `withComputer` the
- * Computer's tools and the Helper tools, and `watch_user` too with a feature Demonstrations teach. `onLastMessage` runs when SendToUser sends the Turn's last
- * Message.
- */
-function turnTools(
-  deps: BotSdkContext,
-  turn: TurnFacts,
-  kit: LoopKit,
-  { withComputer, onLastMessage }: { withComputer: boolean; onLastMessage: () => void },
-): AnyServerTool[] {
-  const { liveActivity } = kit;
-  const sendToUser = sendToUserDefinition.server(
-    async ({ text, endTurn: last, secret, files, choice, react }, context) => {
-      if (react) {
-        if (secret || files || choice || text.trim())
-          return { error: "A reaction is sent alone, with no text, secret, files or choice." };
-        const reacted = await liveActivity(sendToUserToolName, context?.toolCallId, async (tx) => {
-          await lockConversation(tx, turn.conversationId);
-          const [target] = await tx
-            .select({ id: message.id })
-            .from(message)
-            .where(
-              and(
-                eq(message.id, react.messageId),
-                eq(message.conversationId, turn.conversationId),
-                eq(message.role, "user"),
-              ),
-            );
-          if (!target) return { error: "No message of the user has that id." };
-          const now = deps.clock();
-          await setReaction(tx, target.id, "bot", react.emoji, now);
-          await recordBotChange(
-            tx,
-            { conversationId: turn.conversationId },
-            "message",
-            target.id,
-            now,
-          );
-          return { reacted: true };
-        });
-        if ("reacted" in reacted) {
-          if (last) onLastMessage();
-          await hintChanged(deps, turn.conversationId);
-        }
-        return reacted;
-      }
-      if ([secret, files, choice].filter(Boolean).length > 1)
-        return { error: "A message carries one control: send the secret, files and choice apart." };
-      // Copied to storage before the Message, so a missing path sends nothing. The copy is its own
-      // Checkpoint, so a crash after it doesn't copy again.
-      let control: RichControl | undefined =
-        (secret && { kind: "secret", ...secret }) ||
-        (choice && { kind: "choice", options: choice.options, other: choice.other ?? false });
-      if (files && text.trim()) {
-        if (!withComputer) return { error: "You have no computer, so you cannot send files." };
-        const copied = await kit.computerCall(
-          sendFilesActivity,
-          context?.toolCallId,
-          (computer, live) => copyFilesToStorage(deps, computer, turn.botId, files, live),
-          { capped: false },
-        );
-        if ("error" in copied) return copied;
-        control = { kind: "files", files: copied.files };
-      }
-      // The Message commits with its Checkpoint, so it is sent once across a crash.
-      const result = await liveActivity(sendToUserToolName, context?.toolCallId, async (tx) => {
-        if (!text.trim()) return { error: emptyTextError };
-        await appendBotMessage(deps, tx, turn.conversationId, {
-          parts: control ? controlParts(text, control) : textParts(text),
-          createdAt: deps.clock(),
-          turnId: turn.id,
-        });
-        return { sent: true };
-      });
-      if ("sent" in result) {
-        if (last) onLastMessage();
-        await hintChanged(deps, turn.conversationId);
-      }
-      return result;
-    },
-  );
-
-  // The Turn carries on once the Routine is saved: the Approval is the Routine's, not the call's.
-  const createRoutine = createRoutineDefinition.server(async (input, context) =>
-    liveActivity(createRoutineToolName, context?.toolCallId, (tx) =>
-      saveRoutine(deps, tx, {
-        ...input,
-        botId: turn.botId,
-        conversationId: turn.conversationId,
-        turnId: turn.id,
-        now: deps.clock(),
-      }),
-    ),
-  );
-
-  const updateRoutineTool = updateRoutineDefinition.server(async (input, context) =>
-    liveActivity(updateRoutineToolName, context?.toolCallId, (tx) =>
-      updateRoutine(deps, tx, {
-        ...input,
-        botId: turn.botId,
-        conversationId: turn.conversationId,
-        turnId: turn.id,
-        now: deps.clock(),
-      }),
-    ),
-  );
-
-  const deleteRoutineTool = deleteRoutineDefinition.server(async (input, context) =>
-    liveActivity(deleteRoutineToolName, context?.toolCallId, (tx) =>
-      deleteRoutine(deps, tx, {
-        ...input,
-        botId: turn.botId,
-        conversationId: turn.conversationId,
-      }),
-    ),
-  );
-
-  const setCheckInTool = setCheckInDefinition.server(async ({ at, note }, context) =>
-    liveActivity(setCheckInToolName, context?.toolCallId, (tx) =>
-      saveCheckIn(deps, tx, {
-        botId: turn.botId,
-        conversationId: turn.conversationId,
-        turnId: turn.id,
-        at: new Date(at),
-        note,
-        now: deps.clock(),
-      }),
-    ),
-  );
-
-  const cancelCheckInToolImpl = cancelCheckInDefinition.server(async ({ id }, context) =>
-    liveActivity(cancelCheckInToolName, context?.toolCallId, (tx) =>
-      cancelCheckInTool(deps, tx, { botId: turn.botId, conversationId: turn.conversationId, id }),
-    ),
-  );
-
-  const listCheckInsTool = listCheckInsDefinition.server(async (_input, context) =>
-    liveActivity(listCheckInsToolName, context?.toolCallId, async (tx) => ({
-      checkIns: await pendingCheckIns(tx, turn.botId),
-    })),
-  );
-
-  return [
-    sendToUser,
-    createRoutine,
-    updateRoutineTool,
-    deleteRoutineTool,
-    setCheckInTool,
-    cancelCheckInToolImpl,
-    listCheckInsTool,
-    webSearchTool(deps, turn.userId, kit.liveRequest),
-    ...(withComputer ? [...kit.computerTools, ...helperTools(deps, turn, liveActivity)] : []),
-    // Deferred, and listed on two Host settings, so the tool list never changes (spec #801).
-    ...(withComputer && deps.models.hasHostImageModels
-      ? [generateImageTool(deps, turn, kit.liveRequest)]
-      : []),
-    // A Demonstration teaches a Skill, so it comes with a feature that says so (spec #713).
-    ...(withComputer && featuresDemonstrate(deps) ? [watchUserTool(deps, turn, kit)] : []),
-  ];
-}
-
-/**
- * What a Prompt start built at `now` holds: the system blocks in their fixed order, and of every
- * tool the code has now (`tools`), the direct ones and `describe_tool` and `run_tool`; the rest are
- * listed by name in its first message and reached through those two.
- */
-function startParts(
-  turn: PromptStartParts["turn"],
-  now: Date,
-  {
-    tools,
-    withComputer,
-    withConnectors,
-    features,
-    routines,
-  }: {
-    tools: AnyServerTool[];
-    withComputer: boolean;
-    /** Whether the Host installs `mcp`, which puts connectors in the ladder. */
-    withConnectors: boolean;
-    /** The enabled features' sections, each named by its feature's id (spec #871). */
-    features: FeatureSection[];
-    routines: string | null;
-  },
-): PromptStartParts {
-  const [rules, computerBlock] = botSystemPrompts(turn.botId, withComputer, withConnectors);
-  return {
-    turn,
-    now,
-    system: [
-      { name: "rules", text: rules! },
-      ...(computerBlock ? [{ name: "computer", text: computerBlock }] : []),
-      ...features.flatMap(({ name, section }) => (section ? [{ name, text: section }] : [])),
-      ...(routines ? [{ name: "routines", text: routines }] : []),
-    ],
-    tools: [...tools.filter(isDirectTool), ...toolSearchTools(tools)],
-    deferred: definitionsOf(tools.filter((tool) => !isDirectTool(tool))),
-    computer: withComputer,
-    features: features.flatMap(({ environment }) =>
-      environment === undefined ? [] : [environment],
-    ),
-  };
-}
-
-/** Stands in for a tool built only for its definition, which is never called. */
-const definitionOnly = (): never => {
-  throw new Error("A tool built only for its definition was called");
-};
-
-/**
- * What a Summary written while the user is away builds its Prompt start from, at `now`: the Bot's
- * tools and system blocks as a Turn starting now reads them, the Routines read in `tx`,
- * `turn`
- * is the Bot's newest Turn, which the Summary follows.
- */
-export async function awayStartParts(
-  deps: BotSdkContext,
-  tx: Transaction,
-  turn: Omit<TurnFacts, "startedAt" | "jobId">,
-  now: Date,
-  features: FeatureSection[],
-): Promise<PromptStartParts> {
-  const withComputer = Boolean(deps.computer);
-  const kit: LoopKit = {
-    liveActivity: definitionOnly,
-    liveRequest: definitionOnly,
-    computerCall: definitionOnly,
-    signal: new AbortController().signal,
-    computerTools: computerToolDefinitions.map((definition) => definition.server(definitionOnly)),
-  };
-  const facts: TurnFacts = { ...turn, startedAt: now, jobId: null };
-  const ownTools = turnTools(deps, facts, kit, {
-    withComputer,
-    onLastMessage: definitionOnly,
-  });
-  const tools = [
-    ...ownTools,
-    ...(await featureTools(deps, featureTurnOf(facts), definitionOnly, takenNames(ownTools))).tools,
-  ];
-  const routines = (await routinesPrompt(tx, turn.botId)) ?? null;
-  // The Connector tools are listed by a Turn, never here: the next Turn notes them as added.
-  return startParts(facts, now, {
-    tools,
-    withComputer,
-    withConnectors: hasConnectorFeature(deps),
-    features,
-    routines,
-  });
-}
-
-/** A tool the Prompt start sent that the code no longer has: it answers that it is gone. */
-const retiredTool = (stored: PromptStartTool) =>
-  toolDefinition({
-    name: stored.name,
-    description: stored.description,
-    inputSchema: z.object({}).passthrough(),
-  }).server(async () => ({
-    error:
-      `${stored.name} is no longer available (a deploy removed it, or the feature behind it is ` +
-      "off). Don't call it again; use another tool for the job, or tell the user it can't be done.",
-  }));
 
 /** How a Turn ended, and why when it failed: a limit's code or the Provider's error. */
 function endingOf({

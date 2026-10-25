@@ -14,7 +14,7 @@ import type { Database } from "../../core/server/db/index";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
 import type { SdkOver } from "../../core/server/over";
 import { createBot, findBot, textParts } from "../../plugins/bot/server/store";
-import { sendToUserToolName } from "../../plugins/bot/server/turn";
+import { sendToUserToolName } from "../../plugins/bot/server/tool-names";
 import { saveCredentials } from "../../plugins/models/server/credentials/store";
 import type { Credentials } from "../../plugins/models/server/types";
 import type { TurnCase } from "./cases";

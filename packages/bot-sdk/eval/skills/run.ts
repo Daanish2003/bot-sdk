@@ -21,7 +21,7 @@ import { computerOf } from "../../plugins/bot/server/computer-tools";
 import { lockConversation, receive } from "../../plugins/bot/server/router";
 import { routineSnapshot, webhookPayloadLabel } from "../../plugins/bot/server/routine";
 import { defaultTimeZone } from "../../plugins/bot/server/time-zone";
-import { sendToUserToolName } from "../../plugins/bot/server/turn";
+import { sendToUserToolName } from "../../plugins/bot/server/tool-names";
 import { skills } from "../../plugins/skills/server/plugin";
 import { skillsDirectory } from "../../plugins/skills/server/skills";
 import { runnerJobs } from "../../plugins/runner/server/plugin";

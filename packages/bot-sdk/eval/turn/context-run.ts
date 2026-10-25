@@ -31,7 +31,7 @@ import {
   summarizeAwayJobName,
 } from "../../plugins/bot/server/summary";
 import { defaultTimeZone } from "../../plugins/bot/server/time-zone";
-import { sendToUserToolName } from "../../plugins/bot/server/turn";
+import { sendToUserToolName } from "../../plugins/bot/server/tool-names";
 import { type WarmResult, warmBot } from "../../plugins/bot/server/warm";
 import { profilePath } from "../../plugins/memory/server/bot-memory";
 import { job } from "../../plugins/runner/server/db/job";

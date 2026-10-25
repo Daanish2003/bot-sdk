@@ -20,7 +20,7 @@ import { type Page, chromium } from "playwright-core";
 
 import { botDemonstration, botDemonstrationEvent } from "../../core/server/db/schema";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
-import { sendToUserToolName } from "../../plugins/bot/server/turn";
+import { sendToUserToolName } from "../../plugins/bot/server/tool-names";
 import { skills } from "../../plugins/skills/server/plugin";
 import { runnerJobs } from "../../plugins/runner/server/plugin";
 import { createFakeAdapter, round, toolCall } from "../../test/support/fake-adapter";

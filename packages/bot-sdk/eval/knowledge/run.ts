@@ -20,7 +20,7 @@ import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
 import { botTrigger, computer as computerTable } from "../../core/server/db/schema";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
 import { computerOf } from "../../plugins/bot/server/computer-tools";
-import { sendToUserToolName } from "../../plugins/bot/server/turn";
+import { sendToUserToolName } from "../../plugins/bot/server/tool-names";
 import { walk } from "../../plugins/knowledge/server/files";
 import { knowledge } from "../../plugins/knowledge/server/plugin";
 import { knowledgeDirectory } from "../../plugins/knowledge/shared/folder";

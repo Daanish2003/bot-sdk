@@ -21,7 +21,7 @@ import type { Database } from "../../core/server/db/index";
 import { uuidv7 } from "../../core/server/lib/uuidv7";
 import { computerOf } from "../../plugins/bot/server/computer-tools";
 import { createBot } from "../../plugins/bot/server/store";
-import { sendToUserToolName } from "../../plugins/bot/server/turn";
+import { sendToUserToolName } from "../../plugins/bot/server/tool-names";
 import type { ComputerHandle } from "../../plugins/computer/server/plugin";
 import { dayOf, memoryDirectory } from "../../plugins/memory/server/bot-memory";
 import { memory } from "../../plugins/memory/server/feature";

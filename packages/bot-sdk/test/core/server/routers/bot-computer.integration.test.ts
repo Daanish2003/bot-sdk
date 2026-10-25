@@ -17,7 +17,7 @@ import {
   rebuiltNote,
 } from "../../../../plugins/bot/server/computer-tools";
 import { turnTimeLimitMs } from "../../../../plugins/bot/server/store";
-import { botSystemPrompt } from "../../../../plugins/bot/server/turn";
+import { botSystemPrompt } from "../../../../plugins/bot/server/context";
 import type { CommandResult } from "../../../../plugins/computer/server/provider";
 import { saveCredentials } from "../../../../plugins/models/server/credentials/store";
 import {

@@ -33,7 +33,10 @@ import {
   summaryOf,
   writeSummary,
 } from "./summary";
-import { awayStartParts, hintChanged } from "./turn";
+import { build } from "./context";
+import { routinesPrompt } from "./routine";
+import { forTurn } from "./tool-catalogue";
+import { hintChanged } from "./thread-change";
 import { enabledFeatures } from "../../../core/server/feature";
 import { type FeatureSection, featureSectionsNow, featureTurnOf } from "./features";
 
@@ -160,20 +163,27 @@ async function summarizeAway(deps: BotSdkContext, botId: string, ctx: JobContext
     await lockConversation(tx, seen.conversationId);
     if (await turnedSince(tx, botId, seen)) return null;
     const now = deps.clock();
-    const parts = await awayStartParts(
-      deps,
-      tx,
-      {
-        id: seen.turnId,
-        botId,
-        userId: seen.userId,
-        conversationId: seen.conversationId,
-        model: seen.model,
-      },
-      now,
-      features,
-    );
-    const id = await writeSummary(tx, { parts, prose: written.prose, kind: "away" });
+    // The Bot's context as a Turn starting now reads it, through the same `build`: the Routines
+    // read in `tx`, and the tools built only for their definitions. The Connector tools are listed
+    // by a Turn, never here: the next Turn notes them as added.
+    const turn = {
+      id: seen.turnId,
+      botId,
+      userId: seen.userId,
+      conversationId: seen.conversationId,
+      model: seen.model,
+      startedAt: now,
+    };
+    const context = await build(deps, turn, {
+      routines: async () => (await routinesPrompt(tx, botId)) ?? null,
+      features: async () => features,
+      tools: () => forTurn(deps, turn),
+    });
+    const id = await writeSummary(tx, {
+      parts: context.parts(now),
+      prose: written.prose,
+      kind: "away",
+    });
     wrote = true;
     return id;
   });
